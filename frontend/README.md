@@ -8,6 +8,10 @@ without changing how it's served in the meantime.
 
 ## Run
 
+From the repo root: `./start.sh` (macOS/Linux) or `start.bat` (Windows)
+— see [../README.md](../README.md). Or standalone, without the root
+scripts:
+
 ```bash
 cd frontend
 python3 -m http.server 8765
