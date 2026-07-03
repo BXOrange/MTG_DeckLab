@@ -33,9 +33,17 @@ class Card:
         power: Creature power, or None if the card is not a creature.
         toughness: Creature toughness, or None if the card is not a creature.
         oracle_text: The card's rules text.
+        keywords: Machine-readable keyword abilities parsed out of the
+            oracle text (e.g. ["Flying", "Trample"]), as reported by
+            Scryfall. This is a lookup table for the Phase 2 effect
+            system (docs/07_GAME_LOOP_EFFECT_SYSTEM.md); it does not
+            itself execute anything.
         image_uri_small: URL of the small Scryfall image.
         image_uri_normal: URL of the normal Scryfall image.
         image_uri_large: URL of the large Scryfall image.
+        image_uri_png: URL of the print-quality Scryfall image.
+        set_code: The set this printing is from, e.g. "ltr".
+        rarity: The printing's rarity, e.g. "common", "mythic".
         is_legendary: Whether the card has the legendary supertype.
         has_partner: Whether the card has "Partner" or "Partner with X".
         partner_with: The named partner card if this card has
@@ -57,9 +65,13 @@ class Card:
         power: Optional[int] = None,
         toughness: Optional[int] = None,
         oracle_text: str = "",
+        keywords: Optional[list[str]] = None,
         image_uri_small: str = "",
         image_uri_normal: str = "",
         image_uri_large: str = "",
+        image_uri_png: str = "",
+        set_code: str = "",
+        rarity: str = "",
         is_legendary: bool = False,
         has_partner: bool = False,
         partner_with: Optional[str] = None,
@@ -99,9 +111,13 @@ class Card:
         self.power = power
         self.toughness = toughness
         self.oracle_text = oracle_text
+        self.keywords = list(keywords) if keywords is not None else []
         self.image_uri_small = image_uri_small
         self.image_uri_normal = image_uri_normal
         self.image_uri_large = image_uri_large
+        self.image_uri_png = image_uri_png
+        self.set_code = set_code
+        self.rarity = rarity
         self.is_legendary = is_legendary
         self.has_partner = has_partner
         self.partner_with = partner_with
@@ -122,9 +138,13 @@ class Card:
             "power": self.power,
             "toughness": self.toughness,
             "oracle_text": self.oracle_text,
+            "keywords": list(self.keywords),
             "image_uri_small": self.image_uri_small,
             "image_uri_normal": self.image_uri_normal,
             "image_uri_large": self.image_uri_large,
+            "image_uri_png": self.image_uri_png,
+            "set_code": self.set_code,
+            "rarity": self.rarity,
             "is_legendary": self.is_legendary,
             "has_partner": self.has_partner,
             "partner_with": self.partner_with,
@@ -147,9 +167,13 @@ class Card:
             power=data.get("power"),
             toughness=data.get("toughness"),
             oracle_text=data.get("oracle_text", ""),
+            keywords=data.get("keywords"),
             image_uri_small=data.get("image_uri_small", ""),
             image_uri_normal=data.get("image_uri_normal", ""),
             image_uri_large=data.get("image_uri_large", ""),
+            image_uri_png=data.get("image_uri_png", ""),
+            set_code=data.get("set_code", ""),
+            rarity=data.get("rarity", ""),
             is_legendary=data.get("is_legendary", False),
             has_partner=data.get("has_partner", False),
             partner_with=data.get("partner_with"),

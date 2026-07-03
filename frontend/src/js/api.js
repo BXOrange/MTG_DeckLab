@@ -1,8 +1,9 @@
-// Client for the backend's decklist API (POST /api/decks). This is the
-// first backend integration (see frontend/TODO.md "Backend integration");
-// card lookups (mana cost, oracle text, images) still go straight to
-// Scryfall via cardImages.js since the backend has no card-search
-// endpoint yet.
+// Client for the backend's decklist and card-cache APIs (POST /api/decks,
+// GET/POST /api/cards/*). Card lookups (mana cost, oracle text, images) go
+// through the backend's CardDatabase/ImageCache now (see cardImages.js)
+// instead of calling Scryfall directly from the browser — see
+// docs/06_CARD_GRAPHICS_AND_LAZY_LOADING.md,
+// docs/08_CARD_CACHE_EXPORT_IMPORT.md.
 //
 // Assumes the default local dev setup from ../../setup/start.py (backend
 // on :8000). Override by setting `window.MTG_API_BASE_URL` before this
@@ -34,5 +35,66 @@ export async function submitDeck(sections) {
     return { ok: true, deck: await response.json() };
   } catch {
     return { ok: false, error: 'Ungültige Server-Antwort – lokale Vorschau wird verwendet.' };
+  }
+}
+
+/**
+ * URL for a cached card image. The backend downloads and caches the
+ * image on first request (GET /api/cards/{id}/image) — this just builds
+ * the URL, it doesn't fetch anything itself; the <img> tag does that.
+ * @param {string} cardId Scryfall id (Card.id from a resolved card).
+ * @param {'small'|'normal'|'large'|'png'} size
+ */
+export function cardImageUrl(cardId, size = 'normal') {
+  return `${API_BASE_URL}/api/cards/${encodeURIComponent(cardId)}/image?size=${size}`;
+}
+
+/**
+ * Resolve many card names in one round trip via the backend's lazy card
+ * cache (checks its DB first, fetches only unknown names from Scryfall).
+ * @param {string[]} names
+ * @returns {Promise<{cards: Record<string, object>, notFound: string[]} | null>} null on network/server failure
+ */
+export async function resolveCards(names) {
+  if (!names.length) return { cards: {}, notFound: [] };
+
+  let response;
+  try {
+    response = await fetch(`${API_BASE_URL}/api/cards/resolve`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ names }),
+    });
+  } catch {
+    return null;
+  }
+
+  if (!response.ok) return null;
+
+  try {
+    return await response.json();
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Every card currently in the backend's local cache.
+ * @returns {Promise<object[] | null>} null on network/server failure
+ */
+export async function listCachedCards() {
+  let response;
+  try {
+    response = await fetch(`${API_BASE_URL}/api/cards`);
+  } catch {
+    return null;
+  }
+
+  if (!response.ok) return null;
+
+  try {
+    return await response.json();
+  } catch {
+    return null;
   }
 }

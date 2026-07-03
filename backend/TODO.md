@@ -1,13 +1,15 @@
 # Backend TODO
 
 Status: `mtg_analyzer/models/card.py` (Phase 1, Card Model) plus a
-FastAPI HTTP server with a working `POST /api/decks` — see
+FastAPI HTTP server with `POST /api/decks` and the `GET/POST
+/api/cards/*` family below — see
 [../IMPLEMENTATION_STATUS.md](../IMPLEMENTATION_STATUS.md). The
-frontend (`../frontend/`) still runs entirely against client-side
-mocks and talks directly to Scryfall for card art; it hasn't been
-wired up to call the new endpoint yet. See
-`../docs/IMPLEMENTATION_GUIDE.md` for the original phase-by-phase plan
-this roughly follows.
+frontend (`../frontend/`) now resolves card data/images through this
+API (`frontend/src/js/cardImages.js`, `api.js`) instead of calling
+Scryfall directly from the browser; `POST /api/decks` itself is still
+mock-parsed client-side first, with the server call as confirmation.
+See `../docs/IMPLEMENTATION_GUIDE.md` for the original phase-by-phase
+plan this roughly follows.
 
 ## HTTP API foundation (blocks everything below)
 
@@ -25,12 +27,22 @@ this roughly follows.
       "Validator" below); today it only does the same structural
       checks the frontend already does (card count, singleton,
       commander count).
-- [ ] `GET /api/cards/search`, card resolution by name → mana cost,
-      type_line, oracle_text, power/toughness, image URIs. The
-      frontend currently fetches images directly from Scryfall
-      client-side (`frontend/src/js/cardImages.js`) as a stopgap —
-      once this exists, that call can move server-side and return
-      richer data in one round trip.
+- [x] `GET /api/cards`: list every card currently in the local cache
+      (`CardDatabase.list_cards`) — backs the frontend's "Karten-Cache"
+      tab.
+- [x] `GET /api/cards/search?name=`: resolve a single card by exact
+      name (`mtg_analyzer/api/cards.py`), backed by the `LazyCardLoader`
+      below — checks the SQLite cache first, falls back to Scryfall,
+      stores the result.
+- [x] `POST /api/cards/resolve`: resolve many card names in one round
+      trip (body `{"names": [...]}`, response `{"cards": {name:
+      cardDict}, "notFound": [...]}`) — what the frontend actually
+      calls for a whole decklist, so it isn't one HTTP request per card.
+- [x] `GET /api/cards/{card_id}/image?size=`: serve a card image,
+      downloading it to `backend/cache/images/` on first request
+      (`mtg_analyzer/api/images.py`, `services/image_cache.py`). The
+      frontend now uses this instead of fetching from Scryfall directly
+      (`frontend/src/js/cardImages.js`, `api.js`).
 - [ ] `WebSocket /ws/game/{game_id}` once a game engine exists (see
       below) — the frontend's play area (`frontend/src/js/boardEngine.js`)
       is a local-only mock specifically because this doesn't exist.
@@ -42,13 +54,25 @@ this roughly follows.
       from the frontend's own parser (multiple qty formats, tag/set
       suffix stripping, structural Commander validation).
 - [ ] `Validator`: real Commander legality — color identity, ban list,
-      partner rules. The parser above only checks card count /
-      singleton / commander count structurally, nothing that needs
-      real card data.
+      partner rules. `CardDatabase` now exists (below) so this is
+      unblocked, but `POST /api/decks` isn't wired up to it yet — the
+      parser above still only checks card count / singleton /
+      commander count structurally.
 - [ ] `GameState` / `Player` / `ManaPool` models (docs/07 PART 2).
-- [ ] `CardDatabase` + Scryfall integration + `LazyCardLoader`
-      (docs/06, docs/IMPLEMENTATION_GUIDE.md Week 2 Day 4-5) — local
-      persistence so card lookups don't hit Scryfall on every request.
+- [x] `CardDatabase` + Scryfall integration + `LazyCardLoader`
+      (docs/06, docs/IMPLEMENTATION_GUIDE.md Week 2 Day 4-5):
+      `mtg_analyzer/services/card_database.py` (SQLite, one row per
+      card storing its `to_dict()` JSON so the schema stays in sync
+      with `Card`), `scryfall_client.py` (`ScryfallIntegration`,
+      batches lookups via Scryfall's `/cards/collection`), and
+      `lazy_card_loader.py` (`LazyCardLoader`: DB first, Scryfall only
+      for misses, persists what it fetches). Exposed via
+      `GET /api/cards/search` above; not yet wired into
+      `POST /api/decks` or Commander legality — see `Validator` above.
+      Card images are a separate on-disk cache (`services/image_cache.py`,
+      `GET /api/cards/{id}/image` above) keyed by the same Scryfall id
+      rather than a stored path — see docs/08_CARD_CACHE_EXPORT_IMPORT.md
+      for the on-disk layout and how to export/import the whole cache.
 
 ## Rules Engine (Phase 2)
 

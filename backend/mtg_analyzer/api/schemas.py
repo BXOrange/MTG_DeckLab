@@ -5,6 +5,12 @@ from __future__ import annotations
 from pydantic import BaseModel, ConfigDict, Field
 
 
+class CardResolveRequest(BaseModel):
+    """Request body for POST /api/cards/resolve: batch name -> Card lookup."""
+
+    names: list[str] = Field(default_factory=list)
+
+
 class DeckSubmission(BaseModel):
     """Request body for POST /api/decks.
 

@@ -318,3 +318,91 @@ textarea {
 .player-hand-row .hand-zone {
   min-height: 110px;
 }
+
+/* --- Karten-Cache --- */
+
+.cache-panel {
+  max-width: 1200px;
+}
+
+.cache-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  margin-bottom: 1rem;
+}
+
+.cache-toolbar h2 {
+  margin: 0;
+}
+
+.cache-count {
+  color: var(--text-dim);
+  font-size: 0.85rem;
+}
+
+.card-cache-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 1.25rem;
+}
+
+.cache-card {
+  display: flex;
+  flex-direction: column;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+/* No fixed aspect-ratio/object-fit crop here on purpose: height is left
+   to the image's own natural ratio so the whole card is always visible,
+   whatever its actual proportions (including oddities like split cards). */
+.cache-card img {
+  display: block;
+  width: 100%;
+  height: auto;
+  background: var(--bg);
+}
+
+.cache-card-info {
+  min-width: 0;
+  padding: 0.75rem;
+}
+
+.cache-card-info h4 {
+  margin: 0 0 0.2rem;
+  font-size: 0.9rem;
+  color: var(--accent);
+}
+
+.cache-card-info p {
+  margin: 0 0 0.3rem;
+  font-size: 0.78rem;
+  line-height: 1.3;
+}
+
+.cache-card-type {
+  color: var(--text-dim);
+}
+
+.cache-card-cost {
+  font-size: 1rem;
+  letter-spacing: 0.05em;
+}
+
+.cache-card-text {
+  color: var(--text);
+}
+
+.cache-card-keywords {
+  color: var(--ok);
+  font-style: italic;
+}
+
+.cache-card-meta {
+  color: var(--text-dim);
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}

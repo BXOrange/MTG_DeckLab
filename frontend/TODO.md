@@ -2,9 +2,11 @@
 
 Status: Step 1 done — decklist import via three sections
 (Commander/Mainboard/Sideboard, client-side parsing), a mock play area
-with card artwork pulled from Scryfall (see [README.md](README.md)).
-Confirmed working in-browser (images load on the play area). Everything
-below is not yet implemented.
+with card artwork (see [README.md](README.md)). Card data/images now
+come from the backend's cache (`POST /api/cards/resolve`,
+`GET /api/cards/{id}/image`) instead of the browser calling Scryfall
+directly — see "Card display" below. Everything else below is not yet
+implemented.
 
 ## Import — follow-ups
 
@@ -23,9 +25,11 @@ below is not yet implemented.
       `POST /api/decks` endpoint once the backend has a
       `DecklisteParser` + card database (docs/02, UC1). Keep the
       client-side parser as an optimistic local pre-check.
-- [ ] Resolve parsed card names against the card database → get mana
-      cost, type_line, oracle_text, power/toughness, image URIs. Right
-      now the frontend only knows a card's name and quantity.
+- [x] Resolve parsed card names against the card database → get mana
+      cost, type_line, oracle_text, power/toughness, image URIs
+      (`api.js`'s `resolveCards`/`cardImageUrl`, used by
+      `cardImages.js`). The deck-import result list itself still only
+      renders name + qty though — see "Card display" below.
 - [ ] Real Commander legality: color identity, ban list, partner
       rules. Currently only structural checks (100 cards, singleton,
       exactly one commander) run locally.
@@ -36,23 +40,35 @@ below is not yet implemented.
 
 ## Card display
 
-- [x] Card artwork on the board (`src/js/cardImages.js`): resolved from
-      Scryfall's `/cards/collection` batch endpoint (CORS-enabled,
-      unlike Moxfield — verified by hand), cached per session, falls
-      back to the plain name box while loading / if not found. Uses
-      `<img loading="lazy">` for viewport-based deferred loading
-      (docs/06_CARD_GRAPHICS_AND_LAZY_LOADING.md) rather than a custom
+- [x] Card artwork on the board (`src/js/cardImages.js`): resolved via
+      the backend's `POST /api/cards/resolve` (batch name lookup) and
+      `GET /api/cards/{id}/image` (cached image bytes) instead of
+      calling Scryfall directly from the browser — the backend
+      downloads/caches on first use, so repeat lookups by anyone are
+      served locally (docs/06, docs/08_CARD_CACHE_EXPORT_IMPORT.md).
+      Cached per session client-side too, falls back to the plain name
+      box while loading / if not found. Uses `<img loading="lazy">` for
+      viewport-based deferred loading rather than a custom
       IntersectionObserver — revisit if that's not enough once card
-      counts grow (opponent boards, graveyard piles, etc.). Confirmed
-      working in-browser.
+      counts grow (opponent boards, graveyard piles, etc.). Verified by
+      replaying the exact request sequence (`POST /api/decks` →
+      `POST /api/cards/resolve` → `GET /api/cards/{id}/image`) against
+      a running backend; **not yet confirmed by an actual browser
+      render** — no Node/npm/Playwright/chromium-cli available in this
+      environment to drive one (see "Cleanup / polish" below).
+- [x] "Karten-Cache" tab (`src/js/cachedCardsView.js`): browse every
+      card currently in the backend's cache — image, name, type,
+      mana cost, oracle text, keywords, set/rarity. Fetches
+      `GET /api/cards` lazily (only once the tab is first opened, via a
+      `view-shown` event dispatched by `app.js`'s `showTab`), with a
+      manual refresh button since the cache grows as decks get
+      imported elsewhere in the app. Same browser-verification caveat
+      as above.
 - [ ] Same artwork lookup for the deck-import card lists (Commander/
       Mainboard/Sideboard results), not just the play area.
-- [ ] Mana cost, type, oracle text on cards — not just name + image
-      (docs/06, docs/05 PART 1). Needs the backend card database;
-      Scryfall's collection response already carries this data, so
-      `cardImages.js` could return more than just image URIs if this
-      becomes valuable, but that's mixing "backend integration" and
-      "meanwhile client-side" concerns — resolve backend-side first.
+- [ ] Mana cost, type, oracle text on cards in the play area — not just
+      name + image (docs/06, docs/05 PART 1). The data is available
+      now (see above); this is purely a `boardView.js` rendering change.
 - [ ] Card detail/expanded view on click/hover (docs/05 "Hybrid" hand
       layout).
 
@@ -113,9 +129,13 @@ below is not yet implemented.
 
 - [ ] Tooling: no Node/npm is installed on this machine, so there's no
       linter, formatter, or automated JS test runner for this code
-      yet. Logic was verified ad hoc via `osascript -l JavaScript`
-      (JavaScriptCore) — worth replacing with a real test setup once
-      Node is available.
+      yet, and no way to drive a real browser for UI verification
+      (no Playwright/chromium-cli either) — changes get verified by
+      reading the code plus replaying the equivalent API calls against
+      a running backend, not by an actual rendered page. Logic was
+      verified ad hoc via `osascript -l JavaScript` (JavaScriptCore) in
+      the past — worth replacing with a real test + browser-automation
+      setup once Node is available.
 - [ ] Keyboard shortcuts (docs/05 PART 9).
 - [ ] Accessibility: alt-text on cards, tab navigation, high-contrast
       mode (docs/05 PART 10).
