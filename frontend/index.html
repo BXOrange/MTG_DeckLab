@@ -1,0 +1,25 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>MTG Deck Analyzer</title>
+  <link rel="stylesheet" href="src/styles/main.css" />
+</head>
+<body>
+  <header class="app-header">
+    <h1>MTG Deck Analyzer</h1>
+    <nav class="tabs">
+      <button class="tab-button" data-tab="import" type="button">Deck importieren</button>
+      <button class="tab-button" data-tab="board" type="button">Spielfläche</button>
+    </nav>
+  </header>
+
+  <main>
+    <section id="view-import" class="view"></section>
+    <section id="view-board" class="view"></section>
+  </main>
+
+  <script type="module" src="src/js/app.js"></script>
+</body>
+</html>

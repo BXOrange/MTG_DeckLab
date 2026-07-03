@@ -1,0 +1,309 @@
+:root {
+  --bg: #1b1e24;
+  --panel: #262a33;
+  --panel-alt: #2f3440;
+  --felt: #1f3b2c;
+  --border: #3a3f4b;
+  --text: #e8e9ec;
+  --text-dim: #9aa0ab;
+  --accent: #c9a53b;
+  --error: #d3564b;
+  --warn: #d3a13a;
+  --ok: #5bb072;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  background: var(--bg);
+  color: var(--text);
+}
+
+.app-header {
+  display: flex;
+  align-items: center;
+  gap: 2rem;
+  padding: 1rem 1.5rem;
+  background: var(--panel);
+  border-bottom: 1px solid var(--border);
+}
+
+.app-header h1 {
+  font-size: 1.2rem;
+  margin: 0;
+  color: var(--accent);
+}
+
+.tabs {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.tab-button {
+  background: transparent;
+  border: 1px solid var(--border);
+  color: var(--text-dim);
+  padding: 0.5rem 1rem;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 0.9rem;
+}
+
+.tab-button.active {
+  background: var(--accent);
+  color: #1b1e24;
+  border-color: var(--accent);
+  font-weight: 600;
+}
+
+main {
+  padding: 1.5rem;
+}
+
+.view {
+  display: none;
+}
+
+.view.active {
+  display: block;
+}
+
+button {
+  font-family: inherit;
+}
+
+button.primary {
+  background: var(--accent);
+  color: #1b1e24;
+  border: none;
+  font-weight: 600;
+}
+
+button {
+  background: var(--panel-alt);
+  color: var(--text);
+  border: 1px solid var(--border);
+  padding: 0.5rem 1rem;
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+button:hover {
+  filter: brightness(1.1);
+}
+
+/* --- Deck import --- */
+
+.import-panel {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1.5rem;
+  max-width: 1200px;
+}
+
+@media (max-width: 900px) {
+  .import-panel {
+    grid-template-columns: 1fr;
+  }
+}
+
+.import-input, .import-result {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 1rem 1.25rem;
+}
+
+.hint {
+  color: var(--text-dim);
+  font-size: 0.85rem;
+}
+
+.deck-section {
+  margin-bottom: 0.85rem;
+}
+
+.deck-section label {
+  display: block;
+  font-size: 0.8rem;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  color: var(--text-dim);
+  margin-bottom: 0.3rem;
+}
+
+textarea {
+  width: 100%;
+  background: var(--bg);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 0.75rem;
+  font-family: ui-monospace, SFMono-Regular, monospace;
+  font-size: 0.85rem;
+  resize: vertical;
+}
+
+.import-actions {
+  display: flex;
+  gap: 0.75rem;
+  margin-top: 0.75rem;
+}
+
+.status-ok { color: var(--ok); font-weight: 600; }
+.status-error { color: var(--error); font-weight: 600; }
+
+.issue-list {
+  margin: 0.5rem 0;
+  padding-left: 1.2rem;
+  font-size: 0.85rem;
+}
+
+.parse-errors, .validation-errors { color: var(--error); }
+.validation-warnings { color: var(--warn); }
+
+.card-list {
+  list-style: none;
+  padding: 0;
+  margin: 0.5rem 0 1rem;
+  font-size: 0.85rem;
+}
+
+.card-list li {
+  padding: 0.15rem 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.card-list .qty {
+  color: var(--accent);
+  margin-right: 0.4rem;
+}
+
+.card-list.scrollable {
+  max-height: 260px;
+  overflow-y: auto;
+}
+
+.empty-state {
+  color: var(--text-dim);
+  font-style: italic;
+}
+
+/* --- Board --- */
+
+.board {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  max-width: 1200px;
+}
+
+.zone-row {
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: 1fr;
+  gap: 0.75rem;
+}
+
+.stack-row {
+  grid-auto-flow: row;
+}
+
+.zone {
+  background: var(--felt);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 0.75rem;
+  min-height: 90px;
+}
+
+.zone h3 {
+  margin: 0 0 0.5rem;
+  font-size: 0.8rem;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  color: var(--text-dim);
+}
+
+.life-zone {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+}
+
+.life-total {
+  font-size: 2rem;
+  font-weight: 700;
+  color: var(--accent);
+  margin: 0;
+}
+
+.library-count {
+  font-size: 1.1rem;
+  margin: 0;
+}
+
+.card-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+}
+
+.card {
+  background: var(--panel-alt);
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  padding: 0.4rem 0.5rem;
+  font-size: 0.75rem;
+  max-width: 130px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.card.clickable {
+  cursor: pointer;
+}
+
+.card.clickable:hover {
+  border-color: var(--accent);
+}
+
+/* Cards with resolved Scryfall artwork replace the text box with a
+   card-shaped thumbnail (MTG card ratio ~63:88). */
+.card.has-image {
+  width: 100px;
+  max-width: none;
+  padding: 0;
+  overflow: visible;
+  white-space: normal;
+  border-radius: 6px;
+}
+
+.card.has-image img {
+  display: block;
+  width: 100%;
+  aspect-ratio: 63 / 88;
+  object-fit: cover;
+  border-radius: 5px;
+}
+
+.card.has-image.clickable:hover img {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+
+.board-controls {
+  display: flex;
+  gap: 0.75rem;
+  margin-top: 0.5rem;
+}
+
+.player-hand-row .hand-zone {
+  min-height: 110px;
+}

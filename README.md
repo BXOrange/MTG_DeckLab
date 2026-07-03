@@ -6,7 +6,7 @@ A Magic: The Gathering deck analyzer and rules-driven game engine.
 
 ```
 backend/    Python backend (data layer, rules engine, effects, services)
-frontend/   React frontend
+frontend/   Browser client (no build step: static HTML/CSS/JS)
 docs/       Architecture, requirements, and implementation specs
 ```
 
@@ -19,6 +19,18 @@ See [docs/03_ARCHITECTURE_AND_BUILDPLAN.md](docs/03_ARCHITECTURE_AND_BUILDPLAN.m
 source backend/venv/bin/activate
 pytest backend/tests/
 ```
+
+## Frontend Setup
+
+No Node/npm required yet — it's plain ES modules served as static files.
+
+```bash
+cd frontend
+python3 -m http.server 8765
+# open http://localhost:8765
+```
+
+See [frontend/README.md](frontend/README.md) for details.
 
 ## License
 
