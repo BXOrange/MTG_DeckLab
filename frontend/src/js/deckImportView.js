@@ -2,6 +2,7 @@ import { parseDeckSections, SAMPLE_COMMANDER, SAMPLE_MAINBOARD, SAMPLE_SIDEBOARD
 import { setState } from './state.js';
 import { newBoardFromDeck } from './boardEngine.js';
 import { resolveCardImages } from './cardImages.js';
+import { submitDeck } from './api.js';
 
 export function renderDeckImportView(container, { onDeckLoaded } = {}) {
   container.innerHTML = `
@@ -53,27 +54,54 @@ export function renderDeckImportView(container, { onDeckLoaded } = {}) {
     sideboardTextarea.value = SAMPLE_SIDEBOARD;
   });
 
+  let latestRequestId = 0;
+
   container.querySelector('#parse-btn').addEventListener('click', () => {
-    const deck = parseDeckSections({
+    const requestId = ++latestRequestId;
+    const sections = {
       commanderText: commanderTextarea.value,
       mainboardText: mainboardTextarea.value,
       sideboardText: sideboardTextarea.value,
-    });
-    setState({ deck, board: newBoardFromDeck(deck) });
-    renderResult(resultEl, deck, onDeckLoaded);
+    };
+
+    // Optimistic local parse: instant feedback while the authoritative
+    // server response (below) is in flight. Same shape either way, so
+    // the board/state code doesn't care which one it's looking at.
+    const localDeck = parseDeckSections(sections);
+    setState({ deck: localDeck, board: newBoardFromDeck(localDeck) });
+    renderResult(resultEl, localDeck, onDeckLoaded, { pending: true });
 
     // Fire and forget: images arrive later and re-render the board via
     // the shared state subscription (see boardView.js).
-    const cardNames = [...deck.commanders, ...deck.mainDeck].map((c) => c.name);
+    const cardNames = [...localDeck.commanders, ...localDeck.mainDeck].map((c) => c.name);
     resolveCardImages(cardNames).then((imageCache) => setState({ imageCache }));
+
+    submitDeck(sections).then((result) => {
+      if (requestId !== latestRequestId) return; // superseded by a later parse click
+
+      if (!result.ok) {
+        renderResult(resultEl, localDeck, onDeckLoaded, { warning: result.error });
+        return;
+      }
+      setState({ deck: result.deck, board: newBoardFromDeck(result.deck) });
+      renderResult(resultEl, result.deck, onDeckLoaded, { serverConfirmed: true });
+    });
   });
 }
 
-function renderResult(resultEl, deck, onDeckLoaded) {
+function renderResult(resultEl, deck, onDeckLoaded, meta = {}) {
   const { commanders, mainDeck, sideboard, totalCount, parseErrors, validation } = deck;
 
   const statusClass = validation.isLegal ? 'status-ok' : 'status-error';
   const statusText = validation.isLegal ? 'Legal (strukturell)' : 'Nicht legal';
+
+  const serverStatusHtml = meta.pending
+    ? '<p class="server-status pending">Wird serverseitig geprüft …</p>'
+    : meta.warning
+      ? `<p class="server-status warning">${escapeHtml(meta.warning)}</p>`
+      : meta.serverConfirmed
+        ? '<p class="server-status ok">Serverseitig geprüft.</p>'
+        : '';
 
   const listItems = (cards) =>
     cards
@@ -90,6 +118,7 @@ function renderResult(resultEl, deck, onDeckLoaded) {
   resultEl.innerHTML = `
     <div class="deck-summary">
       <h2>Deck-Übersicht</h2>
+      ${serverStatusHtml}
       <p><strong>${totalCount}</strong> Karten gesamt · Status:
         <span class="${statusClass}">${statusText}</span>
       </p>
@@ -109,7 +138,10 @@ function renderResult(resultEl, deck, onDeckLoaded) {
         <ul class="card-list">${listItems(sideboard)}</ul>
       ` : ''}
 
-      <button id="goto-board-btn" type="button" class="primary">Zur Spielfläche →</button>
+      <button id="goto-board-btn" type="button" class="primary"
+        ${meta.serverConfirmed ? '' : 'disabled'}
+        title="${meta.serverConfirmed ? '' : 'Erst verfügbar, sobald das Deck serverseitig geprüft wurde.'}"
+      >Zur Spielfläche →</button>
     </div>
   `;
 
