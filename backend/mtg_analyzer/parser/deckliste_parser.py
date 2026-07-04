@@ -50,14 +50,27 @@ class CardEntry:
 
 @dataclass
 class DeckValidationResult:
-    """Structural Commander legality: card count, singleton, commander count."""
+    """Commander legality: structural checks here, plus color
+    identity/ban-list/partner names filled in by
+    mtg_analyzer.api.decks after card resolution (see
+    services/commander_legality.py) — empty here since this module only
+    has names/quantities, not resolved Card data.
+    """
 
     is_legal: bool
     errors: list[str]
     warnings: list[str]
+    banned_card_names: list[str] = field(default_factory=list)
+    color_identity_violation_names: list[str] = field(default_factory=list)
 
     def to_dict(self) -> dict[str, object]:
-        return {"isLegal": self.is_legal, "errors": self.errors, "warnings": self.warnings}
+        return {
+            "isLegal": self.is_legal,
+            "errors": self.errors,
+            "warnings": self.warnings,
+            "bannedCardNames": self.banned_card_names,
+            "colorIdentityViolationNames": self.color_identity_violation_names,
+        }
 
 
 @dataclass

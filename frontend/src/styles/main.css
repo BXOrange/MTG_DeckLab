@@ -324,6 +324,7 @@ textarea {
 
 .parse-errors, .validation-errors { color: var(--error); }
 .validation-warnings { color: var(--warn); }
+.not-found-list { color: var(--error); }
 
 .card-list {
   list-style: none;
@@ -345,6 +346,14 @@ textarea {
 .card-list .qty {
   color: var(--accent);
   margin-right: 0.4rem;
+}
+
+.card-list li.card-not-found {
+  color: var(--error);
+}
+
+.card-list li.card-illegal {
+  color: var(--error);
 }
 
 /* Viewport-relative rather than a fixed pixel value, so the box scales
@@ -592,6 +601,23 @@ textarea {
 
 .card-tile-type {
   color: var(--text-dim);
+}
+
+.card-tile-type.not-found {
+  color: var(--error);
+}
+
+.card-tile-not-found .card-tile-info h4 {
+  color: var(--error);
+}
+
+.card-tile-illegal .card-tile-info h4 {
+  color: var(--error);
+}
+
+.card-tile-illegal-reason {
+  color: var(--error);
+  font-weight: 600;
 }
 
 .card-tile-cost {

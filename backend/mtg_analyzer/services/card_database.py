@@ -69,10 +69,20 @@ class CardDatabase:
         self.close()
 
     def get_card(self, name: str) -> Optional[Card]:
-        """Look up a card by exact name (case-insensitive)."""
+        """Look up a card by exact name, case-insensitive.
+
+        Also matches a multi-faced card by its front-face name alone
+        (e.g. "Valki, God of Lies" matches a row stored under the full
+        "Valki, God of Lies // Tibalt, Cosmic Impostor") — decklists
+        conventionally reference such cards by their front face only.
+        No MTG card name contains a literal `%`/`_`, so the LIKE prefix
+        match below needs no escaping.
+        """
         with self._lock:
             row = self._connection.execute(
-                "SELECT data FROM cards WHERE name = ? COLLATE NOCASE", (name,)
+                "SELECT data FROM cards WHERE name = ? COLLATE NOCASE "
+                "OR name LIKE ? COLLATE NOCASE",
+                (name, f"{name} // %"),
             ).fetchone()
         return Card.from_dict(json.loads(row[0])) if row else None
 

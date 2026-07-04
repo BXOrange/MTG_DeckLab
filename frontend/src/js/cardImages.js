@@ -62,3 +62,15 @@ export async function resolveCardImages(names) {
 export function getResolvedCard(name) {
   return cache.get(name.trim().toLowerCase())?.card ?? null;
 }
+
+/**
+ * Whether `resolveCardImages` has confirmed this exact name matches no
+ * card (as opposed to not having been resolved yet, e.g. a request
+ * still in flight) — `cache` stores `null` specifically for that
+ * confirmed case, `undefined`/missing for "don't know yet".
+ * @param {string} name
+ * @returns {boolean}
+ */
+export function isConfirmedNotFound(name) {
+  return cache.get(name.trim().toLowerCase()) === null;
+}

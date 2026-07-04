@@ -33,12 +33,19 @@ implemented.
 - [x] Real Commander legality: color identity, ban list, partner
       rules — done server-side
       (`backend/mtg_analyzer/services/commander_legality.py`), returned
-      as extra `validation.errors`/`.warnings` from `POST /api/decks`.
-      Still only structural checks (100 cards, singleton, exactly one
-      commander) run locally/client-side; the frontend doesn't call
-      `POST /api/decks` yet at all (see "Backend integration" above),
-      so the real checks aren't reachable from the UI until that's
-      wired up.
+      as extra `validation.errors`/`.warnings` from `POST /api/decks`,
+      which `deckImportView.js`'s `parseCurrentSections` already calls
+      (`submitDeck` in `api.js`) as the authoritative follow-up to the
+      instant local/structural pre-check — so this is reachable from
+      the UI, not just the API.
+      The specific offending cards (not just prose) are marked
+      individually too: `validation.bannedCardNames`/
+      `.colorIdentityViolationNames` get a ❗ in both the plain card
+      list and the detail-mode tile (`cardTile.js`'s `renderCardTile`
+      `illegalReason` option) — distinct from the 🛑 "not found" marker
+      below, since these are real, resolved cards that just aren't
+      Commander-legal. Doesn't touch the "Karten-Cache" tab — that's a
+      commander-agnostic raw card browser, nothing to flag there.
 - [x] Deck persistence: save/load decks via API instead of re-pasting
       the decklist every time — see "Saved decks" below.
 - [ ] Error/loading states for network calls (spinner, retry, offline
@@ -150,7 +157,18 @@ implemented.
       `renderManaCost`, ...) so the two views don't duplicate it.
       Off by default (the plain list stays the fast/quiet default); a
       card not yet resolved (data still in flight) shows a "Lädt …"
-      placeholder tile rather than blocking the toggle. Mainboard and
+      placeholder tile rather than blocking the toggle — distinct from a
+      card the backend confirmed doesn't exist under that exact name
+      (typo, or a card only findable under a different exact name, e.g.
+      a missing "Krenko, " prefix), which instead gets a 🛑 marker: an
+      "🛑 Nicht gefunden" tile (`cardTile.js`'s `renderCardTileNotFound`,
+      linking to a fuzzy Scryfall search rather than the usual exact-name
+      one, so the real card can still be found) in detail mode, a red
+      `🛑 name` list item in the plain list, and a consolidated `🛑`
+      list of every not-found name at the top of the result panel
+      either way (`cardImages.js`'s `isConfirmedNotFound` distinguishes
+      "not yet resolved" from "confirmed no match", both of which read
+      as falsy from `getResolvedCard` alone). Mainboard and
       Sideboard scroll internally in a `.scrollable` box sized in `vh`
       (adapts to the window, and gets a taller cap in detail mode since
       a tile row is much taller than a text row — see `.scrollable` /

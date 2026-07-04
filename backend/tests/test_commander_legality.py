@@ -27,34 +27,38 @@ class TestColorIdentity:
         commander = make_card("Krenko, Mob Boss", color_identity={"R"})
         offender = make_card("Cultivate", color_identity={"G"}, is_legendary=False)
 
-        errors = check_commander_legality([commander], [commander, offender])
+        result = check_commander_legality([commander], [commander, offender])
 
-        assert len(errors) == 1
-        assert "Cultivate" in errors[0]
+        assert len(result.errors) == 1
+        assert "Cultivate" in result.errors[0]
+        assert result.color_identity_violation_names == ["Cultivate"]
+        assert result.banned_card_names == []
 
     def test_card_within_commander_identity_is_legal(self):
         commander = make_card("Krenko, Mob Boss", color_identity={"R"})
         ally = make_card("Lightning Bolt", color_identity={"R"}, is_legendary=False)
 
-        errors = check_commander_legality([commander], [commander, ally])
+        result = check_commander_legality([commander], [commander, ally])
 
-        assert errors == []
+        assert result.errors == []
+        assert result.color_identity_violation_names == []
 
     def test_two_commanders_union_their_identities(self):
         first = make_card("Thrasios, Triton Hero", color_identity={"G", "U"}, has_partner=True)
         second = make_card("Tymna the Weaver", color_identity={"W", "B"}, has_partner=True)
         ally = make_card("Sol Ring", color_identity=set(), is_legendary=False)
 
-        errors = check_commander_legality([first, second], [first, second, ally])
+        result = check_commander_legality([first, second], [first, second, ally])
 
-        assert errors == []
+        assert result.errors == []
 
     def test_no_commanders_skips_color_identity_check(self):
         offender = make_card("Cultivate", color_identity={"G"}, is_legendary=False)
 
-        errors = check_commander_legality([], [offender])
+        result = check_commander_legality([], [offender])
 
-        assert errors == []
+        assert result.errors == []
+        assert result.color_identity_violation_names == []
 
 
 class TestBanList:
@@ -62,17 +66,32 @@ class TestBanList:
         commander = make_card("Krenko, Mob Boss", color_identity={"R"})
         banned = make_card("Black Lotus", color_identity=set(), is_legendary=False)
 
-        errors = check_commander_legality([commander], [commander, banned])
+        result = check_commander_legality([commander], [commander, banned])
 
-        assert any("Black Lotus" in error for error in errors)
+        assert any("Black Lotus" in error for error in result.errors)
+        assert result.banned_card_names == ["Black Lotus"]
+        assert result.color_identity_violation_names == []
 
     def test_unbanned_card_is_legal(self):
         commander = make_card("Krenko, Mob Boss", color_identity={"R"})
         fine = make_card("Sol Ring", color_identity=set(), is_legendary=False)
 
-        errors = check_commander_legality([commander], [commander, fine])
+        result = check_commander_legality([commander], [commander, fine])
 
-        assert errors == []
+        assert result.errors == []
+        assert result.banned_card_names == []
+
+    def test_banned_and_color_identity_violation_can_both_apply(self):
+        commander = make_card("Krenko, Mob Boss", color_identity={"R"})
+        banned_off_color = make_card(
+            "Griselbrand", color_identity={"B"}, is_legendary=True
+        )
+
+        result = check_commander_legality([commander], [commander, banned_off_color])
+
+        assert result.banned_card_names == ["Griselbrand"]
+        assert result.color_identity_violation_names == ["Griselbrand"]
+        assert len(result.errors) == 2
 
 
 class TestPartnerRules:
@@ -80,9 +99,9 @@ class TestPartnerRules:
         first = make_card("Thrasios, Triton Hero", color_identity={"G", "U"}, has_partner=True)
         second = make_card("Tymna the Weaver", color_identity={"W", "B"}, has_partner=True)
 
-        errors = check_commander_legality([first, second], [first, second])
+        result = check_commander_legality([first, second], [first, second])
 
-        assert errors == []
+        assert result.errors == []
 
     def test_reciprocal_partner_with_is_legal(self):
         first = make_card(
@@ -98,9 +117,9 @@ class TestPartnerRules:
             partner_with="Kraum, Ludevic's Opus",
         )
 
-        errors = check_commander_legality([first, second], [first, second])
+        result = check_commander_legality([first, second], [first, second])
 
-        assert errors == []
+        assert result.errors == []
 
     def test_generic_partner_cannot_pair_with_named_partner(self):
         generic = make_card("Thrasios, Triton Hero", color_identity={"G", "U"}, has_partner=True)
@@ -111,23 +130,23 @@ class TestPartnerRules:
             partner_with="Silas Renn, Seeker Adept",
         )
 
-        errors = check_commander_legality([generic, named], [generic, named])
+        result = check_commander_legality([generic, named], [generic, named])
 
-        assert len(errors) == 1
-        assert "Thrasios" in errors[0]
-        assert "Kraum" in errors[0]
+        assert len(result.errors) == 1
+        assert "Thrasios" in result.errors[0]
+        assert "Kraum" in result.errors[0]
 
     def test_two_commanders_without_any_partner_is_illegal(self):
         first = make_card("Krenko, Mob Boss", color_identity={"R"})
         second = make_card("Grand Warlord Radha", color_identity={"R", "G"})
 
-        errors = check_commander_legality([first, second], [first, second])
+        result = check_commander_legality([first, second], [first, second])
 
-        assert len(errors) == 1
+        assert len(result.errors) == 1
 
     def test_single_commander_never_needs_partner(self):
         commander = make_card("Krenko, Mob Boss", color_identity={"R"})
 
-        errors = check_commander_legality([commander], [commander])
+        result = check_commander_legality([commander], [commander])
 
-        assert errors == []
+        assert result.errors == []

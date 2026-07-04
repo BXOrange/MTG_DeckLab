@@ -47,6 +47,17 @@ class LazyCardLoader:
                 card = card_from_scryfall_data(data)
                 self._database.save_card(card)
                 cards_by_name[card.name.lower()] = card
+                front_face = _front_face_name(card.name)
+                # Decklists conventionally reference a modal/transforming
+                # double-faced card by its front face alone (e.g. "Valki,
+                # God of Lies" rather than "Valki, God of Lies // Tibalt,
+                # Cosmic Impostor"). Scryfall's /cards/collection already
+                # resolves that, but always returns the full combined
+                # name, so without this alias a front-face-only request
+                # would match nothing here and silently vanish — not
+                # even reported as not-found, since Scryfall did find it.
+                if front_face != card.name:
+                    cards_by_name.setdefault(front_face.lower(), card)
 
             for requested_name in missing:
                 card = cards_by_name.get(requested_name.lower())
@@ -55,6 +66,11 @@ class LazyCardLoader:
             result.not_found.extend(not_found)
 
         return result
+
+
+def _front_face_name(name: str) -> str:
+    """The name before " // " for a multi-faced card, else `name` unchanged."""
+    return name.split(" // ", 1)[0]
 
 
 def _dedupe(names: list[str]) -> list[str]:

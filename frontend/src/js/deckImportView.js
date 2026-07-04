@@ -1,9 +1,9 @@
 import { parseDeckSections, SAMPLE_COMMANDER, SAMPLE_MAINBOARD, SAMPLE_SIDEBOARD } from './parser.js';
 import { setState } from './state.js';
 import { newBoardFromDeck } from './boardEngine.js';
-import { resolveCardImages, getResolvedCard } from './cardImages.js';
+import { resolveCardImages, getResolvedCard, isConfirmedNotFound } from './cardImages.js';
 import { submitDeck, saveDeck } from './api.js';
-import { renderCardTile, renderCardTilePlaceholder, escapeHtml } from './cardTile.js';
+import { renderCardTile, renderCardTilePlaceholder, renderCardTileNotFound, escapeHtml } from './cardTile.js';
 
 /**
  * @param {{onDeckLoaded?: () => void}} [options]
@@ -206,16 +206,41 @@ function renderResult(resultEl, deck, { onDeckLoaded, meta = {}, detailMode, onT
         ? '<p class="server-status ok">Serverseitig geprüft.</p>'
         : '';
 
+  // Which specific cards the server flagged as banned / outside the
+  // commander's color identity (mtg_analyzer.services.commander_legality
+  // via POST /api/decks) — a name can be in both. Distinct from
+  // isConfirmedNotFound (a card the backend has no data for at all);
+  // these are real, resolved cards that just aren't Commander-legal.
+  const bannedNames = new Set(validation.bannedCardNames || []);
+  const colorViolationNames = new Set(validation.colorIdentityViolationNames || []);
+  const illegalReason = (name) => {
+    if (bannedNames.has(name)) return 'banned';
+    if (colorViolationNames.has(name)) return 'colorIdentity';
+    return null;
+  };
+  const ILLEGAL_TITLES = {
+    banned: 'Auf der Commander-Bannliste',
+    colorIdentity: 'Farbidentität passt nicht zum Commander',
+  };
+
   const renderCards = (cards) => {
     const sorted = cards.slice().sort((a, b) => a.name.localeCompare(b.name));
     if (!sorted.length) return '<p class="empty-state">–</p>';
 
     if (!detailMode) {
       const items = sorted
-        .map(
-          (c) =>
-            `<li data-hover-card="${escapeHtml(c.name)}"><span class="qty">${c.qty}x</span> ${escapeHtml(c.name)}</li>`
-        )
+        .map((c) => {
+          const notFound = isConfirmedNotFound(c.name);
+          const reason = notFound ? null : illegalReason(c.name);
+          const cls = notFound ? ' class="card-not-found"' : reason ? ' class="card-illegal"' : '';
+          const title = notFound
+            ? ' title="Karte nicht gefunden – Name prüfen"'
+            : reason
+              ? ` title="${escapeHtml(ILLEGAL_TITLES[reason])}"`
+              : '';
+          const marker = notFound ? '🛑 ' : reason ? '❗ ' : '';
+          return `<li data-hover-card="${escapeHtml(c.name)}"${cls}${title}><span class="qty">${c.qty}x</span> ${marker}${escapeHtml(c.name)}</li>`;
+        })
         .join('');
       return `<ul class="card-list">${items}</ul>`;
     }
@@ -223,7 +248,9 @@ function renderResult(resultEl, deck, { onDeckLoaded, meta = {}, detailMode, onT
     const tiles = sorted
       .map((c) => {
         const card = getResolvedCard(c.name);
-        return card ? renderCardTile(card, { qty: c.qty }) : renderCardTilePlaceholder(c.name, { qty: c.qty });
+        if (card) return renderCardTile(card, { qty: c.qty, illegalReason: illegalReason(c.name) });
+        if (isConfirmedNotFound(c.name)) return renderCardTileNotFound(c.name, { qty: c.qty });
+        return renderCardTilePlaceholder(c.name, { qty: c.qty });
       })
       .join('');
     return `<div class="card-tile-grid">${tiles}</div>`;
@@ -239,6 +266,24 @@ function renderResult(resultEl, deck, { onDeckLoaded, meta = {}, detailMode, onT
     items.length
       ? `<ul class="${className}">${items.map((e) => `<li>${escapeHtml(e)}</li>`).join('')}</ul>`
       : '';
+
+  // Consolidated view of every not-found name across all three
+  // sections, in addition to the inline 🛑 markers in the lists
+  // themselves below — resolution runs async (resolveCardImages), so
+  // this can still be empty on the very first render and fill in once
+  // that call comes back (refreshResult() re-renders after it does).
+  const notFoundNames = Array.from(
+    new Set(
+      [...commanders, ...mainDeck, ...sideboard]
+        .map((c) => c.name)
+        .filter((name) => isConfirmedNotFound(name))
+    )
+  );
+  const notFoundHtml = notFoundNames.length
+    ? `<ul class="issue-list not-found-list">${notFoundNames
+        .map((name) => `<li>🛑 ${escapeHtml(name)} – nicht gefunden, Name prüfen</li>`)
+        .join('')}</ul>`
+    : '';
 
   resultEl.innerHTML = `
     <div class="deck-summary">
@@ -257,6 +302,7 @@ function renderResult(resultEl, deck, { onDeckLoaded, meta = {}, detailMode, onT
       ${issueList(parseErrors, 'issue-list parse-errors')}
       ${issueList(validation.errors, 'issue-list validation-errors')}
       ${issueList(validation.warnings, 'issue-list validation-warnings')}
+      ${notFoundHtml}
 
       <h3>Commander (${commanders.reduce((s, c) => s + c.qty, 0)})</h3>
       ${renderCards(commanders)}

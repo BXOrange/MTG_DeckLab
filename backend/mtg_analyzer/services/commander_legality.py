@@ -13,6 +13,8 @@ Reference: backend/ToDo_Backend.md "Validator".
 
 from __future__ import annotations
 
+from dataclasses import dataclass, field
+
 from mtg_analyzer.models.card import Card
 
 #: Commander-format banned list, maintained by hand — Scryfall's
@@ -59,8 +61,23 @@ BANNED_COMMANDER_CARDS: frozenset[str] = frozenset(
 )
 
 
-def check_commander_legality(commanders: list[Card], deck_cards: list[Card]) -> list[str]:
-    """Check the ban list, color identity, and Partner rules; return error strings.
+@dataclass
+class CommanderLegalityResult:
+    """Human-readable errors plus which specific card names to flag and
+    why, so a caller (the frontend) can mark individual cards without
+    parsing prose error messages. A name can appear in both
+    `banned_card_names` and `color_identity_violation_names`.
+    """
+
+    errors: list[str] = field(default_factory=list)
+    banned_card_names: list[str] = field(default_factory=list)
+    color_identity_violation_names: list[str] = field(default_factory=list)
+
+
+def check_commander_legality(
+    commanders: list[Card], deck_cards: list[Card]
+) -> CommanderLegalityResult:
+    """Check the ban list, color identity, and Partner rules.
 
     `commanders` must be the deck's complete, fully-resolved commander
     set. Callers should skip calling this entirely (rather than passing
@@ -71,23 +88,26 @@ def check_commander_legality(commanders: list[Card], deck_cards: list[Card]) -> 
     `ParsedDeck.all_cards` does), so their own color identity and ban
     status are checked as a side effect of checking every other card.
     """
-    errors: list[str] = []
+    result = CommanderLegalityResult()
 
-    _check_banned(deck_cards, errors)
-    _check_color_identity(commanders, deck_cards, errors)
+    _check_banned(deck_cards, result)
+    _check_color_identity(commanders, deck_cards, result)
     if len(commanders) == 2:
-        _check_partner(commanders, errors)
+        _check_partner(commanders, result)
 
-    return errors
+    return result
 
 
-def _check_banned(deck_cards: list[Card], errors: list[str]) -> None:
+def _check_banned(deck_cards: list[Card], result: CommanderLegalityResult) -> None:
     names = sorted({card.name for card in deck_cards if card.name in BANNED_COMMANDER_CARDS})
     for name in names:
-        errors.append(f'"{name}" ist im Commander-Format auf der Bannliste.')
+        result.errors.append(f'"{name}" ist im Commander-Format auf der Bannliste.')
+        result.banned_card_names.append(name)
 
 
-def _check_color_identity(commanders: list[Card], deck_cards: list[Card], errors: list[str]) -> None:
+def _check_color_identity(
+    commanders: list[Card], deck_cards: list[Card], result: CommanderLegalityResult
+) -> None:
     if not commanders:
         return
 
@@ -99,16 +119,17 @@ def _check_color_identity(commanders: list[Card], deck_cards: list[Card], errors
     for card in deck_cards:
         outside = card.color_identity - identity
         if outside:
-            errors.append(
+            result.errors.append(
                 f'"{card.name}" ({"/".join(sorted(card.color_identity))}) liegt außerhalb '
                 f"der Farbidentität des Commanders ({identity_label})."
             )
+            result.color_identity_violation_names.append(card.name)
 
 
-def _check_partner(commanders: list[Card], errors: list[str]) -> None:
+def _check_partner(commanders: list[Card], result: CommanderLegalityResult) -> None:
     first, second = commanders
     if not _can_pair(first, second):
-        errors.append(
+        result.errors.append(
             f'"{first.name}" und "{second.name}" können nicht gemeinsam Commander sein '
             "(keine passende Partner-Fähigkeit)."
         )

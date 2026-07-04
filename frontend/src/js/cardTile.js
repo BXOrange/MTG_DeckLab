@@ -54,23 +54,46 @@ export function scryfallUrl(cardName) {
 }
 
 /**
- * @param {object} card A resolved card dict (Card.to_dict() shape).
- * @param {{qty?: number}} [options] Optional quantity badge (deck-import context only).
+ * Plain (non-exact) Scryfall search — unlike `scryfallUrl`'s `!"..."`
+ * exact match, this surfaces near-matches, so a not-found name like
+ * "Tin Street Kingpin" (missing the "Krenko, " the real name starts
+ * with) still finds the card it probably meant.
+ * @param {string} cardName
  */
-export function renderCardTile(card, { qty } = {}) {
+export function scryfallSearchUrl(cardName) {
+  return `https://scryfall.com/search?q=${encodeURIComponent(cardName)}`;
+}
+
+const ILLEGAL_REASON_LABELS = {
+  banned: 'Bannliste',
+  colorIdentity: 'Falsche Farbidentität',
+};
+
+/**
+ * @param {object} card A resolved card dict (Card.to_dict() shape).
+ * @param {{qty?: number, illegalReason?: 'banned'|'colorIdentity'|null}} [options]
+ *   `qty`: optional quantity badge (deck-import context only).
+ *   `illegalReason`: set when the deck's commander-legality check
+ *   (POST /api/decks) flagged this exact card — banned, or outside the
+ *   commander's color identity — so it can still be shown (this is a
+ *   real, resolved card) with a "why" marker rather than removed.
+ */
+export function renderCardTile(card, { qty, illegalReason } = {}) {
   const manaCost = renderManaCost(card);
   const powerToughness = card.power != null && card.toughness != null ? `${card.power}/${card.toughness}` : '';
   const metaParts = [card.rarity, card.set_code ? card.set_code.toUpperCase() : ''].filter(Boolean);
   const qtyBadge = qty != null ? `<span class="card-tile-qty">${qty}×</span>` : '';
+  const illegalLabel = illegalReason ? ILLEGAL_REASON_LABELS[illegalReason] : '';
 
   return `
-    <div class="card-tile">
+    <div class="card-tile${illegalReason ? ' card-tile-illegal' : ''}">
       <div class="card-tile-image">
         ${qtyBadge}
         <img src="${cardImageUrl(card.id, 'normal')}" alt="${escapeHtml(card.name)}" loading="lazy" />
       </div>
       <div class="card-tile-info">
-        <h4>${escapeHtml(card.name)}</h4>
+        <h4>${illegalLabel ? '❗ ' : ''}${escapeHtml(card.name)}</h4>
+        ${illegalLabel ? `<p class="card-tile-illegal-reason">❗ ${escapeHtml(illegalLabel)}</p>` : ''}
         <p class="card-tile-type">${escapeHtml(card.type_line)}</p>
         ${manaCost ? `<p class="card-tile-cost">${manaCost}</p>` : ''}
         ${powerToughness ? `<p class="card-tile-pt">${escapeHtml(powerToughness)}</p>` : ''}
@@ -108,6 +131,32 @@ export function renderCardTilePlaceholder(name, { qty } = {}) {
           rel="noopener noreferrer"
           title="Auf Scryfall ansehen"
           aria-label="Auf Scryfall ansehen"
+        >🔗</a>
+      </div>
+    </div>
+  `;
+}
+
+/** Tile for a card name the backend confirmed no match for (typo, or a
+ * card that genuinely doesn't exist under that exact name — see
+ * backend/ToDo_Backend.md "Validator" on exact- vs. fuzzy-name matching). */
+export function renderCardTileNotFound(name, { qty } = {}) {
+  const qtyBadge = qty != null ? `<span class="card-tile-qty">${qty}×</span>` : '';
+  return `
+    <div class="card-tile card-tile-placeholder card-tile-not-found">
+      <div class="card-tile-image">
+        ${qtyBadge}
+      </div>
+      <div class="card-tile-info">
+        <h4>🛑 ${escapeHtml(name)}</h4>
+        <p class="card-tile-type not-found">Nicht gefunden – Name prüfen</p>
+        <a
+          class="card-tile-scryfall-link"
+          href="${scryfallSearchUrl(name)}"
+          target="_blank"
+          rel="noopener noreferrer"
+          title="Auf Scryfall suchen"
+          aria-label="Auf Scryfall suchen"
         >🔗</a>
       </div>
     </div>

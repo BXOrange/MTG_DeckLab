@@ -41,9 +41,10 @@ def submit_deck(
     # produce false violations, so only run the real legality checks
     # once every commander is known.
     if commanders_resolved and len(commanders_resolved) == len(commander_names):
-        parsed.validation.errors.extend(
-            check_commander_legality(commanders_resolved, deck_cards_resolved)
-        )
+        legality = check_commander_legality(commanders_resolved, deck_cards_resolved)
+        parsed.validation.errors.extend(legality.errors)
+        parsed.validation.banned_card_names = legality.banned_card_names
+        parsed.validation.color_identity_violation_names = legality.color_identity_violation_names
 
     if resolved.not_found:
         parsed.validation.warnings.append(

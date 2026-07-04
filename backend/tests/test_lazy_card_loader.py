@@ -25,6 +25,46 @@ LIGHTNING_BOLT = {
     "image_uris": {"small": "", "normal": "", "large": "", "png": ""},
 }
 
+# Modal double-faced card: Scryfall's /cards/collection resolves this by
+# front-face name alone, but always returns it under the full combined
+# name — the loader must alias results back to whatever name was
+# actually requested, or a front-face-only request silently matches
+# nothing (see services/lazy_card_loader.py's _front_face_name).
+VALKI_TIBALT = {
+    "id": "88888888-8888-8888-8888-888888888888",
+    "name": "Valki, God of Lies // Tibalt, Cosmic Impostor",
+    "layout": "modal_dfc",
+    "cmc": 2.0,
+    "type_line": "Legendary Creature — God // Legendary Planeswalker — Tibalt",
+    "color_identity": ["B", "R"],
+    "keywords": [],
+    "set": "khm",
+    "rarity": "mythic",
+    "card_faces": [
+        {
+            "object": "card_face",
+            "name": "Valki, God of Lies",
+            "mana_cost": "{1}{B}",
+            "type_line": "Legendary Creature — God",
+            "oracle_text": "",
+            "colors": ["B"],
+            "power": "2",
+            "toughness": "1",
+            "image_uris": {"small": "", "normal": "", "large": "", "png": ""},
+        },
+        {
+            "object": "card_face",
+            "name": "Tibalt, Cosmic Impostor",
+            "mana_cost": "{5}{B}{R}",
+            "type_line": "Legendary Planeswalker — Tibalt",
+            "oracle_text": "",
+            "colors": ["B", "R"],
+            "loyalty": "5",
+            "image_uris": {"small": "", "normal": "", "large": "", "png": ""},
+        },
+    ],
+}
+
 
 def make_loader(handler):
     database = CardDatabase()
@@ -144,3 +184,43 @@ class TestLoadCards:
 
         assert set(result.cards) == {"Counterspell", "Lightning Bolt"}
         assert len(calls) == 1
+
+    def test_mdfc_resolved_by_front_face_name_alone(self):
+        def handler(request: httpx.Request) -> httpx.Response:
+            # Real Scryfall behavior: /cards/collection resolves a
+            # front-face-only identifier, but always echoes back the
+            # full combined name in the result.
+            return httpx.Response(200, json={"data": [VALKI_TIBALT], "not_found": []})
+
+        loader, _ = make_loader(handler)
+        result = loader.load_cards(["Valki, God of Lies"])
+
+        assert result.not_found == []
+        assert "Valki, God of Lies" in result.cards
+        card = result.cards["Valki, God of Lies"]
+        assert card.name == "Valki, God of Lies // Tibalt, Cosmic Impostor"
+        assert card.color_identity == {"B", "R"}
+
+    def test_mdfc_second_load_by_front_face_name_hits_the_db_not_scryfall(self):
+        calls = []
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            calls.append(request)
+            return httpx.Response(200, json={"data": [VALKI_TIBALT], "not_found": []})
+
+        loader, database = make_loader(handler)
+        loader.load_cards(["Valki, God of Lies"])
+        result = loader.load_cards(["Valki, God of Lies"])
+
+        assert len(calls) == 1
+        assert result.cards["Valki, God of Lies"].name == "Valki, God of Lies // Tibalt, Cosmic Impostor"
+
+    def test_mdfc_resolved_by_full_combined_name_too(self):
+        def handler(request: httpx.Request) -> httpx.Response:
+            return httpx.Response(200, json={"data": [VALKI_TIBALT], "not_found": []})
+
+        loader, _ = make_loader(handler)
+        full_name = "Valki, God of Lies // Tibalt, Cosmic Impostor"
+        result = loader.load_cards([full_name])
+
+        assert full_name in result.cards

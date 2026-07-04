@@ -86,6 +86,50 @@ plan this roughly follows.
       a legendary creature or explicitly say it can be a commander) —
       only what was structurally missing (color identity/ban
       list/partner) is covered.
+      Verified specifically for Hybrid mana (e.g. `{W/U}` in a casting
+      cost, or in an activated ability's cost), Phyrexian mana (e.g.
+      `{B/P}`, payable with life instead of a colored pip), and MDFCs
+      (modal double-faced cards, e.g. "Valki, God of Lies // Tibalt,
+      Cosmic Impostor") — `test_scryfall_client.py`/`test_api_decks.py`.
+      All three turned out to already be correct for granted, since
+      `color_identity` is read straight from Scryfall's own precomputed,
+      whole-card field (`card_from_scryfall_data`) rather than derived
+      from the app's own flattened `mana_cost` dict (which *does* lose
+      the hybrid/Phyrexian distinction, see "Mana cost model" below —
+      that limitation turned out to be unrelated to color identity).
+      Chasing this down a real bug in card *resolution*, not color
+      identity: `LazyCardLoader`/`CardDatabase` matched Scryfall results
+      back to requested names by exact string match only, so an MDFC
+      referenced by its front-face name alone (e.g. "Valki, God of
+      Lies" — how decklists conventionally write these, and how
+      Scryfall's own `/cards/collection` accepts them) resolved
+      correctly against Scryfall but then silently vanished — not
+      returned, and not reported as not-found either, since Scryfall
+      *did* find it under its full combined name. Fixed by aliasing
+      results to the front-face name too, in both `LazyCardLoader.load_cards`
+      (first resolution) and `CardDatabase.get_card` (repeat lookups,
+      via a `LIKE 'name // %'` match, so those also hit the cache
+      instead of re-fetching every time).
+      `check_commander_legality` returns a `CommanderLegalityResult`
+      (not a plain `list[str]`) — `errors` (unchanged, prose for the
+      existing issue list) plus `banned_card_names`/
+      `color_identity_violation_names`, so a caller can flag the exact
+      offending cards without parsing error text. Surfaced on
+      `POST /api/decks`'s response as `validation.bannedCardNames`/
+      `validation.colorIdentityViolationNames` (`DeckValidationResult`
+      in `deckliste_parser.py`, defaulted to `[]` there since that
+      module only has names/quantities — populated afterwards in
+      `api/decks.py` once cards are resolved). Frontend:
+      `deckImportView.js` marks matching cards with a ❗ (distinct from
+      🛑 "not found" above — these are real, resolved cards, just not
+      Commander-legal) in both the plain list and the detail-mode tile
+      (`cardTile.js`'s `renderCardTile` gained an `illegalReason`
+      option). Deliberately doesn't touch the "Karten-Cache" tab/
+      `CardDatabase` at all — that's a raw, commander-agnostic card
+      browser, nothing to flag there since there's no commander to
+      compare against and invalid cards must stay cached (a banned or
+      off-color card is still a perfectly valid, real card the cache
+      should keep serving).
 - [ ] `GameState` / `Player` / `ManaPool` models (docs/07 PART 2).
 - [x] `CardDatabase` + Scryfall integration + `LazyCardLoader`
       (docs/06, docs/IMPLEMENTATION_GUIDE.md Week 2 Day 4-5):

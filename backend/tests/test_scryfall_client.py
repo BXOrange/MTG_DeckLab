@@ -70,6 +70,92 @@ THRASIOS = {
 }
 
 
+#: Hybrid mana in the casting cost itself ("{W/U}{W/U}"), not just in an
+#: activated ability's cost (THRASIOS below already covers that case via
+#: its oracle text). Real data: https://api.scryfall.com/cards/named?exact=Azorius+Guildmage
+AZORIUS_GUILDMAGE = {
+    "id": "66666666-6666-6666-6666-666666666666",
+    "name": "Azorius Guildmage",
+    "mana_cost": "{W/U}{W/U}",
+    "cmc": 2.0,
+    "type_line": "Creature — Vedalken Wizard",
+    "oracle_text": (
+        "{1}{W}: Tap target creature.\n{1}{U}: Draw a card, then discard a card."
+    ),
+    "colors": ["U", "W"],
+    "color_identity": ["U", "W"],
+    "keywords": [],
+    "power": "1",
+    "toughness": "1",
+    "set": "guc",
+    "rarity": "uncommon",
+    "image_uris": {"small": "", "normal": "", "large": "", "png": ""},
+}
+
+#: Phyrexian mana ("{B/P}") is payable with life instead of a colored
+#: pip, but still counts fully toward color identity. Real data:
+#: https://api.scryfall.com/cards/named?exact=Dismember
+DISMEMBER = {
+    "id": "77777777-7777-7777-7777-777777777777",
+    "name": "Dismember",
+    "mana_cost": "{1}{B/P}{B/P}",
+    "cmc": 3.0,
+    "type_line": "Instant",
+    "oracle_text": "Target creature gets -5/-5 until end of turn.",
+    "colors": ["B"],
+    "color_identity": ["B"],
+    "keywords": [],
+    "set": "nph",
+    "rarity": "uncommon",
+    "image_uris": {"small": "", "normal": "", "large": "", "png": ""},
+}
+
+#: Modal double-faced card (layout "modal_dfc"): most fields live per-face
+#: in card_faces (no top-level mana_cost/oracle_text/image_uris), but
+#: color_identity is a whole-card property Scryfall already unions across
+#: both faces at the top level — Valki alone is {B}, Tibalt alone is
+#: {B, R}, combined color_identity is {B, R}. Real data (trimmed):
+#: https://api.scryfall.com/cards/named?exact=Valki,+God+of+Lies
+VALKI_TIBALT = {
+    "id": "88888888-8888-8888-8888-888888888888",
+    "name": "Valki, God of Lies // Tibalt, Cosmic Impostor",
+    "layout": "modal_dfc",
+    "cmc": 2.0,
+    "type_line": "Legendary Creature — God // Legendary Planeswalker — Tibalt",
+    "color_identity": ["B", "R"],
+    "keywords": [],
+    "set": "khm",
+    "rarity": "mythic",
+    "card_faces": [
+        {
+            "object": "card_face",
+            "name": "Valki, God of Lies",
+            "mana_cost": "{1}{B}",
+            "type_line": "Legendary Creature — God",
+            "oracle_text": (
+                "When Valki enters, each opponent reveals their hand. For each "
+                "opponent, exile a creature card they revealed this way until "
+                "Valki leaves the battlefield."
+            ),
+            "colors": ["B"],
+            "power": "2",
+            "toughness": "1",
+            "image_uris": {"small": "", "normal": "", "large": "", "png": ""},
+        },
+        {
+            "object": "card_face",
+            "name": "Tibalt, Cosmic Impostor",
+            "mana_cost": "{5}{B}{R}",
+            "type_line": "Legendary Planeswalker — Tibalt",
+            "oracle_text": "As Tibalt enters, you get an emblem ...",
+            "colors": ["B", "R"],
+            "loyalty": "5",
+            "image_uris": {"small": "", "normal": "", "large": "", "png": ""},
+        },
+    ],
+}
+
+
 class TestCardFromScryfallData:
     def test_instant(self):
         card = card_from_scryfall_data(LIGHTNING_BOLT)
@@ -117,6 +203,46 @@ class TestCardFromScryfallData:
         card = card_from_scryfall_data(data)
         assert card.power is None
         assert card.toughness is None
+
+    def test_hybrid_mana_in_casting_cost_counts_both_colors(self):
+        card = card_from_scryfall_data(AZORIUS_GUILDMAGE)
+        assert card.color_identity == {"W", "U"}
+
+    def test_hybrid_symbol_in_activated_ability_cost_counts_toward_identity(self):
+        # THRASIOS's mana_cost ("{G}{U}") is plain, but its activated
+        # ability costs "{1}{G/U}" — color identity still includes both
+        # colors because it comes straight from Scryfall's own
+        # already-correct color_identity field, not derived from
+        # mana_cost alone.
+        card = card_from_scryfall_data(THRASIOS)
+        assert card.color_identity == {"G", "U"}
+
+    def test_phyrexian_mana_counts_toward_identity_even_though_payable_with_life(self):
+        card = card_from_scryfall_data(DISMEMBER)
+        assert card.color_identity == {"B"}
+        # The flattened mana_cost dict can't represent "or 2 life" either
+        # way (see backend/ToDo_Backend.md "Mana cost model (Backlog)"),
+        # but that's a separate, already-documented limitation from
+        # color identity, which is unaffected by it.
+        assert card.mana_cost["B"] == 2
+
+    def test_mdfc_color_identity_unions_both_faces(self):
+        card = card_from_scryfall_data(VALKI_TIBALT)
+        # Front face (Valki) alone is mono-black; back face (Tibalt)
+        # adds red. A bug that only looked at the front face's colors
+        # would miss the red half entirely.
+        assert card.color_identity == {"B", "R"}
+
+    def test_mdfc_uses_front_face_for_face_specific_fields(self):
+        # mana_cost/oracle_text/power/toughness aren't present at the
+        # top level for a modal DFC (see VALKI_TIBALT) — only per-face.
+        # card_from_scryfall_data falls back to the front face for
+        # these, since the analyzer doesn't model separate faces.
+        card = card_from_scryfall_data(VALKI_TIBALT)
+        assert card.mana_cost["B"] == 1
+        assert card.power == 2
+        assert card.toughness == 1
+        assert "Valki" in card.oracle_text
 
 
 class TestScryfallIntegration:

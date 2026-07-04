@@ -41,6 +41,23 @@ class TestSaveAndGet:
         db = CardDatabase()
         assert db.get_card("Nonexistent Card") is None
 
+    def test_get_card_by_front_face_name_of_a_multi_faced_card(self):
+        db = CardDatabase()
+        db.save_card(make_card(name="Valki, God of Lies // Tibalt, Cosmic Impostor"))
+        card = db.get_card("Valki, God of Lies")
+        assert card is not None
+        assert card.name == "Valki, God of Lies // Tibalt, Cosmic Impostor"
+
+    def test_get_card_by_front_face_name_is_case_insensitive(self):
+        db = CardDatabase()
+        db.save_card(make_card(name="Valki, God of Lies // Tibalt, Cosmic Impostor"))
+        assert db.get_card("valki, god of lies") is not None
+
+    def test_get_card_does_not_match_unrelated_prefix(self):
+        db = CardDatabase()
+        db.save_card(make_card(name="Valki, God of Lies // Tibalt, Cosmic Impostor"))
+        assert db.get_card("Valki") is None
+
     def test_get_card_by_id(self):
         db = CardDatabase()
         db.save_card(make_card())

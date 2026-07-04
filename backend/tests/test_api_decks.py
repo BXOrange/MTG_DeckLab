@@ -48,6 +48,62 @@ CULTIVATE = {
     "image_uris": {"small": "", "normal": "", "large": "", "png": ""},
 }
 
+SHEOLDRED = {
+    "id": "33333333-3333-3333-3333-333333333333",
+    "name": "Sheoldred, the Apocalypse",
+    "mana_cost": "{2}{B}{B}",
+    "cmc": 4.0,
+    "type_line": "Legendary Creature — Phyrexian Praetor",
+    "oracle_text": "",
+    "power": "4",
+    "toughness": "5",
+    "colors": ["B"],
+    "color_identity": ["B"],
+    "keywords": [],
+    "set": "dmu",
+    "rarity": "mythic",
+    "image_uris": {"small": "", "normal": "", "large": "", "png": ""},
+}
+
+# Modal double-faced card: no top-level mana_cost/oracle_text (only
+# per-face), but color_identity is already the Scryfall-computed union
+# of both faces — Valki alone is mono-black, Tibalt alone is black-red.
+# Real data (trimmed): https://api.scryfall.com/cards/named?exact=Valki,+God+of+Lies
+VALKI_TIBALT = {
+    "id": "44444444-4444-4444-4444-444444444444",
+    "name": "Valki, God of Lies // Tibalt, Cosmic Impostor",
+    "layout": "modal_dfc",
+    "cmc": 2.0,
+    "type_line": "Legendary Creature — God // Legendary Planeswalker — Tibalt",
+    "color_identity": ["B", "R"],
+    "keywords": [],
+    "set": "khm",
+    "rarity": "mythic",
+    "card_faces": [
+        {
+            "object": "card_face",
+            "name": "Valki, God of Lies",
+            "mana_cost": "{1}{B}",
+            "type_line": "Legendary Creature — God",
+            "oracle_text": "",
+            "colors": ["B"],
+            "power": "2",
+            "toughness": "1",
+            "image_uris": {"small": "", "normal": "", "large": "", "png": ""},
+        },
+        {
+            "object": "card_face",
+            "name": "Tibalt, Cosmic Impostor",
+            "mana_cost": "{5}{B}{R}",
+            "type_line": "Legendary Planeswalker — Tibalt",
+            "oracle_text": "",
+            "colors": ["B", "R"],
+            "loyalty": "5",
+            "image_uris": {"small": "", "normal": "", "large": "", "png": ""},
+        },
+    ],
+}
+
 
 def _not_found_handler(request: httpx.Request) -> httpx.Response:
     import json
@@ -133,6 +189,82 @@ class TestSubmitDeck:
         body = response.json()
         assert body["validation"]["isLegal"] is False
         assert any("Cultivate" in error for error in body["validation"]["errors"])
+        assert body["validation"]["colorIdentityViolationNames"] == ["Cultivate"]
+        assert body["validation"]["bannedCardNames"] == []
+
+    def test_banned_card_is_reported_by_name(self):
+        black_lotus = {
+            "id": "99999999-9999-9999-9999-999999999999",
+            "name": "Black Lotus",
+            "mana_cost": "{0}",
+            "cmc": 0.0,
+            "type_line": "Artifact",
+            "oracle_text": "",
+            "colors": [],
+            "color_identity": [],
+            "keywords": [],
+            "set": "lea",
+            "rarity": "rare",
+            "image_uris": {"small": "", "normal": "", "large": "", "png": ""},
+        }
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            return httpx.Response(200, json={"data": [KRENKO, black_lotus], "not_found": []})
+
+        _override_loader(handler)
+        response = client.post(
+            "/api/decks",
+            json={"commanderText": "1 Krenko, Mob Boss", "mainboardText": "1 Black Lotus"},
+        )
+
+        assert response.status_code == 200
+        body = response.json()
+        assert body["validation"]["isLegal"] is False
+        assert body["validation"]["bannedCardNames"] == ["Black Lotus"]
+        assert body["validation"]["colorIdentityViolationNames"] == []
+
+    def test_mdfc_back_face_color_outside_identity_is_reported(self):
+        # Valki (front face) is mono-black, matching the commander — but
+        # the card's true color identity also includes Tibalt's red
+        # back face. A bug that only looked at the front face would
+        # miss this; the real (Scryfall-computed) color_identity catches it.
+        def handler(request: httpx.Request) -> httpx.Response:
+            return httpx.Response(200, json={"data": [SHEOLDRED, VALKI_TIBALT], "not_found": []})
+
+        _override_loader(handler)
+        response = client.post(
+            "/api/decks",
+            json={
+                "commanderText": "1 Sheoldred, the Apocalypse",
+                "mainboardText": "1 Valki, God of Lies",
+            },
+        )
+
+        assert response.status_code == 200
+        body = response.json()
+        assert body["validation"]["isLegal"] is False
+        assert any("Tibalt" in error or "Valki" in error for error in body["validation"]["errors"])
+        assert body["validation"]["colorIdentityViolationNames"] == [
+            "Valki, God of Lies // Tibalt, Cosmic Impostor"
+        ]
+
+    def test_mdfc_within_commander_identity_is_legal(self):
+        def handler(request: httpx.Request) -> httpx.Response:
+            # Commander's own identity already covers black+red, so the
+            # MDFC's full (front+back) identity fits inside it.
+            rakdos_commander = {**SHEOLDRED, "color_identity": ["B", "R"]}
+            return httpx.Response(200, json={"data": [rakdos_commander, VALKI_TIBALT], "not_found": []})
+
+        _override_loader(handler)
+        mainboard = "1 Valki, God of Lies\n" + "\n".join(f"1 Filler {i}" for i in range(98)) + "\n"
+        response = client.post(
+            "/api/decks",
+            json={"commanderText": "1 Sheoldred, the Apocalypse", "mainboardText": mainboard},
+        )
+
+        assert response.status_code == 200
+        assert response.json()["totalCount"] == 100
+        assert response.json()["validation"]["isLegal"] is True
 
     def test_unresolved_cards_add_a_warning_but_no_error(self):
         _override_loader(_not_found_handler)
