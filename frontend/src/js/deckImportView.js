@@ -212,7 +212,10 @@ function renderResult(resultEl, deck, { onDeckLoaded, meta = {}, detailMode, onT
 
     if (!detailMode) {
       const items = sorted
-        .map((c) => `<li><span class="qty">${c.qty}x</span> ${escapeHtml(c.name)}</li>`)
+        .map(
+          (c) =>
+            `<li data-hover-card="${escapeHtml(c.name)}"><span class="qty">${c.qty}x</span> ${escapeHtml(c.name)}</li>`
+        )
         .join('');
       return `<ul class="card-list">${items}</ul>`;
     }

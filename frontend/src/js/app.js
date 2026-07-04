@@ -2,6 +2,9 @@ import { renderDeckImportView } from './deckImportView.js';
 import { renderBoardView } from './boardView.js';
 import { renderCachedCardsView } from './cachedCardsView.js';
 import { renderSavedDecksView } from './savedDecksView.js';
+import { initCardHoverDetail } from './cardHoverDetail.js';
+
+initCardHoverDetail();
 
 const tabButtons = document.querySelectorAll('.tab-button');
 const views = {

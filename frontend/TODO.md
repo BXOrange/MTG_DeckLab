@@ -114,11 +114,49 @@ implemented.
       height enough that the page could be left scrolled past the new
       (shorter or taller) content, looking like the toggle silently did
       nothing.
-- [ ] Mana cost, type, oracle text on cards in the play area — not just
-      name + image (docs/06, docs/05 PART 1). The data is available
-      now (see above); this is purely a `boardView.js` rendering change.
-- [ ] Card detail/expanded view on click/hover (docs/05 "Hybrid" hand
-      layout).
+- [x] Mana cost, type, oracle text on cards in the play area — not just
+      name + image (docs/06, docs/05 PART 1) — done via "Card detail on
+      hover" below rather than always-on inline text (the board's `.card`
+      tiles are too small to fit it inline without redesigning the grid).
+- [x] Card detail/expanded view on click/hover (docs/05 "Hybrid" hand
+      layout): `src/js/cardHoverDetail.js` — one floating panel, shown via
+      a single delegated `mouseover`/`mousemove`/`mouseout` listener on
+      `document` (set up once in `app.js`'s `initCardHoverDetail()`)
+      rather than per-element listeners, so it survives re-renders and
+      any view opts in just by adding `data-hover-card="<name>"` to an
+      element — no per-view wiring needed. Reads card data from
+      `cardImages.js`'s existing resolve cache (`getResolvedCard`), so it
+      shows "Lädt …" and then upgrades to full details (image, mana cost,
+      type, oracle text, power/toughness, keywords) once resolution lands,
+      without needing a fresh mouseover. Wired into the board's `.card`
+      tiles (`boardView.js`, replacing the old plain-name `title` tooltip)
+      and the deck-import plain card list (`deckImportView.js`'s
+      non-detail-mode `<li>` rows) — not needed in detail-mode tiles or
+      the Karten-Cache tab since those already show full details inline.
+      On the board specifically, a "Kartendetails bei Hover" checkbox
+      (next to the draw/mulligan buttons) makes it on/off-able — added
+      after a report that hover wasn't visibly doing anything on the
+      board and the root cause couldn't be confirmed in this no-real-browser
+      environment (see below). Unchecking it omits the
+      `data-hover-card` attribute on re-render (falls back to a plain-name
+      `title` tooltip) rather than disabling the global listener, so other
+      views keep working regardless of this view-local toggle. Defaults
+      to on. Verified: real backend/frontend dev servers replaying
+      import → resolve → cache flow confirm the resolved card fields the
+      tooltip needs (`type_line`, `mana_cost`, `oracle_text`, ...) are all
+      present, and that the running dev server actually serves the
+      checkbox markup; the delegated-listener and toggle logic themselves
+      (content refresh mid-hover, descendant mouseout, scroll-hide,
+      attribute presence flipping with the checkbox) were verified via
+      mock-DOM `osascript -l JavaScript` harnesses (same approach as the
+      earlier detail-mode-toggle bugfix) since no real browser automation
+      is available here (`safaridriver` starts but can't launch/attach to
+      a Safari instance in this sandbox — no display session) — **still
+      not confirmed by an actual rendered, moused-over page**; if the
+      checkbox is checked and hovering still shows nothing, that points
+      at a real bug this environment couldn't catch (get exact browser +
+      console errors, and whether a hard refresh was tried, before
+      digging further).
 
 ## Game engine hookup (replaces `boardEngine.js`)
 

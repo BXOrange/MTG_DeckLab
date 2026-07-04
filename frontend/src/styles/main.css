@@ -235,6 +235,11 @@ textarea {
 .card-list li {
   padding: 0.15rem 0;
   border-bottom: 1px solid var(--border);
+  cursor: default;
+}
+
+.card-list li:hover {
+  background: var(--panel-alt);
 }
 
 .card-list .qty {
@@ -339,6 +344,10 @@ textarea {
 
 .card.clickable:hover {
   border-color: var(--accent);
+}
+
+.card[data-hover-card]:hover {
+  border-color: var(--text-dim);
 }
 
 /* Cards with resolved Scryfall artwork replace the text box with a
@@ -539,4 +548,57 @@ textarea {
   display: flex;
   gap: 0.5rem;
   flex-shrink: 0;
+}
+
+/* --- Card detail on hover (cardHoverDetail.js) --- */
+
+/* Single global panel, repositioned/repainted for whichever element is
+   currently hovered (see cardHoverDetail.js) rather than one per card. */
+.card-hover-tooltip {
+  position: fixed;
+  z-index: 1000;
+  pointer-events: none;
+  opacity: 0;
+  visibility: hidden;
+  transition: opacity 0.1s ease;
+  max-width: 340px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+}
+
+.card-hover-tooltip.visible {
+  opacity: 1;
+  visibility: visible;
+}
+
+.card-hover-tooltip-inner {
+  display: flex;
+  gap: 0.6rem;
+  padding: 0.6rem;
+}
+
+.card-hover-tooltip-image {
+  display: block;
+  width: 110px;
+  height: auto;
+  border-radius: 5px;
+  flex-shrink: 0;
+}
+
+.card-hover-tooltip-text-col {
+  min-width: 0;
+}
+
+.card-hover-tooltip-text-col h4 {
+  margin: 0 0 0.2rem;
+  font-size: 0.85rem;
+  color: var(--accent);
+}
+
+.card-hover-tooltip-text-col p {
+  margin: 0 0 0.3rem;
+  font-size: 0.75rem;
+  line-height: 1.3;
 }
