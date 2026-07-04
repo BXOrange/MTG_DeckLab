@@ -6,11 +6,19 @@ docs/IMPLEMENTATION_GUIDE.md (Week 2, Day 4-5, "LazyCardLoader").
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass, field
 
 from mtg_analyzer.models.card import Card
 from mtg_analyzer.services.card_database import CardDatabase
 from mtg_analyzer.services.scryfall_client import ScryfallIntegration, card_from_scryfall_data
+
+#: The face separator in a multi-faced card name. Canonically Scryfall
+#: writes " // ", but decklists and hand-typed lists use single-slash and
+#: no-space variants too ("A // B", "A/B", "A / B"). No MTG card name
+#: contains a lone "/" other than as this separator, so splitting on any
+#: run of slashes is safe.
+_FACE_SEPARATOR_RE = re.compile(r"\s*/+\s*")
 
 
 @dataclass
@@ -41,36 +49,56 @@ class LazyCardLoader:
                 missing.append(name)
 
         if missing:
-            fetched_data, not_found = self._scryfall.fetch_multiple(missing)
-            cards_by_name = {}
+            # Scryfall's /cards/collection matches a double-faced card by a
+            # *face* name, and reports the full "Front // Back" combined
+            # name as not_found (verified against the live API for split
+            # cards, MDFCs and pathways, e.g. "Wear // Tear"). Decklists,
+            # meanwhile, write these both ways — the full combined name or
+            # the front face alone. So always query Scryfall by the front
+            # face, then map each result back to whatever name was
+            # requested (full or front-face), keeping a query→requested
+            # map so genuine misses are still reported under the asked name.
+            query_names: list[str] = []
+            requested_by_query: dict[str, list[str]] = {}
+            for name in missing:
+                query = _front_face_name(name)
+                query_names.append(query)
+                requested_by_query.setdefault(query.lower(), []).append(name)
+
+            fetched_data, not_found = self._scryfall.fetch_multiple(_dedupe(query_names))
+            cards_by_name: dict[str, Card] = {}
             for data in fetched_data:
                 card = card_from_scryfall_data(data)
                 self._database.save_card(card)
                 cards_by_name[card.name.lower()] = card
                 front_face = _front_face_name(card.name)
-                # Decklists conventionally reference a modal/transforming
-                # double-faced card by its front face alone (e.g. "Valki,
-                # God of Lies" rather than "Valki, God of Lies // Tibalt,
-                # Cosmic Impostor"). Scryfall's /cards/collection already
-                # resolves that, but always returns the full combined
-                # name, so without this alias a front-face-only request
-                # would match nothing here and silently vanish — not
-                # even reported as not-found, since Scryfall did find it.
                 if front_face != card.name:
                     cards_by_name.setdefault(front_face.lower(), card)
 
             for requested_name in missing:
-                card = cards_by_name.get(requested_name.lower())
+                card = cards_by_name.get(requested_name.lower()) or cards_by_name.get(
+                    _front_face_name(requested_name).lower()
+                )
                 if card is not None:
                     result.cards[requested_name] = card
-            result.not_found.extend(not_found)
+
+            # Report genuinely-unknown cards under the caller's own name.
+            for missing_query in not_found:
+                for requested_name in requested_by_query.get(missing_query.lower(), []):
+                    if requested_name not in result.cards:
+                        result.not_found.append(requested_name)
 
         return result
 
 
 def _front_face_name(name: str) -> str:
-    """The name before " // " for a multi-faced card, else `name` unchanged."""
-    return name.split(" // ", 1)[0]
+    """The front-face name of a multi-faced card, else `name` unchanged.
+
+    Tolerates the canonical " // " as well as the single-slash / no-space
+    variants ("A/B", "A / B") that turn up in real decklists — e.g.
+    "Halvar, God of Battle / Sword of the Realms" — so those resolve too.
+    """
+    return _FACE_SEPARATOR_RE.split(name, maxsplit=1)[0].strip()
 
 
 def _dedupe(names: list[str]) -> list[str]:

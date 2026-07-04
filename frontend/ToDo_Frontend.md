@@ -93,14 +93,18 @@ implemented.
 
 ## Saved decks
 
-- [x] "Deck importieren" tab: a name field + "Speichern" button
-      (`deckImportView.js`) calls `POST /api/decks/save`. Saves the raw
+- [x] "Deck importieren" tab: a name field + two save buttons
+      (`deckImportView.js`) calling `POST /api/decks/save`. Saves the raw
       textarea contents regardless of parse/validation status (matches
-      the backend, which doesn't require either). Re-clicking
-      "Speichern" after the first save updates that same record instead
-      of creating a duplicate (tracked via the returned `id`, reset only
-      by loading the sample deck or a different saved deck — typing in
-      the textareas doesn't reset it).
+      the backend, which doesn't require either). **"Aktualisieren"**
+      overwrites the loaded/last-saved deck (sends its tracked `id`);
+      **"Als neues speichern"** always creates a fresh deck (no id) and
+      then adopts the new id. Split from a single "Speichern" because
+      that silently overwrote the loaded deck after e.g. a commander
+      change — surprising and destructive; the two explicit buttons make
+      overwrite-vs-new a deliberate choice. "Aktualisieren" is disabled
+      until a deck has been loaded or saved; loading the sample deck
+      resets it.
 - [x] "Gespeicherte Decks" tab (`savedDecksView.js`): lists every saved
       deck (name, save timestamp) via `GET /api/decks`, lazily on first
       open like the other lazy tabs. "Laden" fetches the full deck
@@ -224,10 +228,22 @@ implemented.
 
 ## Game engine hookup (replaces `boardEngine.js`)
 
-- [ ] Swap the local mock (`boardEngine.js`) for real server game
-      state once the backend's game engine exists (docs/07,
-      docs/02 UC3). `boardView.js` already only reads from `state.js`,
-      so this should be a state-source swap, not a UI rewrite.
+- [x] Goldfisch-Modus wired to the real backend engine
+      (`src/js/goldfishView.js`, reached from a mode switcher in
+      `boardView.js`: **Goldfisch** / **Lokale Vorschau** / **Multiplayer**).
+      Starts a server session from the loaded deck via
+      `POST /api/game/goldfish` (`api.js` `startGoldfish` + the other
+      `/api/game/*` helpers), then renders the server's authoritative
+      `GameState` and drives it with validated actions: advance the turn
+      step by step ("Nächster Schritt"), "Auto-Zug", play a land, tap for
+      mana, cast, and attack — all from the session's `legal_actions`,
+      plus **Zurücknehmen** (rewind) and **Neu starten** (restart), the
+      point of a goldfish (UC3). The old local, rule-less board is kept
+      as the "Lokale Vorschau" mode.
+- [ ] Swap the *local preview* mock (`boardEngine.js`) too, or retire it
+      now that the goldfish board reads real server state. `boardView.js`
+      preview mode still reads `state.js`; the goldfish mode is
+      self-contained and server-driven.
 - [x] WebSocket client connection plumbing (`src/js/gameSocket.js`):
       `connectGameSocket(gameId, handlers)` opens a `ws(s)://.../ws/game/{game_id}`
       connection (same origin-config convention as `api.js`), sends
@@ -258,6 +274,12 @@ implemented.
 
 ## Multiplayer
 
+- [~] A **Multiplayer** mode entry exists in the play-area switcher
+      (`boardView.js` `renderMultiplayerStub`): it calls
+      `POST /api/game/multiplayer` and shows the backend's 501 "not yet"
+      message. Stubbed on purpose — the interactive priority loop isn't
+      built server-side yet (see `../backend/ToDo_Backend.md`
+      "Multiplayer game session"). The real UI below is unchanged.
 - [ ] Second player / opponent zones are currently permanent
       placeholders ("kein Gegner-Deck geladen"). Needs matchmaking or
       a local "load second deck" flow before this can show anything

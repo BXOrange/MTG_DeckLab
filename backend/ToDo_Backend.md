@@ -110,6 +110,17 @@ plan this roughly follows.
       (first resolution) and `CardDatabase.get_card` (repeat lookups,
       via a `LIKE 'name // %'` match, so those also hit the cache
       instead of re-fetching every time).
+      Follow-up (the *opposite* direction): a decklist that writes the
+      **full combined** name — "Wear // Tear", "Halvar, God of Battle //
+      Sword of the Realms", the pathways, "Valakut Awakening // Valakut
+      Stoneforge" — was reported as not-found, because Scryfall's
+      `/cards/collection` matches a DFC by a *face* name and returns the
+      full "Front // Back" identifier itself as `not_found` (verified
+      live). Fixed in `LazyCardLoader.load_cards` by always *querying*
+      Scryfall by the front face (splitting on " // ") and mapping the
+      result back to whatever name — full or front-face — was requested,
+      keeping a query→requested map so genuine misses are still reported
+      under the caller's own name (`test_lazy_card_loader.py`).
       `check_commander_legality` returns a `CommanderLegalityResult`
       (not a plain `list[str]`) — `errors` (unchanged, prose for the
       existing issue list) plus `banned_card_names`/
@@ -130,7 +141,20 @@ plan this roughly follows.
       compare against and invalid cards must stay cached (a banned or
       off-color card is still a perfectly valid, real card the cache
       should keep serving).
-- [ ] `GameState` / `Player` / `ManaPool` models (docs/07 PART 2).
+- [x] `GameState` / `Player` / `ManaPool` models (docs/07 PART 2):
+      `mtg_analyzer/models/game_state.py` (`GameState` + `StackItem`,
+      the shared battlefield/stack, turn/phase/step/priority pointers,
+      and a light event bus — `fire_event`/`subscribe` — that the rules
+      engine hangs trigger collection off; `to_dict` is JSON-safe for
+      the WebSocket wire protocol), `models/player.py` (`Player`: life,
+      per-player zones as `GameObject` lists, `ManaPool`, per-turn land
+      counter, `player_effects` for player-level static/replacement/
+      win-condition effects), `models/mana_pool.py` (`ManaPool` — tally
+      per `W/U/B/R/G/C` plus a backtracking `can_pay`/`pay` solver for a
+      `ManaCost`), plus `models/game_object.py` (`Zone` enum +
+      `GameObject`: one *instance* of a `Card` in play, with its own id,
+      tapped/summoning-sick/damage/counter state, and the effect lists
+      the engine reads) and `models/events.py` (`GameEvent`/`EventType`).
 - [x] `CardDatabase` + Scryfall integration + `LazyCardLoader`
       (docs/06, docs/IMPLEMENTATION_GUIDE.md Week 2 Day 4-5):
       `mtg_analyzer/services/card_database.py` (SQLite, one row per
@@ -153,30 +177,32 @@ plain per-symbol pip count — `{"W": n, "U": n, ..., "C": n}` — with no
 concept of *how* a symbol can be paid. Two real cost shapes get
 flattened into that and lose information as a result:
 
-- [ ] **Hybrid mana** (`{W/U}`, `{2/W}`, ...): `_parse_mana_cost`
-      (`mtg_analyzer/services/scryfall_client.py`) splits on "/" and
-      keeps whichever half matches a known color/colorless letter, so
-      `{W/U}` becomes a plain `"W": 1` pip — indistinguishable from an
-      actual `{W}` symbol. The "or" is gone: nothing records that this
-      pip could instead be paid with `U` (or, for `{2/W}`, with 2
-      generic mana).
-- [ ] **Phyrexian mana** (`{W/P}`, ...): same flattening — becomes a
-      plain `"W": 1` pip, losing that it can alternatively be paid with
-      2 life.
+- [x] **Hybrid mana** (`{W/U}`, `{2/W}`, ...) and
+- [x] **Phyrexian mana** (`{W/P}`, ...): both are now modeled
+      faithfully. Rather than change `Card.mana_cost`'s lossy dict shape
+      (the breaking change the note below anticipated), a **new
+      `mana_cost_string` field** was added to `Card` (the raw Scryfall
+      cost, e.g. `"{2}{W}{U/B}"`, populated in `scryfall_client.py`),
+      and a real per-symbol model built on top:
+      `mtg_analyzer/models/mana_cost.py` (`ManaCost.parse` → a list of
+      `ManaSymbol`s, each tagged generic/variable/color/colorless/
+      hybrid/mono-hybrid/Phyrexian and exposing its concrete
+      `payment_options()`). `ManaPool.can_pay`/`pay` consume that to
+      solve payment including hybrid choice and Phyrexian life payment
+      (`test_mana_cost.py`, `test_mana_pool.py`). The old flat dict is
+      kept as-is (still lossy) purely for the frontend's pip displays;
+      nothing that pays a cost reads it. The pre-existing cached-card
+      rows without `mana_cost_string` simply default to `""` (a free
+      cost) via `from_dict`, so no cache migration was needed.
 
-Doesn't matter yet because nothing pays costs today — the frontend's
-"Karten-Cache" tab just displays pips as colored emoji
-(`frontend/src/js/cachedCardsView.js`) and happens to not need the
-distinction. It will matter once real cost payment exists: `ManaPool`
-(docs/07 PART 2) and casting (RULE 601, RULE 504,
-docs/02 R2.1–R2.8, "Rules Engine" below) need to know the *actual*
-legal ways to pay a cost, not just a flattened color tally. At that
-point this likely needs a real per-symbol cost representation (e.g. a
-list of symbols, each tagged as plain/hybrid/Phyrexian with its
-alternatives) rather than the current flat dict, which is a breaking
-change to `Card.mana_cost`'s shape — plan for updating
-`to_dict`/`from_dict`, the Scryfall parser, and every test fixture that
-hardcodes a `mana_cost` dict when it happens.
+Doesn't matter yet for the frontend — the "Karten-Cache" tab just
+displays pips as colored emoji (`frontend/src/js/cachedCardsView.js`)
+and happens to not need the distinction. It matters now that real cost
+payment exists: `ManaPool` and casting (RULE 601, RULE 504,
+docs/02 R2.1–R2.8, "Rules Engine" below) read `mana_cost_string` via
+`RulesEngine.mana_cost_of`, not the flat tally. `{X}` in a cost parses
+to a `VARIABLE` symbol that counts as 0 until a chosen value is wired
+in (X-spell casting is not implemented yet).
 
 ## Configuration (Backlog)
 
@@ -200,25 +226,100 @@ hardcodes a `mana_cost` dict when it happens.
 
 ## Rules Engine (Phase 2)
 
-- [ ] Effect system: `GameEffect`, `StaticEffect`, `TriggeredAbility`,
-      `ReplacementEffect`, `ActivatedAbility` (docs/07 PART 2).
-- [ ] `EffectRegistry` + core effects (damage, draw, discard, destroy,
-      counter, search).
-- [ ] Replacement effect stacking, RULE 616 (docs/07 PART 3).
-- [ ] Phases/steps as sequences, RULE 500 (docs/07 PART 1).
-- [ ] Casting (RULE 601), Stack (RULE 608), Mana (RULE 504), Priority
-      (RULE 117), Triggered Abilities (RULE 603/607), State-Based
-      Actions (RULE 704) — docs/02 R2.1–R2.8.
+All of the below live under `mtg_analyzer/game/` (see its `__init__.py`
+for the map), driven by the Phase-1 models above. Tests:
+`test_game_engine.py`.
+
+- [x] Effect system: `GameEffect`, `StaticEffect`, `TriggeredAbility`,
+      `ReplacementEffect`, `ActivatedAbility` (docs/07 PART 2) —
+      `game/effects.py`, plus `WinConditionEffect` (the "you can't lose"
+      override, docs/07 PART 9) and a `GameContext` facade effects act
+      through so their consequences route back through the engine's
+      primitives.
+- [x] `EffectRegistry` + core effects — `game/effects.py`. Core one-shot
+      effects `DealDamageEffect`/`DrawCardEffect`/`DiscardEffect`/
+      `DestroyEffect` are implemented and registered by name (the hybrid
+      class+registry design, docs/07 PART 4). Counter/search and the
+      oracle-text→effect *parser* (docs/07 PART 5) are the remaining
+      gap: spells carry no auto-derived effects yet, so an instant/
+      sorcery resolves as a no-op unless a fixture attaches effects via
+      the `spell_effects`/ability hooks. This is the next Phase-2 step.
+- [x] Replacement effect stacking, RULE 616 (docs/07 PART 3) —
+      `RulesEngine.apply_replacements`: rewrites an event through each
+      applicable replacement at most once (draw→draw-2→mill chains work,
+      as does full prevention). Multi-effect ordering is deterministic
+      discovery order for now, not the affected player's choice
+      (RULE 616.1) — fine until interactive play needs the prompt.
+- [x] Phases/steps as sequences, RULE 500 (docs/07 PART 1) —
+      `game/phases.py` (`TurnSequence`/`GamePhase`/`GameStep`,
+      `default_turn_sequence()`); the engine walks it and consults
+      skip effects per step (docs/07 PART 8) instead of hardcoding.
+- [x] Casting (RULE 601), Stack (RULE 608 LIFO), Mana (RULE 504),
+      Priority (RULE 117), Triggered Abilities (RULE 603/607),
+      State-Based Actions (RULE 704) — `game/rules_engine.py`, at MVP
+      depth (docs/02 R2.1–R2.8). SBAs cover life≤0 loss, empty-library
+      draw loss, 0-toughness, lethal damage, and the legend rule.
+      Priority is modeled as an auto-resolving window
+      (`resolve_until_stable`) rather than an interactive back-and-forth
+      between two humans yet (see UC4 below). Trigger ordering is APNAP
+      by controller only (no intra-controller choice).
 
 ## Game Engine (Phase 3)
 
-- [ ] Turn/phase/step loop, event system (docs/02 R4.1).
-- [ ] Action validation: legal-actions-for-player logic
-      (docs/05_GAME_UI_AND_CARD_INTERACTION.md PART 3) — the frontend
-      has no equivalent today; any hand card can be "played" locally
-      with zero rule checks.
-- [ ] Goldfisch mode (UC3): single-player game against real rules.
-- [ ] Multiplayer game session + priority system (UC4).
+`mtg_analyzer/game/game_engine.py` (`GameEngine`), tests in
+`test_game_engine.py`.
+
+- [x] Turn/phase/step loop, event system (docs/02 R4.1) — `run_turn`
+      walks the `TurnSequence`, runs step bodies (untap, first-turn
+      draw-skip, simplified combat damage, cleanup discard-to-7), opens
+      priority windows, and empties mana between steps (RULE 500.4).
+- [x] Action validation: legal-actions-for-player logic
+      (docs/05_GAME_UI_AND_CARD_INTERACTION.md PART 3) —
+      `legal_actions(player)` returns the validated set (play land, cast
+      at correct timing/affordability, tap for mana, declare attacker,
+      pass), plus per-action `can_*` guards on `play_land`/`cast_spell`/
+      `declare_attackers`/`tap_for_mana`. Now wired to the frontend
+      goldfish board (`frontend/src/js/goldfishView.js`) via the session
+      API below.
+- [x] Goldfisch mode (UC3): single-player game against real rules —
+      exposed as a server-held **game session**
+      (`services/game_session.py` `GameSession`/`GameSessionManager`,
+      REST in `api/game.py`), on top of a new interactive stepping API on
+      the engine (`start`/`advance_step`/`auto_play_step`, driven one step
+      at a time instead of `run_goldfish_turn`'s whole-turn auto path).
+      Adds what "test your deck" needs beyond the pure engine:
+      **Restart** (reset to the opening state) and **Rewind** (undo the
+      last move(s)), both implemented via full `GameState.clone()`
+      snapshots (see `models/game_state.py`; `Card.__deepcopy__` shares
+      immutable card defs so clones stay cheap, and the step cursor
+      travels with each snapshot so a mid-turn undo doesn't jump turns).
+      Endpoints: `POST /api/game/goldfish` (from a saved `deckId` or
+      decklist text), `GET /api/game/{id}`, `POST /api/game/{id}/action`,
+      `.../rewind`, `.../restart`, `DELETE /api/game/{id}`. Tests:
+      `test_game_session.py`, `test_api_game.py`.
+- [~] Multiplayer game session + priority system (UC4): **stubbed** —
+      `GameSessionManager.create_multiplayer` raises
+      `MultiplayerNotImplementedError` and `POST /api/game/multiplayer`
+      returns 501, so the mode/route exist end-to-end (the frontend
+      shows a "coming soon" panel) but the interactive priority loop is
+      not built. The pieces exist (multiple players, turn rotation,
+      per-player priority pointer, action validation); priority is
+      currently auto-passed with no response window, so two humans can't
+      yet hold priority and respond to each other's spells. Needs an
+      interactive priority loop (offer priority → collect an action or a
+      pass → resolve top of stack on all-pass). This is the natural next
+      step now that the engine, `legal_actions`, and the session layer
+      exist.
+
+Not yet wired: the `WebSocket /ws/game/{game_id}` handler
+(`api/game_ws.py`) is still the transport-only relay — it does not hold
+a server-side `GameState` or feed actions into `GameEngine`. The
+goldfish frontend currently drives the game over the **REST** session
+API above (request/response per action), which is fine for solo play;
+the WebSocket becomes necessary for multiplayer (pushing an opponent's
+moves). Swapping its `_broadcast_action` stand-in for "run the action
+through the session/engine, broadcast `GameState.to_dict()`" is the
+integration step for real-time multiplayer.
 
 ## LLM Deck Analysis (UC2)
 

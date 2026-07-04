@@ -22,6 +22,14 @@ class Card:
         name: The card's name.
         mana_cost: Mapping of mana symbol to amount required to cast the
             card, e.g. {"W": 1, "U": 0, "B": 0, "R": 1, "G": 0, "C": 0}.
+            This is a lossy per-color pip tally kept for the frontend's
+            pip displays; it can't distinguish hybrid/Phyrexian pips or
+            represent generic cost. For anything that pays a cost, prefer
+            `mana_cost_string` + `models.mana_cost.ManaCost`.
+        mana_cost_string: The card's raw Scryfall mana cost, e.g.
+            "{2}{W}{U/B}". Preserves hybrid/Phyrexian/generic faithfully
+            so the game engine can compute the real ways to pay a cost
+            (see models/mana_cost.py); empty for lands and most tokens.
         converted_mana_cost: Total converted mana cost (mana value).
         color_identity: Colors ("W", "U", "B", "R", "G") in the card's
             color identity.
@@ -56,6 +64,7 @@ class Card:
         name: str,
         type_line: str,
         mana_cost: Optional[dict[str, int]] = None,
+        mana_cost_string: str = "",
         converted_mana_cost: int = 0,
         color_identity: Optional[set[str]] = None,
         is_creature: bool = False,
@@ -101,6 +110,7 @@ class Card:
         self.id = id
         self.name = name
         self.mana_cost = dict(mana_cost) if mana_cost is not None else dict(_DEFAULT_MANA_COST)
+        self.mana_cost_string = mana_cost_string
         self.converted_mana_cost = converted_mana_cost
         self.color_identity = set(color_identity)
         self.type_line = type_line
@@ -128,6 +138,7 @@ class Card:
             "id": self.id,
             "name": self.name,
             "mana_cost": dict(self.mana_cost),
+            "mana_cost_string": self.mana_cost_string,
             "converted_mana_cost": self.converted_mana_cost,
             "color_identity": sorted(self.color_identity),
             "type_line": self.type_line,
@@ -158,6 +169,7 @@ class Card:
             name=data["name"],
             type_line=data["type_line"],
             mana_cost=data.get("mana_cost"),
+            mana_cost_string=data.get("mana_cost_string", ""),
             converted_mana_cost=data.get("converted_mana_cost", 0),
             color_identity=set(data.get("color_identity") or []),
             is_creature=data.get("is_creature", False),
@@ -178,6 +190,16 @@ class Card:
             has_partner=data.get("has_partner", False),
             partner_with=data.get("partner_with"),
         )
+
+    def __deepcopy__(self, memo: dict) -> "Card":
+        """Return self: a Card is an immutable printed definition.
+
+        Game state (mtg_analyzer/models/game_state.py) is deep-copied for
+        undo/rewind; the cards a `GameObject` points at are never mutated
+        during play, so sharing them keeps clones cheap and avoids
+        duplicating the whole card pool per snapshot.
+        """
+        return self
 
     def __repr__(self) -> str:
         return (

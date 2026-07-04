@@ -1,28 +1,100 @@
 import { getState, setState, subscribe } from './state.js';
 import { mulligan, drawCard, moveToBattlefield } from './boardEngine.js';
+import { createGoldfishView } from './goldfishView.js';
+import { startMultiplayer } from './api.js';
 
 export function renderBoardView(container) {
   container.innerHTML = `<div id="board-root"></div>`;
   const root = container.querySelector('#board-root');
 
-  // Local to this view (not global app state) — a plain UI preference,
-  // not something a deck/board reload should reset. Read fresh by
-  // `render()` below on every call, so toggling it doesn't need its own
-  // re-render path separate from the existing state-change subscription.
+  // The play area has three modes (the deck's new emphasis, UC3/UC4):
+  //   - goldfish: play the deck against the real backend rules engine
+  //     (server-held session, with rewind/restart) — the default.
+  //   - preview: the old local, rule-less board (drag a card anywhere).
+  //   - multiplayer: a stub until interactive two-player priority exists.
+  let mode = 'goldfish';
+  // Local UI preference for the preview board only.
   let hoverDetailEnabled = true;
+  // Persistent across mode switches so a running goldfish game survives
+  // toggling to another mode and back (its session lives inside).
+  const goldfish = createGoldfishView();
 
-  function render() {
-    renderBoard(root, {
+  function renderContent() {
+    const content = root.querySelector('#board-mode-content');
+    if (!content) return;
+    if (mode === 'goldfish') goldfish.mount(content);
+    else if (mode === 'multiplayer') renderMultiplayerStub(content);
+    else renderLocalPreview(content);
+  }
+
+  function renderLocalPreview(content) {
+    renderBoard(content, {
       hoverDetailEnabled,
       onToggleHoverDetail: (checked) => {
         hoverDetailEnabled = checked;
-        render();
+        if (mode === 'preview') renderLocalPreview(content);
       },
     });
   }
 
-  render();
-  subscribe(render);
+  function renderShell() {
+    const tab = (id, label) =>
+      `<button class="mode-btn ${mode === id ? 'active' : ''}" data-mode="${id}" type="button">${label}</button>`;
+    root.innerHTML = `
+      <div class="board-mode-bar">
+        ${tab('goldfish', 'Goldfisch')}
+        ${tab('preview', 'Lokale Vorschau')}
+        ${tab('multiplayer', 'Multiplayer')}
+      </div>
+      <div id="board-mode-content"></div>
+    `;
+    root.querySelectorAll('.mode-btn').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        mode = btn.dataset.mode;
+        renderShell();
+      });
+    });
+    renderContent();
+  }
+
+  renderShell();
+  // The preview board mirrors global deck/board state; the goldfish board
+  // is server-driven and manages its own DOM, so only re-render on state
+  // changes while the preview is showing.
+  subscribe(() => {
+    if (mode === 'preview') renderContent();
+  });
+}
+
+function renderMultiplayerStub(content) {
+  content.innerHTML = `
+    <div class="mp-stub">
+      <h3>Multiplayer-Modus</h3>
+      <p class="hint">
+        Zwei menschliche Spieler mit Prioritäts-System (RULE 117) – noch in
+        Arbeit. Das Backend kennt den Modus bereits, die interaktive
+        Prioritäts-Schleife fehlt aber noch.
+      </p>
+      <button id="mp-try" type="button">Multiplayer testen</button>
+      <p class="server-status" id="mp-status"></p>
+    </div>
+  `;
+  content.querySelector('#mp-try').addEventListener('click', async () => {
+    const st = content.querySelector('#mp-status');
+    st.textContent = 'Frage Server …';
+    st.className = 'server-status pending';
+    const res = await startMultiplayer();
+    if (res.status === 501) {
+      st.textContent = res.data?.detail || 'Multiplayer ist noch nicht verfügbar.';
+      st.className = 'server-status warning';
+    } else if (res.status === 0) {
+      st.textContent = 'Server nicht erreichbar.';
+      st.className = 'server-status warning';
+    } else {
+      st.textContent = `Unerwartete Antwort (${res.status}).`;
+      st.className = 'server-status';
+    }
+  });
 }
 
 function renderBoard(root, { hoverDetailEnabled, onToggleHoverDetail }) {

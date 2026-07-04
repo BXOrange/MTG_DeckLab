@@ -1,0 +1,195 @@
+"""Structured mana cost model (RULE 202, RULE 601.2f).
+
+Reference: docs/07_GAME_LOOP_EFFECT_SYSTEM.md (PART 2, `ManaCost` used by
+`ActivatedAbility`/casting), backend/ToDo_Backend.md "Mana cost model".
+
+The `Card.mana_cost` dict (`models/card.py`) flattens a cost to a plain
+per-color pip tally and loses *how* a pip can be paid — a hybrid `{W/U}`
+becomes indistinguishable from a plain `{W}`, a Phyrexian `{W/P}` loses
+that it can be paid with life, and generic `{2}` is dropped entirely.
+That is fine for the "how many colored pips" displays the frontend does
+today, but the game engine has to know the *actual legal ways* to pay a
+cost before it can decide whether a `ManaPool` can afford a spell.
+
+This module models a cost faithfully as an ordered list of
+`ManaSymbol`s parsed from a Scryfall mana-cost string (e.g.
+``"{2}{W}{U/B}{G/P}"``). Each symbol knows the concrete payment
+*options* it offers; `ManaPool.can_pay`/`pay` (models/mana_pool.py)
+consume that to solve payment, including hybrid choice and Phyrexian
+life payment.
+"""
+
+from __future__ import annotations
+
+import re
+from typing import Any, Optional
+
+#: The five colors plus generic colorless mana, as single-letter symbols.
+_COLORS: frozenset[str] = frozenset({"W", "U", "B", "R", "G"})
+
+#: Regex capturing the contents of each ``{...}`` token in a mana string.
+_TOKEN_RE = re.compile(r"\{([^}]+)\}")
+
+# Symbol kinds.
+GENERIC = "generic"        # {2} — pay N mana of any type
+VARIABLE = "variable"      # {X} — chosen when cast; 0 until set
+COLOR = "color"            # {W} — pay 1 of that color
+COLORLESS = "colorless"    # {C} — pay 1 colorless specifically
+HYBRID = "hybrid"          # {W/U} — pay 1 of either color
+MONO_HYBRID = "mono_hybrid"  # {2/W} — pay N generic OR 1 of that color
+PHYREXIAN = "phyrexian"    # {W/P} — pay 1 of that color OR 2 life
+
+
+class ManaSymbol:
+    """A single symbol within a mana cost, and the ways it can be paid.
+
+    A *payment option* is a ``(color, generic, life)`` tuple: pay one
+    mana of ``color`` (or ``None`` for no colored-mana spend), plus
+    ``generic`` additional generic mana, plus ``life`` life. Exactly the
+    combinations a payer may legally choose between for this symbol.
+    """
+
+    __slots__ = ("kind", "color", "amount")
+
+    def __init__(self, kind: str, color: Optional[str] = None, amount: int = 0) -> None:
+        self.kind = kind
+        self.color = color
+        self.amount = amount
+
+    @property
+    def cmc(self) -> int:
+        """This symbol's contribution to the mana value (RULE 202.3)."""
+        if self.kind in (GENERIC, MONO_HYBRID):
+            return self.amount
+        if self.kind == VARIABLE:
+            return 0
+        return 1  # color, colorless, hybrid, phyrexian each count as 1
+
+    @property
+    def colors(self) -> set[str]:
+        """Colors this symbol can contribute to a color identity.
+
+        Hybrid symbols store both halves as ``"W/U"``; both count.
+        """
+        if not self.color:
+            return set()
+        return {half for half in self.color.split("/") if half in _COLORS}
+
+    def payment_options(self) -> list[tuple[Optional[str], int, int]]:
+        """Legal ``(color, generic, life)`` ways to pay this symbol.
+
+        Generic/variable symbols return ``[]`` — they are not paid by a
+        single fixed choice but as a lump of "any N mana", handled by the
+        payer after the constrained symbols are assigned.
+        """
+        if self.kind == COLOR:
+            return [(self.color, 0, 0)]
+        if self.kind == COLORLESS:
+            return [("C", 0, 0)]
+        if self.kind == HYBRID:
+            # color holds "W/U"; either half pays it.
+            return [(half, 0, 0) for half in self.color.split("/")]
+        if self.kind == MONO_HYBRID:
+            return [(self.color, 0, 0), (None, self.amount, 0)]
+        if self.kind == PHYREXIAN:
+            return [(self.color, 0, 0), (None, 0, 2)]
+        return []  # generic / variable
+
+    def __repr__(self) -> str:
+        return f"ManaSymbol(kind={self.kind!r}, color={self.color!r}, amount={self.amount!r})"
+
+    def __eq__(self, other: object) -> bool:
+        if not isinstance(other, ManaSymbol):
+            return NotImplemented
+        return (self.kind, self.color, self.amount) == (other.kind, other.color, other.amount)
+
+
+class ManaCost:
+    """An ordered cost, faithfully preserving hybrid/Phyrexian/generic.
+
+    Build from a Scryfall mana-cost string with :meth:`parse`. The empty
+    string (lands, most tokens) parses to a free cost (``is_free``).
+    """
+
+    def __init__(self, symbols: Optional[list[ManaSymbol]] = None, raw: str = "") -> None:
+        self.symbols: list[ManaSymbol] = list(symbols) if symbols else []
+        self.raw = raw
+
+    @classmethod
+    def parse(cls, mana_cost: str) -> "ManaCost":
+        """Parse a Scryfall cost string like ``"{2}{W}{U/B}{G/P}"``.
+
+        Unknown/unsupported tokens (e.g. ``{S}`` snow) are treated as a
+        single generic pip so the total mana value stays sane rather than
+        raising — this engine doesn't model those payment types yet.
+        """
+        symbols: list[ManaSymbol] = []
+        for token in _TOKEN_RE.findall(mana_cost or ""):
+            symbols.append(cls._parse_token(token))
+        return cls(symbols, raw=mana_cost or "")
+
+    @staticmethod
+    def _parse_token(token: str) -> ManaSymbol:
+        token = token.strip().upper()
+
+        if token.isdigit():
+            return ManaSymbol(GENERIC, amount=int(token))
+        if token in {"X", "Y", "Z"}:
+            return ManaSymbol(VARIABLE)
+        if token in _COLORS:
+            return ManaSymbol(COLOR, color=token)
+        if token == "C":
+            return ManaSymbol(COLORLESS)
+
+        if "/" in token:
+            parts = token.split("/")
+            if "P" in parts:
+                # Phyrexian: the other half is the payable color.
+                color = next((p for p in parts if p != "P"), None)
+                if color in _COLORS:
+                    return ManaSymbol(PHYREXIAN, color=color)
+            elif any(p.isdigit() for p in parts):
+                # Monocolored hybrid, e.g. {2/W}.
+                amount = int(next(p for p in parts if p.isdigit()))
+                color = next((p for p in parts if p in _COLORS), None)
+                if color is not None:
+                    return ManaSymbol(MONO_HYBRID, color=color, amount=amount)
+            elif all(p in _COLORS for p in parts):
+                return ManaSymbol(HYBRID, color="/".join(parts))
+
+        # Unknown symbol (snow {S}, {C/W} oddities, etc.): count as one
+        # generic pip so mana value is preserved.
+        return ManaSymbol(GENERIC, amount=1)
+
+    @property
+    def converted_mana_cost(self) -> int:
+        """Total mana value (RULE 202.3). {X} counts as 0."""
+        return sum(s.cmc for s in self.symbols)
+
+    @property
+    def color_identity(self) -> set[str]:
+        """Colors appearing anywhere in the cost (hybrid halves included)."""
+        identity: set[str] = set()
+        for symbol in self.symbols:
+            identity |= symbol.colors
+        return identity
+
+    @property
+    def is_free(self) -> bool:
+        """A cost with no symbols at all (e.g. a land's ``""``)."""
+        return not self.symbols
+
+    def __repr__(self) -> str:
+        return f"ManaCost({self.raw!r})"
+
+    def __eq__(self, other: object) -> bool:
+        if not isinstance(other, ManaCost):
+            return NotImplemented
+        return self.symbols == other.symbols
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "raw": self.raw,
+            "converted_mana_cost": self.converted_mana_cost,
+            "color_identity": sorted(self.color_identity),
+        }

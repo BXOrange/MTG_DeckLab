@@ -119,6 +119,7 @@ def card_from_scryfall_data(data: dict[str, Any]) -> Card:
         name=data["name"],
         type_line=type_line,
         mana_cost=_parse_mana_cost(front.get("mana_cost", "")),
+        mana_cost_string=front.get("mana_cost", "") or "",
         converted_mana_cost=int(data.get("cmc") or 0),
         color_identity=set(data.get("color_identity") or []),
         is_creature=is_creature,

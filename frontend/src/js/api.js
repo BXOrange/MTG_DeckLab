@@ -198,3 +198,63 @@ export async function deleteSavedDeck(deckId) {
   }
   return response.ok;
 }
+
+// --- Game sessions (goldfish / multiplayer stub) --------------------------
+// Backend: mtg_analyzer/api/game.py. Unlike the helpers above (which return
+// the payload or null), these return {ok, status, data} so callers can tell
+// a 404/422/501 apart from a network failure and surface the detail (e.g.
+// the 422 notFound list, or the 501 multiplayer stub message).
+
+async function gameRequest(method, path, body) {
+  let response;
+  try {
+    response = await fetch(`${getServerUrl()}${path}`, {
+      method,
+      headers: body === undefined ? undefined : { 'Content-Type': 'application/json' },
+      body: body === undefined ? undefined : JSON.stringify(body),
+    });
+  } catch {
+    return { ok: false, status: 0, data: null };
+  }
+  let data = null;
+  try {
+    data = await response.json();
+  } catch {
+    /* empty/invalid body — leave data null */
+  }
+  return { ok: response.ok, status: response.status, data };
+}
+
+/**
+ * Start a solo goldfish game from a decklist (UC3). Returns the initial
+ * session view on success; on 422 the data carries a `detail.notFound`.
+ * @param {{commanderText?: string, mainboardText?: string, deckId?: string, shuffle?: boolean, startingLife?: number, startingHand?: number}} payload
+ */
+export async function startGoldfish(payload) {
+  return gameRequest('POST', '/api/game/goldfish', payload);
+}
+
+/** Apply one action (from the session's legal_actions) to a game. */
+export async function sendGameAction(sessionId, action) {
+  return gameRequest('POST', `/api/game/${encodeURIComponent(sessionId)}/action`, action);
+}
+
+/** Undo the last `steps` move(s) in a goldfish game. */
+export async function rewindGame(sessionId, steps = 1) {
+  return gameRequest('POST', `/api/game/${encodeURIComponent(sessionId)}/rewind`, { steps });
+}
+
+/** Reset a goldfish game to its opening state. */
+export async function restartGame(sessionId) {
+  return gameRequest('POST', `/api/game/${encodeURIComponent(sessionId)}/restart`, {});
+}
+
+/** Drop a game session on the server. */
+export async function endGame(sessionId) {
+  return gameRequest('DELETE', `/api/game/${encodeURIComponent(sessionId)}`);
+}
+
+/** Multiplayer is a backend stub (501) — used to show a "coming soon" note. */
+export async function startMultiplayer() {
+  return gameRequest('POST', '/api/game/multiplayer', {});
+}

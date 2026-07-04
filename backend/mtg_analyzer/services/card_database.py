@@ -14,12 +14,18 @@ on name only, which is all that's needed today).
 from __future__ import annotations
 
 import json
+import re
 import sqlite3
 import threading
 from pathlib import Path
 from typing import Optional, Union
 
 from mtg_analyzer.models.card import Card
+
+#: Face separator in a multi-faced card name — see lazy_card_loader.py.
+#: Tolerates single/double slash and spacing so cache lookups by a
+#: slash-variant front name still match the stored full name.
+_FACE_SEPARATOR_RE = re.compile(r"\s*/+\s*")
 
 #: Root of the on-disk, lazily-populated card cache (this DB plus, in
 #: mtg_analyzer/services/image_cache.py, downloaded card images). Entirely
@@ -71,18 +77,21 @@ class CardDatabase:
     def get_card(self, name: str) -> Optional[Card]:
         """Look up a card by exact name, case-insensitive.
 
-        Also matches a multi-faced card by its front-face name alone
-        (e.g. "Valki, God of Lies" matches a row stored under the full
+        Also matches a multi-faced card by its front-face name (e.g.
+        "Valki, God of Lies" matches a row stored under the full
         "Valki, God of Lies // Tibalt, Cosmic Impostor") — decklists
-        conventionally reference such cards by their front face only.
-        No MTG card name contains a literal `%`/`_`, so the LIKE prefix
-        match below needs no escaping.
+        conventionally reference such cards by their front face only, or
+        with a single-slash separator ("Halvar, God of Battle / Sword of
+        the Realms"). Both the exact name and the part before the first
+        slash are tried as a front-face prefix. No MTG card name contains
+        a literal `%`/`_`, so the LIKE prefix match needs no escaping.
         """
+        front = _FACE_SEPARATOR_RE.split(name, maxsplit=1)[0].strip()
         with self._lock:
             row = self._connection.execute(
                 "SELECT data FROM cards WHERE name = ? COLLATE NOCASE "
                 "OR name LIKE ? COLLATE NOCASE",
-                (name, f"{name} // %"),
+                (name, f"{front} // %"),
             ).fetchone()
         return Card.from_dict(json.loads(row[0])) if row else None
 

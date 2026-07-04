@@ -224,3 +224,74 @@ class TestLoadCards:
         result = loader.load_cards([full_name])
 
         assert full_name in result.cards
+
+    def test_full_combined_name_is_queried_by_front_face(self):
+        # Faithful Scryfall behavior: it resolves the FRONT-FACE identifier
+        # and reports the full "Front // Back" name as not_found. The loader
+        # must therefore query by front face even when asked for the full
+        # name, or these cards (Wear // Tear, pathways, MDFCs) vanish.
+        import json
+
+        sent_identifiers = []
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            identifiers = json.loads(request.read())["identifiers"]
+            sent_identifiers.extend(i["name"] for i in identifiers)
+            data = []
+            not_found = []
+            for identifier in identifiers:
+                if identifier["name"].lower() == "valki, god of lies":
+                    data.append(VALKI_TIBALT)
+                else:
+                    not_found.append({"name": identifier["name"]})
+            return httpx.Response(200, json={"data": data, "not_found": not_found})
+
+        loader, _ = make_loader(handler)
+        full_name = "Valki, God of Lies // Tibalt, Cosmic Impostor"
+        result = loader.load_cards([full_name])
+
+        # Queried by front face, not the (not-found) combined name.
+        assert sent_identifiers == ["Valki, God of Lies"]
+        assert result.not_found == []
+        assert result.cards[full_name].name == full_name
+
+    def test_single_slash_separator_is_queried_by_front_face(self):
+        # Real decklists write DFCs with a single slash too, e.g.
+        # "Halvar, God of Battle / Sword of the Realms". Scryfall still
+        # only matches by face name, so the loader must extract the front
+        # face regardless of slash/spacing.
+        import json
+
+        sent_identifiers = []
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            identifiers = json.loads(request.read())["identifiers"]
+            sent_identifiers.extend(i["name"] for i in identifiers)
+            data = [VALKI_TIBALT] if any(
+                i["name"].lower() == "valki, god of lies" for i in identifiers
+            ) else []
+            return httpx.Response(200, json={"data": data, "not_found": []})
+
+        loader, _ = make_loader(handler)
+        requested = "Valki, God of Lies / Tibalt, Cosmic Impostor"  # single slash
+        result = loader.load_cards([requested])
+
+        assert sent_identifiers == ["Valki, God of Lies"]
+        assert requested in result.cards
+
+    def test_genuinely_unknown_dfc_reported_under_requested_name(self):
+        import json
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            identifiers = json.loads(request.read())["identifiers"]
+            return httpx.Response(
+                200,
+                json={"data": [], "not_found": [{"name": i["name"]} for i in identifiers]},
+            )
+
+        loader, _ = make_loader(handler)
+        result = loader.load_cards(["Fakefront // Fakeback"])
+
+        # Reported under the caller's full name, not the front-face query.
+        assert result.not_found == ["Fakefront // Fakeback"]
+        assert result.cards == {}

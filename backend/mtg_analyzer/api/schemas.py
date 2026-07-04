@@ -43,3 +43,41 @@ class DeckSubmission(BaseModel):
     commander_text: str = Field(default="", alias="commanderText")
     mainboard_text: str = Field(default="", alias="mainboardText")
     sideboard_text: str = Field(default="", alias="sideboardText")
+
+
+class StartGoldfishRequest(BaseModel):
+    """Request body for POST /api/game/goldfish (UC3).
+
+    Provide either a saved `deckId` to load, or the decklist text
+    directly (same three sections as the rest of the API). `shuffle`
+    controls whether the library is randomized (off by default so a
+    session is reproducible).
+    """
+
+    model_config = ConfigDict(populate_by_name=True)
+
+    deck_id: Optional[str] = Field(default=None, alias="deckId")
+    commander_text: str = Field(default="", alias="commanderText")
+    mainboard_text: str = Field(default="", alias="mainboardText")
+    sideboard_text: str = Field(default="", alias="sideboardText")
+    starting_life: int = Field(default=40, alias="startingLife")
+    starting_hand: int = Field(default=7, alias="startingHand")
+    shuffle: bool = True
+
+
+class GameActionRequest(BaseModel):
+    """Request body for POST /api/game/{id}/action.
+
+    An action mirrors an entry from the session's `legal_actions` (a
+    `type` plus optional `instance_id`/`instance_ids`/`targets`).
+    """
+
+    model_config = ConfigDict(extra="allow")
+
+    type: str
+
+
+class RewindRequest(BaseModel):
+    """Request body for POST /api/game/{id}/rewind."""
+
+    steps: int = 1
