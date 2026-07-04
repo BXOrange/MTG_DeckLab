@@ -14,6 +14,7 @@ on name only, which is all that's needed today).
 from __future__ import annotations
 
 import json
+import logging
 import re
 import sqlite3
 import threading
@@ -21,6 +22,9 @@ from pathlib import Path
 from typing import Optional, Union
 
 from mtg_analyzer.models.card import Card
+from mtg_analyzer.services.schema_version import reconcile_schema
+
+_log = logging.getLogger(__name__)
 
 #: Face separator in a multi-faced card name — see lazy_card_loader.py.
 #: Tolerates single/double slash and spacing so cache lookups by a
@@ -47,6 +51,20 @@ CREATE TABLE IF NOT EXISTS cards (
 CREATE UNIQUE INDEX IF NOT EXISTS idx_cards_name ON cards (name COLLATE NOCASE);
 """
 
+#: Source files that define the *stored format* of a cached card row: the
+#: serialized model (`Card.to_dict`/`from_dict`) and this table's own
+#: storage. A change to either can make existing rows incompatible, so it
+#: invalidates the cache (see services/schema_version.py). Deliberately
+#: NOT including `scryfall_client.py`: how Scryfall data is *parsed* into a
+#: Card affects stored *values* (a freshness concern), not the blob format,
+#: and it changes often for unrelated reasons — hashing it would wipe the
+#: cache needlessly. Refresh stale values by clearing `backend/cache/`
+#: (docs/08) if a parsing fix needs to reach already-cached cards.
+_SCHEMA_SOURCE_FILES = [
+    Path(__file__),  # this file: table schema + how the blob is stored
+    Path(__file__).resolve().parent.parent / "models" / "card.py",
+]
+
 
 class CardDatabase:
     """Local persistence for `Card` objects, lazily populated from Scryfall."""
@@ -64,6 +82,26 @@ class CardDatabase:
         with self._lock:
             self._connection.executescript(_SCHEMA)
             self._connection.commit()
+        #: Whether opening this DB cleared the cache due to a schema change.
+        self.schema_reset = self._reconcile_schema()
+
+    def _reconcile_schema(self) -> bool:
+        with self._lock:
+            return reconcile_schema(
+                self._connection, _SCHEMA_SOURCE_FILES, on_mismatch=self._clear_on_schema_change
+            )
+
+    @staticmethod
+    def _clear_on_schema_change(
+        conn: sqlite3.Connection, old: Optional[str], new: str
+    ) -> None:
+        # The card cache is disposable — always re-fetchable from Scryfall
+        # (docs/08_CARD_CACHE_EXPORT_IMPORT.md) — so on any format drift,
+        # drop cached rows and let them re-populate lazily in the current
+        # format. This is what heals e.g. stale mana-cost data.
+        conn.execute("DELETE FROM cards")
+        if old is not None:
+            _log.info("Card cache schema changed; cleared cached cards to re-fetch.")
 
     def close(self) -> None:
         self._connection.close()

@@ -37,6 +37,7 @@ from mtg_analyzer.api.schemas import GameActionRequest, RewindRequest, StartGold
 from mtg_analyzer.models.card import Card
 from mtg_analyzer.parser.deckliste_parser import parse_deck_sections
 from mtg_analyzer.services.deck_database import DeckDatabase
+from mtg_analyzer.services.deck_validation import apply_legality
 from mtg_analyzer.services.game_session import (
     GameActionError,
     GameSessionManager,
@@ -81,20 +82,35 @@ def start_goldfish(
         sideboard_text = deck.sideboard_text
 
     parsed = parse_deck_sections(commander_text, mainboard_text, sideboard_text)
-    all_names = [e.name for e in parsed.main_deck] + [e.name for e in parsed.commanders]
-    resolved = loader.load_cards(all_names)
+    resolved = loader.load_cards(
+        [e.name for e in parsed.commanders] + [e.name for e in parsed.all_cards]
+    )
+    apply_legality(parsed, resolved)
 
     library, missing_lib = _expand(parsed.main_deck, resolved.cards)
     commanders, missing_cmd = _expand(parsed.commanders, resolved.cards)
-    missing = missing_lib + missing_cmd
+    missing = sorted(set(missing_lib) | set(missing_cmd) | set(resolved.not_found))
 
-    if not library and not commanders:
+    # Only legal decks may start a goldfish game (docs/02 UC3, this file's
+    # module docstring). Enforced here as well as in the UI so the rule
+    # can't be bypassed by calling the API directly.
+    if not parsed.validation.is_legal:
         raise HTTPException(
             422,
             {
-                "message": "Deck has no resolvable cards to start a game.",
-                "notFound": sorted(set(missing) | set(resolved.not_found)),
+                "message": "Deck ist nicht legal – nur legale Decks können ein Goldfisch-Spiel starten.",
+                "errors": parsed.validation.errors,
+                "validation": parsed.validation.to_dict(),
+                "notFound": missing,
             },
+        )
+
+    # A deck can pass structural legality yet resolve to nothing (its cards
+    # aren't in the cache and Scryfall didn't find them) — can't play that.
+    if not library and not commanders:
+        raise HTTPException(
+            422,
+            {"message": "Deck hat keine auflösbaren Karten.", "notFound": missing},
         )
 
     if request.shuffle:

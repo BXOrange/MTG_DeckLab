@@ -1,6 +1,5 @@
 import { parseDeckSections, SAMPLE_COMMANDER, SAMPLE_MAINBOARD, SAMPLE_SIDEBOARD } from './parser.js';
 import { setState } from './state.js';
-import { newBoardFromDeck } from './boardEngine.js';
 import { resolveCardImages, getResolvedCard, isConfirmedNotFound } from './cardImages.js';
 import { submitDeck, saveDeck } from './api.js';
 import { renderCardTile, renderCardTilePlaceholder, renderCardTileNotFound, escapeHtml } from './cardTile.js';
@@ -90,11 +89,24 @@ export function renderDeckImportView(container, { onDeckLoaded } = {}) {
   let lastMeta = {};
   let detailMode = false;
 
+  // Foil/star markers ("Sol Ring ★") aren't part of a card name and break
+  // resolution. Strip them from the entered text so what we parse, submit,
+  // and save is clean; `sanitizeInputs` also rewrites the textareas so the
+  // user sees the cleaned list.
+  const stripStars = (text) => (text || '').replace(/[★☆]/g, '');
+
+  function sanitizeInputs() {
+    for (const el of [commanderTextarea, mainboardTextarea, sideboardTextarea]) {
+      const cleaned = stripStars(el.value);
+      if (cleaned !== el.value) el.value = cleaned;
+    }
+  }
+
   function currentSections() {
     return {
-      commanderText: commanderTextarea.value,
-      mainboardText: mainboardTextarea.value,
-      sideboardText: sideboardTextarea.value,
+      commanderText: stripStars(commanderTextarea.value),
+      mainboardText: stripStars(mainboardTextarea.value),
+      sideboardText: stripStars(sideboardTextarea.value),
     };
   }
 
@@ -143,13 +155,13 @@ export function renderDeckImportView(container, { onDeckLoaded } = {}) {
 
   function parseCurrentSections() {
     const requestId = ++latestRequestId;
+    sanitizeInputs(); // strip foil stars from the textareas before parsing
     const sections = currentSections();
 
     // Optimistic local parse: instant feedback while the authoritative
-    // server response (below) is in flight. Same shape either way, so
-    // the board/state code doesn't care which one it's looking at.
+    // server response (below) is in flight.
     const localDeck = parseDeckSections(sections);
-    setState({ deck: localDeck, board: newBoardFromDeck(localDeck) });
+    setState({ deck: localDeck });
     showResult(localDeck, { pending: true });
 
     // Fire and forget: images (and, for the detail view, full card
@@ -170,7 +182,7 @@ export function renderDeckImportView(container, { onDeckLoaded } = {}) {
         showResult(localDeck, { warning: result.error });
         return;
       }
-      setState({ deck: result.deck, board: newBoardFromDeck(result.deck) });
+      setState({ deck: result.deck });
       showResult(result.deck, { serverConfirmed: true });
     });
   }
@@ -339,14 +351,14 @@ function renderResult(resultEl, deck, { onDeckLoaded, meta = {}, detailMode, onT
         ${scrollable(sideboard)}
       ` : ''}
 
-      <button id="goto-board-btn" type="button" class="primary"
+      <button id="goto-goldfish-btn" type="button" class="primary"
         ${meta.serverConfirmed ? '' : 'disabled'}
         title="${meta.serverConfirmed ? '' : 'Erst verfügbar, sobald das Deck serverseitig geprüft wurde.'}"
-      >Zur Spielfläche →</button>
+      >Zum Goldfisch-Modus →</button>
     </div>
   `;
 
-  resultEl.querySelector('#goto-board-btn').addEventListener('click', () => {
+  resultEl.querySelector('#goto-goldfish-btn').addEventListener('click', () => {
     onDeckLoaded?.();
   });
 

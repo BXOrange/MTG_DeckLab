@@ -11,10 +11,12 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Depends, HTTPException
 
-from mtg_analyzer.api.dependencies import get_deck_database
+from mtg_analyzer.api.dependencies import get_deck_database, get_lazy_card_loader
 from mtg_analyzer.api.schemas import SaveDeckRequest
 from mtg_analyzer.models.deck import Deck
 from mtg_analyzer.services.deck_database import DeckDatabase
+from mtg_analyzer.services.deck_validation import validate_deck_sections
+from mtg_analyzer.services.lazy_card_loader import LazyCardLoader
 
 router = APIRouter(prefix="/api/decks", tags=["decks"])
 
@@ -55,6 +57,28 @@ def get_deck(deck_id: str, database: DeckDatabase = Depends(get_deck_database)) 
     if deck is None:
         raise HTTPException(status_code=404, detail=f'No saved deck with id "{deck_id}"')
     return deck.to_dict()
+
+
+@router.get("/{deck_id}/validation")
+def get_deck_validation(
+    deck_id: str,
+    database: DeckDatabase = Depends(get_deck_database),
+    loader: LazyCardLoader = Depends(get_lazy_card_loader),
+) -> dict[str, object]:
+    """Commander legality of a saved deck (parses + resolves + validates).
+
+    Backs the "illegal deck" badge in the saved-decks list and the
+    goldfish deck picker, which only lets *legal* decks start a game.
+    Resolving cards means this can hit Scryfall on first use for uncached
+    cards; results are cached thereafter.
+    """
+    deck = database.get_deck(deck_id)
+    if deck is None:
+        raise HTTPException(status_code=404, detail=f'No saved deck with id "{deck_id}"')
+    parsed = validate_deck_sections(
+        deck.commander_text, deck.mainboard_text, deck.sideboard_text, loader
+    )
+    return parsed.validation.to_dict()
 
 
 @router.delete("/{deck_id}")

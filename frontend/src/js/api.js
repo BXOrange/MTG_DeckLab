@@ -184,6 +184,26 @@ export async function getSavedDeck(deckId) {
 }
 
 /**
+ * Commander legality of a saved deck (GET /api/decks/{id}/validation).
+ * @param {string} deckId
+ * @returns {Promise<{isLegal: boolean, errors: string[], warnings: string[], bannedCardNames: string[], colorIdentityViolationNames: string[]} | null>} null on failure
+ */
+export async function getDeckValidation(deckId) {
+  let response;
+  try {
+    response = await fetch(`${getServerUrl()}/api/decks/${encodeURIComponent(deckId)}/validation`);
+  } catch {
+    return null;
+  }
+  if (!response.ok) return null;
+  try {
+    return await response.json();
+  } catch {
+    return null;
+  }
+}
+
+/**
  * @param {string} deckId
  * @returns {Promise<boolean>} whether the deck was actually deleted
  */

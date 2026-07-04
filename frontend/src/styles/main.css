@@ -755,38 +755,6 @@ textarea {
   line-height: 1.3;
 }
 
-/* --- Spielfläche: Modus-Umschalter (Goldfisch / Vorschau / Multiplayer) --- */
-
-.board-mode-bar {
-  display: flex;
-  gap: 0.4rem;
-  margin-bottom: 0.75rem;
-  border-bottom: 1px solid var(--border);
-  padding-bottom: 0.5rem;
-}
-
-.mode-btn {
-  background: var(--panel-alt);
-  border: 1px solid var(--border);
-  border-radius: 5px;
-  color: var(--text-dim);
-  padding: 0.35rem 0.85rem;
-  cursor: pointer;
-  font-size: 0.85rem;
-}
-
-.mode-btn:hover {
-  border-color: var(--text-dim);
-  color: var(--text);
-}
-
-.mode-btn.active {
-  background: var(--accent);
-  border-color: var(--accent);
-  color: #1b1e24;
-  font-weight: 600;
-}
-
 /* --- Goldfisch-Modus --- */
 
 .goldfish-start,
@@ -931,4 +899,65 @@ textarea {
 .gf-movelog ol {
   margin: 0.2rem 0 0;
   padding-left: 1.2rem;
+}
+
+/* --- Goldfisch: Deck-Auswahl aus der Deck-Datenbasis --- */
+
+.gf-deck-picker {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+  margin: 0.6rem 0;
+}
+
+.gf-deck-picker label {
+  color: var(--text-dim);
+  font-size: 0.85rem;
+}
+
+.gf-deck-picker select {
+  flex: 1;
+  min-width: 0;
+  padding: 0.35rem 0.5rem;
+  background: var(--panel-alt);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 5px;
+}
+
+.gf-deck-picker button {
+  background: var(--panel-alt);
+  border: 1px solid var(--border);
+  color: var(--text);
+  border-radius: 5px;
+  padding: 0.3rem 0.5rem;
+  cursor: pointer;
+}
+
+.gf-deck-picker button:hover {
+  border-color: var(--accent);
+}
+
+/* --- Deck-Verwaltung: Legalitäts-Badge pro Deck --- */
+
+.saved-deck-legality {
+  display: block;
+  font-size: 0.75rem;
+  margin-top: 0.15rem;
+}
+
+.saved-deck-legality.checking,
+.saved-deck-legality.unknown {
+  color: var(--text-dim);
+  font-style: italic;
+}
+
+.saved-deck-legality.legal {
+  color: var(--ok);
+}
+
+.saved-deck-legality.illegal {
+  color: var(--warn);
+  cursor: help;
+  font-weight: 600;
 }

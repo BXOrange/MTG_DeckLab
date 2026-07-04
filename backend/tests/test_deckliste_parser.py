@@ -45,6 +45,13 @@ class TestCardLineParsing:
         result = parse_deck_sections(mainboard_text="1 Sol Ring (LTR) 123")
         assert result.main_deck[0].name == "Sol Ring"
 
+    def test_foil_star_marker_stripped(self):
+        # Foil markers ("Sol Ring ★") aren't part of the name and break
+        # resolution — strip them, collapsing the leftover space.
+        assert parse_deck_sections(mainboard_text="1 Sol Ring ★").main_deck[0].name == "Sol Ring"
+        assert parse_deck_sections(mainboard_text="1 ★Sol Ring").main_deck[0].name == "Sol Ring"
+        assert parse_deck_sections(mainboard_text="1 Sol☆Ring").main_deck[0].name == "SolRing"
+
     def test_empty_name_after_stripping_reports_error(self):
         result = parse_deck_sections(mainboard_text="1 *MVP*")
         assert any("Leerer Kartenname" in e for e in result.parse_errors)

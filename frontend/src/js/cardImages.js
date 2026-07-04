@@ -14,7 +14,7 @@ import { resolveCards, cardImageUrl } from './api.js';
 // `card` is the full resolved card dict — kept alongside the image URLs
 // so a detail view (deckImportView.js's "Detailansicht" toggle) can read
 // mana cost/oracle text/etc. from the same resolve call, without a
-// second round trip for data boardView.js doesn't need.
+// second round trip for data goldfishView.js doesn't need.
 const cache = new Map();
 
 /**

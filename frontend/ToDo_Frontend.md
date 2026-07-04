@@ -21,10 +21,18 @@ implemented.
 
 ## Backend integration (blocks most of the rest)
 
-- [ ] Replace `parser.js`'s client-side parsing with a call to a real
-      `POST /api/decks` endpoint once the backend has a
-      `DecklisteParser` + card database (docs/02, UC1). Keep the
-      client-side parser as an optimistic local pre-check.
+- [x] Replace `parser.js`'s client-side parsing with a call to a real
+      `POST /api/decks` endpoint now that the backend has a
+      `DecklisteParser` + card database (docs/02, UC1):
+      `deckImportView.js`'s `parseCurrentSections` does the local
+      `parseDeckSections` parse first for instant feedback (shown with a
+      "Wird serverseitig geprüft …" pending badge), then calls
+      `submitDeck` (`api.js`, → `POST /api/decks`) and — once it
+      resolves — **replaces** `state.deck` with the server's response,
+      which becomes what's rendered and what "Zum Goldfisch-Modus →"
+      hands off. So the client-side parser is exactly the "optimistic
+      local pre-check" this item asked for; the server response is
+      always the authoritative one actually used.
 - [x] Resolve parsed card names against the card database → get mana
       cost, type_line, oracle_text, power/toughness, image URIs
       (`api.js`'s `resolveCards`/`cardImageUrl`, used by
@@ -57,13 +65,17 @@ implemented.
       `index.html`, toggled by a burger button — `app.js` toggles the
       `.collapsed` class) replaced the old top-bar row of tab buttons.
       The header now holds only the title and the connection badge
-      (`justify-content: space-between`). Nav entries: "Deck erstellen"
-      (import), "Decks verwalten" (saved decks), "Deck analysieren"
-      (new placeholder, see "Deck analysis (UC2)" below — no backend
-      endpoint to call yet), "Spielfläche", "Einstellungen" (connection
-      config), "Karten-Cache". Same `.tab-button`/`data-tab` + `showTab()`
-      wiring as before (`app.js`), just relocated — collapsing the
-      sidebar only hides the nav, it doesn't change which tab is active.
+      (`justify-content: space-between`). Nav entries: "Deck editieren"
+      (import — renamed from "Deck erstellen" now that it's also where
+      you load/edit a saved deck, not just create one), "Decks
+      verwalten" (saved decks), "Deck analysieren" (new placeholder, see
+      "Deck analysis (UC2)" below — no backend endpoint to call yet),
+      "Goldfisch", "Multiplayer" (split out of a former single
+      "Spielfläche" entry — see "Game engine hookup" below),
+      "Einstellungen" (connection config), "Karten-Cache". Same
+      `.tab-button`/`data-tab` + `showTab()` wiring as before (`app.js`),
+      just relocated — collapsing the sidebar only hides the nav, it
+      doesn't change which tab is active.
 - [x] Header connection indicator (`src/js/connectionStatus.js`'s
       `renderConnectionIndicator`, mounted in `app.js` into
       `#header-connection-status`): a dot + label ("Verbunden"/"Nicht
@@ -112,7 +124,10 @@ implemented.
       textareas via `deckImportView.js`'s exported `loadDeck()`, which
       then runs the normal parse+resolve+submit flow — same as pasting
       the text by hand. "Löschen" calls `DELETE /api/decks/{id}` after
-      a `confirm()` prompt.
+      a `confirm()` prompt. Each row shows a **legality badge**: it fetches
+      `GET /api/decks/{id}/validation` per deck (lazily, in parallel) and
+      marks a non-legal deck with **🛑 + the reasons** (as a tooltip),
+      a legal one with a subtle ✅.
 - [ ] No rename/duplicate-as-new actions yet — only save (create/update
       via the tracked id) and delete.
 - [ ] Same browser-verification caveat as "Card display" below: checked
@@ -196,20 +211,16 @@ implemented.
       `cardImages.js`'s existing resolve cache (`getResolvedCard`), so it
       shows "Lädt …" and then upgrades to full details (image, mana cost,
       type, oracle text, power/toughness, keywords) once resolution lands,
-      without needing a fresh mouseover. Wired into the board's `.card`
-      tiles (`boardView.js`, replacing the old plain-name `title` tooltip)
-      and the deck-import plain card list (`deckImportView.js`'s
-      non-detail-mode `<li>` rows) — not needed in detail-mode tiles or
-      the Karten-Cache tab since those already show full details inline.
-      On the board specifically, a "Kartendetails bei Hover" checkbox
-      (next to the draw/mulligan buttons) makes it on/off-able — added
-      after a report that hover wasn't visibly doing anything on the
-      board and the root cause couldn't be confirmed in this no-real-browser
-      environment (see below). Unchecking it omits the
-      `data-hover-card` attribute on re-render (falls back to a plain-name
-      `title` tooltip) rather than disabling the global listener, so other
-      views keep working regardless of this view-local toggle. Defaults
-      to on. Verified: real backend/frontend dev servers replaying
+      without needing a fresh mouseover. Wired into the goldfish board's
+      `.card` tiles (`goldfishView.js`'s `objCard`, replacing the old
+      plain-name `title` tooltip) and the deck-import plain card list
+      (`deckImportView.js`'s non-detail-mode `<li>` rows) — not needed in
+      detail-mode tiles or the Karten-Cache tab since those already show
+      full details inline. The old local preview board had a
+      "Kartendetails bei Hover" checkbox to turn this on/off per view —
+      removed along with that board (see "Game engine hookup" below);
+      `goldfishView.js` always sets `data-hover-card`, no toggle today.
+      Verified: real backend/frontend dev servers replaying
       import → resolve → cache flow confirm the resolved card fields the
       tooltip needs (`type_line`, `mana_cost`, `oracle_text`, ...) are all
       present, and that the running dev server actually serves the
@@ -229,21 +240,41 @@ implemented.
 ## Game engine hookup (replaces `boardEngine.js`)
 
 - [x] Goldfisch-Modus wired to the real backend engine
-      (`src/js/goldfishView.js`, reached from a mode switcher in
-      `boardView.js`: **Goldfisch** / **Lokale Vorschau** / **Multiplayer**).
-      Starts a server session from the loaded deck via
+      (`src/js/goldfishView.js`), its own top-level **"Goldfisch"**
+      sidebar tab (`data-tab="goldfish"`/`#view-goldfish`) — not a mode
+      switcher inside a "Spielfläche" tab anymore, see below. The deck to
+      play is chosen from a **dropdown of saved decks** (`GET /api/decks`),
+      not the currently-parsed one; selecting a deck fetches its legality
+      (`GET /api/decks/{id}/validation`) and **only a legal deck enables
+      "Start"** (illegal → 🛑 + the reasons). Start posts `deckId` to
       `POST /api/game/goldfish` (`api.js` `startGoldfish` + the other
       `/api/game/*` helpers), then renders the server's authoritative
       `GameState` and drives it with validated actions: advance the turn
       step by step ("Nächster Schritt"), "Auto-Zug", play a land, tap for
       mana, cast, and attack — all from the session's `legal_actions`,
       plus **Zurücknehmen** (rewind) and **Neu starten** (restart), the
-      point of a goldfish (UC3). The old local, rule-less board is kept
-      as the "Lokale Vorschau" mode.
-- [ ] Swap the *local preview* mock (`boardEngine.js`) too, or retire it
-      now that the goldfish board reads real server state. `boardView.js`
-      preview mode still reads `state.js`; the goldfish mode is
-      self-contained and server-driven.
+      point of a goldfish (UC3). `app.js` creates one persistent
+      controller (`createGoldfishView()`) and mounts it into
+      `#view-goldfish` once at startup, so a running session survives
+      switching tabs; "Deck editieren"'s "Zum Goldfisch-Modus →" button
+      (`deckImportView.js`) just switches to this tab (`showTab('goldfish')`)
+      rather than passing along the currently-edited deck — pick it again
+      from the dropdown once it's saved.
+- [x] The old local, rule-less "preview" board was **removed** now that
+      goldfish plays the deck for real: `boardEngine.js` deleted, the
+      `board` field dropped from `state.js`, and — in a later pass —
+      `boardView.js` (the mode-switcher shell it lived alongside) deleted
+      too, once "Spielfläche" itself was split into separate "Goldfisch"
+      and "Multiplayer" tabs (see below).
+- [x] "Spielfläche" (the combined tab with a Goldfisch/Multiplayer mode
+      switcher, `boardView.js`) was itself replaced by **two separate
+      top-level sidebar tabs**, "Goldfisch" and "Multiplayer"
+      (`index.html`'s nav + `#view-goldfish`/`#view-multiplayer`,
+      `app.js`). `boardView.js` is gone; the multiplayer stub moved into
+      its own `src/js/multiplayerView.js` (`renderMultiplayerView`).
+      Rationale: these are two different, unrelated things to a user
+      (solo deck-testing vs. a future real match) — a mode toggle buried
+      inside one tab hid that distinction.
 - [x] WebSocket client connection plumbing (`src/js/gameSocket.js`):
       `connectGameSocket(gameId, handlers)` opens a `ws(s)://.../ws/game/{game_id}`
       connection (same origin-config convention as `api.js`), sends
@@ -252,30 +283,40 @@ implemented.
       caller-supplied handlers (docs/04 PART 4). Verified against a
       real running backend with a scripted two-client round trip
       (no browser/Node available to test from an actual page, see
-      "Cleanup / polish" below). Deliberately not wired into
-      `boardEngine.js`/`boardView.js` yet — the backend has no game
-      engine behind it either (it just relays the action back out, see
-      `../backend/ToDo_Backend.md` "HTTP API foundation"), so there's
-      no real state to switch to; that swap is its own step below.
+      "Cleanup / polish" below). Solo play goes through the REST
+      game-session API instead (`goldfishView.js`); this WebSocket is
+      kept for the eventual multiplayer push channel (an opponent's
+      moves), not yet wired into the UI — that's this file's
+      "Multiplayer" section below.
 - [ ] Legal-actions-driven UI: only show actions the server says are
-      legal, instead of letting any hand card be clicked
-      (`moveToBattlefield` today has no rule checks at all — see
-      docs/05 PART 3).
+      legal, instead of letting any hand card be clicked. **Done for
+      goldfish** (`goldfishView.js` renders buttons straight from the
+      session's `legal_actions`); still open for a future multiplayer
+      board (docs/05 PART 3).
 - [ ] Targeting UI: select target(s) when a spell/ability requires it
       (docs/05 PART 5).
-- [ ] Activated abilities on permanents (tap for mana, etc.) (docs/05
-      PART 6).
-- [ ] Stack display: show pending spells/abilities in LIFO order
-      (currently a static "leer" placeholder).
-- [ ] Phase/step/turn indicator + "pass priority" control (docs/03
+- [ ] Activated abilities beyond tap-for-mana — arbitrary costed
+      abilities on permanents (docs/05 PART 6). Tap-for-mana itself
+      already works in goldfish (`legal_actions`' `tap_for_mana`).
+- [x] Stack display: goldfish shows the stack in LIFO order
+      (`goldfishView.js`'s `.gf-stack` zone, from `state.stack`) — no
+      longer the old static "leer" placeholder.
+- [x] Phase/step/turn indicator: goldfish's `.gf-topbar` shows the turn
+      number and current phase/step (German labels via `PHASE_LABELS`/
+      `STEP_LABELS`). A "pass priority" **control** (vs. just resolving
+      the stack on "Nächster Schritt") remains open — relevant once
+      multiplayer has real priority windows to pass through (docs/03
       R2.1, R2.4).
 - [ ] Mulligan per real rules (London mulligan: draw 7, put N back) —
-      current mulligan is a full reshuffle+redraw, not accurate.
+      the goldfish session currently deals a fixed opening hand with no
+      mulligan option at all (the old mock board's reshuffle+redraw
+      mulligan was removed along with it).
 
 ## Multiplayer
 
-- [~] A **Multiplayer** mode entry exists in the play-area switcher
-      (`boardView.js` `renderMultiplayerStub`): it calls
+- [~] A dedicated **"Multiplayer"** sidebar tab exists
+      (`src/js/multiplayerView.js`, split out of the former "Spielfläche"
+      mode switcher — see "Game engine hookup" above): it calls
       `POST /api/game/multiplayer` and shows the backend's 501 "not yet"
       message. Stubbed on purpose — the interactive priority loop isn't
       built server-side yet (see `../backend/ToDo_Backend.md`

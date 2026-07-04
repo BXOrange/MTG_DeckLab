@@ -3,7 +3,7 @@
 // event delegation on `document` rather than per-element listeners, so
 // any view — present or future — opts in just by giving an element a
 // `data-hover-card="<card name>"` attribute; no rebinding needed after a
-// view re-renders (a common pattern here, see boardView.js/deckImportView.js),
+// view re-renders (a common pattern here, see goldfishView.js/deckImportView.js),
 // since the listener lives above the DOM nodes that come and go.
 //
 // Card data is read from cardImages.js's resolve cache (already fetched

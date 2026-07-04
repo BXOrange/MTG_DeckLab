@@ -53,8 +53,14 @@ class RulesEngine:
 
     @staticmethod
     def mana_cost_of(card: Card) -> ManaCost:
-        """The structured cost of a card, from its raw mana string."""
-        return ManaCost.parse(getattr(card, "mana_cost_string", "") or "")
+        """The structured cost of a card.
+
+        Uses the raw ``mana_cost_string`` when present, else reconstructs
+        it from the card's pip tally + mana value (`ManaCost.from_card`),
+        so a card cached before that field existed still costs its real
+        mana instead of being wrongly free.
+        """
+        return ManaCost.from_card(card)
 
     # ------------------------------------------------------------------
     # Replacement effects (RULE 614 / 616)

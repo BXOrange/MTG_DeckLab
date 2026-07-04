@@ -2,7 +2,7 @@
 // POST /api/decks/save (mtg_analyzer DeckDatabase). Lazy by design, same
 // as cachedCardsView.js: nothing is fetched until the tab is opened.
 
-import { listSavedDecks, getSavedDeck, deleteSavedDeck } from './api.js';
+import { listSavedDecks, getSavedDeck, deleteSavedDeck, getDeckValidation } from './api.js';
 import { escapeHtml } from './cardTile.js';
 
 /**
@@ -50,6 +50,16 @@ export function renderSavedDecksView(container, { onLoadDeck } = {}) {
 
     resultEl.innerHTML = decks.map(renderDeckRow).join('');
 
+    // Legality is computed server-side (resolves cards), so fetch it per
+    // deck and fill each row's badge as answers arrive. Illegal decks get
+    // a 🛑 + the reasons; legal ones a subtle ✅.
+    for (const deck of decks) {
+      getDeckValidation(deck.id).then((validation) => {
+        if (requestId !== latestRequestId) return; // list refreshed meanwhile
+        updateLegalityBadge(deck.id, validation);
+      });
+    }
+
     resultEl.querySelectorAll('.load-deck-btn').forEach((btn) => {
       btn.addEventListener('click', async () => {
         btn.disabled = true;
@@ -79,6 +89,27 @@ export function renderSavedDecksView(container, { onLoadDeck } = {}) {
     });
   }
 
+  function updateLegalityBadge(deckId, validation) {
+    const el = resultEl.querySelector(`.saved-deck-legality[data-deck-id="${cssEscape(deckId)}"]`);
+    if (!el) return;
+    if (validation === null) {
+      el.className = 'saved-deck-legality unknown';
+      el.textContent = 'Legalität nicht prüfbar';
+      el.removeAttribute('title');
+      return;
+    }
+    if (validation.isLegal) {
+      el.className = 'saved-deck-legality legal';
+      el.textContent = '✅ legal';
+      el.removeAttribute('title');
+      return;
+    }
+    const reasons = (validation.errors || []).join('\n') || 'Deck ist nicht legal.';
+    el.className = 'saved-deck-legality illegal';
+    el.textContent = '🛑 nicht legal';
+    el.title = reasons;
+  }
+
   refreshBtn.addEventListener('click', load);
 
   // Only load the first time this view is shown, not eagerly at startup.
@@ -99,6 +130,7 @@ function renderDeckRow(deck) {
       <div class="saved-deck-info">
         <strong>${escapeHtml(name)}</strong>
         <span class="saved-deck-meta">Gespeichert: ${escapeHtml(created)}</span>
+        <span class="saved-deck-legality checking" data-deck-id="${escapeHtml(deck.id)}">Prüfe Legalität …</span>
       </div>
       <div class="saved-deck-actions">
         <button type="button" class="load-deck-btn" data-deck-id="${deck.id}">Laden</button>
@@ -106,6 +138,12 @@ function renderDeckRow(deck) {
       </div>
     </div>
   `;
+}
+
+// Deck ids are server-generated UUIDs (no quotes/backslashes), so a
+// minimal escape is enough for the attribute selector above.
+function cssEscape(value) {
+  return String(value).replace(/["\\]/g, '\\$&');
 }
 
 function formatTimestamp(isoString) {

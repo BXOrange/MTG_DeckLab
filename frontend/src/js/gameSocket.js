@@ -2,15 +2,12 @@
 // plumbing only (see backend/ToDo_Backend.md "HTTP API foundation",
 // docs/04_SERVER_CLIENT_ARCHITECTURE.md PART 4 "WebSocket Messages").
 //
-// No game engine exists yet (backend/ToDo_Backend.md "Game Engine" / "Rules
-// Engine"), so the server doesn't validate or execute anything — it just
-// relays a sent player_action back out to every connection on the same
-// game_id as a game_state_update. This module only gets the wire
-// connected (open a socket, send player_action, receive
-// game_state_update/error) — it's deliberately not wired into
-// boardEngine.js's local mock state yet, since swapping that for real
-// server state is a separate, larger step (see
-// frontend/ToDo_Frontend.md "Game engine hookup").
+// This relay predates the real engine: the server just echoes a sent
+// player_action back to every connection on the same game_id as a
+// game_state_update, without validating or executing anything. Solo play
+// now goes through the REST game-session API instead (see goldfishView.js
+// / api/game.py); this WebSocket is kept for the eventual multiplayer
+// push channel (an opponent's moves), not yet wired into the UI.
 //
 // Uses the same user-configurable backend address as api.js (see
 // settings.js), translated to a ws(s):// URL.

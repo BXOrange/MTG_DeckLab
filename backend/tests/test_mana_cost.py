@@ -4,6 +4,7 @@ Reference: backend/ToDo_Backend.md "Mana cost model",
 mtg_analyzer/models/mana_cost.py.
 """
 
+from mtg_analyzer.models.card import Card
 from mtg_analyzer.models.mana_cost import (
     COLOR,
     GENERIC,
@@ -13,6 +14,7 @@ from mtg_analyzer.models.mana_cost import (
     VARIABLE,
     ManaCost,
 )
+from mtg_analyzer.models.mana_pool import ManaPool
 
 
 def test_parse_plain_cost():
@@ -83,3 +85,47 @@ def test_unknown_symbol_falls_back_to_generic_pip():
 def test_equality_by_symbols():
     assert ManaCost.parse("{1}{G}") == ManaCost.parse("{1}{G}")
     assert ManaCost.parse("{1}{G}") != ManaCost.parse("{2}{G}")
+
+
+class TestFromCard:
+    def test_uses_raw_mana_cost_string_when_present(self):
+        card = Card(
+            id="x", name="Grizzly Bears", type_line="Creature — Bear",
+            mana_cost_string="{1}{G}", converted_mana_cost=2,
+        )
+        assert ManaCost.from_card(card) == ManaCost.parse("{1}{G}")
+
+    def test_reconstructs_generic_cost_when_raw_missing(self):
+        # A stale-cache card (no mana_cost_string) like Sol Ring: {1}, no
+        # colored pips, mana value 1. Must not be free (the reported bug).
+        card = Card(id="x", name="Sol Ring", type_line="Artifact", converted_mana_cost=1)
+        cost = ManaCost.from_card(card)
+        assert cost.converted_mana_cost == 1
+        assert not ManaPool().can_pay(cost)
+        assert ManaPool({"C": 1}).can_pay(cost)
+
+    def test_reconstructs_colored_cost_when_raw_missing(self):
+        card = Card(
+            id="x", name="Lightning Bolt", type_line="Instant",
+            mana_cost={"W": 0, "U": 0, "B": 0, "R": 1, "G": 0, "C": 0},
+            converted_mana_cost=1,
+        )
+        cost = ManaCost.from_card(card)
+        assert cost.color_identity == {"R"}
+        assert not ManaPool({"G": 1}).can_pay(cost)
+        assert ManaPool({"R": 1}).can_pay(cost)
+
+    def test_reconstructs_mixed_generic_and_colored(self):
+        card = Card(
+            id="x", name="Cultivate", type_line="Sorcery",
+            mana_cost={"W": 0, "U": 0, "B": 0, "R": 0, "G": 1, "C": 0},
+            converted_mana_cost=3,
+        )
+        cost = ManaCost.from_card(card)  # {2}{G}
+        assert cost.converted_mana_cost == 3
+        assert not ManaPool({"G": 1}).can_pay(cost)
+        assert ManaPool({"G": 1, "C": 2}).can_pay(cost)
+
+    def test_zero_cost_card_stays_free(self):
+        card = Card(id="x", name="Ornithopter", type_line="Artifact Creature", converted_mana_cost=0)
+        assert ManaCost.from_card(card).is_free

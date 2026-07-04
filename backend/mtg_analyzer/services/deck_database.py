@@ -17,12 +17,16 @@ pulled out as real columns for lookup/ordering.
 from __future__ import annotations
 
 import json
+import logging
 import sqlite3
 import threading
 from pathlib import Path
 from typing import Optional, Union
 
 from mtg_analyzer.models.deck import Deck
+from mtg_analyzer.services.schema_version import reconcile_schema
+
+_log = logging.getLogger(__name__)
 
 #: Root of on-disk, persistent application data — real user data, not a
 #: disposable cache. Gitignored (see repo-root .gitignore,
@@ -44,6 +48,14 @@ CREATE TABLE IF NOT EXISTS decks (
 CREATE INDEX IF NOT EXISTS idx_decks_created_at ON decks (created_at);
 """
 
+#: Files defining the saved-deck storage format (the serialized model +
+#: this service). Unlike the card cache, a mismatch here does NOT wipe
+#: data — see `_note_schema_change`.
+_SCHEMA_SOURCE_FILES = [
+    Path(__file__),  # this file
+    Path(__file__).resolve().parent.parent / "models" / "deck.py",
+]
+
 
 class DeckDatabase:
     """Local persistence for saved `Deck` objects."""
@@ -59,6 +71,30 @@ class DeckDatabase:
         with self._lock:
             self._connection.executescript(_SCHEMA)
             self._connection.commit()
+        #: Whether the stored schema hash differed from the code's on open.
+        self.schema_changed = self._reconcile_schema()
+
+    def _reconcile_schema(self) -> bool:
+        with self._lock:
+            return reconcile_schema(
+                self._connection, _SCHEMA_SOURCE_FILES, on_mismatch=self._note_schema_change
+            )
+
+    @staticmethod
+    def _note_schema_change(
+        conn: sqlite3.Connection, old: Optional[str], new: str
+    ) -> None:
+        # Saved decks are irreplaceable user data with no upstream to
+        # re-fetch — never auto-wipe them. `Deck.from_dict` tolerates
+        # missing/extra fields (it uses .get defaults), so old rows still
+        # load; a genuinely incompatible change would need an explicit
+        # migration here. Only warn on a *real* change (old is not None),
+        # not on a brand-new database's first stamp.
+        if old is not None:
+            _log.warning(
+                "Saved-deck store format changed; keeping existing decks "
+                "(no auto-migration). Verify decks still load correctly."
+            )
 
     def close(self) -> None:
         self._connection.close()

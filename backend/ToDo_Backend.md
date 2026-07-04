@@ -50,6 +50,15 @@ plan this roughly follows.
       (`mtg_analyzer/api/saved_decks.py`, `services/deck_database.py`)
       — see "Deck persistence" below. Distinct from `POST /api/decks`
       above, which only parses/validates and stores nothing.
+- [x] `GET /api/decks/{id}/validation`: Commander legality of a *saved*
+      deck (`saved_decks.py`) — parses + resolves + validates it, sharing
+      the exact logic of `POST /api/decks` via
+      `services/deck_validation.py` (`validate_deck_sections`/
+      `apply_legality`, extracted so the three call sites can't drift).
+      Backs the frontend's saved-deck legality badge and the goldfish
+      deck picker. `POST /api/game/goldfish` also runs it and **refuses
+      to start an illegal deck** (422) — only legal decks may goldfish
+      (docs/02 UC3), enforced server-side, not just in the UI.
 - [x] `WebSocket /ws/game/{game_id}` connection plumbing
       (`mtg_analyzer/api/game_ws.py`): accepts connections grouped by
       `game_id`, relays a `player_action` message to every connection
@@ -58,17 +67,20 @@ plan this roughly follows.
       validation and no server-held `GameState` — this is transport
       only, a stand-in for "the server processed the action" so the
       wire protocol could be built end-to-end before the real engine
-      exists. The frontend's play area (`frontend/src/js/boardEngine.js`)
-      still isn't wired to this (see
-      `../frontend/ToDo_Frontend.md` "Game engine hookup") — that's a
-      separate, larger step once there's real state to swap in.
+      exists. Solo play now goes through the REST game-session API
+      (`api/game.py`, `frontend/src/js/goldfishView.js`); this WebSocket
+      is kept for the eventual multiplayer push channel (an opponent's
+      moves), not yet wired into the UI.
 
 ## Data Layer (Phase 1, docs/IMPLEMENTATION_GUIDE.md)
 
 - [x] `DecklisteParser`: parse decklist text server-side
       (`mtg_analyzer/parser/deckliste_parser.py`), ported line-for-line
       from the frontend's own parser (multiple qty formats, tag/set
-      suffix stripping, structural Commander validation).
+      suffix stripping, structural Commander validation). Also strips
+      foil/star markers (`★`/`☆`, e.g. "Sol Ring ★") that otherwise break
+      name resolution — mirrored in `frontend/src/js/parser.js`, and the
+      import view scrubs them from the textareas too.
 - [x] `Validator`: real Commander legality —
       `mtg_analyzer/services/commander_legality.py`, wired into
       `POST /api/decks` (see "HTTP API foundation" above). Checks:
@@ -191,9 +203,18 @@ flattened into that and lose information as a result:
       solve payment including hybrid choice and Phyrexian life payment
       (`test_mana_cost.py`, `test_mana_pool.py`). The old flat dict is
       kept as-is (still lossy) purely for the frontend's pip displays;
-      nothing that pays a cost reads it. The pre-existing cached-card
-      rows without `mana_cost_string` simply default to `""` (a free
-      cost) via `from_dict`, so no cache migration was needed.
+      nothing that pays a cost reads it. Pre-existing cached-card rows
+      saved before this field existed deserialize with
+      `mana_cost_string == ""` — which is ambiguous (a land is genuinely
+      free; a stale Sol Ring is *not*, we just don't have its string).
+      Reading the empty string as free let such cards be cast for no mana
+      (found while smoketesting goldfish). `ManaCost.from_card` (used by
+      `RulesEngine.mana_cost_of`) resolves this: with no raw string it
+      reconstructs a plain cost from the flat pip tally + `converted_mana_cost`
+      (generic = mana value − colored pips), so the card still costs its
+      real total/colors — no cache migration or re-fetch needed. Hybrid/
+      Phyrexian nuance stays unavailable for those stale rows (never in
+      the flat dict); a cache refresh restores full fidelity.
 
 Doesn't matter yet for the frontend — the "Karten-Cache" tab just
 displays pips as colored emoji (`frontend/src/js/cachedCardsView.js`)
@@ -203,6 +224,42 @@ docs/02 R2.1–R2.8, "Rules Engine" below) read `mana_cost_string` via
 `RulesEngine.mana_cost_of`, not the flat tally. `{X}` in a cost parses
 to a `VARIABLE` symbol that counts as 0 until a chosen value is wired
 in (X-spell casting is not implemented yet).
+
+## Data model / cache schema versioning
+
+- [x] Detect when a database's on-disk format has drifted from the code
+      (`services/schema_version.py`). Both SQLite DBs store `to_dict()`
+      JSON blobs, so a model change silently strands old rows in an
+      outdated shape — the "Sol Ring cast for free" bug (a cached card
+      missing the later-added `mana_cost_string`) was exactly this.
+      Instead of a hand-bumped integer version, a SHA-256 is computed
+      over the source files that define each DB's stored format and
+      stamped into a `schema_meta` table; on open (first access when the
+      backend starts, since the DBs are process-wide singletons in
+      `api/dependencies.py`) the stored hash is compared to the code's.
+      Policy differs per DB by disposability:
+      - **Card cache** (`cache/`, disposable — re-fetchable from
+        Scryfall): on mismatch it **clears the `cards` table** and lets
+        it re-populate lazily in the current format (`schema_reset`
+        flag). Hash covers `models/card.py` + `card_database.py` (the
+        stored format) — deliberately not `scryfall_client.py`, whose
+        edits change stored values (freshness), not the blob shape, and
+        would wipe the cache needlessly.
+      - **Deck store** (`data/`, irreplaceable user data): on mismatch it
+        **never wipes** — records the new hash and logs a warning
+        (`schema_changed` flag); `Deck.from_dict` tolerates missing/extra
+        fields, and a genuinely incompatible change would get an explicit
+        migration here. Hash covers `models/deck.py` + `deck_database.py`.
+      Tests: `test_schema_version.py`. Note: the file-byte hash is
+      conservative — any edit (even comments) to a hashed file busts it,
+      which for the disposable cache only costs a lazy re-fetch. First
+      real-server start after this ships clears the pre-existing unstamped
+      card cache once (healing the stale mana-cost data); saved decks are
+      kept.
+      Caveat (pre-existing, see Configuration below): tests correctly use
+      in-memory/overridden DBs and don't touch the real hard-coded paths,
+      but a stray script pointed at `DEFAULT_DB_PATH` now *clears* rather
+      than just reads it — another reason to make the paths overridable.
 
 ## Configuration (Backlog)
 

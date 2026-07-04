@@ -139,6 +139,21 @@ def test_tap_land_for_mana():
 # ---------------------------------------------------------------------------
 
 
+def test_stale_card_without_cost_string_still_requires_mana():
+    # Regression: a card cached before mana_cost_string existed (empty raw
+    # cost, but a non-zero mana value) must not be castable for free.
+    stale_sol_ring = Card(
+        id="Sol Ring", name="Sol Ring", type_line="Artifact", converted_mana_cost=1
+    )
+    eng = make_engine([stale_sol_ring], hand=1)
+    eng.begin_turn()
+    eng.state.current_step = "main1"
+    p1 = eng.state.active_player
+    assert not eng.can_cast(p1, p1.hand[0])  # empty pool -> not castable
+    p1.mana_pool.add("C", 1)
+    assert eng.can_cast(p1, p1.hand[0])  # one mana -> castable
+
+
 def test_cannot_cast_without_mana():
     eng = make_engine([creature()], hand=1)
     eng.begin_turn()

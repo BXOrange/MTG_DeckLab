@@ -1,10 +1,9 @@
-// Goldfisch-Modus: play the loaded deck against the real backend rules
-// engine (mtg_analyzer/game/) via the /api/game session endpoints. Unlike
-// the local, rule-less preview in boardView.js, every move here is
-// validated server-side and the board shown is the server's authoritative
-// GameState. Supports advancing the turn step by step, playing/tapping/
-// casting/attacking from the server's legal_actions, and — the point of a
-// goldfish — restarting and rewinding at any time (UC3).
+// "Goldfisch" tab: play a saved deck against the real backend rules engine
+// (mtg_analyzer/game/) via the /api/game session endpoints. Every move
+// here is validated server-side and the board shown is the server's
+// authoritative GameState. Supports advancing the turn step by step,
+// playing/tapping/casting/attacking from the server's legal_actions, and —
+// the point of a goldfish — restarting and rewinding at any time (UC3).
 
 import { getState } from './state.js';
 import {
@@ -13,11 +12,13 @@ import {
   rewindGame,
   restartGame,
   endGame,
+  listSavedDecks,
+  getDeckValidation,
 } from './api.js';
 
 /**
  * Create a persistent goldfish controller. Its session survives across
- * `mount()` calls (e.g. toggling board modes) so switching away and back
+ * `mount()` calls (e.g. switching tabs and back) so navigating away
  * doesn't drop the running game.
  */
 export function createGoldfishView() {
@@ -28,9 +29,24 @@ export function createGoldfishView() {
   let busy = false;
   let root = null;
 
+  // Deck picker state (start panel): the saved decks to choose from, the
+  // selected id, and that deck's legality — only legal decks may start.
+  let savedDecks = null; // null = not loaded yet
+  let decksLoading = false;
+  let selectedDeckId = '';
+  let selectedValidation = null; // {isLegal, errors, ...} | null
+  let validating = false;
+
   function mount(el) {
     root = el;
+    if (!view && savedDecks === null) loadDecks();
     render();
+  }
+
+  // Called when the Goldfisch tab is (re)opened — refresh the deck list
+  // so newly-saved decks appear, but don't disturb a running game.
+  function onShown() {
+    if (!view) loadDecks();
   }
 
   function setStatus(text, kind = '') {
@@ -38,27 +54,50 @@ export function createGoldfishView() {
     statusKind = kind;
   }
 
-  // --- Actions ------------------------------------------------------------
+  // --- Deck picker --------------------------------------------------------
 
-  function deckSectionsFromState() {
-    const { deck } = getState();
-    if (!deck) return null;
-    const toText = (entries) => entries.map((c) => `${c.qty} ${c.name}`).join('\n');
-    return {
-      commanderText: toText(deck.commanders || []),
-      mainboardText: toText(deck.mainDeck || []),
-    };
+  async function loadDecks() {
+    decksLoading = true;
+    render();
+    const decks = await listSavedDecks();
+    decksLoading = false;
+    savedDecks = decks || [];
+    // Keep a valid selection; validate it if still present.
+    if (selectedDeckId && !savedDecks.some((d) => d.id === selectedDeckId)) {
+      selectedDeckId = '';
+      selectedValidation = null;
+    }
+    render();
+  }
+
+  async function selectDeck(deckId) {
+    selectedDeckId = deckId;
+    selectedValidation = null;
+    if (!deckId) {
+      render();
+      return;
+    }
+    validating = true;
+    render();
+    const validation = await getDeckValidation(deckId);
+    validating = false;
+    selectedValidation = validation; // null on failure
+    render();
   }
 
   async function start() {
-    const sections = deckSectionsFromState();
-    if (!sections) {
-      setStatus('Kein Deck geladen – zuerst im "Deck-Import" ein Deck parsen.', 'warning');
+    if (!selectedDeckId) {
+      setStatus('Bitte zuerst ein Deck auswählen.', 'warning');
+      render();
+      return;
+    }
+    if (!selectedValidation?.isLegal) {
+      setStatus('Nur legale Decks können ein Goldfisch-Spiel starten.', 'warning');
       render();
       return;
     }
     await withBusy('Spiel wird gestartet …', async () => {
-      const res = await startGoldfish({ ...sections, shuffle: true });
+      const res = await startGoldfish({ deckId: selectedDeckId, shuffle: true });
       if (res.ok) {
         applyView(res.data);
         const notFound = res.data.notFound || [];
@@ -70,10 +109,8 @@ export function createGoldfishView() {
         );
       } else if (res.status === 422) {
         const detail = res.data?.detail || {};
-        setStatus(
-          `Keine spielbaren Karten. Nicht gefunden: ${(detail.notFound || []).join(', ')}`,
-          'warning'
-        );
+        const reason = (detail.errors || []).join(' ') || 'Deck ist nicht legal.';
+        setStatus(`Start abgelehnt: ${reason}`, 'warning');
       } else if (res.status === 0) {
         setStatus('Server nicht erreichbar.', 'warning');
       } else {
@@ -165,24 +202,68 @@ export function createGoldfishView() {
   }
 
   function renderStartPanel() {
-    const hasDeck = !!getState().deck;
+    const legal = selectedValidation?.isLegal === true;
+    const canStart = !!selectedDeckId && legal && !busy;
     root.innerHTML = `
       <div class="goldfish-start">
         <h3>Goldfisch-Modus</h3>
         <p class="hint">
-          Teste dein geladenes Deck ohne Gegner gegen die echten Regeln:
+          Teste ein gespeichertes Deck ohne Gegner gegen die echten Regeln:
           Schritt für Schritt durch den Zug, Länder spielen, Mana tappen,
           Sprüche wirken – jederzeit mit <strong>Zurücknehmen</strong> und
-          <strong>Neu starten</strong>.
+          <strong>Neu starten</strong>. Nur legale Decks können starten.
         </p>
-        <button id="gf-start-btn" type="button" class="primary" ${hasDeck ? '' : 'disabled'}>
+
+        <div class="gf-deck-picker">
+          <label for="gf-deck-select">Deck</label>
+          <select id="gf-deck-select" ${decksLoading ? 'disabled' : ''}>
+            ${deckOptionsHtml()}
+          </select>
+          <button id="gf-refresh-decks" type="button" title="Deckliste neu laden">⟳</button>
+        </div>
+
+        ${deckLegalityHtml()}
+
+        <button id="gf-start-btn" type="button" class="primary" ${canStart ? '' : 'disabled'}>
           Goldfisch-Spiel starten
         </button>
-        ${hasDeck ? '' : '<p class="empty-state">Zuerst im „Deck-Import“ eine Deckliste parsen.</p>'}
         ${statusHtml()}
       </div>
     `;
+    const select = root.querySelector('#gf-deck-select');
+    select?.addEventListener('change', (e) => selectDeck(e.target.value));
+    root.querySelector('#gf-refresh-decks')?.addEventListener('click', loadDecks);
     root.querySelector('#gf-start-btn')?.addEventListener('click', start);
+  }
+
+  function deckOptionsHtml() {
+    if (decksLoading && savedDecks === null) return '<option>Lädt …</option>';
+    if (!savedDecks || !savedDecks.length) {
+      return '<option value="">— keine gespeicherten Decks —</option>';
+    }
+    const options = ['<option value="">— Deck wählen —</option>'];
+    for (const d of savedDecks) {
+      const name = (d.name || '').trim() || 'Unbenanntes Deck';
+      const selected = d.id === selectedDeckId ? ' selected' : '';
+      options.push(`<option value="${escapeHtml(d.id)}"${selected}>${escapeHtml(name)}</option>`);
+    }
+    return options.join('');
+  }
+
+  function deckLegalityHtml() {
+    if (!selectedDeckId) return '';
+    if (validating) return '<p class="server-status pending">Prüfe Legalität …</p>';
+    if (selectedValidation === null) {
+      return '<p class="server-status warning">Legalität konnte nicht geprüft werden (Server?).</p>';
+    }
+    if (selectedValidation.isLegal) {
+      return '<p class="server-status ok">✅ Deck ist legal.</p>';
+    }
+    const reasons = (selectedValidation.errors || []).map((e) => `<li>${escapeHtml(e)}</li>`).join('');
+    return `
+      <div class="server-status warning">🛑 Deck ist nicht legal – Start nicht möglich.</div>
+      ${reasons ? `<ul class="issue-list validation-errors">${reasons}</ul>` : ''}
+    `;
   }
 
   function renderGame() {
@@ -338,7 +419,7 @@ export function createGoldfishView() {
     return `<p class="server-status ${statusKind}">${escapeHtml(status)}</p>`;
   }
 
-  return { mount };
+  return { mount, onShown };
 }
 
 const PHASE_LABELS = {

@@ -35,6 +35,9 @@ BASIC_LAND_NAMES: frozenset[str] = frozenset(
 _CARD_LINE_RE = re.compile(r"^(\d+)\s*[xX]?\s+(.+)$")
 _SET_SUFFIX_RE = re.compile(r"\s*[\[(][A-Za-z0-9]{2,6}[)\]]\s*[\dA-Za-z-]*\s*$")
 _TAG_RE = re.compile(r"\s*\*([A-Za-z]+)\*")
+#: Foil/star markers some exports append to a name (e.g. "Sol Ring ★").
+#: They aren't part of the card name and break resolution, so strip them.
+_STAR_RE = re.compile(r"[★☆]")
 
 
 @dataclass
@@ -120,6 +123,8 @@ def _parse_card_lines(raw_text: str) -> _ParsedSection:
         name = match.group(2).strip()
         name = _TAG_RE.sub("", name).strip()
         name = _SET_SUFFIX_RE.sub("", name).strip()
+        name = _STAR_RE.sub("", name)
+        name = re.sub(r"\s{2,}", " ", name).strip()
 
         if not name:
             section.parse_errors.append(f'Leerer Kartenname in Zeile: "{raw_line}"')

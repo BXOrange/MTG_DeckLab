@@ -116,6 +116,38 @@ class ManaCost:
         self.raw = raw
 
     @classmethod
+    def from_card(cls, card: Any) -> "ManaCost":
+        """The cost of a card, from its raw ``mana_cost_string``.
+
+        Falls back to reconstructing a plain cost from the card's lossy
+        per-color pip tally (``mana_cost``) plus its mana value
+        (``converted_mana_cost``) when no raw string is stored — e.g. a
+        row cached before ``mana_cost_string`` existed. Without this, an
+        empty raw string is indistinguishable from a genuinely free cost,
+        so such a card would be castable for *no mana* (the Sol Ring bug).
+
+        The reconstruction can't recover hybrid/Phyrexian nuance (that was
+        never in the flat dict), but it gets the total and colors right
+        for plain costs, so the card correctly costs *something*. Freshly
+        resolved cards carry the exact ``mana_cost_string`` and skip this.
+        """
+        raw = getattr(card, "mana_cost_string", "") or ""
+        if raw:
+            return cls.parse(raw)
+
+        counts = getattr(card, "mana_cost", None) or {}
+        pip_types = ("W", "U", "B", "R", "G", "C")
+        colored_total = sum(counts.get(pip, 0) for pip in pip_types)
+        generic = max(0, int(getattr(card, "converted_mana_cost", 0) or 0) - colored_total)
+
+        parts: list[str] = []
+        if generic:
+            parts.append(f"{{{generic}}}")
+        for pip in pip_types:
+            parts.extend([f"{{{pip}}}"] * counts.get(pip, 0))
+        return cls.parse("".join(parts))
+
+    @classmethod
     def parse(cls, mana_cost: str) -> "ManaCost":
         """Parse a Scryfall cost string like ``"{2}{W}{U/B}{G/P}"``.
 
