@@ -44,7 +44,7 @@ date) and then starts the frontend static server at
 http://localhost:8765 (Ctrl+C to stop); add `--backend-tests` to also
 run the backend's pytest suite, `--port` to change the port,
 `--no-browser` to skip auto-opening a tab. The backend has no HTTP
-server yet (see [backend/TODO.md](backend/TODO.md)), so there's nothing
+server yet (see [backend/ToDo_Backend.md](backend/ToDo_Backend.md)), so there's nothing
 to start there beyond its venv and tests.
 
 To work on the backend directly:

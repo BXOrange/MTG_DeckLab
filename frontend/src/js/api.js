@@ -5,11 +5,27 @@
 // docs/06_CARD_GRAPHICS_AND_LAZY_LOADING.md,
 // docs/08_CARD_CACHE_EXPORT_IMPORT.md.
 //
-// Assumes the default local dev setup from ../../setup/start.py (backend
-// on :8000). Override by setting `window.MTG_API_BASE_URL` before this
-// module loads, e.g. in index.html, if the backend runs elsewhere.
+// The backend address is user-configurable at runtime (see settings.js,
+// connectionSettingsView.js) rather than a fixed constant, so every call
+// here resolves it fresh via getServerUrl() instead of reading it once at
+// module load.
 
-const API_BASE_URL = window.MTG_API_BASE_URL || 'http://localhost:8000';
+import { getServerUrl } from './settings.js';
+
+/**
+ * Whether the configured backend address is reachable (GET /api/health).
+ * @returns {Promise<boolean>}
+ */
+export async function checkHealth() {
+  try {
+    const response = await fetch(`${getServerUrl()}/api/health`);
+    if (!response.ok) return false;
+    const body = await response.json();
+    return body.status === 'ok';
+  } catch {
+    return false;
+  }
+}
 
 /**
  * @param {{commanderText: string, mainboardText: string, sideboardText: string}} sections
@@ -18,7 +34,7 @@ const API_BASE_URL = window.MTG_API_BASE_URL || 'http://localhost:8000';
 export async function submitDeck(sections) {
   let response;
   try {
-    response = await fetch(`${API_BASE_URL}/api/decks`, {
+    response = await fetch(`${getServerUrl()}/api/decks`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(sections),
@@ -46,7 +62,7 @@ export async function submitDeck(sections) {
  * @param {'small'|'normal'|'large'|'png'} size
  */
 export function cardImageUrl(cardId, size = 'normal') {
-  return `${API_BASE_URL}/api/cards/${encodeURIComponent(cardId)}/image?size=${size}`;
+  return `${getServerUrl()}/api/cards/${encodeURIComponent(cardId)}/image?size=${size}`;
 }
 
 /**
@@ -60,7 +76,7 @@ export async function resolveCards(names) {
 
   let response;
   try {
-    response = await fetch(`${API_BASE_URL}/api/cards/resolve`, {
+    response = await fetch(`${getServerUrl()}/api/cards/resolve`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ names }),
@@ -85,7 +101,7 @@ export async function resolveCards(names) {
 export async function listCachedCards() {
   let response;
   try {
-    response = await fetch(`${API_BASE_URL}/api/cards`);
+    response = await fetch(`${getServerUrl()}/api/cards`);
   } catch {
     return null;
   }
@@ -107,7 +123,7 @@ export async function listCachedCards() {
 export async function saveDeck(deck) {
   let response;
   try {
-    response = await fetch(`${API_BASE_URL}/api/decks/save`, {
+    response = await fetch(`${getServerUrl()}/api/decks/save`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(deck),
@@ -132,7 +148,7 @@ export async function saveDeck(deck) {
 export async function listSavedDecks() {
   let response;
   try {
-    response = await fetch(`${API_BASE_URL}/api/decks`);
+    response = await fetch(`${getServerUrl()}/api/decks`);
   } catch {
     return null;
   }
@@ -153,7 +169,7 @@ export async function listSavedDecks() {
 export async function getSavedDeck(deckId) {
   let response;
   try {
-    response = await fetch(`${API_BASE_URL}/api/decks/${encodeURIComponent(deckId)}`);
+    response = await fetch(`${getServerUrl()}/api/decks/${encodeURIComponent(deckId)}`);
   } catch {
     return null;
   }
@@ -174,7 +190,7 @@ export async function getSavedDeck(deckId) {
 export async function deleteSavedDeck(deckId) {
   let response;
   try {
-    response = await fetch(`${API_BASE_URL}/api/decks/${encodeURIComponent(deckId)}`, {
+    response = await fetch(`${getServerUrl()}/api/decks/${encodeURIComponent(deckId)}`, {
       method: 'DELETE',
     });
   } catch {

@@ -164,7 +164,7 @@ def _parse_mana_cost(mana_cost: str) -> dict[str, int]:
     as a single "W" pip, indistinguishable from a plain "{W}". That
     loses real information (a hybrid symbol can be paid in either
     color; a Phyrexian one can be paid with 2 life instead) — see
-    backend/TODO.md "Mana cost model" for the backlog on representing
+    backend/ToDo_Backend.md "Mana cost model" for the backlog on representing
     these properly.
     """
     counts = {color: 0 for color in sorted(VALID_COLORS) + ["C"]}

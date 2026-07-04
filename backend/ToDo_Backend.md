@@ -22,11 +22,13 @@ plan this roughly follows.
       request/response shape so the client can post its existing
       `{commanderText, mainboardText, sideboardText}` body unchanged —
       but the frontend doesn't call it yet, it's still mock-only.
-- [ ] Real Commander legality in that endpoint — color identity, ban
-      list, partner rules — once a `CardDatabase` exists (see
-      "Validator" below); today it only does the same structural
-      checks the frontend already does (card count, singleton,
-      commander count).
+- [x] Real Commander legality in that endpoint — color identity, ban
+      list, partner rules (`mtg_analyzer/services/commander_legality.py`,
+      see "Validator" below). Resolves commander + deck card names via
+      the `LazyCardLoader` and appends its errors to the structural
+      validation's; if a commander name itself fails to resolve, the
+      real checks are skipped (rather than run against an incomplete
+      color identity) and a warning is added instead.
 - [x] `GET /api/cards`: list every card currently in the local cache
       (`CardDatabase.list_cards`) — backs the frontend's "Karten-Cache"
       tab.
@@ -48,9 +50,18 @@ plan this roughly follows.
       (`mtg_analyzer/api/saved_decks.py`, `services/deck_database.py`)
       — see "Deck persistence" below. Distinct from `POST /api/decks`
       above, which only parses/validates and stores nothing.
-- [ ] `WebSocket /ws/game/{game_id}` once a game engine exists (see
-      below) — the frontend's play area (`frontend/src/js/boardEngine.js`)
-      is a local-only mock specifically because this doesn't exist.
+- [x] `WebSocket /ws/game/{game_id}` connection plumbing
+      (`mtg_analyzer/api/game_ws.py`): accepts connections grouped by
+      `game_id`, relays a `player_action` message to every connection
+      in that game as a `game_state_update`. No game engine exists yet
+      (see "Game Engine"/"Rules Engine" below), so there's no
+      validation and no server-held `GameState` — this is transport
+      only, a stand-in for "the server processed the action" so the
+      wire protocol could be built end-to-end before the real engine
+      exists. The frontend's play area (`frontend/src/js/boardEngine.js`)
+      still isn't wired to this (see
+      `../frontend/ToDo_Frontend.md` "Game engine hookup") — that's a
+      separate, larger step once there's real state to swap in.
 
 ## Data Layer (Phase 1, docs/IMPLEMENTATION_GUIDE.md)
 
@@ -58,11 +69,23 @@ plan this roughly follows.
       (`mtg_analyzer/parser/deckliste_parser.py`), ported line-for-line
       from the frontend's own parser (multiple qty formats, tag/set
       suffix stripping, structural Commander validation).
-- [ ] `Validator`: real Commander legality — color identity, ban list,
-      partner rules. `CardDatabase` now exists (below) so this is
-      unblocked, but `POST /api/decks` isn't wired up to it yet — the
-      parser above still only checks card count / singleton /
-      commander count structurally.
+- [x] `Validator`: real Commander legality —
+      `mtg_analyzer/services/commander_legality.py`, wired into
+      `POST /api/decks` (see "HTTP API foundation" above). Checks:
+      color identity (union of all commanders' identity vs. every
+      other resolved card's), a hand-maintained banned-card list (no
+      live source — Scryfall's per-printing `legalities` isn't fetched
+      today, so this needs manual updates against
+      <https://mtgcommander.net/index.php/banned-list/>), and Partner
+      pairing (plain "Partner" pairs with any other plain-Partner card;
+      "Partner with X" only pairs with that specifically named card,
+      reciprocally — the two are distinguished via `partner_with`
+      even though `has_partner` is set for both, see
+      `scryfall_client._has_partner`). Doesn't yet cover Backgrounds or
+      "Friends forever" pairing, or commander-type eligibility (must be
+      a legendary creature or explicitly say it can be a commander) —
+      only what was structurally missing (color identity/ban
+      list/partner) is covered.
 - [ ] `GameState` / `Player` / `ManaPool` models (docs/07 PART 2).
 - [x] `CardDatabase` + Scryfall integration + `LazyCardLoader`
       (docs/06, docs/IMPLEMENTATION_GUIDE.md Week 2 Day 4-5):
@@ -197,7 +220,7 @@ hardcodes a `mana_cost` dict when it happens.
 
 - [ ] Server-side Moxfield import proxy
       (`GET /api/import/moxfield/{deckId}`), tried client-side and
-      reverted (see `../frontend/TODO.md` "Import — follow-ups"):
+      reverted (see `../frontend/ToDo_Frontend.md` "Import — follow-ups"):
       Moxfield's Cloudflare protection returned HTTP 403 on every
       plain request tried by hand, including from a browser origin.
       A server-side fetch removes the browser-CORS obstacle but still

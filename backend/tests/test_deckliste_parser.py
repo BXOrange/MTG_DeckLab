@@ -1,7 +1,7 @@
 """Tests for the server-side decklist parser.
 
 Reference: frontend/src/js/parser.js (the client-side counterpart this
-mirrors) and backend/TODO.md "HTTP API foundation".
+mirrors) and backend/ToDo_Backend.md "HTTP API foundation".
 """
 
 from mtg_analyzer.parser.deckliste_parser import parse_deck_sections

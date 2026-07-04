@@ -1,7 +1,7 @@
 """Deck model: a saved decklist, identified by a UUID rather than its name.
 
 Reference: docs/04_SERVER_CLIENT_ARCHITECTURE.md (PART 4, REST
-endpoints), backend/TODO.md "Deck persistence".
+endpoints), backend/ToDo_Backend.md "Deck persistence".
 """
 
 from __future__ import annotations
@@ -22,7 +22,7 @@ class Deck:
     drift from the parser's actual current behavior.
 
     `analysis_id` is a reserved hook for a future LLM deck analysis
-    feature (UC2, backend/TODO.md "LLM Deck Analysis"): nothing
+    feature (UC2, backend/ToDo_Backend.md "LLM Deck Analysis"): nothing
     populates or reads it yet, but the field exists now so that feature
     can link a deck to its analysis without a storage migration later.
     Treat its exact shape (a single id vs. something richer) as

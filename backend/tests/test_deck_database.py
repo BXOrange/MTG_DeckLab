@@ -1,6 +1,6 @@
 """Tests for the SQLite-backed DeckDatabase.
 
-Reference: backend/TODO.md "Deck persistence".
+Reference: backend/ToDo_Backend.md "Deck persistence".
 """
 
 from mtg_analyzer.models.deck import Deck

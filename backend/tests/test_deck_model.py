@@ -1,6 +1,6 @@
 """Tests for the Deck model.
 
-Reference: backend/TODO.md "Deck persistence".
+Reference: backend/ToDo_Backend.md "Deck persistence".
 """
 
 import uuid

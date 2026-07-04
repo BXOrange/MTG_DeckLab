@@ -30,13 +30,59 @@ implemented.
       (`api.js`'s `resolveCards`/`cardImageUrl`, used by
       `cardImages.js`). The deck-import result list itself still only
       renders name + qty though — see "Card display" below.
-- [ ] Real Commander legality: color identity, ban list, partner
-      rules. Currently only structural checks (100 cards, singleton,
-      exactly one commander) run locally.
+- [x] Real Commander legality: color identity, ban list, partner
+      rules — done server-side
+      (`backend/mtg_analyzer/services/commander_legality.py`), returned
+      as extra `validation.errors`/`.warnings` from `POST /api/decks`.
+      Still only structural checks (100 cards, singleton, exactly one
+      commander) run locally/client-side; the frontend doesn't call
+      `POST /api/decks` yet at all (see "Backend integration" above),
+      so the real checks aren't reachable from the UI until that's
+      wired up.
 - [x] Deck persistence: save/load decks via API instead of re-pasting
       the decklist every time — see "Saved decks" below.
 - [ ] Error/loading states for network calls (spinner, retry, offline
       message) — see docs/04 C4.
+
+## Connection settings
+
+- [x] Layout: a collapsible left sidebar (`#sidebar`/`.sidebar-nav` in
+      `index.html`, toggled by a burger button — `app.js` toggles the
+      `.collapsed` class) replaced the old top-bar row of tab buttons.
+      The header now holds only the title and the connection badge
+      (`justify-content: space-between`). Nav entries: "Deck erstellen"
+      (import), "Decks verwalten" (saved decks), "Deck analysieren"
+      (new placeholder, see "Deck analysis (UC2)" below — no backend
+      endpoint to call yet), "Spielfläche", "Einstellungen" (connection
+      config), "Karten-Cache". Same `.tab-button`/`data-tab` + `showTab()`
+      wiring as before (`app.js`), just relocated — collapsing the
+      sidebar only hides the nav, it doesn't change which tab is active.
+- [x] Header connection indicator (`src/js/connectionStatus.js`'s
+      `renderConnectionIndicator`, mounted in `app.js` into
+      `#header-connection-status`): a dot + label ("Verbunden"/"Nicht
+      erreichbar"/"Prüfe …"), visible on every tab, polling
+      `GET /api/health` every 5s (`api.js`'s `checkHealth`). Status is
+      a small shared pub/sub store (`getConnectionStatus`/
+      `subscribeConnectionStatus`/`refreshConnectionStatus`) so the
+      header indicator and the "Verbindung" tab's own status line stay
+      in sync off one poll instead of each polling separately.
+- [x] "Einstellungen" tab (`connectionSettingsView.js`): a player-name
+      field and a server-address field (defaults to
+      `http://localhost:8000`, same default as `api.js` always used),
+      "Speichern" and "Verbindung testen" buttons, plus the live status
+      line. Saving normalizes the URL (trims whitespace/trailing
+      slash) and re-checks immediately — no page reload needed, since
+      `api.js`/`gameSocket.js` resolve the server address fresh on
+      every call via `settings.js`'s `getServerUrl()` rather than
+      reading a fixed constant once at module load.
+- [x] Settings persisted client-side in a cookie
+      (`src/js/cookies.js`, `settings.js`; `mtg_server_url`,
+      `mtg_player_name`, 1-year expiry) — browser/device-local only, not
+      synced to the backend (there's no user-account concept yet, see
+      backend/ToDo_Backend.md "Auth & persistence"). The player name
+      isn't used anywhere in the UI yet; today it only supplies the
+      default `player_id` for `gameSocket.js`'s `sendPlayerAction`,
+      which nothing calls yet either (see "Game engine hookup" below).
 
 ## Saved decks
 
@@ -92,7 +138,7 @@ implemented.
 - [ ] Mana cost emoji don't distinguish hybrid/Phyrexian symbols from
       plain ones (e.g. `{W/U}` renders as a plain ⚪, not "W or U") —
       inherited from the backend's flattened `Card.mana_cost`, see
-      backend/TODO.md "Mana cost model (Backlog)". Generic mana amount
+      backend/ToDo_Backend.md "Mana cost model (Backlog)". Generic mana amount
       is derived client-side (`converted_mana_cost` minus pip total)
       rather than stored, for the same reason.
 - [x] Artwork + full card details for the deck-import card lists
@@ -164,8 +210,19 @@ implemented.
       state once the backend's game engine exists (docs/07,
       docs/02 UC3). `boardView.js` already only reads from `state.js`,
       so this should be a state-source swap, not a UI rewrite.
-- [ ] WebSocket client: connect to `/ws/game/{game_id}`, receive
-      `game_state_update`, send `player_action` (docs/04 PART 4).
+- [x] WebSocket client connection plumbing (`src/js/gameSocket.js`):
+      `connectGameSocket(gameId, handlers)` opens a `ws(s)://.../ws/game/{game_id}`
+      connection (same origin-config convention as `api.js`), sends
+      `player_action` via `sendPlayerAction(action, playerId)`, and
+      dispatches incoming `game_state_update`/`error` messages to
+      caller-supplied handlers (docs/04 PART 4). Verified against a
+      real running backend with a scripted two-client round trip
+      (no browser/Node available to test from an actual page, see
+      "Cleanup / polish" below). Deliberately not wired into
+      `boardEngine.js`/`boardView.js` yet — the backend has no game
+      engine behind it either (it just relays the action back out, see
+      `../backend/ToDo_Backend.md` "HTTP API foundation"), so there's
+      no real state to switch to; that swap is its own step below.
 - [ ] Legal-actions-driven UI: only show actions the server says are
       legal, instead of letting any hand card be clicked
       (`moveToBattlefield` today has no rule checks at all — see
@@ -200,6 +257,10 @@ implemented.
 
 ## Deck analysis (UC2)
 
+- [x] Nav entry exists ("Deck analysieren" in the sidebar,
+      `analyzeView.js`) but only renders a static "not implemented yet"
+      placeholder — added so the menu structure matches the intended
+      feature set ahead of the backend actually having anything to call.
 - [ ] "Analyze deck" button + results view (win conditions, archetype,
       synergies, cohesion score, issues) once
       `POST /api/decks/{id}/analyze` exists (docs/02 UC2, docs/04

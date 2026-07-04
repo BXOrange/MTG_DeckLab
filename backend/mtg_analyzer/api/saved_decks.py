@@ -4,7 +4,7 @@ Distinct from `decks.py`'s `POST /api/decks`, which only parses and
 structurally validates decklist text without storing anything.
 
 Reference: docs/04_SERVER_CLIENT_ARCHITECTURE.md (PART 4, REST
-endpoints), backend/TODO.md "Deck persistence".
+endpoints), backend/ToDo_Backend.md "Deck persistence".
 """
 
 from __future__ import annotations

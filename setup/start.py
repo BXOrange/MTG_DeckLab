@@ -22,6 +22,7 @@ import webbrowser
 from install import BACKEND_DIR, ROOT, ensure_backend_venv
 
 FRONTEND_DIR = ROOT / "frontend"
+NO_CACHE_SERVER = ROOT / "setup" / "no_cache_server.py"
 
 
 def run_backend_tests(python) -> None:
@@ -51,7 +52,13 @@ def start_frontend(python, port: int, backend_port: int, open_browser: bool) -> 
     url = f"http://localhost:{port}"
     backend_proc = start_backend(python, backend_port)
     print(f"Starting frontend at {url} (Ctrl+C to stop) ...")
-    frontend_proc = subprocess.Popen([sys.executable, "-m", "http.server", str(port)], cwd=str(FRONTEND_DIR))
+    # A custom no-cache server, not the stdlib `http.server` module
+    # directly: plain http.server sends no Cache-Control header, so
+    # browsers can serve a stale cached copy on a normal reload after a
+    # file changes (see setup/no_cache_server.py).
+    frontend_proc = subprocess.Popen(
+        [sys.executable, str(NO_CACHE_SERVER), str(port)], cwd=str(FRONTEND_DIR)
+    )
 
     # A plain `except KeyboardInterrupt` only covers Ctrl+C (SIGINT).
     # Without this, SIGTERM (e.g. a process manager or IDE stop button)

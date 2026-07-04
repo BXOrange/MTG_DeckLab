@@ -10,7 +10,7 @@
       (backend/mtg_analyzer/services/), cached under `backend/cache/`
       (gitignored; export/import: docs/08_CARD_CACHE_EXPORT_IMPORT.md).
       Commander legality and wiring this into `POST /api/decks` are
-      still open (see backend/TODO.md)
+      still open (see backend/ToDo_Backend.md)
 - [x] HTTP API foundation: FastAPI server, `POST /api/decks`,
       `GET /api/cards`, `GET /api/cards/search`,
       `POST /api/cards/resolve`, `GET /api/cards/{id}/image`
@@ -20,13 +20,13 @@
       unlike `backend/cache/`) + `POST /api/decks/save`,
       `GET /api/decks`, `GET /api/decks/{id}`, `DELETE /api/decks/{id}`.
       Reserves `Deck.analysis_id` for the future LLM analysis feature
-      (see backend/TODO.md "Deck persistence" / "LLM Deck Analysis").
+      (see backend/ToDo_Backend.md "Deck persistence" / "LLM Deck Analysis").
 - [x] Frontend consumes the above instead of calling Scryfall directly
       (`frontend/src/js/api.js`, `cardImages.js`) and adds a
       "Karten-Cache" tab (`cachedCardsView.js`) to browse everything
       currently cached. Verified via API replay against a running
       backend; not yet confirmed with an actual browser render — see
-      frontend/TODO.md "Cleanup / polish".
+      frontend/ToDo_Frontend.md "Cleanup / polish".
 - [x] Frontend consumes deck persistence too: a "Gespeicherte Decks" tab
       (`savedDecksView.js`) plus a save/update control on "Deck
       importieren" (`deckImportView.js`), and a "Detailansicht" toggle

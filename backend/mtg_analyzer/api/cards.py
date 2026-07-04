@@ -1,6 +1,6 @@
 """Card lookup endpoints: single/batch resolution and listing the cache.
 
-Reference: backend/TODO.md "HTTP API foundation"
+Reference: backend/ToDo_Backend.md "HTTP API foundation"
 (`GET /api/cards/search`), docs/08_CARD_CACHE_EXPORT_IMPORT.md.
 """
 

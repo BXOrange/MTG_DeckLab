@@ -6,7 +6,7 @@ This covers the parsing half of the Phase 1 DecklisteParser task
 (docs/IMPLEMENTATION_GUIDE.md Week 1 Day 3-5); real Commander legality
 (color identity, ban list, partner rules) is intentionally out of scope
 here because it needs card data from the CardDatabase, which doesn't
-exist yet (see backend/TODO.md "Validator").
+exist yet (see backend/ToDo_Backend.md "Validator").
 """
 
 from __future__ import annotations

@@ -8,21 +8,38 @@
 </head>
 <body>
   <header class="app-header">
-    <h1>MTG Deck Analyzer</h1>
-    <nav class="tabs">
-      <button class="tab-button" data-tab="import" type="button">Deck importieren</button>
-      <button class="tab-button" data-tab="savedDecks" type="button">Gespeicherte Decks</button>
-      <button class="tab-button" data-tab="board" type="button">Spielfläche</button>
-      <button class="tab-button" data-tab="cache" type="button">Karten-Cache</button>
-    </nav>
+    <div class="app-header-left">
+      <button class="sidebar-toggle" id="sidebar-toggle" type="button" aria-label="Menü ein-/ausblenden" aria-expanded="true">
+        <span class="burger-bar"></span>
+        <span class="burger-bar"></span>
+        <span class="burger-bar"></span>
+      </button>
+      <h1>MTG Deck Analyzer</h1>
+    </div>
+    <div id="header-connection-status"></div>
   </header>
 
-  <main>
-    <section id="view-import" class="view"></section>
-    <section id="view-saved-decks" class="view"></section>
-    <section id="view-board" class="view"></section>
-    <section id="view-cache" class="view"></section>
-  </main>
+  <div class="app-body">
+    <aside class="sidebar" id="sidebar">
+      <nav class="sidebar-nav">
+        <button class="tab-button" data-tab="import" type="button">Deck erstellen</button>
+        <button class="tab-button" data-tab="savedDecks" type="button">Decks verwalten</button>
+        <button class="tab-button" data-tab="analyze" type="button">Deck analysieren</button>
+        <button class="tab-button" data-tab="board" type="button">Spielfläche</button>
+        <button class="tab-button" data-tab="connection" type="button">Einstellungen</button>
+        <button class="tab-button" data-tab="cache" type="button">Karten-Cache</button>
+      </nav>
+    </aside>
+
+    <main>
+      <section id="view-import" class="view"></section>
+      <section id="view-saved-decks" class="view"></section>
+      <section id="view-analyze" class="view"></section>
+      <section id="view-board" class="view"></section>
+      <section id="view-cache" class="view"></section>
+      <section id="view-connection" class="view"></section>
+    </main>
+  </div>
 
   <script type="module" src="src/js/app.js"></script>
 </body>
