@@ -4,6 +4,12 @@ Reference implementation: `backend/mtg_analyzer/services/card_database.py`,
 `image_cache.py`. See also docs/06_CARD_GRAPHICS_AND_LAZY_LOADING.md for
 the lazy-loading design this cache implements.
 
+**Not to be confused with `backend/data/`** (saved decks,
+`services/deck_database.py`): that directory sits right next to this
+one but holds real user data with no upstream source to regenerate it
+from. Everything below — "always safe to delete", export/import as a
+convenience rather than a backup — applies only to `backend/cache/`.
+
 ## What's in the cache
 
 Everything lives under `backend/cache/`, which is gitignored — it's a

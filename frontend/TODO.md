@@ -33,10 +33,34 @@ implemented.
 - [ ] Real Commander legality: color identity, ban list, partner
       rules. Currently only structural checks (100 cards, singleton,
       exactly one commander) run locally.
-- [ ] Deck persistence: save/load decks via API instead of re-pasting
-      the decklist every time.
+- [x] Deck persistence: save/load decks via API instead of re-pasting
+      the decklist every time — see "Saved decks" below.
 - [ ] Error/loading states for network calls (spinner, retry, offline
       message) — see docs/04 C4.
+
+## Saved decks
+
+- [x] "Deck importieren" tab: a name field + "Speichern" button
+      (`deckImportView.js`) calls `POST /api/decks/save`. Saves the raw
+      textarea contents regardless of parse/validation status (matches
+      the backend, which doesn't require either). Re-clicking
+      "Speichern" after the first save updates that same record instead
+      of creating a duplicate (tracked via the returned `id`, reset only
+      by loading the sample deck or a different saved deck — typing in
+      the textareas doesn't reset it).
+- [x] "Gespeicherte Decks" tab (`savedDecksView.js`): lists every saved
+      deck (name, save timestamp) via `GET /api/decks`, lazily on first
+      open like the other lazy tabs. "Laden" fetches the full deck
+      (`GET /api/decks/{id}`) and feeds it into the import view's
+      textareas via `deckImportView.js`'s exported `loadDeck()`, which
+      then runs the normal parse+resolve+submit flow — same as pasting
+      the text by hand. "Löschen" calls `DELETE /api/decks/{id}` after
+      a `confirm()` prompt.
+- [ ] No rename/duplicate-as-new actions yet — only save (create/update
+      via the tracked id) and delete.
+- [ ] Same browser-verification caveat as "Card display" below: checked
+      via API replay against a running backend (parse → save → list →
+      get → update → resolve → delete), not an actual rendered page.
 
 ## Card display
 
@@ -57,15 +81,39 @@ implemented.
       render** — no Node/npm/Playwright/chromium-cli available in this
       environment to drive one (see "Cleanup / polish" below).
 - [x] "Karten-Cache" tab (`src/js/cachedCardsView.js`): browse every
-      card currently in the backend's cache — image, name, type,
-      mana cost, oracle text, keywords, set/rarity. Fetches
-      `GET /api/cards` lazily (only once the tab is first opened, via a
-      `view-shown` event dispatched by `app.js`'s `showTab`), with a
-      manual refresh button since the cache grows as decks get
-      imported elsewhere in the app. Same browser-verification caveat
-      as above.
-- [ ] Same artwork lookup for the deck-import card lists (Commander/
-      Mainboard/Sideboard results), not just the play area.
+      card currently in the backend's cache — image (shown in full,
+      no crop, via `object-fit`-free `<img>` sizing), name, type, mana
+      cost as colored/number emoji, oracle text, keywords, set/rarity.
+      Fetches `GET /api/cards` lazily (only once the tab is first
+      opened, via a `view-shown` event dispatched by `app.js`'s
+      `showTab`), with a manual refresh button since the cache grows as
+      decks get imported elsewhere in the app. Same browser-verification
+      caveat as above.
+- [ ] Mana cost emoji don't distinguish hybrid/Phyrexian symbols from
+      plain ones (e.g. `{W/U}` renders as a plain ⚪, not "W or U") —
+      inherited from the backend's flattened `Card.mana_cost`, see
+      backend/TODO.md "Mana cost model (Backlog)". Generic mana amount
+      is derived client-side (`converted_mana_cost` minus pip total)
+      rather than stored, for the same reason.
+- [x] Artwork + full card details for the deck-import card lists
+      (Commander/Mainboard/Sideboard): a "Detailansicht" checkbox in the
+      result panel (`deckImportView.js`) switches all three lists from
+      the plain name+qty `<ul>` to the same image/mana-cost/oracle-text
+      tile grid as the Karten-Cache tab, with a quantity badge added.
+      Shared rendering logic lives in `cardTile.js` now (`renderCardTile`,
+      `renderManaCost`, ...) so the two views don't duplicate it.
+      Off by default (the plain list stays the fast/quiet default); a
+      card not yet resolved (data still in flight) shows a "Lädt …"
+      placeholder tile rather than blocking the toggle. Mainboard and
+      Sideboard scroll internally in a `.scrollable` box sized in `vh`
+      (adapts to the window, and gets a taller cap in detail mode since
+      a tile row is much taller than a text row — see `.scrollable` /
+      `.scrollable.detail-mode` in main.css) instead of a fixed pixel
+      height. Toggling the checkbox scrolls the result panel back into
+      view at the top — without it, switching modes changes the panel's
+      height enough that the page could be left scrolled past the new
+      (shorter or taller) content, looking like the toggle silently did
+      nothing.
 - [ ] Mana cost, type, oracle text on cards in the play area — not just
       name + image (docs/06, docs/05 PART 1). The data is available
       now (see above); this is purely a `boardView.js` rendering change.

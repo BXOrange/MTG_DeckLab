@@ -11,6 +11,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from mtg_analyzer.api.cards import router as cards_router
 from mtg_analyzer.api.decks import router as decks_router
 from mtg_analyzer.api.images import router as images_router
+from mtg_analyzer.api.saved_decks import router as saved_decks_router
 
 #: The frontend is a plain static server (setup/start.py, default port
 #: 8765, overridable via --port) with no backend origin baked in, so any
@@ -27,6 +28,7 @@ def create_app() -> FastAPI:
         allow_headers=["*"],
     )
     app.include_router(decks_router)
+    app.include_router(saved_decks_router)
     app.include_router(cards_router)
     app.include_router(images_router)
 

@@ -1,0 +1,65 @@
+"""Deck persistence endpoints: save, list, fetch, delete a saved decklist.
+
+Distinct from `decks.py`'s `POST /api/decks`, which only parses and
+structurally validates decklist text without storing anything.
+
+Reference: docs/04_SERVER_CLIENT_ARCHITECTURE.md (PART 4, REST
+endpoints), backend/TODO.md "Deck persistence".
+"""
+
+from __future__ import annotations
+
+from fastapi import APIRouter, Depends, HTTPException
+
+from mtg_analyzer.api.dependencies import get_deck_database
+from mtg_analyzer.api.schemas import SaveDeckRequest
+from mtg_analyzer.models.deck import Deck
+from mtg_analyzer.services.deck_database import DeckDatabase
+
+router = APIRouter(prefix="/api/decks", tags=["decks"])
+
+
+@router.post("/save")
+def save_deck(
+    request: SaveDeckRequest, database: DeckDatabase = Depends(get_deck_database)
+) -> dict[str, object]:
+    """Create a new saved deck, or update one if `id` matches an existing deck.
+
+    A fresh UUID is generated when `id` is omitted; the response's `id`
+    is what a client should send back on later saves to update this
+    same deck instead of creating another one.
+    """
+    existing = database.get_deck(request.id) if request.id else None
+    deck = Deck(
+        id=existing.id if existing else request.id,
+        name=request.name,
+        commander_text=request.commander_text,
+        mainboard_text=request.mainboard_text,
+        sideboard_text=request.sideboard_text,
+        created_at=existing.created_at if existing else None,
+        analysis_id=existing.analysis_id if existing else None,
+    )
+    database.save_deck(deck)
+    return deck.to_dict()
+
+
+@router.get("")
+def list_decks(database: DeckDatabase = Depends(get_deck_database)) -> list[dict[str, object]]:
+    """Every saved deck, newest first."""
+    return [deck.to_dict() for deck in database.list_decks()]
+
+
+@router.get("/{deck_id}")
+def get_deck(deck_id: str, database: DeckDatabase = Depends(get_deck_database)) -> dict[str, object]:
+    deck = database.get_deck(deck_id)
+    if deck is None:
+        raise HTTPException(status_code=404, detail=f'No saved deck with id "{deck_id}"')
+    return deck.to_dict()
+
+
+@router.delete("/{deck_id}")
+def delete_deck(deck_id: str, database: DeckDatabase = Depends(get_deck_database)) -> dict[str, object]:
+    deleted = database.delete_deck(deck_id)
+    if not deleted:
+        raise HTTPException(status_code=404, detail=f'No saved deck with id "{deck_id}"')
+    return {"deleted": True}

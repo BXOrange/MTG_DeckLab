@@ -1,0 +1,121 @@
+// Shared "detailed card" tile renderer: image (shown in full, no crop) +
+// name + type + mana cost (as emoji) + oracle text + keywords + set/rarity.
+// Used by both the "Karten-Cache" tab (cachedCardsView.js) and the
+// deck-import card lists' detail view (deckImportView.js) so the two
+// don't duplicate the mana-cost-to-emoji logic.
+
+import { cardImageUrl } from './api.js';
+
+// Colored mana symbols get a matching colored circle; {C} (the specific
+// colorless-mana symbol, distinct from generic cost) gets a neutral one.
+const MANA_SYMBOL_EMOJI = { W: '⚪', U: '🔵', B: '⚫', R: '🔴', G: '🟢', C: '🔘' };
+
+// Keycap digit emojis, indexed by digit — used to spell out generic mana
+// (e.g. 12 -> "1️⃣2️⃣") one character at a time, so any amount works without
+// a lookup table per number.
+const DIGIT_EMOJI = ['0️⃣', '1️⃣', '2️⃣', '3️⃣', '4️⃣', '5️⃣', '6️⃣', '7️⃣', '8️⃣', '9️⃣'];
+
+function genericManaEmoji(amount) {
+  return String(amount)
+    .split('')
+    .map((digit) => DIGIT_EMOJI[Number(digit)])
+    .join('');
+}
+
+// Card.mana_cost (from the backend) only counts colored/colorless pips
+// ({W}, {U}, ..., {C}) — generic numeric mana ({2}, {10}, ...) isn't
+// stored per-symbol since it doesn't fit that shape. It's derived here
+// instead: a card's mana value counts every symbol as 1 (including
+// hybrid/Phyrexian ones), so subtracting the pips we do know about
+// leaves the generic amount for the vast majority of real costs.
+export function renderManaCost(card) {
+  const pips = card.mana_cost || {};
+  const pipTotal = Object.values(pips).reduce((sum, count) => sum + count, 0);
+  const generic = Math.max(0, (card.converted_mana_cost || 0) - pipTotal);
+
+  const parts = [];
+  if (generic > 0) parts.push(genericManaEmoji(generic));
+  for (const symbol of ['C', 'W', 'U', 'B', 'R', 'G']) {
+    const count = pips[symbol] || 0;
+    if (count > 0) parts.push(MANA_SYMBOL_EMOJI[symbol].repeat(count));
+  }
+  return parts.join(' ');
+}
+
+/**
+ * Scryfall's exact-name search redirects straight to the card's page
+ * when the name is unambiguous (verified by hand: a 303 to
+ * /card/<set>/<number>/<slug>), so this needs no card id/set from the
+ * backend — just the name already on every resolved card dict.
+ * @param {string} cardName
+ */
+export function scryfallUrl(cardName) {
+  return `https://scryfall.com/search?q=${encodeURIComponent(`!"${cardName}"`)}`;
+}
+
+/**
+ * @param {object} card A resolved card dict (Card.to_dict() shape).
+ * @param {{qty?: number}} [options] Optional quantity badge (deck-import context only).
+ */
+export function renderCardTile(card, { qty } = {}) {
+  const manaCost = renderManaCost(card);
+  const powerToughness = card.power != null && card.toughness != null ? `${card.power}/${card.toughness}` : '';
+  const metaParts = [card.rarity, card.set_code ? card.set_code.toUpperCase() : ''].filter(Boolean);
+  const qtyBadge = qty != null ? `<span class="card-tile-qty">${qty}×</span>` : '';
+
+  return `
+    <div class="card-tile">
+      <div class="card-tile-image">
+        ${qtyBadge}
+        <img src="${cardImageUrl(card.id, 'normal')}" alt="${escapeHtml(card.name)}" loading="lazy" />
+      </div>
+      <div class="card-tile-info">
+        <h4>${escapeHtml(card.name)}</h4>
+        <p class="card-tile-type">${escapeHtml(card.type_line)}</p>
+        ${manaCost ? `<p class="card-tile-cost">${manaCost}</p>` : ''}
+        ${powerToughness ? `<p class="card-tile-pt">${escapeHtml(powerToughness)}</p>` : ''}
+        ${card.oracle_text ? `<p class="card-tile-text">${escapeHtml(card.oracle_text)}</p>` : ''}
+        ${card.keywords?.length ? `<p class="card-tile-keywords">${escapeHtml(card.keywords.join(', '))}</p>` : ''}
+        ${metaParts.length ? `<p class="card-tile-meta">${escapeHtml(metaParts.join(' · '))}</p>` : ''}
+        <a
+          class="card-tile-scryfall-link"
+          href="${scryfallUrl(card.name)}"
+          target="_blank"
+          rel="noopener noreferrer"
+          title="Auf Scryfall ansehen"
+          aria-label="Auf Scryfall ansehen"
+        >🔗</a>
+      </div>
+    </div>
+  `;
+}
+
+/** Fallback tile for a card name with no resolved data yet (still loading / unknown). */
+export function renderCardTilePlaceholder(name, { qty } = {}) {
+  const qtyBadge = qty != null ? `<span class="card-tile-qty">${qty}×</span>` : '';
+  return `
+    <div class="card-tile card-tile-placeholder">
+      <div class="card-tile-image">
+        ${qtyBadge}
+      </div>
+      <div class="card-tile-info">
+        <h4>${escapeHtml(name)}</h4>
+        <p class="card-tile-type empty-state">Lädt …</p>
+        <a
+          class="card-tile-scryfall-link"
+          href="${scryfallUrl(name)}"
+          target="_blank"
+          rel="noopener noreferrer"
+          title="Auf Scryfall ansehen"
+          aria-label="Auf Scryfall ansehen"
+        >🔗</a>
+      </div>
+    </div>
+  `;
+}
+
+export function escapeHtml(str) {
+  const div = document.createElement('div');
+  div.textContent = str;
+  return div.innerHTML;
+}

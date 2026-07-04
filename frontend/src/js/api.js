@@ -98,3 +98,87 @@ export async function listCachedCards() {
     return null;
   }
 }
+
+/**
+ * Save a new deck, or update one already saved (pass its `id` back).
+ * @param {{id?: string, name: string, commanderText: string, mainboardText: string, sideboardText: string}} deck
+ * @returns {Promise<object | null>} the saved deck (with its id), or null on failure
+ */
+export async function saveDeck(deck) {
+  let response;
+  try {
+    response = await fetch(`${API_BASE_URL}/api/decks/save`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(deck),
+    });
+  } catch {
+    return null;
+  }
+
+  if (!response.ok) return null;
+
+  try {
+    return await response.json();
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Every saved deck (name, text sections, timestamps — not full card data), newest first.
+ * @returns {Promise<object[] | null>} null on network/server failure
+ */
+export async function listSavedDecks() {
+  let response;
+  try {
+    response = await fetch(`${API_BASE_URL}/api/decks`);
+  } catch {
+    return null;
+  }
+
+  if (!response.ok) return null;
+
+  try {
+    return await response.json();
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * @param {string} deckId
+ * @returns {Promise<object | null>} null if not found or on network/server failure
+ */
+export async function getSavedDeck(deckId) {
+  let response;
+  try {
+    response = await fetch(`${API_BASE_URL}/api/decks/${encodeURIComponent(deckId)}`);
+  } catch {
+    return null;
+  }
+
+  if (!response.ok) return null;
+
+  try {
+    return await response.json();
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * @param {string} deckId
+ * @returns {Promise<boolean>} whether the deck was actually deleted
+ */
+export async function deleteSavedDeck(deckId) {
+  let response;
+  try {
+    response = await fetch(`${API_BASE_URL}/api/decks/${encodeURIComponent(deckId)}`, {
+      method: 'DELETE',
+    });
+  } catch {
+    return false;
+  }
+  return response.ok;
+}

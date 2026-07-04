@@ -106,9 +106,14 @@ button:disabled {
 
 .import-panel {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  /* Input column stays a sensible reading width; the result column
+     ("Deck-Übersicht") takes whatever's left, so it's what actually
+     grows as the window widens — most useful in detail mode, where a
+     wider column fits more card-tile-grid columns per row. */
+  grid-template-columns: minmax(320px, 480px) minmax(0, 1fr);
   gap: 1.5rem;
-  max-width: 1200px;
+  max-width: min(1800px, 96vw);
+  margin: 0 auto;
 }
 
 @media (max-width: 900px) {
@@ -160,6 +165,49 @@ textarea {
   margin-top: 0.75rem;
 }
 
+.save-deck-row {
+  margin-top: 1.25rem;
+  padding-top: 1rem;
+  border-top: 1px solid var(--border);
+}
+
+.save-deck-controls {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.save-deck-controls input {
+  flex: 1;
+  background: var(--bg);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 0.5rem 0.75rem;
+  font-size: 0.85rem;
+}
+
+.deck-summary-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-bottom: 0.5rem;
+}
+
+.deck-summary-header h2 {
+  margin: 0;
+}
+
+.detail-toggle {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.8rem;
+  color: var(--text-dim);
+  cursor: pointer;
+}
+
 .status-ok { color: var(--ok); font-weight: 600; }
 .status-error { color: var(--error); font-weight: 600; }
 
@@ -194,9 +242,17 @@ textarea {
   margin-right: 0.4rem;
 }
 
-.card-list.scrollable {
-  max-height: 260px;
+/* Viewport-relative rather than a fixed pixel value, so the box scales
+   with the window instead of showing ~13 text rows or barely half a
+   card tile depending on screen size. Detail mode gets a taller cap
+   since each row (a whole card tile) is much taller than a text line. */
+.scrollable {
+  max-height: 40vh;
   overflow-y: auto;
+}
+
+.scrollable.detail-mode {
+  max-height: 65vh;
 }
 
 .empty-state {
@@ -341,13 +397,15 @@ textarea {
   font-size: 0.85rem;
 }
 
-.card-cache-grid {
+/* --- Shared card tile (Karten-Cache + deck-import detail view) --- */
+
+.card-tile-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
   gap: 1.25rem;
 }
 
-.cache-card {
+.card-tile {
   display: flex;
   flex-direction: column;
   background: var(--panel);
@@ -356,53 +414,129 @@ textarea {
   overflow: hidden;
 }
 
+.card-tile-image {
+  position: relative;
+}
+
 /* No fixed aspect-ratio/object-fit crop here on purpose: height is left
    to the image's own natural ratio so the whole card is always visible,
    whatever its actual proportions (including oddities like split cards). */
-.cache-card img {
+.card-tile-image img {
   display: block;
   width: 100%;
   height: auto;
   background: var(--bg);
 }
 
-.cache-card-info {
+.card-tile-placeholder .card-tile-image {
+  min-height: 80px;
+  background: var(--bg);
+}
+
+.card-tile-qty {
+  position: absolute;
+  top: 0.4rem;
+  left: 0.4rem;
+  background: var(--accent);
+  color: #1b1e24;
+  font-weight: 700;
+  font-size: 0.78rem;
+  padding: 0.1rem 0.45rem;
+  border-radius: 999px;
+  z-index: 1;
+}
+
+.card-tile-scryfall-link {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.6rem;
+  height: 1.6rem;
+  margin-top: 0.2rem;
+  background: var(--panel-alt);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  font-size: 0.85rem;
+  text-decoration: none;
+}
+
+.card-tile-scryfall-link:hover {
+  background: var(--accent);
+}
+
+.card-tile-info {
   min-width: 0;
   padding: 0.75rem;
 }
 
-.cache-card-info h4 {
+.card-tile-info h4 {
   margin: 0 0 0.2rem;
   font-size: 0.9rem;
   color: var(--accent);
 }
 
-.cache-card-info p {
+.card-tile-info p {
   margin: 0 0 0.3rem;
   font-size: 0.78rem;
   line-height: 1.3;
 }
 
-.cache-card-type {
+.card-tile-type {
   color: var(--text-dim);
 }
 
-.cache-card-cost {
+.card-tile-cost {
   font-size: 1rem;
   letter-spacing: 0.05em;
 }
 
-.cache-card-text {
+.card-tile-text {
   color: var(--text);
 }
 
-.cache-card-keywords {
+.card-tile-keywords {
   color: var(--ok);
   font-style: italic;
 }
 
-.cache-card-meta {
+.card-tile-meta {
   color: var(--text-dim);
   text-transform: uppercase;
   letter-spacing: 0.03em;
+}
+
+/* --- Gespeicherte Decks --- */
+
+.saved-decks-panel {
+  max-width: 800px;
+}
+
+.saved-deck-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 0.75rem 1rem;
+  margin-bottom: 0.6rem;
+}
+
+.saved-deck-info {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  min-width: 0;
+}
+
+.saved-deck-meta {
+  color: var(--text-dim);
+  font-size: 0.78rem;
+}
+
+.saved-deck-actions {
+  display: flex;
+  gap: 0.5rem;
+  flex-shrink: 0;
 }

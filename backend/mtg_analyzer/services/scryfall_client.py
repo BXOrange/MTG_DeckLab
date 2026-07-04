@@ -157,6 +157,15 @@ def _parse_mana_cost(mana_cost: str) -> dict[str, int]:
     The `Card` model only tracks a per-symbol pip count (no generic
     amount field), so "{2}{R}" becomes {"R": 1} with the "2" dropped;
     `converted_mana_cost` remains the source of truth for total cost.
+
+    Hybrid ("{W/U}") and Phyrexian ("{W/P}") symbols are also
+    flattened: each is split on "/" and only the half matching a known
+    color/colorless letter is kept, so "{W/U}" and "{W/P}" both count
+    as a single "W" pip, indistinguishable from a plain "{W}". That
+    loses real information (a hybrid symbol can be paid in either
+    color; a Phyrexian one can be paid with 2 life instead) — see
+    backend/TODO.md "Mana cost model" for the backlog on representing
+    these properly.
     """
     counts = {color: 0 for color in sorted(VALID_COLORS) + ["C"]}
     for symbol in _MANA_SYMBOL_RE.findall(mana_cost):

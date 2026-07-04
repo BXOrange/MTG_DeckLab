@@ -1,10 +1,12 @@
 import { renderDeckImportView } from './deckImportView.js';
 import { renderBoardView } from './boardView.js';
 import { renderCachedCardsView } from './cachedCardsView.js';
+import { renderSavedDecksView } from './savedDecksView.js';
 
 const tabButtons = document.querySelectorAll('.tab-button');
 const views = {
   import: document.getElementById('view-import'),
+  savedDecks: document.getElementById('view-saved-decks'),
   board: document.getElementById('view-board'),
   cache: document.getElementById('view-cache'),
 };
@@ -26,8 +28,14 @@ tabButtons.forEach((btn) => {
   btn.addEventListener('click', () => showTab(btn.dataset.tab));
 });
 
-renderDeckImportView(views.import, { onDeckLoaded: () => showTab('board') });
+const importView = renderDeckImportView(views.import, { onDeckLoaded: () => showTab('board') });
 renderBoardView(views.board);
 renderCachedCardsView(views.cache);
+renderSavedDecksView(views.savedDecks, {
+  onLoadDeck: (deck) => {
+    importView.loadDeck(deck);
+    showTab('import');
+  },
+});
 
 showTab('import');

@@ -10,11 +10,16 @@
 
 import { resolveCards, cardImageUrl } from './api.js';
 
-const cache = new Map(); // name.toLowerCase() -> {small, normal} | null (null = not found)
+// name.toLowerCase() -> {small, normal, card} | null (null = not found).
+// `card` is the full resolved card dict — kept alongside the image URLs
+// so a detail view (deckImportView.js's "Detailansicht" toggle) can read
+// mana cost/oracle text/etc. from the same resolve call, without a
+// second round trip for data boardView.js doesn't need.
+const cache = new Map();
 
 /**
  * @param {string[]} names Card names to resolve (deck-import spelling).
- * @returns {Promise<Map<string, {small: string, normal: string}>>} keyed by lowercase name
+ * @returns {Promise<Map<string, {small: string, normal: string, card: object}>>} keyed by lowercase name
  */
 export async function resolveCardImages(names) {
   const uniqueNames = Array.from(new Set(names.map((n) => n.trim()).filter(Boolean)));
@@ -27,6 +32,7 @@ export async function resolveCardImages(names) {
         cache.set(name.toLowerCase(), {
           small: cardImageUrl(card.id, 'small'),
           normal: cardImageUrl(card.id, 'normal'),
+          card,
         });
       }
       for (const name of result.notFound) {
@@ -44,4 +50,15 @@ export async function resolveCardImages(names) {
     if (entry) resolved.set(name.toLowerCase(), entry);
   }
   return resolved;
+}
+
+/**
+ * The full resolved card dict for a name, if `resolveCardImages` has
+ * already fetched it this session — otherwise null (not yet resolved,
+ * or resolved as "not found").
+ * @param {string} name
+ * @returns {object | null}
+ */
+export function getResolvedCard(name) {
+  return cache.get(name.trim().toLowerCase())?.card ?? null;
 }
