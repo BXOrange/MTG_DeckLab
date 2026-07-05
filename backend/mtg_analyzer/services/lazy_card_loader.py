@@ -40,13 +40,22 @@ class LazyCardLoader:
         """Look up each name in the DB first; fetch only what's missing from Scryfall."""
         result = LoadCardsResult()
         missing: list[str] = []
+        #: Cached rows missing `mana_cost_string` (predate that field, or
+        #: entered the cache some other way, e.g. a docs/08 import of an
+        #: old export) — refetched below like a genuine miss, but kept
+        #: here so a failed refetch still falls back to the stale copy
+        #: rather than turning a previously-working card into "not found".
+        stale: dict[str, Card] = {}
 
         for name in _dedupe(names):
             cached = self._database.get_card(name)
-            if cached is not None:
+            if cached is None:
+                missing.append(name)
+            elif cached.has_mana_cost_data:
                 result.cards[name] = cached
             else:
                 missing.append(name)
+                stale[name] = cached
 
         if missing:
             # Scryfall's /cards/collection matches a double-faced card by a
@@ -87,6 +96,15 @@ class LazyCardLoader:
                 for requested_name in requested_by_query.get(missing_query.lower(), []):
                     if requested_name not in result.cards:
                         result.not_found.append(requested_name)
+
+        # A stale row's refetch didn't come back (rare — the card was
+        # resolvable before) — keep serving the old copy rather than
+        # newly reporting a previously-working card as not found.
+        for name, cached in stale.items():
+            if name not in result.cards:
+                result.cards[name] = cached
+                if name in result.not_found:
+                    result.not_found.remove(name)
 
         return result
 

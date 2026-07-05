@@ -5,15 +5,6 @@ Open backend items. Completed work has moved to
 See [../IMPLEMENTATION_STATUS.md](../IMPLEMENTATION_STATUS.md) and
 `../docs/IMPLEMENTATION_GUIDE.md` for the phase plan this follows.
 
-## Mana cost model (Backlog)
-
-- [ ] Hybrid/Phyrexian nuance for *stale* cached rows: `ManaCost.from_card`
-      reconstructs a plain cost from the flat pip tally for cards cached
-      before `mana_cost_string` existed, which can't recover a `{W/U}` /
-      `{W/P}` distinction (never stored in the flat dict). A cache refresh
-      restores full fidelity; a targeted re-fetch/backfill of just those
-      rows would avoid needing a full wipe. See Done "Mana cost model".
-
 ## Configuration (Backlog)
 
 - [ ] On-disk paths (`CACHE_ROOT`/`DEFAULT_DB_PATH` in
@@ -54,7 +45,8 @@ See [../IMPLEMENTATION_STATUS.md](../IMPLEMENTATION_STATUS.md) and
       currently deterministic discovery order; needs a player prompt once
       interactive play does.
 - [ ] Trigger ordering *within* a controller (RULE 603.3b) — currently
-      APNAP by controller only, no intra-controller choic
+      APNAP by controller only, no intra-controller choice
+
 ## Game Engine (Phase 3) — remaining
 
 - [~] Multiplayer game session + priority system (UC4): **stubbed** —

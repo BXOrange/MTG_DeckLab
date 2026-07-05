@@ -132,6 +132,21 @@ class Card:
         self.has_partner = has_partner
         self.partner_with = partner_with
 
+    @property
+    def has_mana_cost_data(self) -> bool:
+        """Whether `mana_cost_string` reflects a real Scryfall lookup.
+
+        Scryfall gives every non-land an explicit cost string (even a
+        genuinely free one is `"{0}"`, not blank) — so a non-land card with
+        a blank `mana_cost_string` means this row predates that field
+        (`backend/Done_Backend.md` "Mana cost model"), not that the card
+        is actually free. `ManaCost.from_card` can still *price* such a row
+        from the legacy pip tally, just without hybrid/Phyrexian fidelity;
+        `LazyCardLoader` uses this flag to refetch it instead of serving
+        the stale copy forever.
+        """
+        return bool(self.mana_cost_string) or self.is_land
+
     def to_dict(self) -> dict[str, Any]:
         """Serialize this card to a JSON-compatible dict."""
         return {

@@ -169,6 +169,9 @@ class TestLoadCards:
         loader = LazyCardLoader(database, scryfall)
 
         # Pre-seed "Counterspell" directly so only "Lightning Bolt" is missing.
+        # `mana_cost_string` set (a "fully cached" row, not a stale one that
+        # predates that field — see TestStaleCachedRows below) so it
+        # doesn't itself trigger a refetch.
         from mtg_analyzer.models.card import Card
 
         database.save_card(
@@ -176,6 +179,8 @@ class TestLoadCards:
                 id="counterspell-id",
                 name="Counterspell",
                 type_line="Instant",
+                mana_cost_string="{U}{U}",
+                converted_mana_cost=2,
                 is_instant=True,
             )
         )
@@ -295,3 +300,88 @@ class TestLoadCards:
         # Reported under the caller's full name, not the front-face query.
         assert result.not_found == ["Fakefront // Fakeback"]
         assert result.cards == {}
+
+
+class TestStaleCachedRows:
+    """A row cached before `mana_cost_string` existed self-heals on load.
+
+    Reference: backend/Done_Backend.md "Mana cost model", ToDo's former
+    "Hybrid/Phyrexian nuance for stale cached rows" entry — schema
+    versioning (services/schema_version.py) already wipes the *whole* card
+    cache when `models/card.py` changes shape, so genuinely pre-existing
+    rows can't survive a deployed schema change. But a row could still end
+    up without `mana_cost_string` some other way post-deploy — e.g.
+    importing an old docs/08 cache export into an already-reconciled DB —
+    so `LazyCardLoader` treats a stale hit as a miss and refetches it.
+    """
+
+    def test_stale_row_missing_mana_cost_string_is_refetched(self):
+        calls = []
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            calls.append(request)
+            return httpx.Response(200, json={"data": [LIGHTNING_BOLT], "not_found": []})
+
+        loader, database = make_loader(handler)
+        from mtg_analyzer.models.card import Card
+
+        # Simulates a row cached before `mana_cost_string` existed: a
+        # non-land with no raw cost string, but a real mana value (the
+        # "Sol Ring" bug shape) — same id Scryfall reports for the fixture.
+        database.save_card(
+            Card(
+                id=LIGHTNING_BOLT["id"],
+                name="Lightning Bolt",
+                type_line="Instant",
+                converted_mana_cost=1,
+                is_instant=True,
+            )
+        )
+
+        result = loader.load_cards(["Lightning Bolt"])
+
+        assert len(calls) == 1  # refetched despite being "cached"
+        assert result.cards["Lightning Bolt"].mana_cost_string == "{R}"
+        # The DB row itself is healed too, not just this call's result.
+        assert database.get_card("Lightning Bolt").mana_cost_string == "{R}"
+
+    def test_stale_row_falls_back_to_cache_if_refetch_finds_nothing(self):
+        def handler(request: httpx.Request) -> httpx.Response:
+            return httpx.Response(
+                200, json={"data": [], "not_found": [{"name": "Lightning Bolt"}]}
+            )
+
+        loader, database = make_loader(handler)
+        from mtg_analyzer.models.card import Card
+
+        stale = Card(
+            id="stale-id", name="Lightning Bolt", type_line="Instant", converted_mana_cost=1,
+            is_instant=True,
+        )
+        database.save_card(stale)
+
+        result = loader.load_cards(["Lightning Bolt"])
+
+        # A previously-working card must not start reporting as not-found
+        # just because its self-heal refetch didn't come back.
+        assert result.not_found == []
+        assert result.cards["Lightning Bolt"] == stale
+
+    def test_land_with_blank_mana_cost_string_is_not_treated_as_stale(self):
+        calls = []
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            calls.append(request)
+            return httpx.Response(200, json={"data": [], "not_found": []})
+
+        loader, database = make_loader(handler)
+        from mtg_analyzer.models.card import Card
+
+        database.save_card(
+            Card(id="forest-id", name="Forest", type_line="Basic Land — Forest", is_land=True)
+        )
+
+        result = loader.load_cards(["Forest"])
+
+        assert calls == []  # a land's blank mana_cost_string is legitimate
+        assert result.cards["Forest"].name == "Forest"

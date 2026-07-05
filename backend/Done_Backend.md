@@ -170,7 +170,26 @@ modeled faithfully:
       reconstructs a plain cost from the flat pip tally +
       `converted_mana_cost` when the raw string is missing, so the card
       still costs its real total/colors; hybrid/Phyrexian nuance stays
-      unavailable for those stale rows until a cache refresh (see ToDo).
+      unavailable for those stale rows until they're refetched — see
+      "Self-healing stale cache rows" below (formerly a ToDo backlog item;
+      resolved rather than left as manual backfill work).
+- [x] **Self-healing stale cache rows**: schema versioning (below) already
+      wipes the *whole* card cache when `models/card.py` changes shape, so
+      a genuinely pre-existing stale row can't survive a deployed schema
+      change past the first backend start. But a row can still end up
+      without `mana_cost_string` some other way post-reconcile — e.g.
+      importing an old docs/08 cache export into an already-reconciled DB.
+      `Card.has_mana_cost_data` (`models/card.py`) flags this: Scryfall
+      gives every non-land an explicit cost string (even a free one is
+      `"{0}"`, never blank), so a non-land with a blank
+      `mana_cost_string` means the row predates that field, not that the
+      card is actually free. `LazyCardLoader.load_cards` treats such a hit
+      as a miss and refetches it from Scryfall — healing the DB row in
+      place via the normal `save_card` — while falling back to the stale
+      copy (not "not found") if that refetch doesn't come back, so a
+      previously-working card never regresses. Land rows with a
+      legitimately blank cost are left alone. Tests:
+      `test_lazy_card_loader.py::TestStaleCachedRows`.
 - [x] **X-spell casting** (RULE 601.2b): `{X}` parses to a `VARIABLE`
       symbol worth 0 until announced. `ManaCost.has_variable`/`.with_x(x)`
       resolve every `{X}` in a cost to the chosen value (a copy — the
