@@ -239,7 +239,8 @@ class GameSession:
             # player can respond (cast an instant) or pass priority to let
             # it resolve — real stack interaction (RULE 608).
             targets = self._resolve_targets(action.get("targets"))
-            self.engine.cast_spell(active, self._object(action), targets)
+            x = int(action.get("x", 0))
+            self.engine.cast_spell(active, self._object(action), targets, x)
             return
 
         if kind in ("attack", "declare_attackers"):

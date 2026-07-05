@@ -146,6 +146,23 @@ modeled faithfully:
       hybrid/mono-hybrid/Phyrexian, exposing its `payment_options()`).
       `ManaPool.can_pay`/`pay` solve payment including hybrid choice and
       Phyrexian life payment (`test_mana_cost.py`, `test_mana_pool.py`).
+      **Bug fixed:** `pay()` correctly computed the life a Phyrexian pip
+      cost, but `RulesEngine.cast_spell` discarded that return value
+      instead of applying it, so paying life for `{W/P}` never actually
+      drained any (RULE 119.4). Fixed via a new shared `RulesEngine.
+      lose_life(player, amount, cause="effect")` choke point (mirrors the
+      existing `gain_life`) — every life-loss path (damage's RULE 120.3
+      translation, a life-paid cost, a future direct life-loss effect)
+      routes through it instead of touching `player.lose_life`/firing
+      `LIFE_LOST` ad hoc, so none can forget to fire the event again.
+      `cause` ("damage"/"cost"/"effect") is metadata only — nothing in the
+      rules distinguishes *why* life was lost for trigger purposes, this
+      is just for logging/UI and a future hook. `deal_damage` calls it
+      with `cause="damage"`; Phyrexian payment with `cause="cost"`. Tests:
+      `test_phyrexian_mana_payment_drains_life`,
+      `test_deal_damage_fires_life_lost_with_damage_cause`,
+      `test_phyrexian_mana_payment_fires_life_lost_with_cost_cause`,
+      `test_rules_engine_lose_life_is_the_shared_choke_point`.
       Stale cached rows (saved before `mana_cost_string` existed)
       deserialize with `""`, which is ambiguous (a land is free; a stale
       Sol Ring is not) — reading it as free let such cards be cast for no
@@ -153,8 +170,20 @@ modeled faithfully:
       reconstructs a plain cost from the flat pip tally +
       `converted_mana_cost` when the raw string is missing, so the card
       still costs its real total/colors; hybrid/Phyrexian nuance stays
-      unavailable for those stale rows until a cache refresh. `{X}` parses
-      to a `VARIABLE` symbol that counts as 0 until X-spell casting exists.
+      unavailable for those stale rows until a cache refresh (see ToDo).
+- [x] **X-spell casting** (RULE 601.2b): `{X}` parses to a `VARIABLE`
+      symbol worth 0 until announced. `ManaCost.has_variable`/`.with_x(x)`
+      resolve every `{X}` in a cost to the chosen value (a copy — the
+      parsed cost itself is untouched); `RulesEngine.cast_spell` and
+      `GameEngine.can_cast`/`cast_spell` take an `x` argument and apply it
+      before the `ManaPool` payment check, and `StackItem.x` records the
+      announced value. `GameEngine.legal_actions`' `cast_spell` entries
+      flag `has_x`/`max_x` (the highest X currently payable, found by
+      scanning down from the pool's total mana) so the UI knows to prompt
+      for a value instead of casting outright; `GameSession._dispatch`
+      reads `x` off the action dict (default 0). Tests:
+      `test_mana_cost.py` (`with_x`/`has_variable`), `test_game_engine.py`
+      (`test_x_spell_*`).
 
 ## Data model / cache schema versioning
 

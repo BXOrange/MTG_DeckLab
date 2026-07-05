@@ -211,6 +211,29 @@ class ManaCost:
         """A cost with no symbols at all (e.g. a land's ``""``)."""
         return not self.symbols
 
+    @property
+    def has_variable(self) -> bool:
+        """Whether this cost contains an unset ``{X}`` (RULE 107.3c)."""
+        return any(s.kind == VARIABLE for s in self.symbols)
+
+    def with_x(self, x: int) -> "ManaCost":
+        """A copy with every ``{X}`` symbol resolved to the announced value.
+
+        RULE 601.2b: a player announces X when casting a spell with {X} in
+        its cost, before paying. `ManaSymbol.cmc` still reports 0 for a
+        `VARIABLE` symbol regardless (RULE 202.3b only counts the chosen
+        value on the stack/battlefield, not in this static cost model), but
+        `ManaPool` sums `amount` when solving payment, so this is enough to
+        make X actually cost something.
+        """
+        if x < 0:
+            raise ValueError("X must be >= 0")
+        resolved = [
+            ManaSymbol(s.kind, s.color, x) if s.kind == VARIABLE else s
+            for s in self.symbols
+        ]
+        return ManaCost(resolved, raw=self.raw)
+
     def __repr__(self) -> str:
         return f"ManaCost({self.raw!r})"
 

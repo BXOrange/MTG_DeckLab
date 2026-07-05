@@ -285,6 +285,57 @@ def test_instant_can_be_cast_at_instant_speed():
     assert eng.can_cast(p1, p1.hand[0])
 
 
+def test_phyrexian_mana_payment_drains_life():
+    # Regression: ManaPool.pay computes the life spent on a Phyrexian pip
+    # but cast_spell used to discard it, so paying {R/P} with life never
+    # actually cost anything (RULE 119.4).
+    eng = make_engine([instant(name="Gut Shot", cost="{R/P}")], hand=1)
+    eng.begin_turn()
+    eng.state.current_step = "main1"
+    p1 = eng.state.active_player
+    assert p1.life == 20
+    eng.cast_spell(p1, p1.hand[0])  # empty pool -> must pay 2 life instead
+    assert p1.life == 18
+
+
+def test_x_spell_defaults_to_x_zero():
+    eng = make_engine([instant(name="Fireball", cost="{X}{R}")], hand=1)
+    eng.begin_turn()
+    eng.state.current_step = "main1"
+    p1 = eng.state.active_player
+    p1.mana_pool.add("R", 1)  # only enough for X=0
+    assert eng.can_cast(p1, p1.hand[0])  # X=0 is always a legal announcement
+    eng.cast_spell(p1, p1.hand[0])
+    assert eng.state.stack[-1].x == 0
+    assert p1.mana_pool.pool["R"] == 0
+
+
+def test_x_spell_pays_the_announced_value():
+    eng = make_engine([instant(name="Fireball", cost="{X}{R}")], hand=1)
+    eng.begin_turn()
+    eng.state.current_step = "main1"
+    p1 = eng.state.active_player
+    p1.mana_pool.add_many({"R": 1, "C": 3})
+    assert not eng.can_cast(p1, p1.hand[0], x=4)  # only 3 generic available
+    assert eng.can_cast(p1, p1.hand[0], x=3)
+    eng.cast_spell(p1, p1.hand[0], x=3)
+    assert eng.state.stack[-1].x == 3
+    assert p1.mana_pool.total() == 0  # R + 3 generic all spent
+
+
+def test_x_spell_legal_action_reports_max_affordable_x():
+    eng = make_engine([instant(name="Fireball", cost="{X}{R}")], hand=1)
+    eng.begin_turn()
+    eng.state.current_step = "main1"
+    p1 = eng.state.active_player
+    p1.mana_pool.add_many({"R": 1, "C": 3})
+    [cast_action] = [
+        a for a in eng.legal_actions(p1) if a["type"] == "cast_spell"
+    ]
+    assert cast_action["has_x"] is True
+    assert cast_action["max_x"] == 3
+
+
 def test_stack_is_lifo():
     eng = make_engine([land()], hand=0)
     state = eng.state
@@ -381,6 +432,42 @@ def test_deal_damage_to_player_reduces_life():
     p2 = eng.state.player_by_id("p2")
     eng.rules.deal_damage(p2, 3)
     assert p2.life == 17
+
+
+def _life_lost_events(eng):
+    events = []
+    eng.state.subscribe(lambda e: events.append(e) if e.type == EventType.LIFE_LOST else None)
+    return events
+
+
+def test_deal_damage_fires_life_lost_with_damage_cause():
+    eng = make_engine([land()], [land()], hand=0)
+    p2 = eng.state.player_by_id("p2")
+    events = _life_lost_events(eng)
+    eng.rules.deal_damage(p2, 3)
+    assert [(e["amount"], e["cause"]) for e in events] == [(3, "damage")]
+
+
+def test_phyrexian_mana_payment_fires_life_lost_with_cost_cause():
+    eng = make_engine([instant(name="Gut Shot", cost="{R/P}")], hand=1)
+    eng.begin_turn()
+    eng.state.current_step = "main1"
+    p1 = eng.state.active_player
+    events = _life_lost_events(eng)
+    eng.cast_spell(p1, p1.hand[0])
+    assert [(e["amount"], e["cause"]) for e in events] == [(2, "cost")]
+
+
+def test_rules_engine_lose_life_is_the_shared_choke_point():
+    eng = make_engine([land()], hand=0)
+    p1 = eng.state.active_player
+    events = _life_lost_events(eng)
+    eng.rules.lose_life(p1, 4)  # default cause, e.g. a direct life-loss effect
+    assert p1.life == 16
+    assert [(e["amount"], e["cause"]) for e in events] == [(4, "effect")]
+    # A non-positive amount is a no-op (mirrors gain_life's guard) — no event.
+    eng.rules.lose_life(p1, 0)
+    assert len(events) == 1
 
 
 def test_deal_damage_effect_via_context():

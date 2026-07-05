@@ -332,8 +332,14 @@ class GameEngine:
         )
         return obj
 
-    def can_cast(self, player: Player, obj: GameObject) -> bool:
-        """RULE 601/602.5: is this spell castable by ``player`` right now?"""
+    def can_cast(self, player: Player, obj: GameObject, x: int = 0) -> bool:
+        """RULE 601/602.5: is this spell castable by ``player`` right now?
+
+        ``x`` is the value that would be announced for a cost containing
+        ``{X}`` (ignored otherwise) — pass 0 (the default) to check bare
+        castability, or a specific value to check whether *that* X is
+        affordable.
+        """
         # A commander may be cast from the command zone as well as the
         # hand (RULE 903.6, 903.8) — commander tax (RULE 903.8, +{2} per
         # previous cast from there) isn't modeled yet.
@@ -351,15 +357,34 @@ class GameEngine:
             if not self._in_main_phase() or self.state.stack:
                 return False
         cost = self.rules.mana_cost_of(card)
+        if cost.has_variable:
+            cost = cost.with_x(x)
         return player.mana_pool.can_pay(cost, life_available=player.life)
 
+    def max_affordable_x(self, player: Player, obj: GameObject) -> int:
+        """The highest X ``player`` could announce and still pay for ``obj``.
+
+        Only meaningful when the cost has ``{X}``; scans down from the
+        pool's total mana (X can never exceed that) to the first payable
+        value, 0 if even X=0 doesn't work.
+        """
+        bound = player.mana_pool.total()
+        for x in range(bound, -1, -1):
+            if self.can_cast(player, obj, x):
+                return x
+        return 0
+
     def cast_spell(
-        self, player: Player, obj: GameObject, targets: Optional[list[Any]] = None
+        self,
+        player: Player,
+        obj: GameObject,
+        targets: Optional[list[Any]] = None,
+        x: int = 0,
     ):
         """Cast a spell after validating timing and payability (RULE 601)."""
-        if not self.can_cast(player, obj):
+        if not self.can_cast(player, obj, x):
             raise ValueError(f"{player.id} cannot cast {obj.name} now")
-        return self.rules.cast_spell(player, obj, targets)
+        return self.rules.cast_spell(player, obj, targets, x)
 
     def declare_attackers(self, player: Player, attackers: list[GameObject]) -> None:
         """Declare attackers (RULE 508). Taps them and fires ATTACKS."""
@@ -413,6 +438,20 @@ class GameEngine:
     # Action validation query (docs/02 R4.3)
     # ------------------------------------------------------------------
 
+    def _cast_action(self, player: Player, obj: GameObject) -> dict[str, Any]:
+        """A ``cast_spell`` legal-action entry, flagging an ``{X}`` cost.
+
+        ``has_x`` tells the UI to prompt for a value; ``max_x`` is the
+        highest it can offer up front (still re-validated server-side by
+        `cast_spell`, which re-checks payability for the chosen ``x``).
+        """
+        action = {"type": "cast_spell", "instance_id": obj.instance_id, "name": obj.name}
+        cost = self.rules.mana_cost_of(obj.card)
+        if cost.has_variable:
+            action["has_x"] = True
+            action["max_x"] = self.max_affordable_x(player, obj)
+        return action
+
     def legal_actions(self, player: Player) -> list[dict[str, Any]]:
         """Every action ``player`` may legally take in the current state.
 
@@ -429,15 +468,11 @@ class GameEngine:
                     {"type": "play_land", "instance_id": obj.instance_id, "name": obj.name}
                 )
             if self.can_cast(player, obj):
-                actions.append(
-                    {"type": "cast_spell", "instance_id": obj.instance_id, "name": obj.name}
-                )
+                actions.append(self._cast_action(player, obj))
 
         for obj in list(player.command):
             if self.can_cast(player, obj):
-                actions.append(
-                    {"type": "cast_spell", "instance_id": obj.instance_id, "name": obj.name}
-                )
+                actions.append(self._cast_action(player, obj))
 
         if (
             player is self.state.active_player

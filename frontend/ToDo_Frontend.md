@@ -27,14 +27,6 @@ code plus replaying the equivalent API calls against a running backend,
 - [ ] No rename/duplicate-as-new actions yet — only save (create/update
       via the tracked id) and delete.
 
-## Card display
-
-- [ ] Mana cost emoji don't distinguish hybrid/Phyrexian symbols from
-      plain ones (e.g. `{W/U}` renders as a plain ⚪, not "W or U") —
-      inherited from the backend's flattened `Card.mana_cost`. The raw
-      `mana_cost_string` is now available (see Done "Mana cost model" in
-      the backend) and could drive a faithful render.
-
 ## Game engine hookup
 
 - [ ] Targeting UI: select target(s) when a spell/ability requires it

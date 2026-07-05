@@ -78,6 +78,17 @@ only open items). Section headers mirror that file.
       shows "Lädt …" then upgrades. Wired into the goldfish board's
       `.card` tiles (`goldfishView.js`'s `objCard`) and the deck-import
       plain list.
+- [x] Mana cost emoji now render hybrid/Phyrexian symbols faithfully
+      instead of collapsing them to a plain pip: `cardTile.js`'s
+      `renderManaCost` parses the raw `mana_cost_string` token-by-token
+      (`{W/U}` → "(⚪/🔵)", `{2/W}` → "(2️⃣/⚪)", `{W/P}` → "(⚪/🩸)",
+      `{X}`/`{Y}`/`{Z}` → the letter itself), mirroring the backend's
+      `ManaSymbol` kinds (`models/mana_cost.py`). Falls back to the old
+      flattened-pip approximation only when `mana_cost_string` is empty
+      (cards cached before that field existed — same fallback the
+      backend's `ManaCost.from_card` uses, see backend Done "Mana cost
+      model"), so a genuinely free card (a land) still renders as
+      nothing.
 
 ## Game engine hookup
 
@@ -140,6 +151,13 @@ only open items). Section headers mirror that file.
       requires selecting N cards from hand to put on the bottom first
       (click-to-toggle, `card.selected-bottom`). All other actions are
       rejected server-side until the hand is kept.
+- [x] X-spell casting (RULE 601.2b): a hand/command-zone card whose cost
+      has `{X}` gets a number input next to its cast button instead of a
+      plain "✨ Zaubern" (`goldfishView.js`'s `cardActionButtons`, keyed
+      off `legal_actions`' new `has_x`/`max_x`, capped at `max_x` by
+      default) — clicking reads the input's current value at click time
+      (`data-cast-x`/`data-x-input`, wired in `wire()`) and sends it as
+      `x` on the `cast_spell` action. `.gf-cast-x` in `main.css`.
 
 ## Multiplayer
 

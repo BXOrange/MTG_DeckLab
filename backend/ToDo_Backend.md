@@ -13,9 +13,6 @@ See [../IMPLEMENTATION_STATUS.md](../IMPLEMENTATION_STATUS.md) and
       `{W/P}` distinction (never stored in the flat dict). A cache refresh
       restores full fidelity; a targeted re-fetch/backfill of just those
       rows would avoid needing a full wipe. See Done "Mana cost model".
-- [ ] X-spell casting: `{X}` parses to a `VARIABLE` symbol worth 0 today.
-      Paying an announced X (RULE 601.2b) needs a chosen value threaded
-      through casting + the mana solver.
 
 ## Configuration (Backlog)
 
@@ -57,8 +54,7 @@ See [../IMPLEMENTATION_STATUS.md](../IMPLEMENTATION_STATUS.md) and
       currently deterministic discovery order; needs a player prompt once
       interactive play does.
 - [ ] Trigger ordering *within* a controller (RULE 603.3b) — currently
-      APNAP by controller only, no intra-controller choice.
-
+      APNAP by controller only, no intra-controller choic
 ## Game Engine (Phase 3) — remaining
 
 - [~] Multiplayer game session + priority system (UC4): **stubbed** —

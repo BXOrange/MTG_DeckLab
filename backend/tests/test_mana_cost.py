@@ -4,6 +4,8 @@ Reference: backend/Done_Backend.md "Mana cost model",
 mtg_analyzer/models/mana_cost.py.
 """
 
+import pytest
+
 from mtg_analyzer.models.card import Card
 from mtg_analyzer.models.mana_cost import (
     COLOR,
@@ -67,6 +69,25 @@ def test_variable_x_counts_as_zero():
     cost = ManaCost.parse("{X}{R}")
     assert cost.symbols[0].kind == VARIABLE
     assert cost.converted_mana_cost == 1  # X is 0 until chosen
+
+
+def test_has_variable_flags_x_costs():
+    assert ManaCost.parse("{X}{R}").has_variable
+    assert not ManaCost.parse("{1}{G}").has_variable
+
+
+def test_with_x_resolves_the_announced_value():
+    cost = ManaCost.parse("{X}{X}{R}")
+    resolved = cost.with_x(3)
+    x_symbols = [s for s in resolved.symbols if s.kind == VARIABLE]
+    assert [s.amount for s in x_symbols] == [3, 3]
+    # The original is untouched — with_x returns a copy.
+    assert all(s.amount == 0 for s in cost.symbols if s.kind == VARIABLE)
+
+
+def test_with_x_rejects_negative_values():
+    with pytest.raises(ValueError):
+        ManaCost.parse("{X}{R}").with_x(-1)
 
 
 def test_colorless_symbol_is_distinct_from_generic():

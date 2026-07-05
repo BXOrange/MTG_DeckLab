@@ -152,17 +152,22 @@ class RulesEngine:
         player: Player,
         obj: GameObject,
         targets: Optional[list[Any]] = None,
+        x: int = 0,
     ) -> StackItem:
         """Pay the cost, move the card to the stack (RULE 601).
 
-        Timing/priority legality is enforced by the caller (game engine /
-        `legal_actions`); this performs the mechanical cast. Raises
-        ValueError if the mana cost can't be paid.
+        ``x`` is the announced value (RULE 601.2b) for a cost containing
+        ``{X}``; ignored otherwise. Timing/priority legality is enforced by
+        the caller (game engine / `legal_actions`); this performs the
+        mechanical cast. Raises ValueError if the mana cost can't be paid.
         """
         cost = self.mana_cost_of(obj.card)
+        if cost.has_variable:
+            cost = cost.with_x(x)
         if not player.mana_pool.can_pay(cost, life_available=player.life):
             raise ValueError(f"{player.id} cannot pay for {obj.name}")
-        player.mana_pool.pay(cost, life_available=player.life)
+        life_spent = player.mana_pool.pay(cost, life_available=player.life)
+        self.lose_life(player, life_spent, cause="cost")
 
         if obj in player.hand:
             player.remove_from_zone(obj, Zone.HAND)
@@ -176,6 +181,7 @@ class RulesEngine:
             obj=obj,
             description=obj.name,
             targets=targets,
+            x=x,
         )
         self.state.stack.append(item)
         self.state.fire_event(
@@ -296,10 +302,12 @@ class RulesEngine:
         if final <= 0:
             return
         if is_player:
-            target.lose_life(final)
-            self.state.fire_event(
-                GameEvent(EventType.LIFE_LOST, player_id=target.id, amount=final)
-            )
+            # RULE 120.3: damage dealt to a player causes that much life
+            # loss. This is a *consequence* of damage, not a separate event
+            # a player chose to trigger — go through the same `lose_life`
+            # choke point as any other life loss so triggers watching for
+            # "loses life" fire consistently regardless of cause.
+            self.lose_life(target, final, cause="damage")
         else:
             target.damage_marked += final
         self.state.fire_event(
@@ -309,6 +317,24 @@ class RulesEngine:
                 is_player=is_player,
                 target_id=target.id if is_player else target.instance_id,
             )
+        )
+
+    def lose_life(self, player: Player, amount: int, cause: str = "effect") -> None:
+        """A player loses life (RULE 118-119), outside of the damage system.
+
+        The single choke point for life loss, whatever causes it — damage
+        (`deal_damage`, RULE 120.3), a cost paid with life (Phyrexian mana,
+        RULE 118.4), or a direct effect (e.g. "target player loses 2 life").
+        `cause` is metadata only ("damage" / "cost" / "effect") for
+        logging/UI; nothing in the rules distinguishes *why* life was lost
+        for trigger purposes, so every path fires the same `LIFE_LOST`
+        event.
+        """
+        if amount <= 0:
+            return
+        player.lose_life(amount)
+        self.state.fire_event(
+            GameEvent(EventType.LIFE_LOST, player_id=player.id, amount=amount, cause=cause)
         )
 
     def destroy(self, obj: GameObject) -> None:

@@ -29,7 +29,9 @@ class StackItem:
     ``kind`` is ``"spell"`` or ``"ability"``; ``obj`` is the spell's game
     object (None for an ability that isn't a card); ``effects`` are the
     `GameEffect`s applied when it resolves; ``controller_id`` is who put
-    it on the stack; ``targets`` records chosen targets.
+    it on the stack; ``targets`` records chosen targets; ``x`` is the
+    value announced for a cost containing ``{X}`` (RULE 601.2b), 0
+    otherwise.
     """
 
     def __init__(
@@ -40,6 +42,7 @@ class StackItem:
         obj: Optional[GameObject] = None,
         description: str = "",
         targets: Optional[list[Any]] = None,
+        x: int = 0,
     ) -> None:
         self.kind = kind
         self.controller_id = controller_id
@@ -47,6 +50,7 @@ class StackItem:
         self.obj = obj
         self.description = description
         self.targets = targets or []
+        self.x = x
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -54,6 +58,7 @@ class StackItem:
             "controller_id": self.controller_id,
             "description": self.description or (self.obj.name if self.obj else ""),
             "object": self.obj.to_dict() if self.obj else None,
+            "x": self.x,
         }
 
     def __repr__(self) -> str:

@@ -996,6 +996,23 @@ textarea {
   color: var(--accent);
 }
 
+/* {X}-cost spell: a value input next to its "Zaubern" button. */
+.gf-cast-x {
+  display: flex;
+  gap: 0.2rem;
+  align-items: center;
+}
+
+.gf-cast-x input {
+  width: 2.4rem;
+  background: var(--panel-alt);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  color: var(--text);
+  padding: 0.15rem 0.25rem;
+  font-size: 0.7rem;
+}
+
 /* --- Goldfisch: Bibliotheks-Suche / Entscheidung --- */
 
 .gf-choice {

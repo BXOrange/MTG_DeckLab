@@ -526,6 +526,17 @@ export function createGoldfishView() {
         act(JSON.parse(el.dataset.action));
       });
     });
+
+    // {X} spells read the announced value from the adjacent number input at
+    // click time rather than baking it into a static data-action attribute.
+    root.querySelectorAll('[data-cast-x]').forEach((el) => {
+      el.addEventListener('click', () => {
+        const instanceId = Number(el.dataset.castX);
+        const input = root.querySelector(`[data-x-input="${instanceId}"]`);
+        const x = Math.max(0, Math.floor(Number(input?.value) || 0));
+        act({ type: 'cast_spell', instance_id: instanceId, x });
+      });
+    });
   }
 
   // --- Rendering helpers --------------------------------------------------
@@ -593,6 +604,16 @@ export function createGoldfishView() {
     for (const a of cardActions) {
       if (a.type === 'play_land') {
         buttons.push(actionButton({ type: 'play_land', instance_id: a.instance_id, name: a.name }, '🌳 Land spielen'));
+      } else if (a.type === 'cast_spell' && a.has_x) {
+        // {X} in the cost (RULE 601.2b): let the player announce a value
+        // (capped at what they can currently afford) instead of a plain
+        // "Zaubern" button, then send it along with the cast.
+        buttons.push(`
+          <div class="gf-cast-x">
+            <input type="number" min="0" max="${a.max_x}" value="${a.max_x}" data-x-input="${a.instance_id}" />
+            <button type="button" class="gf-card-action" data-cast-x="${a.instance_id}">✨ Zaubern (X)</button>
+          </div>
+        `);
       } else if (a.type === 'cast_spell') {
         buttons.push(actionButton({ type: 'cast_spell', instance_id: a.instance_id, name: a.name }, '✨ Zaubern'));
       } else if (a.type === 'tap_for_mana') {

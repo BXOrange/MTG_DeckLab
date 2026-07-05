@@ -22,13 +22,51 @@ function genericManaEmoji(amount) {
     .join('');
 }
 
-// Card.mana_cost (from the backend) only counts colored/colorless pips
-// ({W}, {U}, ..., {C}) — generic numeric mana ({2}, {10}, ...) isn't
-// stored per-symbol since it doesn't fit that shape. It's derived here
-// instead: a card's mana value counts every symbol as 1 (including
-// hybrid/Phyrexian ones), so subtracting the pips we do know about
-// leaves the generic amount for the vast majority of real costs.
+const MANA_TOKEN_RE = /\{([^}]+)\}/g;
+
+// One `{...}` token (already stripped of braces) to its faithful display.
+// Mirrors the backend's `ManaSymbol` kinds (mtg_analyzer/models/mana_cost.py):
+// generic, {X}/{Y}/{Z}, plain color/colorless, hybrid ({W/U}), monocolored
+// hybrid ({2/W}), and Phyrexian ({W/P}) — each rendered so the choice it
+// offers stays visible instead of collapsing to a plain pip.
+function renderManaToken(token) {
+  const symbol = token.trim().toUpperCase();
+
+  if (/^\d+$/.test(symbol)) return genericManaEmoji(Number(symbol));
+  if (symbol === 'X' || symbol === 'Y' || symbol === 'Z') return symbol;
+  if (MANA_SYMBOL_EMOJI[symbol]) return MANA_SYMBOL_EMOJI[symbol];
+
+  if (symbol.includes('/')) {
+    const parts = symbol.split('/');
+    if (parts.includes('P')) {
+      const color = parts.find((p) => p !== 'P' && MANA_SYMBOL_EMOJI[p]);
+      if (color) return `(${MANA_SYMBOL_EMOJI[color]}/🩸)`; // pay the color, or 2 life
+    }
+    const generic = parts.find((p) => /^\d+$/.test(p));
+    const hybridColor = parts.find((p) => MANA_SYMBOL_EMOJI[p]);
+    if (generic && hybridColor) {
+      return `(${genericManaEmoji(Number(generic))}/${MANA_SYMBOL_EMOJI[hybridColor]})`;
+    }
+    if (parts.every((p) => MANA_SYMBOL_EMOJI[p])) {
+      return `(${parts.map((p) => MANA_SYMBOL_EMOJI[p]).join('/')})`;
+    }
+  }
+
+  return symbol; // unknown symbol (snow {S}, ...): show the letter, not a guess
+}
+
+// Card.mana_cost (the legacy flattened form) only counts colored/colorless
+// pips ({W}, {U}, ..., {C}) and drops generic amounts, hybrid/Phyrexian
+// nuance entirely. `mana_cost_string` (the raw Scryfall string, e.g.
+// "{2}{W}{U/B}{G/P}") is faithful and preferred; the pip-counting fallback
+// below only fires for rows cached before that field existed (see backend's
+// `ManaCost.from_card`) and can't recover the nuance it never stored.
 export function renderManaCost(card) {
+  if (card.mana_cost_string) {
+    const tokens = card.mana_cost_string.match(MANA_TOKEN_RE) || [];
+    return tokens.map((t) => renderManaToken(t.slice(1, -1))).join(' ');
+  }
+
   const pips = card.mana_cost || {};
   const pipTotal = Object.values(pips).reduce((sum, count) => sum + count, 0);
   const generic = Math.max(0, (card.converted_mana_cost || 0) - pipTotal);
