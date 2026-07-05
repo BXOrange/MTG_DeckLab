@@ -46,6 +46,7 @@ class GameObject:
         owner_id: str,
         zone: Zone = Zone.LIBRARY,
         controller_id: Optional[str] = None,
+        is_commander: bool = False,
     ) -> None:
         self.instance_id: int = next(_instance_counter)
         self.card = card
@@ -54,6 +55,11 @@ class GameObject:
         #: (RULE 108.4). Control can change but ownership can't.
         self.controller_id = controller_id or owner_id
         self.zone = zone
+        #: Whether this object is a commander (RULE 903.6) — governs
+        #: whether it returns to the command zone instead of the
+        #: graveyard/etc. when it would otherwise leave play (RULE 903.9,
+        #: see `RulesEngine._move_to_graveyard`/`counter_spell`).
+        self.is_commander = is_commander
 
         # Permanent state (meaningful on the battlefield).
         self.tapped: bool = False

@@ -221,7 +221,7 @@ class TestCardFromScryfallData:
         card = card_from_scryfall_data(DISMEMBER)
         assert card.color_identity == {"B"}
         # The flattened mana_cost dict can't represent "or 2 life" either
-        # way (see backend/ToDo_Backend.md "Mana cost model (Backlog)"),
+        # way (see backend/Done_Backend.md "Mana cost model"),
         # but that's a separate, already-documented limitation from
         # color identity, which is unaffected by it.
         assert card.mana_cost["B"] == 2

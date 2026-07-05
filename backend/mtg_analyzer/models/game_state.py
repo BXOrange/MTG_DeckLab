@@ -85,6 +85,14 @@ class GameState:
         self.game_over = False
         self.winner_id: Optional[str] = None
 
+        #: A player decision the engine is waiting on (e.g. a library
+        #: search) before it can keep resolving — plain JSON-able data
+        #: (kind, player_id, eligible instance ids, …) so it survives a
+        #: `clone()` for rewind and serializes to the UI. None when the
+        #: engine isn't blocked on a choice. Set/consumed by the rules
+        #: engine (mtg_analyzer/game/rules_engine.py).
+        self.pending_choice: Optional[dict[str, Any]] = None
+
         #: Chronological log of everything fired; also the record the
         #: WebSocket layer can diff to build ``game_state_update``s.
         self.event_log: list[GameEvent] = []
@@ -201,6 +209,7 @@ class GameState:
             "current_step": self.current_step,
             "game_over": self.game_over,
             "winner_id": self.winner_id,
+            "pending_choice": self.pending_choice,
             "players": [p.to_dict() for p in self.players],
             "battlefield": [obj.to_dict() for obj in self.battlefield],
             "stack": [item.to_dict() for item in self.stack],

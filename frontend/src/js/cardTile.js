@@ -139,7 +139,7 @@ export function renderCardTilePlaceholder(name, { qty } = {}) {
 
 /** Tile for a card name the backend confirmed no match for (typo, or a
  * card that genuinely doesn't exist under that exact name — see
- * backend/ToDo_Backend.md "Validator" on exact- vs. fuzzy-name matching). */
+ * backend/Done_Backend.md "Validator" on exact- vs. fuzzy-name matching). */
 export function renderCardTileNotFound(name, { qty } = {}) {
   const qtyBadge = qty != null ? `<span class="card-tile-qty">${qty}×</span>` : '';
   return `

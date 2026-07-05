@@ -1,18 +1,19 @@
 """WebSocket /ws/game/{game_id}: connection plumbing for real-time game updates.
 
-Reference: backend/ToDo_Backend.md "HTTP API foundation",
+Reference: backend/Done_Backend.md "HTTP API foundation",
 docs/04_SERVER_CLIENT_ARCHITECTURE.md PART 4 "WebSocket Messages".
 
-No game engine exists yet (see backend/ToDo_Backend.md "Game Engine" / "Rules
-Engine"), so this is transport plumbing only: accept connections
-grouped by game_id, and relay each client's `player_action` message to
-every client connected to that same game_id as a `game_state_update`.
-There is no rules validation and no server-held GameState — the relay
-is a stand-in for "the server ran the action and here is the result"
-so the wire protocol and both ends of the connection can be built and
-tested before the real engine exists. Once it does, `_broadcast_action`
-should be replaced by feeding the action into the engine and
-broadcasting its actual resulting state.
+The rules/game engine now exists (backend/Done_Backend.md "Game Engine",
+"Rules Engine"), but this handler is still transport plumbing only: accept
+connections grouped by game_id, and relay each client's `player_action`
+message to every client connected to that same game_id as a
+`game_state_update`. There is no rules validation and no server-held
+GameState here — solo play goes through the REST game-session API
+(`api/game.py`) instead, and this relay is kept for the eventual
+multiplayer push channel (an opponent's moves). Wiring `_broadcast_action`
+to feed the action into a server-held session/engine and broadcast its
+actual resulting state is tracked in backend/ToDo_Backend.md
+"Multiplayer game session".
 """
 
 from __future__ import annotations

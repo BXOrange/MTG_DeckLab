@@ -1,6 +1,6 @@
 """Tests for schema-hash drift detection across the SQLite databases.
 
-Reference: mtg_analyzer/services/schema_version.py, backend/ToDo_Backend.md
+Reference: mtg_analyzer/services/schema_version.py, backend/Done_Backend.md
 "Data model / cache schema versioning".
 """
 

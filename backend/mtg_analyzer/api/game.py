@@ -1,7 +1,7 @@
 """Game session endpoints: start a goldfish game, act, rewind, restart (UC3).
 
 Reference: docs/02_MVP_USECASES_REVISED.md UC3/UC4,
-backend/ToDo_Backend.md "Game Engine".
+backend/Done_Backend.md "Game Engine".
 
 Turns the rules/game engine (mtg_analyzer/game/) into a playable
 server-held session (mtg_analyzer/services/game_session.py):

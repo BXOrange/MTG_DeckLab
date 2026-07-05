@@ -1,7 +1,7 @@
 """SQLite-backed persistence for saved decklists, keyed by UUID.
 
 Reference: docs/04_SERVER_CLIENT_ARCHITECTURE.md (PART 4, REST
-endpoints), backend/ToDo_Backend.md "Deck persistence".
+endpoints), backend/Done_Backend.md "Deck persistence".
 
 Unlike `mtg_analyzer.services.card_database.CACHE_ROOT` (Scryfall data,
 entirely disposable — see docs/08_CARD_CACHE_EXPORT_IMPORT.md), saved

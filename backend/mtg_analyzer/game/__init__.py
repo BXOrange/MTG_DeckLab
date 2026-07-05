@@ -16,30 +16,36 @@ holds the *rules* that read and change it:
 
 from .effects import (
     ActivatedAbility,
+    CounterSpellEffect,
     DealDamageEffect,
     DestroyEffect,
     DiscardEffect,
     DrawCardEffect,
     EffectRegistry,
+    GainLifeEffect,
     GameContext,
     GameEffect,
     ReplacementEffect,
+    SearchLibraryEffect,
     StaticEffect,
     TriggeredAbility,
     WinConditionEffect,
 )
 from .game_engine import GameEngine
+from .mana_abilities import mana_options
 from .phases import DEFAULT_TURN_SEQUENCE, GamePhase, GameStep, TurnSequence
 from .rules_engine import RulesEngine
 
 __all__ = [
     "ActivatedAbility",
+    "CounterSpellEffect",
     "DEFAULT_TURN_SEQUENCE",
     "DealDamageEffect",
     "DestroyEffect",
     "DiscardEffect",
     "DrawCardEffect",
     "EffectRegistry",
+    "GainLifeEffect",
     "GameContext",
     "GameEffect",
     "GameEngine",
@@ -47,8 +53,10 @@ __all__ = [
     "GameStep",
     "ReplacementEffect",
     "RulesEngine",
+    "SearchLibraryEffect",
     "StaticEffect",
     "TriggeredAbility",
     "TurnSequence",
     "WinConditionEffect",
+    "mana_options",
 ]

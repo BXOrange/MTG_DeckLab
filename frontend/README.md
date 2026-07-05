@@ -29,41 +29,33 @@ Open http://localhost:8765 in a browser.
   Commander legality check (100 cards, singleton, exactly one
   commander). There's no card database yet, so this can't validate
   color identity, the ban list, or that a card name actually exists.
-- **Spielfläche**: a static play-area layout (battlefield, hand,
-  library, graveyard, exile, command zone, life total, stack) that
-  builds a shuffled opening hand from the imported deck. Cards show
-  their real artwork, fetched from Scryfall's public, CORS-enabled
-  `/cards/collection` API (`src/js/cardImages.js`) — see a card by
-  name, no card database needed for this part. While a lookup is
-  pending or a name isn't found, cards fall back to a plain text box.
-  Draw/mulligan/move-to-battlefield are local-only mock actions
-  (`src/js/boardEngine.js`) with no rules enforcement — there's no real
-  game engine or server yet (see `docs/02_MVP_USECASES_REVISED.md`
-  UC3). The opponent zones are placeholders until a second deck/session
-  can be loaded.
+- **Goldfisch**: solo play against the real backend rules engine
+  (`src/js/goldfishView.js` → `POST /api/game/*`). Pick a saved deck
+  from a dropdown (only legal decks may start), then step through the
+  turn — play lands, tap mana, cast, attack — from the server's
+  `legal_actions`, with rewind/restart. Replaced the old local,
+  rule-less mock board (`boardEngine.js`/`boardView.js`, now deleted).
+- **Multiplayer**: a stub tab (`src/js/multiplayerView.js`) — the
+  backend route returns 501 until the interactive priority loop exists.
 
 ## Structure
 
-```
+```text
 index.html
 src/
   styles/main.css
   js/
-    app.js            tab wiring, entry point
-    state.js           tiny pub/sub store shared by both views
-    parser.js           per-section decklist parsing + structural validation
-    cardImages.js        Scryfall artwork lookup (batched, cached)
-    deckImportView.js   "Deck importieren" tab (Commander/Mainboard/Sideboard)
-    boardEngine.js       mock game state transitions (shuffle/draw/mulligan)
-    boardView.js          "Spielfläche" tab, renders card art via cardImages.js
+    app.js               tab wiring, entry point
+    state.js             tiny pub/sub store (parsed deck + image cache)
+    parser.js            per-section decklist parsing (local pre-check)
+    cardImages.js        card artwork lookup via the backend (batched, cached)
+    deckImportView.js    "Deck editieren" tab (Commander/Mainboard/Sideboard)
+    savedDecksView.js    "Decks verwalten" tab (list/load/delete, legality)
+    goldfishView.js      "Goldfisch" tab, server-driven solo play
+    multiplayerView.js   "Multiplayer" tab (stub)
+    cachedCardsView.js   "Karten-Cache" tab
+    api.js               backend HTTP client (/api/decks, /api/cards, /api/game)
+    gameSocket.js        WebSocket client (kept for future multiplayer)
 ```
 
-## Next steps
-
-Once the backend has a `DecklisteParser`/card database and a real
-game engine (see `docs/IMPLEMENTATION_GUIDE.md` Phase 1–3), swap
-`parser.js`'s client-side parsing for a call to the deck-validation
-API, and `boardEngine.js`'s local mock for real server/WebSocket
-game-state updates — the view layer (`deckImportView.js`,
-`boardView.js`) was kept deliberately dumb (render what's in `state.js`)
-so that swap doesn't require rewriting the UI.
+See `ToDo_Frontend.md` / `Done_Frontend.md` for feature status.

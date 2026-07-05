@@ -1,6 +1,6 @@
 """POST /api/decks: parse + validate a decklist server-side.
 
-Reference: backend/ToDo_Backend.md "HTTP API foundation".
+Reference: backend/Done_Backend.md "HTTP API foundation".
 """
 
 from __future__ import annotations

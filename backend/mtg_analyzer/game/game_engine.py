@@ -15,7 +15,6 @@ today). `run_goldfish_turn` wires those together into a solo auto-turn
 
 from __future__ import annotations
 
-import re
 from typing import Any, Optional
 
 from ..models.card import Card
@@ -23,19 +22,9 @@ from ..models.events import EventType, GameEvent
 from ..models.game_object import GameObject, Zone
 from ..models.game_state import GameState
 from ..models.player import Player
+from .mana_abilities import mana_options, option_label
 from .phases import GamePhase, GameStep, default_turn_sequence
 from .rules_engine import RulesEngine
-
-#: Colors the five basic lands produce, for tapping (RULE 305.6).
-_BASIC_LAND_MANA = {
-    "Plains": "W",
-    "Island": "U",
-    "Swamp": "B",
-    "Mountain": "R",
-    "Forest": "G",
-}
-#: Matches "Add {W}", "Add {C}", etc. in a land's oracle text.
-_ADD_MANA_RE = re.compile(r"Add\s+((?:\{[WUBRGC]\})+)")
 
 #: Maximum hand size enforced at cleanup (RULE 402.2 / 514.1).
 MAX_HAND_SIZE = 7
@@ -265,17 +254,20 @@ class GameEngine:
     # ------------------------------------------------------------------
 
     def resolve_until_stable(self) -> None:
-        """Resolve triggers + the stack until empty and stable.
+        """Resolve triggers + the stack until empty, stable, or blocked.
 
         Models an all-players-pass priority window with no responses: put
         fired triggers on the stack, resolve the top, repeat; check SBAs
-        throughout (RULE 704.3). Interactive responses (multiplayer) will
-        insert actions between resolutions via the action methods below.
+        throughout (RULE 704.3). Stops early if a resolving effect needs a
+        player choice (`state.pending_choice`, e.g. a library search) — the
+        session surfaces it and resumes via `resolve_pending_choice`.
         """
         for _ in range(_MAX_RESOLUTIONS):
             self.rules.check_state_based_actions()
             if self.state.game_over:
                 return
+            if self.state.pending_choice:
+                return  # await a player decision before resolving further
             self.rules.put_triggers_on_stack()
             if self.state.stack:
                 self.rules.resolve_top_of_stack()
@@ -283,6 +275,29 @@ class GameEngine:
             if not self.rules.pending_triggers:
                 return
         raise RuntimeError("stack failed to stabilize (possible effect loop)")
+
+    def pass_priority(self) -> bool:
+        """Pass priority once: resolve the top of the stack (RULE 117/608).
+
+        In a solo game "everyone passes" collapses to resolving the top
+        object. Returns whether anything resolved. The stack is *not* auto-
+        emptied — the player passes again (or casts an instant in response)
+        for each object, which is what makes stack interaction real.
+        """
+        self.rules.check_state_based_actions()
+        if self.state.game_over or self.state.pending_choice:
+            return False
+        self.rules.put_triggers_on_stack()
+        if self.state.stack:
+            self.rules.resolve_top_of_stack()
+            self.rules.check_state_based_actions()
+            return True
+        return False
+
+    def resolve_pending_choice(self, instance_id: Optional[int]) -> None:
+        """Answer a pending search choice, then keep resolving the stack."""
+        self.rules.resolve_search_choice(instance_id)
+        self.resolve_until_stable()
 
     # ------------------------------------------------------------------
     # Player actions with validation (RULE 601 / 505 / R4.3)
@@ -319,7 +334,10 @@ class GameEngine:
 
     def can_cast(self, player: Player, obj: GameObject) -> bool:
         """RULE 601/602.5: is this spell castable by ``player`` right now?"""
-        if obj not in player.hand:
+        # A commander may be cast from the command zone as well as the
+        # hand (RULE 903.6, 903.8) — commander tax (RULE 903.8, +{2} per
+        # previous cast from there) isn't modeled yet.
+        if obj not in player.hand and obj not in player.command:
             return False
         card = obj.card
         if card.is_land:
@@ -368,32 +386,28 @@ class GameEngine:
             and not obj.summoning_sick
         )
 
-    def tap_for_mana(self, player: Player, land: GameObject) -> dict[str, int]:
-        """Tap a land for its mana (RULE 605 mana ability). Returns what it added."""
-        if land not in self.state.battlefield or land.controller_id != player.id:
-            raise ValueError("can only tap your own lands in play")
-        if land.tapped:
-            raise ValueError(f"{land.name} is already tapped")
-        produced = self._land_mana(land.card)
-        if not produced:
-            raise ValueError(f"{land.name} has no basic mana ability")
-        land.tap()
-        player.mana_pool.add_many(produced)
-        return produced
+    def tap_for_mana(
+        self, player: Player, source: GameObject, option_index: int = 0
+    ) -> dict[str, int]:
+        """Tap a permanent for one of its mana options (RULE 605).
 
-    @staticmethod
-    def _land_mana(card: Card) -> dict[str, int]:
-        """Colors a land taps for, from its name (basics) or oracle text."""
-        produced: dict[str, int] = {}
-        for basic_name, color in _BASIC_LAND_MANA.items():
-            if basic_name in card.type_line or card.name == basic_name:
-                produced[color] = produced.get(color, 0) + 1
-        if produced:
-            return produced
-        for group in _ADD_MANA_RE.findall(card.oracle_text or ""):
-            for symbol in re.findall(r"\{([WUBRGC])\}", group):
-                produced[symbol] = produced.get(symbol, 0) + 1
-        return produced
+        ``option_index`` picks which production to make — this is the
+        dual-land fix: a "{T}: Add {W} or {U}." land makes *one* colour,
+        the chosen option, not both. Returns the mana added.
+        """
+        if source not in self.state.battlefield or source.controller_id != player.id:
+            raise ValueError("can only tap your own permanents in play")
+        if source.tapped:
+            raise ValueError(f"{source.name} is already tapped")
+        options = mana_options(source.card)
+        if not options:
+            raise ValueError(f"{source.name} has no mana ability")
+        if not 0 <= option_index < len(options):
+            raise ValueError(f"invalid mana option {option_index} for {source.name}")
+        produced = options[option_index]
+        source.tap()
+        player.mana_pool.add_many(produced)
+        return dict(produced)
 
     # ------------------------------------------------------------------
     # Action validation query (docs/02 R4.3)
@@ -419,6 +433,12 @@ class GameEngine:
                     {"type": "cast_spell", "instance_id": obj.instance_id, "name": obj.name}
                 )
 
+        for obj in list(player.command):
+            if self.can_cast(player, obj):
+                actions.append(
+                    {"type": "cast_spell", "instance_id": obj.instance_id, "name": obj.name}
+                )
+
         if (
             player is self.state.active_player
             and self.state.current_step == "declare_attackers"
@@ -429,11 +449,25 @@ class GameEngine:
                         {"type": "attack", "instance_id": obj.instance_id, "name": obj.name}
                     )
 
-        for land in self.state.permanents_controlled_by(player.id):
-            if land.is_land and not land.tapped and self._land_mana(land.card):
-                actions.append(
-                    {"type": "tap_for_mana", "instance_id": land.instance_id, "name": land.name}
-                )
+        for source in self.state.permanents_controlled_by(player.id):
+            if source.tapped:
+                continue
+            options = mana_options(source.card)
+            if not options:
+                continue
+            # Each option is a distinct choice (dual-land "W or U"); the UI
+            # shows one button per option so the player picks the colour.
+            actions.append(
+                {
+                    "type": "tap_for_mana",
+                    "instance_id": source.instance_id,
+                    "name": source.name,
+                    "options": [
+                        {"index": i, "mana": opt, "label": option_label(opt)}
+                        for i, opt in enumerate(options)
+                    ],
+                }
+            )
         return actions
 
     # ------------------------------------------------------------------
@@ -479,9 +513,9 @@ class GameEngine:
         land = next((o for o in active.hand if self.can_play_land(active, o)), None)
         if land is not None:
             self.play_land(active, land)
-        for land in self.state.permanents_controlled_by(active.id):
-            if land.is_land and not land.tapped and self._land_mana(land.card):
-                self.tap_for_mana(active, land)
+        for source in self.state.permanents_controlled_by(active.id):
+            if not source.tapped and mana_options(source.card):
+                self.tap_for_mana(active, source)  # option 0 (greedy)
         # Cast affordable non-land spells cheapest first.
         castable = sorted(
             (o for o in active.hand if not o.card.is_land),

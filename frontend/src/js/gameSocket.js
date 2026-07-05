@@ -1,5 +1,5 @@
 // WebSocket client for the backend's /ws/game/{game_id} — connection
-// plumbing only (see backend/ToDo_Backend.md "HTTP API foundation",
+// plumbing only (see backend/Done_Backend.md "HTTP API foundation",
 // docs/04_SERVER_CLIENT_ARCHITECTURE.md PART 4 "WebSocket Messages").
 //
 // This relay predates the real engine: the server just echoes a sent

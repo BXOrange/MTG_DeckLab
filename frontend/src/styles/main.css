@@ -844,17 +844,18 @@ textarea {
   margin-bottom: 0.6rem;
 }
 
-.gf-stack-list {
+.gf-zone-list {
   list-style: none;
   margin: 0;
   padding: 0;
 }
 
-.gf-stack-list li {
+.gf-zone-list li {
   padding: 0.2rem 0.4rem;
   border-left: 2px solid var(--accent);
   margin-bottom: 0.2rem;
   font-size: 0.8rem;
+  cursor: default;
 }
 
 .gf-action-buttons {
@@ -960,4 +961,120 @@ textarea {
   color: var(--warn);
   cursor: help;
   font-weight: 600;
+}
+
+/* --- Goldfisch: Aktionen direkt unter den Karten --- */
+
+.gf-card-slot {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.25rem;
+}
+
+.gf-card-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.2rem;
+  justify-content: center;
+  max-width: 110px;
+}
+
+.gf-card-action {
+  background: var(--panel-alt);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  color: var(--text);
+  padding: 0.15rem 0.35rem;
+  font-size: 0.7rem;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.gf-card-action:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+/* --- Goldfisch: Bibliotheks-Suche / Entscheidung --- */
+
+.gf-choice {
+  background: var(--felt);
+  border: 1px solid var(--accent);
+  border-radius: 6px;
+  padding: 0.6rem 0.75rem;
+  margin-bottom: 0.6rem;
+}
+
+.gf-choice h4 {
+  margin: 0 0 0.4rem;
+  font-size: 0.9rem;
+}
+
+.gf-choice-options {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+}
+
+.gf-choice-options button {
+  background: var(--panel-alt);
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  color: var(--text);
+  padding: 0.3rem 0.6rem;
+  cursor: pointer;
+  font-size: 0.8rem;
+}
+
+.gf-choice-options button:hover {
+  border-color: var(--accent);
+}
+
+.gf-choice-options .gf-decline {
+  color: var(--text-dim);
+  font-style: italic;
+}
+
+/* Dim the board while a choice is pending, to focus on the prompt. */
+.goldfish.choosing .gf-battlefield,
+.goldfish.choosing .gf-hand,
+.goldfish.choosing .gf-zone-row {
+  opacity: 0.55;
+}
+
+/* --- Goldfisch: Ladebildschirm (Kartenbilder vorladen) --- */
+
+.goldfish-loading {
+  max-width: 480px;
+}
+
+.gf-loading-bar {
+  background: var(--panel-alt);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  height: 10px;
+  overflow: hidden;
+  margin: 0.75rem 0 0.4rem;
+}
+
+.gf-loading-fill {
+  height: 100%;
+  background: var(--accent);
+  transition: width 0.15s ease-out;
+}
+
+/* --- Goldfisch: Mulligan-Phase (Starthand behalten oder neu mischen) --- */
+
+.goldfish-mulligan {
+  max-width: 720px;
+}
+
+.gf-mulligan-hand {
+  margin: 0.6rem 0;
+}
+
+.card.selected-bottom {
+  border-color: var(--warn);
+  box-shadow: 0 0 0 2px var(--warn);
 }

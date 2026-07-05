@@ -1,7 +1,7 @@
 """Server-held game sessions: goldfish (with rewind/restart) + multiplayer stub.
 
 Reference: docs/02_MVP_USECASES_REVISED.md UC3 (Goldfisch) / UC4
-(Multiplayer), backend/ToDo_Backend.md "Game Engine".
+(Multiplayer), backend/Done_Backend.md "Game Engine".
 
 A `GameSession` wraps a `GameEngine` and adds what a *test-your-deck*
 session needs on top of the pure rules engine:
@@ -25,6 +25,7 @@ two-player priority isn't wired yet (see ToDo "Multiplayer game session").
 
 from __future__ import annotations
 
+import random
 import uuid
 from typing import Any, Optional
 
@@ -36,6 +37,11 @@ from mtg_analyzer.game.game_engine import GameEngine
 
 #: How many undo snapshots to retain (older moves drop off the bottom).
 MAX_HISTORY = 100
+
+#: Safety cap on "advance_step"'s auto-skip loop (docs/02 R4.1) so a
+#: board with genuinely nothing to do for many turns (e.g. mana screw)
+#: can't hang the request; generous relative to ~11 steps/turn.
+_MAX_AUTO_ADVANCE_STEPS = 200
 
 GOLDFISH = "goldfish"
 MULTIPLAYER = "multiplayer"
@@ -60,15 +66,16 @@ def build_goldfish_engine(
 
     The 99 non-commander cards become the library (as given — the caller
     shuffles first if they want randomness, so tests stay deterministic);
-    commanders start in the command zone (RULE 903.6). Casting from the
-    command zone isn't wired yet, so for now the commander is visible but
-    not yet playable — the deck's own cards are what a goldfish tests.
+    commanders start in the command zone (RULE 903.6) and can be cast
+    from there (`GameEngine.can_cast`); commander tax (RULE 903.8) isn't
+    modeled yet.
     """
     player = Player(id="p1", name=player_name, life=starting_life)
     for card in library:
         player.library.append(GameObject(card, owner_id="p1", zone=Zone.LIBRARY))
     for card in commanders or []:
-        player.add_to_zone(GameObject(card, owner_id="p1", zone=Zone.COMMAND), Zone.COMMAND)
+        obj = GameObject(card, owner_id="p1", zone=Zone.COMMAND, is_commander=True)
+        player.add_to_zone(obj, Zone.COMMAND)
 
     state = GameState(players=[player])
     engine = GameEngine(state)
@@ -81,7 +88,12 @@ class GameSession:
     """A running game with undo history and restart."""
 
     def __init__(
-        self, engine: GameEngine, mode: str = GOLDFISH, session_id: Optional[str] = None
+        self,
+        engine: GameEngine,
+        mode: str = GOLDFISH,
+        session_id: Optional[str] = None,
+        starting_hand: int = 7,
+        require_setup: bool = False,
     ) -> None:
         self.id = session_id or str(uuid.uuid4())
         self.mode = mode
@@ -94,6 +106,17 @@ class GameSession:
         self._history: list[tuple[str, GameState, int]] = []
         #: Human-readable labels of applied actions, for the UI.
         self.move_log: list[str] = []
+
+        #: Whether a mulligan/keep-hand setup phase gates play (only real
+        #: goldfish sessions from `GameSessionManager.create_goldfish` set
+        #: this — tests that build a `GameSession` directly to exercise the
+        #: turn loop keep the old no-setup behaviour unless they opt in).
+        self._require_setup = require_setup
+        self._starting_hand = starting_hand
+        #: How many mulligans have been taken (London mulligan: each one
+        #: redraws 7, then keeping puts that many cards on the bottom).
+        self._mulligan_count = 0
+        self._setup_complete = not require_setup
 
     # -- Snapshot / restore --------------------------------------------
 
@@ -118,6 +141,8 @@ class GameSession:
         self._restore(state, cursor)
         self._history.clear()
         self.move_log.clear()
+        self._mulligan_count = 0
+        self._setup_complete = not self._require_setup
         return self.view()
 
     def rewind(self, steps: int = 1) -> dict[str, Any]:
@@ -163,12 +188,37 @@ class GameSession:
         active = state.active_player
         kind = action["type"]
 
-        if kind in ("advance_step", "advance", "next_step", "pass_priority"):
-            if kind == "pass_priority":
-                # No opponent to hold priority: passing resolves the stack.
-                self.engine.resolve_until_stable()
-            else:
-                self.engine.advance_step()
+        # Setup phase (UC3: mulligan before the game proper starts): only
+        # `mulligan`/`keep_hand` are legal until the opening hand is kept.
+        if not self._setup_complete:
+            if kind == "mulligan":
+                self._mulligan(active)
+                return
+            if kind == "keep_hand":
+                self._keep_hand(active, action.get("bottom_instance_ids") or [])
+                return
+            raise ValueError("finish the mulligan phase before playing")
+
+        # While the engine is blocked on a choice (e.g. a library search),
+        # only the choice may be answered.
+        if state.pending_choice and kind not in ("choose", "decline"):
+            raise GameActionError("a choice is pending — answer it first")
+
+        if kind in ("choose", "decline"):
+            instance_id = action.get("instance_id") if kind == "choose" else None
+            self.engine.resolve_pending_choice(
+                int(instance_id) if instance_id is not None else None
+            )
+            return
+
+        if kind in ("advance_step", "advance", "next_step"):
+            self._advance_with_auto_skip()
+            return
+
+        if kind == "pass_priority":
+            # Pass priority once: resolve the top of the stack (RULE 117),
+            # one object at a time so instants can be cast in response.
+            self.engine.pass_priority()
             return
 
         if kind == "auto_turn":
@@ -177,17 +227,19 @@ class GameSession:
 
         if kind == "play_land":
             self.engine.play_land(active, self._object(action))
-            self.engine.resolve_until_stable()
             return
 
         if kind == "tap_for_mana":
-            self.engine.tap_for_mana(active, self._object(action))
+            option_index = int(action.get("option_index", 0))
+            self.engine.tap_for_mana(active, self._object(action), option_index)
             return
 
         if kind == "cast_spell":
+            # The spell goes on the stack; it does NOT auto-resolve, so the
+            # player can respond (cast an instant) or pass priority to let
+            # it resolve — real stack interaction (RULE 608).
             targets = self._resolve_targets(action.get("targets"))
             self.engine.cast_spell(active, self._object(action), targets)
-            self.engine.resolve_until_stable()
             return
 
         if kind in ("attack", "declare_attackers"):
@@ -199,6 +251,63 @@ class GameSession:
             return
 
         raise GameActionError(f"unknown action type: {kind!r}")
+
+    def _mulligan(self, player: Player) -> None:
+        """London mulligan, part 1: shuffle the hand back and draw 7 (RULE 103.4-103.5)."""
+        while player.hand:
+            obj = player.hand.pop()
+            obj.zone = Zone.LIBRARY
+            player.library.append(obj)
+        random.shuffle(player.library)
+        player.draw(self._starting_hand)
+        self._mulligan_count += 1
+
+    def _keep_hand(self, player: Player, bottom_instance_ids: list[Any]) -> None:
+        """London mulligan, part 2: keep, bottoming one card per mulligan taken."""
+        if len(bottom_instance_ids) != self._mulligan_count:
+            raise ValueError(
+                f"must put exactly {self._mulligan_count} card(s) on the bottom of the library"
+            )
+        chosen: list[GameObject] = []
+        for instance_id in bottom_instance_ids:
+            obj = next((o for o in player.hand if o.instance_id == instance_id), None)
+            if obj is None or obj in chosen:
+                raise ValueError(f"card {instance_id!r} is not a valid bottom selection")
+            chosen.append(obj)
+        for obj in chosen:
+            player.remove_from_zone(obj, Zone.HAND)
+            obj.zone = Zone.LIBRARY
+            player.library.insert(0, obj)  # bottom of library (index 0 — see Player.library)
+        self._setup_complete = True
+
+    def _advance_with_auto_skip(self) -> None:
+        """Advance one step, then keep going while nothing is interactive.
+
+        "Nächster Schritt" shouldn't force a click through every untap/
+        upkeep/draw/cleanup step (and empty combat steps) when there's
+        nothing to decide there — it stops at the first step offering a
+        real choice (a castable/playable card, an eligible attacker, a
+        pending choice, or a non-empty stack awaiting priority), same as
+        if the player had clicked through the empty ones themselves.
+        Mana abilities (`tap_for_mana`) don't count as "interactive" here:
+        the mana pool empties at the end of every step anyway, so tapping
+        during an otherwise-empty step has no effect worth stopping for.
+        """
+        for _ in range(_MAX_AUTO_ADVANCE_STEPS):
+            if self.engine.advance_step() is None:
+                return
+            if self._step_has_interaction():
+                return
+
+    def _step_has_interaction(self) -> bool:
+        state = self.engine.state
+        if state.game_over or state.pending_choice or state.stack:
+            return True
+        interactive_types = {"play_land", "cast_spell", "attack"}
+        return any(
+            action["type"] in interactive_types
+            for action in self.engine.legal_actions(state.active_player)
+        )
 
     def _auto_turn(self) -> None:
         """Finish the current turn on autopilot, respecting the step cursor.
@@ -251,6 +360,28 @@ class GameSession:
     # -- Views ---------------------------------------------------------
 
     def legal_actions(self) -> list[dict[str, Any]]:
+        if not self._setup_complete:
+            # `bottom_count` tells the UI how many cards `keep_hand` must
+            # bottom this time (0 on the very first hand, before any
+            # mulligan has been taken).
+            return [
+                {"type": "mulligan"},
+                {"type": "keep_hand", "bottom_count": self._mulligan_count},
+            ]
+        pending = self.engine.state.pending_choice
+        if pending:
+            # A choice is pending: the only legal actions are answering it.
+            actions = [
+                {
+                    "type": "choose",
+                    "instance_id": entry["instance_id"],
+                    "name": entry["name"],
+                }
+                for entry in pending.get("eligible", [])
+            ]
+            if pending.get("optional"):
+                actions.append({"type": "decline"})
+            return actions
         return self.engine.legal_actions(self.engine.state.active_player)
 
     def view(self) -> dict[str, Any]:
@@ -260,8 +391,10 @@ class GameSession:
             "mode": self.mode,
             "state": self.engine.state.to_dict(),
             "legal_actions": self.legal_actions(),
+            "pending_choice": self.engine.state.pending_choice,
             "can_rewind": self.can_rewind,
             "move_log": list(self.move_log),
+            "setup": {"complete": self._setup_complete, "mulligan_count": self._mulligan_count},
         }
 
 
@@ -282,7 +415,12 @@ class GameSessionManager:
         engine = build_goldfish_engine(
             library, commanders, player_name, starting_life, starting_hand
         )
-        session = GameSession(engine, mode=GOLDFISH)
+        session = GameSession(
+            engine,
+            mode=GOLDFISH,
+            starting_hand=starting_hand,
+            require_setup=True,
+        )
         self._sessions[session.id] = session
         return session
 

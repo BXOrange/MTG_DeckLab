@@ -20,7 +20,8 @@
       unlike `backend/cache/`) + `POST /api/decks/save`,
       `GET /api/decks`, `GET /api/decks/{id}`, `DELETE /api/decks/{id}`.
       Reserves `Deck.analysis_id` for the future LLM analysis feature
-      (see backend/ToDo_Backend.md "Deck persistence" / "LLM Deck Analysis").
+      (see backend/Done_Backend.md "Deck persistence"; the analysis
+      feature itself is backend/ToDo_Backend.md "LLM Deck Analysis").
 - [x] Frontend consumes the above instead of calling Scryfall directly
       (`frontend/src/js/api.js`, `cardImages.js`) and adds a
       "Karten-Cache" tab (`cachedCardsView.js`) to browse everything

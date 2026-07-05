@@ -128,20 +128,29 @@ class TestSessionLifecycle:
     def _start(self, client):
         return client.post("/api/game/goldfish", json=LEGAL_DECK).json()
 
+    def _keep_opening_hand(self, client, sid):
+        return client.post(
+            f"/api/game/{sid}/action", json={"type": "keep_hand", "bottom_instance_ids": []}
+        ).json()
+
     def test_action_advance_and_rewind_and_restart(self):
         _setup()
         client = TestClient(app)
         view = self._start(client)
         sid = view["session_id"]
+        self._keep_opening_hand(client, sid)
 
-        # Advance a step.
+        # Advance a step. Untap/upkeep/draw offer no choice with an
+        # all-basics deck, so "advance_step" auto-skips through them and
+        # stops at the first step with something to do (playing a land).
         after = client.post(f"/api/game/{sid}/action", json={"type": "advance_step"}).json()
         assert after["can_rewind"] is True
-        assert after["state"]["current_step"] == "untap"
+        assert after["state"]["current_step"] == "main1"
 
-        # Rewind it.
+        # Rewind it. `keep_hand` is itself an undoable action, so one
+        # history entry (it) remains after undoing just the advance.
         rewound = client.post(f"/api/game/{sid}/rewind", json={"steps": 1}).json()
-        assert rewound["can_rewind"] is False
+        assert rewound["can_rewind"] is True
         assert rewound["state"]["current_step"] == ""
 
         # Advance twice, then restart.
@@ -184,6 +193,79 @@ class TestSessionLifecycle:
         client = TestClient(app)
         response = client.post("/api/game/nope/action", json={"type": "advance_step"})
         assert response.status_code == 404
+
+
+class TestMulliganSetup:
+    """A goldfish game starts in a setup phase: mulligan or keep the opening hand."""
+
+    def teardown_method(self):
+        _teardown()
+
+    def _start(self, client):
+        return client.post("/api/game/goldfish", json=LEGAL_DECK).json()
+
+    def test_new_game_starts_in_setup_with_only_mulligan_actions(self):
+        _setup()
+        client = TestClient(app)
+        view = self._start(client)
+        assert view["setup"] == {"complete": False, "mulligan_count": 0}
+        types = {a["type"] for a in view["legal_actions"]}
+        assert types == {"mulligan", "keep_hand"}
+
+    def test_other_actions_are_rejected_before_the_hand_is_kept(self):
+        _setup()
+        client = TestClient(app)
+        sid = self._start(client)["session_id"]
+        response = client.post(f"/api/game/{sid}/action", json={"type": "advance_step"})
+        assert response.status_code == 400
+
+    def test_mulligan_redraws_seven_and_requires_bottoming_one_to_keep(self):
+        _setup()
+        client = TestClient(app)
+        sid = self._start(client)["session_id"]
+
+        after_mull = client.post(f"/api/game/{sid}/action", json={"type": "mulligan"}).json()
+        assert after_mull["setup"] == {"complete": False, "mulligan_count": 1}
+        assert len(after_mull["state"]["players"][0]["hand"]) == 7
+        keep_action = next(
+            a for a in after_mull["legal_actions"] if a["type"] == "keep_hand"
+        )
+        assert keep_action["bottom_count"] == 1
+
+        # Keeping without bottoming the required card is rejected.
+        bad_keep = client.post(
+            f"/api/game/{sid}/action", json={"type": "keep_hand", "bottom_instance_ids": []}
+        )
+        assert bad_keep.status_code == 400
+
+        hand = after_mull["state"]["players"][0]["hand"]
+        kept = client.post(
+            f"/api/game/{sid}/action",
+            json={"type": "keep_hand", "bottom_instance_ids": [hand[0]["instance_id"]]},
+        ).json()
+        assert kept["setup"] == {"complete": True, "mulligan_count": 1}
+        assert len(kept["state"]["players"][0]["hand"]) == 6
+        # The setup phase is over — normal actions are accepted again.
+        response = client.post(f"/api/game/{sid}/action", json={"type": "advance_step"})
+        assert response.status_code == 200
+
+    def test_keeping_the_first_hand_needs_no_bottoming(self):
+        _setup()
+        client = TestClient(app)
+        sid = self._start(client)["session_id"]
+        kept = client.post(
+            f"/api/game/{sid}/action", json={"type": "keep_hand", "bottom_instance_ids": []}
+        ).json()
+        assert kept["setup"]["complete"] is True
+        assert len(kept["state"]["players"][0]["hand"]) == 7
+
+    def test_restart_re_enters_the_setup_phase(self):
+        _setup()
+        client = TestClient(app)
+        sid = self._start(client)["session_id"]
+        client.post(f"/api/game/{sid}/action", json={"type": "keep_hand", "bottom_instance_ids": []})
+        restarted = client.post(f"/api/game/{sid}/restart").json()
+        assert restarted["setup"] == {"complete": False, "mulligan_count": 0}
 
 
 class TestMultiplayerStub:

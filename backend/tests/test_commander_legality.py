@@ -1,6 +1,6 @@
 """Tests for real Commander legality: color identity, ban list, Partner rules.
 
-Reference: backend/ToDo_Backend.md "Validator".
+Reference: backend/Done_Backend.md "Validator".
 """
 
 from mtg_analyzer.models.card import Card

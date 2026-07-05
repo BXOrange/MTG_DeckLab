@@ -134,6 +134,43 @@ def test_tap_land_for_mana():
         eng.tap_for_mana(p1, forest)  # already tapped
 
 
+def _dual_land():
+    return Card(
+        id="Tundra",
+        name="Tundra",
+        type_line="Land — Plains Island",
+        is_land=True,
+        oracle_text="{T}: Add {W} or {U}.",
+    )
+
+
+def test_dual_land_taps_for_only_the_chosen_color():
+    # Regression: tapping a WU dual must add ONE colour, not both.
+    eng = make_engine([land("Forest")], hand=0)
+    dual = obj_on_battlefield(eng.state, eng, _dual_land())
+    p1 = eng.state.active_player
+    produced = eng.tap_for_mana(p1, dual, option_index=1)  # choose U
+    assert produced == {"U": 1}
+    assert p1.mana_pool.pool == {"C": 0, "W": 0, "U": 1, "B": 0, "R": 0, "G": 0}
+
+
+def test_tap_rejects_out_of_range_option():
+    eng = make_engine([land("Forest")], hand=0)
+    dual = obj_on_battlefield(eng.state, eng, _dual_land())
+    with pytest.raises(ValueError):
+        eng.tap_for_mana(eng.state.active_player, dual, option_index=5)
+
+
+def test_legal_actions_lists_tap_options_per_source():
+    eng = make_engine([land("Forest")], hand=0)
+    eng.begin_turn()
+    eng.state.current_step = "main1"
+    obj_on_battlefield(eng.state, eng, _dual_land())
+    tap = next(a for a in eng.legal_actions(eng.state.active_player) if a["type"] == "tap_for_mana")
+    mana = [opt["mana"] for opt in tap["options"]]
+    assert mana == [{"W": 1}, {"U": 1}]
+
+
 # ---------------------------------------------------------------------------
 # Casting & the stack (RULE 601 / 608)
 # ---------------------------------------------------------------------------
@@ -188,6 +225,55 @@ def test_cast_creature_resolves_onto_battlefield():
     assert bear in eng.state.battlefield
     assert bear.summoning_sick  # entered this turn (RULE 302.6)
     assert not eng.state.stack
+
+
+def test_commander_can_be_cast_from_the_command_zone():
+    eng = make_engine([], hand=0)
+    eng.begin_turn()
+    eng.state.current_step = "main1"
+    p1 = eng.state.active_player
+    p1.mana_pool.add_many({"G": 1, "C": 1})
+    commander = GameObject(creature(name="Commander Bear"), owner_id="p1", is_commander=True)
+    p1.add_to_zone(commander, Zone.COMMAND)
+
+    assert eng.can_cast(p1, commander)
+    eng.cast_spell(p1, commander)
+    assert commander not in p1.command
+    assert eng.state.stack[-1].obj is commander
+    eng.resolve_until_stable()
+    assert commander in eng.state.battlefield
+
+
+def test_commander_returns_to_command_zone_when_it_dies():
+    eng = make_engine([], hand=0)
+    p1 = eng.state.active_player
+    commander = GameObject(
+        creature(name="Commander Bear", toughness=1), owner_id="p1", is_commander=True
+    )
+    commander.summoning_sick = False
+    eng.state.add_to_battlefield(commander)
+
+    eng.rules.deal_damage(commander, 1)
+    eng.rules.check_state_based_actions()
+
+    assert commander not in eng.state.battlefield
+    assert commander in p1.command
+    assert commander not in p1.graveyard
+
+
+def test_countered_commander_spell_returns_to_command_zone_not_graveyard():
+    eng = make_engine([], hand=0)
+    p1 = eng.state.active_player
+    commander = GameObject(creature(name="Commander Bear"), owner_id="p1", is_commander=True)
+    p1.add_to_zone(commander, Zone.COMMAND)
+    eng.state.current_step = "main1"
+    p1.mana_pool.add_many({"G": 1, "C": 1})
+    eng.cast_spell(p1, commander)
+
+    eng.rules.counter_spell(commander)
+
+    assert commander in p1.command
+    assert commander not in p1.graveyard
 
 
 def test_instant_can_be_cast_at_instant_speed():
@@ -461,3 +547,104 @@ def test_rules_engine_can_be_constructed_standalone():
     state = GameState(players=[Player(id="p1")])
     engine = RulesEngine(state)
     assert engine.state is state
+
+
+# ---------------------------------------------------------------------------
+# Library search (RULE 701.19) + the pending-choice mechanism
+# ---------------------------------------------------------------------------
+
+
+def test_search_opens_a_choice_then_moves_the_chosen_card():
+    lib = [land("Forest"), creature("Bear A"), land("Forest"), creature("Bear B")]
+    eng = make_engine(lib, hand=0)
+    p1 = eng.state.active_player
+
+    eng.rules.request_search(p1, "Creature", "hand")
+    choice = eng.state.pending_choice
+    assert choice["kind"] == "search"
+    assert {e["name"] for e in choice["eligible"]} == {"Bear A", "Bear B"}
+
+    chosen = choice["eligible"][0]["instance_id"]
+    eng.rules.resolve_search_choice(chosen)
+    assert eng.state.pending_choice is None
+    assert any(o.instance_id == chosen for o in p1.hand)
+    assert len(p1.library) == 3  # one card left the library
+
+
+def test_search_with_no_match_just_shuffles_no_choice():
+    eng = make_engine([land("Forest"), land("Forest")], hand=0)
+    p1 = eng.state.active_player
+    eng.rules.request_search(p1, "Creature", "hand")  # no creatures in library
+    assert eng.state.pending_choice is None
+    assert len(p1.hand) == 0
+
+
+def test_search_can_be_declined():
+    eng = make_engine([creature("Bear")], hand=0)
+    p1 = eng.state.active_player
+    eng.rules.request_search(p1, "Creature", "hand")
+    eng.rules.resolve_search_choice(None)  # decline
+    assert eng.state.pending_choice is None
+    assert len(p1.hand) == 0
+
+
+def test_resolve_until_stable_stops_on_pending_choice():
+    from mtg_analyzer.game.effects import SearchLibraryEffect
+    from mtg_analyzer.models.game_state import StackItem
+
+    eng = make_engine([creature("Bear")], hand=0)
+    p1 = eng.state.active_player
+    ability = SearchLibraryEffect(type_restriction="Creature", player=p1)
+    eng.state.stack.append(StackItem(kind="ability", controller_id="p1", effects=[ability]))
+
+    eng.resolve_until_stable()
+    # Resolving the ability opened a search — the loop paused for the choice.
+    assert eng.state.pending_choice is not None
+    assert not eng.state.stack
+
+
+# ---------------------------------------------------------------------------
+# Gain life / counter (RULE 119 / 701.5)
+# ---------------------------------------------------------------------------
+
+
+def test_gain_life_effect():
+    eng = make_engine([land()], hand=0)
+    p1 = eng.state.active_player
+    before = p1.life
+    eng.rules.gain_life(p1, 5)
+    assert p1.life == before + 5
+
+
+def test_counter_spell_removes_it_from_the_stack():
+    from mtg_analyzer.models.game_state import StackItem
+
+    eng = make_engine([land()], hand=0)
+    bear = GameObject(creature(), owner_id="p1", zone=Zone.STACK)
+    item = StackItem(kind="spell", controller_id="p1", obj=bear, description="Grizzly Bears")
+    eng.state.stack.append(item)
+
+    eng.rules.counter_spell(bear)
+    assert item not in eng.state.stack
+    assert bear in eng.state.player_by_id("p1").graveyard
+
+
+# ---------------------------------------------------------------------------
+# Stack interaction (RULE 608): cast leaves it on the stack; pass resolves one
+# ---------------------------------------------------------------------------
+
+
+def test_pass_priority_resolves_one_stack_object_at_a_time():
+    from mtg_analyzer.models.game_state import StackItem
+    from mtg_analyzer.game.effects import DrawCardEffect
+
+    eng = make_engine([land("Forest"), land("Forest")], hand=0)
+    p1 = eng.state.active_player
+    eng.state.stack.append(StackItem(kind="ability", controller_id="p1", effects=[DrawCardEffect(1, player=p1)]))
+    eng.state.stack.append(StackItem(kind="ability", controller_id="p1", effects=[DrawCardEffect(1, player=p1)]))
+
+    assert eng.pass_priority() is True  # resolves the top one
+    assert len(eng.state.stack) == 1
+    assert eng.pass_priority() is True
+    assert len(eng.state.stack) == 0
+    assert eng.pass_priority() is False  # nothing left

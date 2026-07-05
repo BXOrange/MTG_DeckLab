@@ -73,6 +73,17 @@ class GameContext:
     def destroy(self, target: "GameObject") -> None:
         self.engine.destroy(target)
 
+    def gain_life(self, player: "Player", amount: int) -> None:
+        self.engine.gain_life(player, amount)
+
+    def request_search(
+        self, player: "Player", type_restriction: str = "", destination: str = "hand"
+    ) -> None:
+        self.engine.request_search(player, type_restriction, destination)
+
+    def counter(self, target: Any) -> None:
+        self.engine.counter_spell(target)
+
 
 # ---------------------------------------------------------------------------
 # Base class
@@ -336,6 +347,60 @@ class DestroyEffect(GameEffect):
             context.destroy(target)
 
 
+class GainLifeEffect(GameEffect):
+    """The effect's controller (or a target player) gains ``amount`` life."""
+
+    def __init__(self, amount: int = 0, player: Any = None, source: Optional["GameObject"] = None) -> None:
+        super().__init__(source)
+        self.amount = amount
+        self.player = player
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        player = self.player or (targets[0] if targets else None) or context.active_player
+        context.gain_life(player, self.amount)
+
+
+class CounterSpellEffect(GameEffect):
+    """Counter a target spell on the stack (RULE 701.5)."""
+
+    def __init__(self, target: Any = None, source: Optional["GameObject"] = None) -> None:
+        super().__init__(source)
+        self.target = target
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        target = (targets[0] if targets else None) or self.target
+        if target is not None:
+            context.counter(target)
+
+
+class SearchLibraryEffect(GameEffect):
+    """Search the controller's library for a card of a given type (RULE 701.19).
+
+    ``type_restriction`` is matched against the card's type line (e.g.
+    "Land", "Basic Land", "Creature", "Forest"). Because *which* card is a
+    player choice, this doesn't move a card itself — it asks the engine to
+    open a choice (`GameContext.request_search`); the chosen card is moved
+    to ``destination`` ("hand"/"battlefield") and the library shuffled when
+    the player answers.
+    """
+
+    def __init__(
+        self,
+        type_restriction: str = "",
+        destination: str = "hand",
+        player: Any = None,
+        source: Optional["GameObject"] = None,
+    ) -> None:
+        super().__init__(source)
+        self.type_restriction = type_restriction
+        self.destination = destination
+        self.player = player
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        player = self.player or context.active_player
+        context.request_search(player, self.type_restriction, self.destination)
+
+
 # ---------------------------------------------------------------------------
 # Registry (docs/07 PART 4 Option C / PART 6)
 # ---------------------------------------------------------------------------
@@ -377,3 +442,13 @@ EffectRegistry.register(
     "discard", lambda p: DiscardEffect(count=p.get("count", 1), player=p.get("player"))
 )
 EffectRegistry.register("destroy", lambda p: DestroyEffect(target=p.get("target")))
+EffectRegistry.register(
+    "gain_life", lambda p: GainLifeEffect(amount=p.get("amount", 0), player=p.get("player"))
+)
+EffectRegistry.register("counter", lambda p: CounterSpellEffect(target=p.get("target")))
+EffectRegistry.register(
+    "search",
+    lambda p: SearchLibraryEffect(
+        type_restriction=p.get("type", ""), destination=p.get("destination", "hand")
+    ),
+)

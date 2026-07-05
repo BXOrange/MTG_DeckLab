@@ -166,6 +166,8 @@ class RulesEngine:
 
         if obj in player.hand:
             player.remove_from_zone(obj, Zone.HAND)
+        elif obj in player.command:
+            player.remove_from_zone(obj, Zone.COMMAND)
         obj.zone = Zone.STACK
         item = StackItem(
             kind="spell",
@@ -312,6 +314,106 @@ class RulesEngine:
     def destroy(self, obj: GameObject) -> None:
         self._move_to_graveyard(obj)
 
+    def gain_life(self, player: Player, amount: int) -> None:
+        if amount <= 0:
+            return
+        player.gain_life(amount)
+        self.state.fire_event(
+            GameEvent(EventType.LIFE_GAINED, player_id=player.id, amount=amount)
+        )
+
+    def counter_spell(self, target: Any) -> None:
+        """Remove a spell (a `StackItem` or its game object) from the stack.
+
+        A countered spell goes to its owner's graveyard (RULE 701.5g) and
+        never resolves.
+        """
+        item = None
+        for candidate in self.state.stack:
+            if candidate is target or candidate.obj is target:
+                item = candidate
+                break
+        if item is None:
+            return
+        self.state.stack.remove(item)
+        if item.obj is not None:
+            owner = self.state.player_by_id(item.obj.owner_id)
+            destination = Zone.COMMAND if item.obj.is_commander else Zone.GRAVEYARD
+            owner.add_to_zone(item.obj, destination)
+        self.state.fire_event(
+            GameEvent(EventType.SPELL_RESOLVED, spell=item.description, countered=True)
+        )
+
+    # ------------------------------------------------------------------
+    # Library search + the pending-choice it needs (RULE 701.19)
+    # ------------------------------------------------------------------
+
+    def request_search(
+        self, player: Player, type_restriction: str = "", destination: str = "hand"
+    ) -> None:
+        """Open a "search your library" choice on the game state.
+
+        Records the eligible library cards as a `state.pending_choice`;
+        the engine's resolve loop stops on it and the session surfaces it.
+        `resolve_search_choice` finishes the search once the player picks
+        (or declines). Searching with nothing eligible just shuffles.
+        """
+        eligible = [
+            obj for obj in player.library if _matches_type(obj.card, type_restriction)
+        ]
+        if not eligible:
+            self._shuffle_library(player)
+            return
+        self.state.pending_choice = {
+            "kind": "search",
+            "player_id": player.id,
+            "destination": destination,
+            "type_restriction": type_restriction,
+            "optional": True,
+            "eligible": [
+                {"instance_id": obj.instance_id, "name": obj.name} for obj in eligible
+            ],
+        }
+
+    def resolve_search_choice(self, instance_id: Optional[int]) -> None:
+        """Complete a pending search: move the chosen card, then shuffle.
+
+        ``instance_id`` None declines the (optional) search. Clears the
+        pending choice either way.
+        """
+        choice = self.state.pending_choice
+        if not choice or choice.get("kind") != "search":
+            raise ValueError("no pending search to resolve")
+        player = self.state.player_by_id(choice["player_id"])
+
+        if instance_id is not None:
+            eligible_ids = {e["instance_id"] for e in choice["eligible"]}
+            if instance_id not in eligible_ids:
+                raise ValueError(f"{instance_id} is not a valid search target")
+            obj = next(o for o in player.library if o.instance_id == instance_id)
+            player.library.remove(obj)
+            self._put_searched_card(player, obj, choice["destination"])
+
+        self.state.pending_choice = None
+        self._shuffle_library(player)
+
+    def _put_searched_card(self, player: Player, obj: GameObject, destination: str) -> None:
+        if destination == "battlefield":
+            obj.summoning_sick = True
+            obj.tapped = False
+            self.state.add_to_battlefield(obj)
+            self.state.fire_event(
+                GameEvent(EventType.ENTERS_BATTLEFIELD, controller_id=player.id, object=obj.name)
+            )
+        else:  # hand (default) — most tutors
+            obj.zone = Zone.HAND
+            player.hand.append(obj)
+
+    def _shuffle_library(self, player: Player) -> None:
+        import random
+
+        random.shuffle(player.library)
+
     def _move_to_graveyard(self, obj: GameObject) -> None:
         was_on_battlefield = obj in self.state.battlefield
         was_creature = obj.is_creature
@@ -319,8 +421,12 @@ class RulesEngine:
         owner = self.state.player_by_id(obj.owner_id)
         obj.tapped = False
         obj.damage_marked = 0
-        obj.zone = Zone.GRAVEYARD
-        owner.graveyard.append(obj)
+        # RULE 903.9: a commander's owner may put it into the command zone
+        # instead of wherever it would otherwise go. This MVP always takes
+        # that near-universal choice rather than modeling it as an actual
+        # (optional) player decision.
+        destination = Zone.COMMAND if obj.is_commander else Zone.GRAVEYARD
+        owner.add_to_zone(obj, destination)
         if was_on_battlefield:
             self.state.fire_event(
                 GameEvent(EventType.LEAVES_BATTLEFIELD, object=obj.name, owner_id=obj.owner_id)
@@ -427,3 +533,15 @@ class RulesEngine:
                     effect.active = False
                 return True
         return False
+
+
+def _matches_type(card: Card, type_restriction: str) -> bool:
+    """Whether a card satisfies a search's type restriction (RULE 700.4).
+
+    An empty restriction matches anything; otherwise it's a case-insensitive
+    substring of the type line, so "Land", "Basic Land", "Creature", or a
+    subtype like "Forest" all work.
+    """
+    if not type_restriction:
+        return True
+    return type_restriction.lower() in (card.type_line or "").lower()

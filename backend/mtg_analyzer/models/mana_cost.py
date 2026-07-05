@@ -1,7 +1,7 @@
 """Structured mana cost model (RULE 202, RULE 601.2f).
 
 Reference: docs/07_GAME_LOOP_EFFECT_SYSTEM.md (PART 2, `ManaCost` used by
-`ActivatedAbility`/casting), backend/ToDo_Backend.md "Mana cost model".
+`ActivatedAbility`/casting), backend/Done_Backend.md "Mana cost model".
 
 The `Card.mana_cost` dict (`models/card.py`) flattens a cost to a plain
 per-color pip tally and loses *how* a pip can be paid — a hybrid `{W/U}`

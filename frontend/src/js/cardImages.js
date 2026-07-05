@@ -74,3 +74,40 @@ export function getResolvedCard(name) {
 export function isConfirmedNotFound(name) {
   return cache.get(name.trim().toLowerCase()) === null;
 }
+
+/**
+ * Resolve card art for `names` and preload every image into the browser's
+ * own cache (a plain `new Image()` fetch, not just the URL lookup above),
+ * so a view that renders these cards right after can show them
+ * immediately instead of popping in one by one. Used by the goldfish
+ * "loading" screen before a game starts (start = "everything is already
+ * in memory").
+ * @param {string[]} names
+ * @param {(loaded: number, total: number) => void} [onProgress]
+ * @returns {Promise<Map<string, {small: string, normal: string, card: object}>>}
+ */
+export async function preloadCardImages(names, onProgress) {
+  const resolved = await resolveCardImages(names);
+  const urls = Array.from(resolved.values())
+    .map((entry) => entry.small)
+    .filter(Boolean);
+  const total = urls.length;
+  let loaded = 0;
+  onProgress?.(loaded, total);
+  if (!total) return resolved;
+  await Promise.all(
+    urls.map(
+      (url) =>
+        new Promise((resolve) => {
+          const img = new Image();
+          img.onload = img.onerror = () => {
+            loaded += 1;
+            onProgress?.(loaded, total);
+            resolve();
+          };
+          img.src = url;
+        })
+    )
+  );
+  return resolved;
+}
