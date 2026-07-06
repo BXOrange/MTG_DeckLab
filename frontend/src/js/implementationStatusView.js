@@ -76,7 +76,8 @@ const SECTIONS = [
       ['full', 'Opfern', '„Opfere ~" (selbst) oder „Opfere eine Kreatur/…" (Typ).'],
       ['full', 'Leben zahlen / Karten abwerfen', '„Pay N life", „Discard a card / N cards / your hand".'],
       ['full', 'Marken entfernen', '„Remove N +1/+1 / loyalty counters".'],
-      ['partial', 'UI im Goldfisch', 'Engine + Bezahlung getestet; noch nicht als Button im Frontend (braucht Ziel-/Kostenauswahl).'],
+      ['full', 'Als Button im Goldfisch', 'Aktivierbare Fähigkeiten erscheinen als Aktion unter der Karte (mit Ziel-/{X}-Auswahl).'],
+      ['full', 'Fetch-Länder', 'z. B. Evolving Wilds: „{T}, Opfern: Standardland getappt ins Spiel" — gebunden & spielbar.'],
     ],
   },
   {
@@ -111,6 +112,8 @@ const SECTIONS = [
     rule: '',
     items: [
       ['full', 'Mana-Modell', 'Generisch, farbig, farblos, Hybrid, Mono-Hybrid, Phyrexianisch, {X}; Dual-Land-Farbwahl.'],
+      ['full', 'Bind-on-load (Karten-Katalog)', 'Fähigkeiten werden beim Spielaufbau aus einem Namens-Katalog an die Karten gebunden (game/ability_catalogue.py) — Basis für den künftigen Oracle-Parser.'],
+      ['full', 'Enters tapped', 'Reine Tap-Länder kommen getappt (RULE 614.1, aus dem Oracle-Text). Bedingte (Shock/Check) noch ungetappt.'],
       ['full', 'Zielwahl (Targeting)', 'Legale Ziele pro Anforderung, gesperrte Sprüche ohne Ziel (RULE 601.2c).'],
       ['full', 'Tokens & Marken', '+1/+1 / −1/−1 (annihilieren als SBA), Loyalitäts-/Ladungsmarken.'],
       ['full', 'Commander-Regeln', '21 Commander-Schaden, Rückkehr in die Kommandozone.'],
@@ -122,7 +125,8 @@ const SECTIONS = [
     title: 'Noch nicht implementiert',
     rule: '',
     items: [
-      ['planned', 'Oracle-Text-Parser (Frontend)', 'Fähigkeits-Specs sind derzeit handgeschrieben; NLP-Erkennung (docs/09) folgt.'],
+      ['partial', 'Karten-Abdeckung (Specs)', 'Bind-on-load läuft, aber Specs kommen aus einem handgepflegten Katalog (nur wenige Karten). Der NLP-Oracle-Parser (docs/09) für beliebige Karten folgt.'],
+      ['partial', 'Bedingte Tap-Länder', 'Shock-/Check-Länder (2 Leben zahlen / „unless …") kommen aktuell ungetappt — die Wahl fehlt noch.'],
       ['planned', 'Interaktiver Blocker-/Multiplayer-Modus', 'Braucht die Zwei-Spieler-Prioritäts-Schleife.'],
       ['planned', 'Ability-Kinds: replacement, keyword (Bindung)', 'Vom Binder noch nicht realisiert.'],
       ['planned', 'Reihenfolge-Wahlen', 'Trigger-/Ersetzungs-Reihenfolge durch den betroffenen Spieler (RULE 616.1 / 603.3b).'],

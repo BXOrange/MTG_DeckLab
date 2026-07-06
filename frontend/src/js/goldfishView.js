@@ -670,23 +670,32 @@ export function createGoldfishView() {
       });
     });
 
-    // Begin targeting a spell: capture its X (if any) now, then open the
-    // per-requirement target picker (see `castTargetHtml`).
+    // Same, for an {X} in an activated ability's cost.
+    root.querySelectorAll('[data-activate-x]').forEach((el) => {
+      el.addEventListener('click', () => {
+        const { iid, ability_index } = JSON.parse(el.dataset.activateX);
+        const input = root.querySelector(`[data-x-input="${iid}"]`);
+        const x = Math.max(0, Math.floor(Number(input?.value) || 0));
+        act({ type: 'activate_ability', instance_id: iid, ability_index, x });
+      });
+    });
+
+    // Begin targeting a spell or activated ability: capture its X (if any)
+    // now, then open the per-requirement target picker (see `castTargetHtml`).
     root.querySelectorAll('[data-cast-target-start]').forEach((el) => {
       el.addEventListener('click', () => {
-        const iid = Number(el.dataset.castTargetStart);
-        const action = findCastAction(iid);
+        const info = JSON.parse(el.dataset.castTargetStart);
+        const iid = Number(info.iid);
+        const action = findTargetableAction(iid, info.type, info.ability_index);
         if (!action) return;
         const input = root.querySelector(`[data-x-input="${iid}"]`);
         const x = action.has_x ? Math.max(0, Math.floor(Number(input?.value) || 0)) : 0;
-        castTargeting = {
-          instanceId: iid,
-          name: action.name,
-          requirements: action.targets || [],
-          reqIndex: 0,
-          targets: [],
-          x,
-        };
+        // The base action the completed targeting will dispatch — a cast or an
+        // ability activation, with the same target list appended.
+        const send = info.type === 'activate_ability'
+          ? { type: 'activate_ability', instance_id: iid, ability_index: info.ability_index, name: action.name }
+          : { type: 'cast_spell', instance_id: iid, name: action.name };
+        castTargeting = { instanceId: iid, requirements: action.targets || [], reqIndex: 0, targets: [], x, send };
         finishCastIfReady();
       });
     });
@@ -712,22 +721,26 @@ export function createGoldfishView() {
     });
   }
 
-  // The current view's cast action for `iid`, so a target pick can read its
-  // requirements and {X} flag at click time.
-  function findCastAction(iid) {
+  // The current view's targetable action for `iid`, so a target pick can read
+  // its requirements and {X} flag at click time. Matches cast spells and, by
+  // ability index, activated abilities.
+  function findTargetableAction(iid, type, abilityIndex) {
     return (view?.legal_actions || []).find(
-      (a) => a.type === 'cast_spell' && a.instance_id === iid,
+      (a) =>
+        a.type === type &&
+        a.instance_id === iid &&
+        (type !== 'activate_ability' || a.ability_index === abilityIndex),
     );
   }
 
-  // Fire the cast once every requirement has been answered; otherwise
-  // re-render to show the next requirement's targets.
+  // Fire the cast/activation once every requirement has been answered;
+  // otherwise re-render to show the next requirement's targets.
   function finishCastIfReady() {
     if (!castTargeting) return;
     if (castTargeting.reqIndex >= castTargeting.requirements.length) {
-      const { instanceId, targets, x } = castTargeting;
+      const { send, targets, x } = castTargeting;
       castTargeting = null;
-      act({ type: 'cast_spell', instance_id: instanceId, targets, x });
+      act({ ...send, targets, x });
     } else {
       render();
     }
@@ -986,6 +999,31 @@ export function createGoldfishView() {
           ? ` 💰${escapeHtml(a.effective_cost)}`
           : '';
         buttons.push(actionButton({ type: 'cast_spell', instance_id: a.instance_id, name: a.name }, `✨ Zaubern${hint}`));
+      } else if (a.type === 'activate_ability' && a.locked) {
+        // Needs a target the board can't offer (RULE 602.2b) — show why.
+        const reason = a.lock_reason || 'Kein gültiges Ziel';
+        buttons.push(
+          `<button type="button" class="gf-card-action gf-locked" disabled title="${escapeAttr(reason)}">🔒 ${escapeHtml(reason)}</button>`
+        );
+      } else if (a.type === 'activate_ability' && a.requires_target) {
+        // Targeting activated ability — reuse the spell target picker.
+        buttons.push(castTargetHtml(a));
+      } else if (a.type === 'activate_ability' && a.has_x) {
+        buttons.push(`
+          <div class="gf-cast-x">
+            <input type="number" min="0" max="${a.max_x}" value="${a.max_x}" data-x-input="${a.instance_id}" />
+            <button type="button" class="gf-card-action" data-activate-x='${escapeAttr(JSON.stringify({ iid: a.instance_id, ability_index: a.ability_index }))}'>⚡ ${escapeHtml(a.cost_label || 'Aktivieren')} (X)</button>
+          </div>
+        `);
+      } else if (a.type === 'activate_ability') {
+        // A permanent's activated ability (RULE 602), e.g. a fetch land's
+        // "{T}, Sacrifice: …". The button shows the cost; effect on the stack.
+        buttons.push(
+          actionButton(
+            { type: 'activate_ability', instance_id: a.instance_id, ability_index: a.ability_index, name: a.name },
+            `⚡ ${escapeHtml(a.cost_label || 'Aktivieren')}`
+          )
+        );
       } else if (a.type === 'tap_for_mana') {
         // One button per production option — the dual-land colour choice.
         const opts = a.options || [{ index: 0, label: '⟳' }];
@@ -1019,7 +1057,11 @@ export function createGoldfishView() {
       ? `<input type="number" min="0" max="${a.max_x}" value="${a.max_x}" data-x-input="${iid}" />`
       : '';
     if (!active) {
-      return `<div class="gf-cast-targets">${xField}<button type="button" class="gf-card-action" data-cast-target-start="${iid}">✨ Zaubern → Ziel ▾</button></div>`;
+      const startInfo = JSON.stringify({ iid, type: a.type, ability_index: a.ability_index });
+      const label = a.type === 'activate_ability'
+        ? `⚡ ${escapeHtml(a.cost_label || 'Aktivieren')} → Ziel ▾`
+        : '✨ Zaubern → Ziel ▾';
+      return `<div class="gf-cast-targets">${xField}<button type="button" class="gf-card-action" data-cast-target-start='${escapeAttr(startInfo)}'>${label}</button></div>`;
     }
     const req = castTargeting.requirements[castTargeting.reqIndex] || {};
     const options = req.options || [];

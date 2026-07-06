@@ -27,7 +27,7 @@ from ..models.game_object import GameObject, Zone
 from ..models.game_state import GameState, StackItem
 from ..models.mana_cost import ManaCost
 from ..models.player import Player
-from . import combat, continuous
+from . import ability_catalogue, combat, continuous
 from .effects import (
     GameContext,
     ReplacementEffect,
@@ -273,7 +273,7 @@ class RulesEngine:
             obj = item.obj
             if self.is_permanent_spell(obj.card):
                 obj.summoning_sick = True
-                obj.tapped = False
+                obj.tapped = ability_catalogue.enters_tapped(obj.card)  # RULE 614.1
                 self.state.add_to_battlefield(obj)
                 self.state.fire_event(
                     GameEvent(

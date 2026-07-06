@@ -34,6 +34,7 @@ from mtg_analyzer.models.game_state import GameState
 from mtg_analyzer.models.player import Player
 from mtg_analyzer.game.game_engine import GameEngine
 from mtg_analyzer.game import continuous
+from mtg_analyzer.game.effect_binder import bind_from_catalogue
 
 #: How many undo snapshots to retain (older moves drop off the bottom).
 MAX_HISTORY = 100
@@ -102,9 +103,12 @@ def build_goldfish_engine(
     """
     player = Player(id="p1", name=player_name, life=starting_life)
     for card in library:
-        player.library.append(GameObject(card, owner_id="p1", zone=Zone.LIBRARY))
+        obj = GameObject(card, owner_id="p1", zone=Zone.LIBRARY)
+        bind_from_catalogue(obj)  # bind-on-load: card text → live abilities
+        player.library.append(obj)
     for card in commanders or []:
         obj = GameObject(card, owner_id="p1", zone=Zone.COMMAND, is_commander=True)
+        bind_from_catalogue(obj)
         player.add_to_zone(obj, Zone.COMMAND)
 
     players = [player]
@@ -306,6 +310,15 @@ class GameSession:
             targets = self._resolve_targets(action.get("targets"))
             x = int(action.get("x", 0))
             self.engine.cast_spell(active, self._object(action), targets, x)
+            return
+
+        if kind == "activate_ability":
+            # Pay the ability's cost and put it on the stack (RULE 602); like a
+            # spell it then waits for priority to resolve.
+            targets = self._resolve_targets(action.get("targets"))
+            x = int(action.get("x", 0))
+            index = int(action.get("ability_index", 0))
+            self.engine.activate_ability(active, self._object(action), index, targets, x)
             return
 
         if kind in ("attack", "declare_attackers"):

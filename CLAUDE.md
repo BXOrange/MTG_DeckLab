@@ -50,8 +50,12 @@ API (api/game.py)  ── JSON ──▶  frontend (src/js/goldfishView.js)
 Oracle-text → behaviour pipeline (docs/09):
 `AbilitySpec` IR (`parser/oracle/spec.py`, pure JSON-shaped data, the security
 boundary) → **binder** (`game/effect_binder.py`) → live `GameEffect` objects via
-the `EffectRegistry` (`game/effects.py`). The NLP front-end that produces specs
-from oracle text is **not built yet** — specs are hand-authored fixtures today.
+the `EffectRegistry` (`game/effects.py`). **Bind-on-load** is wired:
+`build_goldfish_engine` calls `bind_from_catalogue(obj)` for every object it
+creates, sourcing specs from `game/ability_catalogue.py` (a hand-authored,
+name-keyed registry — e.g. Evolving Wilds' fetch). The NLP front-end that would
+produce specs from *arbitrary* oracle text is not built yet; the catalogue is
+the seam it plugs into (`specs_for` falls back to it later).
 
 ### Key game/ modules
 - `effects.py` — effect hierarchy + `EffectRegistry` (whitelisted `type` →
@@ -63,6 +67,8 @@ from oracle text is **not built yet** — specs are hand-authored fixtures today
   every battlefield permanent's characteristics in layer order and stamps
   derived P/T, types, granted keywords + a per-object `static_trace`.
 - `costs.py` — regex parser for **activated-ability costs** (`Cost: Effect`).
+- `ability_catalogue.py` — card→`AbilitySpec` registry (bind-on-load source) +
+  `enters_tapped` (RULE 614.1, oracle-derived).
 - `targeting.py` — legal-target computation (RULE 115 / 601.2c).
 - `mana_abilities.py`, `models/mana_cost.py`, `models/mana_pool.py` — mana.
 
@@ -88,7 +94,10 @@ Living backlogs: `backend/ToDo_Backend.md` (open) and `backend/Done_Backend.md`
 ## Conventions & gotchas
 
 - **RULE references**: comment rules-relevant code with the CR number
-  (`RULE 613.7`). Match the surrounding comment density and style.
+  (`RULE 613.7`). Match the surrounding comment density and style. To read the
+  actual rule text, use the wiki in `Reference/rules_wiki/` — it maps every rule
+  number and glossary term to its line in the CR source (too large to load whole);
+  regenerate with `build_wiki.py` after a rules update.
 - **Model → game import boundary**: `models/` must not import `game/` at module
   load. Where a model needs engine logic (e.g. `GameObject.to_dict` showing
   keywords), use a **function-scoped import** and keep the `game/` side pure of
@@ -115,6 +124,8 @@ Living backlogs: `backend/ToDo_Backend.md` (open) and `backend/Done_Backend.md`
 | Combat / keywords | `game/combat.py`, `game/game_engine.py` (`_step_combat_damage`) |
 | Static abilities / P/T / anthems | `game/continuous.py`, `models/game_object.py` |
 | Activated abilities / costs | `game/costs.py`, `game/game_engine.py` (`activate_ability`) |
+| Card abilities / fetch lands / enters-tapped | `game/ability_catalogue.py`, `effect_binder.bind_from_catalogue` |
 | Effects / triggers | `game/effects.py`, `game/effect_binder.py` |
 | Goldfish UI | `frontend/src/js/goldfishView.js` |
 | Engine coverage doc (user-facing) | `frontend/src/js/implementationStatusView.js` |
+| Looking up a `RULE <n>` in the CR text | `Reference/rules_wiki/` (rule#/term → source line; see its `README.md`) |

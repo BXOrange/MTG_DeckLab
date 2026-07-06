@@ -128,3 +128,18 @@ def attach_to_object(obj: Any, specs: list[AbilitySpec]) -> None:
             obj.static_effects.extend(bound)
         else:  # pragma: no cover - bind_ability already refused it
             raise BindError(f"cannot attach ability_kind {spec.ability_kind!r}")
+
+
+def bind_from_catalogue(obj: Any) -> None:
+    """Bind a `GameObject`'s abilities from the catalogue (bind-on-load).
+
+    The single hook the game builder calls for every object it creates, so a
+    card's activated/triggered/static abilities are live the moment it exists —
+    the "binding on load" that connects card text to behaviour. A no-op for a
+    card with no known specs. Import is function-local to avoid an import cycle
+    (`ability_catalogue` builds specs, this module binds them)."""
+    from .ability_catalogue import specs_for
+
+    specs = specs_for(getattr(obj, "card", None))
+    if specs:
+        attach_to_object(obj, specs)

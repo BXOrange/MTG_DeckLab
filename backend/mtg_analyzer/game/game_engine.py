@@ -23,7 +23,7 @@ from ..models.game_object import GameObject, Zone
 from ..models.game_state import GameState, StackItem
 from ..models.mana_cost import ManaCost
 from ..models.player import Player
-from . import combat, continuous
+from . import ability_catalogue, combat, continuous
 from .costs import DISCARD_HAND, ActivationCost
 from .effects import ActivatedAbility
 from .mana_abilities import mana_options, option_label
@@ -31,6 +31,7 @@ from .phases import GamePhase, GameStep, default_turn_sequence
 from .rules_engine import RulesEngine
 from .targeting import (
     all_requirements_satisfiable,
+    legal_targets,
     requirements_with_targets,
     spell_target_specs,
 )
@@ -523,6 +524,8 @@ class GameEngine:
             raise ValueError(f"{player.id} cannot play {obj.name} now")
         player.remove_from_zone(obj, Zone.HAND)
         obj.summoning_sick = True
+        # RULE 614.1: a tap-land enters the battlefield tapped.
+        obj.tapped = ability_catalogue.enters_tapped(obj.card)
         self.state.add_to_battlefield(obj)
         player.lands_played_this_turn += 1
         self.state.record_stat(player.id, "land", name=obj.name)
@@ -874,6 +877,59 @@ class GameEngine:
             return False
         return self._can_pay_activation_cost(player, source, ability.cost, x)
 
+    def _ability_target_requirements(
+        self, player: Player, ability: ActivatedAbility, source: GameObject
+    ) -> list[dict[str, Any]]:
+        """Target requirements of an activated ability, with legal options —
+        the same shape `_cast_action` uses for spells (RULE 602.2b / 115)."""
+        out: list[dict[str, Any]] = []
+        for effect in ability.effects:
+            spec = getattr(effect, "target_spec", None)
+            if spec is not None:
+                out.append(
+                    {
+                        "kind": spec.kind,
+                        "optional": spec.optional,
+                        "label": spec.label(),
+                        "options": legal_targets(self.state, player.id, spec, source=source),
+                    }
+                )
+        return out
+
+    def _activate_action(
+        self, player: Player, source: GameObject, index: int, ability: ActivatedAbility
+    ) -> dict[str, Any]:
+        """A ``activate_ability`` legal-action entry (RULE 602), mirroring the
+        cast entry: cost label, ``{X}`` prompt, and per-requirement targets
+        (marked ``locked`` when a required target has no legal option)."""
+        action: dict[str, Any] = {
+            "type": "activate_ability",
+            "instance_id": source.instance_id,
+            "ability_index": index,
+            "name": source.name,
+            "cost_label": ability.cost.label(),
+            "description": ability.description or "",
+        }
+        mana = ability.cost.mana
+        if mana.has_variable:
+            action["has_x"] = True
+            action["max_x"] = self._max_x_for_mana(player, mana)
+        requirements = self._ability_target_requirements(player, ability, source)
+        if requirements:
+            action["requires_target"] = True
+            action["targets"] = requirements
+            if not all_requirements_satisfiable(requirements):
+                action["locked"] = True
+                action["lock_reason"] = "Kein gültiges Ziel im Spiel"
+        return action
+
+    def _max_x_for_mana(self, player: Player, mana: "ManaCost") -> int:
+        bound = player.mana_pool.total()
+        for x in range(bound, -1, -1):
+            if player.mana_pool.can_pay(mana.with_x(x), life_available=player.life):
+                return x
+        return 0
+
     def _can_pay_activation_cost(
         self, player: Player, source: GameObject, cost: "ActivationCost", x: int
     ) -> bool:
@@ -1083,6 +1139,14 @@ class GameEngine:
                     ],
                 }
             )
+
+        # Activated abilities (RULE 602) bound onto permanents this player
+        # controls — one offer per payable ability (a fetch land's
+        # "{T}, Sacrifice: …", a mana rock, a pinger, …).
+        for source in self.state.permanents_controlled_by(player.id):
+            for index, ability in enumerate(source.activated_abilities):
+                if self.can_activate(player, source, ability):
+                    actions.append(self._activate_action(player, source, index, ability))
         return actions
 
     # ------------------------------------------------------------------
