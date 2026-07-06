@@ -22,7 +22,12 @@ LIGHTNING_BOLT = {
     "keywords": [],
     "set": "clu",
     "rarity": "common",
-    "image_uris": {"small": "", "normal": "", "large": "", "png": ""},
+    "image_uris": {
+        "small": "https://img.example/bolt-small.jpg",
+        "normal": "https://img.example/bolt-normal.jpg",
+        "large": "",
+        "png": "",
+    },
 }
 
 # Modal double-faced card: Scryfall's /cards/collection resolves this by
@@ -50,7 +55,12 @@ VALKI_TIBALT = {
             "colors": ["B"],
             "power": "2",
             "toughness": "1",
-            "image_uris": {"small": "", "normal": "", "large": "", "png": ""},
+            "image_uris": {
+                "small": "https://img.example/valki-small.jpg",
+                "normal": "https://img.example/valki-normal.jpg",
+                "large": "",
+                "png": "",
+            },
         },
         {
             "object": "card_face",
@@ -182,6 +192,7 @@ class TestLoadCards:
                 mana_cost_string="{U}{U}",
                 converted_mana_cost=2,
                 is_instant=True,
+                image_uri_normal="https://img.example/counterspell.jpg",
             )
         )
 
@@ -378,7 +389,13 @@ class TestStaleCachedRows:
         from mtg_analyzer.models.card import Card
 
         database.save_card(
-            Card(id="forest-id", name="Forest", type_line="Basic Land — Forest", is_land=True)
+            Card(
+                id="forest-id",
+                name="Forest",
+                type_line="Basic Land — Forest",
+                is_land=True,
+                image_uri_normal="https://img.example/forest.jpg",
+            )
         )
 
         result = loader.load_cards(["Forest"])

@@ -56,6 +56,26 @@ class Card:
         has_partner: Whether the card has "Partner" or "Partner with X".
         partner_with: The named partner card if this card has
             "Partner with X", otherwise None.
+        layout: Scryfall's printed layout, e.g. "normal", "transform",
+            "modal_dfc", "flip", "split", "adventure", "meld". Empty for
+            rows cached before this field existed. This is what decides
+            *how* a second face is reached — see `is_modal_dfc` (the back
+            is a separately-castable card) vs. `is_transforming` (the
+            back is only reached by a transform effect on the
+            battlefield) vs. single-image layouts like "flip"/"split".
+        back_name: Name of the back face, or "" if the card has no
+            distinct second face (or the row predates DFC support).
+        back_type_line: Type line of the back face.
+        back_oracle_text: Rules text of the back face.
+        back_mana_cost_string: Raw Scryfall mana cost of the back face
+            (empty for a transform back, which is never cast for a cost).
+        back_power/back_toughness: Back face's power/toughness if it is a
+            creature, else None.
+        back_image_uri_small/normal/large/png: Scryfall image URLs for the
+            back face. Only populated for layouts that print two separate
+            face images (transform, modal_dfc, double_faced_token); a
+            "flip"/"split" card shows a single shared image and leaves
+            these empty. See `has_back_face`.
     """
 
     def __init__(
@@ -84,6 +104,17 @@ class Card:
         is_legendary: bool = False,
         has_partner: bool = False,
         partner_with: Optional[str] = None,
+        layout: str = "",
+        back_name: str = "",
+        back_type_line: str = "",
+        back_oracle_text: str = "",
+        back_mana_cost_string: str = "",
+        back_power: Optional[int] = None,
+        back_toughness: Optional[int] = None,
+        back_image_uri_small: str = "",
+        back_image_uri_normal: str = "",
+        back_image_uri_large: str = "",
+        back_image_uri_png: str = "",
     ) -> None:
         """Construct a Card, validating attributes per the data model spec.
 
@@ -131,6 +162,86 @@ class Card:
         self.is_legendary = is_legendary
         self.has_partner = has_partner
         self.partner_with = partner_with
+        self.layout = layout
+        self.back_name = back_name
+        self.back_type_line = back_type_line
+        self.back_oracle_text = back_oracle_text
+        self.back_mana_cost_string = back_mana_cost_string
+        self.back_power = back_power
+        self.back_toughness = back_toughness
+        self.back_image_uri_small = back_image_uri_small
+        self.back_image_uri_normal = back_image_uri_normal
+        self.back_image_uri_large = back_image_uri_large
+        self.back_image_uri_png = back_image_uri_png
+
+    @property
+    def has_back_face(self) -> bool:
+        """Whether this card has a distinct, separately-imaged back face.
+
+        True only for layouts that print two face images — a transform
+        card (Delver), a modal DFC (Valki // Tibalt), a double-faced
+        token. A "flip" (Kamigawa) or "split"/"adventure" card has two
+        *faces* in Scryfall's data but one shared image, so it reports
+        False: there is nothing to flip *to* image-wise. Derived from
+        whether a back image URL was captured rather than from `layout`
+        alone, so a row cached before `layout` existed still answers
+        correctly if it happens to carry back-image data.
+        """
+        return bool(self.back_image_uri_normal or self.back_image_uri_small)
+
+    @property
+    def is_modal_dfc(self) -> bool:
+        """Whether the back face is a *separately castable* card (RULE 712).
+
+        A modal DFC (e.g. "Valki, God of Lies // Tibalt, Cosmic
+        Impostor") lets the player choose which face to play from hand;
+        the two faces are independent cards sharing one physical object.
+        Contrast `is_transforming`, where the back is never chosen from
+        hand.
+        """
+        return self.layout == "modal_dfc"
+
+    @property
+    def is_transforming(self) -> bool:
+        """Whether the back face is reached only by transforming in play.
+
+        A transform DFC (Delver of Secrets, werewolves, flip
+        planeswalkers) always enters as its front face; the back is a
+        battlefield-only state reached by a transform effect, never cast
+        from hand. Contrast `is_modal_dfc`.
+        """
+        return self.layout == "transform"
+
+    @property
+    def is_token(self) -> bool:
+        """Whether this definition is a token rather than a real card.
+
+        Derived from the type line rather than stored: every Scryfall token
+        object's ``type_line`` begins with "Token" (e.g. "Token Artifact —
+        Treasure", "Token Creature — Soldier"), so token-ness needs no extra
+        field on the serialized row and no cache-schema change. Tokens reuse
+        this `Card` model as their printed *definition* (see
+        services/token_database.py) so the oracle-text → effect parser and
+        binder treat a token's abilities exactly like a real card's; the
+        rules-critical difference (a token ceases to exist when it leaves the
+        battlefield, RULE 704.5d) belongs on the in-play `GameObject`, not
+        here.
+        """
+        return self.type_line.strip().startswith("Token")
+
+    @property
+    def has_image_data(self) -> bool:
+        """Whether this row carries a usable front-face image URL.
+
+        Rows cached by an older build (notably double-faced cards, whose
+        image URLs live under `card_faces` and were dropped before DFC
+        support) can have blank image URIs while still having a mana
+        cost — so `has_mana_cost_data` alone would keep serving them
+        image-less forever. `LazyCardLoader` pairs this with that flag to
+        decide a row needs refetching. Tokens legitimately may lack an
+        image, so they're exempt.
+        """
+        return bool(self.image_uri_normal or self.image_uri_small) or self.is_token
 
     @property
     def has_mana_cost_data(self) -> bool:
@@ -174,6 +285,18 @@ class Card:
             "is_legendary": self.is_legendary,
             "has_partner": self.has_partner,
             "partner_with": self.partner_with,
+            "layout": self.layout,
+            "has_back_face": self.has_back_face,
+            "back_name": self.back_name,
+            "back_type_line": self.back_type_line,
+            "back_oracle_text": self.back_oracle_text,
+            "back_mana_cost_string": self.back_mana_cost_string,
+            "back_power": self.back_power,
+            "back_toughness": self.back_toughness,
+            "back_image_uri_small": self.back_image_uri_small,
+            "back_image_uri_normal": self.back_image_uri_normal,
+            "back_image_uri_large": self.back_image_uri_large,
+            "back_image_uri_png": self.back_image_uri_png,
         }
 
     @classmethod
@@ -204,7 +327,21 @@ class Card:
             is_legendary=data.get("is_legendary", False),
             has_partner=data.get("has_partner", False),
             partner_with=data.get("partner_with"),
+            layout=data.get("layout", ""),
+            back_name=data.get("back_name", ""),
+            back_type_line=data.get("back_type_line", ""),
+            back_oracle_text=data.get("back_oracle_text", ""),
+            back_mana_cost_string=data.get("back_mana_cost_string", ""),
+            back_power=data.get("back_power"),
+            back_toughness=data.get("back_toughness"),
+            back_image_uri_small=data.get("back_image_uri_small", ""),
+            back_image_uri_normal=data.get("back_image_uri_normal", ""),
+            back_image_uri_large=data.get("back_image_uri_large", ""),
+            back_image_uri_png=data.get("back_image_uri_png", ""),
         )
+        # Note: "has_back_face" in the dict is a derived, read-only
+        # property (see to_dict); it is intentionally not a constructor
+        # argument, so from_dict ignores it and recomputes it.
 
     def __deepcopy__(self, memo: dict) -> "Card":
         """Return self: a Card is an immutable printed definition.

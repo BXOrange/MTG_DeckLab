@@ -30,6 +30,7 @@ from typing import TYPE_CHECKING, Any, Callable, Optional
 
 from ..models.events import GameEvent
 from ..models.mana_cost import ManaCost
+from .targeting import TargetSpec
 
 if TYPE_CHECKING:  # avoid an import cycle with rules_engine at runtime
     from ..models.game_object import GameObject
@@ -89,6 +90,12 @@ class GameContext:
     def shuffle_library(self, player: "Player") -> None:
         self.engine.shuffle_library(player)
 
+    def cascade(self, player: "Player", max_mana_value: int) -> None:
+        self.engine.request_cascade(player, max_mana_value)
+
+    def discover(self, player: "Player", max_mana_value: int) -> None:
+        self.engine.request_discover(player, max_mana_value)
+
     def counter(self, target: Any) -> None:
         self.engine.counter_spell(target)
 
@@ -99,7 +106,15 @@ class GameContext:
 
 
 class GameEffect(ABC):
-    """Base class for all effects (docs/07 PART 2)."""
+    """Base class for all effects (docs/07 PART 2).
+
+    ``target_spec`` is ``None`` for a global / fixed-set effect (draw, gain
+    life, board wipe) and a `TargetSpec` for a *targeting* effect (RULE 115),
+    so the engine can tell before casting whether a legal target is required
+    and available (RULE 601.2c). Subclasses that target set it in ``__init__``.
+    """
+
+    target_spec: Optional[TargetSpec] = None
 
     def __init__(self, source: Optional["GameObject"] = None) -> None:
         self.source = source
@@ -305,10 +320,19 @@ class WinConditionEffect(GameEffect):
 class DealDamageEffect(GameEffect):
     """Deal ``amount`` damage to a target player or creature."""
 
-    def __init__(self, amount: int, target: Any = None, source: Optional["GameObject"] = None) -> None:
+    def __init__(
+        self,
+        amount: int,
+        target: Any = None,
+        source: Optional["GameObject"] = None,
+        target_kind: str = "any",
+    ) -> None:
         super().__init__(source)
         self.amount = amount
         self.target = target
+        # Damage targets "any target" by default (RULE 115.4); a card that
+        # only hits creatures can narrow this to "creature".
+        self.target_spec = TargetSpec(kind=target_kind)
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
         target = (targets[0] if targets else None) or self.target
@@ -345,9 +369,15 @@ class DiscardEffect(GameEffect):
 class DestroyEffect(GameEffect):
     """Destroy a target permanent."""
 
-    def __init__(self, target: Any = None, source: Optional["GameObject"] = None) -> None:
+    def __init__(
+        self,
+        target: Any = None,
+        source: Optional["GameObject"] = None,
+        target_kind: str = "permanent",
+    ) -> None:
         super().__init__(source)
         self.target = target
+        self.target_spec = TargetSpec(kind=target_kind)
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
         target = (targets[0] if targets else None) or self.target
@@ -374,6 +404,7 @@ class CounterSpellEffect(GameEffect):
     def __init__(self, target: Any = None, source: Optional["GameObject"] = None) -> None:
         super().__init__(source)
         self.target = target
+        self.target_spec = TargetSpec(kind="spell")
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
         target = (targets[0] if targets else None) or self.target
@@ -448,6 +479,58 @@ class ShuffleLibraryEffect(GameEffect):
         context.shuffle_library(player)
 
 
+class CascadeEffect(GameEffect):
+    """Cascade (RULE 702.85): free-cast the first cheaper nonland from the top.
+
+    Exiles from the top of the library until a nonland card with mana value
+    *less than* the cascade spell's, which the controller may cast without
+    paying; the rest go to the bottom in a random order. This is a cast (it
+    uses the stack), not a "put onto the battlefield" — the distinction the
+    event model draws.
+
+    ``mana_value`` is the threshold; left ``None`` it is read from the
+    cascade spell (``source``) at resolution, since cascade's own spell is
+    what sets the ceiling.
+    """
+
+    def __init__(
+        self,
+        mana_value: Optional[int] = None,
+        player: Any = None,
+        source: Optional["GameObject"] = None,
+    ) -> None:
+        super().__init__(source)
+        self.mana_value = mana_value
+        self.player = player
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        player = self.player or context.active_player
+        mana_value = self.mana_value
+        if mana_value is None and self.source is not None:
+            mana_value = self.source.card.converted_mana_cost
+        context.cascade(player, mana_value or 0)
+
+
+class DiscoverEffect(GameEffect):
+    """Discover N (RULE 702.164): like cascade, but the hit is a nonland with
+    mana value ``N`` *or less*, and the controller casts it for free **or**
+    puts it into their hand (never leaves it behind)."""
+
+    def __init__(
+        self,
+        mana_value: int = 0,
+        player: Any = None,
+        source: Optional["GameObject"] = None,
+    ) -> None:
+        super().__init__(source)
+        self.mana_value = mana_value
+        self.player = player
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        player = self.player or context.active_player
+        context.discover(player, self.mana_value)
+
+
 class EffectRegistry:
     """Maps an effect-type name to a factory ``(params) -> GameEffect``.
 
@@ -475,7 +558,12 @@ class EffectRegistry:
 
 # Register the core one-shot effects (RULE R3.1 in docs/02).
 EffectRegistry.register(
-    "damage", lambda p: DealDamageEffect(amount=p.get("amount", 0), target=p.get("target"))
+    "damage",
+    lambda p: DealDamageEffect(
+        amount=p.get("amount", 0),
+        target=p.get("target"),
+        target_kind=p.get("target_kind", "any"),
+    ),
 )
 EffectRegistry.register(
     "draw", lambda p: DrawCardEffect(count=p.get("count", 1), player=p.get("player"))
@@ -483,7 +571,12 @@ EffectRegistry.register(
 EffectRegistry.register(
     "discard", lambda p: DiscardEffect(count=p.get("count", 1), player=p.get("player"))
 )
-EffectRegistry.register("destroy", lambda p: DestroyEffect(target=p.get("target")))
+EffectRegistry.register(
+    "destroy",
+    lambda p: DestroyEffect(
+        target=p.get("target"), target_kind=p.get("target_kind", "permanent")
+    ),
+)
 EffectRegistry.register(
     "gain_life", lambda p: GainLifeEffect(amount=p.get("amount", 0), player=p.get("player"))
 )
@@ -500,3 +593,8 @@ EffectRegistry.register(
     ),
 )
 EffectRegistry.register("shuffle", lambda p: ShuffleLibraryEffect())
+EffectRegistry.register("cascade", lambda p: CascadeEffect(mana_value=p.get("mana_value")))
+EffectRegistry.register(
+    "discover",
+    lambda p: DiscoverEffect(mana_value=p.get("mana_value", p.get("amount", 0))),
+)

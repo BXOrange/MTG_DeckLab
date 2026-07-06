@@ -190,6 +190,56 @@ class RulesEngine:
         )
         return item
 
+    def cast_without_paying(
+        self,
+        player: Player,
+        obj: GameObject,
+        targets: Optional[list[Any]] = None,
+    ) -> StackItem:
+        """Cast a card *without paying its mana cost* (RULE 118.9 / 601.3b).
+
+        The free-cast half of the cast/put/draw split: unlike a "put onto the
+        battlefield" (a direct zone change, no stack), this is a real cast —
+        the card goes on the **stack** and resolves normally (a permanent ends
+        up on the battlefield firing `ENTERS_BATTLEFIELD`, an instant/sorcery
+        applies its effects then hits the graveyard). It fires `SPELL_CAST`
+        with ``free=True`` so a "when you cast" trigger still sees it.
+
+        Reusable by every free-cast mechanic — cascade, discover, "you may
+        cast it without paying its mana cost", suspend — from whatever zone
+        the card currently sits in (hand, exile, library, graveyard).
+        """
+        self._remove_from_current_zone(player, obj)
+        obj.zone = Zone.STACK
+        item = StackItem(
+            kind="spell",
+            controller_id=player.id,
+            effects=self._effects_for_spell(obj),
+            obj=obj,
+            description=obj.name,
+            targets=targets,
+        )
+        self.state.stack.append(item)
+        self.state.fire_event(
+            GameEvent(
+                EventType.SPELL_CAST,
+                player_id=player.id,
+                card_id=obj.card.id,
+                spell=obj.name,
+                free=True,
+            )
+        )
+        return item
+
+    def _remove_from_current_zone(self, player: Player, obj: GameObject) -> None:
+        """Pull ``obj`` out of whichever zone currently holds it."""
+        for cards in player.zones.values():
+            if obj in cards:
+                cards.remove(obj)
+                return
+        if obj in self.state.battlefield:
+            self.state.remove_from_battlefield(obj)
+
     @staticmethod
     def _effects_for_spell(obj: GameObject) -> list[Any]:
         """Effects a spell applies when it resolves.
@@ -463,12 +513,26 @@ class RulesEngine:
             for obj in player.library
             if obj.instance_id not in found and card_query.matches(obj.card, criteria)
         ]
+        # Each eligible card is one option; declining an optional search is a
+        # further option. `options` is the general form the UI renders (as a
+        # popup); `eligible` is kept for the pre-options callers/tests.
+        options = [
+            {"id": str(e["instance_id"]), "label": e["name"], "instance_id": e["instance_id"]}
+            for e in eligible
+        ]
+        if optional:
+            options.append({"id": "decline", "label": "Nichts wählen"})
+        description = card_query.describe(criteria)
+        prompt = f"Suche in der Bibliothek nach: {description}"
+        if count > 1:
+            prompt += f" (noch {count - len(found)})"
         return {
             "kind": "search",
             "player_id": player.id,
             "destination": destination,
             "criteria": card_query.normalize(criteria),
-            "description": card_query.describe(criteria),
+            "description": description,
+            "prompt": prompt,
             # Kept for the pre-criteria UI/tests; a plain label of the search.
             "type_restriction": criteria if isinstance(criteria, str) else "",
             "optional": optional,
@@ -476,6 +540,7 @@ class RulesEngine:
             "found": list(found),
             "remaining": count - len(found),
             "eligible": eligible,
+            "options": options,
         }
 
     def _finish_search(
@@ -517,6 +582,9 @@ class RulesEngine:
             player.add_to_zone(obj, Zone.GRAVEYARD)
         elif destination == "exile":
             player.add_to_zone(obj, Zone.EXILE)
+            self.state.fire_event(
+                GameEvent(EventType.EXILE, player_id=player.id, object=obj.name, from_zone="library")
+            )
         else:  # hand (default) — most tutors
             player.add_to_zone(obj, Zone.HAND)
 
@@ -524,6 +592,154 @@ class RulesEngine:
         """Shuffle a player's library and announce it (RULE 701.20)."""
         player.shuffle_library()
         self.state.fire_event(GameEvent(EventType.SHUFFLE, player_id=player.id))
+
+    # ------------------------------------------------------------------
+    # Cascade / Discover: reveal from the top, free-cast a hit (RULE 702.85 / .164)
+    # ------------------------------------------------------------------
+
+    def request_cascade(self, player: Player, max_mana_value: int) -> None:
+        """Cascade (RULE 702.85): exile from the top until a nonland spell
+        cheaper than the cascade spell, which its controller *may* cast for
+        free; the rest go to the bottom in a random order.
+
+        Exiles eagerly, then — if a hit was found — opens a "may cast" choice
+        (`resolve_cascade_choice`). With no hit it just bottoms what it
+        exiled. The bottoming is deferred to the choice so a card that is cast
+        leaves exile first (RULE 702.85e ordering).
+        """
+        criteria = {"max_mana_value": max_mana_value - 1}
+        matched, exiled = self._exile_top_until(player, criteria, exclude_lands=True)
+        if matched is None:
+            self._bottom_exiled(player, exiled)
+            return
+        self.state.pending_choice = {
+            "kind": "cascade",
+            "player_id": player.id,
+            "optional": True,  # "you may cast it"
+            "description": f"Cascade: {matched.name}",
+            "prompt": f"Cascade — {matched.name} kostenlos wirken?",
+            "matched_id": matched.instance_id,
+            "eligible": [{"instance_id": matched.instance_id, "name": matched.name}],
+            # A yes/no decision (RULE 702.85d "you may cast it").
+            "options": [
+                {"id": "cast", "label": f"„{matched.name}“ kostenlos wirken",
+                 "instance_id": matched.instance_id},
+                {"id": "decline", "label": "Nicht wirken (unter die Bibliothek)"},
+            ],
+            "exiled": [o.instance_id for o in exiled],
+        }
+
+    def resolve_cascade_choice(self, cast: bool = True) -> None:
+        """Finish a cascade: ``cast`` the hit for free (or not), then bottom
+        every still-exiled card from this cascade in a random order."""
+        choice = self.state.pending_choice
+        if not choice or choice.get("kind") != "cascade":
+            raise ValueError("no pending cascade to resolve")
+        player = self.state.player_by_id(choice["player_id"])
+        self.state.pending_choice = None
+
+        if cast:
+            obj = self._exiled_by_id(player, choice["exiled"], choice["matched_id"])
+            if obj is not None:
+                self.cast_without_paying(player, obj)
+        self._bottom_remaining(player, choice["exiled"])
+
+    def request_discover(self, player: Player, max_mana_value: int) -> None:
+        """Discover N (RULE 702.164): exile from the top until a nonland spell
+        with mana value ≤ N; its controller either casts it for free **or**
+        puts it into their hand (never nothing). The rest go to the bottom.
+
+        Unlike cascade this is *not* a yes/no — it's a two-way decision, so the
+        choice carries two positive options ("cast" / "hand") rather than a
+        decline.
+        """
+        criteria = {"max_mana_value": max_mana_value}
+        matched, exiled = self._exile_top_until(player, criteria, exclude_lands=True)
+        if matched is None:
+            self._bottom_exiled(player, exiled)
+            return
+        self.state.pending_choice = {
+            "kind": "discover",
+            "player_id": player.id,
+            "optional": False,  # you must cast it or take it — never nothing
+            "description": f"Discover: {matched.name}",
+            "prompt": f"Discover — „{matched.name}“ kostenlos wirken oder auf die Hand?",
+            "matched_id": matched.instance_id,
+            "eligible": [{"instance_id": matched.instance_id, "name": matched.name}],
+            "options": [
+                {"id": "cast", "label": f"„{matched.name}“ kostenlos wirken",
+                 "instance_id": matched.instance_id},
+                {"id": "hand", "label": "Auf die Hand nehmen",
+                 "instance_id": matched.instance_id},
+            ],
+            "exiled": [o.instance_id for o in exiled],
+        }
+
+    def resolve_discover_choice(self, to_hand: bool = False) -> None:
+        """Finish a discover: cast the hit for free, or (``to_hand``) put it
+        into hand. Either way the card leaves exile; bottom the rest."""
+        choice = self.state.pending_choice
+        if not choice or choice.get("kind") != "discover":
+            raise ValueError("no pending discover to resolve")
+        player = self.state.player_by_id(choice["player_id"])
+        self.state.pending_choice = None
+
+        matched = self._exiled_by_id(player, choice["exiled"], choice["matched_id"])
+        if matched is not None:
+            if to_hand:
+                player.remove_from_zone(matched, Zone.EXILE)
+                player.add_to_zone(matched, Zone.HAND)
+            else:
+                self.cast_without_paying(player, matched)
+        self._bottom_remaining(player, choice["exiled"])
+
+    def _exile_top_until(
+        self, player: Player, criteria: Any, exclude_lands: bool
+    ) -> tuple[Optional[GameObject], list[GameObject]]:
+        """Exile cards from the top of the library until one matches ``criteria``.
+
+        Returns the matching object (or None if the library ran out) and the
+        full list exiled (the match is its last element). Lands never match
+        when ``exclude_lands`` (cascade/discover want a nonland spell).
+        """
+        exiled: list[GameObject] = []
+        matched: Optional[GameObject] = None
+        while player.library:
+            obj = player.library.pop()  # top of deck
+            obj.zone = Zone.EXILE
+            player.exile.append(obj)
+            exiled.append(obj)
+            self.state.fire_event(
+                GameEvent(EventType.EXILE, player_id=player.id, object=obj.name, from_zone="library")
+            )
+            is_land = exclude_lands and obj.card.is_land
+            if not is_land and card_query.matches(obj.card, criteria):
+                matched = obj
+                break
+        return matched, exiled
+
+    def _exiled_by_id(
+        self, player: Player, exiled_ids: list[int], instance_id: int
+    ) -> Optional[GameObject]:
+        if instance_id not in exiled_ids:
+            return None
+        return next((o for o in player.exile if o.instance_id == instance_id), None)
+
+    def _bottom_exiled(self, player: Player, exiled: list[GameObject]) -> None:
+        self._bottom_remaining(player, [o.instance_id for o in exiled])
+
+    def _bottom_remaining(self, player: Player, exiled_ids: list[int]) -> None:
+        """Put every still-exiled card from this effect on the bottom of the
+        library in a random order (RULE 702.85e). Cards already cast/taken to
+        hand are no longer in exile and are skipped."""
+        import random
+
+        remaining = [o for o in list(player.exile) if o.instance_id in set(exiled_ids)]
+        random.shuffle(remaining)
+        for obj in remaining:
+            player.remove_from_zone(obj, Zone.EXILE)
+            obj.zone = Zone.LIBRARY
+            player.library.insert(0, obj)  # bottom (index 0 — see Player.library)
 
     def _move_to_graveyard(self, obj: GameObject) -> None:
         was_on_battlefield = obj in self.state.battlefield

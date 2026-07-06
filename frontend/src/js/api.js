@@ -60,9 +60,12 @@ export async function submitDeck(sections) {
  * the URL, it doesn't fetch anything itself; the <img> tag does that.
  * @param {string} cardId Scryfall id (Card.id from a resolved card).
  * @param {'small'|'normal'|'large'|'png'} size
+ * @param {'front'|'back'} [face] Back face of a double-faced card
+ *   (transform / modal DFC) — only valid when the card `has_back_face`.
  */
-export function cardImageUrl(cardId, size = 'normal') {
-  return `${getServerUrl()}/api/cards/${encodeURIComponent(cardId)}/image?size=${size}`;
+export function cardImageUrl(cardId, size = 'normal', face = 'front') {
+  const faceParam = face === 'back' ? '&face=back' : '';
+  return `${getServerUrl()}/api/cards/${encodeURIComponent(cardId)}/image?size=${size}${faceParam}`;
 }
 
 /**

@@ -204,10 +204,17 @@ class GameSession:
             raise GameActionError("a choice is pending — answer it first")
 
         if kind in ("choose", "decline"):
-            instance_id = action.get("instance_id") if kind == "choose" else None
-            self.engine.resolve_pending_choice(
-                int(instance_id) if instance_id is not None else None
-            )
+            # A choice is answered by an option id ("cast"/"hand"/"decline" or
+            # a card's instance id). `decline` is shorthand for the decline
+            # option; a legacy `instance_id`-only payload still works.
+            if kind == "decline":
+                answer: Any = "decline"
+            else:
+                answer = action.get("option_id")
+                if answer is None:
+                    iid = action.get("instance_id")
+                    answer = int(iid) if iid is not None else None
+            self.engine.resolve_pending_choice(answer)
             return
 
         if kind in ("advance_step", "advance", "next_step"):
@@ -370,17 +377,21 @@ class GameSession:
             ]
         pending = self.engine.state.pending_choice
         if pending:
-            # A choice is pending: the only legal actions are answering it.
-            actions = [
-                {
-                    "type": "choose",
-                    "instance_id": entry["instance_id"],
-                    "name": entry["name"],
-                }
-                for entry in pending.get("eligible", [])
-            ]
-            if pending.get("optional"):
-                actions.append({"type": "decline"})
+            # A choice is pending: the only legal actions are answering it —
+            # one per option (a decline option maps to the `decline` action).
+            actions: list[dict[str, Any]] = []
+            for opt in pending.get("options", []):
+                if opt["id"] == "decline":
+                    actions.append({"type": "decline"})
+                else:
+                    actions.append(
+                        {
+                            "type": "choose",
+                            "option_id": opt["id"],
+                            "name": opt.get("label"),
+                            "instance_id": opt.get("instance_id"),
+                        }
+                    )
             return actions
         return self.engine.legal_actions(self.engine.state.active_player)
 

@@ -51,9 +51,12 @@ class LazyCardLoader:
             cached = self._database.get_card(name)
             if cached is None:
                 missing.append(name)
-            elif cached.has_mana_cost_data:
+            elif cached.has_mana_cost_data and cached.has_image_data:
                 result.cards[name] = cached
             else:
+                # Refetch rows missing either mana-cost or image data — the
+                # latter catches double-faced cards cached before their
+                # per-face image URLs were captured (see Card.has_image_data).
                 missing.append(name)
                 stale[name] = cached
 

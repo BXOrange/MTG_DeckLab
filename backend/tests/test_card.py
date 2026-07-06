@@ -139,6 +139,34 @@ class TestSerialization:
         assert card.oracle_text == ""
         assert card.is_legendary is False
         assert card.partner_with is None
+        # Back-face fields absent on a legacy row default to empty.
+        assert card.layout == ""
+        assert card.has_back_face is False
+        assert card.back_name == ""
+
+    def test_to_dict_round_trip_double_faced_card(self):
+        card = Card(
+            id="dfc",
+            name="Delver of Secrets // Insectile Aberration",
+            type_line="Creature — Human Wizard",
+            is_creature=True,
+            power=1,
+            toughness=1,
+            image_uri_normal="https://img.example/delver.jpg",
+            layout="transform",
+            back_name="Insectile Aberration",
+            back_type_line="Creature — Insect",
+            back_oracle_text="Flying",
+            back_power=3,
+            back_toughness=2,
+            back_image_uri_normal="https://img.example/aberration.jpg",
+        )
+        data = card.to_dict()
+        assert data["has_back_face"] is True  # derived, exposed for the frontend
+        restored = Card.from_dict(data)
+        assert restored == card
+        assert restored.is_transforming is True
+        assert restored.back_toughness == 2
 
 
 class TestDunderMethods:

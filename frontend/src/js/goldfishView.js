@@ -490,33 +490,49 @@ export function createGoldfishView() {
     wire();
   }
 
+  // Icon per choice kind — search, cascade and discover share the same
+  // "answer one of these options" shape, so one renderer covers them.
+  const CHOICE_ICONS = { search: '🔎', cascade: '🌊', discover: '🔮' };
+
+  function playerName(id) {
+    const p = (view.state?.players || []).find((pl) => pl.id === id);
+    return p ? p.name : id;
+  }
+
+  // A pending choice is rendered as a modal popup for the deciding player:
+  // the board behind it is dimmed/locked (`.goldfish.choosing`) so the only
+  // thing to do is answer. Each server-provided option becomes one button.
   function pendingChoiceHtml(pending) {
-    if (pending.kind !== 'search') {
-      return '<div class="gf-choice"><p class="server-status pending">Entscheidung nötig …</p></div>';
-    }
-    // Prefer the criteria description ("a basic land card"); fall back to the
-    // legacy type_restriction string for older states.
-    const what = pending.description || pending.type_restriction;
-    let label = what
-      ? `Suche in der Bibliothek nach: ${escapeHtml(what)}`
-      : 'Suche in der Bibliothek';
-    // "Search for up to N": show how many picks are still open.
-    if (pending.count > 1 && pending.remaining != null) {
-      label += ` (noch ${pending.remaining})`;
-    }
-    const options = (pending.eligible || [])
-      .map((e) => {
-        const action = JSON.stringify({ type: 'choose', instance_id: e.instance_id, name: e.name });
-        return `<button type="button" data-hover-card="${escapeHtml(e.name)}" data-action='${escapeAttr(action)}'>${escapeHtml(e.name)}</button>`;
+    const icon = CHOICE_ICONS[pending.kind] || '❔';
+    const heading = pending.prompt || pending.description || 'Entscheidung nötig';
+    // Fall back to eligible cards if an older state has no `options`.
+    const options = pending.options
+      || (pending.eligible || []).map((e) => ({ id: String(e.instance_id), label: e.name, instance_id: e.instance_id }));
+
+    const buttons = options
+      .map((opt) => {
+        if (opt.id === 'decline') {
+          const action = JSON.stringify({ type: 'decline' });
+          return `<button type="button" class="gf-decline" data-action='${escapeAttr(action)}'>${escapeHtml(opt.label || 'Nichts wählen')}</button>`;
+        }
+        const action = JSON.stringify({ type: 'choose', option_id: opt.id, instance_id: opt.instance_id, name: opt.label });
+        const hover = opt.instance_id != null ? ` data-hover-card="${escapeHtml(opt.label || '')}"` : '';
+        return `<button type="button"${hover} data-action='${escapeAttr(action)}'>${escapeHtml(opt.label || opt.id)}</button>`;
       })
       .join('');
-    const decline = pending.optional
-      ? `<button type="button" class="gf-decline" data-action='${escapeAttr(JSON.stringify({ type: 'decline' }))}'>Nichts wählen</button>`
-      : '';
+
     return `
-      <div class="gf-choice">
-        <h4>🔎 ${label}</h4>
-        <div class="gf-choice-options">${options}${decline}</div>
+      <div class="gf-modal-overlay">
+        <div class="gf-modal" role="dialog" aria-modal="true">
+          <div class="gf-modal-head">
+            <span class="gf-modal-icon">${icon}</span>
+            <div>
+              <h4>${escapeHtml(heading)}</h4>
+              <p class="gf-modal-who">Entscheidung für ${escapeHtml(playerName(pending.player_id))}</p>
+            </div>
+          </div>
+          <div class="gf-choice-options">${buttons}</div>
+        </div>
       </div>
     `;
   }
@@ -649,6 +665,13 @@ export function createGoldfishView() {
     for (const a of cardActions) {
       if (a.type === 'play_land') {
         buttons.push(actionButton({ type: 'play_land', instance_id: a.instance_id, name: a.name }, '🌳 Land spielen'));
+      } else if (a.type === 'cast_spell' && a.locked) {
+        // RULE 601.2c: the spell needs a target but the board offers none.
+        // Show it locked rather than castable so the reason is visible.
+        const reason = a.lock_reason || 'Kein gültiges Ziel';
+        buttons.push(
+          `<button type="button" class="gf-card-action gf-locked" disabled title="${escapeAttr(reason)}">🔒 ${escapeHtml(reason)}</button>`
+        );
       } else if (a.type === 'cast_spell' && a.has_x) {
         // {X} in the cost (RULE 601.2b): let the player announce a value
         // (capped at what they can currently afford) instead of a plain

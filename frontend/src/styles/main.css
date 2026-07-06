@@ -551,6 +551,34 @@ textarea {
   background: var(--bg);
 }
 
+.card-tile-flip {
+  position: absolute;
+  top: 0.4rem;
+  right: 0.4rem;
+  z-index: 1;
+  width: 1.9rem;
+  height: 1.9rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1rem;
+  cursor: pointer;
+  border: none;
+  border-radius: 999px;
+  background: rgba(0, 0, 0, 0.55);
+  color: #fff;
+  transition: transform 0.15s ease, background 0.15s ease;
+}
+
+.card-tile-flip:hover {
+  background: var(--accent);
+  color: #1b1e24;
+}
+
+.card-tile-flip.is-flipped {
+  transform: rotate(180deg);
+}
+
 .card-tile-qty {
   position: absolute;
   top: 0.4rem;
@@ -972,6 +1000,63 @@ textarea {
   gap: 0.25rem;
 }
 
+/* Stack items carry a type badge above the art and a resolution-order
+   hint below, so the stack reads as spells vs. triggered/activated
+   abilities and shows what resolves next (RULE 608.2, LIFO). */
+.gf-stack-item {
+  gap: 0.2rem;
+}
+
+.gf-stack-item.is-top .card {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+.gf-stack-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.2rem;
+  max-width: 110px;
+  padding: 0.1rem 0.35rem;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  font-size: 0.62rem;
+  font-weight: 600;
+  line-height: 1.3;
+  text-align: center;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.gf-stack-badge--spell {
+  background: color-mix(in srgb, var(--accent) 18%, transparent);
+  border-color: color-mix(in srgb, var(--accent) 45%, transparent);
+  color: var(--text);
+}
+
+.gf-stack-badge--triggered {
+  background: color-mix(in srgb, #e0a800 22%, transparent);
+  border-color: color-mix(in srgb, #e0a800 55%, transparent);
+  color: var(--text);
+}
+
+.gf-stack-badge--activated {
+  background: color-mix(in srgb, #2f9e6a 22%, transparent);
+  border-color: color-mix(in srgb, #2f9e6a 55%, transparent);
+  color: var(--text);
+}
+
+.gf-stack-order {
+  font-size: 0.6rem;
+  color: var(--text-dim);
+}
+
+.gf-stack-item.is-top .gf-stack-order {
+  color: var(--accent);
+  font-weight: 600;
+}
+
 .gf-card-actions {
   display: flex;
   flex-wrap: wrap;
@@ -994,6 +1079,18 @@ textarea {
 .gf-card-action:hover {
   border-color: var(--accent);
   color: var(--accent);
+}
+
+/* A spell with no legal target (RULE 601.2c): shown but not castable. */
+.gf-card-action.gf-locked {
+  opacity: 0.55;
+  cursor: not-allowed;
+  border-style: dashed;
+}
+
+.gf-card-action.gf-locked:hover {
+  border-color: var(--border);
+  color: var(--text);
 }
 
 /* {X}-cost spell: a value input next to its "Zaubern" button. */
@@ -1058,6 +1155,60 @@ textarea {
 .goldfish.choosing .gf-hand,
 .goldfish.choosing .gf-zone-row {
   opacity: 0.55;
+}
+
+/* A pending decision as a modal popup for the deciding player: it overlays
+   the board so answering it is the only thing to do (RULE choice points). */
+.gf-modal-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1rem;
+  background: rgba(0, 0, 0, 0.55);
+  backdrop-filter: blur(2px);
+  animation: gf-modal-fade 0.12s ease-out;
+}
+
+@keyframes gf-modal-fade {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+.gf-modal {
+  background: var(--felt);
+  border: 1px solid var(--accent);
+  border-radius: 10px;
+  padding: 1rem 1.2rem;
+  max-width: min(560px, 92vw);
+  max-height: 82vh;
+  overflow-y: auto;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.5);
+}
+
+.gf-modal-head {
+  display: flex;
+  gap: 0.6rem;
+  align-items: flex-start;
+  margin-bottom: 0.8rem;
+}
+
+.gf-modal-icon {
+  font-size: 1.5rem;
+  line-height: 1;
+}
+
+.gf-modal-head h4 {
+  margin: 0;
+  font-size: 1rem;
+}
+
+.gf-modal-who {
+  margin: 0.15rem 0 0;
+  font-size: 0.75rem;
+  color: var(--text-dim);
 }
 
 /* --- Goldfisch: Ladebildschirm (Kartenbilder vorladen) --- */

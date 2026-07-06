@@ -32,6 +32,12 @@ class StackItem:
     it on the stack; ``targets`` records chosen targets; ``x`` is the
     value announced for a cost containing ``{X}`` (RULE 601.2b), 0
     otherwise.
+
+    ``category`` is the finer classification the UI shows so a player can
+    tell *what kind of thing* is waiting on the stack — one of ``"spell"``,
+    ``"triggered_ability"``, or ``"activated_ability"`` (RULE 601 / 602 /
+    603). When not given it is derived from the effect on the stack by
+    class name, which keeps this model free of a `game/` import.
     """
 
     def __init__(
@@ -43,6 +49,7 @@ class StackItem:
         description: str = "",
         targets: Optional[list[Any]] = None,
         x: int = 0,
+        category: Optional[str] = None,
     ) -> None:
         self.kind = kind
         self.controller_id = controller_id
@@ -51,13 +58,34 @@ class StackItem:
         self.description = description
         self.targets = targets or []
         self.x = x
+        self.category = category or self._derive_category()
+
+    def _derive_category(self) -> str:
+        """Classify the item for display without importing `game/` types.
+
+        Spells are known from ``kind``; an ability is triggered or
+        activated depending on the effect object it carries, matched by
+        class name so this stays a pure model (see `GameObject`).
+        """
+        if self.kind == "spell":
+            return "spell"
+        for effect in self.effects:
+            name = type(effect).__name__
+            if name == "ActivatedAbility":
+                return "activated_ability"
+            if name == "TriggeredAbility":
+                return "triggered_ability"
+        # The only ability path wired into gameplay today is triggered.
+        return "triggered_ability"
 
     def to_dict(self) -> dict[str, Any]:
         return {
             "kind": self.kind,
+            "category": self.category,
             "controller_id": self.controller_id,
             "description": self.description or (self.obj.name if self.obj else ""),
             "object": self.obj.to_dict() if self.obj else None,
+            "type_line": self.obj.card.type_line if self.obj else "",
             "x": self.x,
         }
 

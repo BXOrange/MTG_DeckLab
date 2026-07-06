@@ -94,25 +94,54 @@ class ScryfallIntegration:
         self._last_request_at = time.monotonic()
 
 
+#: Scryfall layouts that print two *separate* face images the player can
+#: flip between — a transform card (Delver), a modal DFC (Valki //
+#: Tibalt), a double-faced token, and Scryfall's own reversible reprints.
+#: Everything else with a `card_faces` array ("flip", "split", "adventure",
+#: "meld") shows a single shared image, so no back image is captured for
+#: those. See Card.has_back_face.
+_TWO_IMAGE_LAYOUTS = frozenset(
+    {"transform", "modal_dfc", "double_faced_token", "reversible_card"}
+)
+
+
 def card_from_scryfall_data(data: dict[str, Any]) -> Card:
     """Convert a Scryfall card object into a `Card` domain model.
 
-    Double-faced/split cards store most face-specific fields (oracle
-    text, image URIs, power/toughness) under `card_faces` instead of at
-    the top level; this uses the front face as a reasonable default
-    since the analyzer doesn't yet model separate card faces.
+    Double-faced cards keep face-specific fields (oracle text, image
+    URIs, power/toughness, type line) under `card_faces` rather than at
+    the top level. The `Card` model is front-face-first: its primary
+    fields describe the front, and derived type flags (`is_creature`,
+    `is_land`, …) come from the *front* face's type line — not the
+    combined "Front // Back" line, which would e.g. flag an
+    "Instant // Land" modal DFC as a land. The back face is preserved in
+    the `back_*` fields for layouts that print a separate back image
+    (see `_TWO_IMAGE_LAYOUTS`); how it is reached — cast from hand vs.
+    transformed in play — is distinguished by `layout` (Card.is_modal_dfc
+    / Card.is_transforming).
     """
+    layout = data.get("layout", "")
+    faces = data.get("card_faces") or []
     front = data
-    faces = data.get("card_faces")
     if faces and ("oracle_text" not in data or not data.get("image_uris")):
         front = {**faces[0], **{k: v for k, v in data.items() if k not in faces[0]}}
 
-    type_line = data.get("type_line", "")
+    # Type flags describe the front face. `front["type_line"]` is the
+    # front-only line for a true DFC (merged from card_faces[0] above) and
+    # the top-level line otherwise — which for split/adventure/flip is
+    # already the single printed line we want.
+    type_line = front.get("type_line") or data.get("type_line", "")
+
     image_uris = front.get("image_uris") or data.get("image_uris") or {}
 
     power = _parse_int(front.get("power"))
     toughness = _parse_int(front.get("toughness"))
     is_creature = "Creature" in type_line
+
+    back = faces[1] if layout in _TWO_IMAGE_LAYOUTS and len(faces) >= 2 else {}
+    back_image_uris = back.get("image_uris") or {}
+    back_type_line = back.get("type_line", "")
+    back_is_creature = "Creature" in back_type_line
 
     return Card(
         id=data["id"],
@@ -139,6 +168,17 @@ def card_from_scryfall_data(data: dict[str, Any]) -> Card:
         is_legendary="Legendary" in type_line,
         has_partner=_has_partner(front.get("oracle_text", "")),
         partner_with=_partner_with(front.get("oracle_text", "")),
+        layout=layout,
+        back_name=back.get("name", ""),
+        back_type_line=back_type_line,
+        back_oracle_text=back.get("oracle_text", ""),
+        back_mana_cost_string=back.get("mana_cost", "") or "",
+        back_power=_parse_int(back.get("power")) if back_is_creature else None,
+        back_toughness=_parse_int(back.get("toughness")) if back_is_creature else None,
+        back_image_uri_small=back_image_uris.get("small", ""),
+        back_image_uri_normal=back_image_uris.get("normal", ""),
+        back_image_uri_large=back_image_uris.get("large", ""),
+        back_image_uri_png=back_image_uris.get("png", ""),
     )
 
 

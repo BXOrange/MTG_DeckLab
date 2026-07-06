@@ -106,6 +106,42 @@ def test_game_state_to_dict_is_serializable():
     json.dumps(state.to_dict())
 
 
+def test_stack_item_category_defaults_to_spell():
+    item = StackItem(kind="spell", controller_id="p1", description="Bolt")
+    assert item.category == "spell"
+    assert item.to_dict()["category"] == "spell"
+
+
+def test_stack_item_ability_defaults_to_triggered():
+    # An ability with no recognizable effect object is the triggered path.
+    item = StackItem(kind="ability", controller_id="p1", description="draw a card")
+    assert item.category == "triggered_ability"
+
+
+def test_stack_item_category_derived_from_effect_class():
+    class ActivatedAbility:  # name-matched, no game/ import needed
+        pass
+
+    class TriggeredAbility:
+        pass
+
+    activated = StackItem(kind="ability", controller_id="p1", effects=[ActivatedAbility()])
+    triggered = StackItem(kind="ability", controller_id="p1", effects=[TriggeredAbility()])
+    assert activated.category == "activated_ability"
+    assert triggered.category == "triggered_ability"
+
+
+def test_stack_item_explicit_category_wins():
+    item = StackItem(kind="ability", controller_id="p1", category="activated_ability")
+    assert item.category == "activated_ability"
+
+
+def test_stack_item_spell_exposes_type_line():
+    obj = GameObject(make_card(), owner_id="p1")
+    item = StackItem(kind="spell", controller_id="p1", obj=obj)
+    assert item.to_dict()["type_line"] == obj.card.type_line
+
+
 def test_battlefield_membership_by_controller():
     p1 = Player(id="p1")
     state = GameState(players=[p1])

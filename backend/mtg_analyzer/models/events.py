@@ -35,11 +35,17 @@ class EventType:
     LEAVES_BATTLEFIELD = "LEAVES_BATTLEFIELD"
     DIES = "DIES"
     MILL = "MILL"
+    #: A card was moved to exile (RULE 406) — e.g. cascade/discover reveal.
+    EXILE = "EXILE"
     #: A player searched their library (RULE 701.19) / shuffled it (RULE 701.20).
     LIBRARY_SEARCHED = "LIBRARY_SEARCHED"
     SHUFFLE = "SHUFFLE"
 
-    # Spells/abilities.
+    # Spells/abilities. SPELL_CAST carries ``free=True`` when the spell was
+    # cast without paying its mana cost (RULE 118.9 — cascade/discover/etc.),
+    # so a "cast" trigger can distinguish a normal cast from a free one; a
+    # spell put onto the battlefield instead (never cast) fires only
+    # ENTERS_BATTLEFIELD, never SPELL_CAST.
     SPELL_CAST = "SPELL_CAST"
     SPELL_RESOLVED = "SPELL_RESOLVED"
     LAND_PLAYED = "LAND_PLAYED"

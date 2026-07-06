@@ -36,7 +36,15 @@ See [../IMPLEMENTATION_STATUS.md](../IMPLEMENTATION_STATUS.md) and
       "Rules Engine") — but nothing turns a card's `oracle_text` into
       them yet; that parser is the gap. Search is basic type/subtype
       matching only; richer criteria (mana value, colour, "you may")
-      belong here too.
+      belong here too. **Design agreed** in
+      [../docs/09_ORACLE_EFFECT_PARSER.md](../docs/09_ORACLE_EFFECT_PARSER.md):
+      two-stage compiler (front-end parses `oracle_text` → `AbilitySpec`
+      IR; binder maps IR → `GameEffect` via the registry), a
+      repo-committed handler catalogue (regex + builder) vs. the volatile
+      card cache, parse-on-load / bind-per-game linking, and a fail-closed
+      full-span coverage gate (`MODELED`/`UNMODELED`, unclaimed clauses →
+      processing list → analyzer). Start at Phase 0 (IR + binder + one
+      hand-wired card, no NLP).
 - [ ] Combat blocking + creature-vs-creature damage: combat is still
       unblocked-attackers-hit-a-player only (docs/02 R2.7). Declaring
       blockers and assigning combat damage between creatures is the next

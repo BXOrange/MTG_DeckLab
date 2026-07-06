@@ -25,6 +25,11 @@ from ..models.player import Player
 from .mana_abilities import mana_options, option_label
 from .phases import GamePhase, GameStep, default_turn_sequence
 from .rules_engine import RulesEngine
+from .targeting import (
+    all_requirements_satisfiable,
+    requirements_with_targets,
+    spell_target_specs,
+)
 
 #: Maximum hand size enforced at cleanup (RULE 402.2 / 514.1).
 MAX_HAND_SIZE = 7
@@ -294,9 +299,27 @@ class GameEngine:
             return True
         return False
 
-    def resolve_pending_choice(self, instance_id: Optional[int]) -> None:
-        """Answer a pending search choice, then keep resolving the stack."""
-        self.rules.resolve_search_choice(instance_id)
+    def resolve_pending_choice(self, answer: Any) -> None:
+        """Answer whatever choice is pending, then keep resolving the stack.
+
+        ``answer`` is the chosen option's ``id`` (a string like ``"cast"`` /
+        ``"hand"`` / ``"decline"`` or a card's instance id as a string), or —
+        for backward compatibility — a bare ``int`` instance id / ``None`` to
+        decline. Dispatches on the choice ``kind`` so search, cascade and
+        discover share one choose/decline path from the session and UI.
+        """
+        choice = self.state.pending_choice
+        kind = choice.get("kind") if choice else None
+        declined = answer is None or answer == "decline"
+
+        if kind == "cascade":
+            self.rules.resolve_cascade_choice(cast=(answer == "cast"))
+        elif kind == "discover":
+            # Two positive options: cast (default) or take to hand.
+            self.rules.resolve_discover_choice(to_hand=(answer == "hand"))
+        else:  # search: a card's instance id, or decline
+            instance_id = None if declined else int(answer)
+            self.rules.resolve_search_choice(instance_id)
         self.resolve_until_stable()
 
     # ------------------------------------------------------------------
@@ -381,10 +404,24 @@ class GameEngine:
         targets: Optional[list[Any]] = None,
         x: int = 0,
     ):
-        """Cast a spell after validating timing and payability (RULE 601)."""
+        """Cast a spell after validating timing, payability and targets (RULE 601)."""
         if not self.can_cast(player, obj, x):
             raise ValueError(f"{player.id} cannot cast {obj.name} now")
+        # RULE 601.2c: a spell that requires a target can't be cast unless a
+        # legal target is available — the same check that locks the offer.
+        if not self.has_legal_targets(player, obj):
+            raise ValueError(f"{obj.name} has no legal target")
         return self.rules.cast_spell(player, obj, targets, x)
+
+    def has_legal_targets(self, player: Player, obj: GameObject) -> bool:
+        """Whether every target ``obj`` requires can be legally chosen now.
+
+        True for a non-targeting spell (no requirements to satisfy). RULE
+        601.2c / 608.2b: a targeting spell needs at least one legal target
+        per non-optional requirement, computed from the live board.
+        """
+        requirements = requirements_with_targets(self.state, player.id, obj)
+        return all_requirements_satisfiable(requirements)
 
     def declare_attackers(self, player: Player, attackers: list[GameObject]) -> None:
         """Declare attackers (RULE 508). Taps them and fires ATTACKS."""
@@ -439,17 +476,31 @@ class GameEngine:
     # ------------------------------------------------------------------
 
     def _cast_action(self, player: Player, obj: GameObject) -> dict[str, Any]:
-        """A ``cast_spell`` legal-action entry, flagging an ``{X}`` cost.
+        """A ``cast_spell`` legal-action entry, flagging ``{X}`` and targets.
 
         ``has_x`` tells the UI to prompt for a value; ``max_x`` is the
         highest it can offer up front (still re-validated server-side by
         `cast_spell`, which re-checks payability for the chosen ``x``).
+
+        For a *targeting* spell (RULE 115) it reports ``requires_target`` and
+        the per-requirement ``targets`` (the legal choices on the current
+        board). When no legal target exists the entry is marked ``locked``
+        with a reason — the UI renders it with a 🔒 and can't cast it, which
+        is the offer-time face of RULE 601.2c.
         """
         action = {"type": "cast_spell", "instance_id": obj.instance_id, "name": obj.name}
         cost = self.rules.mana_cost_of(obj.card)
         if cost.has_variable:
             action["has_x"] = True
             action["max_x"] = self.max_affordable_x(player, obj)
+
+        requirements = requirements_with_targets(self.state, player.id, obj)
+        if requirements:
+            action["requires_target"] = True
+            action["targets"] = requirements
+            if not all_requirements_satisfiable(requirements):
+                action["locked"] = True
+                action["lock_reason"] = "Kein gültiges Ziel im Spiel"
         return action
 
     def legal_actions(self, player: Player) -> list[dict[str, Any]]:
@@ -557,7 +608,9 @@ class GameEngine:
             key=lambda o: o.card.converted_mana_cost,
         )
         for obj in castable:
-            if self.can_cast(active, obj):
+            # Skip a targeting spell with nothing legal to point at (RULE
+            # 601.2c) rather than have `cast_spell` raise mid-autoplay.
+            if self.can_cast(active, obj) and self.has_legal_targets(active, obj):
                 self.cast_spell(active, obj)
                 self.resolve_until_stable()
 

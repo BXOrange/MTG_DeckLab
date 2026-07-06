@@ -123,10 +123,21 @@ export function renderCardTile(card, { qty, illegalReason } = {}) {
   const qtyBadge = qty != null ? `<span class="card-tile-qty">${qty}×</span>` : '';
   const illegalLabel = illegalReason ? ILLEGAL_REASON_LABELS[illegalReason] : '';
 
+  // Double-faced cards (transform / modal DFC) carry a second image the
+  // player can flip to; the button below toggles the <img> between the
+  // two faces (see the delegated handler at the bottom of this module).
+  const flipButton = card.has_back_face
+    ? `<button type="button" class="card-tile-flip"
+         data-front-src="${cardImageUrl(card.id, 'normal', 'front')}"
+         data-back-src="${cardImageUrl(card.id, 'normal', 'back')}"
+         title="Kartenrückseite anzeigen" aria-label="Kartenrückseite anzeigen">🔄</button>`
+    : '';
+
   return `
     <div class="card-tile${illegalReason ? ' card-tile-illegal' : ''}">
       <div class="card-tile-image">
         ${qtyBadge}
+        ${flipButton}
         <img src="${cardImageUrl(card.id, 'normal')}" alt="${escapeHtml(card.name)}" loading="lazy" />
       </div>
       <div class="card-tile-info">
@@ -205,4 +216,20 @@ export function escapeHtml(str) {
   const div = document.createElement('div');
   div.textContent = str;
   return div.innerHTML;
+}
+
+// The card tiles are rendered as HTML strings and injected via innerHTML,
+// so there's no per-tile element to bind to. One delegated listener,
+// registered once when this module loads, handles every flip button:
+// it swaps the sibling <img>'s src between the front and back face URLs
+// carried on the button's data-* attributes.
+if (typeof document !== 'undefined') {
+  document.addEventListener('click', (event) => {
+    const button = event.target.closest?.('.card-tile-flip');
+    if (!button) return;
+    const img = button.parentElement?.querySelector('img');
+    if (!img) return;
+    const showingBack = button.classList.toggle('is-flipped');
+    img.src = showingBack ? button.dataset.backSrc : button.dataset.frontSrc;
+  });
 }
