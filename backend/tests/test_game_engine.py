@@ -690,6 +690,161 @@ def test_resolve_until_stable_stops_on_pending_choice():
     assert not eng.state.stack
 
 
+# -- Parameterized criteria (search "what") ---------------------------------
+
+
+def test_search_for_a_basic_land():
+    lib = [creature("Bear"), land("Forest"), land("Island", produces="Island")]
+    eng = make_engine(lib, hand=0)
+    p1 = eng.state.active_player
+    eng.rules.request_search(p1, {"basic": True}, "hand")
+    names = {e["name"] for e in eng.state.pending_choice["eligible"]}
+    assert names == {"Forest", "Island"}
+
+
+def test_search_for_a_subtype_or_list_like_farseek():
+    lib = [land("Forest"), land("Island", produces="Island"), creature("Bear")]
+    eng = make_engine(lib, hand=0)
+    p1 = eng.state.active_player
+    eng.rules.request_search(p1, {"type": ["Plains", "Island"]}, "battlefield_tapped")
+    names = {e["name"] for e in eng.state.pending_choice["eligible"]}
+    assert names == {"Island"}  # only the Island subtype matches
+
+
+def test_search_for_any_card():
+    lib = [land("Forest"), creature("Bear"), instant("Shock")]
+    eng = make_engine(lib, hand=0)
+    p1 = eng.state.active_player
+    eng.rules.request_search(p1, "", "hand")  # "search for a card"
+    assert len(eng.state.pending_choice["eligible"]) == 3
+
+
+def test_search_bounded_by_mana_value():
+    lib = [creature("Bear", cost="{1}{G}"), creature("Dragon", cost="{4}{R}{R}")]
+    eng = make_engine(lib, hand=0)
+    p1 = eng.state.active_player
+    eng.rules.request_search(p1, {"type": "Creature", "max_mana_value": 3}, "battlefield")
+    names = {e["name"] for e in eng.state.pending_choice["eligible"]}
+    assert names == {"Bear"}
+
+
+# -- Destinations (search "where") ------------------------------------------
+
+
+def _search_one(eng, player, criteria, destination):
+    eng.rules.request_search(player, criteria, destination)
+    chosen = eng.state.pending_choice["eligible"][0]["instance_id"]
+    eng.rules.resolve_search_choice(chosen)
+    return chosen
+
+
+def test_search_to_battlefield_tapped():
+    eng = make_engine([land("Forest")], hand=0)
+    p1 = eng.state.active_player
+    chosen = _search_one(eng, p1, {"basic": True}, "battlefield_tapped")
+    obj = eng.state.find_object(chosen)
+    assert obj in eng.state.battlefield and obj.tapped
+
+
+def test_search_to_top_of_library_shuffles_first_then_places():
+    lib = [land("Forest"), land("Forest"), creature("Bear")]
+    eng = make_engine(lib, hand=0)
+    p1 = eng.state.active_player
+    chosen = _search_one(eng, p1, "Creature", "library_top")
+    assert p1.library[-1].instance_id == chosen  # end of list == top of deck
+    assert len(p1.library) == 3
+
+
+def test_search_to_bottom_of_library():
+    lib = [land("Forest"), creature("Bear")]
+    eng = make_engine(lib, hand=0)
+    p1 = eng.state.active_player
+    chosen = _search_one(eng, p1, "Creature", "library_bottom")
+    assert p1.library[0].instance_id == chosen  # index 0 == bottom
+
+
+def test_search_to_graveyard_like_entomb():
+    eng = make_engine([creature("Bear")], hand=0)
+    p1 = eng.state.active_player
+    chosen = _search_one(eng, p1, "Creature", "graveyard")
+    assert any(o.instance_id == chosen for o in p1.graveyard)
+
+
+def test_search_to_exile():
+    eng = make_engine([creature("Bear")], hand=0)
+    p1 = eng.state.active_player
+    chosen = _search_one(eng, p1, "Creature", "exile")
+    assert any(o.instance_id == chosen for o in p1.exile)
+
+
+# -- Count: search for up to N, one pick at a time --------------------------
+
+
+def test_search_for_up_to_two_cards_reopens_the_choice():
+    lib = [land("Forest"), land("Island", produces="Island"), creature("Bear")]
+    eng = make_engine(lib, hand=0)
+    p1 = eng.state.active_player
+    eng.rules.request_search(p1, {"basic": True}, "hand", count=2)
+
+    first = eng.state.pending_choice["eligible"][0]["instance_id"]
+    eng.rules.resolve_search_choice(first)
+    # Still one to go: the choice re-opened, excluding the first pick.
+    assert eng.state.pending_choice is not None
+    assert eng.state.pending_choice["remaining"] == 1
+    assert first not in {e["instance_id"] for e in eng.state.pending_choice["eligible"]}
+
+    second = eng.state.pending_choice["eligible"][0]["instance_id"]
+    eng.rules.resolve_search_choice(second)
+    assert eng.state.pending_choice is None
+    hand_ids = {o.instance_id for o in p1.hand}
+    assert {first, second} <= hand_ids
+
+
+def test_up_to_n_can_stop_early_by_declining():
+    lib = [land("Forest"), land("Island", produces="Island")]
+    eng = make_engine(lib, hand=0)
+    p1 = eng.state.active_player
+    eng.rules.request_search(p1, {"basic": True}, "hand", count=2)
+    first = eng.state.pending_choice["eligible"][0]["instance_id"]
+    eng.rules.resolve_search_choice(first)
+    eng.rules.resolve_search_choice(None)  # stop after one
+    assert eng.state.pending_choice is None
+    assert len(p1.hand) == 1
+
+
+def test_search_reopen_stops_when_library_exhausted():
+    eng = make_engine([creature("Bear")], hand=0)  # only one match
+    p1 = eng.state.active_player
+    eng.rules.request_search(p1, "Creature", "hand", count=3)
+    only = eng.state.pending_choice["eligible"][0]["instance_id"]
+    eng.rules.resolve_search_choice(only)
+    # No further eligible cards, so the search finishes rather than looping.
+    assert eng.state.pending_choice is None
+    assert any(o.instance_id == only for o in p1.hand)
+
+
+# -- Shuffle as a first-class, announced action -----------------------------
+
+
+def test_shuffle_library_fires_a_shuffle_event():
+    eng = make_engine([land("Forest")] * 5, hand=0)
+    p1 = eng.state.active_player
+    seen = []
+    eng.state.subscribe(lambda e: seen.append(e.type))
+    eng.rules.shuffle_library(p1)
+    assert EventType.SHUFFLE in seen
+
+
+def test_search_announces_and_shuffles():
+    eng = make_engine([land("Forest"), land("Forest")], hand=0)
+    p1 = eng.state.active_player
+    seen = []
+    eng.state.subscribe(lambda e: seen.append(e.type))
+    eng.rules.request_search(p1, "Creature", "hand")  # nothing matches
+    assert EventType.LIBRARY_SEARCHED in seen
+    assert EventType.SHUFFLE in seen  # a failed search still shuffles
+
+
 # ---------------------------------------------------------------------------
 # Gain life / counter (RULE 119 / 701.5)
 # ---------------------------------------------------------------------------

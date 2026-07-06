@@ -20,6 +20,7 @@ from __future__ import annotations
 
 from typing import Any, Optional
 
+from ..models import card_query
 from ..models.card import Card
 from ..models.events import EventType, GameEvent
 from ..models.game_object import GameObject, Zone
@@ -371,74 +372,158 @@ class RulesEngine:
         )
 
     # ------------------------------------------------------------------
-    # Library search + the pending-choice it needs (RULE 701.19)
+    # Library search + shuffle + the pending-choice it needs (RULE 701.19/20)
     # ------------------------------------------------------------------
 
     def request_search(
-        self, player: Player, type_restriction: str = "", destination: str = "hand"
+        self,
+        player: Player,
+        criteria: Any = "",
+        destination: str = "hand",
+        count: int = 1,
+        optional: bool = True,
     ) -> None:
-        """Open a "search your library" choice on the game state.
+        """Open a "search your library" choice on the game state (a tutor).
 
-        Records the eligible library cards as a `state.pending_choice`;
-        the engine's resolve loop stops on it and the session surfaces it.
-        `resolve_search_choice` finishes the search once the player picks
-        (or declines). Searching with nothing eligible just shuffles.
+        ``criteria`` says *what* to look for (see `models.card_query`: ``""``
+        = "a card", ``"Creature"``, ``{"basic": True}``, ``{"type": [...],
+        "max_mana_value": 3}``, …); ``destination`` says *where* the found
+        card goes ("hand"/"battlefield"/"battlefield_tapped"/"library_top"/
+        "library_bottom"/"graveyard"/"exile"); ``count`` is how many cards
+        ("up to N"), offered one at a time.
+
+        Records the eligible library cards as a `state.pending_choice` — the
+        engine's resolve loop stops on it and the session surfaces it, and
+        `resolve_search_choice` finishes the search once the player picks (or
+        declines). Searching (RULE 701.19) always shuffles afterwards (RULE
+        701.19e); with nothing eligible it just shuffles, no choice needed.
         """
-        eligible = [
-            obj for obj in player.library if _matches_type(obj.card, type_restriction)
-        ]
-        if not eligible:
-            self._shuffle_library(player)
+        self.state.fire_event(
+            GameEvent(EventType.LIBRARY_SEARCHED, player_id=player.id)
+        )
+        eligible = [obj for obj in player.library if card_query.matches(obj.card, criteria)]
+        if not eligible or count <= 0:
+            self.shuffle_library(player)
             return
-        self.state.pending_choice = {
-            "kind": "search",
-            "player_id": player.id,
-            "destination": destination,
-            "type_restriction": type_restriction,
-            "optional": True,
-            "eligible": [
-                {"instance_id": obj.instance_id, "name": obj.name} for obj in eligible
-            ],
-        }
+        self.state.pending_choice = self._search_choice(
+            player, criteria, destination, count, optional, found=[]
+        )
 
     def resolve_search_choice(self, instance_id: Optional[int]) -> None:
-        """Complete a pending search: move the chosen card, then shuffle.
+        """Answer a pending search: pick a card, re-ask for the next, or finish.
 
-        ``instance_id`` None declines the (optional) search. Clears the
-        pending choice either way.
+        ``instance_id`` names the chosen card, or is None to decline (which
+        ends the search even with picks still available — RULE 701.19c "up
+        to"). When ``count`` > 1 and cards remain, this re-opens the choice
+        for the next card; otherwise it moves every chosen card to the
+        destination and shuffles. Clears the pending choice when done.
         """
         choice = self.state.pending_choice
         if not choice or choice.get("kind") != "search":
             raise ValueError("no pending search to resolve")
         player = self.state.player_by_id(choice["player_id"])
+        found: list[int] = list(choice["found"])
 
-        if instance_id is not None:
+        declined = instance_id is None
+        if not declined:
             eligible_ids = {e["instance_id"] for e in choice["eligible"]}
             if instance_id not in eligible_ids:
                 raise ValueError(f"{instance_id} is not a valid search target")
-            obj = next(o for o in player.library if o.instance_id == instance_id)
-            player.library.remove(obj)
-            self._put_searched_card(player, obj, choice["destination"])
+            found.append(instance_id)
+
+        remaining = choice["count"] - len(found)
+        still_eligible = [
+            obj
+            for obj in player.library
+            if obj.instance_id not in found
+            and card_query.matches(obj.card, choice["criteria"])
+        ]
+        if not declined and remaining > 0 and still_eligible:
+            self.state.pending_choice = self._search_choice(
+                player, choice["criteria"], choice["destination"],
+                choice["count"], choice["optional"], found=found,
+            )
+            return
 
         self.state.pending_choice = None
-        self._shuffle_library(player)
+        self._finish_search(player, found, choice["destination"])
+
+    def _search_choice(
+        self,
+        player: Player,
+        criteria: Any,
+        destination: str,
+        count: int,
+        optional: bool,
+        found: list[int],
+    ) -> dict[str, Any]:
+        """Build the serializable `pending_choice` for a search in progress."""
+        eligible = [
+            {"instance_id": obj.instance_id, "name": obj.name}
+            for obj in player.library
+            if obj.instance_id not in found and card_query.matches(obj.card, criteria)
+        ]
+        return {
+            "kind": "search",
+            "player_id": player.id,
+            "destination": destination,
+            "criteria": card_query.normalize(criteria),
+            "description": card_query.describe(criteria),
+            # Kept for the pre-criteria UI/tests; a plain label of the search.
+            "type_restriction": criteria if isinstance(criteria, str) else "",
+            "optional": optional,
+            "count": count,
+            "found": list(found),
+            "remaining": count - len(found),
+            "eligible": eligible,
+        }
+
+    def _finish_search(
+        self, player: Player, found: list[int], destination: str
+    ) -> None:
+        """Move every chosen card to ``destination``, then shuffle (RULE 701.19e)."""
+        chosen: list[GameObject] = []
+        for instance_id in found:
+            obj = next((o for o in player.library if o.instance_id == instance_id), None)
+            if obj is not None:
+                player.library.remove(obj)
+                chosen.append(obj)
+
+        # "Shuffle, then put on top/bottom" (RULE 701.19e for a library
+        # destination): the found card must land *after* the shuffle, so its
+        # position is known — otherwise the shuffle would move it.
+        to_library = destination in ("library_top", "library_bottom")
+        if to_library:
+            self.shuffle_library(player)
+        for obj in chosen:
+            self._put_searched_card(player, obj, destination)
+        if not to_library:
+            self.shuffle_library(player)
 
     def _put_searched_card(self, player: Player, obj: GameObject, destination: str) -> None:
-        if destination == "battlefield":
+        if destination in ("battlefield", "battlefield_tapped"):
             obj.summoning_sick = True
-            obj.tapped = False
+            obj.tapped = destination == "battlefield_tapped"
             self.state.add_to_battlefield(obj)
             self.state.fire_event(
                 GameEvent(EventType.ENTERS_BATTLEFIELD, controller_id=player.id, object=obj.name)
             )
+        elif destination == "library_bottom":
+            obj.zone = Zone.LIBRARY
+            player.library.insert(0, obj)  # bottom (index 0 — see Player.library)
+        elif destination == "library_top":
+            player.add_to_zone(obj, Zone.LIBRARY)  # top of deck is the list end
+        elif destination == "graveyard":
+            player.add_to_zone(obj, Zone.GRAVEYARD)
+        elif destination == "exile":
+            player.add_to_zone(obj, Zone.EXILE)
         else:  # hand (default) — most tutors
-            obj.zone = Zone.HAND
-            player.hand.append(obj)
+            player.add_to_zone(obj, Zone.HAND)
 
-    def _shuffle_library(self, player: Player) -> None:
-        import random
-
-        random.shuffle(player.library)
+    def shuffle_library(self, player: Player) -> None:
+        """Shuffle a player's library and announce it (RULE 701.20)."""
+        player.shuffle_library()
+        self.state.fire_event(GameEvent(EventType.SHUFFLE, player_id=player.id))
 
     def _move_to_graveyard(self, obj: GameObject) -> None:
         was_on_battlefield = obj in self.state.battlefield
@@ -559,15 +644,3 @@ class RulesEngine:
                     effect.active = False
                 return True
         return False
-
-
-def _matches_type(card: Card, type_restriction: str) -> bool:
-    """Whether a card satisfies a search's type restriction (RULE 700.4).
-
-    An empty restriction matches anything; otherwise it's a case-insensitive
-    substring of the type line, so "Land", "Basic Land", "Creature", or a
-    subtype like "Forest" all work.
-    """
-    if not type_restriction:
-        return True
-    return type_restriction.lower() in (card.type_line or "").lower()

@@ -451,7 +451,7 @@ export function createGoldfishView() {
 
         <div class="gf-zone gf-stack">
           <h4>Stack (${s.stack.length})</h4>
-          ${s.stack.length ? `<div class="card-grid">${s.stack.map(stackItemHtml).join('')}</div>` : '<p class="empty-state">leer</p>'}
+          ${s.stack.length ? `<div class="card-grid gf-stack-grid">${s.stack.map((it, i) => stackItemHtml(it, i, s.stack.length)).join('')}</div>` : '<p class="empty-state">leer</p>'}
         </div>
 
         <div class="gf-zone gf-battlefield">
@@ -494,9 +494,16 @@ export function createGoldfishView() {
     if (pending.kind !== 'search') {
       return '<div class="gf-choice"><p class="server-status pending">Entscheidung nötig …</p></div>';
     }
-    const label = pending.type_restriction
-      ? `Suche in der Bibliothek nach: ${escapeHtml(pending.type_restriction)}`
+    // Prefer the criteria description ("a basic land card"); fall back to the
+    // legacy type_restriction string for older states.
+    const what = pending.description || pending.type_restriction;
+    let label = what
+      ? `Suche in der Bibliothek nach: ${escapeHtml(what)}`
       : 'Suche in der Bibliothek';
+    // "Search for up to N": show how many picks are still open.
+    if (pending.count > 1 && pending.remaining != null) {
+      label += ` (noch ${pending.remaining})`;
+    }
     const options = (pending.eligible || [])
       .map((e) => {
         const action = JSON.stringify({ type: 'choose', instance_id: e.instance_id, name: e.name });
@@ -552,8 +559,10 @@ export function createGoldfishView() {
   // The stack shows card art like the battlefield/hand — a spell reads as
   // itself, not a text description. Abilities with no backing card (no
   // `object`) fall back to their description text, same as a card with no
-  // resolved art.
-  function stackItemHtml(item) {
+  // resolved art. Every item is tagged with *what it is* (spell vs.
+  // triggered/activated ability) so the stack reads as MTG's stack, not
+  // just a row of cards.
+  function stackItemHtml(item, index, total) {
     const imageCache = getState().imageCache;
     const obj = item.object;
     const name = obj ? obj.name : item.description || item.kind;
@@ -563,10 +572,46 @@ export function createGoldfishView() {
       : escapeHtml(name);
     const classes = ['card'];
     if (image?.small) classes.push('has-image');
+    const badge = stackKindBadge(item);
+    // The stack resolves LIFO (RULE 608.2): the last-added item is on top
+    // and resolves next — flag it so the player sees resolution order.
+    const isTop = index === total - 1;
+    const order =
+      total > 1
+        ? `<span class="gf-stack-order">${isTop ? 'oben – löst zuerst auf' : `#${total - index}`}</span>`
+        : '';
     return `
-      <div class="gf-card-slot">
+      <div class="gf-card-slot gf-stack-item${isTop ? ' is-top' : ''}">
+        <span class="gf-stack-badge gf-stack-badge--${badge.cls}">${badge.icon} ${escapeHtml(badge.label)}</span>
         <div class="${classes.join(' ')}" data-hover-card="${escapeHtml(name)}" title="${escapeHtml(name)}">${inner}</div>
+        ${order}
       </div>`;
+  }
+
+  // Maps a stack item's category to an icon, a short German label, and a
+  // CSS modifier used to colour-code the badge. For spells it refines the
+  // label by the card's type line (creature/instant/…), so "Kreatur" and
+  // "Spontanzauber" read differently at a glance.
+  function stackKindBadge(item) {
+    if (item.category === 'triggered_ability') {
+      return { cls: 'triggered', icon: '⚡', label: 'Ausgelöste Fähigkeit' };
+    }
+    if (item.category === 'activated_ability') {
+      return { cls: 'activated', icon: '🔧', label: 'Aktivierte Fähigkeit' };
+    }
+    // A spell: refine by its primary card type.
+    return { cls: 'spell', icon: '🃏', label: spellTypeLabel(item.type_line) };
+  }
+
+  function spellTypeLabel(typeLine) {
+    const t = (typeLine || '').toLowerCase();
+    if (t.includes('creature')) return 'Kreaturenzauber';
+    if (t.includes('instant')) return 'Spontanzauber';
+    if (t.includes('sorcery')) return 'Hexerei';
+    if (t.includes('planeswalker')) return 'Planeswalker';
+    if (t.includes('artifact')) return 'Artefaktzauber';
+    if (t.includes('enchantment')) return 'Verzauberung';
+    return 'Zauberspruch';
   }
 
   // Graveyards pile up fast and are read by name, not recognized by

@@ -25,7 +25,6 @@ two-player priority isn't wired yet (see ToDo "Multiplayer game session").
 
 from __future__ import annotations
 
-import random
 import uuid
 from typing import Any, Optional
 
@@ -259,7 +258,7 @@ class GameSession:
             obj = player.hand.pop()
             obj.zone = Zone.LIBRARY
             player.library.append(obj)
-        random.shuffle(player.library)
+        player.shuffle_library()
         player.draw(self._starting_hand)
         self._mulligan_count += 1
 

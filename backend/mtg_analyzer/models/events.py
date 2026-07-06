@@ -35,6 +35,9 @@ class EventType:
     LEAVES_BATTLEFIELD = "LEAVES_BATTLEFIELD"
     DIES = "DIES"
     MILL = "MILL"
+    #: A player searched their library (RULE 701.19) / shuffled it (RULE 701.20).
+    LIBRARY_SEARCHED = "LIBRARY_SEARCHED"
+    SHUFFLE = "SHUFFLE"
 
     # Spells/abilities.
     SPELL_CAST = "SPELL_CAST"

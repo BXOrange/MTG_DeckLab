@@ -14,6 +14,7 @@ engine stays the single place rules live.
 
 from __future__ import annotations
 
+import random
 from typing import Any, Optional
 
 from .game_object import GameObject, Zone
@@ -93,6 +94,16 @@ class Player:
 
     def remove_from_zone(self, obj: GameObject, zone: Zone) -> None:
         self.zones[zone].remove(obj)
+
+    def shuffle_library(self) -> None:
+        """Randomize the order of this player's library (RULE 701.20).
+
+        A primitive move like `draw`: it changes zone contents but fires no
+        event itself — the rules engine wraps this to announce a ``SHUFFLE``
+        (so a "whenever a player shuffles" trigger can see it) and to keep
+        library-searching (RULE 701.19e "then shuffle") in one place.
+        """
+        random.shuffle(self.library)
 
     def draw(self, count: int = 1) -> list[GameObject]:
         """Move up to ``count`` cards from the top of the library to hand.

@@ -77,9 +77,17 @@ class GameContext:
         self.engine.gain_life(player, amount)
 
     def request_search(
-        self, player: "Player", type_restriction: str = "", destination: str = "hand"
+        self,
+        player: "Player",
+        criteria: Any = "",
+        destination: str = "hand",
+        count: int = 1,
+        optional: bool = True,
     ) -> None:
-        self.engine.request_search(player, type_restriction, destination)
+        self.engine.request_search(player, criteria, destination, count, optional)
+
+    def shuffle_library(self, player: "Player") -> None:
+        self.engine.shuffle_library(player)
 
     def counter(self, target: Any) -> None:
         self.engine.counter_spell(target)
@@ -374,36 +382,70 @@ class CounterSpellEffect(GameEffect):
 
 
 class SearchLibraryEffect(GameEffect):
-    """Search the controller's library for a card of a given type (RULE 701.19).
+    """Search the controller's library for a card (RULE 701.19), tutors.
 
-    ``type_restriction`` is matched against the card's type line (e.g.
-    "Land", "Basic Land", "Creature", "Forest"). Because *which* card is a
-    player choice, this doesn't move a card itself — it asks the engine to
-    open a choice (`GameContext.request_search`); the chosen card is moved
-    to ``destination`` ("hand"/"battlefield") and the library shuffled when
+    The search is parameterized on two independent axes so one effect covers
+    the whole tutor family (Demonic Tutor, Rampant Growth, Cultivate, Vampiric
+    Tutor, Entomb, …):
+
+    * ``criteria`` — *what* to look for, as pure data understood by
+      `models.card_query`: ``""`` for "a card", a type string like
+      ``"Creature"``, or a dict like ``{"type": ["Plains", "Island"]}`` /
+      ``{"basic": True}`` / ``{"type": "Creature", "max_mana_value": 3}``.
+    * ``destination`` — *where* the found card goes: ``"hand"`` (default),
+      ``"battlefield"``, ``"battlefield_tapped"``, ``"library_top"``,
+      ``"library_bottom"``, ``"graveyard"``, or ``"exile"``.
+    * ``count`` — how many cards (search for "up to N"); the choice is
+      offered one card at a time.
+
+    Because *which* card is a player choice, this doesn't move a card itself
+    — it asks the engine to open a choice (`GameContext.request_search`); the
+    chosen card(s) are moved to ``destination`` and the library shuffled when
     the player answers.
+
+    ``type_restriction`` is accepted as a deprecated alias for a string
+    ``criteria`` so older fixtures keep working.
     """
 
     def __init__(
         self,
-        type_restriction: str = "",
+        criteria: Any = "",
         destination: str = "hand",
+        count: int = 1,
+        optional: bool = True,
         player: Any = None,
         source: Optional["GameObject"] = None,
+        type_restriction: Optional[str] = None,
     ) -> None:
         super().__init__(source)
-        self.type_restriction = type_restriction
+        self.criteria = type_restriction if type_restriction is not None else criteria
         self.destination = destination
+        self.count = count
+        self.optional = optional
         self.player = player
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
         player = self.player or context.active_player
-        context.request_search(player, self.type_restriction, self.destination)
+        context.request_search(
+            player, self.criteria, self.destination, self.count, self.optional
+        )
 
 
 # ---------------------------------------------------------------------------
 # Registry (docs/07 PART 4 Option C / PART 6)
 # ---------------------------------------------------------------------------
+
+
+class ShuffleLibraryEffect(GameEffect):
+    """Shuffle the controller's (or a target player's) library (RULE 701.20)."""
+
+    def __init__(self, player: Any = None, source: Optional["GameObject"] = None) -> None:
+        super().__init__(source)
+        self.player = player
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        player = self.player or (targets[0] if targets else None) or context.active_player
+        context.shuffle_library(player)
 
 
 class EffectRegistry:
@@ -449,6 +491,12 @@ EffectRegistry.register("counter", lambda p: CounterSpellEffect(target=p.get("ta
 EffectRegistry.register(
     "search",
     lambda p: SearchLibraryEffect(
-        type_restriction=p.get("type", ""), destination=p.get("destination", "hand")
+        # "criteria" is the general form; "type" stays a shorthand for a
+        # type-line restriction so an oracle handler can emit either.
+        criteria=p.get("criteria", p.get("type", "")),
+        destination=p.get("destination", "hand"),
+        count=p.get("count", 1),
+        optional=p.get("optional", True),
     ),
 )
+EffectRegistry.register("shuffle", lambda p: ShuffleLibraryEffect())
