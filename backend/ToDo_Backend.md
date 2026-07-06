@@ -51,10 +51,14 @@ See [../IMPLEMENTATION_STATUS.md](../IMPLEMENTATION_STATUS.md) and
       (lethal-first damage spread), and blockers striking back, with the
       SBA destroying lethal-damaged creatures. Attackers now declare a
       defender (player or opponent planeswalker, RULE 508.1a) and the solo
-      goldfish gains a passive dummy so swings connect. Remaining: an
-      *interactive* blocker-declaration UI (opponent-side, needs the
-      multiplayer priority loop) and first strike / double strike / trample
-      / deathtouch damage modifiers.
+      goldfish gains a passive dummy so swings connect. Combat & evasion
+      **keywords are done** (`game/combat.py` recognizes them off Scryfall
+      `keywords` + oracle text; the engine honours them): flying/reach,
+      menace, defender, haste, vigilance, first strike, double strike (two
+      damage steps), deathtouch, trample, lifelink, indestructible, and
+      protection-from (colour/creatures/everything). Keywords surface on the
+      board as badges. Remaining: an *interactive* blocker-declaration UI
+      (opponent-side, needs the multiplayer priority loop).
 - [ ] Replacement-effect ordering by the affected player (RULE 616.1) —
       currently deterministic discovery order; needs a player prompt once
       interactive play does.

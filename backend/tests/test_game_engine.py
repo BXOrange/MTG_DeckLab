@@ -1089,3 +1089,433 @@ def test_pass_priority_resolves_one_stack_object_at_a_time():
     assert eng.pass_priority() is True
     assert len(eng.state.stack) == 0
     assert eng.pass_priority() is False  # nothing left
+
+
+# ---------------------------------------------------------------------------
+# Combat & evasion keywords (RULE 702.* / 509 / 510)
+# ---------------------------------------------------------------------------
+
+from mtg_analyzer.game import combat
+
+
+def _combat_creature(name="Fighter", power=2, toughness=2, controller="p1", **kw):
+    """A non-summoning-sick creature already in play, for combat tests."""
+    return name, power, toughness, controller, kw
+
+
+def _to_declare_attackers(eng):
+    eng.begin_turn()
+    eng.state.current_step = "declare_attackers"
+
+
+# -- Recognition -------------------------------------------------------------
+
+
+def test_recognizes_keywords_from_scryfall_list():
+    card = creature(keywords=["Flying", "First strike", "Trample"])
+    assert combat.keywords_of(card) == {"flying", "first_strike", "trample"}
+
+
+def test_recognizes_keywords_from_oracle_text_clause():
+    card = creature(oracle_text="Vigilance, lifelink\nDeathtouch")
+    assert {"vigilance", "lifelink", "deathtouch"} <= combat.keywords_of(card)
+
+
+def test_granting_a_keyword_is_not_a_false_positive():
+    # "gains flying" is an *effect*, not the card having flying itself.
+    card = creature(oracle_text="Target creature gains flying until end of turn.")
+    assert "flying" not in combat.keywords_of(card)
+
+
+def test_recognizes_protection_qualities():
+    card = creature(oracle_text="Protection from red\nProtection from creatures")
+    assert combat.protections_of(card) == {"R", "creatures"}
+    assert "protection" in combat.keywords_of(card)
+
+
+def test_display_keywords_expands_protection():
+    card = creature(keywords=["Flying"], oracle_text="Protection from black")
+    labels = combat.display_keywords(card)
+    assert "Flying" in labels
+    assert "Protection: B" in labels
+
+
+# -- Attacking ---------------------------------------------------------------
+
+
+def test_vigilance_attacker_does_not_tap():
+    eng = make_engine([land()], [land()], hand=0)
+    _to_declare_attackers(eng)
+    bear = obj_on_battlefield(eng.state, eng, creature(power=3, keywords=["Vigilance"]))
+    eng.declare_attackers(eng.state.active_player, [bear])
+    assert bear.attacking and not bear.tapped
+
+
+def test_haste_creature_can_attack_when_summoning_sick():
+    eng = make_engine([land()], [land()], hand=0)
+    _to_declare_attackers(eng)
+    hasty = obj_on_battlefield(eng.state, eng, creature(power=2, keywords=["Haste"]))
+    hasty.summoning_sick = True
+    eng.declare_attackers(eng.state.active_player, [hasty])  # no raise
+    assert hasty.attacking
+
+
+def test_defender_cannot_attack():
+    eng = make_engine([land()], [land()], hand=0)
+    _to_declare_attackers(eng)
+    wall = obj_on_battlefield(eng.state, eng, creature(power=0, toughness=4, keywords=["Defender"]))
+    with pytest.raises(ValueError):
+        eng.declare_attackers(eng.state.active_player, [wall])
+
+
+# -- Blocking evasion --------------------------------------------------------
+
+
+def _attack_then_blockers_step(eng, attacker):
+    eng.declare_attackers(eng.state.active_player, [attacker])
+    eng.state.current_step = "declare_blockers"
+    return eng.state.player_by_id("p2")
+
+
+def test_flyer_cannot_be_blocked_by_ground_creature():
+    eng = make_engine([land()], [land()], hand=0)
+    _to_declare_attackers(eng)
+    flyer = obj_on_battlefield(eng.state, eng, creature(power=2, keywords=["Flying"]))
+    ground = obj_on_battlefield(eng.state, eng, creature(), controller="p2")
+    p2 = _attack_then_blockers_step(eng, flyer)
+    assert not eng.can_block(p2, ground, flyer)
+    with pytest.raises(ValueError):
+        eng.declare_blockers(p2, [{"blocker": ground, "attacker": flyer}])
+
+
+def test_flyer_can_be_blocked_by_flyer_or_reach():
+    eng = make_engine([land()], [land()], hand=0)
+    _to_declare_attackers(eng)
+    flyer = obj_on_battlefield(eng.state, eng, creature(power=2, keywords=["Flying"]))
+    other_flyer = obj_on_battlefield(eng.state, eng, creature(keywords=["Flying"]), controller="p2")
+    spider = obj_on_battlefield(eng.state, eng, creature(keywords=["Reach"]), controller="p2")
+    p2 = _attack_then_blockers_step(eng, flyer)
+    assert eng.can_block(p2, other_flyer, flyer)
+    assert eng.can_block(p2, spider, flyer)
+
+
+def test_protection_from_color_stops_that_color_blocking():
+    eng = make_engine([land()], [land()], hand=0)
+    _to_declare_attackers(eng)
+    attacker = obj_on_battlefield(
+        eng.state, eng, creature(power=2, oracle_text="Protection from red")
+    )
+    red_blocker = obj_on_battlefield(
+        eng.state, eng, creature(color_identity={"R"}), controller="p2"
+    )
+    white_blocker = obj_on_battlefield(
+        eng.state, eng, creature(color_identity={"W"}), controller="p2"
+    )
+    p2 = _attack_then_blockers_step(eng, attacker)
+    assert not eng.can_block(p2, red_blocker, attacker)
+    assert eng.can_block(p2, white_blocker, attacker)
+
+
+def test_menace_requires_two_blockers():
+    eng = make_engine([land()], [land()], hand=0)
+    _to_declare_attackers(eng)
+    menacer = obj_on_battlefield(eng.state, eng, creature(power=3, keywords=["Menace"]))
+    b1 = obj_on_battlefield(eng.state, eng, creature(), controller="p2")
+    b2 = obj_on_battlefield(eng.state, eng, creature(), controller="p2")
+    eng.declare_attackers(eng.state.active_player, [menacer])
+    eng.state.current_step = "declare_blockers"
+    p2 = eng.state.player_by_id("p2")
+    with pytest.raises(ValueError):  # a single blocker is illegal
+        eng.declare_blockers(p2, [{"blocker": b1, "attacker": menacer}])
+    assert menacer.blocked_by == []  # nothing mutated on the failed attempt
+    eng.declare_blockers(
+        p2,
+        [{"blocker": b1, "attacker": menacer}, {"blocker": b2, "attacker": menacer}],
+    )
+    assert set(menacer.blocked_by) == {b1.instance_id, b2.instance_id}
+
+
+# -- Damage keywords ---------------------------------------------------------
+
+
+def test_first_strike_kills_blocker_before_it_strikes_back():
+    eng = make_engine([land()], [land()], hand=0)
+    _to_declare_attackers(eng)
+    attacker = obj_on_battlefield(
+        eng.state, eng, creature(power=2, toughness=2, keywords=["First strike"])
+    )
+    blocker = obj_on_battlefield(eng.state, eng, creature(power=2, toughness=2), controller="p2")
+    p2 = _attack_then_blockers_step(eng, attacker)
+    eng.declare_blockers(p2, [{"blocker": blocker, "attacker": attacker}])
+    eng.state.current_step = "combat_damage"
+    eng._step_combat_damage()
+    # First strike deals 2 first → the 2/2 blocker dies before it can hit back.
+    assert blocker not in eng.state.battlefield
+    assert attacker in eng.state.battlefield
+    assert attacker.damage_marked == 0
+
+
+def test_double_strike_deals_damage_twice():
+    eng = make_engine([land()], [land()], hand=0)
+    _to_declare_attackers(eng)
+    attacker = obj_on_battlefield(
+        eng.state, eng, creature(power=2, toughness=2, keywords=["Double strike"])
+    )
+    eng.declare_attackers(eng.state.active_player, [attacker])
+    eng.state.current_step = "combat_damage"
+    eng._step_combat_damage()
+    # An unblocked 2-power double striker deals 2 + 2 = 4 to the opponent.
+    assert eng.state.player_by_id("p2").life == 16
+
+
+def test_deathtouch_makes_any_damage_lethal():
+    eng = make_engine([land()], [land()], hand=0)
+    _to_declare_attackers(eng)
+    deathtoucher = obj_on_battlefield(
+        eng.state, eng, creature(power=1, toughness=1, keywords=["Deathtouch"])
+    )
+    big = obj_on_battlefield(eng.state, eng, creature(power=1, toughness=5), controller="p2")
+    p2 = _attack_then_blockers_step(eng, deathtoucher)
+    eng.declare_blockers(p2, [{"blocker": big, "attacker": deathtoucher}])
+    eng.state.current_step = "combat_damage"
+    eng._step_combat_damage()
+    assert big not in eng.state.battlefield  # 1 deathtouch damage was lethal
+
+
+def test_trample_spills_excess_onto_defender():
+    eng = make_engine([land()], [land()], hand=0)
+    _to_declare_attackers(eng)
+    trampler = obj_on_battlefield(
+        eng.state, eng, creature(power=5, toughness=5, keywords=["Trample"])
+    )
+    chump = obj_on_battlefield(eng.state, eng, creature(power=0, toughness=2), controller="p2")
+    p2 = _attack_then_blockers_step(eng, trampler)
+    eng.declare_blockers(p2, [{"blocker": chump, "attacker": trampler}])
+    eng.state.current_step = "combat_damage"
+    eng._step_combat_damage()
+    # 2 lethal to the 0/2 chump, 3 tramples over to the player.
+    assert chump not in eng.state.battlefield
+    assert eng.state.player_by_id("p2").life == 17
+
+
+def test_deathtouch_trample_assigns_one_then_tramples():
+    eng = make_engine([land()], [land()], hand=0)
+    _to_declare_attackers(eng)
+    attacker = obj_on_battlefield(
+        eng.state, eng, creature(power=5, toughness=5, keywords=["Trample", "Deathtouch"])
+    )
+    wall = obj_on_battlefield(eng.state, eng, creature(power=0, toughness=4), controller="p2")
+    p2 = _attack_then_blockers_step(eng, attacker)
+    eng.declare_blockers(p2, [{"blocker": wall, "attacker": attacker}])
+    eng.state.current_step = "combat_damage"
+    eng._step_combat_damage()
+    # Deathtouch → 1 damage is lethal, so only 1 need go to the wall; 4 tramples.
+    assert wall not in eng.state.battlefield
+    assert eng.state.player_by_id("p2").life == 16
+
+
+def test_lifelink_gains_life_on_combat_damage():
+    eng = make_engine([land()], [land()], hand=0)
+    _to_declare_attackers(eng)
+    attacker = obj_on_battlefield(eng.state, eng, creature(power=3, keywords=["Lifelink"]))
+    p1 = eng.state.active_player
+    start = p1.life
+    eng.declare_attackers(p1, [attacker])
+    eng.state.current_step = "combat_damage"
+    eng._step_combat_damage()
+    assert eng.state.player_by_id("p2").life == 17
+    assert p1.life == start + 3  # controller gained life equal to damage dealt
+
+
+def test_protection_prevents_combat_damage():
+    eng = make_engine([land()], [land()], hand=0)
+    _to_declare_attackers(eng)
+    attacker = obj_on_battlefield(
+        eng.state, eng, creature(power=3, toughness=3, oracle_text="Protection from red")
+    )
+    # A red blocker: it can't block (protection), so force the reverse — a red
+    # attacker blocked by our protected creature to check damage prevention.
+    eng2 = make_engine([land()], [land()], hand=0)
+    _to_declare_attackers(eng2)
+    red_attacker = obj_on_battlefield(
+        eng2.state, eng2, creature(power=3, toughness=3, color_identity={"R"})
+    )
+    protector = obj_on_battlefield(
+        eng2.state,
+        eng2,
+        creature(power=1, toughness=3, oracle_text="Protection from red"),
+        controller="p2",
+    )
+    eng2.declare_attackers(eng2.state.active_player, [red_attacker])
+    eng2.state.current_step = "declare_blockers"
+    p2 = eng2.state.player_by_id("p2")
+    eng2.declare_blockers(p2, [{"blocker": protector, "attacker": red_attacker}])
+    eng2.state.current_step = "combat_damage"
+    eng2._step_combat_damage()
+    # The red attacker's damage to the protected blocker is prevented; the
+    # blocker still deals its 1 back.
+    assert protector in eng2.state.battlefield
+    assert protector.damage_marked == 0
+    assert red_attacker.damage_marked == 1
+
+
+def test_indestructible_survives_lethal_and_deathtouch():
+    eng = make_engine([land()], [land()], hand=0)
+    _to_declare_attackers(eng)
+    tough = obj_on_battlefield(
+        eng.state, eng, creature(power=1, toughness=1, keywords=["Indestructible"])
+    )
+    killer = obj_on_battlefield(
+        eng.state, eng, creature(power=6, toughness=1, keywords=["Deathtouch"]), controller="p2"
+    )
+    p2 = _attack_then_blockers_step(eng, tough)
+    eng.declare_blockers(p2, [{"blocker": killer, "attacker": tough}])
+    eng.state.current_step = "combat_damage"
+    eng._step_combat_damage()
+    # 6 damage from a deathtouch source, but indestructible → it survives.
+    assert tough in eng.state.battlefield
+
+
+def test_deathtouch_flag_cleared_at_end_of_combat():
+    eng = make_engine([land()], [land()], hand=0)
+    _to_declare_attackers(eng)
+    survivor = obj_on_battlefield(
+        eng.state, eng, creature(power=1, toughness=1, keywords=["Indestructible"])
+    )
+    dt = obj_on_battlefield(
+        eng.state, eng, creature(power=1, toughness=1, keywords=["Deathtouch"]), controller="p2"
+    )
+    p2 = _attack_then_blockers_step(eng, survivor)
+    eng.declare_blockers(p2, [{"blocker": dt, "attacker": survivor}])
+    eng.state.current_step = "combat_damage"
+    eng._step_combat_damage()
+    assert survivor.dealt_deathtouch_damage is True  # marked during combat
+    eng._step_end_combat()
+    assert survivor.dealt_deathtouch_damage is False  # cleared when combat ends
+
+
+# ---------------------------------------------------------------------------
+# Activated abilities & costs (RULE 602)
+# ---------------------------------------------------------------------------
+
+from mtg_analyzer.game.costs import ActivationCost, parse_activation_cost
+from mtg_analyzer.game.effects import ActivatedAbility
+
+
+def _with_ability(eng, card, cost_text, effects, controller="p1"):
+    """Put a permanent with one activated ability on the battlefield."""
+    obj = obj_on_battlefield(eng.state, eng, card, controller=controller)
+    ability = ActivatedAbility(
+        effects=effects, cost=parse_activation_cost(cost_text), source=obj
+    )
+    obj.activated_abilities.append(ability)
+    return obj, ability
+
+
+def test_activate_pays_mana_and_taps_source_then_stacks():
+    from mtg_analyzer.game.effects import DrawCardEffect
+
+    eng = make_engine([land()] * 3, hand=0)
+    eng.begin_turn()
+    p1 = eng.state.active_player
+    obj, ability = _with_ability(eng, creature(), "{1}, {T}: Draw a card.", [DrawCardEffect(1, player=p1)])
+    p1.mana_pool.add_many({"C": 1})
+    assert eng.can_activate(p1, obj, ability)
+    eng.activate_ability(p1, obj)
+    assert obj.tapped
+    assert p1.mana_pool.total() == 0  # the {1} was paid
+    assert len(eng.state.stack) == 1  # ability waits on the stack
+    eng.resolve_until_stable()
+    assert len(p1.hand) == 1  # it resolved and drew
+
+
+def test_cannot_activate_without_mana():
+    from mtg_analyzer.game.effects import DrawCardEffect
+
+    eng = make_engine([land()] * 3, hand=0)
+    eng.begin_turn()
+    p1 = eng.state.active_player
+    obj, ability = _with_ability(eng, creature(), "{3}: Draw a card.", [DrawCardEffect(1, player=p1)])
+    assert not eng.can_activate(p1, obj, ability)
+    with pytest.raises(ValueError):
+        eng.activate_ability(p1, obj)
+
+
+def test_tap_ability_blocked_by_summoning_sickness():
+    from mtg_analyzer.game.effects import DrawCardEffect
+
+    eng = make_engine([land()], hand=0)
+    eng.begin_turn()
+    p1 = eng.state.active_player
+    obj, ability = _with_ability(eng, creature(), "{T}: Draw a card.", [DrawCardEffect(1, player=p1)])
+    obj.summoning_sick = True
+    assert not eng.can_activate(p1, obj, ability)
+
+
+def test_sacrifice_self_cost_sends_source_to_graveyard():
+    from mtg_analyzer.game.effects import DrawCardEffect
+
+    eng = make_engine([land()], hand=0)
+    eng.begin_turn()
+    p1 = eng.state.active_player
+    obj, ability = _with_ability(eng, creature(), "Sacrifice ~: Draw a card.", [DrawCardEffect(1, player=p1)])
+    eng.activate_ability(p1, obj)
+    assert obj not in eng.state.battlefield  # sacrificed as a cost
+
+
+def test_pay_life_cost_reduces_life():
+    from mtg_analyzer.game.effects import DrawCardEffect
+
+    eng = make_engine([land()], hand=0)
+    eng.begin_turn()
+    p1 = eng.state.active_player
+    start = p1.life
+    obj, ability = _with_ability(eng, creature(), "Pay 4 life: Draw a card.", [DrawCardEffect(1, player=p1)])
+    eng.activate_ability(p1, obj)
+    assert p1.life == start - 4
+
+
+def test_untap_cost_requires_a_tapped_source():
+    from mtg_analyzer.game.effects import DrawCardEffect
+
+    eng = make_engine([land()], hand=0)
+    eng.begin_turn()
+    p1 = eng.state.active_player
+    obj, ability = _with_ability(eng, creature(), "{Q}: Draw a card.", [DrawCardEffect(1, player=p1)])
+    assert not eng.can_activate(p1, obj, ability)  # untapped → {Q} unpayable
+    obj.tap()
+    assert eng.can_activate(p1, obj, ability)
+    eng.activate_ability(p1, obj)
+    assert not obj.tapped  # {Q} untapped it
+
+
+def test_remove_counters_cost():
+    from mtg_analyzer.game.effects import DrawCardEffect
+
+    eng = make_engine([land()], hand=0)
+    eng.begin_turn()
+    p1 = eng.state.active_player
+    obj, ability = _with_ability(
+        eng, creature(), "Remove two +1/+1 counters from ~: Draw.", [DrawCardEffect(1, player=p1)]
+    )
+    assert not eng.can_activate(p1, obj, ability)  # no counters yet
+    obj.add_counters("+1/+1", 3)
+    assert eng.can_activate(p1, obj, ability)
+    eng.activate_ability(p1, obj)
+    assert obj.counters.get("+1/+1") == 1  # two removed to pay the cost
+
+
+def test_bound_activated_ability_carries_full_cost():
+    from mtg_analyzer.game.effect_binder import bind_ability
+    from mtg_analyzer.parser.oracle.spec import AbilitySpec, EffectSpec
+
+    spec = AbilitySpec(
+        "activated",
+        [EffectSpec("draw", {"count": 1})],
+        cost={"mana": "{2}", "taps_self": True, "text": "{2}, {T}, Pay 1 life"},
+    )
+    bound = bind_ability(spec)
+    assert isinstance(bound, ActivatedAbility)
+    assert bound.taps_source is True  # back-compat property still works
+    assert bound.cost.mana.converted_mana_cost == 2
+    assert bound.cost.pay_life == 1  # parsed from the cost text

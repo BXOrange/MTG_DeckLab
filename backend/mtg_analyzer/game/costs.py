@@ -1,0 +1,211 @@
+"""Activated-ability costs, recognized from cost text the regex way (RULE 602).
+
+An activated ability is written ``[Cost]: [Effect].`` (RULE 602.1) — the cost
+is everything left of the first colon, a comma-separated list of cost items.
+Those items follow a small, regular grammar, so a handful of regexes read them
+into a structured `ActivationCost` the engine can actually charge:
+
+* mana symbols ``{2}{R}`` — the mana portion, handed to `ManaCost`;
+* ``{T}`` / ``{Q}`` — tap / untap the source (RULE 602.1, 107.5);
+* "Sacrifice ~ / a creature / an artifact" (RULE 701.17);
+* "Pay N life" (RULE 118.4);
+* "Discard a card / N cards / your hand" (RULE 701.8);
+* "Remove a +1/+1 counter / N loyalty counters" (RULE 701.19).
+
+Pure data + parsing only (it composes `ManaCost` and holds no game state), so
+the binder and engine can share it. Charging a parsed cost against a player is
+the engine's job (`GameEngine.activate_ability`).
+"""
+
+from __future__ import annotations
+
+import re
+from dataclasses import dataclass, field
+from typing import Any, Optional, Union
+
+from ..models.mana_cost import ManaCost
+
+#: Every ``{...}`` token in a cost string.
+_BRACE_RE = re.compile(r"\{([^}]+)\}")
+
+#: Number words a cost might spell out ("Discard two cards"); "a"/"an" == 1.
+_NUMBER_WORDS: dict[str, int] = {
+    "a": 1, "an": 1, "one": 1, "two": 2, "three": 3, "four": 4, "five": 5,
+    "six": 6, "seven": 7, "eight": 8, "nine": 9, "ten": 10,
+}
+
+_SACRIFICE_RE = re.compile(
+    r"sacrifice\s+(this\s+\w+|~|an?\s+(\w+)|another\s+(\w+))", re.IGNORECASE
+)
+_PAY_LIFE_RE = re.compile(r"pay\s+(\d+)\s+life", re.IGNORECASE)
+_DISCARD_RE = re.compile(
+    r"discard\s+(your\s+hand|a\s+card|\d+\s+cards?|[a-z]+\s+cards?)", re.IGNORECASE
+)
+_REMOVE_COUNTERS_RE = re.compile(
+    r"remove\s+(\d+|[a-z]+)\s+([+\-]?\d+/[+\-]?\d+|[a-z]+)\s+counters?", re.IGNORECASE
+)
+
+#: Sentinel for "discard your hand" — count isn't known until pay time.
+DISCARD_HAND = -1
+
+
+def _word_to_int(word: str) -> int:
+    word = word.strip().lower()
+    if word.isdigit():
+        return int(word)
+    return _NUMBER_WORDS.get(word, 1)
+
+
+@dataclass
+class ActivationCost:
+    """The parsed cost of an activated ability (RULE 602.1), as pure data.
+
+    ``mana`` is the mana portion; the rest are the non-mana cost items the
+    engine charges in turn. ``sacrifice`` is what must be sacrificed —
+    ``"self"`` for "Sacrifice ~", otherwise a type word ("creature",
+    "artifact", "permanent", …). ``discard`` is a card count (or `DISCARD_HAND`
+    for "your hand"); ``remove_counters`` is ``(kind, count)``.
+    """
+
+    mana: ManaCost = field(default_factory=ManaCost)
+    taps_self: bool = False
+    untaps_self: bool = False
+    sacrifice: Optional[str] = None
+    pay_life: int = 0
+    discard: int = 0
+    remove_counters: Optional[tuple[str, int]] = None
+    raw: str = ""
+
+    @property
+    def is_free(self) -> bool:
+        """No cost at all — nothing to pay (RULE 118.5 "cost of {0}" analogue)."""
+        return not (
+            self.mana.symbols
+            or self.taps_self
+            or self.untaps_self
+            or self.sacrifice
+            or self.pay_life
+            or self.discard
+            or self.remove_counters
+        )
+
+    def label(self) -> str:
+        """A short "{T}, Sacrifice a creature, Pay 2 life" style summary."""
+        parts: list[str] = []
+        if self.mana.symbols:
+            parts.append(self.mana.raw or "".join(f"{{{s.kind}}}" for s in self.mana.symbols))
+        if self.taps_self:
+            parts.append("{T}")
+        if self.untaps_self:
+            parts.append("{Q}")
+        if self.sacrifice:
+            what = "~" if self.sacrifice == "self" else f"a {self.sacrifice}"
+            parts.append(f"Sacrifice {what}")
+        if self.pay_life:
+            parts.append(f"Pay {self.pay_life} life")
+        if self.discard:
+            parts.append("Discard your hand" if self.discard == DISCARD_HAND
+                         else f"Discard {self.discard} card(s)")
+        if self.remove_counters:
+            kind, count = self.remove_counters
+            parts.append(f"Remove {count} {kind} counter(s)")
+        return ", ".join(parts)
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "mana": self.mana.raw,
+            "taps_self": self.taps_self,
+            "untaps_self": self.untaps_self,
+            "sacrifice": self.sacrifice,
+            "pay_life": self.pay_life,
+            "discard": self.discard,
+            "remove_counters": list(self.remove_counters) if self.remove_counters else None,
+            "label": self.label(),
+        }
+
+
+def parse_activation_cost(
+    cost: Union[None, str, dict[str, Any], ActivationCost]
+) -> ActivationCost:
+    """Recognize an `ActivationCost` from a cost text, a spec dict, or nothing.
+
+    A **string** is the raw cost text (the part before the ability's colon,
+    which callers may pass with or without the trailing effect). A **dict** is
+    an `AbilitySpec.cost` — its explicit structured keys (``mana``,
+    ``taps_self``, …) win over anything a ``text``/``cost_text`` field parses,
+    so hand-authored specs stay authoritative. `None` yields a free cost.
+    """
+    if cost is None:
+        return ActivationCost()
+    if isinstance(cost, ActivationCost):
+        return cost
+    if isinstance(cost, str):
+        return _parse_text(cost)
+
+    # dict: parse any free text, then let explicit structured fields override.
+    text = str(cost.get("text") or cost.get("cost_text") or "")
+    parsed = _parse_text(text) if text else ActivationCost()
+    if cost.get("mana"):
+        parsed.mana = ManaCost.parse(str(cost["mana"]))
+    if "taps_self" in cost:
+        parsed.taps_self = bool(cost["taps_self"])
+    if "untaps_self" in cost:
+        parsed.untaps_self = bool(cost["untaps_self"])
+    if cost.get("sacrifice"):
+        parsed.sacrifice = str(cost["sacrifice"])
+    if "pay_life" in cost:
+        parsed.pay_life = int(cost["pay_life"])
+    if "discard" in cost:
+        parsed.discard = int(cost["discard"])
+    parsed.raw = parsed.raw or text
+    return parsed
+
+
+def _parse_text(text: str) -> ActivationCost:
+    """Regex a cost string into an `ActivationCost` (the "very REGEX way")."""
+    # Only look at the cost — the part before the first colon (RULE 602.1).
+    cost_text = text.split(":", 1)[0] if ":" in text else text
+
+    cost = ActivationCost(raw=cost_text.strip())
+
+    # Mana + the {T}/{Q} symbols share the {...} syntax; split them apart.
+    mana_tokens: list[str] = []
+    for token in _BRACE_RE.findall(cost_text):
+        upper = token.strip().upper()
+        if upper == "T":
+            cost.taps_self = True
+        elif upper == "Q":
+            cost.untaps_self = True
+        elif upper in ("E",):  # energy etc. — not modeled; ignore the pip
+            continue
+        else:
+            mana_tokens.append(token.strip())
+    if mana_tokens:
+        cost.mana = ManaCost.parse("".join(f"{{{t}}}" for t in mana_tokens))
+
+    sac = _SACRIFICE_RE.search(cost_text)
+    if sac:
+        whole = sac.group(1).lower()
+        if whole.startswith("this") or whole == "~":
+            cost.sacrifice = "self"
+        else:
+            cost.sacrifice = (sac.group(2) or sac.group(3) or "permanent").lower()
+
+    life = _PAY_LIFE_RE.search(cost_text)
+    if life:
+        cost.pay_life = int(life.group(1))
+
+    discard = _DISCARD_RE.search(cost_text)
+    if discard:
+        phrase = discard.group(1).lower()
+        if "hand" in phrase:
+            cost.discard = DISCARD_HAND
+        else:
+            cost.discard = _word_to_int(phrase.split()[0])
+
+    counters = _REMOVE_COUNTERS_RE.search(cost_text)
+    if counters:
+        count = _word_to_int(counters.group(1))
+        cost.remove_counters = (counters.group(2).lower(), count)
+
+    return cost

@@ -20,8 +20,11 @@ from typing import Any, Optional
 from ..models.card import Card
 from ..models.events import EventType, GameEvent
 from ..models.game_object import GameObject, Zone
-from ..models.game_state import GameState
+from ..models.game_state import GameState, StackItem
 from ..models.player import Player
+from . import combat
+from .costs import DISCARD_HAND, ActivationCost
+from .effects import ActivatedAbility
 from .mana_abilities import mana_options, option_label
 from .phases import GamePhase, GameStep, default_turn_sequence
 from .rules_engine import RulesEngine
@@ -70,6 +73,7 @@ class GameEngine:
             obj.combat_defender = None
             obj.blocking = None
             obj.blocked_by = []
+            obj.dealt_deathtouch_damage = False
 
     # ------------------------------------------------------------------
     # Game setup
@@ -252,65 +256,143 @@ class GameEngine:
         self.rules.draw(self.state.active_player, 1)
 
     def _step_combat_damage(self) -> None:
-        """Assign and deal combat damage (RULE 510), all at once.
+        """Assign and deal combat damage (RULE 510), honouring combat keywords.
 
-        An unblocked attacker hits the player or planeswalker it's attacking;
-        a blocked one deals its power to its blockers (spread in order,
-        lethal-first) and deals nothing to the defender — no trample/first
-        strike/deathtouch modeled yet. Blockers deal their power back to the
-        attacker they block. Everything is computed first and applied
-        together so damage is simultaneous (marked, then one SBA pass
-        destroys whatever took lethal — RULE 704.5g).
+        First/double strike split this into two damage steps (RULE 702.7e /
+        702.4b): when any combatant has either, first-strike damage is dealt
+        and state-based actions checked — so a first-striker can kill a blocker
+        before it strikes back — then the regular step runs, where double
+        strikers deal a second time and ordinary creatures deal their only
+        damage. Within a step: protection prevents damage from a source of the
+        named quality (RULE 702.16c), deathtouch makes any damage lethal
+        (702.2b), trample spills the excess over lethal onto the defender
+        (702.19), and lifelink gains its controller that much life (702.15b).
+        Damage in a step is gathered first, then applied together so it is
+        simultaneous (marked, then one SBA pass — RULE 704.5g).
         """
-        # (target, amount, source) tuples, gathered before anything is dealt.
+        if self._combat_has_first_strikers():
+            self._deal_combat_damage_step(first_strike_step=True)
+            self.rules.check_state_based_actions()
+        self._deal_combat_damage_step(first_strike_step=False)
+        self.rules.check_state_based_actions()
+
+    def _combat_has_first_strikers(self) -> bool:
+        """Whether any attacker or blocker has first or double strike (→ two
+        damage steps, RULE 702.7e)."""
+        combatants = list(self.attackers) + [
+            b for b in self.state.battlefield if b.blocking is not None
+        ]
+        return any(
+            combat.has_first_strike(c) or combat.has_double_strike(c) for c in combatants
+        )
+
+    @staticmethod
+    def _deals_in_step(obj: GameObject, first_strike_step: bool) -> bool:
+        """Whether ``obj`` deals damage in this combat-damage step.
+
+        First-strike step: first strike *or* double strike. Regular step:
+        double strike (again) or a creature with neither — a pure first-striker
+        has already dealt and deals nothing more.
+        """
+        fs = combat.has_first_strike(obj)
+        ds = combat.has_double_strike(obj)
+        return (fs or ds) if first_strike_step else (ds or not fs)
+
+    def _deal_combat_damage_step(self, first_strike_step: bool) -> None:
+        # (target, amount, source) gathered before anything is dealt.
         assignments: list[tuple[Any, int, GameObject]] = []
         for attacker in self.attackers:
+            if not self._deals_in_step(attacker, first_strike_step):
+                continue
             power = attacker.power or 0
-            blockers = [
-                b for b in (self.state.find_object(i) for i in attacker.blocked_by) if b is not None
-            ]
-            if blockers:
-                for target, amount in self._assign_blocked_damage(power, blockers):
-                    assignments.append((target, amount, attacker))
-            elif power:
+            if power <= 0:
+                continue
+            if attacker.blocked_by:
+                # Blocked (RULE 509.1h: it stays blocked even if every blocker
+                # has left) — damage goes to whatever blockers remain, with
+                # trample overflow to the defender.
+                living = [
+                    b
+                    for b in (self.state.find_object(i) for i in attacker.blocked_by)
+                    if b is not None and b in self.state.battlefield
+                ]
+                assignments.extend(self._assign_blocked_attacker(attacker, power, living))
+            else:
                 defender = self._resolve_combat_defender(attacker.combat_defender)
                 if defender is not None:  # None → bare swing (solo goldfish)
                     assignments.append((defender, power, attacker))
 
         # Blockers strike the attacker they're blocking (RULE 510.1c).
         for blocker in self.state.battlefield:
-            if blocker.blocking is None or not blocker.power:
+            if blocker.blocking is None or not self._deals_in_step(blocker, first_strike_step):
+                continue
+            power = blocker.power or 0
+            if power <= 0:
                 continue
             attacker = self.state.find_object(blocker.blocking)
-            if attacker is not None:
-                assignments.append((attacker, blocker.power, blocker))
+            if attacker is not None and attacker in self.state.battlefield:
+                assignments.append((attacker, power, blocker))
 
-        for target, amount, source in assignments:
-            self.rules.deal_damage(target, amount, source=source, combat=True)
-        self.rules.check_state_based_actions()
+        self._apply_combat_damage(assignments)
 
-    @staticmethod
-    def _assign_blocked_damage(
-        power: int, blockers: list[GameObject]
-    ) -> list[tuple[GameObject, int]]:
-        """Spread a blocked attacker's ``power`` across its blockers in order.
-
-        Each blocker is assigned lethal (its remaining toughness) before the
-        next gets any (RULE 510.1c ordering, simplified), with the last
-        blocker soaking any remainder. No trample: excess over the final
-        blocker is simply lost.
+    def _assign_blocked_attacker(
+        self, attacker: GameObject, power: int, blockers: list[GameObject]
+    ) -> list[tuple[Any, int, GameObject]]:
+        """Spread a blocked attacker's ``power`` across its blockers (RULE
+        510.1c ordering, lethal-first), trampling the excess onto the defender
+        if it has trample (RULE 702.19), else soaking the remainder on the last
+        blocker. Deathtouch shrinks "lethal" to 1 (RULE 702.2b) so trample
+        needs assign only 1 per blocker before spilling over.
         """
-        out: list[tuple[GameObject, int]] = []
+        out: list[tuple[Any, int, GameObject]] = []
+        trample = combat.has_trample(attacker)
+        if not blockers:
+            # Every blocker gone: only trample leaks to the defender.
+            if trample:
+                defender = self._resolve_combat_defender(attacker.combat_defender)
+                if defender is not None:
+                    out.append((defender, power, attacker))
+            return out
+
         remaining = power
         for index, blocker in enumerate(blockers):
             if remaining <= 0:
                 break
             last = index == len(blockers) - 1
-            lethal = max(1, (blocker.toughness or 1) - blocker.damage_marked)
-            amount = remaining if last else min(remaining, lethal)
-            out.append((blocker, amount))
-            remaining -= amount
+            lethal = combat.lethal_damage(blocker, attacker)
+            if trample:
+                amount = min(remaining, lethal)
+            else:
+                amount = remaining if last else min(remaining, lethal)
+            if amount > 0:
+                out.append((blocker, amount, attacker))
+                remaining -= amount
+        if trample and remaining > 0:
+            defender = self._resolve_combat_defender(attacker.combat_defender)
+            if defender is not None:
+                out.append((defender, remaining, attacker))
         return out
+
+    def _apply_combat_damage(
+        self, assignments: list[tuple[Any, int, GameObject]]
+    ) -> None:
+        """Deal one damage step's gathered assignments, applying protection,
+        deathtouch and lifelink to each."""
+        for target, amount, source in assignments:
+            # Protection prevents the damage from a source of the named quality
+            # (RULE 702.16c). Players carry no protection in this model.
+            if isinstance(target, GameObject) and combat.is_protected_from(target, source):
+                continue
+            self.rules.deal_damage(target, amount, source=source, combat=True)
+            if amount <= 0:
+                continue
+            # Deathtouch: mark any creature damaged by a deathtouch source for
+            # the SBA to destroy (RULE 702.2b).
+            if isinstance(target, GameObject) and combat.has_deathtouch(source):
+                target.dealt_deathtouch_damage = True
+            # Lifelink: the source's controller gains that much life (702.15b).
+            if combat.has_lifelink(source):
+                self.rules.gain_life(self.state.player_by_id(source.controller_id), amount)
 
     def _resolve_combat_defender(self, spec: Optional[dict[str, Any]]) -> Optional[Any]:
         """Turn a stored ``combat_defender`` spec back into the live target.
@@ -571,7 +653,9 @@ class GameEngine:
             resolved.append((obj, self._assign_defender(obj, defender, legal)))
 
         for obj, defender in resolved:
-            obj.tap()
+            # Vigilance (RULE 702.21b): attacking doesn't cause it to tap.
+            if not combat.has_vigilance(obj):
+                obj.tap()
             obj.attacking = True
             obj.combat_defender = defender
             self.state.fire_event(
@@ -628,7 +712,10 @@ class GameEngine:
             and obj.is_creature
             and obj in self.state.battlefield
             and not obj.tapped
-            and not obj.summoning_sick
+            # Haste (RULE 702.10b) lets a creature attack the turn it arrives.
+            and (not obj.summoning_sick or combat.has_haste(obj))
+            # Defender (RULE 702.3b) can never attack.
+            and not combat.has_defender(obj)
         )
 
     # -- Blocking (RULE 509) --------------------------------------------
@@ -658,6 +745,25 @@ class GameEngine:
             if not self.can_block(player, blocker, attacker):
                 raise ValueError(f"{blocker.name} cannot block {attacker.name}")
             resolved.append((blocker, attacker))
+
+        # Menace (RULE 702.111b): a blocked menacing attacker must be blocked
+        # by two or more creatures. Validated over the resulting block —
+        # counting blockers already assigned plus this call's — *before* any
+        # mutation, so an illegal single-creature block leaves state untouched.
+        # (A whole legal block for one attacker is therefore declared in one
+        # call, matching how the UI submits blocks.)
+        projected: dict[int, set[int]] = {}
+        for blocker, attacker in resolved:
+            projected.setdefault(attacker.instance_id, set(attacker.blocked_by)).add(
+                blocker.instance_id
+            )
+        for attacker_id, blocker_ids in projected.items():
+            attacker = self.state.find_object(attacker_id)
+            if attacker is not None and combat.has_menace(attacker) and len(blocker_ids) < 2:
+                raise ValueError(
+                    f"{attacker.name} has menace and must be blocked by two or more creatures"
+                )
+
         for blocker, attacker in resolved:
             blocker.blocking = attacker.instance_id
             if blocker.instance_id not in attacker.blocked_by:
@@ -668,7 +774,13 @@ class GameEngine:
 
     def can_block(self, player: Player, blocker: GameObject, attacker: GameObject) -> bool:
         """RULE 509.1a: an untapped creature ``player`` controls may block an
-        attacker that is attacking ``player`` (or a planeswalker they control)."""
+        attacker that is attacking ``player`` (or a planeswalker they control).
+
+        Plus the evasion half (RULE 509.1b): flying can only be blocked by
+        flying/reach, and protection stops a block by the protected-from
+        quality (see `combat.can_block`). Menace — a *group* requirement — is
+        checked over the whole assignment in `declare_blockers`, not here.
+        """
         return (
             blocker.controller_id == player.id
             and blocker.is_creature
@@ -677,6 +789,7 @@ class GameEngine:
             and blocker.blocking is None
             and attacker.attacking
             and self._attacker_attacks_player(attacker, player)
+            and combat.can_block(attacker, blocker)
         )
 
     def _attacker_attacks_player(self, attacker: GameObject, player: Player) -> bool:
@@ -711,6 +824,133 @@ class GameEngine:
         player.mana_pool.add_many(produced)
         self.state.record_stat(player.id, "mana", amount=sum(produced.values()))
         return dict(produced)
+
+    # ------------------------------------------------------------------
+    # Activated abilities (RULE 602)
+    # ------------------------------------------------------------------
+
+    def can_activate(
+        self, player: Player, source: GameObject, ability: ActivatedAbility, x: int = 0
+    ) -> bool:
+        """Whether ``player`` may activate ``ability`` of ``source`` right now.
+
+        Requires ``source`` to be a permanent ``player`` controls carrying the
+        ability, and every part of its cost to be payable (RULE 602.2a):
+        mana, tapping/untapping the source, a life/discard/counter payment,
+        and a legal thing to sacrifice.
+        """
+        if source not in self.state.battlefield or source.controller_id != player.id:
+            return False
+        if ability not in source.activated_abilities:
+            return False
+        return self._can_pay_activation_cost(player, source, ability.cost, x)
+
+    def _can_pay_activation_cost(
+        self, player: Player, source: GameObject, cost: "ActivationCost", x: int
+    ) -> bool:
+        if cost.taps_self and (source.tapped or (source.is_creature and source.summoning_sick)):
+            # {T} needs an untapped, non-summoning-sick source (RULE 302.6, 602.5e).
+            return False
+        if cost.untaps_self and not source.tapped:
+            return False
+        mana = cost.mana.with_x(x) if cost.mana.has_variable else cost.mana
+        if mana.symbols and not player.mana_pool.can_pay(mana, life_available=player.life):
+            return False
+        if cost.pay_life and player.life < cost.pay_life:
+            return False
+        if cost.discard and cost.discard != DISCARD_HAND and len(player.hand) < cost.discard:
+            return False
+        if cost.sacrifice and self._sacrifice_candidate(player, source, cost.sacrifice) is None:
+            return False
+        if cost.remove_counters:
+            kind, count = cost.remove_counters
+            if source.counters.get(kind, 0) < count:
+                return False
+        return True
+
+    def _sacrifice_candidate(
+        self, player: Player, source: GameObject, what: str
+    ) -> Optional[GameObject]:
+        """A permanent ``player`` can sacrifice to pay ``what`` (RULE 701.17).
+
+        ``"self"`` is the ability's own source; a type word matches the first
+        permanent the player controls of that type — an auto-choice, matching
+        the MVP's non-interactive discard/search picks.
+        """
+        if what == "self":
+            return source if source in self.state.battlefield else None
+        for obj in self.state.permanents_controlled_by(player.id):
+            if self._matches_sacrifice_type(obj, what):
+                return obj
+        return None
+
+    @staticmethod
+    def _matches_sacrifice_type(obj: GameObject, what: str) -> bool:
+        if what in ("permanent", "another"):
+            return True
+        if what == "creature":
+            return obj.is_creature
+        if what == "artifact":
+            return obj.card.is_artifact
+        if what == "enchantment":
+            return obj.card.is_enchantment
+        if what == "land":
+            return obj.is_land
+        return True  # unknown type word → any permanent, so the cost is payable
+
+    def activate_ability(
+        self,
+        player: Player,
+        source: GameObject,
+        ability_index: int = 0,
+        targets: Optional[list[Any]] = None,
+        x: int = 0,
+    ) -> None:
+        """Pay an activated ability's cost and put it on the stack (RULE 602.2).
+
+        Costs are paid in one go (RULE 601.2h analogue for abilities): tap /
+        untap the source, pay mana, pay life, sacrifice, discard, remove
+        counters — then the ability goes on the stack to resolve later like any
+        other object. Raises ValueError if the ability can't be paid for.
+        """
+        abilities = source.activated_abilities
+        if not 0 <= ability_index < len(abilities):
+            raise ValueError(f"{source.name} has no activated ability #{ability_index}")
+        ability = abilities[ability_index]
+        if not self.can_activate(player, source, ability, x):
+            raise ValueError(f"cannot activate {source.name}'s ability")
+
+        cost = ability.cost
+        if cost.taps_self:
+            source.tap()
+        if cost.untaps_self:
+            source.untap()
+        mana = cost.mana.with_x(x) if cost.mana.has_variable else cost.mana
+        if mana.symbols:
+            life_spent = player.mana_pool.pay(mana, life_available=player.life)
+            self.rules.lose_life(player, life_spent, cause="cost")
+        if cost.pay_life:
+            self.rules.lose_life(player, cost.pay_life, cause="cost")
+        if cost.sacrifice:
+            victim = self._sacrifice_candidate(player, source, cost.sacrifice)
+            if victim is not None:
+                self.rules.destroy(victim)
+        if cost.discard:
+            self.rules.discard(player, len(player.hand) if cost.discard == DISCARD_HAND else cost.discard)
+        if cost.remove_counters:
+            kind, count = cost.remove_counters
+            source.add_counters(kind, -count)
+
+        self.state.stack.append(
+            StackItem(
+                kind="ability",
+                controller_id=player.id,
+                effects=[ability],
+                description=ability.description or f"{source.name} ability",
+                targets=targets,
+                x=x,
+            )
+        )
 
     # ------------------------------------------------------------------
     # Action validation query (docs/02 R4.3)

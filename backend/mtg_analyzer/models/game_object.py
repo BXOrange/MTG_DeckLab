@@ -37,6 +37,17 @@ class Zone(str, Enum):
 _instance_counter = itertools.count(1)
 
 
+def _combat_display_keywords(card: Card) -> list[str]:
+    """Combat/evasion keyword labels for a card's board badges.
+
+    Local (function-scoped) import of the pure `game.combat` recognition so
+    the model layer gains no import-time dependency on `game/` (RULE-keyword
+    recognition lives with the combat rules that consume it)."""
+    from ..game.combat import display_keywords
+
+    return display_keywords(card)
+
+
 class GameObject:
     """One instance of a card in a game, with its mutable in-play state."""
 
@@ -93,6 +104,11 @@ class GameObject:
         #: to this attacker. Both are cleared when combat ends (RULE 511.3).
         self.blocking: Optional[int] = None
         self.blocked_by: list[int] = []
+        #: Set when this creature was dealt combat damage by a deathtouch
+        #: source this combat (RULE 702.2b): any such creature is destroyed as
+        #: a state-based action regardless of how little damage it took.
+        #: Transient — cleared with the rest of combat state at end-of-combat.
+        self.dealt_deathtouch_damage: bool = False
 
         #: The permanent this object is attached to (RULE 301.5 Equipment /
         #: RULE 303.4 Aura): the host's ``instance_id``, or None if not
@@ -212,6 +228,12 @@ class GameObject:
             "combat_defender": self.combat_defender,
             "blocking": self.blocking,
             "blocked_by": list(self.blocked_by),
+            # Combat/evasion keyword labels the board shows as badges — the
+            # same recognition the combat engine honours, so display matches
+            # behaviour. Imported at call time: `game.combat` is pure (no
+            # runtime model imports), so this reads keywords without turning
+            # the model→game boundary into an import cycle.
+            "keywords": _combat_display_keywords(self.card),
             "counters": dict(self.counters),
             "attached_to": self.attached_to,
         }

@@ -36,6 +36,7 @@ if TYPE_CHECKING:  # avoid an import cycle with rules_engine at runtime
     from ..models.game_object import GameObject
     from ..models.game_state import GameState, StackItem
     from ..models.player import Player
+    from .costs import ActivationCost
     from .rules_engine import RulesEngine
 
 
@@ -266,13 +267,16 @@ class ReplacementEffect(GameEffect):
 class ActivatedAbility(GameEffect):
     """A cost the controller may pay for an effect (docs/07 PART 2, RULE 602).
 
-    ``mana_cost`` is the mana portion of the cost; ``taps_source`` marks
-    the ``{T}`` symbol. ``effects`` go on the stack when activated.
+    ``cost`` is the full parsed `ActivationCost` (mana + tap/untap + sacrifice
+    + life + discard + counter removal, see `game/costs.py`); ``effects`` go on
+    the stack when the cost is paid. ``mana_cost``/``taps_source`` remain as
+    read-only views over the cost for callers that only care about those two.
     """
 
     def __init__(
         self,
         effects: list[GameEffect],
+        cost: Optional["ActivationCost"] = None,
         mana_cost: Optional[ManaCost] = None,
         taps_source: bool = False,
         source: Optional["GameObject"] = None,
@@ -280,9 +284,21 @@ class ActivatedAbility(GameEffect):
     ) -> None:
         super().__init__(source)
         self.effects = effects
-        self.mana_cost = mana_cost or ManaCost()
-        self.taps_source = taps_source
+        if cost is None:
+            # Back-compat: build a cost from the old mana/tap parameters.
+            from .costs import ActivationCost
+
+            cost = ActivationCost(mana=mana_cost or ManaCost(), taps_self=taps_source)
+        self.cost = cost
         self.description = description
+
+    @property
+    def mana_cost(self) -> ManaCost:
+        return self.cost.mana
+
+    @property
+    def taps_source(self) -> bool:
+        return self.cost.taps_self
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
         for effect in self.effects:

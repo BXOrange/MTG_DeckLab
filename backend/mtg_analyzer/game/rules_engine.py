@@ -27,6 +27,7 @@ from ..models.game_object import GameObject, Zone
 from ..models.game_state import GameState, StackItem
 from ..models.mana_cost import ManaCost
 from ..models.player import Player
+from . import combat
 from .effects import (
     GameContext,
     ReplacementEffect,
@@ -820,14 +821,16 @@ class RulesEngine:
                 self._move_to_graveyard(obj)
                 return True
 
-        # 704.5g: creature with lethal marked damage is destroyed.
+        # 704.5g: creature with lethal marked damage is destroyed — or one
+        # that was dealt any damage by a deathtouch source (RULE 702.2b makes
+        # that lethal). Indestructible (RULE 702.12b) is destroyed by neither.
         for obj in self.state.permanents():
-            if (
-                obj.is_creature
-                and obj.toughness is not None
-                and obj.damage_marked >= obj.toughness
-                and obj.toughness > 0
-            ):
+            if not obj.is_creature or obj.toughness is None:
+                continue
+            if combat.has_indestructible(obj):
+                continue
+            lethal_marked = obj.toughness > 0 and obj.damage_marked >= obj.toughness
+            if lethal_marked or (obj.dealt_deathtouch_damage and obj.damage_marked > 0):
                 self._move_to_graveyard(obj)
                 return True
 

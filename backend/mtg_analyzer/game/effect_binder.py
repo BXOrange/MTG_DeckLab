@@ -19,6 +19,7 @@ from __future__ import annotations
 from typing import Any, Optional, Union
 
 from ..parser.oracle.spec import AbilitySpec, EffectSpec
+from .costs import parse_activation_cost
 from .effects import ActivatedAbility, EffectRegistry, GameEffect, TriggeredAbility
 
 #: Ability kinds the Phase 0 binder can realize. static/replacement/keyword
@@ -80,11 +81,11 @@ def bind_ability(
             description=spec.raw_text,
         )
 
-    # activated: cost parsing (mana/tap/sacrifice) is Phase 2; carry what the
-    # spec already provides so an activated ability at least binds.
+    # activated: recognize the full cost (mana, {T}/{Q}, sacrifice, pay life,
+    # discard, remove counters) from the spec's cost dict / text.
     return ActivatedAbility(
         effects=effects,
-        taps_source=bool((spec.cost or {}).get("taps_self", False)),
+        cost=parse_activation_cost(spec.cost),
         source=source,
         description=spec.raw_text,
     )

@@ -847,11 +847,38 @@ export function createGoldfishView() {
     const counterBadge = counterEntries.length
       ? `<span class="gf-counter-badge">${counterEntries.map(([k, v]) => `${escapeHtml(k)}×${v}`).join(' · ')}</span>`
       : '';
+    // Combat/evasion keywords the engine recognizes (Flying, Trample, …),
+    // shown as compact abbreviations with the full names on hover.
+    const keywordBadge = (o.keywords && o.keywords.length)
+      ? `<span class="gf-keyword-badge" title="${escapeAttr(o.keywords.join(', '))}">${o.keywords.map((k) => escapeHtml(keywordAbbrev(k))).join(' ')}</span>`
+      : '';
     return `
       <div class="gf-card-slot">
-        <div class="${classes.join(' ')}" data-hover-card="${escapeHtml(o.name)}" title="${escapeHtml(o.name)}${pt}${o.tapped ? ' — getappt' : ''}">${inner}${attackBadge}${counterBadge}</div>
+        <div class="${classes.join(' ')}" data-hover-card="${escapeHtml(o.name)}" title="${escapeHtml(o.name)}${pt}${o.tapped ? ' — getappt' : ''}">${inner}${attackBadge}${counterBadge}${keywordBadge}</div>
         ${buttons}
       </div>`;
+  }
+
+  // Short badge label for a combat keyword (the server sends full names like
+  // "Flying" / "Protection: R"); the full list is in the badge's tooltip.
+  function keywordAbbrev(label) {
+    const map = {
+      Flying: 'FLY',
+      Reach: 'RCH',
+      'First Strike': 'FS',
+      'Double Strike': 'DS',
+      Deathtouch: 'DT',
+      Trample: 'TR',
+      Vigilance: 'VIG',
+      Lifelink: 'LL',
+      Menace: 'MEN',
+      Defender: 'DEF',
+      Haste: 'HST',
+      Indestructible: 'IND',
+    };
+    if (map[label]) return map[label];
+    if (label.startsWith('Protection')) return 'PRO';
+    return label;
   }
 
   // The possible actions for a card, rendered as buttons *under* it.
