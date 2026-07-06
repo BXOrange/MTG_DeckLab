@@ -33,6 +33,7 @@ from mtg_analyzer.models.game_object import GameObject, Zone
 from mtg_analyzer.models.game_state import GameState
 from mtg_analyzer.models.player import Player
 from mtg_analyzer.game.game_engine import GameEngine
+from mtg_analyzer.game import continuous
 
 #: How many undo snapshots to retain (older moves drop off the bottom).
 MAX_HISTORY = 100
@@ -577,6 +578,10 @@ class GameSession:
 
     def view(self) -> dict[str, Any]:
         """Everything the UI needs to render the session after a change."""
+        # Refresh derived characteristics so the serialized board (P/T, types,
+        # granted keywords, per-object trace) reflects the current layer stack
+        # (RULE 613) even if nothing triggered an SBA since the last change.
+        self.engine.recompute_continuous_effects()
         return {
             "session_id": self.id,
             "mode": self.mode,
@@ -585,6 +590,8 @@ class GameSession:
             "pending_choice": self.engine.state.pending_choice,
             "can_rewind": self.can_rewind,
             "move_log": list(self.move_log),
+            # Every static ability in play, for the UI's optional layer panel.
+            "static_effects": continuous.active_static_abilities(self.engine.state),
             "setup": {
                 "complete": self._setup_complete,
                 "mulligan_count": self._mulligan_count,

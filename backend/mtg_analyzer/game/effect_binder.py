@@ -20,11 +20,19 @@ from typing import Any, Optional, Union
 
 from ..parser.oracle.spec import AbilitySpec, EffectSpec
 from .costs import parse_activation_cost
-from .effects import ActivatedAbility, EffectRegistry, GameEffect, TriggeredAbility
+from .effects import (
+    ActivatedAbility,
+    EffectRegistry,
+    GameEffect,
+    StaticAbility,
+    TriggeredAbility,
+)
 
-#: Ability kinds the Phase 0 binder can realize. static/replacement/keyword
-#: binding lands with the handler catalogue in later phases (docs/09).
-_SUPPORTED_KINDS: frozenset[str] = frozenset({"spell_effect", "triggered", "activated"})
+#: Ability kinds the binder can realize. replacement/keyword binding lands with
+#: the handler catalogue in later phases (docs/09).
+_SUPPORTED_KINDS: frozenset[str] = frozenset(
+    {"spell_effect", "triggered", "activated", "static"}
+)
 
 
 class BindError(ValueError):
@@ -81,6 +89,15 @@ def bind_ability(
             description=spec.raw_text,
         )
 
+    if spec.ability_kind == "static":
+        # Each effect is a `StaticAbility` (from the anthem/grant_keyword/…
+        # registry factories); the continuous-effects engine reads them off
+        # the battlefield. Label any that arrived without their own text.
+        for effect in effects:
+            if isinstance(effect, StaticAbility) and not effect.description:
+                effect.description = spec.raw_text
+        return effects
+
     # activated: recognize the full cost (mana, {T}/{Q}, sacrifice, pay life,
     # discard, remove counters) from the spec's cost dict / text.
     return ActivatedAbility(
@@ -107,5 +124,7 @@ def attach_to_object(obj: Any, specs: list[AbilitySpec]) -> None:
             obj.triggered_abilities.append(bound)
         elif spec.ability_kind == "activated":
             obj.activated_abilities.append(bound)
+        elif spec.ability_kind == "static":
+            obj.static_effects.extend(bound)
         else:  # pragma: no cover - bind_ability already refused it
             raise BindError(f"cannot attach ability_kind {spec.ability_kind!r}")

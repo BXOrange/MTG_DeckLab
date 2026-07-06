@@ -1,0 +1,241 @@
+"""The continuous-effects layer engine (RULE 613).
+
+Static abilities (`StaticAbility`, from `effects.py`) don't *do* anything when
+they resolve — they continuously reshape other permanents' characteristics.
+RULE 613 says how overlapping ones combine: apply them in a fixed sequence of
+**layers**, so the board's derived characteristics are well-defined no matter
+what order the abilities entered play.
+
+This module implements the layers this engine meets:
+
+* **Layer 4** — type-changing effects ("… are creatures");
+* **Layer 6** — ability-adding effects ("… have flying");
+* **Layer 7** — power/toughness, in sublayer order: 7b set, 7c counters,
+  7d modify (anthems). 7a CDAs and 7e P/T switches are not modeled yet.
+
+Plus a non-layer bucket, **cost adjustments** (RULE 601.2f — "spells cost {N}
+less"), which aren't part of 613 but are the other everyday static effect and
+are computed here for the same recompute.
+
+`recompute(state)` resets every battlefield object's derived characteristics
+and re-derives them from scratch, stamping the result — and a per-object,
+per-layer **trace** — back onto each `GameObject` (`_derived_power`,
+`_granted_keywords`, `_added_types`, `static_trace`). The engine calls it
+whenever the board settles (state-based actions) and before serialization, so
+reads of `obj.power`/`obj.is_creature`/`combat.keywords_of` see the live layer
+stack. Ordering *within* a layer is a simplification (registration order, not
+true dependency/timestamp order, RULE 613.7) — enough for the anthems, grants
+and animations the card pool needs.
+"""
+
+from __future__ import annotations
+
+from typing import TYPE_CHECKING, Any
+
+from .effects import StaticAbility
+
+if TYPE_CHECKING:  # pragma: no cover - typing only
+    from ..models.game_object import GameObject
+    from ..models.game_state import GameState
+    from ..models.player import Player
+
+
+def _signed(n: int) -> str:
+    return f"+{n}" if n >= 0 else str(n)
+
+
+def affected_objects(state: "GameState", ability: StaticAbility) -> list["GameObject"]:
+    """The battlefield objects an ability's ``affects`` selector picks out.
+
+    "you control" is scoped by the ability's source controller; an unsourced
+    ability (a bare test fixture) matches nothing for those selectors.
+    """
+    src = ability.source
+    controller = getattr(src, "controller_id", None)
+    battlefield = state.battlefield
+    affects = ability.affects
+
+    if affects == "self":
+        return [src] if src is not None and src in battlefield else []
+    if affects == "all_creatures":
+        return [o for o in battlefield if o.is_creature]
+    if affects == "all_permanents":
+        return list(battlefield)
+    if controller is None:
+        return []
+    if affects == "creatures_you_control":
+        return [o for o in battlefield if o.is_creature and o.controller_id == controller]
+    if affects == "other_creatures_you_control":
+        return [
+            o for o in battlefield
+            if o.is_creature and o.controller_id == controller and o is not src
+        ]
+    if affects == "permanents_you_control":
+        return [o for o in battlefield if o.controller_id == controller]
+    if affects == "lands_you_control":
+        return [o for o in battlefield if o.is_land and o.controller_id == controller]
+    return []
+
+
+def _source_name(ability: StaticAbility) -> str:
+    src = ability.source
+    return src.name if src is not None else "static"
+
+
+def _trace(
+    obj: "GameObject",
+    layer: int,
+    label: str,
+    description: str,
+    power: Any = None,
+    toughness: Any = None,
+) -> None:
+    obj.static_trace.append(
+        {
+            "layer": layer,
+            "source": label,
+            "description": description,
+            "power": power,
+            "toughness": toughness,
+        }
+    )
+
+
+def _battlefield_static_abilities(state: "GameState") -> list[StaticAbility]:
+    return [
+        ab
+        for src in state.battlefield
+        for ab in getattr(src, "static_effects", [])
+        if isinstance(ab, StaticAbility)
+    ]
+
+
+def recompute(state: "GameState") -> None:
+    """Re-derive every battlefield permanent's characteristics (RULE 613)."""
+    for obj in state.battlefield:
+        obj.reset_derived()
+
+    abilities = [ab for ab in _battlefield_static_abilities(state) if ab.layer != "cost"]
+
+    # -- Layer 4: type-changing effects (may add "creature" + animation P/T).
+    animation_pt: dict[int, tuple[int, int]] = {}
+    for ability in (a for a in abilities if a.layer == "type"):
+        added = ability.params.get("add_types", [])
+        power, toughness = ability.params.get("power"), ability.params.get("toughness")
+        for obj in affected_objects(state, ability):
+            for type_name in added:
+                obj._added_types.add(type_name)
+            if power is not None and toughness is not None:
+                animation_pt[obj.instance_id] = (power, toughness)
+            _trace(obj, 4, _source_name(ability), "becomes " + ", ".join(added))
+
+    # -- Layer 6: ability-adding effects (keyword grants).
+    for ability in (a for a in abilities if a.layer == "ability"):
+        keywords = ability.params.get("keywords", [])
+        for obj in affected_objects(state, ability):
+            obj._granted_keywords.update(keywords)
+            _trace(obj, 6, _source_name(ability), "gains " + ", ".join(keywords))
+
+    # -- Layer 7: power/toughness, on working base values so the sublayers
+    # apply in order (7b set → 7c counters → 7d modify).
+    base: dict[int, list[int]] = {}
+    for obj in state.battlefield:
+        if not obj.is_creature:
+            continue
+        if obj.instance_id in animation_pt:
+            base[obj.instance_id] = list(animation_pt[obj.instance_id])
+        else:
+            base[obj.instance_id] = [obj.card.power or 0, obj.card.toughness or 0]
+
+    # 7b: set power/toughness to a specific value.
+    for ability in (a for a in abilities if a.layer == "pt_set"):
+        power = ability.params.get("power", 0)
+        toughness = ability.params.get("toughness", 0)
+        for obj in affected_objects(state, ability):
+            if obj.instance_id in base:
+                base[obj.instance_id] = [power, toughness]
+                _trace(obj, 7, _source_name(ability), f"set to {power}/{toughness}", power, toughness)
+
+    # 7c: counters (RULE 613.7 counters sublayer / 122).
+    for obj in state.battlefield:
+        if obj.instance_id in base:
+            counters = obj.plus_one_counters
+            if counters:
+                base[obj.instance_id][0] += counters
+                base[obj.instance_id][1] += counters
+                p, t = base[obj.instance_id]
+                _trace(obj, 7, "Counters", f"{_signed(counters)}/{_signed(counters)}", p, t)
+
+    # 7d: modify (but don't set) power/toughness — anthems.
+    for ability in (a for a in abilities if a.layer == "pt_mod"):
+        d_power = ability.params.get("power", 0)
+        d_toughness = ability.params.get("toughness", 0)
+        for obj in affected_objects(state, ability):
+            if obj.instance_id in base:
+                base[obj.instance_id][0] += d_power
+                base[obj.instance_id][1] += d_toughness
+                p, t = base[obj.instance_id]
+                _trace(obj, 7, _source_name(ability), f"{_signed(d_power)}/{_signed(d_toughness)}", p, t)
+
+    for obj in state.battlefield:
+        if obj.instance_id in base:
+            obj._derived_power, obj._derived_toughness = base[obj.instance_id]
+
+
+def cost_reduction_for(state: "GameState", player: "Player") -> tuple[int, list[dict[str, Any]]]:
+    """Net generic-mana reduction for a spell ``player`` casts (RULE 601.2f).
+
+    Sums "cost {N} less" statics and subtracts "cost {N} more" ones that apply
+    to the player's spells, returning ``(net_reduction, contributors)`` where a
+    positive reduction lowers the generic cost (never below zero, applied by
+    the caller) and ``contributors`` describes each for the UI.
+    """
+    net = 0
+    contributors: list[dict[str, Any]] = []
+    for ability in _battlefield_static_abilities(state):
+        if ability.layer != "cost":
+            continue
+        if ability.affects == "your_spells" and getattr(ability.source, "controller_id", None) != player.id:
+            continue
+        amount = ability.params.get("generic", 0)
+        signed = -amount if ability.params.get("increase") else amount
+        net += signed
+        contributors.append(
+            {
+                "source": _source_name(ability),
+                "amount": signed,
+                "description": f"Spells cost {{{amount}}} {'more' if ability.params.get('increase') else 'less'}",
+            }
+        )
+    return net, contributors
+
+
+def active_static_abilities(state: "GameState") -> list[dict[str, Any]]:
+    """A flat summary of every static ability in play, for the UI's panel."""
+    summary: list[dict[str, Any]] = []
+    for ability in _battlefield_static_abilities(state):
+        summary.append(
+            {
+                "source": _source_name(ability),
+                "layer": ability.layer_number if ability.layer != "cost" else "cost",
+                "kind": ability.layer,
+                "affects": ability.affects,
+                "description": ability.description or _describe_ability(ability),
+            }
+        )
+    return summary
+
+
+def _describe_ability(ability: StaticAbility) -> str:
+    p = ability.params
+    if ability.layer == "pt_mod":
+        return f"{_signed(p.get('power', 0))}/{_signed(p.get('toughness', 0))} to {ability.affects}"
+    if ability.layer == "pt_set":
+        return f"sets {ability.affects} to {p.get('power', 0)}/{p.get('toughness', 0)}"
+    if ability.layer == "ability":
+        return "grants " + ", ".join(p.get("keywords", []))
+    if ability.layer == "type":
+        return "makes " + ", ".join(p.get("add_types", []))
+    if ability.layer == "cost":
+        return f"spells cost {{{p.get('generic', 0)}}} {'more' if p.get('increase') else 'less'}"
+    return ability.affects

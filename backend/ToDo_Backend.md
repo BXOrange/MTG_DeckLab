@@ -59,6 +59,19 @@ See [../IMPLEMENTATION_STATUS.md](../IMPLEMENTATION_STATUS.md) and
       protection-from (colour/creatures/everything). Keywords surface on the
       board as badges. Remaining: an *interactive* blocker-declaration UI
       (opponent-side, needs the multiplayer priority loop).
+- [~] Static abilities / continuous-effects layer system (RULE 613):
+      **engine done** — `game/continuous.py` re-derives every battlefield
+      permanent's characteristics in layer order (4 type-changing, 6
+      ability-adding, 7b/7c/7d power/toughness), stamping derived P/T, added
+      types and granted keywords plus a per-object layer *trace* onto each
+      object; recomputed on every SBA pass and before the view. `StaticAbility`
+      + registry (`anthem`/`pt_set`/`grant_keyword`/`type_change`/
+      `cost_reduction`) bind from `static` specs. Granted keywords flow into
+      combat; cost reductions/increases apply at cast time (RULE 601.2f). The
+      goldfish UI has an optional, default-hidden layer/static panel. Remaining:
+      layers 1–3 (copy/control/text), 5 (colour), 7a CDAs, 7e P/T switch, and
+      true dependency/timestamp ordering within a layer (currently registration
+      order).
 - [ ] Replacement-effect ordering by the affected player (RULE 616.1) —
       currently deterministic discovery order; needs a player prompt once
       interactive play does.

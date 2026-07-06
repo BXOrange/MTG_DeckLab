@@ -170,6 +170,58 @@ class StaticEffect(GameEffect):
         return None
 
 
+class StaticAbility(GameEffect):
+    """A continuous static ability applied through the layer system (RULE 613).
+
+    Unlike `StaticEffect` (a player-scoped rule override like "skip your draw
+    step"), this is a *battlefield* continuous effect that reshapes other
+    permanents' characteristics — an anthem's +1/+1, a granted keyword, a
+    type change, or a mana-cost reduction. It carries no imperative behaviour;
+    `game/continuous.py` reads these off the battlefield and folds them into
+    each object's derived characteristics in layer order.
+
+    ``layer`` selects where it applies (RULE 613.7 sublayer names, plus the
+    non-layer ``"cost"`` bucket for 601.2f cost adjustments):
+
+    * ``"type"``   → layer 4 (add card types);
+    * ``"ability"``→ layer 6 (add keyword abilities);
+    * ``"pt_set"`` → layer 7b (set power/toughness);
+    * ``"pt_mod"`` → layer 7c (modify power/toughness — anthems, counters);
+    * ``"cost"``   → not a layer; a cost adjustment applied when the affected
+      spell's total cost is calculated (RULE 601.2f).
+
+    ``affects`` names the set it touches (see `continuous.affected_objects`);
+    ``params`` is the modification (e.g. ``{"power": 1, "toughness": 1}``,
+    ``{"keywords": ["flying"]}``, ``{"add_types": ["creature"]}``,
+    ``{"generic": 1}``).
+    """
+
+    LAYER_NUMBERS: dict[str, int] = {
+        "type": 4, "ability": 6, "pt_set": 7, "pt_mod": 7, "cost": 99,
+    }
+
+    def __init__(
+        self,
+        layer: str,
+        affects: str = "self",
+        params: Optional[dict[str, Any]] = None,
+        source: Optional["GameObject"] = None,
+        description: str = "",
+    ) -> None:
+        super().__init__(source)
+        self.layer = layer
+        self.affects = affects
+        self.params = params or {}
+        self.description = description
+
+    @property
+    def layer_number(self) -> int:
+        return self.LAYER_NUMBERS.get(self.layer, 99)
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        return None  # continuous — consulted by continuous.recompute, not applied
+
+
 # ---------------------------------------------------------------------------
 # TYPE 2: Triggered abilities (RULE 603)
 # ---------------------------------------------------------------------------
@@ -613,4 +665,51 @@ EffectRegistry.register("cascade", lambda p: CascadeEffect(mana_value=p.get("man
 EffectRegistry.register(
     "discover",
     lambda p: DiscoverEffect(mana_value=p.get("mana_value", p.get("amount", 0))),
+)
+
+# Static abilities applied through the layer system (RULE 613). Each becomes a
+# `StaticAbility`; `game/continuous.py` folds them into derived characteristics.
+EffectRegistry.register(
+    "anthem",  # "Creatures you control get +N/+N" (layer 7c)
+    lambda p: StaticAbility(
+        "pt_mod",
+        affects=p.get("affects", "other_creatures_you_control"),
+        params={"power": p.get("power", 0), "toughness": p.get("toughness", 0)},
+    ),
+)
+EffectRegistry.register(
+    "pt_set",  # "Each creature is 1/1" (layer 7b)
+    lambda p: StaticAbility(
+        "pt_set",
+        affects=p.get("affects", "all_creatures"),
+        params={"power": p.get("power", 0), "toughness": p.get("toughness", 0)},
+    ),
+)
+EffectRegistry.register(
+    "grant_keyword",  # "Creatures you control have flying" (layer 6)
+    lambda p: StaticAbility(
+        "ability",
+        affects=p.get("affects", "creatures_you_control"),
+        params={"keywords": list(p.get("keywords", []))},
+    ),
+)
+EffectRegistry.register(
+    "type_change",  # "Lands you control are 0/0 creatures" (layer 4)
+    lambda p: StaticAbility(
+        "type",
+        affects=p.get("affects", "self"),
+        params={
+            "add_types": list(p.get("add_types", [])),
+            "power": p.get("power"),
+            "toughness": p.get("toughness"),
+        },
+    ),
+)
+EffectRegistry.register(
+    "cost_reduction",  # "Spells you cast cost {N} less" (RULE 601.2f)
+    lambda p: StaticAbility(
+        "cost",
+        affects=p.get("affects", "your_spells"),
+        params={"generic": p.get("generic", 1), "increase": bool(p.get("increase", False))},
+    ),
 )

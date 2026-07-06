@@ -46,6 +46,18 @@ export function createGoldfishView() {
   // (creatures / artifacts+enchantments / lands). Two rows by default; the
   // checkbox promotes lands to their own third row (persisted client-side).
   let threeRows = getCookie('gf_board_rows') === '3';
+  // Optional, default-hidden "static effects / layer trace" panel (RULE 613):
+  // shows active anthems/grants/type-changes/cost-reductions and how each
+  // permanent's characteristics were derived layer by layer. Off by default.
+  let showStatics = getCookie('gf_show_statics') === '1';
+  // Play-area layout: the static-zone column (command / library / graveyard /
+  // exile, stacked) sits on one side, battlefield + hand on the other. Which
+  // side the zone column takes is toggleable and persisted.
+  let zonesLeft = getCookie('gf_zones_side') === 'left';
+  // The stack overlays ("überblendet") the board while non-empty. It can be
+  // pushed aside to a compact corner card so priority actions (respond, tap
+  // mana) can be taken on the board underneath. Transient (per session).
+  let stackAside = false;
   // Attacking creatures whose "choose a defender" submenu is open — only
   // used in the two-step declaration (2+ legal defenders, RULE 508.1a).
   const attackMenuOpen = new Set();
@@ -464,6 +476,8 @@ export function createGoldfishView() {
       (byInstance[a.instance_id] ||= []).push(a);
     }
     const stackNonEmpty = s.stack.length > 0;
+    // A fresh empty stack re-arms the overlay for the next time it fills.
+    if (!stackNonEmpty) stackAside = false;
 
     root.innerHTML = `
       <div class="goldfish${pending ? ' choosing' : ''}">
@@ -488,47 +502,55 @@ export function createGoldfishView() {
           ${stackNonEmpty && !pending ? `<button type="button" data-action='${escapeAttr(JSON.stringify({ type: 'pass_priority' }))}'>Priorität abgeben (Stack auflösen)</button>` : ''}
           <button id="gf-rewind" type="button" ${busy || !view.can_rewind ? 'disabled' : ''}>↶ Zurücknehmen</button>
           <button id="gf-restart" type="button" ${busy ? 'disabled' : ''}>⟲ Neu starten</button>
+          <button id="gf-zones-side" type="button" title="Zonen-Spalte (Bibliothek, Friedhof …) auf die andere Seite legen">⇄ Zonen-Seite</button>
           <button id="gf-quit" type="button">Beenden</button>
         </div>
 
-        <div class="gf-zone gf-stack">
-          <h4>Stack (${s.stack.length})</h4>
-          ${s.stack.length ? `<div class="card-grid gf-stack-grid">${s.stack.map((it, i) => stackItemHtml(it, i, s.stack.length)).join('')}</div>` : '<p class="empty-state">leer</p>'}
-        </div>
+        <div class="gf-play gf-zones-${zonesLeft ? 'left' : 'right'}">
+          <aside class="gf-side">
+            <div class="gf-zone gf-command">
+              <h4>Command Zone</h4>
+              ${objGrid(me.command, '–', byInstance, pending)}
+            </div>
+            <div class="gf-zone gf-library">
+              <h4>Bibliothek</h4>
+              <p class="library-count">${me.library_count} Karten</p>
+            </div>
+            <div class="gf-zone gf-graveyard">
+              <h4>Friedhof (${me.graveyard.length})</h4>
+              ${zoneListHtml(me.graveyard, 'leer')}
+            </div>
+            <div class="gf-zone gf-exile">
+              <h4>Exil (${me.exile.length})</h4>
+              ${objGrid(me.exile, 'leer', {}, pending)}
+            </div>
+          </aside>
 
-        <div class="gf-zone gf-battlefield">
-          <div class="gf-bf-head">
-            <h4>Battlefield (${s.battlefield.length})</h4>
-            <label class="gf-bf-toggle" title="Länder in eine eigene, dritte Reihe legen">
-              <input type="checkbox" id="gf-rows-toggle" ${threeRows ? 'checked' : ''} />
-              Länder in eigener Reihe
-            </label>
-          </div>
-          ${battlefieldHtml(s.battlefield, byInstance, pending)}
-        </div>
+          <div class="gf-main">
+            <div class="gf-zone gf-battlefield">
+              <div class="gf-bf-head">
+                <h4>Battlefield (${s.battlefield.length})</h4>
+                <label class="gf-bf-toggle" title="Länder in eine eigene, dritte Reihe legen">
+                  <input type="checkbox" id="gf-rows-toggle" ${threeRows ? 'checked' : ''} />
+                  Länder in eigener Reihe
+                </label>
+                <label class="gf-bf-toggle" title="Statische Effekte und die Layer-Herleitung (Regel 613) anzeigen">
+                  <input type="checkbox" id="gf-statics-toggle" ${showStatics ? 'checked' : ''} />
+                  🔍 Statische Effekte
+                </label>
+              </div>
+              ${battlefieldHtml(s.battlefield, byInstance, pending)}
+            </div>
 
-        <div class="gf-zone-row">
-          <div class="gf-zone gf-command">
-            <h4>Command Zone</h4>
-            ${objGrid(me.command, '–', byInstance, pending)}
-          </div>
-          <div class="gf-zone gf-graveyard">
-            <h4>Friedhof (${me.graveyard.length})</h4>
-            ${zoneListHtml(me.graveyard, 'leer')}
-          </div>
-          <div class="gf-zone gf-exile">
-            <h4>Exil (${me.exile.length})</h4>
-            ${objGrid(me.exile, 'leer', {}, pending)}
-          </div>
-          <div class="gf-zone gf-library">
-            <h4>Bibliothek</h4>
-            <p class="library-count">${me.library_count} Karten</p>
-          </div>
-        </div>
+            ${showStatics ? staticEffectsPanelHtml(view, s) : ''}
 
-        <div class="gf-zone gf-hand">
-          <h4>Hand (${me.hand.length})</h4>
-          ${objGrid(me.hand, 'leer', byInstance, pending)}
+            <div class="gf-zone gf-hand">
+              <h4>Hand (${me.hand.length})</h4>
+              ${objGrid(me.hand, 'leer', byInstance, pending)}
+            </div>
+          </div>
+
+          ${stackNonEmpty && !pending ? stackOverlayHtml(s, stackAside) : ''}
         </div>
 
         ${moveLogHtml(view.move_log)}
@@ -602,6 +624,27 @@ export function createGoldfishView() {
     root.querySelector('#gf-rows-toggle')?.addEventListener('change', (e) => {
       threeRows = e.target.checked;
       setCookie('gf_board_rows', threeRows ? '3' : '2', 365);
+      render();
+    });
+
+    // Static-effects / layer-trace panel toggle (persisted client-side).
+    root.querySelector('#gf-statics-toggle')?.addEventListener('change', (e) => {
+      showStatics = e.target.checked;
+      setCookie('gf_show_statics', showStatics ? '1' : '0', 365);
+      render();
+    });
+
+    // Flip the static-zone column (library/graveyard/…) to the other side.
+    root.querySelector('#gf-zones-side')?.addEventListener('click', () => {
+      zonesLeft = !zonesLeft;
+      setCookie('gf_zones_side', zonesLeft ? 'left' : 'right', 365);
+      render();
+    });
+
+    // Push the stack overlay aside (or bring it back) — a pure client toggle
+    // that frees the board underneath for priority responses.
+    root.querySelector('[data-stack-aside]')?.addEventListener('click', () => {
+      stackAside = !stackAside;
       render();
     });
 
@@ -788,6 +831,32 @@ export function createGoldfishView() {
       </div>`;
   }
 
+  // The stack rendered as an overlay that "blends over" the play area while it
+  // is non-empty. Two modes: full (dims and blocks the board — pass priority
+  // to resolve) and pushed *aside* (a compact corner card; the board below is
+  // live so you can respond/tap mana during priority, then pass).
+  function stackOverlayHtml(s, aside) {
+    const cards = s.stack.map((it, i) => stackItemHtml(it, i, s.stack.length)).join('');
+    const asideLabel = aside ? '⤢ Stack einblenden' : '⤡ Zur Seite schieben';
+    const hint = aside
+      ? 'Board aktiv — reagiere und gib dann Priorität ab.'
+      : 'Reagieren? Schiebe den Stack zur Seite.';
+    return `
+      <div class="gf-stack-overlay${aside ? ' aside' : ''}">
+        <div class="gf-stack-panel">
+          <div class="gf-stack-panel-head">
+            <h4>Stack (${s.stack.length})</h4>
+            <button type="button" class="gf-stack-aside" data-stack-aside>${asideLabel}</button>
+          </div>
+          <div class="card-grid gf-stack-grid">${cards}</div>
+          <div class="gf-stack-panel-foot">
+            <span class="hint">${hint}</span>
+            <button type="button" class="primary" data-action='${escapeAttr(JSON.stringify({ type: 'pass_priority' }))}'>Priorität abgeben ▶</button>
+          </div>
+        </div>
+      </div>`;
+  }
+
   // Maps a stack item's category to an icon, a short German label, and a
   // CSS modifier used to colour-code the badge. For spells it refines the
   // label by the card's type line (creature/instant/…), so "Kreatur" and
@@ -912,7 +981,11 @@ export function createGoldfishView() {
           </div>
         `);
       } else if (a.type === 'cast_spell') {
-        buttons.push(actionButton({ type: 'cast_spell', instance_id: a.instance_id, name: a.name }, '✨ Zaubern'));
+        // A static cost adjustment (RULE 601.2f) shows as "was → now" on the button.
+        const hint = a.base_cost && a.effective_cost && a.base_cost !== a.effective_cost
+          ? ` 💰${escapeHtml(a.effective_cost)}`
+          : '';
+        buttons.push(actionButton({ type: 'cast_spell', instance_id: a.instance_id, name: a.name }, `✨ Zaubern${hint}`));
       } else if (a.type === 'tap_for_mana') {
         // One button per production option — the dual-land colour choice.
         const opts = a.options || [{ index: 0, label: '⟳' }];
@@ -1160,6 +1233,66 @@ export function createGoldfishView() {
     if (!log || !log.length) return '';
     const recent = log.slice(-8);
     return `<div class="gf-movelog"><h4>Verlauf</h4><ol>${recent.map((m) => `<li>${escapeHtml(m)}</li>`).join('')}</ol></div>`;
+  }
+
+  // The optional static-effects panel (RULE 613): (1) every active static
+  // ability in play and (2) the layer-by-layer derivation of each permanent
+  // whose characteristics a static effect changed, so a modified P/T, granted
+  // keyword, type change or cost reduction is traceable to its source.
+  function staticEffectsPanelHtml(view, s) {
+    const actives = view.static_effects || [];
+    const traced = (s.battlefield || []).filter((o) => (o.static_trace || []).length);
+    const reductions = collectCostReductions(view.legal_actions || []);
+    if (!actives.length && !traced.length && !reductions.length) {
+      return `<div class="gf-statics"><h4>🔍 Statische Effekte (Layer, Regel 613)</h4>
+        <p class="empty-state">Zurzeit keine statischen Effekte im Spiel.</p></div>`;
+    }
+    const layerLabel = (l) => (l === 'cost' ? 'Kosten (601.2f)' : `Layer ${l}`);
+    const activeList = actives.length
+      ? `<ul class="gf-static-list">${actives
+          .map((e) =>
+            `<li><span class="gf-static-layer">${escapeHtml(layerLabel(e.layer))}</span>
+             <strong>${escapeHtml(e.source)}</strong> — ${escapeHtml(e.description || '')}
+             <span class="gf-static-scope">(${escapeHtml(e.affects)})</span></li>`
+          )
+          .join('')}</ul>`
+      : '<p class="empty-state">Keine aktiven statischen Fähigkeiten.</p>';
+
+    const traceBlocks = traced
+      .map((o) => {
+        const steps = (o.static_trace || [])
+          .map((t) => {
+            const pt = t.power != null && t.toughness != null ? ` → ${t.power}/${t.toughness}` : '';
+            return `<li><span class="gf-static-layer">L${t.layer}</span>
+              ${escapeHtml(t.source)}: ${escapeHtml(t.description)}${escapeHtml(pt)}</li>`;
+          })
+          .join('');
+        const pt = o.power != null && o.toughness != null ? ` — jetzt ${o.power}/${o.toughness}` : '';
+        return `<div class="gf-static-trace"><strong>${escapeHtml(o.name)}</strong>${escapeHtml(pt)}
+          <ol>${steps}</ol></div>`;
+      })
+      .join('');
+
+    const costBlock = reductions.length
+      ? `<div class="gf-static-costs"><h5>Kostenanpassungen</h5><ul class="gf-static-list">${reductions
+          .map((r) => `<li><strong>${escapeHtml(r.name)}</strong>: ${escapeHtml(r.base)} → ${escapeHtml(r.effective)}</li>`)
+          .join('')}</ul></div>`
+      : '';
+
+    return `
+      <div class="gf-statics">
+        <h4>🔍 Statische Effekte (Layer, Regel 613)</h4>
+        <div class="gf-static-active"><h5>Aktive statische Fähigkeiten</h5>${activeList}</div>
+        ${traceBlocks ? `<div class="gf-static-traces"><h5>Layer-Herleitung</h5>${traceBlocks}</div>` : ''}
+        ${costBlock}
+      </div>`;
+  }
+
+  // Castable spells whose cost a static effect changed (base vs. effective).
+  function collectCostReductions(actions) {
+    return actions
+      .filter((a) => a.type === 'cast_spell' && a.base_cost && a.effective_cost && a.base_cost !== a.effective_cost)
+      .map((a) => ({ name: a.name, base: a.base_cost, effective: a.effective_cost }));
   }
 
   function statusHtml() {

@@ -1,5 +1,11 @@
 # Implementation Status
 
+> This file tracks the original **phase roadmap**. For the current
+> **rules-engine feature coverage** (which keywords, static/activated/triggered
+> abilities, effects, and layers are actually implemented) see the in-app
+> **"Engine-Status"** tab (`frontend/src/js/implementationStatusView.js`) and
+> the [`CLAUDE.md`](CLAUDE.md) project wiki.
+
 ## Phase 1: Data Layer (Weeks 1-2)
 - [x] Week 1, Day 1-2: Card Model
 - [x] Week 1, Day 3-5: DecklisteParser (structural validation only —

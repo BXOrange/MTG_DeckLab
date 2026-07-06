@@ -60,8 +60,9 @@ class TestBindAbility:
         assert bound.taps_source is True
 
     def test_unsupported_kind_is_refused(self):
+        # replacement/keyword binding isn't implemented yet (static now is).
         with pytest.raises(BindError, match="does not support"):
-            bind_ability(AbilitySpec("static", [EffectSpec("draw", {"count": 1})]))
+            bind_ability(AbilitySpec("replacement", [EffectSpec("draw", {"count": 1})]))
 
 
 class TestAttachToObject:

@@ -21,8 +21,9 @@ from ..models.card import Card
 from ..models.events import EventType, GameEvent
 from ..models.game_object import GameObject, Zone
 from ..models.game_state import GameState, StackItem
+from ..models.mana_cost import ManaCost
 from ..models.player import Player
-from . import combat
+from . import combat, continuous
 from .costs import DISCARD_HAND, ActivationCost
 from .effects import ActivatedAbility
 from .mana_abilities import mana_options, option_label
@@ -557,10 +558,37 @@ class GameEngine:
                 return False
             if not self._in_main_phase() or self.state.stack:
                 return False
-        cost = self.rules.mana_cost_of(card)
+        cost = self.effective_cast_cost(player, obj, x)
+        return player.mana_pool.can_pay(cost, life_available=player.life)
+
+    def effective_cast_cost(self, player: Player, obj: GameObject, x: int = 0) -> "ManaCost":
+        """``obj``'s mana cost after static cost adjustments (RULE 601.2f).
+
+        Starts from the printed cost (with ``{X}`` resolved) and applies the
+        net generic reduction from "spells you cast cost {N} less/more" statics
+        in play. Generic-only and floored at zero — the common, safe case.
+        """
+        cost = self.rules.mana_cost_of(obj.card)
         if cost.has_variable:
             cost = cost.with_x(x)
-        return player.mana_pool.can_pay(cost, life_available=player.life)
+        return self._adjust_cost(cost, player)
+
+    def _adjust_cost(self, cost: "ManaCost", player: Player) -> "ManaCost":
+        """Apply the net static generic adjustment (reduce or increase)."""
+        reduction, _ = continuous.cost_reduction_for(self.state, player)
+        if reduction > 0:
+            return cost.reduce_generic(reduction)
+        if reduction < 0:
+            return cost.increase_generic(-reduction)
+        return cost
+
+    def recompute_continuous_effects(self) -> None:
+        """Re-derive all layer-based characteristics now (RULE 613).
+
+        SBAs already do this whenever the board settles; call this to refresh
+        derived P/T, types and granted keywords for a read outside that loop
+        (e.g. building the view for the UI)."""
+        continuous.recompute(self.state)
 
     def max_affordable_x(self, player: Player, obj: GameObject) -> int:
         """The highest X ``player`` could announce and still pay for ``obj``.
@@ -589,7 +617,8 @@ class GameEngine:
         # legal target is available — the same check that locks the offer.
         if not self.has_legal_targets(player, obj):
             raise ValueError(f"{obj.name} has no legal target")
-        return self.rules.cast_spell(player, obj, targets, x)
+        cost = self.effective_cast_cost(player, obj, x)
+        return self.rules.cast_spell(player, obj, targets, x, cost=cost)
 
     def has_legal_targets(self, player: Player, obj: GameObject) -> bool:
         """Whether every target ``obj`` requires can be legally chosen now.
@@ -974,6 +1003,15 @@ class GameEngine:
         if cost.has_variable:
             action["has_x"] = True
             action["max_x"] = self.max_affordable_x(player, obj)
+
+        # Static cost adjustment (RULE 601.2f): surface base vs. reduced so the
+        # UI can show "was {3}, now {1}" and the static-effects panel can
+        # attribute it. Only attached when something actually changes the cost.
+        reduction, contributors = continuous.cost_reduction_for(self.state, player)
+        if reduction and cost.raw:
+            action["base_cost"] = cost.raw
+            action["effective_cost"] = self._adjust_cost(cost, player).raw
+            action["cost_reduction"] = contributors
 
         requirements = requirements_with_targets(self.state, player.id, obj)
         if requirements:

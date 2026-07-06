@@ -234,6 +234,60 @@ class ManaCost:
         ]
         return ManaCost(resolved, raw=self.raw)
 
+    def reduce_generic(self, amount: int) -> "ManaCost":
+        """A copy with generic mana lowered by ``amount`` (floored at 0).
+
+        Cost reductions like "this spell costs {2} less" only ever reduce the
+        *generic* part of a cost (RULE 601.2f) — coloured/hybrid/Phyrexian pips
+        are untouched. ``amount <= 0`` returns an equivalent copy unchanged.
+        """
+        if amount <= 0:
+            return ManaCost(list(self.symbols), raw=self.raw)
+        remaining = amount
+        reduced: list[ManaSymbol] = []
+        for symbol in self.symbols:
+            if remaining > 0 and symbol.kind == GENERIC:
+                take = min(remaining, symbol.amount)
+                remaining -= take
+                if symbol.amount - take > 0:
+                    reduced.append(ManaSymbol(GENERIC, amount=symbol.amount - take))
+            else:
+                reduced.append(symbol)
+        return ManaCost(reduced, raw=ManaCost(reduced).render())
+
+    def increase_generic(self, amount: int) -> "ManaCost":
+        """A copy with ``amount`` generic mana added (a "cost {N} more" tax).
+
+        Merges into an existing generic symbol so the cost keeps one ``{N}``.
+        """
+        if amount <= 0:
+            return ManaCost(list(self.symbols), raw=self.raw)
+        symbols = [
+            ManaSymbol(GENERIC, amount=s.amount + amount) if s.kind == GENERIC else s
+            for s in self.symbols
+        ]
+        if not any(s.kind == GENERIC for s in self.symbols):
+            symbols.insert(0, ManaSymbol(GENERIC, amount=amount))
+        return ManaCost(symbols, raw=ManaCost(symbols).render())
+
+    def render(self) -> str:
+        """Reconstruct a Scryfall-style ``{…}`` cost string from the symbols."""
+        parts: list[str] = []
+        for s in self.symbols:
+            if s.kind == GENERIC:
+                parts.append(f"{{{s.amount}}}")
+            elif s.kind == VARIABLE:
+                parts.append("{X}")
+            elif s.kind == COLORLESS:
+                parts.append("{C}")
+            elif s.kind == MONO_HYBRID:
+                parts.append(f"{{{s.amount}/{s.color}}}")
+            elif s.kind == PHYREXIAN:
+                parts.append(f"{{{s.color}/P}}")
+            else:  # COLOR, HYBRID ("W/U")
+                parts.append(f"{{{s.color}}}")
+        return "".join(parts)
+
     def __repr__(self) -> str:
         return f"ManaCost({self.raw!r})"
 

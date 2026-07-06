@@ -27,7 +27,7 @@ from ..models.game_object import GameObject, Zone
 from ..models.game_state import GameState, StackItem
 from ..models.mana_cost import ManaCost
 from ..models.player import Player
-from . import combat
+from . import combat, continuous
 from .effects import (
     GameContext,
     ReplacementEffect,
@@ -155,17 +155,21 @@ class RulesEngine:
         obj: GameObject,
         targets: Optional[list[Any]] = None,
         x: int = 0,
+        cost: Optional[ManaCost] = None,
     ) -> StackItem:
         """Pay the cost, move the card to the stack (RULE 601).
 
         ``x`` is the announced value (RULE 601.2b) for a cost containing
-        ``{X}``; ignored otherwise. Timing/priority legality is enforced by
-        the caller (game engine / `legal_actions`); this performs the
-        mechanical cast. Raises ValueError if the mana cost can't be paid.
+        ``{X}``; ignored otherwise. ``cost`` lets the caller supply an already
+        adjusted cost (X resolved, static reductions applied — RULE 601.2f);
+        omitted, the printed cost is used. Timing/priority legality is enforced
+        by the caller; this performs the mechanical cast. Raises ValueError if
+        the mana cost can't be paid.
         """
-        cost = self.mana_cost_of(obj.card)
-        if cost.has_variable:
-            cost = cost.with_x(x)
+        if cost is None:
+            cost = self.mana_cost_of(obj.card)
+            if cost.has_variable:
+                cost = cost.with_x(x)
         if not player.mana_pool.can_pay(cost, life_available=player.life):
             raise ValueError(f"{player.id} cannot pay for {obj.name}")
         life_spent = player.mana_pool.pay(cost, life_available=player.life)
@@ -799,6 +803,11 @@ class RulesEngine:
         return any_action
 
     def _sba_pass(self) -> bool:
+        # Re-derive continuous effects first (RULE 613) so P/T, types and
+        # granted keywords are current before any SBA reads them — an anthem
+        # dropping a creature to 0 toughness must be seen here.
+        continuous.recompute(self.state)
+
         # 704.5a/c: player at 0 or less life, or who drew from empty, loses.
         for player in self.state.players:
             if player.has_lost:

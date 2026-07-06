@@ -37,15 +37,18 @@ class Zone(str, Enum):
 _instance_counter = itertools.count(1)
 
 
-def _combat_display_keywords(card: Card) -> list[str]:
-    """Combat/evasion keyword labels for a card's board badges.
+def _combat_display_keywords(
+    card: Card, granted: Optional[set[str]] = None
+) -> list[str]:
+    """Combat/evasion keyword labels for a card's board badges, including any
+    granted by a layer-6 static ability (RULE 613.7f).
 
     Local (function-scoped) import of the pure `game.combat` recognition so
     the model layer gains no import-time dependency on `game/` (RULE-keyword
     recognition lives with the combat rules that consume it)."""
     from ..game.combat import display_keywords
 
-    return display_keywords(card)
+    return display_keywords(card, granted)
 
 
 class GameObject:
@@ -121,8 +124,32 @@ class GameObject:
         #: model→game import; they hold `GameEffect` subclasses.
         self.triggered_abilities: list[Any] = []
         self.replacement_effects: list[Any] = []
+        #: Static abilities (`StaticAbility`) this object grants through the
+        #: layer system (RULE 613) — anthems, keyword grants, type changes,
+        #: cost reductions. Read by `game/continuous.py`.
         self.static_effects: list[Any] = []
         self.activated_abilities: list[Any] = []
+
+        #: Derived characteristics stamped by the continuous-effects layer
+        #: engine (`game/continuous.py`, RULE 613). ``None`` / empty until a
+        #: recompute runs, in which case they supersede the printed values;
+        #: they fold in counters too, so an on-battlefield permanent reads its
+        #: whole layer stack here. `reset_derived` clears them before a pass.
+        self._derived_power: Optional[int] = None
+        self._derived_toughness: Optional[int] = None
+        self._granted_keywords: set[str] = set()
+        self._added_types: set[str] = set()
+        #: Per-object record of which static abilities changed it and how, in
+        #: layer order — the data the UI's layer-trace view renders.
+        self.static_trace: list[dict[str, Any]] = []
+
+    def reset_derived(self) -> None:
+        """Clear layer-engine output before a fresh `continuous.recompute`."""
+        self._derived_power = None
+        self._derived_toughness = None
+        self._granted_keywords = set()
+        self._added_types = set()
+        self.static_trace = []
 
     # -- Delegated characteristics (read from the printed card) ---------
 
@@ -132,7 +159,8 @@ class GameObject:
 
     @property
     def is_creature(self) -> bool:
-        return self.card.is_creature
+        # Printed creature, or made one by a layer-4 type-changing effect.
+        return self.card.is_creature or "creature" in self._added_types
 
     @property
     def is_land(self) -> bool:
@@ -181,17 +209,32 @@ class GameObject:
 
     @property
     def power(self) -> Optional[int]:
-        """Effective power including counters, or None for non-creatures."""
+        """Effective power (RULE 613 layer 7), or None for non-creatures.
+
+        Prefers the value the continuous-effects engine stamped (which already
+        folds in counters and any static modifiers); falls back to printed
+        power plus counters when no layer pass has run (off-battlefield, unit
+        tests). None only for something that is not a creature and has no
+        layer-7 value (so an animated land still reports its P/T)."""
+        if self._derived_power is not None:
+            return self._derived_power
         if self.card.power is None:
             return None
         return self.card.power + self.plus_one_counters
 
     @property
     def toughness(self) -> Optional[int]:
-        """Effective toughness including counters, or None for non-creatures."""
+        """Effective toughness (RULE 613 layer 7); see `power`."""
+        if self._derived_toughness is not None:
+            return self._derived_toughness
         if self.card.toughness is None:
             return None
         return self.card.toughness + self.plus_one_counters
+
+    @property
+    def granted_keywords(self) -> set[str]:
+        """Keyword slugs granted by layer-6 static abilities (RULE 613.7f)."""
+        return set(self._granted_keywords)
 
     # -- State transitions ----------------------------------------------
 
@@ -219,23 +262,31 @@ class GameObject:
             # sort permanents into rows, group attachments, and show which
             # creature is attacking whom.
             "type_line": self.card.type_line,
-            "is_creature": self.card.is_creature,
+            # `is_creature` honours a layer-4 type change (an animated land);
+            # the rest read the printed card until those layers model them.
+            "is_creature": self.is_creature,
             "is_land": self.card.is_land,
             "is_artifact": self.card.is_artifact,
             "is_enchantment": self.card.is_enchantment,
             "is_planeswalker": self.card.is_planeswalker,
+            # Types added by a layer-4 effect (e.g. "creature"), for the board.
+            "added_types": sorted(self._added_types),
             "attacking": self.attacking,
             "combat_defender": self.combat_defender,
             "blocking": self.blocking,
             "blocked_by": list(self.blocked_by),
             # Combat/evasion keyword labels the board shows as badges — the
-            # same recognition the combat engine honours, so display matches
+            # same recognition the combat engine honours (printed keywords plus
+            # any granted by a layer-6 static ability), so display matches
             # behaviour. Imported at call time: `game.combat` is pure (no
             # runtime model imports), so this reads keywords without turning
             # the model→game boundary into an import cycle.
-            "keywords": _combat_display_keywords(self.card),
+            "keywords": _combat_display_keywords(self.card, self._granted_keywords),
             "counters": dict(self.counters),
             "attached_to": self.attached_to,
+            # Layer-by-layer record of static effects that reshaped this object
+            # (RULE 613), surfaced by the UI's optional static-effects panel.
+            "static_trace": [dict(entry) for entry in self.static_trace],
         }
 
     def __repr__(self) -> str:

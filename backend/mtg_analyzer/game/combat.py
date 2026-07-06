@@ -155,7 +155,9 @@ def protections_of(card: "Card") -> frozenset[str]:
 
 
 def _obj_keywords(obj: "GameObject") -> frozenset[str]:
-    return keywords_of(obj.card)
+    # Printed keywords plus any granted by a layer-6 static ability (RULE
+    # 613.7f), so an anthem that hands out flying flows into combat.
+    return keywords_of(obj.card) | frozenset(getattr(obj, "granted_keywords", set()) or set())
 
 
 def has(obj: "GameObject", keyword: str) -> bool:
@@ -277,12 +279,15 @@ def lethal_damage(target: "GameObject", source: Optional["GameObject"]) -> int:
     return remaining
 
 
-def display_keywords(card: "Card") -> list[str]:
+def display_keywords(
+    card: "Card", granted: "Optional[set[str]]" = None
+) -> list[str]:
     """Human-facing keyword labels for the UI, e.g. ``["Flying", "Trample"]``.
 
-    Ordered for a stable badge row; "protection" is expanded to what it is
-    from ("Protection: red"). Reads the same recognition the engine uses so
-    what the board shows is exactly what combat honours.
+    Ordered for a stable badge row; ``granted`` adds keyword slugs handed to
+    the object by a layer-6 static ability (RULE 613.7f). "protection" is
+    expanded to what it is from ("Protection: red"). Reads the same
+    recognition the engine uses so the board shows exactly what combat honours.
     """
     labels = {
         "flying": "Flying",
@@ -298,7 +303,7 @@ def display_keywords(card: "Card") -> list[str]:
         "haste": "Haste",
         "indestructible": "Indestructible",
     }
-    kws = keywords_of(card)
+    kws = keywords_of(card) | frozenset(granted or set())
     out = [label for slug, label in labels.items() if slug in kws]
     if "protection" in kws:
         quals = sorted(protections_of(card))
