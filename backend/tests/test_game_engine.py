@@ -607,9 +607,208 @@ def test_attackers_deal_damage_to_opponent():
     bear = obj_on_battlefield(eng.state, eng, creature(power=3))
     eng.declare_attackers(eng.state.active_player, [bear])
     assert bear.tapped
+    assert bear.attacking
+    # The sole opponent is auto-assigned as the defender (no ambiguity).
+    assert bear.combat_defender == {"kind": "player", "id": "p2", "label": "Bob"}
     eng.state.current_step = "combat_damage"
     eng._step_combat_damage()
     assert eng.state.player_by_id("p2").life == 17
+
+
+def planeswalker(name="Test Walker", controller="p2"):
+    return Card(id=name, name=name, type_line="Legendary Planeswalker — Test")
+
+
+def test_solo_goldfish_swing_has_no_defender_and_deals_no_damage():
+    eng = make_engine([land()], hand=0)  # one player, no opponent
+    eng.begin_turn()
+    eng.state.current_step = "declare_attackers"
+    bear = obj_on_battlefield(eng.state, eng, creature(power=3))
+    assert eng.legal_defenders_for(eng.state.active_player) == []
+    eng.declare_attackers(eng.state.active_player, [bear])
+    assert bear.attacking and bear.tapped
+    assert bear.combat_defender is None  # bare swing
+    eng.state.current_step = "combat_damage"
+    eng._step_combat_damage()  # nothing to damage → no crash, no life change
+
+
+def test_ambiguous_defender_requires_explicit_choice():
+    # Two opponents → the engine won't guess; a bare declaration is illegal.
+    libs = [("p1", "A", [land()]), ("p2", "B", [land()]), ("p3", "C", [land()])]
+    eng = GameEngine.new_game(libs, starting_life=20, starting_hand=0)
+    eng.begin_turn()
+    eng.state.current_step = "declare_attackers"
+    bear = obj_on_battlefield(eng.state, eng, creature(power=3))
+    with pytest.raises(ValueError):
+        eng.declare_attackers(eng.state.active_player, [bear])
+    # Naming a defender resolves it; that opponent takes the damage.
+    eng.declare_attackers(
+        eng.state.active_player,
+        [{"attacker": bear, "defender": {"kind": "player", "id": "p3", "label": "C"}}],
+    )
+    eng.state.current_step = "combat_damage"
+    eng._step_combat_damage()
+    assert eng.state.player_by_id("p3").life == 17
+    assert eng.state.player_by_id("p2").life == 20
+
+
+def test_attack_planeswalker_marks_damage_on_it():
+    eng = make_engine([land()], [land()], hand=0)
+    eng.begin_turn()
+    eng.state.current_step = "declare_attackers"
+    walker = obj_on_battlefield(eng.state, eng, planeswalker(), controller="p2")
+    bear = obj_on_battlefield(eng.state, eng, creature(power=3))
+    defenders = eng.legal_defenders_for(eng.state.active_player)
+    # The opponent AND their planeswalker are both legal defenders.
+    assert {d["kind"] for d in defenders} == {"player", "planeswalker"}
+    eng.declare_attackers(
+        eng.state.active_player,
+        [{"attacker": bear, "defender": {"kind": "planeswalker", "instance_id": walker.instance_id}}],
+    )
+    eng.state.current_step = "combat_damage"
+    eng._step_combat_damage()
+    assert walker.damage_marked == 3
+    assert eng.state.player_by_id("p2").life == 20  # player untouched
+
+
+def test_blocked_attacker_hits_blocker_not_player():
+    eng = make_engine([land()], [land()], hand=0)
+    eng.begin_turn()
+    eng.state.current_step = "declare_attackers"
+    attacker = obj_on_battlefield(eng.state, eng, creature(power=3, toughness=3))
+    blocker = obj_on_battlefield(eng.state, eng, creature(power=2, toughness=2), controller="p2")
+    eng.declare_attackers(eng.state.active_player, [attacker])
+
+    eng.state.current_step = "declare_blockers"
+    p2 = eng.state.player_by_id("p2")
+    eng.declare_blockers(p2, [{"blocker": blocker, "attacker": attacker}])
+    assert blocker.blocking == attacker.instance_id
+    assert attacker.blocked_by == [blocker.instance_id]
+
+    eng.state.current_step = "combat_damage"
+    eng._step_combat_damage()
+    # Player took no damage; the 2/2 blocker died to 3 damage; the 3/3
+    # attacker survived with 2 marked.
+    assert eng.state.player_by_id("p2").life == 20
+    assert blocker not in eng.state.battlefield
+    assert attacker in eng.state.battlefield
+    assert attacker.damage_marked == 2
+
+
+def test_blockers_can_gang_up_and_trade():
+    eng = make_engine([land()], [land()], hand=0)
+    eng.begin_turn()
+    eng.state.current_step = "declare_attackers"
+    attacker = obj_on_battlefield(eng.state, eng, creature(power=4, toughness=4))
+    b1 = obj_on_battlefield(eng.state, eng, creature(power=2, toughness=2), controller="p2")
+    b2 = obj_on_battlefield(eng.state, eng, creature(power=2, toughness=2), controller="p2")
+    eng.declare_attackers(eng.state.active_player, [attacker])
+    eng.state.current_step = "declare_blockers"
+    p2 = eng.state.player_by_id("p2")
+    eng.declare_blockers(
+        p2,
+        [{"blocker": b1, "attacker": attacker}, {"blocker": b2, "attacker": attacker}],
+    )
+    eng.state.current_step = "combat_damage"
+    eng._step_combat_damage()
+    # 4 power split 2+2 kills both blockers; 4 toughness takes 4 → attacker dies too.
+    assert b1 not in eng.state.battlefield
+    assert b2 not in eng.state.battlefield
+    assert attacker not in eng.state.battlefield
+
+
+def test_attacking_player_cannot_declare_blockers():
+    eng = make_engine([land()], [land()], hand=0)
+    eng.begin_turn()
+    eng.state.current_step = "declare_attackers"
+    attacker = obj_on_battlefield(eng.state, eng, creature(power=2))
+    eng.declare_attackers(eng.state.active_player, [attacker])
+    eng.state.current_step = "declare_blockers"
+    blocker = obj_on_battlefield(eng.state, eng, creature(), controller="p1")
+    with pytest.raises(ValueError):
+        # p1 is the attacker; it can't block its own attack.
+        eng.declare_blockers(eng.state.active_player, [{"blocker": blocker, "attacker": attacker}])
+
+
+def test_counters_annihilate_via_sba():
+    eng = make_engine([land()], hand=0)
+    eng.begin_turn()
+    frog = obj_on_battlefield(eng.state, eng, creature(power=2, toughness=2))
+    frog.add_counters("+1/+1", 2)
+    frog.add_counters("-1/-1", 1)
+    eng.rules.check_state_based_actions()
+    # 704.5q removes one of each → net +1/+1; a 3/3 survivor.
+    assert frog.counters == {"+1/+1": 1}
+    assert frog.power == 3 and frog.toughness == 3
+
+
+def test_minus_counters_can_be_lethal():
+    eng = make_engine([land()], hand=0)
+    eng.begin_turn()
+    frog = obj_on_battlefield(eng.state, eng, creature(power=2, toughness=2))
+    frog.add_counters("-1/-1", 2)  # 0 toughness
+    eng.rules.check_state_based_actions()
+    assert frog not in eng.state.battlefield  # 704.5f
+
+
+def test_commander_combat_damage_is_tracked_and_21_is_lethal():
+    eng = make_engine([land()], [land()], life=40, hand=0)
+    eng.begin_turn()
+    eng.state.current_step = "declare_attackers"
+    cmdr = obj_on_battlefield(eng.state, eng, creature(name="Cmdr", power=7, toughness=7))
+    cmdr.is_commander = True
+    p2 = eng.state.player_by_id("p2")
+    # Three 7-damage swings = 21 commander damage → p2 loses to commander
+    # damage while still at 19 life (nowhere near dead on life alone).
+    for _ in range(3):
+        cmdr.tapped = False
+        eng.state.current_step = "declare_attackers"
+        eng.declare_attackers(eng.state.active_player, [cmdr])
+        eng.state.current_step = "combat_damage"
+        eng._step_combat_damage()
+    entry = next(iter(p2.commander_damage.values()))
+    assert entry["amount"] == 21 and entry["name"] == "Cmdr"
+    assert p2.has_lost and p2.loss_reason == "commander_damage"
+
+
+def test_noncombat_damage_is_not_commander_damage():
+    eng = make_engine([land()], [land()], hand=0)
+    eng.begin_turn()
+    cmdr = obj_on_battlefield(eng.state, eng, creature(name="Cmdr", power=3))
+    cmdr.is_commander = True
+    p2 = eng.state.player_by_id("p2")
+    eng.rules.deal_damage(p2, 5, source=cmdr, combat=False)  # a burn spell, say
+    assert p2.commander_damage == {}
+    assert p2.life == 15
+
+
+def test_first_turn_draw_can_be_toggled():
+    # Two players (so 103.7a applies); default skip, then opt onto the draw.
+    eng = make_engine([land("Forest")] * 5, [land("Forest")] * 5, hand=0)
+    eng.state.skip_first_draw = True
+    eng.start()
+    for _ in range(3):  # untap, upkeep, draw (skipped)
+        eng.advance_step()
+    assert len(eng.state.player_by_id("p1").hand) == 0
+
+    eng2 = make_engine([land("Forest")] * 5, [land("Forest")] * 5, hand=0)
+    eng2.state.skip_first_draw = False
+    eng2.start()
+    for _ in range(3):  # untap, upkeep, draw (happens)
+        eng2.advance_step()
+    assert len(eng2.state.player_by_id("p1").hand) == 1
+
+
+def test_end_combat_removes_creatures_from_combat():
+    eng = make_engine([land()], [land()], hand=0)
+    eng.begin_turn()
+    eng.state.current_step = "declare_attackers"
+    bear = obj_on_battlefield(eng.state, eng, creature(power=3))
+    eng.declare_attackers(eng.state.active_player, [bear])
+    assert eng.attackers == [bear]
+    eng._step_end_combat()
+    assert eng.attackers == []
+    assert not bear.attacking and bear.combat_defender is None
 
 
 # ---------------------------------------------------------------------------

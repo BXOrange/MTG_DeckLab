@@ -45,10 +45,16 @@ See [../IMPLEMENTATION_STATUS.md](../IMPLEMENTATION_STATUS.md) and
       full-span coverage gate (`MODELED`/`UNMODELED`, unclaimed clauses →
       processing list → analyzer). Start at Phase 0 (IR + binder + one
       hand-wired card, no NLP).
-- [ ] Combat blocking + creature-vs-creature damage: combat is still
-      unblocked-attackers-hit-a-player only (docs/02 R2.7). Declaring
-      blockers and assigning combat damage between creatures is the next
-      combat step (interactive, so opponent-side).
+- [~] Combat blocking + creature-vs-creature damage: **engine done** —
+      `GameEngine.declare_blockers`/`can_block` and a rewritten
+      `_step_combat_damage` handle blocked/unblocked attackers, gang blocks
+      (lethal-first damage spread), and blockers striking back, with the
+      SBA destroying lethal-damaged creatures. Attackers now declare a
+      defender (player or opponent planeswalker, RULE 508.1a) and the solo
+      goldfish gains a passive dummy so swings connect. Remaining: an
+      *interactive* blocker-declaration UI (opponent-side, needs the
+      multiplayer priority loop) and first strike / double strike / trample
+      / deathtouch damage modifiers.
 - [ ] Replacement-effect ordering by the affected player (RULE 616.1) —
       currently deterministic discovery order; needs a player prompt once
       interactive play does.

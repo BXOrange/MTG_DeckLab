@@ -69,8 +69,36 @@ class GameObject:
         self.summoning_sick: bool = True
         #: Damage marked this turn (RULE 120); cleared during cleanup.
         self.damage_marked: int = 0
-        #: +1/+1 (positive) and -1/-1 (negative) counters, net.
-        self.plus_one_counters: int = 0
+        #: Counters on the permanent, keyed by kind (RULE 122): e.g.
+        #: ``{"+1/+1": 2, "-1/-1": 1}``, ``{"loyalty": 3}``, ``{"charge": 1}``.
+        #: +1/+1 and -1/-1 are tracked as *distinct* kinds (they don't merge
+        #: on the object — they annihilate as a state-based action, RULE
+        #: 704.5q, applied by the rules engine) so a "remove a +1/+1 counter"
+        #: or "counts +1/+1 counters" effect stays correct. Power/toughness
+        #: read the net (`plus_one_counters`).
+        self.counters: dict[str, int] = {}
+
+        #: Combat state (RULE 508). ``attacking`` marks a creature declared
+        #: as an attacker this combat; ``combat_defender`` is *what* it is
+        #: attacking — a serializable dict ``{"kind": "player", "id": ...}``
+        #: or ``{"kind": "planeswalker", "instance_id": ...}``, or None for a
+        #: "bare" swing with no legal defender (solo goldfish). Kept on the
+        #: object (not the engine) so it survives a `GameState.clone()` for
+        #: rewind. Cleared when the combat phase ends (RULE 511.3).
+        self.attacking: bool = False
+        self.combat_defender: Optional[dict[str, Any]] = None
+        #: Blocking (RULE 509): ``blocking`` is the instance id of the
+        #: attacker this creature is declared to block (None if not
+        #: blocking); ``blocked_by`` lists the blocker instance ids assigned
+        #: to this attacker. Both are cleared when combat ends (RULE 511.3).
+        self.blocking: Optional[int] = None
+        self.blocked_by: list[int] = []
+
+        #: The permanent this object is attached to (RULE 301.5 Equipment /
+        #: RULE 303.4 Aura): the host's ``instance_id``, or None if not
+        #: attached. Drives the "attached cards grouped around their host"
+        #: display; set by the (future) equip/enchant resolution.
+        self.attached_to: Optional[int] = None
 
         #: Effects this object contributes while in play, consulted by the
         #: rules engine (mtg_analyzer/game/). Typed loosely to avoid a
@@ -97,6 +125,43 @@ class GameObject:
     @property
     def is_legendary(self) -> bool:
         return self.card.is_legendary
+
+    @property
+    def is_planeswalker(self) -> bool:
+        return self.card.is_planeswalker
+
+    @property
+    def plus_one_counters(self) -> int:
+        """Net +1/+1 counters (positive) vs. -1/-1 counters (negative).
+
+        The single number power/toughness are shifted by (RULE 122.3): a
+        creature with two +1/+1 and one -1/-1 counter reads +1 here. Kept as
+        a read/write property over the typed `counters` dict so older code
+        and fixtures that set a bare net still work.
+        """
+        return self.counters.get("+1/+1", 0) - self.counters.get("-1/-1", 0)
+
+    @plus_one_counters.setter
+    def plus_one_counters(self, value: int) -> None:
+        self.counters.pop("+1/+1", None)
+        self.counters.pop("-1/-1", None)
+        if value > 0:
+            self.counters["+1/+1"] = value
+        elif value < 0:
+            self.counters["-1/-1"] = -value
+
+    def add_counters(self, kind: str, amount: int = 1) -> None:
+        """Add (or, with a negative ``amount``, remove) counters of ``kind``.
+
+        Counter totals never go below zero — removing more than are present
+        drops the kind entirely (RULE 122.1c: a counter you can't remove
+        simply isn't there).
+        """
+        total = self.counters.get(kind, 0) + amount
+        if total > 0:
+            self.counters[kind] = total
+        else:
+            self.counters.pop(kind, None)
 
     @property
     def power(self) -> Optional[int]:
@@ -134,6 +199,21 @@ class GameObject:
             "damage_marked": self.damage_marked,
             "power": self.power,
             "toughness": self.toughness,
+            # Card type info + combat/attachment state the board UI needs to
+            # sort permanents into rows, group attachments, and show which
+            # creature is attacking whom.
+            "type_line": self.card.type_line,
+            "is_creature": self.card.is_creature,
+            "is_land": self.card.is_land,
+            "is_artifact": self.card.is_artifact,
+            "is_enchantment": self.card.is_enchantment,
+            "is_planeswalker": self.card.is_planeswalker,
+            "attacking": self.attacking,
+            "combat_defender": self.combat_defender,
+            "blocking": self.blocking,
+            "blocked_by": list(self.blocked_by),
+            "counters": dict(self.counters),
+            "attached_to": self.attached_to,
         }
 
     def __repr__(self) -> str:

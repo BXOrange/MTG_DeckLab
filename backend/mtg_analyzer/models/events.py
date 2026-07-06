@@ -55,6 +55,7 @@ class EventType:
     LIFE_GAINED = "LIFE_GAINED"
     LIFE_LOST = "LIFE_LOST"
     ATTACKS = "ATTACKS"
+    BLOCKS = "BLOCKS"
 
     # Win/loss (RULE 104, RULE 704).
     PLAYER_WOULD_LOSE = "PLAYER_WOULD_LOSE"

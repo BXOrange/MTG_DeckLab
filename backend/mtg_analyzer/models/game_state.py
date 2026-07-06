@@ -118,6 +118,11 @@ class GameState:
         self.game_over = False
         self.winner_id: Optional[str] = None
 
+        #: Whether the starting player skips their turn-1 draw (RULE 103.7a).
+        #: True by default ("on the play"); the goldfish setup screen can turn
+        #: it off so the human draws on turn 1 instead ("on the draw").
+        self.skip_first_draw: bool = True
+
         #: A player decision the engine is waiting on (e.g. a library
         #: search) before it can keep resolving — plain JSON-able data
         #: (kind, player_id, eligible instance ids, …) so it survives a
@@ -125,6 +130,27 @@ class GameState:
         #: engine isn't blocked on a choice. Set/consumed by the rules
         #: engine (mtg_analyzer/game/rules_engine.py).
         self.pending_choice: Optional[dict[str, Any]] = None
+
+        #: Per-player play statistics + a flat event timeline, for the
+        #: end-of-game review (cards drawn/played, mana curve, mana produced
+        #: per turn, damage). Plain JSON-able data written by the engine
+        #: (the rules of *what counts* stay in the engine); it lives here so
+        #: it deep-copies with the state and rewinds exactly like the board.
+        self.stats: dict[str, Any] = {
+            "players": {
+                player.id: {
+                    "cards_drawn": 0,
+                    "lands_played": 0,
+                    "spells_cast": 0,
+                    "spell_cmcs": [],
+                    "mana_produced": 0,
+                    "damage_dealt": 0,
+                    "damage_taken": 0,
+                }
+                for player in players
+            },
+            "timeline": [],
+        }
 
         #: Chronological log of everything fired; also the record the
         #: WebSocket layer can diff to build ``game_state_update``s.
@@ -172,6 +198,65 @@ class GameState:
 
     def non_active_players(self) -> list[Player]:
         return [p for i, p in enumerate(self.players) if i != self.active_player_index]
+
+    def next_active_index(self) -> int:
+        """The next player to take a turn, skipping passive dummies (UC3).
+
+        Turn order rotates normally, but a passive "goldfish" opponent never
+        becomes the active player — a solo game keeps handing the turn back
+        to the human. With no non-dummy player after the current one, the
+        active player is unchanged.
+        """
+        count = len(self.players)
+        index = self.active_player_index
+        for _ in range(count):
+            index = (index + 1) % count
+            if not self.players[index].is_dummy:
+                return index
+        return self.active_player_index
+
+    def record_stat(
+        self,
+        player_id: str,
+        kind: str,
+        amount: int = 0,
+        cmc: Optional[int] = None,
+        name: Optional[str] = None,
+    ) -> None:
+        """Book one play-stat event for the end-of-game review.
+
+        ``kind`` is one of ``"draw"``, ``"land"``, ``"spell"``, ``"mana"``,
+        ``"damage_dealt"``, ``"damage_taken"``. Appends to the timeline and
+        rolls the running per-player totals; unknown players (none such in
+        practice) are ignored so this can never raise into a live turn.
+        """
+        bucket = self.stats["players"].get(player_id)
+        if bucket is None:
+            return
+        self.stats["timeline"].append(
+            {
+                "turn": self.turn_number,
+                "player_id": player_id,
+                "kind": kind,
+                "amount": amount,
+                "cmc": cmc,
+                "name": name,
+            }
+        )
+        if kind == "draw":
+            bucket["cards_drawn"] += amount
+        elif kind == "land":
+            bucket["lands_played"] += 1
+        elif kind == "spell":
+            bucket["spells_cast"] += 1
+            if cmc is not None:
+                bucket["spell_cmcs"].append(cmc)
+        elif kind == "mana":
+            bucket["mana_produced"] += amount
+        elif kind == "damage_dealt":
+            bucket["damage_dealt"] += amount
+        elif kind == "damage_taken":
+            bucket["damage_taken"] += amount
 
     def living_players(self) -> list[Player]:
         return [p for p in self.players if not p.has_lost]
@@ -246,6 +331,7 @@ class GameState:
             "players": [p.to_dict() for p in self.players],
             "battlefield": [obj.to_dict() for obj in self.battlefield],
             "stack": [item.to_dict() for item in self.stack],
+            "stats": self.stats,
         }
 
     def __repr__(self) -> str:

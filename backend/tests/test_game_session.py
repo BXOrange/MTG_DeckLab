@@ -52,12 +52,20 @@ def make_session(library=None, commanders=None, hand=7):
     return GameSession(engine)
 
 
+def advance_until(session, *, turn=None, step=None, limit=80):
+    """Single-step the session until (turn, step) is reached (no auto-skip)."""
+    for _ in range(limit):
+        st = session.engine.state
+        if (turn is None or st.turn_number == turn) and (step is None or st.current_step == step):
+            return
+        session.apply_action({"type": "advance_step"})
+    raise AssertionError(f"never reached turn={turn} step={step}")
+
+
 class TestStackAndChoices:
     def _advance_to_main1(self, session):
-        # Untap/upkeep/draw offer no choice, so one "advance_step" call
-        # auto-skips through all of them and stops at main1 (the first
-        # step with something to do — a land in hand to play).
-        session.apply_action({"type": "advance_step"})
+        # Single-stepping (no auto-skip): walk untap/upkeep/draw to main1.
+        advance_until(session, step="main1")
 
     def test_cast_leaves_spell_on_stack_and_pass_priority_resolves_it(self):
         # A land + a bear on top of the library so both reach the hand.
@@ -136,7 +144,7 @@ class TestSetup:
         # the way; only `GameSessionManager.create_goldfish` (below) opts a
         # real goldfish game into `require_setup`.
         session = make_session()
-        assert session.view()["setup"] == {"complete": True, "mulligan_count": 0}
+        assert session.view()["setup"] == {"complete": True, "mulligan_count": 0, "draw_first": False}
 
 
 class TestMulligan:
@@ -152,7 +160,7 @@ class TestMulligan:
     def test_starts_incomplete_with_only_mulligan_actions(self):
         session = self._start()
         view = session.view()
-        assert view["setup"] == {"complete": False, "mulligan_count": 0}
+        assert view["setup"] == {"complete": False, "mulligan_count": 0, "draw_first": False}
         assert {a["type"] for a in view["legal_actions"]} == {"mulligan", "keep_hand"}
 
     def test_non_setup_actions_are_rejected_until_kept(self):
@@ -165,7 +173,7 @@ class TestMulligan:
         player = session.engine.state.active_player
         first_hand = {o.instance_id for o in player.hand}
         view = session.apply_action({"type": "mulligan"})
-        assert view["setup"] == {"complete": False, "mulligan_count": 1}
+        assert view["setup"] == {"complete": False, "mulligan_count": 1, "draw_first": False}
         assert len(player.hand) == 7
         # A fresh 7 from a reshuffled 30-card library of identical basics
         # can't be asserted against by name, but the instances differ.
@@ -182,7 +190,7 @@ class TestMulligan:
         view = session.apply_action(
             {"type": "keep_hand", "bottom_instance_ids": [bottom_id]}
         )
-        assert view["setup"] == {"complete": True, "mulligan_count": 1}
+        assert view["setup"] == {"complete": True, "mulligan_count": 1, "draw_first": False}
         assert len(player.hand) == 6
         assert player.library[0].instance_id == bottom_id
 
@@ -195,23 +203,21 @@ class TestMulligan:
     def test_setup_complete_unlocks_normal_actions(self):
         session = self._start()
         session.apply_action({"type": "keep_hand", "bottom_instance_ids": []})
-        # Untap/upkeep/draw have nothing to decide, so the auto-skip
-        # carries straight through to main1 (a land is in hand to play).
-        view = session.apply_action({"type": "advance_step"})
-        assert view["state"]["current_step"] == "main1"
+        # After setup, normal actions unlock; single-step to main1.
+        advance_until(session, step="main1")
+        assert session.engine.state.current_step == "main1"
 
     def test_restart_re_enters_the_setup_phase(self):
         session = self._start()
         session.apply_action({"type": "keep_hand", "bottom_instance_ids": []})
         session.apply_action({"type": "advance_step"})
         view = session.restart()
-        assert view["setup"] == {"complete": False, "mulligan_count": 0}
+        assert view["setup"] == {"complete": False, "mulligan_count": 0, "draw_first": False}
 
 
 class TestActions:
     def _advance_to_main1(self, session):
-        # untap/upkeep/draw are auto-skipped (nothing to decide there).
-        session.apply_action({"type": "advance_step"})
+        advance_until(session, step="main1")
 
     def test_play_land_then_action_is_recorded(self):
         session = make_session()
@@ -258,60 +264,88 @@ class TestActions:
 
     def test_auto_turn_resumes_from_a_mid_turn_manual_position(self):
         session = make_session()
-        session.apply_action({"type": "advance_step"})  # manually reach main1 of turn 1
+        advance_until(session, step="main1")  # manually reach main1 of turn 1
         session.apply_action({"type": "auto_turn"})
         # Finishing turn 1 lands on turn 2 — not turn 3 (no double begin_turn).
         assert session.engine.state.turn_number == 2
 
 
-class TestAutoAdvanceStep:
-    """Default UX (docs/02 R4.1): "advance_step" auto-skips steps with
-    nothing to decide, stopping at the first one that offers a real choice.
-    """
+class TestSingleStep:
+    """"advance_step" advances exactly one step — no auto-skip, no auto-wait."""
 
-    def test_skips_untap_upkeep_and_draw_when_nothing_to_do(self):
-        session = make_session()  # all-basics deck: a land to play in main1
+    def test_one_advance_moves_one_step(self):
+        session = make_session()  # fresh game: cursor before the first step
         view = session.apply_action({"type": "advance_step"})
-        assert view["state"]["current_phase"] == "precombat_main"
+        assert view["state"]["current_step"] == "untap"
+
+    def test_walks_through_every_step_including_empty_ones(self):
+        session = make_session(hand=0)  # empty hand: nothing to do anywhere
+        seen = []
+        for _ in range(6):
+            view = session.apply_action({"type": "advance_step"})
+            seen.append(view["state"]["current_step"])
+        # Main phases and combat steps are visited, not skipped.
+        assert seen[:6] == ["untap", "upkeep", "draw", "main1", "begin_combat", "declare_attackers"]
+
+
+class TestAdvanceToDecision:
+    """"advance_to_decision" fast-forwards to the active player's next choice."""
+
+    def test_stops_at_main1(self):
+        session = make_session()
+        view = session.apply_action({"type": "advance_to_decision"})
         assert view["state"]["current_step"] == "main1"
 
-    def test_castable_spell_counts_as_interaction(self):
-        # An affordable instant is a real choice wherever it comes up —
-        # not just in a main phase — so a step where one is castable must
-        # not be auto-skipped.
-        session = make_session(library=[land()] * 5 + [shock()], hand=1)
-        session.engine.state.active_player.mana_pool.add_many({"R": 1})
-        assert session._step_has_interaction() is True
+    def test_does_not_skip_the_main_phase_to_combat(self):
+        # Bug 2: a ready creature and nothing castable must NOT cause the main
+        # phase to be skipped straight to combat — the main phase is where the
+        # player develops their board, so it's always a stopping point.
+        from mtg_analyzer.models.game_object import GameObject, Zone
 
-    def test_bare_mana_ability_does_not_count_as_interaction(self):
-        # Tapping a land for mana is legal in every step but empties again
-        # at that step's end, so having one untapped, alone, isn't a
-        # reason to stop the auto-skip.
-        from mtg_analyzer.models.game_object import GameObject
+        session = make_session(library=[bear()] * 10, hand=0)  # nothing castable
+        obj = GameObject(bear(), owner_id="p1", zone=Zone.BATTLEFIELD)
+        obj.summoning_sick = False
+        session.engine.state.add_to_battlefield(obj)
+        session.apply_action({"type": "advance_to_decision"})
+        assert session.engine.state.current_step == "main1"
 
-        session = make_session(hand=0)
-        session.engine.state.add_to_battlefield(GameObject(land(), owner_id="p1"))
-        assert session._step_has_interaction() is False
+    def test_second_press_advances_from_main1_to_combat(self):
+        from mtg_analyzer.models.game_object import GameObject, Zone
 
-    def test_non_empty_stack_counts_as_interaction(self):
-        from mtg_analyzer.models.game_state import StackItem
+        session = make_session(library=[bear()] * 10, hand=0)
+        obj = GameObject(bear(), owner_id="p1", zone=Zone.BATTLEFIELD)
+        obj.summoning_sick = False
+        session.engine.state.add_to_battlefield(obj)
+        session.apply_action({"type": "advance_to_decision"})  # → main1
+        session.apply_action({"type": "advance_to_decision"})  # → combat
+        assert session.engine.state.current_step == "declare_attackers"
 
-        session = make_session(hand=0)
-        session.engine.state.stack.append(
-            StackItem(kind="ability", controller_id="p1", description="test")
-        )
-        assert session._step_has_interaction() is True
+    def test_generates_individual_advance_steps_for_deterministic_undo(self):
+        # Bug 1: the fast-forward is a sequence of real advance_step moves,
+        # each logged and undoable one at a time — not one opaque jump.
+        session = make_session()
+        before = len(session.move_log)
+        session.apply_action({"type": "advance_to_decision"})
+        added = session.move_log[before:]
+        assert added == ["advance_step"] * len(added)
+        assert len(added) >= 2  # untap/upkeep/draw/main1 were real steps
+        stop = session.engine.state.current_step
+        session.rewind(1)  # undoes exactly one step, not the whole skip
+        assert session.engine.state.current_step != stop
 
-    def test_pending_choice_counts_as_interaction(self):
-        session = make_session(hand=0)
-        session.engine.state.pending_choice = {"kind": "search", "eligible": []}
-        assert session._step_has_interaction() is True
+    def test_works_with_the_dummy_opponent_present(self):
+        # Bug 1: deterministic step-by-step advance holds with the opponent.
+        session = GameSessionManager().create_goldfish(library=[land()] * 40)
+        session.apply_action({"type": "keep_hand", "bottom_instance_ids": []})
+        session.apply_action({"type": "advance_to_decision"})
+        assert session.engine.state.current_step == "main1"
+        assert session.move_log.count("advance_step") >= 2
 
 
 class TestRewind:
     def test_rewind_undoes_last_move(self):
         session = make_session()
-        session.apply_action({"type": "advance_step"})  # auto-skips to main1
+        advance_until(session, step="main1")
         state = session.engine.state
         land_obj = next(o for o in state.active_player.hand if o.card.is_land)
         hand_before = len(state.active_player.hand)
@@ -323,18 +357,18 @@ class TestRewind:
 
     def test_rewind_across_turn_boundary_resumes_mid_turn(self):
         session = make_session()
-        # An all-land deck never runs out of a legal `play_land`, so both
-        # main phases stop the auto-skip: main1(t1) -> main2(t1) -> main1(t2).
-        for _ in range(3):
-            session.apply_action({"type": "advance_step"})
+        # Single-step just into turn 2, then rewind the boundary crossing.
+        advance_until(session, turn=2, step="untap")
         assert session.engine.state.turn_number == 2
         session.rewind(1)
-        # Restored to turn 1 (main2) without jumping the turn counter forward.
+        # Restored to the last step of turn 1 (cleanup) — the cursor travels
+        # with the snapshot, so the turn counter doesn't jump forward.
         assert session.engine.state.turn_number == 1
-        assert session.engine.state.current_step == "main2"
-        # Continuing advances to the next stopping point, not an extra turn.
+        assert session.engine.state.current_step == "cleanup"
+        # Continuing crosses the boundary again, not an extra turn.
         session.apply_action({"type": "advance_step"})
         assert session.engine.state.turn_number == 2
+        assert session.engine.state.current_step == "untap"
 
     def test_rewind_more_than_history_restarts(self):
         session = make_session()
@@ -352,7 +386,7 @@ class TestRewind:
 class TestRestart:
     def test_restart_returns_to_opening_state(self):
         session = make_session()
-        session.apply_action({"type": "advance_step"})  # auto-skips to main1
+        advance_until(session, step="main1")
         land_obj = next(o for o in session.engine.state.active_player.hand if o.card.is_land)
         session.apply_action({"type": "play_land", "instance_id": land_obj.instance_id})
 
@@ -366,14 +400,117 @@ class TestRestart:
 
     def test_restart_then_advance_reaches_main1(self):
         session = make_session()
-        for _ in range(3):
-            session.apply_action({"type": "advance_step"})
+        advance_until(session, step="main2")
         session.restart()
-        # Untap/upkeep/draw are auto-skipped again from the restored
-        # opening state, landing straight on main1.
-        session.apply_action({"type": "advance_step"})
+        # From the restored opening state, single-stepping reaches main1 again.
+        advance_until(session, step="main1")
         assert session.engine.state.current_step == "main1"
         assert session.engine.state.turn_number == 1
+
+
+class TestCombat:
+    def _to_declare_attackers(self, session):
+        engine = session.engine
+        while engine.state.current_step != "declare_attackers":
+            if engine.advance_step() is None:
+                break
+
+    def test_solo_swing_marks_attacking_and_rewind_undoes_it(self):
+        session = make_session(hand=0)
+        # A ready creature on the battlefield (not summoning-sick).
+        from mtg_analyzer.models.game_object import GameObject, Zone
+
+        obj = GameObject(bear(), owner_id="p1", zone=Zone.BATTLEFIELD)
+        obj.summoning_sick = False
+        session.engine.state.add_to_battlefield(obj)
+        self._to_declare_attackers(session)
+
+        attack = next(
+            a for a in session.legal_actions() if a["type"] == "attack"
+        )
+        assert attack["legal_defenders"] == []  # solo → bare swing
+        session.apply_action({"type": "attack", "instance_id": obj.instance_id})
+        assert obj.attacking and obj.tapped
+
+        # Rewind restores the pre-attack state — combat lives on the state,
+        # so the freshly-restored engine sees the creature un-declared.
+        session.rewind(1)
+        restored = session.engine.state.find_object(obj.instance_id)
+        assert not restored.attacking and not restored.tapped
+
+    def test_attack_serializes_combat_state_to_the_view(self):
+        session = make_session(hand=0)
+        from mtg_analyzer.models.game_object import GameObject, Zone
+
+        obj = GameObject(bear(), owner_id="p1", zone=Zone.BATTLEFIELD)
+        obj.summoning_sick = False
+        session.engine.state.add_to_battlefield(obj)
+        self._to_declare_attackers(session)
+        view = session.apply_action(
+            {"type": "attack", "instance_id": obj.instance_id}
+        )
+        card = next(
+            c for c in view["state"]["battlefield"] if c["instance_id"] == obj.instance_id
+        )
+        assert card["attacking"] is True
+        assert card["type_line"] == "Creature — Bear"
+        assert card["is_creature"] is True
+
+
+class TestGoldfishDummy:
+    def _keep(self, session):
+        session.apply_action({"type": "keep_hand", "bottom_instance_ids": []})
+
+    def test_real_goldfish_has_a_passive_dummy_opponent(self):
+        session = GameSessionManager().create_goldfish(library=[land()] * 40, starting_life=20)
+        players = session.view()["state"]["players"]
+        assert len(players) == 2
+        dummy = next(p for p in players if p["is_dummy"])
+        assert dummy["name"] == "Goldfisch"
+        assert dummy["life"] == 20
+        assert dummy["hand_count"] == 7  # a hand to discard from, hidden in UI
+
+    def test_dummy_never_becomes_active_player(self):
+        session = GameSessionManager().create_goldfish(library=[land()] * 40)
+        self._keep(session)
+        start = session.engine.state.active_player.id
+        assert start == "p1"
+        # Run several whole turns; the turn always comes back to the human.
+        for _ in range(40):
+            if session.engine.advance_step() is None:
+                break
+        assert session.engine.state.active_player.id == "p1"
+        assert session.engine.state.turn_number >= 2  # turns did advance
+
+    def test_view_carries_analysis_digest(self):
+        session = GameSessionManager().create_goldfish(library=[land()] * 40)
+        self._keep(session)
+        analysis = session.view()["analysis"]
+        assert set(analysis["players"]) == {"p1", "goldfish"}
+        p1 = analysis["players"]["p1"]
+        for key in ("cmc_curve", "mana_per_turn", "cards_played", "avg_cmc"):
+            assert key in p1
+
+    def test_attacking_the_goldfish_deals_and_records_damage(self):
+        from mtg_analyzer.models.game_object import GameObject, Zone
+
+        session = GameSessionManager().create_goldfish(library=[land()] * 40, starting_life=20)
+        self._keep(session)
+        st = session.engine.state
+        obj = GameObject(bear(), owner_id="p1", zone=Zone.BATTLEFIELD)
+        obj.summoning_sick = False
+        st.add_to_battlefield(obj)
+        while st.current_step != "declare_attackers":
+            if session.engine.advance_step() is None:
+                break
+        session.apply_action({"type": "declare_attackers", "instance_ids": [obj.instance_id]})
+        while st.current_step != "combat_damage":
+            if session.engine.advance_step() is None:
+                break
+        view = session.view()
+        dummy = next(p for p in view["state"]["players"] if p["is_dummy"])
+        assert dummy["life"] == 18  # 2/2 bear
+        assert view["analysis"]["players"]["p1"]["damage_dealt"] == 2
 
 
 class TestManager:

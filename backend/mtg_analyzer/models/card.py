@@ -175,6 +175,27 @@ class Card:
         self.back_image_uri_png = back_image_uri_png
 
     @property
+    def is_planeswalker(self) -> bool:
+        """Whether the card is a planeswalker (derived from the type line).
+
+        Scryfall gives explicit ``is_creature``/``is_land`` flags but no
+        planeswalker/artifact/enchantment booleans, so these are read off
+        ``type_line`` (RULE 205.2a card types). Kept as read-only derived
+        properties — no stored field, so no cache-schema change.
+        """
+        return "planeswalker" in self.type_line.lower()
+
+    @property
+    def is_artifact(self) -> bool:
+        """Whether the card is an artifact (derived from the type line)."""
+        return "artifact" in self.type_line.lower()
+
+    @property
+    def is_enchantment(self) -> bool:
+        """Whether the card is an enchantment (derived from the type line)."""
+        return "enchantment" in self.type_line.lower()
+
+    @property
     def has_back_face(self) -> bool:
         """Whether this card has a distinct, separately-imaged back face.
 

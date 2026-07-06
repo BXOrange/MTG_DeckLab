@@ -17,6 +17,7 @@ import {
 } from './api.js';
 import { preloadCardImages } from './cardImages.js';
 import { parseDeckSections } from './parser.js';
+import { getCookie, setCookie } from './cookies.js';
 
 /**
  * Create a persistent goldfish controller. Its session survives across
@@ -40,6 +41,27 @@ export function createGoldfishView() {
   // mulliganed hand (London mulligan) — instance ids, cleared whenever a
   // fresh view enters/re-enters the mulligan phase.
   let mulliganBottom = new Set();
+
+  // Battlefield layout: permanents are split across rows by card type
+  // (creatures / artifacts+enchantments / lands). Two rows by default; the
+  // checkbox promotes lands to their own third row (persisted client-side).
+  let threeRows = getCookie('gf_board_rows') === '3';
+  // Attacking creatures whose "choose a defender" submenu is open — only
+  // used in the two-step declaration (2+ legal defenders, RULE 508.1a).
+  const attackMenuOpen = new Set();
+  // A targeting spell (RULE 115) mid-cast: the player has clicked "Zaubern"
+  // and is now picking a target per requirement before the cast is sent.
+  // `{ instanceId, name, requirements, reqIndex, targets: [], x }` or null.
+  // The server offered `requirements` (each with its legal `options`); we
+  // walk them in order, collecting one target each, then send the cast.
+  let castTargeting = null;
+  // The end-of-match review, kept after the session is torn down so
+  // "Beenden" lands on a stats screen instead of the empty deck picker.
+  // `{ analysis, state }` (a snapshot of the last view) or null.
+  let summary = null;
+  // Setup option (UC3): whether the human draws on turn 1 ("on the draw")
+  // instead of skipping it ("on the play", the default). Sent with keep_hand.
+  let drawFirst = false;
 
   // Deck picker state (start panel): the saved decks to choose from, the
   // selected id, and that deck's legality — only legal decks may start.
@@ -168,7 +190,11 @@ export function createGoldfishView() {
       render();
       return;
     }
-    await act({ type: 'keep_hand', bottom_instance_ids: Array.from(mulliganBottom) });
+    await act({
+      type: 'keep_hand',
+      bottom_instance_ids: Array.from(mulliganBottom),
+      draw_first: drawFirst,
+    });
   }
 
   function toggleBottomCard(instanceId) {
@@ -230,9 +256,13 @@ export function createGoldfishView() {
 
   async function quit() {
     const id = sessionId;
+    // Keep the final stats digest so ending the match lands on a review
+    // screen rather than dropping straight back to the deck picker. The
+    // server session is still torn down below — the summary is client-side.
+    summary = view ? { analysis: view.analysis, state: view.state } : null;
     sessionId = null;
     view = null;
-    phase = 'pick';
+    phase = summary ? 'summary' : 'pick';
     setStatus('', '');
     render();
     if (id) await endGame(id); // best-effort server cleanup
@@ -241,6 +271,9 @@ export function createGoldfishView() {
   function applyView(data) {
     sessionId = data.session_id;
     view = data;
+    // A fresh authoritative state supersedes any half-finished target pick
+    // (its options were computed against the previous board).
+    castTargeting = null;
     const setupDone = data.setup ? data.setup.complete : true;
     phase = setupDone ? 'playing' : 'mulligan';
     if (!setupDone) mulliganBottom = new Set();
@@ -268,6 +301,8 @@ export function createGoldfishView() {
       renderMulligan();
     } else if (phase === 'playing' && view) {
       renderGame();
+    } else if (phase === 'summary' && summary) {
+      renderSummary();
     } else {
       renderStartPanel();
     }
@@ -370,6 +405,10 @@ export function createGoldfishView() {
         <div class="card-grid gf-mulligan-hand">
           ${me.hand.map((o) => mulliganCardHtml(o, bottomCount)).join('')}
         </div>
+        <label class="gf-draw-first" title="Wer zieht in Zug 1? Standard: du bist am Zug und ziehst nicht (Regel 103.7a).">
+          <input type="checkbox" id="gf-draw-first" ${drawFirst ? 'checked' : ''} />
+          In Zug 1 eine Karte ziehen (sonst zieht der Goldfisch — du bist am Zug)
+        </label>
         <div class="gf-controls">
           <button id="gf-mulligan-btn" type="button" ${busy ? 'disabled' : ''}>🔀 Mulligan (neue 7 ziehen)</button>
           <button id="gf-keep-btn" type="button" class="primary" ${busy || !canKeep ? 'disabled' : ''}>
@@ -382,6 +421,9 @@ export function createGoldfishView() {
     root.querySelector('#gf-mulligan-btn')?.addEventListener('click', mulligan);
     root.querySelector('#gf-keep-btn')?.addEventListener('click', keepHand);
     root.querySelector('#gf-quit-mulligan')?.addEventListener('click', quit);
+    root.querySelector('#gf-draw-first')?.addEventListener('change', (e) => {
+      drawFirst = e.target.checked; // client-only until keep_hand commits it
+    });
     root.querySelectorAll('[data-bottom-toggle]').forEach((el) => {
       el.addEventListener('click', () => toggleBottomCard(Number(el.dataset.bottomToggle)));
     });
@@ -408,7 +450,8 @@ export function createGoldfishView() {
 
   function renderGame() {
     const s = view.state;
-    const me = s.players[0];
+    const me = s.players.find((p) => !p.is_dummy) || s.players[0];
+    const opp = s.players.find((p) => p.is_dummy) || null;
     const actions = view.legal_actions || [];
     const gameOver = s.game_over;
     const pending = s.pending_choice;
@@ -420,8 +463,6 @@ export function createGoldfishView() {
       if (a.instance_id == null) continue;
       (byInstance[a.instance_id] ||= []).push(a);
     }
-    // Attacking swings with every able creature at once (one declaration).
-    const allAttackers = actions.filter((a) => a.type === 'attack').map((a) => a.instance_id);
     const stackNonEmpty = s.stack.length > 0;
 
     root.innerHTML = `
@@ -435,15 +476,16 @@ export function createGoldfishView() {
           ${lifeBox('Leben', me.life)}
         </div>
 
-        ${gameOver ? `<p class="server-status warning">Spiel beendet${s.winner_id ? ` – Sieger: ${escapeHtml(s.winner_id)}` : ''}.</p>` : ''}
+        ${opp ? opponentStripHtml(opp) : ''}
+
+        ${gameOver ? gameOverHtml(s, me, opp) : ''}
         ${statusHtml()}
         ${pending ? pendingChoiceHtml(pending) : ''}
 
         <div class="gf-controls">
           <button id="gf-advance" type="button" class="primary" ${busy || gameOver || pending ? 'disabled' : ''}>Nächster Schritt →</button>
-          <button id="gf-autoturn" type="button" ${busy || gameOver || pending ? 'disabled' : ''}>Auto-Zug</button>
+          <button id="gf-next-decision" type="button" title="Überspringt Schritte ohne Entscheidung und hält bei der nächsten Wahl des aktiven Spielers" ${busy || gameOver || pending ? 'disabled' : ''}>⏭ Nächste Entscheidung</button>
           ${stackNonEmpty && !pending ? `<button type="button" data-action='${escapeAttr(JSON.stringify({ type: 'pass_priority' }))}'>Priorität abgeben (Stack auflösen)</button>` : ''}
-          ${allAttackers.length && !pending ? `<button type="button" data-action='${escapeAttr(JSON.stringify({ type: 'declare_attackers', instance_ids: allAttackers }))}'>⚔️ Angreifen (${allAttackers.length})</button>` : ''}
           <button id="gf-rewind" type="button" ${busy || !view.can_rewind ? 'disabled' : ''}>↶ Zurücknehmen</button>
           <button id="gf-restart" type="button" ${busy ? 'disabled' : ''}>⟲ Neu starten</button>
           <button id="gf-quit" type="button">Beenden</button>
@@ -455,8 +497,14 @@ export function createGoldfishView() {
         </div>
 
         <div class="gf-zone gf-battlefield">
-          <h4>Battlefield (${s.battlefield.length})</h4>
-          ${objGrid(s.battlefield, 'Keine Permanents', byInstance, pending)}
+          <div class="gf-bf-head">
+            <h4>Battlefield (${s.battlefield.length})</h4>
+            <label class="gf-bf-toggle" title="Länder in eine eigene, dritte Reihe legen">
+              <input type="checkbox" id="gf-rows-toggle" ${threeRows ? 'checked' : ''} />
+              Länder in eigener Reihe
+            </label>
+          </div>
+          ${battlefieldHtml(s.battlefield, byInstance, pending)}
         </div>
 
         <div class="gf-zone-row">
@@ -539,7 +587,7 @@ export function createGoldfishView() {
 
   function wire() {
     root.querySelector('#gf-advance')?.addEventListener('click', () => act({ type: 'advance_step' }));
-    root.querySelector('#gf-autoturn')?.addEventListener('click', () => act({ type: 'auto_turn' }));
+    root.querySelector('#gf-next-decision')?.addEventListener('click', () => act({ type: 'advance_to_decision' }));
     root.querySelector('#gf-rewind')?.addEventListener('click', rewind);
     root.querySelector('#gf-restart')?.addEventListener('click', restart);
     root.querySelector('#gf-quit')?.addEventListener('click', quit);
@@ -547,6 +595,24 @@ export function createGoldfishView() {
     root.querySelectorAll('[data-action]').forEach((el) => {
       el.addEventListener('click', () => {
         act(JSON.parse(el.dataset.action));
+      });
+    });
+
+    // Battlefield 2-/3-row layout toggle (persisted client-side).
+    root.querySelector('#gf-rows-toggle')?.addEventListener('change', (e) => {
+      threeRows = e.target.checked;
+      setCookie('gf_board_rows', threeRows ? '3' : '2', 365);
+      render();
+    });
+
+    // Expand/collapse a creature's "choose a defender" submenu (two-step
+    // attack declaration) — a pure client toggle, no server round-trip.
+    root.querySelectorAll('[data-attack-toggle]').forEach((el) => {
+      el.addEventListener('click', () => {
+        const iid = Number(el.dataset.attackToggle);
+        if (attackMenuOpen.has(iid)) attackMenuOpen.delete(iid);
+        else attackMenuOpen.add(iid);
+        render();
       });
     });
 
@@ -560,9 +626,127 @@ export function createGoldfishView() {
         act({ type: 'cast_spell', instance_id: instanceId, x });
       });
     });
+
+    // Begin targeting a spell: capture its X (if any) now, then open the
+    // per-requirement target picker (see `castTargetHtml`).
+    root.querySelectorAll('[data-cast-target-start]').forEach((el) => {
+      el.addEventListener('click', () => {
+        const iid = Number(el.dataset.castTargetStart);
+        const action = findCastAction(iid);
+        if (!action) return;
+        const input = root.querySelector(`[data-x-input="${iid}"]`);
+        const x = action.has_x ? Math.max(0, Math.floor(Number(input?.value) || 0)) : 0;
+        castTargeting = {
+          instanceId: iid,
+          name: action.name,
+          requirements: action.targets || [],
+          reqIndex: 0,
+          targets: [],
+          x,
+        };
+        finishCastIfReady();
+      });
+    });
+
+    // Record one chosen target (or a skipped optional one) and advance to
+    // the next requirement; the cast fires once all are answered.
+    root.querySelectorAll('[data-cast-target-pick]').forEach((el) => {
+      el.addEventListener('click', () => {
+        const { instance_id: iid, target } = JSON.parse(el.dataset.castTargetPick);
+        if (!castTargeting || castTargeting.instanceId !== iid) return;
+        if (target !== null) castTargeting.targets.push(target);
+        castTargeting.reqIndex += 1;
+        finishCastIfReady();
+      });
+    });
+
+    // Abandon a target pick without casting.
+    root.querySelectorAll('[data-cast-target-cancel]').forEach((el) => {
+      el.addEventListener('click', () => {
+        castTargeting = null;
+        render();
+      });
+    });
+  }
+
+  // The current view's cast action for `iid`, so a target pick can read its
+  // requirements and {X} flag at click time.
+  function findCastAction(iid) {
+    return (view?.legal_actions || []).find(
+      (a) => a.type === 'cast_spell' && a.instance_id === iid,
+    );
+  }
+
+  // Fire the cast once every requirement has been answered; otherwise
+  // re-render to show the next requirement's targets.
+  function finishCastIfReady() {
+    if (!castTargeting) return;
+    if (castTargeting.reqIndex >= castTargeting.requirements.length) {
+      const { instanceId, targets, x } = castTargeting;
+      castTargeting = null;
+      act({ type: 'cast_spell', instance_id: instanceId, targets, x });
+    } else {
+      render();
+    }
   }
 
   // --- Rendering helpers --------------------------------------------------
+
+  // The battlefield, laid out in rows by card type (creatures / artifacts &
+  // enchantments / lands). Attachments (Auras, Equipment — RULE 301/303) are
+  // pulled out of the flow and drawn inside a dashed group box around the
+  // permanent they're attached to, rather than as loose cards.
+  function battlefieldHtml(objs, byInstance = {}, pending = null) {
+    if (!objs.length) return '<p class="empty-state">Keine Permanents</p>';
+    const imageCache = getState().imageCache;
+    const byId = new Map(objs.map((o) => [o.instance_id, o]));
+
+    // Group attachments under their host; anything whose host isn't on the
+    // battlefield falls back to rendering as a normal top-level permanent.
+    const attachments = new Map(); // host instance_id -> [attached obj]
+    const attachedIds = new Set();
+    for (const o of objs) {
+      if (o.attached_to != null && byId.has(o.attached_to)) {
+        if (!attachments.has(o.attached_to)) attachments.set(o.attached_to, []);
+        attachments.get(o.attached_to).push(o);
+        attachedIds.add(o.instance_id);
+      }
+    }
+    const top = objs.filter((o) => !attachedIds.has(o.instance_id));
+
+    const creatures = top.filter((o) => o.is_creature);
+    const lands = top.filter((o) => !o.is_creature && o.is_land);
+    const other = top.filter((o) => !o.is_creature && !o.is_land);
+
+    const renderObj = (o) => {
+      const actions = pending ? [] : byInstance[o.instance_id] || [];
+      const host = objCard(o, imageCache, actions);
+      const atts = attachments.get(o.instance_id);
+      if (!atts || !atts.length) return host;
+      const attached = atts
+        .map((a) => objCard(a, imageCache, pending ? [] : byInstance[a.instance_id] || []))
+        .join('');
+      return `<div class="gf-attach-group" title="Verbundene Karten (Aura/Ausrüstung)">${host}${attached}</div>`;
+    };
+
+    const rowHtml = (label, list) =>
+      `<div class="gf-bf-row">
+        <span class="gf-bf-row-label">${label} (${list.length})</span>
+        ${list.length ? `<div class="card-grid">${list.map(renderObj).join('')}</div>` : '<p class="empty-state">–</p>'}
+      </div>`;
+
+    const rows = threeRows
+      ? [
+          rowHtml('Kreaturen', creatures),
+          rowHtml('Artefakte & Verzauberungen', other),
+          rowHtml('Länder', lands),
+        ]
+      : [
+          rowHtml('Kreaturen', creatures),
+          rowHtml('Länder & bleibende Karten', other.concat(lands)),
+        ];
+    return `<div class="gf-bf-rows">${rows.join('')}</div>`;
+  }
 
   function objGrid(objs, empty, byInstance = {}, pending = null) {
     if (!objs.length) return `<p class="empty-state">${empty}</p>`;
@@ -649,11 +833,23 @@ export function createGoldfishView() {
     if (image?.small) classes.push('has-image');
     if (o.tapped) classes.push('tapped');
     if (o.summoning_sick) classes.push('summoning-sick');
+    if (o.attacking) classes.push('attacking');
     const pt = o.power != null && o.toughness != null ? ` (${o.power}/${o.toughness})` : '';
     const buttons = cardActionButtons(cardActions);
+    // A creature already declared as an attacker shows who it's swinging at
+    // (or a plain ⚔️ for a "bare" solo swing with no defender).
+    const attackBadge = o.attacking
+      ? `<span class="gf-attacking-badge">⚔️${o.combat_defender ? ` ${escapeHtml(o.combat_defender.label || '')}` : ''}</span>`
+      : '';
+    // Counters on the permanent (RULE 122), e.g. "+1/+1 ×2" — power/toughness
+    // above already reflect their net effect; this shows what's there.
+    const counterEntries = Object.entries(o.counters || {});
+    const counterBadge = counterEntries.length
+      ? `<span class="gf-counter-badge">${counterEntries.map(([k, v]) => `${escapeHtml(k)}×${v}`).join(' · ')}</span>`
+      : '';
     return `
       <div class="gf-card-slot">
-        <div class="${classes.join(' ')}" data-hover-card="${escapeHtml(o.name)}" title="${escapeHtml(o.name)}${pt}${o.tapped ? ' — getappt' : ''}">${inner}</div>
+        <div class="${classes.join(' ')}" data-hover-card="${escapeHtml(o.name)}" title="${escapeHtml(o.name)}${pt}${o.tapped ? ' — getappt' : ''}">${inner}${attackBadge}${counterBadge}</div>
         ${buttons}
       </div>`;
   }
@@ -672,6 +868,12 @@ export function createGoldfishView() {
         buttons.push(
           `<button type="button" class="gf-card-action gf-locked" disabled title="${escapeAttr(reason)}">🔒 ${escapeHtml(reason)}</button>`
         );
+      } else if (a.type === 'cast_spell' && a.requires_target) {
+        // A targeting spell (RULE 115): don't cast on a single click —
+        // walk the player through choosing a legal target per requirement
+        // first, then send the cast with those targets. Also carries the
+        // {X} input when the spell has both a variable cost and a target.
+        buttons.push(castTargetHtml(a));
       } else if (a.type === 'cast_spell' && a.has_x) {
         // {X} in the cost (RULE 601.2b): let the player announce a value
         // (capped at what they can currently afford) instead of a plain
@@ -694,14 +896,230 @@ export function createGoldfishView() {
             actionButton({ type: 'tap_for_mana', instance_id: a.instance_id, option_index: opt.index }, text)
           );
         }
+      } else if (a.type === 'attack') {
+        buttons.push(attackControlHtml(a));
       }
-      // "attack" is handled by the aggregate button in the controls bar.
     }
     return buttons.length ? `<div class="gf-card-actions">${buttons.join('')}</div>` : '';
   }
 
+  // The target-selection control shown *below* a targeting spell in hand.
+  // Mirrors the attack "pick a defender" idiom: a first click opens the
+  // choice, then each requirement's legal targets are offered as buttons.
+  //  • closed → a "Zaubern → Ziel" button that begins targeting.
+  //  • open   → the current requirement's legal targets (plus "no target"
+  //             for an optional one, RULE 115.1a, and a cancel button).
+  // On the last target picked, the cast is sent with all chosen targets.
+  function castTargetHtml(a) {
+    const iid = a.instance_id;
+    const active = castTargeting && castTargeting.instanceId === iid;
+    // A spell that is both {X} and targeting still needs its X announced;
+    // the input travels alongside and is read when targeting begins.
+    const xField = a.has_x
+      ? `<input type="number" min="0" max="${a.max_x}" value="${a.max_x}" data-x-input="${iid}" />`
+      : '';
+    if (!active) {
+      return `<div class="gf-cast-targets">${xField}<button type="button" class="gf-card-action" data-cast-target-start="${iid}">✨ Zaubern → Ziel ▾</button></div>`;
+    }
+    const req = castTargeting.requirements[castTargeting.reqIndex] || {};
+    const options = req.options || [];
+    const optButtons = options.map((o) => {
+      const payload = JSON.stringify({ instance_id: iid, target: targetOptionPayload(o) });
+      return `<button type="button" class="gf-card-action" data-cast-target-pick='${escapeAttr(payload)}'>🎯 ${escapeHtml(o.name)}</button>`;
+    });
+    if (req.optional) {
+      const skip = JSON.stringify({ instance_id: iid, target: null });
+      optButtons.push(`<button type="button" class="gf-card-action gf-decline" data-cast-target-pick='${escapeAttr(skip)}'>∅ Kein Ziel</button>`);
+    }
+    const prompt = `<span class="gf-target-prompt">Ziel wählen: ${escapeHtml(req.label || '')}</span>`;
+    const cancel = `<button type="button" class="gf-card-action gf-decline" data-cast-target-cancel="${iid}">✕ Abbrechen</button>`;
+    return `<div class="gf-cast-targets gf-choosing">${prompt}${optButtons.join('')}${cancel}</div>`;
+  }
+
+  // The wire shape `GameSession._resolve_targets` expects: a player target
+  // as `{player_id}`, an object target as `{instance_id}`. The server's
+  // option descriptors carry a `name` too, which we drop here.
+  function targetOptionPayload(o) {
+    return o.player_id != null ? { player_id: o.player_id } : { instance_id: o.instance_id };
+  }
+
+  // The attacker-declaration control shown *below* a creature during the
+  // declare-attackers step (RULE 508.1a). It's a one- or two-step choice:
+  //  • 0 legal defenders (solo goldfish) → one click declares a bare swing.
+  //  • exactly 1 → one click declares it, auto-targeting that defender.
+  //  • 2+ → click reveals a submenu of defenders below the card (two steps).
+  function attackControlHtml(a) {
+    const defenders = a.legal_defenders || [];
+    const iid = a.instance_id;
+    if (defenders.length === 0) {
+      return actionButton(
+        { type: 'declare_attackers', instance_ids: [iid], name: a.name },
+        '⚔️ Angreifen'
+      );
+    }
+    if (defenders.length === 1) {
+      const d = defenders[0];
+      return actionButton(
+        { type: 'declare_attackers', instance_ids: [iid], defender: defenderPayload(d), name: a.name },
+        `⚔️ Angreifen → ${escapeHtml(d.label)}`
+      );
+    }
+    const open = attackMenuOpen.has(iid);
+    const menu = open
+      ? `<div class="gf-attack-defenders">${defenders
+          .map((d) =>
+            actionButton(
+              { type: 'declare_attackers', instance_ids: [iid], defender: defenderPayload(d), name: a.name },
+              `→ ${escapeHtml(d.label)}`
+            )
+          )
+          .join('')}</div>`
+      : '';
+    return `<button type="button" class="gf-card-action" data-attack-toggle="${iid}">⚔️ Angreifen ${open ? '▴' : '▾'}</button>${menu}`;
+  }
+
+  // The wire shape the server validates a declared defender against (see
+  // `GameEngine.legal_defenders_for` / `GameSession._resolve_defender`).
+  function defenderPayload(d) {
+    return d.kind === 'planeswalker'
+      ? { kind: 'planeswalker', instance_id: d.instance_id }
+      : { kind: 'player', id: d.id };
+  }
+
   function actionButton(action, label) {
     return `<button type="button" class="gf-card-action" data-action='${escapeAttr(JSON.stringify(action))}'>${label}</button>`;
+  }
+
+  // The passive "goldfish" opponent: a compact strip with its life (the
+  // thing you're racing down), plus hidden hand / graveyard / library counts.
+  // Its hand is face-down — you're testing your own deck, not reading theirs.
+  function opponentStripHtml(opp) {
+    return `
+      <div class="gf-opponent">
+        <span class="gf-opp-name">🐟 ${escapeHtml(opp.name)}</span>
+        <span class="gf-opp-life" title="Leben">❤️ ${opp.life}</span>
+        ${commanderDamageHtml(opp.commander_damage)}
+        <span title="Handkarten (verdeckt)">🖐️ ${opp.hand_count ?? opp.hand?.length ?? 0}</span>
+        <span title="Friedhof">⚰️ ${opp.graveyard?.length ?? 0}</span>
+        <span title="Bibliothek">📚 ${opp.library_count ?? 0}</span>
+        <span class="gf-opp-tag">passiver Gegner</span>
+      </div>`;
+  }
+
+  // Commander damage taken (RULE 903.10a): one chip per attacking commander,
+  // "👑 N/21", turning red as it nears the 21-damage loss threshold.
+  function commanderDamageHtml(commanderDamage) {
+    const entries = Object.values(commanderDamage || {});
+    if (!entries.length) return '';
+    return entries
+      .map((e) => {
+        const lethal = e.amount >= 21 ? ' gf-cmd-dmg--lethal' : '';
+        return `<span class="gf-cmd-dmg${lethal}" title="Commander-Schaden von ${escapeHtml(e.name)}">👑 ${e.amount}/21</span>`;
+      })
+      .join('');
+  }
+
+  function gameOverHtml(s, me, opp) {
+    return `
+      <div class="gf-gameover">
+        ${gameResultBanner(s, me)}
+        ${analysisHtml(view.analysis)}
+      </div>`;
+  }
+
+  // The win/loss line for a finished game (shared by the inline game-over
+  // block and the "Beenden" summary screen).
+  function gameResultBanner(s, me) {
+    const winner = s.winner_id
+      ? s.players.find((p) => p.id === s.winner_id)
+      : null;
+    const youWon = winner && me && winner.id === me.id;
+    const banner = winner
+      ? youWon
+        ? '🏆 Gewonnen – der Goldfisch liegt bei 0 Leben.'
+        : `Verloren – Sieger: ${escapeHtml(winner.name)}.`
+      : 'Spiel beendet.';
+    return `<p class="server-status ${youWon ? 'ok' : 'warning'}">${banner}</p>`;
+  }
+
+  // The end-of-match review shown after "Beenden": the final stats digest
+  // (kept in `summary` after the session is gone), plus the win/loss banner
+  // if the game had actually ended, and a button back to the deck picker.
+  function renderSummary() {
+    const s = summary.state;
+    const me = s ? (s.players.find((p) => !p.is_dummy) || s.players[0]) : null;
+    const ended = s && s.game_over;
+    const intro = ended
+      ? gameResultBanner(s, me)
+      : `<p class="hint">Partie nach ${summary.analysis?.turns ?? 0} Zügen beendet.</p>`;
+    root.innerHTML = `
+      <div class="goldfish-summary">
+        <h3>Partie-Auswertung</h3>
+        ${intro}
+        ${analysisHtml(summary.analysis)}
+        <div class="gf-controls">
+          <button id="gf-summary-new" type="button" class="primary">Neues Spiel</button>
+        </div>
+      </div>`;
+    root.querySelector('#gf-summary-new')?.addEventListener('click', () => {
+      summary = null;
+      phase = 'pick';
+      loadDecks();
+      render();
+    });
+  }
+
+  // End-of-game review: totals + a mana-value curve and mana-per-turn bars
+  // for each player, side by side, built from the server's stats digest.
+  function analysisHtml(analysis) {
+    if (!analysis || !analysis.players) return '';
+    const players = Object.values(analysis.players);
+    const cards = players.map((p) => analysisCardHtml(p)).join('');
+    return `
+      <div class="gf-analysis">
+        <h4>Auswertung nach ${analysis.turns} Zügen</h4>
+        <div class="gf-analysis-grid">${cards}</div>
+      </div>`;
+  }
+
+  function analysisCardHtml(p) {
+    const stat = (label, value) =>
+      `<div class="gf-stat"><span class="gf-stat-v">${value}</span><span class="gf-stat-l">${label}</span></div>`;
+    return `
+      <div class="gf-analysis-card">
+        <h5>${p.is_dummy ? '🐟 ' : ''}${escapeHtml(p.name)}</h5>
+        <div class="gf-stat-row">
+          ${stat('Gezogen', p.cards_drawn)}
+          ${stat('Gespielt', p.cards_played)}
+          ${stat('Zauber', p.spells_cast)}
+          ${stat('Länder', p.lands_played)}
+        </div>
+        <div class="gf-stat-row">
+          ${stat('Mana erzeugt', p.mana_produced)}
+          ${stat('Ø MW', p.avg_cmc)}
+          ${stat('Schaden', p.damage_dealt)}
+          ${stat('erhalten', p.damage_taken)}
+        </div>
+        ${barChartHtml('Mana-Kurve gespielter Zauber (MW)', p.cmc_curve)}
+        ${barChartHtml('Mana pro Zug', p.mana_per_turn)}
+      </div>`;
+  }
+
+  // A minimal CSS bar chart over a {key: value} map (keys sorted numerically),
+  // heights scaled to the largest bar. No external chart lib — inline divs.
+  function barChartHtml(title, map) {
+    const entries = Object.entries(map || {})
+      .map(([k, v]) => [Number(k), v])
+      .sort((a, b) => a[0] - b[0]);
+    if (!entries.length) return `<div class="gf-chart"><span class="gf-chart-title">${title}</span><p class="empty-state">—</p></div>`;
+    const max = Math.max(...entries.map(([, v]) => v));
+    const bars = entries
+      .map(([k, v]) => {
+        const h = max ? Math.round((v / max) * 100) : 0;
+        return `<div class="gf-bar" title="${k}: ${v}"><span class="gf-bar-v">${v}</span><span class="gf-bar-fill" style="height:${h}%"></span><span class="gf-bar-k">${k}</span></div>`;
+      })
+      .join('');
+    return `<div class="gf-chart"><span class="gf-chart-title">${escapeHtml(title)}</span><div class="gf-bars">${bars}</div></div>`;
   }
 
   function manaPoolHtml(pool) {

@@ -790,6 +790,15 @@ textarea {
   max-width: 640px;
 }
 
+/* End-of-match review shown after "Beenden". */
+.goldfish-summary > h3 {
+  margin: 0 0 0.6rem;
+}
+
+.goldfish-summary .gf-controls {
+  margin-top: 0.75rem;
+}
+
 .gf-topbar {
   display: flex;
   align-items: center;
@@ -994,6 +1003,7 @@ textarea {
 /* --- Goldfisch: Aktionen direkt unter den Karten --- */
 
 .gf-card-slot {
+  position: relative;
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -1093,6 +1103,288 @@ textarea {
   color: var(--text);
 }
 
+/* --- Battlefield: type rows, attachments, combat --- */
+
+.gf-bf-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+}
+
+.gf-bf-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-size: 0.72rem;
+  color: var(--text-dim);
+  cursor: pointer;
+  user-select: none;
+}
+
+.gf-bf-rows {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+/* Each type row (creatures / artifacts & enchantments / lands) is banded so
+   the three zones read as distinct shelves rather than one card soup. */
+.gf-bf-row {
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 0.3rem 0.45rem 0.45rem;
+  background: color-mix(in srgb, var(--panel-alt) 40%, transparent);
+}
+
+.gf-bf-row-label {
+  display: block;
+  font-size: 0.66rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-dim);
+  margin-bottom: 0.3rem;
+}
+
+/* An equipped/enchanted permanent and its attachments (Auras, Equipment)
+   are framed together in a dashed box ("gestrichelt") so the attachment
+   reads as belonging to its host rather than as a loose permanent. */
+.gf-attach-group {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.25rem;
+  padding: 0.3rem;
+  border: 1px dashed color-mix(in srgb, var(--accent) 60%, var(--border));
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--accent) 8%, transparent);
+}
+
+/* A creature declared as an attacker: highlighted, with a badge naming its
+   defender pinned to the card's top-right corner. */
+.card.attacking {
+  outline: 2px solid var(--warn);
+  outline-offset: -2px;
+}
+
+.gf-counter-badge {
+  position: absolute;
+  bottom: -0.35rem;
+  left: -0.3rem;
+  background: var(--accent);
+  color: #10151c;
+  font-size: 0.58rem;
+  font-weight: 700;
+  padding: 0.05rem 0.28rem;
+  border-radius: 999px;
+  white-space: nowrap;
+  pointer-events: none;
+}
+
+.gf-attacking-badge {
+  position: absolute;
+  top: -0.4rem;
+  right: -0.4rem;
+  background: var(--warn);
+  color: #1a1a1a;
+  font-size: 0.6rem;
+  font-weight: 700;
+  line-height: 1.2;
+  padding: 0.1rem 0.3rem;
+  border-radius: 999px;
+  max-width: 90px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  pointer-events: none;
+}
+
+/* The two-step defender picker that drops in below a creature when several
+   defenders are legal (RULE 508.1a). */
+.gf-attack-defenders {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  width: 100%;
+}
+
+/* --- Passive "goldfish" opponent strip --- */
+
+.gf-opponent {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  padding: 0.4rem 0.7rem;
+  margin-bottom: 0.6rem;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--warn) 8%, var(--panel));
+  font-size: 0.82rem;
+}
+
+.gf-opp-name {
+  font-weight: 700;
+}
+
+.gf-opp-life {
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+.gf-opp-tag {
+  margin-left: auto;
+  font-size: 0.68rem;
+  color: var(--text-dim);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.gf-cmd-dmg {
+  font-size: 0.75rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  padding: 0.05rem 0.35rem;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--warn) 20%, transparent);
+  border: 1px solid color-mix(in srgb, var(--warn) 45%, transparent);
+}
+
+.gf-cmd-dmg--lethal {
+  background: var(--warn);
+  color: #1a1a1a;
+}
+
+/* Setup: choose who draws on turn 1 (on the play vs. on the draw). */
+.gf-draw-first {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  margin: 0.5rem 0;
+  font-size: 0.82rem;
+  color: var(--text-dim);
+  cursor: pointer;
+  user-select: none;
+}
+
+/* --- End-of-game analysis --- */
+
+.gf-gameover {
+  margin-bottom: 0.75rem;
+}
+
+.gf-analysis {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 0.75rem;
+  background: var(--panel);
+}
+
+.gf-analysis h4 {
+  margin: 0 0 0.6rem;
+}
+
+.gf-analysis-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 0.75rem;
+}
+
+.gf-analysis-card {
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 0.6rem;
+  background: var(--panel-alt);
+}
+
+.gf-analysis-card h5 {
+  margin: 0 0 0.5rem;
+  font-size: 0.9rem;
+}
+
+.gf-stat-row {
+  display: flex;
+  gap: 0.5rem;
+  margin-bottom: 0.5rem;
+}
+
+.gf-stat {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 0.35rem 0.2rem;
+  border-radius: 5px;
+  background: color-mix(in srgb, var(--accent) 8%, transparent);
+}
+
+.gf-stat-v {
+  font-size: 1.05rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+.gf-stat-l {
+  font-size: 0.62rem;
+  color: var(--text-dim);
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+.gf-chart {
+  margin-top: 0.5rem;
+}
+
+.gf-chart-title {
+  display: block;
+  font-size: 0.66rem;
+  color: var(--text-dim);
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  margin-bottom: 0.25rem;
+}
+
+.gf-bars {
+  display: flex;
+  align-items: flex-end;
+  gap: 0.3rem;
+  height: 90px;
+  padding-top: 0.9rem;
+}
+
+.gf-bar {
+  position: relative;
+  flex: 1;
+  min-width: 14px;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  align-items: center;
+}
+
+.gf-bar-fill {
+  width: 100%;
+  min-height: 2px;
+  background: var(--accent);
+  border-radius: 3px 3px 0 0;
+}
+
+.gf-bar-v {
+  position: absolute;
+  top: -0.9rem;
+  font-size: 0.6rem;
+  color: var(--text-dim);
+  font-variant-numeric: tabular-nums;
+}
+
+.gf-bar-k {
+  margin-top: 0.2rem;
+  font-size: 0.62rem;
+  color: var(--text-dim);
+  font-variant-numeric: tabular-nums;
+}
+
 /* {X}-cost spell: a value input next to its "Zaubern" button. */
 .gf-cast-x {
   display: flex;
@@ -1108,6 +1400,31 @@ textarea {
   color: var(--text);
   padding: 0.15rem 0.25rem;
   font-size: 0.7rem;
+}
+
+/* --- Goldfisch: Zielwahl (RULE 115) --- */
+
+.gf-cast-targets {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  width: 100%;
+  align-items: center;
+}
+
+/* Once opened, the picker is highlighted so it reads as the pending choice. */
+.gf-cast-targets.gf-choosing {
+  padding: 0.3rem;
+  border: 1px solid var(--accent);
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--accent) 10%, var(--panel));
+}
+
+.gf-target-prompt {
+  font-size: 0.7rem;
+  font-weight: 700;
+  color: var(--text-dim);
+  text-align: center;
 }
 
 /* --- Goldfisch: Bibliotheks-Suche / Entscheidung --- */

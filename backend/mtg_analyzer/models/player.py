@@ -36,11 +36,17 @@ class Player:
         id: str,
         name: str = "",
         life: int = DEFAULT_STARTING_LIFE,
+        is_dummy: bool = False,
     ) -> None:
         self.id = id
         self.name = name or id
         self.life = life
         self.mana_pool = ManaPool()
+        #: A passive "goldfish" opponent (UC3): a real player for targeting,
+        #: damage and stats, but one the turn loop never makes active and
+        #: that takes no actions of its own. Lets a solo game have something
+        #: to attack and to aim discard/draw/damage effects at.
+        self.is_dummy = is_dummy
 
         #: Personal zones, each an ordered list of GameObjects. For the
         #: library, the *end* of the list is the top of the deck (draws
@@ -55,6 +61,13 @@ class Player:
         #: removal from the game so history/UI can show the reason.
         self.has_lost = False
         self.loss_reason: Optional[str] = None
+
+        #: Combat damage taken from each commander this game (RULE 903.10a),
+        #: keyed by the commander's instance id → ``{"name", "amount"}``. 21+
+        #: from any single commander is a loss (a state-based action). Tracked
+        #: per commander (not just a total) because the 21 threshold is
+        #: per-commander, and shown in the UI next to life.
+        self.commander_damage: dict[int, dict[str, Any]] = {}
 
         #: Effects that live on the player rather than a permanent —
         #: e.g. "skip your next untap step", "you can't lose the game".
@@ -122,6 +135,11 @@ class Player:
             drawn.append(card)
         return drawn
 
+    def add_commander_damage(self, commander_id: int, name: str, amount: int) -> None:
+        """Record ``amount`` combat damage from a specific commander (RULE 903.10a)."""
+        entry = self.commander_damage.setdefault(commander_id, {"name": name, "amount": 0})
+        entry["amount"] += amount
+
     def lose_life(self, amount: int) -> None:
         self.life -= amount
 
@@ -133,10 +151,13 @@ class Player:
             "id": self.id,
             "name": self.name,
             "life": self.life,
+            "is_dummy": self.is_dummy,
             "mana_pool": self.mana_pool.to_dict(),
             "has_lost": self.has_lost,
             "loss_reason": self.loss_reason,
+            "commander_damage": {str(k): v for k, v in self.commander_damage.items()},
             "library_count": len(self.library),
+            "hand_count": len(self.hand),
             "hand": [obj.to_dict() for obj in self.hand],
             "graveyard": [obj.to_dict() for obj in self.graveyard],
             "exile": [obj.to_dict() for obj in self.exile],

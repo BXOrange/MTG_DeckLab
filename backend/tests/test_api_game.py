@@ -140,12 +140,10 @@ class TestSessionLifecycle:
         sid = view["session_id"]
         self._keep_opening_hand(client, sid)
 
-        # Advance a step. Untap/upkeep/draw offer no choice with an
-        # all-basics deck, so "advance_step" auto-skips through them and
-        # stops at the first step with something to do (playing a land).
+        # Advance one step at a time (no auto-skip): the first step is untap.
         after = client.post(f"/api/game/{sid}/action", json={"type": "advance_step"}).json()
         assert after["can_rewind"] is True
-        assert after["state"]["current_step"] == "main1"
+        assert after["state"]["current_step"] == "untap"
 
         # Rewind it. `keep_hand` is itself an undoable action, so one
         # history entry (it) remains after undoing just the advance.
@@ -208,7 +206,7 @@ class TestMulliganSetup:
         _setup()
         client = TestClient(app)
         view = self._start(client)
-        assert view["setup"] == {"complete": False, "mulligan_count": 0}
+        assert view["setup"] == {"complete": False, "mulligan_count": 0, "draw_first": False}
         types = {a["type"] for a in view["legal_actions"]}
         assert types == {"mulligan", "keep_hand"}
 
@@ -225,7 +223,7 @@ class TestMulliganSetup:
         sid = self._start(client)["session_id"]
 
         after_mull = client.post(f"/api/game/{sid}/action", json={"type": "mulligan"}).json()
-        assert after_mull["setup"] == {"complete": False, "mulligan_count": 1}
+        assert after_mull["setup"] == {"complete": False, "mulligan_count": 1, "draw_first": False}
         assert len(after_mull["state"]["players"][0]["hand"]) == 7
         keep_action = next(
             a for a in after_mull["legal_actions"] if a["type"] == "keep_hand"
@@ -243,7 +241,7 @@ class TestMulliganSetup:
             f"/api/game/{sid}/action",
             json={"type": "keep_hand", "bottom_instance_ids": [hand[0]["instance_id"]]},
         ).json()
-        assert kept["setup"] == {"complete": True, "mulligan_count": 1}
+        assert kept["setup"] == {"complete": True, "mulligan_count": 1, "draw_first": False}
         assert len(kept["state"]["players"][0]["hand"]) == 6
         # The setup phase is over — normal actions are accepted again.
         response = client.post(f"/api/game/{sid}/action", json={"type": "advance_step"})
@@ -265,7 +263,7 @@ class TestMulliganSetup:
         sid = self._start(client)["session_id"]
         client.post(f"/api/game/{sid}/action", json={"type": "keep_hand", "bottom_instance_ids": []})
         restarted = client.post(f"/api/game/{sid}/restart").json()
-        assert restarted["setup"] == {"complete": False, "mulligan_count": 0}
+        assert restarted["setup"] == {"complete": False, "mulligan_count": 0, "draw_first": False}
 
 
 class TestMultiplayerStub:

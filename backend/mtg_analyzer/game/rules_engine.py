@@ -185,6 +185,9 @@ class RulesEngine:
             x=x,
         )
         self.state.stack.append(item)
+        self.state.record_stat(
+            player.id, "spell", cmc=obj.card.converted_mana_cost, name=obj.name
+        )
         self.state.fire_event(
             GameEvent(EventType.SPELL_CAST, player_id=player.id, card_id=obj.card.id, spell=obj.name)
         )
@@ -309,6 +312,7 @@ class RulesEngine:
             player.attempted_draw_from_empty = True  # type: ignore[attr-defined]
         drawn = player.draw(n)
         if drawn:
+            self.state.record_stat(player.id, "draw", amount=len(drawn))
             self.state.fire_event(
                 GameEvent(EventType.DRAW, player_id=player.id, count=len(drawn))
             )
@@ -337,7 +341,11 @@ class RulesEngine:
             )
 
     def deal_damage(
-        self, target: Any, amount: int, source: Optional[GameObject] = None
+        self,
+        target: Any,
+        amount: int,
+        source: Optional[GameObject] = None,
+        combat: bool = False,
     ) -> None:
         is_player = isinstance(target, Player)
         event = GameEvent(
@@ -359,6 +367,13 @@ class RulesEngine:
             # choke point as any other life loss so triggers watching for
             # "loses life" fire consistently regardless of cause.
             self.lose_life(target, final, cause="damage")
+            self.state.record_stat(target.id, "damage_taken", amount=final)
+            if source is not None:
+                self.state.record_stat(source.controller_id, "damage_dealt", amount=final)
+                # RULE 903.10a: combat damage from a commander is tallied
+                # separately toward the 21-damage loss threshold.
+                if combat and source.is_commander:
+                    target.add_commander_damage(source.instance_id, source.name, final)
         else:
             target.damage_marked += final
         self.state.fire_event(
@@ -792,6 +807,12 @@ class RulesEngine:
                 reason = player.loss_reason or ("life" if player.life <= 0 else "draw_from_empty")
                 self._player_loses(player, reason)
                 return True
+            # 704.5m / 903.10a: 21+ combat damage from a single commander.
+            if not self._loss_prevented(player) and any(
+                entry["amount"] >= 21 for entry in player.commander_damage.values()
+            ):
+                self._player_loses(player, "commander_damage")
+                return True
 
         # 704.5f: creature with toughness <= 0 goes to graveyard.
         for obj in self.state.permanents():
@@ -808,6 +829,19 @@ class RulesEngine:
                 and obj.toughness > 0
             ):
                 self._move_to_graveyard(obj)
+                return True
+
+        # 704.5q: a permanent with both +1/+1 and -1/-1 counters removes an
+        # equal number of each. Done before the toughness/damage checks would
+        # normally settle, so a creature that nets out to 0 toughness after
+        # annihilation is then caught by 704.5f on the next pass.
+        for obj in self.state.permanents():
+            plus = obj.counters.get("+1/+1", 0)
+            minus = obj.counters.get("-1/-1", 0)
+            if plus > 0 and minus > 0:
+                removed = min(plus, minus)
+                obj.add_counters("+1/+1", -removed)
+                obj.add_counters("-1/-1", -removed)
                 return True
 
         # 704.5j: legend rule — same-named legendaries a player controls.

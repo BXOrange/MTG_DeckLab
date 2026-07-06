@@ -37,10 +37,10 @@ from mtg_analyzer.game.game_engine import GameEngine
 #: How many undo snapshots to retain (older moves drop off the bottom).
 MAX_HISTORY = 100
 
-#: Safety cap on "advance_step"'s auto-skip loop (docs/02 R4.1) so a
-#: board with genuinely nothing to do for many turns (e.g. mana screw)
-#: can't hang the request; generous relative to ~11 steps/turn.
-_MAX_AUTO_ADVANCE_STEPS = 200
+#: Safety cap on the "advance to next decision" skip loop so a board with
+#: genuinely nothing to decide for many turns (e.g. mana screw) can't hang
+#: the request; generous relative to ~11 steps/turn.
+_MAX_DECISION_ADVANCE_STEPS = 200
 
 GOLDFISH = "goldfish"
 MULTIPLAYER = "multiplayer"
@@ -54,20 +54,50 @@ class MultiplayerNotImplementedError(Exception):
     """Interactive multiplayer isn't built yet — see ToDo 'Multiplayer'."""
 
 
+#: One shared filler card for the goldfish dummy's deck/hand. Its identity
+#: never matters (the UI shows the dummy's hand face-down); it exists only so
+#: discard/mill/forced-draw effects aimed at the goldfish have material to
+#: move. A `Card` is an immutable definition safely shared across instances.
+_DUMMY_FILLER = Card(id="goldfish-filler", name="Goldfisch-Karte", type_line="Card")
+
+#: Cards in the passive opponent's library — generous so forced draws don't
+#: deck it out during a normal test game (it never draws on its own turn).
+_DUMMY_LIBRARY_SIZE = 60
+
+
+def _build_dummy_player(starting_life: int, starting_hand: int) -> Player:
+    """A passive "goldfish" opponent (UC3): a valid target for combat and for
+    damage/discard/draw effects, with life and stats tracked, but one that
+    never takes a turn or an action of its own."""
+    dummy = Player(id="goldfish", name="Goldfisch", life=starting_life, is_dummy=True)
+    for _ in range(_DUMMY_LIBRARY_SIZE):
+        dummy.library.append(GameObject(_DUMMY_FILLER, owner_id="goldfish", zone=Zone.LIBRARY))
+    dummy.draw(starting_hand)  # a hand to discard from; hidden in the UI
+    return dummy
+
+
 def build_goldfish_engine(
     library: list[Card],
     commanders: Optional[list[Card]] = None,
     player_name: str = "You",
     starting_life: int = 40,
     starting_hand: int = 7,
+    with_dummy: bool = False,
 ) -> GameEngine:
-    """Build a solo `GameEngine` and deal an opening hand (UC3).
+    """Build a goldfish `GameEngine` and deal an opening hand (UC3).
 
     The 99 non-commander cards become the library (as given — the caller
     shuffles first if they want randomness, so tests stay deterministic);
     commanders start in the command zone (RULE 903.6) and can be cast
     from there (`GameEngine.can_cast`); commander tax (RULE 903.8) isn't
     modeled yet.
+
+    With ``with_dummy`` a passive "Goldfisch" opponent is added (see
+    `_build_dummy_player`) so attacks and discard/draw/damage effects have a
+    target and both players' stats are tracked; the turn loop skips its turn.
+    Off by default so the low-level builder stays a pure solo engine for
+    tests that assert single-player behavior; `GameSessionManager.create_goldfish`
+    turns it on for real games.
     """
     player = Player(id="p1", name=player_name, life=starting_life)
     for card in library:
@@ -76,7 +106,11 @@ def build_goldfish_engine(
         obj = GameObject(card, owner_id="p1", zone=Zone.COMMAND, is_commander=True)
         player.add_to_zone(obj, Zone.COMMAND)
 
-    state = GameState(players=[player])
+    players = [player]
+    if with_dummy:
+        players.append(_build_dummy_player(starting_life, starting_hand))
+
+    state = GameState(players=players)
     engine = GameEngine(state)
     player.draw(starting_hand)
     engine.start()
@@ -116,6 +150,10 @@ class GameSession:
         #: redraws 7, then keeping puts that many cards on the bottom).
         self._mulligan_count = 0
         self._setup_complete = not require_setup
+        #: Turn-1 draw option (UC3): True → the human draws on their first
+        #: turn ("on the draw"); False (default) → they skip it, the standard
+        #: on-the-play rule. Chosen in the setup screen; applied at keep-hand.
+        self._draw_first = False
 
     # -- Snapshot / restore --------------------------------------------
 
@@ -170,6 +208,13 @@ class GameSession:
         """
         if not isinstance(action, dict) or "type" not in action:
             raise GameActionError("action must be a dict with a 'type'")
+        # "Next decision" is a fast-forward, but it must remain a sequence of
+        # ordinary steps — each a real, separately snapshotted/logged
+        # `advance_step` firing its own events — so the game evolves exactly
+        # as clicking "Next step" would, and undo/replay stay deterministic
+        # even with the opponent present. It manages its own history entries.
+        if action["type"] in ("advance_to_decision", "next_decision"):
+            return self._apply_advance_to_decision()
         label = self._describe(action)
         self._snapshot(label)
         try:
@@ -194,7 +239,16 @@ class GameSession:
                 self._mulligan(active)
                 return
             if kind == "keep_hand":
-                self._keep_hand(active, action.get("bottom_instance_ids") or [])
+                self._keep_hand(
+                    active,
+                    action.get("bottom_instance_ids") or [],
+                    draw_first=action.get("draw_first"),
+                )
+                return
+            if kind == "set_draw_first":
+                # Toggle the turn-1 draw option during setup so the checkbox
+                # stays in sync without committing the hand.
+                self._draw_first = bool(action.get("value"))
                 return
             raise ValueError("finish the mulligan phase before playing")
 
@@ -218,8 +272,12 @@ class GameSession:
             return
 
         if kind in ("advance_step", "advance", "next_step"):
-            self._advance_with_auto_skip()
+            # Advance exactly one step — no auto-skip, no auto-wait. The
+            # player visits every step (untap, upkeep, draw, both mains, each
+            # combat step, …) one click at a time.
+            self.engine.advance_step()
             return
+
 
         if kind == "pass_priority":
             # Pass priority once: resolve the top of the stack (RULE 117),
@@ -253,8 +311,38 @@ class GameSession:
             ids = action.get("instance_ids")
             if ids is None and "instance_id" in action:
                 ids = [action["instance_id"]]
-            attackers = [self._object_by_id(i) for i in (ids or [])]
-            self.engine.declare_attackers(active, attackers)
+            # A single declared defender applies to every attacker in this
+            # call (the UI declares one creature per click, each picking its
+            # own defender). None → the engine auto-assigns / bare swing.
+            defender = self._resolve_defender(action.get("defender"))
+            declarations = [
+                {"attacker": self._object_by_id(i), "defender": defender}
+                for i in (ids or [])
+            ]
+            self.engine.declare_attackers(active, declarations)
+            return
+
+        if kind == "declare_blockers":
+            # assignments: [{"blocker": id, "attacker": id}, ...], declared by
+            # a defending player (dormant in solo goldfish — the dummy never
+            # blocks). ``player_id`` names that defender; defaults to the
+            # first non-active player.
+            defender_id = action.get("player_id")
+            blocker_player = (
+                state.player_by_id(defender_id)
+                if defender_id
+                else next(iter(state.non_active_players()), None)
+            )
+            if blocker_player is None:
+                raise GameActionError("no defending player to declare blockers")
+            pairs = [
+                {
+                    "blocker": self._object_by_id(a["blocker"]),
+                    "attacker": self._object_by_id(a["attacker"]),
+                }
+                for a in (action.get("assignments") or [])
+            ]
+            self.engine.declare_blockers(blocker_player, pairs)
             return
 
         raise GameActionError(f"unknown action type: {kind!r}")
@@ -269,8 +357,19 @@ class GameSession:
         player.draw(self._starting_hand)
         self._mulligan_count += 1
 
-    def _keep_hand(self, player: Player, bottom_instance_ids: list[Any]) -> None:
-        """London mulligan, part 2: keep, bottoming one card per mulligan taken."""
+    def _keep_hand(
+        self,
+        player: Player,
+        bottom_instance_ids: list[Any],
+        draw_first: Optional[bool] = None,
+    ) -> None:
+        """London mulligan, part 2: keep, bottoming one card per mulligan taken.
+
+        ``draw_first`` sets who draws on turn 1 (UC3 setup option): True →
+        the human draws in their first turn (they're "on the draw"); False →
+        they skip it (the standard "on the play" rule, RULE 103.7a). None
+        keeps the session's current setting.
+        """
         if len(bottom_instance_ids) != self._mulligan_count:
             raise ValueError(
                 f"must put exactly {self._mulligan_count} card(s) on the bottom of the library"
@@ -285,30 +384,49 @@ class GameSession:
             player.remove_from_zone(obj, Zone.HAND)
             obj.zone = Zone.LIBRARY
             player.library.insert(0, obj)  # bottom of library (index 0 — see Player.library)
+        if draw_first is not None:
+            self._draw_first = bool(draw_first)
+        self.engine.state.skip_first_draw = not self._draw_first
         self._setup_complete = True
 
-    def _advance_with_auto_skip(self) -> None:
-        """Advance one step, then keep going while nothing is interactive.
+    def _apply_advance_to_decision(self) -> dict[str, Any]:
+        """Fast-forward to the active player's next decision, one real step
+        at a time (the "Nächste Entscheidung" button).
 
-        "Nächster Schritt" shouldn't force a click through every untap/
-        upkeep/draw/cleanup step (and empty combat steps) when there's
-        nothing to decide there — it stops at the first step offering a
-        real choice (a castable/playable card, an eligible attacker, a
-        pending choice, or a non-empty stack awaiting priority), same as
-        if the player had clicked through the empty ones themselves.
-        Mana abilities (`tap_for_mana`) don't count as "interactive" here:
-        the mana pool empties at the end of every step anyway, so tapping
-        during an otherwise-empty step has no effect worth stopping for.
+        Each iteration is a genuine `advance_step`, snapshotted and logged
+        exactly like the single-step button, so every step's events fire and
+        the move stays undoable step-by-step (Bug 1: deterministic, opponent
+        or not). It always advances at least one step, then stops at the
+        first step offering a real choice — the active player's main phases
+        (always: that's where they develop their board), a castable/playable
+        card, an eligible attacker, a pending choice, a non-empty stack, or
+        game over. Setup/pending gates match `_dispatch`.
         """
-        for _ in range(_MAX_AUTO_ADVANCE_STEPS):
-            if self.engine.advance_step() is None:
-                return
-            if self._step_has_interaction():
-                return
+        if not self._setup_complete:
+            raise GameActionError("finish the mulligan phase before playing")
+        if self.engine.state.pending_choice:
+            raise GameActionError("a choice is pending — answer it first")
+        for _ in range(_MAX_DECISION_ADVANCE_STEPS):
+            self._snapshot("advance_step")
+            self.engine.advance_step()
+            self.move_log.append("advance_step")
+            if self.engine.state.game_over or self._step_has_interaction():
+                break
+        return self.view()
 
     def _step_has_interaction(self) -> bool:
+        """Whether the active player has a real decision at the current step.
+
+        A pending choice, a non-empty stack or game-over always qualify. So do
+        the active player's **main phases** — that's where they develop their
+        board, so "Next decision" must never skip past them to combat (Bug 2)
+        — as does any step where they can play a land, cast, or attack. A lone
+        untapped mana source doesn't count (the pool empties each step's end).
+        """
         state = self.engine.state
         if state.game_over or state.pending_choice or state.stack:
+            return True
+        if state.current_step in ("main1", "main2"):
             return True
         interactive_types = {"play_land", "cast_spell", "attack"}
         return any(
@@ -344,6 +462,28 @@ class GameSession:
         if obj is None:
             raise GameActionError(f"no game object with instance_id {instance_id!r}")
         return obj
+
+    def _resolve_defender(self, defender: Any) -> Optional[dict[str, Any]]:
+        """Validate a declared combat defender spec from the wire (RULE 508.1a).
+
+        Accepts the ``{"kind": "player"|"planeswalker", ...}`` shape the UI
+        sends (mirroring `GameEngine.legal_defenders_for`), or None for a
+        bare swing. The engine re-validates it against the legal set; this
+        only sanity-checks the payload shape and confirms the referenced
+        object exists so a bad id fails as a clean action error.
+        """
+        if defender is None:
+            return None
+        if not isinstance(defender, dict):
+            raise GameActionError("defender must be an object or null")
+        kind = defender.get("kind")
+        if kind == "player":
+            player = self.engine.state.player_by_id(str(defender["id"]))
+            return {"kind": "player", "id": player.id, "label": player.name}
+        if kind == "planeswalker":
+            obj = self._object_by_id(defender["instance_id"])
+            return {"kind": "planeswalker", "instance_id": obj.instance_id, "label": obj.name}
+        raise GameActionError(f"unknown defender kind: {kind!r}")
 
     def _resolve_targets(self, targets: Optional[list[Any]]) -> Optional[list[Any]]:
         if not targets:
@@ -395,6 +535,46 @@ class GameSession:
             return actions
         return self.engine.legal_actions(self.engine.state.active_player)
 
+    def analysis(self) -> dict[str, Any]:
+        """A per-player digest of the game so far for the end-of-game review.
+
+        Derived from `GameState.stats`: totals (cards drawn/played, mana
+        produced, damage), the mana-value curve of spells cast, and mana
+        produced per turn. Cheap to recompute, so it's included in every
+        view and the UI surfaces it when the game ends.
+        """
+        state = self.engine.state
+        stats = state.stats
+        players = {p.id: p for p in state.players}
+        per_player: dict[str, Any] = {}
+        for pid, bucket in stats["players"].items():
+            cmcs = bucket["spell_cmcs"]
+            curve: dict[int, int] = {}
+            for value in cmcs:
+                curve[value] = curve.get(value, 0) + 1
+            mana_per_turn: dict[int, int] = {}
+            for rec in stats["timeline"]:
+                if rec["player_id"] == pid and rec["kind"] == "mana":
+                    mana_per_turn[rec["turn"]] = mana_per_turn.get(rec["turn"], 0) + rec["amount"]
+            player = players.get(pid)
+            per_player[pid] = {
+                "name": player.name if player else pid,
+                "is_dummy": player.is_dummy if player else False,
+                "life": player.life if player else None,
+                "cards_drawn": bucket["cards_drawn"],
+                "lands_played": bucket["lands_played"],
+                "spells_cast": bucket["spells_cast"],
+                "cards_played": bucket["lands_played"] + bucket["spells_cast"],
+                "mana_produced": bucket["mana_produced"],
+                "damage_dealt": bucket["damage_dealt"],
+                "damage_taken": bucket["damage_taken"],
+                "total_cmc_played": sum(cmcs),
+                "avg_cmc": round(sum(cmcs) / len(cmcs), 2) if cmcs else 0,
+                "cmc_curve": curve,
+                "mana_per_turn": mana_per_turn,
+            }
+        return {"turns": state.turn_number, "players": per_player}
+
     def view(self) -> dict[str, Any]:
         """Everything the UI needs to render the session after a change."""
         return {
@@ -405,7 +585,12 @@ class GameSession:
             "pending_choice": self.engine.state.pending_choice,
             "can_rewind": self.can_rewind,
             "move_log": list(self.move_log),
-            "setup": {"complete": self._setup_complete, "mulligan_count": self._mulligan_count},
+            "setup": {
+                "complete": self._setup_complete,
+                "mulligan_count": self._mulligan_count,
+                "draw_first": self._draw_first,
+            },
+            "analysis": self.analysis(),
         }
 
 
@@ -424,7 +609,7 @@ class GameSessionManager:
         starting_hand: int = 7,
     ) -> GameSession:
         engine = build_goldfish_engine(
-            library, commanders, player_name, starting_life, starting_hand
+            library, commanders, player_name, starting_life, starting_hand, with_dummy=True
         )
         session = GameSession(
             engine,
