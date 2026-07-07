@@ -40,6 +40,18 @@ code plus replaying the equivalent API calls against a running backend,
 - [ ] Activated abilities beyond tap-for-mana — arbitrary costed
       abilities on permanents (docs/05 PART 6). Tap-for-mana (incl. the
       dual-land colour choice) is done.
+- [ ] Planeswalker loyalty abilities: render the `[+N]`/`[-N]`/`[0]`
+      abilities as clickable controls (sorcery-speed, once per turn) and
+      show the loyalty counter — blocked on the backend loyalty-ability
+      engine (backend/ToDo_Backend.md "Loyalty / planeswalker abilities").
+- [ ] Aura/Equipment attachment UX: pick a target when casting an Aura and
+      an "Ausrüsten" (equip) control on equipment, then show the buff on
+      the host — blocked on backend attachment resolution
+      (backend/ToDo_Backend.md "Aura / Equipment attachment"). The current
+      board only groups attachments visually.
+- [ ] Conditional-land prompt: when a shock/check land enters, ask whether
+      to pay 2 life / show the untapped-vs-tapped outcome, once the backend
+      models the choice (backend/ToDo_Backend.md "Conditional enters-tapped").
 
 ## Multiplayer
 

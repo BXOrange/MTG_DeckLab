@@ -2,8 +2,10 @@
 
 Open backend items. Completed work has moved to
 [Done_Backend.md](Done_Backend.md) (section headers there mirror these).
-See [../IMPLEMENTATION_STATUS.md](../IMPLEMENTATION_STATUS.md) and
-`../docs/IMPLEMENTATION_GUIDE.md` for the phase plan this follows.
+See [../docs/10_COMPLETION_ROADMAP.md](../docs/10_COMPLETION_ROADMAP.md)
+for the dependency-ordered plan to finish the implementation. The original
+Weeks 1–4 roadmap is archived at
+[../docs/history/IMPLEMENTATION_STATUS.md](../docs/history/IMPLEMENTATION_STATUS.md).
 
 ## Configuration (Backlog)
 
@@ -91,6 +93,59 @@ See [../IMPLEMENTATION_STATUS.md](../IMPLEMENTATION_STATUS.md) and
       interactive play does.
 - [ ] Trigger ordering *within* a controller (RULE 603.3b) — currently
       APNAP by controller only, no intra-controller choice
+- [ ] Loyalty / planeswalker abilities (RULE 606): a planeswalker is only
+      a legal *attack target* today (RULE 508.1a) and carries a `loyalty`
+      counter value on `GameObject`, but its `[+N]`/`[-N]`/`[0]` loyalty
+      abilities can't be activated — no cost that adds/removes loyalty, no
+      "once per turn, any time you could cast a sorcery" gate (RULE 606.3),
+      no defense against activating two in a turn. Needs a loyalty-cost kind
+      in `costs.py` + the sorcery-speed/one-per-turn guard, then the
+      catalogue/parser can emit the abilities. Planeswalker damage-marking
+      and the 0-loyalty SBA (RULE 704.5i) also aren't wired.
+- [ ] Aura / Equipment **attachment resolution** (RULE 303 auras, 301.5
+      equipment, keyword `equip` RULE 702.6): `GameObject.attached_to` and a
+      grouped board display exist, but nothing actually *attaches* — an Aura
+      resolves without moving onto its target, `equip` isn't an activatable
+      ability, and no attached buff/keyword flows through the layer engine.
+      Needs: Aura ETB attachment (RULE 303.4f), an `equip` activated ability
+      (sorcery speed, RULE 702.6d), fortify/reconfigure, and
+      `continuous.recompute` reading `attached_to` so an equipped bonus
+      lands in layers 6/7. (Surfaced as "partial" in the Engine-Status tab.)
+- [ ] Commander tax (RULE 903.8): casting a commander from the command zone
+      costs `{2}` more per previous cast from there. `GameEngine.cast_spell`
+      and `game_session.py` both note it's **not** applied — needs a
+      per-commander from-command-zone cast counter on the player/state that
+      the cost calc reads (and that rewind snapshots carry).
+- [ ] Conditional enters-tapped choice (RULE 614.1 replacement): pure
+      tap-lands enter tapped (`ability_catalogue.enters_tapped`), but shock
+      lands ("you may pay 2 life"), check lands ("unless you control a
+      …"), and pain/fast lands are deliberately excluded and enter
+      *untapped* with no prompt. Needs a replacement-effect + player choice
+      (pay life / evaluate condition) rather than the current boolean.
+
+## Card-type & structural coverage (Backlog)
+
+Card *kinds* the engine doesn't model as anything beyond a generic
+permanent/spell. None block goldfishing a typical deck, but each is a
+clause the future oracle parser (docs/09) or a dedicated handler must
+eventually own. Roughly in decreasing commonness:
+
+- [ ] Double-faced & modal-DFC cards (RULE 712): only the front face is
+      modeled; no transform trigger, no `//` back-face cast, no
+      day/night (RULE 731) tie-in.
+- [ ] Adventure cards (RULE 715) and Split/Fuse cards (RULE 709) — cast
+      one half, the other stays available; both currently resolve as the
+      single front-face spell.
+- [ ] Saga (RULE 714) / Class (RULE 716) / Leveler (RULE 711) chapter &
+      level counters driving staged abilities.
+- [ ] Copying objects (RULE 707) — token copies, "becomes a copy of",
+      and layer 1 (needed for the layer-1–3 gap above).
+- [ ] Battles (RULE 310) and Dungeons (RULE 309) — new type lines with
+      their own attack/venture subsystems.
+- [ ] Niche/format extras: Emblems (RULE 114), Stickers (RULE 123), the
+      Monarch (RULE 725) / Initiative (RULE 726), Rad counters (RULE 728),
+      and the remaining multiplayer/casual variants (CR 8, CR 9 beyond
+      Commander). Deprioritized until a deck needs one.
 
 ## Game Engine (Phase 3) — remaining
 

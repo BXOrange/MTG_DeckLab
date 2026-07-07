@@ -127,10 +127,12 @@ const SECTIONS = [
     items: [
       ['partial', 'Karten-Abdeckung (Specs)', 'Bind-on-load läuft, aber Specs kommen aus einem handgepflegten Katalog (nur wenige Karten). Der NLP-Oracle-Parser (docs/09) für beliebige Karten folgt.'],
       ['partial', 'Bedingte Tap-Länder', 'Shock-/Check-Länder (2 Leben zahlen / „unless …") kommen aktuell ungetappt — die Wahl fehlt noch.'],
+      ['planned', 'Loyalitäts-Fähigkeiten (Planeswalker)', 'Planeswalker sind gültiges Angriffsziel und tragen Loyalitätsmarken, aber ihre [+N]/[−N]/[0]-Fähigkeiten sind nicht aktivierbar (RULE 606).'],
       ['planned', 'Interaktiver Blocker-/Multiplayer-Modus', 'Braucht die Zwei-Spieler-Prioritäts-Schleife.'],
-      ['planned', 'Ability-Kinds: replacement, keyword (Bindung)', 'Vom Binder noch nicht realisiert.'],
+      ['planned', 'Ability-Kinds: replacement, keyword (Bindung)', 'Vom Binder noch nicht realisiert (parametrische Keywords: Kicker-Kosten, Annihilator N, Protection-Qualität).'],
       ['planned', 'Reihenfolge-Wahlen', 'Trigger-/Ersetzungs-Reihenfolge durch den betroffenen Spieler (RULE 616.1 / 603.3b).'],
       ['planned', 'Commander-Steuer', 'RULE 903.8 (+{2} je vorheriges Wirken) noch nicht modelliert.'],
+      ['planned', 'Kartentyp-Strukturen', 'Doppelseitige/MDFC (RULE 712), Adventure/Split (709/715), Saga/Class/Level (711/714/716), Kopien (707), Battles/Dungeons — bisher nur die Vorderseite als generischer Permanent/Spruch.'],
     ],
   },
 ];

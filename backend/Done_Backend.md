@@ -2,9 +2,10 @@
 
 Completed backend work, split out of `ToDo_Backend.md` (which now holds
 only open items). Section headers mirror the ToDo file so a
-`Done_Backend.md "<section>"` reference in the code lands here. See
-[../IMPLEMENTATION_STATUS.md](../IMPLEMENTATION_STATUS.md) and
-`../docs/IMPLEMENTATION_GUIDE.md` for the phase-by-phase plan.
+`Done_Backend.md "<section>"` reference in the code lands here. Remaining
+work: [../docs/10_COMPLETION_ROADMAP.md](../docs/10_COMPLETION_ROADMAP.md).
+The original Weeks 1–4 roadmap is archived at
+[../docs/history/IMPLEMENTATION_STATUS.md](../docs/history/IMPLEMENTATION_STATUS.md).
 
 ## HTTP API foundation
 

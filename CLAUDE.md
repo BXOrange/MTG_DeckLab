@@ -92,10 +92,15 @@ docks them onto `GameObject.intrinsic_keywords`, which combat honours. **Not
 yet**: oracle NLP parser (effect clauses), interactive blocker/multiplayer
 priority, `replacement` binding + *parametric* `keyword` binding (kicker cost,
 annihilator N, protection quality are parsed but not bound), layers 1–3/5/7a/7e,
-ordering choices (RULE 616.1/603.3b), commander tax.
+ordering choices (RULE 616.1/603.3b), commander tax, loyalty/planeswalker
+abilities (RULE 606), Aura/Equipment attachment resolution, and structural card
+types (DFC/Adventure/Saga/copying/battles).
 
 Living backlogs: `backend/ToDo_Backend.md` (open) and `backend/Done_Backend.md`
-(shipped). Design docs: `docs/01`–`09` + `docs/IMPLEMENTATION_GUIDE.md`.
+(shipped). The plan to finish is `docs/10_COMPLETION_ROADMAP.md` (dependency-
+ordered milestones). Design docs: `docs/01`–`10` + `docs/IMPLEMENTATION_GUIDE.md`
+(the original Weeks 1–4 status roadmap is archived at
+`docs/history/IMPLEMENTATION_STATUS.md`).
 
 ## Conventions & gotchas
 
