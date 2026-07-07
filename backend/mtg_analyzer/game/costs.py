@@ -44,6 +44,10 @@ _DISCARD_RE = re.compile(
 _REMOVE_COUNTERS_RE = re.compile(
     r"remove\s+(\d+|[a-z]+)\s+([+\-]?\d+/[+\-]?\d+|[a-z]+)\s+counters?", re.IGNORECASE
 )
+#: A planeswalker loyalty ability's cost — the ``[+2]`` / ``[-3]`` / ``[0]``
+#: bracket at the start of the ability (RULE 606.5c). A leading "+" or no sign
+#: means add loyalty; "−"/"-" means remove it. Accepts the Unicode minus too.
+_LOYALTY_RE = re.compile(r"^\s*\[\s*([+\-−]?)\s*(\d+)\s*\]")
 
 #: Sentinel for "discard your hand" — count isn't known until pay time.
 DISCARD_HAND = -1
@@ -74,7 +78,16 @@ class ActivationCost:
     pay_life: int = 0
     discard: int = 0
     remove_counters: Optional[tuple[str, int]] = None
+    #: Loyalty-ability cost (RULE 606.5c): the signed change to the source's
+    #: loyalty counters — ``+2`` for ``[+2]``, ``-3`` for ``[-3]``, ``0`` for
+    #: ``[0]``. ``None`` means this is not a loyalty ability.
+    loyalty: Optional[int] = None
     raw: str = ""
+
+    @property
+    def is_loyalty(self) -> bool:
+        """Whether this is a planeswalker loyalty ability (RULE 606.5c)."""
+        return self.loyalty is not None
 
     @property
     def is_free(self) -> bool:
@@ -87,6 +100,7 @@ class ActivationCost:
             or self.pay_life
             or self.discard
             or self.remove_counters
+            or self.loyalty is not None
         )
 
     def label(self) -> str:
@@ -109,6 +123,8 @@ class ActivationCost:
         if self.remove_counters:
             kind, count = self.remove_counters
             parts.append(f"Remove {count} {kind} counter(s)")
+        if self.loyalty is not None:
+            parts.append(f"[{'+' if self.loyalty >= 0 else ''}{self.loyalty}]")
         return ", ".join(parts)
 
     def to_dict(self) -> dict[str, Any]:
@@ -120,6 +136,7 @@ class ActivationCost:
             "pay_life": self.pay_life,
             "discard": self.discard,
             "remove_counters": list(self.remove_counters) if self.remove_counters else None,
+            "loyalty": self.loyalty,
             "label": self.label(),
         }
 
@@ -157,6 +174,8 @@ def parse_activation_cost(
         parsed.pay_life = int(cost["pay_life"])
     if "discard" in cost:
         parsed.discard = int(cost["discard"])
+    if cost.get("loyalty") is not None:
+        parsed.loyalty = int(cost["loyalty"])
     parsed.raw = parsed.raw or text
     return parsed
 
@@ -167,6 +186,15 @@ def _parse_text(text: str) -> ActivationCost:
     cost_text = text.split(":", 1)[0] if ":" in text else text
 
     cost = ActivationCost(raw=cost_text.strip())
+
+    # A loyalty ability's whole cost is its ``[±N]`` bracket (RULE 606.5c);
+    # when present it is the entire cost, so return it directly.
+    loyalty = _LOYALTY_RE.match(cost_text)
+    if loyalty:
+        magnitude = int(loyalty.group(2))
+        sign = loyalty.group(1)
+        cost.loyalty = -magnitude if sign in ("-", "−") else magnitude
+        return cost
 
     # Mana + the {T}/{Q} symbols share the {...} syntax; split them apart.
     mana_tokens: list[str] = []

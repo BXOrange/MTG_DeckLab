@@ -86,13 +86,23 @@ the engine gains/loses coverage. In short, **implemented**: full turn/stack/SBA
 loop; London mulligan; targeting; mana (generic/color/colorless/hybrid/mono-
 hybrid/phyrexian/{X}); all common **combat keywords** (flying, reach, first/
 double strike, deathtouch, trample, vigilance, lifelink, menace, defender,
-haste, indestructible, protection-from); **static abilities** via the layer
-system (layers 4/6/7 + cost adjustment); **activated abilities** with full cost
-parsing; **triggered abilities** (event-based) + replacement effects; one-shot
-effects (damage/draw/discard/destroy/counter/search/gain_life/mill/exile/tap/
-+1+1-counters/create-token/cascade/discover/…); **tokens** with the RULE 704.5d
-cease-to-exist lifecycle (`GameObject.is_token`, `RulesEngine.create_token`);
-commander damage; counters. The **RULE 702 keyword catalogue**
+haste, indestructible, protection-from, **landwalk**); **static abilities** via
+the layer system (layers 2 control / 4 type / 5 colour / 6 abilities / 7a CDA /
+7b–d P/T / 7e switch, **timestamp-ordered within a layer**, + cost adjustment);
+**activated abilities** with full cost parsing incl. **loyalty `[±N]` costs**;
+**triggered abilities** (event-based) + replacement effects (bound via
+`ReplacementRegistry`, e.g. `prevent_damage`); **interactive trigger ordering**
+(RULE 603.3b, opt-in `state.interactive_ordering`); one-shot effects
+(damage/draw/discard/destroy/counter/search/gain_life/mill/exile/tap/
++1+1-counters/create-token/**copy_permanent**/cascade/discover/…); **tokens**
+with the RULE 704.5d cease-to-exist lifecycle (`GameObject.is_token`,
+`RulesEngine.create_token`); **planeswalkers** (loyalty abilities at
+sorcery-speed with a once-per-turn gate, damage removes loyalty, 0-loyalty SBA);
+commander damage plus **commander tax** (903.8); counters; **basic card
+structures** (DFC
+`GameObject.transform`, token copies, Saga lore counters + final-chapter
+sacrifice); a basic **interactive priority primitive** (`pass_priority(player)`,
+RULE 117). The **RULE 702 keyword catalogue**
 (`parser/oracle/catalogue/keywords.py`) parses all 194 keywords off a card into
 `keyword` `AbilitySpec`s (flag/number/cost/number+cost/quality shapes, each
 parametric one with its extractor regex); **flag keywords bind** — the binder
@@ -109,13 +119,19 @@ subtype/tokens/color/exclude_self selectors in
 instants/sorceries/ETB-triggers/activated/static abilities resolve with no
 catalogue entry. `processing_list.py` reports cache-wide coverage + a ranked
 build order for the next handlers. **Not yet**: richer effect families
-(pump/regenerate/scry/modes — each needs a one-shot effect first) +
-color-scoped/global anthems + replacement clause parsing, interactive blocker/multiplayer priority,
-`replacement` binding + *parametric* `keyword` binding (kicker cost,
-annihilator N, protection quality are parsed but not bound), layers 1–3/5/7a/7e,
-ordering choices (RULE 616.1/603.3b), commander tax, loyalty/planeswalker
-abilities (RULE 606), Aura/Equipment attachment resolution, and structural card
-types (DFC/Adventure/Saga/copying/battles).
+(pump/regenerate/scry/modes — each needs a one-shot effect first); oracle-text
+*recognition* of replacement clauses (the binder is ready — a front-end
+target/duration grammar is not); *behaviour* for the remaining parametric
+keywords (kicker/escape alt-costs, annihilator/afflict combat maths — the
+parameter binds onto `parametric_keywords` but nothing consumes it yet);
+replacement/prevention **ordering** by the affected player (RULE 616.1 — trigger
+ordering 603.3b *is* interactive); wiring the interactive priority primitive
+into the **multiplayer session/WebSocket** (`create_multiplayer` still stubbed);
+layers 1 (copy-of)/3 (text-change) + full dependency ordering (613.8);
+Aura/Equipment attachment resolution; and the deeper card-type structures
+(MDFC back-face cast, Adventure/Split casting, Saga/Class/Leveler *chapter
+abilities*, battles/dungeons — the basic Saga-lore/DFC-transform/token-copy
+scaffolding is in).
 
 Living backlogs: `backend/ToDo_Backend.md` (open) and `backend/Done_Backend.md`
 (shipped). The plan to finish is `docs/10_COMPLETION_ROADMAP.md` (dependency-

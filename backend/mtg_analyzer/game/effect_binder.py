@@ -24,6 +24,8 @@ from .effects import (
     ActivatedAbility,
     EffectRegistry,
     GameEffect,
+    ReplacementEffect,
+    ReplacementRegistry,
     StaticAbility,
     TriggeredAbility,
 )
@@ -31,9 +33,9 @@ from .effects import (
 #: Ability kinds `bind_ability` realizes into `GameEffect` objects. Keyword
 #: abilities don't produce effects — flag keywords dock onto the object's
 #: `intrinsic_keywords` in `attach_to_object` instead — so they're handled
-#: there, not here. `replacement` binding lands in a later phase (docs/09).
+#: there, not here.
 _SUPPORTED_KINDS: frozenset[str] = frozenset(
-    {"spell_effect", "triggered", "activated", "static"}
+    {"spell_effect", "triggered", "activated", "static", "replacement"}
 )
 
 #: Params that make a keyword *parametric* (kicker cost, annihilator N,
@@ -63,15 +65,36 @@ def build_effects(effects: list[EffectSpec], source: Optional[Any] = None) -> li
     return built
 
 
+def build_replacements(
+    effects: list[EffectSpec], source: Optional[Any] = None
+) -> list[ReplacementEffect]:
+    """Instantiate `ReplacementEffect`s from their specs via the whitelist.
+
+    A ``replacement`` `AbilitySpec` carries its family in each `EffectSpec`'s
+    ``type`` (e.g. ``"prevent_damage"``) — only names in the
+    `ReplacementRegistry` bind, so nothing from card text becomes an arbitrary
+    callable (docs/09 security boundary)."""
+    built: list[ReplacementEffect] = []
+    for spec in effects:
+        if not ReplacementRegistry.is_registered(spec.type):
+            raise BindError(f"no registered replacement for type {spec.type!r}")
+        effect = ReplacementRegistry.create(spec.type, dict(spec.params))
+        effect.source = source
+        built.append(effect)
+    return built
+
+
 def bind_ability(
     spec: AbilitySpec, source: Optional[Any] = None
-) -> Union[list[GameEffect], TriggeredAbility, ActivatedAbility]:
+) -> Union[list[GameEffect], list[ReplacementEffect], TriggeredAbility, ActivatedAbility]:
     """Bind one validated `AbilitySpec` into its engine representation.
 
     Returns:
       * ``spell_effect`` → the list of one-shot effects (goes on a spell's
         ``spell_effects`` / a stack item),
       * ``triggered``    → a `TriggeredAbility`,
+      * ``static``       → the list of `StaticAbility` effects,
+      * ``replacement``  → the list of `ReplacementEffect`s,
       * ``activated``    → an `ActivatedAbility`.
 
     ``source`` is the `GameObject` the ability belongs to (used as each
@@ -80,6 +103,16 @@ def bind_ability(
     spec.validate()
     if spec.ability_kind not in _SUPPORTED_KINDS:
         raise BindError(f"binder does not support ability_kind {spec.ability_kind!r} yet")
+
+    if spec.ability_kind == "replacement":
+        # A different whitelist (ReplacementRegistry, not EffectRegistry) —
+        # each `EffectSpec.type` here names a replacement family (e.g.
+        # "prevent_damage"), not a one-shot effect.
+        replacements = build_replacements(spec.effects, source)
+        for effect in replacements:
+            if not effect.description:
+                effect.description = spec.raw_text
+        return replacements
 
     effects = build_effects(spec.effects, source)
 
@@ -117,22 +150,43 @@ def bind_ability(
 
 
 def attach_keyword(obj: Any, spec: AbilitySpec) -> bool:
-    """Dock a flag ``keyword`` spec onto the object's `intrinsic_keywords`.
+    """Dock a ``keyword`` spec onto the object (RULE 702).
 
     Returns ``True`` if the keyword was docked. Flag (parameterless) keywords —
     ``flying``, ``deathtouch``, … — join ``obj.intrinsic_keywords``, where the
-    combat engine reads them (RULE 702). Parametric keywords (``kicker`` cost,
-    ``annihilator N``, ``protection`` quality) are recognized but not bound
-    yet, so they're skipped here (returns ``False``).
+    combat engine reads them. Parametric keywords are also docked now, each in
+    the form the engine that consumes it expects:
+
+    * **landwalk** (``{"name": "landwalk", "quality": "island"}``) → the
+      specific variant slug ``"islandwalk"`` joins ``intrinsic_keywords``,
+      which `combat.landwalk_subtypes` reads (RULE 702.14);
+    * every parametric keyword's full parameter is also kept on
+      ``obj.parametric_keywords`` (``name`` → ``{n|cost|quality}``) so the
+      cost/combat-math consumers (kicker, annihilator, ward, protection
+      quality) can read it — a carried record, behaviour where wired.
     """
     spec.validate()
     keyword = spec.keyword or {}
     name = keyword.get("name")
-    if not name or _PARAMETRIC_KEYWORD_KEYS & keyword.keys():
+    if not name:
         return False
     if not hasattr(obj, "intrinsic_keywords"):
         obj.intrinsic_keywords = set()
-    obj.intrinsic_keywords.add(str(name))
+
+    is_parametric = bool(_PARAMETRIC_KEYWORD_KEYS & keyword.keys())
+    if not is_parametric:
+        obj.intrinsic_keywords.add(str(name))
+        return True
+
+    # Parametric: keep the parameter, and dock the shape combat/cost expects.
+    params = {k: v for k, v in keyword.items() if k != "name"}
+    if not hasattr(obj, "parametric_keywords"):
+        obj.parametric_keywords = {}
+    obj.parametric_keywords[str(name)] = params
+    if name == "landwalk" and keyword.get("quality"):
+        # e.g. "island" → the "islandwalk" slug the combat engine recognizes.
+        variant = str(keyword["quality"]).strip().lower().split()[0]
+        obj.intrinsic_keywords.add(f"{variant}walk")
     return True
 
 
@@ -142,7 +196,8 @@ def attach_to_object(obj: Any, specs: list[AbilitySpec]) -> None:
     ``spell_effect`` specs populate ``obj.spell_effects`` (the hook
     `RulesEngine._effects_for_spell` reads when the spell resolves);
     ``triggered``/``activated`` go on the matching `GameObject` ability list;
-    ``keyword`` specs dock onto ``obj.intrinsic_keywords`` (flag keywords).
+    ``static``/``replacement`` extend the matching effect list; ``keyword``
+    specs dock onto ``obj.intrinsic_keywords`` (flag keywords).
     """
     for spec in specs:
         if spec.ability_kind == "keyword":
@@ -158,6 +213,8 @@ def attach_to_object(obj: Any, specs: list[AbilitySpec]) -> None:
             obj.activated_abilities.append(bound)
         elif spec.ability_kind == "static":
             obj.static_effects.extend(bound)
+        elif spec.ability_kind == "replacement":
+            obj.replacement_effects.extend(bound)
         else:  # pragma: no cover - bind_ability already refused it
             raise BindError(f"cannot attach ability_kind {spec.ability_kind!r}")
 

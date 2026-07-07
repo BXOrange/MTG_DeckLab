@@ -65,6 +65,14 @@ class GameObject:
     ) -> None:
         self.instance_id: int = next(_instance_counter)
         self.card = card
+        #: The front face this object was created with (RULE 712.2). ``card``
+        #: is swapped to the back face by `transform` and back by
+        #: `transform_back`; this keeps the front so the swap is reversible.
+        self._front_card = card
+        #: Whether a double-faced permanent is currently on its back face
+        #: (RULE 712.8). Combat/continuous read `card`, so a transform is just
+        #: this swap — everything downstream sees the active face.
+        self.transformed: bool = False
         self.owner_id = owner_id
         #: Who currently controls the object; defaults to its owner
         #: (RULE 108.4). Control can change but ownership can't.
@@ -109,6 +117,9 @@ class GameObject:
         #: rewind. Cleared when the combat phase ends (RULE 511.3).
         self.attacking: bool = False
         self.combat_defender: Optional[dict[str, Any]] = None
+        #: Whether a loyalty ability of this planeswalker has been activated
+        #: this turn (RULE 606.3: only one per turn). Reset each untap step.
+        self.activated_loyalty_this_turn: bool = False
         #: Blocking (RULE 509): ``blocking`` is the instance id of the
         #: attacker this creature is declared to block (None if not
         #: blocking); ``blocked_by`` lists the blocker instance ids assigned
@@ -144,6 +155,11 @@ class GameObject:
         #: `_granted_keywords` they are the object's *own* keywords, so they are
         #: not cleared by `reset_derived`.
         self.intrinsic_keywords: set[str] = set()
+        #: Parametric keyword abilities the binder docked with their one
+        #: parameter (RULE 702), keyed by slug: ``{"annihilator": {"n": 2},
+        #: "kicker": {"cost": "{2}{R}"}, "landwalk": {"quality": "island"}}``.
+        #: The carried parameter the cost/combat-math consumers read.
+        self.parametric_keywords: dict[str, Any] = {}
 
         #: Derived characteristics stamped by the continuous-effects layer
         #: engine (`game/continuous.py`, RULE 613). ``None`` / empty until a
@@ -154,6 +170,18 @@ class GameObject:
         self._derived_toughness: Optional[int] = None
         self._granted_keywords: set[str] = set()
         self._added_types: set[str] = set()
+        #: Colours set/added by a layer-5 static ability (RULE 613.4b). ``None``
+        #: means no colour-changing effect applies, so `colors` falls back to
+        #: the printed card's ``color_identity``.
+        self._derived_colors: Optional[set[str]] = None
+        #: Timestamp for within-a-layer ordering (RULE 613.7b), stamped when the
+        #: object enters the battlefield. Later timestamp = applied later.
+        self.timestamp: int = 0
+        #: The controller a layer-2 control-changing effect (RULE 613.2) took
+        #: this object from — restored at the start of each recompute so the
+        #: layer re-applies idempotently. ``None`` when no control effect is on
+        #: it. Persists across a recompute (not cleared by `reset_derived`).
+        self._control_base: Optional[str] = None
         #: Per-object record of which static abilities changed it and how, in
         #: layer order — the data the UI's layer-trace view renders.
         self.static_trace: list[dict[str, Any]] = []
@@ -164,7 +192,19 @@ class GameObject:
         self._derived_toughness = None
         self._granted_keywords = set()
         self._added_types = set()
+        self._derived_colors = None
         self.static_trace = []
+
+    @property
+    def colors(self) -> set[str]:
+        """Effective colours (RULE 105 / layer 5), or the printed identity.
+
+        Prefers colours a layer-5 static ability stamped (`_derived_colors`);
+        otherwise the printed card's ``color_identity`` — the model's colour
+        proxy the combat/anthem code already reads."""
+        if self._derived_colors is not None:
+            return set(self._derived_colors)
+        return set(self.card.color_identity or set())
 
     # -- Delegated characteristics (read from the printed card) ---------
 
@@ -188,6 +228,16 @@ class GameObject:
     @property
     def is_planeswalker(self) -> bool:
         return self.card.is_planeswalker
+
+    @property
+    def loyalty(self) -> int:
+        """Current loyalty (RULE 606.5b) — the count of loyalty counters."""
+        return self.counters.get("loyalty", 0)
+
+    @property
+    def lore(self) -> int:
+        """Current chapter of a Saga (RULE 714) — its lore-counter count."""
+        return self.counters.get("lore", 0)
 
     @property
     def plus_one_counters(self) -> int:
@@ -259,6 +309,25 @@ class GameObject:
     def untap(self) -> None:
         self.tapped = False
 
+    def transform(self) -> bool:
+        """Turn a double-faced permanent to its other face (RULE 712.8).
+
+        Swaps ``card`` between the front and the back face (built from the
+        card's ``back_*`` fields). Returns whether it flipped — a no-op (False)
+        for a card with no back face. Loyalty is re-seeded when the new face is
+        a planeswalker with no loyalty yet (a transforming planeswalker)."""
+        if self.transformed:
+            new_card = self._front_card
+        else:
+            new_card = self._front_card.back_face()
+            if new_card is None:
+                return False
+        self.card = new_card
+        self.transformed = not self.transformed
+        if new_card.is_planeswalker and new_card.loyalty and "loyalty" not in self.counters:
+            self.counters["loyalty"] = new_card.loyalty
+        return True
+
     def to_dict(self) -> dict[str, Any]:
         """Serialize the instance's game state (for the wire protocol)."""
         return {
@@ -269,6 +338,8 @@ class GameObject:
             "controller_id": self.controller_id,
             "zone": self.zone.value,
             "tapped": self.tapped,
+            # Whether a double-faced permanent is on its back face (RULE 712.8).
+            "transformed": self.transformed,
             "summoning_sick": self.summoning_sick,
             "damage_marked": self.damage_marked,
             "power": self.power,
@@ -284,6 +355,8 @@ class GameObject:
             "is_artifact": self.card.is_artifact,
             "is_enchantment": self.card.is_enchantment,
             "is_planeswalker": self.card.is_planeswalker,
+            # Current loyalty for a planeswalker's board display (RULE 606.5b).
+            "loyalty": self.loyalty if self.card.is_planeswalker else None,
             # A token badge for the board (RULE 111); it also disappears from
             # non-battlefield zones by RULE 704.5d, so it only shows in play.
             "is_token": self.is_token,

@@ -244,6 +244,33 @@ def test_commander_can_be_cast_from_the_command_zone():
     assert commander in eng.state.battlefield
 
 
+def test_commander_tax_adds_two_per_previous_cast():
+    # RULE 903.8: {2} more per previous cast from the command zone.
+    eng = make_engine([], hand=0)
+    eng.begin_turn()
+    eng.state.current_step = "main1"
+    p1 = eng.state.active_player
+    commander = GameObject(creature(name="Cmdr", cost="{G}"), owner_id="p1", is_commander=True)
+    p1.add_to_zone(commander, Zone.COMMAND)
+
+    # First cast: no tax → costs {G}.
+    assert eng.commander_tax(p1, commander) == 0
+    p1.mana_pool.add_many({"G": 1})
+    eng.cast_spell(p1, commander)
+    eng.resolve_until_stable()
+    # Send it back to the command zone and cast again: now taxed {2}.
+    eng.state.remove_from_battlefield(commander)
+    p1.add_to_zone(commander, Zone.COMMAND)
+    assert eng.commander_tax(p1, commander) == 2
+    assert eng.effective_cast_cost(p1, commander).converted_mana_cost == 3  # {2}{G}
+    p1.mana_pool.add_many({"G": 1, "C": 2})
+    assert eng.can_cast(p1, commander)
+    eng.cast_spell(p1, commander)
+    eng.state.remove_from_battlefield(commander)
+    p1.add_to_zone(commander, Zone.COMMAND)
+    assert eng.commander_tax(p1, commander) == 4
+
+
 def test_commander_returns_to_command_zone_when_it_dies():
     eng = make_engine([], hand=0)
     p1 = eng.state.active_player
@@ -688,8 +715,8 @@ def test_attackers_deal_damage_to_opponent():
     assert eng.state.player_by_id("p2").life == 17
 
 
-def planeswalker(name="Test Walker", controller="p2"):
-    return Card(id=name, name=name, type_line="Legendary Planeswalker — Test")
+def planeswalker(name="Test Walker", controller="p2", loyalty=5):
+    return Card(id=name, name=name, type_line="Legendary Planeswalker — Test", loyalty=loyalty)
 
 
 def test_solo_goldfish_swing_has_no_defender_and_deals_no_damage():
@@ -725,11 +752,11 @@ def test_ambiguous_defender_requires_explicit_choice():
     assert eng.state.player_by_id("p2").life == 20
 
 
-def test_attack_planeswalker_marks_damage_on_it():
+def test_attack_planeswalker_removes_loyalty():
     eng = make_engine([land()], [land()], hand=0)
     eng.begin_turn()
     eng.state.current_step = "declare_attackers"
-    walker = obj_on_battlefield(eng.state, eng, planeswalker(), controller="p2")
+    walker = obj_on_battlefield(eng.state, eng, planeswalker(loyalty=5), controller="p2")
     bear = obj_on_battlefield(eng.state, eng, creature(power=3))
     defenders = eng.legal_defenders_for(eng.state.active_player)
     # The opponent AND their planeswalker are both legal defenders.
@@ -740,7 +767,8 @@ def test_attack_planeswalker_marks_damage_on_it():
     )
     eng.state.current_step = "combat_damage"
     eng._step_combat_damage()
-    assert walker.damage_marked == 3
+    # RULE 306.9: 3 combat damage removes 3 loyalty counters (5 → 2).
+    assert walker.loyalty == 2
     assert eng.state.player_by_id("p2").life == 20  # player untouched
 
 
@@ -1287,6 +1315,30 @@ def test_protection_from_color_stops_that_color_blocking():
     p2 = _attack_then_blockers_step(eng, attacker)
     assert not eng.can_block(p2, red_blocker, attacker)
     assert eng.can_block(p2, white_blocker, attacker)
+
+
+def test_islandwalk_is_unblockable_while_defender_controls_an_island():
+    # RULE 702.14b: an islandwalker can't be blocked while the defending
+    # player controls an Island.
+    eng = make_engine([land()], [land()], hand=0)
+    _to_declare_attackers(eng)
+    walker = obj_on_battlefield(eng.state, eng, creature(power=2, keywords=["Islandwalk"]))
+    blocker = obj_on_battlefield(eng.state, eng, creature(), controller="p2")
+    obj_on_battlefield(eng.state, eng, land(produces="Island"), controller="p2")
+    p2 = _attack_then_blockers_step(eng, walker)
+    assert not eng.can_block(p2, blocker, walker)
+    with pytest.raises(ValueError):
+        eng.declare_blockers(p2, [{"blocker": blocker, "attacker": walker}])
+
+
+def test_islandwalk_is_blockable_when_defender_has_no_island():
+    eng = make_engine([land()], [land()], hand=0)
+    _to_declare_attackers(eng)
+    walker = obj_on_battlefield(eng.state, eng, creature(power=2, keywords=["Islandwalk"]))
+    blocker = obj_on_battlefield(eng.state, eng, creature(), controller="p2")
+    obj_on_battlefield(eng.state, eng, land(produces="Forest"), controller="p2")
+    p2 = _attack_then_blockers_step(eng, walker)
+    assert eng.can_block(p2, blocker, walker)
 
 
 def test_menace_requires_two_blockers():

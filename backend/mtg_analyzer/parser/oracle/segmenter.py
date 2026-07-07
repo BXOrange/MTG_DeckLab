@@ -49,6 +49,10 @@ _ACTIVATED_RE = re.compile(r"^(?P<cost>[^:]+):\s*(?P<effect>.+)$", re.S)
 #: mis-read as an activation cost (fail-closed).
 _COST_LOOKS_REAL = re.compile(r"\{[^}]+\}|sacrifice|pay \d+ life|discard", re.I)
 
+#: A planeswalker loyalty ability: "[+N]:", "[-N]:", "[0]:" then the effect
+#: (RULE 606.5c). The bracket is the whole cost; the sign says add/remove.
+_LOYALTY_LINE_RE = re.compile(r"^\s*\[\s*([+\-−]?)\s*(\d+)\s*\]\s*:\s*(?P<effect>.+)$", re.S)
+
 #: A mana ability's effect ("add {g}", "add 1 mana of any color"): the engine
 #: models these in `game/mana_abilities.py`, not through effect specs, so such a
 #: line is *claimed* here (covered) but contributes no spec.
@@ -145,6 +149,27 @@ def segment_line(line: str, *, allow_spell_effect: bool, provenance: ParserProve
 
     if is_keyword_line(raw):
         return Segment(raw=raw, claimed=True, keyword_line=True)
+
+    # Planeswalker loyalty ability "[±N]: <effect>" (RULE 606.5c) — its cost is
+    # the bracket, so it's recognised before the generic activated case (whose
+    # cost sniff wouldn't accept a bare "[+1]").
+    loy = _LOYALTY_LINE_RE.match(raw)
+    if loy is not None:
+        magnitude = int(loy.group(2))
+        delta = -magnitude if loy.group(1) in ("-", "−") else magnitude
+        body, optional = _peel_optional(loy.group("effect").strip())
+        effects = parse_effect_body(body)
+        if effects is None:
+            return Segment(raw=raw)  # unrecognised loyalty effect → unclaimed
+        spec = AbilitySpec(
+            "activated",
+            effects=effects,
+            cost={"loyalty": delta},
+            optional=optional,
+            raw_text=raw,
+            parser=provenance,
+        )
+        return Segment(raw=raw, spec=spec, claimed=True)
 
     # Activated ability "<cost>: <effect>" — checked before the trigger/spell
     # cases since a colon unambiguously marks it (RULE 602.1). A trigger has no

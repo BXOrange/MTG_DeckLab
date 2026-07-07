@@ -103,17 +103,23 @@ Weeks 1–4 roadmap is archived at
       (Changeling matches any subtype; colour vs `card.color_identity`); scope
       also covers **global** anthems (no "you control" → all creatures, both
       players — Bad Moon/Crusade), "all"/"each" markers, and multicolour scopes.
-      Only remaining edge: granted *landwalk* ("… and have mountainwalk") — left
-      UNMODELED and blocked on `game/combat.py` having **no landwalk evasion**
-      yet, so binding it would be a silently-wrong no-op (fix combat first).
+      **Landwalk now binds**: `game/combat.py` has landwalk evasion
+      (`landwalk_subtypes`/`unblockable_by_landwalk`, RULE 702.14, consulted by
+      the engine's `can_block`), the binder docks a landwalk keyword spec onto
+      the `<type>walk` slug (`attach_keyword`), and a layer-6 grant of it flows
+      through. **`replacement` binding is in**: `bind_ability` builds
+      `ReplacementEffect`s from a `replacement` spec via a new
+      `ReplacementRegistry` whitelist (`prevent_damage` shipped), attached to
+      `obj.replacement_effects`. **Parametric keywords bind** their parameter
+      onto `GameObject.parametric_keywords` (annihilator N, kicker cost, ward,
+      protection quality — carried for the consumers; landwalk is fully wired).
       Still open: more effect families (pump "+N/+N until end of turn",
-      −1/−1 counters, regenerate, scry, mode/"choose one", "up to N" targets,
-      token *copies* — RULE 707) — each needs a one-shot `GameEffect` + registry
-      entry first; replacement clause handlers; landwalk evasion in combat
-      (then grant it); parse-on-load memoization in `LazyCardLoader`; and binding
-      *parametric* keywords (kicker cost,
-      annihilator N, protection quality — parsed and carried, but they need
-      dedicated behaviour: alternative costs, combat maths, etc.).
+      −1/−1 counters, regenerate, scry, mode/"choose one", "up to N" targets)
+      — each needs a one-shot `GameEffect` + registry entry first; oracle-text
+      *recognition* of replacement clauses (the binder is ready; a
+      target/duration grammar for the front-end is not); parse-on-load
+      memoization in `LazyCardLoader`; and *behaviour* for the remaining
+      parametric keywords (alternative costs, combat maths).
 - [~] Combat blocking + creature-vs-creature damage: **engine done** —
       `GameEngine.declare_blockers`/`can_block` and a rewritten
       `_step_combat_damage` handle blocked/unblocked attackers, gang blocks
@@ -137,24 +143,38 @@ Weeks 1–4 roadmap is archived at
       + registry (`anthem`/`pt_set`/`grant_keyword`/`type_change`/
       `cost_reduction`) bind from `static` specs. Granted keywords flow into
       combat; cost reductions/increases apply at cast time (RULE 601.2f). The
-      goldfish UI has an optional, default-hidden layer/static panel. Remaining:
-      layers 1–3 (copy/control/text), 5 (colour), 7a CDAs, 7e P/T switch, and
-      true dependency/timestamp ordering within a layer (currently registration
-      order).
+      goldfish UI has an optional, default-hidden layer/static panel.
+      **Extended**: layer 2 (control-change, `_control_base`, idempotent across
+      recomputes), layer 5 (colour, `_derived_colors` → `GameObject.colors`,
+      read by protection), layer 7a (CDA P/T from a `_count_selector`), layer 7e
+      (P/T switch), and **timestamp ordering** within a layer
+      (`_in_layer` sorts by `GameObject.timestamp`, stamped on battlefield
+      entry). Remaining: layer 1 (copy — a token clone exists via
+      `copy_permanent`; "becomes a copy of" as a layer-1 effect does not),
+      layer 3 (text-change), and the full dependency analysis (RULE 613.8).
+      Tests: `test_continuous.py`.
 - [ ] Replacement-effect ordering by the affected player (RULE 616.1) —
       currently deterministic discovery order; needs a player prompt once
-      interactive play does.
-- [ ] Trigger ordering *within* a controller (RULE 603.3b) — currently
-      APNAP by controller only, no intra-controller choice
-- [ ] Loyalty / planeswalker abilities (RULE 606): a planeswalker is only
-      a legal *attack target* today (RULE 508.1a) and carries a `loyalty`
-      counter value on `GameObject`, but its `[+N]`/`[-N]`/`[0]` loyalty
-      abilities can't be activated — no cost that adds/removes loyalty, no
-      "once per turn, any time you could cast a sorcery" gate (RULE 606.3),
-      no defense against activating two in a turn. Needs a loyalty-cost kind
-      in `costs.py` + the sorcery-speed/one-per-turn guard, then the
-      catalogue/parser can emit the abilities. Planeswalker damage-marking
-      and the 0-loyalty SBA (RULE 704.5i) also aren't wired.
+      interactive play does. (Trigger ordering, RULE 603.3b, is now
+      interactive — see Done "Ordering choices".)
+- [x] Trigger ordering *within* a controller (RULE 603.3b) — **done**.
+      When `state.interactive_ordering` is on and the active player has two
+      or more simultaneous triggers, `put_triggers_on_stack` opens an
+      `order_triggers` `pending_choice`; `resolve_trigger_order_choice`
+      places them in the chosen order (picked-first → placed-first →
+      resolves-last). Off by default so solo goldfishing is unchanged.
+      Tests: `test_ordering.py`.
+- [x] Loyalty / planeswalker abilities (RULE 606) — **done (basic)**.
+      `costs.ActivationCost.loyalty` (a signed `[±N]` cost, parsed by
+      `_LOYALTY_RE` + the segmenter's `[±N]:` recognition); planeswalkers
+      enter with printed starting loyalty (`Card.loyalty`, set in
+      `add_to_battlefield`); `GameEngine._can_activate_loyalty` gates to
+      sorcery speed + once-per-turn (`activated_loyalty_this_turn`, reset at
+      untap); activation pays by changing loyalty counters; combat/other
+      damage to a planeswalker removes loyalty (`deal_damage`); the 0-loyalty
+      SBA (RULE 704.5i) sends it to the graveyard. Tests:
+      `test_planeswalker.py`. Not yet: the specific chapter/loyalty *effects*
+      beyond what the handler table already covers.
 - [ ] Aura / Equipment **attachment resolution** (RULE 303 auras, 301.5
       equipment, keyword `equip` RULE 702.6): `GameObject.attached_to` and a
       grouped board display exist, but nothing actually *attaches* — an Aura
@@ -164,11 +184,13 @@ Weeks 1–4 roadmap is archived at
       (sorcery speed, RULE 702.6d), fortify/reconfigure, and
       `continuous.recompute` reading `attached_to` so an equipped bonus
       lands in layers 6/7. (Surfaced as "partial" in the Engine-Status tab.)
-- [ ] Commander tax (RULE 903.8): casting a commander from the command zone
-      costs `{2}` more per previous cast from there. `GameEngine.cast_spell`
-      and `game_session.py` both note it's **not** applied — needs a
-      per-commander from-command-zone cast counter on the player/state that
-      the cost calc reads (and that rewind snapshots carry).
+- [x] Commander tax (RULE 903.8) — **done**. `Player.commander_casts`
+      (instance id → count) is incremented on a command-zone cast in
+      `GameEngine.cast_spell`; `effective_cast_cost` adds `{2}` per previous
+      cast via `commander_tax()`, floored generic, and surfaced in the cast
+      action (`commander_tax`/`effective_cost`). The counter deep-copies with
+      the player for rewind. Tests: `test_game_engine.py`
+      `test_commander_tax_adds_two_per_previous_cast`.
 - [ ] Conditional enters-tapped choice (RULE 614.1 replacement): pure
       tap-lands enter tapped (`ability_catalogue.enters_tapped`), but shock
       lands ("you may pay 2 life"), check lands ("unless you control a
@@ -183,16 +205,28 @@ permanent/spell. None block goldfishing a typical deck, but each is a
 clause the future oracle parser (docs/09) or a dedicated handler must
 eventually own. Roughly in decreasing commonness:
 
-- [ ] Double-faced & modal-DFC cards (RULE 712): only the front face is
-      modeled; no transform trigger, no `//` back-face cast, no
-      day/night (RULE 731) tie-in.
+- [~] Double-faced & modal-DFC cards (RULE 712): **transform on the
+      battlefield done** — `Card.back_face()` builds the back as its own
+      `Card`, `GameObject.transform()`/`transformed` swaps faces reversibly
+      (re-seeding a transforming planeswalker's loyalty), surfaced in
+      `to_dict`. Remaining: a *transform trigger/effect* to call it, the `//`
+      modal-DFC back-face cast from hand (712.10), and the day/night (RULE 731)
+      tie-in.
 - [ ] Adventure cards (RULE 715) and Split/Fuse cards (RULE 709) — cast
-      one half, the other stays available; both currently resolve as the
-      single front-face spell.
-- [ ] Saga (RULE 714) / Class (RULE 716) / Leveler (RULE 711) chapter &
-      level counters driving staged abilities.
-- [ ] Copying objects (RULE 707) — token copies, "becomes a copy of",
-      and layer 1 (needed for the layer-1–3 gap above).
+      one half, the other stays available; recognised structurally
+      (`Card.is_adventure`/`is_split`) but both still resolve as the single
+      front-face spell.
+- [~] Saga (RULE 714): **counter mechanics done** — a Saga enters with a
+      lore counter (`add_to_battlefield`), gains one after its controller's
+      draw step (`RulesEngine.advance_sagas`, called from `_step_draw`), and is
+      sacrificed by an SBA at its final chapter (RULE 704.5x,
+      `_saga_final_chapter` reads the roman-numeral markers). Remaining: the
+      chapter *abilities* firing per lore counter. Class (716) / Leveler (711)
+      not started. Tests: `test_card_structures.py`.
+- [~] Copying objects (RULE 707): **token copies done** —
+      `RulesEngine.copy_permanent` + the `copy_permanent` effect create a token
+      clone of a target permanent's copiable card. Remaining: "becomes a copy
+      of" as a layer-1 continuous effect (the layer-1 gap above).
 - [ ] Battles (RULE 310) and Dungeons (RULE 309) — new type lines with
       their own attack/venture subsystems.
 - [ ] Niche/format extras: Emblems (RULE 114), Stickers (RULE 123), the
@@ -202,17 +236,21 @@ eventually own. Roughly in decreasing commonness:
 
 ## Game Engine (Phase 3) — remaining
 
-- [~] Multiplayer game session + priority system (UC4): **stubbed** —
-      `GameSessionManager.create_multiplayer` raises
-      `MultiplayerNotImplementedError` and `POST /api/game/multiplayer`
-      returns 501, so the mode/route exist end-to-end (the frontend
-      shows a "coming soon" panel) but the interactive priority loop is
-      not built. The pieces exist (multiple players, turn rotation,
-      per-player priority pointer, action validation); priority is
-      currently auto-passed with no response window, so two humans can't
-      yet hold priority and respond to each other's spells. Needs an
-      interactive priority loop (offer priority → collect an action or a
-      pass → resolve top of stack on all-pass).
+- [~] Multiplayer game session + priority system (UC4): **priority
+      primitive built; session wiring remains**. `GameEngine.pass_priority`
+      now takes an optional `player`: called with one (RULE 117.3-4) it only
+      resolves the top of the stack once every living player has passed in
+      succession, hands priority to the next player (APNAP, `_advance_priority`)
+      otherwise, and any real action reclaims priority (`give_priority`, called
+      from `begin_turn`/`_run_step`/`play_land`/`cast_spell`/`activate_ability`).
+      `GameState.priority_passed` tracks who has passed and deep-copies for
+      rewind. Called with no `player` it keeps the old solo/goldfish
+      auto-resolve, so nothing regresses. Tests: `test_priority.py`. Still
+      **stubbed**: `GameSessionManager.create_multiplayer` raises
+      `MultiplayerNotImplementedError` and `POST /api/game/multiplayer` returns
+      501 — the session/route need to drive `pass_priority(player)` and expose
+      the priority holder, and interactive blocker declaration
+      (`declare_blockers`, engine-ready) needs the opponent-side UI.
 - [ ] Wire the `WebSocket /ws/game/{game_id}` handler (`api/game_ws.py`)
       into a server-held session: it's still the transport-only relay,
       not feeding actions into `GameEngine`. Solo play uses the REST

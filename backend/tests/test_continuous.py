@@ -73,6 +73,100 @@ def test_pt_set_applies_before_counters():
     assert (bear.power, bear.toughness) == (2, 2)
 
 
+# -- Layer 7a: characteristic-defining P/T -----------------------------------
+
+
+def test_cda_defines_pt_from_a_count():
+    eng = make_engine()
+    src = put(eng.state, creature("Nightmare", power=0, toughness=0))
+    put(eng.state, creature("A"))
+    put(eng.state, creature("B"))
+    # */* equal to the number of creatures you control (3: Nightmare + A + B).
+    static("pt_cda", "self",
+           {"power_count": "creatures_you_control", "toughness_count": "creatures_you_control"},
+           src)
+    continuous.recompute(eng.state)
+    assert (src.power, src.toughness) == (3, 3)
+
+
+# -- Layer 7e: power/toughness switch ----------------------------------------
+
+
+def test_pt_switch_swaps_power_and_toughness_last():
+    eng = make_engine()
+    src = put(eng.state, creature("Switcher", power=4, toughness=1))
+    static("pt_switch", "self", {}, src)
+    continuous.recompute(eng.state)
+    assert (src.power, src.toughness) == (1, 4)
+
+
+def test_pt_switch_applies_after_anthem():
+    eng = make_engine()
+    lord = put(eng.state, creature("Lord"))
+    bear = put(eng.state, creature("Bear", power=3, toughness=1))
+    static("pt_mod", "creatures_you_control", {"power": 1, "toughness": 0}, lord)
+    static("pt_switch", "self", {}, bear)
+    continuous.recompute(eng.state)
+    # 3/1 +1/0 anthem = 4/1, then 7e switch → 1/4.
+    assert (bear.power, bear.toughness) == (1, 4)
+
+
+# -- Layer 5: colour change --------------------------------------------------
+
+
+def test_color_change_makes_a_creature_a_new_colour():
+    eng = make_engine()
+    bear = put(eng.state, creature("Bear", color_identity={"G"}))
+    static("color", "self", {"colors": ["B"], "set": True}, bear)
+    continuous.recompute(eng.state)
+    assert bear.colors == {"B"}
+
+
+def test_color_change_feeds_protection():
+    eng = make_engine()
+    attacker = put(eng.state, creature("Knight", oracle_text="Protection from black"))
+    victim = put(eng.state, creature("Beast", color_identity={"G"}), controller="p2")
+    static("color", "self", {"colors": ["B"], "set": True}, victim)
+    continuous.recompute(eng.state)
+    # The green beast is now black, so protection-from-black applies to it.
+    assert combat.is_protected_from(attacker, victim)
+
+
+# -- Layer 2: control change -------------------------------------------------
+
+
+def test_control_change_reassigns_and_is_idempotent():
+    eng = make_engine()
+    # A Control-Magic-style static: "you control this permanent" set on an
+    # object owned by p2 but naming p1 as controller (as an aura's grant would).
+    stolen = put(eng.state, creature("Beast"), controller="p2")
+    static("control", "self", {"controller": "p1"}, stolen)
+    continuous.recompute(eng.state)
+    assert stolen.controller_id == "p1"
+    # Idempotent across repeated recomputes (base restored each pass).
+    continuous.recompute(eng.state)
+    assert stolen.controller_id == "p1"
+    # Removing the effect restores the original controller.
+    stolen.static_effects.clear()
+    continuous.recompute(eng.state)
+    assert stolen.controller_id == "p2"
+
+
+# -- Timestamp ordering within a layer ---------------------------------------
+
+
+def test_pt_set_uses_timestamp_order_within_layer():
+    eng = make_engine()
+    bear = put(eng.state, creature("Bear", power=2, toughness=2))
+    first = put(eng.state, creature("First"))
+    second = put(eng.state, creature("Second"))
+    # Two "set P/T" effects; the later-timestamped one wins (RULE 613.7b).
+    static("pt_set", "all_creatures", {"power": 1, "toughness": 1}, first)
+    static("pt_set", "all_creatures", {"power": 6, "toughness": 6}, second)
+    continuous.recompute(eng.state)
+    assert (bear.power, bear.toughness) == (6, 6)
+
+
 # -- Layer 6: ability granting flows into combat -----------------------------
 
 

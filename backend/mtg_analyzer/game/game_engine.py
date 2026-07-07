@@ -126,6 +126,10 @@ class GameEngine:
         active = self.state.active_player
         active.lands_played_this_turn = 0
         self._clear_combat()
+        # RULE 117.3a: the active player receives priority at the start of
+        # their turn (harmless bookkeeping for solo play; the primitive an
+        # interactive multiplayer loop drives via `pass_priority(player)`).
+        self.give_priority(active)
         self.state.fire_event(
             GameEvent(EventType.TURN_BEGIN, player_id=active.id, turn=self.state.turn_number)
         )
@@ -220,8 +224,14 @@ class GameEngine:
         self._execute_step_body(step)
 
         if step.gives_priority:
+            # RULE 117.3a: (re-)grant priority to the active player as this
+            # step's window opens.
+            self.give_priority(self.state.active_player)
             # Turn-based actions can create triggers; resolve everything and
             # let priority pass around until the stack is empty (RULE 117).
+            # Solo/goldfish auto-drains here; an interactive multiplayer loop
+            # would instead drive `pass_priority(player)` itself and skip
+            # this auto-resolve — not wired into any session path yet.
             self.resolve_until_stable()
 
         # RULE 500.4: unused mana empties as the step ends.
@@ -243,19 +253,24 @@ class GameEngine:
                 obj.untap()
             # Controlled since the turn began → no longer summoning sick.
             obj.summoning_sick = False
+            # RULE 606.3: a new loyalty ability may be activated this turn.
+            obj.activated_loyalty_this_turn = False
         self.state.fire_event(GameEvent(EventType.UNTAP, player_id=active.id))
 
     def _step_draw(self) -> None:
         # RULE 103.7a: the starting player skips their first draw in a
         # two-or-more-player game — unless the goldfish setup opted the human
         # onto the draw (`skip_first_draw` cleared).
-        if (
+        skip_draw = (
             self.state.turn_number == 1
             and len(self.state.players) > 1
             and self.state.skip_first_draw
-        ):
-            return
-        self.rules.draw(self.state.active_player, 1)
+        )
+        if not skip_draw:
+            self.rules.draw(self.state.active_player, 1)
+        # RULE 714.2b: after the draw step, each Saga its controller controls
+        # gets another lore counter, advancing it to its next chapter.
+        self.rules.advance_sagas(self.state.active_player)
 
     def _step_combat_damage(self) -> None:
         """Assign and deal combat damage (RULE 510), honouring combat keywords.
@@ -460,23 +475,69 @@ class GameEngine:
                 return
         raise RuntimeError("stack failed to stabilize (possible effect loop)")
 
-    def pass_priority(self) -> bool:
+    def pass_priority(self, player: Optional[Player] = None) -> bool:
         """Pass priority once: resolve the top of the stack (RULE 117/608).
 
-        In a solo game "everyone passes" collapses to resolving the top
-        object. Returns whether anything resolved. The stack is *not* auto-
-        emptied — the player passes again (or casts an instant in response)
-        for each object, which is what makes stack interaction real.
+        Called with no ``player`` (solo/goldfish): "everyone passes"
+        collapses to resolving the top object immediately, as before —
+        every existing caller keeps working unchanged.
+
+        Called *with* a ``player`` (interactive multiplayer, RULE 117.3-4):
+        only resolves once every living player has passed in succession.
+        Raises `ValueError` if ``player`` doesn't currently hold priority;
+        otherwise records the pass and, if players remain who haven't passed
+        yet, hands priority to the next one (APNAP) and returns ``False``
+        without resolving anything — the real mechanic that lets a
+        non-active player respond (cast an instant, activate an ability)
+        before the stack moves. Returns whether anything resolved.
         """
         self.rules.check_state_based_actions()
         if self.state.game_over or self.state.pending_choice:
             return False
+
+        if player is not None:
+            holder = self.state.priority_player
+            if holder is not None and player is not holder:
+                raise ValueError(f"{player.id} does not have priority")
+            self.state.priority_passed.add(player.id)
+            living_ids = {p.id for p in self.state.living_players()}
+            if not living_ids <= self.state.priority_passed:
+                self._advance_priority()
+                return False
+
         self.rules.put_triggers_on_stack()
         if self.state.stack:
             self.rules.resolve_top_of_stack()
             self.rules.check_state_based_actions()
+            # RULE 117.3b: after anything resolves, priority resets to the
+            # active player and everyone gets a fresh chance to act.
+            self.give_priority(self.state.active_player)
             return True
+        self.state.priority_passed.clear()
         return False
+
+    def give_priority(self, player: Player) -> None:
+        """Grant ``player`` priority and clear who has passed (RULE 117.3b).
+
+        Called at the start of each priority window (a new step, or after
+        something resolves) and whenever a player takes a real action —
+        acting implicitly reclaims priority and invalidates any prior passes
+        since the game state just changed (RULE 117.3c).
+        """
+        self.state.priority_player_index = self.state.players.index(player)
+        self.state.priority_passed.clear()
+
+    def _advance_priority(self) -> None:
+        """Move priority to the next living player in turn order (APNAP)."""
+        start = self.state.priority_player_index
+        if start is None:
+            start = self.state.active_player_index
+        count = len(self.state.players)
+        for step in range(1, count + 1):
+            index = (start + step) % count
+            if not self.state.players[index].has_lost:
+                self.state.priority_player_index = index
+                return
 
     def resolve_pending_choice(self, answer: Any) -> None:
         """Answer whatever choice is pending, then keep resolving the stack.
@@ -496,6 +557,10 @@ class GameEngine:
         elif kind == "discover":
             # Two positive options: cast (default) or take to hand.
             self.rules.resolve_discover_choice(to_hand=(answer == "hand"))
+        elif kind == "order_triggers":
+            # RULE 603.3b: the option id is the index of the trigger to place next.
+            index = None if declined else int(answer)
+            self.rules.resolve_trigger_order_choice(index)
         else:  # search: a card's instance id, or decline
             instance_id = None if declined else int(answer)
             self.rules.resolve_search_choice(instance_id)
@@ -535,6 +600,8 @@ class GameEngine:
         self.state.fire_event(
             GameEvent(EventType.ENTERS_BATTLEFIELD, controller_id=player.id, object=obj.name)
         )
+        # RULE 117.3c: taking an action reclaims priority for its taker.
+        self.give_priority(player)
         return obj
 
     def can_cast(self, player: Player, obj: GameObject, x: int = 0) -> bool:
@@ -565,16 +632,32 @@ class GameEngine:
         return player.mana_pool.can_pay(cost, life_available=player.life)
 
     def effective_cast_cost(self, player: Player, obj: GameObject, x: int = 0) -> "ManaCost":
-        """``obj``'s mana cost after static cost adjustments (RULE 601.2f).
+        """``obj``'s mana cost after static cost adjustments (RULE 601.2f/903.8).
 
-        Starts from the printed cost (with ``{X}`` resolved) and applies the
-        net generic reduction from "spells you cast cost {N} less/more" statics
-        in play. Generic-only and floored at zero — the common, safe case.
+        Starts from the printed cost (with ``{X}`` resolved), applies the net
+        generic reduction from "spells you cast cost {N} less/more" statics in
+        play, then adds commander tax ({2} per previous cast of this commander
+        from the command zone, RULE 903.8) when it's being cast from there.
+        Generic-only and floored at zero — the common, safe case.
         """
         cost = self.rules.mana_cost_of(obj.card)
         if cost.has_variable:
             cost = cost.with_x(x)
-        return self._adjust_cost(cost, player)
+        cost = self._adjust_cost(cost, player)
+        tax = self.commander_tax(player, obj)
+        if tax:
+            cost = cost.increase_generic(tax)
+        return cost
+
+    @staticmethod
+    def commander_tax(player: Player, obj: GameObject) -> int:
+        """Generic surcharge to cast ``obj`` from the command zone (RULE 903.8).
+
+        {2} for each previous time this commander was cast from the command
+        zone; 0 for a normal spell or a commander being cast from hand."""
+        if obj.is_commander and obj in player.command:
+            return 2 * player.commander_casts.get(obj.instance_id, 0)
+        return 0
 
     def _adjust_cost(self, cost: "ManaCost", player: Player) -> "ManaCost":
         """Apply the net static generic adjustment (reduce or increase)."""
@@ -621,7 +704,17 @@ class GameEngine:
         if not self.has_legal_targets(player, obj):
             raise ValueError(f"{obj.name} has no legal target")
         cost = self.effective_cast_cost(player, obj, x)
-        return self.rules.cast_spell(player, obj, targets, x, cost=cost)
+        # RULE 903.8: record this command-zone cast so the next one is taxed
+        # {2} more. Read *before* the cast moves the card off the command zone.
+        from_command = obj.is_commander and obj in player.command
+        result = self.rules.cast_spell(player, obj, targets, x, cost=cost)
+        if from_command:
+            player.commander_casts[obj.instance_id] = (
+                player.commander_casts.get(obj.instance_id, 0) + 1
+            )
+        # RULE 117.3c: taking an action reclaims priority for its taker.
+        self.give_priority(player)
+        return result
 
     def has_legal_targets(self, player: Player, obj: GameObject) -> bool:
         """Whether every target ``obj`` requires can be legally chosen now.
@@ -823,10 +916,14 @@ class GameEngine:
         attacker that is attacking ``player`` (or a planeswalker they control).
 
         Plus the evasion half (RULE 509.1b): flying can only be blocked by
-        flying/reach, and protection stops a block by the protected-from
-        quality (see `combat.can_block`). Menace — a *group* requirement — is
-        checked over the whole assignment in `declare_blockers`, not here.
+        flying/reach, protection stops a block by the protected-from quality
+        (see `combat.can_block`), and landwalk (RULE 702.14b) makes the
+        attacker unblockable while this player controls a land of that type.
+        Menace — a *group* requirement — is checked over the whole assignment
+        in `declare_blockers`, not here.
         """
+        if combat.unblockable_by_landwalk(attacker, self._lands_controlled_by(player.id)):
+            return False
         return (
             blocker.controller_id == player.id
             and blocker.is_creature
@@ -837,6 +934,12 @@ class GameEngine:
             and self._attacker_attacks_player(attacker, player)
             and combat.can_block(attacker, blocker)
         )
+
+    def _lands_controlled_by(self, player_id: str) -> list[GameObject]:
+        return [
+            o for o in self.state.battlefield
+            if o.is_land and o.controller_id == player_id
+        ]
 
     def _attacker_attacks_player(self, attacker: GameObject, player: Player) -> bool:
         defender = attacker.combat_defender
@@ -893,7 +996,22 @@ class GameEngine:
             return False
         if ability not in source.activated_abilities:
             return False
+        if ability.cost.is_loyalty and not self._can_activate_loyalty(player, source):
+            return False
         return self._can_pay_activation_cost(player, source, ability.cost, x)
+
+    def _can_activate_loyalty(self, player: Player, source: GameObject) -> bool:
+        """Timing gate for a planeswalker loyalty ability (RULE 606.3).
+
+        Only at sorcery speed (the controller's main phase, empty stack, their
+        priority) and only once per turn per planeswalker."""
+        return (
+            source.is_planeswalker
+            and player is self.state.active_player
+            and self._in_main_phase()
+            and not self.state.stack
+            and not source.activated_loyalty_this_turn
+        )
 
     def _ability_target_requirements(
         self, player: Player, ability: ActivatedAbility, source: GameObject
@@ -971,6 +1089,10 @@ class GameEngine:
             kind, count = cost.remove_counters
             if source.counters.get(kind, 0) < count:
                 return False
+        # A minus loyalty ability can't be activated for more loyalty than the
+        # planeswalker has (RULE 606.5c / 118.5).
+        if cost.loyalty is not None and cost.loyalty < 0 and source.loyalty < -cost.loyalty:
+            return False
         return True
 
     def _sacrifice_candidate(
@@ -1045,6 +1167,11 @@ class GameEngine:
         if cost.remove_counters:
             kind, count = cost.remove_counters
             source.add_counters(kind, -count)
+        if cost.loyalty is not None:
+            # RULE 606.5c: pay by changing loyalty; a loyalty ability is once
+            # per turn per planeswalker (RULE 606.3).
+            source.add_counters("loyalty", cost.loyalty)
+            source.activated_loyalty_this_turn = True
 
         self.state.stack.append(
             StackItem(
@@ -1056,6 +1183,8 @@ class GameEngine:
                 x=x,
             )
         )
+        # RULE 117.3c: taking an action reclaims priority for its taker.
+        self.give_priority(player)
 
     # ------------------------------------------------------------------
     # Action validation query (docs/02 R4.3)
@@ -1084,10 +1213,14 @@ class GameEngine:
         # UI can show "was {3}, now {1}" and the static-effects panel can
         # attribute it. Only attached when something actually changes the cost.
         reduction, contributors = continuous.cost_reduction_for(self.state, player)
-        if reduction and cost.raw:
+        tax = self.commander_tax(player, obj)
+        if (reduction or tax) and cost.raw:
             action["base_cost"] = cost.raw
-            action["effective_cost"] = self._adjust_cost(cost, player).raw
-            action["cost_reduction"] = contributors
+            action["effective_cost"] = self.effective_cast_cost(player, obj).raw
+            if reduction:
+                action["cost_reduction"] = contributors
+            if tax:
+                action["commander_tax"] = tax
 
         requirements = requirements_with_targets(self.state, player.id, obj)
         if requirements:

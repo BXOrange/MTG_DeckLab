@@ -69,6 +69,13 @@ class Player:
         #: per-commander, and shown in the UI next to life.
         self.commander_damage: dict[int, dict[str, Any]] = {}
 
+        #: How many times each commander has been cast from the command zone
+        #: this game (RULE 903.8), keyed by the commander's instance id. The
+        #: commander tax adds {2} for each previous such cast; incremented on a
+        #: command-zone cast and carried by rewind snapshots (a Player is
+        #: deep-copied by `GameState.clone`).
+        self.commander_casts: dict[int, int] = {}
+
         #: Effects that live on the player rather than a permanent —
         #: e.g. "skip your next untap step", "you can't lose the game".
         #: The rules engine reads these; see game/effects.py.

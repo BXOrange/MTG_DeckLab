@@ -62,10 +62,11 @@ def _has_subtype(obj: "GameObject", subtype: str) -> bool:
 def _has_color(obj: "GameObject", colors: list) -> bool:
     """Whether ``obj`` is any of ``colors`` (RULE 105 / colour-scoped anthems).
 
-    Approximated by the card's ``color_identity`` (the same field the tutor's
-    `card_query` matches on). ``"C"`` means colourless — no WUBRG at all.
+    Reads the object's effective ``colors`` (a layer-5 colour-changing effect
+    if one applies, else the printed ``color_identity`` — the same field the
+    tutor's `card_query` matches on). ``"C"`` means colourless — no WUBRG.
     """
-    identity = obj.card.color_identity
+    identity = obj.colors
     wubrg = identity & {"W", "U", "B", "R", "G"}
     for c in colors:
         if c == "C":
@@ -157,16 +158,72 @@ def _battlefield_static_abilities(state: "GameState") -> list[StaticAbility]:
     ]
 
 
+def _in_layer(abilities: list[StaticAbility], layer: str) -> list[StaticAbility]:
+    """Abilities in one (sub)layer, ordered by source timestamp (RULE 613.7b).
+
+    Within a layer, effects apply in timestamp order (newest last); an
+    unsourced fixture ability sorts first (timestamp 0). A true dependency
+    pass (RULE 613.8) is still a simplification — timestamps cover the
+    overwhelmingly common non-dependent case.
+    """
+    picked = [a for a in abilities if a.layer == layer]
+    return sorted(picked, key=lambda a: getattr(a.source, "timestamp", 0))
+
+
+def _count_selector(state: "GameState", ability: StaticAbility, selector: str) -> int:
+    """Evaluate a layer-7a characteristic-defining count (RULE 613.7c / 604.3).
+
+    A small vocabulary of "number of X" selectors a ``*/*`` creature's power or
+    toughness can be defined by — enough for the common CDAs (Nightmare's
+    Swamps, a graveyard-count beater). "you control" is scoped to the source's
+    controller."""
+    bf = state.battlefield
+    controller = getattr(ability.source, "controller_id", None)
+    if selector == "creatures_you_control":
+        return sum(1 for o in bf if o.is_creature and o.controller_id == controller)
+    if selector == "lands_you_control":
+        return sum(1 for o in bf if o.is_land and o.controller_id == controller)
+    if selector == "permanents_you_control":
+        return sum(1 for o in bf if o.controller_id == controller)
+    if selector == "artifacts_you_control":
+        return sum(1 for o in bf if o.card.is_artifact and o.controller_id == controller)
+    if selector == "cards_in_your_graveyard":
+        try:
+            player = state.player_by_id(controller) if controller else None
+        except KeyError:
+            player = None
+        return len(player.graveyard) if player is not None else 0
+    return 0
+
+
 def recompute(state: "GameState") -> None:
     """Re-derive every battlefield permanent's characteristics (RULE 613)."""
+    # Restore any controller a prior layer-2 pass changed, so this pass
+    # re-applies control effects from a clean base (RULE 613.2, idempotent).
     for obj in state.battlefield:
+        if obj._control_base is not None:
+            obj.controller_id = obj._control_base
+            obj._control_base = None
         obj.reset_derived()
 
     abilities = [ab for ab in _battlefield_static_abilities(state) if ab.layer != "cost"]
 
+    # -- Layer 2: control-changing effects (RULE 613.2).
+    for ability in _in_layer(abilities, "control"):
+        new_controller = ability.params.get("controller") or getattr(
+            ability.source, "controller_id", None
+        )
+        if new_controller is None:
+            continue
+        for obj in affected_objects(state, ability):
+            if obj.controller_id != new_controller:
+                obj._control_base = obj.controller_id
+                obj.controller_id = new_controller
+                _trace(obj, 2, _source_name(ability), f"controlled by {new_controller}")
+
     # -- Layer 4: type-changing effects (may add "creature" + animation P/T).
     animation_pt: dict[int, tuple[int, int]] = {}
-    for ability in (a for a in abilities if a.layer == "type"):
+    for ability in _in_layer(abilities, "type"):
         added = ability.params.get("add_types", [])
         power, toughness = ability.params.get("power"), ability.params.get("toughness")
         for obj in affected_objects(state, ability):
@@ -176,15 +233,25 @@ def recompute(state: "GameState") -> None:
                 animation_pt[obj.instance_id] = (power, toughness)
             _trace(obj, 4, _source_name(ability), "becomes " + ", ".join(added))
 
+    # -- Layer 5: colour-changing effects (RULE 613.4b).
+    for ability in _in_layer(abilities, "color"):
+        colors = [str(c).upper() for c in ability.params.get("colors", [])]
+        replace = bool(ability.params.get("set", True))
+        for obj in affected_objects(state, ability):
+            if obj._derived_colors is None or replace:
+                obj._derived_colors = set() if replace else obj.colors
+            obj._derived_colors.update(colors)
+            _trace(obj, 5, _source_name(ability), "becomes " + ", ".join(colors))
+
     # -- Layer 6: ability-adding effects (keyword grants).
-    for ability in (a for a in abilities if a.layer == "ability"):
+    for ability in _in_layer(abilities, "ability"):
         keywords = ability.params.get("keywords", [])
         for obj in affected_objects(state, ability):
             obj._granted_keywords.update(keywords)
             _trace(obj, 6, _source_name(ability), "gains " + ", ".join(keywords))
 
     # -- Layer 7: power/toughness, on working base values so the sublayers
-    # apply in order (7b set → 7c counters → 7d modify).
+    # apply in order (7a CDA → 7b set → 7c counters → 7d modify → 7e switch).
     base: dict[int, list[int]] = {}
     for obj in state.battlefield:
         if not obj.is_creature:
@@ -194,8 +261,22 @@ def recompute(state: "GameState") -> None:
         else:
             base[obj.instance_id] = [obj.card.power or 0, obj.card.toughness or 0]
 
+    # 7a: characteristic-defining P/T ("power/toughness equal to the number of …").
+    for ability in _in_layer(abilities, "pt_cda"):
+        p_sel = ability.params.get("power_count")
+        t_sel = ability.params.get("toughness_count")
+        for obj in affected_objects(state, ability):
+            if obj.instance_id not in base:
+                continue
+            if p_sel:
+                base[obj.instance_id][0] = _count_selector(state, ability, str(p_sel))
+            if t_sel:
+                base[obj.instance_id][1] = _count_selector(state, ability, str(t_sel))
+            p, t = base[obj.instance_id]
+            _trace(obj, 7, _source_name(ability), f"defined as {p}/{t}", p, t)
+
     # 7b: set power/toughness to a specific value.
-    for ability in (a for a in abilities if a.layer == "pt_set"):
+    for ability in _in_layer(abilities, "pt_set"):
         power = ability.params.get("power", 0)
         toughness = ability.params.get("toughness", 0)
         for obj in affected_objects(state, ability):
@@ -214,7 +295,7 @@ def recompute(state: "GameState") -> None:
                 _trace(obj, 7, "Counters", f"{_signed(counters)}/{_signed(counters)}", p, t)
 
     # 7d: modify (but don't set) power/toughness — anthems.
-    for ability in (a for a in abilities if a.layer == "pt_mod"):
+    for ability in _in_layer(abilities, "pt_mod"):
         d_power = ability.params.get("power", 0)
         d_toughness = ability.params.get("toughness", 0)
         for obj in affected_objects(state, ability):
@@ -223,6 +304,15 @@ def recompute(state: "GameState") -> None:
                 base[obj.instance_id][1] += d_toughness
                 p, t = base[obj.instance_id]
                 _trace(obj, 7, _source_name(ability), f"{_signed(d_power)}/{_signed(d_toughness)}", p, t)
+
+    # 7e: switch power and toughness (RULE 613.7e / 701.28). Applied last, so it
+    # swaps the fully-computed values.
+    for ability in _in_layer(abilities, "pt_switch"):
+        for obj in affected_objects(state, ability):
+            if obj.instance_id in base:
+                base[obj.instance_id].reverse()
+                p, t = base[obj.instance_id]
+                _trace(obj, 7, _source_name(ability), f"switched to {p}/{t}", p, t)
 
     for obj in state.battlefield:
         if obj.instance_id in base:
@@ -279,10 +369,18 @@ def _describe_ability(ability: StaticAbility) -> str:
         return f"{_signed(p.get('power', 0))}/{_signed(p.get('toughness', 0))} to {ability.affects}"
     if ability.layer == "pt_set":
         return f"sets {ability.affects} to {p.get('power', 0)}/{p.get('toughness', 0)}"
+    if ability.layer == "pt_switch":
+        return f"switches P/T of {ability.affects}"
+    if ability.layer == "pt_cda":
+        return f"defines P/T of {ability.affects}"
     if ability.layer == "ability":
         return "grants " + ", ".join(p.get("keywords", []))
     if ability.layer == "type":
         return "makes " + ", ".join(p.get("add_types", []))
+    if ability.layer == "color":
+        return "colours " + ", ".join(p.get("colors", []))
+    if ability.layer == "control":
+        return f"controls {ability.affects}"
     if ability.layer == "cost":
         return f"spells cost {{{p.get('generic', 0)}}} {'more' if p.get('increase') else 'less'}"
     return ability.affects

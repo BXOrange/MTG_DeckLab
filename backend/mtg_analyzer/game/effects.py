@@ -28,7 +28,7 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from typing import TYPE_CHECKING, Any, Callable, Optional
 
-from ..models.events import GameEvent
+from ..models.events import EventType, GameEvent
 from ..models.mana_cost import ManaCost
 from .targeting import TargetSpec
 
@@ -89,6 +89,9 @@ class GameContext:
 
     def create_token(self, controller_id: str, token_card: Any, count: int = 1) -> None:
         self.engine.create_token(controller_id, token_card, count)
+
+    def copy_permanent(self, controller_id: str, source: "GameObject", count: int = 1) -> None:
+        self.engine.copy_permanent(controller_id, source, count)
 
     def gain_life(self, player: "Player", amount: int) -> None:
         self.engine.gain_life(player, amount)
@@ -212,7 +215,15 @@ class StaticAbility(GameEffect):
     """
 
     LAYER_NUMBERS: dict[str, int] = {
-        "type": 4, "ability": 6, "pt_set": 7, "pt_mod": 7, "cost": 99,
+        "control": 2,      # layer 2 — control-changing effects (RULE 613.2)
+        "type": 4,         # layer 4 — type-changing effects
+        "color": 5,        # layer 5 — colour-changing effects
+        "ability": 6,      # layer 6 — ability-adding effects
+        "pt_cda": 7,       # layer 7a — characteristic-defining P/T
+        "pt_set": 7,       # layer 7b — set power/toughness
+        "pt_mod": 7,       # layer 7d — modify power/toughness (anthems)
+        "pt_switch": 7,    # layer 7e — switch power and toughness
+        "cost": 99,        # not a layer — cost adjustment (RULE 601.2f)
     }
 
     def __init__(
@@ -645,6 +656,38 @@ class CreateTokenEffect(GameEffect):
         context.create_token(controller_id, card, self.count)
 
 
+class CopyPermanentEffect(GameEffect):
+    """Create a token that's a copy of a target permanent (RULE 707 / 707.2).
+
+    Targets a permanent (a creature by default — "create a token that's a copy
+    of target creature") and makes ``count`` token copies under the effect's
+    controller (its source's controller, else the active player). The basic
+    version copies the printed card; layered/copy-of-copy nuances (RULE 707.2
+    copiable values, other copy effects) are not modeled."""
+
+    def __init__(
+        self,
+        count: int = 1,
+        target: Any = None,
+        source: Optional["GameObject"] = None,
+        target_kind: str = "creature",
+    ) -> None:
+        super().__init__(source)
+        self.count = count
+        self.target = target
+        self.target_spec = TargetSpec(kind=target_kind)
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        target = (targets[0] if targets else None) or self.target
+        if target is None:
+            return
+        controller_id = (
+            self.source.controller_id if self.source is not None
+            else context.active_player.id
+        )
+        context.copy_permanent(controller_id, target, self.count)
+
+
 class SearchLibraryEffect(GameEffect):
     """Search the controller's library for a card (RULE 701.19), tutors.
 
@@ -848,6 +891,14 @@ EffectRegistry.register(
     ),
 )
 EffectRegistry.register(
+    "copy_permanent",  # "Create a token that's a copy of target creature" (RULE 707)
+    lambda p: CopyPermanentEffect(
+        count=p.get("count", 1),
+        target=p.get("target"),
+        target_kind=p.get("target_kind", "creature"),
+    ),
+)
+EffectRegistry.register(
     "search",
     lambda p: SearchLibraryEffect(
         # "criteria" is the general form; "type" stays a shorthand for a
@@ -925,3 +976,77 @@ EffectRegistry.register(
         params={"generic": p.get("generic", 1), "increase": bool(p.get("increase", False))},
     ),
 )
+
+
+# ---------------------------------------------------------------------------
+# Replacement-effect registry (RULE 614) — the binder's whitelist
+# ---------------------------------------------------------------------------
+
+
+def _prevent_damage_replacement(params: dict[str, Any]) -> ReplacementEffect:
+    """A damage-prevention shield (RULE 615): prevent up to ``amount`` (or all)
+    damage that would be dealt to a matching target.
+
+    ``to`` selects what it protects, read off the effect's own source:
+    ``"self"`` (the source permanent), ``"controller"`` (its controller — a
+    player), or ``"any"``. ``amount`` is an integer to prevent that much, or
+    ``"all"`` for total prevention. Consulted through the same
+    `RulesEngine.apply_replacements` path `deal_damage` already runs, so it
+    needs no new plumbing.
+    """
+    amount = params.get("amount", "all")
+    to = params.get("to", "self")
+    effect = ReplacementEffect(
+        event_type=EventType.DAMAGE,
+        replacement_fn=lambda e, c: e,  # replaced below once `effect` exists
+        description=str(params.get("description", "prevent damage")),
+    )
+
+    def replace(event: GameEvent, _context: GameContext) -> Optional[GameEvent]:
+        src = effect.source
+        is_player = bool(event.get("is_player"))
+        target_id = event.get("target_id")
+        if to == "self":
+            matches = (not is_player) and src is not None and target_id == src.instance_id
+        elif to == "controller":
+            matches = is_player and src is not None and target_id == src.controller_id
+        else:  # "any"
+            matches = True
+        if not matches:
+            return event
+        dealt = int(event.get("amount", 0) or 0)
+        prevented_to = 0 if amount == "all" else max(0, dealt - int(amount))
+        if prevented_to <= 0:
+            return None  # fully prevented — the event doesn't happen
+        return event.copy_with(amount=prevented_to)
+
+    effect.replacement_fn = replace
+    return effect
+
+
+class ReplacementRegistry:
+    """Maps a whitelisted replacement-type name to a `ReplacementEffect` factory.
+
+    The replacement analogue of `EffectRegistry` (docs/09 security boundary):
+    the binder turns a ``replacement`` `AbilitySpec` into behaviour only through
+    a name registered here, so nothing derived from card text becomes an
+    arbitrary callable."""
+
+    _factories: dict[str, Callable[[dict[str, Any]], ReplacementEffect]] = {}
+
+    @classmethod
+    def register(cls, name: str, factory: Callable[[dict[str, Any]], ReplacementEffect]) -> None:
+        cls._factories[name] = factory
+
+    @classmethod
+    def create(cls, name: str, params: Optional[dict[str, Any]] = None) -> ReplacementEffect:
+        if name not in cls._factories:
+            raise ValueError(f"unknown replacement type: {name!r}")
+        return cls._factories[name](params or {})
+
+    @classmethod
+    def is_registered(cls, name: str) -> bool:
+        return name in cls._factories
+
+
+ReplacementRegistry.register("prevent_damage", _prevent_damage_replacement)

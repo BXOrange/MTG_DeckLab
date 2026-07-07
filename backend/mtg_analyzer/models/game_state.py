@@ -108,6 +108,13 @@ class GameState:
         #: Which player currently holds priority (RULE 117); None between
         #: priority windows (e.g. during untap).
         self.priority_player_index: Optional[int] = None
+        #: Ids of living players who have passed priority in succession since
+        #: the last state change (a spell/ability resolved, a new step began).
+        #: When this covers every living player, the top of the stack
+        #: resolves (or the step ends) — RULE 117.4. Only meaningful once an
+        #: interactive multiplayer priority loop is driving `pass_priority`
+        #: with an explicit player; solo goldfishing never populates it.
+        self.priority_passed: set[str] = set()
         self.current_phase: str = ""
         self.current_step: str = ""
 
@@ -130,6 +137,12 @@ class GameState:
         #: engine isn't blocked on a choice. Set/consumed by the rules
         #: engine (mtg_analyzer/game/rules_engine.py).
         self.pending_choice: Optional[dict[str, Any]] = None
+
+        #: When True, the active player is asked to order their simultaneous
+        #: triggered abilities (RULE 603.3b) via a `pending_choice` instead of
+        #: the engine placing them in a deterministic order. Off by default so
+        #: solo goldfishing stays uninterrupted; the session/UI turns it on.
+        self.interactive_ordering: bool = False
 
         #: Per-player play statistics + a flat event timeline, for the
         #: end-of-game review (cards drawn/played, mana curve, mana produced
@@ -272,6 +285,16 @@ class GameState:
 
     def add_to_battlefield(self, obj: GameObject) -> None:
         obj.zone = Zone.BATTLEFIELD
+        # RULE 613.7b: stamp a timestamp on entry so the layer engine can order
+        # multiple effects within the same layer (newest applies last).
+        self._timestamp_counter = getattr(self, "_timestamp_counter", 0) + 1
+        obj.timestamp = self._timestamp_counter
+        # RULE 606.5b: a planeswalker enters with its printed starting loyalty.
+        if obj.is_planeswalker and obj.card.loyalty and "loyalty" not in obj.counters:
+            obj.counters["loyalty"] = obj.card.loyalty
+        # RULE 714.2b: a Saga enters with a lore counter (its first chapter).
+        if obj.card.is_saga and not obj.is_token and "lore" not in obj.counters:
+            obj.counters["lore"] = 1
         self.battlefield.append(obj)
 
     def remove_from_battlefield(self, obj: GameObject) -> None:

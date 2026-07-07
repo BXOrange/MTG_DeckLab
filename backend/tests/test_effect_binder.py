@@ -9,11 +9,12 @@ resolves as real damage through the existing rules engine.
 import pytest
 
 from mtg_analyzer.models.card import Card
+from mtg_analyzer.models.events import EventType
 from mtg_analyzer.models.game_object import GameObject, Zone
 from mtg_analyzer.models.game_state import GameState
 from mtg_analyzer.models.mana_cost import ManaCost
 from mtg_analyzer.models.player import Player
-from mtg_analyzer.game.effects import ActivatedAbility, DealDamageEffect, TriggeredAbility
+from mtg_analyzer.game.effects import ActivatedAbility, DealDamageEffect, ReplacementEffect, TriggeredAbility
 from mtg_analyzer.game.effect_binder import BindError, attach_to_object, bind_ability, build_effects
 from mtg_analyzer.game.rules_engine import RulesEngine
 from mtg_analyzer.parser.oracle.spec import AbilitySpec, EffectSpec
@@ -60,9 +61,22 @@ class TestBindAbility:
         assert bound.taps_source is True
 
     def test_unsupported_kind_is_refused(self):
-        # replacement/keyword binding isn't implemented yet (static now is).
+        # "keyword" specs are bound by attach_keyword, not bind_ability.
         with pytest.raises(BindError, match="does not support"):
-            bind_ability(AbilitySpec("replacement", [EffectSpec("draw", {"count": 1})]))
+            bind_ability(AbilitySpec("keyword", keyword={"name": "flying"}))
+
+    def test_replacement_returns_replacement_effect_list(self):
+        spec = AbilitySpec(
+            "replacement", [EffectSpec("prevent_damage", {"amount": "all", "to": "self"})]
+        )
+        bound = bind_ability(spec)
+        assert isinstance(bound, list) and isinstance(bound[0], ReplacementEffect)
+        assert bound[0].event_type == EventType.DAMAGE
+
+    def test_replacement_refuses_an_unregistered_family(self):
+        spec = AbilitySpec("replacement", [EffectSpec("draw", {"count": 1})])
+        with pytest.raises(BindError, match="no registered replacement"):
+            bind_ability(spec)
 
 
 class TestAttachToObject:
@@ -83,6 +97,58 @@ class TestAttachToObject:
                          trigger={"event": "ENTERS_BATTLEFIELD"})],
         )
         assert len(obj.triggered_abilities) == 1
+
+    def test_replacement_populates_replacement_effects(self):
+        card = Card(id="shield", name="Shielded Wall", type_line="Creature — Wall",
+                    is_creature=True, power=0, toughness=4)
+        obj = GameObject(card, owner_id="p1")
+        attach_to_object(
+            obj,
+            [AbilitySpec(
+                "replacement",
+                [EffectSpec("prevent_damage", {"amount": "all", "to": "self"})],
+            )],
+        )
+        assert len(obj.replacement_effects) == 1
+        assert isinstance(obj.replacement_effects[0], ReplacementEffect)
+
+
+class TestPreventDamageEndToEnd:
+    """A bound `prevent_damage` replacement actually stops damage (RULE 615)."""
+
+    def test_prevent_all_damage_to_self(self):
+        state = GameState([Player(id="p1", life=20)])
+        wall_card = Card(id="wall", name="Fog Wall", type_line="Creature — Wall",
+                          is_creature=True, power=0, toughness=4)
+        wall = GameObject(wall_card, owner_id="p1", zone=Zone.BATTLEFIELD)
+        attach_to_object(
+            wall,
+            [AbilitySpec(
+                "replacement",
+                [EffectSpec("prevent_damage", {"amount": "all", "to": "self"})],
+            )],
+        )
+        state.add_to_battlefield(wall)
+        rules = RulesEngine(state)
+        rules.deal_damage(wall, 5, source=None)
+        assert wall.damage_marked == 0
+
+    def test_prevent_partial_damage_to_self(self):
+        state = GameState([Player(id="p1", life=20)])
+        wall_card = Card(id="wall", name="Partial Shield", type_line="Creature — Wall",
+                          is_creature=True, power=0, toughness=10)
+        wall = GameObject(wall_card, owner_id="p1", zone=Zone.BATTLEFIELD)
+        attach_to_object(
+            wall,
+            [AbilitySpec(
+                "replacement",
+                [EffectSpec("prevent_damage", {"amount": 2, "to": "self"})],
+            )],
+        )
+        state.add_to_battlefield(wall)
+        rules = RulesEngine(state)
+        rules.deal_damage(wall, 5, source=None)
+        assert wall.damage_marked == 3  # 5 - 2 prevented
 
 
 class TestLightningBoltEndToEnd:

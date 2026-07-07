@@ -126,14 +126,31 @@ def test_bound_keyword_reaches_combat_recognition():
     assert combat.can_block(obj2, GameObject(bear(), owner_id="p1", zone=Zone.BATTLEFIELD)) is False
 
 
-def test_parametric_keyword_is_not_docked():
+def test_parametric_keyword_is_docked_with_its_parameter():
+    # Parametric keywords now bind: they don't join the flag set
+    # `intrinsic_keywords`, but their parameter is kept on `parametric_keywords`
+    # for the cost/combat-math consumers.
     from mtg_analyzer.game.effect_binder import attach_keyword
     from mtg_analyzer.parser.oracle.spec import AbilitySpec
 
     obj = GameObject(bear(), owner_id="p1", zone=Zone.BATTLEFIELD)
     docked = attach_keyword(obj, AbilitySpec(ability_kind="keyword",
                                              keyword={"name": "annihilator", "n": 2}))
-    assert docked is False and obj.intrinsic_keywords == set()
+    assert docked is True
+    assert obj.intrinsic_keywords == set()
+    assert obj.parametric_keywords == {"annihilator": {"n": 2}}
+
+
+def test_landwalk_keyword_binds_to_combat_recognizable_slug():
+    from mtg_analyzer.game import combat
+    from mtg_analyzer.game.effect_binder import attach_keyword
+    from mtg_analyzer.parser.oracle.spec import AbilitySpec
+
+    obj = GameObject(bear(), owner_id="p1", zone=Zone.BATTLEFIELD)
+    attach_keyword(obj, AbilitySpec(ability_kind="keyword",
+                                    keyword={"name": "landwalk", "quality": "island"}))
+    assert "islandwalk" in obj.intrinsic_keywords
+    assert combat.landwalk_subtypes(obj) == frozenset({"island"})
 
 
 def test_docked_keyword_survives_snapshot_restore():

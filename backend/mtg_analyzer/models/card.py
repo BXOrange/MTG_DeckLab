@@ -93,6 +93,7 @@ class Card:
         is_land: bool = False,
         power: Optional[int] = None,
         toughness: Optional[int] = None,
+        loyalty: Optional[int] = None,
         oracle_text: str = "",
         keywords: Optional[list[str]] = None,
         image_uri_small: str = "",
@@ -151,6 +152,9 @@ class Card:
         self.is_land = is_land
         self.power = power
         self.toughness = toughness
+        #: Printed starting loyalty for a planeswalker (RULE 606.5b), or None.
+        #: A planeswalker enters with this many loyalty counters.
+        self.loyalty = loyalty
         self.oracle_text = oracle_text
         self.keywords = list(keywords) if keywords is not None else []
         self.image_uri_small = image_uri_small
@@ -189,6 +193,56 @@ class Card:
     def is_artifact(self) -> bool:
         """Whether the card is an artifact (derived from the type line)."""
         return "artifact" in self.type_line.lower()
+
+    @property
+    def is_saga(self) -> bool:
+        """Whether the card is a Saga enchantment (RULE 714, subtype Saga)."""
+        return "saga" in self.type_line.lower()
+
+    @property
+    def is_adventure(self) -> bool:
+        """Whether the card has an Adventure half (RULE 715, layout)."""
+        return self.layout == "adventure"
+
+    @property
+    def is_split(self) -> bool:
+        """Whether the card is a split card (RULE 709, layout)."""
+        return self.layout == "split"
+
+    def back_face(self) -> Optional["Card"]:
+        """The back face as its own `Card`, or None if this card has no back.
+
+        Builds a printed-characteristics `Card` from the stored ``back_*``
+        fields (RULE 712 double-faced cards) so the back can be cast (a modal
+        DFC, RULE 712.10) or transformed into on the battlefield (RULE 712.8).
+        The two faces share the physical object's id; the back's derived type
+        flags come from its own ``back_type_line``. Returns None when no back
+        face was captured."""
+        if not self.back_name and not self.back_type_line:
+            return None
+        btl = self.back_type_line or self.type_line
+        back_is_creature = "creature" in btl.lower()
+        return Card(
+            id=self.id,  # same physical object (RULE 712.2)
+            name=self.back_name or self.name,
+            type_line=btl,
+            mana_cost_string=self.back_mana_cost_string,
+            converted_mana_cost=self.converted_mana_cost,
+            color_identity=set(self.color_identity),
+            is_creature=back_is_creature,
+            is_instant="instant" in btl.lower(),
+            is_sorcery="sorcery" in btl.lower(),
+            is_land="land" in btl.lower(),
+            power=self.back_power if back_is_creature else None,
+            toughness=self.back_toughness if back_is_creature else None,
+            oracle_text=self.back_oracle_text,
+            is_legendary="legendary" in btl.lower(),
+            layout=self.layout,
+            image_uri_small=self.back_image_uri_small,
+            image_uri_normal=self.back_image_uri_normal,
+            image_uri_large=self.back_image_uri_large,
+            image_uri_png=self.back_image_uri_png,
+        )
 
     @property
     def is_enchantment(self) -> bool:
@@ -295,6 +349,7 @@ class Card:
             "is_land": self.is_land,
             "power": self.power,
             "toughness": self.toughness,
+            "loyalty": self.loyalty,
             "oracle_text": self.oracle_text,
             "keywords": list(self.keywords),
             "image_uri_small": self.image_uri_small,
@@ -337,6 +392,7 @@ class Card:
             is_land=data.get("is_land", False),
             power=data.get("power"),
             toughness=data.get("toughness"),
+            loyalty=data.get("loyalty"),
             oracle_text=data.get("oracle_text", ""),
             keywords=data.get("keywords"),
             image_uri_small=data.get("image_uri_small", ""),

@@ -385,11 +385,15 @@ def test_mana_ability_line_is_covered_without_a_spec():
     assert not any(s.ability_kind == "activated" for s in r.specs)
 
 
-def test_loyalty_ability_is_unmodeled_for_now():
-    # "[+1]: ..." isn't a real mana/tap cost — deferred to M4 (RULE 606).
+def test_loyalty_ability_is_modeled_as_an_activated_ability():
+    # "[+1]: <effect>" now parses into an activated ability with a loyalty cost
+    # (RULE 606.5c).
     r = parse_oracle(Card(id="PW", name="Walker", type_line="Planeswalker",
                           oracle_text="[+1]: Draw a card."))
-    assert r.coverage == UNMODELED
+    assert r.coverage == MODELED
+    loyalty_specs = [s for s in r.specs if s.ability_kind == "activated"]
+    assert len(loyalty_specs) == 1
+    assert loyalty_specs[0].cost == {"loyalty": 1}
 
 
 def test_bind_activated_ability_from_text():

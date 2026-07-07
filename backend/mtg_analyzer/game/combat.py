@@ -65,6 +65,13 @@ _COLOUR_WORDS: dict[str, str] = {
     "green": "G",
 }
 
+#: The basic land types a ``<type>walk`` keyword can name (RULE 702.14 / 305.6).
+#: A slug like ``"islandwalk"`` (from Scryfall's keyword list, the card's
+#: oracle text, or a bound landwalk keyword spec) maps to its subtype prefix.
+_LAND_SUBTYPES: frozenset[str] = frozenset(
+    {"plains", "island", "swamp", "mountain", "forest"}
+)
+
 
 def _normalize(keyword: str) -> str:
     """A Scryfall keyword string → our slug ("First strike" → "first_strike")."""
@@ -241,13 +248,69 @@ def is_protected_from(obj: "GameObject", source: "GameObject") -> bool:
         return False
     if "everything" in quals:
         return True
-    source_colors = set(getattr(source.card, "color_identity", set()) or set())
+    # Effective colour (a layer-5 colour-changing effect if any, else the
+    # printed identity) — the model's colour proxy (RULE 105).
+    source_colors = set(getattr(source, "colors", None) or set())
     if "creatures" in quals and source.is_creature:
         return True
     if "all_colors" in quals and source_colors:
         return True
     if quals & source_colors:
         return True
+    return False
+
+
+def _landwalk_slugs(obj: "GameObject") -> set[str]:
+    """Every ``<type>walk`` keyword slug on ``obj``, from all its sources.
+
+    Unions the card's Scryfall ``keywords`` list, a ``<type>walk`` clause in
+    its oracle text, and any landwalk docked onto the object by the parser
+    (`intrinsic_keywords`) or granted by a layer-6 static ability
+    (`granted_keywords`). Landwalk is parametric (the land type is the
+    parameter), so — unlike the flat combat keywords — it is tracked by the
+    specific variant slug (``"islandwalk"``) rather than a bare flag.
+    """
+    slugs: set[str] = set()
+    for kw in getattr(obj.card, "keywords", None) or []:
+        slug = _normalize(str(kw))
+        if slug.endswith("walk"):
+            slugs.add(slug)
+    text = (getattr(obj.card, "oracle_text", "") or "").lower()
+    for match in re.finditer(r"\b([a-z]+)walk\b", text):
+        slugs.add(match.group(1) + "walk")
+    for source in ("intrinsic_keywords", "granted_keywords"):
+        for slug in getattr(obj, source, None) or set():
+            if str(slug).endswith("walk"):
+                slugs.add(str(slug))
+    return slugs
+
+
+def landwalk_subtypes(obj: "GameObject") -> frozenset[str]:
+    """The basic land types ``obj`` has landwalk of (RULE 702.14), e.g. ``{"island"}``."""
+    subs = {
+        slug[:-4]
+        for slug in _landwalk_slugs(obj)
+        if len(slug) > 4 and slug[:-4] in _LAND_SUBTYPES
+    }
+    return frozenset(subs)
+
+
+def unblockable_by_landwalk(
+    attacker: "GameObject", defending_lands: "list[GameObject]"
+) -> bool:
+    """Whether ``attacker``'s landwalk makes it unblockable this combat (RULE 702.14b).
+
+    True when the attacker has ``<type>walk`` and the defending player controls
+    at least one land of that type — then no creature that player controls may
+    block it (checked by the engine, which supplies the defender's lands).
+    """
+    subs = landwalk_subtypes(attacker)
+    if not subs:
+        return False
+    for land in defending_lands:
+        type_line = land.card.type_line.lower()
+        if any(sub in type_line for sub in subs):
+            return True
     return False
 
 

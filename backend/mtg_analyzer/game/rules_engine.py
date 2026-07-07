@@ -18,6 +18,7 @@ engine is the toolbox that loop drives.
 
 from __future__ import annotations
 
+import re
 from typing import Any, Optional
 
 from ..models import card_query
@@ -36,6 +37,23 @@ from .effects import (
     WinConditionEffect,
 )
 
+#: Roman-numeral value of each Saga chapter marker, for finding the last one.
+_ROMAN: dict[str, int] = {"I": 1, "II": 2, "III": 3, "IV": 4, "V": 5, "VI": 6, "VII": 7}
+#: A Saga chapter marker: a roman numeral (possibly a range/list like "I, II")
+#: opening a chapter line, followed by the em dash the ability text starts with.
+_SAGA_CHAPTER_RE = re.compile(r"(?:^|\n|,\s*)(VII|VI|IV|V|III|II|I)\b[\s,]*(?=[—\-–IVX])", re.M)
+
+
+def _saga_final_chapter(card: Card) -> int:
+    """The highest chapter number a Saga has (RULE 714.2c), 0 if unreadable.
+
+    Read off the oracle text's roman-numeral chapter markers ("I —", "II, III —",
+    "IV —"); the largest is the final chapter. Basic and text-based — enough to
+    drive the sacrifice SBA without a per-card table."""
+    text = card.oracle_text or ""
+    chapters = [_ROMAN[m.group(1)] for m in _SAGA_CHAPTER_RE.finditer(text)]
+    return max(chapters) if chapters else 0
+
 
 class RulesEngine:
     """Applies MTG rules to a `GameState`."""
@@ -46,6 +64,11 @@ class RulesEngine:
         #: Triggered abilities that fired and are waiting to be put on the
         #: stack (RULE 603.3 — after the current action, before priority).
         self.pending_triggers: list[tuple[TriggeredAbility, GameEvent]] = []
+        #: The active player's triggers awaiting an interactive ordering choice
+        #: (RULE 603.3b), and the non-active-player triggers to place after them.
+        #: Populated only while `state.interactive_ordering` drives a choice.
+        self._ordering_active: list[tuple[TriggeredAbility, GameEvent]] = []
+        self._ordering_rest: list[tuple[TriggeredAbility, GameEvent]] = []
         # Collect triggers for every event the game fires.
         state.subscribe(self._collect_triggers)
 
@@ -119,27 +142,84 @@ class RulesEngine:
         """Move fired triggers onto the stack (RULE 603.3). Returns count.
 
         Active player's triggers are placed first so they resolve last
-        (RULE 603.3b APNAP ordering — simplified: no intra-player choice).
+        (RULE 603.3b APNAP ordering). When `state.interactive_ordering` is on
+        and the active player has two or more simultaneous triggers, they
+        choose the intra-player order via a `pending_choice` (RULE 603.3b)
+        instead of a deterministic placement.
         """
         if not self.pending_triggers:
             return 0
         active_id = self.state.active_player.id
-        triggers = sorted(
-            self.pending_triggers,
-            key=lambda t: 0 if t[0].controller_id == active_id else 1,
-        )
-        count = len(triggers)
-        for ability, _event in triggers:
-            self.state.stack.append(
-                StackItem(
-                    kind="ability",
-                    controller_id=ability.controller_id or active_id,
-                    effects=[ability],
-                    description=ability.description or "triggered ability",
-                )
-            )
+        mine = [t for t in self.pending_triggers if t[0].controller_id == active_id]
+        rest = [t for t in self.pending_triggers if t[0].controller_id != active_id]
+
+        if self.state.interactive_ordering and len(mine) >= 2 and not self.state.pending_choice:
+            # Defer to the player: stash the sets and open the ordering choice.
+            self._ordering_active = mine
+            self._ordering_rest = rest
+            self.pending_triggers.clear()
+            self.state.pending_choice = self._trigger_order_choice()
+            return 0
+
+        count = len(self.pending_triggers)
+        for ability, _event in mine + rest:  # active first (bottom of stack)
+            self._place_trigger(ability)
         self.pending_triggers.clear()
         return count
+
+    def _place_trigger(self, ability: "TriggeredAbility") -> None:
+        self.state.stack.append(
+            StackItem(
+                kind="ability",
+                controller_id=ability.controller_id or self.state.active_player.id,
+                effects=[ability],
+                description=ability.description or "triggered ability",
+            )
+        )
+
+    def _trigger_order_choice(self) -> dict[str, Any]:
+        """Build the `pending_choice` for ordering the active player's triggers.
+
+        Each option is one still-to-be-placed trigger; the player picks the one
+        to put on the stack next (RULE 603.3b). Picked first → placed first →
+        resolves last (the stack is LIFO)."""
+        options = [
+            {"id": str(i), "label": ability.description or "Ausgelöste Fähigkeit"}
+            for i, (ability, _event) in enumerate(self._ordering_active)
+        ]
+        return {
+            "kind": "order_triggers",
+            "player_id": self.state.active_player.id,
+            "prompt": "Reihenfolge der ausgelösten Fähigkeiten wählen",
+            "options": options,
+        }
+
+    def resolve_trigger_order_choice(self, index: Optional[int]) -> None:
+        """Place the chosen trigger next, then re-ask or finish (RULE 603.3b).
+
+        ``index`` selects one of the remaining active-player triggers (by its
+        option id). When one is left it is placed automatically, then the
+        non-active-player triggers go on top; the choice is cleared."""
+        if not self._ordering_active:
+            self.state.pending_choice = None
+            return
+        # Default to the first if the index is missing/out of range.
+        if index is None or not 0 <= index < len(self._ordering_active):
+            index = 0
+        ability, _event = self._ordering_active.pop(index)
+        self._place_trigger(ability)
+
+        if len(self._ordering_active) > 1:
+            self.state.pending_choice = self._trigger_order_choice()
+            return
+        # One (or none) left: place it and the non-active triggers, then finish.
+        for remaining, _e in self._ordering_active:
+            self._place_trigger(remaining)
+        for ability, _e in self._ordering_rest:
+            self._place_trigger(ability)
+        self._ordering_active = []
+        self._ordering_rest = []
+        self.state.pending_choice = None
 
     # ------------------------------------------------------------------
     # Casting & the stack (RULE 601 / 608)
@@ -379,6 +459,10 @@ class RulesEngine:
                 # separately toward the 21-damage loss threshold.
                 if combat and source.is_commander:
                     target.add_commander_damage(source.instance_id, source.name, final)
+        elif getattr(target, "is_planeswalker", False):
+            # RULE 306.9: damage to a planeswalker removes that many loyalty
+            # counters (the 0-loyalty SBA then sends it to the graveyard).
+            target.add_counters("loyalty", -final)
         else:
             target.damage_marked += final
         self.state.fire_event(
@@ -491,6 +575,29 @@ class RulesEngine:
             )
             created.append(token)
         return created
+
+    def advance_sagas(self, player: Player) -> None:
+        """Add a lore counter to each Saga ``player`` controls (RULE 714.2b).
+
+        Called after the controller's draw step. The 0-chapter-remaining Saga
+        is sacrificed by a state-based action (`_sba_pass`), so this only
+        advances the chapter here."""
+        for obj in self.state.permanents_controlled_by(player.id):
+            if obj.card.is_saga:
+                obj.add_counters("lore", 1)
+
+    def copy_permanent(
+        self, controller_id: str, source: GameObject, count: int = 1
+    ) -> list[GameObject]:
+        """Create ``count`` token copies of ``source`` (RULE 707.2 / 111.5).
+
+        A token copy takes ``source``'s *copiable* characteristics — for this
+        basic version, its printed `Card` (the front face if it's transformed,
+        RULE 712.4a) — and enters as a token under ``controller_id``. Reuses
+        `create_token`, so the copy's own abilities bind and it follows the
+        token cease-to-exist lifecycle (RULE 704.5d)."""
+        copiable = getattr(source, "_front_card", source.card)
+        return self.create_token(controller_id, copiable, count)
 
     def gain_life(self, player: Player, amount: int) -> None:
         if amount <= 0:
@@ -908,6 +1015,24 @@ class RulesEngine:
         # 704.5f: creature with toughness <= 0 goes to graveyard.
         for obj in self.state.permanents():
             if obj.is_creature and obj.toughness is not None and obj.toughness <= 0:
+                self._move_to_graveyard(obj)
+                return True
+
+        # 704.5i: a planeswalker with 0 loyalty is put into its owner's
+        # graveyard. Only planeswalkers with a printed starting loyalty are
+        # subject to this (they always enter with loyalty counters).
+        for obj in self.state.permanents():
+            if obj.is_planeswalker and obj.card.loyalty is not None and obj.loyalty <= 0:
+                self._move_to_graveyard(obj)
+                return True
+
+        # 704.5x: a Saga with lore counters >= its final chapter number and no
+        # chapter ability of it on the stack is put into its owner's graveyard.
+        for obj in self.state.permanents():
+            if not obj.card.is_saga:
+                continue
+            final = _saga_final_chapter(obj.card)
+            if final and obj.lore >= final and not self.state.stack:
                 self._move_to_graveyard(obj)
                 return True
 

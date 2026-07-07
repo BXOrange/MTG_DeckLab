@@ -157,6 +157,7 @@ def card_from_scryfall_data(data: dict[str, Any]) -> Card:
         is_land="Land" in type_line,
         power=power if is_creature else None,
         toughness=toughness if is_creature else None,
+        loyalty=_parse_int(front.get("loyalty")),
         oracle_text=front.get("oracle_text", ""),
         keywords=list(data.get("keywords") or []),
         image_uri_small=image_uris.get("small", ""),
