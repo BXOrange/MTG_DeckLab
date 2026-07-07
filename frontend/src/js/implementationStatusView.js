@@ -112,7 +112,7 @@ const SECTIONS = [
     rule: '',
     items: [
       ['full', 'Mana-Modell', 'Generisch, farbig, farblos, Hybrid, Mono-Hybrid, Phyrexianisch, {X}; Dual-Land-Farbwahl.'],
-      ['full', 'Bind-on-load (Karten-Katalog)', 'Fähigkeiten werden beim Spielaufbau aus einem Namens-Katalog an die Karten gebunden (game/ability_catalogue.py) — Basis für den künftigen Oracle-Parser.'],
+      ['full', 'Bind-on-load (Karten-Katalog + Oracle-Parser)', 'Fähigkeiten werden beim Spielaufbau an die Karten gebunden — aus einem Namens-Katalog (game/ability_catalogue.py) und, für nicht katalogisierte Karten, aus dem Oracle-Parser (docs/09).'],
       ['full', 'Enters tapped', 'Reine Tap-Länder kommen getappt (RULE 614.1, aus dem Oracle-Text). Bedingte (Shock/Check) noch ungetappt.'],
       ['full', 'Zielwahl (Targeting)', 'Legale Ziele pro Anforderung, gesperrte Sprüche ohne Ziel (RULE 601.2c).'],
       ['full', 'Tokens & Marken', '+1/+1 / −1/−1 (annihilieren als SBA), Loyalitäts-/Ladungsmarken.'],
@@ -125,7 +125,7 @@ const SECTIONS = [
     title: 'Noch nicht implementiert',
     rule: '',
     items: [
-      ['partial', 'Karten-Abdeckung (Specs)', 'Bind-on-load läuft, aber Specs kommen aus einem handgepflegten Katalog (nur wenige Karten). Der NLP-Oracle-Parser (docs/09) für beliebige Karten folgt.'],
+      ['partial', 'Karten-Abdeckung (Specs)', 'Oracle-Parser Phase 1 aktiv: Instants/Hexereien, ETB-Trigger, „Kosten: Effekt"-Aktivierfähigkeiten und statische Anthem-/Lord-Effekte aus den Familien Schaden/Ziehen/Abwerfen/Zerstören/Lebensgewinn/Neutralisieren/Mühlen/Exil/Tappen/+1+1-Marken/Token-Erzeugung werden ohne Katalog-Eintrag erkannt (parser/oracle → normalize/segmenter/handlers/gate). Anthems inkl. Stammes-Lords („Andere Goblins, die du kontrollierst …"), Token-Anthems (Intangible Virtue), farb-basierte („Schwarze Kreaturen bekommen +1/+1", Bad Moon) und globale Anthems (ohne „die du kontrollierst" — alle Spieler) über Subtyp-/Token-/Farb-Filter im Layer-System. Token folgen den Regeln zum Aufhören-zu-existieren (RULE 704.5d). Fail-closed: nur vollständig abgedeckte Karten (MODELED) binden Effekte. Weitere Familien (Pump/Modi/Kopien) folgen (docs/09).'],
       ['partial', 'Bedingte Tap-Länder', 'Shock-/Check-Länder (2 Leben zahlen / „unless …") kommen aktuell ungetappt — die Wahl fehlt noch.'],
       ['planned', 'Loyalitäts-Fähigkeiten (Planeswalker)', 'Planeswalker sind gültiges Angriffsziel und tragen Loyalitätsmarken, aber ihre [+N]/[−N]/[0]-Fähigkeiten sind nicht aktivierbar (RULE 606).'],
       ['planned', 'Interaktiver Blocker-/Multiplayer-Modus', 'Braucht die Zwei-Spieler-Prioritäts-Schleife.'],

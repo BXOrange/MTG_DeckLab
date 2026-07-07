@@ -57,10 +57,63 @@ Weeks 1–4 roadmap is archived at
       quality?}`). **Flag keywords now bind**: `specs_for` folds the parsed
       keyword specs in, and the binder docks parameterless ones onto
       `GameObject.intrinsic_keywords`, which `game/combat.py` unions into its
-      recognition. Still open: effect-clause handlers + coverage gate; and
-      binding *parametric* keywords (kicker cost, annihilator N, protection
-      quality — parsed and carried, but they need dedicated behaviour:
-      alternative costs, combat maths, etc.).
+      recognition.
+      **Phase 1 shipped (the effect-clause front-end):** `parser/oracle/`
+      now has `normalize.py` (reminder-strip, self-name → `~`, digit-word fold,
+      newline-preserving), `catalogue/subgrammars.py` (shared TARGET/NUMBER/
+      COUNT matchers — one damage handler covers "any target"/"target creature"/
+      …), `catalogue/handlers.py` (the effect-family table: damage/draw/discard/
+      gain_life/destroy/counter, each full-matching a clause), `segmenter.py`
+      (peels trigger wrappers → `EventType`, "you may" → optional, splits chained
+      clauses), and `gate.py` (`parse_oracle(card)` → `AbilitySpec`s + a
+      fail-closed `MODELED`/`UNMODELED` coverage verdict + unclaimed-clause list).
+      `ability_catalogue.specs_for` falls back to it for **unregistered** cards,
+      adding effect/triggered/activated specs **only when the card is `MODELED`**
+      (never half-resolves). So a plain instant/sorcery/ETB-trigger/activated
+      ability built from the handled families now resolves with no catalogue
+      entry. Handled effect families: damage, draw, discard, destroy, gain_life,
+      counter, **mill, exile, tap/untap, +1/+1 counters, and token creation**
+      (backed by new one-shot effects `MillEffect`/`ExileEffect`/`TapEffect`/
+      `AddCountersEffect`/`CreateTokenEffect` + engine primitives
+      `RulesEngine.exile`/`set_tapped`/`add_counters`/`create_token` and the
+      pre-existing `mill`). **Tokens** carry the rules-critical lifecycle:
+      `GameObject.is_token` (stored, so a token *copy* of a real card is still a
+      token), creation binds the token's abilities like any card's, and a new
+      SBA `RulesEngine._remove_stranded_tokens` implements RULE 704.5d — a token
+      that leaves the battlefield reaches its zone long enough to fire its
+      dies/leaves triggers, then ceases to exist and can't return (RULE 111.7-8);
+      exile and destroy both funnel through it. +1/+1 counters may target any
+      permanent, not only creatures (RULE 122.1a). **Activated abilities** are
+      parsed too: the segmenter peels a
+      `<cost>: <effect>` wrapper, feeds the cost to `costs.parse_activation_cost`
+      and the effect body to the same handler table (mana abilities — "add …" —
+      are recognised as covered-without-a-spec, since the engine models them
+      separately; loyalty "[+N]:" costs stay `UNMODELED`, deferred to M4).
+      `parser/oracle/processing_list.py` adds the **coverage metric + ranked,
+      template-abstracted processing list** (docs/09 "coverage is the roadmap"):
+      `coverage_report(...)`/`coverage_over_cards(cards)` → `% MODELED` + the
+      unclaimed-clause templates ranked by cards-unlocked. Tests:
+      `test_oracle_pipeline.py`.
+      **Static/anthem clauses parse too** (`parser/oracle/catalogue/
+      static_handlers.py`): "creatures you control get +N/+N", tribal lords
+      ("Other Goblins you control …" — singularised), token anthems (Intangible
+      Virtue), and compound "get +N/+N and have [flag keywords]" become `static`
+      `AbilitySpec`s (`anthem`/`grant_keyword`). `continuous.affected_objects`
+      gained **subtype**, **tokens**, **color**, and **exclude_self** selectors
+      (Changeling matches any subtype; colour vs `card.color_identity`); scope
+      also covers **global** anthems (no "you control" → all creatures, both
+      players — Bad Moon/Crusade), "all"/"each" markers, and multicolour scopes.
+      Only remaining edge: granted *landwalk* ("… and have mountainwalk") — left
+      UNMODELED and blocked on `game/combat.py` having **no landwalk evasion**
+      yet, so binding it would be a silently-wrong no-op (fix combat first).
+      Still open: more effect families (pump "+N/+N until end of turn",
+      −1/−1 counters, regenerate, scry, mode/"choose one", "up to N" targets,
+      token *copies* — RULE 707) — each needs a one-shot `GameEffect` + registry
+      entry first; replacement clause handlers; landwalk evasion in combat
+      (then grant it); parse-on-load memoization in `LazyCardLoader`; and binding
+      *parametric* keywords (kicker cost,
+      annihilator N, protection quality — parsed and carried, but they need
+      dedicated behaviour: alternative costs, combat maths, etc.).
 - [~] Combat blocking + creature-vs-creature damage: **engine done** —
       `GameEngine.declare_blockers`/`can_block` and a rewritten
       `_step_combat_damage` handle blocked/unblocked attackers, gang blocks

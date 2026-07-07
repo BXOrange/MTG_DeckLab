@@ -61,15 +61,34 @@ parallel once the backend seam exists.
 spells/abilities resolve without a hand-authored catalogue entry.
 Follows [`09_ORACLE_EFFECT_PARSER.md`](09_ORACLE_EFFECT_PARSER.md). Phase 0
 (IR + binder + one card) and the Phase 1 *keyword* catalogue are **done**.
-- Normalizer + segmenter (split abilities; peel trigger/cost/keyword wrappers).
-- Deterministic effect-family handler table for what the engine already
-  supports (damage/draw/discard/destroy/gain_life/counter/search) with shared
-  TARGET/NUMBER/DURATION sub-grammars.
-- Fail-closed full-span **coverage gate** (`MODELED`/`UNMODELED`) + processing
-  list for unclaimed clauses; coverage metric in tests.
-- Parse-on-load in `LazyCardLoader`; bind-per-game already wired.
-- **Unblocks:** the majority of instants/sorceries/abilities; is the seam M2
-  and M6 plug into. *(docs/09 Phases 1–2.)*
+
+- ✅ Normalizer + segmenter (`parser/oracle/normalize.py`, `segmenter.py`):
+  split abilities on newlines, peel trigger wrapper → `EventType`, "you may"
+  → optional, chain effect clauses.
+- ✅ Deterministic effect-family handler table (`catalogue/handlers.py`) for
+  damage/draw/discard/destroy/gain_life/counter/**mill/exile/tap/+1+1 counters/
+  token creation** with shared TARGET/NUMBER/COUNT sub-grammars
+  (`catalogue/subgrammars.py`). Tokens carry the full RULE 704.5d cease-to-exist
+  lifecycle (`GameObject.is_token`, `RulesEngine.create_token`/
+  `_remove_stranded_tokens`). *(search stays catalogue-authored — a later family.)*
+- ✅ Fail-closed full-span **coverage gate** (`gate.py` `parse_oracle` →
+  `MODELED`/`UNMODELED` + unclaimed-clause list). Wired into
+  `ability_catalogue.specs_for` (unregistered + `MODELED` only). Tests in
+  `test_oracle_pipeline.py`.
+- ✅ **Activated-ability** clause parsing (`<cost>: <effect>` → `costs.py` +
+  the handler table; mana abilities recognised, loyalty deferred to M4).
+- ✅ Deduped, template-abstracted **processing list** + cache-wide coverage
+  metric (`processing_list.py` `coverage_report`/`coverage_over_cards`).
+- ✅ **Static/anthem clause** handler (`catalogue/static_handlers.py`): plain,
+  tribal lords, token anthems, colour-scoped ("Black creatures …", Bad Moon),
+  **global** (no "you control"), and compound "get +N/+N and have [kw]" — with
+  subtype/token/color/exclude_self selectors in `continuous.affected_objects`.
+- ⏳ Remaining: more effect families (pump/regenerate/scry/modes/token-copies —
+  each needs a one-shot `GameEffect` first) + replacement clause handlers;
+  granted landwalk (blocked on combat landwalk evasion); parse-on-load
+  memoization in `LazyCardLoader` (bind-per-game wired).
+- **Unblocks:** plain instants/sorceries/ETB-triggers already resolve; is the
+  seam M2 and M6 plug into. *(docs/09 Phases 1–2.)*
 
 ### M2 — Parametric keyword binding
 **Goal:** give behaviour to keywords already parsed-but-inert.

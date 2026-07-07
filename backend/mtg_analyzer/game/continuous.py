@@ -44,11 +44,45 @@ def _signed(n: int) -> str:
     return f"+{n}" if n >= 0 else str(n)
 
 
+def _has_subtype(obj: "GameObject", subtype: str) -> bool:
+    """Whether ``obj`` has creature subtype ``subtype`` (RULE 205.3, tribal lords).
+
+    A case-insensitive match against the printed type line's subtype portion —
+    the same substring approach the tutor's `card_query` uses ("Goblin" matches
+    "Creature — Goblin Warrior"). Changeling (RULE 702.73) is every creature
+    type, so it matches any subtype.
+    """
+    type_line = obj.card.type_line.lower()
+    if "changeling" in type_line or "changeling" in obj.intrinsic_keywords:
+        return True
+    _, _, sub = type_line.partition("—")  # subtypes follow the em dash
+    return subtype.lower() in sub
+
+
+def _has_color(obj: "GameObject", colors: list) -> bool:
+    """Whether ``obj`` is any of ``colors`` (RULE 105 / colour-scoped anthems).
+
+    Approximated by the card's ``color_identity`` (the same field the tutor's
+    `card_query` matches on). ``"C"`` means colourless — no WUBRG at all.
+    """
+    identity = obj.card.color_identity
+    wubrg = identity & {"W", "U", "B", "R", "G"}
+    for c in colors:
+        if c == "C":
+            if not wubrg:
+                return True
+        elif c in identity:
+            return True
+    return False
+
+
 def affected_objects(state: "GameState", ability: StaticAbility) -> list["GameObject"]:
     """The battlefield objects an ability's ``affects`` selector picks out.
 
     "you control" is scoped by the ability's source controller; an unsourced
-    ability (a bare test fixture) matches nothing for those selectors.
+    ability (a bare test fixture) matches nothing for those selectors. A
+    ``params["subtype"]`` narrows the base set to that creature type — the
+    tribal-lord filter (Goblin King's "Other Goblin creatures you control …").
     """
     src = ability.source
     controller = getattr(src, "controller_id", None)
@@ -56,25 +90,38 @@ def affected_objects(state: "GameState", ability: StaticAbility) -> list["GameOb
     affects = ability.affects
 
     if affects == "self":
-        return [src] if src is not None and src in battlefield else []
-    if affects == "all_creatures":
-        return [o for o in battlefield if o.is_creature]
-    if affects == "all_permanents":
-        return list(battlefield)
-    if controller is None:
-        return []
-    if affects == "creatures_you_control":
-        return [o for o in battlefield if o.is_creature and o.controller_id == controller]
-    if affects == "other_creatures_you_control":
-        return [
+        result = [src] if src is not None and src in battlefield else []
+    elif affects == "all_creatures":
+        result = [o for o in battlefield if o.is_creature]
+    elif affects == "all_permanents":
+        result = list(battlefield)
+    elif controller is None:
+        result = []
+    elif affects == "creatures_you_control":
+        result = [o for o in battlefield if o.is_creature and o.controller_id == controller]
+    elif affects == "other_creatures_you_control":
+        result = [
             o for o in battlefield
             if o.is_creature and o.controller_id == controller and o is not src
         ]
-    if affects == "permanents_you_control":
-        return [o for o in battlefield if o.controller_id == controller]
-    if affects == "lands_you_control":
-        return [o for o in battlefield if o.is_land and o.controller_id == controller]
-    return []
+    elif affects == "permanents_you_control":
+        result = [o for o in battlefield if o.controller_id == controller]
+    elif affects == "lands_you_control":
+        result = [o for o in battlefield if o.is_land and o.controller_id == controller]
+    else:
+        result = []
+
+    subtype = ability.params.get("subtype")
+    if subtype:
+        result = [o for o in result if _has_subtype(o, str(subtype))]
+    color = ability.params.get("color")
+    if color:  # colour-scoped anthem ("Black creatures get +1/+1", Bad Moon)
+        result = [o for o in result if _has_color(o, list(color))]
+    if ability.params.get("tokens"):  # "creature tokens you control …" (RULE 111)
+        result = [o for o in result if getattr(o, "is_token", False)]
+    if ability.params.get("exclude_self"):  # a global "Other creatures …" anthem
+        result = [o for o in result if o is not src]
+    return result
 
 
 def _source_name(ability: StaticAbility) -> str:

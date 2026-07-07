@@ -411,6 +411,87 @@ class RulesEngine:
     def destroy(self, obj: GameObject) -> None:
         self._move_to_graveyard(obj)
 
+    def exile(self, obj: GameObject) -> None:
+        """Move ``obj`` to its owner's exile zone (RULE 406), from anywhere.
+
+        Fires `LEAVES_BATTLEFIELD` when it was in play, then `EXILE`. Unlike
+        destroy this never diverts a commander to the command zone — exile is
+        a specific zone move, and command-zone replacement is destroy/death's
+        rule (903.9).
+        """
+        was_on_battlefield = obj in self.state.battlefield
+        owner = self.state.player_by_id(obj.owner_id)
+        if was_on_battlefield:
+            self.state.remove_from_battlefield(obj)
+        else:
+            self._remove_from_current_zone(owner, obj)
+        obj.tapped = False
+        obj.damage_marked = 0
+        owner.add_to_zone(obj, Zone.EXILE)
+        if was_on_battlefield:
+            self.state.fire_event(
+                GameEvent(EventType.LEAVES_BATTLEFIELD, object=obj.name, owner_id=obj.owner_id)
+            )
+        self.state.fire_event(
+            GameEvent(EventType.EXILE, object=obj.name, owner_id=obj.owner_id)
+        )
+
+    def set_tapped(self, obj: GameObject, tapped: bool = True) -> None:
+        """Tap or untap a permanent (RULE 701.21 / 701.22).
+
+        No TAP/UNTAP event is modeled (no card in scope triggers off it), so
+        this is a direct state change — the single choke point regardless.
+        """
+        obj.tapped = tapped
+
+    def add_counters(self, obj: GameObject, amount: int) -> None:
+        """Put ``amount`` +1/+1 counters on ``obj`` (RULE 122); negatives remove.
+
+        Works on any permanent, not just creatures (RULE 122.1a) — a land can
+        enter with +1/+1 counters and use them once it later becomes a creature.
+        The layer engine (`continuous.recompute`) reads the net counter into
+        derived P/T on the next SBA pass, which the caller's resolution already
+        triggers.
+        """
+        obj.plus_one_counters += amount
+
+    def create_token(
+        self, controller_id: str, token_card: Card, count: int = 1
+    ) -> list[GameObject]:
+        """Create ``count`` token permanents under ``controller_id`` (RULE 111.5).
+
+        Each token is a fresh `GameObject` flagged ``is_token`` (so RULE 704.5d
+        removes it once it leaves the battlefield), with its abilities bound
+        from the token's own definition — exactly like a real permanent — then
+        put onto the battlefield firing `ENTERS_BATTLEFIELD`. The token's owner
+        *and* controller is the creating player (RULE 111.4). Returns the tokens.
+        """
+        from .effect_binder import bind_from_catalogue  # function-scoped: avoid cycle
+
+        created: list[GameObject] = []
+        for _ in range(max(0, count)):
+            token = GameObject(
+                token_card,
+                owner_id=controller_id,
+                zone=Zone.BATTLEFIELD,
+                is_token=True,
+            )
+            bind_from_catalogue(token)  # token abilities are live like any card's
+            token.summoning_sick = True  # RULE 302.6 applies to tokens too
+            token.tapped = ability_catalogue.enters_tapped(token_card)  # RULE 614.1
+            self.state.add_to_battlefield(token)
+            self.state.fire_event(
+                GameEvent(
+                    EventType.ENTERS_BATTLEFIELD,
+                    controller_id=controller_id,
+                    card_id=token_card.id,
+                    object=token.name,
+                    is_token=True,
+                )
+            )
+            created.append(token)
+        return created
+
     def gain_life(self, player: Player, amount: int) -> None:
         if amount <= 0:
             return
@@ -860,6 +941,25 @@ class RulesEngine:
         if self._apply_legend_rule():
             return True
 
+        # 704.5d: a token in any zone other than the battlefield ceases to
+        # exist. It *did* reach that zone (its owner's graveyard/exile/…) long
+        # enough for its leaves-the-battlefield / dies triggers to have fired
+        # when it was moved there — this SBA then removes it from the game, and
+        # RULE 111.7-8 keep it from ever returning to another zone.
+        if self._remove_stranded_tokens():
+            return True
+
+        return False
+
+    def _remove_stranded_tokens(self) -> bool:
+        """Remove any token that has left the battlefield (RULE 704.5d)."""
+        for player in self.state.players:
+            for zone in Player.PERSONAL_ZONES:  # every non-battlefield zone
+                cards = player.zones[zone]
+                for obj in cards:
+                    if obj.is_token:
+                        cards.remove(obj)
+                        return True
         return False
 
     def _apply_legend_rule(self) -> bool:

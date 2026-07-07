@@ -22,6 +22,7 @@ import re
 from typing import Any, Callable
 
 from ..parser.oracle.catalogue.keywords import parse_keywords
+from ..parser.oracle.gate import parse_oracle
 from ..parser.oracle.spec import AbilitySpec, EffectSpec
 
 #: name (lowercased) → factory producing that card's specs, fresh each call.
@@ -40,15 +41,22 @@ def is_registered(name: str) -> bool:
 def specs_for(card: Any) -> list[AbilitySpec]:
     """The `AbilitySpec`s a card contributes, or ``[]`` if none are known.
 
-    Two sources, unioned: the hand-authored registry (by card name) and the
-    RULE 702 **keyword catalogue** parsed off the card's own text/keywords.
-    Flag keywords from the latter dock onto combat via the binder; any keyword
-    the registry already authored wins, so it isn't duplicated. (Future: fall
-    back to the full oracle parser for unregistered effect clauses too.)
+    Three sources, in precedence order:
+
+    1. the hand-authored registry (by card name) — trusted wholesale when a
+       card is registered;
+    2. the RULE 702 **keyword catalogue** parsed off the card's own
+       text/keywords (always folded in, since each keyword is safe on its own);
+    3. the **oracle-effect parser** (docs/09) for the effect/triggered clauses
+       of an *unregistered* card — but only when the parser marks the whole
+       card `MODELED` (fail-closed: a half-parsed card contributes no effects).
+
+    Any keyword the registry already authored wins, so it isn't duplicated.
     """
     name = (getattr(card, "name", "") or "").strip().lower()
     factory = _REGISTRY.get(name)
-    specs: list[AbilitySpec] = list(factory()) if factory is not None else []
+    registered = factory is not None
+    specs: list[AbilitySpec] = list(factory()) if registered else []
 
     authored = {
         s.keyword.get("name")
@@ -59,6 +67,13 @@ def specs_for(card: Any) -> list[AbilitySpec]:
         if kw_spec.keyword and kw_spec.keyword.get("name") in authored:
             continue
         specs.append(kw_spec)
+
+    # For an unregistered card, add parser-derived effect abilities — but only
+    # from a fully MODELED card, so we never resolve half of what a card says.
+    if not registered:
+        result = parse_oracle(card)
+        if result.modeled:
+            specs.extend(result.effect_specs)
     return specs
 
 

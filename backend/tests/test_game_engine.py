@@ -336,6 +336,79 @@ def test_x_spell_legal_action_reports_max_affordable_x():
     assert cast_action["max_x"] == 3
 
 
+# ---------------------------------------------------------------------------
+# Summoning sickness and {T} costs (RULE 302.6 / 602.5e)
+# ---------------------------------------------------------------------------
+
+
+def _sick(state, engine, card, controller="p1", haste=False):
+    """Put a *summoning-sick* permanent on the battlefield (no obj_on_battlefield
+    here, which clears sickness)."""
+    obj = GameObject(card, owner_id=controller, zone=Zone.BATTLEFIELD)
+    obj.summoning_sick = True
+    if haste:
+        obj.intrinsic_keywords.add("haste")
+    state.add_to_battlefield(obj)
+    return obj
+
+
+def _mana_dork(name="Llanowar Elves"):
+    return creature(name=name, cost="{G}", power=1, toughness=1,
+                    type_line="Creature — Elf Druid", oracle_text="{T}: Add {G}.")
+
+
+def _mana_offered(engine, player, obj):
+    return any(
+        a.get("type") == "tap_for_mana" and a.get("instance_id") == obj.instance_id
+        for a in engine.legal_actions(player)
+    )
+
+
+def test_summoning_sick_creature_cannot_tap_for_mana():
+    eng = make_engine([land()], hand=0)
+    dork = _sick(eng.state, eng, _mana_dork())
+    p1 = eng.state.active_player
+    assert not _mana_offered(eng, p1, dork)  # not a legal action
+    with pytest.raises(ValueError):
+        eng.tap_for_mana(p1, dork)  # and refused if forced
+
+
+def test_haste_lets_a_creature_tap_for_mana_the_turn_it_arrives():
+    eng = make_engine([land()], hand=0)
+    dork = _sick(eng.state, eng, _mana_dork(), haste=True)
+    p1 = eng.state.active_player
+    assert _mana_offered(eng, p1, dork)
+    assert eng.tap_for_mana(p1, dork) == {"G": 1} and dork.tapped
+
+
+def test_noncreature_mana_source_ignores_summoning_sickness():
+    # A mana rock / land is never summoning sick for {T} (RULE 302.6 is creatures).
+    eng = make_engine([land()], hand=0)
+    rock = Card(id="Sol Ring", name="Sol Ring", type_line="Artifact",
+                oracle_text="{T}: Add {C}{C}.")
+    obj = _sick(eng.state, eng, rock)
+    p1 = eng.state.active_player
+    assert _mana_offered(eng, p1, obj)
+    assert eng.tap_for_mana(p1, obj) == {"C": 2}
+
+
+def test_summoning_sick_creature_cannot_activate_tap_ability():
+    from mtg_analyzer.game.effect_binder import bind_from_catalogue
+
+    eng = make_engine([land()], hand=0)
+    pinger = _mana_dork(name="Prodigal Pyromancer")
+    pinger.oracle_text = "{T}: Prodigal Pyromancer deals 1 damage to any target."
+    sick = _sick(eng.state, eng, pinger)
+    bind_from_catalogue(sick)
+    ability = sick.activated_abilities[0]
+    p1 = eng.state.active_player
+    assert not eng.can_activate(p1, sick, ability)
+
+    hasty = _sick(eng.state, eng, pinger, haste=True)
+    bind_from_catalogue(hasty)
+    assert eng.can_activate(p1, hasty, hasty.activated_abilities[0])
+
+
 def test_stack_is_lifo():
     eng = make_engine([land()], hand=0)
     state = eng.state

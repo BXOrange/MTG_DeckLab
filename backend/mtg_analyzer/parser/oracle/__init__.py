@@ -8,12 +8,21 @@ ever references whitelisted effect types by name, never executable
 behaviour. Turning an `AbilitySpec` into live `GameEffect` objects is the
 *back-end*'s job (`mtg_analyzer/game/effect_binder.py`).
 
-Phase 0 shipped the IR + its validation (`spec.py`). The keyword catalogue
-(`catalogue/keywords.py`) — the RULE 702 vocabulary + its parameter-extractor
-regexes — is in; the normalizer, segmenter, and effect-clause handlers land
-in later phases.
+Phase 0 shipped the IR + its validation (`spec.py`) and the keyword catalogue
+(`catalogue/keywords.py`). Phase 1 is in: `normalize` → `segmenter` →
+`catalogue/handlers` (the effect-family table over shared `catalogue/subgrammars`)
+→ `gate`, tied together by `parse_oracle`, which turns a card's oracle text
+into `AbilitySpec`s with a fail-closed `MODELED`/`UNMODELED` coverage verdict.
 """
 
+from .gate import MODELED, PARSER_VERSION, UNMODELED, ParseResult, parse_oracle
+from .processing_list import (
+    CoverageReport,
+    TemplateEntry,
+    abstract_clause,
+    coverage_over_cards,
+    coverage_report,
+)
 from .spec import (
     ALLOWED_ABILITY_KINDS,
     MAX_EFFECT_MAGNITUDE,
@@ -30,4 +39,14 @@ __all__ = [
     "EffectSpec",
     "ParserProvenance",
     "SpecValidationError",
+    "ParseResult",
+    "parse_oracle",
+    "MODELED",
+    "UNMODELED",
+    "PARSER_VERSION",
+    "CoverageReport",
+    "TemplateEntry",
+    "abstract_clause",
+    "coverage_report",
+    "coverage_over_cards",
 ]

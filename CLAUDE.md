@@ -53,9 +53,14 @@ boundary) → **binder** (`game/effect_binder.py`) → live `GameEffect` objects
 the `EffectRegistry` (`game/effects.py`). **Bind-on-load** is wired:
 `build_goldfish_engine` calls `bind_from_catalogue(obj)` for every object it
 creates, sourcing specs from `game/ability_catalogue.py` (a hand-authored,
-name-keyed registry — e.g. Evolving Wilds' fetch). The NLP front-end that would
-produce specs from *arbitrary* oracle text is not built yet; the catalogue is
-the seam it plugs into (`specs_for` falls back to it later).
+name-keyed registry — e.g. Evolving Wilds' fetch) **and** the oracle-text
+front-end. That front-end (`parser/oracle/`, docs/09 Phase 1) is `normalize` →
+`segmenter` → `catalogue/handlers` (effect families over shared
+`catalogue/subgrammars`) → `gate.parse_oracle`, which returns `AbilitySpec`s +
+a fail-closed `MODELED`/`UNMODELED` coverage verdict. `specs_for` falls back to
+it for *unregistered* cards, adding effect/triggered specs only when the card is
+fully `MODELED` (never half-resolving). The front-end has **no `game/` imports**
+(the security boundary); binding stays the binder's job.
 
 ### Key game/ modules
 - `effects.py` — effect hierarchy + `EffectRegistry` (whitelisted `type` →
@@ -67,8 +72,9 @@ the seam it plugs into (`specs_for` falls back to it later).
   every battlefield permanent's characteristics in layer order and stamps
   derived P/T, types, granted keywords + a per-object `static_trace`.
 - `costs.py` — regex parser for **activated-ability costs** (`Cost: Effect`).
-- `ability_catalogue.py` — card→`AbilitySpec` registry (bind-on-load source) +
-  `enters_tapped` (RULE 614.1, oracle-derived).
+- `ability_catalogue.py` — card→`AbilitySpec` registry (bind-on-load source),
+  now also falling back to the oracle-text parser (`parser/oracle/gate.parse_oracle`)
+  for unregistered `MODELED` cards + `enters_tapped` (RULE 614.1, oracle-derived).
 - `targeting.py` — legal-target computation (RULE 115 / 601.2c).
 - `mana_abilities.py`, `models/mana_cost.py`, `models/mana_pool.py` — mana.
 
@@ -83,14 +89,29 @@ double strike, deathtouch, trample, vigilance, lifelink, menace, defender,
 haste, indestructible, protection-from); **static abilities** via the layer
 system (layers 4/6/7 + cost adjustment); **activated abilities** with full cost
 parsing; **triggered abilities** (event-based) + replacement effects; one-shot
-effects (damage/draw/destroy/counter/search/gain_life/cascade/discover/…);
+effects (damage/draw/discard/destroy/counter/search/gain_life/mill/exile/tap/
++1+1-counters/create-token/cascade/discover/…); **tokens** with the RULE 704.5d
+cease-to-exist lifecycle (`GameObject.is_token`, `RulesEngine.create_token`);
 commander damage; counters. The **RULE 702 keyword catalogue**
 (`parser/oracle/catalogue/keywords.py`) parses all 194 keywords off a card into
 `keyword` `AbilitySpec`s (flag/number/cost/number+cost/quality shapes, each
 parametric one with its extractor regex); **flag keywords bind** — the binder
-docks them onto `GameObject.intrinsic_keywords`, which combat honours. **Not
-yet**: oracle NLP parser (effect clauses), interactive blocker/multiplayer
-priority, `replacement` binding + *parametric* `keyword` binding (kicker cost,
+docks them onto `GameObject.intrinsic_keywords`, which combat honours. The
+**oracle-effect front-end** (docs/09 Phase 1, `parser/oracle/`) turns oracle
+text into `AbilitySpec`s for the effect families (damage/draw/discard/destroy/
+gain_life/counter/mill/exile/tap/+1+1-counters/create-token) as spell_effects,
+ETB/dies/attacks/blocks triggers, **`<cost>: <effect>` activated abilities**,
+and **`static` anthem/lord clauses** ("creatures you control get +N/+N", tribal
+"Other Goblins …", token anthems, colour-scoped/global "Black creatures …",
+compound "get +N/+N and have [kw]" via `catalogue/static_handlers.py` +
+subtype/tokens/color/exclude_self selectors in
+`continuous.affected_objects`) — all with a fail-closed coverage gate, so plain
+instants/sorceries/ETB-triggers/activated/static abilities resolve with no
+catalogue entry. `processing_list.py` reports cache-wide coverage + a ranked
+build order for the next handlers. **Not yet**: richer effect families
+(pump/regenerate/scry/modes — each needs a one-shot effect first) +
+color-scoped/global anthems + replacement clause parsing, interactive blocker/multiplayer priority,
+`replacement` binding + *parametric* `keyword` binding (kicker cost,
 annihilator N, protection quality are parsed but not bound), layers 1–3/5/7a/7e,
 ordering choices (RULE 616.1/603.3b), commander tax, loyalty/planeswalker
 abilities (RULE 606), Aura/Equipment attachment resolution, and structural card

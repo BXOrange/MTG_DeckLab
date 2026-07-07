@@ -166,3 +166,90 @@ def test_bind_and_attach_static_ability():
     assert lord.static_effects  # bound and attached, not refused
     continuous.recompute(eng.state)
     assert (bear.power, bear.toughness) == (3, 3)
+
+
+# -- Tribal lords / token anthems from oracle text (end-to-end) --------------
+
+
+def _bind(state, card, controller="p1"):
+    """Put a permanent on the battlefield with its abilities bound from text."""
+    from mtg_analyzer.game.effect_binder import bind_from_catalogue
+
+    obj = put(state, card, controller)
+    bind_from_catalogue(obj)
+    return obj
+
+
+def test_tribal_lord_buffs_only_its_creature_type():
+    eng = make_engine()
+    lord = _bind(eng.state, Card(id="GK", name="Goblin King", type_line="Creature — Goblin",
+                                 is_creature=True, power=2, toughness=2, keywords=[],
+                                 oracle_text="Other Goblins you control get +1/+1."))
+    goblin = put(eng.state, creature("Goblin Piker", power=2, toughness=1,
+                                     type_line="Creature — Goblin Warrior"))
+    bear = put(eng.state, creature("Bear", power=2, toughness=2))
+    enemy_goblin = put(eng.state, creature("Enemy Goblin", power=1, toughness=1,
+                                           type_line="Creature — Goblin"), controller="p2")
+    continuous.recompute(eng.state)
+    assert (goblin.power, goblin.toughness) == (3, 2)   # your other Goblin
+    assert (lord.power, lord.toughness) == (2, 2)       # "other" excludes the lord
+    assert (bear.power, bear.toughness) == (2, 2)       # not a Goblin
+    assert (enemy_goblin.power, enemy_goblin.toughness) == (1, 1)  # not yours
+
+
+def test_token_anthem_buffs_only_tokens():
+    from mtg_analyzer.services.token_database import synthesize_token_card
+
+    eng = make_engine()
+    _bind(eng.state, Card(id="IV", name="Intangible Virtue", type_line="Enchantment",
+                          oracle_text="Creature tokens you control get +1/+1."))
+    token = eng.rules.create_token("p1", synthesize_token_card("Soldier", power=1, toughness=1))[0]
+    real = put(eng.state, creature("Real Creature", power=2, toughness=2))
+    continuous.recompute(eng.state)
+    assert (token.power, token.toughness) == (2, 2)   # a token → buffed
+    assert (real.power, real.toughness) == (2, 2)     # a real creature → not buffed
+
+
+def test_compound_lord_grants_keyword_and_pt():
+    eng = make_engine()
+    _bind(eng.state, Card(id="EL", name="Elf Lord", type_line="Creature — Elf",
+                          is_creature=True, power=2, toughness=2, keywords=[],
+                          oracle_text="Other Elves you control get +1/+1 and have haste."))
+    elf = put(eng.state, creature("Llanowar Elf", power=1, toughness=1,
+                                  type_line="Creature — Elf Druid"))
+    elf.summoning_sick = True
+    continuous.recompute(eng.state)
+    assert (elf.power, elf.toughness) == (2, 2)          # anthem
+    assert combat.has_haste(elf)                          # granted keyword
+
+
+def test_subtype_filter_matches_changeling():
+    eng = make_engine()
+    lord = _bind(eng.state, Card(id="GK", name="Goblin King", type_line="Creature — Goblin",
+                                 is_creature=True, power=2, toughness=2, keywords=[],
+                                 oracle_text="Other Goblins you control get +1/+1."))
+    # A Changeling is every creature type (RULE 702.73) → counts as a Goblin.
+    # Bound so its Changeling keyword docks onto intrinsic_keywords.
+    shifter = _bind(eng.state, creature("Shifter", power=1, toughness=1,
+                                        type_line="Creature — Shapeshifter", keywords=["Changeling"]))
+    continuous.recompute(eng.state)
+    assert (shifter.power, shifter.toughness) == (2, 2)
+
+
+def test_global_color_anthem_buffs_all_matching_colors():
+    # Bad Moon is global ("Black creatures get +1/+1", no "you control"), so it
+    # buffs every black creature in play — including the opponent's.
+    eng = make_engine()
+    _bind(eng.state, Card(id="BM", name="Bad Moon", type_line="Enchantment",
+                          keywords=[], oracle_text="Black creatures get +1/+1."))
+    my_black = put(eng.state, Card(id="Z", name="Zombie", type_line="Creature — Zombie",
+                                   is_creature=True, power=2, toughness=2, color_identity={"B"}))
+    my_white = put(eng.state, Card(id="A", name="Angel", type_line="Creature — Angel",
+                                   is_creature=True, power=3, toughness=3, color_identity={"W"}))
+    enemy_black = put(eng.state, Card(id="EB", name="Enemy Zombie", type_line="Creature — Zombie",
+                                      is_creature=True, power=1, toughness=1, color_identity={"B"}),
+                      controller="p2")
+    continuous.recompute(eng.state)
+    assert (my_black.power, my_black.toughness) == (3, 3)     # black, buffed
+    assert (my_white.power, my_white.toughness) == (3, 3)     # white, untouched
+    assert (enemy_black.power, enemy_black.toughness) == (2, 2)  # global → enemy black too

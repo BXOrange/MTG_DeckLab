@@ -71,3 +71,53 @@ class TokenDatabase:
 
     def __len__(self) -> int:
         return len(self._by_id)
+
+
+#: Lazily-built process-wide default catalogue (reads the JSON once).
+_default_db: Optional[TokenDatabase] = None
+
+
+def default_token_database() -> TokenDatabase:
+    """The shared `TokenDatabase` over the repo's committed token catalogue."""
+    global _default_db
+    if _default_db is None:
+        _default_db = TokenDatabase()
+    return _default_db
+
+
+def synthesize_token_card(
+    name: str,
+    power: Optional[int] = None,
+    toughness: Optional[int] = None,
+    colors: Optional[list[str]] = None,
+    subtypes: Optional[list[str]] = None,
+    keywords: Optional[list[str]] = None,
+    oracle_text: str = "",
+) -> Card:
+    """Build a `Card` *definition* for a token an effect creates on the fly.
+
+    Used when a "create a 1/1 white Soldier creature token" clause has no
+    matching entry in the curated catalogue: the token's characteristics come
+    straight from the clause. The ``type_line`` starts with "Token" so
+    `Card.is_token` is True and the parser/binder treat any granted keywords
+    exactly like a real card's. A token with power/toughness is a creature; one
+    without is a generic artifact (e.g. Treasure/Clue when not catalogued).
+    """
+    is_creature = power is not None and toughness is not None
+    subtypes = subtypes or ([name] if (name and is_creature) else [])
+    kind = "Creature" if is_creature else "Artifact"
+    type_line = f"Token {kind}"
+    if subtypes:
+        type_line += " — " + " ".join(s.capitalize() for s in subtypes)
+    token_name = name or (subtypes[0] if subtypes else "Token")
+    return Card(
+        id=f"token:{token_name}:{power}/{toughness}",
+        name=token_name,
+        type_line=type_line,
+        is_creature=is_creature,
+        power=power,
+        toughness=toughness,
+        color_identity=set(colors or []),
+        keywords=list(keywords or []),
+        oracle_text=oracle_text,
+    )

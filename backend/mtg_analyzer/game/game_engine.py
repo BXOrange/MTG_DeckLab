@@ -750,6 +750,20 @@ class GameEngine:
             and not combat.has_defender(obj)
         )
 
+    @staticmethod
+    def _summoning_sick_for_tap(obj: GameObject) -> bool:
+        """Whether summoning sickness stops ``obj`` paying a {T}/{Q} cost.
+
+        RULE 302.6 / 602.5e: a creature can't activate an ability whose cost
+        includes the tap or untap symbol unless its controller has controlled
+        it continuously since their most recent turn began (i.e. it isn't
+        summoning sick) — and this covers a creature's mana ability just as
+        much as any other, since a mana ability *is* an activated ability
+        (RULE 605.1a). Haste (RULE 702.10b) lifts the restriction, and
+        non-creature permanents (lands, mana rocks) are never affected.
+        """
+        return obj.is_creature and obj.summoning_sick and not combat.has_haste(obj)
+
     # -- Blocking (RULE 509) --------------------------------------------
 
     def declare_blockers(self, player: Player, assignments: list[Any]) -> None:
@@ -846,6 +860,10 @@ class GameEngine:
             raise ValueError("can only tap your own permanents in play")
         if source.tapped:
             raise ValueError(f"{source.name} is already tapped")
+        # RULE 302.6: a summoning-sick creature (Llanowar Elves, Birds of
+        # Paradise, …) can't tap for mana — its mana ability has the {T} symbol.
+        if self._summoning_sick_for_tap(source):
+            raise ValueError(f"{source.name} has summoning sickness and can't tap for mana")
         options = mana_options(source.card)
         if not options:
             raise ValueError(f"{source.name} has no mana ability")
@@ -933,10 +951,12 @@ class GameEngine:
     def _can_pay_activation_cost(
         self, player: Player, source: GameObject, cost: "ActivationCost", x: int
     ) -> bool:
-        if cost.taps_self and (source.tapped or (source.is_creature and source.summoning_sick)):
-            # {T} needs an untapped, non-summoning-sick source (RULE 302.6, 602.5e).
+        # {T} needs an untapped source; {Q} a tapped one. Either symbol also
+        # needs a non-summoning-sick source unless it has haste (RULE 302.6,
+        # 602.5e, 702.10b) — the same rule the mana-tap path enforces.
+        if cost.taps_self and (source.tapped or self._summoning_sick_for_tap(source)):
             return False
-        if cost.untaps_self and not source.tapped:
+        if cost.untaps_self and (not source.tapped or self._summoning_sick_for_tap(source)):
             return False
         mana = cost.mana.with_x(x) if cost.mana.has_variable else cost.mana
         if mana.symbols and not player.mana_pool.can_pay(mana, life_available=player.life):
@@ -1121,7 +1141,9 @@ class GameEngine:
                     )
 
         for source in self.state.permanents_controlled_by(player.id):
-            if source.tapped:
+            # A tapped source, or a summoning-sick creature (RULE 302.6), can't
+            # tap for mana — don't offer it as a legal action.
+            if source.tapped or self._summoning_sick_for_tap(source):
                 continue
             options = mana_options(source.card)
             if not options:
@@ -1193,7 +1215,11 @@ class GameEngine:
         if land is not None:
             self.play_land(active, land)
         for source in self.state.permanents_controlled_by(active.id):
-            if not source.tapped and mana_options(source.card):
+            if (
+                not source.tapped
+                and mana_options(source.card)
+                and not self._summoning_sick_for_tap(source)  # RULE 302.6
+            ):
                 self.tap_for_mana(active, source)  # option 0 (greedy)
         # Cast affordable non-land spells cheapest first.
         castable = sorted(

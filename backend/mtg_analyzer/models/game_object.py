@@ -61,6 +61,7 @@ class GameObject:
         zone: Zone = Zone.LIBRARY,
         controller_id: Optional[str] = None,
         is_commander: bool = False,
+        is_token: Optional[bool] = None,
     ) -> None:
         self.instance_id: int = next(_instance_counter)
         self.card = card
@@ -69,6 +70,13 @@ class GameObject:
         #: (RULE 108.4). Control can change but ownership can't.
         self.controller_id = controller_id or owner_id
         self.zone = zone
+        #: Whether this in-play object is a token (RULE 111). Stored, not
+        #: derived from `card.is_token`, because a *token copy* of a real card
+        #: carries a nontoken card definition yet is still a token — and the
+        #: rules-critical consequence (a token ceases to exist as a state-based
+        #: action once it leaves the battlefield, RULE 704.5d) hangs off this
+        #: flag, not the printed definition. Defaults to the card's own token-ness.
+        self.is_token: bool = card.is_token if is_token is None else is_token
         #: Whether this object is a commander (RULE 903.6) — governs
         #: whether it returns to the command zone instead of the
         #: graveyard/etc. when it would otherwise leave play (RULE 903.9,
@@ -276,6 +284,9 @@ class GameObject:
             "is_artifact": self.card.is_artifact,
             "is_enchantment": self.card.is_enchantment,
             "is_planeswalker": self.card.is_planeswalker,
+            # A token badge for the board (RULE 111); it also disappears from
+            # non-battlefield zones by RULE 704.5d, so it only shows in play.
+            "is_token": self.is_token,
             # Types added by a layer-4 effect (e.g. "creature"), for the board.
             "added_types": sorted(self._added_types),
             "attacking": self.attacking,

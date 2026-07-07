@@ -75,6 +75,21 @@ class GameContext:
     def destroy(self, target: "GameObject") -> None:
         self.engine.destroy(target)
 
+    def exile(self, target: "GameObject") -> None:
+        self.engine.exile(target)
+
+    def mill(self, player: "Player", count: int = 1) -> None:
+        self.engine.mill(player, count)
+
+    def set_tapped(self, target: "GameObject", tapped: bool = True) -> None:
+        self.engine.set_tapped(target, tapped)
+
+    def add_counters(self, target: "GameObject", amount: int) -> None:
+        self.engine.add_counters(target, amount)
+
+    def create_token(self, controller_id: str, token_card: Any, count: int = 1) -> None:
+        self.engine.create_token(controller_id, token_card, count)
+
     def gain_life(self, player: "Player", amount: int) -> None:
         self.engine.gain_life(player, amount)
 
@@ -480,6 +495,156 @@ class CounterSpellEffect(GameEffect):
             context.counter(target)
 
 
+class MillEffect(GameEffect):
+    """Put the top ``count`` cards of a player's library into their graveyard.
+
+    Untargeted ("Mill three cards.") mills the effect's controller; a
+    ``target_kind`` of ``"player"`` mills a chosen player (RULE 701.13).
+    """
+
+    def __init__(
+        self,
+        count: int = 1,
+        target_kind: Optional[str] = None,
+        source: Optional["GameObject"] = None,
+    ) -> None:
+        super().__init__(source)
+        self.count = count
+        if target_kind is not None:
+            self.target_spec = TargetSpec(kind=target_kind)
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        if self.target_spec is not None:
+            player = targets[0] if targets else None
+        else:
+            player = context.active_player
+        if player is not None:
+            context.mill(player, self.count)
+
+
+class ExileEffect(GameEffect):
+    """Exile a target permanent (RULE 406 / 701.5a)."""
+
+    def __init__(
+        self,
+        target: Any = None,
+        source: Optional["GameObject"] = None,
+        target_kind: str = "permanent",
+    ) -> None:
+        super().__init__(source)
+        self.target = target
+        self.target_spec = TargetSpec(kind=target_kind)
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        target = (targets[0] if targets else None) or self.target
+        if target is not None:
+            context.exile(target)
+
+
+class TapEffect(GameEffect):
+    """Tap (or untap) a target permanent (RULE 701.21 / 701.22)."""
+
+    def __init__(
+        self,
+        target: Any = None,
+        source: Optional["GameObject"] = None,
+        target_kind: str = "permanent",
+        untap: bool = False,
+    ) -> None:
+        super().__init__(source)
+        self.target = target
+        self.untap = untap
+        self.target_spec = TargetSpec(kind=target_kind)
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        target = (targets[0] if targets else None) or self.target
+        if target is not None:
+            context.set_tapped(target, tapped=not self.untap)
+
+
+class AddCountersEffect(GameEffect):
+    """Put ``amount`` +1/+1 counters on a target creature — or on the source.
+
+    Untargeted, it buffs the effect's own source (an activated "put a +1/+1
+    counter on this creature"); with a ``target_kind`` it targets (RULE 122).
+    """
+
+    def __init__(
+        self,
+        amount: int = 1,
+        target_kind: Optional[str] = None,
+        source: Optional["GameObject"] = None,
+    ) -> None:
+        super().__init__(source)
+        self.amount = amount
+        if target_kind is not None:
+            self.target_spec = TargetSpec(kind=target_kind)
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        if self.target_spec is not None:
+            target = targets[0] if targets else None
+        else:
+            target = self.source
+        if target is not None:
+            context.add_counters(target, self.amount)
+
+
+class CreateTokenEffect(GameEffect):
+    """Create one or more token permanents (RULE 111.5 / 701.6).
+
+    A **named** token (``token_name`` with no inline stats) is looked up in the
+    curated `TokenDatabase` so it keeps its real abilities (a Treasure's mana
+    ability, a Clue's sacrifice-to-draw); an **inline** token (power/toughness
+    + colours + subtypes from the oracle clause) is synthesized. Either way the
+    created objects are flagged tokens, so RULE 704.5d removes them the instant
+    they leave the battlefield. The tokens are created under the effect's
+    controller (its source's controller, else the active player).
+    """
+
+    def __init__(
+        self,
+        count: int = 1,
+        token_name: Optional[str] = None,
+        power: Optional[int] = None,
+        toughness: Optional[int] = None,
+        colors: Optional[list[str]] = None,
+        subtypes: Optional[list[str]] = None,
+        keywords: Optional[list[str]] = None,
+        source: Optional["GameObject"] = None,
+    ) -> None:
+        super().__init__(source)
+        self.count = count
+        self.token_name = token_name
+        self.power = power
+        self.toughness = toughness
+        self.colors = colors or []
+        self.subtypes = subtypes or []
+        self.keywords = keywords or []
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        from ..services.token_database import default_token_database, synthesize_token_card
+
+        card = None
+        # A bare named token (no inline stats) → the curated catalogue, so it
+        # keeps its printed abilities. Inline stats always synthesize.
+        if self.token_name and self.power is None and self.toughness is None:
+            card = default_token_database().get_token(self.token_name)
+        if card is None:
+            card = synthesize_token_card(
+                self.token_name or (self.subtypes[0] if self.subtypes else "Token"),
+                power=self.power,
+                toughness=self.toughness,
+                colors=self.colors,
+                subtypes=self.subtypes,
+                keywords=self.keywords,
+            )
+        controller_id = (
+            self.source.controller_id if self.source is not None
+            else context.active_player.id
+        )
+        context.create_token(controller_id, card, self.count)
+
+
 class SearchLibraryEffect(GameEffect):
     """Search the controller's library for a card (RULE 701.19), tutors.
 
@@ -650,6 +815,39 @@ EffectRegistry.register(
 )
 EffectRegistry.register("counter", lambda p: CounterSpellEffect(target=p.get("target")))
 EffectRegistry.register(
+    "mill", lambda p: MillEffect(count=p.get("count", 1), target_kind=p.get("target_kind"))
+)
+EffectRegistry.register(
+    "exile",
+    lambda p: ExileEffect(target=p.get("target"), target_kind=p.get("target_kind", "permanent")),
+)
+EffectRegistry.register(
+    "tap",
+    lambda p: TapEffect(
+        target=p.get("target"),
+        target_kind=p.get("target_kind", "permanent"),
+        untap=bool(p.get("untap", False)),
+    ),
+)
+EffectRegistry.register(
+    "add_counters",
+    lambda p: AddCountersEffect(
+        amount=p.get("amount", p.get("count", 1)), target_kind=p.get("target_kind")
+    ),
+)
+EffectRegistry.register(
+    "create_token",
+    lambda p: CreateTokenEffect(
+        count=p.get("count", 1),
+        token_name=p.get("token_name"),
+        power=p.get("power"),
+        toughness=p.get("toughness"),
+        colors=list(p.get("colors", [])),
+        subtypes=list(p.get("subtypes", [])),
+        keywords=list(p.get("keywords", [])),
+    ),
+)
+EffectRegistry.register(
     "search",
     lambda p: SearchLibraryEffect(
         # "criteria" is the general form; "type" stays a shorthand for a
@@ -669,12 +867,25 @@ EffectRegistry.register(
 
 # Static abilities applied through the layer system (RULE 613). Each becomes a
 # `StaticAbility`; `game/continuous.py` folds them into derived characteristics.
+
+#: The extra selector filters a static ability may narrow its `affects` set by —
+#: a tribal subtype, tokens-only, a colour, or "other" (exclude the source).
+#: `continuous.affected_objects` reads these; only the non-``None`` ones are
+#: carried so a filter is off unless the parser/author set it.
+_SELECTOR_KEYS: tuple[str, ...] = ("subtype", "tokens", "color", "exclude_self")
+
+
+def _selectors(p: dict[str, Any]) -> dict[str, Any]:
+    return {k: p[k] for k in _SELECTOR_KEYS if p.get(k) is not None}
+
+
 EffectRegistry.register(
-    "anthem",  # "Creatures you control get +N/+N" (layer 7c)
+    "anthem",  # "Creatures you control get +N/+N" (layer 7c); tribal/colour-scoped
     lambda p: StaticAbility(
         "pt_mod",
         affects=p.get("affects", "other_creatures_you_control"),
-        params={"power": p.get("power", 0), "toughness": p.get("toughness", 0)},
+        params={"power": p.get("power", 0), "toughness": p.get("toughness", 0),
+                **_selectors(p)},
     ),
 )
 EffectRegistry.register(
@@ -682,15 +893,16 @@ EffectRegistry.register(
     lambda p: StaticAbility(
         "pt_set",
         affects=p.get("affects", "all_creatures"),
-        params={"power": p.get("power", 0), "toughness": p.get("toughness", 0)},
+        params={"power": p.get("power", 0), "toughness": p.get("toughness", 0),
+                **_selectors(p)},
     ),
 )
 EffectRegistry.register(
-    "grant_keyword",  # "Creatures you control have flying" (layer 6)
+    "grant_keyword",  # "Creatures you control have flying" (layer 6); tribal too
     lambda p: StaticAbility(
         "ability",
         affects=p.get("affects", "creatures_you_control"),
-        params={"keywords": list(p.get("keywords", []))},
+        params={"keywords": list(p.get("keywords", [])), **_selectors(p)},
     ),
 )
 EffectRegistry.register(
