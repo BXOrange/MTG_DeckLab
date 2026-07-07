@@ -83,6 +83,68 @@ def test_build_engine_binds_library_and_command():
     assert p1.command[0].activated_abilities  # and in the command zone
 
 
+# -- Keyword abilities: catalogue → binder → combat -------------------------
+
+
+def flyer(keywords=("Flying",), oracle=""):
+    return Card(id="CS", name="Cloud Sprite", type_line="Creature — Faerie",
+                is_creature=True, power=1, toughness=1,
+                keywords=list(keywords), oracle_text=oracle)
+
+
+def bear():
+    return Card(id="B", name="Bear", type_line="Creature — Bear",
+                is_creature=True, power=2, toughness=2, keywords=[])
+
+
+def test_specs_for_folds_in_keyword_specs():
+    specs = ability_catalogue.specs_for(flyer())
+    assert [s.keyword["name"] for s in specs if s.ability_kind == "keyword"] == ["flying"]
+
+
+def test_bind_from_catalogue_docks_flag_keyword():
+    obj = GameObject(flyer(), owner_id="p1", zone=Zone.BATTLEFIELD)
+    bind_from_catalogue(obj)
+    assert "flying" in obj.intrinsic_keywords
+
+
+def test_bound_keyword_reaches_combat_recognition():
+    from mtg_analyzer.game import combat
+
+    # Card with no Scryfall keyword array — only the bound spec can make combat
+    # see flying, so this proves the binder path, not combat's own card scan.
+    obj = GameObject(flyer(keywords=[], oracle="Flying"), owner_id="p1", zone=Zone.BATTLEFIELD)
+    assert combat.has_flying(obj) is True  # recognized off oracle text already
+    obj2 = GameObject(bear(), owner_id="p2", zone=Zone.BATTLEFIELD)
+    assert combat.has_flying(obj2) is False
+
+    from mtg_analyzer.game.effect_binder import attach_keyword
+    from mtg_analyzer.parser.oracle.spec import AbilitySpec
+
+    attach_keyword(obj2, AbilitySpec(ability_kind="keyword", keyword={"name": "flying"}))
+    assert combat.has_flying(obj2) is True
+    assert combat.can_block(obj2, GameObject(bear(), owner_id="p1", zone=Zone.BATTLEFIELD)) is False
+
+
+def test_parametric_keyword_is_not_docked():
+    from mtg_analyzer.game.effect_binder import attach_keyword
+    from mtg_analyzer.parser.oracle.spec import AbilitySpec
+
+    obj = GameObject(bear(), owner_id="p1", zone=Zone.BATTLEFIELD)
+    docked = attach_keyword(obj, AbilitySpec(ability_kind="keyword",
+                                             keyword={"name": "annihilator", "n": 2}))
+    assert docked is False and obj.intrinsic_keywords == set()
+
+
+def test_docked_keyword_survives_snapshot_restore():
+    import copy
+
+    obj = GameObject(flyer(), owner_id="p1", zone=Zone.BATTLEFIELD)
+    bind_from_catalogue(obj)
+    restored = copy.deepcopy(obj)  # how GameState.clone snapshots the board
+    assert restored.intrinsic_keywords == {"flying"}
+
+
 # -- Enters-tapped on the battlefield ---------------------------------------
 
 

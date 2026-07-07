@@ -1,0 +1,167 @@
+"""Tests for the RULE 702 keyword catalogue (parser front-end, docs/09).
+
+Covers the vocabulary's integrity (every keyword classified, every parametric
+one with a working extractor) and `parse_keywords` anchoring on Scryfall's
+``keywords`` array + pulling the parameter out of oracle text.
+"""
+
+import re
+
+import pytest
+
+from mtg_analyzer.models.card import Card
+from mtg_analyzer.parser.oracle.catalogue.keywords import (
+    KEYWORDS,
+    KeywordShape,
+    keyword_slug,
+    parse_keywords,
+)
+
+
+def _card(keywords, oracle_text="", **kw):
+    return Card(
+        id="T", name="T", type_line="Creature", is_creature=True,
+        power=1, toughness=1, keywords=list(keywords), oracle_text=oracle_text, **kw
+    )
+
+
+# --- Catalogue integrity ----------------------------------------------------
+
+
+class TestCatalogueIntegrity:
+    def test_covers_the_whole_rule_702_range(self):
+        # Every keyword ability 702.2 .. 702.194 has a row (Daybound/Nightbound
+        # share 702.145, ∞ is 702.186); expect the full 194-keyword vocabulary.
+        assert len(KEYWORDS) >= 193
+        rules = {kd.rule for kd in KEYWORDS.values()}
+        assert "702.9" in rules and "702.194" in rules
+
+    def test_every_parametric_keyword_has_an_extractor(self):
+        for kd in KEYWORDS.values():
+            if kd.is_parametric:
+                assert kd.regex is not None, f"{kd.slug} has no extractor regex"
+            else:
+                assert kd.regex is None, f"flag {kd.slug} should carry no regex"
+
+    def test_slugs_are_canonical(self):
+        assert keyword_slug("First Strike") == "first_strike"
+        assert keyword_slug("Jump-Start") == "jump_start"
+        assert keyword_slug("For Mirrodin!") == "for_mirrodin"
+        assert keyword_slug("∞") == "infinity"
+
+    def test_aliases_resolve_to_base_keyword(self):
+        assert keyword_slug("Multikicker") == "kicker"
+        assert keyword_slug("Megamorph") == "morph"
+        assert keyword_slug("Totem armor") == "umbra_armor"
+
+
+# --- Flag keywords ----------------------------------------------------------
+
+
+class TestFlagKeywords:
+    def test_flying_is_a_bare_keyword_spec(self):
+        specs = parse_keywords(_card(["Flying"], "Flying"))
+        assert len(specs) == 1
+        assert specs[0].ability_kind == "keyword"
+        assert specs[0].keyword == {"name": "flying"}
+        assert specs[0].parser.source == "rule:702.9"
+
+    def test_multiple_flags_preserve_order_and_dedupe(self):
+        specs = parse_keywords(_card(["Trample", "Flying", "Flying"]))
+        assert [s.keyword["name"] for s in specs] == ["trample", "flying"]
+
+    def test_unknown_keyword_is_skipped(self):
+        assert parse_keywords(_card(["Wobble"])) == []
+
+
+# --- Parametric: NUMBER -----------------------------------------------------
+
+
+class TestNumberKeywords:
+    def test_annihilator_extracts_n(self):
+        specs = parse_keywords(_card(["Annihilator"], "Annihilator 2"))
+        assert specs[0].keyword == {"name": "annihilator", "n": 2}
+
+    def test_toxic_extracts_n(self):
+        specs = parse_keywords(_card(["Toxic"], "Toxic 1 (Players dealt combat damage...)"))
+        assert specs[0].keyword == {"name": "toxic", "n": 1}
+
+    def test_missing_number_falls_back_to_bare_name(self):
+        specs = parse_keywords(_card(["Crew"], "Crew a vehicle"))
+        assert specs[0].keyword == {"name": "crew"}
+
+
+# --- Parametric: COST -------------------------------------------------------
+
+
+class TestCostKeywords:
+    def test_kicker_extracts_mana_cost(self):
+        specs = parse_keywords(_card(["Kicker"], "Kicker {2}{R} (You may pay an additional {2}{R}.)"))
+        assert specs[0].keyword == {"name": "kicker", "cost": "{2}{R}"}
+
+    def test_ward_extracts_single_pip(self):
+        specs = parse_keywords(_card(["Ward"], "Ward {2}"))
+        assert specs[0].keyword == {"name": "ward", "cost": "{2}"}
+
+    def test_equip_skips_a_qualifier_before_the_cost(self):
+        specs = parse_keywords(_card(["Equip"], "Equip Bird {2}"))
+        assert specs[0].keyword == {"name": "equip", "cost": "{2}"}
+
+    def test_escape_reads_cost_after_the_dash(self):
+        specs = parse_keywords(
+            _card(["Escape"], "Escape—{2}{B}{B}, Exile four other cards from your graveyard.")
+        )
+        assert specs[0].keyword == {"name": "escape", "cost": "{2}{B}{B}"}
+
+    def test_ward_without_a_mana_cost_stays_bare(self):
+        specs = parse_keywords(_card(["Ward"], "Ward—Pay 3 life."))
+        assert specs[0].keyword == {"name": "ward"}
+
+
+# --- Parametric: NUMBER_COST ------------------------------------------------
+
+
+class TestNumberCostKeywords:
+    def test_suspend_extracts_both(self):
+        specs = parse_keywords(_card(["Suspend"], "Suspend 4—{1}{U} (Rather than cast this card...)"))
+        assert specs[0].keyword == {"name": "suspend", "n": 4, "cost": "{1}{U}"}
+
+    def test_reinforce_extracts_both(self):
+        specs = parse_keywords(_card(["Reinforce"], "Reinforce 2—{1}{G}"))
+        assert specs[0].keyword == {"name": "reinforce", "n": 2, "cost": "{1}{G}"}
+
+
+# --- Parametric: QUALITY ----------------------------------------------------
+
+
+class TestQualityKeywords:
+    def test_protection_extracts_colour(self):
+        specs = parse_keywords(_card(["Protection"], "Protection from red"))
+        assert specs[0].keyword == {"name": "protection", "quality": "red"}
+
+    def test_enchant_extracts_what_it_attaches_to(self):
+        specs = parse_keywords(_card(["Enchant"], "Enchant creature\nEnchanted creature gets +1/+1."))
+        assert specs[0].keyword == {"name": "enchant", "quality": "creature"}
+
+    def test_landwalk_variant_uses_slug_prefix(self):
+        specs = parse_keywords(_card(["Islandwalk"], "Islandwalk"))
+        assert specs[0].keyword == {"name": "landwalk", "quality": "island"}
+
+    def test_two_landwalks_both_survive(self):
+        specs = parse_keywords(_card(["Islandwalk", "Forestwalk"]))
+        assert [s.keyword["quality"] for s in specs] == ["island", "forest"]
+
+
+# --- Security / validation --------------------------------------------------
+
+
+class TestValidation:
+    def test_keyword_number_is_clamped(self):
+        specs = parse_keywords(_card(["Annihilator"], "Annihilator 999999999"))
+        assert specs[0].keyword["n"] == 10_000  # MAX_EFFECT_MAGNITUDE
+
+    def test_extracted_regexes_are_anchored_not_catastrophic(self):
+        # Sanity: extractor regexes match against a benign string quickly.
+        for kd in KEYWORDS.values():
+            if kd.regex is not None:
+                kd.regex.search("x" * 500)  # should not hang

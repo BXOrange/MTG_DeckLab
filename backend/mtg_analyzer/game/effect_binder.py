@@ -28,11 +28,19 @@ from .effects import (
     TriggeredAbility,
 )
 
-#: Ability kinds the binder can realize. replacement/keyword binding lands with
-#: the handler catalogue in later phases (docs/09).
+#: Ability kinds `bind_ability` realizes into `GameEffect` objects. Keyword
+#: abilities don't produce effects — flag keywords dock onto the object's
+#: `intrinsic_keywords` in `attach_to_object` instead — so they're handled
+#: there, not here. `replacement` binding lands in a later phase (docs/09).
 _SUPPORTED_KINDS: frozenset[str] = frozenset(
     {"spell_effect", "triggered", "activated", "static"}
 )
+
+#: Params that make a keyword *parametric* (kicker cost, annihilator N,
+#: protection quality). Only flag keywords (name alone) bind today; parametric
+#: keywords need dedicated behaviour (alternative costs, etc.) and are carried
+#: in the spec but not yet bound.
+_PARAMETRIC_KEYWORD_KEYS: frozenset[str] = frozenset({"n", "cost", "quality"})
 
 
 class BindError(ValueError):
@@ -108,14 +116,38 @@ def bind_ability(
     )
 
 
+def attach_keyword(obj: Any, spec: AbilitySpec) -> bool:
+    """Dock a flag ``keyword`` spec onto the object's `intrinsic_keywords`.
+
+    Returns ``True`` if the keyword was docked. Flag (parameterless) keywords —
+    ``flying``, ``deathtouch``, … — join ``obj.intrinsic_keywords``, where the
+    combat engine reads them (RULE 702). Parametric keywords (``kicker`` cost,
+    ``annihilator N``, ``protection`` quality) are recognized but not bound
+    yet, so they're skipped here (returns ``False``).
+    """
+    spec.validate()
+    keyword = spec.keyword or {}
+    name = keyword.get("name")
+    if not name or _PARAMETRIC_KEYWORD_KEYS & keyword.keys():
+        return False
+    if not hasattr(obj, "intrinsic_keywords"):
+        obj.intrinsic_keywords = set()
+    obj.intrinsic_keywords.add(str(name))
+    return True
+
+
 def attach_to_object(obj: Any, specs: list[AbilitySpec]) -> None:
     """Bind each spec and attach it to the `GameObject`'s effect lists.
 
     ``spell_effect`` specs populate ``obj.spell_effects`` (the hook
     `RulesEngine._effects_for_spell` reads when the spell resolves);
-    ``triggered``/``activated`` go on the matching `GameObject` ability list.
+    ``triggered``/``activated`` go on the matching `GameObject` ability list;
+    ``keyword`` specs dock onto ``obj.intrinsic_keywords`` (flag keywords).
     """
     for spec in specs:
+        if spec.ability_kind == "keyword":
+            attach_keyword(obj, spec)
+            continue
         bound = bind_ability(spec, source=obj)
         if spec.ability_kind == "spell_effect":
             existing = list(getattr(obj, "spell_effects", []))

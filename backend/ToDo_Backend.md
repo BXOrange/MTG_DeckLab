@@ -45,6 +45,20 @@ See [../IMPLEMENTATION_STATUS.md](../IMPLEMENTATION_STATUS.md) and
       full-span coverage gate (`MODELED`/`UNMODELED`, unclaimed clauses →
       processing list → analyzer). Start at Phase 0 (IR + binder + one
       hand-wired card, no NLP).
+      **Progress:** the Phase 1 *keyword catalogue* is in —
+      `parser/oracle/catalogue/keywords.py` maps the full RULE 702 vocabulary
+      (194 keywords) to its `AbilitySpec` shape (flag / number / cost /
+      number+cost / quality) with a regex that extracts each parametric
+      keyword's one parameter; `parse_keywords(card)` anchors on Scryfall's
+      `keywords` array and pulls the parameter out of oracle text, emitting
+      validated `keyword` specs (`AbilitySpec.keyword = {name, n?/cost?/
+      quality?}`). **Flag keywords now bind**: `specs_for` folds the parsed
+      keyword specs in, and the binder docks parameterless ones onto
+      `GameObject.intrinsic_keywords`, which `game/combat.py` unions into its
+      recognition. Still open: effect-clause handlers + coverage gate; and
+      binding *parametric* keywords (kicker cost, annihilator N, protection
+      quality — parsed and carried, but they need dedicated behaviour:
+      alternative costs, combat maths, etc.).
 - [~] Combat blocking + creature-vs-creature damage: **engine done** —
       `GameEngine.declare_blockers`/`can_block` and a rewritten
       `_step_combat_damage` handle blocked/unblocked attackers, gang blocks

@@ -155,9 +155,15 @@ def protections_of(card: "Card") -> frozenset[str]:
 
 
 def _obj_keywords(obj: "GameObject") -> frozenset[str]:
-    # Printed keywords plus any granted by a layer-6 static ability (RULE
-    # 613.7f), so an anthem that hands out flying flows into combat.
-    return keywords_of(obj.card) | frozenset(getattr(obj, "granted_keywords", set()) or set())
+    # Three sources, unioned: the card's recognized keywords, the flag keywords
+    # the parser catalogue bound onto the object (`intrinsic_keywords`, RULE
+    # 702), and any granted by a layer-6 static ability (RULE 613.7f) — so both
+    # a card's own flying and an anthem that hands out flying flow into combat.
+    return (
+        keywords_of(obj.card)
+        | frozenset(getattr(obj, "intrinsic_keywords", set()) or set())
+        | frozenset(getattr(obj, "granted_keywords", set()) or set())
+    )
 
 
 def has(obj: "GameObject", keyword: str) -> bool:

@@ -41,8 +41,8 @@ _EFFECT_BEARING_KINDS: frozenset[str] = frozenset(
 #: at validation time (docs/09 "SECURITY MODEL": clamp params).
 MAX_EFFECT_MAGNITUDE: int = 10_000
 
-#: Numeric effect params subject to clamping.
-_CLAMPED_PARAM_KEYS: tuple[str, ...] = ("amount", "count", "x")
+#: Numeric effect params subject to clamping (includes a keyword's "n").
+_CLAMPED_PARAM_KEYS: tuple[str, ...] = ("amount", "count", "x", "n")
 
 
 class SpecValidationError(ValueError):
@@ -106,6 +106,12 @@ class AbilitySpec:
     cost: Optional[dict[str, Any]] = None
     #: What the ability may target, e.g. ``{"kind": "any", "count": 1}``.
     target: Optional[dict[str, Any]] = None
+    #: Keyword abilities: the parsed identity + any single parameter, e.g.
+    #: ``{"name": "flying"}``, ``{"name": "annihilator", "n": 2}``,
+    #: ``{"name": "kicker", "cost": "{2}{R}"}``, ``{"name": "protection",
+    #: "quality": "red"}`` (docs/09 "Keyword abilities: the privileged
+    #: fast-path handler class"). ``name`` is a catalogue slug (RULE 702.x).
+    keyword: Optional[dict[str, Any]] = None
     optional: bool = False  # "you may"
     raw_text: str = ""
     parser: ParserProvenance = field(default_factory=ParserProvenance)
@@ -137,6 +143,11 @@ class AbilitySpec:
             if not self.trigger or "event" not in self.trigger:
                 raise SpecValidationError("triggered ability needs a trigger with an 'event'")
 
+        if self.keyword is not None:
+            if not isinstance(self.keyword, dict) or not self.keyword.get("name"):
+                raise SpecValidationError("keyword spec needs a non-empty 'name'")
+            self._clamp_params(self.keyword)  # clamp an integer "n" the same way
+
         return self
 
     @staticmethod
@@ -155,6 +166,7 @@ class AbilitySpec:
             "trigger": self.trigger,
             "cost": self.cost,
             "target": self.target,
+            "keyword": self.keyword,
             "optional": self.optional,
             "raw_text": self.raw_text,
             "parser": self.parser.to_dict(),
@@ -168,6 +180,7 @@ class AbilitySpec:
             trigger=data.get("trigger"),
             cost=data.get("cost"),
             target=data.get("target"),
+            keyword=data.get("keyword"),
             optional=bool(data.get("optional", False)),
             raw_text=str(data.get("raw_text", "")),
             parser=ParserProvenance.from_dict(data.get("parser") or {}),

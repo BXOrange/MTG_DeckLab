@@ -8,8 +8,10 @@ ever references whitelisted effect types by name, never executable
 behaviour. Turning an `AbilitySpec` into live `GameEffect` objects is the
 *back-end*'s job (`mtg_analyzer/game/effect_binder.py`).
 
-Phase 0 ships only the IR + its validation (`spec.py`); the normalizer,
-segmenter, and handler catalogue land in later phases.
+Phase 0 shipped the IR + its validation (`spec.py`). The keyword catalogue
+(`catalogue/keywords.py`) — the RULE 702 vocabulary + its parameter-extractor
+regexes — is in; the normalizer, segmenter, and effect-clause handlers land
+in later phases.
 """
 
 from .spec import (

@@ -129,6 +129,13 @@ class GameObject:
         #: cost reductions. Read by `game/continuous.py`.
         self.static_effects: list[Any] = []
         self.activated_abilities: list[Any] = []
+        #: Intrinsic keyword abilities bound off the card's own text (RULE 702),
+        #: as catalogue slugs — the flag keywords the parser catalogue produced
+        #: and the binder docked here (e.g. ``{"flying", "deathtouch"}``).
+        #: Combat unions these with the card's recognized keywords; unlike
+        #: `_granted_keywords` they are the object's *own* keywords, so they are
+        #: not cleared by `reset_derived`.
+        self.intrinsic_keywords: set[str] = set()
 
         #: Derived characteristics stamped by the continuous-effects layer
         #: engine (`game/continuous.py`, RULE 613). ``None`` / empty until a
@@ -277,11 +284,14 @@ class GameObject:
             "blocked_by": list(self.blocked_by),
             # Combat/evasion keyword labels the board shows as badges — the
             # same recognition the combat engine honours (printed keywords plus
-            # any granted by a layer-6 static ability), so display matches
-            # behaviour. Imported at call time: `game.combat` is pure (no
-            # runtime model imports), so this reads keywords without turning
-            # the model→game boundary into an import cycle.
-            "keywords": _combat_display_keywords(self.card, self._granted_keywords),
+            # any bound off the card by the parser and any granted by a layer-6
+            # static ability), so display matches behaviour. Imported at call
+            # time: `game.combat` is pure (no runtime model imports), so this
+            # reads keywords without turning the model→game boundary into an
+            # import cycle.
+            "keywords": _combat_display_keywords(
+                self.card, self._granted_keywords | self.intrinsic_keywords
+            ),
             "counters": dict(self.counters),
             "attached_to": self.attached_to,
             # Layer-by-layer record of static effects that reshaped this object

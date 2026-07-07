@@ -21,6 +21,7 @@ from __future__ import annotations
 import re
 from typing import Any, Callable
 
+from ..parser.oracle.catalogue.keywords import parse_keywords
 from ..parser.oracle.spec import AbilitySpec, EffectSpec
 
 #: name (lowercased) → factory producing that card's specs, fresh each call.
@@ -39,12 +40,26 @@ def is_registered(name: str) -> bool:
 def specs_for(card: Any) -> list[AbilitySpec]:
     """The `AbilitySpec`s a card contributes, or ``[]`` if none are known.
 
-    Consults the hand-authored registry by card name. (Future: fall back to the
-    oracle parser for unregistered cards — this is the one place to add it.)
+    Two sources, unioned: the hand-authored registry (by card name) and the
+    RULE 702 **keyword catalogue** parsed off the card's own text/keywords.
+    Flag keywords from the latter dock onto combat via the binder; any keyword
+    the registry already authored wins, so it isn't duplicated. (Future: fall
+    back to the full oracle parser for unregistered effect clauses too.)
     """
     name = (getattr(card, "name", "") or "").strip().lower()
     factory = _REGISTRY.get(name)
-    return factory() if factory is not None else []
+    specs: list[AbilitySpec] = list(factory()) if factory is not None else []
+
+    authored = {
+        s.keyword.get("name")
+        for s in specs
+        if s.ability_kind == "keyword" and s.keyword
+    }
+    for kw_spec in parse_keywords(card):
+        if kw_spec.keyword and kw_spec.keyword.get("name") in authored:
+            continue
+        specs.append(kw_spec)
+    return specs
 
 
 #: A land that enters tapped (RULE 614.1) — a plain tap-land whose text says so.

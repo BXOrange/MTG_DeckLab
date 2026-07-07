@@ -84,9 +84,15 @@ haste, indestructible, protection-from); **static abilities** via the layer
 system (layers 4/6/7 + cost adjustment); **activated abilities** with full cost
 parsing; **triggered abilities** (event-based) + replacement effects; one-shot
 effects (damage/draw/destroy/counter/search/gain_life/cascade/discover/…);
-commander damage; counters. **Not yet**: oracle NLP parser, interactive
-blocker/multiplayer priority, `replacement`/`keyword` ability-kind binding,
-layers 1–3/5/7a/7e, ordering choices (RULE 616.1/603.3b), commander tax.
+commander damage; counters. The **RULE 702 keyword catalogue**
+(`parser/oracle/catalogue/keywords.py`) parses all 194 keywords off a card into
+`keyword` `AbilitySpec`s (flag/number/cost/number+cost/quality shapes, each
+parametric one with its extractor regex); **flag keywords bind** — the binder
+docks them onto `GameObject.intrinsic_keywords`, which combat honours. **Not
+yet**: oracle NLP parser (effect clauses), interactive blocker/multiplayer
+priority, `replacement` binding + *parametric* `keyword` binding (kicker cost,
+annihilator N, protection quality are parsed but not bound), layers 1–3/5/7a/7e,
+ordering choices (RULE 616.1/603.3b), commander tax.
 
 Living backlogs: `backend/ToDo_Backend.md` (open) and `backend/Done_Backend.md`
 (shipped). Design docs: `docs/01`–`09` + `docs/IMPLEMENTATION_GUIDE.md`.
