@@ -7,10 +7,12 @@ import { getPlayerName } from './settings.js';
 import { escapeHtml } from './cardTile.js';
 
 /**
- * @param {{onLoadDeck?: (deck: object) => void}} [options] Called with
- *   the full saved deck (including decklist text) when "Laden" is clicked.
+ * @param {{onLoadDeck?: (deck: object) => void, onAnalyzeDeck?: (deck: object) => void}} [options]
+ *   onLoadDeck is called with the full saved deck (including decklist text)
+ *   when "Deck editieren" is clicked; onAnalyzeDeck likewise for "Deck
+ *   analysieren".
  */
-export function renderSavedDecksView(container, { onLoadDeck } = {}) {
+export function renderSavedDecksView(container, { onLoadDeck, onAnalyzeDeck } = {}) {
   container.innerHTML = `
     <div class="saved-decks-panel">
       <div class="cache-toolbar">
@@ -88,6 +90,19 @@ export function renderSavedDecksView(container, { onLoadDeck } = {}) {
       });
     });
 
+    resultEl.querySelectorAll('.analyze-deck-btn').forEach((btn) => {
+      btn.addEventListener('click', async () => {
+        btn.disabled = true;
+        const deck = await getSavedDeck(btn.dataset.deckId);
+        btn.disabled = false;
+        if (!deck) {
+          window.alert('Deck konnte nicht geladen werden – Server nicht erreichbar oder Deck wurde gelöscht.');
+          return;
+        }
+        onAnalyzeDeck?.(deck);
+      });
+    });
+
     resultEl.querySelectorAll('.delete-deck-btn').forEach((btn) => {
       btn.addEventListener('click', async () => {
         const name = btn.dataset.deckName || 'dieses Deck';
@@ -144,18 +159,52 @@ function renderDeckRow(deck, sleeves) {
     <div class="saved-deck-row">
       <div class="saved-deck-info">
         <strong>${escapeHtml(name)}</strong>
-        <span class="saved-deck-meta">Gespeichert: ${escapeHtml(created)}</span>
+        ${commanderHtml(deck.commanders)}
+        <span class="saved-deck-meta">Gespeichert: ${escapeHtml(created)}${colorIdentityHtml(deck.colorIdentity)}</span>
         <span class="saved-deck-legality checking" data-deck-id="${escapeHtml(deck.id)}">Prüfe Legalität …</span>
       </div>
       <div class="saved-deck-actions">
         <select class="saved-deck-sleeve-select" data-deck-id="${escapeHtml(deck.id)}" title="Karten-Sleeve für dieses Deck">
           ${sleeveOptionsHtml(sleeves, deck.sleeveId)}
         </select>
-        <button type="button" class="load-deck-btn" data-deck-id="${deck.id}">Laden</button>
+        <button type="button" class="load-deck-btn" data-deck-id="${deck.id}">Deck editieren</button>
+        <button type="button" class="analyze-deck-btn" data-deck-id="${deck.id}">Deck analysieren</button>
         <button type="button" class="delete-deck-btn" data-deck-id="${deck.id}" data-deck-name="${escapeHtml(name)}">Löschen</button>
       </div>
     </div>
   `;
+}
+
+//: WUBRG mana symbol → CSS class + label, in canonical color order.
+const COLOR_PIPS = [
+  { code: 'W', className: 'w', label: 'Weiß' },
+  { code: 'U', className: 'u', label: 'Blau' },
+  { code: 'B', className: 'b', label: 'Schwarz' },
+  { code: 'R', className: 'r', label: 'Rot' },
+  { code: 'G', className: 'g', label: 'Grün' },
+];
+
+// The commander line under a saved deck's name (Commander decks only;
+// `commanders` is [] for a deck with no commander section, or `null`/
+// `undefined` for one whose identity hasn't been computed yet — both
+// render nothing here).
+function commanderHtml(commanders) {
+  if (!commanders || !commanders.length) return '';
+  return `<span class="saved-deck-commander">👑 ${escapeHtml(commanders.join(' & '))}</span>`;
+}
+
+// Color-identity pips (WUBRG order), or a colorless "C" pip for an empty
+// (but computed) identity. Renders nothing while uncomputed (`null`).
+function colorIdentityHtml(colorIdentity) {
+  if (!colorIdentity) return '';
+  if (!colorIdentity.length) {
+    return ' · <span class="color-identity"><span class="color-pip color-pip--c" title="Farblos">C</span></span>';
+  }
+  const set = new Set(colorIdentity);
+  const pips = COLOR_PIPS.filter((p) => set.has(p.code))
+    .map((p) => `<span class="color-pip color-pip--${p.className}" title="${p.label}">${p.code}</span>`)
+    .join('');
+  return ` · <span class="color-identity">${pips}</span>`;
 }
 
 function sleeveOptionsHtml(sleeves, selectedSleeveId) {

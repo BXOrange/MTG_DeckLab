@@ -77,11 +77,15 @@ views.replay.addEventListener('view-shown', () => replay.onShown());
 renderMultiplayerView(views.multiplayer);
 
 renderCachedCardsView(views.cache);
-renderAnalyzeView(views.analyze);
+const analyzeView = renderAnalyzeView(views.analyze);
 renderSavedDecksView(views.savedDecks, {
   onLoadDeck: (deck) => {
     importView.loadDeck(deck);
     showTab('import');
+  },
+  onAnalyzeDeck: (deck) => {
+    analyzeView.loadDeck(deck);
+    showTab('analyze');
   },
 });
 renderConnectionSettingsView(views.connection);

@@ -55,3 +55,32 @@ def validate_deck_sections(
         [e.name for e in parsed.commanders] + [e.name for e in parsed.all_cards]
     )
     return apply_legality(parsed, resolved)
+
+
+def compute_deck_identity(
+    parsed: ParsedDeck, resolved: LoadCardsResult
+) -> tuple[list[str], list[str]]:
+    """This decklist's color identity (RULE 903.4) and commander name(s).
+
+    Commander names come straight from the parsed commander section — no
+    resolution needed, so they're reported even for a name that fails to
+    resolve. Color identity is the union of the commander(s)' own color
+    identity, the Commander-format definition (RULE 903.4), once every
+    commander resolved; for a non-Commander decklist (no commander section,
+    or one that didn't fully resolve) it falls back to the union across
+    every resolved card in the deck, since there's no single authoritative
+    source otherwise.
+    """
+    commander_names = [entry.name for entry in parsed.commanders]
+    commanders_resolved = [resolved.cards[n] for n in commander_names if n in resolved.cards]
+
+    identity: set[str] = set()
+    if commanders_resolved and len(commanders_resolved) == len(commander_names):
+        for card in commanders_resolved:
+            identity |= card.color_identity
+    else:
+        for entry in parsed.all_cards:
+            card = resolved.cards.get(entry.name)
+            if card is not None:
+                identity |= card.color_identity
+    return sorted(identity), commander_names

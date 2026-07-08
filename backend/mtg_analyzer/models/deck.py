@@ -33,6 +33,18 @@ class Deck:
     `/api/players/{name}/sleeves`) — set via the saved-decks list, read by
     the goldfish board as the fallback "back of card" art for a face-down
     object with no real art of its own.
+
+    `color_identity`/`commanders` are derived from the decklist text (RULE
+    903.4 for the color-identity definition) but, unlike everything else on
+    this model, cached rather than re-derived on every read: computing them
+    needs resolved `Card` data (a Scryfall/cache lookup per card), which is
+    too costly to redo on every saved-decks list render. `None` means "not
+    computed yet" (a fresh deck, or one whose decklist text changed since
+    the last computation — `api/saved_decks.py` resets both to `None`
+    whenever the text sections change); the endpoint that serves decks
+    computes and persists them once they're needed, and leaves them alone
+    otherwise. An empty list is a real, computed answer (a colorless deck /
+    no commander section), distinct from "not computed yet".
     """
 
     def __init__(
@@ -45,6 +57,8 @@ class Deck:
         created_at: Optional[str] = None,
         analysis_id: Optional[str] = None,
         sleeve_id: Optional[str] = None,
+        color_identity: Optional[list[str]] = None,
+        commanders: Optional[list[str]] = None,
     ) -> None:
         self.id = id or str(uuid.uuid4())
         self.name = name
@@ -54,6 +68,8 @@ class Deck:
         self.created_at = created_at or datetime.now(timezone.utc).isoformat()
         self.analysis_id = analysis_id
         self.sleeve_id = sleeve_id
+        self.color_identity = color_identity
+        self.commanders = commanders
 
     def to_dict(self) -> dict[str, Any]:
         """Serialize this deck to a JSON-compatible dict (camelCase, like ParsedDeck)."""
@@ -66,6 +82,8 @@ class Deck:
             "createdAt": self.created_at,
             "analysisId": self.analysis_id,
             "sleeveId": self.sleeve_id,
+            "colorIdentity": self.color_identity,
+            "commanders": self.commanders,
         }
 
     @classmethod
@@ -80,6 +98,8 @@ class Deck:
             created_at=data.get("createdAt"),
             analysis_id=data.get("analysisId"),
             sleeve_id=data.get("sleeveId"),
+            color_identity=data.get("colorIdentity"),
+            commanders=data.get("commanders"),
         )
 
     def __repr__(self) -> str:

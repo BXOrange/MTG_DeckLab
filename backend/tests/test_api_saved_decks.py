@@ -139,6 +139,118 @@ class TestGetDeck:
         assert response.status_code == 404
 
 
+class TestDeckIdentity:
+    """GET /api/decks and GET /api/decks/{id} compute + cache colorIdentity/commanders."""
+
+    def teardown_method(self):
+        app.dependency_overrides.pop(get_deck_database, None)
+        app.dependency_overrides.pop(get_lazy_card_loader, None)
+
+    def test_new_deck_has_no_computed_identity_yet(self):
+        _override_database()
+        client = TestClient(app)
+        created = client.post("/api/decks/save", json={"name": "Goblins"}).json()
+        assert created["colorIdentity"] is None
+        assert created["commanders"] is None
+
+    def test_list_decks_computes_and_persists_identity(self):
+        database = _override_database()
+        _override_loader(
+            {
+                "Krenko, Mob Boss": Card(
+                    id="Krenko", name="Krenko, Mob Boss", type_line="Legendary Creature — Goblin",
+                    is_creature=True, power=2, toughness=2, color_identity={"R"},
+                ),
+            }
+        )
+        client = TestClient(app)
+        created = client.post(
+            "/api/decks/save",
+            json={"name": "Goblins", "commanderText": "1 Krenko, Mob Boss\n"},
+        ).json()
+
+        response = client.get("/api/decks")
+
+        assert response.status_code == 200
+        [deck] = response.json()
+        assert deck["colorIdentity"] == ["R"]
+        assert deck["commanders"] == ["Krenko, Mob Boss"]
+        # Persisted, not just returned — a fresh read confirms it stuck.
+        assert database.get_deck(created["id"]).color_identity == ["R"]
+
+    def test_get_deck_computes_identity_from_deck_cards_without_a_commander(self):
+        _override_database()
+        _override_loader(
+            {
+                "Llanowar Elves": Card(
+                    id="Elves", name="Llanowar Elves", type_line="Creature — Elf Druid",
+                    is_creature=True, power=1, toughness=1, color_identity={"G"},
+                ),
+            }
+        )
+        client = TestClient(app)
+        created = client.post(
+            "/api/decks/save", json={"name": "Green Stuff", "mainboardText": "1 Llanowar Elves\n"}
+        ).json()
+
+        response = client.get(f"/api/decks/{created['id']}")
+
+        assert response.status_code == 200
+        body = response.json()
+        assert body["colorIdentity"] == ["G"]
+        assert body["commanders"] == []
+
+    def test_editing_decklist_text_invalidates_cached_identity(self):
+        database = _override_database()
+        _override_loader(
+            {
+                "Krenko, Mob Boss": Card(
+                    id="Krenko", name="Krenko, Mob Boss", type_line="Legendary Creature — Goblin",
+                    is_creature=True, power=2, toughness=2, color_identity={"R"},
+                ),
+            }
+        )
+        client = TestClient(app)
+        created = client.post(
+            "/api/decks/save",
+            json={"name": "Goblins", "commanderText": "1 Krenko, Mob Boss\n"},
+        ).json()
+        client.get(f"/api/decks/{created['id']}")  # populate the cache
+        assert database.get_deck(created["id"]).color_identity == ["R"]
+
+        client.post(
+            "/api/decks/save",
+            json={"id": created["id"], "name": "Goblins", "commanderText": "1 Sol Ring\n"},
+        )
+
+        assert database.get_deck(created["id"]).color_identity is None
+
+    def test_resaving_unchanged_text_keeps_cached_identity(self):
+        database = _override_database()
+        _override_loader(
+            {
+                "Krenko, Mob Boss": Card(
+                    id="Krenko", name="Krenko, Mob Boss", type_line="Legendary Creature — Goblin",
+                    is_creature=True, power=2, toughness=2, color_identity={"R"},
+                ),
+            }
+        )
+        client = TestClient(app)
+        created = client.post(
+            "/api/decks/save",
+            json={"name": "Goblins", "commanderText": "1 Krenko, Mob Boss\n"},
+        ).json()
+        client.get(f"/api/decks/{created['id']}")  # populate the cache
+
+        # Re-save with the same text but a different name (e.g. a rename).
+        client.post(
+            "/api/decks/save",
+            json={"id": created["id"], "name": "Goblins v2", "commanderText": "1 Krenko, Mob Boss\n"},
+        )
+
+        assert database.get_deck(created["id"]).color_identity == ["R"]
+
+
 class TestDeckValidation:
     def teardown_method(self):
         app.dependency_overrides.pop(get_deck_database, None)

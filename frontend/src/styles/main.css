@@ -798,7 +798,383 @@ textarea {
 /* --- Deck analysieren --- */
 
 .analyze-panel {
-  max-width: 800px;
+  max-width: 960px;
+}
+
+.analyze-deck-name {
+  color: var(--text-dim);
+  margin-top: -0.4rem;
+}
+
+.analyze-commander-line {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.9rem;
+  margin-top: -0.2rem;
+}
+
+.analyze-commander-entry {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+}
+
+.analyze-section {
+  margin-top: 1.5rem;
+}
+
+.analyze-section .hint {
+  color: var(--text-dim);
+  font-size: 0.82rem;
+  max-width: 70ch;
+}
+
+.analyze-toc {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 0.8rem 1.1rem;
+  margin-top: 1rem;
+}
+
+.analyze-toc-title {
+  display: block;
+  margin-bottom: 0.4rem;
+}
+
+.analyze-toc-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.3rem 1.2rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.analyze-toc-list a {
+  color: var(--accent);
+  text-decoration: none;
+}
+
+.analyze-toc-list a:hover {
+  text-decoration: underline;
+}
+
+.analyze-chart-card {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 1rem 1.1rem;
+  margin-top: 1rem;
+}
+
+.analyze-chart-card h4 {
+  margin: 0 0 0.3rem;
+}
+
+/* Summary stat tiles */
+
+.analyze-stat-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 0.6rem;
+  margin: 0.8rem 0;
+}
+
+.analyze-stat-grid--compact {
+  margin-top: 0;
+}
+
+.analyze-stat-tile {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 0.6rem 0.8rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+}
+
+.analyze-stat-value {
+  font-size: 1.4rem;
+  font-weight: 600;
+}
+
+.analyze-stat-label {
+  color: var(--text-dim);
+  font-size: 0.75rem;
+}
+
+.analyze-stat-hint {
+  color: var(--text-dim);
+  font-size: 0.7rem;
+  opacity: 0.8;
+}
+
+/* Vertical bar chart (mana curve) */
+
+.bar-chart--columns {
+  display: flex;
+  align-items: flex-end;
+  gap: 0.5rem;
+  min-height: 170px;
+  padding-top: 1.2rem;
+}
+
+.bar-col {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  flex: 1;
+  gap: 0.25rem;
+}
+
+.bar-value {
+  font-size: 0.75rem;
+  color: var(--text-dim);
+  min-height: 1em;
+}
+
+.bar-col-track {
+  display: flex;
+  align-items: flex-end;
+  height: 130px;
+}
+
+.bar-col-fill {
+  width: 22px;
+  max-width: 24px;
+  background: var(--accent);
+  border-radius: 4px 4px 0 0;
+  min-height: 2px;
+}
+
+.bar-col-label {
+  color: var(--text-dim);
+  font-size: 0.75rem;
+}
+
+.analyze-table {
+  width: 100%;
+  border-collapse: collapse;
+  margin-top: 0.8rem;
+  font-size: 0.82rem;
+}
+
+.analyze-table th,
+.analyze-table td {
+  text-align: left;
+  padding: 0.3rem 0.5rem;
+  border-bottom: 1px solid var(--border);
+  vertical-align: top;
+}
+
+.analyze-table th {
+  color: var(--text-dim);
+  font-weight: 600;
+}
+
+.analyze-card-name {
+  border-bottom: 1px dotted var(--text-dim);
+}
+
+.analyze-card-name:hover {
+  color: var(--accent);
+  border-bottom-color: var(--accent);
+}
+
+/* Horizontal bar chart (type distribution) */
+
+.bar-chart--rows {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+
+.bar-row {
+  display: grid;
+  grid-template-columns: 9rem 1fr 2.5rem;
+  align-items: center;
+  gap: 0.6rem;
+}
+
+.bar-row-label {
+  font-size: 0.82rem;
+  color: var(--text-dim);
+}
+
+.bar-row-track {
+  background: var(--panel-alt);
+  border-radius: 4px;
+  height: 16px;
+  overflow: hidden;
+}
+
+.bar-row-fill {
+  height: 100%;
+  background: var(--accent);
+  border-radius: 4px;
+  min-width: 2px;
+}
+
+.bar-row-value {
+  font-size: 0.82rem;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Line chart (expected mana curve) */
+
+.line-legend,
+.pip-compare-legend {
+  display: flex;
+  gap: 1.2rem;
+  font-size: 0.78rem;
+  color: var(--text-dim);
+  margin: 0.4rem 0 0.2rem;
+  flex-wrap: wrap;
+}
+
+.line-legend-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.line-key {
+  display: inline-block;
+  width: 16px;
+  height: 2px;
+  border-radius: 1px;
+}
+
+.line-key--context { background: var(--text-dim); }
+.line-key--accent { background: var(--accent); }
+.line-key--info { background: var(--info); }
+.line-key--solid { width: 12px; height: 12px; border-radius: 2px; background: var(--text-dim); opacity: 0.9; }
+.line-key--light { width: 12px; height: 12px; border-radius: 2px; background: var(--text-dim); opacity: 0.4; }
+
+.analyze-svg {
+  width: 100%;
+  height: auto;
+  margin-top: 0.4rem;
+}
+
+.chart-gridline {
+  stroke: var(--border);
+  stroke-width: 1;
+}
+
+.chart-axis-text {
+  fill: var(--text-dim);
+  font-size: 10px;
+}
+
+.chart-line {
+  stroke-width: 2;
+  stroke-linejoin: round;
+  stroke-linecap: round;
+}
+
+.chart-line--context { stroke: var(--text-dim); }
+.chart-line--accent { stroke: var(--accent); }
+.chart-line--info { stroke: var(--info); }
+
+.chart-dot {
+  stroke: var(--panel);
+  stroke-width: 2;
+}
+
+.chart-dot--context { fill: var(--text-dim); }
+.chart-dot--accent { fill: var(--accent); }
+.chart-dot--info { fill: var(--info); }
+
+/* Color pips: card requirements vs. mana sources */
+
+.pip-compare-chart {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  margin-top: 0.4rem;
+}
+
+.pip-compare-row {
+  display: grid;
+  grid-template-columns: 2.2rem 1fr;
+  align-items: center;
+  gap: 0.6rem;
+}
+
+.pip-compare-bars {
+  display: grid;
+  grid-template-columns: 1fr 2.2rem;
+  align-items: center;
+  gap: 0.2rem 0.5rem;
+}
+
+.pip-compare-track {
+  height: 10px;
+}
+
+.pip-compare-value {
+  font-size: 0.78rem;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-dim);
+}
+
+.pip-fill--w { background: #f8f6d8; }
+.pip-fill--u { background: #aee0fa; }
+.pip-fill--b { background: #b7aca4; }
+.pip-fill--r { background: #f9aa8f; }
+.pip-fill--g { background: #9bd3ae; }
+.pip-fill--sources { opacity: 0.45; }
+
+/* Opening-hand land-count probabilities */
+
+.prob-row {
+  display: flex;
+  gap: 0.4rem;
+  margin-top: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.prob-col {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  background: var(--panel-alt);
+  border-radius: 6px;
+  padding: 0.35rem 0.5rem;
+  min-width: 2.6rem;
+}
+
+.prob-col-value {
+  font-size: 0.85rem;
+  font-weight: 600;
+}
+
+.prob-col-label {
+  font-size: 0.68rem;
+  color: var(--text-dim);
+}
+
+/* Accelerant lists */
+
+.accelerant-groups {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1.5rem;
+  margin-top: 0.5rem;
+}
+
+.accelerant-group {
+  min-width: 200px;
+}
+
+.accelerant-cmc {
+  color: var(--text-dim);
+  font-size: 0.75rem;
 }
 
 /* --- Gespeicherte Decks --- */
@@ -826,15 +1202,51 @@ textarea {
   min-width: 0;
 }
 
+.saved-deck-commander {
+  color: var(--text-dim);
+  font-size: 0.82rem;
+}
+
 .saved-deck-meta {
   color: var(--text-dim);
   font-size: 0.78rem;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
 }
+
+.color-identity {
+  display: inline-flex;
+  gap: 0.2rem;
+}
+
+.color-pip {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.1rem;
+  height: 1.1rem;
+  border-radius: 50%;
+  font-size: 0.62rem;
+  font-weight: 700;
+  line-height: 1;
+  color: #1a1a1a;
+  border: 1px solid rgba(0, 0, 0, 0.25);
+}
+
+.color-pip--w { background: #f8f6d8; }
+.color-pip--u { background: #aee0fa; }
+.color-pip--b { background: #b7aca4; }
+.color-pip--r { background: #f9aa8f; }
+.color-pip--g { background: #9bd3ae; }
+.color-pip--c { background: #d8d8d8; }
 
 .saved-deck-actions {
   display: flex;
   gap: 0.5rem;
   flex-shrink: 0;
+  flex-wrap: wrap;
+  justify-content: flex-end;
 }
 
 /* --- Card detail on hover (cardHoverDetail.js) --- */
