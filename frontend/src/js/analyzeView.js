@@ -1,8 +1,14 @@
-// "Deck analysieren" tab: a static, numeric breakdown of a saved deck
-// (mana curve, card types, mana value, opening-hand land odds, color
-// pips vs. sources) followed by the not-yet-implemented LLM analysis
-// (archetype/synergy/coherence — see backend/ToDo_Backend.md "LLM Deck
-// Analysis (UC2)"), under its own "Dynamische Analyse" heading.
+// "Deck analysieren" tab: once a deck is loaded, its analysis is split
+// into three sub-tabs under the deck title/commander line — Statische
+// Analyse (mana curve, card types, mana value, opening-hand land odds,
+// color pips vs. sources, functional categories), the not-yet-implemented
+// Dynamische Analyse (archetype/synergy/coherence — see
+// backend/ToDo_Backend.md "LLM Deck Analysis (UC2)"), and Bracket-Analyse
+// (a heuristic approximation of WotC's "Commander Brackets" system).
+// Sub-tab switching (`wireAnalyzeTabs`) is a local, ad hoc show/hide of
+// `.analyze-subtab-panel` elements — separate from and not reusing the
+// app-level `.tab-button`/`.view` mechanism in app.js, which only knows
+// about the top-level sidebar tabs.
 //
 // Opened from "Decks verwalten" (savedDecksView.js)'s "Deck analysieren"
 // button, mirroring how "Deck editieren" hands a saved deck to
@@ -64,6 +70,7 @@ export function renderAnalyzeView(container) {
       if (myRequestId !== requestId) return; // superseded by a later loadDeck() call
       const stats = analyzeDeck(parsed.commanders, parsed.mainDeck, resolved);
       container.innerHTML = resultShellHtml(savedDeck.name, stats);
+      wireAnalyzeTabs(container);
     });
   }
 
@@ -79,7 +86,6 @@ function emptyShellHtml() {
         "Deck analysieren" klicken.
       </p>
     </div>
-    ${DYNAMIC_ANALYSIS_HTML}
   `;
 }
 
@@ -90,8 +96,35 @@ function loadingShellHtml(deckName) {
       <p class="analyze-deck-name">${escapeHtml(deckName?.trim() || 'Unbenanntes Deck')}</p>
       <p class="empty-state">Lädt Kartendaten …</p>
     </div>
-    ${DYNAMIC_ANALYSIS_HTML}
   `;
+}
+
+// --- Sub-tabs (Statische/Dynamische/Bracket-Analyse) -----------------------
+
+const ANALYZE_SUBTABS = [
+  { key: 'static', label: 'Statische Analyse' },
+  { key: 'dynamic', label: 'Dynamische Analyse' },
+  { key: 'bracket', label: 'Bracket-Analyse' },
+];
+
+function analyzeSubtabsHtml() {
+  const buttons = ANALYZE_SUBTABS.map(
+    (t, i) =>
+      `<button type="button" class="analyze-subtab${i === 0 ? ' active' : ''}" data-subtab="${t.key}">${escapeHtml(t.label)}</button>`
+  ).join('');
+  return `<div class="analyze-subtabs" role="tablist">${buttons}</div>`;
+}
+
+/** Wires the sub-tab buttons rendered by `analyzeSubtabsHtml` to show/hide their `.analyze-subtab-panel`. */
+function wireAnalyzeTabs(container) {
+  const buttons = container.querySelectorAll('.analyze-subtab');
+  const panels = container.querySelectorAll('.analyze-subtab-panel');
+  buttons.forEach((btn) => {
+    btn.addEventListener('click', () => {
+      buttons.forEach((b) => b.classList.toggle('active', b === btn));
+      panels.forEach((p) => p.classList.toggle('active', p.dataset.subtabPanel === btn.dataset.subtab));
+    });
+  });
 }
 
 const TOC_ENTRIES = [
@@ -103,7 +136,6 @@ const TOC_ENTRIES = [
   { id: 'toc-opening-hand', label: 'Starthand & Landziehungen' },
   { id: 'toc-accelerants', label: 'Erkannte Beschleuniger' },
   { id: 'toc-command-zone', label: 'Funktionale Kategorien' },
-  { id: 'toc-dynamic-analysis', label: 'Dynamische Analyse' },
 ];
 
 function tableOfContentsHtml() {
@@ -123,30 +155,40 @@ function resultShellHtml(deckName, stats) {
       <p class="analyze-deck-name">${escapeHtml(deckName?.trim() || 'Unbenanntes Deck')}</p>
       ${commanderLineHtml(stats.commanders)}
       ${unresolvedWarningHtml(stats.unresolvedNames)}
-      ${tableOfContentsHtml()}
+      ${analyzeSubtabsHtml()}
 
-      <section class="analyze-section">
-        <h3>Statische Analyse</h3>
-        <p class="hint">
-          Rein numerisch, aus den Kartendaten berechnet — keine
-          Bewertung von Stärke, Synergien oder Archetyp (siehe "Dynamische
-          Analyse" unten). Die erwartete Mana-Kurve und die
-          Beschleuniger-Erkennung sind vereinfachte Schätzungen, keine
-          Simulation.
-        </p>
+      <div class="analyze-subtab-panel active" data-subtab-panel="static">
+        ${tableOfContentsHtml()}
+        <section class="analyze-section">
+          <h3>Statische Analyse</h3>
+          <p class="hint">
+            Rein numerisch, aus den Kartendaten berechnet — keine
+            Bewertung von Stärke, Synergien oder Archetyp (siehe
+            "Dynamische Analyse"-Tab). Die erwartete Mana-Kurve und die
+            Beschleuniger-Erkennung sind vereinfachte Schätzungen, keine
+            Simulation.
+          </p>
 
-        ${summaryTilesHtml(stats)}
-        <div id="toc-mana-curve">${manaCurveSectionHtml(stats)}</div>
-        <div id="toc-expected-mana-curve">${expectedManaCurveSectionHtml(stats)}</div>
-        <div id="toc-type-distribution">${typeDistributionSectionHtml(stats)}</div>
-        <div id="toc-land-archetypes">${landArchetypesSectionHtml(stats)}</div>
-        <div id="toc-color-pips">${colorPipsSectionHtml(stats)}</div>
-        <div id="toc-opening-hand">${openingHandSectionHtml(stats)}</div>
-        <div id="toc-accelerants">${accelerantsSectionHtml(stats)}</div>
-        <div id="toc-command-zone">${commandZoneSectionHtml(stats)}</div>
-      </section>
+          ${summaryTilesHtml(stats)}
+          <div id="toc-mana-curve">${manaCurveSectionHtml(stats)}</div>
+          <div id="toc-expected-mana-curve">${expectedManaCurveSectionHtml(stats)}</div>
+          <div id="toc-type-distribution">${typeDistributionSectionHtml(stats)}</div>
+          <div id="toc-land-archetypes">${landArchetypesSectionHtml(stats)}</div>
+          <div id="toc-color-pips">${colorPipsSectionHtml(stats)}</div>
+          <div id="toc-opening-hand">${openingHandSectionHtml(stats)}</div>
+          <div id="toc-accelerants">${accelerantsSectionHtml(stats)}</div>
+          <div id="toc-command-zone">${commandZoneSectionHtml(stats)}</div>
+        </section>
+      </div>
+
+      <div class="analyze-subtab-panel" data-subtab-panel="dynamic">
+        ${DYNAMIC_ANALYSIS_HTML}
+      </div>
+
+      <div class="analyze-subtab-panel" data-subtab-panel="bracket">
+        ${bracketAnalysisSectionHtml(stats)}
+      </div>
     </div>
-    <div id="toc-dynamic-analysis">${DYNAMIC_ANALYSIS_HTML}</div>
   `;
 }
 
@@ -200,7 +242,7 @@ function summaryTilesHtml(stats) {
   const { manaValue, librarySize } = stats;
   return `
     <div class="analyze-stat-grid">
-      ${statTileHtml('Karten in der Bibliothek', librarySize)}
+      ${statTileHtml('Tutoren', stats.tutorCount, 'durchsucht die Bibliothek nach einer Karte')}
       ${statTileHtml('Länder', manaValue.landCount, librarySize ? `${fmt((manaValue.landCount / librarySize) * 100, 0)}%` : '')}
       ${statTileHtml('Ø Manawert (mit Ländern)', fmt(manaValue.averageWithLands))}
       ${statTileHtml('Ø Manawert (ohne Länder)', fmt(manaValue.averageWithoutLands))}
@@ -412,7 +454,10 @@ function landArchetypesSectionHtml(stats) {
         Heuristisch aus Typzeile/Kartentext erkannt (Fetch/Schock/Schmerz/
         Check/Fast/Slow/Kampfland/Triome/Bounce/Kreaturland/Utility/…) —
         bei ungewöhnlichen Formulierungen kann ein Land in "Sonstiges"
-        landen.
+        landen. "MDFC-Land" sind modale Zauber//Land-Karten (Malakir
+        Rebirth // Malakir Mire, …), die zwar kein Land sind (die
+        Vorderseite entscheidet), aber üblicherweise wie ein flexibles
+        Land eingeplant werden.
       </p>
       <div class="bar-chart bar-chart--rows">${bars}</div>
       <table class="analyze-table">
@@ -584,7 +629,7 @@ function accelerantsSectionHtml(stats) {
 // --- Command Zone deckbuilding-template categories --------------------------
 
 function commandZoneSectionHtml(stats) {
-  const { categories, targetedDisruption, massDisruption, cardAdvantage } = stats.commandZone;
+  const { categories, targetedDisruption, massDisruption, cardAdvantage, tutors } = stats.commandZone;
   const max = Math.max(...categories.map((c) => c.count), 1);
 
   const bars = categories
@@ -626,6 +671,25 @@ function commandZoneSectionHtml(stats) {
     `;
   };
 
+  const tutorListHtml = (items) => {
+    if (!items.length) return '';
+    const total = items.reduce((s, c) => s + c.qty, 0);
+    const li = items
+      .slice()
+      .sort((a, b) => a.name.localeCompare(b.name))
+      .map((c) => `<li>${cardNameHtml(c.name, c.qty)}</li>`)
+      .join('');
+    return `
+      <h5>Tutoren (${total})</h5>
+      <p class="hint">
+        Durchsucht die Bibliothek nach einer Karte — schneidet quer durch
+        die Kategorien oben (ein Land-Tutor zählt z.B. weiterhin als
+        Ramp), daher separat statt als eigene Kategorie gelistet.
+      </p>
+      <ul class="card-list">${li}</ul>
+    `;
+  };
+
   return `
     <div class="analyze-chart-card">
       <h4>Funktionale Kategorien</h4>
@@ -646,6 +710,65 @@ function commandZoneSectionHtml(stats) {
       ${subKindTable('Card Advantage – Details', cardAdvantage)}
       ${subKindTable('Targeted Disruption – Details', targetedDisruption)}
       ${subKindTable('Mass Disruption – Details', massDisruption)}
+      ${tutorListHtml(tutors)}
     </div>
+  `;
+}
+
+// --- Bracket analysis (WotC "Commander Brackets" heuristic approximation) --
+
+function bracketAnalysisSectionHtml(stats) {
+  const { gameChangers, massLandDenial, extraTurnSpells, minimumBracket, reasons } = stats.bracketAnalysis;
+
+  const list = (title, items) => {
+    const total = items.reduce((s, c) => s + c.qty, 0);
+    if (!items.length) {
+      return `<div class="accelerant-group"><strong>${escapeHtml(title)} (0)</strong><p class="empty-state">Keine erkannt.</p></div>`;
+    }
+    const li = items
+      .slice()
+      .sort((a, b) => a.name.localeCompare(b.name))
+      .map((c) => `<li>${cardNameHtml(c.name, c.qty)}</li>`)
+      .join('');
+    return `<div class="accelerant-group"><strong>${escapeHtml(title)} (${total})</strong><ul class="card-list">${li}</ul></div>`;
+  };
+
+  const verdictText = minimumBracket
+    ? `Geschätzte Mindest-Bracket: Bracket ${minimumBracket}+`
+    : 'Keine der prüfbaren Signale (Game Changers / Mass Land Denial) gefunden';
+
+  const reasonsHtml = reasons.length
+    ? `<ul class="issue-list">${reasons.map((r) => `<li>${escapeHtml(r)}</li>`).join('')}</ul>`
+    : '';
+
+  return `
+    <section class="analyze-section">
+      <h3>Bracket-Analyse</h3>
+      <p class="hint">
+        Heuristische Annäherung an Wizards of the Coasts offizielles
+        "Commander Brackets"-Beta-System — eine 5-stufige Einschätzung der
+        Power-Level-Erwartung vor dem Spiel (1 Exhibition … 5 cEDH). Von
+        den Kriterien, die Brackets unterscheiden, sind nur drei
+        überhaupt aus einer Kartenliste ablesbar: die offizielle
+        Game-Changers-Liste, Mass Land Denial und Extra-Turn-Karten.
+        <strong>Zwei-Karten-Combos</strong> (ein weiteres Kriterium für
+        Bracket 3) lassen sich nicht aus einzelnen Kartentexten erkennen —
+        dafür z.B. Commander Spellbook nutzen. Tutoren sind seit dem
+        Oktober-2025-Update kein Bracket-Kriterium mehr. Unverbindliche
+        Annäherung, kein offizielles Urteil.
+      </p>
+      <div class="analyze-chart-card">
+        <h4>${escapeHtml(verdictText)}</h4>
+        ${reasonsHtml}
+      </div>
+      <div class="analyze-chart-card">
+        <h4>Erkannte Signale</h4>
+        <div class="accelerant-groups">
+          ${list('Game Changers', gameChangers)}
+          ${list('Mass Land Denial', massLandDenial)}
+          ${list('Extra-Turn-Karten', extraTurnSpells)}
+        </div>
+      </div>
+    </section>
   `;
 }

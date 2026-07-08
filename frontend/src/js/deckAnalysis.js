@@ -183,6 +183,19 @@ function basicLandTypeCount(typeLine) {
   return BASIC_LAND_TYPE_NAMES.filter((name) => new RegExp(`\\b${name}\\b`).test(typeLine)).length;
 }
 
+//: A modal DFC whose BACK face is a land (Zendikar Rising's spell//land
+//: cycle: Malakir Rebirth // Malakir Mire, Sea Gate Restoration // Sea
+//: Gate, Reborn, …). The Card model is front-face-first — `card.is_land`/
+//: `card.type_line`/`card.oracle_text` only ever describe the front
+//: spell face (see backend `card_from_scryfall_data`'s docstring) — so
+//: these never satisfy `card.is_land` and would otherwise never reach
+//: the land-archetype breakdown at all, even though most decks count
+//: them as (flexible) lands. `card.back_type_line`/`back_oracle_text`
+//: hold the actual land face's data.
+function isMdfcLand(card) {
+  return card.layout === 'modal_dfc' && /\bland\b/i.test(card.back_type_line || '');
+}
+
 //: Well-known nonbasic-land cycles (RULE 305), classified off oracle text
 //: by their defining ability. Order matters — first match wins, most
 //: specific first — since a card is filed under exactly one archetype
@@ -216,7 +229,7 @@ const LAND_ARCHETYPES = [
   { key: 'triome', label: 'Triome', test: (c) => basicLandTypeCount(c.type_line) >= 3 },
   {
     key: 'pain',
-    label: 'Schmerzland',
+    label: 'Painland',
     test: (c) => /deals? 1 damage to you/i.test(oracleText(c)),
   },
   {
@@ -244,12 +257,13 @@ const LAND_ARCHETYPES = [
     label: 'Utility-Land',
     test: (c) => !producesMana(c),
   },
+   { key: 'mdfc_land', label: 'MDFC', test: isMdfcLand },
   {
     key: 'conditional_tapped',
-    label: 'Sonstiges getapptes Land',
+    label: 'Sonstiges (getappt)',
     test: (c) => /enters?( the battlefield)? tapped/i.test(oracleText(c)),
   },
-  { key: 'other', label: 'Sonstiges Nichtbasisland', test: () => true },
+  { key: 'other', label: 'Non-Basic (n. getappt)', test: () => true },
 ];
 
 /** Which `LAND_ARCHETYPES` entry a (land) card falls under — first match wins. */
@@ -405,6 +419,194 @@ export function commandZoneCategory(card, isRamp) {
   const advantageKind = cardAdvantageKind(card);
   if (advantageKind) return { key: 'card_advantage', subKey: advantageKind };
   return { key: 'plan', subKey: null };
+}
+
+//: "Search your library for ... card" — general tutor effects (Demonic
+//: Tutor, Vampiric Tutor, Enlightened Tutor, Worldly Tutor, a creature's
+//: land-tutor ETB, …), whatever they fetch to (hand/battlefield/top of
+//: library/graveyard). Excludes lands themselves so an actual fetchland
+//: (Flooded Strand: "Search your library for a(n) ... card") isn't
+//: counted as a tutor — that's already its own Land-Archetype above.
+//: Deliberately overlaps with the Ramp bucket (a land-tutor spell like
+//: Rampant Growth is still tutoring, just for a land) rather than
+//: excluding it — this is a raw count, not a mutually-exclusive bucket.
+const TUTOR_RE = /\bsearch(es)? your library for[^.]*\bcard\b/i;
+
+/** A general tutor effect (searches the library for a specific card). */
+export function isTutor(card) {
+  return !card.is_land && TUTOR_RE.test(oracleText(card));
+}
+
+// --- Commander Brackets (wizards.com's Beta power-level system) -----------
+//
+// A 5-tier scale (1 Exhibition … 5 cEDH) players use to set expectations
+// before a game. Of its four checkable criteria (Game Changers, Mass
+// Land Denial, Extra Turns, Tutors), only the first three are even
+// theoretically detectable from a decklist — WotC dropped tutors from
+// the system in their Oct 2025 update ("remove the tutor restrictions
+// ... and rely on Game Changers to catch the most efficient tutors").
+// Two-card infinite combos (the other bracket-3 criterion) need
+// cross-card interaction knowledge no single-card text heuristic has —
+// deliberately not attempted here; see Commander Spellbook for that.
+
+//: The official Game Changers list — unlike every other heuristic in
+//: this file, this must be an exact name match against a WotC-curated
+//: list, not a guessed pattern, so it's fetched verbatim rather than
+//: hand-written: `curl 'https://api.scryfall.com/cards/search?q=is%3Agamechanger'`
+//: (Scryfall keeps `is:gamechanger` synced to the official list). Pulled
+//: 2026-07-08 — WotC revisits this list every few months (10 cards were
+//: removed in the Oct 2025 update alone), so it will drift stale; re-run
+//: that query to refresh. Names are lowercased and, for modal DFCs,
+//: reduced to the front face (see `baseCardName`) to match however this
+//: app's own card data spells them.
+const GAME_CHANGERS = new Set([
+  'ad nauseam',
+  'ancient tomb',
+  'aura shards',
+  'biorhythm',
+  "bolas's citadel",
+  'braids, cabal minion',
+  'chrome mox',
+  'coalition victory',
+  'consecrated sphinx',
+  'crop rotation',
+  'cyclonic rift',
+  'demonic tutor',
+  'drannith magistrate',
+  'enlightened tutor',
+  'farewell',
+  'field of the dead',
+  'fierce guardianship',
+  'force of will',
+  "gaea's cradle",
+  'gamble',
+  'gifts ungiven',
+  'glacial chasm',
+  'grand arbiter augustin iv',
+  'grim monolith',
+  'humility',
+  'imperial seal',
+  'intuition',
+  "jeska's will",
+  "lion's eye diamond",
+  'mana vault',
+  "mishra's workshop",
+  'mox diamond',
+  'mystical tutor',
+  'narset, parter of veils',
+  'natural order',
+  'necropotence',
+  'notion thief',
+  'opposition agent',
+  'orcish bowmasters',
+  'panoptic mirror',
+  'rhystic study',
+  'seedborn muse',
+  "serra's sanctum",
+  'smothering tithe',
+  'survival of the fittest',
+  "teferi's protection",
+  'tergrid, god of fright',
+  "thassa's oracle",
+  'the one ring',
+  'the tabernacle at pendrell vale',
+  'underworld breach',
+  'vampiric tutor',
+  'worldly tutor',
+]);
+
+//: Scryfall spells modal-DFC names as "Front // Back" — a deck entry
+//: normally only names the front face, so this drops the back face
+//: before comparing against `GAME_CHANGERS` (a set of front-face names).
+function baseCardName(name) {
+  return (name || '')
+    .split(' // ')[0]
+    .trim()
+    .toLowerCase();
+}
+
+/** On WotC's official Game Changers list (0 allowed in Bracket 1–2, ≤3 in Bracket 3, unlimited in 4–5). */
+export function isGameChanger(card) {
+  return GAME_CHANGERS.has(baseCardName(card.name));
+}
+
+//: WotC's own named examples for "denies everyone's lands" effects whose
+//: text doesn't reduce to a clean regex (Blood Moon: "Nonbasic lands are
+//: Mountains", Winter Orb: "players can't untap more than one land …") —
+//: supplements, doesn't replace, `MASS_LAND_DENIAL_RE` below.
+const MASS_LAND_DENIAL_NAMES = new Set([
+  'armageddon',
+  'ruination',
+  'sunder',
+  'winter orb',
+  'blood moon',
+  'catastrophe',
+  'global ruin',
+  'ravages of war',
+  'jokulhaups',
+  'static orb',
+  'back to basics',
+  'stasis',
+]);
+
+//: The regex half of WotC's definition: "destroy, exile, and bounce
+//: other lands ... for four or more lands per player without replacing
+//: them." Deliberately doesn't try to count "four or more" — a symmetric
+//: "destroy all lands"/"each player sacrifices ... lands" effect already
+//: implies that in a multiplayer Commander pod.
+const MASS_LAND_DENIAL_RE =
+  /\b(destroy|exile)[^.]{0,20}\ball lands\b|\beach player (sacrifices|returns)[^.]{0,30}\blands?\b|\breturn all lands\b|\bcan't untap more than (a|one) land\b/i;
+
+/** A Mass Land Denial effect (WotC: not intended below Bracket 4). */
+export function isMassLandDenial(card) {
+  return (
+    !card.is_land &&
+    (MASS_LAND_DENIAL_NAMES.has(baseCardName(card.name)) || MASS_LAND_DENIAL_RE.test(oracleText(card)))
+  );
+}
+
+//: WotC doesn't restrict a single copy ("acceptable for splashy
+//: moments") — only "chained in succession or looped," which isn't
+//: determinable from a decklist alone. This just counts raw occurrences
+//: as a coarse proxy a human still has to judge.
+const EXTRA_TURN_RE = /\btakes? an extra turn\b/i;
+
+/** Grants (some player) an extra turn. */
+export function isExtraTurn(card) {
+  return EXTRA_TURN_RE.test(oracleText(card));
+}
+
+/**
+ * A plain-language summary of what the three checkable bracket signals
+ * imply, given their raw counts — a lower bound, not a verdict: absence
+ * of a signal never rules brackets 1–3 *in*, since bracket 1 vs. 2 vs. 3
+ * is about deck tuning/intent, not anything checkable from a card list.
+ * @returns {{minimumBracket: number|null, reasons: string[]}}
+ */
+export function suggestBracket(gameChangerCount, massLandDenialCount, extraTurnCount) {
+  const reasons = [];
+  let minimumBracket = null;
+
+  if (gameChangerCount > 3) {
+    minimumBracket = 4;
+    reasons.push(`${gameChangerCount} Game Changer (mehr als die 3 erlaubten in Bracket 3) → mind. Bracket 4`);
+  } else if (gameChangerCount >= 1) {
+    minimumBracket = 3;
+    reasons.push(`${gameChangerCount} Game Changer (in Bracket 1–2 nicht erlaubt) → mind. Bracket 3`);
+  }
+
+  if (massLandDenialCount >= 1) {
+    minimumBracket = 4;
+    reasons.push(`${massLandDenialCount} Mass-Land-Denial-Karte(n) (in Bracket 1–3 nicht vorgesehen) → mind. Bracket 4`);
+  }
+
+  if (extraTurnCount >= 2) {
+    reasons.push(
+      `${extraTurnCount} Extra-Turn-Karten im Deck — falls diese verkettet/wiederholt eingesetzt werden sollen, ist das ab Bracket 1–3 nicht vorgesehen (eine einzelne Extra-Turn-Karte ist unbedenklich).`
+    );
+  }
+
+  return { minimumBracket, reasons };
 }
 
 const COLORS = ['W', 'U', 'B', 'R', 'G'];
@@ -592,6 +794,14 @@ export function analyzeDeck(commanderEntries, libraryEntries, resolved) {
   const massDisruptionCounts = Object.fromEntries(MASS_DISRUPTION_KINDS.map((k) => [k.key, { count: 0, names: [] }]));
   const cardAdvantageCounts = Object.fromEntries(CARD_ADVANTAGE_KINDS.map((k) => [k.key, { count: 0, names: [] }]));
 
+  // --- Commander Brackets --------------------------------------------------
+  const gameChangers = []; // checked on lands too (Gaea's Cradle, Ancient Tomb, …)
+  const massLandDenial = [];
+  const extraTurnSpells = [];
+
+  const tutors = [];
+  let tutorCount = 0;
+
   // --- Type distribution / mana value / pips ----------------------------
   const typeCounts = Object.fromEntries(TYPE_BUCKETS.map((b) => [b.key, 0]));
   let nonlandCount = 0;
@@ -606,6 +816,35 @@ export function analyzeDeck(commanderEntries, libraryEntries, resolved) {
 
     for (const bucket of TYPE_BUCKETS) {
       if (bucket.test(card)) typeCounts[bucket.key] += qty;
+    }
+
+    // Checked before the is_land branch below: several Game Changers
+    // (Gaea's Cradle, Ancient Tomb, Serra's Sanctum, Mishra's Workshop,
+    // The Tabernacle at Pendrell Vale, Field of the Dead, Glacial Chasm)
+    // are themselves lands.
+    if (isGameChanger(card)) {
+      gameChangers.push({ name: card.name, qty });
+    }
+    if (isMassLandDenial(card)) {
+      massLandDenial.push({ name: card.name, qty });
+    }
+    if (isExtraTurn(card)) {
+      extraTurnSpells.push({ name: card.name, qty });
+    }
+    if (isTutor(card)) {
+      tutorCount += qty;
+      tutors.push({ name: card.name, qty });
+    }
+
+    // A spell//land MDFC never satisfies card.is_land (front-face-only —
+    // see isMdfcLand's comment), so it's counted into the Land-Archetypen
+    // breakdown here, separately from the is_land branch below, and
+    // WITHOUT `continue`: unlike a real land, it still occupies a spell
+    // slot and keeps flowing through the mana-curve/ramp/functional-
+    // category classification below as whatever its front face actually is.
+    if (isMdfcLand(card)) {
+      landArchetypeCounts.mdfc_land.count += qty;
+      landArchetypeCounts.mdfc_land.names.push({ name: card.name, qty });
     }
 
     if (card.is_land) {
@@ -688,6 +927,19 @@ export function analyzeDeck(commanderEntries, libraryEntries, resolved) {
     }
   }
 
+  // The commander(s) count toward Game Changers too (several — Grand
+  // Arbiter Augustin IV, Tergrid, God of Fright, … — are commonly played
+  // as one) but not Mass Land Denial/Extra Turns, which are never
+  // sensible on a legendary creature/planeswalker commander.
+  for (const { entry, card } of commanders) {
+    if (isGameChanger(card)) gameChangers.push({ name: card.name, qty: entry.qty });
+  }
+  const bracketSuggestion = suggestBracket(
+    gameChangers.reduce((s, c) => s + c.qty, 0),
+    massLandDenial.reduce((s, c) => s + c.qty, 0),
+    extraTurnSpells.reduce((s, c) => s + c.qty, 0)
+  );
+
   // "Lands-equivalent" acceleration for the opening-hand stat: rocks,
   // dorks, land-enchanting Auras and land-tutors behave like an extra
   // land draw. Rituals (a one-shot burst spent on a single bigger turn)
@@ -742,6 +994,7 @@ export function analyzeDeck(commanderEntries, libraryEntries, resolved) {
   return {
     unresolvedNames,
     librarySize,
+    tutorCount,
     commanders: commanders.map(({ entry, card }) => ({
       name: card.name,
       qty: entry.qty,
@@ -802,6 +1055,14 @@ export function analyzeDeck(commanderEntries, libraryEntries, resolved) {
         count: cardAdvantageCounts[k.key].count,
         names: cardAdvantageCounts[k.key].names,
       })).filter((k) => k.count > 0),
+      tutors,
+    },
+    bracketAnalysis: {
+      gameChangers,
+      massLandDenial,
+      extraTurnSpells,
+      minimumBracket: bracketSuggestion.minimumBracket,
+      reasons: bracketSuggestion.reasons,
     },
   };
 }

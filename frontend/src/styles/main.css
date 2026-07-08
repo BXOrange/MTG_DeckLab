@@ -819,6 +819,40 @@ textarea {
   gap: 0.3rem;
 }
 
+.analyze-subtabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-top: 1rem;
+  border-bottom: 1px solid var(--border);
+  padding-bottom: 0.8rem;
+}
+
+.analyze-subtab {
+  background: transparent;
+  border: 1px solid var(--border);
+  color: var(--text-dim);
+  padding: 0.5rem 1rem;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 0.9rem;
+}
+
+.analyze-subtab.active {
+  background: var(--accent);
+  color: #1b1e24;
+  border-color: var(--accent);
+  font-weight: 600;
+}
+
+.analyze-subtab-panel {
+  display: none;
+}
+
+.analyze-subtab-panel.active {
+  display: block;
+}
+
 .analyze-section {
   margin-top: 1.5rem;
 }
