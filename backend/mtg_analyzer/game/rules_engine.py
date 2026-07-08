@@ -528,16 +528,39 @@ class RulesEngine:
         """
         obj.tapped = tapped
 
-    def add_counters(self, obj: GameObject, amount: int) -> None:
-        """Put ``amount`` +1/+1 counters on ``obj`` (RULE 122); negatives remove.
+    def add_counters(self, obj: GameObject, amount: int, kind: str = "+1/+1") -> None:
+        """Put ``amount`` counters of ``kind`` on ``obj`` (RULE 122).
 
         Works on any permanent, not just creatures (RULE 122.1a) — a land can
         enter with +1/+1 counters and use them once it later becomes a creature.
-        The layer engine (`continuous.recompute`) reads the net counter into
-        derived P/T on the next SBA pass, which the caller's resolution already
-        triggers.
+        The layer engine (`continuous.recompute`) reads the net of +1/+1 and
+        -1/-1 counters into derived P/T on the next SBA pass, which the caller's
+        resolution already triggers; a later SBA also annihilates coexisting
+        +1/+1 and -1/-1 counters (RULE 704.5q).
+
+        ``kind`` defaults to +1/+1 (a negative ``amount`` then removes them via
+        the net-counter setter, preserving old callers). A ``kind`` of "-1/-1"
+        places actual -1/-1 counters, kept as their own type so annihilation
+        and "remove a -1/-1 counter" effects stay correct.
         """
-        obj.plus_one_counters += amount
+        if kind == "+1/+1":
+            obj.plus_one_counters += amount
+        else:
+            obj.add_counters(kind, amount)
+
+    def scry(self, player: Player, count: int) -> None:
+        """Scry ``count`` (RULE 701.18): look at the top ``count`` cards and
+        reorder / bottom them.
+
+        A goldfish/solo session has no interactive chooser, so this performs a
+        *legal* scry that keeps every looked-at card on top (always a valid
+        outcome — a player may keep any of them on top). It fires `SCRY` so the
+        UI and any "when you scry" trigger can observe it.
+        """
+        looked = min(count, len(player.library))
+        self.state.fire_event(
+            GameEvent(EventType.SCRY, player_id=player.id, count=looked)
+        )
 
     def create_token(
         self, controller_id: str, token_card: Card, count: int = 1

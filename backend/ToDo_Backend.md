@@ -113,8 +113,13 @@ Weeks 1–4 roadmap is archived at
       `obj.replacement_effects`. **Parametric keywords bind** their parameter
       onto `GameObject.parametric_keywords` (annihilator N, kicker cost, ward,
       protection quality — carried for the consumers; landwalk is fully wired).
-      Still open: more effect families (pump "+N/+N until end of turn",
-      −1/−1 counters, regenerate, scry, mode/"choose one", "up to N" targets)
+      **More effect families shipped**: `pump` ("+N/+N until end of turn",
+      also −N/−N and a "gains \<keyword\> until end of turn" grant — a temporary
+      `GameObject.temp_power/temp_toughness/temp_keywords` folded at layers 7d/6
+      by `continuous.recompute` and ended in the cleanup step, RULE 613.4d /
+      514.2), `-1/-1` counters (`add_counters` now carries a counter `kind`),
+      and `scry` (RULE 701.18, a legal keep-on-top scry that fires a `SCRY`
+      event). Still open: regenerate, mode/"choose one", "up to N" targets
       — each needs a one-shot `GameEffect` + registry entry first; oracle-text
       *recognition* of replacement clauses (the binder is ready; a
       target/duration grammar for the front-end is not); parse-on-load

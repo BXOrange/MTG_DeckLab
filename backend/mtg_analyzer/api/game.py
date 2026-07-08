@@ -33,10 +33,16 @@ from mtg_analyzer.api.dependencies import (
     get_game_session_manager,
     get_lazy_card_loader,
 )
-from mtg_analyzer.api.schemas import GameActionRequest, RewindRequest, StartGoldfishRequest
+from mtg_analyzer.api.schemas import (
+    DeckTokensRequest,
+    GameActionRequest,
+    RewindRequest,
+    StartGoldfishRequest,
+)
 from mtg_analyzer.models.card import Card
 from mtg_analyzer.parser.deckliste_parser import parse_deck_sections
 from mtg_analyzer.services.deck_database import DeckDatabase
+from mtg_analyzer.services.deck_tokens import producible_tokens
 from mtg_analyzer.services.deck_validation import apply_legality
 from mtg_analyzer.services.game_session import (
     GameActionError,
@@ -125,6 +131,56 @@ def start_goldfish(
     view = session.view()
     view["notFound"] = sorted(set(missing) | set(resolved.not_found))
     return view
+
+
+@router.post("/deck-tokens")
+def deck_tokens(
+    request: DeckTokensRequest,
+    decks: DeckDatabase = Depends(get_deck_database),
+    loader: LazyCardLoader = Depends(get_lazy_card_loader),
+) -> dict[str, object]:
+    """The tokens a deck can produce, for up-front art preloading (loading screen).
+
+    Resolves the deck the same way `start_goldfish` does, then enumerates every
+    ``create_token`` effect its cards carry (`producible_tokens`). Best-effort:
+    unresolvable cards simply contribute no tokens; legality is *not* required
+    (this only preloads art, it does not start a game).
+    """
+    commander_text = request.commander_text
+    mainboard_text = request.mainboard_text
+    sideboard_text = request.sideboard_text
+
+    if request.deck_id:
+        deck = decks.get_deck(request.deck_id)
+        if deck is None:
+            raise HTTPException(404, f'No saved deck with id "{request.deck_id}"')
+        commander_text = deck.commander_text
+        mainboard_text = deck.mainboard_text
+        sideboard_text = deck.sideboard_text
+
+    parsed = parse_deck_sections(commander_text, mainboard_text, sideboard_text)
+    resolved = loader.load_cards(
+        [e.name for e in parsed.commanders] + [e.name for e in parsed.all_cards]
+    )
+    library, _ = _expand(parsed.main_deck, resolved.cards)
+    commanders, _ = _expand(parsed.commanders, resolved.cards)
+
+    tokens = producible_tokens(commanders + library)
+    return {
+        "tokens": [
+            {
+                "id": t.id,
+                "name": t.name,
+                "type_line": t.type_line,
+                "power": t.power,
+                "toughness": t.toughness,
+                "oracle_text": t.oracle_text,
+                "image_small": t.image_uri_small or None,
+                "image_normal": t.image_uri_normal or None,
+            }
+            for t in tokens
+        ]
+    }
 
 
 @router.post("/multiplayer", status_code=501)

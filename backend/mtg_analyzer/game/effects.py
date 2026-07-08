@@ -84,8 +84,18 @@ class GameContext:
     def set_tapped(self, target: "GameObject", tapped: bool = True) -> None:
         self.engine.set_tapped(target, tapped)
 
-    def add_counters(self, target: "GameObject", amount: int) -> None:
-        self.engine.add_counters(target, amount)
+    def add_counters(self, target: "GameObject", amount: int, kind: str = "+1/+1") -> None:
+        self.engine.add_counters(target, amount, kind)
+
+    def scry(self, player: "Player", count: int = 1) -> None:
+        self.engine.scry(player, count)
+
+    def recompute(self) -> None:
+        """Re-derive continuous characteristics now (RULE 613) — used by an
+        effect that changes derived P/T mid-resolution (a pump)."""
+        from . import continuous  # function-scoped: avoid an import cycle
+
+        continuous.recompute(self.state)
 
     def create_token(self, controller_id: str, token_card: Any, count: int = 1) -> None:
         self.engine.create_token(controller_id, token_card, count)
@@ -117,6 +127,22 @@ class GameContext:
 
     def counter(self, target: Any) -> None:
         self.engine.counter_spell(target)
+
+
+def _controller_of(source: Optional["GameObject"], context: GameContext) -> Optional["Player"]:
+    """The `Player` controlling ``source`` (RULE 109.4), else the active player.
+
+    An untargeted effect ("scry 2", "you draw a card") affects its own
+    controller; if the effect has no source yet (a fixture/direct call), fall
+    back to the active player.
+    """
+    controller_id = getattr(source, "controller_id", None)
+    if controller_id is not None:
+        try:
+            return context.state.player_by_id(controller_id)
+        except (KeyError, ValueError):
+            pass
+    return context.active_player
 
 
 # ---------------------------------------------------------------------------
@@ -585,9 +611,13 @@ class AddCountersEffect(GameEffect):
         amount: int = 1,
         target_kind: Optional[str] = None,
         source: Optional["GameObject"] = None,
+        kind: str = "+1/+1",
     ) -> None:
         super().__init__(source)
         self.amount = amount
+        # The counter type: "+1/+1" (default) or "-1/-1" (RULE 122). Both shift
+        # net P/T the same machinery, just with opposite sign.
+        self.kind = kind
         if target_kind is not None:
             self.target_spec = TargetSpec(kind=target_kind)
 
@@ -597,7 +627,61 @@ class AddCountersEffect(GameEffect):
         else:
             target = self.source
         if target is not None:
-            context.add_counters(target, self.amount)
+            context.add_counters(target, self.amount, self.kind)
+
+
+class PumpEffect(GameEffect):
+    """Give a target creature a temporary P/T boost and/or keywords "until end
+    of turn" (Giant Growth; RULE 613.4d layer 7d + layer 6 for keywords).
+
+    ``power``/``toughness`` may be negative (a "-N/-N" debuff). The change is
+    an *effect* with a duration, not counters — it lives on the object's
+    ``temp_*`` fields, which `continuous.recompute` folds in and the cleanup
+    step (RULE 514.2) clears. Untargeted (no ``target_kind``) it pumps its own
+    source, e.g. an activated "~ gets +1/+0 until end of turn".
+    """
+
+    def __init__(
+        self,
+        power: int = 0,
+        toughness: int = 0,
+        keywords: Optional[list[str]] = None,
+        target_kind: Optional[str] = None,
+        source: Optional["GameObject"] = None,
+    ) -> None:
+        super().__init__(source)
+        self.power = power
+        self.toughness = toughness
+        self.keywords = list(keywords or [])
+        if target_kind is not None:
+            self.target_spec = TargetSpec(kind=target_kind)
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        if self.target_spec is not None:
+            target = targets[0] if targets else None
+        else:
+            target = self.source
+        if target is None:
+            return
+        target.temp_power += self.power
+        target.temp_toughness += self.toughness
+        target.temp_keywords.update(self.keywords)
+        # Re-derive P/T now so a lethal -X/-X (toughness → 0) is caught by the
+        # SBA pass the caller runs right after this resolution.
+        context.recompute()
+
+
+class ScryEffect(GameEffect):
+    """Scry ``count`` for the effect's controller (RULE 701.18)."""
+
+    def __init__(self, count: int = 1, source: Optional["GameObject"] = None) -> None:
+        super().__init__(source)
+        self.count = count
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        player = _controller_of(self.source, context)
+        if player is not None:
+            context.scry(player, self.count)
 
 
 class CreateTokenEffect(GameEffect):
@@ -875,8 +959,22 @@ EffectRegistry.register(
 EffectRegistry.register(
     "add_counters",
     lambda p: AddCountersEffect(
-        amount=p.get("amount", p.get("count", 1)), target_kind=p.get("target_kind")
+        amount=p.get("amount", p.get("count", 1)),
+        target_kind=p.get("target_kind"),
+        kind=p.get("kind", "+1/+1"),
     ),
+)
+EffectRegistry.register(
+    "pump",  # "target creature gets +N/+N (and gains <kw>) until end of turn"
+    lambda p: PumpEffect(
+        power=p.get("power", 0),
+        toughness=p.get("toughness", 0),
+        keywords=list(p.get("keywords", [])),
+        target_kind=p.get("target_kind"),
+    ),
+)
+EffectRegistry.register(
+    "scry", lambda p: ScryEffect(count=p.get("count", p.get("amount", 1)))
 )
 EffectRegistry.register(
     "create_token",

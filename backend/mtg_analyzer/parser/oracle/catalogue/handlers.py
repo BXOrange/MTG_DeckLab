@@ -168,8 +168,16 @@ def _create_token(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     return [EffectSpec("create_token", params)]
 
 
+def _signed_int(token: str) -> int:
+    """A signed integer literal, tolerating the unicode minus ``−`` (U+2212)."""
+    return int(token.replace("−", "-"))
+
+
 def _add_counters(m: re.Match[str]) -> Optional[list[EffectSpec]]:
-    params: dict = {"count": count_of(m.group("n"))}
+    # "+1/+1" (default) or "-1/-1" — the sign of the captured counter kind picks
+    # which; both shift net P/T through the same machinery (RULE 122).
+    ckind = "-1/-1" if m.group("ckind").lstrip()[0] in "-−" else "+1/+1"
+    params: dict = {"count": count_of(m.group("n")), "kind": ckind}
     if m.groupdict().get("selfref"):  # "on ~" — buffs the source, untargeted
         return [EffectSpec("add_counters", params)]
     kind = resolve_target_kind(m.group("target"))
@@ -181,6 +189,62 @@ def _add_counters(m: re.Match[str]) -> Optional[list[EffectSpec]]:
         return None
     params["target_kind"] = kind
     return [EffectSpec("add_counters", params)]
+
+
+def _pump_target(m: re.Match[str]) -> Optional[str]:
+    """The pump's ``target_kind`` — or ``None`` to signal fail-closed.
+
+    Returns the sentinel ``""`` for a self-pump ("~ gets …", untargeted) so the
+    caller can tell it apart from an unrecognised target (real ``None``).
+    """
+    if m.groupdict().get("selfref"):
+        return ""  # untargeted self-pump (an activated "~ gets +1/+0 …")
+    kind = resolve_target_kind(m.group("target"))
+    if kind not in ("creature", "permanent"):
+        return None
+    return kind
+
+
+def _pump(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    target_kind = _pump_target(m)
+    if target_kind is None:
+        return None
+    params: dict = {
+        "power": _signed_int(m.group("p")),
+        "toughness": _signed_int(m.group("t")),
+    }
+    if m.groupdict().get("kw"):
+        keywords = _token_keywords(m.group("kw"))
+        if keywords is None:
+            return None  # unmodeled granted ability → fail-closed
+        params["keywords"] = keywords
+    if target_kind:
+        params["target_kind"] = target_kind
+    return [EffectSpec("pump", params)]
+
+
+def _pump_keywords(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    target_kind = _pump_target(m)
+    if target_kind is None:
+        return None
+    keywords = _token_keywords(m.group("kw"))
+    if keywords is None:
+        return None
+    params: dict = {"keywords": keywords}
+    if target_kind:
+        params["target_kind"] = target_kind
+    return [EffectSpec("pump", params)]
+
+
+def _scry(m: re.Match[str]) -> list[EffectSpec]:
+    return [EffectSpec("scry", {"count": int(m.group("n"))})]
+
+
+# A pump's subject: a targeted creature/permanent or the self-reference ``~``
+# (a creature's own activated "~ gets +1/+0 …"). Shared by the pump handlers.
+_SUBJECT = rf"(?:{TARGET}|(?P<selfref>{re.escape(SELF)}))"
+#: A signed P/T delta, "+3/+3" / "-2/-2" / "+0/-1" (ASCII or unicode minus).
+_PT_DELTA = r"(?P<p>[+\-−]\d+)/(?P<t>[+\-−]\d+)"
 
 
 # --- The table --------------------------------------------------------------
@@ -243,11 +307,36 @@ HANDLERS: list[EffectHandler] = [
         _c(rf"(?P<verb>tap|untap) {TARGET}"),
         _tap,
     ),
-    # "put a +1/+1 counter on target creature" / "… on ~"
+    # "put a +1/+1 counter on target creature" / "put a -1/-1 counter on …" / "… on ~"
     EffectHandler(
         "add_counters",
-        _c(rf"put {COUNT} \+1/\+1 counters? on (?:{TARGET}|(?P<selfref>{re.escape(SELF)}))"),
+        _c(
+            rf"put {COUNT} (?P<ckind>[+\-−]1/[+\-−]1) counters? on "
+            rf"(?:{TARGET}|(?P<selfref>{re.escape(SELF)}))"
+        ),
         _add_counters,
+    ),
+    # "target creature gets +3/+3 until end of turn" / "gets -2/-2 …" /
+    # "gets +1/+1 and gains trample until end of turn" / "~ gets +1/+0 …".
+    EffectHandler(
+        "pump",
+        _c(
+            rf"{_SUBJECT} gets {_PT_DELTA}"
+            rf"(?: and gains (?P<kw>[a-z, ]+?))? until end of turn"
+        ),
+        _pump,
+    ),
+    # "target creature gains flying until end of turn" (keyword-only pump).
+    EffectHandler(
+        "pump_keyword",
+        _c(rf"{_SUBJECT} gains (?P<kw>[a-z, ]+?) until end of turn"),
+        _pump_keywords,
+    ),
+    # "scry 2" (a self effect — the controller scries; RULE 701.18).
+    EffectHandler(
+        "scry",
+        _c(rf"scry {NUMBER}"),
+        _scry,
     ),
     # "create a 1/1 white Soldier creature token" / "create two 2/2 green Bear
     # creature tokens with trample" — inline creature tokens (fully modeled).

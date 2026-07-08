@@ -65,6 +65,22 @@ class StartGoldfishRequest(BaseModel):
     shuffle: bool = True
 
 
+class DeckTokensRequest(BaseModel):
+    """Request body for POST /api/game/deck-tokens.
+
+    Same deck-source shape as `StartGoldfishRequest` (a saved `deckId` or
+    decklist text): returns the tokens the deck can produce so the goldfish
+    loading screen can preload their art before the match starts.
+    """
+
+    model_config = ConfigDict(populate_by_name=True)
+
+    deck_id: Optional[str] = Field(default=None, alias="deckId")
+    commander_text: str = Field(default="", alias="commanderText")
+    mainboard_text: str = Field(default="", alias="mainboardText")
+    sideboard_text: str = Field(default="", alias="sideboardText")
+
+
 class GameActionRequest(BaseModel):
     """Request body for POST /api/game/{id}/action.
 

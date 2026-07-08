@@ -250,6 +250,15 @@ def recompute(state: "GameState") -> None:
             obj._granted_keywords.update(keywords)
             _trace(obj, 6, _source_name(ability), "gains " + ", ".join(keywords))
 
+    # Temporary "until end of turn" keyword grants from a resolved effect
+    # ("target creature gains flying until end of turn") — same layer 6, but
+    # sourced off the object rather than a battlefield static ability. Cleared
+    # at cleanup (RULE 514.2).
+    for obj in state.battlefield:
+        if obj.temp_keywords:
+            obj._granted_keywords.update(obj.temp_keywords)
+            _trace(obj, 6, "Until-EOT", "gains " + ", ".join(sorted(obj.temp_keywords)))
+
     # -- Layer 7: power/toughness, on working base values so the sublayers
     # apply in order (7a CDA → 7b set → 7c counters → 7d modify → 7e switch).
     base: dict[int, list[int]] = {}
@@ -304,6 +313,18 @@ def recompute(state: "GameState") -> None:
                 base[obj.instance_id][1] += d_toughness
                 p, t = base[obj.instance_id]
                 _trace(obj, 7, _source_name(ability), f"{_signed(d_power)}/{_signed(d_toughness)}", p, t)
+
+    # 7d (cont.): temporary "until end of turn" P/T bonuses from a resolved
+    # pump effect (Giant Growth) — same sublayer as anthems (RULE 613.4d);
+    # addition commutes so within-layer order doesn't change the result.
+    # Sourced off the object; cleared at cleanup (RULE 514.2).
+    for obj in state.battlefield:
+        if obj.instance_id in base and (obj.temp_power or obj.temp_toughness):
+            base[obj.instance_id][0] += obj.temp_power
+            base[obj.instance_id][1] += obj.temp_toughness
+            p, t = base[obj.instance_id]
+            _trace(obj, 7, "Until-EOT",
+                   f"{_signed(obj.temp_power)}/{_signed(obj.temp_toughness)}", p, t)
 
     # 7e: switch power and toughness (RULE 613.7e / 701.28). Applied last, so it
     # swaps the fully-computed values.

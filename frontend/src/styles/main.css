@@ -1646,21 +1646,6 @@ textarea {
   align-items: center;
 }
 
-/* Once opened, the picker is highlighted so it reads as the pending choice. */
-.gf-cast-targets.gf-choosing {
-  padding: 0.3rem;
-  border: 1px solid var(--accent);
-  border-radius: 6px;
-  background: color-mix(in srgb, var(--accent) 10%, var(--panel));
-}
-
-.gf-target-prompt {
-  font-size: 0.7rem;
-  font-weight: 700;
-  color: var(--text-dim);
-  text-align: center;
-}
-
 /* --- Goldfisch: Bibliotheks-Suche / Entscheidung --- */
 
 .gf-choice {
@@ -1758,6 +1743,28 @@ textarea {
   margin: 0.15rem 0 0;
   font-size: 0.75rem;
   color: var(--text-dim);
+}
+
+/* Target-picker modal: a cancel row under the offered targets. */
+.gf-modal-foot {
+  margin-top: 0.8rem;
+  display: flex;
+  justify-content: flex-end;
+}
+
+.gf-modal-foot .gf-decline {
+  background: var(--panel-alt);
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  color: var(--text-dim);
+  padding: 0.3rem 0.6rem;
+  cursor: pointer;
+  font-size: 0.8rem;
+  font-style: italic;
+}
+
+.gf-modal-foot .gf-decline:hover {
+  border-color: var(--accent);
 }
 
 /* --- Goldfisch: Ladebildschirm (Kartenbilder vorladen) --- */

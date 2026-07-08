@@ -162,3 +162,43 @@ def _anywhere(eng, obj):
             if obj in zone_cards:
                 return True
     return False
+
+
+# -- Enumerating a deck's producible tokens (loading-screen art preload) ----
+
+
+def test_producible_tokens_synthesized_from_oracle_and_deduped():
+    # An inline creature token parsed off oracle text — synthesized (no art),
+    # and de-duplicated across a deck's repeated copies.
+    from mtg_analyzer.services.deck_tokens import producible_tokens
+
+    spell = Card(id="RTA", name="Raise the Alarm", type_line="Instant", is_instant=True,
+                 oracle_text="Create two 1/1 white Soldier creature tokens.")
+    tokens = producible_tokens([spell, spell])
+    assert [t.name for t in tokens] == ["Soldier"]
+    assert tokens[0].power == 1 and tokens[0].toughness == 1
+    assert not tokens[0].image_uri_small  # synthesized tokens carry no art
+
+
+def test_producible_tokens_named_resolves_curated_art():
+    # A bare *named* token resolves to the curated catalogue definition, which
+    # carries real Scryfall art — so it's exactly what preloading needs.
+    from mtg_analyzer.game import ability_catalogue
+    from mtg_analyzer.parser.oracle.spec import AbilitySpec, EffectSpec
+    from mtg_analyzer.services.deck_tokens import producible_tokens
+
+    ability_catalogue.register(
+        "Test Treasure Maker",
+        lambda: [AbilitySpec(
+            ability_kind="spell_effect",
+            effects=[EffectSpec("create_token", {"token_name": "Treasure"})],
+        )],
+    )
+    try:
+        card = Card(id="TTM", name="Test Treasure Maker", type_line="Sorcery",
+                    is_sorcery=True, oracle_text="Create a Treasure token.")
+        (token,) = producible_tokens([card])
+        assert token.name == "Treasure"
+        assert token.image_uri_small  # curated art present
+    finally:
+        ability_catalogue._REGISTRY.pop("test treasure maker", None)

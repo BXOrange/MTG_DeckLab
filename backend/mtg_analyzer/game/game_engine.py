@@ -443,9 +443,18 @@ class GameEngine:
         excess = len(active.hand) - MAX_HAND_SIZE
         if excess > 0:
             self.rules.discard(active, excess)
-        # RULE 514.2: remove marked damage and end "until end of turn".
+        # RULE 514.2: remove marked damage and end "until end of turn" effects
+        # (pump P/T bonuses and temporary keyword grants).
+        ended_effects = False
         for obj in self.state.permanents():
             obj.damage_marked = 0
+            if obj.temp_power or obj.temp_toughness or obj.temp_keywords:
+                obj.temp_power = 0
+                obj.temp_toughness = 0
+                obj.temp_keywords.clear()
+                ended_effects = True
+        if ended_effects:
+            self.recompute_continuous_effects()  # re-derive P/T sans the pumps
         self._clear_combat()
 
     # ------------------------------------------------------------------

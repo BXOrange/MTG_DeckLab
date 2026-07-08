@@ -8,6 +8,7 @@
 import { getState, setState } from './state.js';
 import {
   startGoldfish,
+  fetchDeckTokens,
   sendGameAction,
   rewindGame,
   restartGame,
@@ -158,6 +159,10 @@ export function createGoldfishView() {
       });
       const merged = new Map(getState().imageCache);
       for (const [name, entry] of resolved) merged.set(name, entry);
+      // Also preload the art of every token this deck can *produce* (created
+      // by effects mid-game, never named in the decklist) so a token renders
+      // instantly instead of popping in the first time it's made.
+      await preloadDeckTokens(merged);
       setState({ imageCache: merged });
     }
 
@@ -185,6 +190,52 @@ export function createGoldfishView() {
         setStatus(`Start fehlgeschlagen (${res.status}).`, 'warning');
       }
     });
+  }
+
+  // Fetch the tokens the selected deck can produce and preload their art into
+  // `merged` (the imageCache), keyed by lowercased token name — the same shape
+  // `objCard` reads — so a token GameObject shows its art the instant an effect
+  // creates it. Synthesized (inline-P/T) tokens carry no art and are skipped;
+  // their board tile keeps the text fallback. Best-effort: a failed fetch just
+  // means tokens lazy-load as before.
+  async function preloadDeckTokens(merged) {
+    const res = await fetchDeckTokens({ deckId: selectedDeckId });
+    const tokens = res.ok ? res.data?.tokens || [] : [];
+    if (!tokens.length) return;
+
+    for (const t of tokens) {
+      const key = (t.name || '').toLowerCase();
+      // Don't clobber a real deck card's already-resolved art if a token
+      // happens to share its name — the card entry is authoritative.
+      if (!key || merged.has(key)) continue;
+      merged.set(key, {
+        small: t.image_small || null,
+        normal: t.image_normal || null,
+        card: t,
+      });
+    }
+
+    const urls = tokens.map((t) => t.image_small).filter(Boolean);
+    if (!urls.length) return;
+    const base = loadingProgress.total;
+    let loaded = base;
+    loadingProgress = { loaded, total: base + urls.length };
+    render();
+    await Promise.all(
+      urls.map(
+        (url) =>
+          new Promise((resolve) => {
+            const img = new Image();
+            img.onload = img.onerror = () => {
+              loaded += 1;
+              loadingProgress = { loaded, total: base + urls.length };
+              render();
+              resolve();
+            };
+            img.src = url;
+          })
+      )
+    );
   }
 
   async function mulligan() {
@@ -480,7 +531,7 @@ export function createGoldfishView() {
     if (!stackNonEmpty) stackAside = false;
 
     root.innerHTML = `
-      <div class="goldfish${pending ? ' choosing' : ''}">
+      <div class="goldfish${pending || castTargeting ? ' choosing' : ''}">
         <div class="gf-topbar">
           <div class="gf-turninfo">
             <span class="gf-turn">Zug ${s.turn_number}</span>
@@ -495,6 +546,7 @@ export function createGoldfishView() {
         ${gameOver ? gameOverHtml(s, me, opp) : ''}
         ${statusHtml()}
         ${pending ? pendingChoiceHtml(pending) : ''}
+        ${castTargeting ? castTargetModalHtml() : ''}
 
         <div class="gf-controls">
           <button id="gf-advance" type="button" class="primary" ${busy || gameOver || pending ? 'disabled' : ''}>Nächster Schritt →</button>
@@ -1041,41 +1093,63 @@ export function createGoldfishView() {
     return buttons.length ? `<div class="gf-card-actions">${buttons.join('')}</div>` : '';
   }
 
-  // The target-selection control shown *below* a targeting spell in hand.
-  // Mirrors the attack "pick a defender" idiom: a first click opens the
-  // choice, then each requirement's legal targets are offered as buttons.
-  //  • closed → a "Zaubern → Ziel" button that begins targeting.
-  //  • open   → the current requirement's legal targets (plus "no target"
-  //             for an optional one, RULE 115.1a, and a cancel button).
-  // On the last target picked, the cast is sent with all chosen targets.
+  // The target-selection *trigger* shown below a targeting spell/ability in
+  // hand — a "Zaubern → Ziel" button that begins targeting (RULE 115). The
+  // actual per-requirement target picking happens in a modal pop-up over the
+  // board (`castTargetModalHtml`), so a player can't miss the choice.
   function castTargetHtml(a) {
     const iid = a.instance_id;
-    const active = castTargeting && castTargeting.instanceId === iid;
     // A spell that is both {X} and targeting still needs its X announced;
     // the input travels alongside and is read when targeting begins.
     const xField = a.has_x
       ? `<input type="number" min="0" max="${a.max_x}" value="${a.max_x}" data-x-input="${iid}" />`
       : '';
-    if (!active) {
-      const startInfo = JSON.stringify({ iid, type: a.type, ability_index: a.ability_index });
-      const label = a.type === 'activate_ability'
-        ? `⚡ ${escapeHtml(a.cost_label || 'Aktivieren')} → Ziel ▾`
-        : '✨ Zaubern → Ziel ▾';
-      return `<div class="gf-cast-targets">${xField}<button type="button" class="gf-card-action" data-cast-target-start='${escapeAttr(startInfo)}'>${label}</button></div>`;
-    }
-    const req = castTargeting.requirements[castTargeting.reqIndex] || {};
+    const startInfo = JSON.stringify({ iid, type: a.type, ability_index: a.ability_index });
+    const label = a.type === 'activate_ability'
+      ? `⚡ ${escapeHtml(a.cost_label || 'Aktivieren')} → Ziel ▾`
+      : '✨ Zaubern → Ziel ▾';
+    return `<div class="gf-cast-targets">${xField}<button type="button" class="gf-card-action" data-cast-target-start='${escapeAttr(startInfo)}'>${label}</button></div>`;
+  }
+
+  // The target-picker pop-up: while `castTargeting` is active, the current
+  // requirement's legal targets (RULE 115.1) are offered as buttons in a modal
+  // over a dimmed board — mirroring the pending-choice modal. Walks one
+  // requirement at a time; the last pick sends the cast with all chosen
+  // targets. Optional requirements (RULE 115.1a) offer "Kein Ziel".
+  function castTargetModalHtml() {
+    if (!castTargeting) return '';
+    const iid = castTargeting.instanceId;
+    const total = castTargeting.requirements.length;
+    const idx = castTargeting.reqIndex;
+    const req = castTargeting.requirements[idx] || {};
     const options = req.options || [];
-    const optButtons = options.map((o) => {
+    const buttons = options.map((o) => {
       const payload = JSON.stringify({ instance_id: iid, target: targetOptionPayload(o) });
-      return `<button type="button" class="gf-card-action" data-cast-target-pick='${escapeAttr(payload)}'>🎯 ${escapeHtml(o.name)}</button>`;
+      const hover = o.instance_id != null ? ` data-hover-card="${escapeHtml(o.name || '')}"` : '';
+      return `<button type="button"${hover} data-cast-target-pick='${escapeAttr(payload)}'>🎯 ${escapeHtml(o.name)}</button>`;
     });
     if (req.optional) {
       const skip = JSON.stringify({ instance_id: iid, target: null });
-      optButtons.push(`<button type="button" class="gf-card-action gf-decline" data-cast-target-pick='${escapeAttr(skip)}'>∅ Kein Ziel</button>`);
+      buttons.push(`<button type="button" class="gf-decline" data-cast-target-pick='${escapeAttr(skip)}'>∅ Kein Ziel</button>`);
     }
-    const prompt = `<span class="gf-target-prompt">Ziel wählen: ${escapeHtml(req.label || '')}</span>`;
-    const cancel = `<button type="button" class="gf-card-action gf-decline" data-cast-target-cancel="${iid}">✕ Abbrechen</button>`;
-    return `<div class="gf-cast-targets gf-choosing">${prompt}${optButtons.join('')}${cancel}</div>`;
+    const progress = total > 1 ? `Ziel ${idx + 1} von ${total}` : 'Ziel wählen';
+    return `
+      <div class="gf-modal-overlay">
+        <div class="gf-modal gf-target-modal" role="dialog" aria-modal="true">
+          <div class="gf-modal-head">
+            <span class="gf-modal-icon">🎯</span>
+            <div>
+              <h4>Ziel wählen: ${escapeHtml(req.label || '')}</h4>
+              <p class="gf-modal-who">${escapeHtml(progress)}</p>
+            </div>
+          </div>
+          <div class="gf-choice-options">${buttons.join('')}</div>
+          <div class="gf-modal-foot">
+            <button type="button" class="gf-decline" data-cast-target-cancel="${iid}">✕ Abbrechen</button>
+          </div>
+        </div>
+      </div>
+    `;
   }
 
   // The wire shape `GameSession._resolve_targets` expects: a player target

@@ -27,6 +27,7 @@ from mtg_analyzer.parser.oracle.segmenter import (
     is_keyword_line,
     parse_effect_body,
 )
+from mtg_analyzer.parser.oracle.spec import EffectSpec
 
 
 # ---------------------------------------------------------------------------
@@ -127,8 +128,9 @@ def test_handler_mill_exile_tap_counters():
     assert parse_effect_body("exile target creature")[0].params == {"target_kind": "creature"}
     untap = parse_effect_body("untap target permanent")[0]
     assert untap.type == "tap" and untap.params["untap"] is True
-    pump = parse_effect_body("put 2 +1/+1 counters on target creature")[0]
-    assert pump.type == "add_counters" and pump.params == {"count": 2, "target_kind": "creature"}
+    ctr = parse_effect_body("put 2 +1/+1 counters on target creature")[0]
+    assert ctr.type == "add_counters"
+    assert ctr.params == {"count": 2, "kind": "+1/+1", "target_kind": "creature"}
 
 
 def test_add_counters_on_self_is_untargeted():
@@ -142,6 +144,37 @@ def test_add_counters_targets_any_permanent_not_just_creatures():
     # animates uses them. The target phrase, not the counter, sets the kind.
     assert parse_effect_body("put a +1/+1 counter on target land")[0].params["target_kind"] == "permanent"
     assert parse_effect_body("put 2 +1/+1 counters on target permanent")[0].params["target_kind"] == "permanent"
+
+
+def test_minus_counters_carry_the_minus_kind():
+    effects = parse_effect_body("put a -1/-1 counter on target creature")
+    assert effects[0].type == "add_counters"
+    assert effects[0].params == {"count": 1, "kind": "-1/-1", "target_kind": "creature"}
+
+
+def test_pump_handler_reads_signed_pt_and_target():
+    plus = parse_effect_body("target creature gets +3/+3 until end of turn")[0]
+    assert plus.type == "pump"
+    assert plus.params == {"power": 3, "toughness": 3, "target_kind": "creature"}
+    minus = parse_effect_body("target creature gets -2/-2 until end of turn")[0]
+    assert minus.params == {"power": -2, "toughness": -2, "target_kind": "creature"}
+
+
+def test_pump_handler_grants_keywords():
+    both = parse_effect_body("target creature gets +1/+1 and gains trample until end of turn")[0]
+    assert both.params["keywords"] == ["trample"]
+    kw_only = parse_effect_body("target creature gains flying until end of turn")[0]
+    assert kw_only.type == "pump" and kw_only.params["keywords"] == ["flying"]
+    assert "power" not in kw_only.params
+
+
+def test_pump_fails_closed_on_an_unmodeled_granted_ability():
+    # "gains <non-flag-keyword> until end of turn" isn't safely modeled → unclaimed.
+    assert parse_effect_body("target creature gains protection until end of turn") is None
+
+
+def test_scry_handler():
+    assert parse_effect_body("scry 3")[0] == EffectSpec("scry", {"count": 3})
     assert parse_effect_body("put a +1/+1 counter on target creature")[0].params["target_kind"] == "creature"
 
 
@@ -259,7 +292,9 @@ def test_create_token_with_nonflag_ability_is_unclaimed():
 
 
 def test_unhandled_clause_is_unclaimed():
-    assert parse_effect_body("scry 2") is None
+    # "proliferate" / "regenerate" have no one-shot effect yet — fail-closed.
+    assert parse_effect_body("proliferate") is None
+    assert parse_effect_body("regenerate target creature") is None
     # A half-known chain fails whole (fail-closed), not partially.
     assert parse_effect_body("draw a card and mill your opponent") is None
 

@@ -94,7 +94,9 @@ the layer system (layers 2 control / 4 type / 5 colour / 6 abilities / 7a CDA /
 `ReplacementRegistry`, e.g. `prevent_damage`); **interactive trigger ordering**
 (RULE 603.3b, opt-in `state.interactive_ordering`); one-shot effects
 (damage/draw/discard/destroy/counter/search/gain_life/mill/exile/tap/
-+1+1-counters/create-token/**copy_permanent**/cascade/discover/…); **tokens**
+±1/±1-counters/**pump** ("+N/+N until end of turn" temp P/T + keyword grant,
+folded at layers 7d/6 and cleared at cleanup, RULE 613.4d/514.2)/**scry**/
+create-token/**copy_permanent**/cascade/discover/…); **tokens**
 with the RULE 704.5d cease-to-exist lifecycle (`GameObject.is_token`,
 `RulesEngine.create_token`); **planeswalkers** (loyalty abilities at
 sorcery-speed with a once-per-turn gate, damage removes loyalty, 0-loyalty SBA);
@@ -109,7 +111,7 @@ parametric one with its extractor regex); **flag keywords bind** — the binder
 docks them onto `GameObject.intrinsic_keywords`, which combat honours. The
 **oracle-effect front-end** (docs/09 Phase 1, `parser/oracle/`) turns oracle
 text into `AbilitySpec`s for the effect families (damage/draw/discard/destroy/
-gain_life/counter/mill/exile/tap/+1+1-counters/create-token) as spell_effects,
+gain_life/counter/mill/exile/tap/±1/±1-counters/pump/scry/create-token) as spell_effects,
 ETB/dies/attacks/blocks triggers, **`<cost>: <effect>` activated abilities**,
 and **`static` anthem/lord clauses** ("creatures you control get +N/+N", tribal
 "Other Goblins …", token anthems, colour-scoped/global "Black creatures …",
@@ -118,8 +120,9 @@ subtype/tokens/color/exclude_self selectors in
 `continuous.affected_objects`) — all with a fail-closed coverage gate, so plain
 instants/sorceries/ETB-triggers/activated/static abilities resolve with no
 catalogue entry. `processing_list.py` reports cache-wide coverage + a ranked
-build order for the next handlers. **Not yet**: richer effect families
-(pump/regenerate/scry/modes — each needs a one-shot effect first); oracle-text
+build order for the next handlers. **Not yet**: the remaining effect families
+(regenerate/modes "choose one"/"up to N" targets — each needs a one-shot effect
+first); oracle-text
 *recognition* of replacement clauses (the binder is ready — a front-end
 target/duration grammar is not); *behaviour* for the remaining parametric
 keywords (kicker/escape alt-costs, annihilator/afflict combat maths — the

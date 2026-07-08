@@ -35,6 +35,9 @@ class EventType:
     LEAVES_BATTLEFIELD = "LEAVES_BATTLEFIELD"
     DIES = "DIES"
     MILL = "MILL"
+    #: A player scried (RULE 701.18): looked at the top N of their library and
+    #: reordered / bottomed them.
+    SCRY = "SCRY"
     #: A card was moved to exile (RULE 406) — e.g. cascade/discover reveal.
     EXILE = "EXILE"
     #: A player searched their library (RULE 701.19) / shuffled it (RULE 701.20).

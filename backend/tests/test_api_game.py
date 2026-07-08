@@ -121,6 +121,36 @@ class TestStartGoldfish:
         assert "Forest" in response.json()["detail"]["notFound"]
 
 
+class TestDeckTokens:
+    def teardown_method(self):
+        _teardown()
+
+    def test_lists_producible_tokens(self):
+        rta = Card(id="RTA", name="Raise the Alarm", type_line="Instant", is_instant=True,
+                   oracle_text="Create two 1/1 white Soldier creature tokens.")
+        _setup({"Raise the Alarm": rta})
+        client = TestClient(app)
+        response = client.post("/api/game/deck-tokens", json={"mainboardText": "1 Raise the Alarm\n"})
+        assert response.status_code == 200
+        tokens = response.json()["tokens"]
+        assert [t["name"] for t in tokens] == ["Soldier"]
+        assert tokens[0]["power"] == 1 and tokens[0]["toughness"] == 1
+
+    def test_empty_for_deck_without_token_makers(self):
+        _setup()
+        client = TestClient(app)
+        # No legality gate here — this only preloads art.
+        response = client.post("/api/game/deck-tokens", json={"mainboardText": "40 Forest\n"})
+        assert response.status_code == 200
+        assert response.json()["tokens"] == []
+
+    def test_unknown_deck_id_is_404(self):
+        _setup()
+        client = TestClient(app)
+        response = client.post("/api/game/deck-tokens", json={"deckId": "nope"})
+        assert response.status_code == 404
+
+
 class TestSessionLifecycle:
     def teardown_method(self):
         _teardown()

@@ -111,6 +111,45 @@ def test_pt_switch_applies_after_anthem():
     assert (bear.power, bear.toughness) == (1, 4)
 
 
+# -- "Until end of turn" pump / keyword grant (RULE 613.4d, 514.2) -----------
+
+
+def test_temp_pt_bonus_folds_in_at_layer_7d():
+    eng = make_engine()
+    bear = put(eng.state, creature("Bear", power=2, toughness=2))
+    bear.temp_power, bear.temp_toughness = 3, 3  # a resolved Giant Growth
+    continuous.recompute(eng.state)
+    assert (bear.power, bear.toughness) == (5, 5)
+
+
+def test_temp_pt_stacks_on_counters_and_anthem():
+    eng = make_engine()
+    lord = put(eng.state, creature("Lord"))
+    bear = put(eng.state, creature("Bear", power=2, toughness=2))
+    bear.add_counters("+1/+1", 1)                                   # 7c
+    static("pt_mod", "other_creatures_you_control", {"power": 1, "toughness": 1}, lord)  # 7d
+    bear.temp_power, bear.temp_toughness = 2, 0                     # 7d (until EOT)
+    continuous.recompute(eng.state)
+    # base 2/2 + counter 1/1 + anthem 1/1 + pump 2/0 = 6/4.
+    assert (bear.power, bear.toughness) == (6, 4)
+
+
+def test_temp_negative_pt_can_be_lethal():
+    eng = make_engine()
+    bear = put(eng.state, creature("Bear", power=2, toughness=2))
+    bear.temp_toughness = -2  # -0/-2 until end of turn
+    continuous.recompute(eng.state)
+    assert bear.toughness == 0  # a 0-toughness SBA would then destroy it
+
+
+def test_temp_keyword_grant_folds_in_at_layer_6():
+    eng = make_engine()
+    bear = put(eng.state, creature("Bear"))
+    bear.temp_keywords.add("flying")
+    continuous.recompute(eng.state)
+    assert "flying" in bear.granted_keywords
+
+
 # -- Layer 5: colour change --------------------------------------------------
 
 

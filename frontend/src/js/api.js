@@ -257,6 +257,15 @@ export async function startGoldfish(payload) {
   return gameRequest('POST', '/api/game/goldfish', payload);
 }
 
+/**
+ * The tokens a deck can produce, so the loading screen can preload their art
+ * before the match starts. Returns `{tokens: [{id, name, image_small, …}]}`.
+ * @param {{deckId?: string, commanderText?: string, mainboardText?: string, sideboardText?: string}} payload
+ */
+export async function fetchDeckTokens(payload) {
+  return gameRequest('POST', '/api/game/deck-tokens', payload);
+}
+
 /** Apply one action (from the session's legal_actions) to a game. */
 export async function sendGameAction(sessionId, action) {
   return gameRequest('POST', `/api/game/${encodeURIComponent(sessionId)}/action`, action);

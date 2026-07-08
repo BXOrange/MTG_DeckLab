@@ -107,6 +107,11 @@ const SECTIONS = [
     items: [
       ['full', 'damage / destroy / counter', 'Schaden an beliebiges Ziel, Zerstören, Spruch neutralisieren.'],
       ['full', 'draw / discard / gain_life', 'Karten ziehen/abwerfen, Leben gewinnen.'],
+      ['full', 'mill / exile / tap', 'Mühlen, Exilieren, Tappen/Enttappen von Zielen.'],
+      ['full', 'add_counters (+1/+1 / −1/−1)', '+1/+1- oder −1/−1-Marken auf ein Ziel (RULE 122); −1/−1 annihilieren als SBA.'],
+      ['full', 'pump („+N/+N bis Zugende")', 'Temporärer P/T-Bonus und/oder Keyword-Grant bis Zugende (Riesenwuchs; Layer 7d/6, RULE 613.4d); im Cleanup entfernt (514.2). Auch −N/−N.'],
+      ['full', 'scry', 'Hellsehen N (RULE 701.18): legale Ausführung (behält oben), feuert ein SCRY-Ereignis.'],
+      ['full', 'create_token', 'Inline- und benannte Tokens (RULE 111.5 / 701.6).'],
       ['full', 'search / shuffle', 'Bibliothek durchsuchen (Tutor) mit Kriterien/Ziel/Zahl.'],
       ['full', 'cascade / discover', 'Kaskade & Discover mit Spieler-Entscheidung.'],
       ['full', 'copy_permanent', 'Token-Kopie einer Ziel-bleibenden Karte (RULE 707).'],
@@ -133,7 +138,7 @@ const SECTIONS = [
     title: 'Noch nicht implementiert',
     rule: '',
     items: [
-      ['partial', 'Karten-Abdeckung (Specs)', 'Oracle-Parser Phase 1 aktiv: Instants/Hexereien, ETB-Trigger, „Kosten: Effekt"-Aktivierfähigkeiten und statische Anthem-/Lord-Effekte aus den Familien Schaden/Ziehen/Abwerfen/Zerstören/Lebensgewinn/Neutralisieren/Mühlen/Exil/Tappen/+1+1-Marken/Token-Erzeugung werden ohne Katalog-Eintrag erkannt (parser/oracle → normalize/segmenter/handlers/gate). Anthems inkl. Stammes-Lords („Andere Goblins, die du kontrollierst …"), Token-Anthems (Intangible Virtue), farb-basierte („Schwarze Kreaturen bekommen +1/+1", Bad Moon) und globale Anthems (ohne „die du kontrollierst" — alle Spieler) über Subtyp-/Token-/Farb-Filter im Layer-System. Token folgen den Regeln zum Aufhören-zu-existieren (RULE 704.5d). Fail-closed: nur vollständig abgedeckte Karten (MODELED) binden Effekte. Weitere Familien (Pump/Modi/Kopien) folgen (docs/09).'],
+      ['partial', 'Karten-Abdeckung (Specs)', 'Oracle-Parser Phase 1 aktiv: Instants/Hexereien, ETB-Trigger, „Kosten: Effekt"-Aktivierfähigkeiten und statische Anthem-/Lord-Effekte aus den Familien Schaden/Ziehen/Abwerfen/Zerstören/Lebensgewinn/Neutralisieren/Mühlen/Exil/Tappen/±1/±1-Marken/Pump (+N/+N bis Zugende)/Keyword-Grant bis Zugende/Hellsehen/Token-Erzeugung werden ohne Katalog-Eintrag erkannt (parser/oracle → normalize/segmenter/handlers/gate). Anthems inkl. Stammes-Lords („Andere Goblins, die du kontrollierst …"), Token-Anthems (Intangible Virtue), farb-basierte („Schwarze Kreaturen bekommen +1/+1", Bad Moon) und globale Anthems (ohne „die du kontrollierst" — alle Spieler) über Subtyp-/Token-/Farb-Filter im Layer-System. Token folgen den Regeln zum Aufhören-zu-existieren (RULE 704.5d). Fail-closed: nur vollständig abgedeckte Karten (MODELED) binden Effekte. Weitere Familien (Regenerieren/Modi „wähle eins"/„bis zu N" Ziele) folgen (docs/09).'],
       ['partial', 'Bedingte Tap-Länder', 'Shock-/Check-Länder (2 Leben zahlen / „unless …") kommen aktuell ungetappt — die Wahl fehlt noch.'],
       ['partial', 'Parametrische Keywords (Bindung)', 'Landwalk bindet vollständig in den Kampf; Annihilator/Kicker/Ward/Protection-Qualität werden mit Parameter geführt (`parametric_keywords`), aber ihr Verhalten (Alternativkosten, Kampfmathematik) ist noch nicht verdrahtet.'],
       ['partial', 'Ersetzungs-Reihenfolge', 'Trigger-Reihenfolge ist interaktiv (603.3b); die Ersetzungs-/Verhütungs-Reihenfolge (RULE 616.1) läuft noch deterministisch.'],

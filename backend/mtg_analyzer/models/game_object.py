@@ -186,6 +186,18 @@ class GameObject:
         #: layer order — the data the UI's layer-trace view renders.
         self.static_trace: list[dict[str, Any]] = []
 
+        #: "Until end of turn" modifications from a resolved one-shot effect —
+        #: a pump ("target creature gets +3/+3 until end of turn", RULE 613.4d)
+        #: and a temporary keyword grant ("gains flying until end of turn",
+        #: layer 6). Unlike counters (RULE 122) these are *effects*: they don't
+        #: survive the object leaving and re-entering, and the cleanup step
+        #: (RULE 514.2) clears them each turn. `continuous.recompute` folds
+        #: them into derived P/T and `_granted_keywords`, so they are *not*
+        #: cleared by `reset_derived` (they must outlive a mid-turn recompute).
+        self.temp_power: int = 0
+        self.temp_toughness: int = 0
+        self.temp_keywords: set[str] = set()
+
     def reset_derived(self) -> None:
         """Clear layer-engine output before a fresh `continuous.recompute`."""
         self._derived_power = None
