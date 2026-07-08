@@ -10,6 +10,7 @@
   --error: #d3564b;
   --warn: #d3a13a;
   --ok: #5bb072;
+  --info: #4a90d9;
 }
 
 * {
@@ -762,9 +763,14 @@ textarea {
 .card-hover-tooltip-image {
   display: block;
   width: 110px;
-  height: auto;
+  aspect-ratio: 63 / 88;
+  object-fit: cover;
   border-radius: 5px;
   flex-shrink: 0;
+  /* `.card-hover-tooltip-inner` is a flex row; without this the image (a
+     flex item) stretches to the text column's height instead of keeping
+     its own card ratio. */
+  align-self: flex-start;
 }
 
 .card-hover-tooltip-text-col {
@@ -847,6 +853,40 @@ textarea {
   font-size: 0.7rem;
   color: var(--text-dim);
   text-transform: uppercase;
+}
+
+.gf-active-player {
+  font-size: 0.8rem;
+  color: var(--text-dim);
+}
+
+/* One player's board (mana/life header + play area) — gameBoardView.js.
+   Goldfisch always renders exactly one; Replay's play mode can render two
+   side by side (a puzzle's second real player, unlike goldfish's dummy). */
+.gf-player-board {
+  margin-bottom: 1rem;
+}
+
+.gf-player-board:last-child {
+  margin-bottom: 0;
+}
+
+.gf-player-board-head {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  flex-wrap: wrap;
+  background: var(--felt);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 0.5rem 0.75rem;
+  margin-bottom: 0.6rem;
+}
+
+.gf-player-board-head h3 {
+  margin: 0;
+  color: var(--accent);
+  font-size: 1rem;
 }
 
 .gf-controls {
@@ -1908,4 +1948,256 @@ textarea {
   padding: 0.05rem 0.3rem;
   border-radius: 4px;
   font-size: 0.9em;
+}
+
+/* --- Replay / Puzzle mode (replayView.js) ------------------------- */
+.replay-start { max-width: 640px; }
+.replay-start-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.6rem;
+  align-items: center;
+  margin: 1rem 0;
+}
+/* Color-coded like a load/import action (blue), distinct from the neutral
+   toolbar buttons around it and from "Exportieren" (no color of its own). */
+.replay-import-label {
+  display: inline-block;
+  padding: 0.4rem 0.8rem;
+  border: 1px solid color-mix(in srgb, var(--info) 55%, var(--border));
+  border-radius: 6px;
+  cursor: pointer;
+  background: color-mix(in srgb, var(--info) 16%, var(--panel));
+  color: var(--info);
+}
+.replay-import-label:hover {
+  border-color: var(--info);
+  background: color-mix(in srgb, var(--info) 26%, var(--panel));
+}
+
+.replay-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1rem;
+  align-items: center;
+  padding: 0.5rem 0.7rem;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  margin-bottom: 0.6rem;
+}
+.replay-toolbar-group { display: flex; gap: 0.4rem; align-items: center; flex-wrap: wrap; }
+.replay-toolbar label { font-size: 0.85rem; color: var(--text-dim); display: flex; gap: 0.3rem; align-items: center; }
+.replay-toolbar input[type="number"] { width: 4rem; }
+
+.replay-status { margin: 0.3rem 0 0.6rem; padding: 0.3rem 0.6rem; border-radius: 6px; }
+.replay-status--ok { color: var(--ok); }
+.replay-status--warning { color: var(--warn); }
+
+.replay-players { display: grid; gap: 0.8rem; grid-template-columns: 1fr; }
+@media (min-width: 1100px) { .replay-players.two { grid-template-columns: 1fr 1fr; } }
+.replay-player {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--panel);
+  padding: 0.6rem;
+}
+.replay-player-head {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.6rem;
+  align-items: center;
+  border-bottom: 1px solid var(--border);
+  padding-bottom: 0.4rem;
+  margin-bottom: 0.5rem;
+}
+.replay-player-head h3 { margin: 0; color: var(--accent); }
+.replay-player-head label { font-size: 0.82rem; color: var(--text-dim); display: flex; gap: 0.25rem; align-items: center; }
+.replay-player-head input[type="number"] { width: 3.4rem; }
+.replay-manapool {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: 0.4rem;
+  font-size: 0.82rem;
+  color: var(--text-dim);
+}
+.replay-manapool-label { font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.03em; }
+.replay-mana-input { display: flex; align-items: center; gap: 0.15rem; }
+.replay-mana { width: 2.8rem; }
+
+.replay-extra-counters { display: flex; flex-wrap: wrap; gap: 0.3rem; margin-bottom: 0.4rem; }
+.replay-chip {
+  background: var(--panel-alt);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 0.05rem 0.45rem;
+  font-size: 0.78rem;
+}
+
+/* Zone boxes reuse the Goldfisch board's `.gf-zone`/`.gf-play`/`.gf-side`/
+   `.gf-main`/`.gf-bf-*` shell (main.css, "Battlefield: type rows, attachments,
+   combat") so the two boards read as the same game board; `.replay-zone` only
+   adds the editor's header controls on top. */
+.replay-zone-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 0.8rem;
+  color: var(--text-dim);
+  margin-bottom: 0.35rem;
+}
+.replay-zone-head button { font-size: 0.72rem; padding: 0.1rem 0.35rem; }
+.replay-count { color: var(--text); font-weight: bold; }
+.replay-zone-cards { display: flex; flex-wrap: wrap; gap: 0.35rem; }
+
+/* Library: a collapsible ordered list (draw order matters — see
+   `edit_reorder_object`), unlike the other zones' card-tile grids. */
+.replay-lib-toggle { color: var(--info); border-color: color-mix(in srgb, var(--info) 45%, var(--border)); }
+.replay-lib-toggle:hover { border-color: var(--info); }
+
+.replay-lib-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  max-height: 65vh;
+  overflow-y: auto;
+}
+.replay-lib-item {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.15rem 0.4rem;
+  border-left: 2px solid var(--accent);
+  background: var(--panel-alt);
+  border-radius: 3px;
+  font-size: 0.8rem;
+}
+.replay-lib-pos {
+  flex: 0 0 auto;
+  min-width: 2.2rem;
+  color: var(--text-dim);
+  font-size: 0.7rem;
+  text-align: center;
+}
+.replay-lib-name {
+  flex: 1 1 auto;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.replay-lib-tools {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  flex: 0 0 auto;
+}
+.replay-lib-tools button { padding: 0 4px; font-size: 0.72rem; line-height: 1.4; }
+.replay-lib-tools .replay-move { font-size: 0.62rem; max-width: 90px; }
+
+.replay-card {
+  position: relative;
+  width: 72px;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  background: var(--bg);
+  overflow: hidden;
+}
+.replay-card img { display: block; width: 100%; height: auto; }
+.replay-card.tapped { transform: rotate(8deg); }
+.replay-card.is-token { border-style: dashed; }
+.replay-card-name { display: block; padding: 0.3rem; font-size: 0.72rem; min-height: 3.4rem; }
+.replay-card-badges {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  right: 2px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px;
+}
+.replay-badge {
+  background: rgba(0, 0, 0, 0.75);
+  color: var(--text);
+  border-radius: 4px;
+  padding: 0 3px;
+  font-size: 0.66rem;
+}
+.replay-badge--counter { background: rgba(201, 165, 59, 0.85); color: #000; }
+.replay-card-tools {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1px;
+  padding: 1px;
+  background: var(--panel);
+}
+.replay-card-tools button { padding: 0 3px; font-size: 0.72rem; line-height: 1.4; }
+.replay-card-tools .replay-move { font-size: 0.62rem; max-width: 100%; flex: 1 1 100%; }
+
+.replay-modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.6);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 50;
+}
+.replay-modal {
+  width: min(480px, 92vw);
+  max-height: 82vh;
+  overflow: auto;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+.replay-library-modal { width: min(560px, 92vw); }
+.replay-modal-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 0.5rem 0.7rem;
+  border-bottom: 1px solid var(--border);
+}
+.replay-modal-head h3 { margin: 0; }
+.replay-modal-body { padding: 0.7rem; }
+.replay-search-row { display: flex; gap: 0.4rem; }
+.replay-search-row input { flex: 1; }
+.replay-search-results { list-style: none; padding: 0; margin: 0.6rem 0 0; display: flex; flex-direction: column; gap: 0.25rem; }
+.replay-search-results button { width: 100%; text-align: left; }
+.replay-search-results small { color: var(--text-dim); }
+.replay-token-form { display: flex; flex-direction: column; gap: 0.5rem; }
+.replay-token-form label { display: flex; gap: 0.4rem; align-items: center; justify-content: space-between; }
+.replay-token-form input[type="text"], .replay-token-form input[type="number"], .replay-token-form textarea { flex: 1; }
+.replay-token-form textarea { resize: vertical; font-family: inherit; }
+.replay-token-form label:has(textarea) { align-items: flex-start; }
+.replay-token-colors { display: flex; flex-wrap: wrap; gap: 0.5rem; }
+.replay-token-colors label { justify-content: flex-start; }
+
+.replay-token-presets {
+  border-bottom: 1px solid var(--border);
+  padding-bottom: 0.5rem;
+  margin-bottom: 0.1rem;
+}
+.replay-token-presets-label {
+  display: block;
+  font-size: 0.78rem;
+  color: var(--text-dim);
+  margin-bottom: 0.35rem;
+}
+.replay-token-preset-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+}
+.replay-token-preset {
+  font-size: 0.78rem;
+  padding: 0.25rem 0.5rem;
+}
+.replay-token-preset small {
+  color: var(--text-dim);
 }

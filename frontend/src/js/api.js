@@ -290,3 +290,23 @@ export async function endGame(sessionId) {
 export async function startMultiplayer() {
   return gameRequest('POST', '/api/game/multiplayer', {});
 }
+
+/**
+ * Start a Replay / Puzzle session. Pass a full `Replay` descriptor to
+ * load a saved/exported board, or `null` to start blank with `numPlayers`
+ * (1 = solo puzzle, 2 = with an opponent).
+ * @param {object|null} replay
+ * @param {number} numPlayers
+ */
+export async function startReplay(replay, numPlayers = 1) {
+  return gameRequest('POST', '/api/game/replay', { replay, numPlayers });
+}
+
+/**
+ * Serialize a session's board to a portable descriptor (for download). Works
+ * for a goldfish session too, so a goldfish position can be exported.
+ * @param {string} sessionId
+ */
+export async function exportReplay(sessionId) {
+  return gameRequest('GET', `/api/game/${encodeURIComponent(sessionId)}/replay-export`);
+}

@@ -35,6 +35,7 @@ from mtg_analyzer.models.player import Player
 from mtg_analyzer.game.game_engine import GameEngine
 from mtg_analyzer.game import continuous
 from mtg_analyzer.game.effect_binder import bind_from_catalogue
+from mtg_analyzer.services import replay
 
 #: How many undo snapshots to retain (older moves drop off the bottom).
 MAX_HISTORY = 100
@@ -46,6 +47,7 @@ _MAX_DECISION_ADVANCE_STEPS = 200
 
 GOLDFISH = "goldfish"
 MULTIPLAYER = "multiplayer"
+REPLAY = "replay"
 
 
 class GameActionError(Exception):
@@ -136,6 +138,9 @@ class GameSession:
         self.id = session_id or str(uuid.uuid4())
         self.mode = mode
         self.engine = engine
+        #: A card loader for Replay-mode `edit_add_object` (resolving a card
+        #: name → `Card` on the fly). Set by `create_replay`; None otherwise.
+        self._loader: Any = None
         #: Pristine opening state + step position, so restart is exact.
         self._initial: tuple[GameState, int] = (engine.state.clone(), engine.step_cursor)
         #: (label, pre-action snapshot, cursor) stack; rewind pops the end.
@@ -236,6 +241,13 @@ class GameSession:
         state = self.engine.state
         active = state.active_player
         kind = action["type"]
+
+        # Replay/puzzle board editing (mode == REPLAY): direct state
+        # mutations that bypass rules validation, so an arbitrary — even
+        # rules-illegal — position can be constructed. Allowed at any time.
+        if kind.startswith("edit_"):
+            self._edit_dispatch(action)
+            return
 
         # Setup phase (UC3: mulligan before the game proper starts): only
         # `mulligan`/`keep_hand` are legal until the opening hand is kept.
@@ -360,6 +372,215 @@ class GameSession:
             return
 
         raise GameActionError(f"unknown action type: {kind!r}")
+
+    # -- Replay editing (mode == REPLAY) -------------------------
+
+    def _edit_dispatch(self, action: dict[str, Any]) -> None:
+        """Apply one board-editing action. Snapshotted/undoable by `apply_action`."""
+        if self.mode != REPLAY:
+            raise GameActionError("edit actions are only allowed in replay mode")
+        kind = action["type"]
+        state = self.engine.state
+
+        if kind == "edit_add_object":
+            self._edit_add_object(action)
+        elif kind == "edit_remove_object":
+            self._remove_object_everywhere(self._object(action))
+        elif kind == "edit_move_object":
+            self._edit_move_object(action)
+        elif kind == "edit_reorder_object":
+            self._edit_reorder_object(action)
+        elif kind == "edit_set_flags":
+            self._edit_set_flags(action)
+        elif kind == "edit_transform":
+            self._object(action).transform()
+        elif kind == "edit_set_counters":
+            self._set_counter_map(self._object(action).counters, action)
+        elif kind == "edit_set_life":
+            self._edit_player(action).life = int(action.get("value", 0))
+        elif kind == "edit_set_poison":
+            self._edit_player(action).poison = max(0, int(action.get("value", 0)))
+        elif kind == "edit_set_mana":
+            self._edit_set_mana(action)
+        elif kind == "edit_set_player_counter":
+            self._set_counter_map(self._edit_player(action).counters, action)
+        elif kind == "edit_set_commander_damage":
+            self._edit_commander_damage(action)
+        elif kind == "edit_set_turn":
+            self._edit_set_turn(action)
+        else:
+            raise GameActionError(f"unknown edit action: {kind!r}")
+
+    def _edit_player(self, action: dict[str, Any]) -> Player:
+        pid = action.get("player_id")
+        if pid is None:
+            raise GameActionError("edit action needs a player_id")
+        try:
+            return self.engine.state.player_by_id(str(pid))
+        except KeyError as exc:
+            raise GameActionError(f"no player with id {pid!r}") from exc
+
+    @staticmethod
+    def _set_counter_map(counters: dict[str, int], action: dict[str, Any]) -> None:
+        """Set a named counter to an absolute ``amount`` (0 removes it)."""
+        name = action.get("counter")
+        if not name:
+            raise GameActionError("counter edit needs a 'counter' name")
+        amount = int(action.get("amount", 0))
+        if amount > 0:
+            counters[str(name)] = amount
+        else:
+            counters.pop(str(name), None)
+
+    def _remove_object_everywhere(self, obj: GameObject) -> None:
+        state = self.engine.state
+        if obj in state.battlefield:
+            state.remove_from_battlefield(obj)
+            return
+        for player in state.players:
+            for objs in player.zones.values():
+                if obj in objs:
+                    objs.remove(obj)
+                    return
+
+    def _edit_add_object(self, action: dict[str, Any]) -> None:
+        state = self.engine.state
+        zone = Zone(action.get("zone", "battlefield"))
+        owner_id = str(action.get("owner_id") or state.players[0].id)
+        token = action.get("token")
+        if token and zone != Zone.BATTLEFIELD:
+            raise GameActionError(
+                "a token can only be added to the battlefield — it ceases to "
+                "exist in any other zone (RULE 111.7)"
+            )
+        inst: dict[str, Any] = {
+            "name": action.get("name"),
+            "card_id": action.get("card_id"),
+            "is_token": bool(token),
+            "token": token,
+            "tapped": bool(action.get("tapped")),
+            "summoning_sick": bool(action.get("summoning_sick", zone == Zone.BATTLEFIELD)),
+            "counters": action.get("counters") or {},
+            "is_commander": bool(action.get("is_commander")) or zone == Zone.COMMAND,
+            "transformed": bool(action.get("transformed")),
+        }
+        cards_by_name: dict[str, Any] = {}
+        if not inst["is_token"]:
+            name = inst["name"]
+            if not name:
+                raise GameActionError("edit_add_object needs a card name or a token block")
+            if self._loader is None:
+                raise GameActionError("no card loader available for this session")
+            cards_by_name = self._loader.load_cards([name]).cards
+        controller = action.get("controller_id") if zone == Zone.BATTLEFIELD else None
+        obj = replay.build_object(
+            inst, owner_id=owner_id, cards_by_name=cards_by_name, controller_id=controller
+        )
+        if obj is None:
+            raise GameActionError(f"could not resolve card {inst['name']!r}")
+        if zone == Zone.BATTLEFIELD:
+            obj.owner_id = owner_id
+            obj.controller_id = str(action.get("controller_id") or owner_id)
+            state.add_to_battlefield(obj)
+        else:
+            state.player_by_id(owner_id).add_to_zone(obj, zone)
+
+    def _edit_move_object(self, action: dict[str, Any]) -> None:
+        state = self.engine.state
+        obj = self._object(action)
+        target = Zone(action["zone"])
+        if obj.is_token and target != Zone.BATTLEFIELD:
+            raise GameActionError(
+                "a token ceases to exist off the battlefield (RULE 111.7) — "
+                "remove it instead of moving it there"
+            )
+        owner_id = str(action.get("owner_id") or obj.owner_id)
+        self._remove_object_everywhere(obj)
+        obj.owner_id = owner_id
+        if target == Zone.BATTLEFIELD:
+            obj.controller_id = str(action.get("controller_id") or owner_id)
+            state.add_to_battlefield(obj)
+        else:
+            state.player_by_id(owner_id).add_to_zone(obj, target)
+
+    def _edit_reorder_object(self, action: dict[str, Any]) -> None:
+        """Swap ``instance_id`` with its neighbor one step toward the end of
+        its zone's list (``direction: "up"``) or the start (``"down"``).
+
+        Only meaningful for a personal zone's hidden order (RULE 401.1) —
+        the library editor uses it to set draw order; the list is stored
+        bottom-first (the *end* is the top of the deck, see `Player.library`),
+        so "up" (toward the top of the deck) moves an object later in the
+        list.
+        """
+        obj = self._object(action)
+        direction = action.get("direction")
+        if direction not in ("up", "down"):
+            raise GameActionError("edit_reorder_object needs a direction: 'up' or 'down'")
+        objs = self._zone_list_containing(obj)
+        if objs is None:
+            raise GameActionError("object is not in a reorderable (personal-zone) list")
+        idx = objs.index(obj)
+        new_idx = idx + (1 if direction == "up" else -1)
+        if 0 <= new_idx < len(objs):
+            objs[idx], objs[new_idx] = objs[new_idx], objs[idx]
+
+    def _zone_list_containing(self, obj: GameObject) -> Optional[list[GameObject]]:
+        """The actual (mutable) personal-zone list holding ``obj``, or None if
+        it's on the battlefield or not found (battlefield order isn't
+        meaningful — RULE 403 permanents have no inherent order)."""
+        for player in self.engine.state.players:
+            for objs in player.zones.values():
+                if obj in objs:
+                    return objs
+        return None
+
+    def _edit_set_flags(self, action: dict[str, Any]) -> None:
+        obj = self._object(action)
+        if "tapped" in action:
+            obj.tapped = bool(action["tapped"])
+        if "summoning_sick" in action:
+            obj.summoning_sick = bool(action["summoning_sick"])
+        if "attacking" in action:
+            obj.attacking = bool(action["attacking"])
+        if "damage_marked" in action:
+            obj.damage_marked = max(0, int(action["damage_marked"]))
+
+    def _edit_set_mana(self, action: dict[str, Any]) -> None:
+        """Set one mana type in a player's pool to an absolute amount
+        (RULE 106) — a puzzle setup convenience; normal play only ever
+        adds/pays/empties mana, never sets it directly."""
+        player = self._edit_player(action)
+        mana_type = str(action.get("mana_type") or "")
+        try:
+            player.mana_pool.set_amount(mana_type, max(0, int(action.get("value", 0))))
+        except ValueError as exc:
+            raise GameActionError(str(exc)) from exc
+
+    def _edit_commander_damage(self, action: dict[str, Any]) -> None:
+        player = self._edit_player(action)
+        cid = int(action["commander_id"])
+        amount = max(0, int(action.get("value", 0)))
+        if amount > 0:
+            player.commander_damage[cid] = {
+                "name": action.get("name", ""),
+                "amount": amount,
+            }
+        else:
+            player.commander_damage.pop(cid, None)
+
+    def _edit_set_turn(self, action: dict[str, Any]) -> None:
+        state = self.engine.state
+        if "turn_number" in action:
+            state.turn_number = max(1, int(action["turn_number"]))
+        if action.get("active_player_id"):
+            player = state.player_by_id(str(action["active_player_id"]))
+            state.active_player_index = state.players.index(player)
+        step = action.get("step")
+        if step:
+            state.current_step = str(step)
+            state.current_phase = action.get("phase") or replay.phase_for_step(str(step))
+            self.engine.resume_at(replay.cursor_after(str(step)))
 
     def _mulligan(self, player: Player) -> None:
         """London mulligan, part 1: shuffle the hand back and draw 7 (RULE 103.4-103.5)."""
@@ -637,6 +858,19 @@ class GameSessionManager:
             starting_hand=starting_hand,
             require_setup=True,
         )
+        self._sessions[session.id] = session
+        return session
+
+    def create_replay(self, descriptor: dict[str, Any], loader: Any) -> GameSession:
+        """Build a Replay/puzzle session from a descriptor (blank or loaded).
+
+        Unlike goldfish there is no mulligan/setup gate and no auto-started
+        turn — the board is given. ``loader`` is stashed on the session so
+        `edit_add_object` can resolve card names on demand.
+        """
+        engine = replay.build_replay_engine(descriptor, loader)
+        session = GameSession(engine, mode=REPLAY, require_setup=False)
+        session._loader = loader
         self._sessions[session.id] = session
         return session
 

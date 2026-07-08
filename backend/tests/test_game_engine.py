@@ -12,6 +12,7 @@ from mtg_analyzer.models.game_object import GameObject, Zone
 from mtg_analyzer.models.game_state import GameState
 from mtg_analyzer.models.mana_cost import ManaCost
 from mtg_analyzer.models.player import Player
+from mtg_analyzer.game.effect_binder import bind_from_catalogue
 from mtg_analyzer.game.effects import (
     DealDamageEffect,
     DrawCardEffect,
@@ -258,6 +259,192 @@ def test_commander_tax_adds_two_per_previous_cast():
     p1.mana_pool.add_many({"G": 1})
     eng.cast_spell(p1, commander)
     eng.resolve_until_stable()
+
+
+def test_aura_attaches_to_target_when_permanent_spell_resolves():
+    eng = make_engine([], hand=0)
+    eng.begin_turn()
+    eng.state.current_step = "main1"
+    p1 = eng.state.active_player
+    p1.mana_pool.add_many({"W": 1, "C": 1})
+
+    host = GameObject(creature(name="Host", cost="{1}"), owner_id="p1", zone=Zone.BATTLEFIELD)
+    host.summoning_sick = False
+    eng.state.add_to_battlefield(host)
+
+    aura_card = Card(
+        id="Aura",
+        name="Aura",
+        type_line="Enchantment",
+        mana_cost_string="{1}{W}",
+        converted_mana_cost=2,
+    )
+    aura = GameObject(aura_card, owner_id="p1", zone=Zone.HAND)
+    p1.add_to_zone(aura, Zone.HAND)
+    aura.parametric_keywords = {"enchant": {"quality": "creature"}}
+    eng.cast_spell(p1, aura, targets=[host])
+    eng.resolve_until_stable()
+
+    assert aura.attached_to == host.instance_id
+    assert aura in eng.state.battlefield
+
+
+def test_enchant_creature_oracle_text_follows_aura_logic():
+    eng = make_engine([], hand=0)
+    eng.begin_turn()
+    eng.state.current_step = "main1"
+    p1 = eng.state.active_player
+    p1.mana_pool.add_many({"W": 1, "C": 1})
+
+    host = GameObject(creature(name="Host", cost="{1}"), owner_id="p1", zone=Zone.BATTLEFIELD)
+    host.summoning_sick = False
+    eng.state.add_to_battlefield(host)
+
+    aura_card = Card(
+        id="AuraText",
+        name="AuraText",
+        type_line="Enchantment",
+        mana_cost_string="{1}{W}",
+        converted_mana_cost=2,
+        oracle_text="Enchant creature",
+    )
+    aura = GameObject(aura_card, owner_id="p1", zone=Zone.HAND)
+    p1.add_to_zone(aura, Zone.HAND)
+    bind_from_catalogue(aura)
+
+    eng.cast_spell(p1, aura, targets=[host])
+    eng.resolve_until_stable()
+
+    assert aura.attached_to == host.instance_id
+    assert aura in eng.state.battlefield
+
+
+def test_enchant_creature_recognised_even_with_other_scryfall_keywords():
+    # Scryfall's keywords array can list other keywords (e.g. Flash) while
+    # omitting "Enchant" itself — oracle text must still be cross-checked.
+    eng = make_engine([], hand=0)
+    eng.begin_turn()
+    eng.state.current_step = "main1"
+    p1 = eng.state.active_player
+    p1.mana_pool.add_many({"W": 1, "C": 1})
+
+    host = GameObject(creature(name="Host", cost="{1}"), owner_id="p1", zone=Zone.BATTLEFIELD)
+    host.summoning_sick = False
+    eng.state.add_to_battlefield(host)
+
+    aura_card = Card(
+        id="AuraFlash",
+        name="AuraFlash",
+        type_line="Enchantment",
+        mana_cost_string="{1}{W}",
+        converted_mana_cost=2,
+        oracle_text="Flash\nEnchant creature",
+        keywords=["Flash"],
+    )
+    aura = GameObject(aura_card, owner_id="p1", zone=Zone.HAND)
+    p1.add_to_zone(aura, Zone.HAND)
+    bind_from_catalogue(aura)
+
+    eng.cast_spell(p1, aura, targets=[host])
+    eng.resolve_until_stable()
+
+    assert aura.attached_to == host.instance_id
+    assert aura in eng.state.battlefield
+
+
+def test_equipment_ability_only_offers_legal_attachment_targets():
+    eng = make_engine([land()], hand=0)
+    eng.begin_turn()
+    p1 = eng.state.active_player
+
+    legal_host = obj_on_battlefield(eng.state, eng, creature(name="Host", cost="{1}"))
+    illegal_host = obj_on_battlefield(eng.state, eng, land(name="Mountain", produces="Mountain"))
+
+    card = Card(
+        id="Equipment",
+        name="Equipment",
+        type_line="Artifact — Equipment",
+        mana_cost_string="{1}",
+        converted_mana_cost=1,
+    )
+    card.keywords = ["Equip"]
+    card.oracle_text = "Equip {2}"
+    source = GameObject(card, owner_id="p1", zone=Zone.BATTLEFIELD)
+    source.summoning_sick = False
+    eng.state.add_to_battlefield(source)
+    bind_from_catalogue(source)
+
+    requirements = eng._ability_target_requirements(p1, source.activated_abilities[0], source)
+    options = requirements[0]["options"]
+    option_ids = {opt["instance_id"] for opt in options}
+
+    assert legal_host.instance_id in option_ids
+    assert illegal_host.instance_id not in option_ids
+
+
+def test_equipment_spell_enters_the_battlefield_instead_of_the_graveyard():
+    eng = make_engine([], hand=0)
+    eng.begin_turn()
+    eng.state.current_step = "main1"
+    p1 = eng.state.active_player
+    p1.mana_pool.add_many({"W": 1, "C": 1})
+
+    card = Card(
+        id="Equipment",
+        name="Equipment",
+        type_line="Artifact — Equipment",
+        mana_cost_string="{1}{W}",
+        converted_mana_cost=2,
+    )
+    card.keywords = ["Equip"]
+    card.oracle_text = "Equip {2}"
+    equipment = GameObject(card, owner_id="p1", zone=Zone.HAND)
+    p1.add_to_zone(equipment, Zone.HAND)
+    bind_from_catalogue(equipment)
+
+    eng.cast_spell(p1, equipment)
+    eng.resolve_until_stable()
+
+    assert equipment in eng.state.battlefield
+    assert equipment not in p1.graveyard
+
+
+def test_attached_aura_moves_to_graveyard_when_host_leaves_the_battlefield():
+    eng = make_engine([], hand=0)
+    eng.begin_turn()
+    eng.state.current_step = "main1"
+    p1 = eng.state.active_player
+
+    host = GameObject(creature(name="Host", cost="{1}"), owner_id="p1", zone=Zone.BATTLEFIELD)
+    host.summoning_sick = False
+    eng.state.add_to_battlefield(host)
+
+    aura = GameObject(Card(id="Aura", name="Aura", type_line="Enchantment"), owner_id="p1")
+    aura.parametric_keywords = {"enchant": {"quality": "creature"}}
+    eng.state.add_to_battlefield(aura)
+    eng.rules.attach_to_target(aura, host)
+
+    eng.rules.destroy(host)
+    eng.resolve_until_stable()
+
+    assert aura in p1.graveyard
+
+
+def test_commander_tax_adds_two_per_previous_cast():
+    # RULE 903.8: {2} more per previous cast from the command zone.
+    eng = make_engine([], hand=0)
+    eng.begin_turn()
+    eng.state.current_step = "main1"
+    p1 = eng.state.active_player
+    commander = GameObject(creature(name="Cmdr", cost="{G}"), owner_id="p1", is_commander=True)
+    p1.add_to_zone(commander, Zone.COMMAND)
+
+    # First cast: no tax → costs {G}.
+    assert eng.commander_tax(p1, commander) == 0
+    p1.mana_pool.add_many({"G": 1})
+    eng.cast_spell(p1, commander)
+    eng.resolve_until_stable()
+
     # Send it back to the command zone and cast again: now taxed {2}.
     eng.state.remove_from_battlefield(commander)
     p1.add_to_zone(commander, Zone.COMMAND)
@@ -1644,3 +1831,59 @@ def test_bound_activated_ability_carries_full_cost():
     assert bound.taps_source is True  # back-compat property still works
     assert bound.cost.mana.converted_mana_cost == 2
     assert bound.cost.pay_life == 1  # parsed from the cost text
+
+
+def test_activated_attach_ability_attaches_to_target_on_resolution():
+    from mtg_analyzer.game.effects import AttachEffect
+
+    eng = make_engine([land()], hand=0)
+    eng.begin_turn()
+    p1 = eng.state.active_player
+    host = obj_on_battlefield(eng.state, eng, creature(name="Host", cost="{1}"))
+    host.summoning_sick = False
+
+    source = obj_on_battlefield(eng.state, eng, creature(name="Equipment", cost="{1}"))
+    source.summoning_sick = False
+    source.parametric_keywords = {"equip": {}}
+    source.activated_abilities.append(
+        ActivatedAbility(
+            effects=[AttachEffect(target_kind="permanent")],
+            cost=parse_activation_cost("{1}, {T}:"),
+            source=source,
+        )
+    )
+
+    p1.mana_pool.add_many({"C": 1})
+    eng.activate_ability(p1, source, 0, targets=[host])
+    eng.resolve_until_stable()
+
+    assert source.attached_to == host.instance_id
+
+
+def test_bind_from_catalogue_creates_equipment_ability_from_keyword():
+    eng = make_engine([land()], hand=0)
+    eng.begin_turn()
+    p1 = eng.state.active_player
+    host = obj_on_battlefield(eng.state, eng, creature(name="Host", cost="{1}"))
+    host.summoning_sick = False
+
+    card = Card(
+        id="Equipment",
+        name="Equipment",
+        type_line="Artifact — Equipment",
+        mana_cost_string="{1}",
+        converted_mana_cost=1,
+    )
+    card.keywords = ["Equip"]
+    card.oracle_text = "Equip {2}"
+    source = GameObject(card, owner_id="p1", zone=Zone.BATTLEFIELD)
+    source.summoning_sick = False
+    eng.state.add_to_battlefield(source)
+    bind_from_catalogue(source)
+
+    assert source.activated_abilities
+    p1.mana_pool.add_many({"C": 2})
+    eng.activate_ability(p1, source, 0, targets=[host])
+    eng.resolve_until_stable()
+
+    assert source.attached_to == host.instance_id

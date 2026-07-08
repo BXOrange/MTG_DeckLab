@@ -22,6 +22,7 @@ from ..parser.oracle.spec import AbilitySpec, EffectSpec
 from .costs import parse_activation_cost
 from .effects import (
     ActivatedAbility,
+    AttachEffect,
     EffectRegistry,
     GameEffect,
     ReplacementEffect,
@@ -190,6 +191,27 @@ def attach_keyword(obj: Any, spec: AbilitySpec) -> bool:
     return True
 
 
+def _keyword_activated_ability(obj: Any, spec: AbilitySpec) -> Optional[ActivatedAbility]:
+    """Create a live activated ability for attach-style keywords like Equip."""
+    keyword = spec.keyword or {}
+    name = str(keyword.get("name") or "")
+    if name not in {"equip", "fortify", "reconfigure"}:
+        return None
+
+    cost_text = keyword.get("cost") or "{0}"
+    if name == "reconfigure":
+        target_kind = "permanent"
+    else:
+        target_kind = "permanent"
+    cost = parse_activation_cost({"text": f"{cost_text}, {{T}}:"})
+    return ActivatedAbility(
+        effects=[AttachEffect(target_kind=target_kind)],
+        cost=cost,
+        source=obj,
+        description=spec.raw_text or f"{name}"
+    )
+
+
 def attach_to_object(obj: Any, specs: list[AbilitySpec]) -> None:
     """Bind each spec and attach it to the `GameObject`'s effect lists.
 
@@ -202,6 +224,9 @@ def attach_to_object(obj: Any, specs: list[AbilitySpec]) -> None:
     for spec in specs:
         if spec.ability_kind == "keyword":
             attach_keyword(obj, spec)
+            keyword_ability = _keyword_activated_ability(obj, spec)
+            if keyword_ability is not None:
+                obj.activated_abilities.append(keyword_ability)
             continue
         bound = bind_ability(spec, source=obj)
         if spec.ability_kind == "spell_effect":

@@ -38,6 +38,7 @@ from mtg_analyzer.api.schemas import (
     GameActionRequest,
     RewindRequest,
     StartGoldfishRequest,
+    StartReplayRequest,
 )
 from mtg_analyzer.models.card import Card
 from mtg_analyzer.parser.deckliste_parser import parse_deck_sections
@@ -50,6 +51,7 @@ from mtg_analyzer.services.game_session import (
     MultiplayerNotImplementedError,
 )
 from mtg_analyzer.services.lazy_card_loader import LazyCardLoader
+from mtg_analyzer.services.replay import blank_replay, serialize_replay
 
 router = APIRouter(prefix="/api/game", tags=["game"])
 
@@ -183,6 +185,23 @@ def deck_tokens(
     }
 
 
+@router.post("/replay")
+def start_replay(
+    request: StartReplayRequest,
+    sessions: GameSessionManager = Depends(get_game_session_manager),
+    loader: LazyCardLoader = Depends(get_lazy_card_loader),
+) -> dict[str, object]:
+    """Start a Replay/Puzzle session: load a saved board or a blank one.
+
+    Pass a full ``replay`` descriptor (as produced by the export endpoint)
+    to load it, or omit it for a blank board with ``num_players`` (1 = solo
+    puzzle, 2 = with an opponent). The board is editable via ``edit_*`` actions.
+    """
+    descriptor = request.replay or blank_replay(request.num_players)
+    session = sessions.create_replay(descriptor, loader)
+    return session.view()
+
+
 @router.post("/multiplayer", status_code=501)
 def start_multiplayer(
     sessions: GameSessionManager = Depends(get_game_session_manager),
@@ -200,6 +219,18 @@ def get_session(
     session_id: str, sessions: GameSessionManager = Depends(get_game_session_manager)
 ) -> dict[str, object]:
     return _session(sessions, session_id).view()
+
+
+@router.get("/{session_id}/replay-export")
+def export_replay(
+    session_id: str, sessions: GameSessionManager = Depends(get_game_session_manager)
+) -> dict[str, object]:
+    """Serialize any session's board to a portable replay descriptor.
+
+    Works for a goldfish game too, so a position reached while goldfishing can
+    be downloaded and re-opened in Replay mode.
+    """
+    return serialize_replay(_session(sessions, session_id).engine.state)
 
 
 @router.post("/{session_id}/action")

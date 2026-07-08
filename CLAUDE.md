@@ -15,9 +15,24 @@ Two halves:
 - **`backend/`** — Python (FastAPI). The card model, rules engine, oracle
   effect IR, and the game-session API. This is where the depth is.
 - **`frontend/`** — a static, buildless ES-modules app (no bundler). Tabs for
-  deck import/analysis, saved decks, the goldfish board, the card cache, and an
-  **"Engine-Status"** tab documenting engine coverage. UI language is **German**;
-  MTG keyword names stay English ("Flying", "Trample").
+  deck import/analysis, saved decks, the goldfish board, the **"Replay"**
+  board editor (a.k.a. puzzle mode), the card cache, and an **"Engine-Status"**
+  tab documenting engine coverage. UI language is **German**; MTG keyword names
+  stay English ("Flying", "Trample").
+
+The **Replay/Puzzle mode** is the goldfish's sibling: instead of playing a
+legal deck from turn 1 you *construct an arbitrary board* (1 player = puzzle, or
+2 = with an opponent) and play from there. It reuses the same `GameSession`/
+`GameEngine` — a session with `mode="replay"` and `require_setup=False` plus
+a family of `edit_*` actions (`services/game_session.py`) that mutate state
+directly (add/remove/move objects+tokens, tap, flip, counters, life, poison,
+player counters, commander damage, turn/phase). Save/load is JSON export/import
+of a **re-resolvable descriptor** (`services/replay.py`: `serialize_replay`
+/ `build_replay_engine` — the models have no `from_dict`, so cards are stored
+by id/name and rebuilt from the cache; tokens carry a self-describing block).
+`GET /api/game/{id}/replay-export` works for a goldfish session too, so a
+goldfish position can be exported and re-opened in Replay. Frontend:
+`frontend/src/js/replayView.js`.
 
 ## Run & test
 
@@ -178,5 +193,6 @@ ordered milestones). Design docs: `docs/01`–`10` + `docs/IMPLEMENTATION_GUIDE.
 | Card abilities / fetch lands / enters-tapped | `game/ability_catalogue.py`, `effect_binder.bind_from_catalogue` |
 | Effects / triggers | `game/effects.py`, `game/effect_binder.py` |
 | Goldfish UI | `frontend/src/js/goldfishView.js` |
+| Replay/Puzzle mode (build+save/load a board) | `backend/mtg_analyzer/services/replay.py`, `game_session.py` (`edit_*` actions), `frontend/src/js/replayView.js` |
 | Engine coverage doc (user-facing) | `frontend/src/js/implementationStatusView.js` |
 | Looking up a `RULE <n>` in the CR text | `Reference/rules_wiki/` (rule#/term → source line; see its `README.md`) |

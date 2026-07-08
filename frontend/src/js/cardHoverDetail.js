@@ -6,17 +6,26 @@
 // view re-renders (a common pattern here, see goldfishView.js/deckImportView.js),
 // since the listener lives above the DOM nodes that come and go.
 //
-// Card data is read from cardImages.js's resolve cache (already fetched
-// for every name a view renders) rather than fetched here — this module
-// only displays it.
+// Card data is read from cardImages.js's resolve cache, which is normally
+// already populated for every name a view renders (a goldfish game preloads
+// its whole deck up front, see goldfishView.js's `start()`). But some names
+// never go through that preload — a token created by an effect mid-game
+// that isn't in the deck's producible-tokens list, a DFC's back face, a
+// name-casing mismatch — so on a cache miss this module also lazily
+// resolves the name itself, rather than leaving the tooltip stuck at
+// "Lädt …" forever with nothing left to trigger a fetch.
 
-import { getResolvedCard } from './cardImages.js';
+import { getResolvedCard, resolveCardImages, isConfirmedNotFound } from './cardImages.js';
 import { cardImageUrl } from './api.js';
 import { renderManaCost, escapeHtml } from './cardTile.js';
 
 let tooltipEl = null;
 let activeName = null;
 let lastRenderedCard = undefined; // undefined = "nothing rendered yet", distinct from null ("known not found")
+let lastEvent = null;
+//: Names with a `resolveCardImages` call in flight, so a still-hovering
+//: pointer (mousemove fires updateTooltip repeatedly) doesn't fire it twice.
+const pending = new Set();
 
 function ensureTooltip() {
   if (tooltipEl) return tooltipEl;
@@ -66,6 +75,7 @@ function positionTooltip(el, event) {
 }
 
 function updateTooltip(name, event) {
+  lastEvent = event;
   const el = ensureTooltip();
   // Re-render only when the underlying card reference changed (e.g. it
   // just finished resolving) — not on every mousemove — so a still-loading
@@ -78,6 +88,19 @@ function updateTooltip(name, event) {
   }
   el.classList.add('visible');
   positionTooltip(el, event);
+  if (!card) resolveLazily(name);
+}
+
+// Fetch a name that never went through a view's own preload — e.g. a token
+// created mid-game, or any other name miss — so the tooltip doesn't stay
+// stuck at "Lädt …" with nothing left to trigger a fetch.
+function resolveLazily(name) {
+  if (isConfirmedNotFound(name) || pending.has(name)) return;
+  pending.add(name);
+  resolveCardImages([name]).finally(() => {
+    pending.delete(name);
+    if (activeName === name && lastEvent) updateTooltip(name, lastEvent);
+  });
 }
 
 function hideTooltip() {

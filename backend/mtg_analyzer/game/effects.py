@@ -84,6 +84,9 @@ class GameContext:
     def set_tapped(self, target: "GameObject", tapped: bool = True) -> None:
         self.engine.set_tapped(target, tapped)
 
+    def attach_to_target(self, source: "GameObject", target: "GameObject") -> None:
+        self.engine.attach_to_target(source, target)
+
     def add_counters(self, target: "GameObject", amount: int, kind: str = "+1/+1") -> None:
         self.engine.add_counters(target, amount, kind)
 
@@ -316,6 +319,8 @@ class TriggeredAbility(GameEffect):
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
         """Resolve the triggered ability by applying each of its effects."""
         for effect in self.effects:
+            if effect.source is None and self.source is not None:
+                effect.source = self.source
             effect.apply(context, targets)
 
 
@@ -406,6 +411,8 @@ class ActivatedAbility(GameEffect):
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
         for effect in self.effects:
+            if effect.source is None and self.source is not None:
+                effect.source = self.source
             effect.apply(context, targets)
 
 
@@ -597,6 +604,26 @@ class TapEffect(GameEffect):
         target = (targets[0] if targets else None) or self.target
         if target is not None:
             context.set_tapped(target, tapped=not self.untap)
+
+
+class AttachEffect(GameEffect):
+    """Attach a permanent to another permanent as an Aura/Equipment-style effect."""
+
+    def __init__(
+        self,
+        target: Any = None,
+        source: Optional["GameObject"] = None,
+        target_kind: str = "permanent",
+    ) -> None:
+        super().__init__(source)
+        self.target = target
+        self.target_spec = TargetSpec(kind=target_kind)
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        target = (targets[0] if targets else None) or self.target
+        if target is None or self.source is None:
+            return
+        context.engine.attach_to_target(self.source, target)
 
 
 class AddCountersEffect(GameEffect):
@@ -954,6 +981,13 @@ EffectRegistry.register(
         target=p.get("target"),
         target_kind=p.get("target_kind", "permanent"),
         untap=bool(p.get("untap", False)),
+    ),
+)
+EffectRegistry.register(
+    "attach",
+    lambda p: AttachEffect(
+        target=p.get("target"),
+        target_kind=p.get("target_kind", "permanent"),
     ),
 )
 EffectRegistry.register(

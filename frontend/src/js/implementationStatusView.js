@@ -30,6 +30,23 @@ const SECTIONS = [
     ],
   },
   {
+    title: 'Replay / Puzzle-Modus',
+    rule: 'UC3-Schwester',
+    intro:
+      'Neben dem Goldfisch: einen beliebigen Spielzustand bauen (1 Spieler = Puzzle, ' +
+      'oder mit 1 Gegner) und daraus spielen — dieselbe Regel-Engine, aber frei ' +
+      'editierbar. Als JSON-Datei speicherbar/ladbar; ein Goldfisch-Zustand lässt ' +
+      'sich per „Als Replay speichern" exportieren und hier wieder öffnen.',
+    items: [
+      ['full', 'Karten/Token in jede Zone', 'Hinzufügen/Entfernen/Verschieben in Schlachtfeld, Hand, Friedhof, Bibliothek, Exil, Kommandozone.'],
+      ['full', 'Objekt-Zustand', 'Tappen, Umwandeln (DFC), beliebige Marken setzen (+1/+1, Loyalität, …).'],
+      ['full', 'Spieler-Werte', 'Leben, Giftmarken (10 = Verlust, SBA), Energie/Erfahrung & freie Marken, Commander-Schaden.'],
+      ['full', 'Zug/Phase setzen', 'Zugnummer, Schritt und aktiven Spieler direkt setzen, um mitten im Zug zu starten.'],
+      ['full', 'Speichern/Laden (JSON)', 'Re-auflösbares Replay-Format (Karten aus dem Cache rekonstruiert); Export/Import per Datei.'],
+      ['partial', 'Spielerzahl', 'Aktuell 1 (Puzzle) oder 2 (mit Gegner); mehr Spieler noch nicht.'],
+    ],
+  },
+  {
     title: 'Kampf- & Evasion-Keywords',
     rule: 'RULE 702',
     intro:

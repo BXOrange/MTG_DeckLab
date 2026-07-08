@@ -444,8 +444,15 @@ def parse_keywords(card: "Card") -> list[AbilitySpec]:
     are skipped (fail-closed: never a wrong guess). Order and de-duplication
     follow the ``keywords`` array.
     """
-    names = getattr(card, "keywords", None) or []
+    names = list(getattr(card, "keywords", None) or [])
     text = getattr(card, "oracle_text", "") or ""
+    if not any(keyword_slug(str(n)) == "enchant" for n in names) and re.search(
+        r"^enchant\b", text, re.I | re.M
+    ):
+        # Scryfall's keyword array frequently omits "Enchant" even when the card
+        # has other keywords (e.g. an Aura with Flash) — oracle text is the
+        # ground truth for attachment, so always cross-check it independently.
+        names.append("Enchant")
     specs: list[AbilitySpec] = []
     seen: set[str] = set()
 

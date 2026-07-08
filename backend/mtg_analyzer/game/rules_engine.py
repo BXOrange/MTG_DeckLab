@@ -328,6 +328,57 @@ class RulesEngine:
         if obj in self.state.battlefield:
             self.state.remove_from_battlefield(obj)
 
+    def _attachment_kind(self, obj: GameObject) -> Optional[str]:
+        """The attachment family this object uses (Aura/Equipment/etc.)."""
+        if not hasattr(obj, "parametric_keywords"):
+            return None
+        keywords = obj.parametric_keywords or {}
+        for name in ("enchant", "equip", "fortify", "reconfigure"):
+            if name in keywords:
+                return name
+        return None
+
+    def _attachment_legal(self, obj: GameObject, target: GameObject) -> bool:
+        """Whether ``obj`` can legally attach to ``target`` (basic MVP rules)."""
+        if target not in self.state.battlefield:
+            return False
+        kind = self._attachment_kind(obj)
+        if kind is None:
+            return False
+        if kind == "equip":
+            return target.is_creature or target.card.is_artifact
+        if kind == "enchant":
+            quality = ((obj.parametric_keywords or {}).get(kind) or {}).get("quality", "")
+            quality = str(quality).strip().lower()
+            if not quality or quality in {"permanent", "anything"}:
+                return True
+            if quality == "creature":
+                return target.is_creature
+            if quality == "artifact":
+                return target.card.is_artifact
+            if quality == "enchantment":
+                return target.card.is_enchantment
+            if quality == "land":
+                return target.is_land
+            if quality == "planeswalker":
+                return target.is_planeswalker
+            return True
+        return True
+
+    def attach_to_target(self, obj: GameObject, target: GameObject) -> bool:
+        """Attach an Aura/Equipment-like object to a legal target (RULE 303/301.5)."""
+        if not self._attachment_legal(obj, target):
+            return False
+        obj.attached_to = target.instance_id
+        return True
+
+    def _detach_attachments_from(self, host: GameObject) -> None:
+        """Move any permanents attached to ``host`` off the battlefield."""
+        for attached in list(self.state.permanents()):
+            if attached.attached_to == host.instance_id:
+                attached.attached_to = None
+                self._move_to_graveyard(attached)
+
     @staticmethod
     def _effects_for_spell(obj: GameObject) -> list[Any]:
         """Effects a spell applies when it resolves.
@@ -355,6 +406,20 @@ class RulesEngine:
                 obj.summoning_sick = True
                 obj.tapped = ability_catalogue.enters_tapped(obj.card)  # RULE 614.1
                 self.state.add_to_battlefield(obj)
+                if self._attachment_kind(obj) == "enchant":
+                    targets = [t for t in item.targets if isinstance(t, GameObject)]
+                    if targets and self.attach_to_target(obj, targets[0]):
+                        pass
+                    else:
+                        self._move_to_graveyard(obj)
+                        self.state.fire_event(
+                            GameEvent(
+                                EventType.SPELL_RESOLVED,
+                                spell=obj.name,
+                                controller_id=item.controller_id,
+                            )
+                        )
+                        return item
                 self.state.fire_event(
                     GameEvent(
                         EventType.ENTERS_BATTLEFIELD,
@@ -975,7 +1040,9 @@ class RulesEngine:
     def _move_to_graveyard(self, obj: GameObject) -> None:
         was_on_battlefield = obj in self.state.battlefield
         was_creature = obj.is_creature
-        self.state.remove_from_battlefield(obj)
+        if was_on_battlefield:
+            self.state.remove_from_battlefield(obj)
+            self._detach_attachments_from(obj)
         owner = self.state.player_by_id(obj.owner_id)
         obj.tapped = False
         obj.damage_marked = 0
@@ -1024,8 +1091,17 @@ class RulesEngine:
             if player.has_lost:
                 continue
             drew_empty = getattr(player, "attempted_draw_from_empty", False)
-            if (player.life <= 0 or drew_empty) and not self._loss_prevented(player):
-                reason = player.loss_reason or ("life" if player.life <= 0 else "draw_from_empty")
+            # 704.5c: 0-or-less life, drawing from empty, or 10+ poison loses.
+            poisoned = player.poison >= 10
+            if (player.life <= 0 or drew_empty or poisoned) and not self._loss_prevented(player):
+                if player.loss_reason:
+                    reason = player.loss_reason
+                elif player.life <= 0:
+                    reason = "life"
+                elif poisoned:
+                    reason = "poison"
+                else:
+                    reason = "draw_from_empty"
                 self._player_loses(player, reason)
                 return True
             # 704.5m / 903.10a: 21+ combat damage from a single commander.

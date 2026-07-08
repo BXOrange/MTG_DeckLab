@@ -81,6 +81,20 @@ class DeckTokensRequest(BaseModel):
     sideboard_text: str = Field(default="", alias="sideboardText")
 
 
+class StartReplayRequest(BaseModel):
+    """Request body for POST /api/game/replay (Replay / Puzzle mode).
+
+    Provide a full ``replay`` descriptor to load a saved/exported board, or
+    omit it to start from a blank board with ``num_players`` (1 = solo puzzle,
+    2 = with an opponent; capped at 2 for now).
+    """
+
+    model_config = ConfigDict(populate_by_name=True)
+
+    replay: Optional[dict] = None
+    num_players: int = Field(default=1, alias="numPlayers")
+
+
 class GameActionRequest(BaseModel):
     """Request body for POST /api/game/{id}/action.
 

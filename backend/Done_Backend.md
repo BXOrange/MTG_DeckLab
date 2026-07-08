@@ -314,6 +314,25 @@ the Phase-1 models. Tests: `test_game_engine.py`.
       exactly `mulligan_count` chosen cards (`bottom_instance_ids`) before
       normal play unlocks. `restart()` re-enters the setup phase. View
       gains a `setup: {complete, mulligan_count}` field.
+- [x] Replay / Puzzle mode: the goldfish's sibling — build an
+      arbitrary board (1 player = puzzle, or 2 = with an opponent) and
+      play from it, plus JSON save/load. Reuses `GameSession` with
+      `mode="replay"`/`require_setup=False`; a family of `edit_*`
+      actions (`_edit_dispatch` in `services/game_session.py`) mutate
+      state directly — add/remove/move objects across every zone (**tokens**
+      only to the battlefield — they cease to exist elsewhere, RULE 111.7),
+      tap, transform (flip), set object counters, set life, **poison**
+      (new `Player.poison`, 10 ⇒ SBA loss), generic player counters
+      (energy/experience — new `Player.counters`), commander damage, and
+      turn/phase/active player. Save/load uses a **re-resolvable
+      descriptor** (`services/replay.py`: `serialize_replay` /
+      `build_replay_engine` / `blank_replay` — models have no
+      `from_dict`, so cards are stored by id/name and rebuilt from the
+      cache; tokens carry a self-describing block). Endpoints:
+      `POST /api/game/replay` (blank `numPlayers` or a loaded
+      `replay` descriptor) and `GET /api/game/{id}/replay-export`
+      (works for a goldfish session too, so a goldfish position can be
+      exported and re-opened here). Tests: `test_replay.py`.
 
 ## Auth & persistence
 

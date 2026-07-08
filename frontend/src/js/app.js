@@ -1,5 +1,6 @@
 import { renderDeckImportView } from './deckImportView.js';
 import { createGoldfishView } from './goldfishView.js';
+import { createReplayView } from './replayView.js';
 import { renderMultiplayerView } from './multiplayerView.js';
 import { renderCachedCardsView } from './cachedCardsView.js';
 import { renderSavedDecksView } from './savedDecksView.js';
@@ -25,6 +26,7 @@ const views = {
   savedDecks: document.getElementById('view-saved-decks'),
   analyze: document.getElementById('view-analyze'),
   goldfish: document.getElementById('view-goldfish'),
+  replay: document.getElementById('view-replay'),
   multiplayer: document.getElementById('view-multiplayer'),
   cache: document.getElementById('view-cache'),
   connection: document.getElementById('view-connection'),
@@ -55,6 +57,12 @@ const importView = renderDeckImportView(views.import, { onDeckLoaded: () => show
 const goldfish = createGoldfishView();
 goldfish.mount(views.goldfish);
 views.goldfish.addEventListener('view-shown', () => goldfish.onShown());
+
+// The Replay/Puzzle controller likewise persists across tab switches so an
+// in-progress board isn't dropped when navigating away.
+const replay = createReplayView();
+replay.mount(views.replay);
+views.replay.addEventListener('view-shown', () => replay.onShown());
 renderMultiplayerView(views.multiplayer);
 
 renderCachedCardsView(views.cache);

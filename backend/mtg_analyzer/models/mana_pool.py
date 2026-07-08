@@ -44,6 +44,15 @@ class ManaPool:
         for mana_type, amount in amounts.items():
             self.add(mana_type, amount)
 
+    def set_amount(self, mana_type: str, amount: int) -> None:
+        """Set ``mana_type`` to an absolute ``amount`` — the Replay editor's
+        mana-pool control; normal play only ever `add`s/`pay`s/`empty`s."""
+        if mana_type not in self.pool:
+            raise ValueError(f"unknown mana type: {mana_type!r}")
+        if amount < 0:
+            raise ValueError("amount must be non-negative")
+        self.pool[mana_type] = amount
+
     def total(self) -> int:
         return sum(self.pool.values())
 

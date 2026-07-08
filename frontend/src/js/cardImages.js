@@ -53,6 +53,19 @@ export async function resolveCardImages(names) {
 }
 
 /**
+ * Seed the cache directly with an already-known entry, bypassing a
+ * `/resolve` round trip — for data that didn't come from `resolveCards`
+ * (e.g. a deck's producible tokens, fetched via a separate endpoint) but
+ * should still be findable by `getResolvedCard` (the hover-detail tooltip
+ * reads only this cache, see cardHoverDetail.js).
+ * @param {string} name
+ * @param {{small: string, normal: string, card: object}} entry
+ */
+export function cacheResolvedCard(name, entry) {
+  cache.set(name.trim().toLowerCase(), entry);
+}
+
+/**
  * The full resolved card dict for a name, if `resolveCardImages` has
  * already fetched it this session — otherwise null (not yet resolved,
  * or resolved as "not found").

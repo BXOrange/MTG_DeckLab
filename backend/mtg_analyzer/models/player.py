@@ -41,6 +41,15 @@ class Player:
         self.id = id
         self.name = name or id
         self.life = life
+        #: Poison counters (RULE 122.1, RULE 704.5c): a player with 10 or more
+        #: loses the game as a state-based action. Tracked as a plain int so it
+        #: deep-copies with the player for rewind and serializes to the UI.
+        self.poison = 0
+        #: Free-form named player counters (RULE 122): energy, experience, and
+        #: any other "you have N X counters" resource. Kept generic (a slug →
+        #: count map) so the Replay editor can set arbitrary ones without a
+        #: model change per keyword.
+        self.counters: dict[str, int] = {}
         self.mana_pool = ManaPool()
         #: A passive "goldfish" opponent (UC3): a real player for targeting,
         #: damage and stats, but one the turn loop never makes active and
@@ -158,6 +167,8 @@ class Player:
             "id": self.id,
             "name": self.name,
             "life": self.life,
+            "poison": self.poison,
+            "counters": dict(self.counters),
             "is_dummy": self.is_dummy,
             "mana_pool": self.mana_pool.to_dict(),
             "has_lost": self.has_lost,
@@ -169,6 +180,10 @@ class Player:
             "graveyard": [obj.to_dict() for obj in self.graveyard],
             "exile": [obj.to_dict() for obj in self.exile],
             "command": [obj.to_dict() for obj in self.command],
+            # Library contents (ordered, top of deck last) — the Replay
+            # editor needs to see/edit the library. The goldfish UI ignores
+            # this and uses `library_count` to keep the deck face-down.
+            "library": [obj.to_dict() for obj in self.library],
         }
 
     def __repr__(self) -> str:

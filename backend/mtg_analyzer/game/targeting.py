@@ -89,6 +89,59 @@ def legal_targets(
     back through `game_session._resolve_targets`.
     """
     kind = spec.kind
+    if kind == "permanent" and source is not None:
+        attachment_kind = None
+        if hasattr(source, "parametric_keywords"):
+            keywords = source.parametric_keywords or {}
+            for name in ("equip", "fortify", "reconfigure", "enchant"):
+                if name in keywords:
+                    attachment_kind = name
+                    break
+        if attachment_kind == "equip":
+            return [
+                {"instance_id": o.instance_id, "name": o.name}
+                for o in state.battlefield
+                if (o.is_creature or o.card.is_artifact) and o is not source
+            ]
+        if attachment_kind == "enchant":
+            quality = ((source.parametric_keywords or {}).get("enchant") or {}).get("quality", "")
+            quality = str(quality).strip().lower()
+            if not quality or quality in {"permanent", "anything"}:
+                return [
+                    {"instance_id": o.instance_id, "name": o.name}
+                    for o in state.battlefield
+                    if o is not source
+                ]
+            if quality == "creature":
+                return [
+                    {"instance_id": o.instance_id, "name": o.name}
+                    for o in state.battlefield
+                    if o.is_creature and o is not source
+                ]
+            if quality == "artifact":
+                return [
+                    {"instance_id": o.instance_id, "name": o.name}
+                    for o in state.battlefield
+                    if o.card.is_artifact and o is not source
+                ]
+            if quality == "enchantment":
+                return [
+                    {"instance_id": o.instance_id, "name": o.name}
+                    for o in state.battlefield
+                    if o.card.is_enchantment and o is not source
+                ]
+            if quality == "land":
+                return [
+                    {"instance_id": o.instance_id, "name": o.name}
+                    for o in state.battlefield
+                    if o.is_land and o is not source
+                ]
+            if quality == "planeswalker":
+                return [
+                    {"instance_id": o.instance_id, "name": o.name}
+                    for o in state.battlefield
+                    if o.is_planeswalker and o is not source
+                ]
     if kind == "player":
         return [
             {"player_id": p.id, "name": p.name}
