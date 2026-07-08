@@ -266,6 +266,15 @@ export async function fetchDeckTokens(payload) {
   return gameRequest('POST', '/api/game/deck-tokens', payload);
 }
 
+/**
+ * Every token in the repo's curated catalogue (deck-independent), for the
+ * "known token type" dropdown in Settings' token-image upload form.
+ * @returns {Promise<{ok: boolean, status: number, data: {tokens: Array<{id, name, type_line, image_small}>}|null}>}
+ */
+export async function fetchKnownTokenTypes() {
+  return gameRequest('GET', '/api/game/tokens');
+}
+
 /** Apply one action (from the session's legal_actions) to a game. */
 export async function sendGameAction(sessionId, action) {
   return gameRequest('POST', `/api/game/${encodeURIComponent(sessionId)}/action`, action);
@@ -309,4 +318,120 @@ export async function startReplay(replay, numPlayers = 1) {
  */
 export async function exportReplay(sessionId) {
   return gameRequest('GET', `/api/game/${encodeURIComponent(sessionId)}/replay-export`);
+}
+
+// --- Per-player custom art: token images + card-back "sleeves" ------------
+// Backend: mtg_analyzer/api/player_assets.py. Keyed by player name (see
+// settings.js getPlayerName()) rather than a session, so any client asking
+// for that name gets the same images back — that's what lets an opponent
+// see them too, once multiplayer (currently a 501 stub) is wired up.
+
+/**
+ * Reserved `token_name` value for a player's "generic" token image — the
+ * fallback art for any token with neither a real Scryfall image nor its own
+ * uploaded art (mainly ad hoc tokens an effect synthesizes inline, e.g. a
+ * bare "1/1 white Soldier", which have no catalogue entry to name exactly).
+ * Never a real token name (those never start with "__"), so it can't collide.
+ */
+export const GENERIC_TOKEN_KEY = '__generic__';
+
+/**
+ * URL for a player's uploaded art for a token with no real Scryfall art.
+ * `tokenName` is a query param, not a path segment — token names can
+ * contain a literal "/" (e.g. "Soldier 1/1"), which a percent-encoded
+ * path segment can't round-trip through routing.
+ */
+export function tokenImageUrl(playerName, tokenName) {
+  return `${getServerUrl()}/api/players/${encodeURIComponent(playerName)}/token-images/image?token_name=${encodeURIComponent(tokenName)}`;
+}
+
+/** @returns {Promise<Array<{token_name: string, updated_at: string}> | null>} null on failure */
+export async function listTokenImages(playerName) {
+  let response;
+  try {
+    response = await fetch(`${getServerUrl()}/api/players/${encodeURIComponent(playerName)}/token-images`);
+  } catch {
+    return null;
+  }
+  if (!response.ok) return null;
+  try {
+    return await response.json();
+  } catch {
+    return null;
+  }
+}
+
+/** @returns {Promise<{ok: boolean, status: number, data: object|null}>} */
+export async function uploadTokenImage(playerName, tokenName, file) {
+  const form = new FormData();
+  form.append('token_name', tokenName);
+  form.append('file', file);
+  return uploadRequest(`/api/players/${encodeURIComponent(playerName)}/token-images`, form);
+}
+
+/** @returns {Promise<boolean>} whether it was actually deleted */
+export async function deleteTokenImage(playerName, tokenName) {
+  return deleteRequest(
+    `/api/players/${encodeURIComponent(playerName)}/token-images?token_name=${encodeURIComponent(tokenName)}`
+  );
+}
+
+/** URL for one of a player's uploaded card-back sleeve designs. */
+export function sleeveImageUrl(playerName, sleeveId) {
+  return `${getServerUrl()}/api/players/${encodeURIComponent(playerName)}/sleeves/${encodeURIComponent(sleeveId)}/image`;
+}
+
+/** @returns {Promise<Array<{sleeve_id: string, label: string, updated_at: string}> | null>} null on failure */
+export async function listSleeves(playerName) {
+  let response;
+  try {
+    response = await fetch(`${getServerUrl()}/api/players/${encodeURIComponent(playerName)}/sleeves`);
+  } catch {
+    return null;
+  }
+  if (!response.ok) return null;
+  try {
+    return await response.json();
+  } catch {
+    return null;
+  }
+}
+
+/** @returns {Promise<{ok: boolean, status: number, data: object|null}>} */
+export async function uploadSleeve(playerName, label, file) {
+  const form = new FormData();
+  form.append('label', label);
+  form.append('file', file);
+  return uploadRequest(`/api/players/${encodeURIComponent(playerName)}/sleeves`, form);
+}
+
+/** @returns {Promise<boolean>} whether it was actually deleted */
+export async function deleteSleeve(playerName, sleeveId) {
+  return deleteRequest(`/api/players/${encodeURIComponent(playerName)}/sleeves/${encodeURIComponent(sleeveId)}`);
+}
+
+async function uploadRequest(path, form) {
+  let response;
+  try {
+    response = await fetch(`${getServerUrl()}${path}`, { method: 'POST', body: form });
+  } catch {
+    return { ok: false, status: 0, data: null };
+  }
+  let data = null;
+  try {
+    data = await response.json();
+  } catch {
+    /* empty/invalid body — leave data null */
+  }
+  return { ok: response.ok, status: response.status, data };
+}
+
+async function deleteRequest(path) {
+  let response;
+  try {
+    response = await fetch(`${getServerUrl()}${path}`, { method: 'DELETE' });
+  } catch {
+    return false;
+  }
+  return response.ok;
 }

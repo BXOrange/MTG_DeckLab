@@ -21,6 +21,7 @@ sidebarToggle.addEventListener('click', () => {
 });
 
 const tabButtons = document.querySelectorAll('.tab-button');
+const navGroups = document.querySelectorAll('.nav-group');
 const views = {
   import: document.getElementById('view-import'),
   savedDecks: document.getElementById('view-saved-decks'),
@@ -44,10 +45,20 @@ function showTab(tabName) {
   for (const btn of tabButtons) {
     btn.classList.toggle('active', btn.dataset.tab === tabName);
   }
+  for (const group of navGroups) {
+    const hasActive = group.querySelector('.tab-button.active') !== null;
+    if (hasActive) group.classList.add('expanded');
+    group.querySelector('.nav-group-toggle').classList.toggle('has-active', hasActive);
+  }
 }
 
 tabButtons.forEach((btn) => {
   btn.addEventListener('click', () => showTab(btn.dataset.tab));
+});
+
+navGroups.forEach((group) => {
+  const toggle = group.querySelector('.nav-group-toggle');
+  toggle.addEventListener('click', () => group.classList.toggle('expanded'));
 });
 
 const importView = renderDeckImportView(views.import, { onDeckLoaded: () => showTab('goldfish') });

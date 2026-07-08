@@ -16,7 +16,7 @@
 // you switch back to it).
 
 import { getState } from './state.js';
-import { sendGameAction, rewindGame } from './api.js';
+import { sendGameAction, rewindGame, cardImageUrl, GENERIC_TOKEN_KEY } from './api.js';
 import { getCookie, setCookie } from './cookies.js';
 
 const PHASE_LABELS = {
@@ -73,6 +73,22 @@ export function createGameBoardView(opts = {}) {
   let busy = false;
   let status = '';
   let statusKind = '';
+
+  // Player-uploaded custom art (settings.js "Einstellungen" tab, see
+  // api.js tokenImageUrl/sleeveImageUrl): `tokenImages` maps a lowercased
+  // token name to an art URL (for synthesized tokens with no real Scryfall
+  // art); `sleeveImageUrl` is the caller's currently-selected deck sleeve.
+  // Set via `setAssets()` once the caller knows them (after resolving the
+  // active deck/player) — see resolveImageUrl().
+  let tokenImages = {};
+  let assetsSleeveImageUrl = null;
+
+  /** @param {{tokenImages?: Record<string,string>, sleeveImageUrl?: string|null}} assets */
+  function setAssets(assets = {}) {
+    tokenImages = assets.tokenImages || {};
+    assetsSleeveImageUrl = assets.sleeveImageUrl || null;
+    render();
+  }
 
   // Battlefield layout: permanents split across rows by card type (creatures
   // / artifacts+enchantments / lands). Two rows by default; the checkbox
@@ -531,12 +547,12 @@ export function createGameBoardView(opts = {}) {
     const imageCache = getState().imageCache;
     const obj = item.object;
     const name = obj ? obj.name : item.description || item.kind;
-    const image = obj ? imageCache?.get((obj.name || '').toLowerCase()) : null;
-    const inner = image?.small
-      ? `<img src="${image.small}" alt="${escapeHtml(name)}" loading="lazy" />`
+    const imageUrl = obj ? resolveImageUrl(obj, imageCache) : null;
+    const inner = imageUrl
+      ? `<img src="${imageUrl}" alt="${escapeHtml(name)}" loading="lazy" />`
       : escapeHtml(name);
     const classes = ['card'];
-    if (image?.small) classes.push('has-image');
+    if (imageUrl) classes.push('has-image');
     const badge = stackKindBadge(item);
     const isTop = index === total - 1;
     const order =
@@ -601,13 +617,39 @@ export function createGameBoardView(opts = {}) {
       .join('')}</ul>`;
   }
 
+  // Art URL for a game object: prefer the by-name `imageCache` (populated
+  // from a deck import — see state.js), but fall back to building the URL
+  // straight from the object's own `card_id` (always present on non-tokens,
+  // see GameObject.to_dict) so objects added directly in Replay/Puzzle mode
+  // (never resolved into imageCache) still show art in Spielmodus.
+  function resolveImageUrl(o, imageCache) {
+    const cached = imageCache?.get((o.name || '').toLowerCase());
+    if (cached?.small) return cached.small;
+    const isToken = o.is_token || (o.card_id || '').startsWith('token:');
+    if (isToken) {
+      const custom = tokenImages[(o.name || '').toLowerCase()];
+      if (custom) return custom;
+      // A face-down/transformed token (e.g. a token copy of a flipped DFC,
+      // RULE 707) has no real art for its back — fall back to the
+      // player's chosen sleeve backside instead of a blank tile.
+      if (o.transformed && assetsSleeveImageUrl) return assetsSleeveImageUrl;
+      // No specific art for this token by name (typically an ad hoc token
+      // an effect synthesized inline, e.g. "1/1 white Soldier", which has
+      // no catalogue entry to upload art against by exact name) — the
+      // player's "generic" token image (settings.js) covers all of these.
+      return tokenImages[GENERIC_TOKEN_KEY] || null;
+    }
+    if (!o.card_id) return null;
+    return cardImageUrl(o.card_id, 'small', o.transformed ? 'back' : 'front');
+  }
+
   function objCard(o, imageCache, cardActions) {
-    const image = imageCache?.get((o.name || '').toLowerCase());
-    const inner = image?.small
-      ? `<img src="${image.small}" alt="${escapeHtml(o.name)}" loading="lazy" />`
+    const imageUrl = resolveImageUrl(o, imageCache);
+    const inner = imageUrl
+      ? `<img src="${imageUrl}" alt="${escapeHtml(o.name)}" loading="lazy" />`
       : escapeHtml(o.name);
     const classes = ['card'];
-    if (image?.small) classes.push('has-image');
+    if (imageUrl) classes.push('has-image');
     if (o.tapped) classes.push('tapped');
     if (o.summoning_sick) classes.push('summoning-sick');
     if (o.attacking) classes.push('attacking');
@@ -930,7 +972,7 @@ export function createGameBoardView(opts = {}) {
     return `<div class="gf-life"><span class="gf-life-label">${escapeHtml(label)}</span><span class="life-total">${life}</span></div>`;
   }
 
-  return { mount, start, refresh };
+  return { mount, start, refresh, setAssets };
 }
 
 function escapeHtml(str) {

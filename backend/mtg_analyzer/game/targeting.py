@@ -60,17 +60,24 @@ class TargetSpec:
 def spell_target_specs(obj: GameObject) -> list[TargetSpec]:
     """The target requirements a spell announces, gathered from its effects.
 
-    A permanent spell (creature/artifact/…) has no `spell_effects` and so no
-    requirements; an instant/sorcery contributes one `TargetSpec` per
+    Most permanent spells (creature/artifact/…) have no `spell_effects` and so
+    no requirements; an instant/sorcery contributes one `TargetSpec` per
     targeting effect it carries (``DealDamageEffect`` → "any", ``DestroyEffect``
     → "permanent", ``CounterSpellEffect`` → "spell"). Non-targeting effects
     (draw/gain-life/search/…) carry ``target_spec = None`` and add nothing.
+
+    An Aura is the other permanent-spell exception (RULE 303.4a): it must
+    target what it will enchant *as it's cast*, so an "enchant" attachment
+    kind synthesizes a "permanent" requirement here — `legal_targets` then
+    narrows it by the Aura's own "enchant" quality (creature/land/…).
     """
     specs: list[TargetSpec] = []
     for effect in getattr(obj, "spell_effects", []) or []:
         spec = getattr(effect, "target_spec", None)
         if spec is not None:
             specs.append(spec)
+    if not specs and "enchant" in (getattr(obj, "parametric_keywords", None) or {}):
+        specs.append(TargetSpec(kind="permanent", description="zu verzauberndes Ziel"))
     return specs
 
 

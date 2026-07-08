@@ -13,7 +13,10 @@ import {
   endGame,
   resolveCards,
   cardImageUrl,
+  listTokenImages,
+  tokenImageUrl,
 } from './api.js';
+import { getPlayerName } from './settings.js';
 import { getCookie, setCookie } from './cookies.js';
 import { createGameBoardView } from './gameBoardView.js';
 
@@ -149,6 +152,22 @@ export function createReplayView() {
   function enterPlayMode() {
     mode = 'play';
     board.start(sessionId, view);
+    loadPlayerAssets();
+  }
+
+  // The local player's custom token art (Einstellungen tab) — a puzzle
+  // board has no single "deck" to read a sleeve selection from, so only
+  // token images are wired up here (see gameBoardView.js resolveImageUrl).
+  // Best-effort: a failed fetch just falls back to the default rendering.
+  async function loadPlayerAssets() {
+    const playerName = getPlayerName();
+    if (!playerName) return;
+    const images = await listTokenImages(playerName);
+    const tokenImages = {};
+    for (const t of images || []) {
+      tokenImages[(t.token_name || '').toLowerCase()] = tokenImageUrl(playerName, t.token_name);
+    }
+    board.setAssets({ tokenImages });
   }
 
   function mount(el) {

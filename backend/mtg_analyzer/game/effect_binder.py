@@ -199,11 +199,12 @@ def _keyword_activated_ability(obj: Any, spec: AbilitySpec) -> Optional[Activate
         return None
 
     cost_text = keyword.get("cost") or "{0}"
-    if name == "reconfigure":
-        target_kind = "permanent"
-    else:
-        target_kind = "permanent"
-    cost = parse_activation_cost({"text": f"{cost_text}, {{T}}:"})
+    target_kind = "permanent"
+    # RULE 301.5c/306.2/702.151b: none of Equip/Fortify/Reconfigure tap the
+    # source as part of their cost — it's exactly the printed cost, payable
+    # (and re-payable) any number of times at sorcery speed. Don't graft a
+    # {T} onto it: that would tap the permanent and block re-activation.
+    cost = parse_activation_cost(cost_text)
     return ActivatedAbility(
         effects=[AttachEffect(target_kind=target_kind)],
         cost=cost,

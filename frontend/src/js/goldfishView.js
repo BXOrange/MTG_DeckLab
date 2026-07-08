@@ -19,7 +19,11 @@ import {
   listSavedDecks,
   getDeckValidation,
   exportReplay,
+  listTokenImages,
+  tokenImageUrl,
+  sleeveImageUrl,
 } from './api.js';
+import { getPlayerName } from './settings.js';
 import { preloadCardImages, cacheResolvedCard } from './cardImages.js';
 import { parseDeckSections } from './parser.js';
 import { createGameBoardView } from './gameBoardView.js';
@@ -170,6 +174,7 @@ export function createGoldfishView() {
       await preloadDeckTokens(merged);
       setState({ imageCache: merged });
     }
+    await loadPlayerAssets(deck);
 
     await withBusy('Spiel wird gestartet …', async () => {
       const res = await startGoldfish({ deckId: selectedDeckId, shuffle: true });
@@ -246,6 +251,26 @@ export function createGoldfishView() {
           })
       )
     );
+  }
+
+  // The local player's custom art (Einstellungen tab): token images by
+  // name, plus the sleeve backside selected for this deck (Gespeicherte
+  // Decks tab) — handed to the shared board so `resolveImageUrl` can use
+  // them (see gameBoardView.js). Best-effort: a failed fetch just means
+  // the board falls back to its default rendering.
+  async function loadPlayerAssets(deck) {
+    const playerName = getPlayerName();
+    if (!playerName) {
+      board.setAssets({});
+      return;
+    }
+    const images = await listTokenImages(playerName);
+    const tokenImages = {};
+    for (const t of images || []) {
+      tokenImages[(t.token_name || '').toLowerCase()] = tokenImageUrl(playerName, t.token_name);
+    }
+    const sleeveUrl = deck?.sleeveId ? sleeveImageUrl(playerName, deck.sleeveId) : null;
+    board.setAssets({ tokenImages, sleeveImageUrl: sleeveUrl });
   }
 
   async function mulligan() {

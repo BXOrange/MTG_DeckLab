@@ -116,6 +116,58 @@ body {
   white-space: nowrap;
 }
 
+.nav-group {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.nav-group-toggle {
+  width: 100%;
+  text-align: left;
+  white-space: nowrap;
+  background: transparent;
+  border: 1px solid transparent;
+  color: var(--text-dim);
+  padding: 0.5rem 0.5rem;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 0.85rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+}
+
+.nav-group-toggle::before {
+  content: '\25B8';
+  display: inline-block;
+  margin-right: 0.4rem;
+  transition: transform 0.15s ease;
+}
+
+.nav-group.expanded > .nav-group-toggle::before {
+  transform: rotate(90deg);
+}
+
+.nav-group-toggle:hover {
+  color: var(--text);
+}
+
+.nav-group-toggle.has-active {
+  color: var(--accent);
+}
+
+.nav-group-items {
+  display: none;
+  flex-direction: column;
+  gap: 0.35rem;
+  padding-left: 0.75rem;
+}
+
+.nav-group.expanded > .nav-group-items {
+  display: flex;
+}
+
 #header-connection-status {
   flex: 0 0 auto;
 }
@@ -264,6 +316,60 @@ textarea {
   display: flex;
   gap: 0.75rem;
   margin-top: 0.75rem;
+}
+
+.player-assets-section {
+  margin-top: 1.5rem;
+  padding-top: 1rem;
+  border-top: 1px solid var(--border);
+}
+
+.player-asset-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  margin: 0.5rem 0 0.75rem;
+}
+
+.player-asset-tile {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.3rem;
+  width: 96px;
+  font-size: 0.75rem;
+  text-align: center;
+}
+
+.player-asset-tile img {
+  width: 72px;
+  height: 72px;
+  object-fit: cover;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+}
+
+.player-asset-tile span {
+  overflow-wrap: anywhere;
+}
+
+.player-asset-form {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  align-items: center;
+}
+
+.player-asset-form input[type='text'],
+.player-asset-form select {
+  flex: 1;
+  min-width: 160px;
+  background: var(--bg);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 0.5rem 0.75rem;
+  font-size: 0.85rem;
 }
 
 .save-deck-row {

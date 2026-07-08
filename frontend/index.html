@@ -22,15 +22,30 @@
   <div class="app-body">
     <aside class="sidebar" id="sidebar">
       <nav class="sidebar-nav">
-        <button class="tab-button" data-tab="import" type="button">Deck editieren</button>
-        <button class="tab-button" data-tab="savedDecks" type="button">Decks verwalten</button>
-        <button class="tab-button" data-tab="analyze" type="button">Deck analysieren</button>
-        <button class="tab-button" data-tab="goldfish" type="button">Goldfisch</button>
-        <button class="tab-button" data-tab="replay" type="button">Puzzle/Replay</button>
+        <div class="nav-group" data-group="deckManagement">
+          <button class="nav-group-toggle" type="button">Deck-Management</button>
+          <div class="nav-group-items">
+            <button class="tab-button" data-tab="import" type="button">Deck editieren</button>
+            <button class="tab-button" data-tab="savedDecks" type="button">Decks verwalten</button>
+            <button class="tab-button" data-tab="analyze" type="button">Deck analysieren</button>
+          </div>
+        </div>
+        <div class="nav-group" data-group="singleplayer">
+          <button class="nav-group-toggle" type="button">Singleplayer</button>
+          <div class="nav-group-items">
+            <button class="tab-button" data-tab="goldfish" type="button">Goldfisch</button>
+            <button class="tab-button" data-tab="replay" type="button">Puzzle/Replay</button>
+          </div>
+        </div>
         <button class="tab-button" data-tab="multiplayer" type="button">Multiplayer</button>
         <button class="tab-button" data-tab="connection" type="button">Einstellungen</button>
-        <button class="tab-button" data-tab="cache" type="button">Karten-Cache</button>
-        <button class="tab-button" data-tab="status" type="button">Engine-Status</button>
+        <div class="nav-group" data-group="information">
+          <button class="nav-group-toggle" type="button">Information</button>
+          <div class="nav-group-items">
+            <button class="tab-button" data-tab="cache" type="button">Karten-Cache</button>
+            <button class="tab-button" data-tab="status" type="button">Engine-Status</button>
+          </div>
+        </div>
       </nav>
     </aside>
 

@@ -40,6 +40,10 @@ def save_deck(
         sideboard_text=request.sideboard_text,
         created_at=existing.created_at if existing else None,
         analysis_id=existing.analysis_id if existing else None,
+        # Settable via this same endpoint (the saved-decks list re-saves the
+        # full deck with a new sleeveId), but preserved across unrelated
+        # edits (e.g. re-saving decklist text) when the caller omits it.
+        sleeve_id=request.sleeve_id if request.sleeve_id is not None else (existing.sleeve_id if existing else None),
     )
     database.save_deck(deck)
     return deck.to_dict()

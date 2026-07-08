@@ -135,6 +135,34 @@ def start_goldfish(
     return view
 
 
+@router.get("/tokens")
+def known_tokens() -> dict[str, object]:
+    """Every token in the repo's curated catalogue (`data/tokens.json`).
+
+    Unlike `POST /deck-tokens` (a specific deck's *producible* tokens), this
+    is deck-independent — it backs the "known token type" dropdown in
+    Settings' token-image upload form (connectionSettingsView.js), so a
+    player picks an exact, already-known token name instead of retyping one
+    by hand (Soldier, Treasure, Clue, …). Ad hoc tokens an effect synthesizes
+    inline (a bare "1/1 white Soldier" with no catalogue entry) aren't listed
+    here — the same form's "generic" option covers those instead.
+    """
+    from mtg_analyzer.services.token_database import default_token_database
+
+    tokens = default_token_database().all_tokens()
+    return {
+        "tokens": [
+            {
+                "id": t.id,
+                "name": t.name,
+                "type_line": t.type_line,
+                "image_small": t.image_uri_small or None,
+            }
+            for t in sorted(tokens, key=lambda t: t.name)
+        ]
+    }
+
+
 @router.post("/deck-tokens")
 def deck_tokens(
     request: DeckTokensRequest,

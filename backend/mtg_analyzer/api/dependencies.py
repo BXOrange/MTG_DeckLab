@@ -16,6 +16,7 @@ from mtg_analyzer.services.deck_database import DEFAULT_DECKS_DB_PATH, DeckDatab
 from mtg_analyzer.services.game_session import GameSessionManager
 from mtg_analyzer.services.image_cache import ImageCache
 from mtg_analyzer.services.lazy_card_loader import LazyCardLoader
+from mtg_analyzer.services.player_assets import DEFAULT_PLAYER_ASSETS_DB_PATH, PlayerAssetStore
 from mtg_analyzer.services.scryfall_client import ScryfallIntegration
 
 
@@ -46,6 +47,11 @@ def _game_session_manager() -> GameSessionManager:
     return GameSessionManager()
 
 
+@lru_cache(maxsize=1)
+def _player_asset_store() -> PlayerAssetStore:
+    return PlayerAssetStore(DEFAULT_PLAYER_ASSETS_DB_PATH)
+
+
 def get_card_database() -> CardDatabase:
     return _database()
 
@@ -64,3 +70,7 @@ def get_deck_database() -> DeckDatabase:
 
 def get_game_session_manager() -> GameSessionManager:
     return _game_session_manager()
+
+
+def get_player_asset_store() -> PlayerAssetStore:
+    return _player_asset_store()

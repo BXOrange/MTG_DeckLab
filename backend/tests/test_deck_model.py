@@ -72,6 +72,7 @@ class TestSerialization:
             "sideboardText",
             "createdAt",
             "analysisId",
+            "sleeveId",
         }
 
     def test_from_dict_missing_optional_fields_uses_defaults(self):

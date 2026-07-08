@@ -34,6 +34,21 @@ by id/name and rebuilt from the cache; tokens carry a self-describing block).
 goldfish position can be exported and re-opened in Replay. Frontend:
 `frontend/src/js/replayView.js`.
 
+**Player-uploaded art** (Einstellungen tab): a player can upload art for
+tokens that have no real Scryfall art (matched by token name) and a
+library of card-back "sleeve" designs, one of which can be picked per
+saved deck (`Deck.sleeve_id`). Stored server-side keyed by the free-text
+player name from Settings (this app has no auth) — `services/
+player_assets.py` / `api/player_assets.py` — rather than client-side,
+specifically so a shared backend can serve them to an opponent too, once
+multiplayer (`POST /api/game/multiplayer` is still a 501 stub) exists.
+The goldfish/Replay board (`gameBoardView.js` `resolveImageUrl`) renders
+a token's uploaded art when present, and falls back to the active
+sleeve for a face-down/transformed token with none — real transformed
+DFCs keep their genuine Scryfall back-face art, so the sleeve fallback
+has no visible effect yet until a face-down permanent state
+(morph/manifest, not yet modeled) can reach that branch.
+
 ## Run & test
 
 ```bash
@@ -194,5 +209,6 @@ ordered milestones). Design docs: `docs/01`–`10` + `docs/IMPLEMENTATION_GUIDE.
 | Effects / triggers | `game/effects.py`, `game/effect_binder.py` |
 | Goldfish UI | `frontend/src/js/goldfishView.js` |
 | Replay/Puzzle mode (build+save/load a board) | `backend/mtg_analyzer/services/replay.py`, `game_session.py` (`edit_*` actions), `frontend/src/js/replayView.js` |
+| Player-uploaded token art / card-back sleeves | `backend/mtg_analyzer/services/player_assets.py`, `api/player_assets.py`, `frontend/src/js/connectionSettingsView.js`, `gameBoardView.js` (`resolveImageUrl`/`setAssets`) |
 | Engine coverage doc (user-facing) | `frontend/src/js/implementationStatusView.js` |
 | Looking up a `RULE <n>` in the CR text | `Reference/rules_wiki/` (rule#/term → source line; see its `README.md`) |

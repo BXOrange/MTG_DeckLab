@@ -91,8 +91,15 @@ _SPECIAL_REGEX: dict[str, re.Pattern[str]] = {
     "protection": re.compile(
         r"protection from (?P<quality>[a-z][a-z ]*?)(?=[.,;\n)]|$| and )", re.I
     ),
-    # RULE 702.5 — "Enchant <what it can be attached to>".
-    "enchant": re.compile(r"\benchant\s+(?P<quality>[a-z][a-z ]*?)(?=[.\n(]|$)", re.I),
+    # RULE 702.5 — "Enchant <what it can be attached to>". Stops before a
+    # trailing controller clause ("... you control" / "... an opponent
+    # controls") so ``quality`` is the bare type ("creature"), not the whole
+    # clause — the attachment-legality checks match on that type alone.
+    "enchant": re.compile(
+        r"\benchant\s+(?P<quality>[a-z][a-z ]*?)"
+        r"(?=\s+(?:you|an opponent)\b|[.\n(]|$)",
+        re.I,
+    ),
     # RULE 702.14 — "<type>walk"; also matched by slug prefix in parse_keywords.
     "landwalk": re.compile(r"\b(?P<quality>[a-z]+)walk\b", re.I),
     # RULE 702.41 — "affinity for <type>".

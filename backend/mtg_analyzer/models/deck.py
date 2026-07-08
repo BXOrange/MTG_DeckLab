@@ -27,6 +27,12 @@ class Deck:
     can link a deck to its analysis without a storage migration later.
     Treat its exact shape (a single id vs. something richer) as
     provisional until that feature is actually built.
+
+    `sleeve_id` optionally references one of this deck owner's uploaded
+    card-back designs (`services/player_assets.py`, `api/player_assets.py`
+    `/api/players/{name}/sleeves`) — set via the saved-decks list, read by
+    the goldfish board as the fallback "back of card" art for a face-down
+    object with no real art of its own.
     """
 
     def __init__(
@@ -38,6 +44,7 @@ class Deck:
         sideboard_text: str = "",
         created_at: Optional[str] = None,
         analysis_id: Optional[str] = None,
+        sleeve_id: Optional[str] = None,
     ) -> None:
         self.id = id or str(uuid.uuid4())
         self.name = name
@@ -46,6 +53,7 @@ class Deck:
         self.sideboard_text = sideboard_text
         self.created_at = created_at or datetime.now(timezone.utc).isoformat()
         self.analysis_id = analysis_id
+        self.sleeve_id = sleeve_id
 
     def to_dict(self) -> dict[str, Any]:
         """Serialize this deck to a JSON-compatible dict (camelCase, like ParsedDeck)."""
@@ -57,6 +65,7 @@ class Deck:
             "sideboardText": self.sideboard_text,
             "createdAt": self.created_at,
             "analysisId": self.analysis_id,
+            "sleeveId": self.sleeve_id,
         }
 
     @classmethod
@@ -70,6 +79,7 @@ class Deck:
             sideboard_text=data.get("sideboardText", ""),
             created_at=data.get("createdAt"),
             analysis_id=data.get("analysisId"),
+            sleeve_id=data.get("sleeveId"),
         )
 
     def __repr__(self) -> str:
