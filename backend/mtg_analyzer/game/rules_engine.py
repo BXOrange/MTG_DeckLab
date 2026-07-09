@@ -36,6 +36,7 @@ from .effects import (
     TriggeredAbility,
     WinConditionEffect,
 )
+from .targeting import TargetSpec, legal_targets
 
 #: Roman-numeral value of each Saga chapter marker, for finding the last one.
 _ROMAN: dict[str, int] = {"I": 1, "II": 2, "III": 3, "IV": 4, "V": 5, "VI": 6, "VII": 7}
@@ -69,6 +70,11 @@ class RulesEngine:
         #: Populated only while `state.interactive_ordering` drives a choice.
         self._ordering_active: list[tuple[TriggeredAbility, GameEvent]] = []
         self._ordering_rest: list[tuple[TriggeredAbility, GameEvent]] = []
+        #: The triggered ability currently awaiting a `trigger_target` choice
+        #: (RULE 115/603.3c), and the still-to-place queue behind it —
+        #: populated only while that choice is pending.
+        self._pending_trigger_ability: Optional[TriggeredAbility] = None
+        self._pending_trigger_queue: list[tuple[TriggeredAbility, GameEvent]] = []
         # Collect triggers for every event the game fires.
         state.subscribe(self._collect_triggers)
 
@@ -162,18 +168,156 @@ class RulesEngine:
             return 0
 
         count = len(self.pending_triggers)
-        for ability, _event in mine + rest:  # active first (bottom of stack)
-            self._place_trigger(ability)
         self.pending_triggers.clear()
+        self._place_triggers(mine + rest)  # active first (bottom of stack)
         return count
 
-    def _place_trigger(self, ability: "TriggeredAbility") -> None:
+    @staticmethod
+    def _trigger_target_spec(ability: "TriggeredAbility") -> Optional[TargetSpec]:
+        """The *first* targeting effect's requirement, if any (RULE 115.1).
+
+        Mirrors the "one targeting effect resolves correctly per ability"
+        limit spells/activated abilities already have (docs/11 §5) — every
+        effect in `ability.effects` gets the same resolved targets list and
+        reads `targets[0]`, so only the first target_spec is meaningful.
+        """
+        for effect in ability.effects:
+            spec = getattr(effect, "target_spec", None)
+            if spec is not None:
+                return spec
+        return None
+
+    def _place_triggers(self, queue: list[tuple["TriggeredAbility", GameEvent]]) -> None:
+        """Place queued triggers (RULE 603.3), pausing on one that needs a
+        target, or is a "you may" with nothing to target, instead of just
+        resolving/skipping it blind (RULE 115/603.3c/603.5).
+
+        A mandatory trigger with no targeting effect is placed immediately
+        (unaffected — the overwhelming common case). One that targets, or is
+        optional, opens a `trigger_target` `pending_choice`:
+        `resolve_trigger_target_choice` places it (or not, if declined) and
+        resumes this same queue. A *required* target with no legal option at
+        all doesn't go on the stack (RULE 603.3c) — dropped, not placed.
+
+        Note: a trigger placed via the (opt-in, off-by-default) RULE 603.3b
+        interactive-ordering choice (`resolve_trigger_order_choice`) is
+        placed directly and does *not* pause for either choice — combining
+        manual trigger ordering with an optional/targeted trigger among the
+        ordered set is a narrow, undocumented-further edge case, not handled
+        here.
+        """
+        while queue:
+            ability, _event = queue.pop(0)
+            spec = self._trigger_target_spec(ability)
+            if spec is None:
+                if not ability.optional:
+                    self._place_trigger(ability)
+                    continue
+                # RULE 603.5: a "you may" with no target still needs a choice
+                # of whether to do it at all.
+                self._pending_trigger_ability = ability
+                self._pending_trigger_queue = queue
+                self.state.pending_choice = self._trigger_may_choice(ability)
+                return
+            controller_id = ability.controller_id or self.state.active_player.id
+            options = legal_targets(self.state, controller_id, spec, source=ability.source)
+            if not options:
+                continue  # RULE 603.3c: no legal target — never placed
+            self._pending_trigger_ability = ability
+            self._pending_trigger_queue = queue
+            self.state.pending_choice = self._trigger_target_choice(ability, options)
+            return
+
+    def _trigger_target_choice(self, ability: "TriggeredAbility", options: list[dict[str, Any]]) -> dict[str, Any]:
+        """Build the `pending_choice` offering ``options`` as an ability's
+        target — one button per legal permanent/player, matching the generic
+        choice UI's `{"id", "label", "instance_id"?}` option shape (the same
+        one search/cascade/discover/order_triggers already use)."""
+        choice_options: list[dict[str, Any]] = []
+        for opt in options:
+            if "instance_id" in opt:
+                choice_options.append(
+                    {"id": str(opt["instance_id"]), "label": opt["name"], "instance_id": opt["instance_id"]}
+                )
+            else:
+                choice_options.append({"id": opt["player_id"], "label": opt["name"]})
+        if ability.optional:  # RULE 603.5 "you may"
+            choice_options.append({"id": "decline", "label": "Nichts wählen"})
+        return {
+            "kind": "trigger_target",
+            "player_id": ability.controller_id or self.state.active_player.id,
+            "prompt": ability.description or "Ziel für ausgelöste Fähigkeit wählen",
+            "options": choice_options,
+        }
+
+    def _trigger_may_choice(self, ability: "TriggeredAbility") -> dict[str, Any]:
+        """Build the `pending_choice` for a targetless "you may" trigger
+        (RULE 603.5) — do it, or don't. Reuses the ``trigger_target`` kind
+        (same resolver, same generic choice UI); ``"do"`` is the sentinel
+        `resolve_trigger_target_choice` recognizes as "yes, without a
+        target"."""
+        return {
+            "kind": "trigger_target",
+            "player_id": ability.controller_id or self.state.active_player.id,
+            "prompt": ability.description or "Ausgelöste Fähigkeit ausführen?",
+            "options": [
+                {"id": "do", "label": "Ausführen"},
+                {"id": "decline", "label": "Nichts tun"},
+            ],
+        }
+
+    def resolve_trigger_target_choice(self, answer: Optional[str]) -> None:
+        """Answer a pending `trigger_target` choice, then resume `_place_
+        triggers` on whatever was still queued behind it.
+
+        ``answer`` is the chosen option's ``id`` — a permanent's stringified
+        ``instance_id``, a player's id, or ``"do"`` for a targetless "you
+        may" — or `None`/``"decline"`` to not do the (optional) ability at
+        all, which simply never goes on the stack.
+        """
+        choice = self.state.pending_choice
+        if not choice or choice.get("kind") != "trigger_target":
+            raise ValueError("no pending trigger target choice to resolve")
+        self.state.pending_choice = None
+        ability = self._pending_trigger_ability
+        queue = self._pending_trigger_queue
+        self._pending_trigger_ability = None
+        self._pending_trigger_queue = []
+
+        if answer == "do":
+            if ability is not None:
+                self._place_trigger(ability)
+            self._place_triggers(queue)
+            return
+
+        if answer is not None and answer != "decline" and ability is not None:
+            target = self._resolve_choice_option(choice["options"], str(answer))
+            if target is not None:
+                self._place_trigger(ability, targets=[target])
+        self._place_triggers(queue)
+
+    def _resolve_choice_option(self, options: list[dict[str, Any]], answer: str) -> Any:
+        """The permanent/player a `trigger_target` option ``answer`` names."""
+        match = next((o for o in options if o["id"] == answer), None)
+        if match is None:
+            return None
+        if "instance_id" in match:
+            return next(
+                (o for o in self.state.permanents() if o.instance_id == match["instance_id"]), None
+            )
+        try:
+            return self.state.player_by_id(match["id"])
+        except KeyError:
+            return None
+
+    def _place_trigger(self, ability: "TriggeredAbility", targets: Optional[list[Any]] = None) -> None:
         self.state.stack.append(
             StackItem(
                 kind="ability",
                 controller_id=ability.controller_id or self.state.active_player.id,
                 effects=[ability],
                 description=ability.description or "triggered ability",
+                targets=targets,
             )
         )
 
@@ -347,6 +491,8 @@ class RulesEngine:
             return False
         if kind == "equip":
             return target.is_creature or target.card.is_artifact
+        if kind == "reconfigure":
+            return target.is_creature and target is not obj
         if kind == "enchant":
             quality = ((obj.parametric_keywords or {}).get(kind) or {}).get("quality", "")
             quality = str(quality).strip().lower()
@@ -373,10 +519,18 @@ class RulesEngine:
         return True
 
     def _detach_attachments_from(self, host: GameObject) -> None:
-        """Move any permanents attached to ``host`` off the battlefield."""
+        """Unattach permanents attached to ``host`` when it leaves the battlefield.
+
+        RULE 704.5m: an Aura not attached to a legal object goes to its
+        owner's graveyard. RULE 704.5n: an Equipment or Fortification (which
+        includes a Reconfigure permanent acting as one, RULE 702.151b) merely
+        becomes unattached and remains on the battlefield.
+        """
         for attached in list(self.state.permanents()):
-            if attached.attached_to == host.instance_id:
-                attached.attached_to = None
+            if attached.attached_to != host.instance_id:
+                continue
+            attached.attached_to = None
+            if self._attachment_kind(attached) == "enchant":
                 self._move_to_graveyard(attached)
 
     @staticmethod
@@ -686,6 +840,53 @@ class RulesEngine:
         token cease-to-exist lifecycle (RULE 704.5d)."""
         copiable = getattr(source, "_front_card", source.card)
         return self.create_token(controller_id, copiable, count)
+
+    def become_copy(
+        self,
+        obj: GameObject,
+        target: GameObject,
+        add_types: Optional[list[str]] = None,
+        add_subtypes: Optional[list[str]] = None,
+    ) -> None:
+        """``obj`` itself becomes a copy of ``target`` (RULE 706/707.2).
+
+        Unlike `copy_permanent` (a new token), this mutates ``obj`` in place:
+        its `Card` is replaced by ``target``'s copiable values (RULE 706.2 —
+        name, mana cost, colours, card type/subtypes, rules text, P/T,
+        loyalty), and its own catalogue-derived abilities/keywords are
+        cleared and rebound from that new card, since a copy gains the
+        copied object's abilities rather than keeping its own (RULE 706.2).
+        Everything RULE 706.2 *doesn't* cover — instance id, zone, owner,
+        controller, counters, tapped state, attachments, summoning sickness —
+        is untouched, since none of that lives on `Card`.
+
+        Mirrors `copy_permanent`'s simplification of always reading the
+        *front* face (RULE 712.4a's "currently shown face" nuance isn't
+        modeled for either). ``add_types``/``add_subtypes`` implement a copy
+        effect's own "except it's a(n) X in addition to its other types"
+        clause (`Card.as_copy`).
+        """
+        from .effect_binder import bind_from_catalogue  # function-scoped: avoid a cycle
+
+        copiable = getattr(target, "_front_card", target.card)
+        obj.card = copiable.as_copy(add_types=add_types, add_subtypes=add_subtypes)
+
+        # A copy replaces the object's own copiable-derived abilities/keywords
+        # wholesale — static/triggered/activated/replacement effects granted
+        # by *other* permanents (auras, anthems) live on those objects, not
+        # here, so clearing these is exactly RULE 706.2's "loses its own,
+        # gains the copied object's" without touching anything external.
+        obj.static_effects = []
+        obj.triggered_abilities = []
+        obj.activated_abilities = []
+        obj.replacement_effects = []
+        obj.spell_effects = []
+        obj.intrinsic_keywords = set()
+        obj.parametric_keywords = {}
+        bind_from_catalogue(obj)
+
+        if obj.card.is_planeswalker and obj.card.loyalty and "loyalty" not in obj.counters:
+            obj.counters["loyalty"] = obj.card.loyalty
 
     def gain_life(self, player: Player, amount: int) -> None:
         if amount <= 0:

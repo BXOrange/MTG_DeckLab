@@ -6,16 +6,25 @@ RULE 613 says how overlapping ones combine: apply them in a fixed sequence of
 **layers**, so the board's derived characteristics are well-defined no matter
 what order the abilities entered play.
 
-This module implements the layers this engine meets:
+This module implements every layer this engine meets:
 
+* **Layer 2** — control-changing effects ("you control enchanted creature");
 * **Layer 4** — type-changing effects ("… are creatures");
+* **Layer 5** — colour-changing effects ("enchanted creature is black");
 * **Layer 6** — ability-adding effects ("… have flying");
-* **Layer 7** — power/toughness, in sublayer order: 7b set, 7c counters,
-  7d modify (anthems). 7a CDAs and 7e P/T switches are not modeled yet.
+* **Layer 7** — power/toughness, in full sublayer order: 7a characteristic-
+  defining P/T, 7b set, 7c counters, 7d modify (anthems), 7e switch.
 
 Plus a non-layer bucket, **cost adjustments** (RULE 601.2f — "spells cost {N}
 less"), which aren't part of 613 but are the other everyday static effect and
 are computed here for the same recompute.
+
+Not modeled: layer 1 (copy effects, RULE 707) and layer 3 (text-changing
+effects, RULE 612) — no card in the pool needs them yet, and RULE 613.8's
+*dependency* system (an effect whose order depends on another applying
+first) — within a layer, ordering is by timestamp only (RULE 613.7,
+`_in_layer`), which the card pool's anthems/grants/animations never need
+reordered by dependency.
 
 `recompute(state)` resets every battlefield object's derived characteristics
 and re-derives them from scratch, stamping the result — and a per-object,
@@ -23,9 +32,7 @@ per-layer **trace** — back onto each `GameObject` (`_derived_power`,
 `_granted_keywords`, `_added_types`, `static_trace`). The engine calls it
 whenever the board settles (state-based actions) and before serialization, so
 reads of `obj.power`/`obj.is_creature`/`combat.keywords_of` see the live layer
-stack. Ordering *within* a layer is a simplification (registration order, not
-true dependency/timestamp order, RULE 613.7) — enough for the anthems, grants
-and animations the card pool needs.
+stack.
 """
 
 from __future__ import annotations
@@ -84,6 +91,13 @@ def affected_objects(state: "GameState", ability: StaticAbility) -> list["GameOb
     ability (a bare test fixture) matches nothing for those selectors. A
     ``params["subtype"]`` narrows the base set to that creature type — the
     tribal-lord filter (Goblin King's "Other Goblin creatures you control …").
+
+    ``"attached_permanent"`` is the Aura/Equipment/Fortify/Reconfigure case —
+    "enchanted/equipped creature", "fortified land" — resolved off the
+    ability's own source's ``attached_to`` (RULE 303.4/301.5), not a
+    controller-scoped set. It naturally yields nothing while unattached or
+    once the source itself has left the battlefield (`_battlefield_static_
+    abilities` only gathers abilities from objects currently in play).
     """
     src = ability.source
     controller = getattr(src, "controller_id", None)
@@ -96,6 +110,9 @@ def affected_objects(state: "GameState", ability: StaticAbility) -> list["GameOb
         result = [o for o in battlefield if o.is_creature]
     elif affects == "all_permanents":
         result = list(battlefield)
+    elif affects == "attached_permanent":
+        host_id = getattr(src, "attached_to", None)
+        result = [o for o in battlefield if host_id is not None and o.instance_id == host_id]
     elif controller is None:
         result = []
     elif affects == "creatures_you_control":
@@ -223,6 +240,16 @@ def recompute(state: "GameState") -> None:
 
     # -- Layer 4: type-changing effects (may add "creature" + animation P/T).
     animation_pt: dict[int, tuple[int, int]] = {}
+
+    # RULE 702.151b: a Reconfigure permanent stops being a creature for as
+    # long as it's attached to another creature (it's an Equipment while
+    # attached). This is inherent to the permanent's own attached state, not
+    # an "affects other objects" static ability, so it's special-cased here
+    # rather than going through a `StaticAbility`/`affected_objects` pass.
+    for obj in state.battlefield:
+        if obj.attached_to is not None and "reconfigure" in (obj.parametric_keywords or {}):
+            obj._removed_types.add("creature")
+
     for ability in _in_layer(abilities, "type"):
         added = ability.params.get("add_types", [])
         power, toughness = ability.params.get("power"), ability.params.get("toughness")

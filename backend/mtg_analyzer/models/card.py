@@ -249,6 +249,71 @@ class Card:
         """Whether the card is an enchantment (derived from the type line)."""
         return "enchantment" in self.type_line.lower()
 
+    def as_copy(
+        self, add_types: Optional[list[str]] = None, add_subtypes: Optional[list[str]] = None
+    ) -> "Card":
+        """This card's *copiable values* (RULE 706.2), as a fresh `Card`.
+
+        Used by a "become a copy of target permanent" effect (RULE 707):
+        name, mana cost, colour identity, card type/subtypes, rules text,
+        power/toughness/loyalty, and (for board display fidelity, though not
+        rules-required) the printed images — everything a copy effect
+        actually copies. Deliberately excludes anything RULE 706.2 doesn't
+        cover and this model tracks elsewhere on the *object*, not the card:
+        counters, tapped/attached/damage state, control, summoning sickness.
+
+        ``add_types``/``add_subtypes`` model a card's own "except it's a(n)
+        X in addition to its other types" clause (Copy Artifact's
+        "enchantment", Phantasmal Image's "Illusion") — types are inserted
+        before the type line's em dash, subtypes after it.
+        """
+        type_line = self.type_line
+        if add_types:
+            main, dash, sub = type_line.partition("—")
+            type_line = f"{main.strip()} {' '.join(add_types)}".strip()
+            if dash:
+                type_line = f"{type_line} — {sub.strip()}"
+        if add_subtypes:
+            main, dash, sub = type_line.partition("—")
+            sub = f"{sub.strip()} {' '.join(add_subtypes)}".strip()
+            type_line = f"{main.strip()} — {sub}" if dash or sub else main.strip()
+        return Card(
+            id=self.id,
+            name=self.name,
+            type_line=type_line,
+            mana_cost=dict(self.mana_cost),
+            mana_cost_string=self.mana_cost_string,
+            converted_mana_cost=self.converted_mana_cost,
+            color_identity=set(self.color_identity),
+            is_creature=self.is_creature,
+            is_instant=self.is_instant,
+            is_sorcery=self.is_sorcery,
+            is_land=self.is_land,
+            power=self.power,
+            toughness=self.toughness,
+            loyalty=self.loyalty,
+            oracle_text=self.oracle_text,
+            keywords=list(self.keywords),
+            image_uri_small=self.image_uri_small,
+            image_uri_normal=self.image_uri_normal,
+            image_uri_large=self.image_uri_large,
+            image_uri_png=self.image_uri_png,
+            set_code=self.set_code,
+            rarity=self.rarity,
+            is_legendary=self.is_legendary,
+            layout=self.layout,
+            back_name=self.back_name,
+            back_type_line=self.back_type_line,
+            back_oracle_text=self.back_oracle_text,
+            back_mana_cost_string=self.back_mana_cost_string,
+            back_power=self.back_power,
+            back_toughness=self.back_toughness,
+            back_image_uri_small=self.back_image_uri_small,
+            back_image_uri_normal=self.back_image_uri_normal,
+            back_image_uri_large=self.back_image_uri_large,
+            back_image_uri_png=self.back_image_uri_png,
+        )
+
     @property
     def has_back_face(self) -> bool:
         """Whether this card has a distinct, separately-imaged back face.

@@ -762,6 +762,10 @@ textarea {
 
 .card-tile-text {
   color: var(--text);
+  /* Oracle text keeps Scryfall's real line breaks between ability blocks
+     (RULE 207.2) — render them, don't let normal HTML whitespace collapsing
+     run "Deathtouch" straight into the next ability. */
+  white-space: pre-line;
 }
 
 .card-tile-keywords {

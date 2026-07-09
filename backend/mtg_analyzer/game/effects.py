@@ -106,6 +106,15 @@ class GameContext:
     def copy_permanent(self, controller_id: str, source: "GameObject", count: int = 1) -> None:
         self.engine.copy_permanent(controller_id, source, count)
 
+    def become_copy(
+        self,
+        obj: "GameObject",
+        target: "GameObject",
+        add_types: Optional[list] = None,
+        add_subtypes: Optional[list] = None,
+    ) -> None:
+        self.engine.become_copy(obj, target, add_types, add_subtypes)
+
     def gain_life(self, player: "Player", amount: int) -> None:
         self.engine.gain_life(player, amount)
 
@@ -799,6 +808,47 @@ class CopyPermanentEffect(GameEffect):
         context.copy_permanent(controller_id, target, self.count)
 
 
+class BecomeCopyEffect(GameEffect):
+    """*This* permanent becomes a copy of a target permanent (RULE 706/707.2).
+
+    Unlike `CopyPermanentEffect` (which creates a *new token* copy), this
+    mutates the effect's own source in place — Clone/Phantasmal Image/Copy
+    Artifact-style "you may have this [permanent] enter as a copy of target
+    [permanent]" — while keeping the source's own instance identity, zone,
+    controller, counters and attachments untouched (none of those are
+    copiable characteristics, RULE 706.2).
+
+    Modeled as an ordinary `ENTERS_BATTLEFIELD` trigger rather than the true
+    RULE 614.1c/614.12 replacement-effect timing ("as ~ enters") — a known,
+    documented simplification (ToDo_Backend.md), shared with the still-open
+    conditional-tapland gap: there's a brief window after entering, before
+    this trigger resolves, where the permanent is still legally itself.
+
+    ``add_types``/``add_subtypes`` cover a card's own "except it's a(n) X in
+    addition to its other types" clause (`Card.as_copy`).
+    """
+
+    def __init__(
+        self,
+        target: Any = None,
+        source: Optional["GameObject"] = None,
+        target_kind: str = "permanent",
+        add_types: Optional[list[str]] = None,
+        add_subtypes: Optional[list[str]] = None,
+    ) -> None:
+        super().__init__(source)
+        self.target = target
+        self.target_spec = TargetSpec(kind=target_kind)
+        self.add_types = list(add_types or [])
+        self.add_subtypes = list(add_subtypes or [])
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        target = (targets[0] if targets else None) or self.target
+        if target is None or self.source is None or target is self.source:
+            return
+        context.become_copy(self.source, target, self.add_types, self.add_subtypes)
+
+
 class SearchLibraryEffect(GameEffect):
     """Search the controller's library for a card (RULE 701.19), tutors.
 
@@ -991,6 +1041,15 @@ EffectRegistry.register(
     ),
 )
 EffectRegistry.register(
+    "become_copy",  # "You may have this enter as a copy of target permanent" (RULE 706/707)
+    lambda p: BecomeCopyEffect(
+        target=p.get("target"),
+        target_kind=p.get("target_kind", "permanent"),
+        add_types=list(p.get("add_types", [])),
+        add_subtypes=list(p.get("add_subtypes", [])),
+    ),
+)
+EffectRegistry.register(
     "add_counters",
     lambda p: AddCountersEffect(
         amount=p.get("amount", p.get("count", 1)),
@@ -1106,6 +1165,49 @@ EffectRegistry.register(
         "cost",
         affects=p.get("affects", "your_spells"),
         params={"generic": p.get("generic", 1), "increase": bool(p.get("increase", False))},
+    ),
+)
+EffectRegistry.register(
+    "color_change",  # "Enchanted creature is black" / "All creatures are red" (layer 5)
+    lambda p: StaticAbility(
+        "color",
+        affects=p.get("affects", "attached_permanent"),
+        params={
+            "colors": [str(c).upper() for c in p.get("colors", [])],
+            "set": bool(p.get("set", True)),
+            **_selectors(p),
+        },
+    ),
+)
+EffectRegistry.register(
+    "control_change",  # "You control enchanted creature" (Mind Control, layer 2)
+    lambda p: StaticAbility(
+        "control",
+        affects=p.get("affects", "attached_permanent"),
+        # No explicit "controller" defaults to the effect's own source's
+        # controller (continuous.recompute), which is exactly "you" for a
+        # hand-authored "you control enchanted/equipped permanent" clause.
+        params={"controller": p.get("controller")},
+    ),
+)
+EffectRegistry.register(
+    "pt_cda",  # "*/* creature with power/toughness equal to …" (layer 7a, RULE 604.3)
+    lambda p: StaticAbility(
+        "pt_cda",
+        affects=p.get("affects", "self"),
+        params={
+            "power_count": p.get("power_count"),
+            "toughness_count": p.get("toughness_count"),
+            **_selectors(p),
+        },
+    ),
+)
+EffectRegistry.register(
+    "pt_switch",  # "Switch this creature's power and toughness" (layer 7e, RULE 613.4d/701.28)
+    lambda p: StaticAbility(
+        "pt_switch",
+        affects=p.get("affects", "self"),
+        params={**_selectors(p)},
     ),
 )
 

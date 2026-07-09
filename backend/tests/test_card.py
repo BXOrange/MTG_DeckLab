@@ -113,6 +113,39 @@ class TestPartner:
         assert card.partner_with is None
 
 
+class TestAsCopy:
+    """`Card.as_copy` — the copiable-values snapshot a `become_copy` effect
+    mutates a `GameObject` with (RULE 706.2)."""
+
+    def test_plain_copy_matches_the_original(self):
+        original = make_creature(name="Grave Titan", power=6, toughness=6,
+                                  oracle_text="Deathtouch")
+        copy = original.as_copy()
+        assert copy is not original
+        assert (copy.name, copy.power, copy.toughness, copy.oracle_text) == (
+            "Grave Titan", 6, 6, "Deathtouch",
+        )
+        assert copy.type_line == original.type_line
+
+    def test_add_subtypes_appends_after_the_dash(self):
+        original = make_creature(type_line="Creature — Zombie Giant")
+        copy = original.as_copy(add_subtypes=["Illusion"])
+        assert copy.type_line == "Creature — Zombie Giant Illusion"
+        assert copy.is_creature
+
+    def test_add_types_inserts_before_the_dash(self):
+        original = make_creature(type_line="Creature — Bear")
+        copy = original.as_copy(add_types=["Enchantment"])
+        assert copy.type_line == "Creature Enchantment — Bear"
+        assert copy.is_enchantment
+
+    def test_add_types_with_no_existing_subtype(self):
+        original = Card(id="art", name="Sol Ring", type_line="Artifact")
+        copy = original.as_copy(add_types=["Enchantment"])
+        assert copy.type_line == "Artifact Enchantment"
+        assert copy.is_enchantment and copy.is_artifact
+
+
 class TestSerialization:
     def test_to_dict_round_trip_creature(self):
         card = make_creature()

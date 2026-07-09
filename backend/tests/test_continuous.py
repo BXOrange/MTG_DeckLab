@@ -191,6 +191,49 @@ def test_control_change_reassigns_and_is_idempotent():
     assert stolen.controller_id == "p2"
 
 
+# -- "attached_permanent": Aura/Equipment/Fortify/Reconfigure buffs ----------
+
+
+def test_attached_permanent_selector_buffs_the_enchanted_creature():
+    # A Rancor-style Aura: "Enchanted creature gets +2/+0 and has trample."
+    eng = make_engine()
+    host = put(eng.state, creature("Bear", power=2, toughness=2))
+    aura = GameObject(Card(id="Aura", name="Rancor-alike", type_line="Enchantment"),
+                       owner_id="p1", zone=Zone.BATTLEFIELD)
+    eng.state.add_to_battlefield(aura)
+    aura.attached_to = host.instance_id
+    static("pt_mod", "attached_permanent", {"power": 2, "toughness": 0}, aura)
+    static("ability", "attached_permanent", {"keywords": ["trample"]}, aura)
+    continuous.recompute(eng.state)
+    assert (host.power, host.toughness) == (4, 2)
+    assert combat.has_trample(host)
+
+
+def test_attached_permanent_selector_matches_nothing_while_unattached():
+    eng = make_engine()
+    host = put(eng.state, creature("Bear", power=2, toughness=2))
+    aura = GameObject(Card(id="Aura", name="Rancor-alike", type_line="Enchantment"),
+                       owner_id="p1", zone=Zone.BATTLEFIELD)
+    eng.state.add_to_battlefield(aura)
+    static("pt_mod", "attached_permanent", {"power": 2, "toughness": 0}, aura)
+    continuous.recompute(eng.state)
+    assert (host.power, host.toughness) == (2, 2)  # aura.attached_to is None
+
+
+def test_control_change_via_attached_permanent_steals_the_host():
+    # A Mind-Control-style Aura: "You control enchanted creature."
+    eng = make_engine()
+    stolen = put(eng.state, creature("Beast"), controller="p2")
+    aura = GameObject(Card(id="Aura", name="Mind-Control-alike", type_line="Enchantment"),
+                       owner_id="p1", zone=Zone.BATTLEFIELD)
+    aura.controller_id = "p1"
+    eng.state.add_to_battlefield(aura)
+    aura.attached_to = stolen.instance_id
+    static("control", "attached_permanent", {}, aura)
+    continuous.recompute(eng.state)
+    assert stolen.controller_id == "p1"
+
+
 # -- Timestamp ordering within a layer ---------------------------------------
 
 

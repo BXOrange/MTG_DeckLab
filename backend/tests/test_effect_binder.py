@@ -14,7 +14,13 @@ from mtg_analyzer.models.game_object import GameObject, Zone
 from mtg_analyzer.models.game_state import GameState
 from mtg_analyzer.models.mana_cost import ManaCost
 from mtg_analyzer.models.player import Player
-from mtg_analyzer.game.effects import ActivatedAbility, DealDamageEffect, ReplacementEffect, TriggeredAbility
+from mtg_analyzer.game.effects import (
+    ActivatedAbility,
+    DealDamageEffect,
+    ReplacementEffect,
+    StaticAbility,
+    TriggeredAbility,
+)
 from mtg_analyzer.game.effect_binder import BindError, attach_to_object, bind_ability, build_effects
 from mtg_analyzer.game.rules_engine import RulesEngine
 from mtg_analyzer.parser.oracle.spec import AbilitySpec, EffectSpec
@@ -34,6 +40,39 @@ class TestBuildEffects:
         sentinel = object()
         [effect] = build_effects([EffectSpec("draw", {"count": 1})], source=sentinel)
         assert effect.source is sentinel
+
+
+class TestStaticEffectRegistryBridges:
+    """`EffectSpec` -> `StaticAbility` for the layers continuous.py implements
+    but that (before this) had no whitelisted way to be authored: layer 2
+    (control), layer 5 (colour), layer 7a (CDA) and layer 7e (switch)."""
+
+    def test_color_change_defaults_to_attached_permanent(self):
+        [effect] = build_effects([EffectSpec("color_change", {"colors": ["b"]})])
+        assert isinstance(effect, StaticAbility)
+        assert effect.layer == "color"
+        assert effect.affects == "attached_permanent"
+        assert effect.params == {"colors": ["B"], "set": True}
+
+    def test_control_change_defaults_to_attached_permanent(self):
+        [effect] = build_effects([EffectSpec("control_change", {})])
+        assert effect.layer == "control"
+        assert effect.affects == "attached_permanent"
+        assert effect.params == {"controller": None}
+
+    def test_pt_cda_carries_its_count_selectors(self):
+        [effect] = build_effects(
+            [EffectSpec("pt_cda", {"power_count": "creatures_you_control",
+                                    "toughness_count": "creatures_you_control"})]
+        )
+        assert effect.layer == "pt_cda"
+        assert effect.affects == "self"
+        assert effect.params["power_count"] == "creatures_you_control"
+
+    def test_pt_switch_defaults_to_self(self):
+        [effect] = build_effects([EffectSpec("pt_switch", {})])
+        assert effect.layer == "pt_switch"
+        assert effect.affects == "self"
 
 
 class TestBindAbility:

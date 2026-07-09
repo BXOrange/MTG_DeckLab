@@ -118,15 +118,42 @@ hybrid/phyrexian/{X}); all common **combat keywords** (flying, reach, first/
 double strike, deathtouch, trample, vigilance, lifelink, menace, defender,
 haste, indestructible, protection-from, **landwalk**); **static abilities** via
 the layer system (layers 2 control / 4 type / 5 colour / 6 abilities / 7a CDA /
-7b–d P/T / 7e switch, **timestamp-ordered within a layer**, + cost adjustment);
+7b–d P/T / 7e switch, **timestamp-ordered within a layer**, + cost adjustment;
+`EffectRegistry` bridges every layer for hand-authored/parsed `static` specs —
+`anthem`/`pt_set`/`grant_keyword`/`type_change`/`cost_reduction`/`color_change`/
+`control_change`/`pt_cda`/`pt_switch` — and `affects="attached_permanent"`
+resolves off a static ability's own source's `attached_to`, so an
+Aura/Equipment/Reconfigure's own buff/keyword-grant/colour-/control-change
+lands on whatever it's attached to, docs/11 §6); **Aura/Equipment/Fortify/
+Reconfigure attachment** (RULE 303.4f/301.5/702.6/67/151: ETB attach on
+resolution, sorcery-speed equip/fortify/reconfigure activated abilities,
+RULE 704.5m/n on the host leaving — Aura to the graveyard, Equipment/
+Fortification/Reconfigure just unattached and left on the battlefield —
+and a Reconfigure permanent's creature-type toggling while (un)attached);
 **activated abilities** with full cost parsing incl. **loyalty `[±N]` costs**;
 **triggered abilities** (event-based) + replacement effects (bound via
 `ReplacementRegistry`, e.g. `prevent_damage`); **interactive trigger ordering**
-(RULE 603.3b, opt-in `state.interactive_ordering`); one-shot effects
+(RULE 603.3b, opt-in `state.interactive_ordering`); **a triggered ability's
+own target — and its "you may" — chosen interactively** (RULE 115/603.3c/
+603.5: `put_triggers_on_stack` opens a `trigger_target` `pending_choice` —
+the generic search/cascade/discover/order_triggers choice UI renders it for
+free — for a queued trigger whose first effect targets, *or* whose
+`optional` is set even with no target at all (a plain do/decline choice);
+`resolve_trigger_target_choice` places it with that target or drops it
+without ever hitting the stack, on decline or a required target with no
+legal option); one-shot effects
 (damage/draw/discard/destroy/counter/search/gain_life/mill/exile/tap/
 ±1/±1-counters/**pump** ("+N/+N until end of turn" temp P/T + keyword grant,
 folded at layers 7d/6 and cleared at cleanup, RULE 613.4d/514.2)/**scry**/
-create-token/**copy_permanent**/cascade/discover/…); **tokens**
+create-token/**copy_permanent**/**become_copy**/cascade/discover/…);
+`become_copy` (RULE 706/707.2) is a layer-1 "becomes a copy of target
+permanent" — unlike `copy_permanent` (a new token) it mutates the source
+object itself (`RulesEngine.become_copy`: swaps its `Card` for the target's
+copiable values via `Card.as_copy` and rebinds its abilities), registered
+for `Clever Impersonator`/`Phantasmal Image`/`Copy Artifact` — genuinely
+interactively playable end-to-end via the trigger-target choice above;
+modeled as an ordinary ENTERS_BATTLEFIELD trigger rather than true RULE
+614.1c/614.12 replacement timing; **tokens**
 with the RULE 704.5d cease-to-exist lifecycle (`GameObject.is_token`,
 `RulesEngine.create_token`); **planeswalkers** (loyalty abilities at
 sorcery-speed with a once-per-turn gate, damage removes loyalty, 0-loyalty SBA);
@@ -160,11 +187,27 @@ parameter binds onto `parametric_keywords` but nothing consumes it yet);
 replacement/prevention **ordering** by the affected player (RULE 616.1 — trigger
 ordering 603.3b *is* interactive); wiring the interactive priority primitive
 into the **multiplayer session/WebSocket** (`create_multiplayer` still stubbed);
-layers 1 (copy-of)/3 (text-change) + full dependency ordering (613.8);
-Aura/Equipment attachment resolution; and the deeper card-type structures
+layer 3 (text-change) and full RULE 613.8 dependency ordering — deliberately
+not built: nothing in the ~1000-card cache needs layer 3, and the current
+effect vocabulary can't construct a same-layer dependency case (every real
+interaction crosses layers, already sequenced by the fixed layer order), so
+a general implementation of either would be speculative and untestable
+(revisit if a card/effect ever needs one); combining the (opt-in) interactive
+trigger-ordering choice with a targeted trigger among the ordered set (a
+trigger placed via `resolve_trigger_order_choice` doesn't get a target-choice
+pause) — a narrow, unhandled edge case where both features individually work;
+re-validating an *existing* attachment's legality every SBA pass (today only
+"host left the battlefield" is checked, not e.g. a host gaining protection
+mid-game); and the deeper card-type structures
 (MDFC back-face cast, Adventure/Split casting, Saga/Class/Leveler *chapter
 abilities*, battles/dungeons — the basic Saga-lore/DFC-transform/token-copy
 scaffolding is in).
+
+Hand-authoring a card's abilities directly (rather than waiting on the
+oracle-effect front-end, or for a replacement-clause/conditional-trigger the
+front-end can't express yet) goes in `game/ability_catalogue.py` — see
+[docs/11_CARD_CATALOGUE_AUTHORING_GUIDE.md](docs/11_CARD_CATALOGUE_AUTHORING_GUIDE.md)
+for the field-by-field how-to and the full `EffectSpec`/layer whitelist.
 
 Living backlogs: `backend/ToDo_Backend.md` (open) and `backend/Done_Backend.md`
 (shipped). The plan to finish is `docs/10_COMPLETION_ROADMAP.md` (dependency-
@@ -206,6 +249,7 @@ ordered milestones). Design docs: `docs/01`–`10` + `docs/IMPLEMENTATION_GUIDE.
 | Static abilities / P/T / anthems | `game/continuous.py`, `models/game_object.py` |
 | Activated abilities / costs | `game/costs.py`, `game/game_engine.py` (`activate_ability`) |
 | Card abilities / fetch lands / enters-tapped | `game/ability_catalogue.py`, `effect_binder.bind_from_catalogue` |
+| Hand-authoring a specific card's effects | [docs/11_CARD_CATALOGUE_AUTHORING_GUIDE.md](docs/11_CARD_CATALOGUE_AUTHORING_GUIDE.md) |
 | Effects / triggers | `game/effects.py`, `game/effect_binder.py` |
 | Goldfish UI | `frontend/src/js/goldfishView.js` |
 | Replay/Puzzle mode (build+save/load a board) | `backend/mtg_analyzer/services/replay.py`, `game_session.py` (`edit_*` actions), `frontend/src/js/replayView.js` |

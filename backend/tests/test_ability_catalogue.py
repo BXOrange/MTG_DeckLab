@@ -219,3 +219,29 @@ def test_fetch_land_offers_activate_action_and_resolves_tapped():
     fetched = [o for o in state.battlefield if o.name == "Forest"]
     assert fetched and fetched[0].tapped is True  # fetched onto battlefield tapped
     assert not any(o.name == "Evolving Wilds" for o in state.battlefield)  # sacrificed
+
+
+# -- "Become a copy" (RULE 706/707): catalogue spec shape --------------------
+
+
+def test_clever_impersonator_specs_shape():
+    card = Card(id="CI", name="Clever Impersonator", type_line="Creature — Illusion",
+                is_creature=True, power=3, toughness=3)
+    [spec] = ability_catalogue.specs_for(card)
+    assert spec.ability_kind == "triggered"
+    assert spec.trigger["event"] == "ENTERS_BATTLEFIELD"
+    assert spec.effects[0].type == "become_copy"
+    assert spec.effects[0].params["target_kind"] == "permanent"
+
+
+def test_phantasmal_image_carries_the_illusion_subtype_override():
+    card = Card(id="PI", name="Phantasmal Image", type_line="Creature — Illusion",
+                is_creature=True, power=0, toughness=2)
+    [spec] = ability_catalogue.specs_for(card)
+    assert spec.effects[0].params["add_subtypes"] == ["Illusion"]
+
+
+def test_copy_artifact_carries_the_enchantment_type_override():
+    card = Card(id="CA", name="Copy Artifact", type_line="Enchantment")
+    [spec] = ability_catalogue.specs_for(card)
+    assert spec.effects[0].params["add_types"] == ["Enchantment"]

@@ -570,6 +570,10 @@ class GameEngine:
             # RULE 603.3b: the option id is the index of the trigger to place next.
             index = None if declined else int(answer)
             self.rules.resolve_trigger_order_choice(index)
+        elif kind == "trigger_target":
+            # RULE 115/603.3c: the option id is a permanent's instance id or a
+            # player's id (not always int-castable, unlike the other kinds).
+            self.rules.resolve_trigger_target_choice(None if declined else str(answer))
         else:  # search: a card's instance id, or decline
             instance_id = None if declined else int(answer)
             self.rules.resolve_search_choice(instance_id)

@@ -141,23 +141,98 @@ Weeks 1–4 roadmap is archived at
       (opponent-side, needs the multiplayer priority loop).
 - [~] Static abilities / continuous-effects layer system (RULE 613):
       **engine done** — `game/continuous.py` re-derives every battlefield
-      permanent's characteristics in layer order (4 type-changing, 6
-      ability-adding, 7b/7c/7d power/toughness), stamping derived P/T, added
-      types and granted keywords plus a per-object layer *trace* onto each
-      object; recomputed on every SBA pass and before the view. `StaticAbility`
-      + registry (`anthem`/`pt_set`/`grant_keyword`/`type_change`/
-      `cost_reduction`) bind from `static` specs. Granted keywords flow into
-      combat; cost reductions/increases apply at cast time (RULE 601.2f). The
-      goldfish UI has an optional, default-hidden layer/static panel.
-      **Extended**: layer 2 (control-change, `_control_base`, idempotent across
-      recomputes), layer 5 (colour, `_derived_colors` → `GameObject.colors`,
-      read by protection), layer 7a (CDA P/T from a `_count_selector`), layer 7e
-      (P/T switch), and **timestamp ordering** within a layer
+      permanent's characteristics in layer order (2 control, 4 type-changing,
+      5 colour, 6 ability-adding, 7a/7b/7c/7d/7e power/toughness), stamping
+      derived P/T, added types and granted keywords plus a per-object layer
+      *trace* onto each object; recomputed on every SBA pass and before the
+      view. `StaticAbility` + registry now bridges **every** layer it
+      implements: `anthem`/`pt_set`/`grant_keyword`/`type_change`/
+      `cost_reduction` (as before) plus `color_change` (layer 5),
+      `control_change` (layer 2), `pt_cda` (layer 7a) and `pt_switch`
+      (layer 7e) — previously those four layers were only reachable by
+      constructing a `StaticAbility` directly in a test fixture; a hand-
+      authored/parsed `static` `AbilitySpec` had no whitelisted way to reach
+      them. Granted keywords flow into combat; cost reductions/increases
+      apply at cast time (RULE 601.2f). The goldfish UI has an optional,
+      default-hidden layer/static panel. **`affects` gained
+      `"attached_permanent"`**: resolves off the ability source's own
+      `attached_to` (RULE 303.4/301.5), so an Aura/Equipment/Reconfigure's
+      own static buff/keyword-grant/colour-change/control-change now actually
+      lands on whatever it's attached to — this was the missing half of Aura/
+      Equipment support (see the entry below); `control_change` +
+      `"attached_permanent"` also covers Mind-Control-style "you control
+      enchanted creature" Auras. Seed catalogue example: `Armadillo Cloak`
+      (`ability_catalogue.py`). **Timestamp ordering** within a layer
       (`_in_layer` sorts by `GameObject.timestamp`, stamped on battlefield
-      entry). Remaining: layer 1 (copy — a token clone exists via
-      `copy_permanent`; "becomes a copy of" as a layer-1 effect does not),
-      layer 3 (text-change), and the full dependency analysis (RULE 613.8).
-      Tests: `test_continuous.py`.
+      entry). **Layer 1 (copy effects, RULE 707) now has its "becomes a
+      copy" half too** — see the dedicated entry below (`RulesEngine.
+      become_copy`); it's modeled as a discrete mutation rather than a
+      per-recompute layer (see that entry for why). Remaining, deliberately
+      *not* built (evaluated 2026-07-09, see chat history): **layer 3**
+      (text-changing effects, RULE 612) — audited the full ~1000-card cache
+      (`cache/db/cards.db`) for anything needing it (Artificial Evolution-
+      style word-swaps); zero hits, so there is nothing to build this
+      against or test it with. **Full RULE 613.8 dependency ordering** —
+      traced every effect type this engine has; every real interaction
+      crosses *different* layers, which the fixed layer order (2→4→5→6→
+      7a-e) already sequences correctly regardless of timestamps. Nothing
+      in the current effect vocabulary can construct a same-layer
+      dependency case, so a general dependency-graph algorithm here would
+      be speculative and untestable. Revisit both if a card or a new effect
+      type ever needs them. Tests: `test_continuous.py`,
+      `test_effect_binder.py` (`TestStaticEffectRegistryBridges`).
+- [~] "Become a copy of target permanent" (RULE 706/707, layer 1) —
+      **core mechanic done**. `RulesEngine.become_copy(obj, target,
+      add_types, add_subtypes)` mutates `obj.card` in place to `target`'s
+      copiable values (`Card.as_copy` — name, mana cost, colours, type/
+      subtypes, rules text, P/T, loyalty; RULE 706.2) and clears + rebinds
+      `obj`'s own catalogue-derived abilities/keywords from the new card
+      (a copy gains the copied object's abilities, not its own) — everything
+      RULE 706.2 doesn't cover (instance id, zone, owner, controller,
+      counters, tapped state, attachments) is untouched, since none of it
+      lives on `Card`. New `become_copy` `EffectSpec`/`BecomeCopyEffect`
+      (docs/11 §5); registered real cards: `Clever Impersonator`,
+      `Phantasmal Image` (`add_subtypes=["Illusion"]`), `Copy Artifact`
+      (`add_types=["Enchantment"]`). Modeled as an ordinary
+      `ENTERS_BATTLEFIELD` trigger rather than the true RULE 614.1c/614.12
+      "as ~ enters" replacement timing (not wired — same gap as the
+      conditional-tapland item above). **The "newly surfaced" targeting gap
+      this uncovered is now fixed too** (see "Triggered-ability target
+      choice" below) — these three cards are genuinely interactively
+      playable end-to-end, including the "you may" decline, through the
+      normal session `choose`/`decline` path. Tests: `test_card.py`
+      (`TestAsCopy`), `test_ability_catalogue.py`, `test_game_engine.py`
+      (`test_become_copy_*`), `test_trigger_targeting.py`.
+- [x] Triggered-ability target choice (RULE 115 / 603.3c / 603.5) —
+      **done**. A triggered ability's own targeting effect used to place
+      blind (`_place_trigger` pushed a `TriggeredAbility` with no
+      `targets` at all — the gap `become_copy` surfaced, above). Fixed
+      generally, not just for `become_copy`: `put_triggers_on_stack` /
+      `RulesEngine._place_triggers` now check each queued trigger's first
+      targeting effect (`_trigger_target_spec`) and, if it has one, open a
+      `trigger_target` `pending_choice` — one option per legal target,
+      built the same `{"id","label","instance_id"?}` shape as search/
+      cascade/discover/order_triggers, so the existing generic choice UI
+      renders it with **zero frontend changes**. `resolve_trigger_target_
+      choice` places the chosen target (or, for an optional/"you may"
+      ability, honours a "decline" option) and resumes whatever else was
+      queued behind it; a *required* target with no legal option at all
+      never goes on the stack (RULE 603.3c), matching real rules exactly
+      rather than resolving with an absent target. **Also covers RULE
+      603.5 for a targetless "you may"** — previously `TriggeredAbility.
+      optional` was carried but never consulted, so e.g. "you may draw a
+      card" always just happened; now it opens a plain do/decline choice
+      (`_trigger_may_choice`, the `"do"` sentinel `resolve_trigger_target_
+      choice` recognizes) before placing. Wired into
+      `GameEngine.resolve_pending_choice` (`kind == "trigger_target"`) —
+      answered through the same session `choose`/`decline` action as every
+      other pending choice. **Known narrow gap**: a trigger placed via the
+      separate, opt-in RULE 603.3b interactive-ordering choice
+      (`resolve_trigger_order_choice`) still places directly without a
+      target-choice pause — combining manual trigger ordering with a
+      targeted trigger among the ordered set isn't handled (both features
+      are individually solid; the two together is untested/unhandled).
+      Tests: `test_trigger_targeting.py`.
 - [ ] Replacement-effect ordering by the affected player (RULE 616.1) —
       currently deterministic discovery order; needs a player prompt once
       interactive play does. (Trigger ordering, RULE 603.3b, is now
@@ -180,15 +255,30 @@ Weeks 1–4 roadmap is archived at
       SBA (RULE 704.5i) sends it to the graveyard. Tests:
       `test_planeswalker.py`. Not yet: the specific chapter/loyalty *effects*
       beyond what the handler table already covers.
-- [ ] Aura / Equipment **attachment resolution** (RULE 303 auras, 301.5
-      equipment, keyword `equip` RULE 702.6): `GameObject.attached_to` and a
-      grouped board display exist, but nothing actually *attaches* — an Aura
-      resolves without moving onto its target, `equip` isn't an activatable
-      ability, and no attached buff/keyword flows through the layer engine.
-      Needs: Aura ETB attachment (RULE 303.4f), an `equip` activated ability
-      (sorcery speed, RULE 702.6d), fortify/reconfigure, and
-      `continuous.recompute` reading `attached_to` so an equipped bonus
-      lands in layers 6/7. (Surfaced as "partial" in the Engine-Status tab.)
+- [x] Aura / Equipment **attachment resolution** (RULE 303 auras, 301.5
+      equipment, keyword `equip`/`fortify`/`reconfigure` RULE 702.6/67/151) —
+      **done**. An Aura attaches to its cast-time target on resolution (RULE
+      303.4f, `RulesEngine.resolve_top_of_stack`; fails to attach → straight
+      to the graveyard); Equip/Fortify/Reconfigure are live sorcery-speed
+      activated abilities (`effect_binder._keyword_activated_ability`,
+      untapped/re-payable per RULE 301.5c/702.151b); targeting is restricted
+      to what each can legally attach to (`targeting.legal_targets`,
+      `RulesEngine._attachment_legal` — creatures for Equip/Reconfigure, the
+      Aura's `enchant` quality otherwise). RULE 704.5m/n on the host leaving:
+      an Aura goes to the graveyard, an Equipment/Fortification/Reconfigure
+      permanent just becomes unattached and stays on the battlefield
+      (`RulesEngine._detach_attachments_from`). RULE 702.151b: a Reconfigure
+      permanent stops being a creature while attached and regains it the
+      moment it's unattached (`GameObject._removed_types`, computed in
+      `continuous.recompute`'s layer-4 pass). And the attached buff/keyword
+      *does* now flow through the layer engine — see the layer-system entry
+      above (`affects="attached_permanent"`). Tests: `test_game_engine.py`
+      (aura/equipment/reconfigure attach+detach+buff tests),
+      `test_continuous.py`. Remaining: re-validating an *existing* attachment's
+      legality every SBA pass (RULE 704.5m/n also cover a target that stays on
+      the battlefield but becomes illegal, e.g. by gaining protection — today
+      only "host left the battlefield" is checked); update the Engine-Status
+      tab (`implementationStatusView.js`) off "partial".
 - [x] Commander tax (RULE 903.8) — **done**. `Player.commander_casts`
       (instance id → count) is incremented on a command-zone cast in
       `GameEngine.cast_spell`; `effective_cast_cost` adds `{2}` per previous

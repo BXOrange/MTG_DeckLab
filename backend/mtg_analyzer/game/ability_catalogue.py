@@ -21,6 +21,7 @@ from __future__ import annotations
 import re
 from typing import Any, Callable
 
+from ..models.events import EventType
 from ..parser.oracle.catalogue.keywords import parse_keywords
 from ..parser.oracle.gate import parse_oracle
 from ..parser.oracle.spec import AbilitySpec, EffectSpec
@@ -131,3 +132,111 @@ def _fetch_basic_to_battlefield_tapped() -> list[AbilitySpec]:
 
 register("Evolving Wilds", _fetch_basic_to_battlefield_tapped)
 register("Terramorphic Expanse", _fetch_basic_to_battlefield_tapped)
+
+
+def _armadillo_cloak() -> list[AbilitySpec]:
+    """Enchant creature
+    Enchanted creature gets +2/+2 and has trample and lifelink.
+
+    — Armadillo Cloak (kept as two lines, matching Scryfall's own line break
+    between the "Enchant creature" clause and the static buff — see docs/11
+    §3 on quoting oracle text). The "Enchant creature" keyword itself (and
+    the ETB attach-to-target it drives, RULE 303.4f) comes from the RULE 702
+    keyword catalogue reading the card's own oracle text/keywords — only the
+    static buff needs hand-authoring here, scoped to whatever the Aura is
+    attached to (docs/11 §6 "attached_permanent")."""
+    return [
+        AbilitySpec(
+            "static",
+            [
+                EffectSpec("anthem", {"affects": "attached_permanent", "power": 2, "toughness": 2}),
+                EffectSpec("grant_keyword", {"affects": "attached_permanent",
+                                              "keywords": ["trample", "lifelink"]}),
+            ],
+            raw_text="Verzauberte Kreatur erhält +2/+2 und hat Trampelschaden und Lebensverknüpfung.",
+        )
+    ]
+
+
+register("Armadillo Cloak", _armadillo_cloak)
+
+
+def _clever_impersonator() -> list[AbilitySpec]:
+    """You may have this creature enter the battlefield as a copy of any
+    nonland permanent on the battlefield, except it's an artifact in
+    addition to its other types.
+
+    — Clever Impersonator (RULE 706/707 "become a copy", `become_copy`
+    effect / `RulesEngine.become_copy`). Modeled as an ordinary
+    ENTERS_BATTLEFIELD trigger rather than the true "as ~ enters"
+    replacement timing (RULE 614.1c/614.12 aren't wired yet — see
+    ToDo_Backend.md, the same simplification as the conditional-tapland
+    gap) and as unconditional rather than a real "you may" choice
+    (`AbilitySpec.optional`/`TriggeredAbility.optional` are carried but not
+    yet consulted for a player decision). ``target_kind="permanent"`` is
+    broader than "any nonland permanent" — the target-kind vocabulary
+    (docs/11 §10) has no land-exclusion; picking a land here is simply never
+    correct oracle-text-wise but not currently prevented.
+    """
+    return [
+        AbilitySpec(
+            "triggered",
+            [EffectSpec("become_copy", {"target_kind": "permanent"})],
+            trigger={"event": EventType.ENTERS_BATTLEFIELD},
+            optional=True,
+            raw_text="Du kannst diese Kreatur als Kopie einer beliebigen Nichtland-"
+                      "bleibenden Karte ins Spiel kommen lassen.",
+        )
+    ]
+
+
+register("Clever Impersonator", _clever_impersonator)
+
+
+def _phantasmal_image() -> list[AbilitySpec]:
+    """You may have this creature enter the battlefield as a copy of any
+    creature on the battlefield, except it's an Illusion in addition to its
+    other types.
+
+    — Phantasmal Image. Same `become_copy` mechanism as `Clever Impersonator`
+    (see its docstring for the modeling caveats); ``add_subtypes`` carries
+    the "except it's an Illusion" clause (`Card.as_copy`).
+    """
+    return [
+        AbilitySpec(
+            "triggered",
+            [EffectSpec("become_copy", {"target_kind": "creature", "add_subtypes": ["Illusion"]})],
+            trigger={"event": EventType.ENTERS_BATTLEFIELD},
+            optional=True,
+            raw_text="Du kannst diese Kreatur als Kopie einer beliebigen Kreatur ins "
+                      "Spiel kommen lassen, außer dass sie zusätzlich zu ihren anderen "
+                      "Typen eine Illusion ist.",
+        )
+    ]
+
+
+register("Phantasmal Image", _phantasmal_image)
+
+
+def _copy_artifact() -> list[AbilitySpec]:
+    """You may have this enchantment enter the battlefield as a copy of any
+    artifact on the battlefield, except it's an enchantment in addition to
+    its other types.
+
+    — Copy Artifact. Same `become_copy` mechanism; ``add_types`` carries the
+    "except it's an enchantment" clause.
+    """
+    return [
+        AbilitySpec(
+            "triggered",
+            [EffectSpec("become_copy", {"target_kind": "permanent", "add_types": ["Enchantment"]})],
+            trigger={"event": EventType.ENTERS_BATTLEFIELD},
+            optional=True,
+            raw_text="Du kannst dieses Verzauberung als Kopie eines beliebigen Artefakts "
+                      "ins Spiel kommen lassen, außer dass sie zusätzlich zu ihren anderen "
+                      "Typen eine Verzauberung ist.",
+        )
+    ]
+
+
+register("Copy Artifact", _copy_artifact)

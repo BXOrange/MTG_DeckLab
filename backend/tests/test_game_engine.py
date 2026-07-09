@@ -289,6 +289,128 @@ def test_aura_attaches_to_target_when_permanent_spell_resolves():
     assert aura in eng.state.battlefield
 
 
+def test_armadillo_cloak_end_to_end_buffs_the_enchanted_creature():
+    # Catalogue-registered Aura ("Enchant creature. Enchanted creature gets
+    # +2/+2 and has trample and lifelink.") through the full pipeline: cast →
+    # keyword catalogue's "enchant" attach (RULE 303.4f) → the hand-authored
+    # static buff scoped to "attached_permanent" (docs/11 §6) → continuous
+    # recompute → combat honouring the granted keywords.
+    eng = make_engine([], hand=0)
+    eng.begin_turn()
+    eng.state.current_step = "main1"
+    p1 = eng.state.active_player
+    p1.mana_pool.add_many({"G": 1, "W": 1, "C": 2})
+
+    host = GameObject(creature(name="Host", cost="{1}", power=2, toughness=2),
+                       owner_id="p1", zone=Zone.BATTLEFIELD)
+    host.summoning_sick = False
+    eng.state.add_to_battlefield(host)
+
+    cloak_card = Card(
+        id="AC",
+        name="Armadillo Cloak",
+        type_line="Enchantment — Aura",
+        mana_cost_string="{2}{G}{W}",
+        converted_mana_cost=ManaCost.parse("{2}{G}{W}").converted_mana_cost,
+        oracle_text="Enchant creature\nEnchanted creature gets +2/+2 and has trample and lifelink.",
+    )
+    cloak = GameObject(cloak_card, owner_id="p1", zone=Zone.HAND)
+    p1.add_to_zone(cloak, Zone.HAND)
+    bind_from_catalogue(cloak)
+
+    eng.cast_spell(p1, cloak, targets=[host])
+    eng.resolve_until_stable()
+
+    assert cloak.attached_to == host.instance_id
+    assert (host.power, host.toughness) == (4, 4)
+    from mtg_analyzer.game import combat
+    assert combat.has_trample(host)
+    assert combat.has_lifelink(host)
+
+    # The buff disappears once the Aura itself leaves (it falls off to the
+    # graveyard, RULE 704.5m) — nothing lingers once it's not on the battlefield.
+    eng.rules.destroy(host)
+    eng.resolve_until_stable()
+    assert cloak in eng.state.player_by_id("p1").graveyard
+
+
+def test_become_copy_mutates_the_object_and_rebinds_its_abilities():
+    # RULE 706/707 "become a copy of target permanent": the object's own
+    # copiable characteristics (name, P/T, type line, oracle-derived
+    # keywords/abilities) become the target's, replacing whatever it had —
+    # while its own instance identity, zone and controller are untouched.
+    from mtg_analyzer.game.effects import ActivatedAbility
+
+    eng = make_engine([], hand=0)
+    eng.begin_turn()
+    eng.state.current_step = "main1"
+
+    target_card = creature(name="Grave Titan", cost="{4}{B}{B}", power=6, toughness=6,
+                           keywords=["Deathtouch"], oracle_text="Deathtouch")
+    target = obj_on_battlefield(eng.state, eng, target_card)
+
+    clone_card = creature(name="Clone", cost="{3}{U}", power=0, toughness=0)
+    clone = obj_on_battlefield(eng.state, eng, clone_card)
+    # A placeholder ability the pre-copy object had — must be discarded, since
+    # a copy replaces its own copiable-derived abilities wholesale (706.2).
+    clone.activated_abilities.append(ActivatedAbility(effects=[], source=clone))
+
+    eng.rules.become_copy(clone, target)
+    eng.recompute_continuous_effects()
+
+    assert clone.card.name == "Grave Titan"
+    assert (clone.power, clone.toughness) == (6, 6)
+    assert "deathtouch" in clone.intrinsic_keywords
+    assert clone.activated_abilities == []  # Grave Titan has none of its own
+    assert clone.instance_id != target.instance_id  # still its own object
+    assert clone in eng.state.battlefield and target in eng.state.battlefield
+
+
+def test_become_copy_applies_except_clause_overrides():
+    # Phantasmal Image-style "except it's an Illusion in addition to its
+    # other types."
+    eng = make_engine([], hand=0)
+    eng.begin_turn()
+    eng.state.current_step = "main1"
+
+    target = obj_on_battlefield(eng.state, eng, creature(name="Bear", cost="{1}{G}"))
+    image = obj_on_battlefield(eng.state, eng, creature(name="Phantasmal Image", cost="{1}{U}"))
+
+    eng.rules.become_copy(image, target, add_subtypes=["Illusion"])
+
+    assert image.card.type_line == "Creature — Bear Illusion"
+
+
+def test_become_copy_end_to_end_via_registered_catalogue_entry():
+    # Clever Impersonator's ENTERS_BATTLEFIELD trigger, fully bound from the
+    # catalogue, resolved with an explicit target (the interactive "choose a
+    # target for a triggered ability" flow isn't wired yet — see
+    # ToDo_Backend.md — so the target is supplied directly, the same way
+    # other targeted-effect tests bypass that gap).
+    eng = make_engine([], hand=0)
+    eng.begin_turn()
+    eng.state.current_step = "main1"
+
+    target = obj_on_battlefield(eng.state, eng, creature(
+        name="Grave Titan", cost="{4}{B}{B}", power=6, toughness=6,
+        keywords=["Deathtouch"], oracle_text="Deathtouch",
+    ))
+    impersonator_card = Card(id="CI", name="Clever Impersonator",
+                              type_line="Creature — Illusion",
+                              mana_cost_string="{5}{U}{U}", converted_mana_cost=7,
+                              is_creature=True, power=3, toughness=3)  # real printed stats
+    impersonator = obj_on_battlefield(eng.state, eng, impersonator_card)
+    bind_from_catalogue(impersonator)
+
+    [trigger] = impersonator.triggered_abilities
+    trigger.apply(eng.rules.context, targets=[target])
+    eng.recompute_continuous_effects()
+
+    assert impersonator.card.name == "Grave Titan"
+    assert (impersonator.power, impersonator.toughness) == (6, 6)
+    assert "deathtouch" in impersonator.intrinsic_keywords
+
+
 def test_enchant_creature_oracle_text_follows_aura_logic():
     eng = make_engine([], hand=0)
     eng.begin_turn()
@@ -428,6 +550,101 @@ def test_attached_aura_moves_to_graveyard_when_host_leaves_the_battlefield():
     eng.resolve_until_stable()
 
     assert aura in p1.graveyard
+
+
+def test_attached_equipment_stays_on_battlefield_unattached_when_host_leaves():
+    # RULE 704.5n: unlike an Aura (704.5m), an Equipment left attached to
+    # nothing just becomes unattached — it doesn't go to the graveyard.
+    eng = make_engine([], hand=0)
+    eng.begin_turn()
+    eng.state.current_step = "main1"
+    p1 = eng.state.active_player
+
+    host = GameObject(creature(name="Host", cost="{1}"), owner_id="p1", zone=Zone.BATTLEFIELD)
+    host.summoning_sick = False
+    eng.state.add_to_battlefield(host)
+
+    equipment = GameObject(
+        Card(id="Equipment", name="Equipment", type_line="Artifact — Equipment"),
+        owner_id="p1",
+    )
+    equipment.parametric_keywords = {"equip": {}}
+    eng.state.add_to_battlefield(equipment)
+    eng.rules.attach_to_target(equipment, host)
+
+    eng.rules.destroy(host)
+    eng.resolve_until_stable()
+
+    assert equipment in eng.state.battlefield
+    assert equipment not in p1.graveyard
+    assert equipment.attached_to is None
+
+
+def test_reconfigure_ability_only_offers_creature_attachment_targets():
+    eng = make_engine([land()], hand=0)
+    eng.begin_turn()
+    p1 = eng.state.active_player
+
+    legal_host = obj_on_battlefield(eng.state, eng, creature(name="Host", cost="{1}"))
+    illegal_host = obj_on_battlefield(eng.state, eng, land(name="Mountain", produces="Mountain"))
+
+    card = Card(
+        id="Reconfigurable",
+        name="Reconfigurable",
+        type_line="Artifact Creature — Equipment",
+        mana_cost_string="{1}",
+        converted_mana_cost=1,
+        is_creature=True,
+        power=1,
+        toughness=1,
+    )
+    card.keywords = ["Reconfigure"]
+    card.oracle_text = "Reconfigure {2}"
+    source = GameObject(card, owner_id="p1", zone=Zone.BATTLEFIELD)
+    source.summoning_sick = False
+    eng.state.add_to_battlefield(source)
+    bind_from_catalogue(source)
+
+    requirements = eng._ability_target_requirements(p1, source.activated_abilities[0], source)
+    option_ids = {opt["instance_id"] for opt in requirements[0]["options"]}
+
+    assert legal_host.instance_id in option_ids
+    assert illegal_host.instance_id not in option_ids
+
+
+def test_reconfigure_permanent_stops_being_a_creature_while_attached():
+    # RULE 702.151b: attaching a Reconfigure permanent to another creature
+    # turns it into a (non-creature) Equipment until it becomes unattached —
+    # including automatically, when its host leaves the battlefield.
+    eng = make_engine([], hand=0)
+    eng.begin_turn()
+    eng.state.current_step = "main1"
+    p1 = eng.state.active_player
+
+    host = GameObject(creature(name="Host", cost="{1}"), owner_id="p1", zone=Zone.BATTLEFIELD)
+    host.summoning_sick = False
+    eng.state.add_to_battlefield(host)
+
+    reconfigurable = GameObject(
+        creature(name="Reconfigurable", cost="{1}", power=1, toughness=1),
+        owner_id="p1",
+    )
+    reconfigurable.parametric_keywords = {"reconfigure": {"cost": "{2}"}}
+    eng.state.add_to_battlefield(reconfigurable)
+
+    eng.recompute_continuous_effects()
+    assert reconfigurable.is_creature
+
+    eng.rules.attach_to_target(reconfigurable, host)
+    eng.recompute_continuous_effects()
+    assert not reconfigurable.is_creature
+
+    eng.rules.destroy(host)
+    eng.resolve_until_stable()
+
+    assert reconfigurable in eng.state.battlefield
+    assert reconfigurable.attached_to is None
+    assert reconfigurable.is_creature
 
 
 def test_commander_tax_adds_two_per_previous_cast():

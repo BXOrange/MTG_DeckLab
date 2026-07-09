@@ -170,6 +170,10 @@ class GameObject:
         self._derived_toughness: Optional[int] = None
         self._granted_keywords: set[str] = set()
         self._added_types: set[str] = set()
+        #: Types a layer-4 effect strips off (RULE 613.4a) — currently just
+        #: Reconfigure (RULE 702.151b): the permanent stops being a creature
+        #: for as long as it's attached to another creature.
+        self._removed_types: set[str] = set()
         #: Colours set/added by a layer-5 static ability (RULE 613.4b). ``None``
         #: means no colour-changing effect applies, so `colors` falls back to
         #: the printed card's ``color_identity``.
@@ -204,6 +208,7 @@ class GameObject:
         self._derived_toughness = None
         self._granted_keywords = set()
         self._added_types = set()
+        self._removed_types = set()
         self._derived_colors = None
         self.static_trace = []
 
@@ -226,8 +231,11 @@ class GameObject:
 
     @property
     def is_creature(self) -> bool:
-        # Printed creature, or made one by a layer-4 type-changing effect.
-        return self.card.is_creature or "creature" in self._added_types
+        # Printed creature (unless a layer-4 effect strips it, RULE 702.151b),
+        # or made one by a layer-4 type-changing effect.
+        if self.card.is_creature:
+            return "creature" not in self._removed_types
+        return "creature" in self._added_types
 
     @property
     def is_land(self) -> bool:

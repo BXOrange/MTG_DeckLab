@@ -110,6 +110,12 @@ def legal_targets(
                 for o in state.battlefield
                 if (o.is_creature or o.card.is_artifact) and o is not source
             ]
+        if attachment_kind == "reconfigure":
+            return [
+                {"instance_id": o.instance_id, "name": o.name}
+                for o in state.battlefield
+                if o.is_creature and o is not source
+            ]
         if attachment_kind == "enchant":
             quality = ((source.parametric_keywords or {}).get("enchant") or {}).get("quality", "")
             quality = str(quality).strip().lower()
