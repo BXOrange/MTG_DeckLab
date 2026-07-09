@@ -36,6 +36,15 @@ files at the repo root are thin OS-native wrappers around them.
 Running `./install.sh` first is optional: `start.sh` ensures the venv
 itself, so a fresh checkout works with just `./start.sh`.)
 
+Useful variants:
+
+```bash
+./start.sh --backend-tests       # run backend pytest before starting
+./start.sh --backend-only        # start only the FastAPI backend
+./start.sh --frontend-only       # start only the static frontend server
+./start.sh --no-browser          # skip opening a browser tab automatically
+```
+
 `setup/install.py` creates `backend/venv` and installs `backend/requirements.txt`
 into it — this is the whole backend, encapsulated in its own virtual
 environment (never installed into the system Python). `start.py` does

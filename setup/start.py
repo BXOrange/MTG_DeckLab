@@ -14,10 +14,12 @@ Usage:
 
 import argparse
 import signal
+import socket
 import subprocess
 import sys
 import time
 import webbrowser
+from contextlib import closing
 
 from install import BACKEND_DIR, ROOT, ensure_backend_venv
 
@@ -28,6 +30,17 @@ NO_CACHE_SERVER = ROOT / "setup" / "no_cache_server.py"
 def run_backend_tests(python) -> None:
     print("Running backend tests ...")
     subprocess.run([str(python), "-m", "pytest", "tests/"], cwd=str(BACKEND_DIR), check=True)
+
+
+def wait_for_port(host: str, port: int, timeout: float = 15.0) -> bool:
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        with closing(socket.socket(socket.AF_INET, socket.SOCK_STREAM)) as sock:
+            sock.settimeout(0.3)
+            if sock.connect_ex((host, port)) == 0:
+                return True
+        time.sleep(0.2)
+    return False
 
 
 def start_backend(python, port: int) -> subprocess.Popen:
@@ -48,9 +61,8 @@ def _stop(proc: subprocess.Popen) -> None:
             proc.wait()
 
 
-def start_frontend(python, port: int, backend_port: int, open_browser: bool) -> None:
+def start_frontend(port: int, open_browser: bool) -> subprocess.Popen:
     url = f"http://localhost:{port}"
-    backend_proc = start_backend(python, backend_port)
     print(f"Starting frontend at {url} (Ctrl+C to stop) ...")
     # A custom no-cache server, not the stdlib `http.server` module
     # directly: plain http.server sends no Cache-Control header, so
@@ -60,26 +72,42 @@ def start_frontend(python, port: int, backend_port: int, open_browser: bool) -> 
         [sys.executable, str(NO_CACHE_SERVER), str(port)], cwd=str(FRONTEND_DIR)
     )
 
-    # A plain `except KeyboardInterrupt` only covers Ctrl+C (SIGINT).
-    # Without this, SIGTERM (e.g. a process manager or IDE stop button)
-    # kills this script immediately and leaves the child processes
-    # running as orphans. Route SIGTERM through the same cleanup path.
-    def handle_sigterm(_signum, _frame):
-        raise KeyboardInterrupt
-
-    signal.signal(signal.SIGTERM, handle_sigterm)
-
     if open_browser:
-        time.sleep(0.5)
+        if not wait_for_port("127.0.0.1", port):
+            raise RuntimeError(f"Frontend server did not become ready on port {port}.")
         webbrowser.open(url)
 
+    return frontend_proc
+
+
+def run_servers(python, port: int, backend_port: int, open_browser: bool) -> None:
+    backend_proc = start_backend(python, backend_port)
     try:
-        frontend_proc.wait()
-    except KeyboardInterrupt:
-        pass
-    finally:
-        _stop(frontend_proc)
+        if not wait_for_port("127.0.0.1", backend_port):
+            raise RuntimeError(f"Backend API did not become ready on port {backend_port}.")
+
+        frontend_proc = start_frontend(port, open_browser=open_browser)
+
+        # A plain `except KeyboardInterrupt` only covers Ctrl+C (SIGINT).
+        # Without this, SIGTERM (e.g. a process manager or IDE stop button)
+        # kills this script immediately and leaves the child processes
+        # running as orphans. Route SIGTERM through the same cleanup path.
+        def handle_sigterm(_signum, _frame):
+            raise KeyboardInterrupt
+
+        signal.signal(signal.SIGTERM, handle_sigterm)
+
+        try:
+            frontend_proc.wait()
+        except KeyboardInterrupt:
+            pass
+        finally:
+            _stop(frontend_proc)
+            _stop(backend_proc)
+    except Exception as exc:
+        print(f"Startup failed: {exc}")
         _stop(backend_proc)
+        raise
 
 
 def main() -> None:
@@ -88,7 +116,12 @@ def main() -> None:
     parser.add_argument("--backend-port", type=int, default=8000, help="Backend API port (default: 8000)")
     parser.add_argument("--backend-tests", action="store_true", help="Run the backend pytest suite first")
     parser.add_argument("--no-browser", action="store_true", help="Don't auto-open a browser tab")
+    parser.add_argument("--backend-only", action="store_true", help="Start the backend API without the frontend server")
+    parser.add_argument("--frontend-only", action="store_true", help="Start the frontend server without the backend API")
     args = parser.parse_args()
+
+    if args.backend_only and args.frontend_only:
+        parser.error("--backend-only and --frontend-only cannot be used together")
 
     print("Ensuring backend virtual environment is set up ...")
     python = ensure_backend_venv()
@@ -98,7 +131,27 @@ def main() -> None:
         run_backend_tests(python)
         print()
 
-    start_frontend(python, args.port, args.backend_port, open_browser=not args.no_browser)
+    if args.backend_only:
+        backend_proc = start_backend(python, args.backend_port)
+        try:
+            backend_proc.wait()
+        except KeyboardInterrupt:
+            pass
+        finally:
+            _stop(backend_proc)
+        return
+
+    if args.frontend_only:
+        frontend_proc = start_frontend(args.port, open_browser=not args.no_browser)
+        try:
+            frontend_proc.wait()
+        except KeyboardInterrupt:
+            pass
+        finally:
+            _stop(frontend_proc)
+        return
+
+    run_servers(python, args.port, args.backend_port, open_browser=not args.no_browser)
 
 
 if __name__ == "__main__":

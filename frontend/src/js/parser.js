@@ -20,6 +20,9 @@ const BASIC_LAND_NAMES = new Set([
 const CARD_LINE_RE = /^(\d+)\s*[xX]?\s+(.+)$/;
 const SET_SUFFIX_RE = /\s*[[(][A-Za-z0-9]{2,6}[)\]]\s*[\dA-Za-z-]*\s*$/;
 const TAG_RE = /\s*\*([A-Za-z]+)\*/g;
+// Foil/star markers some exports append to a name ("Sol Ring ★"). Not
+// part of the card name and they break resolution, so strip them.
+const STAR_RE = /[★☆]/g;
 
 /**
  * Parses a single section's raw text into card lines.
@@ -45,6 +48,7 @@ function parseCardLines(rawText) {
     let name = match[2].trim();
     name = name.replace(TAG_RE, '').trim();
     name = name.replace(SET_SUFFIX_RE, '').trim();
+    name = name.replace(STAR_RE, '').replace(/\s{2,}/g, ' ').trim();
 
     if (!name) {
       parseErrors.push(`Leerer Kartenname in Zeile: "${rawLine}"`);

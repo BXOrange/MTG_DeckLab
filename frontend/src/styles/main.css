@@ -10,6 +10,7 @@
   --error: #d3564b;
   --warn: #d3a13a;
   --ok: #5bb072;
+  --info: #4a90d9;
 }
 
 * {
@@ -113,6 +114,58 @@ body {
   width: 100%;
   text-align: left;
   white-space: nowrap;
+}
+
+.nav-group {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.nav-group-toggle {
+  width: 100%;
+  text-align: left;
+  white-space: nowrap;
+  background: transparent;
+  border: 1px solid transparent;
+  color: var(--text-dim);
+  padding: 0.5rem 0.5rem;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 0.85rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+}
+
+.nav-group-toggle::before {
+  content: '\25B8';
+  display: inline-block;
+  margin-right: 0.4rem;
+  transition: transform 0.15s ease;
+}
+
+.nav-group.expanded > .nav-group-toggle::before {
+  transform: rotate(90deg);
+}
+
+.nav-group-toggle:hover {
+  color: var(--text);
+}
+
+.nav-group-toggle.has-active {
+  color: var(--accent);
+}
+
+.nav-group-items {
+  display: none;
+  flex-direction: column;
+  gap: 0.35rem;
+  padding-left: 0.75rem;
+}
+
+.nav-group.expanded > .nav-group-items {
+  display: flex;
 }
 
 #header-connection-status {
@@ -263,6 +316,60 @@ textarea {
   display: flex;
   gap: 0.75rem;
   margin-top: 0.75rem;
+}
+
+.player-assets-section {
+  margin-top: 1.5rem;
+  padding-top: 1rem;
+  border-top: 1px solid var(--border);
+}
+
+.player-asset-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  margin: 0.5rem 0 0.75rem;
+}
+
+.player-asset-tile {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.3rem;
+  width: 96px;
+  font-size: 0.75rem;
+  text-align: center;
+}
+
+.player-asset-tile img {
+  width: 72px;
+  height: 72px;
+  object-fit: cover;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+}
+
+.player-asset-tile span {
+  overflow-wrap: anywhere;
+}
+
+.player-asset-form {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  align-items: center;
+}
+
+.player-asset-form input[type='text'],
+.player-asset-form select {
+  flex: 1;
+  min-width: 160px;
+  background: var(--bg);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 0.5rem 0.75rem;
+  font-size: 0.85rem;
 }
 
 .save-deck-row {
@@ -551,6 +658,34 @@ textarea {
   background: var(--bg);
 }
 
+.card-tile-flip {
+  position: absolute;
+  top: 0.4rem;
+  right: 0.4rem;
+  z-index: 1;
+  width: 1.9rem;
+  height: 1.9rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1rem;
+  cursor: pointer;
+  border: none;
+  border-radius: 999px;
+  background: rgba(0, 0, 0, 0.55);
+  color: #fff;
+  transition: transform 0.15s ease, background 0.15s ease;
+}
+
+.card-tile-flip:hover {
+  background: var(--accent);
+  color: #1b1e24;
+}
+
+.card-tile-flip.is-flipped {
+  transform: rotate(180deg);
+}
+
 .card-tile-qty {
   position: absolute;
   top: 0.4rem;
@@ -627,6 +762,10 @@ textarea {
 
 .card-tile-text {
   color: var(--text);
+  /* Oracle text keeps Scryfall's real line breaks between ability blocks
+     (RULE 207.2) — render them, don't let normal HTML whitespace collapsing
+     run "Deathtouch" straight into the next ability. */
+  white-space: pre-line;
 }
 
 .card-tile-keywords {
@@ -663,7 +802,417 @@ textarea {
 /* --- Deck analysieren --- */
 
 .analyze-panel {
-  max-width: 800px;
+  max-width: 960px;
+}
+
+.analyze-deck-name {
+  color: var(--text-dim);
+  margin-top: -0.4rem;
+}
+
+.analyze-commander-line {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.9rem;
+  margin-top: -0.2rem;
+}
+
+.analyze-commander-entry {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+}
+
+.analyze-subtabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-top: 1rem;
+  border-bottom: 1px solid var(--border);
+  padding-bottom: 0.8rem;
+}
+
+.analyze-subtab {
+  background: transparent;
+  border: 1px solid var(--border);
+  color: var(--text-dim);
+  padding: 0.5rem 1rem;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 0.9rem;
+}
+
+.analyze-subtab.active {
+  background: var(--accent);
+  color: #1b1e24;
+  border-color: var(--accent);
+  font-weight: 600;
+}
+
+.analyze-subtab-panel {
+  display: none;
+}
+
+.analyze-subtab-panel.active {
+  display: block;
+}
+
+.analyze-section {
+  margin-top: 1.5rem;
+}
+
+.analyze-section .hint {
+  color: var(--text-dim);
+  font-size: 0.82rem;
+  max-width: 70ch;
+}
+
+.analyze-toc {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 0.8rem 1.1rem;
+  margin-top: 1rem;
+}
+
+.analyze-toc-title {
+  display: block;
+  margin-bottom: 0.4rem;
+}
+
+.analyze-toc-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.3rem 1.2rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.analyze-toc-list a {
+  color: var(--accent);
+  text-decoration: none;
+}
+
+.analyze-toc-list a:hover {
+  text-decoration: underline;
+}
+
+.analyze-chart-card {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 1rem 1.1rem;
+  margin-top: 1rem;
+}
+
+.analyze-chart-card h4 {
+  margin: 0 0 0.3rem;
+}
+
+/* Summary stat tiles */
+
+.analyze-stat-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 0.6rem;
+  margin: 0.8rem 0;
+}
+
+.analyze-stat-grid--compact {
+  margin-top: 0;
+}
+
+.analyze-stat-tile {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 0.6rem 0.8rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+}
+
+.analyze-stat-value {
+  font-size: 1.4rem;
+  font-weight: 600;
+}
+
+.analyze-stat-label {
+  color: var(--text-dim);
+  font-size: 0.75rem;
+}
+
+.analyze-stat-hint {
+  color: var(--text-dim);
+  font-size: 0.7rem;
+  opacity: 0.8;
+}
+
+/* Vertical bar chart (mana curve) */
+
+.bar-chart--columns {
+  display: flex;
+  align-items: flex-end;
+  gap: 0.5rem;
+  min-height: 170px;
+  padding-top: 1.2rem;
+}
+
+.bar-col {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  flex: 1;
+  gap: 0.25rem;
+}
+
+.bar-value {
+  font-size: 0.75rem;
+  color: var(--text-dim);
+  min-height: 1em;
+}
+
+.bar-col-track {
+  display: flex;
+  align-items: flex-end;
+  height: 130px;
+}
+
+.bar-col-fill {
+  width: 22px;
+  max-width: 24px;
+  background: var(--accent);
+  border-radius: 4px 4px 0 0;
+  min-height: 2px;
+}
+
+.bar-col-label {
+  color: var(--text-dim);
+  font-size: 0.75rem;
+}
+
+.analyze-table {
+  width: 100%;
+  border-collapse: collapse;
+  margin-top: 0.8rem;
+  font-size: 0.82rem;
+}
+
+.analyze-table th,
+.analyze-table td {
+  text-align: left;
+  padding: 0.3rem 0.5rem;
+  border-bottom: 1px solid var(--border);
+  vertical-align: top;
+}
+
+.analyze-table th {
+  color: var(--text-dim);
+  font-weight: 600;
+}
+
+.analyze-card-name {
+  border-bottom: 1px dotted var(--text-dim);
+}
+
+.analyze-card-name:hover {
+  color: var(--accent);
+  border-bottom-color: var(--accent);
+}
+
+/* Horizontal bar chart (type distribution) */
+
+.bar-chart--rows {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+
+.bar-row {
+  display: grid;
+  grid-template-columns: 9rem 1fr 2.5rem;
+  align-items: center;
+  gap: 0.6rem;
+}
+
+.bar-row-label {
+  font-size: 0.82rem;
+  color: var(--text-dim);
+}
+
+.bar-row-track {
+  background: var(--panel-alt);
+  border-radius: 4px;
+  height: 16px;
+  overflow: hidden;
+}
+
+.bar-row-fill {
+  height: 100%;
+  background: var(--accent);
+  border-radius: 4px;
+  min-width: 2px;
+}
+
+.bar-row-value {
+  font-size: 0.82rem;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Line chart (expected mana curve) */
+
+.line-legend,
+.pip-compare-legend {
+  display: flex;
+  gap: 1.2rem;
+  font-size: 0.78rem;
+  color: var(--text-dim);
+  margin: 0.4rem 0 0.2rem;
+  flex-wrap: wrap;
+}
+
+.line-legend-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.line-key {
+  display: inline-block;
+  width: 16px;
+  height: 2px;
+  border-radius: 1px;
+}
+
+.line-key--context { background: var(--text-dim); }
+.line-key--accent { background: var(--accent); }
+.line-key--info { background: var(--info); }
+.line-key--solid { width: 12px; height: 12px; border-radius: 2px; background: var(--text-dim); opacity: 0.9; }
+.line-key--light { width: 12px; height: 12px; border-radius: 2px; background: var(--text-dim); opacity: 0.4; }
+
+.analyze-svg {
+  width: 100%;
+  height: auto;
+  margin-top: 0.4rem;
+}
+
+.chart-gridline {
+  stroke: var(--border);
+  stroke-width: 1;
+}
+
+.chart-axis-text {
+  fill: var(--text-dim);
+  font-size: 10px;
+}
+
+.chart-line {
+  stroke-width: 2;
+  stroke-linejoin: round;
+  stroke-linecap: round;
+}
+
+.chart-line--context { stroke: var(--text-dim); }
+.chart-line--accent { stroke: var(--accent); }
+.chart-line--info { stroke: var(--info); }
+
+.chart-dot {
+  stroke: var(--panel);
+  stroke-width: 2;
+}
+
+.chart-dot--context { fill: var(--text-dim); }
+.chart-dot--accent { fill: var(--accent); }
+.chart-dot--info { fill: var(--info); }
+
+/* Color pips: card requirements vs. mana sources */
+
+.pip-compare-chart {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  margin-top: 0.4rem;
+}
+
+.pip-compare-row {
+  display: grid;
+  grid-template-columns: 2.2rem 1fr;
+  align-items: center;
+  gap: 0.6rem;
+}
+
+.pip-compare-bars {
+  display: grid;
+  grid-template-columns: 1fr 2.2rem;
+  align-items: center;
+  gap: 0.2rem 0.5rem;
+}
+
+.pip-compare-track {
+  height: 10px;
+}
+
+.pip-compare-value {
+  font-size: 0.78rem;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-dim);
+}
+
+.pip-fill--w { background: #f8f6d8; }
+.pip-fill--u { background: #aee0fa; }
+.pip-fill--b { background: #b7aca4; }
+.pip-fill--r { background: #f9aa8f; }
+.pip-fill--g { background: #9bd3ae; }
+.pip-fill--sources { opacity: 0.45; }
+
+/* Opening-hand land-count probabilities */
+
+.prob-row {
+  display: flex;
+  gap: 0.4rem;
+  margin-top: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.prob-col {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  background: var(--panel-alt);
+  border-radius: 6px;
+  padding: 0.35rem 0.5rem;
+  min-width: 2.6rem;
+}
+
+.prob-col-value {
+  font-size: 0.85rem;
+  font-weight: 600;
+}
+
+.prob-col-label {
+  font-size: 0.68rem;
+  color: var(--text-dim);
+}
+
+/* Accelerant lists */
+
+.accelerant-groups {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1.5rem;
+  margin-top: 0.5rem;
+}
+
+.accelerant-group {
+  min-width: 200px;
+}
+
+.accelerant-cmc {
+  color: var(--text-dim);
+  font-size: 0.75rem;
 }
 
 /* --- Gespeicherte Decks --- */
@@ -691,15 +1240,51 @@ textarea {
   min-width: 0;
 }
 
+.saved-deck-commander {
+  color: var(--text-dim);
+  font-size: 0.82rem;
+}
+
 .saved-deck-meta {
   color: var(--text-dim);
   font-size: 0.78rem;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
 }
+
+.color-identity {
+  display: inline-flex;
+  gap: 0.2rem;
+}
+
+.color-pip {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.1rem;
+  height: 1.1rem;
+  border-radius: 50%;
+  font-size: 0.62rem;
+  font-weight: 700;
+  line-height: 1;
+  color: #1a1a1a;
+  border: 1px solid rgba(0, 0, 0, 0.25);
+}
+
+.color-pip--w { background: #f8f6d8; }
+.color-pip--u { background: #aee0fa; }
+.color-pip--b { background: #b7aca4; }
+.color-pip--r { background: #f9aa8f; }
+.color-pip--g { background: #9bd3ae; }
+.color-pip--c { background: #d8d8d8; }
 
 .saved-deck-actions {
   display: flex;
   gap: 0.5rem;
   flex-shrink: 0;
+  flex-wrap: wrap;
+  justify-content: flex-end;
 }
 
 /* --- Card detail on hover (cardHoverDetail.js) --- */
@@ -734,9 +1319,14 @@ textarea {
 .card-hover-tooltip-image {
   display: block;
   width: 110px;
-  height: auto;
+  aspect-ratio: 63 / 88;
+  object-fit: cover;
   border-radius: 5px;
   flex-shrink: 0;
+  /* `.card-hover-tooltip-inner` is a flex row; without this the image (a
+     flex item) stretches to the text column's height instead of keeping
+     its own card ratio. */
+  align-self: flex-start;
 }
 
 .card-hover-tooltip-text-col {
@@ -753,4 +1343,1417 @@ textarea {
   margin: 0 0 0.3rem;
   font-size: 0.75rem;
   line-height: 1.3;
+}
+
+/* --- Goldfisch-Modus --- */
+
+.goldfish-start,
+.mp-stub {
+  max-width: 640px;
+}
+
+/* End-of-match review shown after "Beenden". */
+.goldfish-summary > h3 {
+  margin: 0 0 0.6rem;
+}
+
+.goldfish-summary .gf-controls {
+  margin-top: 0.75rem;
+}
+
+.gf-topbar {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  flex-wrap: wrap;
+  background: var(--felt);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 0.5rem 0.75rem;
+  margin-bottom: 0.6rem;
+}
+
+.gf-turninfo {
+  display: flex;
+  flex-direction: column;
+}
+
+.gf-turn {
+  font-weight: 700;
+}
+
+.gf-step {
+  font-size: 0.8rem;
+  color: var(--text-dim);
+}
+
+.gf-manapool {
+  display: flex;
+  gap: 0.5rem;
+  margin-left: auto;
+  font-size: 0.9rem;
+}
+
+.gf-mana {
+  white-space: nowrap;
+}
+
+.gf-life {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  min-width: 60px;
+}
+
+.gf-life-label {
+  font-size: 0.7rem;
+  color: var(--text-dim);
+  text-transform: uppercase;
+}
+
+.gf-active-player {
+  font-size: 0.8rem;
+  color: var(--text-dim);
+}
+
+/* One player's board (mana/life header + play area) — gameBoardView.js.
+   Goldfisch always renders exactly one; Replay's play mode can render two
+   side by side (a puzzle's second real player, unlike goldfish's dummy). */
+.gf-player-board {
+  margin-bottom: 1rem;
+}
+
+.gf-player-board:last-child {
+  margin-bottom: 0;
+}
+
+.gf-player-board-head {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  flex-wrap: wrap;
+  background: var(--felt);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 0.5rem 0.75rem;
+  margin-bottom: 0.6rem;
+}
+
+.gf-player-board-head h3 {
+  margin: 0;
+  color: var(--accent);
+  font-size: 1rem;
+}
+
+.gf-controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-bottom: 0.75rem;
+}
+
+.gf-zone {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 0.5rem 0.65rem;
+  margin-bottom: 0.6rem;
+}
+
+.gf-zone h4 {
+  margin: 0 0 0.4rem;
+  font-size: 0.85rem;
+  color: var(--text-dim);
+}
+
+.gf-zone-row {
+  display: flex;
+  gap: 0.6rem;
+  flex-wrap: wrap;
+}
+
+.gf-zone-row .gf-zone {
+  flex: 1 1 180px;
+  margin-bottom: 0.6rem;
+}
+
+/* Two-sided play area: a column of static zones (command / library /
+   graveyard / exile, stacked) beside the battlefield + hand. `gf-zones-right`
+   flips the columns visually while keeping DOM order, so the side is a pure
+   toggle. `position: relative` anchors the stack overlay to this area. */
+.gf-play {
+  position: relative;
+  display: flex;
+  gap: 0.6rem;
+  align-items: flex-start;
+  margin-bottom: 0.6rem;
+}
+
+.gf-play.gf-zones-right {
+  flex-direction: row-reverse;
+}
+
+.gf-side {
+  flex: 0 0 230px;
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+}
+
+.gf-main {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+}
+
+/* The wrapper columns own the spacing now, so the zones inside don't stack
+   their own bottom margins. */
+.gf-side .gf-zone,
+.gf-main .gf-zone,
+.gf-main .gf-statics {
+  margin-bottom: 0;
+}
+
+@media (max-width: 760px) {
+  .gf-play,
+  .gf-play.gf-zones-right {
+    flex-direction: column;
+  }
+  .gf-side {
+    flex-basis: auto;
+  }
+}
+
+/* The stack, overlaid over the play area ("überblenden") while non-empty:
+   it dims and blocks the board until it resolves — pass priority, or push it
+   aside to interact underneath. */
+.gf-stack-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 30;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0.75rem;
+  background: rgba(0, 0, 0, 0.5);
+  backdrop-filter: blur(2px);
+  border-radius: 8px;
+  animation: gf-modal-fade 0.12s ease-out;
+}
+
+.gf-stack-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  max-width: min(94%, 620px);
+  max-height: 92%;
+  overflow: auto;
+  padding: 0.6rem 0.75rem;
+  background: var(--felt);
+  border: 1px solid var(--accent);
+  border-radius: 10px;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.5);
+  transition: transform 0.15s ease, max-width 0.15s ease;
+}
+
+.gf-stack-panel-head,
+.gf-stack-panel-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+
+.gf-stack-panel-head h4 {
+  margin: 0;
+  font-size: 0.9rem;
+}
+
+.gf-stack-aside {
+  font-size: 0.72rem;
+  padding: 0.2rem 0.5rem;
+}
+
+.gf-stack-panel-foot .hint {
+  font-size: 0.72rem;
+}
+
+/* Pushed aside: the backdrop stops capturing clicks (they reach the board),
+   and the panel shrinks to a compact card docked in the corner opposite the
+   zone column. */
+.gf-stack-overlay.aside {
+  pointer-events: none;
+  background: transparent;
+  backdrop-filter: none;
+  align-items: flex-start;
+  justify-content: flex-end;
+  padding: 0.4rem;
+}
+
+.gf-play.gf-zones-right .gf-stack-overlay.aside {
+  justify-content: flex-start;
+}
+
+.gf-stack-overlay.aside .gf-stack-panel {
+  pointer-events: auto;
+  max-width: 230px;
+  transform: scale(0.97);
+  box-shadow: 0 6px 22px rgba(0, 0, 0, 0.45);
+}
+
+/* The aside card keeps the stack readable but compact. */
+.gf-stack-overlay.aside .gf-stack-grid {
+  max-height: 40vh;
+  overflow: auto;
+}
+
+.gf-zone-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.gf-zone-list li {
+  padding: 0.2rem 0.4rem;
+  border-left: 2px solid var(--accent);
+  margin-bottom: 0.2rem;
+  font-size: 0.8rem;
+  cursor: default;
+}
+
+.gf-action-buttons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+}
+
+.gf-action-buttons button {
+  background: var(--panel-alt);
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  color: var(--text);
+  padding: 0.3rem 0.6rem;
+  cursor: pointer;
+  font-size: 0.8rem;
+}
+
+.gf-action-buttons button:hover {
+  border-color: var(--accent);
+}
+
+/* Tapped permanents rotate ~90° like a real tapped card; summoning-sick
+   creatures are dimmed so it's obvious why they can't attack yet. */
+.card.tapped {
+  transform: rotate(8deg);
+  opacity: 0.85;
+  border-color: var(--warn);
+}
+
+.card.summoning-sick {
+  opacity: 0.7;
+  border-style: dashed;
+}
+
+.gf-movelog {
+  margin-top: 0.5rem;
+  font-size: 0.75rem;
+  color: var(--text-dim);
+}
+
+.gf-movelog ol {
+  margin: 0.2rem 0 0;
+  padding-left: 1.2rem;
+}
+
+/* --- Goldfisch: optionale Layer-/Statik-Analyse (Regel 613) --- */
+
+.gf-statics {
+  margin-top: 0.6rem;
+  padding: 0.6rem 0.75rem;
+  border: 1px solid var(--accent);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--accent) 6%, var(--panel));
+  font-size: 0.78rem;
+}
+
+.gf-statics h4 {
+  margin: 0 0 0.5rem;
+  font-size: 0.85rem;
+}
+
+.gf-statics h5 {
+  margin: 0.5rem 0 0.25rem;
+  font-size: 0.75rem;
+  color: var(--text-dim);
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+.gf-static-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.gf-static-list li {
+  line-height: 1.35;
+}
+
+.gf-static-layer {
+  display: inline-block;
+  min-width: 2.2rem;
+  margin-right: 0.35rem;
+  padding: 0 0.3rem;
+  border-radius: 4px;
+  background: var(--panel-alt);
+  color: var(--accent);
+  font-weight: 700;
+  font-size: 0.68rem;
+  text-align: center;
+}
+
+.gf-static-scope {
+  color: var(--text-dim);
+  font-style: italic;
+}
+
+.gf-static-traces {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 0.5rem;
+}
+
+.gf-static-trace {
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 0.4rem 0.5rem;
+  background: var(--panel-alt);
+}
+
+.gf-static-trace ol {
+  margin: 0.25rem 0 0;
+  padding-left: 1.1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+}
+
+.gf-static-costs {
+  margin-top: 0.4rem;
+}
+
+/* --- Goldfisch: Deck-Auswahl aus der Deck-Datenbasis --- */
+
+.gf-deck-picker {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+  margin: 0.6rem 0;
+}
+
+.gf-deck-picker label {
+  color: var(--text-dim);
+  font-size: 0.85rem;
+}
+
+.gf-deck-picker select {
+  flex: 1;
+  min-width: 0;
+  padding: 0.35rem 0.5rem;
+  background: var(--panel-alt);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 5px;
+}
+
+.gf-deck-picker button {
+  background: var(--panel-alt);
+  border: 1px solid var(--border);
+  color: var(--text);
+  border-radius: 5px;
+  padding: 0.3rem 0.5rem;
+  cursor: pointer;
+}
+
+.gf-deck-picker button:hover {
+  border-color: var(--accent);
+}
+
+/* --- Deck-Verwaltung: Legalitäts-Badge pro Deck --- */
+
+.saved-deck-legality {
+  display: block;
+  font-size: 0.75rem;
+  margin-top: 0.15rem;
+}
+
+.saved-deck-legality.checking,
+.saved-deck-legality.unknown {
+  color: var(--text-dim);
+  font-style: italic;
+}
+
+.saved-deck-legality.legal {
+  color: var(--ok);
+}
+
+.saved-deck-legality.illegal {
+  color: var(--warn);
+  cursor: help;
+  font-weight: 600;
+}
+
+/* --- Goldfisch: Aktionen direkt unter den Karten --- */
+
+.gf-card-slot {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.25rem;
+}
+
+/* Stack items carry a type badge above the art and a resolution-order
+   hint below, so the stack reads as spells vs. triggered/activated
+   abilities and shows what resolves next (RULE 608.2, LIFO). */
+.gf-stack-item {
+  gap: 0.2rem;
+}
+
+.gf-stack-item.is-top .card {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+.gf-stack-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.2rem;
+  max-width: 110px;
+  padding: 0.1rem 0.35rem;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  font-size: 0.62rem;
+  font-weight: 600;
+  line-height: 1.3;
+  text-align: center;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.gf-stack-badge--spell {
+  background: color-mix(in srgb, var(--accent) 18%, transparent);
+  border-color: color-mix(in srgb, var(--accent) 45%, transparent);
+  color: var(--text);
+}
+
+.gf-stack-badge--triggered {
+  background: color-mix(in srgb, #e0a800 22%, transparent);
+  border-color: color-mix(in srgb, #e0a800 55%, transparent);
+  color: var(--text);
+}
+
+.gf-stack-badge--activated {
+  background: color-mix(in srgb, #2f9e6a 22%, transparent);
+  border-color: color-mix(in srgb, #2f9e6a 55%, transparent);
+  color: var(--text);
+}
+
+.gf-stack-order {
+  font-size: 0.6rem;
+  color: var(--text-dim);
+}
+
+.gf-stack-item.is-top .gf-stack-order {
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.gf-card-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.2rem;
+  justify-content: center;
+  max-width: 110px;
+}
+
+.gf-card-action {
+  background: var(--panel-alt);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  color: var(--text);
+  padding: 0.15rem 0.35rem;
+  font-size: 0.7rem;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.gf-card-action:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+/* A spell with no legal target (RULE 601.2c): shown but not castable. */
+.gf-card-action.gf-locked {
+  opacity: 0.55;
+  cursor: not-allowed;
+  border-style: dashed;
+}
+
+.gf-card-action.gf-locked:hover {
+  border-color: var(--border);
+  color: var(--text);
+}
+
+/* --- Battlefield: type rows, attachments, combat --- */
+
+.gf-bf-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+}
+
+.gf-bf-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-size: 0.72rem;
+  color: var(--text-dim);
+  cursor: pointer;
+  user-select: none;
+}
+
+.gf-bf-rows {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+/* Each type row (creatures / artifacts & enchantments / lands) is banded so
+   the three zones read as distinct shelves rather than one card soup. */
+.gf-bf-row {
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 0.3rem 0.45rem 0.45rem;
+  background: color-mix(in srgb, var(--panel-alt) 40%, transparent);
+}
+
+.gf-bf-row-label {
+  display: block;
+  font-size: 0.66rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-dim);
+  margin-bottom: 0.3rem;
+}
+
+/* An equipped/enchanted permanent and its attachments (Auras, Equipment)
+   are framed together in a dashed box ("gestrichelt") so the attachment
+   reads as belonging to its host rather than as a loose permanent. */
+.gf-attach-group {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.25rem;
+  padding: 0.3rem;
+  border: 1px dashed color-mix(in srgb, var(--accent) 60%, var(--border));
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--accent) 8%, transparent);
+}
+
+/* A creature declared as an attacker: highlighted, with a badge naming its
+   defender pinned to the card's top-right corner. */
+.card.attacking {
+  outline: 2px solid var(--warn);
+  outline-offset: -2px;
+}
+
+.gf-counter-badge {
+  position: absolute;
+  bottom: -0.35rem;
+  left: -0.3rem;
+  background: var(--accent);
+  color: #10151c;
+  font-size: 0.58rem;
+  font-weight: 700;
+  padding: 0.05rem 0.28rem;
+  border-radius: 999px;
+  white-space: nowrap;
+  pointer-events: none;
+}
+
+.gf-attacking-badge {
+  position: absolute;
+  top: -0.4rem;
+  right: -0.4rem;
+  background: var(--warn);
+  color: #1a1a1a;
+  font-size: 0.6rem;
+  font-weight: 700;
+  line-height: 1.2;
+  padding: 0.1rem 0.3rem;
+  border-radius: 999px;
+  max-width: 90px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  pointer-events: none;
+}
+
+/* Combat/evasion keyword abbreviations, as a pill along a creature's bottom
+   edge (full names on hover via the title attribute). */
+.gf-keyword-badge {
+  position: absolute;
+  bottom: -0.35rem;
+  right: -0.3rem;
+  max-width: 95%;
+  background: color-mix(in srgb, var(--accent) 22%, var(--panel));
+  color: var(--text);
+  border: 1px solid var(--accent);
+  font-size: 0.5rem;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  line-height: 1.3;
+  padding: 0.05rem 0.25rem;
+  border-radius: 999px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  pointer-events: none;
+}
+
+/* The two-step defender picker that drops in below a creature when several
+   defenders are legal (RULE 508.1a). */
+.gf-attack-defenders {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  width: 100%;
+}
+
+/* --- Passive "goldfish" opponent strip --- */
+
+.gf-opponent {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  padding: 0.4rem 0.7rem;
+  margin-bottom: 0.6rem;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--warn) 8%, var(--panel));
+  font-size: 0.82rem;
+}
+
+.gf-opp-name {
+  font-weight: 700;
+}
+
+.gf-opp-life {
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+.gf-opp-tag {
+  margin-left: auto;
+  font-size: 0.68rem;
+  color: var(--text-dim);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.gf-cmd-dmg {
+  font-size: 0.75rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  padding: 0.05rem 0.35rem;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--warn) 20%, transparent);
+  border: 1px solid color-mix(in srgb, var(--warn) 45%, transparent);
+}
+
+.gf-cmd-dmg--lethal {
+  background: var(--warn);
+  color: #1a1a1a;
+}
+
+/* Setup: choose who draws on turn 1 (on the play vs. on the draw). */
+.gf-draw-first {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  margin: 0.5rem 0;
+  font-size: 0.82rem;
+  color: var(--text-dim);
+  cursor: pointer;
+  user-select: none;
+}
+
+/* --- End-of-game analysis --- */
+
+.gf-gameover {
+  margin-bottom: 0.75rem;
+}
+
+.gf-analysis {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 0.75rem;
+  background: var(--panel);
+}
+
+.gf-analysis h4 {
+  margin: 0 0 0.6rem;
+}
+
+.gf-analysis-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 0.75rem;
+}
+
+.gf-analysis-card {
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 0.6rem;
+  background: var(--panel-alt);
+}
+
+.gf-analysis-card h5 {
+  margin: 0 0 0.5rem;
+  font-size: 0.9rem;
+}
+
+.gf-stat-row {
+  display: flex;
+  gap: 0.5rem;
+  margin-bottom: 0.5rem;
+}
+
+.gf-stat {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 0.35rem 0.2rem;
+  border-radius: 5px;
+  background: color-mix(in srgb, var(--accent) 8%, transparent);
+}
+
+.gf-stat-v {
+  font-size: 1.05rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+.gf-stat-l {
+  font-size: 0.62rem;
+  color: var(--text-dim);
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+.gf-chart {
+  margin-top: 0.5rem;
+}
+
+.gf-chart-title {
+  display: block;
+  font-size: 0.66rem;
+  color: var(--text-dim);
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  margin-bottom: 0.25rem;
+}
+
+.gf-bars {
+  display: flex;
+  align-items: flex-end;
+  gap: 0.3rem;
+  height: 90px;
+  padding-top: 0.9rem;
+}
+
+.gf-bar {
+  position: relative;
+  flex: 1;
+  min-width: 14px;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  align-items: center;
+}
+
+.gf-bar-fill {
+  width: 100%;
+  min-height: 2px;
+  background: var(--accent);
+  border-radius: 3px 3px 0 0;
+}
+
+.gf-bar-v {
+  position: absolute;
+  top: -0.9rem;
+  font-size: 0.6rem;
+  color: var(--text-dim);
+  font-variant-numeric: tabular-nums;
+}
+
+.gf-bar-k {
+  margin-top: 0.2rem;
+  font-size: 0.62rem;
+  color: var(--text-dim);
+  font-variant-numeric: tabular-nums;
+}
+
+/* {X}-cost spell: a value input next to its "Zaubern" button. */
+.gf-cast-x {
+  display: flex;
+  gap: 0.2rem;
+  align-items: center;
+}
+
+.gf-cast-x input {
+  width: 2.4rem;
+  background: var(--panel-alt);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  color: var(--text);
+  padding: 0.15rem 0.25rem;
+  font-size: 0.7rem;
+}
+
+/* --- Goldfisch: Zielwahl (RULE 115) --- */
+
+.gf-cast-targets {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  width: 100%;
+  align-items: center;
+}
+
+/* --- Goldfisch: Bibliotheks-Suche / Entscheidung --- */
+
+.gf-choice {
+  background: var(--felt);
+  border: 1px solid var(--accent);
+  border-radius: 6px;
+  padding: 0.6rem 0.75rem;
+  margin-bottom: 0.6rem;
+}
+
+.gf-choice h4 {
+  margin: 0 0 0.4rem;
+  font-size: 0.9rem;
+}
+
+.gf-choice-options {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+}
+
+.gf-choice-options button {
+  background: var(--panel-alt);
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  color: var(--text);
+  padding: 0.3rem 0.6rem;
+  cursor: pointer;
+  font-size: 0.8rem;
+}
+
+.gf-choice-options button:hover {
+  border-color: var(--accent);
+}
+
+.gf-choice-options .gf-decline {
+  color: var(--text-dim);
+  font-style: italic;
+}
+
+/* Dim the board while a choice is pending, to focus on the prompt. */
+.goldfish.choosing .gf-play {
+  opacity: 0.55;
+}
+
+/* A pending decision as a modal popup for the deciding player: it overlays
+   the board so answering it is the only thing to do (RULE choice points). */
+.gf-modal-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1rem;
+  background: rgba(0, 0, 0, 0.55);
+  backdrop-filter: blur(2px);
+  animation: gf-modal-fade 0.12s ease-out;
+}
+
+@keyframes gf-modal-fade {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+.gf-modal {
+  background: var(--felt);
+  border: 1px solid var(--accent);
+  border-radius: 10px;
+  padding: 1rem 1.2rem;
+  max-width: min(560px, 92vw);
+  max-height: 82vh;
+  overflow-y: auto;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.5);
+}
+
+.gf-modal-head {
+  display: flex;
+  gap: 0.6rem;
+  align-items: flex-start;
+  margin-bottom: 0.8rem;
+}
+
+.gf-modal-icon {
+  font-size: 1.5rem;
+  line-height: 1;
+}
+
+.gf-modal-head h4 {
+  margin: 0;
+  font-size: 1rem;
+}
+
+.gf-modal-who {
+  margin: 0.15rem 0 0;
+  font-size: 0.75rem;
+  color: var(--text-dim);
+}
+
+/* Target-picker modal: a cancel row under the offered targets. */
+.gf-modal-foot {
+  margin-top: 0.8rem;
+  display: flex;
+  justify-content: flex-end;
+}
+
+.gf-modal-foot .gf-decline {
+  background: var(--panel-alt);
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  color: var(--text-dim);
+  padding: 0.3rem 0.6rem;
+  cursor: pointer;
+  font-size: 0.8rem;
+  font-style: italic;
+}
+
+.gf-modal-foot .gf-decline:hover {
+  border-color: var(--accent);
+}
+
+/* --- Goldfisch: Ladebildschirm (Kartenbilder vorladen) --- */
+
+.goldfish-loading {
+  max-width: 480px;
+}
+
+.gf-loading-bar {
+  background: var(--panel-alt);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  height: 10px;
+  overflow: hidden;
+  margin: 0.75rem 0 0.4rem;
+}
+
+.gf-loading-fill {
+  height: 100%;
+  background: var(--accent);
+  transition: width 0.15s ease-out;
+}
+
+/* --- Goldfisch: Mulligan-Phase (Starthand behalten oder neu mischen) --- */
+
+.goldfish-mulligan {
+  max-width: 720px;
+}
+
+.gf-mulligan-hand {
+  margin: 0.6rem 0;
+}
+
+.card.selected-bottom {
+  border-color: var(--warn);
+  box-shadow: 0 0 0 2px var(--warn);
+}
+
+/* --- Engine-Status tab: implementation coverage overview --- */
+
+.impl-status {
+  max-width: 1100px;
+}
+
+.impl-status > h2 {
+  margin: 0 0 0.3rem;
+}
+
+.impl-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem 1.25rem;
+  margin: 0.75rem 0 1rem;
+  padding: 0.6rem 0.75rem;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--panel);
+  font-size: 0.8rem;
+}
+
+.impl-legend-item strong {
+  font-weight: 700;
+}
+
+.impl-badge {
+  font-size: 0.85rem;
+}
+
+.impl-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+  gap: 0.85rem;
+}
+
+.impl-section {
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 0.75rem 0.9rem;
+  background: var(--panel);
+}
+
+.impl-section-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+
+.impl-section-head h3 {
+  margin: 0;
+  font-size: 0.95rem;
+}
+
+.impl-rule {
+  font-size: 0.68rem;
+  font-weight: 700;
+  color: var(--accent);
+  white-space: nowrap;
+}
+
+.impl-intro {
+  margin: 0.35rem 0 0.5rem;
+  font-size: 0.76rem;
+  color: var(--text-dim);
+  line-height: 1.4;
+}
+
+.impl-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+}
+
+.impl-item {
+  display: flex;
+  gap: 0.45rem;
+  align-items: flex-start;
+  font-size: 0.8rem;
+  line-height: 1.35;
+}
+
+.impl-item .impl-badge {
+  flex: 0 0 auto;
+  margin-top: 0.05rem;
+}
+
+.impl-item .impl-text strong {
+  font-weight: 700;
+}
+
+/* Tint the row's accent by status. */
+.impl-item.impl-full .impl-text strong { color: var(--ok); }
+.impl-item.impl-partial .impl-text strong { color: var(--warn); }
+.impl-item.impl-planned .impl-text strong { color: var(--text-dim); }
+
+.impl-status code {
+  background: var(--panel-alt);
+  padding: 0.05rem 0.3rem;
+  border-radius: 4px;
+  font-size: 0.9em;
+}
+
+/* --- Replay / Puzzle mode (replayView.js) ------------------------- */
+.replay-start { max-width: 640px; }
+.replay-start-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.6rem;
+  align-items: center;
+  margin: 1rem 0;
+}
+/* Color-coded like a load/import action (blue), distinct from the neutral
+   toolbar buttons around it and from "Exportieren" (no color of its own). */
+.replay-import-label {
+  display: inline-block;
+  padding: 0.4rem 0.8rem;
+  border: 1px solid color-mix(in srgb, var(--info) 55%, var(--border));
+  border-radius: 6px;
+  cursor: pointer;
+  background: color-mix(in srgb, var(--info) 16%, var(--panel));
+  color: var(--info);
+}
+.replay-import-label:hover {
+  border-color: var(--info);
+  background: color-mix(in srgb, var(--info) 26%, var(--panel));
+}
+
+.replay-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1rem;
+  align-items: center;
+  padding: 0.5rem 0.7rem;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  margin-bottom: 0.6rem;
+}
+.replay-toolbar-group { display: flex; gap: 0.4rem; align-items: center; flex-wrap: wrap; }
+.replay-toolbar label { font-size: 0.85rem; color: var(--text-dim); display: flex; gap: 0.3rem; align-items: center; }
+.replay-toolbar input[type="number"] { width: 4rem; }
+
+.replay-status { margin: 0.3rem 0 0.6rem; padding: 0.3rem 0.6rem; border-radius: 6px; }
+.replay-status--ok { color: var(--ok); }
+.replay-status--warning { color: var(--warn); }
+
+.replay-players { display: grid; gap: 0.8rem; grid-template-columns: 1fr; }
+@media (min-width: 1100px) { .replay-players.two { grid-template-columns: 1fr 1fr; } }
+.replay-player {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--panel);
+  padding: 0.6rem;
+}
+.replay-player-head {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.6rem;
+  align-items: center;
+  border-bottom: 1px solid var(--border);
+  padding-bottom: 0.4rem;
+  margin-bottom: 0.5rem;
+}
+.replay-player-head h3 { margin: 0; color: var(--accent); }
+.replay-player-head label { font-size: 0.82rem; color: var(--text-dim); display: flex; gap: 0.25rem; align-items: center; }
+.replay-player-head input[type="number"] { width: 3.4rem; }
+.replay-manapool {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: 0.4rem;
+  font-size: 0.82rem;
+  color: var(--text-dim);
+}
+.replay-manapool-label { font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.03em; }
+.replay-mana-input { display: flex; align-items: center; gap: 0.15rem; }
+.replay-mana { width: 2.8rem; }
+
+.replay-extra-counters { display: flex; flex-wrap: wrap; gap: 0.3rem; margin-bottom: 0.4rem; }
+.replay-chip {
+  background: var(--panel-alt);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 0.05rem 0.45rem;
+  font-size: 0.78rem;
+}
+
+/* Zone boxes reuse the Goldfisch board's `.gf-zone`/`.gf-play`/`.gf-side`/
+   `.gf-main`/`.gf-bf-*` shell (main.css, "Battlefield: type rows, attachments,
+   combat") so the two boards read as the same game board; `.replay-zone` only
+   adds the editor's header controls on top. */
+.replay-zone-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 0.8rem;
+  color: var(--text-dim);
+  margin-bottom: 0.35rem;
+}
+.replay-zone-head button { font-size: 0.72rem; padding: 0.1rem 0.35rem; }
+.replay-count { color: var(--text); font-weight: bold; }
+.replay-zone-cards { display: flex; flex-wrap: wrap; gap: 0.35rem; }
+
+/* Library: a collapsible ordered list (draw order matters — see
+   `edit_reorder_object`), unlike the other zones' card-tile grids. */
+.replay-lib-toggle { color: var(--info); border-color: color-mix(in srgb, var(--info) 45%, var(--border)); }
+.replay-lib-toggle:hover { border-color: var(--info); }
+
+.replay-lib-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  max-height: 65vh;
+  overflow-y: auto;
+}
+.replay-lib-item {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.15rem 0.4rem;
+  border-left: 2px solid var(--accent);
+  background: var(--panel-alt);
+  border-radius: 3px;
+  font-size: 0.8rem;
+}
+.replay-lib-pos {
+  flex: 0 0 auto;
+  min-width: 2.2rem;
+  color: var(--text-dim);
+  font-size: 0.7rem;
+  text-align: center;
+}
+.replay-lib-name {
+  flex: 1 1 auto;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.replay-lib-tools {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  flex: 0 0 auto;
+}
+.replay-lib-tools button { padding: 0 4px; font-size: 0.72rem; line-height: 1.4; }
+.replay-lib-tools .replay-move { font-size: 0.62rem; max-width: 90px; }
+
+.replay-card {
+  position: relative;
+  width: 72px;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  background: var(--bg);
+  overflow: hidden;
+}
+.replay-card img { display: block; width: 100%; height: auto; }
+.replay-card.tapped { transform: rotate(8deg); }
+.replay-card.is-token { border-style: dashed; }
+.replay-card-name { display: block; padding: 0.3rem; font-size: 0.72rem; min-height: 3.4rem; }
+.replay-card-badges {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  right: 2px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px;
+}
+.replay-badge {
+  background: rgba(0, 0, 0, 0.75);
+  color: var(--text);
+  border-radius: 4px;
+  padding: 0 3px;
+  font-size: 0.66rem;
+}
+.replay-badge--counter { background: rgba(201, 165, 59, 0.85); color: #000; }
+.replay-card-tools {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1px;
+  padding: 1px;
+  background: var(--panel);
+}
+.replay-card-tools button { padding: 0 3px; font-size: 0.72rem; line-height: 1.4; }
+.replay-card-tools .replay-move { font-size: 0.62rem; max-width: 100%; flex: 1 1 100%; }
+
+.replay-modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.6);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 50;
+}
+.replay-modal {
+  width: min(480px, 92vw);
+  max-height: 82vh;
+  overflow: auto;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+.replay-library-modal { width: min(560px, 92vw); }
+.replay-modal-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 0.5rem 0.7rem;
+  border-bottom: 1px solid var(--border);
+}
+.replay-modal-head h3 { margin: 0; }
+.replay-modal-body { padding: 0.7rem; }
+.replay-search-row { display: flex; gap: 0.4rem; }
+.replay-search-row input { flex: 1; }
+.replay-search-results { list-style: none; padding: 0; margin: 0.6rem 0 0; display: flex; flex-direction: column; gap: 0.25rem; }
+.replay-search-results button { width: 100%; text-align: left; }
+.replay-search-results small { color: var(--text-dim); }
+.replay-token-form { display: flex; flex-direction: column; gap: 0.5rem; }
+.replay-token-form label { display: flex; gap: 0.4rem; align-items: center; justify-content: space-between; }
+.replay-token-form input[type="text"], .replay-token-form input[type="number"], .replay-token-form textarea { flex: 1; }
+.replay-token-form textarea { resize: vertical; font-family: inherit; }
+.replay-token-form label:has(textarea) { align-items: flex-start; }
+.replay-token-colors { display: flex; flex-wrap: wrap; gap: 0.5rem; }
+.replay-token-colors label { justify-content: flex-start; }
+
+.replay-token-presets {
+  border-bottom: 1px solid var(--border);
+  padding-bottom: 0.5rem;
+  margin-bottom: 0.1rem;
+}
+.replay-token-presets-label {
+  display: block;
+  font-size: 0.78rem;
+  color: var(--text-dim);
+  margin-bottom: 0.35rem;
+}
+.replay-token-preset-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+}
+.replay-token-preset {
+  font-size: 0.78rem;
+  padding: 0.25rem 0.5rem;
+}
+.replay-token-preset small {
+  color: var(--text-dim);
 }

@@ -10,8 +10,10 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from mtg_analyzer.api.cards import router as cards_router
 from mtg_analyzer.api.decks import router as decks_router
+from mtg_analyzer.api.game import router as game_router
 from mtg_analyzer.api.game_ws import router as game_ws_router
 from mtg_analyzer.api.images import router as images_router
+from mtg_analyzer.api.player_assets import router as player_assets_router
 from mtg_analyzer.api.saved_decks import router as saved_decks_router
 
 #: The frontend is a plain static server (setup/start.py, default port
@@ -32,7 +34,9 @@ def create_app() -> FastAPI:
     app.include_router(saved_decks_router)
     app.include_router(cards_router)
     app.include_router(images_router)
+    app.include_router(game_router)
     app.include_router(game_ws_router)
+    app.include_router(player_assets_router)
 
     @app.get("/api/health")
     def health() -> dict[str, str]:

@@ -22,13 +22,51 @@ function genericManaEmoji(amount) {
     .join('');
 }
 
-// Card.mana_cost (from the backend) only counts colored/colorless pips
-// ({W}, {U}, ..., {C}) — generic numeric mana ({2}, {10}, ...) isn't
-// stored per-symbol since it doesn't fit that shape. It's derived here
-// instead: a card's mana value counts every symbol as 1 (including
-// hybrid/Phyrexian ones), so subtracting the pips we do know about
-// leaves the generic amount for the vast majority of real costs.
+const MANA_TOKEN_RE = /\{([^}]+)\}/g;
+
+// One `{...}` token (already stripped of braces) to its faithful display.
+// Mirrors the backend's `ManaSymbol` kinds (mtg_analyzer/models/mana_cost.py):
+// generic, {X}/{Y}/{Z}, plain color/colorless, hybrid ({W/U}), monocolored
+// hybrid ({2/W}), and Phyrexian ({W/P}) — each rendered so the choice it
+// offers stays visible instead of collapsing to a plain pip.
+function renderManaToken(token) {
+  const symbol = token.trim().toUpperCase();
+
+  if (/^\d+$/.test(symbol)) return genericManaEmoji(Number(symbol));
+  if (symbol === 'X' || symbol === 'Y' || symbol === 'Z') return symbol;
+  if (MANA_SYMBOL_EMOJI[symbol]) return MANA_SYMBOL_EMOJI[symbol];
+
+  if (symbol.includes('/')) {
+    const parts = symbol.split('/');
+    if (parts.includes('P')) {
+      const color = parts.find((p) => p !== 'P' && MANA_SYMBOL_EMOJI[p]);
+      if (color) return `(${MANA_SYMBOL_EMOJI[color]}/🩸)`; // pay the color, or 2 life
+    }
+    const generic = parts.find((p) => /^\d+$/.test(p));
+    const hybridColor = parts.find((p) => MANA_SYMBOL_EMOJI[p]);
+    if (generic && hybridColor) {
+      return `(${genericManaEmoji(Number(generic))}/${MANA_SYMBOL_EMOJI[hybridColor]})`;
+    }
+    if (parts.every((p) => MANA_SYMBOL_EMOJI[p])) {
+      return `(${parts.map((p) => MANA_SYMBOL_EMOJI[p]).join('/')})`;
+    }
+  }
+
+  return symbol; // unknown symbol (snow {S}, ...): show the letter, not a guess
+}
+
+// Card.mana_cost (the legacy flattened form) only counts colored/colorless
+// pips ({W}, {U}, ..., {C}) and drops generic amounts, hybrid/Phyrexian
+// nuance entirely. `mana_cost_string` (the raw Scryfall string, e.g.
+// "{2}{W}{U/B}{G/P}") is faithful and preferred; the pip-counting fallback
+// below only fires for rows cached before that field existed (see backend's
+// `ManaCost.from_card`) and can't recover the nuance it never stored.
 export function renderManaCost(card) {
+  if (card.mana_cost_string) {
+    const tokens = card.mana_cost_string.match(MANA_TOKEN_RE) || [];
+    return tokens.map((t) => renderManaToken(t.slice(1, -1))).join(' ');
+  }
+
   const pips = card.mana_cost || {};
   const pipTotal = Object.values(pips).reduce((sum, count) => sum + count, 0);
   const generic = Math.max(0, (card.converted_mana_cost || 0) - pipTotal);
@@ -85,10 +123,21 @@ export function renderCardTile(card, { qty, illegalReason } = {}) {
   const qtyBadge = qty != null ? `<span class="card-tile-qty">${qty}×</span>` : '';
   const illegalLabel = illegalReason ? ILLEGAL_REASON_LABELS[illegalReason] : '';
 
+  // Double-faced cards (transform / modal DFC) carry a second image the
+  // player can flip to; the button below toggles the <img> between the
+  // two faces (see the delegated handler at the bottom of this module).
+  const flipButton = card.has_back_face
+    ? `<button type="button" class="card-tile-flip"
+         data-front-src="${cardImageUrl(card.id, 'normal', 'front')}"
+         data-back-src="${cardImageUrl(card.id, 'normal', 'back')}"
+         title="Kartenrückseite anzeigen" aria-label="Kartenrückseite anzeigen">🔄</button>`
+    : '';
+
   return `
     <div class="card-tile${illegalReason ? ' card-tile-illegal' : ''}">
       <div class="card-tile-image">
         ${qtyBadge}
+        ${flipButton}
         <img src="${cardImageUrl(card.id, 'normal')}" alt="${escapeHtml(card.name)}" loading="lazy" />
       </div>
       <div class="card-tile-info">
@@ -139,7 +188,7 @@ export function renderCardTilePlaceholder(name, { qty } = {}) {
 
 /** Tile for a card name the backend confirmed no match for (typo, or a
  * card that genuinely doesn't exist under that exact name — see
- * backend/ToDo_Backend.md "Validator" on exact- vs. fuzzy-name matching). */
+ * backend/Done_Backend.md "Validator" on exact- vs. fuzzy-name matching). */
 export function renderCardTileNotFound(name, { qty } = {}) {
   const qtyBadge = qty != null ? `<span class="card-tile-qty">${qty}×</span>` : '';
   return `
@@ -167,4 +216,20 @@ export function escapeHtml(str) {
   const div = document.createElement('div');
   div.textContent = str;
   return div.innerHTML;
+}
+
+// The card tiles are rendered as HTML strings and injected via innerHTML,
+// so there's no per-tile element to bind to. One delegated listener,
+// registered once when this module loads, handles every flip button:
+// it swaps the sibling <img>'s src between the front and back face URLs
+// carried on the button's data-* attributes.
+if (typeof document !== 'undefined') {
+  document.addEventListener('click', (event) => {
+    const button = event.target.closest?.('.card-tile-flip');
+    if (!button) return;
+    const img = button.parentElement?.querySelector('img');
+    if (!img) return;
+    const showingBack = button.classList.toggle('is-flipped');
+    img.src = showingBack ? button.dataset.backSrc : button.dataset.frontSrc;
+  });
 }

@@ -23,23 +23,35 @@ router = APIRouter(prefix="/api/cards", tags=["cards"])
 _VALID_SIZES = ("small", "normal", "large", "png")
 
 
+_VALID_FACES = ("front", "back")
+
+
 @router.get("/{card_id}/image")
 def get_card_image(
     card_id: str,
     size: str = Query("normal"),
+    face: str = Query("front"),
     database: CardDatabase = Depends(get_card_database),
     images: ImageCache = Depends(get_image_cache),
 ) -> FileResponse:
     if size not in _VALID_SIZES:
         raise HTTPException(status_code=400, detail=f"size must be one of {_VALID_SIZES}")
+    if face not in _VALID_FACES:
+        raise HTTPException(status_code=400, detail=f"face must be one of {_VALID_FACES}")
 
     card = database.get_card_by_id(card_id)
     if card is None:
         raise HTTPException(status_code=404, detail=f'No cached card with id "{card_id}"')
 
-    image_url = getattr(card, f"image_uri_{size}")
+    # Double-faced cards (transform, modal DFC) share one Scryfall id
+    # across both faces; `face=back` serves the second face's own image.
+    attr = f"back_image_uri_{size}" if face == "back" else f"image_uri_{size}"
+    image_url = getattr(card, attr)
     if not image_url:
-        raise HTTPException(status_code=404, detail=f'No "{size}" image available for "{card.name}"')
+        raise HTTPException(
+            status_code=404,
+            detail=f'No "{size}" {face} image available for "{card.name}"',
+        )
 
-    path = images.get_or_fetch(card.id, size, image_url)
+    path = images.get_or_fetch(card.id, size, image_url, face)
     return FileResponse(path)

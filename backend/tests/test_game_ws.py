@@ -1,6 +1,6 @@
 """Tests for WebSocket /ws/game/{game_id}: connection plumbing only.
 
-Reference: backend/ToDo_Backend.md "HTTP API foundation",
+Reference: backend/Done_Backend.md "HTTP API foundation",
 docs/04_SERVER_CLIENT_ARCHITECTURE.md PART 4 "WebSocket Messages".
 """
 

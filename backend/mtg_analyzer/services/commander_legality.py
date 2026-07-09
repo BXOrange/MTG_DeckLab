@@ -8,7 +8,7 @@ oracle-text-derived has_partner/partner_with), so this runs as a second
 pass in mtg_analyzer/api/decks.py, once names are resolved via the
 LazyCardLoader.
 
-Reference: backend/ToDo_Backend.md "Validator".
+Reference: backend/Done_Backend.md "Validator".
 """
 
 from __future__ import annotations

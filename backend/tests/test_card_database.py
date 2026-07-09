@@ -58,6 +58,15 @@ class TestSaveAndGet:
         db.save_card(make_card(name="Valki, God of Lies // Tibalt, Cosmic Impostor"))
         assert db.get_card("Valki") is None
 
+    def test_get_card_by_single_slash_full_name(self):
+        # Decklists sometimes write the separator as a single slash — the
+        # cache should still match the stored "Front // Back" row.
+        db = CardDatabase()
+        db.save_card(make_card(name="Valki, God of Lies // Tibalt, Cosmic Impostor"))
+        card = db.get_card("Valki, God of Lies / Tibalt, Cosmic Impostor")
+        assert card is not None
+        assert card.name == "Valki, God of Lies // Tibalt, Cosmic Impostor"
+
     def test_get_card_by_id(self):
         db = CardDatabase()
         db.save_card(make_card())

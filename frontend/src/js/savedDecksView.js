@@ -2,14 +2,17 @@
 // POST /api/decks/save (mtg_analyzer DeckDatabase). Lazy by design, same
 // as cachedCardsView.js: nothing is fetched until the tab is opened.
 
-import { listSavedDecks, getSavedDeck, deleteSavedDeck } from './api.js';
+import { listSavedDecks, getSavedDeck, deleteSavedDeck, getDeckValidation, listSleeves, saveDeck } from './api.js';
+import { getPlayerName } from './settings.js';
 import { escapeHtml } from './cardTile.js';
 
 /**
- * @param {{onLoadDeck?: (deck: object) => void}} [options] Called with
- *   the full saved deck (including decklist text) when "Laden" is clicked.
+ * @param {{onLoadDeck?: (deck: object) => void, onAnalyzeDeck?: (deck: object) => void}} [options]
+ *   onLoadDeck is called with the full saved deck (including decklist text)
+ *   when "Deck editieren" is clicked; onAnalyzeDeck likewise for "Deck
+ *   analysieren".
  */
-export function renderSavedDecksView(container, { onLoadDeck } = {}) {
+export function renderSavedDecksView(container, { onLoadDeck, onAnalyzeDeck } = {}) {
   container.innerHTML = `
     <div class="saved-decks-panel">
       <div class="cache-toolbar">
@@ -32,7 +35,11 @@ export function renderSavedDecksView(container, { onLoadDeck } = {}) {
     resultEl.innerHTML = '<p class="empty-state">Lade gespeicherte Decks …</p>';
     countEl.textContent = '';
 
-    const decks = await listSavedDecks();
+    const playerName = getPlayerName();
+    const [decks, sleeves] = await Promise.all([
+      listSavedDecks(),
+      playerName ? listSleeves(playerName) : Promise.resolve([]),
+    ]);
     if (requestId !== latestRequestId) return; // superseded by a later refresh click
 
     if (decks === null) {
@@ -48,7 +55,27 @@ export function renderSavedDecksView(container, { onLoadDeck } = {}) {
       return;
     }
 
-    resultEl.innerHTML = decks.map(renderDeckRow).join('');
+    resultEl.innerHTML = decks.map((deck) => renderDeckRow(deck, sleeves || [])).join('');
+
+    resultEl.querySelectorAll('.saved-deck-sleeve-select').forEach((select) => {
+      select.addEventListener('change', async () => {
+        const deck = decks.find((d) => d.id === select.dataset.deckId);
+        if (!deck) return;
+        select.disabled = true;
+        await saveDeck({ ...deck, sleeveId: select.value || null });
+        select.disabled = false;
+      });
+    });
+
+    // Legality is computed server-side (resolves cards), so fetch it per
+    // deck and fill each row's badge as answers arrive. Illegal decks get
+    // a 🛑 + the reasons; legal ones a subtle ✅.
+    for (const deck of decks) {
+      getDeckValidation(deck.id).then((validation) => {
+        if (requestId !== latestRequestId) return; // list refreshed meanwhile
+        updateLegalityBadge(deck.id, validation);
+      });
+    }
 
     resultEl.querySelectorAll('.load-deck-btn').forEach((btn) => {
       btn.addEventListener('click', async () => {
@@ -60,6 +87,19 @@ export function renderSavedDecksView(container, { onLoadDeck } = {}) {
           return;
         }
         onLoadDeck?.(deck);
+      });
+    });
+
+    resultEl.querySelectorAll('.analyze-deck-btn').forEach((btn) => {
+      btn.addEventListener('click', async () => {
+        btn.disabled = true;
+        const deck = await getSavedDeck(btn.dataset.deckId);
+        btn.disabled = false;
+        if (!deck) {
+          window.alert('Deck konnte nicht geladen werden – Server nicht erreichbar oder Deck wurde gelöscht.');
+          return;
+        }
+        onAnalyzeDeck?.(deck);
       });
     });
 
@@ -79,6 +119,27 @@ export function renderSavedDecksView(container, { onLoadDeck } = {}) {
     });
   }
 
+  function updateLegalityBadge(deckId, validation) {
+    const el = resultEl.querySelector(`.saved-deck-legality[data-deck-id="${cssEscape(deckId)}"]`);
+    if (!el) return;
+    if (validation === null) {
+      el.className = 'saved-deck-legality unknown';
+      el.textContent = 'Legalität nicht prüfbar';
+      el.removeAttribute('title');
+      return;
+    }
+    if (validation.isLegal) {
+      el.className = 'saved-deck-legality legal';
+      el.textContent = '✅ legal';
+      el.removeAttribute('title');
+      return;
+    }
+    const reasons = (validation.errors || []).join('\n') || 'Deck ist nicht legal.';
+    el.className = 'saved-deck-legality illegal';
+    el.textContent = '🛑 nicht legal';
+    el.title = reasons;
+  }
+
   refreshBtn.addEventListener('click', load);
 
   // Only load the first time this view is shown, not eagerly at startup.
@@ -90,7 +151,7 @@ export function renderSavedDecksView(container, { onLoadDeck } = {}) {
   });
 }
 
-function renderDeckRow(deck) {
+function renderDeckRow(deck, sleeves) {
   const created = formatTimestamp(deck.createdAt);
   const name = deck.name?.trim() || 'Unbenanntes Deck';
 
@@ -98,14 +159,67 @@ function renderDeckRow(deck) {
     <div class="saved-deck-row">
       <div class="saved-deck-info">
         <strong>${escapeHtml(name)}</strong>
-        <span class="saved-deck-meta">Gespeichert: ${escapeHtml(created)}</span>
+        ${commanderHtml(deck.commanders)}
+        <span class="saved-deck-meta">Gespeichert: ${escapeHtml(created)}${colorIdentityHtml(deck.colorIdentity)}</span>
+        <span class="saved-deck-legality checking" data-deck-id="${escapeHtml(deck.id)}">Prüfe Legalität …</span>
       </div>
       <div class="saved-deck-actions">
-        <button type="button" class="load-deck-btn" data-deck-id="${deck.id}">Laden</button>
+        <select class="saved-deck-sleeve-select" data-deck-id="${escapeHtml(deck.id)}" title="Karten-Sleeve für dieses Deck">
+          ${sleeveOptionsHtml(sleeves, deck.sleeveId)}
+        </select>
+        <button type="button" class="load-deck-btn" data-deck-id="${deck.id}">Deck editieren</button>
+        <button type="button" class="analyze-deck-btn" data-deck-id="${deck.id}">Deck analysieren</button>
         <button type="button" class="delete-deck-btn" data-deck-id="${deck.id}" data-deck-name="${escapeHtml(name)}">Löschen</button>
       </div>
     </div>
   `;
+}
+
+//: WUBRG mana symbol → CSS class + label, in canonical color order.
+const COLOR_PIPS = [
+  { code: 'W', className: 'w', label: 'Weiß' },
+  { code: 'U', className: 'u', label: 'Blau' },
+  { code: 'B', className: 'b', label: 'Schwarz' },
+  { code: 'R', className: 'r', label: 'Rot' },
+  { code: 'G', className: 'g', label: 'Grün' },
+];
+
+// The commander line under a saved deck's name (Commander decks only;
+// `commanders` is [] for a deck with no commander section, or `null`/
+// `undefined` for one whose identity hasn't been computed yet — both
+// render nothing here).
+function commanderHtml(commanders) {
+  if (!commanders || !commanders.length) return '';
+  return `<span class="saved-deck-commander">👑 ${escapeHtml(commanders.join(' & '))}</span>`;
+}
+
+// Color-identity pips (WUBRG order), or a colorless "C" pip for an empty
+// (but computed) identity. Renders nothing while uncomputed (`null`).
+function colorIdentityHtml(colorIdentity) {
+  if (!colorIdentity) return '';
+  if (!colorIdentity.length) {
+    return ' · <span class="color-identity"><span class="color-pip color-pip--c" title="Farblos">C</span></span>';
+  }
+  const set = new Set(colorIdentity);
+  const pips = COLOR_PIPS.filter((p) => set.has(p.code))
+    .map((p) => `<span class="color-pip color-pip--${p.className}" title="${p.label}">${p.code}</span>`)
+    .join('');
+  return ` · <span class="color-identity">${pips}</span>`;
+}
+
+function sleeveOptionsHtml(sleeves, selectedSleeveId) {
+  const options = ['<option value="">Kein Sleeve</option>'];
+  for (const s of sleeves) {
+    const selected = s.sleeve_id === selectedSleeveId ? ' selected' : '';
+    options.push(`<option value="${escapeHtml(s.sleeve_id)}"${selected}>${escapeHtml(s.label)}</option>`);
+  }
+  return options.join('');
+}
+
+// Deck ids are server-generated UUIDs (no quotes/backslashes), so a
+// minimal escape is enough for the attribute selector above.
+function cssEscape(value) {
+  return String(value).replace(/["\\]/g, '\\$&');
 }
 
 function formatTimestamp(isoString) {

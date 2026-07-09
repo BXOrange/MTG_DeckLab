@@ -14,6 +14,7 @@ from mtg_analyzer.services.card_database import CardDatabase
 from mtg_analyzer.services.image_cache import ImageCache
 
 CARD_ID = "77c17415-56c9-4677-b6d5-e18641640e6f"
+DFC_ID = "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"
 
 
 def _seed_database() -> CardDatabase:
@@ -25,6 +26,19 @@ def _seed_database() -> CardDatabase:
             type_line="Instant",
             is_instant=True,
             image_uri_normal="https://cards.scryfall.io/normal/lightning_bolt.jpg",
+        )
+    )
+    database.save_card(
+        Card(
+            id=DFC_ID,
+            name="Delver of Secrets // Insectile Aberration",
+            type_line="Creature — Human Wizard",
+            is_creature=True,
+            image_uri_normal="https://cards.scryfall.io/normal/delver.jpg",
+            layout="transform",
+            back_name="Insectile Aberration",
+            back_type_line="Creature — Insect",
+            back_image_uri_normal="https://cards.scryfall.io/normal/aberration.jpg",
         )
     )
     return database
@@ -88,3 +102,42 @@ class TestGetCardImage:
         response = client.get(f"/api/cards/{CARD_ID}/image", params={"size": "large"})
 
         assert response.status_code == 404
+
+    def test_back_face_of_dfc_is_served(self, tmp_path):
+        requested = []
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            requested.append(str(request.url))
+            return httpx.Response(200, content=b"back-face-bytes")
+
+        _override(tmp_path, handler)
+        client = TestClient(app)
+
+        response = client.get(f"/api/cards/{DFC_ID}/image", params={"face": "back"})
+
+        assert response.status_code == 200
+        assert response.content == b"back-face-bytes"
+        # Served from the back face's own Scryfall URL, not the front's.
+        assert requested == ["https://cards.scryfall.io/normal/aberration.jpg"]
+
+    def test_back_face_requested_on_single_faced_card_returns_404(self, tmp_path):
+        def handler(request: httpx.Request) -> httpx.Response:
+            return httpx.Response(200, content=b"fake-image-bytes")
+
+        _override(tmp_path, handler)
+        client = TestClient(app)
+
+        response = client.get(f"/api/cards/{CARD_ID}/image", params={"face": "back"})
+
+        assert response.status_code == 404
+
+    def test_invalid_face_returns_400(self, tmp_path):
+        def handler(request: httpx.Request) -> httpx.Response:
+            return httpx.Response(200, content=b"fake-image-bytes")
+
+        _override(tmp_path, handler)
+        client = TestClient(app)
+
+        response = client.get(f"/api/cards/{CARD_ID}/image", params={"face": "side"})
+
+        assert response.status_code == 400

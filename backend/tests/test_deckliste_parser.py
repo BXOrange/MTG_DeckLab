@@ -1,7 +1,7 @@
 """Tests for the server-side decklist parser.
 
 Reference: frontend/src/js/parser.js (the client-side counterpart this
-mirrors) and backend/ToDo_Backend.md "HTTP API foundation".
+mirrors) and backend/Done_Backend.md "HTTP API foundation".
 """
 
 from mtg_analyzer.parser.deckliste_parser import parse_deck_sections
@@ -44,6 +44,13 @@ class TestCardLineParsing:
     def test_set_suffix_stripped(self):
         result = parse_deck_sections(mainboard_text="1 Sol Ring (LTR) 123")
         assert result.main_deck[0].name == "Sol Ring"
+
+    def test_foil_star_marker_stripped(self):
+        # Foil markers ("Sol Ring ★") aren't part of the name and break
+        # resolution — strip them, collapsing the leftover space.
+        assert parse_deck_sections(mainboard_text="1 Sol Ring ★").main_deck[0].name == "Sol Ring"
+        assert parse_deck_sections(mainboard_text="1 ★Sol Ring").main_deck[0].name == "Sol Ring"
+        assert parse_deck_sections(mainboard_text="1 Sol☆Ring").main_deck[0].name == "SolRing"
 
     def test_empty_name_after_stripping_reports_error(self):
         result = parse_deck_sections(mainboard_text="1 *MVP*")

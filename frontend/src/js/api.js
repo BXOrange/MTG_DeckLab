@@ -60,9 +60,12 @@ export async function submitDeck(sections) {
  * the URL, it doesn't fetch anything itself; the <img> tag does that.
  * @param {string} cardId Scryfall id (Card.id from a resolved card).
  * @param {'small'|'normal'|'large'|'png'} size
+ * @param {'front'|'back'} [face] Back face of a double-faced card
+ *   (transform / modal DFC) — only valid when the card `has_back_face`.
  */
-export function cardImageUrl(cardId, size = 'normal') {
-  return `${getServerUrl()}/api/cards/${encodeURIComponent(cardId)}/image?size=${size}`;
+export function cardImageUrl(cardId, size = 'normal', face = 'front') {
+  const faceParam = face === 'back' ? '&face=back' : '';
+  return `${getServerUrl()}/api/cards/${encodeURIComponent(cardId)}/image?size=${size}${faceParam}`;
 }
 
 /**
@@ -184,6 +187,26 @@ export async function getSavedDeck(deckId) {
 }
 
 /**
+ * Commander legality of a saved deck (GET /api/decks/{id}/validation).
+ * @param {string} deckId
+ * @returns {Promise<{isLegal: boolean, errors: string[], warnings: string[], bannedCardNames: string[], colorIdentityViolationNames: string[]} | null>} null on failure
+ */
+export async function getDeckValidation(deckId) {
+  let response;
+  try {
+    response = await fetch(`${getServerUrl()}/api/decks/${encodeURIComponent(deckId)}/validation`);
+  } catch {
+    return null;
+  }
+  if (!response.ok) return null;
+  try {
+    return await response.json();
+  } catch {
+    return null;
+  }
+}
+
+/**
  * @param {string} deckId
  * @returns {Promise<boolean>} whether the deck was actually deleted
  */
@@ -193,6 +216,220 @@ export async function deleteSavedDeck(deckId) {
     response = await fetch(`${getServerUrl()}/api/decks/${encodeURIComponent(deckId)}`, {
       method: 'DELETE',
     });
+  } catch {
+    return false;
+  }
+  return response.ok;
+}
+
+// --- Game sessions (goldfish / multiplayer stub) --------------------------
+// Backend: mtg_analyzer/api/game.py. Unlike the helpers above (which return
+// the payload or null), these return {ok, status, data} so callers can tell
+// a 404/422/501 apart from a network failure and surface the detail (e.g.
+// the 422 notFound list, or the 501 multiplayer stub message).
+
+async function gameRequest(method, path, body) {
+  let response;
+  try {
+    response = await fetch(`${getServerUrl()}${path}`, {
+      method,
+      headers: body === undefined ? undefined : { 'Content-Type': 'application/json' },
+      body: body === undefined ? undefined : JSON.stringify(body),
+    });
+  } catch {
+    return { ok: false, status: 0, data: null };
+  }
+  let data = null;
+  try {
+    data = await response.json();
+  } catch {
+    /* empty/invalid body — leave data null */
+  }
+  return { ok: response.ok, status: response.status, data };
+}
+
+/**
+ * Start a solo goldfish game from a decklist (UC3). Returns the initial
+ * session view on success; on 422 the data carries a `detail.notFound`.
+ * @param {{commanderText?: string, mainboardText?: string, deckId?: string, shuffle?: boolean, startingLife?: number, startingHand?: number}} payload
+ */
+export async function startGoldfish(payload) {
+  return gameRequest('POST', '/api/game/goldfish', payload);
+}
+
+/**
+ * The tokens a deck can produce, so the loading screen can preload their art
+ * before the match starts. Returns `{tokens: [{id, name, image_small, …}]}`.
+ * @param {{deckId?: string, commanderText?: string, mainboardText?: string, sideboardText?: string}} payload
+ */
+export async function fetchDeckTokens(payload) {
+  return gameRequest('POST', '/api/game/deck-tokens', payload);
+}
+
+/**
+ * Every token in the repo's curated catalogue (deck-independent), for the
+ * "known token type" dropdown in Settings' token-image upload form.
+ * @returns {Promise<{ok: boolean, status: number, data: {tokens: Array<{id, name, type_line, image_small}>}|null}>}
+ */
+export async function fetchKnownTokenTypes() {
+  return gameRequest('GET', '/api/game/tokens');
+}
+
+/** Apply one action (from the session's legal_actions) to a game. */
+export async function sendGameAction(sessionId, action) {
+  return gameRequest('POST', `/api/game/${encodeURIComponent(sessionId)}/action`, action);
+}
+
+/** Undo the last `steps` move(s) in a goldfish game. */
+export async function rewindGame(sessionId, steps = 1) {
+  return gameRequest('POST', `/api/game/${encodeURIComponent(sessionId)}/rewind`, { steps });
+}
+
+/** Reset a goldfish game to its opening state. */
+export async function restartGame(sessionId) {
+  return gameRequest('POST', `/api/game/${encodeURIComponent(sessionId)}/restart`, {});
+}
+
+/** Drop a game session on the server. */
+export async function endGame(sessionId) {
+  return gameRequest('DELETE', `/api/game/${encodeURIComponent(sessionId)}`);
+}
+
+/** Multiplayer is a backend stub (501) — used to show a "coming soon" note. */
+export async function startMultiplayer() {
+  return gameRequest('POST', '/api/game/multiplayer', {});
+}
+
+/**
+ * Start a Replay / Puzzle session. Pass a full `Replay` descriptor to
+ * load a saved/exported board, or `null` to start blank with `numPlayers`
+ * (1 = solo puzzle, 2 = with an opponent).
+ * @param {object|null} replay
+ * @param {number} numPlayers
+ */
+export async function startReplay(replay, numPlayers = 1) {
+  return gameRequest('POST', '/api/game/replay', { replay, numPlayers });
+}
+
+/**
+ * Serialize a session's board to a portable descriptor (for download). Works
+ * for a goldfish session too, so a goldfish position can be exported.
+ * @param {string} sessionId
+ */
+export async function exportReplay(sessionId) {
+  return gameRequest('GET', `/api/game/${encodeURIComponent(sessionId)}/replay-export`);
+}
+
+// --- Per-player custom art: token images + card-back "sleeves" ------------
+// Backend: mtg_analyzer/api/player_assets.py. Keyed by player name (see
+// settings.js getPlayerName()) rather than a session, so any client asking
+// for that name gets the same images back — that's what lets an opponent
+// see them too, once multiplayer (currently a 501 stub) is wired up.
+
+/**
+ * Reserved `token_name` value for a player's "generic" token image — the
+ * fallback art for any token with neither a real Scryfall image nor its own
+ * uploaded art (mainly ad hoc tokens an effect synthesizes inline, e.g. a
+ * bare "1/1 white Soldier", which have no catalogue entry to name exactly).
+ * Never a real token name (those never start with "__"), so it can't collide.
+ */
+export const GENERIC_TOKEN_KEY = '__generic__';
+
+/**
+ * URL for a player's uploaded art for a token with no real Scryfall art.
+ * `tokenName` is a query param, not a path segment — token names can
+ * contain a literal "/" (e.g. "Soldier 1/1"), which a percent-encoded
+ * path segment can't round-trip through routing.
+ */
+export function tokenImageUrl(playerName, tokenName) {
+  return `${getServerUrl()}/api/players/${encodeURIComponent(playerName)}/token-images/image?token_name=${encodeURIComponent(tokenName)}`;
+}
+
+/** @returns {Promise<Array<{token_name: string, updated_at: string}> | null>} null on failure */
+export async function listTokenImages(playerName) {
+  let response;
+  try {
+    response = await fetch(`${getServerUrl()}/api/players/${encodeURIComponent(playerName)}/token-images`);
+  } catch {
+    return null;
+  }
+  if (!response.ok) return null;
+  try {
+    return await response.json();
+  } catch {
+    return null;
+  }
+}
+
+/** @returns {Promise<{ok: boolean, status: number, data: object|null}>} */
+export async function uploadTokenImage(playerName, tokenName, file) {
+  const form = new FormData();
+  form.append('token_name', tokenName);
+  form.append('file', file);
+  return uploadRequest(`/api/players/${encodeURIComponent(playerName)}/token-images`, form);
+}
+
+/** @returns {Promise<boolean>} whether it was actually deleted */
+export async function deleteTokenImage(playerName, tokenName) {
+  return deleteRequest(
+    `/api/players/${encodeURIComponent(playerName)}/token-images?token_name=${encodeURIComponent(tokenName)}`
+  );
+}
+
+/** URL for one of a player's uploaded card-back sleeve designs. */
+export function sleeveImageUrl(playerName, sleeveId) {
+  return `${getServerUrl()}/api/players/${encodeURIComponent(playerName)}/sleeves/${encodeURIComponent(sleeveId)}/image`;
+}
+
+/** @returns {Promise<Array<{sleeve_id: string, label: string, updated_at: string}> | null>} null on failure */
+export async function listSleeves(playerName) {
+  let response;
+  try {
+    response = await fetch(`${getServerUrl()}/api/players/${encodeURIComponent(playerName)}/sleeves`);
+  } catch {
+    return null;
+  }
+  if (!response.ok) return null;
+  try {
+    return await response.json();
+  } catch {
+    return null;
+  }
+}
+
+/** @returns {Promise<{ok: boolean, status: number, data: object|null}>} */
+export async function uploadSleeve(playerName, label, file) {
+  const form = new FormData();
+  form.append('label', label);
+  form.append('file', file);
+  return uploadRequest(`/api/players/${encodeURIComponent(playerName)}/sleeves`, form);
+}
+
+/** @returns {Promise<boolean>} whether it was actually deleted */
+export async function deleteSleeve(playerName, sleeveId) {
+  return deleteRequest(`/api/players/${encodeURIComponent(playerName)}/sleeves/${encodeURIComponent(sleeveId)}`);
+}
+
+async function uploadRequest(path, form) {
+  let response;
+  try {
+    response = await fetch(`${getServerUrl()}${path}`, { method: 'POST', body: form });
+  } catch {
+    return { ok: false, status: 0, data: null };
+  }
+  let data = null;
+  try {
+    data = await response.json();
+  } catch {
+    /* empty/invalid body — leave data null */
+  }
+  return { ok: response.ok, status: response.status, data };
+}
+
+async function deleteRequest(path) {
+  let response;
+  try {
+    response = await fetch(`${getServerUrl()}${path}`, { method: 'DELETE' });
   } catch {
     return false;
   }

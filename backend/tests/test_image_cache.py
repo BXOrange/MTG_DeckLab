@@ -25,6 +25,16 @@ class TestPathFor:
         cache = ImageCache(cache_dir=tmp_path)
         assert cache.path_for("card-1", "png") == tmp_path / "card-1" / "png.png"
 
+    def test_back_face_gets_a_distinct_filename(self, tmp_path):
+        # Both faces of a DFC share the card id, so the back face must not
+        # clobber the front's cached file.
+        cache = ImageCache(cache_dir=tmp_path)
+        front = cache.path_for("card-1", "normal", "front")
+        back = cache.path_for("card-1", "normal", "back")
+        assert front == tmp_path / "card-1" / "normal.jpg"
+        assert back == tmp_path / "card-1" / "normal_back.jpg"
+        assert front != back
+
 
 class TestGetOrFetch:
     def test_downloads_and_writes_file(self, tmp_path):

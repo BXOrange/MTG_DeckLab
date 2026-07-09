@@ -55,14 +55,20 @@ class ImageCache:
     def __exit__(self, *exc_info: object) -> None:
         self.close()
 
-    def path_for(self, card_id: str, size: str) -> Path:
-        """Where this (card, size) image is/would be stored, whether or not it exists yet."""
-        extension = _EXTENSION_BY_SIZE.get(size, "jpg")
-        return self._cache_dir / card_id / f"{size}.{extension}"
+    def path_for(self, card_id: str, size: str, face: str = "front") -> Path:
+        """Where this (card, size, face) image is/would be stored, whether or not it exists yet.
 
-    def get_or_fetch(self, card_id: str, size: str, image_url: str) -> Path:
+        The back face of a double-faced card shares the card's Scryfall
+        `id` with the front, so it gets a distinct on-disk filename
+        (``<size>_back.<ext>``) to avoid clobbering the front image.
+        """
+        extension = _EXTENSION_BY_SIZE.get(size, "jpg")
+        suffix = "_back" if face == "back" else ""
+        return self._cache_dir / card_id / f"{size}{suffix}.{extension}"
+
+    def get_or_fetch(self, card_id: str, size: str, image_url: str, face: str = "front") -> Path:
         """Return the cached image path, downloading it first if not yet cached."""
-        path = self.path_for(card_id, size)
+        path = self.path_for(card_id, size, face)
         if path.exists():
             return path
 

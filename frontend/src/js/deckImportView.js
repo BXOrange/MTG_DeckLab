@@ -1,6 +1,5 @@
 import { parseDeckSections, SAMPLE_COMMANDER, SAMPLE_MAINBOARD, SAMPLE_SIDEBOARD } from './parser.js';
 import { setState } from './state.js';
-import { newBoardFromDeck } from './boardEngine.js';
 import { resolveCardImages, getResolvedCard, isConfirmedNotFound } from './cardImages.js';
 import { submitDeck, saveDeck } from './api.js';
 import { renderCardTile, renderCardTilePlaceholder, renderCardTileNotFound, escapeHtml } from './cardTile.js';
@@ -47,7 +46,8 @@ export function renderDeckImportView(container, { onDeckLoaded } = {}) {
           <label for="deck-name-input">Deckname (zum Speichern)</label>
           <div class="save-deck-controls">
             <input id="deck-name-input" type="text" placeholder="z.B. Krenko Goblins" />
-            <button id="save-deck-btn" type="button">Speichern</button>
+            <button id="update-deck-btn" type="button">Aktualisieren</button>
+            <button id="save-new-deck-btn" type="button">Als neues speichern</button>
           </div>
           <p class="server-status" id="save-status"></p>
         </div>
@@ -65,21 +65,48 @@ export function renderDeckImportView(container, { onDeckLoaded } = {}) {
   const saveStatusEl = container.querySelector('#save-status');
   const resultEl = container.querySelector('#import-result');
 
-  // Set once a deck has been saved/loaded, so a later "Speichern" click
-  // updates that same saved deck instead of creating a duplicate. Reset
-  // by loading the sample deck or a *different* saved deck.
+  // Set once a deck has been saved/loaded. "Aktualisieren" overwrites
+  // that saved deck; "Als neues speichern" always creates a fresh deck
+  // (leaving the loaded one untouched) and then points savedDeckId at the
+  // new copy. Split into two explicit buttons because a single "Speichern"
+  // that silently overwrote the loaded deck after e.g. a commander change
+  // was surprising and destructive. Reset (update disabled) by loading the
+  // sample deck.
   let savedDeckId = null;
+  const updateDeckBtn = container.querySelector('#update-deck-btn');
+
+  function updateSaveButtons() {
+    // "Aktualisieren" only makes sense once there's a saved deck to target.
+    updateDeckBtn.disabled = savedDeckId == null;
+    updateDeckBtn.title = savedDeckId == null
+      ? 'Erst verfügbar, sobald ein Deck geladen oder als neues gespeichert wurde.'
+      : 'Das geladene/gespeicherte Deck überschreiben.';
+  }
+  updateSaveButtons();
   // The last rendered deck + render metadata, kept so the "Detailansicht"
   // toggle and late-arriving card data can re-render without re-parsing.
   let lastDeck = null;
   let lastMeta = {};
   let detailMode = false;
 
+  // Foil/star markers ("Sol Ring ★") aren't part of a card name and break
+  // resolution. Strip them from the entered text so what we parse, submit,
+  // and save is clean; `sanitizeInputs` also rewrites the textareas so the
+  // user sees the cleaned list.
+  const stripStars = (text) => (text || '').replace(/[★☆]/g, '');
+
+  function sanitizeInputs() {
+    for (const el of [commanderTextarea, mainboardTextarea, sideboardTextarea]) {
+      const cleaned = stripStars(el.value);
+      if (cleaned !== el.value) el.value = cleaned;
+    }
+  }
+
   function currentSections() {
     return {
-      commanderText: commanderTextarea.value,
-      mainboardText: mainboardTextarea.value,
-      sideboardText: sideboardTextarea.value,
+      commanderText: stripStars(commanderTextarea.value),
+      mainboardText: stripStars(mainboardTextarea.value),
+      sideboardText: stripStars(sideboardTextarea.value),
     };
   }
 
@@ -118,6 +145,7 @@ export function renderDeckImportView(container, { onDeckLoaded } = {}) {
     mainboardTextarea.value = SAMPLE_MAINBOARD;
     sideboardTextarea.value = SAMPLE_SIDEBOARD;
     savedDeckId = null;
+    updateSaveButtons();
     nameInput.value = '';
     saveStatusEl.textContent = '';
     saveStatusEl.className = 'server-status';
@@ -127,13 +155,13 @@ export function renderDeckImportView(container, { onDeckLoaded } = {}) {
 
   function parseCurrentSections() {
     const requestId = ++latestRequestId;
+    sanitizeInputs(); // strip foil stars from the textareas before parsing
     const sections = currentSections();
 
     // Optimistic local parse: instant feedback while the authoritative
-    // server response (below) is in flight. Same shape either way, so
-    // the board/state code doesn't care which one it's looking at.
+    // server response (below) is in flight.
     const localDeck = parseDeckSections(sections);
-    setState({ deck: localDeck, board: newBoardFromDeck(localDeck) });
+    setState({ deck: localDeck });
     showResult(localDeck, { pending: true });
 
     // Fire and forget: images (and, for the detail view, full card
@@ -154,18 +182,21 @@ export function renderDeckImportView(container, { onDeckLoaded } = {}) {
         showResult(localDeck, { warning: result.error });
         return;
       }
-      setState({ deck: result.deck, board: newBoardFromDeck(result.deck) });
+      setState({ deck: result.deck });
       showResult(result.deck, { serverConfirmed: true });
     });
   }
 
   container.querySelector('#parse-btn').addEventListener('click', parseCurrentSections);
 
-  container.querySelector('#save-deck-btn').addEventListener('click', async () => {
-    saveStatusEl.textContent = 'Speichert …';
+  async function doSave({ update }) {
+    // update=true overwrites the loaded/saved deck (sends its id);
+    // update=false always creates a new deck (no id) and adopts its id.
+    saveStatusEl.textContent = update ? 'Aktualisiert …' : 'Speichert …';
     saveStatusEl.className = 'server-status pending';
 
-    const saved = await saveDeck({ id: savedDeckId ?? undefined, name: nameInput.value, ...currentSections() });
+    const id = update ? savedDeckId ?? undefined : undefined;
+    const saved = await saveDeck({ id, name: nameInput.value, ...currentSections() });
 
     if (!saved) {
       saveStatusEl.textContent = 'Speichern fehlgeschlagen – Server nicht erreichbar.';
@@ -174,12 +205,17 @@ export function renderDeckImportView(container, { onDeckLoaded } = {}) {
     }
 
     savedDeckId = saved.id;
-    saveStatusEl.textContent = 'Gespeichert.';
+    updateSaveButtons();
+    saveStatusEl.textContent = update ? 'Aktualisiert.' : 'Als neues Deck gespeichert.';
     saveStatusEl.className = 'server-status ok';
-  });
+  }
+
+  updateDeckBtn.addEventListener('click', () => doSave({ update: true }));
+  container.querySelector('#save-new-deck-btn').addEventListener('click', () => doSave({ update: false }));
 
   function loadDeck(savedDeck) {
     savedDeckId = savedDeck.id;
+    updateSaveButtons();
     nameInput.value = savedDeck.name || '';
     commanderTextarea.value = savedDeck.commanderText || '';
     mainboardTextarea.value = savedDeck.mainboardText || '';
@@ -315,14 +351,14 @@ function renderResult(resultEl, deck, { onDeckLoaded, meta = {}, detailMode, onT
         ${scrollable(sideboard)}
       ` : ''}
 
-      <button id="goto-board-btn" type="button" class="primary"
+      <button id="goto-goldfish-btn" type="button" class="primary"
         ${meta.serverConfirmed ? '' : 'disabled'}
         title="${meta.serverConfirmed ? '' : 'Erst verfügbar, sobald das Deck serverseitig geprüft wurde.'}"
-      >Zur Spielfläche →</button>
+      >Zum Goldfisch-Modus →</button>
     </div>
   `;
 
-  resultEl.querySelector('#goto-board-btn').addEventListener('click', () => {
+  resultEl.querySelector('#goto-goldfish-btn').addEventListener('click', () => {
     onDeckLoaded?.();
   });
 

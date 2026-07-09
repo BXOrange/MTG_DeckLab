@@ -1,0 +1,173 @@
+"""SQLite-backed storage for a player's custom art uploads.
+
+Two kinds of image a player can upload in Settings (frontend
+connectionSettingsView.js):
+
+* **Token images** — art for a token that has no real Scryfall art
+  (a synthesized "create a 1/1 white Soldier" token, see
+  `services/token_database.synthesize_token_card`), keyed by token name.
+* **Sleeves** — a generic card-back design, keyed by a generated id and
+  given a label; selectable per saved deck (`Deck.sleeve_id`,
+  `services/deck_database.py`) and used as the game board's fallback
+  "back of card" art (`frontend/src/js/gameBoardView.js` `resolveImageUrl`)
+  for a face-down/transformed object with no real art of its own.
+
+Both are keyed by `player_name` (the free-text profile name from
+Settings — this app has no auth) rather than a session or connection,
+so a shared backend can serve them to *any* client asking for that
+name — the mechanism that lets an opponent in a multiplayer match see
+them too, once that mode is wired up (`api/game.py` `/multiplayer` is
+still a 501 stub).
+
+Image bytes are stored directly as a BLOB column (unlike
+`services/image_cache.py`, which caches Scryfall art on disk) — these
+are small user uploads with no upstream to re-fetch, and keeping them
+out of the filesystem means a `token_name`/`sleeve_id` never has to be
+sanitized into a safe filename.
+"""
+
+from __future__ import annotations
+
+import sqlite3
+import threading
+from datetime import datetime, timezone
+from pathlib import Path
+from typing import Optional, Union
+
+#: Real user data with no upstream source — lives beside decks.db, not
+#: the disposable Scryfall cache (see services/deck_database.py DATA_ROOT).
+DATA_ROOT = Path(__file__).resolve().parent.parent.parent / "data"
+
+DEFAULT_PLAYER_ASSETS_DB_PATH = DATA_ROOT / "player_assets.db"
+
+_SCHEMA = """
+CREATE TABLE IF NOT EXISTS token_images (
+    player_name TEXT NOT NULL,
+    token_name TEXT NOT NULL,
+    content_type TEXT NOT NULL,
+    data BLOB NOT NULL,
+    updated_at TEXT NOT NULL,
+    PRIMARY KEY (player_name, token_name)
+);
+CREATE TABLE IF NOT EXISTS sleeves (
+    player_name TEXT NOT NULL,
+    sleeve_id TEXT NOT NULL,
+    label TEXT NOT NULL,
+    content_type TEXT NOT NULL,
+    data BLOB NOT NULL,
+    updated_at TEXT NOT NULL,
+    PRIMARY KEY (player_name, sleeve_id)
+);
+"""
+
+
+class PlayerAssetStore:
+    """Per-player token-image and sleeve uploads."""
+
+    def __init__(self, db_path: Union[str, Path] = DEFAULT_PLAYER_ASSETS_DB_PATH) -> None:
+        if db_path != ":memory:":
+            Path(db_path).parent.mkdir(parents=True, exist_ok=True)
+        # check_same_thread=False + a lock: shared across FastAPI's thread
+        # pool, same as CardDatabase/DeckDatabase (see their docstrings).
+        self._connection = sqlite3.connect(str(db_path), check_same_thread=False)
+        self._lock = threading.Lock()
+        with self._lock:
+            self._connection.executescript(_SCHEMA)
+            self._connection.commit()
+
+    def close(self) -> None:
+        self._connection.close()
+
+    def __enter__(self) -> "PlayerAssetStore":
+        return self
+
+    def __exit__(self, *exc_info: object) -> None:
+        self.close()
+
+    # -- Token images ------------------------------------------------------
+
+    def list_token_images(self, player_name: str) -> list[dict[str, str]]:
+        with self._lock:
+            rows = self._connection.execute(
+                "SELECT token_name, updated_at FROM token_images "
+                "WHERE player_name = ? ORDER BY token_name",
+                (player_name,),
+            ).fetchall()
+        return [{"token_name": row[0], "updated_at": row[1]} for row in rows]
+
+    def get_token_image(self, player_name: str, token_name: str) -> Optional[tuple[str, bytes]]:
+        with self._lock:
+            row = self._connection.execute(
+                "SELECT content_type, data FROM token_images "
+                "WHERE player_name = ? AND token_name = ?",
+                (player_name, token_name),
+            ).fetchone()
+        return (row[0], row[1]) if row else None
+
+    def save_token_image(
+        self, player_name: str, token_name: str, content_type: str, data: bytes
+    ) -> None:
+        with self._lock:
+            self._connection.execute(
+                "INSERT INTO token_images (player_name, token_name, content_type, data, updated_at) "
+                "VALUES (?, ?, ?, ?, ?) "
+                "ON CONFLICT(player_name, token_name) DO UPDATE SET "
+                "content_type = excluded.content_type, data = excluded.data, updated_at = excluded.updated_at",
+                (player_name, token_name, content_type, data, _now()),
+            )
+            self._connection.commit()
+
+    def delete_token_image(self, player_name: str, token_name: str) -> bool:
+        with self._lock:
+            cursor = self._connection.execute(
+                "DELETE FROM token_images WHERE player_name = ? AND token_name = ?",
+                (player_name, token_name),
+            )
+            self._connection.commit()
+        return cursor.rowcount > 0
+
+    # -- Sleeves -------------------------------------------------------------
+
+    def list_sleeves(self, player_name: str) -> list[dict[str, str]]:
+        with self._lock:
+            rows = self._connection.execute(
+                "SELECT sleeve_id, label, updated_at FROM sleeves "
+                "WHERE player_name = ? ORDER BY label",
+                (player_name,),
+            ).fetchall()
+        return [{"sleeve_id": row[0], "label": row[1], "updated_at": row[2]} for row in rows]
+
+    def get_sleeve(self, player_name: str, sleeve_id: str) -> Optional[tuple[str, bytes]]:
+        with self._lock:
+            row = self._connection.execute(
+                "SELECT content_type, data FROM sleeves WHERE player_name = ? AND sleeve_id = ?",
+                (player_name, sleeve_id),
+            ).fetchone()
+        return (row[0], row[1]) if row else None
+
+    def save_sleeve(
+        self, player_name: str, sleeve_id: str, label: str, content_type: str, data: bytes
+    ) -> None:
+        with self._lock:
+            self._connection.execute(
+                "INSERT INTO sleeves (player_name, sleeve_id, label, content_type, data, updated_at) "
+                "VALUES (?, ?, ?, ?, ?, ?) "
+                "ON CONFLICT(player_name, sleeve_id) DO UPDATE SET "
+                "label = excluded.label, content_type = excluded.content_type, "
+                "data = excluded.data, updated_at = excluded.updated_at",
+                (player_name, sleeve_id, label, content_type, data, _now()),
+            )
+            self._connection.commit()
+
+    def delete_sleeve(self, player_name: str, sleeve_id: str) -> bool:
+        with self._lock:
+            cursor = self._connection.execute(
+                "DELETE FROM sleeves WHERE player_name = ? AND sleeve_id = ?",
+                (player_name, sleeve_id),
+            )
+            self._connection.commit()
+        return cursor.rowcount > 0
+
+
+def _now() -> str:
+    return datetime.now(timezone.utc).isoformat()

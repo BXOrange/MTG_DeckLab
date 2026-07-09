@@ -1,6 +1,6 @@
 """Tests for the Deck model.
 
-Reference: backend/ToDo_Backend.md "Deck persistence".
+Reference: backend/Done_Backend.md "Deck persistence".
 """
 
 import uuid
@@ -50,6 +50,24 @@ class TestAnalysisHook:
         assert deck.analysis_id == "analysis-123"
 
 
+class TestCachedIdentity:
+    def test_color_identity_and_commanders_default_to_none(self):
+        deck = Deck()
+        assert deck.color_identity is None
+        assert deck.commanders is None
+
+    def test_color_identity_and_commanders_can_be_set(self):
+        deck = Deck(color_identity=["B", "R"], commanders=["Krenko, Mob Boss"])
+        assert deck.color_identity == ["B", "R"]
+        assert deck.commanders == ["Krenko, Mob Boss"]
+
+    def test_empty_list_round_trips_distinct_from_none(self):
+        deck = Deck(color_identity=[], commanders=[])
+        restored = Deck.from_dict(deck.to_dict())
+        assert restored.color_identity == []
+        assert restored.commanders == []
+
+
 class TestSerialization:
     def test_to_dict_round_trip(self):
         deck = Deck(
@@ -72,6 +90,9 @@ class TestSerialization:
             "sideboardText",
             "createdAt",
             "analysisId",
+            "sleeveId",
+            "colorIdentity",
+            "commanders",
         }
 
     def test_from_dict_missing_optional_fields_uses_defaults(self):
