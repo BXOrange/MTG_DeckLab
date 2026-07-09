@@ -12,8 +12,10 @@ else in the engine has to change. Register a card with `register(name, factory)`
 where ``factory`` returns fresh specs each call (specs are mutated when bound —
 their effects get a source — so each object must get its own copies).
 
-`enters_tapped(card)` is a separate, *oracle-derived* rule (RULE 614.1): it
-reads the printed text, so every plain tap-land works without being registered.
+`enters_tapped(card)`/`land_tap_condition(card)` are a separate, *oracle-derived*
+rule (RULE 614.1): they read the printed text, so every plain tap-land — and
+the shock/check/fast/slow-land conditional shapes `GameEngine.play_land`
+resolves via `RulesEngine.enter_land_tapped` — works without being registered.
 """
 
 from __future__ import annotations
@@ -80,25 +82,94 @@ def specs_for(card: Any) -> list[AbilitySpec]:
 
 #: A land that enters tapped (RULE 614.1) — a plain tap-land whose text says so.
 _ENTERS_TAPPED_RE = re.compile(r"enters (?:the battlefield )?tapped", re.IGNORECASE)
-#: …but not one whose tapped-entry is *conditional* (shock/check/pay-life
-#: lands), since that choice isn't modeled yet — those stay untapped for now.
+#: …but not one whose tapped-entry is *conditional* (shock/check/fast/slow
+#: lands) — `land_tap_condition` classifies those precisely; this is only the
+#: fallback for a conditional shape it doesn't recognize (fails safe: enters
+#: untapped rather than wrongly forcing it down).
 _CONDITIONAL_TAP_RE = re.compile(
     r"unless|you may pay|if you don't|reveal", re.IGNORECASE
 )
+#: Shock lands: "you may pay N life. If you don't, ~ enters the battlefield
+#: tapped." (an optional-cost replacement, RULE 614.1 — a genuine choice).
+_PAY_LIFE_RE = re.compile(r"you may pay (\d+) life", re.IGNORECASE)
+#: Fast/slow lands: "unless you control <count> or fewer/more other lands" —
+#: deterministic on the board the controller already has, not a choice.
+_UNLESS_COUNT_RE = re.compile(
+    r"unless you control (\w+) or (fewer|more) other lands", re.IGNORECASE
+)
+#: Check lands: "unless you control a/an <Type> [or a/an <Type> …]" —
+#: deterministic on the land *types* the controller already has.
+_UNLESS_TYPES_RE = re.compile(r"unless you control an? (.+?)\.", re.IGNORECASE)
+#: Small number words the count-based clauses spell out.
+_NUMBER_WORDS: dict[str, int] = {
+    "one": 1, "two": 2, "three": 3, "four": 4, "five": 5,
+}
 
 
-def enters_tapped(card: Any) -> bool:
-    """Whether ``card`` enters the battlefield tapped (RULE 614.1).
+def _split_types_clause(clause: str) -> list[str]:
+    """"Mountain or a Forest" → ``["mountain", "forest"]`` (each subsequent
+    item repeats its own "a"/"an" per official templating)."""
+    types: list[str] = []
+    for part in re.split(r"\s+or\s+", clause):
+        part = re.sub(r"^an?\s+", "", part.strip(), flags=re.IGNORECASE).strip()
+        if part:
+            types.append(part.lower())
+    return types
 
-    Read straight off the oracle text, so any plain tap-land works. Conditional
-    tap-lands (shock lands' "you may pay 2 life", check lands' "unless you
-    control …") are treated as entering untapped — the payment/condition choice
-    is a known gap, so we don't force them tapped.
+
+def land_tap_condition(card: Any) -> dict[str, Any]:
+    """How ``card``'s RULE 614.1 tapped-entry resolves, read off its text.
+
+    One of:
+
+    - ``{"kind": "never"}`` — no tapped-entry clause (a normal land), or an
+      unrecognized conditional shape (fails safe: untapped rather than wrong).
+    - ``{"kind": "always"}`` — a plain tap-land, unconditionally tapped.
+    - ``{"kind": "pay_life", "amount": N}`` — a shock land: the controller may
+      pay ``N`` life to keep it untapped, a genuine choice the caller must
+      offer interactively.
+    - ``{"kind": "unless_types", "types": [...]}`` — a check land: untapped
+      iff the controller already controls a land of one of these types.
+    - ``{"kind": "unless_count", "cmp": "le" | "ge", "count": N}`` — a
+      fast land (``"le"``) or slow land (``"ge"``): untapped iff the count of
+      *other* lands the controller controls compares as stated.
+
+    The last three are deterministic on the board state at entry — no player
+    decision, unlike the shock land's payment.
     """
     text = getattr(card, "oracle_text", "") or ""
     if not _ENTERS_TAPPED_RE.search(text):
-        return False
-    return not _CONDITIONAL_TAP_RE.search(text)
+        return {"kind": "never"}
+    pay_match = _PAY_LIFE_RE.search(text)
+    if pay_match and "if you don't" in text.lower():
+        return {"kind": "pay_life", "amount": int(pay_match.group(1))}
+    count_match = _UNLESS_COUNT_RE.search(text)
+    if count_match:
+        count = _NUMBER_WORDS.get(count_match.group(1).lower())
+        if count is None:
+            try:
+                count = int(count_match.group(1))
+            except ValueError:
+                count = None
+        if count is not None:
+            cmp_op = "le" if count_match.group(2).lower() == "fewer" else "ge"
+            return {"kind": "unless_count", "cmp": cmp_op, "count": count}
+    types_match = _UNLESS_TYPES_RE.search(text)
+    if types_match:
+        types = _split_types_clause(types_match.group(1))
+        if types:
+            return {"kind": "unless_types", "types": types}
+    if _CONDITIONAL_TAP_RE.search(text):
+        return {"kind": "never"}
+    return {"kind": "always"}
+
+
+def enters_tapped(card: Any) -> bool:
+    """Whether ``card`` unconditionally enters the battlefield tapped
+    (RULE 614.1) — a plain tap-land. Conditional tap-lands (shock/check/
+    fast/slow lands, see `land_tap_condition`) are *not* "always" and so
+    read as ``False`` here; `GameEngine.play_land` resolves those properly."""
+    return land_tap_condition(card)["kind"] == "always"
 
 
 # ---------------------------------------------------------------------------
@@ -240,3 +311,77 @@ def _copy_artifact() -> list[AbilitySpec]:
 
 
 register("Copy Artifact", _copy_artifact)
+
+
+def _tyvar_kell() -> list[AbilitySpec]:
+    """Elves you control have "{T}: Add {B}."
+    [loyalty abilities not modeled — planeswalkers/loyalty costs are, but
+    this catalogue entry only demonstrates the static clause]
+
+    — Tyvar Kell. A layer-6 ability-adding grant (RULE 613.7f) of a mana
+    ability rather than a keyword — despite CR 612.1's mention of text
+    "granted … by other effects", this is *not* layer 3/RULE 612 (see
+    `game/continuous.py`'s module docstring); it's the same layer as
+    `grant_keyword`, just granting `{"B": 1}` mana production instead of a
+    keyword slug. `mana_abilities.mana_options_for` folds it onto whatever
+    the Elf already taps for."""
+    return [
+        AbilitySpec(
+            "static",
+            [
+                EffectSpec(
+                    "grant_mana_ability",
+                    {"affects": "creatures_you_control", "subtype": "Elf", "mana": [{"B": 1}]},
+                )
+            ],
+            raw_text='Elfen, die du kontrollierst, haben "{T}: Erzeuge {B}."',
+        )
+    ]
+
+
+register("Tyvar Kell", _tyvar_kell)
+
+
+def _dionus_elvish_archdruid() -> list[AbilitySpec]:
+    """Elves you control have "Whenever this creature becomes tapped during
+    your turn, untap it and put a +1/+1 counter on it. This ability
+    triggers only once each turn."
+
+    — Dionus, Elvish Archdruid. A layer-6 ability-adding grant (RULE
+    613.7f) of a full triggered ability, not just a keyword or a mana
+    ability (see `_tyvar_kell` above for the same distinction from layer
+    3/RULE 612). Each Elf gets its *own* granted `TriggeredAbility`
+    instance, scoped to itself (`continuous._granted_trigger_condition`) and
+    cached across recomputes (`GameState._granted_ability_cache`) so its
+    "once each turn" state survives — and stops being granted the instant
+    the Elf (or Dionus) leaves, with no separate removal code. The nested
+    "untap it"/"put a +1/+1 counter on it" effects use the self-acting
+    (``target_kind: None``) mode of `tap`/`add_counters` — "it" is always
+    the specific Elf the ability was granted to, never a player choice."""
+    return [
+        AbilitySpec(
+            "static",
+            [
+                EffectSpec(
+                    "grant_triggered_ability",
+                    {
+                        "affects": "creatures_you_control",
+                        "subtype": "Elf",
+                        "trigger_event": EventType.TAPPED,
+                        "controllers_turn_only": True,
+                        "once_per_turn": True,
+                        "grant_effects": [
+                            {"type": "tap", "params": {"target_kind": None, "untap": True}},
+                            {"type": "add_counters", "params": {"amount": 1}},
+                        ],
+                    },
+                )
+            ],
+            raw_text='Elfen, die du kontrollierst, haben "Wenn diese Kreatur während '
+                     'deines Zuges tappt wird, enttappe sie und lege einen +1/+1-Marker '
+                     'auf sie. Diese Fähigkeit wird nur einmal pro Zug ausgelöst."',
+        )
+    ]
+
+
+register("Dionus, Elvish Archdruid", _dionus_elvish_archdruid)

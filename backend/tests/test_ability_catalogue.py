@@ -34,6 +34,32 @@ def shock_land():
                             "If you don't, it enters tapped.")
 
 
+def check_land():
+    return Card(id="RC", name="Rootbound Crag", type_line="Land", is_land=True,
+                oracle_text="Rootbound Crag enters the battlefield tapped unless you "
+                            "control a Mountain or a Forest.\n"
+                            "{T}: Add {R} or {G}.")
+
+
+def fast_land():
+    return Card(id="BS", name="Botanical Sanctum", type_line="Land", is_land=True,
+                oracle_text="Botanical Sanctum enters the battlefield tapped unless you "
+                            "control two or fewer other lands.\n"
+                            "{T}: Add {G} or {U}.")
+
+
+def slow_land():
+    return Card(id="DG", name="Deathcap Glade", type_line="Land", is_land=True,
+                oracle_text="Deathcap Glade enters the battlefield tapped unless you "
+                            "control two or more other lands.\n"
+                            "{T}: Add {B} or {G}.")
+
+
+def basic_land(subtype):
+    return Card(id=subtype, name=subtype, type_line=f"Basic Land — {subtype}",
+                is_land=True, oracle_text=f"({{T}}: Add mana.)")
+
+
 # -- Catalogue & enters-tapped ----------------------------------------------
 
 
@@ -63,6 +89,47 @@ def test_enters_tapped_ignores_conditional_lands():
 
 def test_enters_tapped_false_for_normal_land():
     assert ability_catalogue.enters_tapped(forest()) is False
+
+
+# -- Conditional tap-land classification (RULE 614.1) ------------------------
+
+
+def test_land_tap_condition_classifies_plain_tapland():
+    assert ability_catalogue.land_tap_condition(tranquil_cove()) == {"kind": "always"}
+
+
+def test_land_tap_condition_classifies_normal_land():
+    assert ability_catalogue.land_tap_condition(forest()) == {"kind": "never"}
+
+
+def test_land_tap_condition_classifies_shock_land():
+    assert ability_catalogue.land_tap_condition(shock_land()) == {
+        "kind": "pay_life",
+        "amount": 2,
+    }
+
+
+def test_land_tap_condition_classifies_check_land():
+    assert ability_catalogue.land_tap_condition(check_land()) == {
+        "kind": "unless_types",
+        "types": ["mountain", "forest"],
+    }
+
+
+def test_land_tap_condition_classifies_fast_land():
+    assert ability_catalogue.land_tap_condition(fast_land()) == {
+        "kind": "unless_count",
+        "cmp": "le",
+        "count": 2,
+    }
+
+
+def test_land_tap_condition_classifies_slow_land():
+    assert ability_catalogue.land_tap_condition(slow_land()) == {
+        "kind": "unless_count",
+        "cmp": "ge",
+        "count": 2,
+    }
 
 
 # -- Binding on load --------------------------------------------------------
@@ -183,6 +250,110 @@ def test_played_normal_land_enters_untapped():
     land = p1.hand[0]
     engine.play_land(p1, land)
     assert land.tapped is False
+
+
+def test_played_check_land_untapped_when_matching_type_controlled():
+    engine = build_goldfish_engine([check_land()], starting_hand=1)
+    engine.begin_turn()
+    engine.state.current_step = "main1"
+    p1 = engine.state.active_player
+    mountain = GameObject(basic_land("Mountain"), owner_id=p1.id, zone=Zone.BATTLEFIELD)
+    engine.state.add_to_battlefield(mountain)
+    land = p1.hand[0]
+    engine.play_land(p1, land)
+    assert land.tapped is False
+
+
+def test_played_check_land_tapped_without_matching_type():
+    engine = build_goldfish_engine([check_land()], starting_hand=1)
+    engine.begin_turn()
+    engine.state.current_step = "main1"
+    p1 = engine.state.active_player
+    land = p1.hand[0]
+    engine.play_land(p1, land)
+    assert land.tapped is True
+
+
+def test_played_fast_land_untapped_with_few_other_lands():
+    engine = build_goldfish_engine([fast_land()], starting_hand=1)
+    engine.begin_turn()
+    engine.state.current_step = "main1"
+    p1 = engine.state.active_player
+    land = p1.hand[0]
+    engine.play_land(p1, land)
+    assert land.tapped is False  # zero other lands <= 2
+
+
+def test_played_fast_land_tapped_with_many_other_lands():
+    engine = build_goldfish_engine([fast_land()], starting_hand=1)
+    engine.begin_turn()
+    engine.state.current_step = "main1"
+    p1 = engine.state.active_player
+    for _ in range(3):
+        engine.state.add_to_battlefield(GameObject(forest(), owner_id=p1.id, zone=Zone.BATTLEFIELD))
+    land = p1.hand[0]
+    engine.play_land(p1, land)
+    assert land.tapped is True  # three other lands > 2
+
+
+def test_played_slow_land_tapped_with_few_other_lands():
+    engine = build_goldfish_engine([slow_land()], starting_hand=1)
+    engine.begin_turn()
+    engine.state.current_step = "main1"
+    p1 = engine.state.active_player
+    land = p1.hand[0]
+    engine.play_land(p1, land)
+    assert land.tapped is True  # zero other lands, not >= 2
+
+
+def test_played_slow_land_untapped_with_many_other_lands():
+    engine = build_goldfish_engine([slow_land()], starting_hand=1)
+    engine.begin_turn()
+    engine.state.current_step = "main1"
+    p1 = engine.state.active_player
+    for _ in range(2):
+        engine.state.add_to_battlefield(GameObject(forest(), owner_id=p1.id, zone=Zone.BATTLEFIELD))
+    land = p1.hand[0]
+    engine.play_land(p1, land)
+    assert land.tapped is False  # two other lands >= 2
+
+
+def test_played_shock_land_defaults_tapped_and_opens_pay_life_choice():
+    engine = build_goldfish_engine([shock_land()], starting_hand=1, starting_life=20)
+    engine.begin_turn()
+    engine.state.current_step = "main1"
+    p1 = engine.state.active_player
+    land = p1.hand[0]
+    engine.play_land(p1, land)
+    assert land.tapped is True
+    choice = engine.state.pending_choice
+    assert choice is not None and choice["kind"] == "land_tapped"
+
+
+def test_shock_land_pay_life_choice_keeps_it_untapped():
+    engine = build_goldfish_engine([shock_land()], starting_hand=1, starting_life=20)
+    engine.begin_turn()
+    engine.state.current_step = "main1"
+    p1 = engine.state.active_player
+    land = p1.hand[0]
+    engine.play_land(p1, land)
+    engine.resolve_pending_choice("pay")
+    assert land.tapped is False
+    assert p1.life == 18
+    assert engine.state.pending_choice is None
+
+
+def test_shock_land_decline_leaves_it_tapped_and_keeps_life():
+    engine = build_goldfish_engine([shock_land()], starting_hand=1, starting_life=20)
+    engine.begin_turn()
+    engine.state.current_step = "main1"
+    p1 = engine.state.active_player
+    land = p1.hand[0]
+    engine.play_land(p1, land)
+    engine.resolve_pending_choice("decline")
+    assert land.tapped is True
+    assert p1.life == 20
+    assert engine.state.pending_choice is None
 
 
 # -- Activated ability surfaced as an action --------------------------------

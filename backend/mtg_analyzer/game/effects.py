@@ -305,6 +305,7 @@ class TriggeredAbility(GameEffect):
         effects: list[GameEffect],
         condition: Optional[Callable[[GameEvent, GameContext], bool]] = None,
         optional: bool = False,
+        once_per_turn: bool = False,
         controller_id: Optional[str] = None,
         source: Optional["GameObject"] = None,
         description: str = "",
@@ -316,6 +317,15 @@ class TriggeredAbility(GameEffect):
         self.optional = optional
         self.controller_id = controller_id
         self.description = description
+        #: "This ability triggers only once each turn" (RULE 603.2, e.g.
+        #: Dionus, Elvish Archdruid's granted ability). Stamped by
+        #: `check_trigger` the moment it fires — regardless of whether the
+        #: ability actually resolves — since this instance is cached/reused
+        #: across recomputes for as long as a grant holds (see
+        #: `GameState._granted_ability_cache`), so the turn stamp survives
+        #: the pass that would otherwise have rebuilt it from scratch.
+        self.once_per_turn = once_per_turn
+        self._last_triggered_turn: Optional[int] = None
 
     def check_trigger(self, event: GameEvent, context: GameContext) -> bool:
         """RULE 603.1: does this ability trigger for ``event``?"""
@@ -323,6 +333,11 @@ class TriggeredAbility(GameEffect):
             return False
         if self.condition is not None and not self.condition(event, context):
             return False
+        if self.once_per_turn:
+            turn = context.state.turn_number
+            if self._last_triggered_turn == turn:
+                return False
+            self._last_triggered_turn = turn
         return True
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
@@ -595,22 +610,30 @@ class ExileEffect(GameEffect):
 
 
 class TapEffect(GameEffect):
-    """Tap (or untap) a target permanent (RULE 701.21 / 701.22)."""
+    """Tap (or untap) a target permanent — or the source itself (RULE 701.21/22).
+
+    ``target_kind=None`` (unlike the default ``"permanent"``) makes it act on
+    the effect's own source with no player choice involved — "untap it" in a
+    "whenever this creature becomes tapped, untap it" trigger (Dionus, Elvish
+    Archdruid), mirroring `AddCountersEffect`'s untargeted mode.
+    """
 
     def __init__(
         self,
         target: Any = None,
         source: Optional["GameObject"] = None,
-        target_kind: str = "permanent",
+        target_kind: Optional[str] = "permanent",
         untap: bool = False,
     ) -> None:
         super().__init__(source)
         self.target = target
         self.untap = untap
-        self.target_spec = TargetSpec(kind=target_kind)
+        self.target_spec = TargetSpec(kind=target_kind) if target_kind is not None else None
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
         target = (targets[0] if targets else None) or self.target
+        if target is None and self.target_spec is None:
+            target = self.source
         if target is not None:
             context.set_tapped(target, tapped=not self.untap)
 
@@ -1145,6 +1168,42 @@ EffectRegistry.register(
         "ability",
         affects=p.get("affects", "creatures_you_control"),
         params={"keywords": list(p.get("keywords", [])), **_selectors(p)},
+    ),
+)
+EffectRegistry.register(
+    # "Elves you control have '{T}: Add {B}.'" (Tyvar Kell) — layer 6,
+    # ability-adding (RULE 613.7f), same layer/bucket as `grant_keyword`, just
+    # granting a mana ability's production options instead of a keyword.
+    # `continuous.recompute` folds these onto `obj._granted_mana`; read
+    # together with the object's own printed options via
+    # `mana_abilities.mana_options_for`.
+    "grant_mana_ability",
+    lambda p: StaticAbility(
+        "ability",
+        affects=p.get("affects", "creatures_you_control"),
+        params={"mana": list(p.get("mana", [])), **_selectors(p)},
+    ),
+)
+EffectRegistry.register(
+    # "Elves you control have '<triggered ability text>'" (Dionus, Elvish
+    # Archdruid) — layer 6, ability-adding, granting a full triggered ability
+    # rather than a keyword or a mana ability. ``effects`` is a list of
+    # ``{"type": ..., "params": {...}}`` one-shot-effect specs, bound through
+    # the same whitelisted `EffectRegistry` as everything else (docs/09
+    # security boundary) — just invoked per affected object at grant time
+    # (`continuous.recompute`) instead of once at bind-on-load.
+    "grant_triggered_ability",
+    lambda p: StaticAbility(
+        "ability",
+        affects=p.get("affects", "creatures_you_control"),
+        params={
+            "trigger_event": p.get("trigger_event"),
+            "grant_effects": list(p.get("grant_effects", [])),
+            "once_per_turn": bool(p.get("once_per_turn", False)),
+            "optional": bool(p.get("optional", False)),
+            "controllers_turn_only": bool(p.get("controllers_turn_only", False)),
+            **_selectors(p),
+        },
     ),
 )
 EffectRegistry.register(

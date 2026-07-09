@@ -409,10 +409,10 @@ export function createGameBoardView(opts = {}) {
     // click time rather than baking it into a static data-action attribute.
     root.querySelectorAll('[data-cast-x]').forEach((el) => {
       el.addEventListener('click', () => {
-        const instanceId = Number(el.dataset.castX);
-        const input = root.querySelector(`[data-x-input="${instanceId}"]`);
+        const { iid, face } = JSON.parse(el.dataset.castX);
+        const input = root.querySelector(`[data-x-input="${xKey(iid, face)}"]`);
         const x = Math.max(0, Math.floor(Number(input?.value) || 0));
-        act({ type: 'cast_spell', instance_id: instanceId, x });
+        act({ type: 'cast_spell', instance_id: iid, x, face });
       });
     });
 
@@ -429,13 +429,13 @@ export function createGameBoardView(opts = {}) {
       el.addEventListener('click', () => {
         const info = JSON.parse(el.dataset.castTargetStart);
         const iid = Number(info.iid);
-        const action = findTargetableAction(iid, info.type, info.ability_index);
+        const action = findTargetableAction(iid, info.type, info.ability_index, info.face);
         if (!action) return;
-        const input = root.querySelector(`[data-x-input="${iid}"]`);
+        const input = root.querySelector(`[data-x-input="${xKey(iid, info.face)}"]`);
         const x = action.has_x ? Math.max(0, Math.floor(Number(input?.value) || 0)) : 0;
         const send = info.type === 'activate_ability'
           ? { type: 'activate_ability', instance_id: iid, ability_index: info.ability_index, name: action.name }
-          : { type: 'cast_spell', instance_id: iid, name: action.name };
+          : { type: 'cast_spell', instance_id: iid, name: action.name, face: info.face };
         castTargeting = { instanceId: iid, requirements: action.targets || [], reqIndex: 0, targets: [], x, send };
         finishCastIfReady();
       });
@@ -459,12 +459,21 @@ export function createGameBoardView(opts = {}) {
     });
   }
 
-  function findTargetableAction(iid, type, abilityIndex) {
+  // Modal-DFC (RULE 712.10) actions for the same card differ only by
+  // `face` — key any face-scoped DOM lookup on `instance_id:face` so a
+  // card offering both faces at once (e.g. both `has_x`) doesn't collide
+  // on a bare instance_id.
+  function xKey(instanceId, face) {
+    return face ? `${instanceId}:${face}` : String(instanceId);
+  }
+
+  function findTargetableAction(iid, type, abilityIndex, face) {
     return (view?.legal_actions || []).find(
       (a) =>
         a.type === type &&
         a.instance_id === iid &&
-        (type !== 'activate_ability' || a.ability_index === abilityIndex),
+        (type !== 'activate_ability' || a.ability_index === abilityIndex) &&
+        (a.face || undefined) === (face || undefined),
     );
   }
 
@@ -692,31 +701,49 @@ export function createGameBoardView(opts = {}) {
     return label;
   }
 
+  // A modal DFC (RULE 712.10) offers two independent actions for the same
+  // hand card, one per face — `faceHint` labels the back one with its name
+  // so the two buttons are distinguishable; the front face keeps today's
+  // plain label (no visible change for the common non-MDFC case).
+  function faceHint(a) {
+    return a.face ? ` — ${escapeHtml(a.name)}` : '';
+  }
+
   function cardActionButtons(cardActions) {
     if (!cardActions || !cardActions.length) return '';
     const buttons = [];
     for (const a of cardActions) {
       if (a.type === 'play_land') {
-        buttons.push(actionButton({ type: 'play_land', instance_id: a.instance_id, name: a.name }, '🌳 Land spielen'));
+        buttons.push(
+          actionButton(
+            { type: 'play_land', instance_id: a.instance_id, name: a.name, face: a.face },
+            `🌳 Land spielen${faceHint(a)}`
+          )
+        );
       } else if (a.type === 'cast_spell' && a.locked) {
         const reason = a.lock_reason || 'Kein gültiges Ziel';
         buttons.push(
-          `<button type="button" class="gf-card-action gf-locked" disabled title="${escapeAttr(reason)}">🔒 ${escapeHtml(reason)}</button>`
+          `<button type="button" class="gf-card-action gf-locked" disabled title="${escapeAttr(reason)}">🔒 ${escapeHtml(reason)}${faceHint(a)}</button>`
         );
       } else if (a.type === 'cast_spell' && a.requires_target) {
         buttons.push(castTargetHtml(a));
       } else if (a.type === 'cast_spell' && a.has_x) {
         buttons.push(`
           <div class="gf-cast-x">
-            <input type="number" min="0" max="${a.max_x}" value="${a.max_x}" data-x-input="${a.instance_id}" />
-            <button type="button" class="gf-card-action" data-cast-x="${a.instance_id}">✨ Zaubern (X)</button>
+            <input type="number" min="0" max="${a.max_x}" value="${a.max_x}" data-x-input="${xKey(a.instance_id, a.face)}" />
+            <button type="button" class="gf-card-action" data-cast-x='${escapeAttr(JSON.stringify({ iid: a.instance_id, face: a.face }))}'>✨ Zaubern (X)${faceHint(a)}</button>
           </div>
         `);
       } else if (a.type === 'cast_spell') {
         const hint = a.base_cost && a.effective_cost && a.base_cost !== a.effective_cost
           ? ` 💰${escapeHtml(a.effective_cost)}`
           : '';
-        buttons.push(actionButton({ type: 'cast_spell', instance_id: a.instance_id, name: a.name }, `✨ Zaubern${hint}`));
+        buttons.push(
+          actionButton(
+            { type: 'cast_spell', instance_id: a.instance_id, name: a.name, face: a.face },
+            `✨ Zaubern${hint}${faceHint(a)}`
+          )
+        );
       } else if (a.type === 'activate_ability' && a.locked) {
         const reason = a.lock_reason || 'Kein gültiges Ziel';
         buttons.push(
@@ -757,12 +784,12 @@ export function createGameBoardView(opts = {}) {
   function castTargetHtml(a) {
     const iid = a.instance_id;
     const xField = a.has_x
-      ? `<input type="number" min="0" max="${a.max_x}" value="${a.max_x}" data-x-input="${iid}" />`
+      ? `<input type="number" min="0" max="${a.max_x}" value="${a.max_x}" data-x-input="${xKey(iid, a.face)}" />`
       : '';
-    const startInfo = JSON.stringify({ iid, type: a.type, ability_index: a.ability_index });
+    const startInfo = JSON.stringify({ iid, type: a.type, ability_index: a.ability_index, face: a.face });
     const label = a.type === 'activate_ability'
       ? `⚡ ${escapeHtml(a.cost_label || 'Aktivieren')} → Ziel ▾`
-      : '✨ Zaubern → Ziel ▾';
+      : `✨ Zaubern → Ziel ▾${faceHint(a)}`;
     return `<div class="gf-cast-targets">${xField}<button type="button" class="gf-card-action" data-cast-target-start='${escapeAttr(startInfo)}'>${label}</button></div>`;
   }
 

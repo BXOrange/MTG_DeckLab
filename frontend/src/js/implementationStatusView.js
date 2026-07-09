@@ -64,7 +64,7 @@ const SECTIONS = [
       ['full', 'Defender / Haste', 'Kann nicht angreifen / ignoriert Einsatzkrankheit.'],
       ['full', 'Indestructible', 'Übersteht tödlichen Schaden und Deathtouch.'],
       ['full', 'Landwalk', '„Islandwalk"/„Forestwalk" … — nicht blockbar, solange der Verteidiger ein Land des Typs kontrolliert (RULE 702.14); gebunden aus dem Keyword-Katalog + Layer-6-Grants.'],
-      ['partial', 'Protection from …', 'Verhindert Schaden & Blocken nach Farbe/„creatures"/„everything". Farbe folgt der effektiven Farbe (inkl. Layer-5-Farbwechsel).'],
+      ['full', 'Protection from …', '„DEBT" komplett (RULE 702.16): verhindert Schaden von jeder Quelle (nicht nur im Kampf), Blocken, Anvisieren durch Zaubersprüche/Fähigkeiten sowie Verzaubern/Ausrüsten/Fortifizieren durch eine Quelle der genannten Eigenschaft — Farbe (inkl. Layer-5-Farbwechsel), „creatures", Kartentyp („artifacts" …), Kreaturentyp („Dragons" …), „all colors" und „everything"; mehrere Eigenschaften über „and from" (Sword-of-X-and-Y-Zyklus).'],
     ],
   },
   {
@@ -78,12 +78,12 @@ const SECTIONS = [
       ['full', 'Layer 2 — Kontrollwechsel', 'Statischer „Du kontrollierst …"-Effekt weist die Kontrolle neu zu (RULE 613.2), idempotent über Recompute.'],
       ['full', 'Layer 4 — Typänderung', 'z. B. Land wird 0/0-Kreatur (add_types + P/T).'],
       ['full', 'Layer 5 — Farbwechsel', '„… ist schwarz" setzt/ergänzt die Farbe (RULE 613.4b); fließt in Protection.'],
-      ['full', 'Layer 6 — Fähigkeiten verleihen', 'Keyword-Grants (z. B. „… haben Flying") fließen in den Kampf.'],
+      ['full', 'Layer 6 — Fähigkeiten verleihen', 'Keyword-Grants (z. B. „… haben Flying") fließen in den Kampf. Auch Mana-Fähigkeiten („Elfen … haben {T}: Erzeuge {B}", Tyvar Kell) und volle ausgelöste Fähigkeiten (Dionus: „… haben Wenn-diese-Kreatur-tappt-…") lassen sich verleihen — trotz CR 612.1 kein Layer 3, siehe unten.'],
       ['full', 'Layer 7 — Stärke/Widerstandskraft', '7a CDA (P/T = Anzahl X) → 7b Setzen → 7c Marken → 7d Ändern (Anthems) → 7e P/T-Tausch.'],
       ['full', 'Zeitstempel-Ordnung', 'Innerhalb eines Layers nach Objekt-Zeitstempel (RULE 613.7b) — der jüngste Effekt zuletzt.'],
       ['full', 'Kostenanpassung (kein Layer)', '„Zaubersprüche kosten {N} weniger/mehr" (RULE 601.2f), generisch, beim Zaubern.'],
       ['partial', 'Layer 1 — Kopie-Effekte', '„Wird eine Kopie von Zielobjekt" (RULE 706/707): `RulesEngine.become_copy` ersetzt Name/Manakosten/Farbe/Typ/Text/S-W/Fähigkeiten durch die des kopierten Objekts (siehe „become_copy" unten), inklusive interaktiver Zielwahl. Als gewöhnlicher ETB-Trigger modelliert, nicht als echter „tritt als … ins Spiel"-Ersetzungseffekt (RULE 614.1c/614.12).'],
-      ['planned', 'Layer 3 & echte Abhängigkeits-Ordnung', 'Textänderung (Layer 3, RULE 612) und die volle Abhängigkeitsanalyse (RULE 613.8) fehlen bewusst: kein Kartenpool-Eintrag braucht Layer 3, und die aktuelle Effekt-Palette kann gar keinen Fall erzeugen, in dem zwei Effekte im selben Layer voneinander abhängen (jede echte Interaktion läuft über verschiedene, bereits fest geordnete Layer) — eine allgemeine Abhängigkeits-Analyse wäre also ungetestet und spekulativ.'],
+      ['planned', 'Layer 3 (wörtliche Textänderung) & echte Abhängigkeits-Ordnung', 'Wörtliche Textänderung (Layer 3, RULE 612 — z. B. Artificial Evolution ersetzt ein Kreaturtyp-Wort im Text) und die volle Abhängigkeitsanalyse (RULE 613.8) fehlen bewusst: kein Kartenpool-Eintrag braucht wörtliche Textänderung, und die aktuelle Effekt-Palette kann gar keinen Fall erzeugen, in dem zwei Effekte im selben Layer voneinander abhängen (jede echte Interaktion läuft über verschiedene, bereits fest geordnete Layer) — eine allgemeine Abhängigkeits-Analyse wäre also ungetestet und spekulativ. Das Verleihen einer fremden Fähigkeit (Tyvar Kell, Dionus) ist trotz CR 612.1 kein Fall davon — das ist Layer 6, oben bereits abgedeckt.'],
     ],
   },
   {
@@ -110,7 +110,7 @@ const SECTIONS = [
       'Ereignisbasierte Trigger (TriggeredAbility) reagieren auf den Ereignis-Bus der ' +
       'Engine und werden nach APNAP auf den Stack gelegt.',
     items: [
-      ['full', 'Ereignis-Trigger', 'ENTERS_BATTLEFIELD, DIES, DRAW, DAMAGE, ATTACKS, SPELL_CAST, LIFE_GAINED u. a.'],
+      ['full', 'Ereignis-Trigger', 'ENTERS_BATTLEFIELD, DIES, DRAW, DAMAGE, ATTACKS, SPELL_CAST, LIFE_GAINED, TAPPED („wird getappt", RULE 701.21b — nicht bei getappt ins Spiel kommenden Karten) u. a.'],
       ['full', 'Zielwahl für ausgelöste Fähigkeiten', 'Braucht die erste zielsuchende Wirkung eines Triggers ein Ziel, öffnet sich vor dem Auflösen eine Wahl (RULE 115) — ein Knopf je legalem Ziel, dieselbe generische Wahl-UI wie bei Tutor/Kaskade/Discover/Trigger-Reihenfolge. Ohne legales Pflichtziel landet der Trigger gar nicht erst auf dem Stack (RULE 603.3c).'],
       ['full', '„Du darfst"-Trigger', 'Optionale Trigger (RULE 603.5) fragen echt nach: mit Ziel bietet die Zielwahl „Nichts wählen" an; ohne Ziel („du darfst eine Karte ziehen") öffnet sich ein Ausführen/Nichts-tun-Entscheid.'],
       ['full', 'Ersetzungs-Effekte', 'ReplacementEffect wird bei DAMAGE angewandt; `prevent_damage` bindet aus einer `replacement`-Spec (ReplacementRegistry).'],
@@ -136,6 +136,7 @@ const SECTIONS = [
       ['full', 'copy_permanent', 'Token-Kopie einer Ziel-bleibenden Karte (RULE 707).'],
       ['full', 'become_copy', 'Das Objekt selbst wird eine Kopie von Zielobjekt (RULE 706/707.2, statt eines neuen Tokens) — inkl. „außer dass …"-Typzusätzen (Clever Impersonator, Phantasmal Image, Copy Artifact), interaktiv spielbar über die Ziel-Wahl bei ausgelösten Fähigkeiten. Als ETB-Trigger modelliert, nicht als „tritt als … ins Spiel"-Ersetzungseffekt.'],
       ['full', 'anthem / pt_set / grant_keyword / type_change / cost_reduction', 'Die statischen Effekte oben.'],
+      ['full', 'grant_mana_ability / grant_triggered_ability', 'Verleiht eine Mana- bzw. eine volle ausgelöste Fähigkeit statt eines bloßen Keywords (Tyvar Kell / Dionus, Elvish Archdruid) — Layer 6, siehe oben. Jedes betroffene Objekt bekommt eine eigene, über Recompute-Durchläufe hinweg zwischengespeicherte Instanz, damit z. B. „nur einmal pro Zug" (RULE 603.2) korrekt verfolgt wird und mit dem Verschwinden der verleihenden Fähigkeit automatisch endet.'],
     ],
   },
   {
@@ -144,7 +145,8 @@ const SECTIONS = [
     items: [
       ['full', 'Mana-Modell', 'Generisch, farbig, farblos, Hybrid, Mono-Hybrid, Phyrexianisch, {X}; Dual-Land-Farbwahl.'],
       ['full', 'Bind-on-load (Karten-Katalog + Oracle-Parser)', 'Fähigkeiten werden beim Spielaufbau an die Karten gebunden — aus einem Namens-Katalog (game/ability_catalogue.py) und, für nicht katalogisierte Karten, aus dem Oracle-Parser (docs/09).'],
-      ['full', 'Enters tapped', 'Reine Tap-Länder kommen getappt (RULE 614.1, aus dem Oracle-Text). Bedingte (Shock/Check) noch ungetappt.'],
+      ['full', 'Enters tapped', 'Reine Tap-Länder kommen getappt (RULE 614.1, aus dem Oracle-Text). Bedingte Tap-Länder (Shock/Check/Fast/Slow) siehe unten.'],
+      ['full', 'Bedingte Tap-Länder', 'Shock-Länder („you may pay 2 life") öffnen beim Spielen eine echte Wahl (Leben zahlen ↔ getappt, `RulesEngine.enter_land_tapped`/`resolve_land_tapped_choice`); Check-Länder („unless you control a/an …") und Fast-/Slow-Länder („… two or fewer/more other lands") werden deterministisch anhand des Boards zum Zeitpunkt des Spielens ausgewertet — keine Wahl, aber kein pauschales „ungetappt" mehr.'],
       ['full', 'Zielwahl (Targeting)', 'Legale Ziele pro Anforderung, gesperrte Sprüche ohne Ziel (RULE 601.2c).'],
       ['full', 'Tokens & Marken', '+1/+1 / −1/−1 (annihilieren als SBA), Loyalitäts-/Lore-/Ladungsmarken.'],
       ['full', 'Loyalitäts-Fähigkeiten (Planeswalker)', '[+N]/[−N]/[0] aktivierbar (RULE 606): Start-Loyalität beim Eintreten, Hexerei-Timing + einmal pro Zug, 0-Loyalität-SBA (704.5i), Kampfschaden entfernt Marken.'],
@@ -159,11 +161,10 @@ const SECTIONS = [
     rule: '',
     items: [
       ['partial', 'Karten-Abdeckung (Specs)', 'Oracle-Parser Phase 1 aktiv: Instants/Hexereien, ETB-Trigger, „Kosten: Effekt"-Aktivierfähigkeiten und statische Anthem-/Lord-Effekte aus den Familien Schaden/Ziehen/Abwerfen/Zerstören/Lebensgewinn/Neutralisieren/Mühlen/Exil/Tappen/±1/±1-Marken/Pump (+N/+N bis Zugende)/Keyword-Grant bis Zugende/Hellsehen/Token-Erzeugung werden ohne Katalog-Eintrag erkannt (parser/oracle → normalize/segmenter/handlers/gate). Anthems inkl. Stammes-Lords („Andere Goblins, die du kontrollierst …"), Token-Anthems (Intangible Virtue), farb-basierte („Schwarze Kreaturen bekommen +1/+1", Bad Moon) und globale Anthems (ohne „die du kontrollierst" — alle Spieler) über Subtyp-/Token-/Farb-Filter im Layer-System. Token folgen den Regeln zum Aufhören-zu-existieren (RULE 704.5d). Fail-closed: nur vollständig abgedeckte Karten (MODELED) binden Effekte. Weitere Familien (Regenerieren/Modi „wähle eins"/„bis zu N" Ziele) folgen (docs/09).'],
-      ['partial', 'Bedingte Tap-Länder', 'Shock-/Check-Länder (2 Leben zahlen / „unless …") kommen aktuell ungetappt — die Wahl fehlt noch.'],
       ['partial', 'Parametrische Keywords (Bindung)', 'Landwalk bindet vollständig in den Kampf; Annihilator/Kicker/Ward/Protection-Qualität werden mit Parameter geführt (`parametric_keywords`), aber ihr Verhalten (Alternativkosten, Kampfmathematik) ist noch nicht verdrahtet.'],
       ['partial', 'Ersetzungs-Reihenfolge', 'Trigger-Reihenfolge ist interaktiv (603.3b); die Ersetzungs-/Verhütungs-Reihenfolge (RULE 616.1) läuft noch deterministisch.'],
       ['partial', 'Multiplayer-Session', 'Interaktive Prioritäts-Primitive vorhanden (RULE 117); noch nicht an die WebSocket-/Multiplayer-Session angeschlossen (create_multiplayer weiterhin gestubbt).'],
-      ['planned', 'Kartentyp-Strukturen (erweitert)', 'MDFC-Rückseite aus der Hand (712.10), Adventure/Split-Wirken (709/715), Saga-/Class-/Level-Kapitel-Fähigkeiten (711/714/716) und Battles/Dungeons — Grundgerüst (Transform, Kopie, Saga-Marken) steht, die Spezial-Wirk-/Kapitel-Logik fehlt noch.'],
+      ['partial', 'Kartentyp-Strukturen (erweitert)', 'MDFC-Rückseite aus der Hand spielen/wirken (712.10) ist fertig: Vorder- und Rückseite werden als zwei unabhängige Aktionen angeboten, `RulesEngine.switch_to_face` bindet die Fähigkeiten der gewählten Seite neu (wie bei „wird zur Kopie"), ein abgelehntes Wirken der Rückseite macht den Seitenwechsel rückgängig. Noch offen: Adventure/Split-Wirken (709/715), Saga-/Class-/Level-Kapitel-Fähigkeiten (711/714/716) und Battles/Dungeons — deren Grundgerüst (Transform, Kopie, Saga-Marken) steht, die Spezial-Wirk-/Kapitel-Logik fehlt noch.'],
     ],
   },
 ];

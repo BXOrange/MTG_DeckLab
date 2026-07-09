@@ -29,6 +29,7 @@ from ..models.game_state import GameState, StackItem
 from ..models.mana_cost import ManaCost
 from ..models.player import Player
 from . import ability_catalogue, combat, continuous
+from .combat import is_protected_from
 from .effects import (
     GameContext,
     ReplacementEffect,
@@ -75,6 +76,11 @@ class RulesEngine:
         #: populated only while that choice is pending.
         self._pending_trigger_ability: Optional[TriggeredAbility] = None
         self._pending_trigger_queue: list[tuple[TriggeredAbility, GameEvent]] = []
+        #: The shock land currently awaiting a `land_tapped` pay-life choice
+        #: (RULE 614.1), and how much life it costs to keep it untapped —
+        #: populated only while that choice is pending.
+        self._pending_land_choice_obj: Optional[GameObject] = None
+        self._pending_land_choice_amount: int = 0
         # Collect triggers for every event the game fires.
         state.subscribe(self._collect_triggers)
 
@@ -138,7 +144,11 @@ class RulesEngine:
 
     def _collect_triggers(self, event: GameEvent) -> None:
         for obj in self.state.permanents():
-            for ability in obj.triggered_abilities:
+            # `granted_triggered_abilities` (RULE 613.7f — a layer-6 "X have
+            # '<triggered ability>'" static grant, e.g. Dionus, Elvish
+            # Archdruid) sits alongside the object's own intrinsic abilities;
+            # both fire through the same check/place pipeline.
+            for ability in obj.triggered_abilities + obj.granted_triggered_abilities:
                 if isinstance(ability, TriggeredAbility) and ability.check_trigger(
                     event, self.context
                 ):
@@ -364,6 +374,85 @@ class RulesEngine:
         self._ordering_active = []
         self._ordering_rest = []
         self.state.pending_choice = None
+
+    # ------------------------------------------------------------------
+    # Conditional tap-lands (RULE 614.1)
+    # ------------------------------------------------------------------
+
+    def enter_land_tapped(self, obj: GameObject) -> None:
+        """Resolve ``obj``'s RULE 614.1 tapped-entry as it's played.
+
+        The deterministic conditional shapes — check lands ("unless you
+        control a Mountain or a Forest") and fast/slow lands ("unless you
+        control two or fewer/more other lands") — are decided immediately
+        off the board ``obj``'s controller already has (`land_tap_condition`
+        is read *before* ``obj`` itself is added to the battlefield, so
+        "other lands" naturally excludes it). A shock land's "you may pay N
+        life" is a genuine choice: ``obj`` defaults tapped (as if declined)
+        and a `land_tapped` `pending_choice` opens; `resolve_land_tapped_
+        choice` flips it untapped if the controller pays.
+        """
+        condition = ability_catalogue.land_tap_condition(obj.card)
+        kind = condition["kind"]
+        if kind == "unless_types":
+            types = condition["types"]
+            controlled = [
+                o
+                for o in self.state.battlefield
+                if o.is_land and o.controller_id == obj.controller_id
+            ]
+            obj.tapped = not any(
+                any(t in o.card.type_line.lower() for t in types) for o in controlled
+            )
+        elif kind == "unless_count":
+            other_lands = sum(
+                1
+                for o in self.state.battlefield
+                if o.is_land and o.controller_id == obj.controller_id
+            )
+            if condition["cmp"] == "le":
+                obj.tapped = not (other_lands <= condition["count"])
+            else:
+                obj.tapped = not (other_lands >= condition["count"])
+        elif kind == "pay_life":
+            obj.tapped = True
+            self._pending_land_choice_obj = obj
+            self._pending_land_choice_amount = condition["amount"]
+            self.state.pending_choice = self._land_tapped_choice(obj, condition["amount"])
+        else:
+            obj.tapped = kind == "always"
+
+    def _land_tapped_choice(self, obj: GameObject, amount: int) -> dict[str, Any]:
+        """Build the `pending_choice` for a shock land's pay-life decision."""
+        return {
+            "kind": "land_tapped",
+            "player_id": obj.controller_id,
+            "prompt": f"{obj.name}: {amount} Leben zahlen, um ungetappt ins Spiel zu kommen?",
+            "options": [
+                {"id": "pay", "label": f"{amount} Leben zahlen"},
+                {"id": "decline", "label": "Getappt ins Spiel kommen lassen"},
+            ],
+        }
+
+    def resolve_land_tapped_choice(self, answer: Optional[str]) -> None:
+        """Answer a pending shock-land `land_tapped` choice.
+
+        ``answer`` is ``"pay"`` to pay the life and keep it untapped, or
+        anything else (``None``/``"decline"``) to leave it tapped — already
+        the default `enter_land_tapped` set while the choice was open.
+        """
+        choice = self.state.pending_choice
+        if not choice or choice.get("kind") != "land_tapped":
+            raise ValueError("no pending land-tapped choice to resolve")
+        self.state.pending_choice = None
+        obj = self._pending_land_choice_obj
+        amount = self._pending_land_choice_amount
+        self._pending_land_choice_obj = None
+        self._pending_land_choice_amount = 0
+        if obj is not None and answer == "pay":
+            player = self.state.player_by_id(obj.controller_id)
+            self.lose_life(player, amount, cause="cost")
+            obj.tapped = False
 
     # ------------------------------------------------------------------
     # Casting & the stack (RULE 601 / 608)
@@ -652,6 +741,12 @@ class RulesEngine:
         combat: bool = False,
     ) -> None:
         is_player = isinstance(target, Player)
+        # RULE 702.16c: protection prevents *all* damage from a source of the
+        # stated quality, not just combat damage — a burn spell from a
+        # protected colour fizzles here same as a blocked attacker would.
+        # Players carry no protection in this model.
+        if not is_player and source is not None and is_protected_from(target, source):
+            return
         event = GameEvent(
             EventType.DAMAGE,
             amount=amount,
@@ -740,12 +835,25 @@ class RulesEngine:
         )
 
     def set_tapped(self, obj: GameObject, tapped: bool = True) -> None:
-        """Tap or untap a permanent (RULE 701.21 / 701.22).
-
-        No TAP/UNTAP event is modeled (no card in scope triggers off it), so
-        this is a direct state change — the single choke point regardless.
+        """Tap or untap a permanent (RULE 701.21 / 701.22) — the choke point
+        for a genuine tap/untap transition (attacking, a tap cost, a mana
+        ability), so it's also where a "becomes tapped" trigger (RULE 603.2,
+        e.g. Dionus, Elvish Archdruid's granted ability) fires from. Not used
+        by a permanent entering the battlefield already tapped (RULE 614.1) —
+        that never transitions from untapped, so it correctly never fires
+        this event either.
         """
+        was_tapped = obj.tapped
         obj.tapped = tapped
+        if tapped and not was_tapped:
+            self.state.fire_event(
+                GameEvent(
+                    EventType.TAPPED,
+                    object=obj.name,
+                    controller_id=obj.controller_id,
+                    instance_id=obj.instance_id,
+                )
+            )
 
     def add_counters(self, obj: GameObject, amount: int, kind: str = "+1/+1") -> None:
         """Put ``amount`` counters of ``kind`` on ``obj`` (RULE 122).
@@ -887,6 +995,60 @@ class RulesEngine:
 
         if obj.card.is_planeswalker and obj.card.loyalty and "loyalty" not in obj.counters:
             obj.counters["loyalty"] = obj.card.loyalty
+
+    _FACE_ATTRS: tuple[str, ...] = (
+        "spell_effects",
+        "triggered_abilities",
+        "activated_abilities",
+        "static_effects",
+        "replacement_effects",
+        "intrinsic_keywords",
+        "parametric_keywords",
+    )
+
+    def snapshot_face(self, obj: GameObject) -> dict[str, Any]:
+        """Capture ``obj``'s current `Card` + catalogue-derived bindings.
+
+        Pairs with `restore_face` to undo a `switch_to_face` — used when
+        previewing or attempting a modal DFC's un-chosen face (RULE 712.10)
+        so a rejected cast never leaves the object silently switched."""
+        snapshot: dict[str, Any] = {"card": obj.card}
+        for attr in self._FACE_ATTRS:
+            value = getattr(obj, attr, None)
+            if isinstance(value, set):
+                snapshot[attr] = set(value)
+            elif isinstance(value, dict):
+                snapshot[attr] = dict(value)
+            else:
+                snapshot[attr] = list(value or [])
+        return snapshot
+
+    def restore_face(self, obj: GameObject, snapshot: dict[str, Any]) -> None:
+        """Undo a `switch_to_face`, restoring exactly what `snapshot_face` saved."""
+        for attr, value in snapshot.items():
+            setattr(obj, attr, value)
+
+    def switch_to_face(self, obj: GameObject, card: Card) -> None:
+        """Rebind ``obj`` onto ``card`` — another face of the same physical
+        object (RULE 712.10, choosing a modal DFC's face to cast/play).
+
+        Mirrors `become_copy`'s "clear + rebind catalogue-derived abilities"
+        treatment: a face's activated/triggered/static/spell effects and
+        keywords are its own, not shared with the other face, so they must be
+        rebound from ``card`` rather than left pointing at the old face's.
+        Unlike `become_copy` this doesn't touch counters/zone/control — it's
+        a face choice, not a copy effect."""
+        from .effect_binder import bind_from_catalogue  # function-scoped: avoid a cycle
+
+        obj.card = card
+        obj.spell_effects = []
+        obj.triggered_abilities = []
+        obj.activated_abilities = []
+        obj.static_effects = []
+        obj.replacement_effects = []
+        obj.intrinsic_keywords = set()
+        obj.parametric_keywords = {}
+        bind_from_catalogue(obj)
 
     def gain_life(self, player: Player, amount: int) -> None:
         if amount <= 0:

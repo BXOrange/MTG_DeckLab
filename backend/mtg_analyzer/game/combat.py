@@ -100,10 +100,25 @@ _ORACLE_PATTERNS: dict[str, re.Pattern[str]] = {
     }.items()
 }
 
-#: "protection from <quality>" up to the clause end. The quality is normalized
-#: by `protections_of` (colours → identity letters; "all colors"/"everything"
-#: → sentinels).
-_PROTECTION_RE = re.compile(r"protection from ([a-z][a-z ]*?)(?=[.,;\n]|$| and )")
+#: "protection from <quality>" up to the clause end (a period/comma/semicolon/
+#: newline or end of text). Official templating repeats "from" for each
+#: quality on a multi-protection permanent ("Protection from red and from
+#: blue" — the Sword-of-X-and-Y cycle), so the *clause* is captured whole and
+#: `protections_of` splits it on " and from " to recover each quality.
+_PROTECTION_RE = re.compile(r"protection from ([a-z][a-z ]*?)(?=[.,;\n]|$)")
+
+#: "protection from <quality>" qualities that name a card type rather than a
+#: colour/"creatures"/blanket form, mapped to the `Card` attribute that
+#: answers whether a source has that type (RULE 702.16, e.g. "protection from
+#: artifacts").
+_CARD_TYPE_PROTECTIONS: dict[str, str] = {
+    "artifacts": "is_artifact",
+    "enchantments": "is_enchantment",
+    "planeswalkers": "is_planeswalker",
+    "lands": "is_land",
+    "instants": "is_instant",
+    "sorceries": "is_sorcery",
+}
 
 
 def keywords_of(card: "Card") -> frozenset[str]:
@@ -141,17 +156,19 @@ def protections_of(card: "Card") -> frozenset[str]:
     text = (getattr(card, "oracle_text", "") or "").lower()
     quals: set[str] = set()
     for match in _PROTECTION_RE.finditer(text):
-        quality = match.group(1).strip()
-        if not quality:
-            continue
-        if quality in ("everything",):
-            quals.add("everything")
-        elif quality in ("all colors", "all colours"):
-            quals.add("all_colors")
-        elif quality in _COLOUR_WORDS:
-            quals.add(_COLOUR_WORDS[quality])
-        else:
-            quals.add(quality)
+        clause = match.group(1)
+        for quality in re.split(r"\s+and\s+from\s+", clause):
+            quality = quality.strip()
+            if not quality:
+                continue
+            if quality in ("everything",):
+                quals.add("everything")
+            elif quality in ("all colors", "all colours"):
+                quals.add("all_colors")
+            elif quality in _COLOUR_WORDS:
+                quals.add(_COLOUR_WORDS[quality])
+            else:
+                quals.add(quality)
     return frozenset(quals)
 
 
@@ -234,14 +251,36 @@ def min_blockers(obj: "GameObject") -> int:
     return 2 if has_menace(obj) else 1
 
 
+def _quality_matches_type(quality: str, card: "Card") -> bool:
+    """Whether a non-colour protection ``quality`` describes ``card``'s type.
+
+    Handles the named-card-type qualities (`_CARD_TYPE_PROTECTIONS`, e.g.
+    "protection from artifacts") and creature-type qualities ("protection
+    from Dragons"/"Zombies"), matched against the subtypes after the type
+    line's em dash with the quality's trailing plural "s" stripped.
+    """
+    attr = _CARD_TYPE_PROTECTIONS.get(quality)
+    if attr is not None:
+        return bool(getattr(card, attr, False))
+    singular = quality[:-1] if quality.endswith("s") else quality
+    if not singular:
+        return False
+    _, _, subtypes = card.type_line.lower().partition("—")
+    return singular in subtypes
+
+
 def is_protected_from(obj: "GameObject", source: "GameObject") -> bool:
     """Whether ``obj`` has protection that applies to ``source`` (RULE 702.16).
 
-    Covers the qualities that matter in combat: a colour ``source`` shares,
-    "creatures", "all colors" (any coloured source), and "everything". Colour
-    is read from the source's colour identity — the model's available proxy
-    for a permanent's colour (RULE 105); good enough for the common mono/gold
-    creatures, and it fails safe (no protection) when unknown.
+    Protection means ``source`` can't damage, enchant/equip/fortify, block
+    (as a blocker of an attacker with this protection), or target ``obj`` —
+    the "DEBT" rule; callers apply this predicate at each of those points.
+    Covers a colour ``source`` shares, "creatures", named card types
+    ("artifacts", "planeswalkers", …), creature types ("Dragons"), "all
+    colors" (any coloured source), and "everything". Colour is read from the
+    source's colour identity — the model's available proxy for a permanent's
+    colour (RULE 105); good enough for the common mono/gold creatures, and it
+    fails safe (no protection) when unknown.
     """
     quals = protections_of(obj.card)
     if not quals:
@@ -257,6 +296,11 @@ def is_protected_from(obj: "GameObject", source: "GameObject") -> bool:
         return True
     if quals & source_colors:
         return True
+    source_card = getattr(source, "card", None)
+    if source_card is not None:
+        other_quals = quals - set(_COLOUR_WORDS.values()) - {"creatures", "all_colors", "everything"}
+        if any(_quality_matches_type(q, source_card) for q in other_quals):
+            return True
     return False
 
 

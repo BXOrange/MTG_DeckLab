@@ -181,6 +181,49 @@ Weeks 1–4 roadmap is archived at
       be speculative and untestable. Revisit both if a card or a new effect
       type ever needs them. Tests: `test_continuous.py`,
       `test_effect_binder.py` (`TestStaticEffectRegistryBridges`).
+- [x] Layer 6 ability-adding grant of a *non-keyword* ability (RULE 613.7f)
+      — **done** (2026-07-09). Follow-up correction to the "layer 3" entry
+      above: two real cards — Tyvar Kell ("Elves you control have '{T}: Add
+      {B}.'") and Dionus, Elvish Archdruid ("Elves you control have '\<a
+      triggered ability\>'") — were initially reported as needing layer 3
+      (RULE 612 text-changing), citing CR 612.1's mention of text "granted …
+      by other effects". That's wrong: RULE 613.1 puts ability-adding in
+      layer 6, the same layer `grant_keyword` already used — these two just
+      grant a mana ability / a full triggered ability instead of a bare
+      keyword slug, not a text substitution. New `EffectSpec` types
+      `grant_mana_ability` (`mana`, a `mana_options`-shaped list) and
+      `grant_triggered_ability` (`trigger_event`, `grant_effects` — nested
+      one-shot-effect specs through the same `EffectRegistry` whitelist,
+      `once_per_turn`, `optional`, `controllers_turn_only`), docs/11 §6.
+      `mana_abilities.mana_options_for(obj)` folds the grant onto the
+      permanent's own printed options (`game_engine.py`'s 3 call sites
+      switched to it). A granted *triggered* ability needs a genuinely new
+      primitive: a stable instance per (granting ability, affected object)
+      relationship (`GameState._granted_ability_cache`), rebuilt from cache
+      every recompute rather than freshly constructed, so per-instance state
+      — `TriggeredAbility.once_per_turn`/`_last_triggered_turn` (also new;
+      RULE 603.2) — survives across passes; the cache is pruned back to only
+      currently-valid relationships every pass, so the grant (and its turn-
+      tracking) disappears the instant it stops applying, no separate
+      removal code (RULE 613.6). Each grantee gets its *own* scoped instance
+      (`continuous._granted_trigger_condition`, matched on the firing
+      event's `instance_id`) — without it, e.g. tapping one Elf would
+      incorrectly fire every other Elf's copy of the same granted ability
+      too. Needed a real primitive that plain didn't exist: a `TAPPED` event
+      (RULE 701.21b, "whenever ~ becomes tapped") — `RulesEngine.set_tapped`
+      now fires it on a genuine untapped→tapped transition (never for a
+      permanent entering already tapped, matching the real "becomes tapped"
+      ruling), and the three call sites that used to tap a permanent via the
+      bare `GameObject.tap()` (declare attackers, `tap_for_mana`,
+      `activate_ability`'s tap cost) now go through it. `TapEffect` gained
+      the same untargeted self-acting mode `AddCountersEffect` already had
+      (`target_kind=None` → acts on the effect's own source, no player
+      choice — "untap it" in Dionus's granted ability always means the
+      specific Elf, never a target pick). Registered: `Tyvar Kell`,
+      `Dionus, Elvish Archdruid` (`ability_catalogue.py`) — static clauses
+      only; their loyalty abilities/emblem are a separate, unrelated gap
+      (loyalty abilities in general are modeled; emblems aren't at all).
+      Tests: `test_static_ability_grants.py`.
 - [~] "Become a copy of target permanent" (RULE 706/707, layer 1) —
       **core mechanic done**. `RulesEngine.become_copy(obj, target,
       add_types, add_subtypes)` mutates `obj.card` in place to `target`'s
@@ -286,12 +329,25 @@ Weeks 1–4 roadmap is archived at
       action (`commander_tax`/`effective_cost`). The counter deep-copies with
       the player for rewind. Tests: `test_game_engine.py`
       `test_commander_tax_adds_two_per_previous_cast`.
-- [ ] Conditional enters-tapped choice (RULE 614.1 replacement): pure
-      tap-lands enter tapped (`ability_catalogue.enters_tapped`), but shock
-      lands ("you may pay 2 life"), check lands ("unless you control a
-      …"), and pain/fast lands are deliberately excluded and enter
-      *untapped* with no prompt. Needs a replacement-effect + player choice
-      (pay life / evaluate condition) rather than the current boolean.
+- [x] Conditional enters-tapped choice (RULE 614.1 replacement) — **done**.
+      `ability_catalogue.land_tap_condition(card)` classifies a land's
+      tapped-entry clause off its oracle text: `"always"` (plain tap-land),
+      `"never"` (no clause, or an unrecognized conditional shape — fails
+      safe untapped), `"pay_life"` (shock lands: "you may pay N life. If
+      you don't, ~ enters tapped."), `"unless_types"` (check lands: "unless
+      you control a/an X [or a/an Y …]"), or `"unless_count"` (fast/slow
+      lands: "unless you control N or fewer/more other lands").
+      `RulesEngine.enter_land_tapped`, called from `GameEngine.play_land`,
+      resolves the deterministic shapes immediately against the board the
+      controller already has (evaluated before the land itself joins the
+      battlefield, so "other lands" naturally excludes it); a shock land
+      opens a genuine `land_tapped` `pending_choice` (tapped by default, as
+      if declined) — `resolve_land_tapped_choice("pay")` pays the life
+      (`RulesEngine.lose_life`) and flips it untapped, reusing the same
+      `pending_choice`/`resolve_pending_choice` plumbing as search/cascade/
+      trigger-target choices. Pain lands (no "enters tapped" text at all)
+      and other unrecognized conditional shapes are untouched. Tests:
+      `test_ability_catalogue.py`.
 
 ## Card-type & structural coverage (Backlog)
 
@@ -304,9 +360,25 @@ eventually own. Roughly in decreasing commonness:
       battlefield done** — `Card.back_face()` builds the back as its own
       `Card`, `GameObject.transform()`/`transformed` swaps faces reversibly
       (re-seeding a transforming planeswalker's loyalty), surfaced in
-      `to_dict`. Remaining: a *transform trigger/effect* to call it, the `//`
-      modal-DFC back-face cast from hand (712.10), and the day/night (RULE 731)
-      tie-in.
+      `to_dict`. **Modal DFC back-face cast/play from hand (712.10) is now
+      done too**: `RulesEngine.snapshot_face`/`restore_face`/`switch_to_face`
+      (next to `become_copy`, same "clear + rebind catalogue-derived
+      abilities" treatment) let `GameEngine.cast_spell`/`play_land` rebind
+      an object onto its `is_modal_dfc` back face before the ordinary
+      cast/play body runs unchanged; `can_cast`/`effective_cast_cost`/
+      `can_play_land` gained a non-mutating `face="front"/"back"` preview
+      (via `_face_card`) so `legal_actions`/`_cast_action` can offer *both*
+      faces as independent actions for the same hand card without side
+      effects, and a rejected back-face cast (e.g. no legal target) rolls
+      back to the front face rather than sticking. Wired through
+      `services/game_session.py` (`action["face"]`) and
+      `frontend/src/js/gameBoardView.js` (a second button per MDFC hand
+      card, keyed `instance_id:face` wherever DOM lookups could otherwise
+      collide with the front's). Tests: `test_card_structures.py`.
+      Remaining: a *transform trigger/effect* to call `GameObject.transform`,
+      and the day/night (RULE 731) tie-in. MDFC commanders cast from the
+      command zone are a known, deliberately unhandled edge case (only
+      hand-cast offers both faces).
 - [ ] Adventure cards (RULE 715) and Split/Fuse cards (RULE 709) — cast
       one half, the other stays available; recognised structurally
       (`Card.is_adventure`/`is_split`) but both still resolve as the single

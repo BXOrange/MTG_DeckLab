@@ -124,7 +124,18 @@ the layer system (layers 2 control / 4 type / 5 colour / 6 abilities / 7a CDA /
 `control_change`/`pt_cda`/`pt_switch` — and `affects="attached_permanent"`
 resolves off a static ability's own source's `attached_to`, so an
 Aura/Equipment/Reconfigure's own buff/keyword-grant/colour-/control-change
-lands on whatever it's attached to, docs/11 §6); **Aura/Equipment/Fortify/
+lands on whatever it's attached to, docs/11 §6); **layer 6 also grants a
+non-keyword ability** — `grant_mana_ability` (a mana ability, e.g. Tyvar
+Kell's "Elves you control have '{T}: Add {B}.'"; folded onto a permanent's
+printed mana options by `mana_abilities.mana_options_for`) and
+`grant_triggered_ability` (a full triggered ability, e.g. Dionus, Elvish
+Archdruid's granted "whenever this becomes tapped …", a new `TAPPED` event
+RULE 701.21b — each grantee gets its own scoped, cross-recompute-cached
+`TriggeredAbility` instance, `GameState._granted_ability_cache`, so
+`TriggeredAbility.once_per_turn` state survives passes and the grant vanishes
+the instant it stops applying); despite CR 612.1 mentioning text "granted …
+by other effects", this is layer 6 (RULE 613.1 ability-adding), not layer 3
+— see the "not yet" note below); **Aura/Equipment/Fortify/
 Reconfigure attachment** (RULE 303.4f/301.5/702.6/67/151: ETB attach on
 resolution, sorcery-speed equip/fortify/reconfigure activated abilities,
 RULE 704.5m/n on the host leaving — Aura to the graveyard, Equipment/
@@ -160,7 +171,12 @@ sorcery-speed with a once-per-turn gate, damage removes loyalty, 0-loyalty SBA);
 commander damage plus **commander tax** (903.8); counters; **basic card
 structures** (DFC
 `GameObject.transform`, token copies, Saga lore counters + final-chapter
-sacrifice); a basic **interactive priority primitive** (`pass_priority(player)`,
+sacrifice); **modal-DFC back-face casting/playing from hand** (RULE 712.10:
+`RulesEngine.snapshot_face`/`restore_face`/`switch_to_face` rebind an object
+onto its back face — same rebind treatment as `become_copy` — so
+`cast_spell`/`play_land` can commit to either face and `legal_actions` can
+preview/offer both independently, with rollback on a rejected back-face
+cast); a basic **interactive priority primitive** (`pass_priority(player)`,
 RULE 117). The **RULE 702 keyword catalogue**
 (`parser/oracle/catalogue/keywords.py`) parses all 194 keywords off a card into
 `keyword` `AbilitySpec`s (flag/number/cost/number+cost/quality shapes, each
@@ -187,21 +203,24 @@ parameter binds onto `parametric_keywords` but nothing consumes it yet);
 replacement/prevention **ordering** by the affected player (RULE 616.1 — trigger
 ordering 603.3b *is* interactive); wiring the interactive priority primitive
 into the **multiplayer session/WebSocket** (`create_multiplayer` still stubbed);
-layer 3 (text-change) and full RULE 613.8 dependency ordering — deliberately
-not built: nothing in the ~1000-card cache needs layer 3, and the current
-effect vocabulary can't construct a same-layer dependency case (every real
-interaction crosses layers, already sequenced by the fixed layer order), so
-a general implementation of either would be speculative and untestable
-(revisit if a card/effect ever needs one); combining the (opt-in) interactive
+literal layer 3 (RULE 612 text-changing — rewriting a word in a card's own
+text, e.g. Artificial Evolution; *not* the same as granting another ability,
+which is layer 6 and covered above) and full RULE 613.8 dependency ordering
+— deliberately not built: nothing in the ~1000-card cache needs literal
+layer 3, and the current effect vocabulary can't construct a same-layer
+dependency case (every real interaction crosses layers, already sequenced by
+the fixed layer order), so a general implementation of either would be
+speculative and untestable (revisit if a card/effect ever needs one);
+combining the (opt-in) interactive
 trigger-ordering choice with a targeted trigger among the ordered set (a
 trigger placed via `resolve_trigger_order_choice` doesn't get a target-choice
 pause) — a narrow, unhandled edge case where both features individually work;
 re-validating an *existing* attachment's legality every SBA pass (today only
 "host left the battlefield" is checked, not e.g. a host gaining protection
-mid-game); and the deeper card-type structures
-(MDFC back-face cast, Adventure/Split casting, Saga/Class/Leveler *chapter
-abilities*, battles/dungeons — the basic Saga-lore/DFC-transform/token-copy
-scaffolding is in).
+mid-game); and the remaining deeper card-type structures (Adventure/Split
+casting, Saga/Class/Leveler *chapter abilities*, battles/dungeons — MDFC
+back-face casting is done, see above; the basic Saga-lore/DFC-transform/
+token-copy scaffolding is in for the rest).
 
 Hand-authoring a card's abilities directly (rather than waiting on the
 oracle-effect front-end, or for a replacement-clause/conditional-trigger the

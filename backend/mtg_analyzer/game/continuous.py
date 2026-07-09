@@ -19,12 +19,22 @@ Plus a non-layer bucket, **cost adjustments** (RULE 601.2f — "spells cost {N}
 less"), which aren't part of 613 but are the other everyday static effect and
 are computed here for the same recompute.
 
-Not modeled: layer 1 (copy effects, RULE 707) and layer 3 (text-changing
-effects, RULE 612) — no card in the pool needs them yet, and RULE 613.8's
-*dependency* system (an effect whose order depends on another applying
-first) — within a layer, ordering is by timestamp only (RULE 613.7,
-`_in_layer`), which the card pool's anthems/grants/animations never need
-reordered by dependency.
+Not modeled: layer 1 (copy effects, RULE 707 — `RulesEngine.become_copy`
+handles the copy-effect *mechanic* separately, see docs/11 §"Copying
+objects") and layer 3 (text-changing effects, RULE 612) — no card in the
+pool needs *literal* text substitution (e.g. Artificial Evolution
+rewriting a creature-type word). A card that grants *another* ability to
+other permanents ("Elves you control have '{T}: Add {B}.'" — Tyvar Kell;
+"Elves you control have '<triggered ability>'" — Dionus, Elvish Archdruid)
+is **not** a layer-3 case despite CR 612.1's mention of "text … granted…
+by other effects": RULE 613.1 puts ability-adding/removing in layer 6, and
+that's what these are, templated exactly like the layer-6 keyword grants
+below (`grant_keyword`) — just granting a mana ability or a full triggered
+ability instead of a bare keyword. RULE 613.8's *dependency* system (an
+effect whose order depends on another applying first) is also not modeled
+— within a layer, ordering is by timestamp only (RULE 613.7, `_in_layer`),
+which the card pool's anthems/grants/animations never need reordered by
+dependency.
 
 `recompute(state)` resets every battlefield object's derived characteristics
 and re-derives them from scratch, stamping the result — and a per-object,
@@ -39,7 +49,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
-from .effects import StaticAbility
+from .effects import EffectRegistry, StaticAbility, TriggeredAbility
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
     from ..models.game_object import GameObject
@@ -213,6 +223,31 @@ def _count_selector(state: "GameState", ability: StaticAbility, selector: str) -
     return 0
 
 
+def _granted_trigger_condition(target: "GameObject", controllers_turn_only: bool):
+    """The `TriggeredAbility.condition` for one object's granted ability.
+
+    Each object under a "X have '<triggered ability>'" grant (Dionus, Elvish
+    Archdruid) gets its *own* `TriggeredAbility` instance (see `recompute`'s
+    layer-6 pass) — without this, every one of them would react to the
+    triggering event regardless of which specific object it was about (e.g.
+    one Elf being tapped would also untap every *other* Elf under the same
+    anthem). Scoped by the event's own ``instance_id`` when it carries one
+    (RULE 603.2's "this creature" is about *this* object specifically); an
+    event shape with no ``instance_id`` isn't filtered by identity at all —
+    there's no card in the pool granting a trigger off such an event today.
+    """
+
+    def condition(event: Any, context: Any) -> bool:
+        event_instance = event.get("instance_id")
+        if event_instance is not None and event_instance != target.instance_id:
+            return False
+        if controllers_turn_only and context.state.active_player.id != target.controller_id:
+            return False
+        return True
+
+    return condition
+
+
 def recompute(state: "GameState") -> None:
     """Re-derive every battlefield permanent's characteristics (RULE 613)."""
     # Restore any controller a prior layer-2 pass changed, so this pass
@@ -270,12 +305,58 @@ def recompute(state: "GameState") -> None:
             obj._derived_colors.update(colors)
             _trace(obj, 5, _source_name(ability), "becomes " + ", ".join(colors))
 
-    # -- Layer 6: ability-adding effects (keyword grants).
+    # -- Layer 6: ability-adding effects (keyword / mana / triggered-ability
+    # grants — RULE 613.7f). A grant is re-derived every pass exactly like
+    # every other layer effect here, so it disappears on its own the moment
+    # its source stops applying — no separate removal code (RULE 613.6).
+    live_grant_keys: set[tuple[int, int]] = set()
     for ability in _in_layer(abilities, "ability"):
         keywords = ability.params.get("keywords", [])
+        mana = ability.params.get("mana", [])
+        trigger_event = ability.params.get("trigger_event")
         for obj in affected_objects(state, ability):
-            obj._granted_keywords.update(keywords)
-            _trace(obj, 6, _source_name(ability), "gains " + ", ".join(keywords))
+            if keywords:
+                obj._granted_keywords.update(keywords)
+                _trace(obj, 6, _source_name(ability), "gains " + ", ".join(keywords))
+            if mana:
+                obj._granted_mana.extend(mana)
+                _trace(obj, 6, _source_name(ability), "gains a mana ability")
+            if trigger_event:
+                key = (id(ability), obj.instance_id)
+                live_grant_keys.add(key)
+                granted = state._granted_ability_cache.get(key)
+                if granted is None:
+                    granted = TriggeredAbility(
+                        trigger_event=trigger_event,
+                        effects=[
+                            EffectRegistry.create(spec["type"], dict(spec.get("params", {})))
+                            for spec in ability.params.get("grant_effects", [])
+                        ],
+                        condition=_granted_trigger_condition(
+                            obj, bool(ability.params.get("controllers_turn_only", False))
+                        ),
+                        optional=bool(ability.params.get("optional", False)),
+                        once_per_turn=bool(ability.params.get("once_per_turn", False)),
+                        controller_id=obj.controller_id,
+                        source=obj,
+                        description=ability.description or "granted triggered ability",
+                    )
+                    state._granted_ability_cache[key] = granted
+                else:
+                    # `obj.controller_id` can change turn to turn (a control-
+                    # changing effect, layer 2, resolves earlier this same
+                    # pass) — keep the cached instance's controller current.
+                    granted.controller_id = obj.controller_id
+                obj._granted_triggered_abilities.append(granted)
+                _trace(obj, 6, _source_name(ability), "gains a triggered ability")
+    # Prune cache entries for relationships that no longer hold (the granting
+    # ability left, or this object is no longer among its `affects`) — so a
+    # later re-grant starts a fresh instance (fresh "once per turn" state),
+    # rather than resurrecting old turn-tracking from an unrelated stretch of
+    # the game.
+    for key in list(state._granted_ability_cache):
+        if key not in live_grant_keys:
+            del state._granted_ability_cache[key]
 
     # Temporary "until end of turn" keyword grants from a resolved effect
     # ("target creature gains flying until end of turn") — same layer 6, but
@@ -422,7 +503,13 @@ def _describe_ability(ability: StaticAbility) -> str:
     if ability.layer == "pt_cda":
         return f"defines P/T of {ability.affects}"
     if ability.layer == "ability":
-        return "grants " + ", ".join(p.get("keywords", []))
+        if p.get("keywords"):
+            return "grants " + ", ".join(p.get("keywords", []))
+        if p.get("mana"):
+            return "grants a mana ability"
+        if p.get("trigger_event"):
+            return "grants a triggered ability"
+        return "grants an ability"
     if ability.layer == "type":
         return "makes " + ", ".join(p.get("add_types", []))
     if ability.layer == "color":

@@ -1645,6 +1645,106 @@ def test_display_keywords_expands_protection():
     assert "Protection: B" in labels
 
 
+def test_recognizes_multiple_protections_joined_by_and_from():
+    # Official templating for a multi-quality protection repeats "from" per
+    # quality (the Sword-of-X-and-Y equipment cycle: "Protection from red
+    # and from blue"), rather than a bare "and".
+    card = creature(oracle_text="Protection from red and from blue")
+    assert combat.protections_of(card) == {"R", "U"}
+
+
+def test_recognizes_protection_from_card_type():
+    card = creature(oracle_text="Protection from artifacts")
+    assert combat.protections_of(card) == {"artifacts"}
+
+
+def test_protection_from_card_type_stops_damage_from_that_type():
+    eng = make_engine([land()], [land()], hand=0)
+    target = obj_on_battlefield(
+        eng.state, eng, creature(name="Ward", oracle_text="Protection from artifacts")
+    )
+    artifact_source = obj_on_battlefield(
+        eng.state,
+        eng,
+        Card(id="Blaster", name="Blaster", type_line="Artifact Creature — Golem",
+             is_creature=True, power=3, toughness=3),
+        controller="p2",
+    )
+    eng.rules.deal_damage(target, 3, source=artifact_source)
+    assert target.damage_marked == 0
+
+
+def test_protection_from_creature_type_stops_damage_from_that_type():
+    eng = make_engine([land()], [land()], hand=0)
+    target = obj_on_battlefield(
+        eng.state, eng, creature(name="Ward", oracle_text="Protection from Dragons")
+    )
+    dragon = obj_on_battlefield(
+        eng.state,
+        eng,
+        creature(name="Dragon", type_line="Creature — Dragon", power=5, toughness=5),
+        controller="p2",
+    )
+    eng.rules.deal_damage(target, 5, source=dragon)
+    assert target.damage_marked == 0
+
+
+def test_noncombat_damage_prevented_by_protection():
+    # RULE 702.16c: protection prevents *all* damage from a source of the
+    # stated quality, not just combat damage — a burn spell fizzles too.
+    eng = make_engine([land()], [land()], hand=0)
+    target = obj_on_battlefield(
+        eng.state, eng, creature(name="Ward", oracle_text="Protection from red")
+    )
+    red_source = obj_on_battlefield(
+        eng.state,
+        eng,
+        Card(
+            id="Bolt",
+            name="Bolt",
+            type_line="Instant",
+            mana_cost_string="{R}",
+            converted_mana_cost=1,
+            is_instant=True,
+            color_identity={"R"},
+        ),
+        controller="p2",
+    )
+    eng.rules.deal_damage(target, 5, source=red_source)
+    assert target.damage_marked == 0
+
+
+def test_equipment_target_options_exclude_protected_creature():
+    eng = make_engine([land()], hand=0)
+    eng.begin_turn()
+    p1 = eng.state.active_player
+
+    legal_host = obj_on_battlefield(eng.state, eng, creature(name="Host", cost="{1}"))
+    protected_host = obj_on_battlefield(
+        eng.state, eng, creature(name="Ward", oracle_text="Protection from artifacts")
+    )
+
+    card = Card(
+        id="Equipment",
+        name="Equipment",
+        type_line="Artifact — Equipment",
+        mana_cost_string="{1}",
+        converted_mana_cost=1,
+    )
+    card.keywords = ["Equip"]
+    card.oracle_text = "Equip {2}"
+    source = GameObject(card, owner_id="p1", zone=Zone.BATTLEFIELD)
+    source.summoning_sick = False
+    eng.state.add_to_battlefield(source)
+    bind_from_catalogue(source)
+
+    requirements = eng._ability_target_requirements(p1, source.activated_abilities[0], source)
+    option_ids = {opt["instance_id"] for opt in requirements[0]["options"]}
+
+    assert legal_host.instance_id in option_ids
+    assert protected_host.instance_id not in option_ids
+
+
 # -- Attacking ---------------------------------------------------------------
 
 

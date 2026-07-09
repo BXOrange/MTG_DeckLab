@@ -169,6 +169,18 @@ class GameObject:
         self._derived_power: Optional[int] = None
         self._derived_toughness: Optional[int] = None
         self._granted_keywords: set[str] = set()
+        #: Mana-production options granted by a layer-6 "X have '{T}: Add
+        #: …'" static ability (Tyvar Kell) — folded onto the printed ones by
+        #: `mana_abilities.mana_options_for`. Reset each recompute.
+        self._granted_mana: list[dict[str, int]] = []
+        #: Triggered abilities granted by a layer-6 "X have '<ability>'"
+        #: static ability (Dionus, Elvish Archdruid). Rebuilt each recompute
+        #: from a stable per-relationship cache (`GameState._granted_ability_
+        #: cache`) so an instance — and any "once per turn" state on it —
+        #: survives across passes for as long as the grant holds, and simply
+        #: stops appearing here the moment it doesn't (RULE 613.6: no
+        #: separate removal code needed, same as `_granted_keywords`).
+        self._granted_triggered_abilities: list[Any] = []
         self._added_types: set[str] = set()
         #: Types a layer-4 effect strips off (RULE 613.4a) — currently just
         #: Reconfigure (RULE 702.151b): the permanent stops being a creature
@@ -207,6 +219,8 @@ class GameObject:
         self._derived_power = None
         self._derived_toughness = None
         self._granted_keywords = set()
+        self._granted_mana = []
+        self._granted_triggered_abilities = []
         self._added_types = set()
         self._removed_types = set()
         self._derived_colors = None
@@ -320,6 +334,18 @@ class GameObject:
     def granted_keywords(self) -> set[str]:
         """Keyword slugs granted by layer-6 static abilities (RULE 613.7f)."""
         return set(self._granted_keywords)
+
+    @property
+    def granted_mana_options(self) -> list[dict[str, int]]:
+        """Mana-production options a layer-6 "X have '{T}: Add …'" static
+        ability grants this object (Tyvar Kell) — folded onto the printed
+        ones by `mana_abilities.mana_options_for`."""
+        return list(self._granted_mana)
+
+    @property
+    def granted_triggered_abilities(self) -> list[Any]:
+        """Triggered abilities a layer-6 static ability granted this object."""
+        return list(self._granted_triggered_abilities)
 
     # -- State transitions ----------------------------------------------
 

@@ -307,7 +307,8 @@ class GameSession:
             return
 
         if kind == "play_land":
-            self.engine.play_land(active, self._object(action))
+            face = action.get("face", "front")
+            self.engine.play_land(active, self._object(action), face=face)
             return
 
         if kind == "tap_for_mana":
@@ -321,7 +322,8 @@ class GameSession:
             # it resolve — real stack interaction (RULE 608).
             targets = self._resolve_targets(action.get("targets"))
             x = int(action.get("x", 0))
-            self.engine.cast_spell(active, self._object(action), targets, x)
+            face = action.get("face", "front")
+            self.engine.cast_spell(active, self._object(action), targets, x, face=face)
             return
 
         if kind == "activate_ability":

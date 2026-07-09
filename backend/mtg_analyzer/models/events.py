@@ -27,6 +27,15 @@ class EventType:
     TURN_BEGIN = "TURN_BEGIN"
     TURN_END = "TURN_END"
     UNTAP = "UNTAP"
+    #: A permanent transitions untapped → tapped (RULE 701.21b) — fired once
+    #: per genuine transition (not a no-op re-tap), and *not* for a permanent
+    #: that enters the battlefield already tapped (RULE 614.1's tapped-entry
+    #: conditions set `tapped` directly rather than going through this — a
+    #: permanent entering tapped was never "not tapped" in the same turn, so
+    #: it doesn't trigger a "becomes tapped" ability; see the real-card
+    #: ruling for e.g. Kambal-style triggers, and Dionus, Elvish Archdruid's
+    #: "whenever this creature becomes tapped").
+    TAPPED = "TAPPED"
 
     # Object/zone movement.
     DRAW = "DRAW"

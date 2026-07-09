@@ -144,6 +144,19 @@ class GameState:
         #: solo goldfishing stays uninterrupted; the session/UI turns it on.
         self.interactive_ordering: bool = False
 
+        #: A layer-6 "X have '<triggered ability>'" static grant (RULE 613.7f
+        #: ability-adding — Dionus, Elvish Archdruid) needs a *stable* ability
+        #: instance per (granting ability, affected object) so any per-instance
+        #: state (e.g. "once per turn") survives across recomputes instead of
+        #: being rebuilt from scratch every pass. Keyed by
+        #: ``(id(granting StaticAbility), affected instance_id)``; pruned back
+        #: to only the currently-valid relationships at the end of every
+        #: `continuous.recompute` pass, so a grant that stops applying just
+        #: stops being cached too — no separate removal code needed. Plain
+        #: cache data, not board state, so it deep-copies with everything else
+        #: (`clone`) but never needs its own undo handling.
+        self._granted_ability_cache: dict[tuple[int, int], Any] = {}
+
         #: Per-player play statistics + a flat event timeline, for the
         #: end-of-game review (cards drawn/played, mana curve, mana produced
         #: per turn, damage). Plain JSON-able data written by the engine

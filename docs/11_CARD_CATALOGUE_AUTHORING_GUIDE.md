@@ -217,6 +217,8 @@ A `"static"` `AbilitySpec`'s effects use one of these types (all become a
 | `anthem` | 7c (`pt_mod`) | `power`, `toughness` | "Creatures you control get +1/+1" |
 | `pt_set` | 7b (`pt_set`) | `power`, `toughness` | "Each creature is 1/1" |
 | `grant_keyword` | 6 (`ability`) | `keywords` (list) | "Creatures you control have flying" |
+| `grant_mana_ability` | 6 (`ability`) | `mana` — list of `mana_options`-shaped production dicts, e.g. `[{"B": 1}]` | "Elves you control have '{T}: Add {B}.'" (Tyvar Kell) |
+| `grant_triggered_ability` | 6 (`ability`) | `trigger_event`, `grant_effects` (list of `{"type", "params"}` one-shot-effect specs, same whitelist as everywhere else), `once_per_turn` (bool), `optional` (bool), `controllers_turn_only` (bool) | "Elves you control have '\<triggered ability\>'" (Dionus, Elvish Archdruid) |
 | `type_change` | 4 (`type`) | `add_types`, `power`, `toughness` | "Lands you control are 0/0 creatures" (animation P/T only takes effect together with `add_types: ["creature"]`) |
 | `color_change` | 5 (`color`) | `colors` (list), `set` (bool, default `True`) | "Enchanted creature is black" |
 | `control_change` | 2 (`control`) | `controller` (a player id; omit to default to the ability's own source's controller) | "You control enchanted creature" (Mind Control) |
@@ -277,10 +279,17 @@ attach ability; this `static` spec only supplies the bonus that then rides
 along with whatever it's attached to.
 
 **What's still missing from the layer engine** (don't attempt to model these
-by hand yet — there's no consumer): layer 1 (copy effects) and layer 3
-(text-changing effects), and full RULE 613.8 dependency ordering (today it's
-timestamp order within a layer, a documented simplification — see
-`_in_layer`).
+by hand yet — there's no consumer): layer 1 (copy effects — but see
+`RulesEngine.become_copy`, §5 above, which handles the copy-effect
+*mechanic* directly rather than through this layer), literal layer 3
+text-changing (RULE 612, e.g. Artificial Evolution rewriting a creature-type
+word), and full RULE 613.8 dependency ordering (today it's timestamp order
+within a layer, a documented simplification — see `_in_layer`). A card that
+grants *another* ability to other permanents (Tyvar Kell, Dionus, Elvish
+Archdruid above) is **not** a layer-3 case, despite CR 612.1 mentioning text
+"granted … by other effects" — RULE 613.1 puts ability-adding/removing in
+layer 6, so `grant_mana_ability`/`grant_triggered_ability` above already
+cover it.
 
 ---
 

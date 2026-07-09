@@ -23,10 +23,10 @@ from ..models.game_object import GameObject, Zone
 from ..models.game_state import GameState, StackItem
 from ..models.mana_cost import ManaCost
 from ..models.player import Player
-from . import ability_catalogue, combat, continuous
+from . import combat, continuous
 from .costs import DISCARD_HAND, ActivationCost
 from .effects import ActivatedAbility
-from .mana_abilities import mana_options, option_label
+from .mana_abilities import mana_options_for, option_label
 from .phases import GamePhase, GameStep, default_turn_sequence
 from .rules_engine import RulesEngine
 from .targeting import (
@@ -397,7 +397,10 @@ class GameEngine:
         deathtouch and lifelink to each."""
         for target, amount, source in assignments:
             # Protection prevents the damage from a source of the named quality
-            # (RULE 702.16c). Players carry no protection in this model.
+            # (RULE 702.16c; `rules.deal_damage` enforces this too, so no
+            # damage lands even if a caller skips this check) — checked here
+            # as well so deathtouch/lifelink below don't fire off damage that
+            # never happened. Players carry no protection in this model.
             if isinstance(target, GameObject) and combat.is_protected_from(target, source):
                 continue
             self.rules.deal_damage(target, amount, source=source, combat=True)
@@ -574,6 +577,9 @@ class GameEngine:
             # RULE 115/603.3c: the option id is a permanent's instance id or a
             # player's id (not always int-castable, unlike the other kinds).
             self.rules.resolve_trigger_target_choice(None if declined else str(answer))
+        elif kind == "land_tapped":
+            # RULE 614.1: a shock land's "pay life to stay untapped" choice.
+            self.rules.resolve_land_tapped_choice(None if declined else str(answer))
         else:  # search: a card's instance id, or decline
             instance_id = None if declined else int(answer)
             self.rules.resolve_search_choice(instance_id)
@@ -586,24 +592,54 @@ class GameEngine:
     def _in_main_phase(self) -> bool:
         return self.state.current_step in ("main1", "main2")
 
-    def can_play_land(self, player: Player, obj: GameObject) -> bool:
+    def _face_card(self, obj: GameObject, face: str = "front") -> Optional[Card]:
+        """The `Card` ``face`` ("front"/"back") refers to for ``obj``.
+
+        "front" is always ``obj.card`` as it currently stands — which also
+        makes this work after a modal DFC has already been switched (RULE
+        712.10), since at that point "the current face" *is* the back. "back"
+        requires ``obj.card`` to be a modal DFC with captured back data and
+        returns that face's printed `Card`, or None otherwise. Read-only: it
+        never mutates ``obj``, so callers can use it to preview the un-chosen
+        face (e.g. for `legal_actions`) without committing to it.
+        """
+        if face == "back":
+            if not obj.card.is_modal_dfc:
+                return None
+            return obj.card.back_face()
+        return obj.card
+
+    def can_play_land(self, player: Player, obj: GameObject, face: str = "front") -> bool:
+        card = self._face_card(obj, face)
         return (
-            player is self.state.active_player
+            card is not None
+            and player is self.state.active_player
             and self._in_main_phase()
             and not self.state.stack
             and player.lands_played_this_turn < player.max_lands_per_turn
             and obj in player.hand
-            and obj.card.is_land
+            and card.is_land
         )
 
-    def play_land(self, player: Player, obj: GameObject) -> GameObject:
-        """Play a land from hand (RULE 505.5b — a special action, no stack)."""
-        if not self.can_play_land(player, obj):
+    def play_land(self, player: Player, obj: GameObject, face: str = "front") -> GameObject:
+        """Play a land from hand (RULE 505.5b — a special action, no stack).
+
+        ``face="back"`` plays a modal DFC's back face instead (RULE 712.10) —
+        legal only when that face is itself a land; the front/back choice is
+        made once, here, by rebinding ``obj`` onto the back `Card` before the
+        rest of this method (which then reads ``obj.card`` exactly as for any
+        other land) runs unchanged.
+        """
+        if not self.can_play_land(player, obj, face=face):
             raise ValueError(f"{player.id} cannot play {obj.name} now")
+        if face == "back":
+            self.rules.switch_to_face(obj, obj.card.back_face())
         player.remove_from_zone(obj, Zone.HAND)
         obj.summoning_sick = True
-        # RULE 614.1: a tap-land enters the battlefield tapped.
-        obj.tapped = ability_catalogue.enters_tapped(obj.card)
+        # RULE 614.1: a tap-land enters the battlefield tapped — including a
+        # shock/check/fast/slow land's conditional shape (payment choice or
+        # board-state check), resolved by `enter_land_tapped`.
+        self.rules.enter_land_tapped(obj)
         self.state.add_to_battlefield(obj)
         player.lands_played_this_turn += 1
         self.state.record_stat(player.id, "land", name=obj.name)
@@ -617,21 +653,23 @@ class GameEngine:
         self.give_priority(player)
         return obj
 
-    def can_cast(self, player: Player, obj: GameObject, x: int = 0) -> bool:
+    def can_cast(self, player: Player, obj: GameObject, x: int = 0, face: str = "front") -> bool:
         """RULE 601/602.5: is this spell castable by ``player`` right now?
 
         ``x`` is the value that would be announced for a cost containing
         ``{X}`` (ignored otherwise) — pass 0 (the default) to check bare
         castability, or a specific value to check whether *that* X is
-        affordable.
+        affordable. ``face="back"`` checks a modal DFC's back face (RULE
+        712.10) instead, without mutating ``obj`` — a preview, used by
+        `legal_actions` to decide whether to offer casting it.
         """
         # A commander may be cast from the command zone as well as the
         # hand (RULE 903.6, 903.8) — commander tax (RULE 903.8, +{2} per
         # previous cast from there) isn't modeled yet.
         if obj not in player.hand and obj not in player.command:
             return False
-        card = obj.card
-        if card.is_land:
+        card = self._face_card(obj, face)
+        if card is None or card.is_land:
             return False
         # Timing (RULE 601.3a): sorcery-speed spells need an empty stack,
         # the player's own main phase, and their priority.
@@ -641,19 +679,24 @@ class GameEngine:
                 return False
             if not self._in_main_phase() or self.state.stack:
                 return False
-        cost = self.effective_cast_cost(player, obj, x)
+        cost = self.effective_cast_cost(player, obj, x, face=face)
         return player.mana_pool.can_pay(cost, life_available=player.life)
 
-    def effective_cast_cost(self, player: Player, obj: GameObject, x: int = 0) -> "ManaCost":
+    def effective_cast_cost(
+        self, player: Player, obj: GameObject, x: int = 0, face: str = "front"
+    ) -> "ManaCost":
         """``obj``'s mana cost after static cost adjustments (RULE 601.2f/903.8).
 
         Starts from the printed cost (with ``{X}`` resolved), applies the net
         generic reduction from "spells you cast cost {N} less/more" statics in
         play, then adds commander tax ({2} per previous cast of this commander
         from the command zone, RULE 903.8) when it's being cast from there.
-        Generic-only and floored at zero — the common, safe case.
+        Generic-only and floored at zero — the common, safe case. ``face``
+        previews a modal DFC's back face's own printed cost (RULE 712.10)
+        without mutating ``obj``.
         """
-        cost = self.rules.mana_cost_of(obj.card)
+        card = self._face_card(obj, face) or obj.card
+        cost = self.rules.mana_cost_of(card)
         if cost.has_variable:
             cost = cost.with_x(x)
         cost = self._adjust_cost(cost, player)
@@ -708,8 +751,38 @@ class GameEngine:
         obj: GameObject,
         targets: Optional[list[Any]] = None,
         x: int = 0,
+        face: str = "front",
     ):
-        """Cast a spell after validating timing, payability and targets (RULE 601)."""
+        """Cast a spell after validating timing, payability and targets (RULE 601).
+
+        ``face="back"`` casts a modal DFC's back face instead (RULE 712.10):
+        ``obj`` is rebound onto that face (`RulesEngine.switch_to_face`, the
+        same "clear + rebind catalogue abilities" treatment `become_copy`
+        uses) before the ordinary cast validation/commit runs — so any
+        failure below leaves ``obj`` restored to its original face rather
+        than silently stuck on the back.
+        """
+        if face == "back":
+            if not self.can_cast(player, obj, x, face="back"):
+                raise ValueError(f"{player.id} cannot cast {obj.name} now")
+            back = obj.card.back_face()
+            snapshot = self.rules.snapshot_face(obj)
+            self.rules.switch_to_face(obj, back)
+            try:
+                return self._cast_current_face(player, obj, targets, x)
+            except Exception:
+                self.rules.restore_face(obj, snapshot)
+                raise
+        return self._cast_current_face(player, obj, targets, x)
+
+    def _cast_current_face(
+        self,
+        player: Player,
+        obj: GameObject,
+        targets: Optional[list[Any]],
+        x: int,
+    ):
+        """The common cast body, reading whatever `obj.card` currently is."""
         if not self.can_cast(player, obj, x):
             raise ValueError(f"{player.id} cannot cast {obj.name} now")
         # RULE 601.2c: a spell that requires a target can't be cast unless a
@@ -793,7 +866,7 @@ class GameEngine:
         for obj, defender in resolved:
             # Vigilance (RULE 702.21b): attacking doesn't cause it to tap.
             if not combat.has_vigilance(obj):
-                obj.tap()
+                self.rules.set_tapped(obj, True)
             obj.attacking = True
             obj.combat_defender = defender
             self.state.fire_event(
@@ -980,13 +1053,13 @@ class GameEngine:
         # Paradise, …) can't tap for mana — its mana ability has the {T} symbol.
         if self._summoning_sick_for_tap(source):
             raise ValueError(f"{source.name} has summoning sickness and can't tap for mana")
-        options = mana_options(source.card)
+        options = mana_options_for(source)
         if not options:
             raise ValueError(f"{source.name} has no mana ability")
         if not 0 <= option_index < len(options):
             raise ValueError(f"invalid mana option {option_index} for {source.name}")
         produced = options[option_index]
-        source.tap()
+        self.rules.set_tapped(source, True)
         player.mana_pool.add_many(produced)
         self.state.record_stat(player.id, "mana", amount=sum(produced.values()))
         return dict(produced)
@@ -1162,7 +1235,7 @@ class GameEngine:
 
         cost = ability.cost
         if cost.taps_self:
-            source.tap()
+            self.rules.set_tapped(source, True)
         if cost.untaps_self:
             source.untap()
         mana = cost.mana.with_x(x) if cost.mana.has_variable else cost.mana
@@ -1203,7 +1276,7 @@ class GameEngine:
     # Action validation query (docs/02 R4.3)
     # ------------------------------------------------------------------
 
-    def _cast_action(self, player: Player, obj: GameObject) -> dict[str, Any]:
+    def _cast_action(self, player: Player, obj: GameObject, face: str = "front") -> dict[str, Any]:
         """A ``cast_spell`` legal-action entry, flagging ``{X}`` and targets.
 
         ``has_x`` tells the UI to prompt for a value; ``max_x`` is the
@@ -1215,7 +1288,23 @@ class GameEngine:
         board). When no legal target exists the entry is marked ``locked``
         with a reason — the UI renders it with a 🔒 and can't cast it, which
         is the offer-time face of RULE 601.2c.
+
+        ``face="back"`` builds this for a modal DFC's back face (RULE
+        712.10): ``obj`` is temporarily rebound onto the back face (so
+        targeting/cost read its *own* abilities, not the front's) then
+        restored before returning — a pure preview, unlike `cast_spell`'s
+        real (and rollback-on-failure) switch.
         """
+        if face == "back":
+            back = obj.card.back_face()
+            snapshot = self.rules.snapshot_face(obj)
+            self.rules.switch_to_face(obj, back)
+            try:
+                action = self._cast_action(player, obj)
+            finally:
+                self.rules.restore_face(obj, snapshot)
+            action["face"] = "back"
+            return action
         action = {"type": "cast_spell", "instance_id": obj.instance_id, "name": obj.name}
         cost = self.rules.mana_cost_of(obj.card)
         if cost.has_variable:
@@ -1261,6 +1350,20 @@ class GameEngine:
                 )
             if self.can_cast(player, obj):
                 actions.append(self._cast_action(player, obj))
+            # A modal DFC offers its back face too (RULE 712.10) — a second,
+            # independently-gated action for the same hand card.
+            if obj.card.is_modal_dfc and obj.card.back_face() is not None:
+                if self.can_play_land(player, obj, face="back"):
+                    actions.append(
+                        {
+                            "type": "play_land",
+                            "instance_id": obj.instance_id,
+                            "name": obj.card.back_face().name,
+                            "face": "back",
+                        }
+                    )
+                if self.can_cast(player, obj, face="back"):
+                    actions.append(self._cast_action(player, obj, face="back"))
 
         for obj in list(player.command):
             if self.can_cast(player, obj):
@@ -1291,7 +1394,7 @@ class GameEngine:
             # tap for mana — don't offer it as a legal action.
             if source.tapped or self._summoning_sick_for_tap(source):
                 continue
-            options = mana_options(source.card)
+            options = mana_options_for(source)
             if not options:
                 continue
             # Each option is a distinct choice (dual-land "W or U"); the UI
@@ -1363,7 +1466,7 @@ class GameEngine:
         for source in self.state.permanents_controlled_by(active.id):
             if (
                 not source.tapped
-                and mana_options(source.card)
+                and mana_options_for(source)
                 and not self._summoning_sick_for_tap(source)  # RULE 302.6
             ):
                 self.tap_for_mana(active, source)  # option 0 (greedy)

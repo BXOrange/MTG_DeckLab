@@ -102,6 +102,38 @@ def test_any_target_includes_players_and_creatures():
     assert {o.get("player_id") for o in opts if "player_id" in o} == {"p1", "p2"}
 
 
+def test_protected_creature_is_excluded_from_targets():
+    # RULE 702.16b: protection means "can't be the target of spells or
+    # abilities from a source of the stated quality" — a red Shock offers no
+    # target in a creature that has protection from red.
+    eng, p1, p2 = two_player_engine()
+    bear = GameObject(
+        Card(
+            id="Bear",
+            name="Bear",
+            type_line="Creature — Bear",
+            is_creature=True,
+            power=2,
+            toughness=2,
+            oracle_text="Protection from red",
+        ),
+        owner_id="p2",
+        zone=Zone.BATTLEFIELD,
+    )
+    eng.state.add_to_battlefield(bear)
+    red_bolt = give_spell(
+        eng, p1, instant("Shock", color_identity={"R"}), [DealDamageEffect(3)]
+    )
+    opts = targeting.legal_targets(eng.state, p1.id, red_bolt.spell_effects[0].target_spec, source=red_bolt)
+    assert "Bear" not in {o.get("name") for o in opts}
+    # An off-colour source still sees it.
+    blue_bolt = give_spell(
+        eng, p1, instant("Unsummon", color_identity={"U"}), [DealDamageEffect(3)]
+    )
+    opts = targeting.legal_targets(eng.state, p1.id, blue_bolt.spell_effects[0].target_spec, source=blue_bolt)
+    assert "Bear" in {o.get("name") for o in opts}
+
+
 def test_spell_target_reads_the_stack():
     eng, p1, p2 = two_player_engine()
     spec = CounterSpellEffect().target_spec

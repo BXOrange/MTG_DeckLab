@@ -55,6 +55,18 @@ def mana_options(card: Any) -> list[dict[str, int]]:
     return _dedupe(options)
 
 
+def mana_options_for(obj: Any) -> list[dict[str, int]]:
+    """``mana_options`` for a `GameObject`, folding in layer-6 grants too.
+
+    A permanent's own printed options, plus any a static ability granted it
+    (RULE 613.7f — "Elves you control have '{T}: Add {B}.'", Tyvar Kell;
+    `game/continuous.py` stamps these onto ``obj.granted_mana_options`` every
+    recompute). Duck-typed: any object with ``.card`` and
+    ``.granted_mana_options`` works, so tests can pass a bare stub.
+    """
+    return _dedupe(mana_options(obj.card) + list(getattr(obj, "granted_mana_options", [])))
+
+
 def _basic_options(card: Any) -> list[dict[str, int]]:
     type_line = getattr(card, "type_line", "") or ""
     name = getattr(card, "name", "") or ""
