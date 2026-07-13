@@ -152,6 +152,29 @@ class TestQualityKeywords:
         assert [s.keyword["quality"] for s in specs] == ["island", "forest"]
 
 
+# --- Daybound/Nightbound face scoping (RULE 702.145) -------------------------
+
+
+class TestDayboundNightbound:
+    def test_recognised_from_the_keywords_array(self):
+        specs = parse_keywords(_card(["Daybound"], "Daybound"))
+        assert {s.keyword["name"] for s in specs} == {"daybound"}
+
+    def test_recovered_from_oracle_text_when_missing_from_the_array(self):
+        # Mirrors the "Enchant" cross-check above: `Card.back_face` never
+        # carries a separate keywords list for the back face, so a
+        # daybound/nightbound DFC's *current* face is only ever named in its
+        # own oracle_text — the ground truth here, same as Enchant.
+        specs = parse_keywords(_card([], "Nightbound"))
+        assert {s.keyword["name"] for s in specs} == {"nightbound"}
+
+    def test_a_face_never_claims_the_opposite_faces_keyword(self):
+        # The front face's own text never mentions "Nightbound" (RULE 702.145a:
+        # they live on opposite faces), so only "daybound" is recognised here.
+        specs = parse_keywords(_card([], "Daybound"))
+        assert {s.keyword["name"] for s in specs} == {"daybound"}
+
+
 # --- Security / validation --------------------------------------------------
 
 

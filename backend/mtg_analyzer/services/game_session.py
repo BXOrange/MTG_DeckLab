@@ -395,7 +395,7 @@ class GameSession:
         elif kind == "edit_set_flags":
             self._edit_set_flags(action)
         elif kind == "edit_transform":
-            self._object(action).transform()
+            self.engine.rules.transform_permanent(self._object(action))
         elif kind == "edit_set_counters":
             self._set_counter_map(self._object(action).counters, action)
         elif kind == "edit_set_life":

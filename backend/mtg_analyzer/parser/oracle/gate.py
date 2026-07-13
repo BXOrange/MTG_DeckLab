@@ -80,6 +80,7 @@ def parse_oracle(card: Any) -> ParseResult:
         return ParseResult(specs=list(keyword_specs), coverage=MODELED)
 
     allow_spell_effect = _is_spell(card)
+    is_saga = bool(getattr(card, "is_saga", False))
     effect_specs: list[AbilitySpec] = []
     unclaimed: list[str] = []
     all_claimed = True
@@ -88,7 +89,7 @@ def parse_oracle(card: Any) -> ParseResult:
         if not line.strip():
             continue
         seg: Segment = segment_line(
-            line, allow_spell_effect=allow_spell_effect, provenance=provenance
+            line, allow_spell_effect=allow_spell_effect, provenance=provenance, is_saga=is_saga
         )
         if not seg.claimed:
             all_claimed = False

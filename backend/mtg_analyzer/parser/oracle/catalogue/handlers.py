@@ -120,6 +120,10 @@ def _tap(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     return [EffectSpec("tap", {"target_kind": kind, "untap": untap})]
 
 
+def _transform(m: re.Match[str]) -> list[EffectSpec]:
+    return [EffectSpec("transform", {})]
+
+
 def _token_keywords(text: str) -> Optional[list[str]]:
     """Validate a token's "with <keywords>" clause → flag-keyword slugs, or None.
 
@@ -191,24 +195,30 @@ def _add_counters(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     return [EffectSpec("add_counters", params)]
 
 
-def _pump_target(m: re.Match[str]) -> Optional[str]:
-    """The pump's ``target_kind`` — or ``None`` to signal fail-closed.
+def _pump_target(m: re.Match[str]) -> Optional[tuple[Optional[str], Optional[str]]]:
+    """The pump's ``(target_kind, selector)`` — or ``None`` to signal fail-closed.
 
-    Returns the sentinel ``""`` for a self-pump ("~ gets …", untargeted) so the
-    caller can tell it apart from an unrecognised target (real ``None``).
+    Exactly one of the pair is set for a targeted or group subject; both are
+    ``None`` for a self-pump ("~ gets …", untargeted single object) so the
+    caller can tell it apart from an unrecognised target (real ``None``
+    overall).
     """
-    if m.groupdict().get("selfref"):
-        return ""  # untargeted self-pump (an activated "~ gets +1/+0 …")
+    groupdict = m.groupdict()
+    if groupdict.get("selfref"):
+        return (None, None)  # untargeted self-pump (an activated "~ gets +1/+0 …")
+    if groupdict.get("group"):
+        return (None, _GROUP_SELECTORS[groupdict["group"]])
     kind = resolve_target_kind(m.group("target"))
     if kind not in ("creature", "permanent"):
         return None
-    return kind
+    return (kind, None)
 
 
 def _pump(m: re.Match[str]) -> Optional[list[EffectSpec]]:
-    target_kind = _pump_target(m)
-    if target_kind is None:
+    subject = _pump_target(m)
+    if subject is None:
         return None
+    target_kind, selector = subject
     params: dict = {
         "power": _signed_int(m.group("p")),
         "toughness": _signed_int(m.group("t")),
@@ -220,19 +230,24 @@ def _pump(m: re.Match[str]) -> Optional[list[EffectSpec]]:
         params["keywords"] = keywords
     if target_kind:
         params["target_kind"] = target_kind
+    if selector:
+        params["selector"] = selector
     return [EffectSpec("pump", params)]
 
 
 def _pump_keywords(m: re.Match[str]) -> Optional[list[EffectSpec]]:
-    target_kind = _pump_target(m)
-    if target_kind is None:
+    subject = _pump_target(m)
+    if subject is None:
         return None
+    target_kind, selector = subject
     keywords = _token_keywords(m.group("kw"))
     if keywords is None:
         return None
     params: dict = {"keywords": keywords}
     if target_kind:
         params["target_kind"] = target_kind
+    if selector:
+        params["selector"] = selector
     return [EffectSpec("pump", params)]
 
 
@@ -240,9 +255,17 @@ def _scry(m: re.Match[str]) -> list[EffectSpec]:
     return [EffectSpec("scry", {"count": int(m.group("n"))})]
 
 
-# A pump's subject: a targeted creature/permanent or the self-reference ``~``
-# (a creature's own activated "~ gets +1/+0 …"). Shared by the pump handlers.
-_SUBJECT = rf"(?:{TARGET}|(?P<selfref>{re.escape(SELF)}))"
+# A pump's subject: a targeted creature/permanent, the self-reference ``~``
+# (a creature's own activated "~ gets +1/+0 …"), or an untargeted *group*
+# ("creatures you control get +2/+1 …" — RULE 601.2c, not a target at all;
+# the common Saga-chapter/anthem-spell shape). Shared by the pump handlers.
+_GROUP = r"(?P<group>other creatures you control|creatures you control)"
+_SUBJECT = rf"(?:{TARGET}|(?P<selfref>{re.escape(SELF)})|{_GROUP})"
+#: A matched ``group`` phrase → its `continuous.group_selector_objects` selector.
+_GROUP_SELECTORS: dict[str, str] = {
+    "creatures you control": "creatures_you_control",
+    "other creatures you control": "other_creatures_you_control",
+}
 #: A signed P/T delta, "+3/+3" / "-2/-2" / "+0/-1" (ASCII or unicode minus).
 _PT_DELTA = r"(?P<p>[+\-−]\d+)/(?P<t>[+\-−]\d+)"
 
@@ -307,6 +330,14 @@ HANDLERS: list[EffectHandler] = [
         _c(rf"(?P<verb>tap|untap) {TARGET}"),
         _tap,
     ),
+    # "transform ~" / "transform it" / "transform this permanent"/"creature"
+    # (RULE 712.8) — the self-transform shape a loyalty "[0]: Transform ~."
+    # or a "whenever ~ attacks, transform it" trigger uses.
+    EffectHandler(
+        "transform",
+        _c(rf"transform (?:{re.escape(SELF)}|it|this permanent|this creature)"),
+        _transform,
+    ),
     # "put a +1/+1 counter on target creature" / "put a -1/-1 counter on …" / "… on ~"
     EffectHandler(
         "add_counters",
@@ -317,19 +348,21 @@ HANDLERS: list[EffectHandler] = [
         _add_counters,
     ),
     # "target creature gets +3/+3 until end of turn" / "gets -2/-2 …" /
-    # "gets +1/+1 and gains trample until end of turn" / "~ gets +1/+0 …".
+    # "gets +1/+1 and gains trample until end of turn" / "~ gets +1/+0 …" /
+    # "creatures you control get +2/+1 until end of turn" (plural "get").
     EffectHandler(
         "pump",
         _c(
-            rf"{_SUBJECT} gets {_PT_DELTA}"
-            rf"(?: and gains (?P<kw>[a-z, ]+?))? until end of turn"
+            rf"{_SUBJECT} gets? {_PT_DELTA}"
+            rf"(?: and gains? (?P<kw>[a-z, ]+?))? until end of turn"
         ),
         _pump,
     ),
-    # "target creature gains flying until end of turn" (keyword-only pump).
+    # "target creature gains flying until end of turn" (keyword-only pump) /
+    # "creatures you control gain flying until end of turn".
     EffectHandler(
         "pump_keyword",
-        _c(rf"{_SUBJECT} gains (?P<kw>[a-z, ]+?) until end of turn"),
+        _c(rf"{_SUBJECT} gains? (?P<kw>[a-z, ]+?) until end of turn"),
         _pump_keywords,
     ),
     # "scry 2" (a self effect — the controller scries; RULE 701.18).

@@ -169,14 +169,23 @@ with the RULE 704.5d cease-to-exist lifecycle (`GameObject.is_token`,
 `RulesEngine.create_token`); **planeswalkers** (loyalty abilities at
 sorcery-speed with a once-per-turn gate, damage removes loyalty, 0-loyalty SBA);
 commander damage plus **commander tax** (903.8); counters; **basic card
-structures** (DFC
-`GameObject.transform`, token copies, Saga lore counters + final-chapter
-sacrifice); **modal-DFC back-face casting/playing from hand** (RULE 712.10:
+structures** (DFC transform, token copies, **Saga lore counters + chapter
+abilities + final-chapter sacrifice**); **modal-DFC back-face casting/playing
+from hand** (RULE 712.10:
 `RulesEngine.snapshot_face`/`restore_face`/`switch_to_face` rebind an object
 onto its back face — same rebind treatment as `become_copy` — so
 `cast_spell`/`play_land` can commit to either face and `legal_actions` can
 preview/offer both independently, with rollback on a rejected back-face
-cast); a basic **interactive priority primitive** (`pass_priority(player)`,
+cast); **DFC transform is a real, live-engine mechanic now**
+(`RulesEngine.transform_permanent`, RULE 712.8 — same "clear + rebind
+catalogue-derived abilities" treatment as `switch_to_face`, so a transformed
+permanent's keywords/triggered/activated abilities are the *new* face's, not
+stuck on the old one; a `transform` one-shot effect makes "[0]: Transform ~."/
+"whenever ~ attacks, transform it." fully modeled) including **day/night**
+(RULE 731) and **daybound/nightbound** (RULE 702.145: `RulesEngine.
+apply_day_night_turn_check`/`_check_day_night`, driven off a per-turn
+spell-cast tally and checked at the untap step / `_sba_pass` cadence
+respectively); a basic **interactive priority primitive** (`pass_priority(player)`,
 RULE 117). The **RULE 702 keyword catalogue**
 (`parser/oracle/catalogue/keywords.py`) parses all 194 keywords off a card into
 `keyword` `AbilitySpec`s (flag/number/cost/number+cost/quality shapes, each
@@ -184,13 +193,20 @@ parametric one with its extractor regex); **flag keywords bind** — the binder
 docks them onto `GameObject.intrinsic_keywords`, which combat honours. The
 **oracle-effect front-end** (docs/09 Phase 1, `parser/oracle/`) turns oracle
 text into `AbilitySpec`s for the effect families (damage/draw/discard/destroy/
-gain_life/counter/mill/exile/tap/±1/±1-counters/pump/scry/create-token) as spell_effects,
-ETB/dies/attacks/blocks triggers, **`<cost>: <effect>` activated abilities**,
+gain_life/counter/mill/exile/tap/±1/±1-counters/pump/scry/create-token/
+**transform**) as spell_effects,
+ETB/dies/attacks/blocks/**Saga-chapter** (`SAGA_CHAPTER`, RULE 714.2d — a
+chapter line's own numeral-dash grammar, `parser/oracle/catalogue/saga.py`,
+rather than the When/Whenever/At wrapper) triggers, **`<cost>: <effect>`
+activated abilities**,
 and **`static` anthem/lord clauses** ("creatures you control get +N/+N", tribal
 "Other Goblins …", token anthems, colour-scoped/global "Black creatures …",
 compound "get +N/+N and have [kw]" via `catalogue/static_handlers.py` +
 subtype/tokens/color/exclude_self selectors in
-`continuous.affected_objects`) — all with a fail-closed coverage gate, so plain
+`continuous.group_selector_objects`, shared with a one-shot **group pump**
+— "creatures you control get +N/+N until end of turn", `PumpEffect.selector`
+— for the common Saga-chapter/anthem-spell shape) — all with a fail-closed
+coverage gate, so plain
 instants/sorceries/ETB-triggers/activated/static abilities resolve with no
 catalogue entry. `processing_list.py` reports cache-wide coverage + a ranked
 build order for the next handlers. **Not yet**: the remaining effect families
@@ -217,10 +233,14 @@ trigger placed via `resolve_trigger_order_choice` doesn't get a target-choice
 pause) — a narrow, unhandled edge case where both features individually work;
 re-validating an *existing* attachment's legality every SBA pass (today only
 "host left the battlefield" is checked, not e.g. a host gaining protection
-mid-game); and the remaining deeper card-type structures (Adventure/Split
-casting, Saga/Class/Leveler *chapter abilities*, battles/dungeons — MDFC
-back-face casting is done, see above; the basic Saga-lore/DFC-transform/
-token-copy scaffolding is in for the rest).
+mid-game); bespoke *conditional* transform triggers ("look at the top card…,
+if instant/sorcery, transform" — Delver of Secrets — a genuinely new
+"reveal + conditional" one-shot family) and the legacy pre-2021 non-daybound
+werewolf template ("if no spells were cast last turn, transform ~",
+superseded by RULE 731's day/night); and the remaining deeper card-type
+structures (Adventure/Split casting, Class/Leveler *chapter/level abilities*,
+battles/dungeons — MDFC back-face casting and Saga chapter abilities are both
+done, see above).
 
 Hand-authoring a card's abilities directly (rather than waiting on the
 oracle-effect front-end, or for a replacement-clause/conditional-trigger the

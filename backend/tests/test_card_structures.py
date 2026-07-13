@@ -4,6 +4,8 @@ import pytest
 
 from mtg_analyzer.models.card import Card
 from mtg_analyzer.models.game_object import GameObject, Zone
+from mtg_analyzer.game import combat
+from mtg_analyzer.game.effect_binder import bind_from_catalogue
 from mtg_analyzer.game.game_engine import GameEngine
 from mtg_analyzer.game.rules_engine import RulesEngine, _saga_final_chapter
 
@@ -141,6 +143,54 @@ def test_saga_not_sacrificed_before_final_chapter():
     assert saga in eng.state.battlefield
 
 
+def _saga_in_play(eng, card, controller="p1"):
+    """Like `_put`, but binds the card's chapter abilities first (RULE 714.2d)
+    — `add_to_battlefield` fires chapter I's `SAGA_CHAPTER` the moment it's
+    added, so the ability must already be bound to be collected."""
+    obj = GameObject(card, owner_id=controller, controller_id=controller, zone=Zone.HAND)
+    bind_from_catalogue(obj)
+    eng.state.add_to_battlefield(obj)
+    return obj
+
+
+def test_saga_chapter_i_creates_a_token_end_to_end():
+    eng = make_engine()
+    eng.begin_turn()
+    saga = _saga_in_play(eng, _saga())  # RULE 714.2d: chapter I fires on ETB
+    assert saga.lore == 1
+    assert eng.rules.put_triggers_on_stack() == 1
+    eng.rules.resolve_top_of_stack()
+    knights = [o for o in eng.state.battlefield if o is not saga]
+    assert len(knights) == 1
+    knight = knights[0]
+    assert knight.is_token
+    assert (knight.power, knight.toughness) == (2, 2)
+    assert combat.has(knight, "vigilance")
+
+
+def test_saga_chapter_iii_group_pumps_creatures_you_control():
+    eng = make_engine()
+    eng.begin_turn()
+    saga = _saga_in_play(eng, _saga())  # chapter I: a Knight token
+    eng.rules.put_triggers_on_stack()
+    eng.rules.resolve_top_of_stack()
+    bear = _put(eng, creature("Bear"))
+
+    eng.rules.advance_sagas(eng.state.active_player)  # chapter II: another Knight
+    eng.rules.put_triggers_on_stack()
+    eng.rules.resolve_top_of_stack()
+    eng.rules.advance_sagas(eng.state.active_player)  # chapter III: group pump
+    assert saga.lore == 3
+    eng.rules.put_triggers_on_stack()
+    eng.rules.resolve_top_of_stack()
+
+    knights = [o for o in eng.state.battlefield if o.is_token]
+    assert len(knights) == 2  # I and II each created one
+    assert bear.temp_power == 2 and bear.temp_toughness == 1
+    for knight in knights:
+        assert knight.temp_power == 2 and knight.temp_toughness == 1
+
+
 # -- Modal DFC casting (RULE 712.10) -----------------------------------------
 
 
@@ -264,3 +314,103 @@ def test_rejected_back_face_cast_restores_the_front_face():
     assert obj.name == "Ravaging Blast"
     assert getattr(obj, "spell_effects", []) == []
     assert obj in p1.hand
+
+
+# -- transform_permanent / daybound / nightbound (RULE 712.8 / 702.145) ------
+
+
+def _daybound_werewolf(name="Pack Wolf"):
+    """A daybound/nightbound pair (RULE 702.145a): front keyworded daybound,
+    back (bigger) keyworded nightbound — the same shape as a real Innistrad
+    werewolf, minus the flavour text."""
+    return Card(
+        id=name, name=name, type_line="Creature — Wolf",
+        is_creature=True, power=2, toughness=2,
+        oracle_text="Daybound",
+        layout="transform",
+        back_name="Feral " + name, back_type_line="Creature — Wolf",
+        back_power=4, back_toughness=4,
+        back_oracle_text="Nightbound",
+    )
+
+
+def test_transform_permanent_rebinds_keywords_for_the_new_face():
+    eng = make_engine()
+    wolf = _put(eng, _daybound_werewolf())
+    bind_from_catalogue(wolf)
+    assert combat.has(wolf, "daybound")
+    assert not combat.has(wolf, "nightbound")
+
+    assert eng.rules.transform_permanent(wolf) is True
+
+    assert wolf.transformed
+    assert (wolf.power, wolf.toughness) == (4, 4)
+    # The old face's keyword must be gone, not just the new one added —
+    # `GameObject.transform` alone would leave "daybound" stuck forever.
+    assert combat.has(wolf, "nightbound")
+    assert not combat.has(wolf, "daybound")
+
+
+def test_transform_permanent_is_noop_without_a_back_face():
+    eng = make_engine()
+    obj = _put(eng, creature("Vanilla"))
+    assert eng.rules.transform_permanent(obj) is False
+
+
+def test_day_night_established_when_a_daybound_permanent_enters():
+    eng = make_engine()
+    assert eng.state.day_night is None
+    wolf = _put(eng, _daybound_werewolf())
+    bind_from_catalogue(wolf)
+    eng.rules.check_state_based_actions()
+    assert eng.state.day_night == "day"
+
+
+def test_day_night_transforms_a_mismatched_permanent_immediately():
+    eng = make_engine()
+    eng.state.day_night = "night"  # already night by the time it enters
+    wolf = _put(eng, _daybound_werewolf())
+    bind_from_catalogue(wolf)
+    assert not wolf.transformed
+    eng.rules.check_state_based_actions()  # RULE 702.145c: immediate, not an SBA per se
+    assert wolf.transformed
+    assert wolf.name == "Feral Pack Wolf"
+
+
+def test_day_becomes_night_when_last_turns_player_cast_no_spells():
+    eng = make_engine()
+    eng.state.day_night = "day"
+    eng.state._last_turn_player_id = "p1"
+    eng.state._last_turn_spell_count = 0
+    eng.rules.apply_day_night_turn_check()  # RULE 731.2a
+    assert eng.state.day_night == "night"
+
+
+def test_night_becomes_day_when_last_turns_player_cast_two_spells():
+    eng = make_engine()
+    eng.state.day_night = "night"
+    eng.state._last_turn_player_id = "p1"
+    eng.state._last_turn_spell_count = 2
+    eng.rules.apply_day_night_turn_check()  # RULE 731.2b
+    assert eng.state.day_night == "day"
+
+
+def test_day_night_flips_across_a_real_turn_via_the_untap_step():
+    eng = make_engine()
+    eng.start()  # turn 1, p1 active, positioned before its untap step
+    eng.state.day_night = "day"
+    wolf = _put(eng, _daybound_werewolf())
+    bind_from_catalogue(wolf)
+    for _ in range(12):  # every step of p1's turn 1 — no spells cast
+        eng.advance_step()
+    eng.advance_step()  # turn 2's untap step: RULE 731.2a checked here
+    assert eng.state.active_player.id == "p2"
+    assert eng.state.day_night == "night"
+    assert wolf.transformed  # RULE 702.145c applied immediately on the flip
+
+
+def test_day_night_is_visible_in_the_wire_view():
+    # A player can't react to something the frontend never receives.
+    eng = make_engine()
+    eng.state.day_night = "night"
+    assert eng.state.to_dict()["day_night"] == "night"

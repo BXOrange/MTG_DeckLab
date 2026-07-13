@@ -44,6 +44,11 @@ class EventType:
     LEAVES_BATTLEFIELD = "LEAVES_BATTLEFIELD"
     DIES = "DIES"
     MILL = "MILL"
+    #: A Saga (RULE 714) reached a new lore-counter count — carries
+    #: ``instance_id`` (which Saga) and ``chapter`` (the new count), so a
+    #: chapter ability's triggered condition can scope to both itself and
+    #: the specific chapter number(s) it covers.
+    SAGA_CHAPTER = "SAGA_CHAPTER"
     #: A player scried (RULE 701.18): looked at the top N of their library and
     #: reordered / bottomed them.
     SCRY = "SCRY"

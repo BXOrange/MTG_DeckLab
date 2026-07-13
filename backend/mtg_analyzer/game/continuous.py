@@ -47,7 +47,7 @@ stack.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Optional
 
 from .effects import EffectRegistry, StaticAbility, TriggeredAbility
 
@@ -94,25 +94,27 @@ def _has_color(obj: "GameObject", colors: list) -> bool:
     return False
 
 
-def affected_objects(state: "GameState", ability: StaticAbility) -> list["GameObject"]:
-    """The battlefield objects an ability's ``affects`` selector picks out.
+def group_selector_objects(
+    state: "GameState",
+    controller_id: Optional[str],
+    affects: str,
+    params: Optional[dict[str, Any]] = None,
+    src: Optional["GameObject"] = None,
+) -> list["GameObject"]:
+    """The battlefield objects an ``affects`` selector picks out.
 
-    "you control" is scoped by the ability's source controller; an unsourced
-    ability (a bare test fixture) matches nothing for those selectors. A
-    ``params["subtype"]`` narrows the base set to that creature type — the
-    tribal-lord filter (Goblin King's "Other Goblin creatures you control …").
-
-    ``"attached_permanent"`` is the Aura/Equipment/Fortify/Reconfigure case —
-    "enchanted/equipped creature", "fortified land" — resolved off the
-    ability's own source's ``attached_to`` (RULE 303.4/301.5), not a
-    controller-scoped set. It naturally yields nothing while unattached or
-    once the source itself has left the battlefield (`_battlefield_static_
-    abilities` only gathers abilities from objects currently in play).
+    The selector vocabulary a static anthem's ``affects``/``params`` name
+    (`affected_objects`, below); factored out so a one-shot group effect —
+    e.g. a Saga chapter's "creatures you control get +N/+N until end of
+    turn" (`PumpEffect.selector`) — can resolve the same "creatures you
+    control"/subtype/colour/token/exclude-self vocabulary without a
+    `StaticAbility` to hang it off. "you control" is scoped by
+    ``controller_id``; with none given (a bare test fixture) those selectors
+    match nothing. ``src`` is only needed for ``"self"``/``"attached_
+    permanent"``/``"other_creatures_you_control"``/``exclude_self``.
     """
-    src = ability.source
-    controller = getattr(src, "controller_id", None)
+    params = params or {}
     battlefield = state.battlefield
-    affects = ability.affects
 
     if affects == "self":
         result = [src] if src is not None and src in battlefield else []
@@ -123,33 +125,50 @@ def affected_objects(state: "GameState", ability: StaticAbility) -> list["GameOb
     elif affects == "attached_permanent":
         host_id = getattr(src, "attached_to", None)
         result = [o for o in battlefield if host_id is not None and o.instance_id == host_id]
-    elif controller is None:
+    elif controller_id is None:
         result = []
     elif affects == "creatures_you_control":
-        result = [o for o in battlefield if o.is_creature and o.controller_id == controller]
+        result = [o for o in battlefield if o.is_creature and o.controller_id == controller_id]
     elif affects == "other_creatures_you_control":
         result = [
             o for o in battlefield
-            if o.is_creature and o.controller_id == controller and o is not src
+            if o.is_creature and o.controller_id == controller_id and o is not src
         ]
     elif affects == "permanents_you_control":
-        result = [o for o in battlefield if o.controller_id == controller]
+        result = [o for o in battlefield if o.controller_id == controller_id]
     elif affects == "lands_you_control":
-        result = [o for o in battlefield if o.is_land and o.controller_id == controller]
+        result = [o for o in battlefield if o.is_land and o.controller_id == controller_id]
     else:
         result = []
 
-    subtype = ability.params.get("subtype")
+    subtype = params.get("subtype")
     if subtype:
         result = [o for o in result if _has_subtype(o, str(subtype))]
-    color = ability.params.get("color")
+    color = params.get("color")
     if color:  # colour-scoped anthem ("Black creatures get +1/+1", Bad Moon)
         result = [o for o in result if _has_color(o, list(color))]
-    if ability.params.get("tokens"):  # "creature tokens you control …" (RULE 111)
+    if params.get("tokens"):  # "creature tokens you control …" (RULE 111)
         result = [o for o in result if getattr(o, "is_token", False)]
-    if ability.params.get("exclude_self"):  # a global "Other creatures …" anthem
+    if params.get("exclude_self"):  # a global "Other creatures …" anthem
         result = [o for o in result if o is not src]
     return result
+
+
+def affected_objects(state: "GameState", ability: StaticAbility) -> list["GameObject"]:
+    """The battlefield objects a static ability's ``affects`` selector picks
+    out — a thin wrapper over `group_selector_objects` reading the selector,
+    controller and params off the ability's own source (RULE 613).
+
+    ``"attached_permanent"`` is the Aura/Equipment/Fortify/Reconfigure case —
+    "enchanted/equipped creature", "fortified land" — resolved off the
+    ability's own source's ``attached_to`` (RULE 303.4/301.5), not a
+    controller-scoped set. It naturally yields nothing while unattached or
+    once the source itself has left the battlefield (`_battlefield_static_
+    abilities` only gathers abilities from objects currently in play).
+    """
+    src = ability.source
+    controller = getattr(src, "controller_id", None)
+    return group_selector_objects(state, controller, ability.affects, ability.params, src=src)
 
 
 def _source_name(ability: StaticAbility) -> str:

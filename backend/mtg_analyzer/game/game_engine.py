@@ -119,12 +119,19 @@ class GameEngine:
             self.state.turn_number = 1
             self.state.active_player_index = 0
         else:
+            # Capture the outgoing player's final spell count before rotating
+            # — RULE 731.2's day/night check reads *last* turn's active
+            # player, from the untap step of the turn about to begin.
+            outgoing = self.state.active_player
+            self.state._last_turn_player_id = outgoing.id
+            self.state._last_turn_spell_count = self.state.spells_cast_this_turn.get(outgoing.id, 0)
             self.state.turn_number += 1
             # Rotate to the next player, skipping the passive goldfish dummy
             # (UC3) so a solo game keeps handing turns back to the human.
             self.state.active_player_index = self.state.next_active_index()
         active = self.state.active_player
         active.lands_played_this_turn = 0
+        self.state.spells_cast_this_turn[active.id] = 0
         self._clear_combat()
         # RULE 117.3a: the active player receives priority at the start of
         # their turn (harmless bookkeeping for solo play; the primitive an
@@ -256,6 +263,9 @@ class GameEngine:
             # RULE 606.3: a new loyalty ability may be activated this turn.
             obj.activated_loyalty_this_turn = False
         self.state.fire_event(GameEvent(EventType.UNTAP, player_id=active.id))
+        # RULE 731.2: "as the second part of the untap step", check whether
+        # day/night should flip based on last turn's spell count.
+        self.rules.apply_day_night_turn_check()
 
     def _step_draw(self) -> None:
         # RULE 103.7a: the starting player skips their first draw in a

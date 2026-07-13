@@ -144,7 +144,12 @@ now holds only open items). Section headers mirror that file.
       auflösen)" control (pass_priority) that resolves it one object at a
       time so you can respond.
 - [x] Phase/step/turn indicator: goldfish's `.gf-topbar` shows the turn
-      number and current phase/step (German labels).
+      number and current phase/step (German labels), plus a "☀️ Tag"/
+      "🌙 Nacht" badge (`.gf-daynight`) once `state.day_night` (RULE 731,
+      `backend/ToDo_Backend.md`/`Done_Backend.md` "Card-type & structural
+      coverage") is set — hidden entirely before any daybound/nightbound
+      permanent has established a designation, matching the engine's own
+      "no designation yet" state.
 - [x] Actions shown **directly under the affected cards**
       (`goldfishView.js`, `.gf-card-slot`/`.gf-card-actions`): a hand card
       shows "🌳 Land spielen" / "✨ Zaubern"; a land shows a **tap button

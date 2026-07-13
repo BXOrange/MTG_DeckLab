@@ -658,6 +658,35 @@ class AttachEffect(GameEffect):
         context.engine.attach_to_target(self.source, target)
 
 
+class TransformEffect(GameEffect):
+    """Flip a double-faced permanent to its other face (RULE 712.8/712.9).
+
+    Untargeted, it transforms its own source ("Transform ~." / "transform
+    it" on a triggered/activated/loyalty ability); with a ``target_kind`` it
+    targets another permanent (rare, but the same shape as `AttachEffect`).
+    Delegates to `RulesEngine.transform_permanent`, which also rebinds the
+    new face's catalogue-derived abilities/keywords — a bare
+    `GameObject.transform()` would leave those pointing at the old face.
+    """
+
+    def __init__(
+        self,
+        target_kind: Optional[str] = None,
+        source: Optional["GameObject"] = None,
+    ) -> None:
+        super().__init__(source)
+        if target_kind is not None:
+            self.target_spec = TargetSpec(kind=target_kind)
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        if self.target_spec is not None:
+            target = targets[0] if targets else None
+        else:
+            target = self.source
+        if target is not None:
+            context.engine.transform_permanent(target)
+
+
 class AddCountersEffect(GameEffect):
     """Put ``amount`` +1/+1 counters on a target creature — or on the source.
 
@@ -697,7 +726,11 @@ class PumpEffect(GameEffect):
     an *effect* with a duration, not counters — it lives on the object's
     ``temp_*`` fields, which `continuous.recompute` folds in and the cleanup
     step (RULE 514.2) clears. Untargeted (no ``target_kind``) it pumps its own
-    source, e.g. an activated "~ gets +1/+0 until end of turn".
+    source, e.g. an activated "~ gets +1/+0 until end of turn". ``selector``
+    (e.g. ``"creatures_you_control"``) pumps a whole *group* instead — an
+    untargeted resolve-time selection (RULE 601.2c — not a target at all), the
+    common Saga-chapter/anthem-spell shape "Creatures you control get +N/+N
+    until end of turn" (e.g. History of Benalia's chapter III).
     """
 
     def __init__(
@@ -706,25 +739,39 @@ class PumpEffect(GameEffect):
         toughness: int = 0,
         keywords: Optional[list[str]] = None,
         target_kind: Optional[str] = None,
+        selector: Optional[str] = None,
         source: Optional["GameObject"] = None,
     ) -> None:
         super().__init__(source)
         self.power = power
         self.toughness = toughness
         self.keywords = list(keywords or [])
+        self.selector = selector
         if target_kind is not None:
             self.target_spec = TargetSpec(kind=target_kind)
 
+    def _pump_one(self, obj: "GameObject") -> None:
+        obj.temp_power += self.power
+        obj.temp_toughness += self.toughness
+        obj.temp_keywords.update(self.keywords)
+
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        if self.selector is not None:
+            from .continuous import group_selector_objects  # avoid the continuous↔effects cycle
+
+            controller_id = getattr(self.source, "controller_id", None)
+            group = group_selector_objects(context.state, controller_id, self.selector, src=self.source)
+            for obj in group:
+                self._pump_one(obj)
+            context.recompute()
+            return
         if self.target_spec is not None:
             target = targets[0] if targets else None
         else:
             target = self.source
         if target is None:
             return
-        target.temp_power += self.power
-        target.temp_toughness += self.toughness
-        target.temp_keywords.update(self.keywords)
+        self._pump_one(target)
         # Re-derive P/T now so a lethal -X/-X (toughness → 0) is caught by the
         # SBA pass the caller runs right after this resolution.
         context.recompute()
@@ -1087,6 +1134,7 @@ EffectRegistry.register(
         toughness=p.get("toughness", 0),
         keywords=list(p.get("keywords", [])),
         target_kind=p.get("target_kind"),
+        selector=p.get("selector"),
     ),
 )
 EffectRegistry.register(
@@ -1124,6 +1172,9 @@ EffectRegistry.register(
     ),
 )
 EffectRegistry.register("shuffle", lambda p: ShuffleLibraryEffect())
+EffectRegistry.register(
+    "transform", lambda p: TransformEffect(target_kind=p.get("target_kind"))
+)
 EffectRegistry.register("cascade", lambda p: CascadeEffect(mana_value=p.get("mana_value")))
 EffectRegistry.register(
     "discover",

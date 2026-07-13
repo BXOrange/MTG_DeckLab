@@ -16,7 +16,7 @@ anything derived from card text: the security boundary from docs/09.
 
 from __future__ import annotations
 
-from typing import Any, Optional, Union
+from typing import Any, Callable, Optional, Union
 
 from ..parser.oracle.spec import AbilitySpec, EffectSpec
 from .costs import parse_activation_cost
@@ -85,6 +85,30 @@ def build_replacements(
     return built
 
 
+def _trigger_condition(
+    trigger: dict[str, Any], source: Optional[Any]
+) -> Optional[Callable[[Any, Any], bool]]:
+    """The extra `TriggeredAbility.check_trigger` predicate a trigger spec needs.
+
+    Only a Saga's ``"chapter"`` key needs one today: a chapter ability must
+    fire only for *its own* Saga (scoped by the event's ``instance_id``, the
+    same convention `continuous._granted_trigger_condition` uses) and only at
+    the specific lore-counter number(s) its chapter line names — a single
+    ``SAGA_CHAPTER`` event otherwise looks identical for every Saga on the
+    battlefield and every chapter on the card.
+    """
+    chapters = trigger.get("chapter")
+    if not chapters:
+        return None
+    chapter_set = frozenset(chapters)
+    instance_id = getattr(source, "instance_id", None)
+
+    def condition(event: Any, context: Any) -> bool:
+        return event.get("instance_id") == instance_id and event.get("chapter") in chapter_set
+
+    return condition
+
+
 def bind_ability(
     spec: AbilitySpec, source: Optional[Any] = None
 ) -> Union[list[GameEffect], list[ReplacementEffect], TriggeredAbility, ActivatedAbility]:
@@ -125,6 +149,7 @@ def bind_ability(
         return TriggeredAbility(
             trigger_event=spec.trigger["event"],
             effects=effects,
+            condition=_trigger_condition(spec.trigger, source),
             optional=spec.optional,
             controller_id=getattr(source, "controller_id", None),
             source=source,

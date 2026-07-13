@@ -361,6 +361,81 @@ the Phase-1 models. Tests: `test_game_engine.py`.
       (works for a goldfish session too, so a goldfish position can be
       exported and re-opened here). Tests: `test_replay.py`.
 
+## Card-type & structural coverage
+
+- [x] Saga chapter abilities (RULE 714.2d) — the counter mechanics
+      (lore-counter-on-ETB/draw-step, final-chapter sacrifice) already
+      existed; the chapter *effects* now actually resolve. A shared, pure
+      roman-numeral grammar (`parser/oracle/catalogue/saga.py`:
+      `CHAPTER_LINE_RE`/`parse_chapter_token`/`all_chapter_numbers`) is used
+      both by `segmenter.segment_line`'s new chapter-line branch (gated on a
+      new `is_saga` flag threaded from `gate.parse_oracle`, so the shape
+      can't misfire on a non-Saga card) and by `rules_engine._saga_final_
+      chapter` (no longer a separate duplicated regex). A chapter line
+      ("i, ii — some effect") becomes an ordinary `triggered` `AbilitySpec`
+      (`trigger={"event": "SAGA_CHAPTER", "chapter": [1, 2]}`) whose effect
+      body runs through the *existing* one-shot handler table unchanged.
+      `GameState.add_to_battlefield` (the initial chapter-I lore counter) and
+      `RulesEngine.advance_sagas` (each subsequent one) both fire the new
+      `EventType.SAGA_CHAPTER` (carrying `instance_id` + `chapter`, the same
+      self-scoping convention `continuous._granted_trigger_condition` already
+      uses); `effect_binder.bind_ability` builds the matching `condition`
+      closure so a chapter ability fires only for its own Saga at its own
+      number(s). Chapters then flow through the ordinary triggered-ability
+      pipeline (targets/"you may"/interactive ordering all work for free).
+      Needed a **group ("creatures you control") one-shot pump** alongside
+      this, since that's the common Saga-chapter-III/anthem-spell shape
+      (e.g. History of Benalia) the single-target `pump` handler couldn't
+      express: `continuous.affected_objects`'s selector vocabulary
+      (creatures/other-creatures/permanents/lands-you-control, subtype/
+      colour/tokens/exclude-self filters) was extracted into a pure
+      `group_selector_objects(state, controller_id, affects, params, src)`
+      helper reused by both the static-anthem path and a new
+      `PumpEffect.selector` (function-scoped import to dodge the
+      `effects.py`↔`continuous.py` cycle); `handlers.py`'s `_SUBJECT`
+      grammar gained a `creatures you control`/`other creatures you control`
+      alternative alongside `TARGET`/`~`. Tests: `test_card_structures.py`,
+      `test_oracle_pipeline.py`.
+- [x] DFC transform infrastructure (RULE 712.8) + day/night (RULE 731) +
+      daybound/nightbound (RULE 702.145) — `GameObject.transform()` only
+      ever flipped `card`; nothing in the live engine called it, and nothing
+      rebound the new face's catalogue-derived abilities/keywords (the same
+      bug `switch_to_face`, modal-DFC casting, already solved). New
+      `RulesEngine.transform_permanent(obj)` is the fix, reusing
+      `switch_to_face`'s "clear + rebind via `bind_from_catalogue`" pattern;
+      `services/game_session.py`'s `edit_transform` puzzle-mode action and
+      `services/replay.py`'s deserializer (which bound abilities *before*
+      transforming — backwards) both now go through it/its ordering. A new
+      `transform` one-shot `GameEffect` (`EffectRegistry`) plus a
+      `parser/oracle/catalogue/handlers.py` clause ("transform ~"/"it"/
+      "this permanent"/"this creature") makes a loyalty "[0]: Transform ~."
+      or "whenever ~ attacks, transform it." fully modeled with no
+      hand-authoring, by slotting into the existing trigger/activated/
+      loyalty grammar. RULE 731 day/night is new `GameState` fields
+      (`day_night`, `spells_cast_this_turn`, `_last_turn_player_id/_spell_
+      count`) + `RulesEngine._track_spell_cast` (a second `SPELL_CAST`
+      subscriber, covering both paid and free casts from one place) +
+      `apply_day_night_turn_check` (RULE 731.2a/2b, called from
+      `game_engine._step_untap` — "the second part of the untap step" —
+      after `begin_turn` captures the outgoing player's final count) +
+      `_check_day_night` (RULE 702.145c/d/f/g's "any time" checked at
+      `_sba_pass` cadence, the same simplification already used for the
+      Saga-sacrifice check). Daybound/Nightbound recognition itself needed
+      one more fix: `parse_keywords` is anchored on Scryfall's `keywords`
+      array, but `Card.back_face()` never carries a separate array for the
+      back face, so a DFC's *current* face's own `oracle_text` is the only
+      reliable signal for which of the (mutually exclusive, opposite-face)
+      pair applies — added the same kind of oracle-text cross-check
+      `parse_keywords` already does for "Enchant". Tests:
+      `test_card_structures.py`, `test_keyword_catalogue.py`.
+      Deliberately out of scope: the legacy pre-2021 non-daybound werewolf
+      template ("at the beginning of each upkeep, if no spells were cast
+      last turn, transform ~") — a different, per-card grammar RULE 731
+      superseded; and bespoke conditional transforms (Delver of Secrets'
+      "look at the top card… if instant/sorcery, transform") — a genuinely
+      new "reveal + conditional" one-shot family, not needed to prove this
+      feature works.
+
 ## Auth & persistence
 
 - [x] Deck persistence (save/load instead of re-parsing every time):

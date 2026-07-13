@@ -373,6 +373,60 @@ def test_keyword_line_alone_is_modeled():
 
 
 # ---------------------------------------------------------------------------
+# TRANSFORM + GROUP PUMP handlers (RULE 712.8)
+# ---------------------------------------------------------------------------
+
+
+def test_transform_handler_matches_self_forms():
+    for clause in ("transform ~", "transform it", "transform this permanent", "transform this creature"):
+        (e,) = parse_effect_body(clause)
+        assert e.type == "transform" and e.params == {}
+
+
+def test_group_pump_handler_creatures_you_control():
+    e = parse_effect_body("creatures you control get +2/+1 until end of turn")[0]
+    assert e.type == "pump"
+    assert e.params == {"power": 2, "toughness": 1, "selector": "creatures_you_control"}
+    other = parse_effect_body("other creatures you control get +1/+1 until end of turn")[0]
+    assert other.params["selector"] == "other_creatures_you_control"
+    kw = parse_effect_body("creatures you control gain flying until end of turn")[0]
+    assert kw.params == {"keywords": ["flying"], "selector": "creatures_you_control"}
+
+
+# ---------------------------------------------------------------------------
+# SAGA chapter grammar (RULE 714.2d)
+# ---------------------------------------------------------------------------
+
+
+def saga_card(name, text):
+    return Card(id=name, name=name, type_line="Enchantment — Saga", oracle_text=text)
+
+
+def test_saga_chapter_lines_are_modeled_as_saga_chapter_triggers():
+    r = parse_oracle(saga_card(
+        "History of Benalia",
+        "I, II — Create a 2/2 white Knight creature token with vigilance.\n"
+        "III — Creatures you control get +2/+1 until end of turn.",
+    ))
+    assert r.coverage == MODELED
+    triggers = [s for s in r.specs if s.ability_kind == "triggered"]
+    assert len(triggers) == 2
+    first, second = triggers
+    assert first.trigger == {"event": "SAGA_CHAPTER", "chapter": [1, 2]}
+    assert first.effects[0].type == "create_token"
+    assert second.trigger == {"event": "SAGA_CHAPTER", "chapter": [3]}
+    assert second.effects[0].type == "pump"
+    assert second.effects[0].params["selector"] == "creatures_you_control"
+
+
+def test_saga_chapter_grammar_does_not_misfire_on_a_non_saga_card():
+    # A non-Saga permanent whose text happens to start with a roman-numeral-
+    # dash shape must NOT be parsed as a chapter line (the `is_saga` gate).
+    r = parse_oracle(perm("Weird", "I — Draw a card."))
+    assert r.coverage == UNMODELED
+
+
+# ---------------------------------------------------------------------------
 # INTEGRATION: specs_for fallback + binding
 # ---------------------------------------------------------------------------
 

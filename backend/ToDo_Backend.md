@@ -337,39 +337,26 @@ clause the future oracle parser (docs/09) or a dedicated handler must
 eventually own. Roughly in decreasing commonness:
 
 - [~] Double-faced & modal-DFC cards (RULE 712): **transform on the
-      battlefield done** — `Card.back_face()` builds the back as its own
-      `Card`, `GameObject.transform()`/`transformed` swaps faces reversibly
-      (re-seeding a transforming planeswalker's loyalty), surfaced in
-      `to_dict`. **Modal DFC back-face cast/play from hand (712.10) is now
-      done too**: `RulesEngine.snapshot_face`/`restore_face`/`switch_to_face`
-      (next to `become_copy`, same "clear + rebind catalogue-derived
-      abilities" treatment) let `GameEngine.cast_spell`/`play_land` rebind
-      an object onto its `is_modal_dfc` back face before the ordinary
-      cast/play body runs unchanged; `can_cast`/`effective_cast_cost`/
-      `can_play_land` gained a non-mutating `face="front"/"back"` preview
-      (via `_face_card`) so `legal_actions`/`_cast_action` can offer *both*
-      faces as independent actions for the same hand card without side
-      effects, and a rejected back-face cast (e.g. no legal target) rolls
-      back to the front face rather than sticking. Wired through
-      `services/game_session.py` (`action["face"]`) and
-      `frontend/src/js/gameBoardView.js` (a second button per MDFC hand
-      card, keyed `instance_id:face` wherever DOM lookups could otherwise
-      collide with the front's). Tests: `test_card_structures.py`.
-      Remaining: a *transform trigger/effect* to call `GameObject.transform`,
-      and the day/night (RULE 731) tie-in. MDFC commanders cast from the
-      command zone are a known, deliberately unhandled edge case (only
-      hand-cast offers both faces).
+      battlefield, modal-DFC back-face cast/play, a generic transform
+      trigger/effect, and day/night (RULE 731) + daybound/nightbound (RULE
+      702.145) are all done** — see `docs/implementation-state/
+      Done_Backend.md` "Card-type & structural coverage". Remaining:
+      bespoke *conditional* transform triggers ("look at the top card…, if
+      instant/sorcery, transform" — Delver of Secrets) aren't modeled (a
+      genuinely new "reveal + conditional" one-shot family); the legacy
+      pre-2021 non-daybound werewolf template ("if no spells were cast last
+      turn, transform ~") is deliberately not modeled, superseded by RULE
+      731; and MDFC commanders cast from the command zone are a known,
+      deliberately unhandled edge case (only hand-cast offers both faces).
 - [ ] Adventure cards (RULE 715) and Split/Fuse cards (RULE 709) — cast
       one half, the other stays available; recognised structurally
       (`Card.is_adventure`/`is_split`) but both still resolve as the single
       front-face spell.
-- [~] Saga (RULE 714): **counter mechanics done** — a Saga enters with a
-      lore counter (`add_to_battlefield`), gains one after its controller's
-      draw step (`RulesEngine.advance_sagas`, called from `_step_draw`), and is
-      sacrificed by an SBA at its final chapter (RULE 704.5x,
-      `_saga_final_chapter` reads the roman-numeral markers). Remaining: the
-      chapter *abilities* firing per lore counter. Class (716) / Leveler (711)
-      not started. Tests: `test_card_structures.py`.
+- [~] Saga (RULE 714): **counter mechanics and chapter abilities are both
+      done** — see `docs/implementation-state/Done_Backend.md` "Card-type &
+      structural coverage". Class (716) / Leveler (711) chapter/level
+      abilities not started (the basic lore-counter-equivalent scaffolding
+      isn't either).
 - [~] Copying objects (RULE 707): **token copies done** —
       `RulesEngine.copy_permanent` + the `copy_permanent` effect create a token
       clone of a target permanent's copiable card. Remaining: "becomes a copy

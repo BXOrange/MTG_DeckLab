@@ -1416,6 +1416,26 @@ textarea {
   color: var(--text-dim);
 }
 
+.gf-daynight {
+  display: inline-block;
+  margin-top: 0.15rem;
+  padding: 0.05rem 0.4rem;
+  border-radius: 999px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  width: fit-content;
+}
+
+.gf-daynight-day {
+  background: #fff4c2;
+  color: #6b5300;
+}
+
+.gf-daynight-night {
+  background: #2a2f52;
+  color: #d7dcff;
+}
+
 /* One player's board (mana/life header + play area) — gameBoardView.js.
    Goldfisch always renders exactly one; Replay's play mode can render two
    side by side (a puzzle's second real player, unlike goldfish's dummy). */

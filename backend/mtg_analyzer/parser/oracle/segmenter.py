@@ -22,6 +22,7 @@ from typing import Optional
 
 from .catalogue.handlers import match_clause
 from .catalogue.keywords import KEYWORDS
+from .catalogue.saga import CHAPTER_LINE_RE, parse_chapter_token
 from .catalogue.static_handlers import static_effect_specs
 from .spec import AbilitySpec, EffectSpec, ParserProvenance
 
@@ -135,13 +136,21 @@ def is_keyword_line(line: str) -> bool:
     )
 
 
-def segment_line(line: str, *, allow_spell_effect: bool, provenance: ParserProvenance) -> Segment:
+def segment_line(
+    line: str,
+    *,
+    allow_spell_effect: bool,
+    provenance: ParserProvenance,
+    is_saga: bool = False,
+) -> Segment:
     """Parse one normalised ability ``line`` into a `Segment`.
 
     ``allow_spell_effect`` gates bare imperative clauses (no trigger wrapper)
     to instants/sorceries — a permanent's non-triggered imperative would be
     mis-modeled as a resolve-time effect, so for permanents it's left unclaimed
-    (fail-closed) rather than turned into a `spell_effect`.
+    (fail-closed) rather than turned into a `spell_effect`. ``is_saga`` gates
+    the RULE 714 chapter-line grammar ("i, ii — <effect>") to actual Sagas, so
+    the numeral-dash shape can't misfire on an unrelated card.
     """
     raw = line.strip()
     if not raw:
@@ -149,6 +158,28 @@ def segment_line(line: str, *, allow_spell_effect: bool, provenance: ParserProve
 
     if is_keyword_line(raw):
         return Segment(raw=raw, claimed=True, keyword_line=True)
+
+    # Saga chapter ability "i, ii — <effect>" (RULE 714.2d) — checked before
+    # every other wrapper since it has neither a trigger word nor a colon.
+    if is_saga:
+        chap = CHAPTER_LINE_RE.match(raw)
+        if chap is not None:
+            chapters = parse_chapter_token(chap.group("chapters"))
+            if chapters is None:
+                return Segment(raw=raw)  # unrecognised numeral → unclaimed
+            body, optional = _peel_optional(chap.group("body"))
+            effects = parse_effect_body(body)
+            if effects is None:
+                return Segment(raw=raw)
+            spec = AbilitySpec(
+                "triggered",
+                effects=effects,
+                trigger={"event": "SAGA_CHAPTER", "chapter": chapters},
+                optional=optional,
+                raw_text=raw,
+                parser=provenance,
+            )
+            return Segment(raw=raw, spec=spec, claimed=True)
 
     # Planeswalker loyalty ability "[±N]: <effect>" (RULE 606.5c) — its cost is
     # the bracket, so it's recognised before the generic activated case (whose

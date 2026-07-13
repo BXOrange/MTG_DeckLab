@@ -460,6 +460,18 @@ def parse_keywords(card: "Card") -> list[AbilitySpec]:
         # has other keywords (e.g. an Aura with Flash) — oracle text is the
         # ground truth for attachment, so always cross-check it independently.
         names.append("Enchant")
+    # Daybound/Nightbound (RULE 702.145) live on opposite faces of a DFC, but
+    # Scryfall's top-level ``keywords`` array isn't reliably face-scoped —
+    # this card's own ``oracle_text`` (already correctly isolated per face by
+    # `Card.back_face`) is the ground truth for *which* of the two applies to
+    # whichever face is currently bound, so cross-check it the same way as
+    # "Enchant" above rather than trusting the shared array either way.
+    for kw_name in ("Daybound", "Nightbound"):
+        slug = keyword_slug(kw_name)
+        if not any(keyword_slug(str(n)) == slug for n in names) and re.search(
+            rf"^{slug}\b", text, re.I | re.M
+        ):
+            names.append(kw_name)
     specs: list[AbilitySpec] = []
     seen: set[str] = set()
 

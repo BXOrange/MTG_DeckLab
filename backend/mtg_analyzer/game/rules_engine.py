@@ -18,7 +18,6 @@ engine is the toolbox that loop drives.
 
 from __future__ import annotations
 
-import re
 from typing import Any, Optional
 
 from ..models import card_query
@@ -28,6 +27,7 @@ from ..models.game_object import GameObject, Zone
 from ..models.game_state import GameState, StackItem
 from ..models.mana_cost import ManaCost
 from ..models.player import Player
+from ..parser.oracle.catalogue.saga import all_chapter_numbers
 from . import ability_catalogue, combat, continuous
 from .combat import is_protected_from
 from .effects import (
@@ -39,22 +39,14 @@ from .effects import (
 )
 from .targeting import TargetSpec, legal_targets
 
-#: Roman-numeral value of each Saga chapter marker, for finding the last one.
-_ROMAN: dict[str, int] = {"I": 1, "II": 2, "III": 3, "IV": 4, "V": 5, "VI": 6, "VII": 7}
-#: A Saga chapter marker: a roman numeral (possibly a range/list like "I, II")
-#: opening a chapter line, followed by the em dash the ability text starts with.
-_SAGA_CHAPTER_RE = re.compile(r"(?:^|\n|,\s*)(VII|VI|IV|V|III|II|I)\b[\s,]*(?=[—\-–IVX])", re.M)
-
-
 def _saga_final_chapter(card: Card) -> int:
     """The highest chapter number a Saga has (RULE 714.2c), 0 if unreadable.
 
     Read off the oracle text's roman-numeral chapter markers ("I —", "II, III —",
-    "IV —"); the largest is the final chapter. Basic and text-based — enough to
-    drive the sacrifice SBA without a per-card table."""
-    text = card.oracle_text or ""
-    chapters = [_ROMAN[m.group(1)] for m in _SAGA_CHAPTER_RE.finditer(text)]
-    return max(chapters) if chapters else 0
+    "IV —"); the largest is the final chapter. Shares its numeral grammar with
+    the oracle-parser front-end's chapter-ability recognition
+    (`parser.oracle.catalogue.saga`, RULE 714.2d) rather than duplicating it."""
+    return max(all_chapter_numbers(card.oracle_text or ""), default=0)
 
 
 class RulesEngine:
@@ -83,6 +75,8 @@ class RulesEngine:
         self._pending_land_choice_amount: int = 0
         # Collect triggers for every event the game fires.
         state.subscribe(self._collect_triggers)
+        # Tally spells cast this turn for the RULE 731.2 day/night check.
+        state.subscribe(self._track_spell_cast)
 
     # ------------------------------------------------------------------
     # Mana cost lookup (RULE 202)
@@ -929,12 +923,91 @@ class RulesEngine:
     def advance_sagas(self, player: Player) -> None:
         """Add a lore counter to each Saga ``player`` controls (RULE 714.2b).
 
-        Called after the controller's draw step. The 0-chapter-remaining Saga
-        is sacrificed by a state-based action (`_sba_pass`), so this only
-        advances the chapter here."""
+        Called after the controller's draw step. Fires `SAGA_CHAPTER` so a
+        chapter ability whose number the new count reaches goes on the stack
+        through the normal triggered-ability pipeline (RULE 714.2d). The
+        0-chapter-remaining Saga is sacrificed by a state-based action
+        (`_sba_pass`), so this only advances the chapter here."""
         for obj in self.state.permanents_controlled_by(player.id):
             if obj.card.is_saga:
                 obj.add_counters("lore", 1)
+                self.state.fire_event(
+                    GameEvent(
+                        EventType.SAGA_CHAPTER,
+                        object=obj.name,
+                        instance_id=obj.instance_id,
+                        controller_id=player.id,
+                        chapter=obj.lore,
+                    )
+                )
+
+    def _track_spell_cast(self, event: GameEvent) -> None:
+        """Tally `SPELL_CAST` toward RULE 731.2's "spells cast this turn"
+        count — both a paid `cast_spell` and a free `cast_without_paying`
+        fire that event, so subscribing here (rather than incrementing at
+        each call site) covers every cast path from one place."""
+        if event.type != EventType.SPELL_CAST:
+            return
+        player_id = event.get("player_id")
+        if player_id is None:
+            return
+        counts = self.state.spells_cast_this_turn
+        counts[player_id] = counts.get(player_id, 0) + 1
+
+    def apply_day_night_turn_check(self) -> None:
+        """RULE 731.2: as the second part of the untap step, maybe flip
+        day/night based on how many spells the *previous* turn's active
+        player cast during that turn.
+
+        A no-op on turn 1 (no previous turn) or once a designation is set
+        but the check doesn't apply (RULE 731.2c — neither day nor night:
+        the check simply doesn't run at all). Any flip is applied
+        immediately, including transforming now-mismatched daybound/
+        nightbound permanents (RULE 702.145c/f aren't state-based actions)."""
+        if self.state._last_turn_player_id is None:
+            return
+        count = self.state._last_turn_spell_count
+        if self.state.day_night == "day" and count == 0:
+            self.state.day_night = "night"
+        elif self.state.day_night == "night" and count >= 2:
+            self.state.day_night = "day"
+        else:
+            return
+        self._transform_mismatched_daynight_permanents()
+
+    def _transform_mismatched_daynight_permanents(self) -> bool:
+        """Flip any permanent whose daybound/nightbound keyword (RULE
+        702.145b/e) no longer matches the current day/night designation.
+        Returns whether anything changed."""
+        if self.state.day_night == "night":
+            for obj in self.state.permanents():
+                if combat.has(obj, "daybound"):
+                    self.transform_permanent(obj)
+                    return True
+        elif self.state.day_night == "day":
+            for obj in self.state.permanents():
+                if combat.has(obj, "nightbound"):
+                    self.transform_permanent(obj)
+                    return True
+        return False
+
+    def _check_day_night(self) -> bool:
+        """RULE 702.145c/d/f/g: establish/maintain the day/night designation
+        "any time" a player controls a (mis)matched daybound/nightbound
+        permanent. Not itself a state-based action, but checked at the
+        `_sba_pass` cadence — the same "any time" simplification already used
+        for the Saga-sacrifice check. Returns whether anything changed, so
+        `_sba_pass`'s fixpoint loop re-runs."""
+        if self.state.day_night is None:
+            battlefield = self.state.permanents()
+            if any(combat.has(o, "daybound") for o in battlefield):
+                self.state.day_night = "day"
+                return True
+            if any(combat.has(o, "nightbound") for o in battlefield):
+                self.state.day_night = "night"
+                return True
+            return False
+        return self._transform_mismatched_daynight_permanents()
 
     def copy_permanent(
         self, controller_id: str, source: GameObject, count: int = 1
@@ -1049,6 +1122,31 @@ class RulesEngine:
         obj.intrinsic_keywords = set()
         obj.parametric_keywords = {}
         bind_from_catalogue(obj)
+
+    def transform_permanent(self, obj: GameObject) -> bool:
+        """Flip a double-faced permanent to its other face (RULE 712.8).
+
+        Mirrors `switch_to_face`'s "clear + rebind catalogue-derived
+        abilities" treatment: `GameObject.transform` only swaps ``card``, so
+        without this a transformed permanent would keep its *other* face's
+        keywords/triggered/activated/static abilities forever (e.g. a
+        daybound/nightbound permanent's own daybound/nightbound keyword,
+        RULE 702.145, would never update). Returns whether it flipped — a
+        no-op (``False``) for a card with no back face, same as
+        `GameObject.transform`."""
+        from .effect_binder import bind_from_catalogue  # function-scoped: avoid a cycle
+
+        if not obj.transform():
+            return False
+        obj.spell_effects = []
+        obj.triggered_abilities = []
+        obj.activated_abilities = []
+        obj.static_effects = []
+        obj.replacement_effects = []
+        obj.intrinsic_keywords = set()
+        obj.parametric_keywords = {}
+        bind_from_catalogue(obj)
+        return True
 
     def gain_life(self, player: Player, amount: int) -> None:
         if amount <= 0:
@@ -1448,6 +1546,11 @@ class RulesEngine:
         # granted keywords are current before any SBA reads them — an anthem
         # dropping a creature to 0 toughness must be seen here.
         continuous.recompute(self.state)
+
+        # 702.145c/d/f/g: not itself a state-based action, but "any time" is
+        # otherwise unmodeled continuous timing — checked at SBA cadence.
+        if self._check_day_night():
+            return True
 
         # 704.5a/c: player at 0 or less life, or who drew from empty, loses.
         for player in self.state.players:
