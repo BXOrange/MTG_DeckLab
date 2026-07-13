@@ -230,10 +230,15 @@ depend on M1, and copies feed M3's layer 1.
   history/session persistence. *UI:* login/signup, token storage, reconnect.
 - **Bot AI (UC5):** upgrade the greedy `run_goldfish_turn` to weigh lines.
   *UI:* bot-vs-manual selector, action visualization + speed control.
-- **Config module:** pull hard-coded paths/constants into `config.py` reading
-  env overrides (`MTG_CACHE_DIR`, `MTG_DATA_DIR`).
-- **Moxfield import proxy:** `GET /api/import/moxfield/{id}` (may still hit
-  Cloudflare; needs browser-like headers or a headless fallback).
+- ✅ **External deck-builder import:** Moxfield tried twice (client-side,
+  then a server-side proxy) and reverted both times — confirmed via a
+  live test against a real deck id that Cloudflare genuinely blocks it
+  (not just a CORS/header issue), so it'd need a headless-browser
+  fallback or residential-IP proxy to actually work (backend ToDo
+  "Import — follow-up from the frontend"). Archidekt's API has no such
+  block (plain unauthenticated request → real deck JSON) — shipped as
+  its own "Import Deck" sidebar tab (`Done_Backend.md`/`Done_Frontend.md`
+  "Import").
 
 ---
 

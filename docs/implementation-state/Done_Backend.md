@@ -8,6 +8,32 @@ work: [10_COMPLETION_ROADMAP.md](10_COMPLETION_ROADMAP.md).
 The original Weeks 1–4 roadmap is archived at
 [history/IMPLEMENTATION_STATUS.md](history/IMPLEMENTATION_STATUS.md).
 
+## Configuration
+
+- [x] Centralized on-disk paths + small runtime constants into
+      `mtg_analyzer/config.py`, overridable via environment variable.
+      Previously `CACHE_ROOT`/`DEFAULT_DB_PATH` (`card_database.py`),
+      `DATA_ROOT`/`DEFAULT_DECKS_DB_PATH` (`deck_database.py`),
+      `DEFAULT_PLAYER_ASSETS_DB_PATH` (`player_assets.py`), and the
+      Scryfall/`ImageCache` User-Agent + rate-limit constants
+      (`scryfall_client.py`, `image_cache.py`) were each a hard-coded
+      module constant with no override hook, so a one-off script or
+      test run had no way to avoid colliding with a real dev server's
+      cache/saved-decks (a real risk once schema versioning could
+      *clear* a stale cache on open, not just read it). `config.py`
+      exposes `CACHE_DIR`/`DATA_DIR` (env `MTG_CACHE_DIR`/`MTG_DATA_DIR`),
+      the derived `DB_PATH`/`IMAGE_CACHE_DIR`/`DECKS_DB_PATH`/
+      `PLAYER_ASSETS_DB_PATH`, and `USER_AGENT`/
+      `SCRYFALL_MIN_REQUEST_INTERVAL_SECONDS` (env `MTG_USER_AGENT`/
+      `MTG_SCRYFALL_MIN_REQUEST_INTERVAL`), all defaulting to the
+      previous hard-coded values. `api/dependencies.py`'s singletons
+      now import their paths from `config.py` directly rather than
+      from each service module; the service modules keep their old
+      constant names (`CACHE_ROOT`, `DEFAULT_DB_PATH`, etc.) as
+      backward-compatible aliases onto the `config.py` values, so
+      nothing importing them broke. Tests: `test_config.py` (env-var
+      overrides, incl. that they flow through to the service modules).
+
 ## HTTP API foundation
 
 - [x] Pick and set up a server framework — FastAPI + uvicorn
@@ -366,3 +392,34 @@ the Phase-1 models. Tests: `test_game_engine.py`.
       computed yet". Feeds the frontend's client-side deck-analysis
       heuristics (`Done_Frontend.md` "Deck analysis (UC2)") rather than a
       new endpoint. Tests: `test_api_saved_decks.py`, `test_deck_model.py`.
+
+## Import — follow-up from the frontend
+
+- [x] Server-side Archidekt import proxy (`GET
+      /api/import/archidekt/{deckId}`) — Moxfield (`backend/ToDo_Backend.md`
+      "Import — follow-up from the frontend") was tried client- and
+      server-side and reverted both times (genuinely Cloudflare-blocked);
+      Archidekt's API has no such protection — confirmed live, a plain
+      unauthenticated `GET https://archidekt.com/api/decks/{id}/
+      ?format=json` returns real deck JSON straight from nginx/Google
+      infra. `services/archidekt_client.py`'s `ArchidektClient` (mirrors
+      `ScryfallIntegration`'s shape, DI'd via
+      `api/dependencies.py.get_archidekt_client`) fetches that endpoint
+      and converts `cards: [{quantity, categories: [...], card:
+      {oracleCard: {name}, displayName}}]` into decklist text: a card
+      goes to `commanderText` if its `categories` includes "Commander",
+      to `sideboardText` if "Sideboard", else `mainboardText`; a category
+      the deck itself flags `includedInDeck: false` (e.g. a Maybeboard)
+      is dropped entirely rather than landing in any section. `deck_id`
+      accepts a bare numeric id or a full pasted deck URL
+      (`extract_deck_id`); a non-digit id is rejected as 400 before any
+      request is made, since Archidekt's own routing 404s in a
+      misleading way (a "client routes" error page) for anything
+      non-numeric. Route is `{deck_id:path}`, not the default
+      single-segment converter, for the same reason as the reverted
+      Moxfield route (a URL-shaped id survives `encodeURIComponent` as
+      `%2F`, decoded back to a literal `/` by Starlette before routing).
+      `api/import_external.py` registers the router; response shape
+      (`{name, commanderText, mainboardText, sideboardText}`) matches
+      what `POST /api/decks` / `/api/decks/save` expect. Frontend:
+      `Done_Frontend.md` "Import". Tests: `test_archidekt_client.py`.

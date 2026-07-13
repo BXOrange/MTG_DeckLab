@@ -55,6 +55,42 @@ export async function submitDeck(sections) {
 }
 
 /**
+ * Server-side Archidekt import proxy (GET /api/import/archidekt/{deckId}).
+ * Unlike Moxfield (tried and reverted twice — genuinely Cloudflare-
+ * blocked, see backend/ToDo_Backend.md "Import — follow-up from the
+ * frontend"), Archidekt's API has no such protection.
+ * @param {string} deckIdOrUrl Bare Archidekt deck id, or a full
+ *   archidekt.com/decks/{id}/{slug} URL pasted from the browser — the
+ *   backend extracts the id either way.
+ * @returns {Promise<{ok: true, name: string, commanderText: string, mainboardText: string, sideboardText: string} | {ok: false, error: string}>}
+ */
+export async function importArchidektDeck(deckIdOrUrl) {
+  let response;
+  try {
+    response = await fetch(`${getServerUrl()}/api/import/archidekt/${encodeURIComponent(deckIdOrUrl)}`);
+  } catch {
+    return { ok: false, error: 'Server nicht erreichbar.' };
+  }
+
+  if (!response.ok) {
+    let detail = `Archidekt-Import fehlgeschlagen (HTTP ${response.status}).`;
+    try {
+      const body = await response.json();
+      if (body?.detail) detail = body.detail;
+    } catch {
+      /* non-JSON error body — keep the generic message */
+    }
+    return { ok: false, error: detail };
+  }
+
+  try {
+    return { ok: true, ...(await response.json()) };
+  } catch {
+    return { ok: false, error: 'Ungültige Server-Antwort.' };
+  }
+}
+
+/**
  * URL for a cached card image. The backend downloads and caches the
  * image on first request (GET /api/cards/{id}/image) — this just builds
  * the URL, it doesn't fetch anything itself; the <img> tag does that.

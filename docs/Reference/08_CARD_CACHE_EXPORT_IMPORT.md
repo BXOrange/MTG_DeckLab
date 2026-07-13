@@ -27,9 +27,12 @@ backend/cache/
         └── png.png
 ```
 
-`CACHE_ROOT` in `card_database.py` is the single source of truth for
-this path; `image_cache.py` derives its own directory from it so the
-two never drift apart.
+`CACHE_DIR` in `mtg_analyzer/config.py` is the single source of truth
+for this path (`card_database.py`/`image_cache.py` both import it,
+re-exported as `CACHE_ROOT`/`DEFAULT_IMAGE_CACHE_DIR` for backward
+compatibility); set the `MTG_CACHE_DIR` env var to point a one-off
+script or test run at a different cache directory than a dev server
+you might already have running against the repo-relative default.
 
 ### How the DB and images link up
 

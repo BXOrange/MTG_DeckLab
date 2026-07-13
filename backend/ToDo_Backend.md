@@ -8,27 +8,6 @@ for the dependency-ordered plan to finish the implementation. The original
 Weeks 1–4 roadmap is archived at
 [../docs/implementation-state/history/IMPLEMENTATION_STATUS.md](../docs/implementation-state/history/IMPLEMENTATION_STATUS.md).
 
-## Configuration (Backlog)
-
-- [ ] On-disk paths (`CACHE_ROOT`/`DEFAULT_DB_PATH` in
-      `card_database.py`, `DATA_ROOT`/`DEFAULT_DECKS_DB_PATH` in
-      `deck_database.py`) are hard-coded module constants with no
-      override hook. Came up concretely: verifying a change against a
-      real running server means pointing it at these same fixed,
-      repo-relative paths as any dev instance you might have running —
-      there's no way to redirect a one-off/test server elsewhere, so
-      the two can collide (a cleanup between test runs can wipe a dev
-      server's actual cache/saved decks out from under it). With schema
-      versioning now in place a stray script pointed at `DEFAULT_DB_PATH`
-      *clears* rather than just reads it — extra reason to make paths
-      overridable. Pull these — and other scattered constants, e.g.
-      `scryfall_client.py`'s `_USER_AGENT`/`_MIN_REQUEST_INTERVAL_SECONDS`,
-      `image_cache.py`'s `_USER_AGENT` — into one config module (e.g.
-      `mtg_analyzer/config.py`), reading overrides from environment
-      variables (e.g. `MTG_CACHE_DIR`, `MTG_DATA_DIR`) with the current
-      hard-coded values as defaults. `api/dependencies.py`'s singletons
-      would read from there instead of importing the path constants.
-
 ## Rules Engine (Phase 2) — remaining
 
 - [ ] Oracle-text → effect *parser* (docs/07 PART 5): spells still carry
@@ -452,11 +431,22 @@ eventually own. Roughly in decreasing commonness:
 
 ## Import — follow-up from the frontend
 
-- [ ] Server-side Moxfield import proxy
-      (`GET /api/import/moxfield/{deckId}`), tried client-side and
-      reverted (see `../frontend/ToDo_Frontend.md` "Import — follow-ups"):
-      Moxfield's Cloudflare protection returned HTTP 403 on every
-      plain request tried by hand, including from a browser origin.
-      A server-side fetch removes the browser-CORS obstacle but still
-      isn't guaranteed to get past bot protection — may need
-      browser-like request headers or a headless-browser fallback.
+- [ ] Moxfield import (client-side *and* server-side, both tried and
+      reverted — see `../frontend/ToDo_Frontend.md` "Import — follow-ups"):
+      a server-side proxy (`services/moxfield_client.py`,
+      `GET /api/import/moxfield/{deckId}`, since removed) fetched
+      `api2.moxfield.com` with browser-like headers (User-Agent/Origin/
+      Referer) to route around the browser-CORS block the client-side
+      attempt hit. Tested live against both a made-up id and a real
+      public deck id (`eJY8pmEdckaJZ6250uUG9A`) — both came back a
+      genuine Cloudflare "Attention Required" challenge page (`server:
+      cloudflare`, a `cf-ray` header, the actual interstitial HTML), not
+      an app-level 403, so Cloudflare is blocking on IP reputation/TLS
+      fingerprint here, not just headers. Reverted rather than kept as
+      dead code; reviving this needs something materially bigger than a
+      header tweak — a headless browser (e.g. Playwright) or a
+      residential-IP proxy — not worth it unless Moxfield import becomes
+      a priority. Archidekt import shipped instead (`Done_Backend.md`
+      "Import — follow-up from the frontend"), since its API has no such
+      block.
+

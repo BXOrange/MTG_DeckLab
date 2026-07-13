@@ -12,14 +12,17 @@ from typing import Any, Optional
 
 import httpx2 as httpx
 
+from mtg_analyzer.config import SCRYFALL_MIN_REQUEST_INTERVAL_SECONDS, USER_AGENT
 from mtg_analyzer.models.card import VALID_COLORS, Card
 
 _BASE_URL = "https://api.scryfall.com"
 #: Scryfall asks integrations to identify themselves and to stay under
 #: ~10 requests/second; a small delay between requests is the simplest
-#: way to honor that without a background rate limiter.
-_USER_AGENT = "MTG-Deck-Analyzer/0.1"
-_MIN_REQUEST_INTERVAL_SECONDS = 0.1
+#: way to honor that without a background rate limiter. Overridable via
+#: MTG_USER_AGENT / MTG_SCRYFALL_MIN_REQUEST_INTERVAL — see
+#: mtg_analyzer/config.py.
+_USER_AGENT = USER_AGENT
+_MIN_REQUEST_INTERVAL_SECONDS = SCRYFALL_MIN_REQUEST_INTERVAL_SECONDS
 #: Batch size cap for POST /cards/collection (Scryfall's own limit).
 _COLLECTION_BATCH_SIZE = 75
 

@@ -269,6 +269,15 @@ English and German.
 - **Security**: nothing derived from card text becomes code. Effects are a
   whitelisted `type` string + clamped params (`spec.py`); the binder is the only
   thing that turns specs into behaviour.
+- **Configuration**: on-disk paths and a few runtime constants (cache/data
+  dirs, Scryfall User-Agent/rate limit) live in `mtg_analyzer/config.py`,
+  overridable via `MTG_CACHE_DIR`/`MTG_DATA_DIR`/`MTG_USER_AGENT`/
+  `MTG_SCRYFALL_MIN_REQUEST_INTERVAL` env vars — point a one-off script or
+  test run elsewhere without colliding with a real dev server's cache/saved
+  decks. Service modules (`card_database.py`, `deck_database.py`, etc.) keep
+  their old constant names (`CACHE_ROOT`, `DEFAULT_DB_PATH`, …) as aliases
+  onto `config.py`'s values; `api/dependencies.py`'s singletons import
+  straight from `config.py`.
 - **Frontend**: no framework. Views are `render*(container)` functions setting
   `innerHTML` and wiring listeners; escape user/card text with `escapeHtml` /
   `escapeAttr`. Client-only prefs persist via cookies (`cookies.js`).
@@ -285,6 +294,7 @@ English and German.
 | Card abilities / fetch lands / enters-tapped | `game/ability_catalogue.py`, `effect_binder.bind_from_catalogue` |
 | Hand-authoring a specific card's effects | [docs/Reference/11_CARD_CATALOGUE_AUTHORING_GUIDE.md](docs/Reference/11_CARD_CATALOGUE_AUTHORING_GUIDE.md) |
 | Effects / triggers | `game/effects.py`, `game/effect_binder.py` |
+| On-disk paths / env-var config | `backend/mtg_analyzer/config.py` |
 | Goldfish UI | `frontend/src/js/goldfishView.js` |
 | Replay/Puzzle mode (build+save/load a board) | `backend/mtg_analyzer/services/replay.py`, `game_session.py` (`edit_*` actions), `frontend/src/js/replayView.js` |
 | Player-uploaded token art / card-back sleeves | `backend/mtg_analyzer/services/player_assets.py`, `api/player_assets.py`, `frontend/src/js/connectionSettingsView.js`, `gameBoardView.js` (`resolveImageUrl`/`setAssets`) |

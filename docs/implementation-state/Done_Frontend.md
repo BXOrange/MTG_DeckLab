@@ -22,6 +22,29 @@ now holds only open items). Section headers mirror that file.
       distinct from the 🛑 "not found" marker.
 - [x] Deck persistence: save/load decks via API — see "Saved decks".
 
+## Import
+
+- [x] "Import Deck" — a sidebar tab of its own (`index.html`'s
+      `#view-import-deck`, alongside "Deck editieren" in the
+      Deck-Management nav group), separate from `deckImportView.js`
+      because a failed import should leave the user on the import
+      screen with the error, not dump them into a half-populated editor.
+      `importDeckView.js` takes an Archidekt deck link or bare id
+      (Moxfield was tried and reverted twice — genuinely
+      Cloudflare-blocked, `Done_Backend.md` "Import — follow-up from the
+      frontend"), calls `api.js`'s `importArchidektDeck` (`GET
+      /api/import/archidekt/{deckId}`), and on success hands the
+      `{name, commanderText, mainboardText, sideboardText}` result to an
+      `onImported` callback — `app.js` wires that to
+      `importView.loadDeck(deck)` (the same method `savedDecksView.js`
+      uses to load a saved deck) followed by `showTab('import')`, so a
+      successful import behaves exactly like loading a saved deck: the
+      textareas fill in and "Deck editieren" opens with "Aktualisieren"
+      disabled (no saved-deck id yet, same as loading the sample deck).
+      On failure the German error message stays on the Import Deck tab
+      instead ("Kein Archidekt-Deck mit ID …", HTTP status, or "Server
+      nicht erreichbar").
+
 ## Connection settings
 
 - [x] Collapsible left sidebar (`#sidebar`/`.sidebar-nav` in

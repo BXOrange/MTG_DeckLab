@@ -20,14 +20,15 @@ from typing import Optional, Union
 
 import httpx2 as httpx
 
-from mtg_analyzer.services.card_database import CACHE_ROOT
+from mtg_analyzer.config import IMAGE_CACHE_DIR, USER_AGENT
 
-#: Default on-disk location for cached card images.
-DEFAULT_IMAGE_CACHE_DIR = CACHE_ROOT / "images"
+#: Default on-disk location for cached card images. Overridable via the
+#: MTG_CACHE_DIR env var — see mtg_analyzer/config.py.
+DEFAULT_IMAGE_CACHE_DIR = IMAGE_CACHE_DIR
 
 #: cards.scryfall.io (the image CDN, distinct from api.scryfall.com) 400s
 #: requests with no User-Agent.
-_USER_AGENT = "MTG-Deck-Analyzer/0.1"
+_USER_AGENT = USER_AGENT
 
 #: File extension per Scryfall image size (see Card.image_uri_*).
 _EXTENSION_BY_SIZE = {"small": "jpg", "normal": "jpg", "large": "jpg", "png": "png"}

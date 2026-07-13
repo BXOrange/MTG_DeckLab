@@ -21,6 +21,7 @@ import threading
 from pathlib import Path
 from typing import Optional, Union
 
+from mtg_analyzer.config import CACHE_DIR, DB_PATH
 from mtg_analyzer.models.card import Card
 from mtg_analyzer.services.schema_version import reconcile_schema
 
@@ -36,11 +37,12 @@ _FACE_SEPARATOR_RE = re.compile(r"\s*/+\s*")
 #: disposable: deleting it just means the next lookup re-fetches from
 #: Scryfall. Gitignored via the repo-root .gitignore ("backend/cache/") —
 #: never commit it. Export/import instructions:
-#: docs/Reference/08_CARD_CACHE_EXPORT_IMPORT.md.
-CACHE_ROOT = Path(__file__).resolve().parent.parent.parent / "cache"
+#: docs/Reference/08_CARD_CACHE_EXPORT_IMPORT.md. Overridable via the
+#: MTG_CACHE_DIR env var — see mtg_analyzer/config.py.
+CACHE_ROOT = CACHE_DIR
 
 #: Default on-disk location for the lazily-populated card database.
-DEFAULT_DB_PATH = CACHE_ROOT / "db" / "cards.db"
+DEFAULT_DB_PATH = DB_PATH
 
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS cards (

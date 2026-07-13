@@ -1,4 +1,5 @@
 import { renderDeckImportView } from './deckImportView.js';
+import { renderImportDeckView } from './importDeckView.js';
 import { createGoldfishView } from './goldfishView.js';
 import { createReplayView } from './replayView.js';
 import { renderMultiplayerView } from './multiplayerView.js';
@@ -24,6 +25,7 @@ const tabButtons = document.querySelectorAll('.tab-button');
 const navGroups = document.querySelectorAll('.nav-group');
 const views = {
   import: document.getElementById('view-import'),
+  importDeck: document.getElementById('view-import-deck'),
   savedDecks: document.getElementById('view-saved-decks'),
   analyze: document.getElementById('view-analyze'),
   goldfish: document.getElementById('view-goldfish'),
@@ -62,6 +64,12 @@ navGroups.forEach((group) => {
 });
 
 const importView = renderDeckImportView(views.import, { onDeckLoaded: () => showTab('goldfish') });
+renderImportDeckView(views.importDeck, {
+  onImported: (deck) => {
+    importView.loadDeck(deck);
+    showTab('import');
+  },
+});
 
 // The goldfish controller persists across tab switches (its session lives
 // inside), so it's created once here rather than per view-shown.

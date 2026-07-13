@@ -23,6 +23,7 @@ import threading
 from pathlib import Path
 from typing import Optional, Union
 
+from mtg_analyzer.config import DATA_DIR, DECKS_DB_PATH
 from mtg_analyzer.models.deck import Deck
 from mtg_analyzer.services.schema_version import reconcile_schema
 
@@ -32,11 +33,12 @@ _log = logging.getLogger(__name__)
 #: disposable cache. Gitignored (see repo-root .gitignore,
 #: "backend/data/") for the same reason .env files are: it's local
 #: state, not something to commit — but unlike backend/cache/, back
-#: this up if you care about the decks in it.
-DATA_ROOT = Path(__file__).resolve().parent.parent.parent / "data"
+#: this up if you care about the decks in it. Overridable via the
+#: MTG_DATA_DIR env var — see mtg_analyzer/config.py.
+DATA_ROOT = DATA_DIR
 
 #: Default on-disk location for saved decks.
-DEFAULT_DECKS_DB_PATH = DATA_ROOT / "decks.db"
+DEFAULT_DECKS_DB_PATH = DECKS_DB_PATH
 
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS decks (

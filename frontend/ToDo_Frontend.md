@@ -9,13 +9,13 @@ code plus replaying the equivalent API calls against a running backend,
 
 ## Import — follow-ups
 
-- [ ] Direct import from external deck builders (Moxfield, Archidekt,
-      …) was tried and reverted: fetching `api.moxfield.com` directly
-      from the browser hit Cloudflare bot protection (HTTP 403 on the
-      deck page, `/download`, and both v2/v3 API endpoints). Revisit once
-      the backend can proxy it server-side
-      (`GET /api/import/moxfield/{id}`) — still no guarantee it gets past
-      bot protection, but removes the browser-CORS obstacle.
+- [ ] Moxfield import: tried twice (client-side fetch, then a
+      server-side proxy) and reverted both times — Cloudflare blocks it
+      genuinely (not just a CORS/header issue; confirmed via a live test
+      against a real deck id, see `../backend/ToDo_Backend.md` "Import —
+      follow-up from the frontend"), so it's parked pending a
+      headless-browser fallback or similar, not a quick fix. Archidekt
+      import shipped instead (`Done_Frontend.md` "Import").
 
 ## Backend integration
 
