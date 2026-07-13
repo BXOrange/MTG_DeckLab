@@ -1,8 +1,8 @@
 # Frontend TODO
 
 Open frontend items. Completed work has moved to
-[Done_Frontend.md](Done_Frontend.md) (section headers there mirror
-these). No Node/npm on this machine, so there's no JS linter/test runner
+[Done_Frontend.md](../docs/implementation-state/Done_Frontend.md) (section
+headers there mirror these). No Node/npm on this machine, so there's no JS linter/test runner
 and no way to drive a real browser — changes are verified by reading the
 code plus replaying the equivalent API calls against a running backend,
 **not** by an actual rendered page (see "Cleanup / polish").
@@ -71,10 +71,17 @@ code plus replaying the equivalent API calls against a running backend,
 
 ## Deck analysis (UC2)
 
-- [ ] "Analyze deck" button + results view (win conditions, archetype,
+Static/numeric analysis (mana curve, land archetypes, Command Zone
+categories, Bracket-Analyse) is done — see `Done_Frontend.md` "Deck
+analysis (UC2)". Still open, blocked on the backend LLM endpoint:
+
+- [ ] Narrative "Analyze deck" results (win conditions, archetype,
       synergies, cohesion score, issues) once
       `POST /api/decks/{id}/analyze` exists (docs/02 UC2, docs/04 Phase 6).
-- [ ] Cache indicator ("Analysis from X ago").
+      Would sit alongside the existing static/Bracket sub-tabs, not
+      replace them.
+- [ ] Cache indicator ("Analysis from X ago") for that LLM result once it
+      exists.
 
 ## Bot mode (UC5)
 

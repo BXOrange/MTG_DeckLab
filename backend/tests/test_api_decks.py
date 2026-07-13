@@ -1,6 +1,6 @@
 """Tests for the HTTP API (POST /api/decks, GET /api/health).
 
-Reference: backend/Done_Backend.md "HTTP API foundation".
+Reference: docs/implementation-state/Done_Backend.md "HTTP API foundation".
 """
 
 import httpx2 as httpx

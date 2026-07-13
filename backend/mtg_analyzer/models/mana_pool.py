@@ -1,7 +1,7 @@
 """Per-player mana pool (RULE 106, RULE 500.4 emptying, RULE 601.2g payment).
 
-Reference: docs/02_MVP_USECASES_REVISED.md R2.6 (Mana System),
-docs/07_GAME_LOOP_EFFECT_SYSTEM.md (PART 2).
+Reference: docs/requirements/02_MVP_USECASES_REVISED.md R2.6 (Mana System),
+docs/concepts/07_GAME_LOOP_EFFECT_SYSTEM.md (PART 2).
 
 A pool is a tally of available mana per type (``W U B R G C``). The
 non-trivial part is *paying* a `ManaCost`: colored/colorless pips are

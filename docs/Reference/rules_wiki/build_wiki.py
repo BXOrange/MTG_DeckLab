@@ -10,11 +10,11 @@ file, so an agent can ``Read(source, offset=line, limit=...)`` precisely.
 
 Regenerate after dropping in a newer rules file (they update ~quarterly):
 
-    python3 Reference/rules_wiki/build_wiki.py
+    python3 docs/Reference/rules_wiki/build_wiki.py
 
 It auto-detects the newest ``MagicCompRules*.txt`` in ``Reference/``.
 
-Outputs (all in ``Reference/rules_wiki/``):
+Outputs (all in ``docs/Reference/rules_wiki/``):
     rule_line_index.json  machine-readable: parts, sections, subrules, glossary -> line
     RULES_WIKI.md         master index: parts -> sections, each with source line
     glossary_index.md     glossary term -> source line + cross-referenced rule
@@ -216,7 +216,7 @@ def write_master(data: dict, src_name: str, out_path: str):
         "# Comprehensive Rules — Master Index",
         "",
         f"> Auto-generated from `{src_name}` — do not edit by hand.",
-        "> Regenerate with `python3 Reference/rules_wiki/build_wiki.py`.",
+        "> Regenerate with `python3 docs/Reference/rules_wiki/build_wiki.py`.",
         "",
         "Line numbers point into the source rules file and equal the `Read` tool's",
         "`offset`. Sections are short (~10–60 lines); read a whole section by its line.",
@@ -315,7 +315,7 @@ def write_readme(data: dict, src_name: str, out_path: str):
         "Drop the newer `MagicCompRules <date>.txt` into `Reference/` and run:",
         "",
         "```bash",
-        "python3 Reference/rules_wiki/build_wiki.py",
+        "python3 docs/Reference/rules_wiki/build_wiki.py",
         "```",
         "",
         "It picks the newest `MagicCompRules*.txt` automatically. The concept map at",

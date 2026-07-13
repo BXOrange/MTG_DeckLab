@@ -1,6 +1,6 @@
 """Tests for the Card model.
 
-Reference: /docs/06_CARD_GRAPHICS_AND_LAZY_LOADING.md (PART 1)
+Reference: /docs/concepts/06_CARD_GRAPHICS_AND_LAZY_LOADING.md (PART 1)
 """
 
 import pytest

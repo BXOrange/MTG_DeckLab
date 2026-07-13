@@ -1,7 +1,7 @@
 """Card lookup endpoints: single/batch resolution and listing the cache.
 
-Reference: backend/Done_Backend.md "HTTP API foundation"
-(`GET /api/cards/search`), docs/08_CARD_CACHE_EXPORT_IMPORT.md.
+Reference: docs/implementation-state/Done_Backend.md "HTTP API foundation"
+(`GET /api/cards/search`), docs/Reference/08_CARD_CACHE_EXPORT_IMPORT.md.
 """
 
 from __future__ import annotations

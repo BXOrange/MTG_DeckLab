@@ -1,6 +1,6 @@
 """Parse a permanent's mana abilities (RULE 605), incl. dual-land choice.
 
-Reference: docs/02_MVP_USECASES_REVISED.md R2.6 (Mana System).
+Reference: docs/requirements/02_MVP_USECASES_REVISED.md R2.6 (Mana System).
 
 A basic Forest taps for exactly `{G}`. A dual land ("{T}: Add {W} or
 {U}.") taps for `{W}` *or* `{U}` — the player chooses one, they do NOT

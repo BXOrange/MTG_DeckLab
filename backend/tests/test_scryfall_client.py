@@ -1,6 +1,6 @@
 """Tests for Scryfall response parsing and the ScryfallIntegration client.
 
-Reference: docs/06_CARD_GRAPHICS_AND_LAZY_LOADING.md (PART 3).
+Reference: docs/concepts/06_CARD_GRAPHICS_AND_LAZY_LOADING.md (PART 3).
 """
 
 import httpx2 as httpx
@@ -273,7 +273,7 @@ class TestCardFromScryfallData:
         card = card_from_scryfall_data(DISMEMBER)
         assert card.color_identity == {"B"}
         # The flattened mana_cost dict can't represent "or 2 life" either
-        # way (see backend/Done_Backend.md "Mana cost model"),
+        # way (see docs/implementation-state/Done_Backend.md "Mana cost model"),
         # but that's a separate, already-documented limitation from
         # color identity, which is unaffected by it.
         assert card.mana_cost["B"] == 2

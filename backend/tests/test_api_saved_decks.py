@@ -1,6 +1,6 @@
 """Tests for POST /api/decks/save, GET /api/decks, GET/DELETE /api/decks/{id}.
 
-Reference: backend/Done_Backend.md "Deck persistence".
+Reference: docs/implementation-state/Done_Backend.md "Deck persistence".
 """
 
 from fastapi.testclient import TestClient

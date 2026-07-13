@@ -1,6 +1,6 @@
 """Shared sub-grammars — the rule that stops the handler set exploding (docs/09).
 
-Reference: docs/09_ORACLE_EFFECT_PARSER.md ("Factor shared sub-grammars").
+Reference: docs/concepts/09_ORACLE_EFFECT_PARSER.md ("Factor shared sub-grammars").
 "deal 3 damage **to any target**" / "**to target creature**" / "**to target
 player**" are *one* damage handler with a reusable TARGET matcher, not three
 regexes. This module owns those reusable fragments so every handler shares

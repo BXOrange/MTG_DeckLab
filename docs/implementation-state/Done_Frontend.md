@@ -1,7 +1,8 @@
 # Frontend — Done
 
-Completed frontend work, split out of `ToDo_Frontend.md` (which now holds
-only open items). Section headers mirror that file.
+Completed frontend work, split out of
+[`../../frontend/ToDo_Frontend.md`](../../frontend/ToDo_Frontend.md) (which
+now holds only open items). Section headers mirror that file.
 
 ## Backend integration
 
@@ -168,6 +169,35 @@ only open items). Section headers mirror that file.
 
 ## Deck analysis (UC2)
 
-- [x] Nav entry ("Deck analysieren", `analyzeView.js`) rendering a static
-      "not implemented yet" placeholder — the menu structure matches the
-      intended feature set ahead of the backend endpoint existing.
+- [x] "Deck analysieren" (`analyzeView.js` + `deckAnalysis.js`) is a full,
+      **local/static** analysis of a saved deck — no backend call, no AI:
+      pure functions over the same resolved `Card` data every other view
+      already fetches (`cardImages.js`'s resolve cache), classifying cards
+      by regexing `oracle_text` as a **display heuristic only** (a wrong
+      guess mislabels a chart; it can never affect actual game behaviour —
+      see `deckAnalysis.js`'s header comment for the boundary vs. the
+      security-relevant `backend/mtg_analyzer/parser/oracle/` pipeline).
+      Three sub-tabs: **Statische Analyse** (mana curve by CMC bucket,
+      card-type distribution, color pip counts vs. mana-source counts,
+      land-archetype breakdown — basics/duals/fetches/shocks/MDFC-lands/…,
+      and a "Command Zone" deckbuilding-template split: Lands/Ramp/Card
+      Advantage/Targeted Disruption/Mass Disruption/Plan Cards);
+      **Dynamische Analyse** (a hypergeometric opening-hand/by-turn land
+      simulation, `expectedLandsOverTime`/`simulateManaCurve`, factoring in
+      recognized accelerants — mana rocks/dorks/land-Auras/land-ramp
+      spells vs. one-shot rituals/Treasure generators, classified
+      separately since only the former are "recurring" for the sim); and
+      **Bracket-Analyse**, a heuristic approximation of WotC's 5-tier
+      "Commander Brackets" beta system (`suggestBracket`): flags Game
+      Changers, Mass Land Denial, and Extra Turn spells (each via a
+      hand-maintained name/pattern list, `isGameChanger`/
+      `isMassLandDenial`/`isExtraTurn`) plus a Tutor count, and suggests a
+      minimum bracket — explicitly labeled unofficial/approximate in the UI
+      copy, since brackets also weigh un-derivable factors (combo speed,
+      "stax" intent) the tool can't see from card text alone. Backed by
+      `Deck.color_identity`/`.commanders` (`backend/Done_Backend.md`
+      "Deck persistence") for the commander-vs-99 split. This is separate
+      from, and doesn't block, the LLM-backed `POST /api/decks/{id}/analyze`
+      analysis still in `backend/ToDo_Backend.md` "LLM Deck Analysis" — that
+      endpoint would add synergy/archetype narrative on top of these
+      numbers, not replace them.

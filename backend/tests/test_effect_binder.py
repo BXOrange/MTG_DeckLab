@@ -1,6 +1,6 @@
 """Tests for the effect binder + the Phase 0 end-to-end seam.
 
-Reference: docs/09_ORACLE_EFFECT_PARSER.md ("RUNTIME LINKING", the two-stage
+Reference: docs/concepts/09_ORACLE_EFFECT_PARSER.md ("RUNTIME LINKING", the two-stage
 compiler). Phase 0 proves IR -> binder -> engine with a hand-authored spec
 and NO parsing: a Lightning Bolt whose `AbilitySpec` is written by hand
 resolves as real damage through the existing rules engine.

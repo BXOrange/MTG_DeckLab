@@ -1,6 +1,6 @@
 """The effect-clause handler table (docs/09 "THE CATALOGUE").
 
-Reference: docs/09_ORACLE_EFFECT_PARSER.md ("THE CATALOGUE", step 3 MATCH).
+Reference: docs/concepts/09_ORACLE_EFFECT_PARSER.md ("THE CATALOGUE", step 3 MATCH).
 A **handler** is a regex that identifies + extracts an effect clause paired
 with a builder that emits `EffectSpec`s (pure data → the `EffectRegistry`,
 never executed behaviour). The set covers exactly what the engine already

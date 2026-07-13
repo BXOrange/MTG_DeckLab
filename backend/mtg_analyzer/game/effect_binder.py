@@ -1,6 +1,6 @@
 """Bind `AbilitySpec` data into live `GameEffect` objects (docs/09 back-end).
 
-Reference: docs/09_ORACLE_EFFECT_PARSER.md ("RUNTIME LINKING: parse-on-load,
+Reference: docs/concepts/09_ORACLE_EFFECT_PARSER.md ("RUNTIME LINKING: parse-on-load,
 bind-per-game" and the two-stage compiler).
 
 This is the parser *back-end*: it takes the pure `AbilitySpec` IR the

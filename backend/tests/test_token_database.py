@@ -1,6 +1,6 @@
 """Tests for the repo-committed token catalogue + token image lazy-loading.
 
-Reference: docs/09_ORACLE_EFFECT_PARSER.md (three-tier durability model:
+Reference: docs/concepts/09_ORACLE_EFFECT_PARSER.md (three-tier durability model:
 the token catalogue ships in the repo; images stay lazy-loaded).
 """
 

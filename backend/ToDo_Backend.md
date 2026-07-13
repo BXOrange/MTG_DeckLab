@@ -1,11 +1,12 @@
 # Backend TODO
 
 Open backend items. Completed work has moved to
-[Done_Backend.md](Done_Backend.md) (section headers there mirror these).
-See [../docs/10_COMPLETION_ROADMAP.md](../docs/10_COMPLETION_ROADMAP.md)
+[Done_Backend.md](../docs/implementation-state/Done_Backend.md) (section
+headers there mirror these).
+See [../docs/implementation-state/10_COMPLETION_ROADMAP.md](../docs/implementation-state/10_COMPLETION_ROADMAP.md)
 for the dependency-ordered plan to finish the implementation. The original
 Weeks 1–4 roadmap is archived at
-[../docs/history/IMPLEMENTATION_STATUS.md](../docs/history/IMPLEMENTATION_STATUS.md).
+[../docs/implementation-state/history/IMPLEMENTATION_STATUS.md](../docs/implementation-state/history/IMPLEMENTATION_STATUS.md).
 
 ## Configuration (Backlog)
 
@@ -39,7 +40,7 @@ Weeks 1–4 roadmap is archived at
       them yet; that parser is the gap. Search is basic type/subtype
       matching only; richer criteria (mana value, colour, "you may")
       belong here too. **Design agreed** in
-      [../docs/09_ORACLE_EFFECT_PARSER.md](../docs/09_ORACLE_EFFECT_PARSER.md):
+      [../docs/concepts/09_ORACLE_EFFECT_PARSER.md](../docs/concepts/09_ORACLE_EFFECT_PARSER.md):
       two-stage compiler (front-end parses `oracle_text` → `AbilitySpec`
       IR; binder maps IR → `GameEffect` via the registry), a
       repo-committed handler catalogue (regex + builder) vs. the volatile

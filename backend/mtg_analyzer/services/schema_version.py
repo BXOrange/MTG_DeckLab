@@ -1,6 +1,6 @@
 """Detect when a database's on-disk format has drifted from the code.
 
-Reference: backend/Done_Backend.md "Data model / cache schema versioning".
+Reference: docs/implementation-state/Done_Backend.md "Data model / cache schema versioning".
 
 The SQLite databases here store JSON blobs of `to_dict()` output
 (`CardDatabase`, `DeckDatabase`). When the code that produces those blobs

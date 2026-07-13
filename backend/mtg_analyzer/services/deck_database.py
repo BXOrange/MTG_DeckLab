@@ -1,10 +1,10 @@
 """SQLite-backed persistence for saved decklists, keyed by UUID.
 
-Reference: docs/04_SERVER_CLIENT_ARCHITECTURE.md (PART 4, REST
-endpoints), backend/Done_Backend.md "Deck persistence".
+Reference: docs/concepts/04_SERVER_CLIENT_ARCHITECTURE.md (PART 4, REST
+endpoints), docs/implementation-state/Done_Backend.md "Deck persistence".
 
 Unlike `mtg_analyzer.services.card_database.CACHE_ROOT` (Scryfall data,
-entirely disposable — see docs/08_CARD_CACHE_EXPORT_IMPORT.md), saved
+entirely disposable — see docs/Reference/08_CARD_CACHE_EXPORT_IMPORT.md), saved
 decks are real user data with no upstream source to re-fetch from. They
 live under `DATA_ROOT` instead, a sibling directory that is NOT safe to
 delete: there is nothing to regenerate it from.

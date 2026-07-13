@@ -1,7 +1,7 @@
 """Load cards by name, fetching from Scryfall only for cards not yet cached.
 
-Reference: docs/06_CARD_GRAPHICS_AND_LAZY_LOADING.md (PART 3),
-docs/IMPLEMENTATION_GUIDE.md (Week 2, Day 4-5, "LazyCardLoader").
+Reference: docs/concepts/06_CARD_GRAPHICS_AND_LAZY_LOADING.md (PART 3),
+docs/implementation-state/IMPLEMENTATION_GUIDE.md (Week 2, Day 4-5, "LazyCardLoader").
 """
 
 from __future__ import annotations

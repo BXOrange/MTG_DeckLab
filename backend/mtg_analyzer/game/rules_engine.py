@@ -1,7 +1,7 @@
 """The rules engine: mana, casting, stack, replacements, triggers, SBAs.
 
-Reference: docs/02_MVP_USECASES_REVISED.md R2.2-R2.8,
-docs/07_GAME_LOOP_EFFECT_SYSTEM.md (PART 2/3).
+Reference: docs/requirements/02_MVP_USECASES_REVISED.md R2.2-R2.8,
+docs/concepts/07_GAME_LOOP_EFFECT_SYSTEM.md (PART 2/3).
 
 This owns the *rules primitives* — the operations whose consequences are
 defined by the Comprehensive Rules — so they live in exactly one place:

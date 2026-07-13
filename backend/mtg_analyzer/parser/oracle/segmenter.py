@@ -1,6 +1,6 @@
 """Step 2 of the front-end pipeline: segment abilities (docs/09).
 
-Reference: docs/09_ORACLE_EFFECT_PARSER.md ("THE FRONT-END PIPELINE", step 2
+Reference: docs/concepts/09_ORACLE_EFFECT_PARSER.md ("THE FRONT-END PIPELINE", step 2
 SEGMENT). Splits *normalised* card text into individual abilities and peels
 the wrapper off each one — the trigger phrase of a triggered ability, the
 "you may" optionality — leaving a bare **effect body** for the handler table

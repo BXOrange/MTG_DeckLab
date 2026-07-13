@@ -2,7 +2,7 @@
 
 Status: **design agreed, not yet implemented.** This is the plan for the
 open "Oracle-text → effect *parser*" item in
-[../backend/ToDo_Backend.md](../backend/ToDo_Backend.md) (Rules Engine,
+[backend/ToDo_Backend.md](../../backend/ToDo_Backend.md) (Rules Engine,
 Phase 2). It builds directly on the effect system already implemented in
 [07_GAME_LOOP_EFFECT_SYSTEM.md](07_GAME_LOOP_EFFECT_SYSTEM.md) — read that
 first; this document does not re-explain the effect hierarchy.
@@ -12,7 +12,7 @@ first; this document does not re-explain the effect hierarchy.
 # THE GAP
 
 The engine has effects but no way to *derive* them from a card. Concretely
-([../backend/mtg_analyzer/game/rules_engine.py](../backend/mtg_analyzer/game/rules_engine.py)
+(`../../backend/mtg_analyzer/game/rules_engine.py`
 `_effects_for_spell`): an instant/sorcery resolves as a no-op unless a
 fixture hand-attaches effects via the `spell_effects` hook. What's missing
 is the single transformation:
@@ -153,7 +153,7 @@ Treat them as a first-class handler class, not as free-text regex:
   extract one param — a trivial, unambiguous sub-grammar.
 - **Scryfall gives them for free.** Every card already carries a
   machine-readable `keywords` array
-  ([../backend/mtg_analyzer/models/card.py](../backend/mtg_analyzer/models/card.py)
+  (`../../backend/mtg_analyzer/models/card.py`
   `Card.keywords`). Use it to *anchor* the keyword pass: the array names
   which keywords are present, the catalogue supplies each keyword's spec
   (and extracts any parameter from the matching oracle line). This is a
@@ -172,7 +172,7 @@ first deliverable.
 ## Versioning
 
 `catalogue_version` is a **content hash of the catalogue files** (like
-[`card_database`'s `_SCHEMA_SOURCE_FILES`](../backend/mtg_analyzer/services/card_database.py)
+[`card_database`'s `_SCHEMA_SOURCE_FILES`](../../backend/mtg_analyzer/services/card_database.py)
 hash). Because the catalogue is in the repo, the version is a natural
 function of committed content. It triggers (a) the optional memo-cache
 reconcile and (b) re-running the coverage gate over the cache.
@@ -199,7 +199,7 @@ AbilitySpec[]   or   → processing list
 ```
 
 Precedent for the style already in the tree:
-[../backend/mtg_analyzer/game/mana_abilities.py](../backend/mtg_analyzer/game/mana_abilities.py)
+[`../../backend/mtg_analyzer/game/mana_abilities.py`](../../backend/mtg_analyzer/game/mana_abilities.py)
 — small regexes, normalized text, plain-data output, common cases covered,
 long tail approximated.
 
@@ -257,7 +257,7 @@ Linking splits into two runtime phases by durability:
 
 1. **Parse** — `oracle_text → AbilitySpec[]`. Runs at **load time**, right
    where
-   [`LazyCardLoader.load_cards`](../backend/mtg_analyzer/services/lazy_card_loader.py)
+   [`LazyCardLoader.load_cards`](../../backend/mtg_analyzer/services/lazy_card_loader.py)
    returns (or lazily on first access). Pure, deterministic, memoizable.
 2. **Bind** — `AbilitySpec[] → GameEffect` objects attached to a
    `GameObject`. Runs **per game instance** at game start (each effect holds

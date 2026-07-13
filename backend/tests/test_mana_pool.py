@@ -1,6 +1,6 @@
 """Tests for the mana pool and its cost-payment solver.
 
-Reference: docs/02_MVP_USECASES_REVISED.md R2.6, mtg_analyzer/models/mana_pool.py.
+Reference: docs/requirements/02_MVP_USECASES_REVISED.md R2.6, mtg_analyzer/models/mana_pool.py.
 """
 
 import pytest

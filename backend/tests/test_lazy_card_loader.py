@@ -1,7 +1,7 @@
 """Tests for LazyCardLoader: DB-first lookup, Scryfall fallback for misses.
 
-Reference: docs/06_CARD_GRAPHICS_AND_LAZY_LOADING.md (PART 3),
-docs/IMPLEMENTATION_GUIDE.md (Week 2, Day 4-5, "LazyCardLoader").
+Reference: docs/concepts/06_CARD_GRAPHICS_AND_LAZY_LOADING.md (PART 3),
+docs/implementation-state/IMPLEMENTATION_GUIDE.md (Week 2, Day 4-5, "LazyCardLoader").
 """
 
 import httpx2 as httpx
@@ -316,7 +316,7 @@ class TestLoadCards:
 class TestStaleCachedRows:
     """A row cached before `mana_cost_string` existed self-heals on load.
 
-    Reference: backend/Done_Backend.md "Mana cost model", ToDo's former
+    Reference: docs/implementation-state/Done_Backend.md "Mana cost model", ToDo's former
     "Hybrid/Phyrexian nuance for stale cached rows" entry — schema
     versioning (services/schema_version.py) already wipes the *whole* card
     cache when `models/card.py` changes shape, so genuinely pre-existing

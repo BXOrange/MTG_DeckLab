@@ -1,6 +1,6 @@
 """Tests for GET /api/cards, GET /api/cards/search, POST /api/cards/resolve.
 
-Reference: backend/Done_Backend.md "HTTP API foundation".
+Reference: docs/implementation-state/Done_Backend.md "HTTP API foundation".
 """
 
 import httpx2 as httpx

@@ -1,6 +1,6 @@
 """Tests for GameSession: goldfish play, rewind, restart, multiplayer stub.
 
-Reference: docs/02_MVP_USECASES_REVISED.md UC3/UC4,
+Reference: docs/requirements/02_MVP_USECASES_REVISED.md UC3/UC4,
 mtg_analyzer/services/game_session.py.
 """
 

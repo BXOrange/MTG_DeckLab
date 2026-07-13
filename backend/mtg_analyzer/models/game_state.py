@@ -1,7 +1,7 @@
 """GameState: the whole shared game (RULE 100, RULE 400 shared zones).
 
-Reference: docs/02_MVP_USECASES_REVISED.md R1.3 (Game State), R4.1 (Game
-Loop), docs/07_GAME_LOOP_EFFECT_SYSTEM.md.
+Reference: docs/requirements/02_MVP_USECASES_REVISED.md R1.3 (Game State), R4.1 (Game
+Loop), docs/concepts/07_GAME_LOOP_EFFECT_SYSTEM.md.
 
 This is the single source of truth for a game in progress: the players,
 the shared battlefield/stack, whose turn it is, which phase/step we're

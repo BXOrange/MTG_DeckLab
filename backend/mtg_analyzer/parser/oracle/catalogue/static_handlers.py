@@ -1,6 +1,6 @@
 """Static continuous-ability handlers — anthems and keyword grants (docs/09).
 
-Reference: docs/09_ORACLE_EFFECT_PARSER.md (effect-family handlers), RULE 613
+Reference: docs/concepts/09_ORACLE_EFFECT_PARSER.md (effect-family handlers), RULE 613
 (the layer system these feed). A *permanent's* standing sentence like "Other
 creatures you control get +1/+1" or "Goblins you control have haste" is a
 **static** ability, not a one-shot effect — it reshapes other permanents

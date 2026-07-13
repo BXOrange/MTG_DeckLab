@@ -1,7 +1,7 @@
 """Tests for GET /api/cards/{card_id}/image.
 
-Reference: docs/06_CARD_GRAPHICS_AND_LAZY_LOADING.md,
-docs/08_CARD_CACHE_EXPORT_IMPORT.md.
+Reference: docs/concepts/06_CARD_GRAPHICS_AND_LAZY_LOADING.md,
+docs/Reference/08_CARD_CACHE_EXPORT_IMPORT.md.
 """
 
 import httpx2 as httpx

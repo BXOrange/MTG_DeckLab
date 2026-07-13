@@ -1,7 +1,7 @@
 """Deck model: a saved decklist, identified by a UUID rather than its name.
 
-Reference: docs/04_SERVER_CLIENT_ARCHITECTURE.md (PART 4, REST
-endpoints), backend/Done_Backend.md "Deck persistence".
+Reference: docs/concepts/04_SERVER_CLIENT_ARCHITECTURE.md (PART 4, REST
+endpoints), docs/implementation-state/Done_Backend.md "Deck persistence".
 """
 
 from __future__ import annotations

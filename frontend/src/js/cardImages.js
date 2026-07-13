@@ -3,8 +3,8 @@
 // calling Scryfall directly from the browser. The backend downloads and
 // caches both the card data and the image on first request, so repeat
 // lookups (by anyone, not just this browser tab) are served locally —
-// see docs/06_CARD_GRAPHICS_AND_LAZY_LOADING.md,
-// docs/08_CARD_CACHE_EXPORT_IMPORT.md. This module still keeps its own
+// see docs/concepts/06_CARD_GRAPHICS_AND_LAZY_LOADING.md,
+// docs/Reference/08_CARD_CACHE_EXPORT_IMPORT.md. This module still keeps its own
 // per-session Map so a page that renders the same deck repeatedly
 // doesn't even re-issue the /resolve call.
 

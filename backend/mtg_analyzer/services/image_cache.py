@@ -1,7 +1,7 @@
 """On-disk cache of card images, downloaded lazily from Scryfall on first use.
 
-Reference: docs/06_CARD_GRAPHICS_AND_LAZY_LOADING.md (PART 2/3),
-docs/08_CARD_CACHE_EXPORT_IMPORT.md.
+Reference: docs/concepts/06_CARD_GRAPHICS_AND_LAZY_LOADING.md (PART 2/3),
+docs/Reference/08_CARD_CACHE_EXPORT_IMPORT.md.
 
 The link between a card and its cached images is implicit rather than a
 stored path: both `CardDatabase` and this cache are keyed by the same

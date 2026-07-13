@@ -1,11 +1,12 @@
 # Backend — Done
 
-Completed backend work, split out of `ToDo_Backend.md` (which now holds
-only open items). Section headers mirror the ToDo file so a
+Completed backend work, split out of
+[`../../backend/ToDo_Backend.md`](../../backend/ToDo_Backend.md) (which now
+holds only open items). Section headers mirror the ToDo file so a
 `Done_Backend.md "<section>"` reference in the code lands here. Remaining
-work: [../docs/10_COMPLETION_ROADMAP.md](../docs/10_COMPLETION_ROADMAP.md).
+work: [10_COMPLETION_ROADMAP.md](10_COMPLETION_ROADMAP.md).
 The original Weeks 1–4 roadmap is archived at
-[../docs/history/IMPLEMENTATION_STATUS.md](../docs/history/IMPLEMENTATION_STATUS.md).
+[history/IMPLEMENTATION_STATUS.md](history/IMPLEMENTATION_STATUS.md).
 
 ## HTTP API foundation
 
@@ -121,7 +122,7 @@ The original Weeks 1–4 roadmap is archived at
       tapped/summoning-sick/damage/counter state, and the effect lists
       the engine reads) and `models/events.py` (`GameEvent`/`EventType`).
 - [x] `CardDatabase` + Scryfall integration + `LazyCardLoader`
-      (docs/06, docs/IMPLEMENTATION_GUIDE.md Week 2 Day 4-5):
+      (docs/06, docs/implementation-state/IMPLEMENTATION_GUIDE.md Week 2 Day 4-5):
       `mtg_analyzer/services/card_database.py` (SQLite, one row per
       card storing its `to_dict()` JSON so the schema stays in sync
       with `Card`), `scryfall_client.py` (`ScryfallIntegration`,
@@ -129,7 +130,7 @@ The original Weeks 1–4 roadmap is archived at
       `lazy_card_loader.py` (`LazyCardLoader`: DB first, Scryfall only
       for misses, persists what it fetches). Card images are a separate
       on-disk cache (`services/image_cache.py`) keyed by Scryfall id —
-      see docs/08_CARD_CACHE_EXPORT_IMPORT.md.
+      see docs/Reference/08_CARD_CACHE_EXPORT_IMPORT.md.
 
 ## Mana cost model
 
@@ -347,3 +348,21 @@ the Phase-1 models. Tests: `test_game_engine.py`.
       upstream source to regenerate from, so **don't delete it casually**;
       still gitignored as local dev state. `Deck.analysis_id` is a
       reserved (currently unused) hook for the LLM analysis feature (ToDo).
+- [x] Cached `color_identity`/`commanders` on a saved `Deck` (RULE 903.4
+      for the color-identity definition) — computing them needs resolved
+      `Card` data (a Scryfall/cache lookup per card), too costly to redo on
+      every saved-decks list render, so they're derived once and persisted
+      rather than recomputed on every read like the rest of the model.
+      `services/deck_validation.py`'s `compute_deck_identity(parsed,
+      resolved)` unions the commanders' own color identity when every
+      commander resolved, else falls back to the union across every
+      resolved card in the deck (no commander section, or an unresolved
+      one). `api/saved_decks.py`'s `_ensure_identity` fills both in lazily
+      on `GET /api/decks` / `GET /api/decks/{id}` the first time they're
+      `None` and persists the result; `POST /api/decks/save` resets both to
+      `None` only when the decklist text sections actually changed (kept
+      otherwise, e.g. a sleeve-only re-save). An empty list is a real,
+      computed answer (colorless deck / no commander), distinct from "not
+      computed yet". Feeds the frontend's client-side deck-analysis
+      heuristics (`Done_Frontend.md` "Deck analysis (UC2)") rather than a
+      new endpoint. Tests: `test_api_saved_decks.py`, `test_deck_model.py`.

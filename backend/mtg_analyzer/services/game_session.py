@@ -1,7 +1,7 @@
 """Server-held game sessions: goldfish (with rewind/restart) + multiplayer stub.
 
-Reference: docs/02_MVP_USECASES_REVISED.md UC3 (Goldfisch) / UC4
-(Multiplayer), backend/Done_Backend.md "Game Engine".
+Reference: docs/requirements/02_MVP_USECASES_REVISED.md UC3 (Goldfisch) / UC4
+(Multiplayer), docs/implementation-state/Done_Backend.md "Game Engine".
 
 A `GameSession` wraps a `GameEngine` and adds what a *test-your-deck*
 session needs on top of the pure rules engine:

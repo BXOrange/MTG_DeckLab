@@ -1,6 +1,6 @@
 """The showcase Commander deck parses and is structurally legal.
 
-Reference: docs/09_ORACLE_EFFECT_PARSER.md — this committed decklist is the
+Reference: docs/concepts/09_ORACLE_EFFECT_PARSER.md — this committed decklist is the
 coverage fixture for the oracle-text -> effect parser (keywords, one-shot
 effects, and "enters tapped" replacement lands).
 """

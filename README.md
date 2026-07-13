@@ -5,13 +5,19 @@ A Magic: The Gathering deck analyzer and rules-driven game engine.
 ## Project Structure
 
 ```
-backend/    Python backend (data layer, rules engine, effects, services)
+backend/    Python backend (FastAPI app, rules engine, effects, services)
 frontend/   Browser client (no build step: static HTML/CSS/JS)
 setup/      Cross-platform install/start scripts (install.py, start.py)
-docs/       Architecture, requirements, and implementation specs
+docs/       Architecture, requirements, and implementation specs (developer-facing)
+user-docs/  How to use the app — deck import, Goldfisch, Replay/Puzzle, settings (EN + DE)
 ```
 
-See [docs/03_ARCHITECTURE_AND_BUILDPLAN.md](docs/03_ARCHITECTURE_AND_BUILDPLAN.md) for the overall architecture and [docs/IMPLEMENTATION_GUIDE.md](docs/IMPLEMENTATION_GUIDE.md) for the phased build plan.
+See [docs/README.md](docs/README.md) for the full documentation map,
+[docs/concepts/03_ARCHITECTURE_AND_BUILDPLAN.md](docs/concepts/03_ARCHITECTURE_AND_BUILDPLAN.md)
+for the overall architecture, and
+[docs/implementation-state/10_COMPLETION_ROADMAP.md](docs/implementation-state/10_COMPLETION_ROADMAP.md)
+for what's built vs. still open. Just want to *use* the app? See
+[user-docs/](user-docs/) instead.
 
 ## Install & Run
 
@@ -49,12 +55,13 @@ Useful variants:
 into it — this is the whole backend, encapsulated in its own virtual
 environment (never installed into the system Python). `start.py` does
 the same venv setup on every run (cheap/idempotent if already up to
-date) and then starts the frontend static server at
-http://localhost:8765 (Ctrl+C to stop); add `--backend-tests` to also
-run the backend's pytest suite, `--port` to change the port,
-`--no-browser` to skip auto-opening a tab. The backend has no HTTP
-server yet (see [backend/ToDo_Backend.md](backend/ToDo_Backend.md)), so there's nothing
-to start there beyond its venv and tests.
+date), starts the backend FastAPI app (`mtg_analyzer.api.app:app`, via
+uvicorn) plus the frontend static server at `http://localhost:8765`
+(Ctrl+C to stop both); add `--backend-tests` to also run the backend's
+pytest suite first, `--port` to change the frontend port,
+`--backend-only`/`--frontend-only` to start just one side, `--no-browser`
+to skip auto-opening a tab. See [backend/ToDo_Backend.md](backend/ToDo_Backend.md)
+for what's still open.
 
 To work on the backend directly:
 

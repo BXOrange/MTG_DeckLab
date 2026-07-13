@@ -1,6 +1,6 @@
 """`AbilitySpec` — the intermediate representation between parse and bind.
 
-Reference: docs/09_ORACLE_EFFECT_PARSER.md ("THE INTERMEDIATE
+Reference: docs/concepts/09_ORACLE_EFFECT_PARSER.md ("THE INTERMEDIATE
 REPRESENTATION").
 
 One parsed ability = one `AbilitySpec`: pure, JSON-serializable data that

@@ -82,7 +82,7 @@ I'm implementing an MTG game engine in Python.
 CONTEXT:
 - Architecture: Phases as sequences, Effects as classes, Service Registry pattern
 - I'm on Phase 1: Data Layer
-- Reference: /docs/07_GAME_LOOP_EFFECT_SYSTEM.md (PART 2: Effect Type Hierarchy)
+- Reference: /docs/concepts/07_GAME_LOOP_EFFECT_SYSTEM.md (PART 2: Effect Type Hierarchy)
 
 TASK:
 Create backend/mtg_analyzer/effects.py with:
@@ -124,7 +124,7 @@ OUTPUT:
 CONTEXT:
 - Phase: 2 (Rules Engine)
 - Current task: Implement Replacement Effect Stacking (RULE 616)
-- Reference: /docs/07_GAME_LOOP_EFFECT_SYSTEM.md (PART 3)
+- Reference: /docs/concepts/07_GAME_LOOP_EFFECT_SYSTEM.md (PART 3)
 
 IMPLEMENTATION TASK:
 In backend/mtg_analyzer/effects.py, implement ReplacementEffectStack:
@@ -376,7 +376,7 @@ claude-code --task "
 PHASE: 2 (Rules Engine)
 TASK: Create backend/mtg_analyzer/effects/effect_base.py
 
-Reference: /docs/07_GAME_LOOP_EFFECT_SYSTEM.md (PART 2)
+Reference: /docs/concepts/07_GAME_LOOP_EFFECT_SYSTEM.md (PART 2)
 
 Implement effect hierarchy:
 
@@ -421,7 +421,7 @@ claude-code --task "
 PHASE: 2 (Rules Engine)
 TASK: Implement ReplacementEffectStack
 
-Reference: /docs/07_GAME_LOOP_EFFECT_SYSTEM.md (PART 3 & 7)
+Reference: /docs/concepts/07_GAME_LOOP_EFFECT_SYSTEM.md (PART 3 & 7)
 
 Create backend/mtg_analyzer/effects/replacement_stack.py:
 
@@ -464,7 +464,7 @@ claude-code --task "
 PHASE: 2 (Rules Engine)
 TASK: Create sequence-based phase engine
 
-Reference: /docs/07_GAME_LOOP_EFFECT_SYSTEM.md (PART 1)
+Reference: /docs/concepts/07_GAME_LOOP_EFFECT_SYSTEM.md (PART 1)
 
 Create backend/mtg_analyzer/engine/phases.py:
 
@@ -544,7 +544,7 @@ This ensures code is testable from the start.
 
 ```bash
 # In every prompt:
-"Reference: /docs/07_GAME_LOOP_EFFECT_SYSTEM.md (PART X)"
+"Reference: /docs/concepts/07_GAME_LOOP_EFFECT_SYSTEM.md (PART X)"
 
 This keeps Claude aligned with your spec.
 ```
@@ -579,7 +579,7 @@ claude-code --project . --spec docs/ARCHITECTURE.md
 PHASE: 1 (Data Layer)
 TASK: Create Card model
 
-Reference: /docs/06_CARD_GRAPHICS_AND_LAZY_LOADING.md (PART 1: Card Data Model)
+Reference: /docs/concepts/06_CARD_GRAPHICS_AND_LAZY_LOADING.md (PART 1: Card Data Model)
 
 Create backend/mtg_analyzer/models/card.py with Card class:
 
@@ -642,7 +642,7 @@ Great! Now integrate Card into the data layer.
 
 TASK: Create Player model that uses Card
 
-Reference: /docs/07_GAME_LOOP_EFFECT_SYSTEM.md (PART 2: GameState Model)
+Reference: /docs/concepts/07_GAME_LOOP_EFFECT_SYSTEM.md (PART 2: GameState Model)
 
 Create backend/mtg_analyzer/models/player.py:
 
@@ -701,7 +701,7 @@ For each Phase:
 
 ```
 1. READ SPEC (reference the docs)
-   └─ "Reference: /docs/07_GAME_LOOP_EFFECT_SYSTEM.md"
+   └─ "Reference: /docs/concepts/07_GAME_LOOP_EFFECT_SYSTEM.md"
 
 2. WRITE PROMPT (with exact requirements)
    └─ "Implement X with properties A, B, C..."
@@ -753,14 +753,14 @@ Expected: Mill 2 cards
 Actual: Mill 1 card
 
 The issue is likely in how replacements are ordered.
-Reference: /docs/07_GAME_LOOP_EFFECT_SYSTEM.md PART 3"
+Reference: /docs/concepts/07_GAME_LOOP_EFFECT_SYSTEM.md PART 3"
 ```
 
 ## If Code Doesn't Match Spec
 
 ```
 "I notice the implementation doesn't handle [specific case].
-Reference in spec: /docs/07_GAME_LOOP_EFFECT_SYSTEM.md PART X says:
+Reference in spec: /docs/concepts/07_GAME_LOOP_EFFECT_SYSTEM.md PART X says:
 '[exact quote from spec]'
 
 Please update implementation to handle this case."

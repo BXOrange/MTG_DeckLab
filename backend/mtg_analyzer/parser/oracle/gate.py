@@ -1,6 +1,6 @@
 """Step 4: the coverage gate + the front-end entry point (docs/09).
 
-Reference: docs/09_ORACLE_EFFECT_PARSER.md ("THE COVERAGE GATE: FAIL-CLOSED,
+Reference: docs/concepts/09_ORACLE_EFFECT_PARSER.md ("THE COVERAGE GATE: FAIL-CLOSED,
 ALL-OR-NOTHING" and "THE FRONT-END PIPELINE"). This is where the pipeline
 comes together: `parse_oracle(card)` runs normalise → segment → match over a
 card's oracle text and returns the parsed `AbilitySpec`s **plus a coverage

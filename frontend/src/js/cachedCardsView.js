@@ -1,5 +1,5 @@
 // "Karten-Cache" tab: browse every card the backend has resolved so far
-// (mtg_analyzer CardDatabase, see docs/08_CARD_CACHE_EXPORT_IMPORT.md).
+// (mtg_analyzer CardDatabase, see docs/Reference/08_CARD_CACHE_EXPORT_IMPORT.md).
 // Lazy by design, matching the backend's own philosophy: nothing is
 // fetched until this tab is actually opened, and re-opening it refreshes
 // the list (new cards accumulate as decks get imported elsewhere).

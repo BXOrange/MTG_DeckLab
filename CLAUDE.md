@@ -225,20 +225,35 @@ token-copy scaffolding is in for the rest).
 Hand-authoring a card's abilities directly (rather than waiting on the
 oracle-effect front-end, or for a replacement-clause/conditional-trigger the
 front-end can't express yet) goes in `game/ability_catalogue.py` — see
-[docs/11_CARD_CATALOGUE_AUTHORING_GUIDE.md](docs/11_CARD_CATALOGUE_AUTHORING_GUIDE.md)
+[docs/Reference/11_CARD_CATALOGUE_AUTHORING_GUIDE.md](docs/Reference/11_CARD_CATALOGUE_AUTHORING_GUIDE.md)
 for the field-by-field how-to and the full `EffectSpec`/layer whitelist.
 
-Living backlogs: `backend/ToDo_Backend.md` (open) and `backend/Done_Backend.md`
-(shipped). The plan to finish is `docs/10_COMPLETION_ROADMAP.md` (dependency-
-ordered milestones). Design docs: `docs/01`–`10` + `docs/IMPLEMENTATION_GUIDE.md`
-(the original Weeks 1–4 status roadmap is archived at
-`docs/history/IMPLEMENTATION_STATUS.md`).
+Living backlogs: `backend/ToDo_Backend.md` (open, stays next to the backend
+code it tracks) and `docs/implementation-state/Done_Backend.md` (shipped —
+append-only history rather than something edited in lockstep with
+in-progress code, so it lives under `docs/`; same split for the frontend's
+`frontend/ToDo_Frontend.md` / `docs/implementation-state/Done_Frontend.md`).
+The plan to finish is `docs/implementation-state/10_COMPLETION_ROADMAP.md`
+(dependency-ordered milestones, reconciling the backlog files above into a
+coverage table). `docs/` is organized by *kind of question*: `requirements/`
+(what should it do), `concepts/` (how is it designed — architecture, effect
+system, oracle parser, plus [PlantUML architecture diagrams](docs/concepts/12_ARCHITECTURE_DIAGRAMS.md)),
+`Reference/` (how do I do X, or look something up — card-cache format,
+card-catalogue authoring, plus the Comprehensive Rules text + `rules_wiki/`),
+`implementation-state/` (what's built now — the roadmap above, both `Done_*`
+files, the original phased `IMPLEMENTATION_GUIDE.md`, and the archived
+Weeks 1–4 status log at `implementation-state/history/IMPLEMENTATION_STATUS.md`).
+See
+[docs/README.md](docs/README.md) for the full map. End-user documentation
+(how to *use* the app — deck import, Goldfisch, Replay/Puzzle, settings —
+not how it's built) lives separately in [`user-docs/`](user-docs/), in
+English and German.
 
 ## Conventions & gotchas
 
 - **RULE references**: comment rules-relevant code with the CR number
   (`RULE 613.7`). Match the surrounding comment density and style. To read the
-  actual rule text, use the wiki in `Reference/rules_wiki/` — it maps every rule
+  actual rule text, use the wiki in `docs/Reference/rules_wiki/` — it maps every rule
   number and glossary term to its line in the CR source (too large to load whole);
   regenerate with `build_wiki.py` after a rules update.
 - **Model → game import boundary**: `models/` must not import `game/` at module
@@ -268,10 +283,12 @@ ordered milestones). Design docs: `docs/01`–`10` + `docs/IMPLEMENTATION_GUIDE.
 | Static abilities / P/T / anthems | `game/continuous.py`, `models/game_object.py` |
 | Activated abilities / costs | `game/costs.py`, `game/game_engine.py` (`activate_ability`) |
 | Card abilities / fetch lands / enters-tapped | `game/ability_catalogue.py`, `effect_binder.bind_from_catalogue` |
-| Hand-authoring a specific card's effects | [docs/11_CARD_CATALOGUE_AUTHORING_GUIDE.md](docs/11_CARD_CATALOGUE_AUTHORING_GUIDE.md) |
+| Hand-authoring a specific card's effects | [docs/Reference/11_CARD_CATALOGUE_AUTHORING_GUIDE.md](docs/Reference/11_CARD_CATALOGUE_AUTHORING_GUIDE.md) |
 | Effects / triggers | `game/effects.py`, `game/effect_binder.py` |
 | Goldfish UI | `frontend/src/js/goldfishView.js` |
 | Replay/Puzzle mode (build+save/load a board) | `backend/mtg_analyzer/services/replay.py`, `game_session.py` (`edit_*` actions), `frontend/src/js/replayView.js` |
 | Player-uploaded token art / card-back sleeves | `backend/mtg_analyzer/services/player_assets.py`, `api/player_assets.py`, `frontend/src/js/connectionSettingsView.js`, `gameBoardView.js` (`resolveImageUrl`/`setAssets`) |
 | Engine coverage doc (user-facing) | `frontend/src/js/implementationStatusView.js` |
-| Looking up a `RULE <n>` in the CR text | `Reference/rules_wiki/` (rule#/term → source line; see its `README.md`) |
+| Looking up a `RULE <n>` in the CR text | `docs/Reference/rules_wiki/` (rule#/term → source line; see its `README.md`) |
+| Full docs/ map (requirements/concepts/Reference/implementation-state) | [docs/README.md](docs/README.md) |
+| How to *use* the app (not build it) | [user-docs/](user-docs/) (English + German) |

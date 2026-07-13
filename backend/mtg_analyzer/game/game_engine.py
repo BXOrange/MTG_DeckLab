@@ -1,6 +1,6 @@
 """The game engine: turn/phase/step loop, actions, goldfish (docs/02 R4.*).
 
-Reference: docs/02_MVP_USECASES_REVISED.md R4.1-R4.3 (Game Loop, Priority,
+Reference: docs/requirements/02_MVP_USECASES_REVISED.md R4.1-R4.3 (Game Loop, Priority,
 Action Validation), UC3 (Goldfisch), docs/07 PART 1/8.
 
 `RulesEngine` is the toolbox of rules primitives; `GameEngine` is the

@@ -1,7 +1,7 @@
 """Tests for WebSocket /ws/game/{game_id}: connection plumbing only.
 
-Reference: backend/Done_Backend.md "HTTP API foundation",
-docs/04_SERVER_CLIENT_ARCHITECTURE.md PART 4 "WebSocket Messages".
+Reference: docs/implementation-state/Done_Backend.md "HTTP API foundation",
+docs/concepts/04_SERVER_CLIENT_ARCHITECTURE.md PART 4 "WebSocket Messages".
 """
 
 from fastapi.testclient import TestClient

@@ -2,8 +2,8 @@
 // GET/POST /api/cards/*). Card lookups (mana cost, oracle text, images) go
 // through the backend's CardDatabase/ImageCache now (see cardImages.js)
 // instead of calling Scryfall directly from the browser — see
-// docs/06_CARD_GRAPHICS_AND_LAZY_LOADING.md,
-// docs/08_CARD_CACHE_EXPORT_IMPORT.md.
+// docs/concepts/06_CARD_GRAPHICS_AND_LAZY_LOADING.md,
+// docs/Reference/08_CARD_CACHE_EXPORT_IMPORT.md.
 //
 // The backend address is user-configurable at runtime (see settings.js,
 // connectionSettingsView.js) rather than a fixed constant, so every call

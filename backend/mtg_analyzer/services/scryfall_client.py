@@ -1,7 +1,7 @@
 """Scryfall API client: fetch card data and convert it into `Card` objects.
 
-Reference: docs/06_CARD_GRAPHICS_AND_LAZY_LOADING.md (PART 3),
-docs/IMPLEMENTATION_GUIDE.md (Week 2, Day 4-5, "ScryfallIntegration").
+Reference: docs/concepts/06_CARD_GRAPHICS_AND_LAZY_LOADING.md (PART 3),
+docs/implementation-state/IMPLEMENTATION_GUIDE.md (Week 2, Day 4-5, "ScryfallIntegration").
 """
 
 from __future__ import annotations
@@ -206,7 +206,7 @@ def _parse_mana_cost(mana_cost: str) -> dict[str, int]:
     as a single "W" pip, indistinguishable from a plain "{W}". That
     loses real information (a hybrid symbol can be paid in either
     color; a Phyrexian one can be paid with 2 life instead) — see
-    backend/Done_Backend.md "Mana cost model" for the backlog on representing
+    docs/implementation-state/Done_Backend.md "Mana cost model" for the backlog on representing
     these properly.
     """
     counts = {color: 0 for color in sorted(VALID_COLORS) + ["C"]}

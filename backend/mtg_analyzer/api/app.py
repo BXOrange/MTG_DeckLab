@@ -1,6 +1,6 @@
 """FastAPI application factory and instance for the MTG Deck Analyzer backend.
 
-Reference: docs/04_SERVER_CLIENT_ARCHITECTURE.md (PART 7, Phase 1).
+Reference: docs/concepts/04_SERVER_CLIENT_ARCHITECTURE.md (PART 7, Phase 1).
 """
 
 from __future__ import annotations

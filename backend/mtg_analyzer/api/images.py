@@ -5,8 +5,8 @@ GET /api/cards/search) since that's where its Scryfall image URLs come
 from; this endpoint doesn't itself talk to Scryfall's card-data API,
 only its image CDN.
 
-Reference: docs/06_CARD_GRAPHICS_AND_LAZY_LOADING.md,
-docs/08_CARD_CACHE_EXPORT_IMPORT.md.
+Reference: docs/concepts/06_CARD_GRAPHICS_AND_LAZY_LOADING.md,
+docs/Reference/08_CARD_CACHE_EXPORT_IMPORT.md.
 """
 
 from __future__ import annotations

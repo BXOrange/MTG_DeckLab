@@ -1,6 +1,6 @@
 """Tests for the Deck model.
 
-Reference: backend/Done_Backend.md "Deck persistence".
+Reference: docs/implementation-state/Done_Backend.md "Deck persistence".
 """
 
 import uuid

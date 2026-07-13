@@ -1,6 +1,6 @@
 """Game events — the currency of the effect system (RULE 603/614).
 
-Reference: docs/07_GAME_LOOP_EFFECT_SYSTEM.md (PART 2/3 — events drive
+Reference: docs/concepts/07_GAME_LOOP_EFFECT_SYSTEM.md (PART 2/3 — events drive
 triggered abilities and are what replacement effects rewrite).
 
 An event is a *would-happen* description carried through the engine:

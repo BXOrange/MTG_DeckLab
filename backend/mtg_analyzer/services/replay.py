@@ -1,6 +1,6 @@
 """Serialize a game to a portable "replay" descriptor and back (UC: Replay/Puzzle).
 
-Reference: docs/02_MVP_USECASES_REVISED.md UC3 (Goldfisch) — Replay mode is
+Reference: docs/requirements/02_MVP_USECASES_REVISED.md UC3 (Goldfisch) — Replay mode is
 its sibling: instead of playing a legal deck from turn 1, the user *builds an
 arbitrary board* (or loads one saved from a goldfish game) and plays from there.
 

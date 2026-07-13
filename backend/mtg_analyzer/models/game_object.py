@@ -1,7 +1,7 @@
 """Zones and in-game card instances (RULE 400 zones, RULE 110 permanents).
 
-Reference: docs/02_MVP_USECASES_REVISED.md R1.3 (Game State — Zones,
-Stack, permanents), docs/07_GAME_LOOP_EFFECT_SYSTEM.md.
+Reference: docs/requirements/02_MVP_USECASES_REVISED.md R1.3 (Game State — Zones,
+Stack, permanents), docs/concepts/07_GAME_LOOP_EFFECT_SYSTEM.md.
 
 A `Card` (models/card.py) is the immutable *definition* of a card — its
 printed characteristics. A `GameObject` is one *instance* of that card

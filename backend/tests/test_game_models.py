@@ -1,6 +1,6 @@
 """Tests for Player / GameObject / GameState models.
 
-Reference: docs/02_MVP_USECASES_REVISED.md R1.3, mtg_analyzer/models/.
+Reference: docs/requirements/02_MVP_USECASES_REVISED.md R1.3, mtg_analyzer/models/.
 """
 
 from mtg_analyzer.models.card import Card

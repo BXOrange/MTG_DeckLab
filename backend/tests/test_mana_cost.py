@@ -1,6 +1,6 @@
 """Tests for the structured mana cost model.
 
-Reference: backend/Done_Backend.md "Mana cost model",
+Reference: docs/implementation-state/Done_Backend.md "Mana cost model",
 mtg_analyzer/models/mana_cost.py.
 """
 

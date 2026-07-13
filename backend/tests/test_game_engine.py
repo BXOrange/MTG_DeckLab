@@ -1,7 +1,7 @@
 """Tests for the rules engine + game engine.
 
-Reference: docs/02_MVP_USECASES_REVISED.md R2.*/R4.*,
-docs/07_GAME_LOOP_EFFECT_SYSTEM.md, mtg_analyzer/game/.
+Reference: docs/requirements/02_MVP_USECASES_REVISED.md R2.*/R4.*,
+docs/concepts/07_GAME_LOOP_EFFECT_SYSTEM.md, mtg_analyzer/game/.
 """
 
 import pytest

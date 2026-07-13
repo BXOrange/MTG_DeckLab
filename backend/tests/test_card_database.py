@@ -1,6 +1,6 @@
 """Tests for the SQLite-backed CardDatabase.
 
-Reference: docs/06_CARD_GRAPHICS_AND_LAZY_LOADING.md (PART 3).
+Reference: docs/concepts/06_CARD_GRAPHICS_AND_LAZY_LOADING.md (PART 3).
 """
 
 from mtg_analyzer.models.card import Card

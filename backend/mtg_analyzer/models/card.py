@@ -1,6 +1,6 @@
 """Card model representing a single Magic: The Gathering card.
 
-Reference: /docs/06_CARD_GRAPHICS_AND_LAZY_LOADING.md (PART 1)
+Reference: /docs/concepts/06_CARD_GRAPHICS_AND_LAZY_LOADING.md (PART 1)
 """
 
 from __future__ import annotations
@@ -44,7 +44,7 @@ class Card:
         keywords: Machine-readable keyword abilities parsed out of the
             oracle text (e.g. ["Flying", "Trample"]), as reported by
             Scryfall. This is a lookup table for the Phase 2 effect
-            system (docs/07_GAME_LOOP_EFFECT_SYSTEM.md); it does not
+            system (docs/concepts/07_GAME_LOOP_EFFECT_SYSTEM.md); it does not
             itself execute anything.
         image_uri_small: URL of the small Scryfall image.
         image_uri_normal: URL of the normal Scryfall image.
@@ -390,7 +390,7 @@ class Card:
         Scryfall gives every non-land an explicit cost string (even a
         genuinely free one is `"{0}"`, not blank) — so a non-land card with
         a blank `mana_cost_string` means this row predates that field
-        (`backend/Done_Backend.md` "Mana cost model"), not that the card
+        (`docs/implementation-state/Done_Backend.md` "Mana cost model"), not that the card
         is actually free. `ManaCost.from_card` can still *price* such a row
         from the legacy pip tally, just without hybrid/Phyrexian fidelity;
         `LazyCardLoader` uses this flag to refetch it instead of serving

@@ -1,4 +1,4 @@
-"""Oracle-text → effect *front-end* (docs/09_ORACLE_EFFECT_PARSER.md).
+"""Oracle-text → effect *front-end* (docs/concepts/09_ORACLE_EFFECT_PARSER.md).
 
 This subpackage is the parser front-end: it turns a card's English rules
 text into the `AbilitySpec` intermediate representation (pure JSON-shaped

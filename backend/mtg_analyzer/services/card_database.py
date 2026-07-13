@@ -1,7 +1,7 @@
 """SQLite-backed local cache of Card data, keyed by Scryfall id and name.
 
-Reference: docs/06_CARD_GRAPHICS_AND_LAZY_LOADING.md (PART 3),
-docs/IMPLEMENTATION_GUIDE.md (Week 2, Day 4-5, "CardDatabase").
+Reference: docs/concepts/06_CARD_GRAPHICS_AND_LAZY_LOADING.md (PART 3),
+docs/implementation-state/IMPLEMENTATION_GUIDE.md (Week 2, Day 4-5, "CardDatabase").
 
 Rather than one hand-maintained SQLite column per `Card` attribute, each
 row stores the card's `to_dict()` output as a JSON blob alongside
@@ -36,7 +36,7 @@ _FACE_SEPARATOR_RE = re.compile(r"\s*/+\s*")
 #: disposable: deleting it just means the next lookup re-fetches from
 #: Scryfall. Gitignored via the repo-root .gitignore ("backend/cache/") —
 #: never commit it. Export/import instructions:
-#: docs/08_CARD_CACHE_EXPORT_IMPORT.md.
+#: docs/Reference/08_CARD_CACHE_EXPORT_IMPORT.md.
 CACHE_ROOT = Path(__file__).resolve().parent.parent.parent / "cache"
 
 #: Default on-disk location for the lazily-populated card database.
@@ -96,7 +96,7 @@ class CardDatabase:
         conn: sqlite3.Connection, old: Optional[str], new: str
     ) -> None:
         # The card cache is disposable — always re-fetchable from Scryfall
-        # (docs/08_CARD_CACHE_EXPORT_IMPORT.md) — so on any format drift,
+        # (docs/Reference/08_CARD_CACHE_EXPORT_IMPORT.md) — so on any format drift,
         # drop cached rows and let them re-populate lazily in the current
         # format. This is what heals e.g. stale mana-cost data.
         conn.execute("DELETE FROM cards")

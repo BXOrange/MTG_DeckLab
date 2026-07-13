@@ -1,8 +1,8 @@
 """The keyword-ability catalogue — RULE 702, the privileged fast-path handler.
 
-Reference: docs/09_ORACLE_EFFECT_PARSER.md ("Keyword abilities: the
+Reference: docs/concepts/09_ORACLE_EFFECT_PARSER.md ("Keyword abilities: the
 privileged fast-path handler class"); the vocabulary itself is RULE 702
-(``Reference/rules_wiki/`` maps ``702.<n>`` → its line in the CR source).
+(``docs/Reference/rules_wiki/`` maps ``702.<n>`` → its line in the CR source).
 
 Keyword abilities are a **closed, named vocabulary** — the cheapest,
 highest-confidence, most frequent clauses in the game — so we treat them as
