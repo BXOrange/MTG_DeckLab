@@ -73,6 +73,16 @@ class GameObject:
         #: (RULE 712.8). Combat/continuous read `card`, so a transform is just
         #: this swap — everything downstream sees the active face.
         self.transformed: bool = False
+        #: RULE 715.2b: while this object's Adventure instant/sorcery half is
+        #: on the stack, the creature's pre-cast face snapshot (`snapshot_face`)
+        #: is stashed here so resolution can restore it before exiling —
+        #: distinct from a rejected-cast rollback, which restores immediately
+        #: and never reaches this field. None otherwise.
+        self.adventure_snapshot: Optional[dict[str, Any]] = None
+        #: RULE 715.3d: set when this object's Adventure half resolves and it
+        #: is exiled instead of going to the graveyard — the card may be cast
+        #: as the creature from exile any time thereafter. Cleared once cast.
+        self.adventure_castable: bool = False
         self.owner_id = owner_id
         #: Who currently controls the object; defaults to its owner
         #: (RULE 108.4). Control can change but ownership can't.
@@ -416,6 +426,8 @@ class GameObject:
             # A token badge for the board (RULE 111); it also disappears from
             # non-battlefield zones by RULE 704.5d, so it only shows in play.
             "is_token": self.is_token,
+            # RULE 715.3d: an exiled Adventure creature the player may cast.
+            "adventure_castable": self.adventure_castable,
             # Types added by a layer-4 effect (e.g. "creature"), for the board.
             "added_types": sorted(self._added_types),
             "attacking": self.attacking,

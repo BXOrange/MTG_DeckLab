@@ -107,6 +107,15 @@ _TWO_IMAGE_LAYOUTS = frozenset(
     {"transform", "modal_dfc", "double_faced_token", "reversible_card"}
 )
 
+#: Layouts whose `card_faces[1]` is a real, independently nameable/castable
+#: second face worth capturing into `back_*`, even when (unlike
+#: `_TWO_IMAGE_LAYOUTS`) it shares the front's single printed image — a
+#: split card's other half (RULE 709) or an Adventure's instant/sorcery
+#: half (RULE 715). `back_image_uri_*` stays empty for these since their
+#: face entries carry no `image_uris` of their own, so `Card.has_back_face`
+#: is unaffected.
+_SECOND_FACE_LAYOUTS = _TWO_IMAGE_LAYOUTS | {"split", "adventure"}
+
 
 def card_from_scryfall_data(data: dict[str, Any]) -> Card:
     """Convert a Scryfall card object into a `Card` domain model.
@@ -141,7 +150,7 @@ def card_from_scryfall_data(data: dict[str, Any]) -> Card:
     toughness = _parse_int(front.get("toughness"))
     is_creature = "Creature" in type_line
 
-    back = faces[1] if layout in _TWO_IMAGE_LAYOUTS and len(faces) >= 2 else {}
+    back = faces[1] if layout in _SECOND_FACE_LAYOUTS and len(faces) >= 2 else {}
     back_image_uris = back.get("image_uris") or {}
     back_type_line = back.get("type_line", "")
     back_is_creature = "Creature" in back_type_line
@@ -173,6 +182,9 @@ def card_from_scryfall_data(data: dict[str, Any]) -> Card:
         has_partner=_has_partner(front.get("oracle_text", "")),
         partner_with=_partner_with(front.get("oracle_text", "")),
         layout=layout,
+        # RULE 709.4: Fuse is a top-level keyword on a split card, not
+        # per-face oracle text.
+        has_fuse="Fuse" in (data.get("keywords") or []),
         back_name=back.get("name", ""),
         back_type_line=back_type_line,
         back_oracle_text=back.get("oracle_text", ""),

@@ -183,7 +183,16 @@ from hand** (RULE 712.10:
 onto its back face — same rebind treatment as `become_copy` — so
 `cast_spell`/`play_land` can commit to either face and `legal_actions` can
 preview/offer both independently, with rollback on a rejected back-face
-cast); **DFC transform is a real, live-engine mechanic now**
+cast); **Adventure (RULE 715) and Split/Fuse (RULE 709) cards are castable
+too**, reusing that same back-face machinery — a split card's other half or
+an Adventure's instant/sorcery half is just another `Card.back_face()`
+(`scryfall_client` now captures it for those layouts too, not just true
+DFCs); casting the Adventure half exiles the card instead of the graveyard
+and flags it `adventure_castable` (RULE 715.3d) so it can be cast again as
+the creature later; Fuse (RULE 709.4) casts both halves as one spell via
+`Card.fuse_face()`, a synthetic merged `Card` (concatenated cost/oracle
+text, self-name-folded per half) rather than new dual-binding machinery;
+**DFC transform is a real, live-engine mechanic now**
 (`RulesEngine.transform_permanent`, RULE 712.8 — same "clear + rebind
 catalogue-derived abilities" treatment as `switch_to_face`, so a transformed
 permanent's keywords/triggered/activated abilities are the *new* face's, not
@@ -246,10 +255,10 @@ if instant/sorcery, transform" — Delver of Secrets — a genuinely new
 werewolf template ("if no spells were cast last turn, transform ~",
 superseded by RULE 731's day/night); a Class level block combining both a
 static "cumulative" grant and a separate one-shot "when this Class becomes
-level N" trigger together (each works individually); and the remaining
-deeper card-type structures (Adventure/Split casting, battles/dungeons —
-MDFC back-face casting, Saga chapter abilities, and Class/Leveler level-up
-are all done, see above).
+level N" trigger together (each works individually); and battles/dungeons
+(the remaining deeper card-type structure — MDFC back-face casting,
+Adventure/Split/Fuse casting, Saga chapter abilities, and Class/Leveler
+level-up are all done, see above).
 
 Hand-authoring a card's abilities directly (rather than waiting on the
 oracle-effect front-end, or for a replacement-clause/conditional-trigger the

@@ -482,10 +482,10 @@ class RulesEngine:
         life_spent = player.mana_pool.pay(cost, life_available=player.life)
         self.lose_life(player, life_spent, cause="cost")
 
-        if obj in player.hand:
-            player.remove_from_zone(obj, Zone.HAND)
-        elif obj in player.command:
-            player.remove_from_zone(obj, Zone.COMMAND)
+        # Zone-agnostic (not just hand/command) so an Adventure creature can
+        # be cast from exile (RULE 715.3d) with no dedicated branch here.
+        self._remove_from_current_zone(player, obj)
+        obj.adventure_castable = False
         obj.zone = Zone.STACK
         item = StackItem(
             kind="spell",
@@ -665,6 +665,15 @@ class RulesEngine:
                         object=obj.name,
                     )
                 )
+            elif obj.adventure_snapshot is not None:
+                # RULE 715.3d: the Adventure instant/sorcery resolved — exile
+                # the card (as the creature, not the spell half) instead of
+                # the graveyard; it may be cast as the creature from there.
+                snapshot = obj.adventure_snapshot
+                obj.adventure_snapshot = None
+                self.restore_face(obj, snapshot)
+                self.exile(obj)
+                obj.adventure_castable = True
             else:
                 self._move_to_graveyard(obj)
             self.state.fire_event(

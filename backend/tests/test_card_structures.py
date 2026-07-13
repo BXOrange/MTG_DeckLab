@@ -469,6 +469,130 @@ def test_rejected_back_face_cast_restores_the_front_face():
     assert obj in p1.hand
 
 
+# -- Adventure (RULE 715) / Split & Fuse (RULE 709) --------------------------
+
+
+def _adventure_creature(name="Test Faerie"):
+    """Front: a creature. Back: its Adventure instant half with a damage
+    effect — proves casting the spell then recasting the creature from
+    exile (RULE 715.3d)."""
+    return Card(
+        id=name, name=name, type_line="Creature — Faerie",
+        mana_cost_string="{1}{U}{U}", converted_mana_cost=3,
+        is_creature=True, power=3, toughness=1,
+        layout="adventure",
+        back_name="Test Theft", back_type_line="Instant — Adventure",
+        back_mana_cost_string="{1}{U}",
+        back_oracle_text="Test Theft deals 2 damage to any target.",
+    )
+
+
+def test_casting_the_adventure_spell_then_recasting_the_creature_from_exile():
+    eng = make_engine()
+    p1 = _ready_main_phase(eng)
+    p2 = eng.state.player_by_id("p2")
+    obj = _in_hand(eng, _adventure_creature())
+    p1.mana_pool.add_many({"U": 1, "C": 1})  # back costs {1}{U}
+    assert not eng.can_cast(p1, obj)  # front costs {1}{U}{U} — one U short
+    assert eng.can_cast(p1, obj, face="back")
+    eng.cast_spell(p1, obj, targets=[p2], face="back")
+    assert obj.name == "Test Theft"
+    eng.resolve_until_stable()
+    assert p2.life == 18
+
+    # RULE 715.3d: exiled as the creature (not the graveyard), and castable.
+    assert obj in p1.exile
+    assert obj not in p1.graveyard
+    assert obj.card.is_creature
+    assert obj.name == "Test Faerie"
+    assert obj.adventure_castable is True
+
+    p1.mana_pool.add_many({"U": 2, "C": 1})  # front costs {1}{U}{U}
+    assert eng.can_cast(p1, obj)
+    eng.cast_spell(p1, obj)
+    eng.resolve_until_stable()
+    assert obj in eng.state.battlefield
+    assert obj not in p1.exile
+    assert obj.adventure_castable is False
+
+
+def _split_card(name="Test Fire // Test Ice"):
+    """Front (bare-name-folded self-reference, RULE 709.3): a damage half.
+    Back: an independent damage half with its own cost — no Fuse."""
+    return Card(
+        id=name, name=name, type_line="Instant // Instant",
+        mana_cost_string="{1}{R}", converted_mana_cost=2, is_instant=True,
+        oracle_text="Test Fire deals 2 damage to any target.",
+        layout="split",
+        back_name="Test Ice", back_type_line="Instant",
+        back_mana_cost_string="{U}",
+        back_oracle_text="Test Ice deals 1 damage to any target.",
+    )
+
+
+def test_split_card_offers_and_casts_both_halves_independently():
+    eng = make_engine()
+    p1 = _ready_main_phase(eng)
+    p2 = eng.state.player_by_id("p2")
+    obj = _in_hand(eng, _split_card())
+    p1.mana_pool.add_many({"R": 1, "C": 1})
+    actions = eng.legal_actions(p1)
+    front = [a for a in actions if a.get("instance_id") == obj.instance_id and not a.get("face")]
+    back = [a for a in actions if a.get("instance_id") == obj.instance_id and a.get("face") == "back"]
+    assert front and front[0]["type"] == "cast_spell" and front[0]["name"] == "Test Fire // Test Ice"
+    assert not back  # back costs {U} — not affordable yet
+
+    p1.mana_pool.add_many({"U": 1})
+    actions = eng.legal_actions(p1)
+    back = [a for a in actions if a.get("instance_id") == obj.instance_id and a.get("face") == "back"]
+    assert back and back[0]["type"] == "cast_spell" and back[0]["name"] == "Test Ice"
+
+    eng.cast_spell(p1, obj, targets=[p2], face="back")
+    assert obj.name == "Test Ice"
+    eng.resolve_until_stable()
+    assert p2.life == 19
+    assert obj in p1.graveyard
+
+
+def _fuse_split_card(name="Test Turn // Test Burn"):
+    """RULE 709.4: both halves' own bare-named effects, castable together
+    for the combined cost."""
+    return Card(
+        id=name, name=name, type_line="Instant // Instant",
+        mana_cost_string="{2}{U}", converted_mana_cost=5, is_instant=True,
+        oracle_text="Test Turn deals 1 damage to any target.",
+        layout="split", has_fuse=True,
+        back_name="Test Burn", back_type_line="Instant",
+        back_mana_cost_string="{1}{R}",
+        back_oracle_text="Test Burn deals 2 damage to any target.",
+    )
+
+
+def test_fuse_face_combines_both_halves_cost_and_text():
+    fused = _fuse_split_card().fuse_face()
+    assert fused is not None
+    assert fused.mana_cost_string == "{2}{U}{1}{R}"
+    assert "~ deals 1 damage" in fused.oracle_text
+    assert "~ deals 2 damage" in fused.oracle_text
+
+
+def test_fuse_casts_both_halves_as_one_spell_for_the_combined_cost():
+    eng = make_engine()
+    p1 = _ready_main_phase(eng)
+    p2 = eng.state.player_by_id("p2")
+    obj = _in_hand(eng, _fuse_split_card())
+    p1.mana_pool.add_many({"U": 1, "R": 1, "C": 3})  # combined {2}{U}{1}{R}
+    assert eng.can_cast(p1, obj, face="fuse")
+    action = eng._cast_action(p1, obj, face="fuse")
+    assert action["face"] == "fuse"
+    # Every effect on a spell reads the same flat `targets` list (its own
+    # first entry) — one shared target is enough for both halves to hit p2.
+    eng.cast_spell(p1, obj, targets=[p2], face="fuse")
+    eng.resolve_until_stable()
+    assert p2.life == 17  # 20 - 1 (Turn) - 2 (Burn)
+    assert obj in p1.graveyard
+
+
 # -- transform_permanent / daybound / nightbound (RULE 712.8 / 702.145) ------
 
 

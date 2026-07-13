@@ -603,20 +603,23 @@ class GameEngine:
         return self.state.current_step in ("main1", "main2")
 
     def _face_card(self, obj: GameObject, face: str = "front") -> Optional[Card]:
-        """The `Card` ``face`` ("front"/"back") refers to for ``obj``.
+        """The `Card` ``face`` ("front"/"back"/"fuse") refers to for ``obj``.
 
         "front" is always ``obj.card`` as it currently stands — which also
-        makes this work after a modal DFC has already been switched (RULE
-        712.10), since at that point "the current face" *is* the back. "back"
-        requires ``obj.card`` to be a modal DFC with captured back data and
-        returns that face's printed `Card`, or None otherwise. Read-only: it
-        never mutates ``obj``, so callers can use it to preview the un-chosen
+        makes this work after a second face has already been switched to,
+        since at that point "the current face" *is* the back. "back" is
+        whatever `Card.back_face` captured — a modal DFC's back (RULE
+        712.10), a split card's other half (RULE 709.3), or an Adventure's
+        instant/sorcery half (RULE 715.2b) — or None if nothing was
+        captured for this card. "fuse" is a split card's synthetic combined
+        cast (RULE 709.4, `Card.fuse_face`), or None without Fuse. Read-only:
+        never mutates ``obj``, so callers can use it to preview an un-chosen
         face (e.g. for `legal_actions`) without committing to it.
         """
         if face == "back":
-            if not obj.card.is_modal_dfc:
-                return None
             return obj.card.back_face()
+        if face == "fuse":
+            return obj.card.fuse_face()
         return obj.card
 
     def can_play_land(self, player: Player, obj: GameObject, face: str = "front") -> bool:
@@ -669,14 +672,21 @@ class GameEngine:
         ``x`` is the value that would be announced for a cost containing
         ``{X}`` (ignored otherwise) — pass 0 (the default) to check bare
         castability, or a specific value to check whether *that* X is
-        affordable. ``face="back"`` checks a modal DFC's back face (RULE
-        712.10) instead, without mutating ``obj`` — a preview, used by
-        `legal_actions` to decide whether to offer casting it.
+        affordable. ``face="back"``/``"fuse"`` check a second castable face
+        (see `_face_card`) instead, without mutating ``obj`` — a preview,
+        used by `legal_actions` to decide whether to offer casting it.
         """
         # A commander may be cast from the command zone as well as the
         # hand (RULE 903.6, 903.8) — commander tax (RULE 903.8, +{2} per
-        # previous cast from there) isn't modeled yet.
-        if obj not in player.hand and obj not in player.command:
+        # previous cast from there) isn't modeled yet. An Adventure creature
+        # exiled by its own spell half may also be cast from exile (RULE
+        # 715.3d) once flagged `adventure_castable`.
+        in_castable_zone = (
+            obj in player.hand
+            or obj in player.command
+            or (obj in player.exile and obj.adventure_castable)
+        )
+        if not in_castable_zone:
             return False
         card = self._face_card(obj, face)
         if card is None or card.is_land:
@@ -702,8 +712,8 @@ class GameEngine:
         play, then adds commander tax ({2} per previous cast of this commander
         from the command zone, RULE 903.8) when it's being cast from there.
         Generic-only and floored at zero — the common, safe case. ``face``
-        previews a modal DFC's back face's own printed cost (RULE 712.10)
-        without mutating ``obj``.
+        previews a second castable face's own printed cost (see
+        `_face_card`) without mutating ``obj``.
         """
         card = self._face_card(obj, face) or obj.card
         cost = self.rules.mana_cost_of(card)
@@ -765,24 +775,35 @@ class GameEngine:
     ):
         """Cast a spell after validating timing, payability and targets (RULE 601).
 
-        ``face="back"`` casts a modal DFC's back face instead (RULE 712.10):
-        ``obj`` is rebound onto that face (`RulesEngine.switch_to_face`, the
-        same "clear + rebind catalogue abilities" treatment `become_copy`
-        uses) before the ordinary cast validation/commit runs — so any
-        failure below leaves ``obj`` restored to its original face rather
-        than silently stuck on the back.
+        ``face="back"``/``"fuse"`` cast a second castable face instead (see
+        `_face_card`) — a modal DFC's back (RULE 712.10), a split card's
+        other half or fused combination (RULE 709.3/709.4), or an
+        Adventure's instant/sorcery half (RULE 715.2b): ``obj`` is rebound
+        onto that face (`RulesEngine.switch_to_face`, the same "clear +
+        rebind catalogue abilities" treatment `become_copy` uses) before the
+        ordinary cast validation/commit runs — so any failure below leaves
+        ``obj`` restored to its original face rather than silently stuck on
+        the second one.
         """
-        if face == "back":
-            if not self.can_cast(player, obj, x, face="back"):
+        if face in ("back", "fuse"):
+            if not self.can_cast(player, obj, x, face=face):
                 raise ValueError(f"{player.id} cannot cast {obj.name} now")
-            back = obj.card.back_face()
+            # RULE 715.2b: an Adventure spell half must be recognized while
+            # ``obj.card`` is still the front (creature) face, before the
+            # switch below — resolution needs to know to exile-and-restore
+            # rather than send it to the graveyard.
+            is_adventure_cast = face == "back" and obj.card.is_adventure
+            alt = obj.card.back_face() if face == "back" else obj.card.fuse_face()
             snapshot = self.rules.snapshot_face(obj)
-            self.rules.switch_to_face(obj, back)
+            self.rules.switch_to_face(obj, alt)
             try:
-                return self._cast_current_face(player, obj, targets, x)
+                result = self._cast_current_face(player, obj, targets, x)
             except Exception:
                 self.rules.restore_face(obj, snapshot)
                 raise
+            if is_adventure_cast:
+                obj.adventure_snapshot = snapshot
+            return result
         return self._cast_current_face(player, obj, targets, x)
 
     def _cast_current_face(
@@ -1318,21 +1339,21 @@ class GameEngine:
         with a reason — the UI renders it with a 🔒 and can't cast it, which
         is the offer-time face of RULE 601.2c.
 
-        ``face="back"`` builds this for a modal DFC's back face (RULE
-        712.10): ``obj`` is temporarily rebound onto the back face (so
-        targeting/cost read its *own* abilities, not the front's) then
+        ``face="back"``/``"fuse"`` build this for a second castable face
+        (see `_face_card`): ``obj`` is temporarily rebound onto that face
+        (so targeting/cost read its *own* abilities, not the front's) then
         restored before returning — a pure preview, unlike `cast_spell`'s
         real (and rollback-on-failure) switch.
         """
-        if face == "back":
-            back = obj.card.back_face()
+        if face in ("back", "fuse"):
+            alt = obj.card.back_face() if face == "back" else obj.card.fuse_face()
             snapshot = self.rules.snapshot_face(obj)
-            self.rules.switch_to_face(obj, back)
+            self.rules.switch_to_face(obj, alt)
             try:
                 action = self._cast_action(player, obj)
             finally:
                 self.rules.restore_face(obj, snapshot)
-            action["face"] = "back"
+            action["face"] = face
             return action
         action = {"type": "cast_spell", "instance_id": obj.instance_id, "name": obj.name}
         cost = self.rules.mana_cost_of(obj.card)
@@ -1379,9 +1400,11 @@ class GameEngine:
                 )
             if self.can_cast(player, obj):
                 actions.append(self._cast_action(player, obj))
-            # A modal DFC offers its back face too (RULE 712.10) — a second,
-            # independently-gated action for the same hand card.
-            if obj.card.is_modal_dfc and obj.card.back_face() is not None:
+            # A second castable face offers its own action(s) too — a modal
+            # DFC's back (RULE 712.10), a split card's other half (RULE
+            # 709.3), or an Adventure's instant/sorcery half (RULE 715.2b) —
+            # a second, independently-gated action for the same hand card.
+            if obj.card.back_face() is not None:
                 if self.can_play_land(player, obj, face="back"):
                     actions.append(
                         {
@@ -1393,9 +1416,19 @@ class GameEngine:
                     )
                 if self.can_cast(player, obj, face="back"):
                     actions.append(self._cast_action(player, obj, face="back"))
+            # A split card with Fuse offers casting both halves as one spell
+            # too (RULE 709.4), for their combined cost.
+            if obj.card.fuse_face() is not None and self.can_cast(player, obj, face="fuse"):
+                actions.append(self._cast_action(player, obj, face="fuse"))
 
         for obj in list(player.command):
             if self.can_cast(player, obj):
+                actions.append(self._cast_action(player, obj))
+
+        for obj in list(player.exile):
+            # RULE 715.3d: an Adventure creature exiled by its own spell half
+            # may be cast from exile any time thereafter.
+            if obj.adventure_castable and self.can_cast(player, obj):
                 actions.append(self._cast_action(player, obj))
 
         if (

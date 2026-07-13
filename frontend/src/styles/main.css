@@ -2027,6 +2027,24 @@ textarea {
   pointer-events: none;
 }
 
+/* RULE 715.3d: badge on an exiled Adventure creature that may be cast from
+   there, along a card's top edge (mirrors .gf-attacking-badge's corner). */
+.gf-adventure-badge {
+  position: absolute;
+  top: -0.4rem;
+  left: -0.3rem;
+  background: color-mix(in srgb, var(--accent) 30%, var(--panel));
+  color: var(--text);
+  border: 1px solid var(--accent);
+  font-size: 0.55rem;
+  font-weight: 700;
+  line-height: 1.2;
+  padding: 0.05rem 0.3rem;
+  border-radius: 999px;
+  white-space: nowrap;
+  pointer-events: none;
+}
+
 /* Combat/evasion keyword abbreviations, as a pill along a creature's bottom
    edge (full names on hover via the title attribute). */
 .gf-keyword-badge {

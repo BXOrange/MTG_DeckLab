@@ -373,20 +373,24 @@ class TestCardFromScryfallData:
         assert card.back_toughness == 2
         assert card.back_image_uri_normal == "https://img.example/aberration.jpg"
 
-    def test_split_card_shares_one_image_and_has_no_separate_back(self):
+    def test_split_card_shares_one_image_and_captures_both_halves(self):
         # "Wear // Tear" (layout "split") has two faces in the data but a
-        # single printed image, so no back image is captured.
+        # single printed image, so no *back image* is captured — but each
+        # half's own name/cost/text now is (RULE 709.3, so either half can
+        # be cast independently). Shaped after the real Scryfall object for
+        # a split card: no top-level "oracle_text" (each face has its own),
+        # and "mana_cost"/"type_line" are the combined "A // B" strings.
         wear_tear = {
             "id": "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb",
             "name": "Wear // Tear",
             "layout": "split",
             "cmc": 2.0,
+            "mana_cost": "{1}{R} // {W}",
             "type_line": "Instant // Instant",
             "color_identity": ["R", "W"],
             "keywords": [],
             "set": "dgm",
             "rarity": "uncommon",
-            "oracle_text": "Destroy target artifact.\n----\nDestroy target enchantment.",
             "image_uris": {"small": "", "normal": "https://img.example/weartear.jpg", "large": "", "png": ""},
             "card_faces": [
                 {"name": "Wear", "mana_cost": "{1}{R}", "type_line": "Instant", "oracle_text": "Destroy target artifact."},
@@ -395,10 +399,114 @@ class TestCardFromScryfallData:
         }
         card = card_from_scryfall_data(wear_tear)
         assert card.layout == "split"
+        assert card.is_split is True
         assert card.has_back_face is False
         assert card.back_image_uri_normal == ""
         # The single shared image is still served as the front.
         assert card.image_uri_normal == "https://img.example/weartear.jpg"
+        # The front face is captured as its own half, not the combined line.
+        assert card.name == "Wear // Tear"
+        assert card.mana_cost_string == "{1}{R}"
+        assert card.oracle_text == "Destroy target artifact."
+        # The second half is now captured too (previously dropped entirely).
+        assert card.back_name == "Tear"
+        assert card.back_mana_cost_string == "{W}"
+        assert card.back_oracle_text == "Destroy target enchantment."
+        assert card.has_fuse is False
+
+    def test_adventure_card_captures_both_the_creature_and_its_spell_half(self):
+        # "Brazen Borrower // Petty Theft" (layout "adventure"): front is
+        # the creature (RULE 715.2a), back is its instant/sorcery Adventure
+        # half (RULE 715.2b) — same "no top-level oracle_text" shape as
+        # split, but with per-face power/toughness on the creature half.
+        brazen_borrower = {
+            "id": "cccccccc-cccc-cccc-cccc-cccccccccccc",
+            "name": "Brazen Borrower // Petty Theft",
+            "layout": "adventure",
+            "cmc": 3.0,
+            "mana_cost": "{1}{U}{U} // {1}{U}",
+            "type_line": "Creature — Faerie Rogue // Instant — Adventure",
+            "power": "3",
+            "toughness": "1",
+            "color_identity": ["U"],
+            "keywords": ["Flash", "Flying"],
+            "set": "eld",
+            "rarity": "rare",
+            "image_uris": {"small": "", "normal": "https://img.example/borrower.jpg", "large": "", "png": ""},
+            "card_faces": [
+                {
+                    "name": "Brazen Borrower",
+                    "mana_cost": "{1}{U}{U}",
+                    "type_line": "Creature — Faerie Rogue",
+                    "oracle_text": "Flash\nFlying\nThis creature can block only creatures with flying.",
+                    "power": "3",
+                    "toughness": "1",
+                },
+                {
+                    "name": "Petty Theft",
+                    "mana_cost": "{1}{U}",
+                    "type_line": "Instant — Adventure",
+                    "oracle_text": "Return target nonland permanent an opponent controls to its owner's hand.",
+                },
+            ],
+        }
+        card = card_from_scryfall_data(brazen_borrower)
+        assert card.is_adventure is True
+        assert card.has_back_face is False
+        # The front face is the creature, captured as its own half.
+        assert card.name == "Brazen Borrower // Petty Theft"
+        assert card.is_creature is True
+        assert card.mana_cost_string == "{1}{U}{U}"
+        assert (card.power, card.toughness) == (3, 1)
+        # The Adventure spell half is now captured on the back_* fields.
+        assert card.back_name == "Petty Theft"
+        assert card.back_type_line == "Instant — Adventure"
+        assert card.back_mana_cost_string == "{1}{U}"
+        assert "Return target nonland permanent" in card.back_oracle_text
+        back = card.back_face()
+        assert back is not None
+        assert back.is_instant is True
+        assert back.is_creature is False
+
+    def test_fuse_keyword_is_captured_from_top_level_keywords(self):
+        # "Turn // Burn" (layout "split", Fuse RULE 709.4): the "Fuse"
+        # keyword is only on the top-level `keywords` list, not per-face.
+        turn_burn = {
+            "id": "dddddddd-dddd-dddd-dddd-dddddddddddd",
+            "name": "Turn // Burn",
+            "layout": "split",
+            "cmc": 5.0,
+            "mana_cost": "{2}{U} // {1}{R}",
+            "type_line": "Instant // Instant",
+            "color_identity": ["R", "U"],
+            "keywords": ["Fuse"],
+            "set": "dgm",
+            "rarity": "uncommon",
+            "image_uris": {"small": "", "normal": "https://img.example/turnburn.jpg", "large": "", "png": ""},
+            "card_faces": [
+                {
+                    "name": "Turn",
+                    "mana_cost": "{2}{U}",
+                    "type_line": "Instant",
+                    "oracle_text": "Until end of turn, target creature loses all abilities.",
+                },
+                {
+                    "name": "Burn",
+                    "mana_cost": "{1}{R}",
+                    "type_line": "Instant",
+                    "oracle_text": "Burn deals 2 damage to any target.",
+                },
+            ],
+        }
+        card = card_from_scryfall_data(turn_burn)
+        assert card.has_fuse is True
+        fused = card.fuse_face()
+        assert fused is not None
+        assert fused.mana_cost_string == "{2}{U}{1}{R}"
+        assert "Until end of turn" in fused.oracle_text
+        # Each half's own bare-name self-reference is folded to "~" so the
+        # oracle-effect parser can bind it (see Card.fuse_face).
+        assert "~ deals 2 damage" in fused.oracle_text
 
 
 class TestScryfallIntegration:

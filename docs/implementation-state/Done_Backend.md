@@ -525,6 +525,49 @@ the Phase-1 models. Tests: `test_game_engine.py`.
       new "reveal + conditional" one-shot family, not needed to prove this
       feature works.
 
+- [x] Adventure (RULE 715) and Split/Fuse (RULE 709) cards: both now
+      actually castable, not just structurally recognised. The MDFC
+      back-face casting machinery (RULE 712.10 above) generalizes almost
+      unchanged — `Card.back_face()`'s `back_*` capture, previously gated
+      to `_TWO_IMAGE_LAYOUTS`, now also runs for `"split"`/`"adventure"`
+      (`scryfall_client._SECOND_FACE_LAYOUTS`); their `card_faces` entries
+      just lack their own `image_uris` (shared card image), so
+      `has_back_face` stays correctly `False`. `GameEngine._face_card`/
+      `can_cast`/`cast_spell`/`_cast_action`/`legal_actions`'s `face`
+      parameter is generalized from two literals (`"front"`/`"back"`) to
+      three (`"front"`/`"back"`/`"fuse"`), reusing `RulesEngine.
+      snapshot_face`/`switch_to_face`/`restore_face` unchanged — a split
+      card's other half or an Adventure's instant/sorcery half is just
+      another `back_face()`. Adventure's one genuinely new piece (RULE
+      715.3d): `GameObject.adventure_snapshot`/`adventure_castable` stash
+      the creature's pre-cast face snapshot from cast-time through
+      resolution — `RulesEngine.resolve_top_of_stack`'s non-permanent-spell
+      branch restores it and calls `self.exile(obj)` instead of the
+      graveyard, and `cast_spell`'s zone-removal generalized from a
+      hand/command-only hardcode to the existing zone-agnostic
+      `_remove_from_current_zone` so casting the creature back out of
+      exile needs no dedicated branch. Fuse (RULE 709.4) needed no new
+      dual-binding architecture: `Card.fuse_face()` builds a synthetic
+      merged `Card` (mirroring `as_copy`'s "whole new instance" shape, not
+      a `StackItem` change) with concatenated `mana_cost_string`/
+      `oracle_text` — `ManaCost.parse` already sums every `{N}` generic
+      token it finds regardless of how many groups they came from, and
+      Scryfall's top-level `cmc` is already the two halves' sum, so string
+      concatenation alone *is* "pay both costs," reusing the ordinary
+      single-card cast/bind pipeline. Each half's own oracle text
+      self-refers by its own bare name (e.g. "Burn deals 2 damage…"), which
+      the parser's self-reference folding can't match against the fused
+      card's combined "A // B" name — `Card._fold_bare_name` pre-folds each
+      half's own name to `~` before concatenating, mirroring
+      `parser.oracle.normalize._fold_self_name`'s word-boundary rule
+      locally rather than importing the parser front-end into the model
+      layer. Frontend: the exile zone now passes its `byInstance` action
+      map through (previously hardcoded to none), so an exiled,
+      `adventure_castable` creature's offered `cast_spell` action actually
+      renders a button (with a small "📖 Abenteuer" badge); `faceHint`
+      labels a `face: "fuse"` action distinctly from a plain second-face
+      offer. Tests: `test_card_structures.py`, `test_scryfall_client.py`.
+
 ## Auth & persistence
 
 - [x] Deck persistence (save/load instead of re-parsing every time):

@@ -15,6 +15,16 @@ VALID_COLORS: frozenset[str] = frozenset({"W", "U", "B", "R", "G"})
 _DEFAULT_MANA_COST: dict[str, int] = {"W": 0, "U": 0, "B": 0, "R": 0, "G": 0, "C": 0}
 
 
+def _fold_bare_name(text: str, name: str) -> str:
+    """Replace whole-word occurrences of ``name`` in ``text`` with "~".
+
+    Used by `Card.fuse_face` to pre-fold each split half's own self-reference
+    before concatenating — see that method's docstring for why."""
+    if not name:
+        return text
+    return re.sub(r"\b" + re.escape(name) + r"\b", "~", text)
+
+
 class Card:
     """A single Magic: The Gathering card and its game-relevant attributes.
 
@@ -106,6 +116,7 @@ class Card:
         is_legendary: bool = False,
         has_partner: bool = False,
         partner_with: Optional[str] = None,
+        has_fuse: bool = False,
         layout: str = "",
         back_name: str = "",
         back_type_line: str = "",
@@ -167,6 +178,9 @@ class Card:
         self.is_legendary = is_legendary
         self.has_partner = has_partner
         self.partner_with = partner_with
+        #: Whether this split card has Fuse (RULE 709.4 — cast both halves
+        #: as one spell for their combined cost). See `fuse_face`.
+        self.has_fuse = has_fuse
         self.layout = layout
         self.back_name = back_name
         self.back_type_line = back_type_line
@@ -226,14 +240,16 @@ class Card:
         return self.layout == "split"
 
     def back_face(self) -> Optional["Card"]:
-        """The back face as its own `Card`, or None if this card has no back.
+        """The back/second face as its own `Card`, or None if there is none.
 
         Builds a printed-characteristics `Card` from the stored ``back_*``
-        fields (RULE 712 double-faced cards) so the back can be cast (a modal
-        DFC, RULE 712.10) or transformed into on the battlefield (RULE 712.8).
-        The two faces share the physical object's id; the back's derived type
-        flags come from its own ``back_type_line``. Returns None when no back
-        face was captured."""
+        fields so the back can be cast (a modal DFC, RULE 712.10, or a
+        split card's other half, RULE 709.3), transformed into on the
+        battlefield (RULE 712.8), or cast as an Adventure's instant/sorcery
+        half (RULE 715.2b) — whichever it is is distinguished by ``layout``.
+        The two faces share the physical object's id; the back's derived
+        type flags come from its own ``back_type_line``. Returns None when
+        no back face was captured."""
         if not self.back_name and not self.back_type_line:
             return None
         btl = self.back_type_line or self.type_line
@@ -258,6 +274,61 @@ class Card:
             image_uri_normal=self.back_image_uri_normal,
             image_uri_large=self.back_image_uri_large,
             image_uri_png=self.back_image_uri_png,
+        )
+
+    def fuse_face(self) -> Optional["Card"]:
+        """A synthetic merged `Card` for casting both split halves as one
+        spell (RULE 709.4 Fuse), or None if this card has no Fuse.
+
+        Not a printed face — Fuse casts *the whole card* for both halves'
+        combined cost, so this concatenates the two halves' raw
+        ``mana_cost_string``s and ``oracle_text``s onto one `Card` sharing
+        this card's own already-combined ``name``/``type_line`` (Scryfall
+        gives a split card's top-level name as "A // B" already) and
+        top-level ``converted_mana_cost`` (already the two halves' sum).
+        `ManaCost.parse` sums every generic symbol it finds regardless of
+        how many separate ``{N}`` groups they came from, so the
+        concatenated cost string prices correctly with no dedicated
+        cost-combining logic; likewise the oracle-text parser binds the
+        concatenated text as one card's (compound) rules text, so a fused
+        cast reuses the ordinary single-card cast/bind pipeline
+        (`RulesEngine.switch_to_face`) rather than needing two independent
+        effect sets on one stack item.
+
+        Each half's own oracle text refers to itself by its own bare name
+        (e.g. "Burn deals 2 damage..."), which the parser's self-reference
+        folding (``parser.oracle.normalize``) only recognises against
+        *this* `Card`'s own ``name`` — the combined "A // B" here, matching
+        neither half's bare text. So each half's own name is folded to the
+        ``~`` self-reference token *before* concatenating, the same
+        substitution the parser would do for a card whose name actually
+        matched — done locally (`_fold_bare_name`, mirroring
+        ``normalize._fold_self_name``'s word-boundary rule) rather than by
+        importing the parser front-end into this model."""
+        if not (self.is_split and self.has_fuse and self.back_name):
+            return None
+        back_type_line = self.back_type_line or ""
+        front_name = self.name.split("//")[0].strip()
+        front_text = _fold_bare_name(self.oracle_text, front_name)
+        back_text = _fold_bare_name(self.back_oracle_text, self.back_name)
+        return Card(
+            id=self.id,
+            name=self.name,
+            type_line=self.type_line,
+            mana_cost_string=self.mana_cost_string + self.back_mana_cost_string,
+            converted_mana_cost=self.converted_mana_cost,
+            color_identity=set(self.color_identity),
+            is_creature=False,
+            is_instant=self.is_instant and "instant" in back_type_line.lower(),
+            is_sorcery=self.is_sorcery or "sorcery" in back_type_line.lower(),
+            is_land=False,
+            oracle_text=f"{front_text}\n{back_text}",
+            is_legendary=self.is_legendary,
+            layout=self.layout,
+            image_uri_small=self.image_uri_small,
+            image_uri_normal=self.image_uri_normal,
+            image_uri_large=self.image_uri_large,
+            image_uri_png=self.image_uri_png,
         )
 
     @property
@@ -442,6 +513,7 @@ class Card:
             "is_legendary": self.is_legendary,
             "has_partner": self.has_partner,
             "partner_with": self.partner_with,
+            "has_fuse": self.has_fuse,
             "layout": self.layout,
             "has_back_face": self.has_back_face,
             "back_name": self.back_name,
@@ -485,6 +557,7 @@ class Card:
             is_legendary=data.get("is_legendary", False),
             has_partner=data.get("has_partner", False),
             partner_with=data.get("partner_with"),
+            has_fuse=data.get("has_fuse", False),
             layout=data.get("layout", ""),
             back_name=data.get("back_name", ""),
             back_type_line=data.get("back_type_line", ""),

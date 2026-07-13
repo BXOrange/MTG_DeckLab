@@ -276,7 +276,7 @@ export function createGameBoardView(opts = {}) {
             </div>
             <div class="gf-zone gf-exile">
               <h4>Exil (${p.exile.length})</h4>
-              ${objGrid(p.exile, 'leer', {}, pending)}
+              ${objGrid(p.exile, 'leer', byInstance, pending)}
             </div>
           </aside>
 
@@ -675,9 +675,14 @@ export function createGameBoardView(opts = {}) {
     const keywordBadge = (o.keywords && o.keywords.length)
       ? `<span class="gf-keyword-badge" title="${escapeAttr(o.keywords.join(', '))}">${o.keywords.map((k) => escapeHtml(keywordAbbrev(k))).join(' ')}</span>`
       : '';
+    // RULE 715.3d: an Adventure creature exiled by its own spell half,
+    // castable from here — flags it distinctly from an inert exiled card.
+    const adventureBadge = o.adventure_castable
+      ? `<span class="gf-adventure-badge" title="Abenteuer: aus dem Exil als Kreatur zauberbar">📖 Abenteuer</span>`
+      : '';
     return `
       <div class="gf-card-slot">
-        <div class="${classes.join(' ')}" data-hover-card="${escapeHtml(o.name)}" title="${escapeHtml(o.name)}${pt}${o.tapped ? ' — getappt' : ''}">${inner}${attackBadge}${counterBadge}${keywordBadge}</div>
+        <div class="${classes.join(' ')}" data-hover-card="${escapeHtml(o.name)}" title="${escapeHtml(o.name)}${pt}${o.tapped ? ' — getappt' : ''}">${inner}${attackBadge}${counterBadge}${keywordBadge}${adventureBadge}</div>
         ${buttons}
       </div>`;
   }
@@ -702,11 +707,16 @@ export function createGameBoardView(opts = {}) {
     return label;
   }
 
-  // A modal DFC (RULE 712.10) offers two independent actions for the same
-  // hand card, one per face — `faceHint` labels the back one with its name
-  // so the two buttons are distinguishable; the front face keeps today's
-  // plain label (no visible change for the common non-MDFC case).
+  // A card with a second castable face — a modal DFC's back (RULE 712.10),
+  // a split card's other half (RULE 709.3), or an Adventure's spell half
+  // (RULE 715.2b) — offers a second, independent action for the same hand
+  // card; `faceHint` labels it with its own name so the two buttons are
+  // distinguishable. Fuse (RULE 709.4) casts the same combined name shown
+  // on the plain button, so it gets a short suffix instead of a redundant
+  // repeated name. The front face keeps today's plain label (no visible
+  // change for the common single-face case).
   function faceHint(a) {
+    if (a.face === 'fuse') return ' (Fuse — beide Hälften)';
     return a.face ? ` — ${escapeHtml(a.name)}` : '';
   }
 

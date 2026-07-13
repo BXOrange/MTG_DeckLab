@@ -348,10 +348,9 @@ eventually own. Roughly in decreasing commonness:
       turn, transform ~") is deliberately not modeled, superseded by RULE
       731; and MDFC commanders cast from the command zone are a known,
       deliberately unhandled edge case (only hand-cast offers both faces).
-- [ ] Adventure cards (RULE 715) and Split/Fuse cards (RULE 709) — cast
-      one half, the other stays available; recognised structurally
-      (`Card.is_adventure`/`is_split`) but both still resolve as the single
-      front-face spell.
+- [x] Adventure cards (RULE 715) and Split/Fuse cards (RULE 709): **done**
+      — see `docs/implementation-state/Done_Backend.md` "Card-type &
+      structural coverage".
 - [x] Saga (RULE 714) / Class (RULE 716) / Leveler (RULE 711): **all three
       done** — see `docs/implementation-state/Done_Backend.md` "Card-type &
       structural coverage". Residual edges, left `UNMODELED`/fail-closed
