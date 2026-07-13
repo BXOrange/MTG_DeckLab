@@ -352,11 +352,16 @@ eventually own. Roughly in decreasing commonness:
       one half, the other stays available; recognised structurally
       (`Card.is_adventure`/`is_split`) but both still resolve as the single
       front-face spell.
-- [~] Saga (RULE 714): **counter mechanics and chapter abilities are both
+- [x] Saga (RULE 714) / Class (RULE 716) / Leveler (RULE 711): **all three
       done** — see `docs/implementation-state/Done_Backend.md` "Card-type &
-      structural coverage". Class (716) / Leveler (711) chapter/level
-      abilities not started (the basic lore-counter-equivalent scaffolding
-      isn't either).
+      structural coverage". Residual edges, left `UNMODELED`/fail-closed
+      rather than guessed: a Class level combining both a static "cumulative"
+      grant and a separate one-shot "when this Class becomes level N" trigger
+      in the same block; a level-block body using a trigger phrase/effect
+      family the oracle parser doesn't already recognize (independent of this
+      work — e.g. "creature deals combat damage to a player"); CDA-based
+      Leveler P/T (``*/*``, no card in the pool needs it); a Leveler's rare
+      non-keyword *base* (pre-`LEVEL`) ability line (parsed ungated).
 - [~] Copying objects (RULE 707): **token copies done** —
       `RulesEngine.copy_permanent` + the `copy_permanent` effect create a token
       clone of a target permanent's copiable card. Remaining: "becomes a copy
@@ -385,13 +390,6 @@ eventually own. Roughly in decreasing commonness:
       501 — the session/route need to drive `pass_priority(player)` and expose
       the priority holder, and interactive blocker declaration
       (`declare_blockers`, engine-ready) needs the opponent-side UI.
-- [ ] Wire the `WebSocket /ws/game/{game_id}` handler (`api/game_ws.py`)
-      into a server-held session: it's still the transport-only relay,
-      not feeding actions into `GameEngine`. Solo play uses the REST
-      session API (fine for one player); the WebSocket becomes necessary
-      for multiplayer (pushing an opponent's moves). Swap its
-      `_broadcast_action` stand-in for "run the action through the
-      session/engine, broadcast `GameState.to_dict()`".
 
 ## LLM Deck Analysis (UC2)
 
@@ -415,25 +413,4 @@ eventually own. Roughly in decreasing commonness:
 - [ ] Greedy bot strategy (docs/02 UC5) — a start exists in
       `GameEngine.run_goldfish_turn`/`auto_play_step` (play a land, tap
       out, cast cheapest-first, swing); a real bot would weigh lines.
-
-## Import — follow-up from the frontend
-
-- [ ] Moxfield import (client-side *and* server-side, both tried and
-      reverted — see `../frontend/ToDo_Frontend.md` "Import — follow-ups"):
-      a server-side proxy (`services/moxfield_client.py`,
-      `GET /api/import/moxfield/{deckId}`, since removed) fetched
-      `api2.moxfield.com` with browser-like headers (User-Agent/Origin/
-      Referer) to route around the browser-CORS block the client-side
-      attempt hit. Tested live against both a made-up id and a real
-      public deck id (`eJY8pmEdckaJZ6250uUG9A`) — both came back a
-      genuine Cloudflare "Attention Required" challenge page (`server:
-      cloudflare`, a `cf-ray` header, the actual interstitial HTML), not
-      an app-level 403, so Cloudflare is blocking on IP reputation/TLS
-      fingerprint here, not just headers. Reverted rather than kept as
-      dead code; reviving this needs something materially bigger than a
-      header tweak — a headless browser (e.g. Playwright) or a
-      residential-IP proxy — not worth it unless Moxfield import becomes
-      a priority. Archidekt import shipped instead (`Done_Backend.md`
-      "Import — follow-up from the frontend"), since its API has no such
-      block.
-
+      

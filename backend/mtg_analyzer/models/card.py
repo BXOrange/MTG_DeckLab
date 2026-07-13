@@ -5,6 +5,7 @@ Reference: /docs/concepts/06_CARD_GRAPHICS_AND_LAZY_LOADING.md (PART 1)
 
 from __future__ import annotations
 
+import re
 from typing import Any, Optional
 
 #: Colors that may legally appear in a card's color identity.
@@ -198,6 +199,21 @@ class Card:
     def is_saga(self) -> bool:
         """Whether the card is a Saga enchantment (RULE 714, subtype Saga)."""
         return "saga" in self.type_line.lower()
+
+    @property
+    def is_class(self) -> bool:
+        """Whether the card is a Class enchantment (RULE 716, subtype Class)."""
+        return "class" in self.type_line.lower()
+
+    @property
+    def is_leveler(self) -> bool:
+        """Whether the card is a Leveler (RULE 711 — a "Level up" ability).
+
+        Unlike Saga/Class, Leveler isn't a printed subtype — it's identified
+        by the "Level up {cost}" activated-ability line (RULE 711.4a), so
+        this reads the oracle text rather than the type line.
+        """
+        return bool(re.search(r"^level up\b", self.oracle_text or "", re.I | re.M))
 
     @property
     def is_adventure(self) -> bool:

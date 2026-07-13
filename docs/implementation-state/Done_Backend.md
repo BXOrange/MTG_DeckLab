@@ -81,14 +81,22 @@ The original Weeks 1–4 roadmap is archived at
       deck picker. `POST /api/game/goldfish` also runs it and **refuses
       to start an illegal deck** (422) — only legal decks may goldfish
       (docs/02 UC3), enforced server-side, not just in the UI.
-- [x] `WebSocket /ws/game/{game_id}` connection plumbing
-      (`mtg_analyzer/api/game_ws.py`): accepts connections grouped by
-      `game_id`, relays a `player_action` message to every connection
-      in that game as a `game_state_update`. Transport only — no
-      server-held `GameState`. Solo play now goes through the REST
-      game-session API (`api/game.py`, `frontend/src/js/goldfishView.js`);
-      this WebSocket is kept for the eventual multiplayer push channel,
-      not yet wired into the UI (see ToDo "Multiplayer game session").
+- [x] `WebSocket /ws/game/{game_id}` (`mtg_analyzer/api/game_ws.py`):
+      accepts connections grouped by `game_id` and now runs each
+      client's `player_action` through the `GameSession` registered
+      under that id in the same process-wide `GameSessionManager` the
+      REST session API (`api/game.py`) uses (`api/dependencies.
+      get_game_session_manager`), broadcasting the resulting session
+      view (`GameSession.view()`) to every connection on that `game_id`
+      as a `game_state_update`; an unknown `game_id` or a
+      `GameActionError` (illegal/malformed action) replies to the
+      sender alone. Solo play still goes through the REST game-session
+      API directly (`frontend/src/js/goldfishView.js`); this channel is
+      what a future interactive multiplayer session would use to push
+      an opponent's moves — `create_multiplayer` itself is still a
+      stub and the channel isn't wired into any frontend view yet
+      (`frontend/src/js/gameSocket.js` exists but is unused — see ToDo
+      "Multiplayer game session").
 
 ## Data Layer
 
@@ -396,6 +404,87 @@ the Phase-1 models. Tests: `test_game_engine.py`.
       grammar gained a `creatures you control`/`other creatures you control`
       alternative alongside `TARGET`/`~`. Tests: `test_card_structures.py`,
       `test_oracle_pipeline.py`.
+- [x] Class (RULE 716) + Leveler (RULE 711) — both print a multi-line
+      **block** structure ordinary per-line segmentation can't see across:
+      Leveler's `LEVEL n-m`/`LEVEL n+` tiers (mutually exclusive P/T/keyword/
+      triggered-ability alternatives to the base printed text) and Class's
+      sequential `Level N: <cost>` levels (cumulative — once unlocked,
+      always active). New `Card.is_class`/`is_leveler` derived properties and
+      `GameObject.level`/`class_level` counter properties (mirroring
+      `is_saga`/`lore` exactly); a Class enters at `class_level = 1`
+      (`GameState.add_to_battlefield`, RULE 716.2b) firing a new
+      `EventType.CLASS_LEVEL` the same way Saga's chapter-1 does.
+      `parser/oracle/catalogue/levels.py` (new, pure, mirrors `saga.py`) owns
+      the header grammar (`LEVEL_TIER_RE`/`CLASS_LEVEL_RE`/`LEVEL_UP_LINE_RE`)
+      and the block splitters `split_leveler_blocks`/`split_class_blocks`;
+      `gate.parse_oracle` threads `is_leveler`/`is_class` (mirroring the
+      existing `is_saga` flag) and, for either, splits the normalized text
+      into a preamble plus blocks, running each body line through the
+      *existing* per-line dispatch (`segment_line`/`static_effect_specs`/
+      `parse_effect_body` — no changes there) and then tagging the resulting
+      spec's params (a static effect) or trigger dict (a triggered ability)
+      with the block's level gate. Note "Level Up" is itself a registered
+      RULE 702.87 keyword (a COST shape, like Kicker) that the generic
+      catalogue already claimed — like Kicker, nothing consumed it into
+      actual behaviour, so `LEVEL_UP_LINE_RE` recognizes the line directly
+      and synthesizes the real "put a level counter on this, sorcery speed
+      only" `activated` spec (reusing the existing generic `add_counters`
+      effect with `kind="level"` — no new effect needed there); a Class
+      level's own header has no effect body to segment (the effect is
+      "become this level"), so it synthesizes a new `class_level` one-shot
+      `EffectSpec`/`ClassLevelEffect` (`game/effects.py`) instead — sets
+      `class_level` directly (never incremented) and fires `CLASS_LEVEL`
+      with the *same* `chapter` trigger key Saga's chapter triggers use, so
+      a rare "when this Class becomes level N" trigger needs no new binder
+      code.
+
+      The genuinely new engine primitive both mechanics needed — RULE 613.6
+      "as long as" conditional statics, which nothing modeled before this
+      (the closest precedent, `affects="attached_permanent"`, just
+      re-derives its object list fresh every `continuous.recompute` pass
+      rather than gating on a condition) — is a `min_level`/`max_level`/
+      `level_counter` triple added to `effects._SELECTOR_KEYS` (so it flows
+      through every static factory that already spreads `**_selectors(p)`
+      with zero further changes to those factories) and consumed as a final
+      source-gate in `continuous.group_selector_objects`: it checks the
+      ability's own **source** object's counter (correct for both Leveler,
+      where `affects="self"`, and Class, where `affects` targets other
+      permanents but the *condition* is still about the Class's own
+      `class_level`), returning `[]` (inactive) exactly like
+      `attached_permanent`'s "empty list while unattached" shape. The same
+      gate exists for a *triggered* ability (a Leveler tier's own trigger,
+      e.g. Kargan Dragonlord's attack-pump restricted to `LEVEL 2-6`) via
+      `effect_binder._trigger_condition`, restructured from "return early
+      after the `chapter` check" into composable predicates so `chapter` and
+      `min_level`/`max_level` can each apply independently or together.
+
+      Activation legality: RULE 711.4b (Leveler, sorcery speed, no cap) and
+      RULE 716.4c (Class, sorcery speed, legal only from the level just
+      below) both needed a **sorcery-speed timing gate that isn't tied to a
+      planeswalker** — `game/costs.py`'s `ActivationCost` gained
+      `sorcery_speed_only`/`class_level` fields (legality preconditions
+      riding along with the cost record, not things paid — putting the
+      counter on/becoming the level is the ability's *effect*, resolved off
+      the stack, not part of paying for it); `GameEngine._can_activate_
+      loyalty`'s timing body was split out into a reusable `_sorcery_speed_
+      ok(player)` (now shared by loyalty and the new flag) plus a new
+      `_can_activate_class_level(source, target_level)`.
+
+      Fixed along the way: **Scryfall's `keywords` array and a card's
+      `oracle_text` both cover a Leveler's *whole* printed text, tier or
+      not** — Kargan Dragonlord's "Flying, haste" is only printed under
+      `LEVEL 7+`, but both `catalogue.keywords.parse_keywords` (the intrinsic-
+      keyword bind) and `combat.keywords_of` (the independent combat-facing
+      keyword reader) would otherwise treat it as always-on. Both now
+      cross-check against `levels.leveler_base_text` (the raw-text prefix
+      before the first `LEVEL` line) for a Leveler card, the same "oracle
+      text is ground truth" pattern already used for Enchant/Daybound —
+      dropping a tier-only keyword from the always-on set, since it's
+      re-granted, correctly level-gated, by the block-tagged `grant_keyword`
+      spec instead. Tests: `test_card_structures.py` (end-to-end: level-up
+      sorcery-speed gating, tier P/T + keyword + triggered-ability gating,
+      Class level-ordering + cumulative grants), `test_oracle_pipeline.py`
+      (coverage-gate + spec-shape assertions).
 - [x] DFC transform infrastructure (RULE 712.8) + day/night (RULE 731) +
       daybound/nightbound (RULE 702.145) — `GameObject.transform()` only
       ever flipped `card`; nothing in the live engine called it, and nothing

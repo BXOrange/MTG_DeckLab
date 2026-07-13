@@ -325,6 +325,12 @@ class GameState:
         is_entering_saga = obj.card.is_saga and not obj.is_token and "lore" not in obj.counters
         if is_entering_saga:
             obj.counters["lore"] = 1
+        # RULE 716.2b: a Class enters the battlefield at class level 1.
+        is_entering_class = (
+            obj.card.is_class and not obj.is_token and "class_level" not in obj.counters
+        )
+        if is_entering_class:
+            obj.counters["class_level"] = 1
         self.battlefield.append(obj)
         # Fired here (rather than left to the caller, unlike ENTERS_BATTLEFIELD)
         # so chapter I's ability triggers regardless of *how* the Saga reached
@@ -335,6 +341,16 @@ class GameState:
             self.fire_event(
                 GameEvent(
                     EventType.SAGA_CHAPTER,
+                    object=obj.name,
+                    instance_id=obj.instance_id,
+                    controller_id=obj.controller_id,
+                    chapter=1,
+                )
+            )
+        if is_entering_class:
+            self.fire_event(
+                GameEvent(
+                    EventType.CLASS_LEVEL,
                     object=obj.name,
                     instance_id=obj.instance_id,
                     controller_id=obj.controller_id,

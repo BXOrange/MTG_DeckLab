@@ -151,6 +151,22 @@ def group_selector_objects(
         result = [o for o in result if getattr(o, "is_token", False)]
     if params.get("exclude_self"):  # a global "Other creatures …" anthem
         result = [o for o in result if o is not src]
+
+    # RULE 613.6-style conditional static: "as long as this [permanent]'s own
+    # <counter> is in range" — Leveler's mutually-exclusive P/T/keyword tiers
+    # (RULE 711, ``affects="self"``, gated on the source's own ``level``) and
+    # a Class's cumulative per-level grants (RULE 716, gated on
+    # ``class_level``, even though ``affects`` targets other permanents —
+    # the *condition* is always about the ability's own source, never each
+    # affected object's counters). Mirrors ``attached_permanent``'s "recompute
+    # fresh every pass, empty list = inactive" shape.
+    min_level = params.get("min_level")
+    max_level = params.get("max_level")
+    if min_level is not None or max_level is not None:
+        counter_kind = params.get("level_counter") or "level"
+        n = src.counters.get(counter_kind, 0) if src is not None else 0
+        if (min_level is not None and n < min_level) or (max_level is not None and n > max_level):
+            return []
     return result
 
 

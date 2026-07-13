@@ -49,6 +49,10 @@ class EventType:
     #: chapter ability's triggered condition can scope to both itself and
     #: the specific chapter number(s) it covers.
     SAGA_CHAPTER = "SAGA_CHAPTER"
+    #: A Class (RULE 716) reached a new class level — carries ``instance_id``
+    #: and ``chapter`` (the new level), the same convention as SAGA_CHAPTER,
+    #: so a rare "when this Class becomes level N" trigger can scope by both.
+    CLASS_LEVEL = "CLASS_LEVEL"
     #: A player scried (RULE 701.18): looked at the top N of their library and
     #: reordered / bottomed them.
     SCRY = "SCRY"

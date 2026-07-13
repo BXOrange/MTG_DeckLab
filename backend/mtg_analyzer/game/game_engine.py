@@ -1094,20 +1094,39 @@ class GameEngine:
             return False
         if ability.cost.is_loyalty and not self._can_activate_loyalty(player, source):
             return False
+        if ability.cost.sorcery_speed_only and not self._sorcery_speed_ok(player):
+            return False
+        if ability.cost.class_level is not None and not self._can_activate_class_level(
+            source, ability.cost.class_level
+        ):
+            return False
         return self._can_pay_activation_cost(player, source, ability.cost, x)
+
+    def _sorcery_speed_ok(self, player: Player) -> bool:
+        """RULE 117.1a-style sorcery-speed timing: the controller's main
+        phase, an empty stack, and it being that player's turn — the same
+        shape `can_play_land`/`can_cast`'s sorcery branch already check."""
+        return (
+            player is self.state.active_player
+            and self._in_main_phase()
+            and not self.state.stack
+        )
 
     def _can_activate_loyalty(self, player: Player, source: GameObject) -> bool:
         """Timing gate for a planeswalker loyalty ability (RULE 606.3).
 
-        Only at sorcery speed (the controller's main phase, empty stack, their
-        priority) and only once per turn per planeswalker."""
+        Only at sorcery speed and only once per turn per planeswalker."""
         return (
             source.is_planeswalker
-            and player is self.state.active_player
-            and self._in_main_phase()
-            and not self.state.stack
+            and self._sorcery_speed_ok(player)
             and not source.activated_loyalty_this_turn
         )
+
+    def _can_activate_class_level(self, source: GameObject, target_level: int) -> bool:
+        """RULE 716.4c: a Class's level-up ability may only be activated when
+        the Class's current level is exactly one less than the ability's
+        level — levels can't be skipped or repeated."""
+        return source.counters.get("class_level", 0) == target_level - 1
 
     def _ability_target_requirements(
         self, player: Player, ability: ActivatedAbility, source: GameObject

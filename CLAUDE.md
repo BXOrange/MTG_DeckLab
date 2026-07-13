@@ -170,7 +170,14 @@ with the RULE 704.5d cease-to-exist lifecycle (`GameObject.is_token`,
 sorcery-speed with a once-per-turn gate, damage removes loyalty, 0-loyalty SBA);
 commander damage plus **commander tax** (903.8); counters; **basic card
 structures** (DFC transform, token copies, **Saga lore counters + chapter
-abilities + final-chapter sacrifice**); **modal-DFC back-face casting/playing
+abilities + final-chapter sacrifice**, **Class level-up abilities (RULE 716,
+cumulative per-level static/triggered grants) and Leveler level tiers (RULE
+711, mutually-exclusive P/T/keyword/triggered-ability brackets)** — both
+share a new RULE 613.6 "as long as" conditional-static primitive
+(`min_level`/`max_level`/`level_counter` in `continuous.group_selector_
+objects`/`effect_binder._trigger_condition`) and a sorcery-speed activation
+gate generalized off the planeswalker-loyalty one
+(`GameEngine._sorcery_speed_ok`)); **modal-DFC back-face casting/playing
 from hand** (RULE 712.10:
 `RulesEngine.snapshot_face`/`restore_face`/`switch_to_face` rebind an object
 onto its back face — same rebind treatment as `become_copy` — so
@@ -237,10 +244,12 @@ mid-game); bespoke *conditional* transform triggers ("look at the top card…,
 if instant/sorcery, transform" — Delver of Secrets — a genuinely new
 "reveal + conditional" one-shot family) and the legacy pre-2021 non-daybound
 werewolf template ("if no spells were cast last turn, transform ~",
-superseded by RULE 731's day/night); and the remaining deeper card-type
-structures (Adventure/Split casting, Class/Leveler *chapter/level abilities*,
-battles/dungeons — MDFC back-face casting and Saga chapter abilities are both
-done, see above).
+superseded by RULE 731's day/night); a Class level block combining both a
+static "cumulative" grant and a separate one-shot "when this Class becomes
+level N" trigger together (each works individually); and the remaining
+deeper card-type structures (Adventure/Split casting, battles/dungeons —
+MDFC back-face casting, Saga chapter abilities, and Class/Leveler level-up
+are all done, see above).
 
 Hand-authoring a card's abilities directly (rather than waiting on the
 oracle-effect front-end, or for a replacement-clause/conditional-trigger the

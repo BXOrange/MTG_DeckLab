@@ -82,6 +82,14 @@ class ActivationCost:
     #: loyalty counters — ``+2`` for ``[+2]``, ``-3`` for ``[-3]``, ``0`` for
     #: ``[0]``. ``None`` means this is not a loyalty ability.
     loyalty: Optional[int] = None
+    #: Sorcery-speed timing restriction (RULE 711.4b Leveler / 716.4c Class
+    #: level-up abilities) that isn't tied to a planeswalker — see
+    #: `GameEngine._sorcery_speed_ok`. Not itself a cost component.
+    sorcery_speed_only: bool = False
+    #: RULE 716.3/716.4c: this ability advances a Class to this level — legal
+    #: only when the Class's current `class_level` is exactly one less. A
+    #: legality precondition riding along with the cost, not something paid.
+    class_level: Optional[int] = None
     raw: str = ""
 
     @property
@@ -176,6 +184,10 @@ def parse_activation_cost(
         parsed.discard = int(cost["discard"])
     if cost.get("loyalty") is not None:
         parsed.loyalty = int(cost["loyalty"])
+    if "sorcery_speed_only" in cost:
+        parsed.sorcery_speed_only = bool(cost["sorcery_speed_only"])
+    if cost.get("class_level") is not None:
+        parsed.class_level = int(cost["class_level"])
     parsed.raw = parsed.raw or text
     return parsed
 

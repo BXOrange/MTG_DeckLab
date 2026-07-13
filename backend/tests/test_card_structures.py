@@ -3,6 +3,7 @@
 import pytest
 
 from mtg_analyzer.models.card import Card
+from mtg_analyzer.models.events import EventType, GameEvent
 from mtg_analyzer.models.game_object import GameObject, Zone
 from mtg_analyzer.game import combat
 from mtg_analyzer.game.effect_binder import bind_from_catalogue
@@ -189,6 +190,158 @@ def test_saga_chapter_iii_group_pumps_creatures_you_control():
     assert bear.temp_power == 2 and bear.temp_toughness == 1
     for knight in knights:
         assert knight.temp_power == 2 and knight.temp_toughness == 1
+
+
+# -- Leveler (RULE 711) ------------------------------------------------------
+
+
+def _leveler(name="Test Dragon"):
+    return Card(
+        id=name, name=name, type_line="Creature — Dragon", is_creature=True,
+        power=1, toughness=1, keywords=["Level Up", "Flying", "Haste"],
+        oracle_text=(
+            "Level up {1}{R} (Level up only as a sorcery.)\n"
+            "LEVEL 2-6\n2/2\n"
+            f"Whenever {name} attacks, {name} gets +1/+0 until end of turn.\n"
+            "LEVEL 7+\n6/6\nFlying, haste"
+        ),
+    )
+
+
+def _leveler_in_play(eng, card, controller="p1"):
+    obj = GameObject(card, owner_id=controller, controller_id=controller, zone=Zone.BATTLEFIELD)
+    obj.summoning_sick = False
+    bind_from_catalogue(obj)
+    eng.state.add_to_battlefield(obj)
+    return obj
+
+
+def test_leveler_base_pt_and_no_tier_keywords_at_level_zero():
+    eng = make_engine()
+    dragon = _leveler_in_play(eng, _leveler())
+    eng.recompute_continuous_effects()
+    assert dragon.level == 0
+    assert (dragon.power, dragon.toughness) == (1, 1)
+    # Regression: Scryfall's `keywords` array lists Flying/Haste even though
+    # they're only printed under LEVEL 7+ — parse_keywords's Leveler
+    # cross-check must exclude them from the always-on intrinsic set.
+    assert not combat.has(dragon, "flying")
+    assert not combat.has(dragon, "haste")
+
+
+def test_leveler_level_up_is_sorcery_speed_only():
+    eng = make_engine()
+    eng.begin_turn()
+    eng.state.current_step = "upkeep"  # not a main phase, stack empty
+    p1 = eng.state.active_player
+    dragon = _leveler_in_play(eng, _leveler())
+    ability = dragon.activated_abilities[0]
+    p1.mana_pool.add_many({"R": 1, "C": 1})
+    assert not eng.can_activate(p1, dragon, ability)
+
+    eng.state.current_step = "main1"
+    assert eng.can_activate(p1, dragon, ability)
+    eng.activate_ability(p1, dragon)
+    eng.resolve_until_stable()
+    assert dragon.level == 1
+
+
+def test_leveler_tier_pt_and_keywords_are_level_gated():
+    eng = make_engine()
+    eng.begin_turn()
+    eng.state.current_step = "main1"
+    p1 = eng.state.active_player
+    dragon = _leveler_in_play(eng, _leveler())
+    ability = dragon.activated_abilities[0]
+
+    for _ in range(2):  # RULE 711.4b: no per-turn cap on level-up activations
+        p1.mana_pool.add_many({"R": 1, "C": 1})
+        eng.activate_ability(p1, dragon)
+        eng.resolve_until_stable()
+    assert dragon.level == 2
+    eng.recompute_continuous_effects()
+    assert (dragon.power, dragon.toughness) == (2, 2)
+    assert not combat.has(dragon, "flying")
+
+    # The LEVEL 2-6 attack trigger only fires while `level` is in range.
+    eng.state.fire_event(GameEvent(EventType.ATTACKS, attacker=dragon.name, player_id="p1"))
+    assert eng.rules.put_triggers_on_stack() == 1
+    eng.resolve_until_stable()
+    assert dragon.temp_power == 1 and dragon.temp_toughness == 0
+    eng._step_cleanup()  # RULE 514.2: end the "until end of turn" pump
+
+    for _ in range(5):
+        p1.mana_pool.add_many({"R": 1, "C": 1})
+        eng.activate_ability(p1, dragon)
+        eng.resolve_until_stable()
+    assert dragon.level == 7
+    eng.recompute_continuous_effects()
+    assert (dragon.power, dragon.toughness) == (6, 6)
+    assert combat.has(dragon, "flying") and combat.has(dragon, "haste")
+
+    # The attack-trigger pump is gone once past LEVEL 2-6.
+    eng.state.fire_event(GameEvent(EventType.ATTACKS, attacker=dragon.name, player_id="p1"))
+    assert eng.rules.put_triggers_on_stack() == 0
+
+
+# -- Class (RULE 716) ---------------------------------------------------------
+
+
+def _class_card(name="Test Class"):
+    return Card(
+        id=name, name=name, type_line="Enchantment — Class",
+        oracle_text=(
+            "(Gain the next level as a sorcery to add its ability.)\n"
+            "Level 2: {1}{G}\nCreatures you control get +1/+1.\n"
+            "Level 3: {3}{G}\nCreatures you control have trample."
+        ),
+    )
+
+
+def _class_in_play(eng, card, controller="p1"):
+    obj = GameObject(card, owner_id=controller, controller_id=controller, zone=Zone.HAND)
+    bind_from_catalogue(obj)
+    eng.state.add_to_battlefield(obj)
+    return obj
+
+
+def test_class_enters_at_level_one():
+    eng = make_engine()
+    cls = _class_in_play(eng, _class_card())
+    assert cls.class_level == 1
+
+
+def test_class_level_up_must_go_in_order_and_is_sorcery_speed():
+    eng = make_engine()
+    eng.begin_turn()
+    eng.state.current_step = "main1"
+    p1 = eng.state.active_player
+    cls = _class_in_play(eng, _class_card())
+    level2, level3 = cls.activated_abilities
+
+    # RULE 716.4c: level 3 isn't legal before level 2 is reached.
+    p1.mana_pool.add_many({"G": 1, "C": 3})
+    assert not eng.can_activate(p1, cls, level3)
+
+    p1.mana_pool.add_many({"G": 1, "C": 1})
+    assert eng.can_activate(p1, cls, level2)
+    eng.activate_ability(p1, cls, 0)
+    eng.resolve_until_stable()
+    assert cls.class_level == 2
+
+    bear = _put(eng, creature("Bear"))
+    eng.recompute_continuous_effects()
+    assert (bear.power, bear.toughness) == (3, 3)  # +1/+1 anthem active
+    assert not combat.has(bear, "trample")
+
+    p1.mana_pool.add_many({"G": 1, "C": 3})
+    eng.activate_ability(p1, cls, 1)
+    eng.resolve_until_stable()
+    assert cls.class_level == 3
+    eng.recompute_continuous_effects()
+    # Cumulative: the level-2 anthem is still active alongside level 3's grant.
+    assert (bear.power, bear.toughness) == (3, 3)
+    assert combat.has(bear, "trample")
 
 
 # -- Modal DFC casting (RULE 712.10) -----------------------------------------

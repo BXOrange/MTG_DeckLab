@@ -718,6 +718,39 @@ class AddCountersEffect(GameEffect):
             context.add_counters(target, self.amount, self.kind)
 
 
+class ClassLevelEffect(GameEffect):
+    """Set a Class's class level (RULE 716.2c) — the effect of activating one
+    of its "Level N: <cost>" abilities, not the cost itself (mirrors how
+    Saga's chapter advance is a dedicated step, not a generic counter add).
+
+    Sets the source's ``class_level`` counter directly to ``level`` (never
+    incremented — a Class's level-up abilities are only ever legal one level
+    at a time, `GameEngine._can_activate_class_level`) and fires
+    `EventType.CLASS_LEVEL` so a rare "when this Class becomes level N"
+    trigger can scope to it via the same ``chapter`` trigger key Saga's
+    chapter triggers already use (`effect_binder._trigger_condition`).
+    """
+
+    def __init__(self, level: int, source: Optional["GameObject"] = None) -> None:
+        super().__init__(source)
+        self.level = level
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        target = self.source
+        if target is None:
+            return
+        target.counters["class_level"] = self.level
+        context.state.fire_event(
+            GameEvent(
+                EventType.CLASS_LEVEL,
+                object=target.name,
+                instance_id=target.instance_id,
+                controller_id=target.controller_id,
+                chapter=self.level,
+            )
+        )
+
+
 class PumpEffect(GameEffect):
     """Give a target creature a temporary P/T boost and/or keywords "until end
     of turn" (Giant Growth; RULE 613.4d layer 7d + layer 6 for keywords).
@@ -1128,6 +1161,10 @@ EffectRegistry.register(
     ),
 )
 EffectRegistry.register(
+    "class_level",  # RULE 716.2c: activating "Level N: <cost>" sets class level to N
+    lambda p: ClassLevelEffect(level=p.get("level", 1)),
+)
+EffectRegistry.register(
     "pump",  # "target creature gets +N/+N (and gains <kw>) until end of turn"
     lambda p: PumpEffect(
         power=p.get("power", 0),
@@ -1185,10 +1222,16 @@ EffectRegistry.register(
 # `StaticAbility`; `game/continuous.py` folds them into derived characteristics.
 
 #: The extra selector filters a static ability may narrow its `affects` set by —
-#: a tribal subtype, tokens-only, a colour, or "other" (exclude the source).
-#: `continuous.affected_objects` reads these; only the non-``None`` ones are
-#: carried so a filter is off unless the parser/author set it.
-_SELECTOR_KEYS: tuple[str, ...] = ("subtype", "tokens", "color", "exclude_self")
+#: a tribal subtype, tokens-only, a colour, "other" (exclude the source), or a
+#: RULE 613.6-style "as long as this source's own <counter> is in range"
+#: conditional gate (`min_level`/`max_level`/`level_counter` — Leveler tiers,
+#: RULE 711, and cumulative Class levels, RULE 716). `continuous.
+#: affected_objects`/`group_selector_objects` read these; only the non-
+#: ``None`` ones are carried so a filter is off unless the parser/author set it.
+_SELECTOR_KEYS: tuple[str, ...] = (
+    "subtype", "tokens", "color", "exclude_self",
+    "min_level", "max_level", "level_counter",
+)
 
 
 def _selectors(p: dict[str, Any]) -> dict[str, Any]:

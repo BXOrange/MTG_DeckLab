@@ -31,6 +31,8 @@ from __future__ import annotations
 import re
 from typing import TYPE_CHECKING, Optional
 
+from ..parser.oracle.catalogue.levels import leveler_base_text
+
 if TYPE_CHECKING:  # pragma: no cover - typing only, avoids a model→game cycle
     from ..models.card import Card
     from ..models.game_object import GameObject
@@ -128,13 +130,29 @@ def keywords_of(card: "Card") -> frozenset[str]:
     scan is a clause-anchored fallback that also covers tokens built without a
     keyword list. "Protection" is included here as a bare flag; *what* it is
     from lives in `protections_of`.
+
+    A Leveler's (RULE 711.4c) ``keywords`` array and oracle text both cover
+    its *whole* printed text, tier or not — so a keyword printed only under a
+    ``LEVEL`` block (e.g. Kargan Dragonlord's "Flying, haste" under
+    "LEVEL 7+") would otherwise register here as always-on. Restrict both to
+    the pre-``LEVEL`` base text instead — the same cross-check
+    `catalogue.keywords.parse_keywords` applies to the intrinsic-keyword bind
+    — so a tier-only keyword only shows up via its level-gated
+    `granted_keywords` grant (`continuous.recompute`), not unconditionally.
     """
+    is_leveler = bool(getattr(card, "is_leveler", False))
+    raw_text = getattr(card, "oracle_text", "") or ""
+    scan_text = leveler_base_text(raw_text) if is_leveler else raw_text
+
     found: set[str] = set()
     for kw in getattr(card, "keywords", None) or []:
         slug = _normalize(str(kw))
-        if slug in COMBAT_KEYWORDS:
-            found.add(slug)
-    text = (getattr(card, "oracle_text", "") or "").lower()
+        if slug not in COMBAT_KEYWORDS:
+            continue
+        if is_leveler and not re.search(rf"\b{re.escape(str(kw))}\b", scan_text, re.I):
+            continue
+        found.add(slug)
+    text = scan_text.lower()
     if text:
         for slug, pattern in _ORACLE_PATTERNS.items():
             if pattern.search(text):

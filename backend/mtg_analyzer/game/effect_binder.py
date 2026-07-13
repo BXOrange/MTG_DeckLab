@@ -90,23 +90,54 @@ def _trigger_condition(
 ) -> Optional[Callable[[Any, Any], bool]]:
     """The extra `TriggeredAbility.check_trigger` predicate a trigger spec needs.
 
-    Only a Saga's ``"chapter"`` key needs one today: a chapter ability must
-    fire only for *its own* Saga (scoped by the event's ``instance_id``, the
-    same convention `continuous._granted_trigger_condition` uses) and only at
-    the specific lore-counter number(s) its chapter line names — a single
-    ``SAGA_CHAPTER`` event otherwise looks identical for every Saga on the
-    battlefield and every chapter on the card.
+    Composes independent predicates so a trigger can be scoped by any
+    combination the spec sets:
+
+    * ``"chapter"`` — a Saga (or Class) chapter/level ability must fire only
+      for *its own* source (scoped by the event's ``instance_id``, the same
+      convention `continuous._granted_trigger_condition` uses) and only at
+      the specific counter number(s) its chapter/level line names — a single
+      ``SAGA_CHAPTER``/``CLASS_LEVEL`` event otherwise looks identical for
+      every instance on the battlefield and every chapter/level on the card.
+    * ``"min_level"``/``"max_level"``/``"level_counter"`` — a Leveler tier's
+      own triggered ability (RULE 711, e.g. "whenever ~ attacks, it gets
+      +1/+0" restricted to ``LEVEL 2-6``) must fire only while the source's
+      own counter (``level`` by default) is currently in that tier's range —
+      unlike ``chapter``, this checks the source's *current* state, not the
+      triggering event's payload.
     """
+    predicates: list[Callable[[Any, Any], bool]] = []
+
     chapters = trigger.get("chapter")
-    if not chapters:
+    if chapters:
+        chapter_set = frozenset(chapters)
+        instance_id = getattr(source, "instance_id", None)
+
+        def _chapter_ok(event: Any, context: Any, iid=instance_id, cs=chapter_set) -> bool:
+            return event.get("instance_id") == iid and event.get("chapter") in cs
+
+        predicates.append(_chapter_ok)
+
+    min_level = trigger.get("min_level")
+    max_level = trigger.get("max_level")
+    if min_level is not None or max_level is not None:
+        counter_kind = trigger.get("level_counter") or "level"
+
+        def _level_ok(event: Any, context: Any, kind=counter_kind, lo=min_level, hi=max_level) -> bool:
+            n = getattr(source, "counters", {}).get(kind, 0)
+            return (lo is None or n >= lo) and (hi is None or n <= hi)
+
+        predicates.append(_level_ok)
+
+    if not predicates:
         return None
-    chapter_set = frozenset(chapters)
-    instance_id = getattr(source, "instance_id", None)
+    if len(predicates) == 1:
+        return predicates[0]
 
-    def condition(event: Any, context: Any) -> bool:
-        return event.get("instance_id") == instance_id and event.get("chapter") in chapter_set
+    def _all(event: Any, context: Any) -> bool:
+        return all(p(event, context) for p in predicates)
 
-    return condition
+    return _all
 
 
 def bind_ability(

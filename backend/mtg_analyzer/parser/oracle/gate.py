@@ -20,12 +20,18 @@ Pure — **no `game/` imports** (front-end security boundary).
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, Optional
 
 from .catalogue.keywords import parse_keywords
+from .catalogue.levels import (
+    LEVEL_UP_LINE_RE,
+    PT_LINE_RE,
+    split_class_blocks,
+    split_leveler_blocks,
+)
 from .normalize import normalize
 from .segmenter import Segment, segment_line
-from .spec import AbilitySpec, ParserProvenance
+from .spec import AbilitySpec, EffectSpec, ParserProvenance
 
 MODELED = "MODELED"
 UNMODELED = "UNMODELED"
@@ -70,6 +76,16 @@ def parse_oracle(card: Any) -> ParseResult:
     ``keywords`` array); the remaining lines are normalised, segmented, and run
     through the effect-handler table. A card with no oracle text (a vanilla
     creature) is trivially `MODELED` with no specs.
+
+    A Leveler (RULE 711.4c) or a Class (RULE 716.3) prints a multi-line
+    **block** structure ordinary per-line segmentation can't see across —
+    each block's body lines only apply while the object's own level/class-
+    level counter is in that block's range. `_process_line` is the ordinary
+    per-line dispatch this function always used; `_process_leveler_body`/
+    `_process_class_body` wrap it to also tag the resulting specs with that
+    gating (consumed by `continuous.group_selector_objects` for static specs,
+    `effect_binder._trigger_condition` for triggered ones — both via
+    `min_level`/`max_level`/`level_counter`).
     """
     provenance = ParserProvenance(version=PARSER_VERSION, source="rule:oracle")
     keyword_specs = parse_keywords(card)
@@ -81,13 +97,14 @@ def parse_oracle(card: Any) -> ParseResult:
 
     allow_spell_effect = _is_spell(card)
     is_saga = bool(getattr(card, "is_saga", False))
+    is_leveler = bool(getattr(card, "is_leveler", False))
+    is_class = bool(getattr(card, "is_class", False))
     effect_specs: list[AbilitySpec] = []
     unclaimed: list[str] = []
     all_claimed = True
 
-    for line in normalized.split("\n"):
-        if not line.strip():
-            continue
+    def _process_line(line: str) -> None:
+        nonlocal all_claimed
         seg: Segment = segment_line(
             line, allow_spell_effect=allow_spell_effect, provenance=provenance, is_saga=is_saga
         )
@@ -96,6 +113,122 @@ def parse_oracle(card: Any) -> ParseResult:
             unclaimed.append(seg.raw)
         elif seg.spec is not None:
             effect_specs.append(seg.spec)
+
+    def _tag_level_gate(
+        spec: AbilitySpec, gate: dict[str, Any], default_affects: Optional[str]
+    ) -> None:
+        if spec.ability_kind == "static":
+            for effect in spec.effects:
+                if default_affects is not None:
+                    effect.params.setdefault("affects", default_affects)
+                effect.params.update(gate)
+            effect_specs.append(spec)
+        elif spec.ability_kind == "triggered":
+            spec.trigger = {**(spec.trigger or {}), **gate}
+            effect_specs.append(spec)
+        else:
+            effect_specs.append(spec)
+
+    def _grant_keyword_line_spec(line: str, affects: str, gate: dict[str, Any]) -> AbilitySpec:
+        keywords = [k.strip() for k in line.split(",") if k.strip()]
+        return AbilitySpec(
+            "static",
+            effects=[EffectSpec("grant_keyword", {"keywords": keywords, "affects": affects, **gate})],
+            raw_text=line,
+            parser=provenance,
+        )
+
+    def _process_leveler_body(line: str, lo: int, hi: Optional[int]) -> None:
+        nonlocal all_claimed
+        gate = {"min_level": lo, "max_level": hi}
+        pt = PT_LINE_RE.match(line.strip())
+        if pt is not None:
+            power, toughness = pt.group("power"), pt.group("toughness")
+            if power == "*" or toughness == "*":
+                # CDA-based Leveler P/T isn't modeled (no card in the pool
+                # needs it) — fail closed rather than guess.
+                all_claimed = False
+                unclaimed.append(line)
+                return
+            effect_specs.append(AbilitySpec(
+                "static",
+                effects=[EffectSpec("pt_set", {
+                    "power": int(power), "toughness": int(toughness), "affects": "self", **gate,
+                })],
+                raw_text=line, parser=provenance,
+            ))
+            return
+        seg = segment_line(line, allow_spell_effect=False, provenance=provenance, is_saga=False)
+        if not seg.claimed:
+            all_claimed = False
+            unclaimed.append(seg.raw)
+            return
+        if seg.keyword_line:
+            # A tier-scoped keyword line ("Flying, haste" under LEVEL 7+)
+            # becomes a level-gated grant, not an unconditional intrinsic
+            # keyword — `parse_keywords`'s Leveler cross-check already
+            # excludes these from the always-on set for exactly this reason.
+            effect_specs.append(_grant_keyword_line_spec(line, "self", gate))
+            return
+        if seg.spec is not None:
+            _tag_level_gate(seg.spec, gate, default_affects="self")
+
+    def _process_class_body(line: str, level: int) -> None:
+        nonlocal all_claimed
+        gate = {"min_level": level, "level_counter": "class_level"}
+        seg = segment_line(line, allow_spell_effect=False, provenance=provenance, is_saga=False)
+        if not seg.claimed:
+            all_claimed = False
+            unclaimed.append(seg.raw)
+            return
+        if seg.spec is not None:
+            _tag_level_gate(seg.spec, gate, default_affects=None)
+
+    if is_leveler:
+        preamble, blocks = split_leveler_blocks(normalized)
+        for line in preamble:
+            level_up = LEVEL_UP_LINE_RE.match(line.strip())
+            if level_up is not None:
+                # RULE 711.4a: the actual "put a level counter on this,
+                # sorcery speed only" mechanic — see `LEVEL_UP_LINE_RE`'s
+                # docstring for why this can't just fall through to the
+                # generic per-line dispatch.
+                effect_specs.append(AbilitySpec(
+                    "activated",
+                    effects=[EffectSpec("add_counters", {"amount": 1, "kind": "level"})],
+                    cost={"text": level_up.group("cost"), "sorcery_speed_only": True},
+                    raw_text=line, parser=provenance,
+                ))
+                continue
+            _process_line(line)
+        for lo, hi, body_lines in blocks:
+            for line in body_lines:
+                _process_leveler_body(line, lo, hi)
+    elif is_class:
+        preamble, blocks = split_class_blocks(normalized)
+        for line in preamble:
+            _process_line(line)
+        for level, cost_text, body_lines in blocks:
+            # RULE 716.3/716.4c: "Level N: <cost>" is itself a sorcery-speed
+            # activated ability, legal only from the level just below it
+            # (`GameEngine._can_activate_class_level`) — the header carries
+            # no effect body of its own to segment (the effect is "become
+            # this level", `ClassLevelEffect`), unlike an ordinary "<cost>:
+            # <effect>" line.
+            effect_specs.append(AbilitySpec(
+                "activated",
+                effects=[EffectSpec("class_level", {"level": level})],
+                cost={"text": cost_text, "sorcery_speed_only": True, "class_level": level},
+                raw_text=f"level {level}: {cost_text}",
+                parser=provenance,
+            ))
+            for line in body_lines:
+                _process_class_body(line, level)
+    else:
+        for line in normalized.split("\n"):
+            if not line.strip():
+                continue
+            _process_line(line)
 
     return ParseResult(
         specs=list(keyword_specs) + effect_specs,

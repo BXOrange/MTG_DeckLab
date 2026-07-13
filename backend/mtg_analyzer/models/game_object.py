@@ -274,6 +274,16 @@ class GameObject:
         return self.counters.get("lore", 0)
 
     @property
+    def level(self) -> int:
+        """Level counters on a Leveler creature (RULE 711.4a)."""
+        return self.counters.get("level", 0)
+
+    @property
+    def class_level(self) -> int:
+        """Current class level of a Class enchantment (RULE 716.2c)."""
+        return self.counters.get("class_level", 0)
+
+    @property
     def plus_one_counters(self) -> int:
         """Net +1/+1 counters (positive) vs. -1/-1 counters (negative).
 

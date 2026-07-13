@@ -37,7 +37,7 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 from enum import Enum
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING, Any, Optional
 
 from ..spec import AbilitySpec, ParserProvenance
 
@@ -472,6 +472,28 @@ def parse_keywords(card: "Card") -> list[AbilitySpec]:
             rf"^{slug}\b", text, re.I | re.M
         ):
             names.append(kw_name)
+    # A Leveler's ``LEVEL`` blocks (RULE 711.4c) print keywords that only
+    # apply at that tier (e.g. Kargan Dragonlord's "Flying, haste" under
+    # "LEVEL 7+"), but Scryfall's ``keywords`` array is position-blind — it
+    # lists any keyword word found anywhere in the text, tier or not. Trusting
+    # it unconditionally here would bind Flying/Haste as *always-on*
+    # intrinsic keywords, which is wrong (RULE 613.6 — they should apply only
+    # while `level` is in that tier's range). Cross-check against the base
+    # text instead (the same "oracle text is ground truth" pattern as Enchant/
+    # Daybound above); a tier-only keyword is dropped here and re-granted,
+    # correctly level-gated, by the level-block parser (`gate.py`) instead.
+    if getattr(card, "is_leveler", False):
+        from .levels import leveler_base_text
+
+        base_text = leveler_base_text(text)
+
+        def _in_base_text(raw_name: Any) -> bool:
+            kdef = _resolve(keyword_slug(str(raw_name)))
+            if kdef is None:  # unknown keyword — let the main loop skip it
+                return True
+            return bool(re.search(rf"\b{re.escape(kdef.display)}\b", base_text, re.I))
+
+        names = [n for n in names if _in_base_text(n)]
     specs: list[AbilitySpec] = []
     seen: set[str] = set()
 

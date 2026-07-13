@@ -427,6 +427,66 @@ def test_saga_chapter_grammar_does_not_misfire_on_a_non_saga_card():
 
 
 # ---------------------------------------------------------------------------
+# Leveler (RULE 711) / Class (RULE 716) block grammar
+# ---------------------------------------------------------------------------
+
+
+def test_leveler_blocks_are_modeled_with_level_gated_specs():
+    r = parse_oracle(Card(
+        id="Test Dragon", name="Test Dragon", type_line="Creature — Dragon",
+        is_creature=True, power=1, toughness=1, keywords=["Level Up", "Flying", "Haste"],
+        oracle_text=(
+            "Level up {1}{R} (Level up only as a sorcery.)\n"
+            "LEVEL 2-6\n2/2\n"
+            "Whenever Test Dragon attacks, Test Dragon gets +1/+0 until end of turn.\n"
+            "LEVEL 7+\n6/6\nFlying, haste"
+        ),
+    ))
+    assert r.coverage == MODELED
+    activated = [s for s in r.specs if s.ability_kind == "activated"]
+    assert len(activated) == 1
+    assert activated[0].effects[0].type == "add_counters"
+    assert activated[0].cost == {"text": "{1}{r}", "sorcery_speed_only": True}
+
+    statics = [s for s in r.specs if s.ability_kind == "static"]
+    pt_sets = [s for s in statics if s.effects[0].type == "pt_set"]
+    assert {(s.effects[0].params["min_level"], s.effects[0].params["max_level"]) for s in pt_sets} == {
+        (2, 6), (7, None),
+    }
+    grant = next(s for s in statics if s.effects[0].type == "grant_keyword")
+    assert grant.effects[0].params["min_level"] == 7 and grant.effects[0].params["max_level"] is None
+
+    trigger = next(s for s in r.specs if s.ability_kind == "triggered")
+    assert trigger.trigger["event"] == "ATTACKS"
+    assert (trigger.trigger["min_level"], trigger.trigger["max_level"]) == (2, 6)
+
+
+def test_class_blocks_are_modeled_with_cumulative_level_gated_specs():
+    r = parse_oracle(Card(
+        id="Test Class", name="Test Class", type_line="Enchantment — Class",
+        oracle_text=(
+            "(Gain the next level as a sorcery to add its ability.)\n"
+            "Level 2: {1}{G}\nCreatures you control get +1/+1.\n"
+            "Level 3: {3}{G}\nCreatures you control have trample."
+        ),
+    ))
+    assert r.coverage == MODELED
+    activated = [s for s in r.specs if s.ability_kind == "activated"]
+    assert len(activated) == 2
+    assert [a.cost["class_level"] for a in activated] == [2, 3]
+    assert all(a.cost["sorcery_speed_only"] for a in activated)
+    assert [a.effects[0].type for a in activated] == ["class_level", "class_level"]
+
+    statics = [s for s in r.specs if s.ability_kind == "static"]
+    anthem = next(s for s in statics if s.effects[0].type == "anthem")
+    assert anthem.effects[0].params["min_level"] == 2
+    assert anthem.effects[0].params["level_counter"] == "class_level"
+    grant = next(s for s in statics if s.effects[0].type == "grant_keyword")
+    assert grant.effects[0].params["min_level"] == 3
+    assert grant.effects[0].params["level_counter"] == "class_level"
+
+
+# ---------------------------------------------------------------------------
 # INTEGRATION: specs_for fallback + binding
 # ---------------------------------------------------------------------------
 
