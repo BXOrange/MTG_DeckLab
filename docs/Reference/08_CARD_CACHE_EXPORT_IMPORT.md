@@ -1,7 +1,7 @@
 # Card Cache: Layout, Export & Import
 
 Reference implementation: `backend/mtg_analyzer/services/card_database.py`,
-`image_cache.py`. See also docs/06_CARD_GRAPHICS_AND_LAZY_LOADING.md for
+`image_cache.py`. See also docs/concepts/06_CARD_GRAPHICS_AND_LAZY_LOADING.md for
 the lazy-loading design this cache implements.
 
 **Not to be confused with `backend/data/`** (saved decks,

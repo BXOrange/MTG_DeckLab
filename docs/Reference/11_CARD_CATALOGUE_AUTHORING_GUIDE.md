@@ -1,10 +1,10 @@
 # MTG Deck Analyzer: Hand-Authoring Cards in the Ability Catalogue
 
 Status: **current — describes the pipeline as implemented today**, not a
-design proposal. Read [09_ORACLE_EFFECT_PARSER.md](09_ORACLE_EFFECT_PARSER.md)
+design proposal. Read [09_ORACLE_EFFECT_PARSER.md](../concepts/09_ORACLE_EFFECT_PARSER.md)
 first for the IR/binder architecture this guide operates; this document is
 the practical "how do I add card X" companion to it, scoped to
-[`backend/mtg_analyzer/game/ability_catalogue.py`](../backend/mtg_analyzer/game/ability_catalogue.py)
+[`backend/mtg_analyzer/game/ability_catalogue.py`](../../backend/mtg_analyzer/game/ability_catalogue.py)
 (the **hand-authored** registry, not the oracle-text parser).
 
 ---
