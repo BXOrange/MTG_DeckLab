@@ -385,3 +385,143 @@ def _dionus_elvish_archdruid() -> list[AbilitySpec]:
 
 
 register("Dionus, Elvish Archdruid", _dionus_elvish_archdruid)
+
+
+def _doubling_season() -> list[AbilitySpec]:
+    """If an effect would create one or more tokens under your control, it
+    creates twice that many of those tokens instead. If an effect would put
+    one or more counters on a permanent or player, it puts twice that many
+    of those counters on that permanent or player instead.
+
+    — Doubling Season. Two independent RULE 616.1 replacement effects
+    (`double_tokens`/`double_counters`) sharing one permanent — a real card
+    with *two* simultaneously-registered replacement clauses, exercising
+    `build_replacements`'s one-`ReplacementEffect`-per-`EffectSpec` path.
+    The counter clause is deliberately unscoped (any permanent/player, not
+    just ones its controller controls — the real card's own well-known
+    "doubles an opponent's poison counters too" behaviour); the token
+    clause is controller-scoped, matching the printed "under your control".
+    Together with Parallel Lives (`_parallel_lives`) this is the textbook
+    RULE 616.1e "which order?" prompt — the final token count is the same
+    either way (doubling commutes), but the choice is still required.
+    """
+    return [
+        AbilitySpec(
+            "replacement",
+            [EffectSpec("double_tokens", {}), EffectSpec("double_counters", {})],
+            raw_text="Falls ein Effekt einen oder mehrere Marker-Spielsteine unter "
+                     "deiner Kontrolle erzeugen würde, erzeugt er stattdessen doppelt "
+                     "so viele. Falls ein Effekt einen oder mehrere Marker auf eine "
+                     "bleibende Karte oder einen Spieler legen würde, legt er "
+                     "stattdessen doppelt so viele.",
+        )
+    ]
+
+
+register("Doubling Season", _doubling_season)
+
+
+def _parallel_lives() -> list[AbilitySpec]:
+    """If an effect would create one or more tokens under your control, it
+    creates twice that many of those tokens instead.
+
+    — Parallel Lives. The same `double_tokens` replacement as Doubling
+    Season's token clause (see its docstring above for the RULE 616.1e
+    "two doubling effects, which order?" example this pairing exists for).
+    """
+    return [
+        AbilitySpec(
+            "replacement",
+            [EffectSpec("double_tokens", {})],
+            raw_text="Falls ein Effekt einen oder mehrere Marker-Spielsteine unter "
+                     "deiner Kontrolle erzeugen würde, erzeugt er stattdessen doppelt "
+                     "so viele.",
+        )
+    ]
+
+
+register("Parallel Lives", _parallel_lives)
+
+
+def _furnace_of_rath() -> list[AbilitySpec]:
+    """If a source would deal damage to a permanent or player, it deals
+    double that damage to that permanent or player instead.
+
+    — Furnace of Rath. Unscoped `double_damage` (every source, not just its
+    controller's) — the classic damage-doubling enchantment, and — paired
+    with Torbran, Thane of Red Fell (`_torbran_thane_of_red_fell`) — the
+    RULE 616.1 example where the *order* genuinely changes the outcome:
+    double-then-add-2 vs. add-2-then-double differ, unlike the
+    order-invariant token-doubling pair above.
+    """
+    return [
+        AbilitySpec(
+            "replacement",
+            [EffectSpec("double_damage", {})],
+            raw_text="Falls eine Quelle einer bleibenden Karte oder einem Spieler "
+                     "Schaden zufügen würde, fügt sie stattdessen doppelt so viel "
+                     "Schaden zu.",
+        )
+    ]
+
+
+register("Furnace of Rath", _furnace_of_rath)
+
+
+def _gratuitous_violence() -> list[AbilitySpec]:
+    """If a source you control would deal combat damage to a permanent or
+    player, it deals double that damage to that permanent or player
+    instead.
+
+    — Gratuitous Violence. `double_damage` scoped to ``combat_only`` +
+    ``your_sources_only`` — narrower than Furnace of Rath's unscoped
+    version (noncombat burn spells, and an opponent's combat damage, are
+    both untouched).
+    """
+    return [
+        AbilitySpec(
+            "replacement",
+            [EffectSpec("double_damage", {"combat_only": True, "your_sources_only": True})],
+            raw_text="Falls eine Quelle, die du kontrollierst, einer bleibenden Karte "
+                     "oder einem Spieler Kampfschaden zufügen würde, fügt sie "
+                     "stattdessen doppelt so viel Schaden zu.",
+        )
+    ]
+
+
+register("Gratuitous Violence", _gratuitous_violence)
+
+
+def _torbran_thane_of_red_fell() -> list[AbilitySpec]:
+    """If a red source you control would deal damage to an opponent or a
+    permanent an opponent controls, it deals that much damage plus 2
+    instead.
+
+    — Torbran, Thane of Red Fell. `additional_damage` scoped by
+    ``your_sources_only``/``color: "R"``/``to_opponent_only`` — an additive
+    replacement rather than `double_damage`'s multiplicative one, which is
+    exactly why pairing it with Furnace of Rath (`_furnace_of_rath`) makes
+    RULE 616.1's ordering choice observably matter: (X+2)×2 ≠ (X×2)+2.
+    """
+    return [
+        AbilitySpec(
+            "replacement",
+            [
+                EffectSpec(
+                    "additional_damage",
+                    {
+                        "amount": 2,
+                        "your_sources_only": True,
+                        "to_opponent_only": True,
+                        "color": "R",
+                    },
+                )
+            ],
+            raw_text="Falls eine rote Quelle, die du kontrollierst, einem Gegner oder "
+                     "einer bleibenden Karte, die ein Gegner kontrolliert, Schaden "
+                     "zufügen würde, fügt sie stattdessen so viel Schaden plus 2 zu.",
+        )
+    ]
+
+
+register("Torbran, Thane of Red Fell", _torbran_thane_of_red_fell)

@@ -590,6 +590,11 @@ class GameEngine:
         elif kind == "land_tapped":
             # RULE 614.1: a shock land's "pay life to stay untapped" choice.
             self.rules.resolve_land_tapped_choice(None if declined else str(answer))
+        elif kind == "replacement_order":
+            # RULE 616.1: the option id is the index of the replacement
+            # effect to apply next.
+            index = None if declined else int(answer)
+            self.rules.resolve_replacement_order_choice(index)
         else:  # search: a card's instance id, or decline
             instance_id = None if declined else int(answer)
             self.rules.resolve_search_choice(instance_id)
@@ -666,6 +671,20 @@ class GameEngine:
         self.give_priority(player)
         return obj
 
+    @staticmethod
+    def _castable_from_exile(obj: GameObject) -> bool:
+        """Whether an object sitting in exile is castable from there.
+
+        Two independent cases: an Adventure creature exiled by its own
+        spell half (RULE 715.3d, flagged `adventure_castable`), or a
+        prepared copy (RULE 722.3c) — the copy's mere presence in exile
+        already proves it's still valid, since `RulesEngine.
+        _remove_stranded_tokens` reaps it the instant its source stops
+        being prepared/on the battlefield, so no extra freshness check is
+        needed here beyond the `prepared_source_id` link existing.
+        """
+        return obj.adventure_castable or obj.prepared_source_id is not None
+
     def can_cast(self, player: Player, obj: GameObject, x: int = 0, face: str = "front") -> bool:
         """RULE 601/602.5: is this spell castable by ``player`` right now?
 
@@ -679,12 +698,12 @@ class GameEngine:
         # A commander may be cast from the command zone as well as the
         # hand (RULE 903.6, 903.8) — commander tax (RULE 903.8, +{2} per
         # previous cast from there) isn't modeled yet. An Adventure creature
-        # exiled by its own spell half may also be cast from exile (RULE
-        # 715.3d) once flagged `adventure_castable`.
+        # or a prepared copy sitting in exile may also be castable — see
+        # `_castable_from_exile`.
         in_castable_zone = (
             obj in player.hand
             or obj in player.command
-            or (obj in player.exile and obj.adventure_castable)
+            or (obj in player.exile and self._castable_from_exile(obj))
         )
         if not in_castable_zone:
             return False
@@ -1426,9 +1445,9 @@ class GameEngine:
                 actions.append(self._cast_action(player, obj))
 
         for obj in list(player.exile):
-            # RULE 715.3d: an Adventure creature exiled by its own spell half
-            # may be cast from exile any time thereafter.
-            if obj.adventure_castable and self.can_cast(player, obj):
+            # RULE 715.3d / 722.3c: an Adventure creature exiled by its own
+            # spell half, or a prepared copy, may be cast from exile.
+            if self._castable_from_exile(obj) and self.can_cast(player, obj):
                 actions.append(self._cast_action(player, obj))
 
         if (

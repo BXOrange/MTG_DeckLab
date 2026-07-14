@@ -508,6 +508,58 @@ class TestCardFromScryfallData:
         # oracle-effect parser can bind it (see Card.fuse_face).
         assert "~ deals 2 damage" in fused.oracle_text
 
+    def test_preparation_card_captures_its_prepare_spell(self):
+        # "Abigale, Poet Laureate // Heroic Stanza" (layout "prepare", RULE
+        # 722): front is the permanent, back is the inset "prepare spell" —
+        # same "no top-level oracle_text" shape as split/adventure.
+        abigale = {
+            "id": "eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee",
+            "name": "Abigale, Poet Laureate // Heroic Stanza",
+            "layout": "prepare",
+            "cmc": 3.0,
+            "mana_cost": "{1}{W}{B} // {1}{W/B}",
+            "type_line": "Legendary Creature — Bird Bard // Sorcery",
+            "power": "2",
+            "toughness": "3",
+            "color_identity": ["B", "W"],
+            "keywords": ["Flying", "Prepared"],
+            "set": "sos",
+            "rarity": "rare",
+            "image_uris": {"small": "", "normal": "https://img.example/abigale.jpg", "large": "", "png": ""},
+            "card_faces": [
+                {
+                    "name": "Abigale, Poet Laureate",
+                    "mana_cost": "{1}{W}{B}",
+                    "type_line": "Legendary Creature — Bird Bard",
+                    "oracle_text": "Flying\nWhenever you cast a creature spell, Abigale becomes prepared.",
+                    "power": "2",
+                    "toughness": "3",
+                },
+                {
+                    "name": "Heroic Stanza",
+                    "mana_cost": "{1}{W/B}",
+                    "type_line": "Sorcery",
+                    "oracle_text": "Put a +1/+1 counter on target creature.",
+                },
+            ],
+        }
+        card = card_from_scryfall_data(abigale)
+        assert card.is_preparation is True
+        assert card.has_back_face is False
+        # The front face is the permanent, captured as its own half.
+        assert card.is_creature is True
+        assert card.mana_cost_string == "{1}{W}{B}"
+        assert (card.power, card.toughness) == (2, 3)
+        # The prepare spell is captured on the back_* fields.
+        assert card.back_name == "Heroic Stanza"
+        assert card.back_type_line == "Sorcery"
+        assert card.back_mana_cost_string == "{1}{W/B}"
+        assert "Put a +1/+1 counter" in card.back_oracle_text
+        prepare_spell = card.back_face()
+        assert prepare_spell is not None
+        assert prepare_spell.is_creature is False
+        assert prepare_spell.name == "Heroic Stanza"
+
 
 class TestScryfallIntegration:
     def _client(self, handler) -> ScryfallIntegration:

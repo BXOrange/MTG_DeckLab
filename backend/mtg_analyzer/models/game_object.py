@@ -83,6 +83,20 @@ class GameObject:
         #: is exiled instead of going to the graveyard — the card may be cast
         #: as the creature from exile any time thereafter. Cleared once cast.
         self.adventure_castable: bool = False
+        #: RULE 722.3a: the "prepared" designation on a permanent with a
+        #: prepare spell — set by `RulesEngine.make_prepared` (some other
+        #: ability's "~ becomes prepared" effect), which also creates an
+        #: exiled token copy of the prepare spell. Cleared the instant that
+        #: copy is actually cast (RULE 722.3c), or by any other "becomes
+        #: unprepared" effect (RULE 722.3b) — either way the copy then loses
+        #: its RULE 704.5d token-cleanup exemption on the very next SBA pass.
+        self.prepared: bool = False
+        #: RULE 722.3c: on a prepared *copy* (a token sitting in exile, never
+        #: on a normal permanent), the `instance_id` of the source permanent
+        #: it's linked to — the copy is exempt from the RULE 704.5d token
+        #: cleanup only for as long as that source stays on the battlefield
+        #: with `prepared` still set. None on every other object.
+        self.prepared_source_id: Optional[int] = None
         self.owner_id = owner_id
         #: Who currently controls the object; defaults to its owner
         #: (RULE 108.4). Control can change but ownership can't.
@@ -428,6 +442,10 @@ class GameObject:
             "is_token": self.is_token,
             # RULE 715.3d: an exiled Adventure creature the player may cast.
             "adventure_castable": self.adventure_castable,
+            # RULE 722.3a: this permanent has become prepared (its exiled
+            # copy is castable — see the "adventure_castable"-style scan of
+            # the exile zone for that copy's own board tile/actions).
+            "prepared": self.prepared,
             # Types added by a layer-4 effect (e.g. "creature"), for the board.
             "added_types": sorted(self._added_types),
             "attacking": self.attacking,

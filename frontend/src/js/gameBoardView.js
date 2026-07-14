@@ -49,7 +49,7 @@ function labelStep(name) {
 
 // Icon per choice kind — search, cascade and discover share the same
 // "answer one of these options" shape, so one renderer covers them.
-const CHOICE_ICONS = { search: '🔎', cascade: '🌊', discover: '🔮' };
+const CHOICE_ICONS = { search: '🔎', cascade: '🌊', discover: '🔮', replacement_order: '⚖️' };
 
 /**
  * @param {object} [opts]
@@ -108,6 +108,11 @@ export function createGameBoardView(opts = {}) {
   // A targeting spell/ability (RULE 115) mid-cast: `{ instanceId, requirements,
   // reqIndex, targets: [], x, send }` or null. See `castTargetHtml`.
   let castTargeting = null;
+  // The user's current drag-and-drop arrangement of a pending `replacement_
+  // order` choice's options (RULE 616.1) — an array of option ids, reset
+  // whenever a fresh choice with a different option set appears. See
+  // `replacementOrderHtml`/`confirmReplacementOrder`.
+  let replacementOrderDraft = null;
 
   function mount(el) {
     root = el;
@@ -314,10 +319,33 @@ export function createGameBoardView(opts = {}) {
 
   // A pending choice is rendered as a modal popup for the deciding player:
   // the board behind it is dimmed/locked (`.goldfish.choosing`) so the only
-  // thing to do is answer. Each server-provided option becomes one button.
+  // thing to do is answer. Each server-provided option becomes one button —
+  // except `replacement_order` (RULE 616.1), which gets a drag-and-drop
+  // reorderable list instead (see `replacementOrderHtml`).
   function pendingChoiceHtml(pending) {
     const icon = CHOICE_ICONS[pending.kind] || '❔';
     const heading = pending.prompt || pending.description || 'Entscheidung nötig';
+    const body = pending.kind === 'replacement_order'
+      ? replacementOrderHtml(pending)
+      : simpleChoiceButtonsHtml(pending);
+
+    return `
+      <div class="gf-modal-overlay">
+        <div class="gf-modal" role="dialog" aria-modal="true">
+          <div class="gf-modal-head">
+            <span class="gf-modal-icon">${icon}</span>
+            <div>
+              <h4>${escapeHtml(heading)}</h4>
+              <p class="gf-modal-who">Entscheidung für ${escapeHtml(playerName(pending.player_id))}</p>
+            </div>
+          </div>
+          ${body}
+        </div>
+      </div>
+    `;
+  }
+
+  function simpleChoiceButtonsHtml(pending) {
     const options = pending.options
       || (pending.eligible || []).map((e) => ({ id: String(e.instance_id), label: e.name, instance_id: e.instance_id }));
 
@@ -333,20 +361,77 @@ export function createGameBoardView(opts = {}) {
       })
       .join('');
 
+    return `<div class="gf-choice-options">${buttons}</div>`;
+  }
+
+  // RULE 616.1: 2+ simultaneously-applicable replacement effects (e.g.
+  // Doubling Season + Parallel Lives, or Furnace of Rath + Torbran) are
+  // ordered by the affected player. The server only ever asks "which one
+  // applies *next*" (RULE 616.1f: applying one can expose new ones — the
+  // set the choice re-offers can genuinely change), so a full drag-and-drop
+  // arrangement is a client-side convenience: the player drags all
+  // currently-offered effects into their desired order, and confirming
+  // replays that order as a sequence of single picks (`confirmReplacementOrder`).
+  function replacementOrderHtml(pending) {
+    const options = pending.options || [];
+    const ids = options.map((o) => o.id);
+    // (Re)seed the draft whenever the offered option set doesn't match what
+    // was last dragged (a fresh choice, or the previous one was just
+    // answered and the remaining effects re-offered).
+    if (!replacementOrderDraft
+        || replacementOrderDraft.length !== ids.length
+        || !ids.every((id) => replacementOrderDraft.includes(id))) {
+      replacementOrderDraft = ids.slice();
+    }
+    const byId = Object.fromEntries(options.map((o) => [o.id, o]));
+    const items = replacementOrderDraft
+      .map((id, i) => {
+        const opt = byId[id];
+        if (!opt) return '';
+        return `<li class="gf-reorder-item" draggable="true" data-id="${escapeAttr(id)}">
+          <span class="gf-reorder-handle" aria-hidden="true">⠿</span>
+          <span class="gf-reorder-index">${i + 1}.</span>
+          <span class="gf-reorder-label">${escapeHtml(opt.label || opt.id)}</span>
+        </li>`;
+      })
+      .join('');
     return `
-      <div class="gf-modal-overlay">
-        <div class="gf-modal" role="dialog" aria-modal="true">
-          <div class="gf-modal-head">
-            <span class="gf-modal-icon">${icon}</span>
-            <div>
-              <h4>${escapeHtml(heading)}</h4>
-              <p class="gf-modal-who">Entscheidung für ${escapeHtml(playerName(pending.player_id))}</p>
-            </div>
-          </div>
-          <div class="gf-choice-options">${buttons}</div>
-        </div>
+      <p class="gf-reorder-hint">Per Drag &amp; Drop in die gewünschte Reihenfolge bringen — der oberste Effekt wird zuerst angewendet.</p>
+      <ul class="gf-reorder-list">${items}</ul>
+      <div class="gf-modal-foot">
+        <button type="button" class="primary" data-reorder-confirm>Bestätigen</button>
       </div>
     `;
+  }
+
+  // Replays the player's dragged order as a sequence of single `choose`
+  // picks, matching each step against the *server's own* freshly re-offered
+  // options (RULE 616.1f can change that set) rather than blindly trusting
+  // the draft — if a step's id is no longer offered, or a different pending
+  // choice shows up instead, the auto-play stops there and whatever the
+  // server returned is simply shown as-is (safe: it never submits a stale
+  // or mismatched pick, it just stops automating).
+  async function confirmReplacementOrder(order) {
+    if (!sessionId || !order || !order.length) return;
+    await withBusy(async () => {
+      let remaining = order.slice();
+      while (remaining.length) {
+        const pending = view.state?.pending_choice;
+        if (!pending || pending.kind !== 'replacement_order') break;
+        const opt = (pending.options || []).find((o) => o.id === remaining[0]);
+        if (!opt) break;
+        const res = await sendGameAction(sessionId, {
+          type: 'choose', option_id: opt.id, instance_id: opt.instance_id, name: opt.label,
+        });
+        if (!res.ok) {
+          setStatus(`Aktion nicht erlaubt: ${res.data?.detail ?? res.status}`, 'warning');
+          break;
+        }
+        applyView(res.data);
+        remaining = remaining.slice(1);
+      }
+    });
+    replacementOrderDraft = null;
   }
 
   function wire() {
@@ -364,6 +449,33 @@ export function createGameBoardView(opts = {}) {
         act(JSON.parse(el.dataset.action));
       });
     });
+
+    // RULE 616.1 replacement-order popup: drag & drop reordering. Dragging
+    // reorders the list purely client-side (`replacementOrderDraft` is only
+    // read again on the next render/confirm); "Bestätigen" replays the final
+    // order via `confirmReplacementOrder`.
+    const reorderList = root.querySelector('.gf-reorder-list');
+    if (reorderList) {
+      reorderList.querySelectorAll('.gf-reorder-item').forEach((el) => {
+        el.addEventListener('dragstart', () => {
+          el.classList.add('dragging');
+        });
+        el.addEventListener('dragend', () => el.classList.remove('dragging'));
+        el.addEventListener('dragover', (e) => {
+          e.preventDefault();
+          const dragging = reorderList.querySelector('.dragging');
+          if (!dragging || dragging === el) return;
+          const rect = el.getBoundingClientRect();
+          const before = (e.clientY - rect.top) < rect.height / 2;
+          reorderList.insertBefore(dragging, before ? el : el.nextSibling);
+        });
+        el.addEventListener('drop', (e) => e.preventDefault());
+      });
+      root.querySelector('[data-reorder-confirm]')?.addEventListener('click', () => {
+        const order = Array.from(reorderList.querySelectorAll('.gf-reorder-item')).map((li) => li.dataset.id);
+        confirmReplacementOrder(order);
+      });
+    }
 
     // Battlefield 2-/3-row layout toggle (persisted, one checkbox per board).
     root.querySelectorAll('.gf-rows-toggle').forEach((el) => {
@@ -680,9 +792,14 @@ export function createGameBoardView(opts = {}) {
     const adventureBadge = o.adventure_castable
       ? `<span class="gf-adventure-badge" title="Abenteuer: aus dem Exil als Kreatur zauberbar">📖 Abenteuer</span>`
       : '';
+    // RULE 722.3a: this permanent is prepared — its exiled prepare-spell
+    // copy is castable (shown on that copy's own tile in the exile zone).
+    const preparedBadge = o.prepared
+      ? `<span class="gf-prepared-badge" title="Vorbereitet: die Zauberspruch-Kopie im Exil ist zauberbar">🛡️ Vorbereitet</span>`
+      : '';
     return `
       <div class="gf-card-slot">
-        <div class="${classes.join(' ')}" data-hover-card="${escapeHtml(o.name)}" title="${escapeHtml(o.name)}${pt}${o.tapped ? ' — getappt' : ''}">${inner}${attackBadge}${counterBadge}${keywordBadge}${adventureBadge}</div>
+        <div class="${classes.join(' ')}" data-hover-card="${escapeHtml(o.name)}" title="${escapeHtml(o.name)}${pt}${o.tapped ? ' — getappt' : ''}">${inner}${attackBadge}${counterBadge}${keywordBadge}${adventureBadge}${preparedBadge}</div>
         ${buttons}
       </div>`;
   }

@@ -48,6 +48,18 @@ class EventType:
     #: ``instance_id`` (which Saga) and ``chapter`` (the new count), so a
     #: chapter ability's triggered condition can scope to both itself and
     #: the specific chapter number(s) it covers.
+    #: One or more counters would be put on a permanent (RULE 122) — fired
+    #: pre-emptively by `RulesEngine.add_counters` (only for counters being
+    #: *placed*, never removed) so a "put twice that many instead" replacement
+    #: (e.g. Doubling Season, RULE 616.1) can rewrite the ``amount`` before
+    #: any counter actually lands.
+    COUNTER = "COUNTER"
+    #: One or more tokens would be created under a player's control (RULE
+    #: 111.5) — fired pre-emptively by `RulesEngine.create_token` (battlefield
+    #: entries only) so a "create twice that many instead" replacement (e.g.
+    #: Doubling Season, Parallel Lives) can rewrite the ``amount`` before any
+    #: token exists.
+    CREATE_TOKENS = "CREATE_TOKENS"
     SAGA_CHAPTER = "SAGA_CHAPTER"
     #: A Class (RULE 716) reached a new class level — carries ``instance_id``
     #: and ``chapter`` (the new level), the same convention as SAGA_CHAPTER,

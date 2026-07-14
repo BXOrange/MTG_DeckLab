@@ -274,8 +274,59 @@ the Phase-1 models. Tests: `test_game_engine.py`.
 - [x] Replacement effect stacking, RULE 616 (docs/07 PART 3) —
       `RulesEngine.apply_replacements`: rewrites an event through each
       applicable replacement at most once (draw→draw-2→mill chains work,
-      as does full prevention). Multi-effect ordering is deterministic
-      discovery order for now, not the affected player's choice.
+      as does full prevention).
+- [x] Replacement ordering — interactive, by the affected player (RULE
+      616.1e/f), not just deterministic discovery order — `apply_
+      replacements` now takes an optional `on_resolved` continuation: when
+      exactly one replacement applies at a step it's used automatically
+      (unambiguous — the common case, and the whole reason single-effect
+      callers/tests keep working unchanged), but when 2+ apply
+      simultaneously it opens a `replacement_order` `pending_choice` and
+      pauses — `resolve_replacement_order_choice` applies the one picked,
+      then re-opens a fresh choice if more still apply (616.1f) or finishes
+      and invokes the continuation with the final event. Mirrors RULE
+      603.3b's trigger-order pause/resume (`put_triggers_on_stack`/
+      `resolve_trigger_order_choice`) but — unlike that opt-in,
+      off-by-default flag — is always interactive: replacement collisions
+      are rare (they need 2+ conflicting effects actually on the
+      battlefield at once) and, when they happen, always meaningful, so
+      there's no casual-play case worth deterministic-by-default here.
+      `deal_damage`/`_single_draw`/`add_counters`/`create_token` (battlefield
+      tokens only) all now route through the continuation form; a
+      choice already pending when a second ambiguous event arrives in the
+      same synchronous batch (e.g. two blocked attackers' damage in one
+      combat-damage step) isn't clobbered — that second event just falls
+      back to deterministic discovery order rather than overwriting the
+      first choice or silently dropping it. Also added: `EventType.COUNTER`/
+      `CREATE_TOKENS` (so counters-being-placed and battlefield token
+      creation are "would happen" events replacement effects can see at
+      all, alongside the pre-existing `DAMAGE`/`DRAW`), and `source_id`/
+      `source_controller_id`/`source_colors`/`combat` on the `DAMAGE` event
+      so a replacement can filter by "a source you control"/"a red
+      source"/"combat damage". Four new `ReplacementRegistry` families ride
+      on top: `double_damage`/`additional_damage` (multiplicative vs.
+      additive damage replacement — order genuinely changes the total:
+      double-then-add ≠ add-then-double) and `double_counters`/
+      `double_tokens`. Hand-authored in `ability_catalogue.py`: Furnace of
+      Rath (unscoped `double_damage`), Gratuitous Violence (`double_damage`,
+      your combat damage only), Torbran, Thane of Red Fell (`additional_
+      damage`, your red sources' damage to an opponent, +2), Doubling
+      Season (`double_tokens` + `double_counters` — the counter clause is
+      deliberately unscoped, matching the real card doubling an opponent's
+      poison counters too), Parallel Lives (`double_tokens` alone — paired
+      with Doubling Season as the order-invariant-but-still-must-ask
+      616.1e example: both double, so the final token count is the same
+      either way, yet the choice is still required). Frontend: the
+      `replacement_order` `pending_choice` gets a dedicated drag-and-drop
+      popup (`gameBoardView.js` `replacementOrderHtml`/
+      `confirmReplacementOrder`) rather than the generic one-button-per-
+      option list every other choice kind shares — the only drag-and-drop
+      UI in the frontend so far; dragging is a purely client-side
+      convenience that then replays the chosen order as a sequence of the
+      same single `choose` picks the backend already expects, stopping
+      the auto-play (never submitting a stale pick) if the server's
+      re-offered option set doesn't match what was dragged. Tests:
+      `test_replacement_ordering.py`.
 - [x] Phases/steps as sequences, RULE 500 (docs/07 PART 1) —
       `game/phases.py` (`TurnSequence`/`GamePhase`/`GameStep`,
       `default_turn_sequence()`); the engine walks it and consults skip
@@ -567,6 +618,59 @@ the Phase-1 models. Tests: `test_game_engine.py`.
       renders a button (with a small "📖 Abenteuer" badge); `faceHint`
       labels a `face: "fuse"` action distinctly from a plain second-face
       offer. Tests: `test_card_structures.py`, `test_scryfall_client.py`.
+
+- [x] "Prepared" (RULE 722, Preparation Cards): a newer mechanic (Scryfall
+      `layout: "prepare"`, e.g. "Abigale, Poet Laureate // Heroic Stanza")
+      distinct from Adventure/Split despite the shared two-face card frame —
+      the inset "prepare spell" second face can *never* be cast from hand
+      (RULE 722.3/722.4); it only becomes reachable once some other ability
+      makes the permanent "become prepared" on the battlefield, which spawns
+      a token copy of *just the prepare spell* in exile, castable for as
+      long as the source stays prepared and on the battlefield.
+      `scryfall_client._SECOND_FACE_LAYOUTS` now also captures `"prepare"`'s
+      second face into `back_*` (same mechanism Adventure/Split use — no
+      new capture code). `RulesEngine.create_token` gained a `zone:
+      Zone = Zone.BATTLEFIELD` param so it can create a token straight into
+      exile, skipping every battlefield-entry side effect (summoning
+      sickness, `enters_tapped`, `ENTERS_BATTLEFIELD`) when it's not going
+      to the battlefield — a strict superset of its old behavior, every
+      existing caller unaffected. New `RulesEngine.make_prepared(obj)` (RULE
+      722.3a, a no-op if already prepared or the card has no prepare spell)
+      sets `GameObject.prepared` and creates one such exiled token, linked
+      back via `GameObject.prepared_source_id` (`instance_id`, the same
+      "link to another object" idiom `attached_to` already uses). The
+      token-cease-to-exist SBA (RULE 704.5d, `_remove_stranded_tokens`) is
+      this codebase's only "a created copy disappears when stranded"
+      mechanism — rather than build a parallel one, the prepared copy is
+      `is_token=True` with a RULE 722.3c exemption added directly there
+      (`_is_prepared_copy`): exempt only for as long as `GameState.
+      find_object(prepared_source_id)` is still on the battlefield with
+      `prepared` still set, so the copy is reaped automatically, with no
+      separate expiry bookkeeping, the instant the source is unprepared or
+      leaves play. `cast_spell` clears the source's `prepared` the moment
+      the copy is actually cast (RULE 722.3c). The "~ becomes prepared"
+      *effect* follows the `transform`/`TransformEffect` precedent exactly:
+      `GameContext.make_prepared` passthrough, `BecomePreparedEffect`
+      (always self-only — RULE 722.3a has no targeted form), registered as
+      `EffectRegistry`'s `"become_prepared"`, plus one oracle-text handler
+      in `catalogue/handlers.py` for the "~/it/this permanent/this creature
+      becomes prepared" clause (a copy of the `transform` handler's shape).
+      Deliberately out of scope: the oracle parser's trigger-*condition*
+      table (`segmenter.py`'s `_TRIGGER_EVENTS`, still only enters/dies/
+      attacks/blocks) is untouched, so a real Prepared card's own condition
+      (e.g. "whenever you cast a creature spell") binds only if it's
+      already one of those four — a separate, general parser gap, not
+      specific to this mechanic. `GameEngine` reuses the Adventure
+      cast-from-exile call-site *shape* (`can_cast`/`legal_actions`) behind
+      a new `_castable_from_exile` helper covering both `adventure_castable`
+      and a prepared copy's `prepared_source_id` link — no `_face_card`
+      change needed, since a prepared copy's own `.card` already *is* the
+      full prepare-spell characteristics. Frontend: a `gf-prepared-badge`
+      (top-center, so it doesn't collide with the existing attacking/
+      Adventure corner badges — a creature can be attacking *and* prepared
+      at once) shown when `prepared`; the exiled copy's own cast button
+      needs no new frontend work, reusing the exile-zone `byInstance` wiring
+      above. Tests: `test_card_structures.py`, `test_scryfall_client.py`.
 
 ## Auth & persistence
 

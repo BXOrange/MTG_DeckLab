@@ -143,7 +143,21 @@ Fortification/Reconfigure just unattached and left on the battlefield —
 and a Reconfigure permanent's creature-type toggling while (un)attached);
 **activated abilities** with full cost parsing incl. **loyalty `[±N]` costs**;
 **triggered abilities** (event-based) + replacement effects (bound via
-`ReplacementRegistry`, e.g. `prevent_damage`); **interactive trigger ordering**
+`ReplacementRegistry` — `prevent_damage`, `double_damage`/`additional_damage`
+for damage, `double_counters`/`double_tokens` for counters/tokens) with
+**RULE 616.1 ordering chosen interactively by the affected player**
+whenever 2+ apply to the same event (`apply_replacements`'s `on_resolved`
+continuation opens a `replacement_order` `pending_choice` and pauses,
+`resolve_replacement_order_choice` applies one and re-asks if more remain,
+616.1f) — unlike trigger ordering below this is always on, not opt-in,
+since a replacement collision is rare and always meaningful; hand-authored
+examples in `ability_catalogue.py`: Furnace of Rath/Gratuitous Violence/
+Torbran, Thane of Red Fell (damage doubling vs. additive — genuinely
+order-dependent) and Doubling Season/Parallel Lives (token/counter
+doubling — order-invariant result, still must ask); frontend gets a
+dedicated drag-and-drop popup for it (`gameBoardView.js`
+`replacementOrderHtml`), the only drag-and-drop UI in the app so far;
+**interactive trigger ordering**
 (RULE 603.3b, opt-in `state.interactive_ordering`); **a triggered ability's
 own target — and its "you may" — chosen interactively** (RULE 115/603.3c/
 603.5: `put_triggers_on_stack` opens a `trigger_target` `pending_choice` —
@@ -192,7 +206,23 @@ and flags it `adventure_castable` (RULE 715.3d) so it can be cast again as
 the creature later; Fuse (RULE 709.4) casts both halves as one spell via
 `Card.fuse_face()`, a synthetic merged `Card` (concatenated cost/oracle
 text, self-name-folded per half) rather than new dual-binding machinery;
-**DFC transform is a real, live-engine mechanic now**
+**"Prepared" (RULE 722, Preparation Cards) is modeled too** — a distinct
+mechanic despite the shared two-face frame: the inset "prepare spell" can
+never be cast from hand, only reached once some other ability makes the
+permanent `RulesEngine.make_prepared` (RULE 722.3a) on the battlefield,
+which creates a token *copy of just the prepare spell* straight into exile
+(`create_token`'s new `zone` param skips battlefield-entry handling for
+this case) — castable from there for as long as the source stays prepared
+and on the battlefield, reaped by the RULE 704.5d token-cleanup SBA the
+instant either stops being true (`_is_prepared_copy`'s exemption on
+`_remove_stranded_tokens`, linked via `GameObject.prepared_source_id`); a
+`become_prepared` one-shot effect (`BecomePreparedEffect`) makes "whenever
+~ attacks, it becomes prepared."-shaped triggers fully modeled the same way
+`transform` is — the oracle parser's trigger-*condition* table is
+unchanged, so a real card's own condition (e.g. "whenever you cast a
+creature spell") binds only if already recognized (RULE 702-adjacent
+event-condition coverage, a separate gap); **DFC transform is a real,
+live-engine mechanic now**
 (`RulesEngine.transform_permanent`, RULE 712.8 — same "clear + rebind
 catalogue-derived abilities" treatment as `switch_to_face`, so a transformed
 permanent's keywords/triggered/activated abilities are the *new* face's, not
@@ -232,8 +262,7 @@ first); oracle-text
 target/duration grammar is not); *behaviour* for the remaining parametric
 keywords (kicker/escape alt-costs, annihilator/afflict combat maths — the
 parameter binds onto `parametric_keywords` but nothing consumes it yet);
-replacement/prevention **ordering** by the affected player (RULE 616.1 — trigger
-ordering 603.3b *is* interactive); wiring the interactive priority primitive
+wiring the interactive priority primitive
 into the **multiplayer session/WebSocket** (`create_multiplayer` still stubbed);
 literal layer 3 (RULE 612 text-changing — rewriting a word in a card's own
 text, e.g. Artificial Evolution; *not* the same as granting another ability,

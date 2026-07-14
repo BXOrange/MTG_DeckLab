@@ -593,6 +593,97 @@ def test_fuse_casts_both_halves_as_one_spell_for_the_combined_cost():
     assert obj in p1.graveyard
 
 
+# -- Prepared (RULE 722, Preparation Cards) -----------------------------------
+
+
+def _preparation_creature(name="Test Bard"):
+    """Front: a creature with a real "whenever ~ attacks, it becomes
+    prepared" trigger (RULE 722.3a), parsed through the normal oracle-text
+    pipeline (attacks is already a recognized trigger condition — the
+    "becomes prepared" clause handler is what's new). Back: the prepare
+    spell (RULE 722.3c), its own bare name folded to "~" like any other
+    back-face oracle text."""
+    return Card(
+        id=name, name=name, type_line="Creature — Bard",
+        mana_cost_string="{1}{W}", converted_mana_cost=2,
+        is_creature=True, power=2, toughness=2,
+        oracle_text="Whenever this creature attacks, it becomes prepared.",
+        layout="prepare",
+        back_name="Test Stanza", back_type_line="Sorcery",
+        back_mana_cost_string="{1}{W}",
+        back_oracle_text="Test Stanza deals 2 damage to any target.",
+    )
+
+
+def test_attacking_becomes_prepared_and_creates_a_castable_exiled_copy():
+    eng = make_engine()
+    p1 = _ready_main_phase(eng)
+    bard = _put(eng, _preparation_creature())
+    bind_from_catalogue(bard)
+    assert not bard.prepared
+
+    eng.state.fire_event(GameEvent(EventType.ATTACKS, attacker=bard.name, player_id="p1"))
+    assert eng.rules.put_triggers_on_stack() == 1
+    eng.resolve_until_stable()
+
+    assert bard.prepared is True
+    copies = [o for o in p1.exile if o.prepared_source_id == bard.instance_id]
+    assert len(copies) == 1
+    copy = copies[0]
+    assert copy.is_token
+    assert copy.name == "Test Stanza"
+    assert copy.card.mana_cost_string == "{1}{W}"
+
+
+def test_the_exiled_copy_is_castable_and_clears_prepared_on_cast():
+    eng = make_engine()
+    p1 = _ready_main_phase(eng)
+    p2 = eng.state.player_by_id("p2")
+    bard = _put(eng, _preparation_creature())
+    bind_from_catalogue(bard)
+    eng.rules.make_prepared(bard)
+    copy = next(o for o in p1.exile if o.prepared_source_id == bard.instance_id)
+
+    p1.mana_pool.add_many({"W": 1, "C": 1})
+    actions = eng.legal_actions(p1)
+    offer = [a for a in actions if a.get("instance_id") == copy.instance_id]
+    assert offer and offer[0]["type"] == "cast_spell"
+
+    eng.cast_spell(p1, copy, targets=[p2])
+    assert bard.prepared is False  # RULE 722.3c: cleared the moment it's cast
+    eng.resolve_until_stable()
+    assert p2.life == 18
+
+
+def test_prepared_copy_is_reaped_if_the_source_leaves_the_battlefield():
+    eng = make_engine()
+    p1 = _ready_main_phase(eng)
+    bard = _put(eng, _preparation_creature())
+    bind_from_catalogue(bard)
+    eng.rules.make_prepared(bard)
+    copy = next(o for o in p1.exile if o.prepared_source_id == bard.instance_id)
+    assert copy in p1.exile
+
+    eng.rules.destroy(bard)  # the source leaves the battlefield
+    eng.rules.check_state_based_actions()
+    assert copy not in p1.exile
+
+
+def test_make_prepared_is_a_no_op_if_already_prepared():
+    eng = make_engine()
+    p1 = _ready_main_phase(eng)
+    bard = _put(eng, _preparation_creature())
+    bind_from_catalogue(bard)
+
+    eng.rules.make_prepared(bard)
+    copies = [o for o in p1.exile if o.prepared_source_id == bard.instance_id]
+    assert len(copies) == 1
+
+    eng.rules.make_prepared(bard)  # RULE 722.3a: already prepared — no-op
+    copies = [o for o in p1.exile if o.prepared_source_id == bard.instance_id]
+    assert len(copies) == 1
+
+
 # -- transform_permanent / daybound / nightbound (RULE 712.8 / 702.145) ------
 
 

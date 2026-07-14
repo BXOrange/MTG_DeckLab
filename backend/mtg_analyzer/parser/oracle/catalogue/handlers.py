@@ -124,6 +124,10 @@ def _transform(m: re.Match[str]) -> list[EffectSpec]:
     return [EffectSpec("transform", {})]
 
 
+def _become_prepared(m: re.Match[str]) -> list[EffectSpec]:
+    return [EffectSpec("become_prepared", {})]
+
+
 def _token_keywords(text: str) -> Optional[list[str]]:
     """Validate a token's "with <keywords>" clause → flag-keyword slugs, or None.
 
@@ -337,6 +341,15 @@ HANDLERS: list[EffectHandler] = [
         "transform",
         _c(rf"transform (?:{re.escape(SELF)}|it|this permanent|this creature)"),
         _transform,
+    ),
+    # "~ becomes prepared" / "it becomes prepared" / "this permanent"/
+    # "this creature becomes prepared" (RULE 722.3a) — a preparation card's
+    # own "whenever X, ~ becomes prepared" trigger; the self-only shape
+    # mirrors "transform" above (RULE 722.3a has no targeted form).
+    EffectHandler(
+        "become_prepared",
+        _c(rf"(?:{re.escape(SELF)}|it|this permanent|this creature) becomes prepared"),
+        _become_prepared,
     ),
     # "put a +1/+1 counter on target creature" / "put a -1/-1 counter on …" / "… on ~"
     EffectHandler(

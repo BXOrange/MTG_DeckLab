@@ -2045,6 +2045,27 @@ textarea {
   pointer-events: none;
 }
 
+/* RULE 722.3a: badge on a prepared permanent. Top-center (not a corner) so
+   it doesn't collide with .gf-attacking-badge/.gf-adventure-badge — a
+   creature can be attacking *and* prepared at once (e.g. "whenever ~
+   attacks, it becomes prepared"). */
+.gf-prepared-badge {
+  position: absolute;
+  top: -0.4rem;
+  left: 50%;
+  transform: translateX(-50%);
+  background: color-mix(in srgb, var(--accent) 30%, var(--panel));
+  color: var(--text);
+  border: 1px solid var(--accent);
+  font-size: 0.55rem;
+  font-weight: 700;
+  line-height: 1.2;
+  padding: 0.05rem 0.3rem;
+  border-radius: 999px;
+  white-space: nowrap;
+  pointer-events: none;
+}
+
 /* Combat/evasion keyword abbreviations, as a pill along a creature's bottom
    edge (full names on hover via the title attribute). */
 .gf-keyword-badge {
@@ -2399,6 +2420,62 @@ textarea {
 
 .gf-modal-foot .gf-decline:hover {
   border-color: var(--accent);
+}
+
+/* RULE 616.1 replacement-order popup: drag & drop to arrange the order
+   simultaneously-applicable replacement effects (Doubling Season + Parallel
+   Lives, Furnace of Rath + Torbran, …) are applied in. */
+.gf-reorder-hint {
+  margin: 0 0 0.6rem;
+  font-size: 0.8rem;
+  color: var(--text-dim);
+}
+
+.gf-reorder-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+
+.gf-reorder-item {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  background: var(--panel-alt);
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  padding: 0.4rem 0.6rem;
+  cursor: grab;
+  user-select: none;
+}
+
+.gf-reorder-item:hover {
+  border-color: var(--accent);
+}
+
+.gf-reorder-item.dragging {
+  opacity: 0.4;
+  border-color: var(--accent);
+  cursor: grabbing;
+}
+
+.gf-reorder-handle {
+  color: var(--text-dim);
+  font-size: 1rem;
+  line-height: 1;
+}
+
+.gf-reorder-index {
+  color: var(--text-dim);
+  font-size: 0.8rem;
+  min-width: 1.2em;
+}
+
+.gf-reorder-label {
+  font-size: 0.85rem;
 }
 
 /* --- Goldfisch: Ladebildschirm (Kartenbilder vorladen) --- */

@@ -239,17 +239,30 @@ class Card:
         """Whether the card is a split card (RULE 709, layout)."""
         return self.layout == "split"
 
+    @property
+    def is_preparation(self) -> bool:
+        """Whether the card has an inset "prepare spell" (RULE 722, layout).
+
+        Unlike a modal DFC/Adventure/Split, the second face captured here
+        (via `back_face`) is never itself castable from hand (RULE 722.3) —
+        it only becomes reachable as a token copy created in exile once the
+        permanent "becomes prepared" (`GameObject.prepared`,
+        `RulesEngine.make_prepared`)."""
+        return self.layout == "prepare"
+
     def back_face(self) -> Optional["Card"]:
         """The back/second face as its own `Card`, or None if there is none.
 
         Builds a printed-characteristics `Card` from the stored ``back_*``
         fields so the back can be cast (a modal DFC, RULE 712.10, or a
         split card's other half, RULE 709.3), transformed into on the
-        battlefield (RULE 712.8), or cast as an Adventure's instant/sorcery
-        half (RULE 715.2b) — whichever it is is distinguished by ``layout``.
-        The two faces share the physical object's id; the back's derived
-        type flags come from its own ``back_type_line``. Returns None when
-        no back face was captured."""
+        battlefield (RULE 712.8), cast as an Adventure's instant/sorcery
+        half (RULE 715.2b), or used as the template for a preparation
+        card's exiled copy once it becomes prepared (RULE 722.3c) —
+        whichever it is is distinguished by ``layout``. The two faces share
+        the physical object's id; the back's derived type flags come from
+        its own ``back_type_line``. Returns None when no back face was
+        captured."""
         if not self.back_name and not self.back_type_line:
             return None
         btl = self.back_type_line or self.type_line

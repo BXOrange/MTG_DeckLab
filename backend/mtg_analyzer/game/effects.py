@@ -106,6 +106,9 @@ class GameContext:
     def copy_permanent(self, controller_id: str, source: "GameObject", count: int = 1) -> None:
         self.engine.copy_permanent(controller_id, source, count)
 
+    def make_prepared(self, obj: "GameObject") -> None:
+        self.engine.make_prepared(obj)
+
     def become_copy(
         self,
         obj: "GameObject",
@@ -687,6 +690,21 @@ class TransformEffect(GameEffect):
             context.engine.transform_permanent(target)
 
 
+class BecomePreparedEffect(GameEffect):
+    """A preparation card's own permanent becomes prepared (RULE 722.3a).
+
+    Always self-only, unlike `TransformEffect` — RULE 722.3a's "~ becomes
+    prepared" has no targeted form on any real card. Delegates to
+    `RulesEngine.make_prepared`, which creates the exiled prepare-spell
+    copy (RULE 722.3c) and is itself a no-op if the source is already
+    prepared or has no prepare spell.
+    """
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        if self.source is not None:
+            context.make_prepared(self.source)
+
+
 class AddCountersEffect(GameEffect):
     """Put ``amount`` +1/+1 counters on a target creature — or on the source.
 
@@ -1212,6 +1230,7 @@ EffectRegistry.register("shuffle", lambda p: ShuffleLibraryEffect())
 EffectRegistry.register(
     "transform", lambda p: TransformEffect(target_kind=p.get("target_kind"))
 )
+EffectRegistry.register("become_prepared", lambda p: BecomePreparedEffect())
 EffectRegistry.register("cascade", lambda p: CascadeEffect(mana_value=p.get("mana_value")))
 EffectRegistry.register(
     "discover",
@@ -1411,6 +1430,152 @@ def _prevent_damage_replacement(params: dict[str, Any]) -> ReplacementEffect:
     return effect
 
 
+def _double_damage_replacement(params: dict[str, Any]) -> ReplacementEffect:
+    """Doubles damage that would be dealt (RULE 614/616), e.g. Furnace of
+    Rath ("if a source would deal damage, it deals double that damage
+    instead") or Gratuitous Violence (the same, but only ``combat_only``
+    damage from ``your_sources_only``).
+
+    ``combat_only``/``your_sources_only`` scope the effect; ``your_sources_
+    only`` reads the *replacement's own source's* controller (``effect.
+    source``, set at bind time) against the damage event's ``source_
+    controller_id`` — so it needs the object it's attached to on the
+    battlefield to know whose damage counts as "yours".
+    """
+    combat_only = bool(params.get("combat_only", False))
+    your_sources_only = bool(params.get("your_sources_only", False))
+    effect = ReplacementEffect(
+        event_type=EventType.DAMAGE,
+        replacement_fn=lambda e, c: e,  # replaced below once `effect` exists
+        # Left empty by default so `bind_ability` falls back to the card's
+        # own (German) `raw_text` for the RULE 616.1 ordering-choice label —
+        # only an explicit `description` param overrides that.
+        description=str(params.get("description", "")),
+    )
+
+    def replace(event: GameEvent, _context: GameContext) -> Optional[GameEvent]:
+        if combat_only and not event.get("combat"):
+            return event
+        if your_sources_only:
+            src = effect.source
+            if src is None or event.get("source_controller_id") != src.controller_id:
+                return event
+        dealt = int(event.get("amount", 0) or 0)
+        if dealt <= 0:
+            return event
+        return event.copy_with(amount=dealt * 2)
+
+    effect.replacement_fn = replace
+    return effect
+
+
+def _additional_damage_replacement(params: dict[str, Any]) -> ReplacementEffect:
+    """Damage that would be dealt is increased by a flat ``amount`` instead
+    (RULE 614/616), e.g. Torbran, Thane of Red Fell ("if a red source you
+    control would deal damage to an opponent or a permanent an opponent
+    controls, it deals that much damage plus 2 instead").
+
+    ``your_sources_only`` mirrors `_double_damage_replacement`; ``color``
+    (a single RULE 105 letter, e.g. ``"R"``) further restricts to a damage
+    source whose printed `Card.color_identity` includes it — a pragmatic
+    stand-in for "is that color" (color identity, not true colour, per
+    docs/Reference's existing simplifications elsewhere in this engine).
+    ``to_opponent_only`` restricts the *target* side ("to an opponent or a
+    permanent an opponent controls") to whoever isn't this effect's own
+    source's controller — the only notion of "opponent" a 2-player
+    goldfish/Replay board has.
+    """
+    bonus = int(params.get("amount", 0))
+    your_sources_only = bool(params.get("your_sources_only", False))
+    color = params.get("color")
+    to_opponent_only = bool(params.get("to_opponent_only", False))
+    effect = ReplacementEffect(
+        event_type=EventType.DAMAGE,
+        replacement_fn=lambda e, c: e,
+        description=str(params.get("description", "")),
+    )
+
+    def replace(event: GameEvent, context: GameContext) -> Optional[GameEvent]:
+        src = effect.source
+        if your_sources_only:
+            if src is None or event.get("source_controller_id") != src.controller_id:
+                return event
+        if to_opponent_only:
+            if src is None:
+                return event
+            if event.get("is_player"):
+                if event.get("target_id") == src.controller_id:
+                    return event
+            else:
+                target_obj = context.state.find_object(event.get("target_id"))
+                if target_obj is not None and target_obj.controller_id == src.controller_id:
+                    return event
+        if color and color not in (event.get("source_colors") or ()):
+            return event
+        dealt = int(event.get("amount", 0) or 0)
+        if dealt <= 0:
+            return event
+        return event.copy_with(amount=dealt + bonus)
+
+    effect.replacement_fn = replace
+    return effect
+
+
+def _double_counters_replacement(params: dict[str, Any]) -> ReplacementEffect:
+    """Counters that would be placed are doubled instead (RULE 122/614/616),
+    e.g. Doubling Season's counter clause: "if an effect would put one or
+    more counters on a permanent or player, it puts twice that many
+    instead" — deliberately *not* scoped to permanents/players its
+    controller controls (that's the real card's own text: it also doubles
+    an opponent's poison counters). ``kind`` optionally restricts to one
+    counter kind (``"+1/+1"``, ``"loyalty"``, …); omitted, every kind is
+    doubled.
+    """
+    kind_filter = params.get("kind")
+    effect = ReplacementEffect(
+        event_type=EventType.COUNTER,
+        replacement_fn=lambda e, c: e,
+        description=str(params.get("description", "")),
+    )
+
+    def replace(event: GameEvent, _context: GameContext) -> Optional[GameEvent]:
+        if kind_filter and event.get("kind") != kind_filter:
+            return event
+        amount = int(event.get("amount", 0) or 0)
+        if amount <= 0:
+            return event
+        return event.copy_with(amount=amount * 2)
+
+    effect.replacement_fn = replace
+    return effect
+
+
+def _double_tokens_replacement(params: dict[str, Any]) -> ReplacementEffect:
+    """Tokens that would be created under *this effect's controller* are
+    doubled instead (RULE 111.5/614/616) — Doubling Season's/Parallel
+    Lives' token clause: "if an effect would create one or more tokens
+    under your control, it creates twice that many instead". Unlike the
+    counter clause above this *is* controller-scoped in the real text.
+    """
+    effect = ReplacementEffect(
+        event_type=EventType.CREATE_TOKENS,
+        replacement_fn=lambda e, c: e,
+        description=str(params.get("description", "")),
+    )
+
+    def replace(event: GameEvent, _context: GameContext) -> Optional[GameEvent]:
+        src = effect.source
+        if src is None or event.get("controller_id") != src.controller_id:
+            return event
+        amount = int(event.get("amount", 0) or 0)
+        if amount <= 0:
+            return event
+        return event.copy_with(amount=amount * 2)
+
+    effect.replacement_fn = replace
+    return effect
+
+
 class ReplacementRegistry:
     """Maps a whitelisted replacement-type name to a `ReplacementEffect` factory.
 
@@ -1437,3 +1602,7 @@ class ReplacementRegistry:
 
 
 ReplacementRegistry.register("prevent_damage", _prevent_damage_replacement)
+ReplacementRegistry.register("double_damage", _double_damage_replacement)
+ReplacementRegistry.register("additional_damage", _additional_damage_replacement)
+ReplacementRegistry.register("double_counters", _double_counters_replacement)
+ReplacementRegistry.register("double_tokens", _double_tokens_replacement)

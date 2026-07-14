@@ -256,10 +256,20 @@ Weeks 1–4 roadmap is archived at
       targeted trigger among the ordered set isn't handled (both features
       are individually solid; the two together is untested/unhandled).
       Tests: `test_trigger_targeting.py`.
-- [ ] Replacement-effect ordering by the affected player (RULE 616.1) —
-      currently deterministic discovery order; needs a player prompt once
-      interactive play does. (Trigger ordering, RULE 603.3b, is now
-      interactive — see Done "Ordering choices".)
+- [x] Replacement-effect ordering by the affected player (RULE 616.1) —
+      **done**. `RulesEngine.apply_replacements` opens a `replacement_order`
+      `pending_choice` whenever 2+ replacement effects are simultaneously
+      applicable to the same event, mirroring RULE 603.3b's trigger-order
+      pause/resume; `resolve_replacement_order_choice` applies the chosen
+      one and re-asks if more remain (RULE 616.1f). Unlike trigger
+      ordering this is *not* gated behind an opt-in flag — replacement
+      collisions are rare enough (only two doubling/two damage-modifying
+      effects on the battlefield at once) that it's always interactive.
+      Four new replacement families exercise it: `double_damage`/
+      `additional_damage` (Furnace of Rath, Gratuitous Violence, Torbran,
+      Thane of Red Fell) and `double_counters`/`double_tokens` (Doubling
+      Season, Parallel Lives) — hand-authored in `ability_catalogue.py`.
+      See Done "Replacement ordering".
 - [x] Trigger ordering *within* a controller (RULE 603.3b) — **done**.
       When `state.interactive_ordering` is on and the active player has two
       or more simultaneous triggers, `put_triggers_on_stack` opens an

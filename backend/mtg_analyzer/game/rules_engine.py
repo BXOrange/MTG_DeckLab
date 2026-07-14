@@ -18,7 +18,7 @@ engine is the toolbox that loop drives.
 
 from __future__ import annotations
 
-from typing import Any, Optional
+from typing import Any, Callable, Optional
 
 from ..models import card_query
 from ..models.card import Card
@@ -73,6 +73,17 @@ class RulesEngine:
         #: populated only while that choice is pending.
         self._pending_land_choice_obj: Optional[GameObject] = None
         self._pending_land_choice_amount: int = 0
+        #: A replacement chain awaiting an interactive `replacement_order`
+        #: choice (RULE 616.1e/f — 2+ simultaneously-applicable replacement
+        #: effects), and the continuation to resume once it's answered.
+        #: Populated only while that choice is pending; see
+        #: `apply_replacements`/`resolve_replacement_order_choice`.
+        self._pending_replacement_event: Optional[GameEvent] = None
+        self._pending_replacement_applied: set[int] = set()
+        self._pending_replacement_applicable: list[ReplacementEffect] = []
+        self._pending_replacement_callback: Optional[
+            Callable[[Optional[GameEvent]], None]
+        ] = None
         # Collect triggers for every event the game fires.
         state.subscribe(self._collect_triggers)
         # Tally spells cast this turn for the RULE 731.2 day/night check.
@@ -107,17 +118,46 @@ class RulesEngine:
             )
         return effects
 
-    def apply_replacements(self, event: GameEvent) -> Optional[GameEvent]:
+    def apply_replacements(
+        self,
+        event: GameEvent,
+        on_resolved: Optional[Callable[[Optional[GameEvent]], None]] = None,
+    ) -> Optional[GameEvent]:
         """Rewrite ``event`` through applicable replacement effects.
 
         RULE 616: each replacement may apply at most once to a given event
-        (tracked by identity here), and applying one can expose others
-        (a draw→mill chain). Multiple simultaneously-applicable effects are
-        ordered by the affected player; this MVP applies them in discovery
-        order (a deterministic stand-in until player choice is wired in).
-        Returns the final event, or ``None`` if it was prevented.
+        (tracked by identity here), and applying one can expose others —
+        RULE 616.1f, "repeat this process until there are no more
+        applicable replacement … effects" (a draw→mill chain, or Furnace of
+        Rath *then* Torbran on the same damage event).
+
+        When exactly one effect applies at a step there's nothing to choose.
+        When two or more apply simultaneously, RULE 616.1e says the
+        *affected player* (`_event_affected_player_id`) chooses which to
+        apply next. If ``on_resolved`` is given, this opens an interactive
+        ``replacement_order`` `pending_choice` and returns ``None``
+        immediately *without* calling it yet — `resolve_replacement_order_
+        choice` finishes the chain later (mirroring `put_triggers_on_
+        stack`/`resolve_trigger_order_choice`'s RULE 603.3b pause/resume)
+        and invokes ``on_resolved`` with the final event once it settles.
+        A choice already pending (e.g. a second ambiguous damage event
+        resolving in the same synchronous combat-damage batch) isn't a
+        second one to answer — that event falls back to deterministic
+        discovery order rather than clobbering the first.
+
+        Without ``on_resolved`` (back-compat for direct callers/tests that
+        read the return value), ambiguity always falls back to
+        deterministic discovery order, exactly as before this method grew
+        the interactive path.
         """
-        applied: set[int] = set()
+        return self._run_replacement_loop(event, set(), on_resolved)
+
+    def _run_replacement_loop(
+        self,
+        event: GameEvent,
+        applied: set[int],
+        on_resolved: Optional[Callable[[Optional[GameEvent]], None]],
+    ) -> Optional[GameEvent]:
         current: Optional[GameEvent] = event
         while current is not None:
             applicable = [
@@ -127,10 +167,91 @@ class RulesEngine:
             ]
             if not applicable:
                 break
+            if len(applicable) > 1 and on_resolved is not None and not self.state.pending_choice:
+                self._pending_replacement_event = current
+                self._pending_replacement_applied = applied
+                self._pending_replacement_applicable = applicable
+                self._pending_replacement_callback = on_resolved
+                self.state.pending_choice = self._replacement_order_choice(current, applicable)
+                return None
             chosen = applicable[0]
             applied.add(id(chosen))
             current = chosen.apply_replacement(current, self.context)
+        if on_resolved is not None:
+            on_resolved(current)
+            return None
         return current
+
+    def _event_affected_player_id(self, event: GameEvent) -> Optional[str]:
+        """Whose choice a RULE 616.1 replacement-order pick belongs to: the
+        player about to draw/discard/mill, take the damage/counters, or (for
+        a token-creation event) create the tokens."""
+        if event.get("is_player"):
+            return event.get("target_id")
+        target_id = event.get("target_id")
+        if target_id is not None:
+            obj = self.state.find_object(target_id)
+            if obj is not None:
+                return obj.controller_id
+        player_id = event.get("player_id")
+        if player_id is not None:
+            return player_id
+        return event.get("controller_id")
+
+    def _replacement_order_choice(
+        self, event: GameEvent, applicable: list[ReplacementEffect]
+    ) -> dict[str, Any]:
+        """Build the `pending_choice` offering ``applicable`` as the next
+        replacement effect to apply (RULE 616.1e) — one button per effect,
+        matching the generic choice UI's `{"id", "label"}` shape."""
+        player_id = self._event_affected_player_id(event) or self.state.active_player.id
+        options = [
+            {
+                "id": str(i),
+                "label": effect.description
+                or (effect.source.name if effect.source is not None else "Ersetzungseffekt"),
+            }
+            for i, effect in enumerate(applicable)
+        ]
+        return {
+            "kind": "replacement_order",
+            "player_id": player_id,
+            "prompt": "Reihenfolge der Ersetzungseffekte wählen",
+            "options": options,
+        }
+
+    def resolve_replacement_order_choice(self, index: Optional[int]) -> None:
+        """Apply the chosen replacement next, then resume the chain (RULE
+        616.1e/f) — mirrors `resolve_trigger_order_choice`'s pattern.
+
+        ``index`` selects one of the still-applicable effects by its option
+        id; missing/out-of-range defaults to the first. Re-opens a fresh
+        `replacement_order` choice if 2+ effects are still simultaneously
+        applicable afterward; otherwise finishes the chain and invokes the
+        stashed continuation with the final event.
+        """
+        callback = self._pending_replacement_callback
+        if callback is None:
+            self.state.pending_choice = None
+            return
+        applicable = self._pending_replacement_applicable
+        event = self._pending_replacement_event
+        applied = self._pending_replacement_applied
+        self._pending_replacement_event = None
+        self._pending_replacement_applicable = []
+        self._pending_replacement_applied = set()
+        self._pending_replacement_callback = None
+        self.state.pending_choice = None
+
+        if index is None or not 0 <= index < len(applicable):
+            index = 0
+        chosen = applicable[index]
+        applied.add(id(chosen))
+        current = chosen.apply_replacement(event, self.context) if event is not None else None
+        if current is None:
+            callback(None)
+            return
+        self._run_replacement_loop(current, applied, callback)
 
     # ------------------------------------------------------------------
     # Triggered abilities (RULE 603)
@@ -486,6 +607,12 @@ class RulesEngine:
         # be cast from exile (RULE 715.3d) with no dedicated branch here.
         self._remove_from_current_zone(player, obj)
         obj.adventure_castable = False
+        if obj.prepared_source_id is not None:
+            # RULE 722.3c: the source loses "prepared" the moment its
+            # exiled copy becomes cast — not when the copy later resolves.
+            source = self.state.find_object(obj.prepared_source_id)
+            if source is not None:
+                source.prepared = False
         obj.zone = Zone.STACK
         item = StackItem(
             kind="spell",
@@ -693,25 +820,28 @@ class RulesEngine:
 
     def _single_draw(self, player: Player) -> None:
         event = GameEvent(EventType.DRAW, player_id=player.id, count=1)
-        resolved = self.apply_replacements(event)
-        if resolved is None:
-            return
-        if resolved.type == EventType.MILL:
-            self.mill(player, resolved.get("count", 1))
-            return
-        # A DRAW event (possibly with a bumped count).
-        n = resolved.get("count", 1)
-        if len(player.library) < n:
-            # Trying to draw from an empty library is a loss (RULE 704.5c),
-            # flagged for the SBA check rather than raising.
-            player.loss_reason = player.loss_reason or "draw_from_empty"
-            player.attempted_draw_from_empty = True  # type: ignore[attr-defined]
-        drawn = player.draw(n)
-        if drawn:
-            self.state.record_stat(player.id, "draw", amount=len(drawn))
-            self.state.fire_event(
-                GameEvent(EventType.DRAW, player_id=player.id, count=len(drawn))
-            )
+
+        def _finish(resolved: Optional[GameEvent]) -> None:
+            if resolved is None:
+                return
+            if resolved.type == EventType.MILL:
+                self.mill(player, resolved.get("count", 1))
+                return
+            # A DRAW event (possibly with a bumped count).
+            n = resolved.get("count", 1)
+            if len(player.library) < n:
+                # Trying to draw from an empty library is a loss (RULE
+                # 704.5c), flagged for the SBA check rather than raising.
+                player.loss_reason = player.loss_reason or "draw_from_empty"
+                player.attempted_draw_from_empty = True  # type: ignore[attr-defined]
+            drawn = player.draw(n)
+            if drawn:
+                self.state.record_stat(player.id, "draw", amount=len(drawn))
+                self.state.fire_event(
+                    GameEvent(EventType.DRAW, player_id=player.id, count=len(drawn))
+                )
+
+        self.apply_replacements(event, on_resolved=_finish)
 
     def mill(self, player: Player, count: int) -> None:
         for _ in range(count):
@@ -750,46 +880,55 @@ class RulesEngine:
         # Players carry no protection in this model.
         if not is_player and source is not None and is_protected_from(target, source):
             return
+        target_id = target.id if is_player else target.instance_id
         event = GameEvent(
             EventType.DAMAGE,
             amount=amount,
             is_player=is_player,
-            target_id=target.id if is_player else target.instance_id,
+            target_id=target_id,
+            # Carried so a doubling/additional-damage replacement (RULE
+            # 616.1, e.g. Furnace of Rath/Torbran) can filter by "a source
+            # you control" / "combat damage" / "a red source" — see
+            # `_double_damage_replacement`/`_additional_damage_replacement`.
+            source_id=source.instance_id if source is not None else None,
+            source_controller_id=source.controller_id if source is not None else None,
+            source_colors=tuple(getattr(source.card, "color_identity", None) or ()) if source is not None else (),
+            combat=combat,
         )
-        resolved = self.apply_replacements(event)
-        if resolved is None:
-            return
-        final = resolved.get("amount", amount)
-        if final <= 0:
-            return
-        if is_player:
-            # RULE 120.3: damage dealt to a player causes that much life
-            # loss. This is a *consequence* of damage, not a separate event
-            # a player chose to trigger — go through the same `lose_life`
-            # choke point as any other life loss so triggers watching for
-            # "loses life" fire consistently regardless of cause.
-            self.lose_life(target, final, cause="damage")
-            self.state.record_stat(target.id, "damage_taken", amount=final)
-            if source is not None:
-                self.state.record_stat(source.controller_id, "damage_dealt", amount=final)
-                # RULE 903.10a: combat damage from a commander is tallied
-                # separately toward the 21-damage loss threshold.
-                if combat and source.is_commander:
-                    target.add_commander_damage(source.instance_id, source.name, final)
-        elif getattr(target, "is_planeswalker", False):
-            # RULE 306.9: damage to a planeswalker removes that many loyalty
-            # counters (the 0-loyalty SBA then sends it to the graveyard).
-            target.add_counters("loyalty", -final)
-        else:
-            target.damage_marked += final
-        self.state.fire_event(
-            GameEvent(
-                EventType.DAMAGE,
-                amount=final,
-                is_player=is_player,
-                target_id=target.id if is_player else target.instance_id,
+
+        def _finish(resolved: Optional[GameEvent]) -> None:
+            if resolved is None:
+                return
+            final = resolved.get("amount", amount)
+            if final <= 0:
+                return
+            if is_player:
+                # RULE 120.3: damage dealt to a player causes that much life
+                # loss. This is a *consequence* of damage, not a separate
+                # event a player chose to trigger — go through the same
+                # `lose_life` choke point as any other life loss so triggers
+                # watching for "loses life" fire consistently regardless of
+                # cause.
+                self.lose_life(target, final, cause="damage")
+                self.state.record_stat(target.id, "damage_taken", amount=final)
+                if source is not None:
+                    self.state.record_stat(source.controller_id, "damage_dealt", amount=final)
+                    # RULE 903.10a: combat damage from a commander is tallied
+                    # separately toward the 21-damage loss threshold.
+                    if combat and source.is_commander:
+                        target.add_commander_damage(source.instance_id, source.name, final)
+            elif getattr(target, "is_planeswalker", False):
+                # RULE 306.9: damage to a planeswalker removes that many
+                # loyalty counters (the 0-loyalty SBA then sends it to the
+                # graveyard).
+                target.add_counters("loyalty", -final)
+            else:
+                target.damage_marked += final
+            self.state.fire_event(
+                GameEvent(EventType.DAMAGE, amount=final, is_player=is_player, target_id=target_id)
             )
-        )
+
+        self.apply_replacements(event, on_resolved=_finish)
 
     def lose_life(self, player: Player, amount: int, cause: str = "effect") -> None:
         """A player loses life (RULE 118-119), outside of the damage system.
@@ -872,11 +1011,33 @@ class RulesEngine:
         the net-counter setter, preserving old callers). A ``kind`` of "-1/-1"
         places actual -1/-1 counters, kept as their own type so annihilation
         and "remove a -1/-1 counter" effects stay correct.
+
+        A positive ``amount`` (counters being *placed*, RULE 122.1) is routed
+        through `apply_replacements` first, so a "put twice that many
+        instead" replacement (RULE 616.1, e.g. Doubling Season) can rewrite
+        it — a non-positive ``amount`` (removal, or the +1/-1 annihilation
+        SBA's own direct calls) bypasses that entirely, since replacement
+        effects only ever apply to counters being added, never removed.
         """
-        if kind == "+1/+1":
-            obj.plus_one_counters += amount
-        else:
-            obj.add_counters(kind, amount)
+
+        def _place(final_amount: int) -> None:
+            if kind == "+1/+1":
+                obj.plus_one_counters += final_amount
+            else:
+                obj.add_counters(kind, final_amount)
+
+        if amount <= 0:
+            _place(amount)
+            return
+
+        event = GameEvent(EventType.COUNTER, target_id=obj.instance_id, kind=kind, amount=amount)
+
+        def _finish(resolved: Optional[GameEvent]) -> None:
+            if resolved is None:
+                return
+            _place(resolved.get("amount", amount))
+
+        self.apply_replacements(event, on_resolved=_finish)
 
     def scry(self, player: Player, count: int) -> None:
         """Scry ``count`` (RULE 701.18): look at the top ``count`` cards and
@@ -893,41 +1054,84 @@ class RulesEngine:
         )
 
     def create_token(
-        self, controller_id: str, token_card: Card, count: int = 1
+        self,
+        controller_id: str,
+        token_card: Card,
+        count: int = 1,
+        zone: Zone = Zone.BATTLEFIELD,
     ) -> list[GameObject]:
-        """Create ``count`` token permanents under ``controller_id`` (RULE 111.5).
+        """Create ``count`` tokens under ``controller_id`` (RULE 111.5).
 
         Each token is a fresh `GameObject` flagged ``is_token`` (so RULE 704.5d
-        removes it once it leaves the battlefield), with its abilities bound
-        from the token's own definition — exactly like a real permanent — then
-        put onto the battlefield firing `ENTERS_BATTLEFIELD`. The token's owner
-        *and* controller is the creating player (RULE 111.4). Returns the tokens.
+        removes it once it's stranded outside the battlefield), with its
+        abilities bound from the token's own definition — exactly like a real
+        permanent. The token's owner *and* controller is the creating player
+        (RULE 111.4). Returns the tokens.
+
+        ``zone`` defaults to the battlefield (the common case: entering play
+        firing `ENTERS_BATTLEFIELD`, summoning sickness, RULE 614.1
+        enters-tapped). Passing e.g. ``Zone.EXILE`` instead (RULE 722.3c's
+        prepared copy, `make_prepared`) skips all of that battlefield-entry
+        handling and just adds the token straight to the given zone — it
+        never "enters the battlefield" at all, and (matching that: it was
+        never really "created under a player's control" in the RULE 111.5
+        sense either) isn't subject to token-doubling replacements below.
+
+        A battlefield-bound ``count`` is routed through `apply_replacements`
+        first, so a "create twice that many instead" replacement (RULE
+        616.1, e.g. Doubling Season/Parallel Lives) can rewrite it before any
+        token exists. No caller of `create_token`/`copy_permanent` currently
+        depends on the *synchronous* return value beyond the common
+        zero-ambiguity case (where it still resolves and returns
+        immediately, same as before) — if a RULE 616.1 choice opens instead,
+        this returns an empty list right away and the actual tokens are
+        created later, once `resolve_replacement_order_choice` finishes the
+        chain.
         """
         from .effect_binder import bind_from_catalogue  # function-scoped: avoid cycle
 
-        created: list[GameObject] = []
-        for _ in range(max(0, count)):
-            token = GameObject(
-                token_card,
-                owner_id=controller_id,
-                zone=Zone.BATTLEFIELD,
-                is_token=True,
-            )
-            bind_from_catalogue(token)  # token abilities are live like any card's
-            token.summoning_sick = True  # RULE 302.6 applies to tokens too
-            token.tapped = ability_catalogue.enters_tapped(token_card)  # RULE 614.1
-            self.state.add_to_battlefield(token)
-            self.state.fire_event(
-                GameEvent(
-                    EventType.ENTERS_BATTLEFIELD,
-                    controller_id=controller_id,
-                    card_id=token_card.id,
-                    object=token.name,
+        def _build(final_count: int) -> list[GameObject]:
+            created: list[GameObject] = []
+            for _ in range(max(0, final_count)):
+                token = GameObject(
+                    token_card,
+                    owner_id=controller_id,
+                    zone=zone,
                     is_token=True,
                 )
-            )
-            created.append(token)
-        return created
+                bind_from_catalogue(token)  # token abilities are live like any card's
+                if zone == Zone.BATTLEFIELD:
+                    token.summoning_sick = True  # RULE 302.6 applies to tokens too
+                    token.tapped = ability_catalogue.enters_tapped(token_card)  # RULE 614.1
+                    self.state.add_to_battlefield(token)
+                    self.state.fire_event(
+                        GameEvent(
+                            EventType.ENTERS_BATTLEFIELD,
+                            controller_id=controller_id,
+                            card_id=token_card.id,
+                            object=token.name,
+                            is_token=True,
+                        )
+                    )
+                else:
+                    self.state.player_by_id(controller_id).add_to_zone(token, zone)
+                created.append(token)
+            return created
+
+        if zone != Zone.BATTLEFIELD or count <= 0:
+            return _build(count)
+
+        event = GameEvent(EventType.CREATE_TOKENS, controller_id=controller_id, amount=count)
+        result: list[GameObject] = []
+
+        def _finish(resolved: Optional[GameEvent]) -> None:
+            nonlocal result
+            if resolved is None:
+                return
+            result = _build(resolved.get("amount", count))
+
+        self.apply_replacements(event, on_resolved=_finish)
+        return result
 
     def advance_sagas(self, player: Player) -> None:
         """Add a lore counter to each Saga ``player`` controls (RULE 714.2b).
@@ -1030,6 +1234,31 @@ class RulesEngine:
         token cease-to-exist lifecycle (RULE 704.5d)."""
         copiable = getattr(source, "_front_card", source.card)
         return self.create_token(controller_id, copiable, count)
+
+    def make_prepared(self, obj: GameObject) -> None:
+        """``obj`` becomes prepared (RULE 722.3a — a preparation card's
+        "~ becomes prepared" effect).
+
+        A no-op if ``obj`` is already prepared (RULE 722.3a: "can't gain
+        this designation if the permanent already has it") or has no
+        prepare spell at all (``back_face()`` is ``None``). Otherwise sets
+        the `prepared` designation and creates one token copy of the
+        prepare spell's characteristics directly into ``obj``'s
+        controller's exile (RULE 722.3c) — not the battlefield, so
+        `create_token`'s battlefield-entry handling (summoning sickness,
+        `ENTERS_BATTLEFIELD`) correctly never runs for it. The copy is
+        linked back via `prepared_source_id`; `_remove_stranded_tokens`
+        keeps it alive only for as long as ``obj`` stays on the battlefield
+        with `prepared` still set — no separate cleanup/expiry needed here.
+        """
+        if obj.prepared:
+            return
+        prepare_spell = obj.card.back_face()
+        if prepare_spell is None:
+            return
+        obj.prepared = True
+        copies = self.create_token(obj.controller_id, prepare_spell, zone=Zone.EXILE)
+        copies[0].prepared_source_id = obj.instance_id
 
     def become_copy(
         self,
@@ -1651,15 +1880,28 @@ class RulesEngine:
         return False
 
     def _remove_stranded_tokens(self) -> bool:
-        """Remove any token that has left the battlefield (RULE 704.5d)."""
+        """Remove any token that has left the battlefield (RULE 704.5d) —
+        except a prepared copy still exempt under RULE 722.3c."""
         for player in self.state.players:
             for zone in Player.PERSONAL_ZONES:  # every non-battlefield zone
                 cards = player.zones[zone]
                 for obj in cards:
-                    if obj.is_token:
+                    if obj.is_token and not self._is_prepared_copy(obj):
                         cards.remove(obj)
                         return True
         return False
+
+    def _is_prepared_copy(self, obj: GameObject) -> bool:
+        """RULE 722.3c: a prepared copy is exempt from the RULE 704.5d token
+        cleanup for as long as its source stays on the battlefield with the
+        prepared designation — the instant either stops being true (the
+        source is unprepared some other way, or leaves the battlefield), the
+        next SBA pass reaps the copy via `_remove_stranded_tokens` above.
+        """
+        if obj.prepared_source_id is None:
+            return False
+        source = self.state.find_object(obj.prepared_source_id)
+        return source is not None and source in self.state.battlefield and source.prepared
 
     def _apply_legend_rule(self) -> bool:
         seen: dict[tuple[str, str], GameObject] = {}
