@@ -6,20 +6,44 @@ Reference: docs/implementation-state/Done_Backend.md "HTTP API foundation"
 
 from __future__ import annotations
 
+from typing import Any
+
 from fastapi import APIRouter, Depends, HTTPException, Query
 
 from mtg_analyzer.api.dependencies import get_card_database, get_lazy_card_loader
 from mtg_analyzer.api.schemas import CardResolveRequest
+from mtg_analyzer.game import ability_catalogue
+from mtg_analyzer.parser.oracle.gate import parse_oracle
 from mtg_analyzer.services.card_database import CardDatabase
 from mtg_analyzer.services.lazy_card_loader import LazyCardLoader
 
 router = APIRouter(prefix="/api/cards", tags=["cards"])
 
 
+def _coverage_for(card: Any) -> dict[str, object]:
+    """A card's engine-coverage verdict (docs/09 "coverage is the roadmap").
+
+    A hand-authored `ability_catalogue` entry is trusted wholesale, same as
+    `specs_for` treats it — `MODELED` with no unclaimed lines regardless of
+    what the oracle parser alone would say. Otherwise this is exactly the
+    verdict `specs_for` falls back to for binding, so "modeled" here means
+    "the engine plays this card's abilities", not just "text parses".
+    """
+    if ability_catalogue.is_registered(getattr(card, "name", "") or ""):
+        return {"modeled": True, "source": "catalogue", "unclaimed": []}
+    result = parse_oracle(card)
+    return {"modeled": result.modeled, "source": "oracle", "unclaimed": result.unclaimed}
+
+
 @router.get("")
 def list_cards(database: CardDatabase = Depends(get_card_database)) -> list[dict[str, object]]:
     """Every card currently in the local cache — for a "browse the cache" view."""
-    return [card.to_dict() for card in database.list_cards()]
+    cards = []
+    for card in database.list_cards():
+        card_dict = card.to_dict()
+        card_dict["coverage"] = _coverage_for(card)
+        cards.append(card_dict)
+    return cards
 
 
 @router.get("/search")

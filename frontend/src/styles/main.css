@@ -622,6 +622,58 @@ textarea {
   font-size: 0.85rem;
 }
 
+.cache-coverage-legend {
+  margin: 0 0 1rem;
+}
+
+.cache-filters {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: 0.75rem;
+  margin: 0 0 1.25rem;
+  padding: 0.75rem;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--panel);
+}
+
+.cache-filter-group {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.15rem 0.7rem;
+  border: none;
+  margin: 0;
+  padding: 0;
+}
+
+.cache-filter-group legend {
+  width: 100%;
+  margin-bottom: 0.2rem;
+  font-size: 0.72rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  color: var(--text-dim);
+}
+
+.cache-filter-group label {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  font-size: 0.82rem;
+  white-space: nowrap;
+}
+
+.cache-filter-group input[type='number'] {
+  width: 4rem;
+}
+
+#cache-filter-reset {
+  align-self: flex-end;
+}
+
 /* --- Shared card tile (Karten-Cache + deck-import detail view) --- */
 
 .card-tile-grid {
@@ -703,9 +755,9 @@ textarea {
   display: flex;
   align-items: center;
   justify-content: center;
+  flex-shrink: 0;
   width: 1.6rem;
   height: 1.6rem;
-  margin-top: 0.2rem;
   background: var(--panel-alt);
   border: 1px solid var(--border);
   border-radius: 999px;
@@ -718,6 +770,9 @@ textarea {
 }
 
 .card-tile-info {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
   min-width: 0;
   padding: 0.75rem;
 }
@@ -777,6 +832,29 @@ textarea {
   color: var(--text-dim);
   text-transform: uppercase;
   letter-spacing: 0.03em;
+}
+
+.card-tile-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  margin-top: auto;
+  padding-top: 0.5rem;
+}
+
+.card-tile-coverage {
+  font-size: 0.7rem;
+  font-weight: 600;
+}
+
+.card-tile-coverage-modeled {
+  color: var(--ok);
+}
+
+.card-tile-coverage-unmodeled {
+  color: var(--text-dim);
+  cursor: help;
 }
 
 /* --- Einstellungen --- */

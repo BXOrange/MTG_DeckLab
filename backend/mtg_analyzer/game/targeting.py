@@ -30,8 +30,17 @@ from . import combat
 #: The target categories the engine can resolve to concrete board objects.
 #: "any" is Magic's "any target" (RULE 115.4): any creature or player (we
 #: don't model planeswalkers/battles yet). Extend as new restrictions land.
+#: ``creature_you_control``/``land_you_control`` narrow a battlefield pick to
+#: the controller's own permanents (RULE 115/603.3c, or a non-"target"
+#: resolve-time choice among one's own permanents modeled the same way, e.g.
+#: a bounce-land's "return a land you control…"); ``graveyard_creature`` is a
+#: creature card in the controller's own graveyard (RULE 115, the
+#: recursion/reanimation family — Regrowth/Reanimate-shaped).
 ALLOWED_TARGET_KINDS: frozenset[str] = frozenset(
-    {"any", "creature", "permanent", "player", "spell"}
+    {
+        "any", "creature", "permanent", "player", "spell",
+        "creature_you_control", "land_you_control", "graveyard_creature",
+    }
 )
 
 
@@ -47,6 +56,13 @@ class TargetSpec:
     kind: str = "any"
     optional: bool = False
     description: str = ""
+    #: For ``kind="spell"`` only — a structured filter on *which* spells are
+    #: legal targets (RULE 601.2c/115), e.g. ``{"noncreature": True}``,
+    #: ``{"card_types": ["instant", "sorcery"]}``, ``{"mana_value": 2}``, or
+    #: any combination — narrows "counter target noncreature spell" /
+    #: "target instant or sorcery spell" / "target spell with mana value N"
+    #: beyond the bare "target spell". ``None``/``{}`` means unfiltered.
+    spell_filter: Optional[dict[str, Any]] = None
 
     def label(self) -> str:
         return self.description or {
@@ -55,6 +71,9 @@ class TargetSpec:
             "permanent": "bleibende Karte",
             "player": "Spieler",
             "spell": "Zauberspruch",
+            "creature_you_control": "Kreatur unter deiner Kontrolle",
+            "land_you_control": "Land unter deiner Kontrolle",
+            "graveyard_creature": "Kreaturenkarte in deinem Friedhof",
         }.get(self.kind, self.kind)
 
 
@@ -89,6 +108,36 @@ def _not_protected(obj: GameObject, source: Optional[GameObject]) -> bool:
     if source is None:
         return True
     return not combat.is_protected_from(obj, source)
+
+
+def _spell_matches_filter(obj: GameObject, spell_filter: dict[str, Any]) -> bool:
+    """Whether a stack spell's underlying ``obj`` satisfies a "spell" target's
+    ``spell_filter`` (RULE 601.2c/115) — see `TargetSpec.spell_filter`.
+
+    ``card_types`` is an *or* over the listed words ("instant or sorcery"
+    matches either); ``noncreature``/``card_types``/``mana_value`` compose
+    with each other (all present conditions must hold). Reads the object's
+    *printed* card, mirroring how a spell's other characteristics are looked
+    up before it resolves (no layer-engine pass runs on the stack).
+    """
+    if spell_filter.get("noncreature") and obj.is_creature:
+        return False
+    card_types = spell_filter.get("card_types")
+    if card_types:
+        type_checks = {
+            "creature": obj.is_creature,
+            "instant": bool(obj.card.is_instant),
+            "sorcery": bool(obj.card.is_sorcery),
+            "artifact": bool(obj.card.is_artifact),
+            "enchantment": bool(obj.card.is_enchantment),
+            "planeswalker": obj.is_planeswalker,
+        }
+        if not any(type_checks.get(t, False) for t in card_types):
+            return False
+    mana_value = spell_filter.get("mana_value")
+    if mana_value is not None and obj.card.converted_mana_cost != mana_value:
+        return False
+    return True
 
 
 def legal_targets(
@@ -192,11 +241,43 @@ def legal_targets(
             and o is not source
             and _not_protected(o, source)
         ]
-    if kind == "spell":
+    if kind in ("creature_you_control", "land_you_control"):
+        # RULE 115/603.3c controller-restricted pick — and the same shape for
+        # a non-"target" resolve-time choice among the controller's own
+        # permanents (a bounce-land's "return a land you control…").
+        wants_land = kind == "land_you_control"
         return [
-            {"instance_id": item.obj.instance_id, "name": item.description or item.obj.name}
+            {"instance_id": o.instance_id, "name": o.name}
+            for o in state.battlefield
+            if (o.is_land if wants_land else o.is_creature)
+            and o.controller_id == controller_id
+            and o is not source
+            and _not_protected(o, source)
+        ]
+    if kind == "graveyard_creature":
+        # RULE 115: "target creature card from your graveyard" — restricted
+        # to the controller's own graveyard (the recursion/reanimation
+        # family always says "your graveyard", never any graveyard).
+        try:
+            owner = state.player_by_id(controller_id)
+        except KeyError:
+            return []
+        return [
+            {"instance_id": o.instance_id, "name": o.name}
+            for o in owner.graveyard
+            if o.is_creature
+        ]
+    if kind == "spell":
+        items = [
+            item
             for item in state.stack
             if item.kind == "spell" and item.obj is not None and item.obj is not source
+        ]
+        if spec.spell_filter:
+            items = [item for item in items if _spell_matches_filter(item.obj, spec.spell_filter)]
+        return [
+            {"instance_id": item.obj.instance_id, "name": item.description or item.obj.name}
+            for item in items
         ]
     return []
 

@@ -15,6 +15,7 @@ today). `run_goldfish_turn` wires those together into a solo auto-turn
 
 from __future__ import annotations
 
+from contextlib import contextmanager
 from typing import Any, Optional
 
 from ..models.card import Card
@@ -24,7 +25,7 @@ from ..models.game_state import GameState, StackItem
 from ..models.mana_cost import ManaCost
 from ..models.player import Player
 from . import combat, continuous
-from .costs import DISCARD_HAND, ActivationCost
+from .costs import DISCARD_HAND, PAY_LIFE_X, ActivationCost
 from .effects import ActivatedAbility
 from .mana_abilities import mana_options_for, option_label
 from .phases import GamePhase, GameStep, default_turn_sequence
@@ -606,6 +607,9 @@ class GameEngine:
             # RULE 614.1c/614.12: the option id is a permanent's instance id,
             # or decline to enter as itself.
             self.rules.resolve_enter_as_copy_choice(None if declined else str(answer))
+        elif kind == "counter_unless_pays":
+            # RULE 601: "pay" saves the target spell, anything else counters it.
+            self.rules.resolve_counter_unless_pays_choice(None if declined else str(answer))
         else:  # search: a card's instance id, or decline
             instance_id = None if declined else int(answer)
             self.rules.resolve_search_choice(instance_id)
@@ -676,7 +680,13 @@ class GameEngine:
             GameEvent(EventType.LAND_PLAYED, player_id=player.id, card_id=obj.card.id, land=obj.name)
         )
         self.state.fire_event(
-            GameEvent(EventType.ENTERS_BATTLEFIELD, controller_id=player.id, object=obj.name)
+            GameEvent(
+                EventType.ENTERS_BATTLEFIELD,
+                controller_id=player.id,
+                object=obj.name,
+                instance_id=obj.instance_id,
+                object_types=sorted(obj.type_words),
+            )
         )
         # RULE 117.3c: taking an action reclaims priority for its taker.
         self.give_priority(player)
@@ -730,7 +740,15 @@ class GameEngine:
             if not self._in_main_phase() or self.state.stack:
                 return False
         cost = self.effective_cast_cost(player, obj, x, face=face)
-        return player.mana_pool.can_pay(cost, life_available=player.life)
+        if not player.mana_pool.can_pay(cost, life_available=player.life):
+            return False
+        # RULE 601.2b: an "as an additional cost to cast this spell, …"
+        # clause is a separate legality gate from the mana cost above — a
+        # sacrifice/discard/life payment that isn't payable makes the spell
+        # uncastable even with the mana in hand.
+        return self._can_pay_additional_cast_cost(
+            player, obj, getattr(obj, "additional_cast_cost", None), x
+        )
 
     def effective_cast_cost(
         self, player: Player, obj: GameObject, x: int = 0, face: str = "front"
@@ -802,6 +820,7 @@ class GameEngine:
         targets: Optional[list[Any]] = None,
         x: int = 0,
         face: str = "front",
+        mode: Optional[Any] = None,
     ):
         """Cast a spell after validating timing, payability and targets (RULE 601).
 
@@ -814,6 +833,12 @@ class GameEngine:
         ordinary cast validation/commit runs — so any failure below leaves
         ``obj`` restored to its original face rather than silently stuck on
         the second one.
+
+        ``mode`` chooses which of a modal spell's ("Choose one —", RULE
+        700.2) printed options resolves: an index into ``obj.spell_modes``,
+        or the literal ``"both"`` (RULE 700.2e, only when
+        ``obj.spell_modes_or_both``). Required — raises — for a spell that
+        carries ``spell_modes``; ignored otherwise. See `_mode_effects_applied`.
         """
         if face in ("back", "fuse"):
             if not self.can_cast(player, obj, x, face=face):
@@ -827,14 +852,69 @@ class GameEngine:
             snapshot = self.rules.snapshot_face(obj)
             self.rules.switch_to_face(obj, alt)
             try:
-                result = self._cast_current_face(player, obj, targets, x)
+                result = self._cast_current_face(player, obj, targets, x, mode=mode)
             except Exception:
                 self.rules.restore_face(obj, snapshot)
                 raise
             if is_adventure_cast:
                 obj.adventure_snapshot = snapshot
             return result
-        return self._cast_current_face(player, obj, targets, x)
+        return self._cast_current_face(player, obj, targets, x, mode=mode)
+
+    def _effects_for_mode(self, obj: GameObject, mode: Any) -> list[Any]:
+        """The `GameEffect`s a modal spell's chosen ``mode`` resolves with.
+
+        ``mode`` is an index into ``obj.spell_modes``, or ``"both"`` (RULE
+        700.2e) — both modes' effects, in printed order. Raises for an
+        out-of-range index or a "both" not actually offered (`obj` has no
+        ``spell_modes`` at all, or isn't ``spell_modes_or_both``, or doesn't
+        have exactly the two modes RULE 700.2e's "or both" implies).
+        """
+        modes = list(getattr(obj, "spell_modes", None) or [])
+        if mode == "both":
+            if not getattr(obj, "spell_modes_or_both", False) or len(modes) != 2:
+                raise ValueError(f"{obj.name} has no 'choose both' mode")
+            effects: list[Any] = []
+            for entry in modes:
+                effects.extend(entry["effects"])
+            return effects
+        if not isinstance(mode, int) or not (0 <= mode < len(modes)):
+            raise ValueError(f"{obj.name}: invalid mode {mode!r}")
+        return list(modes[mode]["effects"])
+
+    def _mode_description(self, obj: GameObject, mode: Any) -> str:
+        """A modal spell's chosen ``mode`` as UI label text."""
+        modes = list(getattr(obj, "spell_modes", None) or [])
+        if mode == "both":
+            return " + ".join(entry.get("description", "") for entry in modes)
+        if isinstance(mode, int) and 0 <= mode < len(modes):
+            return modes[mode].get("description", "")
+        return ""
+
+    @contextmanager
+    def _mode_effects_applied(self, obj: GameObject, mode: Optional[Any]):
+        """Temporarily point ``obj.spell_effects`` at a modal spell's chosen
+        mode(s) (RULE 601.2b: the mode is chosen before targets/costs).
+
+        `has_legal_targets`/`RulesEngine._effects_for_spell` both read
+        ``obj.spell_effects`` — swapping it here (and restoring it on exit,
+        success or failure) means neither needs to know modes exist at all,
+        the same "no top-level change needed" trick `switch_to_face` uses
+        for a second castable face. A no-op for a non-modal ``obj``
+        (``spell_modes`` unset/empty).
+        """
+        modes = getattr(obj, "spell_modes", None)
+        if not modes:
+            yield
+            return
+        if mode is None:
+            raise ValueError(f"{obj.name} requires a mode choice (RULE 601.2b)")
+        previous = list(getattr(obj, "spell_effects", None) or [])
+        obj.spell_effects = self._effects_for_mode(obj, mode)
+        try:
+            yield
+        finally:
+            obj.spell_effects = previous
 
     def _cast_current_face(
         self,
@@ -842,19 +922,30 @@ class GameEngine:
         obj: GameObject,
         targets: Optional[list[Any]],
         x: int,
+        mode: Optional[Any] = None,
     ):
         """The common cast body, reading whatever `obj.card` currently is."""
-        if not self.can_cast(player, obj, x):
-            raise ValueError(f"{player.id} cannot cast {obj.name} now")
-        # RULE 601.2c: a spell that requires a target can't be cast unless a
-        # legal target is available — the same check that locks the offer.
-        if not self.has_legal_targets(player, obj):
-            raise ValueError(f"{obj.name} has no legal target")
-        cost = self.effective_cast_cost(player, obj, x)
-        # RULE 903.8: record this command-zone cast so the next one is taxed
-        # {2} more. Read *before* the cast moves the card off the command zone.
-        from_command = obj.is_commander and obj in player.command
-        result = self.rules.cast_spell(player, obj, targets, x, cost=cost)
+        with self._mode_effects_applied(obj, mode):
+            if not self.can_cast(player, obj, x):
+                raise ValueError(f"{player.id} cannot cast {obj.name} now")
+            # RULE 601.2c: a spell that requires a target can't be cast unless
+            # a legal target is available — the same check that locks the offer.
+            if not self.has_legal_targets(player, obj):
+                raise ValueError(f"{obj.name} has no legal target")
+            cost = self.effective_cast_cost(player, obj, x)
+            # RULE 903.8: record this command-zone cast so the next one is
+            # taxed {2} more. Read *before* the cast moves the card off the
+            # command zone.
+            from_command = obj.is_commander and obj in player.command
+            result = self.rules.cast_spell(player, obj, targets, x, cost=cost)
+            # RULE 601.2b/601.2h: an additional cost is paid as part of
+            # casting, not resolving — so it stays paid even if the spell is
+            # later countered. Paid *after* the mana cost (just above) so a
+            # Phyrexian-mana payment reads the player's life before any
+            # "pay N life" additional cost reduces it.
+            self._pay_additional_cast_cost(
+                player, obj, getattr(obj, "additional_cast_cost", None), x
+            )
         if from_command:
             player.commander_casts[obj.instance_id] = (
                 player.commander_casts.get(obj.instance_id, 0) + 1
@@ -931,7 +1022,13 @@ class GameEngine:
             obj.attacking = True
             obj.combat_defender = defender
             self.state.fire_event(
-                GameEvent(EventType.ATTACKS, attacker=obj.name, player_id=player.id)
+                GameEvent(
+                    EventType.ATTACKS,
+                    attacker=obj.name,
+                    player_id=player.id,  # RULE 508.1a: the attacker's controller
+                    instance_id=obj.instance_id,
+                    object_types=sorted(obj.type_words),
+                )
             )
 
     def _assign_defender(
@@ -1055,7 +1152,13 @@ class GameEngine:
             if blocker.instance_id not in attacker.blocked_by:
                 attacker.blocked_by.append(blocker.instance_id)
             self.state.fire_event(
-                GameEvent(EventType.BLOCKS, blocker=blocker.name, player_id=player.id)
+                GameEvent(
+                    EventType.BLOCKS,
+                    blocker=blocker.name,
+                    player_id=player.id,  # RULE 509.1b: the blocker's controller
+                    instance_id=blocker.instance_id,
+                    object_types=sorted(blocker.type_words),
+                )
             )
 
     def can_block(self, player: Player, blocker: GameObject, attacker: GameObject) -> bool:
@@ -1261,6 +1364,68 @@ class GameEngine:
             return False
         return True
 
+    def _can_pay_additional_cast_cost(
+        self, player: Player, obj: GameObject, cost: Optional["ActivationCost"], x: int
+    ) -> bool:
+        """RULE 601.2b: whether ``player`` can pay a spell's "as an
+        additional cost to cast this spell, …" clause right now.
+
+        A narrow subset of `_can_pay_activation_cost` — only the three
+        shapes the oracle-text parser recognizes for it (sacrifice/discard/
+        pay life); there's no mana or {T}/{Q} portion to an additional cost.
+        A ``pay_life`` of `costs.PAY_LIFE_X` checks the spell's own
+        announced ``x`` rather than a fixed amount (RULE 601.2b: "pay X
+        life" is tied to *this* spell's X, chosen in the same announcement).
+        ``obj`` — the spell itself, still sitting in hand at legality-check
+        time — is excluded from its own "discard a card" count: it isn't a
+        legal discard candidate for its own cost.
+        """
+        if cost is None:
+            return True
+        if cost.sacrifice and self._sacrifice_candidate(player, obj, cost.sacrifice) is None:
+            return False
+        if cost.discard and cost.discard != DISCARD_HAND:
+            available = len(player.hand) - (1 if obj in player.hand else 0)
+            if available < cost.discard:
+                return False
+        if cost.pay_life:
+            amount = x if cost.pay_life == PAY_LIFE_X else cost.pay_life
+            if player.life < amount:
+                return False
+        return True
+
+    def _pay_additional_cast_cost(
+        self,
+        player: Player,
+        obj: GameObject,
+        cost: Optional["ActivationCost"],
+        x: int,
+    ) -> None:
+        """Pay a spell's additional cast cost (RULE 601.2b), assumed already
+        checked payable by `_can_pay_additional_cast_cost`/`can_cast`.
+
+        Sacrifice/discard use the same non-interactive auto-choice
+        `_can_pay_activation_cost`'s callers do for an activated ability's
+        cost (an MVP simplification, not this feature's own decision — see
+        `_sacrifice_candidate`'s docstring). ``obj`` — the spell itself — is
+        never a valid sacrifice candidate at this point (it's a spell on the
+        stack, not a permanent), so passing it as the sacrifice ability's
+        "self" source is only ever a no-op fallback.
+        """
+        if cost is None:
+            return
+        if cost.sacrifice:
+            victim = self._sacrifice_candidate(player, obj, cost.sacrifice)
+            if victim is not None:
+                self.rules.destroy(victim)
+        if cost.discard:
+            self.rules.discard(
+                player, len(player.hand) if cost.discard == DISCARD_HAND else cost.discard
+            )
+        if cost.pay_life:
+            amount = x if cost.pay_life == PAY_LIFE_X else cost.pay_life
+            self.rules.lose_life(player, amount, cause="cost")
+
     def _sacrifice_candidate(
         self, player: Player, source: GameObject, what: str
     ) -> Optional[GameObject]:
@@ -1357,7 +1522,9 @@ class GameEngine:
     # Action validation query (docs/02 R4.3)
     # ------------------------------------------------------------------
 
-    def _cast_action(self, player: Player, obj: GameObject, face: str = "front") -> dict[str, Any]:
+    def _cast_action(
+        self, player: Player, obj: GameObject, face: str = "front", mode: Optional[Any] = None
+    ) -> dict[str, Any]:
         """A ``cast_spell`` legal-action entry, flagging ``{X}`` and targets.
 
         ``has_x`` tells the UI to prompt for a value; ``max_x`` is the
@@ -1375,6 +1542,11 @@ class GameEngine:
         (so targeting/cost read its *own* abilities, not the front's) then
         restored before returning — a pure preview, unlike `cast_spell`'s
         real (and rollback-on-failure) switch.
+
+        ``mode`` (an index into ``obj.spell_modes``, or ``"both"``) tags the
+        entry with that mode (RULE 700.2 — see `_modal_cast_actions`, which
+        calls this once per mode instead of once per ``obj``) and computes
+        ``targets``/``locked`` under that mode's own effects only.
         """
         if face in ("back", "fuse"):
             alt = obj.card.back_face() if face == "back" else obj.card.fuse_face()
@@ -1387,6 +1559,9 @@ class GameEngine:
             action["face"] = face
             return action
         action = {"type": "cast_spell", "instance_id": obj.instance_id, "name": obj.name}
+        if mode is not None:
+            action["mode"] = mode
+            action["mode_description"] = self._mode_description(obj, mode)
         cost = self.rules.mana_cost_of(obj.card)
         if cost.has_variable:
             action["has_x"] = True
@@ -1405,7 +1580,20 @@ class GameEngine:
             if tax:
                 action["commander_tax"] = tax
 
-        requirements = requirements_with_targets(self.state, player.id, obj)
+        # RULE 601.2b: surface the additional cast cost (if any) so the UI
+        # can show it alongside the mana cost, and lock the offer when its
+        # non-X portion (sacrifice/discard) isn't payable — the same
+        # "offer-time face" treatment missing targets get above. A pending
+        # "pay X life" isn't locked here since X isn't chosen until cast.
+        additional_cost = getattr(obj, "additional_cast_cost", None)
+        if additional_cost is not None and not additional_cost.is_free:
+            action["additional_cost_label"] = additional_cost.label()
+            if not self._can_pay_additional_cast_cost(player, obj, additional_cost, x=0):
+                action["locked"] = True
+                action["lock_reason"] = "Zusätzliche Kosten nicht bezahlbar"
+
+        with self._mode_effects_applied(obj, mode):
+            requirements = requirements_with_targets(self.state, player.id, obj)
         if requirements:
             action["requires_target"] = True
             action["targets"] = requirements
@@ -1413,6 +1601,17 @@ class GameEngine:
                 action["locked"] = True
                 action["lock_reason"] = "Kein gültiges Ziel im Spiel"
         return action
+
+    def _modal_cast_actions(self, player: Player, obj: GameObject) -> list[dict[str, Any]]:
+        """One ``cast_spell`` action per mode of a modal spell (RULE 700.2),
+        plus a combined "both" action when ``obj.spell_modes_or_both``
+        (RULE 700.2e) — the same "an offer per option" treatment
+        `legal_actions` already gives an MDFC's two faces."""
+        modes = list(getattr(obj, "spell_modes", None) or [])
+        actions = [self._cast_action(player, obj, mode=i) for i in range(len(modes))]
+        if getattr(obj, "spell_modes_or_both", False) and len(modes) == 2:
+            actions.append(self._cast_action(player, obj, mode="both"))
+        return actions
 
     def legal_actions(self, player: Player) -> list[dict[str, Any]]:
         """Every action ``player`` may legally take in the current state.
@@ -1430,7 +1629,10 @@ class GameEngine:
                     {"type": "play_land", "instance_id": obj.instance_id, "name": obj.name}
                 )
             if self.can_cast(player, obj):
-                actions.append(self._cast_action(player, obj))
+                if getattr(obj, "spell_modes", None):
+                    actions.extend(self._modal_cast_actions(player, obj))
+                else:
+                    actions.append(self._cast_action(player, obj))
             # A second castable face offers its own action(s) too — a modal
             # DFC's back (RULE 712.10), a split card's other half (RULE
             # 709.3), or an Adventure's instant/sorcery half (RULE 715.2b) —
@@ -1454,13 +1656,19 @@ class GameEngine:
 
         for obj in list(player.command):
             if self.can_cast(player, obj):
-                actions.append(self._cast_action(player, obj))
+                if getattr(obj, "spell_modes", None):
+                    actions.extend(self._modal_cast_actions(player, obj))
+                else:
+                    actions.append(self._cast_action(player, obj))
 
         for obj in list(player.exile):
             # RULE 715.3d / 722.3c: an Adventure creature exiled by its own
             # spell half, or a prepared copy, may be cast from exile.
             if self._castable_from_exile(obj) and self.can_cast(player, obj):
-                actions.append(self._cast_action(player, obj))
+                if getattr(obj, "spell_modes", None):
+                    actions.extend(self._modal_cast_actions(player, obj))
+                else:
+                    actions.append(self._cast_action(player, obj))
 
         if (
             player is self.state.active_player
@@ -1569,6 +1777,12 @@ class GameEngine:
             key=lambda o: o.card.converted_mana_cost,
         )
         for obj in castable:
+            if getattr(obj, "spell_modes", None):
+                # RULE 700.2: a modal spell needs a mode choice (`mode=`)
+                # before `has_legal_targets` even means anything — the
+                # greedy auto-play heuristic doesn't pick modes, so it skips
+                # these rather than raise mid-autoplay.
+                continue
             # Skip a targeting spell with nothing legal to point at (RULE
             # 601.2c) rather than have `cast_spell` raise mid-autoplay.
             if self.can_cast(active, obj) and self.has_legal_targets(active, obj):

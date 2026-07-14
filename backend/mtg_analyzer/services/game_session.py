@@ -323,7 +323,12 @@ class GameSession:
             targets = self._resolve_targets(action.get("targets"))
             x = int(action.get("x", 0))
             face = action.get("face", "front")
-            self.engine.cast_spell(active, self._object(action), targets, x, face=face)
+            # RULE 700.2: a modal spell's chosen mode — an index into
+            # `obj.spell_modes`, or "both" (RULE 700.2e) — round-trips from
+            # the `mode` field `GameEngine._cast_action` stamped on the
+            # offered action; absent for a non-modal spell.
+            mode = action.get("mode")
+            self.engine.cast_spell(active, self._object(action), targets, x, face=face, mode=mode)
             return
 
         if kind == "activate_ability":

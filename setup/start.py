@@ -8,11 +8,12 @@ frontend static server. Pure standard library, works the same on
 macOS/Linux/Windows as long as a Python 3 interpreter is on PATH.
 
 Usage:
-  python3 setup/start.py  [--port 8765] [--backend-port 8000] [--backend-tests] [--no-browser]
-  python setup\start.py   [--port 8765] [--backend-port 8000] [--backend-tests] [--no-browser]
+  python3 setup/start.py  [--port 8765] [--backend-port 8000] [--backend-tests] [--no-browser] [--scryfall-primary]
+  python setup\start.py   [--port 8765] [--backend-port 8000] [--backend-tests] [--no-browser] [--scryfall-primary]
 """
 
 import argparse
+import os
 import signal
 import socket
 import subprocess
@@ -43,11 +44,18 @@ def wait_for_port(host: str, port: int, timeout: float = 15.0) -> bool:
     return False
 
 
-def start_backend(python, port: int) -> subprocess.Popen:
+def start_backend(python, port: int, scryfall_primary: bool = False) -> subprocess.Popen:
     print(f"Starting backend API at http://localhost:{port} ...")
+    env = os.environ.copy()
+    if scryfall_primary:
+        # See mtg_analyzer/config.py's SCRYFALL_PRIMARY: switches
+        # LazyCardLoader from the default cache-primary loading policy to
+        # always refetching a stale cached card from Scryfall.
+        env["MTG_SCRYFALL_PRIMARY"] = "1"
     return subprocess.Popen(
         [str(python), "-m", "uvicorn", "mtg_analyzer.api.app:app", "--port", str(port)],
         cwd=str(BACKEND_DIR),
+        env=env,
     )
 
 
@@ -83,8 +91,8 @@ def start_frontend(port: int, open_browser: bool) -> subprocess.Popen:
     return frontend_proc
 
 
-def run_servers(python, port: int, backend_port: int, open_browser: bool) -> None:
-    backend_proc = start_backend(python, backend_port)
+def run_servers(python, port: int, backend_port: int, open_browser: bool, scryfall_primary: bool = False) -> None:
+    backend_proc = start_backend(python, backend_port, scryfall_primary=scryfall_primary)
     try:
         if not wait_for_port("127.0.0.1", backend_port):
             raise RuntimeError(f"Backend API did not become ready on port {backend_port}.")
@@ -121,6 +129,16 @@ def main() -> None:
     parser.add_argument("--no-browser", action="store_true", help="Don't auto-open a browser tab")
     parser.add_argument("--backend-only", action="store_true", help="Start the backend API without the frontend server")
     parser.add_argument("--frontend-only", action="store_true", help="Start the frontend server without the backend API")
+    parser.add_argument(
+        "--scryfall-primary",
+        action="store_true",
+        help=(
+            "Always refetch a stale cached card from Scryfall instead of serving it "
+            "as-is (this project's original behavior). Default is cache-primary: an "
+            "already-cached card is never auto-refetched, avoiding surprise Scryfall "
+            "calls (and rate limits) on an ordinary deck load."
+        ),
+    )
     args = parser.parse_args()
 
     if args.backend_only and args.frontend_only:
@@ -135,7 +153,7 @@ def main() -> None:
         print()
 
     if args.backend_only:
-        backend_proc = start_backend(python, args.backend_port)
+        backend_proc = start_backend(python, args.backend_port, scryfall_primary=args.scryfall_primary)
         try:
             backend_proc.wait()
         except KeyboardInterrupt:
@@ -154,7 +172,10 @@ def main() -> None:
             _stop(frontend_proc)
         return
 
-    run_servers(python, args.port, args.backend_port, open_browser=not args.no_browser)
+    run_servers(
+        python, args.port, args.backend_port,
+        open_browser=not args.no_browser, scryfall_primary=args.scryfall_primary,
+    )
 
 
 if __name__ == "__main__":

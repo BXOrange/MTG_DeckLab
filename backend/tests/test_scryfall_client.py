@@ -208,6 +208,32 @@ INSTANT_LAND_MDFC = {
 }
 
 
+#: Secret Lair's "Godzilla" series (Ikoria) prints an alternate name
+#: alongside the real one — Scryfall's `flavor_name`, distinct from the
+#: Oracle `name` used for rules purposes. Real data (trimmed):
+#: https://api.scryfall.com/cards/named?exact=Zilortha,+Strength+Incarnate
+ZILORTHA = {
+    "id": "9a0639a0-c898-4a07-975c-a02bdd53175b",
+    "name": "Zilortha, Strength Incarnate",
+    "flavor_name": "Godzilla, King of the Monsters",
+    "mana_cost": "{3}{R}{G}",
+    "cmc": 5.0,
+    "type_line": "Legendary Creature — Dinosaur",
+    "oracle_text": (
+        "Trample\nLethal damage dealt to creatures you control is "
+        "determined by their power rather than their toughness."
+    ),
+    "colors": ["G", "R"],
+    "color_identity": ["G", "R"],
+    "keywords": ["Trample"],
+    "power": "7",
+    "toughness": "3",
+    "set": "iko",
+    "rarity": "mythic",
+    "image_uris": {"small": "", "normal": "https://img.example/zilortha.jpg", "large": "", "png": ""},
+}
+
+
 class TestCardFromScryfallData:
     def test_instant(self):
         card = card_from_scryfall_data(LIGHTNING_BOLT)
@@ -219,6 +245,15 @@ class TestCardFromScryfallData:
         assert card.image_uri_normal == LIGHTNING_BOLT["image_uris"]["normal"]
         assert card.set_code == "clu"
         assert card.rarity == "common"
+
+    def test_card_with_no_flavor_name_has_blank_flavor_name(self):
+        card = card_from_scryfall_data(LIGHTNING_BOLT)
+        assert card.flavor_name == ""
+
+    def test_flavor_name_is_captured(self):
+        card = card_from_scryfall_data(ZILORTHA)
+        assert card.name == "Zilortha, Strength Incarnate"
+        assert card.flavor_name == "Godzilla, King of the Monsters"
 
     def test_creature_power_toughness_parsed_as_int(self):
         card = card_from_scryfall_data(GRIZZLY_BEARS)
@@ -249,6 +284,29 @@ class TestCardFromScryfallData:
         card = card_from_scryfall_data(data)
         assert card.has_partner is True
         assert card.partner_with == "Silas Renn, Seeker Adept"
+
+    def test_partner_with_named_card_strips_inline_reminder_text(self):
+        # Real Scryfall data prints "Partner with X" with its RULE 207.2
+        # reminder text inline on the same line (verified live for Frodo,
+        # Adventurous Hobbit // Sam, Loyal Attendant and others) — a naive
+        # capture of "everything after 'Partner with '" would include it,
+        # so partner_with would never exactly equal the named card's real
+        # name and the pairing check in commander_legality.py would wrongly
+        # reject every "Partner with X" pair.
+        data = {
+            **THRASIOS,
+            "id": "44444444-4444-4444-4444-444444444444",
+            "name": "Sam, Loyal Attendant",
+            "oracle_text": (
+                "Partner with Frodo, Adventurous Hobbit (When this creature "
+                "enters, target player may put Frodo into their hand from "
+                "their library, then shuffle.)\n"
+                "At the beginning of combat on your turn, create a Food token."
+            ),
+        }
+        card = card_from_scryfall_data(data)
+        assert card.has_partner is True
+        assert card.partner_with == "Frodo, Adventurous Hobbit"
 
     def test_variable_power_toughness_is_none(self):
         data = {**GRIZZLY_BEARS, "power": "*", "toughness": "*"}

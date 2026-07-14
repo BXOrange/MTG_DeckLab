@@ -15,6 +15,7 @@ distinction between a card and the object it becomes in play.
 from __future__ import annotations
 
 import itertools
+import re
 from enum import Enum
 from typing import Any, Optional
 
@@ -335,6 +336,27 @@ class GameObject:
     @property
     def is_planeswalker(self) -> bool:
         return self.card.is_planeswalker
+
+    @property
+    def type_words(self) -> set[str]:
+        """Lowercase current card-type words (RULE 613 layer 4 aware).
+
+        Used by `game/effect_binder.py`'s trigger-condition "group" subject
+        scoping (RULE 603.1, e.g. "whenever a creature dies") to check *what
+        kind* of object an event was about. Starts from the printed type
+        line's main (pre-em-dash) words — so a supertype like "legendary"
+        rides along harmlessly, only the recognised type words matter to a
+        caller — folds in any layer-4 `_added_types`/removes `_removed_types`
+        the same way `is_creature` does, and always includes "permanent"
+        (everything on the battlefield is one, RULE 110.1) so a bare
+        "whenever a permanent enters…" scope needs no special case.
+        """
+        main = self.card.type_line.partition("—")[0]
+        words = {w for w in re.split(r"\s+", main.strip().lower()) if w}
+        words |= self._added_types
+        words -= self._removed_types
+        words.add("permanent")
+        return words
 
     @property
     def loyalty(self) -> int:

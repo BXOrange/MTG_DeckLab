@@ -163,7 +163,7 @@ export function manaProduced(card) {
 //: type_line/flag → display bucket. A card can land in several (an
 //: Artifact Creature counts in both), matching how deck-building tools
 //: (Moxfield/Archidekt) usually total types.
-const TYPE_BUCKETS = [
+export const TYPE_BUCKETS = [
   { key: 'creature', label: 'Kreatur', test: (c) => c.is_creature },
   { key: 'planeswalker', label: 'Planeswalker', test: (c) => /\bplaneswalker\b/i.test(c.type_line) },
   { key: 'battle', label: 'Battle', test: (c) => /\bbattle\b/i.test(c.type_line) },

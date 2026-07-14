@@ -112,6 +112,22 @@ class TestPartner:
         assert card.has_partner is False
         assert card.partner_with is None
 
+    def test_has_clean_partner_with_true_when_unset(self):
+        assert make_creature().has_clean_partner_with is True
+
+    def test_has_clean_partner_with_true_for_a_bare_name(self):
+        card = make_creature(has_partner=True, partner_with="Thrasios, Triton Hero")
+        assert card.has_clean_partner_with is True
+
+    def test_has_clean_partner_with_false_for_a_pre_fix_row_with_reminder_text(self):
+        # A row cached before the scryfall_client._partner_with reminder-text
+        # fix — see LazyCardLoader.load_cards, which refetches these.
+        card = make_creature(
+            has_partner=True,
+            partner_with="Frodo, Adventurous Hobbit (When this creature enters, ...)",
+        )
+        assert card.has_clean_partner_with is False
+
 
 class TestAsCopy:
     """`Card.as_copy` — the copiable-values snapshot a `become_copy` effect
@@ -176,6 +192,14 @@ class TestSerialization:
         assert card.layout == ""
         assert card.has_back_face is False
         assert card.back_name == ""
+        # Flavor name absent on a legacy row (predates the field) defaults blank.
+        assert card.flavor_name == ""
+
+    def test_flavor_name_round_trips(self):
+        card = make_creature(name="Zilortha, Strength Incarnate", flavor_name="Godzilla, King of the Monsters")
+        restored = Card.from_dict(card.to_dict())
+        assert restored.flavor_name == "Godzilla, King of the Monsters"
+        assert restored == card
 
     def test_to_dict_round_trip_double_faced_card(self):
         card = Card(

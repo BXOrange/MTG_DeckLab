@@ -45,6 +45,14 @@ MAX_EFFECT_MAGNITUDE: int = 10_000
 #: Numeric effect params subject to clamping (includes a keyword's "n").
 _CLAMPED_PARAM_KEYS: tuple[str, ...] = ("amount", "count", "x", "n")
 
+#: RULE 601.2b/604.3 "as an additional cost to cast this spell, <cost>." —
+#: the closed vocabulary an `AbilitySpec.additional_cost` may name. Kept this
+#: small (rather than reusing the free-text `ActivationCost` parser) because
+#: an additional cost is recognized off a fixed template, not open cost text;
+#: `game/costs.py`'s `parse_activation_cost` still does the actual charging,
+#: fed this dict the same way it already accepts an `AbilitySpec.cost` dict.
+_ADDITIONAL_COST_SACRIFICE_TYPES: frozenset[str] = frozenset({"creature", "artifact", "land"})
+
 
 class SpecValidationError(ValueError):
     """An `AbilitySpec` was structurally invalid (fail-closed)."""
@@ -113,6 +121,26 @@ class AbilitySpec:
     #: "quality": "red"}`` (docs/09 "Keyword abilities: the privileged
     #: fast-path handler class"). ``name`` is a catalogue slug (RULE 702.x).
     keyword: Optional[dict[str, Any]] = None
+    #: A modal spell's "Choose one —" block (RULE 700.2), ``spell_effect``
+    #: only: ``{"or_both": bool, "options": [[EffectSpec, ...], ...],
+    #: "descriptions": [str, ...]}`` — one entry per printed mode, in
+    #: printed order. ``or_both`` is RULE 700.2e ("Choose one or both —"):
+    #: the engine also offers casting both modes together. When set, the
+    #: ability carries no top-level ``effects`` of its own — each mode's
+    #: effects only apply once that mode is chosen (`game/game_engine.py`
+    #: offers one cast action per mode, like an MDFC's two faces).
+    modes: Optional[dict[str, Any]] = None
+    #: RULE 601.2b/604.3: a spell's "as an additional cost to cast this
+    #: spell, <cost>." clause — ``spell_effect`` only, a single-key dict from
+    #: a small closed vocabulary: ``{"sacrifice": "creature"|"artifact"|
+    #: "land"}``, ``{"discard": <count>}``, or ``{"pay_life": <N>|"x"}`` (the
+    #: literal string ``"x"`` ties the payment to the spell's own announced
+    #: X, RULE 601.2b). May ride on a spec that otherwise carries no effects
+    #: at all — the additional-cost line is its own oracle-text line,
+    #: standalone from the spell's actual effect (see
+    #: `game/effect_binder.py`'s `attach_to_object`, which scans every spec
+    #: for this field regardless of which one carries the "real" effects).
+    additional_cost: Optional[dict[str, Any]] = None
     optional: bool = False  # "you may"
     raw_text: str = ""
     parser: ParserProvenance = field(default_factory=ParserProvenance)
@@ -135,10 +163,21 @@ class AbilitySpec:
                 raise SpecValidationError(f"malformed effect spec: {effect!r}")
             self._clamp_params(effect.params)
 
-        if self.ability_kind in _EFFECT_BEARING_KINDS and not self.effects:
+        if (
+            self.ability_kind in _EFFECT_BEARING_KINDS
+            and not self.effects
+            and not self.modes
+            and not self.additional_cost
+        ):
             raise SpecValidationError(
                 f"{self.ability_kind!r} ability must carry at least one effect"
             )
+
+        if self.modes is not None:
+            self._validate_modes()
+
+        if self.additional_cost is not None:
+            self._validate_additional_cost()
 
         if self.ability_kind == "triggered":
             if not self.trigger or "event" not in self.trigger:
@@ -150,6 +189,55 @@ class AbilitySpec:
             self._clamp_params(self.keyword)  # clamp an integer "n" the same way
 
         return self
+
+    def _validate_modes(self) -> None:
+        """Structural check for a modal ``modes`` block (RULE 700.2)."""
+        if self.ability_kind != "spell_effect":
+            raise SpecValidationError("'modes' is only supported on spell_effect abilities")
+        if not isinstance(self.modes, dict):
+            raise SpecValidationError("'modes' must be a dict")
+        options = self.modes.get("options")
+        if not isinstance(options, list) or len(options) < 2:
+            raise SpecValidationError("'modes' needs at least two options")
+        for option in options:
+            if not isinstance(option, list) or not option:
+                raise SpecValidationError("each mode needs at least one effect")
+            for effect in option:
+                if not isinstance(effect, EffectSpec) or not effect.type:
+                    raise SpecValidationError(f"malformed effect spec in mode: {effect!r}")
+                self._clamp_params(effect.params)
+        descriptions = self.modes.get("descriptions")
+        if descriptions is not None and (
+            not isinstance(descriptions, list) or len(descriptions) != len(options)
+        ):
+            raise SpecValidationError("'modes' descriptions must match its options 1:1")
+
+    def _validate_additional_cost(self) -> None:
+        """Structural check for an ``additional_cost`` clause (RULE 601.2b/604.3)."""
+        if self.ability_kind != "spell_effect":
+            raise SpecValidationError(
+                "'additional_cost' is only supported on spell_effect abilities"
+            )
+        cost = self.additional_cost
+        if not isinstance(cost, dict) or len(cost) != 1:
+            raise SpecValidationError("'additional_cost' must be a single-key dict")
+        key, value = next(iter(cost.items()))
+        if key == "sacrifice":
+            if value not in _ADDITIONAL_COST_SACRIFICE_TYPES:
+                raise SpecValidationError(
+                    f"unsupported additional_cost sacrifice type {value!r}"
+                )
+        elif key == "discard":
+            if isinstance(value, bool) or not isinstance(value, int) or value <= 0:
+                raise SpecValidationError("'additional_cost' discard count must be a positive int")
+        elif key == "pay_life":
+            valid_int = isinstance(value, int) and not isinstance(value, bool) and value > 0
+            if value != "x" and not valid_int:
+                raise SpecValidationError(
+                    "'additional_cost' pay_life must be a positive int or 'x'"
+                )
+        else:
+            raise SpecValidationError(f"unknown additional_cost kind {key!r}")
 
     @staticmethod
     def _clamp_params(params: dict[str, Any]) -> None:
@@ -168,9 +256,32 @@ class AbilitySpec:
             "cost": self.cost,
             "target": self.target,
             "keyword": self.keyword,
+            "modes": self._modes_to_dict(),
+            "additional_cost": self.additional_cost,
             "optional": self.optional,
             "raw_text": self.raw_text,
             "parser": self.parser.to_dict(),
+        }
+
+    def _modes_to_dict(self) -> Optional[dict[str, Any]]:
+        if self.modes is None:
+            return None
+        return {
+            "or_both": bool(self.modes.get("or_both", False)),
+            "options": [[e.to_dict() for e in opt] for opt in self.modes.get("options", [])],
+            "descriptions": list(self.modes.get("descriptions") or []),
+        }
+
+    @staticmethod
+    def _modes_from_dict(data: Optional[dict[str, Any]]) -> Optional[dict[str, Any]]:
+        if not data:
+            return None
+        return {
+            "or_both": bool(data.get("or_both", False)),
+            "options": [
+                [EffectSpec.from_dict(e) for e in opt] for opt in (data.get("options") or [])
+            ],
+            "descriptions": list(data.get("descriptions") or []),
         }
 
     @classmethod
@@ -182,6 +293,8 @@ class AbilitySpec:
             cost=data.get("cost"),
             target=data.get("target"),
             keyword=data.get("keyword"),
+            modes=cls._modes_from_dict(data.get("modes")),
+            additional_cost=data.get("additional_cost"),
             optional=bool(data.get("optional", False)),
             raw_text=str(data.get("raw_text", "")),
             parser=ParserProvenance.from_dict(data.get("parser") or {}),

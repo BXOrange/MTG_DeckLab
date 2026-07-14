@@ -52,6 +52,13 @@ class TestDefaults:
         assert user_agent == "MTG-Deck-Analyzer/0.1"
         assert float(interval) == 0.1
 
+    def test_scryfall_primary_defaults_false(self):
+        out = _run(
+            "from mtg_analyzer import config; print(config.SCRYFALL_PRIMARY)",
+            env_overrides={},
+        )
+        assert out == "False"
+
 
 class TestEnvOverrides:
     def test_mtg_cache_dir_override(self, tmp_path):
@@ -86,6 +93,28 @@ class TestEnvOverrides:
         user_agent, interval = out.splitlines()
         assert user_agent == "Test-Agent/1.0"
         assert float(interval) == 0.25
+
+    def test_mtg_scryfall_primary_override(self):
+        out = _run(
+            "from mtg_analyzer import config; print(config.SCRYFALL_PRIMARY)",
+            env_overrides={"MTG_SCRYFALL_PRIMARY": "1"},
+        )
+        assert out == "True"
+
+    def test_mtg_scryfall_primary_accepts_true_and_yes(self):
+        for value in ("true", "TRUE", "yes"):
+            out = _run(
+                "from mtg_analyzer import config; print(config.SCRYFALL_PRIMARY)",
+                env_overrides={"MTG_SCRYFALL_PRIMARY": value},
+            )
+            assert out == "True", f"expected True for {value!r}"
+
+    def test_mtg_scryfall_primary_rejects_unrecognized_value(self):
+        out = _run(
+            "from mtg_analyzer import config; print(config.SCRYFALL_PRIMARY)",
+            env_overrides={"MTG_SCRYFALL_PRIMARY": "0"},
+        )
+        assert out == "False"
 
     def test_overrides_flow_through_service_modules(self, tmp_path):
         cache_dir = tmp_path / "cache"

@@ -23,14 +23,16 @@ from dataclasses import dataclass, field
 from typing import Any, Optional
 
 from .catalogue.keywords import parse_keywords
+from .catalogue.lands import tap_clause_condition
 from .catalogue.levels import (
     LEVEL_UP_LINE_RE,
     PT_LINE_RE,
     split_class_blocks,
     split_leveler_blocks,
 )
+from .catalogue.modal import split_modal_block
 from .normalize import normalize
-from .segmenter import Segment, segment_line
+from .segmenter import Segment, parse_effect_body, segment_line
 from .spec import AbilitySpec, EffectSpec, ParserProvenance
 
 MODELED = "MODELED"
@@ -69,6 +71,26 @@ def _is_spell(card: Any) -> bool:
     return bool(getattr(card, "is_instant", False) or getattr(card, "is_sorcery", False))
 
 
+def _parse_mode_body(body: str) -> Optional[list[EffectSpec]]:
+    """One modal "• " line's effect body → its `EffectSpec`s, or ``None``.
+
+    Tries the bullet as-is first; some cards print an optional mode *name*
+    ahead of the effect ("Fight the Current — Return target nonland
+    permanent to its owner's hand.", RULE 700.2's "mode text" convention) —
+    if the whole bullet doesn't parse and it contains a dash, retry with
+    just the text after it.
+    """
+    effects = parse_effect_body(body)
+    if effects is not None:
+        return effects
+    if " — " in body:
+        _, _, rest = body.partition(" — ")
+        effects = parse_effect_body(rest.strip())
+        if effects is not None:
+            return effects
+    return None
+
+
 def parse_oracle(card: Any) -> ParseResult:
     """Parse a card's oracle text into `AbilitySpec`s with a coverage verdict.
 
@@ -105,6 +127,13 @@ def parse_oracle(card: Any) -> ParseResult:
 
     def _process_line(line: str) -> None:
         nonlocal all_claimed
+        # RULE 614.1 "enters tapped" clauses are covered by the engine's own
+        # tapped-entry machinery (`game/ability_catalogue.land_tap_condition`,
+        # resolved by `RulesEngine.enter_land_tapped`), not through an effect
+        # spec — claim the line without emitting one, the same way a mana
+        # ability's "add {g}" is covered-without-spec in the segmenter.
+        if tap_clause_condition(line) is not None:
+            return
         seg: Segment = segment_line(
             line, allow_spell_effect=allow_spell_effect, provenance=provenance, is_saga=is_saga
         )
@@ -173,6 +202,31 @@ def parse_oracle(card: Any) -> ParseResult:
         if seg.spec is not None:
             _tag_level_gate(seg.spec, gate, default_affects="self")
 
+    def _process_modal_block(header: str, or_both: bool, mode_bodies: list[str]) -> None:
+        nonlocal all_claimed
+        # RULE 700.2: instants/sorceries only for now — a modal *permanent*
+        # ability (an ETB "choose one —") isn't this grammar's job, so it's
+        # left unclaimed by never being offered the block here at all (the
+        # caller only tries this when `allow_spell_effect`).
+        options: list[list[EffectSpec]] = []
+        descriptions: list[str] = []
+        for body in mode_bodies:
+            effects = _parse_mode_body(body)
+            if effects is None:
+                all_claimed = False
+                unclaimed.append(header)
+                unclaimed.extend(f"• {b}" for b in mode_bodies)
+                return
+            options.append(effects)
+            descriptions.append(body)
+        effect_specs.append(AbilitySpec(
+            "spell_effect",
+            effects=[],
+            modes={"or_both": or_both, "options": options, "descriptions": descriptions},
+            raw_text=header,
+            parser=provenance,
+        ))
+
     def _process_class_body(line: str, level: int) -> None:
         nonlocal all_claimed
         gate = {"min_level": level, "level_counter": "class_level"}
@@ -225,10 +279,17 @@ def parse_oracle(card: Any) -> ParseResult:
             for line in body_lines:
                 _process_class_body(line, level)
     else:
-        for line in normalized.split("\n"):
-            if not line.strip():
+        lines = [line for line in normalized.split("\n") if line.strip()]
+        i = 0
+        while i < len(lines):
+            block = split_modal_block(lines, i) if allow_spell_effect else None
+            if block is not None:
+                or_both, mode_bodies, next_i = block
+                _process_modal_block(lines[i], or_both, mode_bodies)
+                i = next_i
                 continue
-            _process_line(line)
+            _process_line(lines[i])
+            i += 1
 
     return ParseResult(
         specs=list(keyword_specs) + effect_specs,

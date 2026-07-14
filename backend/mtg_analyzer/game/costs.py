@@ -52,6 +52,11 @@ _LOYALTY_RE = re.compile(r"^\s*\[\s*([+\-−]?)\s*(\d+)\s*\]")
 #: Sentinel for "discard your hand" — count isn't known until pay time.
 DISCARD_HAND = -1
 
+#: Sentinel for "pay X life" (RULE 601.2b's ~ additional-cost template) — the
+#: amount isn't known until pay time, since it's tied to the spell's own
+#: announced X, not a printed number.
+PAY_LIFE_X = -1
+
 
 def _word_to_int(word: str) -> int:
     word = word.strip().lower()
@@ -124,7 +129,7 @@ class ActivationCost:
             what = "~" if self.sacrifice == "self" else f"a {self.sacrifice}"
             parts.append(f"Sacrifice {what}")
         if self.pay_life:
-            parts.append(f"Pay {self.pay_life} life")
+            parts.append("Pay X life" if self.pay_life == PAY_LIFE_X else f"Pay {self.pay_life} life")
         if self.discard:
             parts.append("Discard your hand" if self.discard == DISCARD_HAND
                          else f"Discard {self.discard} card(s)")
@@ -179,7 +184,8 @@ def parse_activation_cost(
     if cost.get("sacrifice"):
         parsed.sacrifice = str(cost["sacrifice"])
     if "pay_life" in cost:
-        parsed.pay_life = int(cost["pay_life"])
+        value = cost["pay_life"]
+        parsed.pay_life = PAY_LIFE_X if value == "x" else int(value)
     if "discard" in cost:
         parsed.discard = int(cost["discard"])
     if cost.get("loyalty") is not None:

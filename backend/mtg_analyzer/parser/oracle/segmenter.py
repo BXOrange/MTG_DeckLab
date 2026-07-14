@@ -18,7 +18,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
-from typing import Optional
+from typing import Any, Optional
 
 from .catalogue.handlers import match_clause
 from .catalogue.keywords import KEYWORDS
@@ -39,6 +39,38 @@ _TRIGGER_EVENTS: list[tuple[re.Pattern[str], str]] = [
 
 #: A triggered-ability wrapper: "When/Whenever/At <condition>, <body>".
 _TRIGGER_RE = re.compile(r"^(?:when|whenever|at)\b(?P<cond>[^,]*),\s*(?P<body>.+)$", re.S)
+
+#: RULE 603.1's condition *subject* — "self" ("~"/"this creature" itself) —
+#: scoped so e.g. "when ~ enters the battlefield, draw a card" only fires for
+#: its own source, never any other permanent entering (the over-firing bug
+#: this grammar exists to close). The verb itself is still resolved by
+#: `_trigger_event` above; this only decides *whose* enters/dies/attacks/
+#: blocks the ability cares about.
+_SELF_SUBJECT_RE = re.compile(
+    r"^(?:~|this (?:creature|artifact|enchantment|land|permanent|equipment))\s+"
+    r"(?:enters|dies|attacks|blocks)(?:\s+the\s+battlefield)?$"
+)
+
+#: The card-type words a "group" trigger condition can scope to (RULE 613.6-
+#: adjacent vocabulary shared with `catalogue.static_handlers`'s anthem
+#: selectors) — deliberately small: only what `models/game_object.py`'s
+#: `type_words` can check without a subtype grammar.
+_GROUP_TYPE_WORDS = ("creature", "artifact", "enchantment", "land", "permanent")
+
+#: RULE 603.1's condition subject — a *group* of objects, not just the
+#: source itself: "a"/"another" <type> [you control], then the trigger verb,
+#: optionally "the battlefield" (enters) and/or "under your control" (the
+#: older enters-battlefield templating). Examples this claims: "a creature
+#: enters the battlefield under your control", "another creature you control
+#: enters", "a creature dies", "another creature you control dies", "a
+#: creature you control attacks".
+_GROUP_SUBJECT_RE = re.compile(
+    r"^(?P<article>a|another)\s+(?P<type>" + "|".join(_GROUP_TYPE_WORDS) + r")"
+    r"(?P<you_a> you control)?"
+    r"\s+(?:enters|dies|attacks|blocks)"
+    r"(?:\s+the\s+battlefield)?"
+    r"(?P<you_b> under your control)?$"
+)
 
 #: An activated-ability wrapper: "<cost>: <effect>" (RULE 602.1). The cost is
 #: everything before the first colon.
@@ -62,6 +94,42 @@ _MANA_EFFECT_RE = re.compile(r"^add\b", re.I)
 #: Connectors that chain two effect clauses in one ability body, tried in this
 #: order when the whole body isn't a single handled clause.
 _CONNECTORS: tuple[str, ...] = (r"\.\s+", r";\s+", r",?\s+then\s+", r"\s+and\s+")
+
+#: RULE 601.2b/604.3's additional-cost line: "As an additional cost to cast
+#: this spell, <cost>." — instants/sorceries only (gated by
+#: ``allow_spell_effect`` at the call site below, same as a bare imperative).
+#: The wrapper is recognised here; the "<cost>" clause itself is a small
+#: closed vocabulary (`_additional_cost_dict`) — anything outside it leaves
+#: the whole line unclaimed (fail-closed), never a guessed/partial cost.
+_ADDITIONAL_COST_LINE_RE = re.compile(
+    r"^as an additional cost to cast this spell,\s*(?P<cost>.+?)\.?\s*$", re.IGNORECASE
+)
+_ADDITIONAL_COST_SACRIFICE_RE = re.compile(
+    r"^sacrifice an?\s+(creature|artifact|land)$", re.IGNORECASE
+)
+_ADDITIONAL_COST_DISCARD_RE = re.compile(r"^discard an?\s+card$", re.IGNORECASE)
+_ADDITIONAL_COST_PAY_LIFE_RE = re.compile(r"^pay\s+(x|\d+)\s+life$", re.IGNORECASE)
+
+
+def _additional_cost_dict(text: str) -> Optional[dict[str, Any]]:
+    """One additional-cost clause's closed vocabulary → its dict, or ``None``.
+
+    Matches `AbilitySpec.additional_cost`'s shape exactly: ``{"sacrifice":
+    "creature"|"artifact"|"land"}``, ``{"discard": 1}`` ("discard a card" is
+    the only printed count in the pool), or ``{"pay_life": N|"x"}``.
+    """
+    text = text.strip().lower()
+    sac = _ADDITIONAL_COST_SACRIFICE_RE.match(text)
+    if sac is not None:
+        return {"sacrifice": sac.group(1)}
+    if _ADDITIONAL_COST_DISCARD_RE.match(text):
+        return {"discard": 1}
+    life = _ADDITIONAL_COST_PAY_LIFE_RE.match(text)
+    if life is not None:
+        amount = life.group(1)
+        return {"pay_life": "x" if amount.lower() == "x" else int(amount)}
+    return None
+
 
 #: All keyword display names, lowercased, longest first — so a keyword-only
 #: line can be recognised for the coverage gate ("flying, vigilance").
@@ -90,6 +158,33 @@ def _trigger_event(condition: str) -> Optional[str]:
     for pattern, event in _TRIGGER_EVENTS:
         if pattern.search(condition):
             return event
+    return None
+
+
+def _trigger_condition(condition: str) -> Optional[dict[str, Any]]:
+    """RULE 603.1's condition *subject* → the `AbilitySpec.trigger["condition"]` dict.
+
+    Either ``{"subject": "self"}`` (this ability's own source only) or
+    ``{"subject": "group", "type": ..., "controller": "you"|"any", "other":
+    bool}`` (any matching battlefield object, e.g. a Soul-Warden-shaped
+    "another creature you control enters"). ``None`` — fail-closed — for a
+    condition phrase that isn't one of these two recognised shapes (e.g. "you
+    cast a spell", a multi-event "enters or attacks", or anything RULE 603.1
+    covers that this grammar doesn't yet model): the caller leaves the whole
+    trigger unclaimed rather than binding a wrongly-scoped (or unscoped, i.e.
+    over-firing) ability.
+    """
+    cond = condition.strip()
+    if _SELF_SUBJECT_RE.match(cond):
+        return {"subject": "self"}
+    m = _GROUP_SUBJECT_RE.match(cond)
+    if m is not None:
+        return {
+            "subject": "group",
+            "type": m.group("type"),
+            "controller": "you" if (m.group("you_a") or m.group("you_b")) else "any",
+            "other": m.group("article") == "another",
+        }
     return None
 
 
@@ -159,6 +254,24 @@ def segment_line(
     if is_keyword_line(raw):
         return Segment(raw=raw, claimed=True, keyword_line=True)
 
+    # RULE 601.2b/604.3 additional cost — instants/sorceries only, and
+    # checked before every other wrapper since it has neither a trigger word
+    # nor a colon (so it can't be mistaken for one of those shapes below).
+    if allow_spell_effect:
+        add_cost = _ADDITIONAL_COST_LINE_RE.match(raw)
+        if add_cost is not None:
+            cost = _additional_cost_dict(add_cost.group("cost"))
+            if cost is None:
+                return Segment(raw=raw)  # unrecognised cost shape → unclaimed
+            spec = AbilitySpec(
+                "spell_effect",
+                effects=[],
+                additional_cost=cost,
+                raw_text=raw,
+                parser=provenance,
+            )
+            return Segment(raw=raw, spec=spec, claimed=True)
+
     # Saga chapter ability "i, ii — <effect>" (RULE 714.2d) — checked before
     # every other wrapper since it has neither a trigger word nor a colon.
     if is_saga:
@@ -227,9 +340,13 @@ def segment_line(
 
     trig = _TRIGGER_RE.match(raw)
     if trig is not None:
-        event = _trigger_event(trig.group("cond"))
+        cond_text = trig.group("cond")
+        event = _trigger_event(cond_text)
         if event is None:
             return Segment(raw=raw)  # unrecognised trigger → unclaimed
+        condition = _trigger_condition(cond_text)
+        if condition is None:
+            return Segment(raw=raw)  # unrecognised subject scope → unclaimed (fail-closed)
         body, optional = _peel_optional(trig.group("body"))
         effects = parse_effect_body(body)
         if effects is None:
@@ -237,7 +354,7 @@ def segment_line(
         spec = AbilitySpec(
             "triggered",
             effects=effects,
-            trigger={"event": event},
+            trigger={"event": event, "condition": condition},
             optional=optional,
             raw_text=raw,
             parser=provenance,

@@ -264,7 +264,11 @@ def test_leveler_tier_pt_and_keywords_are_level_gated():
     assert not combat.has(dragon, "flying")
 
     # The LEVEL 2-6 attack trigger only fires while `level` is in range.
-    eng.state.fire_event(GameEvent(EventType.ATTACKS, attacker=dragon.name, player_id="p1"))
+    eng.state.fire_event(
+        GameEvent(
+            EventType.ATTACKS, attacker=dragon.name, player_id="p1", instance_id=dragon.instance_id
+        )
+    )
     assert eng.rules.put_triggers_on_stack() == 1
     eng.resolve_until_stable()
     assert dragon.temp_power == 1 and dragon.temp_toughness == 0
@@ -280,7 +284,11 @@ def test_leveler_tier_pt_and_keywords_are_level_gated():
     assert combat.has(dragon, "flying") and combat.has(dragon, "haste")
 
     # The attack-trigger pump is gone once past LEVEL 2-6.
-    eng.state.fire_event(GameEvent(EventType.ATTACKS, attacker=dragon.name, player_id="p1"))
+    eng.state.fire_event(
+        GameEvent(
+            EventType.ATTACKS, attacker=dragon.name, player_id="p1", instance_id=dragon.instance_id
+        )
+    )
     assert eng.rules.put_triggers_on_stack() == 0
 
 
@@ -622,7 +630,11 @@ def test_attacking_becomes_prepared_and_creates_a_castable_exiled_copy():
     bind_from_catalogue(bard)
     assert not bard.prepared
 
-    eng.state.fire_event(GameEvent(EventType.ATTACKS, attacker=bard.name, player_id="p1"))
+    eng.state.fire_event(
+        GameEvent(
+            EventType.ATTACKS, attacker=bard.name, player_id="p1", instance_id=bard.instance_id
+        )
+    )
     assert eng.rules.put_triggers_on_stack() == 1
     eng.resolve_until_stable()
 

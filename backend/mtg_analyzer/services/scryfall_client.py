@@ -14,6 +14,7 @@ import httpx2 as httpx
 
 from mtg_analyzer.config import SCRYFALL_MIN_REQUEST_INTERVAL_SECONDS, USER_AGENT
 from mtg_analyzer.models.card import VALID_COLORS, Card
+from mtg_analyzer.parser.oracle.normalize import strip_reminder_text
 
 _BASE_URL = "https://api.scryfall.com"
 #: Scryfall asks integrations to identify themselves and to stay under
@@ -178,6 +179,11 @@ def card_from_scryfall_data(data: dict[str, Any]) -> Card:
         image_uri_png=image_uris.get("png", ""),
         set_code=data.get("set", ""),
         rarity=data.get("rarity", ""),
+        # Some promo printings (Secret Lair "Godzilla" series, Universes
+        # Beyond crossovers) carry an alternate printed name here instead of
+        # on the (always-Oracle) top-level `name` — see Card.flavor_name.
+        # Rare double-faced cards put it per-face rather than top-level.
+        flavor_name=data.get("flavor_name") or front.get("flavor_name") or "",
         is_legendary="Legendary" in type_line,
         has_partner=_has_partner(front.get("oracle_text", "")),
         partner_with=_partner_with(front.get("oracle_text", "")),
@@ -237,5 +243,15 @@ def _has_partner(oracle_text: str) -> bool:
 
 
 def _partner_with(oracle_text: str) -> Optional[str]:
+    """The exact name after "Partner with " on a "Partner with X" card, or
+    None. Scryfall prints this line with its RULE 207.2 reminder text
+    inline ("Partner with Sam, Loyal Attendant (When this creature
+    enters, ...)"), so the raw regex capture must have that reminder text
+    stripped before use — otherwise it never exactly matches the named
+    card's `Card.name`, breaking the pairing check in
+    services/commander_legality.py for every "Partner with X" card.
+    """
     match = re.search(r"^Partner with (.+)$", oracle_text, re.MULTILINE)
-    return match.group(1).strip() if match else None
+    if match is None:
+        return None
+    return strip_reminder_text(match.group(1)).strip()

@@ -152,8 +152,22 @@ class GameContext:
     def discover(self, player: "Player", max_mana_value: int) -> None:
         self.engine.request_discover(player, max_mana_value)
 
-    def counter(self, target: Any) -> None:
-        self.engine.counter_spell(target)
+    def counter(
+        self,
+        target: Any,
+        unless_pays: Optional[str] = None,
+        source: Optional["GameObject"] = None,
+    ) -> None:
+        self.engine.counter_unless_pays(target, unless_pays, source)
+
+    def return_to_hand(self, target: "GameObject") -> None:
+        self.engine.return_to_hand(target)
+
+    def return_from_graveyard(self, target: "GameObject", destination: str = "battlefield") -> None:
+        self.engine.return_from_graveyard(target, destination)
+
+    def add_mana(self, player: "Player", color: str, amount: int = 1) -> None:
+        self.engine.add_mana(player, color, amount)
 
 
 def _controller_of(source: Optional["GameObject"], context: GameContext) -> Optional["Player"]:
@@ -485,8 +499,21 @@ class WinConditionEffect(GameEffect):
 # ---------------------------------------------------------------------------
 
 
+#: `DealDamageEffect`'s closed selector vocabulary for a mass, untargeted hit
+#: (RULE 601.2c — not RULE 115 targeting at all, e.g. Pyroclasm's "~ deals 2
+#: damage to each creature"). Kept small and explicit rather than reusing
+#: `continuous.group_selector_objects`'s full vocabulary, since only these
+#: three phrasings appear on real damage-dealing cards.
+_DAMAGE_SELECTORS: frozenset[str] = frozenset({"each_creature", "each_player", "each_opponent"})
+
+
 class DealDamageEffect(GameEffect):
-    """Deal ``amount`` damage to a target player or creature."""
+    """Deal ``amount`` damage to a target player or creature — or, with
+    ``selector`` set, to *every* object/player a closed vocabulary names
+    (RULE 601.2c "each creature"/"each player"/"each opponent" — a mass
+    effect, not a RULE 115 target, so it carries no ``target_spec`` at all,
+    the same untargeted-group shape `PumpEffect.selector` uses).
+    """
 
     def __init__(
         self,
@@ -494,18 +521,37 @@ class DealDamageEffect(GameEffect):
         target: Any = None,
         source: Optional["GameObject"] = None,
         target_kind: str = "any",
+        selector: Optional[str] = None,
     ) -> None:
         super().__init__(source)
         self.amount = amount
         self.target = target
-        # Damage targets "any target" by default (RULE 115.4); a card that
-        # only hits creatures can narrow this to "creature".
-        self.target_spec = TargetSpec(kind=target_kind)
+        self.selector = selector if selector in _DAMAGE_SELECTORS else None
+        if self.selector is None:
+            # Damage targets "any target" by default (RULE 115.4); a card
+            # that only hits creatures can narrow this to "creature".
+            self.target_spec = TargetSpec(kind=target_kind)
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        if self.selector is not None:
+            self._apply_selector(context)
+            return
         target = (targets[0] if targets else None) or self.target
         if target is not None:
             context.deal_damage(target, self.amount, self.source)
+
+    def _apply_selector(self, context: GameContext) -> None:
+        if self.selector == "each_creature":
+            from .continuous import group_selector_objects  # avoid the continuous↔effects cycle
+
+            for obj in group_selector_objects(context.state, None, "all_creatures"):
+                context.deal_damage(obj, self.amount, self.source)
+            return
+        controller_id = getattr(self.source, "controller_id", None)
+        for player in context.state.living_players():
+            if self.selector == "each_opponent" and player.id == controller_id:
+                continue
+            context.deal_damage(player, self.amount, self.source)
 
 
 class DrawCardEffect(GameEffect):
@@ -567,17 +613,62 @@ class GainLifeEffect(GameEffect):
 
 
 class CounterSpellEffect(GameEffect):
-    """Counter a target spell on the stack (RULE 701.5)."""
+    """Counter a target spell on the stack (RULE 701.5).
 
-    def __init__(self, target: Any = None, source: Optional["GameObject"] = None) -> None:
+    ``noncreature``/``card_types``/``mana_value`` narrow *which* spells are
+    legal targets in the first place (RULE 601.2c/115 — "counter target
+    noncreature spell", "… target instant or sorcery spell", "… target spell
+    with mana value N"), folded into `target_spec.spell_filter` and enforced
+    by `targeting.legal_targets`. ``unless_pays`` (RULE 601's "Mana Leak"
+    template — "counter target spell unless its controller pays {N}") is a
+    resolve-time condition instead: the target's controller gets an
+    interactive choice, handled by `RulesEngine.counter_unless_pays`.
+    """
+
+    def __init__(
+        self,
+        target: Any = None,
+        unless_pays: Optional[str] = None,
+        noncreature: bool = False,
+        card_types: Optional[list[str]] = None,
+        mana_value: Optional[int] = None,
+        source: Optional["GameObject"] = None,
+    ) -> None:
         super().__init__(source)
         self.target = target
-        self.target_spec = TargetSpec(kind="spell")
+        self.unless_pays = unless_pays
+        spell_filter: dict[str, Any] = {}
+        if noncreature:
+            spell_filter["noncreature"] = True
+        if card_types:
+            spell_filter["card_types"] = list(card_types)
+        if mana_value is not None:
+            spell_filter["mana_value"] = mana_value
+        self.target_spec = TargetSpec(kind="spell", spell_filter=spell_filter or None)
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
         target = (targets[0] if targets else None) or self.target
         if target is not None:
-            context.counter(target)
+            context.counter(target, unless_pays=self.unless_pays, source=self.source)
+
+
+class CantBeCounteredEffect(GameEffect):
+    """Marker: "This spell can't be countered." (RULE 118-area).
+
+    Bound like any other one-shot effect — via `spell_effect` on an instant/
+    sorcery's own body, or `static` on a permanent's standing line — and so
+    lands in ``obj.spell_effects``/``obj.static_effects`` respectively
+    (`game/effect_binder.py`'s ordinary dispatch, no special-casing needed).
+    It carries no continuous behaviour: `continuous.recompute` only ever
+    reads `StaticAbility` instances off `static_effects` (this isn't one), and
+    a spell's own resolution just calls `apply()` like every other effect in
+    its list. The only consumer is `RulesEngine._is_cant_be_countered`, which
+    scans both lists for this marker *before* the object would otherwise
+    leave the stack — the one moment "can't be countered" actually matters.
+    """
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        return None
 
 
 class MillEffect(GameEffect):
@@ -624,6 +715,82 @@ class ExileEffect(GameEffect):
         target = (targets[0] if targets else None) or self.target
         if target is not None:
             context.exile(target)
+
+
+class ReturnToHandEffect(GameEffect):
+    """Return a target permanent to its owner's hand (RULE 701.3 "return").
+
+    ``target_kind`` is usually ``"creature"``/``"permanent"``/``"any"`` (a
+    plain "return target X to its owner's hand"), or a controller-restricted
+    kind (``"land_you_control"``/``"creature_you_control"``) for a
+    non-"target" resolve-time choice among the controller's own permanents —
+    a bounce land's "return a land you control to its owner's hand" — see
+    `targeting.legal_targets`.
+    """
+
+    def __init__(
+        self,
+        target: Any = None,
+        source: Optional["GameObject"] = None,
+        target_kind: str = "permanent",
+    ) -> None:
+        super().__init__(source)
+        self.target = target
+        self.target_spec = TargetSpec(kind=target_kind)
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        target = (targets[0] if targets else None) or self.target
+        if target is not None:
+            context.return_to_hand(target)
+
+
+class ReturnFromGraveyardEffect(GameEffect):
+    """Return a target creature card from a graveyard to the battlefield or
+    hand (RULE 701.3, the Regrowth/Reanimate-shaped recursion family).
+
+    ``target_kind`` is ``"graveyard_creature"`` (RULE 115, restricted to the
+    controller's own graveyard — see `targeting.legal_targets`);
+    ``destination`` is ``"battlefield"`` (default) or ``"hand"``.
+    """
+
+    def __init__(
+        self,
+        target: Any = None,
+        source: Optional["GameObject"] = None,
+        target_kind: str = "graveyard_creature",
+        destination: str = "battlefield",
+    ) -> None:
+        super().__init__(source)
+        self.target = target
+        self.destination = destination if destination in ("battlefield", "hand") else "battlefield"
+        self.target_spec = TargetSpec(kind=target_kind)
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        target = (targets[0] if targets else None) or self.target
+        if target is not None:
+            context.return_from_graveyard(target, self.destination)
+
+
+class AddManaEffect(GameEffect):
+    """Add mana straight to the effect's controller's pool (RULE 106.4) — a
+    spell's own bare "Add {B}{B}{B}." resolve-time body (Dark Ritual-shaped),
+    as opposed to a permanent's mana ability (`game/mana_abilities.py`,
+    tapped for mana outside the stack entirely, never a resolve-time effect).
+
+    ``colors`` is one WUBRGC letter per mana symbol printed, in the order
+    printed; untargeted (mana can't be targeted, RULE 106.4).
+    """
+
+    def __init__(self, colors: Optional[list[str]] = None, source: Optional["GameObject"] = None) -> None:
+        super().__init__(source)
+        self.colors = [str(c).upper() for c in (colors or [])]
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        player = _controller_of(self.source, context)
+        if player is None:
+            return
+        for color in self.colors:
+            context.add_mana(player, color)
 
 
 class TapEffect(GameEffect):
@@ -1187,6 +1354,7 @@ EffectRegistry.register(
         amount=p.get("amount", 0),
         target=p.get("target"),
         target_kind=p.get("target_kind", "any"),
+        selector=p.get("selector"),
     ),
 )
 EffectRegistry.register(
@@ -1204,13 +1372,43 @@ EffectRegistry.register(
 EffectRegistry.register(
     "gain_life", lambda p: GainLifeEffect(amount=p.get("amount", 0), player=p.get("player"))
 )
-EffectRegistry.register("counter", lambda p: CounterSpellEffect(target=p.get("target")))
+EffectRegistry.register(
+    "counter",
+    lambda p: CounterSpellEffect(
+        target=p.get("target"),
+        unless_pays=p.get("unless_pays"),
+        noncreature=bool(p.get("noncreature", False)),
+        card_types=p.get("card_types"),
+        mana_value=p.get("mana_value"),
+    ),
+)
+EffectRegistry.register("cant_be_countered", lambda p: CantBeCounteredEffect())
 EffectRegistry.register(
     "mill", lambda p: MillEffect(count=p.get("count", 1), target_kind=p.get("target_kind"))
 )
 EffectRegistry.register(
     "exile",
     lambda p: ExileEffect(target=p.get("target"), target_kind=p.get("target_kind", "permanent")),
+)
+EffectRegistry.register(
+    "return_to_hand",  # "return target X to its owner's hand" (RULE 701.3)
+    lambda p: ReturnToHandEffect(
+        target=p.get("target"), target_kind=p.get("target_kind", "permanent")
+    ),
+)
+EffectRegistry.register(
+    # "return target creature card from your graveyard to the battlefield/
+    # your hand" (RULE 701.3, Regrowth/Reanimate-shaped)
+    "return_from_graveyard",
+    lambda p: ReturnFromGraveyardEffect(
+        target=p.get("target"),
+        target_kind=p.get("target_kind", "graveyard_creature"),
+        destination=p.get("destination", "battlefield"),
+    ),
+)
+EffectRegistry.register(
+    "add_mana",  # a spell's own bare "Add {B}{B}{B}." body (RULE 106.4, Dark Ritual)
+    lambda p: AddManaEffect(colors=list(p.get("colors", []))),
 )
 EffectRegistry.register(
     "tap",

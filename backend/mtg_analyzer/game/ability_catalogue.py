@@ -13,18 +13,20 @@ where ``factory`` returns fresh specs each call (specs are mutated when bound �
 their effects get a source — so each object must get its own copies).
 
 `enters_tapped(card)`/`land_tap_condition(card)` are a separate, *oracle-derived*
-rule (RULE 614.1): they read the printed text, so every plain tap-land — and
-the shock/check/fast/slow-land conditional shapes `GameEngine.play_land`
+rule (RULE 614.1): they read the printed text (delegating the actual clause
+recognition to `parser.oracle.catalogue.lands`, the coverage gate's own
+source of truth for these shapes), so every plain tap-land — and the shock/
+check/fast/slow/Battlebond-land conditional shapes `GameEngine.play_land`
 resolves via `RulesEngine.enter_land_tapped` — works without being registered.
 """
 
 from __future__ import annotations
 
-import re
 from typing import Any, Callable
 
 from ..models.events import EventType
 from ..parser.oracle.catalogue.keywords import parse_keywords
+from ..parser.oracle.catalogue.lands import land_tap_condition as _land_tap_condition
 from ..parser.oracle.gate import parse_oracle
 from ..parser.oracle.spec import AbilitySpec, EffectSpec
 
@@ -80,43 +82,6 @@ def specs_for(card: Any) -> list[AbilitySpec]:
     return specs
 
 
-#: A land that enters tapped (RULE 614.1) — a plain tap-land whose text says so.
-_ENTERS_TAPPED_RE = re.compile(r"enters (?:the battlefield )?tapped", re.IGNORECASE)
-#: …but not one whose tapped-entry is *conditional* (shock/check/fast/slow
-#: lands) — `land_tap_condition` classifies those precisely; this is only the
-#: fallback for a conditional shape it doesn't recognize (fails safe: enters
-#: untapped rather than wrongly forcing it down).
-_CONDITIONAL_TAP_RE = re.compile(
-    r"unless|you may pay|if you don't|reveal", re.IGNORECASE
-)
-#: Shock lands: "you may pay N life. If you don't, ~ enters the battlefield
-#: tapped." (an optional-cost replacement, RULE 614.1 — a genuine choice).
-_PAY_LIFE_RE = re.compile(r"you may pay (\d+) life", re.IGNORECASE)
-#: Fast/slow lands: "unless you control <count> or fewer/more other lands" —
-#: deterministic on the board the controller already has, not a choice.
-_UNLESS_COUNT_RE = re.compile(
-    r"unless you control (\w+) or (fewer|more) other lands", re.IGNORECASE
-)
-#: Check lands: "unless you control a/an <Type> [or a/an <Type> …]" —
-#: deterministic on the land *types* the controller already has.
-_UNLESS_TYPES_RE = re.compile(r"unless you control an? (.+?)\.", re.IGNORECASE)
-#: Small number words the count-based clauses spell out.
-_NUMBER_WORDS: dict[str, int] = {
-    "one": 1, "two": 2, "three": 3, "four": 4, "five": 5,
-}
-
-
-def _split_types_clause(clause: str) -> list[str]:
-    """"Mountain or a Forest" → ``["mountain", "forest"]`` (each subsequent
-    item repeats its own "a"/"an" per official templating)."""
-    types: list[str] = []
-    for part in re.split(r"\s+or\s+", clause):
-        part = re.sub(r"^an?\s+", "", part.strip(), flags=re.IGNORECASE).strip()
-        if part:
-            types.append(part.lower())
-    return types
-
-
 def land_tap_condition(card: Any) -> dict[str, Any]:
     """How ``card``'s RULE 614.1 tapped-entry resolves, read off its text.
 
@@ -130,38 +95,21 @@ def land_tap_condition(card: Any) -> dict[str, Any]:
       offer interactively.
     - ``{"kind": "unless_types", "types": [...]}`` — a check land: untapped
       iff the controller already controls a land of one of these types.
-    - ``{"kind": "unless_count", "cmp": "le" | "ge", "count": N}`` — a
-      fast land (``"le"``) or slow land (``"ge"``): untapped iff the count of
-      *other* lands the controller controls compares as stated.
+    - ``{"kind": "unless_count", "cmp": "le" | "ge", "count": N, "basic": bool}``
+      — a fast land (``"le"``) or slow land (``"ge"``): untapped iff the
+      count of *other* lands (or, when ``basic`` is set, *basic* lands) the
+      controller controls compares as stated.
+    - ``{"kind": "unless_opponents", "count": N}`` — a Commander
+      "Battlebond" land: untapped iff the game has at least ``N`` opponents.
 
-    The last three are deterministic on the board state at entry — no player
-    decision, unlike the shock land's payment.
+    The conditional shapes are deterministic on game/board state at entry —
+    no player decision, unlike the shock land's payment. Delegates to the
+    oracle-text front-end's `parser.oracle.catalogue.lands.land_tap_condition`
+    (the coverage gate's single source of truth for these clause shapes, so
+    the engine can never resolve a shape the gate doesn't also claim, or
+    vice versa) — see that module for the full clause-recognition logic.
     """
-    text = getattr(card, "oracle_text", "") or ""
-    if not _ENTERS_TAPPED_RE.search(text):
-        return {"kind": "never"}
-    pay_match = _PAY_LIFE_RE.search(text)
-    if pay_match and "if you don't" in text.lower():
-        return {"kind": "pay_life", "amount": int(pay_match.group(1))}
-    count_match = _UNLESS_COUNT_RE.search(text)
-    if count_match:
-        count = _NUMBER_WORDS.get(count_match.group(1).lower())
-        if count is None:
-            try:
-                count = int(count_match.group(1))
-            except ValueError:
-                count = None
-        if count is not None:
-            cmp_op = "le" if count_match.group(2).lower() == "fewer" else "ge"
-            return {"kind": "unless_count", "cmp": cmp_op, "count": count}
-    types_match = _UNLESS_TYPES_RE.search(text)
-    if types_match:
-        types = _split_types_clause(types_match.group(1))
-        if types:
-            return {"kind": "unless_types", "types": types}
-    if _CONDITIONAL_TAP_RE.search(text):
-        return {"kind": "never"}
-    return {"kind": "always"}
+    return _land_tap_condition(card)
 
 
 def enters_tapped(card: Any) -> bool:

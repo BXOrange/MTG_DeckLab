@@ -260,24 +260,53 @@ docks them onto `GameObject.intrinsic_keywords`, which combat honours. The
 **oracle-effect front-end** (docs/09 Phase 1, `parser/oracle/`) turns oracle
 text into `AbilitySpec`s for the effect families (damage/draw/discard/destroy/
 gain_life/counter/mill/exile/tap/±1/±1-counters/pump/scry/create-token/
-**transform**) as spell_effects,
+**transform**/**bounce**/**graveyard recursion**/**tutor**/**spell mana**
+("add {B}{B}{B}", `AddManaEffect`)/**mass damage** ("deals N damage to each
+creature/player/opponent", a closed `selector` on `DealDamageEffect`)/**ETB
+self-attach** for Equipment) as spell_effects,
 ETB/dies/attacks/blocks/**Saga-chapter** (`SAGA_CHAPTER`, RULE 714.2d — a
 chapter line's own numeral-dash grammar, `parser/oracle/catalogue/saga.py`,
-rather than the When/Whenever/At wrapper) triggers, **`<cost>: <effect>`
+rather than the When/Whenever/At wrapper) triggers — **with subject scoping**
+(RULE 603.1: the segmenter emits `trigger.condition` — `{subject: self}` vs.
+group filters like "another creature you control"; ENTERS_BATTLEFIELD/DIES/
+ATTACKS/BLOCKS events carry `instance_id`+`object_types`, and the binder
+builds the predicate, so a parsed "when ~ enters" no longer over-fires for
+every entering permanent) — **`<cost>: <effect>`
 activated abilities**,
+**modal spells** (RULE 700.2: "choose one —"/"choose one or both —" blocks →
+`AbilitySpec.modes` via `catalogue/modal.py`; `legal_actions` offers one
+cast per mode, the MDFC per-face pattern),
+**additional cast costs** (RULE 601.2b/h: "as an additional cost …,
+sacrifice a creature / discard a card / pay N|X life" →
+`AbilitySpec.additional_cost`, gating cast legality and paid at cast time),
+the **counter family** (spell-target filters — noncreature / card-type /
+mana-value on `TargetSpec.spell_filter` —, "unless its controller pays {…}"
+via a `counter_unless_pays` `pending_choice`, and "this spell can't be
+countered" as a `CantBeCounteredEffect` marker `counter_spell` refuses),
+**RULE 614.1 enters-tapped clauses** (recognition lives in pure
+`catalogue/lands.py`, `ability_catalogue.land_tap_condition` delegates to it,
+and the gate claims recognized lines covered-without-spec — incl. shock/
+check/fast/slow/Battlebond "unless you have N or more opponents"/basic-land
+counts),
 and **`static` anthem/lord clauses** ("creatures you control get +N/+N", tribal
 "Other Goblins …", token anthems, colour-scoped/global "Black creatures …",
 compound "get +N/+N and have [kw]" via `catalogue/static_handlers.py` +
 subtype/tokens/color/exclude_self selectors in
 `continuous.group_selector_objects`, shared with a one-shot **group pump**
 — "creatures you control get +N/+N until end of turn", `PumpEffect.selector`
-— for the common Saga-chapter/anthem-spell shape) — all with a fail-closed
+— for the common Saga-chapter/anthem-spell shape; **attached-permanent
+statics parse too** — "equipped/enchanted/fortified … gets +N/+N [and has
+kw]" → `affects="attached_permanent"`) — all with a fail-closed
 coverage gate, so plain
 instants/sorceries/ETB-triggers/activated/static abilities resolve with no
 catalogue entry. `processing_list.py` reports cache-wide coverage + a ranked
-build order for the next handlers. **Not yet**: the remaining effect families
-(regenerate/modes "choose one"/"up to N" targets — each needs a one-shot effect
-first); oracle-text
+build order for the next handlers (26.9% of the 1080-card cache fully
+`MODELED` as of 2026-07-14; the remaining backlog is a long tail of 2–3-card
+templates). Targeting gained `creature_you_control`/`land_you_control`/
+`graveyard_creature` kinds along the way. **Not yet**: the remaining effect
+families (regenerate/"up to N" targets/permanents' modal ETB triggers/"add
+1 mana of any color" — most need a one-shot effect or a choice first);
+oracle-text
 *recognition* of replacement clauses (the binder is ready — a front-end
 target/duration grammar is not); *behaviour* for the remaining parametric
 keywords (kicker/escape alt-costs, annihilator/afflict combat maths — the
@@ -290,7 +319,11 @@ trigger placed via `resolve_trigger_order_choice` doesn't get a target-choice
 pause) — a narrow, unhandled edge case where both features individually work;
 re-validating an *existing* attachment's legality every SBA pass (today only
 "host left the battlefield" is checked, not e.g. a host gaining protection
-mid-game); bespoke *conditional* transform triggers ("look at the top card…,
+mid-game); RULE 603.6a "look back in time" for leaves-the-battlefield
+triggers (`_collect_triggers` only scans the current battlefield, so a
+permanent's own "when this dies" trigger is never found by the live death
+pipeline — ticketed in `backend/ToDo_Backend.md`); bespoke *conditional*
+transform triggers ("look at the top card…,
 if instant/sorcery, transform" — Delver of Secrets — a genuinely new
 "reveal + conditional" one-shot family) and the legacy pre-2021 non-daybound
 werewolf template ("if no spells were cast last turn, transform ~",
@@ -356,7 +389,18 @@ English and German.
   decks. Service modules (`card_database.py`, `deck_database.py`, etc.) keep
   their old constant names (`CACHE_ROOT`, `DEFAULT_DB_PATH`, …) as aliases
   onto `config.py`'s values; `api/dependencies.py`'s singletons import
-  straight from `config.py`.
+  straight from `config.py`. `LazyCardLoader`'s loading *policy* is also
+  here: `SCRYFALL_PRIMARY` (`MTG_SCRYFALL_PRIMARY` env var, or
+  `./start.sh --scryfall-primary`) — default `False`, **cache-primary**:
+  an already-cached card is served as-is even if it looks `stale`
+  (missing mana-cost/image data, a pre-fix `Card.partner_with`
+  reminder-text tail — see `services/lazy_card_loader.py`'s `_is_fresh`),
+  never silently refetched, so an ordinary deck load can't make a
+  surprise Scryfall call (or hit its rate limit) just from browsing
+  already-known cards. `True` restores this project's original
+  **scryfall-primary** behavior of always refetching a stale row. A name
+  that's never been cached at all is *always* fetched once either way —
+  that part isn't a policy choice.
 - **Frontend**: no framework. Views are `render*(container)` functions setting
   `innerHTML` and wiring listeners; escape user/card text with `escapeHtml` /
   `escapeAttr`. Client-only prefs persist via cookies (`cookies.js`).

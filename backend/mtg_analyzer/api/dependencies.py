@@ -11,7 +11,7 @@ from __future__ import annotations
 
 from functools import lru_cache
 
-from mtg_analyzer.config import DB_PATH, DECKS_DB_PATH, IMAGE_CACHE_DIR, PLAYER_ASSETS_DB_PATH
+from mtg_analyzer.config import DB_PATH, DECKS_DB_PATH, IMAGE_CACHE_DIR, PLAYER_ASSETS_DB_PATH, SCRYFALL_PRIMARY
 from mtg_analyzer.services.archidekt_client import ArchidektClient
 from mtg_analyzer.services.card_database import CardDatabase
 from mtg_analyzer.services.deck_database import DeckDatabase
@@ -29,7 +29,7 @@ def _database() -> CardDatabase:
 
 @lru_cache(maxsize=1)
 def _lazy_card_loader() -> LazyCardLoader:
-    return LazyCardLoader(_database(), ScryfallIntegration())
+    return LazyCardLoader(_database(), ScryfallIntegration(), scryfall_primary=SCRYFALL_PRIMARY)
 
 
 @lru_cache(maxsize=1)

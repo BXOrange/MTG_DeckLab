@@ -11,7 +11,11 @@ from dataclasses import dataclass, field
 
 from mtg_analyzer.models.card import Card
 from mtg_analyzer.services.card_database import CardDatabase
-from mtg_analyzer.services.scryfall_client import ScryfallIntegration, card_from_scryfall_data
+from mtg_analyzer.services.scryfall_client import (
+    ScryfallIntegration,
+    ScryfallNotFoundError,
+    card_from_scryfall_data,
+)
 
 #: The face separator in a multi-faced card name. Canonically Scryfall
 #: writes " // ", but decklists and hand-typed lists use single-slash and
@@ -30,11 +34,29 @@ class LoadCardsResult:
 
 
 class LazyCardLoader:
-    """Resolves card names to `Card` objects, populating the DB on first use."""
+    """Resolves card names to `Card` objects, populating the DB on first use.
 
-    def __init__(self, database: CardDatabase, scryfall: ScryfallIntegration) -> None:
+    `scryfall_primary` (see `mtg_analyzer/config.py`'s `SCRYFALL_PRIMARY` /
+    `setup/start.py --scryfall-primary`) governs the loading *policy* for a
+    name that's already cached — a name that's never been cached at all is
+    always fetched once regardless, since there's no cached value to
+    prefer. Default `False` ("cache-primary"): an already-cached row is
+    served as-is even if it looks `stale` (see `_is_stale` below), so an
+    ordinary load never makes a surprise Scryfall call for a card it's
+    already seen. `True` ("scryfall-primary") restores this project's
+    original behavior of always refetching a stale row to prefer Scryfall's
+    current data.
+    """
+
+    def __init__(
+        self,
+        database: CardDatabase,
+        scryfall: ScryfallIntegration,
+        scryfall_primary: bool = False,
+    ) -> None:
         self._database = database
         self._scryfall = scryfall
+        self._scryfall_primary = scryfall_primary
 
     def load_cards(self, names: list[str]) -> LoadCardsResult:
         """Look up each name in the DB first; fetch only what's missing from Scryfall."""
@@ -51,12 +73,15 @@ class LazyCardLoader:
             cached = self._database.get_card(name)
             if cached is None:
                 missing.append(name)
-            elif cached.has_mana_cost_data and cached.has_image_data:
+            elif not self._scryfall_primary or _is_fresh(cached):
                 result.cards[name] = cached
             else:
-                # Refetch rows missing either mana-cost or image data — the
-                # latter catches double-faced cards cached before their
-                # per-face image URLs were captured (see Card.has_image_data).
+                # scryfall_primary=True only: refetch rows missing either
+                # mana-cost or image data — the latter catches double-faced
+                # cards cached before their per-face image URLs were
+                # captured (see Card.has_image_data) — or still carrying a
+                # pre-fix "Partner with X" reminder-text tail (see
+                # Card.has_clean_partner_with).
                 missing.append(name)
                 stale[name] = cached
 
@@ -87,6 +112,28 @@ class LazyCardLoader:
                 if front_face != card.name:
                     cards_by_name.setdefault(front_face.lower(), card)
 
+            # /cards/collection only matches a card's real (Oracle) name.
+            # Some promo printings (Secret Lair's "Godzilla" series, several
+            # Universes Beyond crossovers) are decklisted under their printed
+            # *flavor name* instead (e.g. "Godzilla, King of the Monsters"
+            # for Zilortha, Strength Incarnate) — verified against the live
+            # API: /cards/collection reports these as not_found, but
+            # /cards/named resolves them fine. Retry each apparent miss
+            # there individually, keyed under the name as requested (the
+            # resolved card's own Oracle name won't match it, so it can't
+            # just fall into `cards_by_name` the normal way above).
+            still_not_found: list[str] = []
+            for query in not_found:
+                try:
+                    data = self._scryfall.fetch_card(query)
+                except ScryfallNotFoundError:
+                    still_not_found.append(query)
+                    continue
+                card = card_from_scryfall_data(data)
+                self._database.save_card(card)
+                cards_by_name[query.lower()] = card
+            not_found = still_not_found
+
             for requested_name in missing:
                 card = cards_by_name.get(requested_name.lower()) or cards_by_name.get(
                     _front_face_name(requested_name).lower()
@@ -110,6 +157,14 @@ class LazyCardLoader:
                     result.not_found.remove(name)
 
         return result
+
+
+def _is_fresh(card: Card) -> bool:
+    """Whether a cached row has all the data a full Scryfall lookup gives it.
+
+    Only consulted in `scryfall_primary=True` mode — see `LazyCardLoader`.
+    """
+    return card.has_mana_cost_data and card.has_image_data and card.has_clean_partner_with
 
 
 def _front_face_name(name: str) -> str:

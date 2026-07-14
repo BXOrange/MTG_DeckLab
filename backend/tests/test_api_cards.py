@@ -60,9 +60,13 @@ class TestSearchCard:
 
     def test_unknown_card_returns_404(self):
         def handler(request: httpx.Request) -> httpx.Response:
-            return httpx.Response(
-                200, json={"data": [], "not_found": [{"name": "Not A Real Card"}]}
-            )
+            if request.url.path == "/cards/collection":
+                return httpx.Response(
+                    200, json={"data": [], "not_found": [{"name": "Not A Real Card"}]}
+                )
+            # The flavor-name fallback retry (LazyCardLoader.load_cards)
+            # hits /cards/named for a collection miss — genuinely unknown here too.
+            return httpx.Response(404, json={"details": "not found"})
 
         _override_loader(handler)
         client = TestClient(app)
@@ -117,7 +121,13 @@ class TestResolveCards:
 
     def test_resolves_multiple_names_in_one_call(self):
         def handler(request: httpx.Request) -> httpx.Response:
-            return httpx.Response(200, json={"data": [LIGHTNING_BOLT], "not_found": [{"name": "Not A Real Card"}]})
+            if request.url.path == "/cards/collection":
+                return httpx.Response(
+                    200, json={"data": [LIGHTNING_BOLT], "not_found": [{"name": "Not A Real Card"}]}
+                )
+            # The flavor-name fallback retry (LazyCardLoader.load_cards)
+            # hits /cards/named for a collection miss — genuinely unknown here too.
+            return httpx.Response(404, json={"details": "not found"})
 
         _override_loader(handler)
         client = TestClient(app)

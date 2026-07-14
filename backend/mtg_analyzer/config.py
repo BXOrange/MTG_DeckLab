@@ -19,6 +19,10 @@ Env vars (all optional; defaults reproduce the pre-config-module paths):
   MTG_DATA_DIR    — root of persistent user data (saved decks, player assets)
   MTG_USER_AGENT  — User-Agent sent to Scryfall (API + image CDN)
   MTG_SCRYFALL_MIN_REQUEST_INTERVAL — seconds between Scryfall API requests
+  MTG_SCRYFALL_PRIMARY — "1"/"true"/"yes" switches LazyCardLoader's loading
+    policy from cache-primary (default) to scryfall-primary; see
+    SCRYFALL_PRIMARY below. Also settable via `setup/start.py
+    --scryfall-primary`.
 """
 
 from __future__ import annotations
@@ -69,3 +73,16 @@ USER_AGENT = os.environ.get("MTG_USER_AGENT", "MTG-Deck-Analyzer/0.1")
 SCRYFALL_MIN_REQUEST_INTERVAL_SECONDS = float(
     os.environ.get("MTG_SCRYFALL_MIN_REQUEST_INTERVAL", "0.1")
 )
+
+#: LazyCardLoader's loading policy for a name that's already cached (a name
+#: that's never been cached at all is always fetched once, regardless of
+#: this flag — there being no cached value to prefer isn't a policy
+#: choice). False (default, "cache-primary"): an already-cached card is
+#: served as-is even if it looks `stale` (missing mana-cost/image data, a
+#: pre-fix `partner_with` reminder-text tail) rather than silently
+#: refetched — the cache is authoritative once a name has ever resolved,
+#: so an ordinary deck load never makes a surprise Scryfall call (and can't
+#: hit its rate limit) just from browsing already-known cards. True
+#: ("scryfall-primary"): today's original behavior — a stale row is always
+#: refetched to prefer Scryfall's current data.
+SCRYFALL_PRIMARY = os.environ.get("MTG_SCRYFALL_PRIMARY", "").strip().lower() in ("1", "true", "yes")

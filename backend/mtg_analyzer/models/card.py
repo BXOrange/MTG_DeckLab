@@ -63,6 +63,14 @@ class Card:
         image_uri_png: URL of the print-quality Scryfall image.
         set_code: The set this printing is from, e.g. "ltr".
         rarity: The printing's rarity, e.g. "common", "mythic".
+        flavor_name: An alternate name printed on some promo printings
+            instead of/alongside the real one — Secret Lair's "Godzilla"
+            series (e.g. "Godzilla, King of the Monsters" for Zilortha,
+            Strength Incarnate), several Universes Beyond crossovers
+            (Marvel, …). Scryfall metadata, not a distinct card or a rules
+            characteristic; empty for ordinary printings. Decklists built
+            from the physical card sometimes use this instead of the real
+            name — `CardDatabase`/`LazyCardLoader` resolve it too.
         is_legendary: Whether the card has the legendary supertype.
         has_partner: Whether the card has "Partner" or "Partner with X".
         partner_with: The named partner card if this card has
@@ -113,6 +121,7 @@ class Card:
         image_uri_png: str = "",
         set_code: str = "",
         rarity: str = "",
+        flavor_name: str = "",
         is_legendary: bool = False,
         has_partner: bool = False,
         partner_with: Optional[str] = None,
@@ -175,6 +184,7 @@ class Card:
         self.image_uri_png = image_uri_png
         self.set_code = set_code
         self.rarity = rarity
+        self.flavor_name = flavor_name
         self.is_legendary = is_legendary
         self.has_partner = has_partner
         self.partner_with = partner_with
@@ -484,6 +494,21 @@ class Card:
         return bool(self.image_uri_normal or self.image_uri_small) or self.is_token
 
     @property
+    def has_clean_partner_with(self) -> bool:
+        """Whether `partner_with` (if set) is a bare card name.
+
+        A row cached before a `scryfall_client._partner_with` parsing fix
+        can have its RULE 207.2 reminder text still stuck on the end (e.g.
+        "Frodo, Adventurous Hobbit (When this creature enters, ...)"
+        instead of just "Frodo, Adventurous Hobbit") — no real card name
+        contains "(", so its presence means this row predates the fix.
+        `LazyCardLoader` uses this to refetch it instead of forever
+        wrongly rejecting a legal Partner-with pairing
+        (`services/commander_legality.py`).
+        """
+        return self.partner_with is None or "(" not in self.partner_with
+
+    @property
     def has_mana_cost_data(self) -> bool:
         """Whether `mana_cost_string` reflects a real Scryfall lookup.
 
@@ -523,6 +548,7 @@ class Card:
             "image_uri_png": self.image_uri_png,
             "set_code": self.set_code,
             "rarity": self.rarity,
+            "flavor_name": self.flavor_name,
             "is_legendary": self.is_legendary,
             "has_partner": self.has_partner,
             "partner_with": self.partner_with,
@@ -567,6 +593,7 @@ class Card:
             image_uri_png=data.get("image_uri_png", ""),
             set_code=data.get("set_code", ""),
             rarity=data.get("rarity", ""),
+            flavor_name=data.get("flavor_name", ""),
             is_legendary=data.get("is_legendary", False),
             has_partner=data.get("has_partner", False),
             partner_with=data.get("partner_with"),

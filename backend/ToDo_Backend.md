@@ -99,12 +99,76 @@ Weeks 1–4 roadmap is archived at
       by `continuous.recompute` and ended in the cleanup step, RULE 613.4d /
       514.2), `-1/-1` counters (`add_counters` now carries a counter `kind`),
       and `scry` (RULE 701.18, a legal keep-on-top scry that fires a `SCRY`
-      event). Still open: regenerate, mode/"choose one", "up to N" targets
-      — each needs a one-shot `GameEffect` + registry entry first; oracle-text
+      event).
+      **2026-07-14 — three waves of parser expansion (cache-wide coverage
+      16.9% → 26.9% fully-MODELED, suite 922 → 1027 tests):**
+      - **Enters-tapped claiming** (RULE 614.1): tap-condition recognition
+        moved to pure `parser/oracle/catalogue/lands.py`
+        (`tap_clause_condition` full-matches one line; `game/
+        ability_catalogue.land_tap_condition` now delegates), the gate
+        claims recognized lines covered-without-spec, and two new engine
+        kinds landed — `unless_opponents` (Battlebond lands) and
+        basic-land `unless_count` (`test_oracle_lands.py`,
+        `test_land_tap_conditions.py`).
+      - **Attached-permanent statics**: "equipped/enchanted/fortified …
+        gets +N/+N [and has \<kw\>]" / "… has \<kw\>" parse to `anthem`/
+        `grant_keyword` with `affects="attached_permanent"` (engine side
+        already existed; `test_oracle_statics.py`).
+      - **Trigger-condition scoping** (RULE 603.1): the segmenter now
+        emits `trigger.condition` ({subject: self} or {subject: group,
+        type/controller/other}), ENTERS_BATTLEFIELD/DIES/ATTACKS/BLOCKS
+        events carry `instance_id`+`object_types`, and the binder builds
+        the matching predicates — fixing a live over-firing bug where a
+        parsed "when ~ enters" fired for *any* entering permanent
+        (`test_oracle_triggers.py`).
+      - **Counter family**: spell target filters (noncreature / card-type
+        list / mana-value on `TargetSpec.spell_filter`), "unless its
+        controller pays {…}" via a `counter_unless_pays` `pending_choice`
+        (auto-counter when unpayable), and "this spell can't be countered"
+        as a `CantBeCounteredEffect` marker `RulesEngine.counter_spell`
+        refuses (`test_counter_family.py`).
+      - **Modal spells** (RULE 700.2): "choose one —"/"choose one or
+        both —" blocks parse into `AbilitySpec.modes`
+        (`catalogue/modal.py`); casting offers one `cast_spell` action per
+        mode (the MDFC per-face pattern), the chosen mode's effects
+        becoming the spell's resolve-time effects (`test_modal_spells.py`).
+      - **Additional cast costs** (RULE 601.2b/601.2h): "as an additional
+        cost …, sacrifice a creature/artifact/land | discard a card |
+        pay N/X life" parse onto `AbilitySpec.additional_cost`, gate cast
+        legality, and are paid at cast time (survive a counter); reuses
+        `costs.parse_activation_cost` (`test_additional_costs.py`).
+      - **New one-shot families**: return-to-hand (bounce), graveyard
+        recursion (new `graveyard_creature` / `creature_you_control` /
+        `land_you_control` target kinds), tutor-to-hand + basic-land
+        fetch (onto the existing `search`), `add_mana` (Dark Ritual),
+        mass damage ("deals N damage to each creature/player/opponent",
+        a closed `selector` on `DealDamageEffect`), and ETB self-attach
+        for Equipment (`test_effect_families_wave3.py`).
+      Still open: regenerate, "up to N" targets, permanents' modal ETB
+      triggers, "add 1 mana of any color" (a mana *choice*); oracle-text
       *recognition* of replacement clauses (the binder is ready; a
       target/duration grammar for the front-end is not); parse-on-load
-      memoization in `LazyCardLoader`; and *behaviour* for the remaining
-      parametric keywords (alternative costs, combat maths).
+      memoization in `LazyCardLoader`; *behaviour* for the remaining
+      parametric keywords (alternative costs, combat maths); and the
+      remaining processing-list tail (run `parser/oracle/
+      processing_list.coverage_over_cards` for the current ranking —
+      top blockers now: "\<cost\>: untap this artifact", prohibition
+      statics ("activated abilities of artifacts can't be activated",
+      "players can't draw cards"), cost-modification statics
+      ("noncreature spells cost {1} more to cast"), emblems, and
+      "for each"-scaled effects).
+- [ ] Leaves-the-battlefield triggers don't "look back in time" (RULE
+      603.6a): `RulesEngine._move_to_graveyard` fires `DIES`/
+      `LEAVES_BATTLEFIELD` *after* removing the object, and
+      `_collect_triggers` only scans `state.permanents()` (the current
+      battlefield) — so a permanent's own "when this dies" triggered
+      ability is never found/checked by the live death pipeline. The
+      trigger-condition scoping itself works (verified by firing `DIES`
+      against a still-on-battlefield object in
+      `test_oracle_triggers.py`, with a comment on this gap); the fix is
+      to collect leave-triggers from the game state as it existed just
+      before the event (RULE 603.6a/603.10), e.g. snapshot the leaving
+      object's abilities at removal time.
 - [~] Combat blocking + creature-vs-creature damage: **engine done** —
       `GameEngine.declare_blockers`/`can_block` and a rewritten
       `_step_combat_damage` handle blocked/unblocked attackers, gang blocks

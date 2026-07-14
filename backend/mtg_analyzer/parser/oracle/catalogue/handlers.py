@@ -26,7 +26,16 @@ from typing import Callable, Optional
 from ..normalize import SELF
 from ..spec import EffectSpec
 from .keywords import KEYWORDS, KeywordShape, keyword_slug
-from .subgrammars import COUNT, NUMBER, TARGET, count_of, resolve_target_kind
+from .subgrammars import (
+    CANT_BE_COUNTERED_RE,
+    COUNT,
+    NUMBER,
+    SPELL_TARGET,
+    TARGET,
+    count_of,
+    resolve_spell_filter,
+    resolve_target_kind,
+)
 
 #: Colour words → their WUBRG symbol (for a created token's colours).
 _COLOR_WORDS: dict[str, str] = {
@@ -73,6 +82,22 @@ def _damage(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     return [EffectSpec("damage", {"amount": int(m.group("n")), "target_kind": kind})]
 
 
+#: "~ deals N damage to each creature/player/opponent" — a *mass* effect
+#: (RULE 601.2c), not RULE 115 targeting, so it's a dedicated regex rather
+#: than a `TARGET` row (see `subgrammars._TARGET_ROWS`'s note on why "each
+#: opponent"/"each player" were deliberately kept out of that grammar).
+_DAMAGE_SELECTOR_WORDS: dict[str, str] = {
+    "each creature": "each_creature",
+    "each player": "each_player",
+    "each opponent": "each_opponent",
+}
+
+
+def _damage_selector(m: re.Match[str]) -> list[EffectSpec]:
+    selector = _DAMAGE_SELECTOR_WORDS[m.group("selector")]
+    return [EffectSpec("damage", {"amount": int(m.group("n")), "selector": selector})]
+
+
 def _draw(m: re.Match[str]) -> list[EffectSpec]:
     return [EffectSpec("draw", {"count": count_of(m.group("n"))})]
 
@@ -92,8 +117,25 @@ def _destroy(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     return [EffectSpec("destroy", {"target_kind": kind})]
 
 
-def _counter(m: re.Match[str]) -> list[EffectSpec]:
-    return [EffectSpec("counter", {})]
+def _counter(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    # "counter target spell" / "… target noncreature spell" / "… target
+    # instant or sorcery spell" / "… target spell with mana value N" — the
+    # filter is extracted by the dedicated `SPELL_TARGET` companion grammar
+    # (RULE 601.2c/115), not the generic TARGET rows (a countered spell's
+    # "kind" is always "spell"; only *which* spells vary). "unless its
+    # controller pays <cost>" (RULE 601 "Mana Leak" template) is an optional
+    # tail on the same clause, independent of the filter.
+    filt = resolve_spell_filter(m.group("target"))
+    if filt is None:
+        return None
+    params: dict = dict(filt)
+    if m.groupdict().get("cost"):
+        params["unless_pays"] = m.group("cost")
+    return [EffectSpec("counter", params)]
+
+
+def _cant_be_countered(m: re.Match[str]) -> list[EffectSpec]:
+    return [EffectSpec("cant_be_countered", {})]
 
 
 def _mill(m: re.Match[str]) -> list[EffectSpec]:
@@ -118,6 +160,89 @@ def _tap(m: re.Match[str]) -> Optional[list[EffectSpec]]:
         return None
     untap = m.group("verb").lower() == "untap"
     return [EffectSpec("tap", {"target_kind": kind, "untap": untap})]
+
+
+#: "return target creature to its owner's hand" / "return a land you control
+#: to its owner's hand" (RULE 701.3) — the bounce family. ``target_kind``
+#: reuses the shared `TARGET` grammar, so this claims both a genuine RULE 115
+#: target and the "a land you control" controller-restricted choice the same
+#: way; restricted to the shapes real bounce cards actually use.
+_RETURN_TO_HAND_KINDS: frozenset[str] = frozenset(
+    {"creature", "permanent", "any", "creature_you_control", "land_you_control"}
+)
+
+
+def _return_to_hand(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    kind = resolve_target_kind(m.group("target"))
+    if kind is None or kind not in _RETURN_TO_HAND_KINDS:
+        return None
+    return [EffectSpec("return_to_hand", {"target_kind": kind})]
+
+
+#: "return target creature card from your graveyard to the battlefield" /
+#: "… to your hand" (RULE 701.3, the Regrowth/Reanimate-shaped recursion
+#: family) — a dedicated clause rather than reusing `TARGET`, since the
+#: "from your graveyard"/destination phrasing is specific to this template.
+_RETURN_FROM_GRAVEYARD_RE = _c(
+    r"return target creature card from your graveyard to (?P<dest>the battlefield|your hand)"
+)
+
+
+def _return_from_graveyard(m: re.Match[str]) -> list[EffectSpec]:
+    destination = "battlefield" if m.group("dest") == "the battlefield" else "hand"
+    return [EffectSpec(
+        "return_from_graveyard",
+        {"target_kind": "graveyard_creature", "destination": destination},
+    )]
+
+
+#: "search your library for a card, put that card into your hand, then
+#: shuffle." (RULE 701.19, an unrestricted tutor) / "search your library for
+#: a basic land card, put it onto the battlefield tapped, then shuffle."
+#: (a fetch land's activated-ability body — mirrors Evolving Wilds'
+#: hand-authored `ability_catalogue.py` entry, just reached via the oracle-
+#: text front-end instead). Both map onto the engine's existing `"search"`
+#: `EffectSpec` (`game/effects.py`'s `SearchLibraryEffect`) — no new effect
+#: type needed, just recognition.
+_SEARCH_TO_HAND_RE = _c(
+    r"search your library for a card,? put that card into your hand,? then shuffle"
+)
+_SEARCH_BASIC_LAND_TAPPED_RE = _c(
+    r"search your library for a basic land card,? put it onto the battlefield tapped,? then shuffle"
+)
+
+
+def _search_to_hand(m: re.Match[str]) -> list[EffectSpec]:
+    return [EffectSpec("search", {"criteria": {}, "destination": "hand"})]
+
+
+def _search_basic_land_tapped(m: re.Match[str]) -> list[EffectSpec]:
+    return [EffectSpec(
+        "search", {"criteria": {"basic": True}, "destination": "battlefield_tapped"}
+    )]
+
+
+#: "attach it to target creature you control" / "attach ~ to target creature
+#: you control" (an Equipment's own ETB self-attach, RULE 303.4f-adjacent —
+#: `AttachEffect` already exists for Equip's activated ability, reused here).
+def _attach(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    kind = resolve_target_kind(m.group("target"))
+    if kind is None or kind not in ("permanent", "creature", "creature_you_control"):
+        return None
+    return [EffectSpec("attach", {"target_kind": kind})]
+
+
+#: A single mana symbol run — "add {b}{b}{b}." (Dark Ritual-shaped). Only a
+#: *pure* run of colour/colourless symbols claims (fail-closed): "add 1 mana
+#: of any color" has no ``{…}`` symbols to capture, so it's left unclaimed
+#: rather than guessed at (that's a player choice, not modeled yet).
+_MANA_SYMBOL = r"\{[wubrgc]\}"
+_ADD_MANA_RE = _c(rf"add (?P<syms>(?:{_MANA_SYMBOL}){{1,20}})")
+
+
+def _add_mana(m: re.Match[str]) -> list[EffectSpec]:
+    colors = [s.upper() for s in re.findall(r"\{([wubrgc])\}", m.group("syms"))]
+    return [EffectSpec("add_mana", {"colors": colors})]
 
 
 def _transform(m: re.Match[str]) -> list[EffectSpec]:
@@ -280,11 +405,24 @@ _PT_DELTA = r"(?P<p>[+\-−]\d+)/(?P<t>[+\-−]\d+)"
 # clause by `EffectHandler.match`'s `fullmatch`, so no partial claims.
 
 HANDLERS: list[EffectHandler] = [
-    # "~ deals 3 damage to any target" / "deal 2 damage to target creature"
+    # "~ deals 3 damage to any target" / "deal 2 damage to target creature" /
+    # "it deals 2 damage to target opponent" (a triggered-ability body's own
+    # "it"/"this creature"/"this land"/"this permanent" subject — cosmetic,
+    # since the source is already bound at bind time regardless of wording).
     EffectHandler(
         "damage",
-        _c(rf"(?:~ )?deals? {NUMBER} damage to {TARGET}"),
+        _c(rf"(?:(?:~|it|this creature|this land|this permanent) )?deals? {NUMBER} damage to {TARGET}"),
         _damage,
+    ),
+    # "~ deals 2 damage to each creature" / "… to each player" / "… to each
+    # opponent" — a mass effect (RULE 601.2c), not RULE 115 targeting.
+    EffectHandler(
+        "damage_selector",
+        _c(
+            rf"(?:(?:~|it|this creature|this land|this permanent) )?deals? {NUMBER} damage to "
+            rf"(?P<selector>each creature|each player|each opponent)"
+        ),
+        _damage_selector,
     ),
     # "draw a card" / "draw 3 cards" / "you draw two cards"
     EffectHandler(
@@ -310,11 +448,22 @@ HANDLERS: list[EffectHandler] = [
         _c(rf"destroy {TARGET}"),
         _destroy,
     ),
-    # "counter target spell"
+    # "counter target spell" / "counter target noncreature spell" / "counter
+    # target instant or sorcery spell" / "counter target spell with mana
+    # value N" / any of those "… unless its controller pays {N}" (RULE 601.2c
+    # target filter + the "Mana Leak" unless-pay template).
     EffectHandler(
         "counter",
-        _c(rf"counter {TARGET}"),
+        _c(rf"counter {SPELL_TARGET}" + r"(?: unless its controller pays (?P<cost>\{[^}]+\}))?"),
         _counter,
+    ),
+    # "this spell can't be countered." / "~ can't be countered." (RULE
+    # 118-area) — a spell's own property, docked as a marker the counter
+    # effect refuses to act on (`RulesEngine._is_cant_be_countered`).
+    EffectHandler(
+        "cant_be_countered",
+        CANT_BE_COUNTERED_RE,
+        _cant_be_countered,
     ),
     # "mill 3 cards" / "you mill 3 cards" / "target player mills 3 cards"
     EffectHandler(
@@ -333,6 +482,47 @@ HANDLERS: list[EffectHandler] = [
         "tap",
         _c(rf"(?P<verb>tap|untap) {TARGET}"),
         _tap,
+    ),
+    # "return target creature to its owner's hand" / "return a land you
+    # control to its owner's hand" (RULE 701.3 — the bounce family).
+    EffectHandler(
+        "return_to_hand",
+        _c(rf"return {TARGET} to its owner's hand"),
+        _return_to_hand,
+    ),
+    # "return target creature card from your graveyard to the battlefield"/
+    # "… to your hand" (RULE 701.3, Regrowth/Reanimate-shaped recursion).
+    EffectHandler(
+        "return_from_graveyard",
+        _RETURN_FROM_GRAVEYARD_RE,
+        _return_from_graveyard,
+    ),
+    # "search your library for a card, put that card into your hand, then
+    # shuffle." (RULE 701.19, an unrestricted tutor).
+    EffectHandler(
+        "search_to_hand",
+        _SEARCH_TO_HAND_RE,
+        _search_to_hand,
+    ),
+    # "search your library for a basic land card, put it onto the
+    # battlefield tapped, then shuffle." (a fetch land's activated body).
+    EffectHandler(
+        "search_basic_land_tapped",
+        _SEARCH_BASIC_LAND_TAPPED_RE,
+        _search_basic_land_tapped,
+    ),
+    # "attach it to target creature you control" / "attach ~ to target
+    # creature you control" (an Equipment's own ETB self-attach).
+    EffectHandler(
+        "attach",
+        _c(rf"attach (?:it|{re.escape(SELF)}) to {TARGET}"),
+        _attach,
+    ),
+    # "add {b}{b}{b}." (Dark Ritual-shaped bare mana-symbol spell body).
+    EffectHandler(
+        "add_mana",
+        _ADD_MANA_RE,
+        _add_mana,
     ),
     # "transform ~" / "transform it" / "transform this permanent"/"creature"
     # (RULE 712.8) — the self-transform shape a loyalty "[0]: Transform ~."

@@ -31,6 +31,7 @@ from ..parser.oracle.catalogue.saga import all_chapter_numbers
 from . import ability_catalogue, combat, continuous, copy_mechanics
 from .combat import is_protected_from
 from .effects import (
+    CantBeCounteredEffect,
     GameContext,
     ReplacementEffect,
     StaticEffect,
@@ -92,6 +93,13 @@ class RulesEngine:
         self._pending_enter_as_copy_obj: Optional[GameObject] = None
         self._pending_enter_as_copy_effect: Optional[Any] = None
         self._pending_enter_as_copy_continuation: Optional[Callable[[], None]] = None
+        #: The spell awaiting a `counter_unless_pays` choice (RULE 601 —
+        #: "counter target spell unless its controller pays …"), and the
+        #: resolved `ManaCost` it would take to save it — populated only
+        #: while that choice is pending; see `counter_unless_pays`/
+        #: `resolve_counter_unless_pays_choice`.
+        self._pending_counter_target: Any = None
+        self._pending_counter_cost: Optional[ManaCost] = None
         # Collect triggers for every event the game fires.
         state.subscribe(self._collect_triggers)
         # Tally spells cast this turn for the RULE 731.2 day/night check.
@@ -507,14 +515,17 @@ class RulesEngine:
         """Resolve ``obj``'s RULE 614.1 tapped-entry as it's played.
 
         The deterministic conditional shapes — check lands ("unless you
-        control a Mountain or a Forest") and fast/slow lands ("unless you
-        control two or fewer/more other lands") — are decided immediately
-        off the board ``obj``'s controller already has (`land_tap_condition`
-        is read *before* ``obj`` itself is added to the battlefield, so
-        "other lands" naturally excludes it). A shock land's "you may pay N
-        life" is a genuine choice: ``obj`` defaults tapped (as if declined)
-        and a `land_tapped` `pending_choice` opens; `resolve_land_tapped_
-        choice` flips it untapped if the controller pays.
+        control a Mountain or a Forest"), fast/slow lands ("unless you
+        control two or fewer/more other lands", or the basic-land-counting
+        variant, "… two or more basic lands") and Commander "Battlebond"
+        lands ("unless you have two or more opponents") — are decided
+        immediately off the board/game state ``obj``'s controller already
+        has (`land_tap_condition` is read *before* ``obj`` itself is added
+        to the battlefield, so "other lands" naturally excludes it). A
+        shock land's "you may pay N life" is a genuine choice: ``obj``
+        defaults tapped (as if declined) and a `land_tapped` `pending_choice`
+        opens; `resolve_land_tapped_choice` flips it untapped if the
+        controller pays.
         """
         condition = ability_catalogue.land_tap_condition(obj.card)
         kind = condition["kind"]
@@ -529,15 +540,31 @@ class RulesEngine:
                 any(t in o.card.type_line.lower() for t in types) for o in controlled
             )
         elif kind == "unless_count":
-            other_lands = sum(
-                1
-                for o in self.state.battlefield
-                if o.is_land and o.controller_id == obj.controller_id
-            )
+            if condition.get("basic"):
+                other_lands = sum(
+                    1
+                    for o in self.state.battlefield
+                    if o.is_land
+                    and o.controller_id == obj.controller_id
+                    and "basic" in o.card.type_line.lower()
+                )
+            else:
+                other_lands = sum(
+                    1
+                    for o in self.state.battlefield
+                    if o.is_land and o.controller_id == obj.controller_id
+                )
             if condition["cmp"] == "le":
                 obj.tapped = not (other_lands <= condition["count"])
             else:
                 obj.tapped = not (other_lands >= condition["count"])
+        elif kind == "unless_opponents":
+            # RULE 614.1 / Battlebond lands: untapped iff the game itself has
+            # enough opponents — a property of the game, not the board.
+            opponents = [
+                p for p in self.state.living_players() if p.id != obj.controller_id
+            ]
+            obj.tapped = not (len(opponents) >= condition["count"])
         elif kind == "pay_life":
             obj.tapped = True
             self._pending_land_choice_obj = obj
@@ -611,6 +638,11 @@ class RulesEngine:
             raise ValueError(f"{player.id} cannot pay for {obj.name}")
         life_spent = player.mana_pool.pay(cost, life_available=player.life)
         self.lose_life(player, life_spent, cause="cost")
+        # RULE 601.2b: remember the announced X on the object itself (not
+        # just this ephemeral StackItem) — an "unless its controller pays
+        # {X}" tied to *this* spell's own X (Logic Knot's Delve-adjacent
+        # template) needs it after the spell has already left the stack.
+        obj.x_paid = x
 
         # Zone-agnostic (not just hand/command) so an Adventure creature can
         # be cast from exile (RULE 715.3d) with no dedicated branch here.
@@ -834,6 +866,8 @@ class RulesEngine:
                     controller_id=obj.controller_id,
                     card_id=obj.card.id,
                     object=obj.name,
+                    instance_id=obj.instance_id,
+                    object_types=sorted(obj.type_words),
                 )
             )
             self.state.fire_event(
@@ -1071,6 +1105,52 @@ class RulesEngine:
             GameEvent(EventType.EXILE, object=obj.name, owner_id=obj.owner_id)
         )
 
+    def return_to_hand(self, obj: GameObject) -> None:
+        """Return ``obj`` to its owner's hand (RULE 701.3 "return"), from
+        anywhere — the Unsummon/bounce-land shape. Mirrors `exile`'s "move to
+        another zone, from wherever it is" shape: fires `LEAVES_BATTLEFIELD`
+        when it was in play. A token bounced this way never really "reaches"
+        hand — the next SBA pass's RULE 704.5d stranded-token cleanup
+        (`_remove_stranded_tokens`) reaps it the instant it's off the
+        battlefield.
+        """
+        was_on_battlefield = obj in self.state.battlefield
+        owner = self.state.player_by_id(obj.owner_id)
+        if was_on_battlefield:
+            self.state.remove_from_battlefield(obj)
+        else:
+            self._remove_from_current_zone(owner, obj)
+        obj.tapped = False
+        obj.damage_marked = 0
+        owner.add_to_zone(obj, Zone.HAND)
+        if was_on_battlefield:
+            self.state.fire_event(
+                GameEvent(EventType.LEAVES_BATTLEFIELD, object=obj.name, owner_id=obj.owner_id)
+            )
+
+    def return_from_graveyard(self, obj: GameObject, destination: str = "battlefield") -> None:
+        """Return ``obj`` from a graveyard to ``destination`` (RULE 701.3,
+        the Regrowth/Reanimate-shaped recursion family).
+
+        Reuses `_put_searched_card`'s battlefield-entry handling (the same
+        choke point RULE 701.19's search-to-battlefield destination uses) so
+        a reanimated permanent's `ENTERS_BATTLEFIELD` triggers fire exactly
+        like a tutored one's, rather than reimplementing that zone-entry
+        machinery here.
+        """
+        owner = self.state.player_by_id(obj.owner_id)
+        self._remove_from_current_zone(owner, obj)
+        self._put_searched_card(owner, obj, destination)
+
+    def add_mana(self, player: Player, color: str, amount: int = 1) -> None:
+        """Add ``amount`` mana of ``color`` straight to ``player``'s pool
+        (RULE 106.4) — a spell's own bare "Add {B}." resolve-time body
+        (Dark Ritual-shaped), as opposed to a permanent's mana ability
+        (`game/mana_abilities.py`, tapped for mana outside the stack
+        entirely, never routed through this engine at all).
+        """
+        player.mana_pool.add(color, amount)
+
     def set_tapped(self, obj: GameObject, tapped: bool = True) -> None:
         """Tap or untap a permanent (RULE 701.21 / 701.22) — the choke point
         for a genuine tap/untap transition (attacking, a tap cost, a mana
@@ -1214,6 +1294,8 @@ class RulesEngine:
                             card_id=token_card.id,
                             object=token.name,
                             is_token=True,
+                            instance_id=token.instance_id,
+                            object_types=sorted(token.type_words),
                         )
                     )
                 else:
@@ -1477,17 +1559,39 @@ class RulesEngine:
             GameEvent(EventType.LIFE_GAINED, player_id=player.id, amount=amount)
         )
 
+    def _stack_item_for(self, target: Any) -> Optional[StackItem]:
+        """The `StackItem` a counter effect's ``target`` names, or ``None``.
+
+        ``target`` is either a `StackItem` itself or its underlying
+        `GameObject` — `CounterSpellEffect` (and the search/choice machinery
+        upstream) pass whichever it was handed.
+        """
+        for candidate in self.state.stack:
+            if candidate is target or candidate.obj is target:
+                return candidate
+        return None
+
+    @staticmethod
+    def _is_cant_be_countered(obj: GameObject) -> bool:
+        """RULE 118-area: does ``obj`` carry a "this spell can't be
+        countered" marker (`CantBeCounteredEffect`, docked via either the
+        `spell_effect` or `static` ability_kind — see that class's
+        docstring for why both feed the same check)?
+        """
+        effects = list(getattr(obj, "spell_effects", []) or [])
+        effects += list(getattr(obj, "static_effects", []) or [])
+        return any(isinstance(e, CantBeCounteredEffect) for e in effects)
+
     def counter_spell(self, target: Any) -> None:
         """Remove a spell (a `StackItem` or its game object) from the stack.
 
         A countered spell goes to its owner's graveyard (RULE 701.5g) and
-        never resolves.
+        never resolves. Unconditional — callers that must honour "can't be
+        countered" (RULE 118) or an "unless its controller pays" condition
+        (RULE 601) go through `counter_unless_pays` instead, which calls this
+        only once both are settled.
         """
-        item = None
-        for candidate in self.state.stack:
-            if candidate is target or candidate.obj is target:
-                item = candidate
-                break
+        item = self._stack_item_for(target)
         if item is None:
             return
         self.state.stack.remove(item)
@@ -1498,6 +1602,79 @@ class RulesEngine:
         self.state.fire_event(
             GameEvent(EventType.SPELL_RESOLVED, spell=item.description, countered=True)
         )
+
+    def counter_unless_pays(
+        self, target: Any, unless_pays: Optional[str], source: Optional[GameObject] = None
+    ) -> None:
+        """`CounterSpellEffect`'s resolve-time logic (RULE 118/601/701.5).
+
+        Refuses outright if ``target`` carries a "can't be countered" marker
+        (RULE 118 — the spell stays on the stack, unaffected). With no
+        ``unless_pays`` cost this is a plain `counter_spell`. Otherwise it's
+        RULE 601's "Mana Leak" template: if the target's controller *can*
+        pay ``unless_pays``, this opens an interactive `counter_unless_pays`
+        `pending_choice` for them (`resolve_counter_unless_pays_choice`
+        finishes it); a controller who genuinely cannot pay has no real
+        decision, so the spell is simply countered without pausing — this is
+        also what keeps a passive goldfish-dummy opponent (who never holds
+        mana) from stalling resolution on a choice nobody can act on.
+        """
+        item = self._stack_item_for(target)
+        if item is None or item.obj is None:
+            return
+        obj = item.obj
+        if self._is_cant_be_countered(obj):
+            return
+        if not unless_pays:
+            self.counter_spell(target)
+            return
+        cost = ManaCost.parse(unless_pays)
+        if cost.has_variable:
+            cost = cost.with_x(getattr(source, "x_paid", 0) or 0)
+        controller = self.state.player_by_id(obj.controller_id)
+        if controller is None or not controller.mana_pool.can_pay(
+            cost, life_available=controller.life
+        ):
+            self.counter_spell(target)
+            return
+        self._pending_counter_target = target
+        self._pending_counter_cost = cost
+        self.state.pending_choice = {
+            "kind": "counter_unless_pays",
+            "player_id": controller.id,
+            "prompt": f"{obj.name}: {unless_pays} zahlen, um es vor dem Countern zu bewahren?",
+            "options": [
+                {"id": "pay", "label": f"{unless_pays} zahlen"},
+                {"id": "decline", "label": "Nicht zahlen"},
+            ],
+        }
+
+    def resolve_counter_unless_pays_choice(self, answer: Optional[str]) -> None:
+        """Answer a pending `counter_unless_pays` choice (RULE 601).
+
+        ``answer == "pay"`` deducts the cost from the target spell's
+        controller and leaves it on the stack; anything else (``None``/
+        ``"decline"``) counters it.
+        """
+        choice = self.state.pending_choice
+        if not choice or choice.get("kind") != "counter_unless_pays":
+            raise ValueError("no pending counter-unless-pays choice to resolve")
+        self.state.pending_choice = None
+        target = self._pending_counter_target
+        cost = self._pending_counter_cost
+        self._pending_counter_target = None
+        self._pending_counter_cost = None
+        if target is None:
+            return
+        if answer == "pay" and cost is not None:
+            item = self._stack_item_for(target)
+            if item is not None and item.obj is not None:
+                controller = self.state.player_by_id(item.obj.controller_id)
+                if controller is not None:
+                    life_spent = controller.mana_pool.pay(cost, life_available=controller.life)
+                    self.lose_life(controller, life_spent, cause="cost")
+            return
+        self.counter_spell(target)
 
     # ------------------------------------------------------------------
     # Library search + shuffle + the pending-choice it needs (RULE 701.19/20)
@@ -1649,7 +1826,13 @@ class RulesEngine:
             obj.tapped = destination == "battlefield_tapped"
             self.state.add_to_battlefield(obj)
             self.state.fire_event(
-                GameEvent(EventType.ENTERS_BATTLEFIELD, controller_id=player.id, object=obj.name)
+                GameEvent(
+                    EventType.ENTERS_BATTLEFIELD,
+                    controller_id=player.id,
+                    object=obj.name,
+                    instance_id=obj.instance_id,
+                    object_types=sorted(obj.type_words),
+                )
             )
         elif destination == "library_bottom":
             obj.zone = Zone.LIBRARY
@@ -1840,7 +2023,14 @@ class RulesEngine:
             )
             if was_creature:
                 self.state.fire_event(
-                    GameEvent(EventType.DIES, object=obj.name, owner_id=obj.owner_id)
+                    GameEvent(
+                        EventType.DIES,
+                        object=obj.name,
+                        owner_id=obj.owner_id,
+                        controller_id=obj.controller_id,
+                        instance_id=obj.instance_id,
+                        object_types=sorted(obj.type_words),
+                    )
                 )
 
     # ------------------------------------------------------------------

@@ -85,6 +85,94 @@ def build_replacements(
     return built
 
 
+#: RULE 603.1's "you control" scoping reads a different event-data key
+#: depending on the event: `ENTERS_BATTLEFIELD`/`DIES` carry `controller_id`,
+#: while `ATTACKS`/`BLOCKS` carry `player_id` — always that permanent's
+#: controller (RULE 508.1a/509.1b — you can only attack/block with creatures
+#: you control) — instead; see the firing sites in `game/game_engine.py`.
+_GROUP_CONTROLLER_EVENT_KEYS: dict[str, str] = {
+    "ATTACKS": "player_id",
+    "BLOCKS": "player_id",
+}
+
+
+def _subject_condition(
+    trigger: dict[str, Any], source: Optional[Any]
+) -> Optional[Callable[[Any, Any], bool]]:
+    """RULE 603.1's trigger *subject* → its predicate, from the ``condition``
+    dict the oracle-text segmenter emits (`parser/oracle/segmenter.py`'s
+    `_trigger_condition`) — ``None`` when the spec carries no such dict (a
+    hand-authored `ability_catalogue.py` entry, or an older/synthetic spec),
+    so those keep their pre-existing unscoped behaviour.
+
+    ``{"subject": "self"}`` — the event must be about this ability's own
+    source, matched by ``instance_id``. Missing ``instance_id`` on the event
+    → fail-closed ``False``, never "fires for everything" (the over-firing
+    bug this grammar exists to close: "when ~ enters the battlefield, draw a
+    card" must not fire when *some other* permanent enters).
+
+    ``{"subject": "group", "type", "controller", "other"}`` — the event must
+    be about *some* battlefield object matching the filter: ``type`` checks
+    `GameObject.type_words`, preferring the event's own ``object_types`` the
+    firing site stamped at fire time (a `DIES` object has already left the
+    battlefield by the time this runs, so a live lookup wouldn't see it),
+    falling back to `GameState.find_object` when the event predates that
+    payload (e.g. a hand-built test event); ``controller`` ``"you"`` checks
+    the event's controller against the source's; ``other`` excludes the
+    source's own instance (fail-closed ``False`` if the event carries no
+    ``instance_id`` to check against).
+    """
+    condition = trigger.get("condition")
+    if not condition:
+        return None
+    subject = condition.get("subject")
+    instance_id = getattr(source, "instance_id", None)
+
+    if subject == "self":
+
+        def _self_ok(event: Any, context: Any, iid=instance_id) -> bool:
+            event_instance = event.get("instance_id")
+            return event_instance is not None and event_instance == iid
+
+        return _self_ok
+
+    if subject == "group":
+        controller_id = getattr(source, "controller_id", None)
+        type_word = condition.get("type")
+        wants_you = condition.get("controller") == "you"
+        other_only = bool(condition.get("other"))
+        controller_key = _GROUP_CONTROLLER_EVENT_KEYS.get(trigger.get("event"), "controller_id")
+
+        def _group_ok(
+            event: Any,
+            context: Any,
+            iid=instance_id,
+            cid=controller_id,
+            tword=type_word,
+            you=wants_you,
+            other=other_only,
+            ckey=controller_key,
+        ) -> bool:
+            event_instance = event.get("instance_id")
+            if other and (event_instance is None or event_instance == iid):
+                return False
+            if you and event.get(ckey) != cid:
+                return False
+            if tword and tword != "permanent":
+                types = event.get("object_types")
+                if types is None and event_instance is not None:
+                    state = getattr(context, "state", None)
+                    obj = state.find_object(event_instance) if state is not None else None
+                    types = sorted(obj.type_words) if obj is not None else None
+                if not types or tword not in types:
+                    return False
+            return True
+
+        return _group_ok
+
+    return None
+
+
 def _trigger_condition(
     trigger: dict[str, Any], source: Optional[Any]
 ) -> Optional[Callable[[Any, Any], bool]]:
@@ -93,6 +181,9 @@ def _trigger_condition(
     Composes independent predicates so a trigger can be scoped by any
     combination the spec sets:
 
+    * ``"condition"`` — RULE 603.1's trigger subject ("self" or a "group"
+      filter), the oracle-text segmenter's own scoping — see
+      `_subject_condition`.
     * ``"chapter"`` — a Saga (or Class) chapter/level ability must fire only
       for *its own* source (scoped by the event's ``instance_id``, the same
       convention `continuous._granted_trigger_condition` uses) and only at
@@ -107,6 +198,10 @@ def _trigger_condition(
       triggering event's payload.
     """
     predicates: list[Callable[[Any, Any], bool]] = []
+
+    subject_ok = _subject_condition(trigger, source)
+    if subject_ok is not None:
+        predicates.append(subject_ok)
 
     chapters = trigger.get("chapter")
     if chapters:
@@ -283,16 +378,52 @@ def _keyword_activated_ability(obj: Any, spec: AbilitySpec) -> Optional[Activate
     )
 
 
+def _attach_modes(obj: Any, modes: dict[str, Any]) -> None:
+    """Bind a modal spell's "Choose one —" options onto ``obj`` (RULE 700.2).
+
+    Each option becomes its own entry in ``obj.spell_modes`` — a flat list
+    of ``{"effects": [GameEffect, ...], "description": str}`` dicts, one
+    per printed mode — plus ``obj.spell_modes_or_both`` (RULE 700.2e). The
+    engine (`game/game_engine.py`) offers one cast action per mode, plus a
+    combined "both" action when ``or_both`` is set, the same per-face-offer
+    treatment MDFC/Adventure casting already uses; casting temporarily
+    swaps `obj.spell_effects` to the chosen mode(s) so the existing
+    targeting/resolution machinery (which reads that attribute) needs no
+    change to be modal-aware.
+    """
+    entries = [
+        {"effects": build_effects(option, obj), "description": description}
+        for option, description in zip(
+            modes.get("options", []), modes.get("descriptions") or []
+        )
+    ]
+    existing = list(getattr(obj, "spell_modes", None) or [])
+    obj.spell_modes = existing + entries
+    obj.spell_modes_or_both = bool(modes.get("or_both", False))
+
+
 def attach_to_object(obj: Any, specs: list[AbilitySpec]) -> None:
     """Bind each spec and attach it to the `GameObject`'s effect lists.
 
     ``spell_effect`` specs populate ``obj.spell_effects`` (the hook
-    `RulesEngine._effects_for_spell` reads when the spell resolves);
-    ``triggered``/``activated`` go on the matching `GameObject` ability list;
-    ``static``/``replacement`` extend the matching effect list; ``keyword``
-    specs dock onto ``obj.intrinsic_keywords`` (flag keywords).
+    `RulesEngine._effects_for_spell` reads when the spell resolves) — or,
+    for a modal spell (RULE 700.2, a ``modes`` block), ``obj.spell_modes``
+    instead/as well (see `_attach_modes`); ``triggered``/``activated`` go on
+    the matching `GameObject` ability list; ``static``/``replacement``
+    extend the matching effect list; ``keyword`` specs dock onto
+    ``obj.intrinsic_keywords`` (flag keywords).
+
+    RULE 601.2b/604.3's "as an additional cost to cast this spell, <cost>."
+    is its own oracle-text line — the parser emits it as a standalone spec
+    carrying no effects of its own (`parser/oracle/segmenter.py`), so it's
+    picked up here by scanning every spec for ``additional_cost`` rather than
+    by whichever spec happens to carry the spell's "real" effects, keeping
+    the parser/binder split simple regardless of line order on the card.
     """
     for spec in specs:
+        if spec.additional_cost:
+            spec.validate()
+            obj.additional_cast_cost = parse_activation_cost(spec.additional_cost)
         if spec.ability_kind == "keyword":
             attach_keyword(obj, spec)
             keyword_ability = _keyword_activated_ability(obj, spec)
@@ -303,6 +434,8 @@ def attach_to_object(obj: Any, specs: list[AbilitySpec]) -> None:
         if spec.ability_kind == "spell_effect":
             existing = list(getattr(obj, "spell_effects", []))
             obj.spell_effects = existing + bound  # type: ignore[union-attr]
+            if spec.modes:
+                _attach_modes(obj, spec.modes)
         elif spec.ability_kind == "triggered":
             obj.triggered_abilities.append(bound)
         elif spec.ability_kind == "activated":

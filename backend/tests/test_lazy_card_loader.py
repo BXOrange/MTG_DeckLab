@@ -76,11 +76,11 @@ VALKI_TIBALT = {
 }
 
 
-def make_loader(handler):
+def make_loader(handler, scryfall_primary=False):
     database = CardDatabase()
     transport = httpx.MockTransport(handler)
     scryfall = ScryfallIntegration(client=httpx.Client(transport=transport, base_url="https://api.scryfall.com"))
-    return LazyCardLoader(database, scryfall), database
+    return LazyCardLoader(database, scryfall, scryfall_primary=scryfall_primary), database
 
 
 class TestLoadCards:
@@ -119,9 +119,13 @@ class TestLoadCards:
 
     def test_unknown_card_reported_as_not_found(self):
         def handler(request: httpx.Request) -> httpx.Response:
-            return httpx.Response(
-                200, json={"data": [], "not_found": [{"name": "Not A Real Card"}]}
-            )
+            if request.url.path == "/cards/collection":
+                return httpx.Response(
+                    200, json={"data": [], "not_found": [{"name": "Not A Real Card"}]}
+                )
+            # The flavor-name fallback retry (see test_flavor_name_*
+            # below) — a genuinely unknown card misses here too.
+            return httpx.Response(404, json={"details": "not found"})
 
         loader, _ = make_loader(handler)
         result = loader.load_cards(["Not A Real Card"])
@@ -299,11 +303,13 @@ class TestLoadCards:
         import json
 
         def handler(request: httpx.Request) -> httpx.Response:
-            identifiers = json.loads(request.read())["identifiers"]
-            return httpx.Response(
-                200,
-                json={"data": [], "not_found": [{"name": i["name"]} for i in identifiers]},
-            )
+            if request.url.path == "/cards/collection":
+                identifiers = json.loads(request.read())["identifiers"]
+                return httpx.Response(
+                    200,
+                    json={"data": [], "not_found": [{"name": i["name"]} for i in identifiers]},
+                )
+            return httpx.Response(404, json={"details": "not found"})
 
         loader, _ = make_loader(handler)
         result = loader.load_cards(["Fakefront // Fakeback"])
@@ -313,8 +319,131 @@ class TestLoadCards:
         assert result.cards == {}
 
 
+# Secret Lair's "Godzilla" series (Ikoria) prints an alternate name
+# alongside the real one — Scryfall's `flavor_name`. Real data (trimmed):
+# https://api.scryfall.com/cards/named?exact=Zilortha,+Strength+Incarnate
+ZILORTHA = {
+    "id": "9a0639a0-c898-4a07-975c-a02bdd53175b",
+    "name": "Zilortha, Strength Incarnate",
+    "flavor_name": "Godzilla, King of the Monsters",
+    "mana_cost": "{3}{R}{G}",
+    "cmc": 5.0,
+    "type_line": "Legendary Creature — Dinosaur",
+    "oracle_text": "Trample",
+    "colors": ["G", "R"],
+    "color_identity": ["G", "R"],
+    "keywords": ["Trample"],
+    "power": "7",
+    "toughness": "3",
+    "set": "iko",
+    "rarity": "mythic",
+    "image_uris": {"small": "", "normal": "https://img.example/zilortha.jpg", "large": "", "png": ""},
+}
+
+
+class TestFlavorNameFallback:
+    """/cards/collection only matches a card's real (Oracle) name; a promo's
+    printed *flavor name* (Secret Lair's "Godzilla" series, several
+    Universes Beyond crossovers) only resolves via /cards/named — verified
+    against the live Scryfall API. The loader must retry there rather than
+    reporting these cards as not found."""
+
+    def test_flavor_name_resolved_via_named_endpoint_fallback(self):
+        def handler(request: httpx.Request) -> httpx.Response:
+            if request.url.path == "/cards/collection":
+                return httpx.Response(
+                    200,
+                    json={"data": [], "not_found": [{"name": "Godzilla, King of the Monsters"}]},
+                )
+            assert request.url.params["exact"] == "Godzilla, King of the Monsters"
+            return httpx.Response(200, json=ZILORTHA)
+
+        loader, _ = make_loader(handler)
+        result = loader.load_cards(["Godzilla, King of the Monsters"])
+
+        assert result.not_found == []
+        card = result.cards["Godzilla, King of the Monsters"]
+        assert card.name == "Zilortha, Strength Incarnate"
+        assert card.flavor_name == "Godzilla, King of the Monsters"
+
+    def test_flavor_name_second_load_hits_the_db_not_scryfall(self):
+        calls = []
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            calls.append(request)
+            if request.url.path == "/cards/collection":
+                return httpx.Response(
+                    200,
+                    json={"data": [], "not_found": [{"name": "Godzilla, King of the Monsters"}]},
+                )
+            return httpx.Response(200, json=ZILORTHA)
+
+        loader, database = make_loader(handler)
+        loader.load_cards(["Godzilla, King of the Monsters"])
+        result = loader.load_cards(["Godzilla, King of the Monsters"])
+
+        assert len(calls) == 2  # only the first load's collection + named-fallback calls
+        assert result.cards["Godzilla, King of the Monsters"].name == "Zilortha, Strength Incarnate"
+        # The cache row itself is reachable by flavor name too (CardDatabase.get_card).
+        assert database.get_card("Godzilla, King of the Monsters") is not None
+
+    def test_flavor_name_resolving_to_an_already_cached_name_does_not_crash(self):
+        # Regression test for a real production crash: a decklist can list
+        # both a plain printing and a *different* Universes Beyond
+        # crossover printing of the same Oracle card by its flavor name
+        # (e.g. "The Cloudsea Djinn" for Nyxbloom Ancient, a real Final
+        # Fantasy crossover printing) — two different Scryfall ids
+        # resolving to one `name`, which used to raise a sqlite
+        # IntegrityError out of CardDatabase.save_card (fixed there via
+        # `INSERT OR REPLACE`; see test_card_database.py's matching test).
+        plain_printing = {
+            "id": "11111111-1111-1111-1111-111111111111",
+            "name": "Nyxbloom Ancient",
+            "mana_cost": "{4}{G}{G}{G}",
+            "cmc": 7.0,
+            "type_line": "Enchantment Creature — Elemental",
+            "oracle_text": "Trample",
+            "colors": ["G"],
+            "color_identity": ["G"],
+            "keywords": ["Trample"],
+            "power": "5",
+            "toughness": "5",
+            "set": "thb",
+            "rarity": "mythic",
+            "image_uris": {"small": "", "normal": "", "large": "", "png": ""},
+        }
+        crossover_printing = {
+            **plain_printing,
+            "id": "22222222-2222-2222-2222-222222222222",
+            "flavor_name": "The Cloudsea Djinn",
+            "set": "fca",
+        }
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            if request.url.path == "/cards/collection":
+                import json
+
+                identifiers = json.loads(request.read())["identifiers"]
+                data = [plain_printing] if any(i["name"] == "Nyxbloom Ancient" for i in identifiers) else []
+                not_found = [{"name": i["name"]} for i in identifiers if i["name"] != "Nyxbloom Ancient"]
+                return httpx.Response(200, json={"data": data, "not_found": not_found})
+            assert request.url.params["exact"] == "The Cloudsea Djinn"
+            return httpx.Response(200, json=crossover_printing)
+
+        loader, database = make_loader(handler)
+        result = loader.load_cards(["Nyxbloom Ancient", "The Cloudsea Djinn"])
+
+        assert result.not_found == []
+        assert result.cards["Nyxbloom Ancient"].id == "11111111-1111-1111-1111-111111111111"
+        assert result.cards["The Cloudsea Djinn"].id == "22222222-2222-2222-2222-222222222222"
+        # No crash saving the second (different-id, same-name) printing.
+        assert database.get_card("Nyxbloom Ancient") is not None
+
+
 class TestStaleCachedRows:
-    """A row cached before `mana_cost_string` existed self-heals on load.
+    """A row cached before `mana_cost_string` existed self-heals on load,
+    when `scryfall_primary=True` (see TestScryfallPrimaryPolicy below for
+    the cache-primary default, which serves a stale row as-is instead).
 
     Reference: docs/implementation-state/Done_Backend.md "Mana cost model", ToDo's former
     "Hybrid/Phyrexian nuance for stale cached rows" entry — schema
@@ -323,7 +452,8 @@ class TestStaleCachedRows:
     rows can't survive a deployed schema change. But a row could still end
     up without `mana_cost_string` some other way post-deploy — e.g.
     importing an old docs/08 cache export into an already-reconciled DB —
-    so `LazyCardLoader` treats a stale hit as a miss and refetches it.
+    so `LazyCardLoader` (in scryfall_primary mode) treats a stale hit as a
+    miss and refetches it.
     """
 
     def test_stale_row_missing_mana_cost_string_is_refetched(self):
@@ -333,7 +463,7 @@ class TestStaleCachedRows:
             calls.append(request)
             return httpx.Response(200, json={"data": [LIGHTNING_BOLT], "not_found": []})
 
-        loader, database = make_loader(handler)
+        loader, database = make_loader(handler, scryfall_primary=True)
         from mtg_analyzer.models.card import Card
 
         # Simulates a row cached before `mana_cost_string` existed: a
@@ -358,11 +488,13 @@ class TestStaleCachedRows:
 
     def test_stale_row_falls_back_to_cache_if_refetch_finds_nothing(self):
         def handler(request: httpx.Request) -> httpx.Response:
-            return httpx.Response(
-                200, json={"data": [], "not_found": [{"name": "Lightning Bolt"}]}
-            )
+            if request.url.path == "/cards/collection":
+                return httpx.Response(
+                    200, json={"data": [], "not_found": [{"name": "Lightning Bolt"}]}
+                )
+            return httpx.Response(404, json={"details": "not found"})
 
-        loader, database = make_loader(handler)
+        loader, database = make_loader(handler, scryfall_primary=True)
         from mtg_analyzer.models.card import Card
 
         stale = Card(
@@ -402,3 +534,199 @@ class TestStaleCachedRows:
 
         assert calls == []  # a land's blank mana_cost_string is legitimate
         assert result.cards["Forest"].name == "Forest"
+
+
+class TestStalePartnerWithSelfHeals:
+    """A row cached before the scryfall_client._partner_with reminder-text
+    fix has a `partner_with` value like "Frodo, Adventurous Hobbit (When
+    this creature enters, ...)" instead of the bare name — which then never
+    exactly matches the other commander's real name in
+    services/commander_legality.py, wrongly rejecting a legal "Partner with
+    X" pairing. Card.has_clean_partner_with flags this so LazyCardLoader, in
+    scryfall_primary mode, refetches it instead of serving the stale copy
+    forever, the same self-heal treatment TestStaleCachedRows above gives a
+    pre-mana_cost_string row (cache-primary, the default, serves it as-is —
+    see TestScryfallPrimaryPolicy)."""
+
+    def test_stale_partner_with_reminder_text_is_refetched(self):
+        calls = []
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            calls.append(request)
+            return httpx.Response(
+                200,
+                json={
+                    "data": [
+                        {
+                            "id": "sam-id",
+                            "name": "Sam, Loyal Attendant",
+                            "mana_cost": "{1}{G}",
+                            "cmc": 2.0,
+                            "type_line": "Legendary Creature — Hobbit",
+                            "oracle_text": "Partner with Frodo, Adventurous Hobbit",
+                            "colors": ["G"],
+                            "color_identity": ["G"],
+                            "keywords": ["Partner with"],
+                            "set": "ltr",
+                            "rarity": "rare",
+                            "image_uris": {
+                                "small": "https://img.example/sam-small.jpg",
+                                "normal": "https://img.example/sam-normal.jpg",
+                                "large": "",
+                                "png": "",
+                            },
+                        }
+                    ],
+                    "not_found": [],
+                },
+            )
+
+        loader, database = make_loader(handler, scryfall_primary=True)
+        from mtg_analyzer.models.card import Card
+
+        database.save_card(
+            Card(
+                id="sam-id",
+                name="Sam, Loyal Attendant",
+                type_line="Legendary Creature — Hobbit",
+                mana_cost_string="{1}{G}",
+                converted_mana_cost=2,
+                is_creature=True,
+                power=1,
+                toughness=1,
+                has_partner=True,
+                partner_with="Frodo, Adventurous Hobbit (When this creature enters, ...)",
+                image_uri_normal="https://img.example/sam-normal.jpg",
+            )
+        )
+
+        result = loader.load_cards(["Sam, Loyal Attendant"])
+
+        assert len(calls) == 1  # refetched despite being "cached"
+        assert result.cards["Sam, Loyal Attendant"].partner_with == "Frodo, Adventurous Hobbit"
+        # The DB row itself is healed too, not just this call's result.
+        assert database.get_card("Sam, Loyal Attendant").partner_with == "Frodo, Adventurous Hobbit"
+
+    def test_clean_partner_with_is_not_treated_as_stale(self):
+        calls = []
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            calls.append(request)
+            return httpx.Response(200, json={"data": [], "not_found": []})
+
+        loader, database = make_loader(handler)
+        from mtg_analyzer.models.card import Card
+
+        database.save_card(
+            Card(
+                id="sam-id",
+                name="Sam, Loyal Attendant",
+                type_line="Legendary Creature — Hobbit",
+                mana_cost_string="{1}{G}",
+                converted_mana_cost=2,
+                is_creature=True,
+                power=1,
+                toughness=1,
+                has_partner=True,
+                partner_with="Frodo, Adventurous Hobbit",
+                image_uri_normal="https://img.example/sam-normal.jpg",
+            )
+        )
+
+        result = loader.load_cards(["Sam, Loyal Attendant"])
+
+        assert calls == []  # already clean — no refetch needed
+        assert result.cards["Sam, Loyal Attendant"].partner_with == "Frodo, Adventurous Hobbit"
+
+
+class TestScryfallPrimaryPolicy:
+    """LazyCardLoader's `scryfall_primary` flag (default False —
+    "cache-primary", mtg_analyzer/config.py's SCRYFALL_PRIMARY /
+    `setup/start.py --scryfall-primary`). A name with *no* cached row at
+    all is always fetched either way (TestLoadCards/TestFlavorNameFallback
+    above already cover that) — only the policy for an *already-cached* but
+    `stale` row differs, exercised here directly against all three
+    staleness signals (TestStaleCachedRows/TestStalePartnerWithSelfHeals
+    cover the scryfall_primary=True side of the same rows)."""
+
+    def _stale_card(self, **overrides):
+        from mtg_analyzer.models.card import Card
+
+        defaults = dict(
+            id="sam-id",
+            name="Sam, Loyal Attendant",
+            type_line="Legendary Creature — Hobbit",
+            mana_cost_string="{1}{G}",
+            converted_mana_cost=2,
+            is_creature=True,
+            power=1,
+            toughness=1,
+        )
+        defaults.update(overrides)
+        return Card(**defaults)
+
+    def test_cache_primary_serves_missing_mana_cost_data_as_is(self):
+        calls = []
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            calls.append(request)
+            return httpx.Response(200, json={"data": [LIGHTNING_BOLT], "not_found": []})
+
+        loader, database = make_loader(handler)  # scryfall_primary defaults False
+        database.save_card(self._stale_card(name="Lightning Bolt", mana_cost_string=""))
+
+        result = loader.load_cards(["Lightning Bolt"])
+
+        assert calls == []  # never refetched — the cache is authoritative
+        assert result.cards["Lightning Bolt"].mana_cost_string == ""
+
+    def test_cache_primary_serves_missing_image_data_as_is(self):
+        calls = []
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            calls.append(request)
+            return httpx.Response(200, json={"data": [], "not_found": []})
+
+        loader, database = make_loader(handler)
+        database.save_card(self._stale_card(image_uri_normal=""))
+
+        result = loader.load_cards(["Sam, Loyal Attendant"])
+
+        assert calls == []
+        assert result.cards["Sam, Loyal Attendant"].image_uri_normal == ""
+
+    def test_cache_primary_serves_dirty_partner_with_as_is(self):
+        calls = []
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            calls.append(request)
+            return httpx.Response(200, json={"data": [], "not_found": []})
+
+        loader, database = make_loader(handler)
+        database.save_card(
+            self._stale_card(
+                image_uri_normal="https://img.example/sam-normal.jpg",
+                has_partner=True,
+                partner_with="Frodo, Adventurous Hobbit (When this creature enters, ...)",
+            )
+        )
+
+        result = loader.load_cards(["Sam, Loyal Attendant"])
+
+        assert calls == []
+        assert result.cards["Sam, Loyal Attendant"].partner_with == (
+            "Frodo, Adventurous Hobbit (When this creature enters, ...)"
+        )
+
+    def test_cache_primary_still_fetches_a_name_never_seen_before(self):
+        calls = []
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            calls.append(request)
+            return httpx.Response(200, json={"data": [LIGHTNING_BOLT], "not_found": []})
+
+        loader, _ = make_loader(handler)  # scryfall_primary defaults False
+        result = loader.load_cards(["Lightning Bolt"])
+
+        assert len(calls) == 1  # no cached row at all — always fetched
+        assert result.cards["Lightning Bolt"].name == "Lightning Bolt"

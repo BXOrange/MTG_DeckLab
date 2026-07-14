@@ -65,6 +65,49 @@ SHEOLDRED = {
     "image_uris": {"small": "", "normal": "", "large": "", "png": ""},
 }
 
+# "Partner with X" reciprocal pair, shaped after the real Scryfall data for
+# Frodo, Adventurous Hobbit // Sam, Loyal Attendant (LTR) — one face's
+# "Partner with" line carries its RULE 207.2 reminder text inline, which
+# must be stripped before matching the other card's exact name (see
+# scryfall_client._partner_with).
+FRODO = {
+    "id": "44444444-4444-4444-4444-444444444444",
+    "name": "Frodo, Adventurous Hobbit",
+    "mana_cost": "{1}{W}",
+    "cmc": 2.0,
+    "type_line": "Legendary Creature — Hobbit",
+    "oracle_text": "Partner with Sam, Loyal Attendant\nVigilance",
+    "power": "1",
+    "toughness": "1",
+    "colors": ["W"],
+    "color_identity": ["W"],
+    "keywords": ["Partner with", "Vigilance"],
+    "set": "ltr",
+    "rarity": "rare",
+    "image_uris": {"small": "", "normal": "", "large": "", "png": ""},
+}
+
+SAM = {
+    "id": "55555555-5555-5555-5555-555555555555",
+    "name": "Sam, Loyal Attendant",
+    "mana_cost": "{1}{G}",
+    "cmc": 2.0,
+    "type_line": "Legendary Creature — Hobbit",
+    "oracle_text": (
+        "Partner with Frodo, Adventurous Hobbit (When this creature enters, "
+        "target player may put Frodo into their hand from their library, "
+        "then shuffle.)\nAt the beginning of combat on your turn, create a Food token."
+    ),
+    "power": "1",
+    "toughness": "1",
+    "colors": ["G"],
+    "color_identity": ["G"],
+    "keywords": ["Partner with"],
+    "set": "ltr",
+    "rarity": "rare",
+    "image_uris": {"small": "", "normal": "", "large": "", "png": ""},
+}
+
 # Modal double-faced card: no top-level mana_cost/oracle_text (only
 # per-face), but color_identity is already the Scryfall-computed union
 # of both faces — Valki alone is mono-black, Tibalt alone is black-red.
@@ -108,11 +151,15 @@ VALKI_TIBALT = {
 def _not_found_handler(request: httpx.Request) -> httpx.Response:
     import json
 
-    identifiers = json.loads(request.read())["identifiers"]
-    return httpx.Response(
-        200,
-        json={"data": [], "not_found": [{"name": i["name"]} for i in identifiers]},
-    )
+    if request.url.path == "/cards/collection":
+        identifiers = json.loads(request.read())["identifiers"]
+        return httpx.Response(
+            200,
+            json={"data": [], "not_found": [{"name": i["name"]} for i in identifiers]},
+        )
+    # The flavor-name fallback retry (see LazyCardLoader.load_cards) hits
+    # /cards/named for each collection miss — genuinely unknown here too.
+    return httpx.Response(404, json={"details": "not found"})
 
 
 def _override_loader(handler):
@@ -265,6 +312,30 @@ class TestSubmitDeck:
         assert response.status_code == 200
         assert response.json()["totalCount"] == 100
         assert response.json()["validation"]["isLegal"] is True
+
+    def test_reciprocal_partner_with_pair_is_legal_despite_inline_reminder_text(self):
+        # Regression test: Frodo, Adventurous Hobbit // Sam, Loyal
+        # Attendant were wrongly rejected as an illegal commander pair
+        # because Sam's real oracle text has its "Partner with" reminder
+        # text inline, which a naive capture doesn't strip before
+        # comparing names (see scryfall_client._partner_with).
+        def handler(request: httpx.Request) -> httpx.Response:
+            return httpx.Response(200, json={"data": [FRODO, SAM], "not_found": []})
+
+        _override_loader(handler)
+        mainboard = "\n".join(f"1 Filler {i}" for i in range(98)) + "\n"
+        response = client.post(
+            "/api/decks",
+            json={
+                "commanderText": "1 Frodo, Adventurous Hobbit\n1 Sam, Loyal Attendant",
+                "mainboardText": mainboard,
+            },
+        )
+
+        assert response.status_code == 200
+        body = response.json()
+        assert body["validation"]["isLegal"] is True
+        assert body["validation"]["errors"] == []
 
     def test_unresolved_cards_add_a_warning_but_no_error(self):
         _override_loader(_not_found_handler)
