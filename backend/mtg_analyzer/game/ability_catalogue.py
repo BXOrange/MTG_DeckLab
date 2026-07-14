@@ -237,24 +237,21 @@ def _clever_impersonator() -> list[AbilitySpec]:
     nonland permanent on the battlefield, except it's an artifact in
     addition to its other types.
 
-    — Clever Impersonator (RULE 706/707 "become a copy", `become_copy`
-    effect / `RulesEngine.become_copy`). Modeled as an ordinary
-    ENTERS_BATTLEFIELD trigger rather than the true "as ~ enters"
-    replacement timing (RULE 614.1c/614.12 aren't wired yet — see
-    ToDo_Backend.md, the same simplification as the conditional-tapland
-    gap) and as unconditional rather than a real "you may" choice
-    (`AbilitySpec.optional`/`TriggeredAbility.optional` are carried but not
-    yet consulted for a player decision). ``target_kind="permanent"`` is
-    broader than "any nonland permanent" — the target-kind vocabulary
-    (docs/11 §10) has no land-exclusion; picking a land here is simply never
-    correct oracle-text-wise but not currently prevented.
+    — Clever Impersonator (RULE 706/707 "become a copy" / RULE 614.1c/614.12
+    "as ~ enters" replacement timing, `enter_as_copy` /
+    `RulesEngine._offer_enter_as_copy`). The choice — copy target X, or
+    decline — is offered and resolved *before* this object is ever added to
+    the battlefield/fires ENTERS_BATTLEFIELD, so (unlike the old ENTERS_
+    BATTLEFIELD-trigger modeling this replaces) it's never observably
+    "itself" first. ``target_kind="permanent"`` is broader than "any
+    nonland permanent" — the target-kind vocabulary (docs/11 §10) has no
+    land-exclusion; picking a land here is simply never correct oracle-
+    text-wise but not currently prevented.
     """
     return [
         AbilitySpec(
-            "triggered",
-            [EffectSpec("become_copy", {"target_kind": "permanent"})],
-            trigger={"event": EventType.ENTERS_BATTLEFIELD},
-            optional=True,
+            "enter_replacement",
+            [EffectSpec("enter_as_copy", {"target_kind": "permanent"})],
             raw_text="Du kannst diese Kreatur als Kopie einer beliebigen Nichtland-"
                       "bleibenden Karte ins Spiel kommen lassen.",
         )
@@ -269,16 +266,14 @@ def _phantasmal_image() -> list[AbilitySpec]:
     creature on the battlefield, except it's an Illusion in addition to its
     other types.
 
-    — Phantasmal Image. Same `become_copy` mechanism as `Clever Impersonator`
-    (see its docstring for the modeling caveats); ``add_subtypes`` carries
-    the "except it's an Illusion" clause (`Card.as_copy`).
+    — Phantasmal Image. Same `enter_as_copy` mechanism as `Clever
+    Impersonator` (see its docstring); ``add_subtypes`` carries the "except
+    it's an Illusion" clause (`Card.as_copy`).
     """
     return [
         AbilitySpec(
-            "triggered",
-            [EffectSpec("become_copy", {"target_kind": "creature", "add_subtypes": ["Illusion"]})],
-            trigger={"event": EventType.ENTERS_BATTLEFIELD},
-            optional=True,
+            "enter_replacement",
+            [EffectSpec("enter_as_copy", {"target_kind": "creature", "add_subtypes": ["Illusion"]})],
             raw_text="Du kannst diese Kreatur als Kopie einer beliebigen Kreatur ins "
                       "Spiel kommen lassen, außer dass sie zusätzlich zu ihren anderen "
                       "Typen eine Illusion ist.",
@@ -294,15 +289,13 @@ def _copy_artifact() -> list[AbilitySpec]:
     artifact on the battlefield, except it's an enchantment in addition to
     its other types.
 
-    — Copy Artifact. Same `become_copy` mechanism; ``add_types`` carries the
-    "except it's an enchantment" clause.
+    — Copy Artifact. Same `enter_as_copy` mechanism; ``add_types`` carries
+    the "except it's an enchantment" clause.
     """
     return [
         AbilitySpec(
-            "triggered",
-            [EffectSpec("become_copy", {"target_kind": "permanent", "add_types": ["Enchantment"]})],
-            trigger={"event": EventType.ENTERS_BATTLEFIELD},
-            optional=True,
+            "enter_replacement",
+            [EffectSpec("enter_as_copy", {"target_kind": "permanent", "add_types": ["Enchantment"]})],
             raw_text="Du kannst dieses Verzauberung als Kopie eines beliebigen Artefakts "
                       "ins Spiel kommen lassen, außer dass sie zusätzlich zu ihren anderen "
                       "Typen eine Verzauberung ist.",
@@ -311,6 +304,82 @@ def _copy_artifact() -> list[AbilitySpec]:
 
 
 register("Copy Artifact", _copy_artifact)
+
+
+def _vesuvan_shapeshifter() -> list[AbilitySpec]:
+    """You may have this creature enter the battlefield as a copy of any
+    creature on the battlefield, except it's a Shapeshifter in addition to
+    its other types.
+    As long as ~ is untapped, you may have it be a copy of another target
+    creature, except it's a Shapeshifter in addition to its other types.
+
+    — Vesuvan Shapeshifter: the driving real-card example for the layer-1
+    *conditional/continuous* copy mechanism (`game/continuous.py`'s
+    `_apply_copy_layer`), unlike the three ETB-only cards above (Clever
+    Impersonator/Phantasmal Image/Copy Artifact), which copy once and never
+    revert. Three specs: the same RULE 614.1c/614.12 `enter_as_copy`
+    replacement those use for its own ETB half; a `static` `conditional_copy`
+    spec driving the continuous layer-1 pass (reverts the instant it's
+    tapped, per the real card's "as long as untapped" wording); and an
+    `activated` spec exposing "choose a new target" — RULE 707.9's "special
+    action" isn't modeled as its own timing category, so this is simplified
+    to a costless, sorcery-speed-only activated ability instead (same
+    simplification tier as other documented ones in this file). Per the real
+    Vesuvan Shapeshifter ruling, copying a creature with no similar ability
+    *locks in* — the copied creature's own abilities replace this one's
+    `conditional_copy`/`set_copy_target` entirely (RULE 706.2), so there's
+    nothing left to revert or re-target with until something else grants an
+    equivalent ability.
+    """
+    return [
+        AbilitySpec(
+            "enter_replacement",
+            [EffectSpec("enter_as_copy", {"target_kind": "creature", "add_subtypes": ["Shapeshifter"]})],
+            raw_text="Du kannst diese Kreatur als Kopie einer beliebigen Kreatur ins "
+                      "Spiel kommen lassen, außer dass sie zusätzlich zu ihren anderen "
+                      "Typen ein Gestaltwandler ist.",
+        ),
+        AbilitySpec(
+            "static",
+            [EffectSpec("conditional_copy", {"requires_untapped": True, "add_subtypes": ["Shapeshifter"]})],
+            raw_text="Solange ~ ungetappt ist, kannst du es zu einer Kopie einer anderen "
+                      "Kreatur deiner Wahl machen, außer dass es zusätzlich zu seinen "
+                      "anderen Typen ein Gestaltwandler ist.",
+        ),
+        AbilitySpec(
+            "activated",
+            [EffectSpec("set_copy_target", {"target_kind": "creature"})],
+            cost={"sorcery_speed_only": True},
+            raw_text="(Wähle eine andere Zielkreatur für die vorstehende Fähigkeit.)",
+        ),
+    ]
+
+
+register("Vesuvan Shapeshifter", _vesuvan_shapeshifter)
+
+
+def _cursed_mirror() -> list[AbilitySpec]:
+    """{T}: ~ becomes a copy of target creature until end of turn.
+
+    — Cursed Mirror: the driving real-card example for the temporary
+    "becomes a copy … until end of turn" mechanism (`RulesEngine.
+    become_copy_until_end_of_turn`), reverted by `GameEngine._step_cleanup`
+    (RULE 514.2) — a third, distinct copy mechanism alongside the permanent
+    ETB copy (Clever Impersonator) and the conditional continuous copy
+    (Vesuvan Shapeshifter above), all sharing `game/copy_mechanics.py`'s
+    mutate/snapshot/restore primitives.
+    """
+    return [
+        AbilitySpec(
+            "activated",
+            [EffectSpec("become_copy_until_eot", {"target_kind": "creature"})],
+            cost={"taps_self": True},
+            raw_text="{T}: ~ wird bis zum Ende des Zuges zu einer Kopie einer Zielkreatur.",
+        )
+    ]
+
+
+register("Cursed Mirror", _cursed_mirror)
 
 
 def _tyvar_kell() -> list[AbilitySpec]:

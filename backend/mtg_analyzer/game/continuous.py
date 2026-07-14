@@ -8,7 +8,32 @@ what order the abilities entered play.
 
 This module implements every layer this engine meets:
 
+* **Layer 1** — copy effects (RULE 707), *conditional/continuous* ones only:
+  "as long as [condition], ~ is a copy of [target]" (Vesuvan Shapeshifter).
+  Transition-only (see `_apply_copy_layer`) — the other two copy mechanisms
+  this engine models are discrete mutations instead, since neither needs to
+  revert on its own: the permanent "you may have this enter as a copy of
+  target X" (RULE 614.1c/614.12, Clever Impersonator — `RulesEngine.
+  _offer_enter_as_copy`, resolved *before* the object is added to the
+  battlefield) and the temporary "… until end of turn" copy (Cursed Mirror —
+  `RulesEngine.become_copy_until_end_of_turn`, reverted at cleanup). All
+  three share `game/copy_mechanics.py`'s mutate/snapshot/restore primitives
+  — see docs/11 §"Copying objects" for why they're split rather than
+  unified.
 * **Layer 2** — control-changing effects ("you control enchanted creature");
+* **Layer 3** — text-changing effects (RULE 612), *scoped*: word-substitution
+  over `GameObject.effective_oracle_text`, consumed today only by
+  `combat.protections_of_text` (the canonical Artificial-Evolution "protection
+  from red" → "protection from blue" case). This is **not** a full oracle-text
+  re-parse — bound abilities/keywords still come from the *printed* text once
+  at bind time, unaffected. A card that grants *another* ability to other
+  permanents ("Elves you control have '{T}: Add {B}.'" — Tyvar Kell; "Elves
+  you control have '<triggered ability>'" — Dionus, Elvish Archdruid) is
+  **not** a layer-3 case despite CR 612.1's mention of "text … granted… by
+  other effects": RULE 613.1 puts ability-adding/removing in layer 6, and
+  that's what these are, templated exactly like the layer-6 keyword grants
+  below (`grant_keyword`) — just granting a mana ability or a full triggered
+  ability instead of a bare keyword.
 * **Layer 4** — type-changing effects ("… are creatures");
 * **Layer 5** — colour-changing effects ("enchanted creature is black");
 * **Layer 6** — ability-adding effects ("… have flying");
@@ -19,22 +44,18 @@ Plus a non-layer bucket, **cost adjustments** (RULE 601.2f — "spells cost {N}
 less"), which aren't part of 613 but are the other everyday static effect and
 are computed here for the same recompute.
 
-Not modeled: layer 1 (copy effects, RULE 707 — `RulesEngine.become_copy`
-handles the copy-effect *mechanic* separately, see docs/11 §"Copying
-objects") and layer 3 (text-changing effects, RULE 612) — no card in the
-pool needs *literal* text substitution (e.g. Artificial Evolution
-rewriting a creature-type word). A card that grants *another* ability to
-other permanents ("Elves you control have '{T}: Add {B}.'" — Tyvar Kell;
-"Elves you control have '<triggered ability>'" — Dionus, Elvish Archdruid)
-is **not** a layer-3 case despite CR 612.1's mention of "text … granted…
-by other effects": RULE 613.1 puts ability-adding/removing in layer 6, and
-that's what these are, templated exactly like the layer-6 keyword grants
-below (`grant_keyword`) — just granting a mana ability or a full triggered
-ability instead of a bare keyword. RULE 613.8's *dependency* system (an
-effect whose order depends on another applying first) is also not modeled
-— within a layer, ordering is by timestamp only (RULE 613.7, `_in_layer`),
-which the card pool's anthems/grants/animations never need reordered by
-dependency.
+RULE 613.8's *dependency* system (an effect whose order depends on another
+applying first) is modeled **only within layer 2** (`_order_control_effects`)
+— confirmed by tracing every selector this engine has that a same-sublayer
+effect could depend on: a `pt_cda`'s count-selectors (`_count_selector`) can
+only *count* objects (creatures/lands/permanents/artifacts you control, cards
+in a graveyard), never read another object's power/toughness, so no 7a
+dependency is constructible at all; every other sublayer (pt_set/pt_mod/
+pt_switch/type/color/ability) can't construct one either. Layer 2 is the one
+real case: a controller-scoped `affects` ("creatures you control") can see a
+different object set depending on whether another control-change ran first —
+the textbook CR 613.8 example. Elsewhere, ordering is by timestamp only
+(RULE 613.7, `_in_layer`).
 
 `recompute(state)` resets every battlefield object's derived characteristics
 and re-derives them from scratch, stamping the result — and a per-object,
@@ -47,6 +68,7 @@ stack.
 
 from __future__ import annotations
 
+import re
 from typing import TYPE_CHECKING, Any, Optional
 
 from .effects import EffectRegistry, StaticAbility, TriggeredAbility
@@ -283,6 +305,67 @@ def _granted_trigger_condition(target: "GameObject", controllers_turn_only: bool
     return condition
 
 
+def _apply_copy_layer(state: "GameState") -> None:
+    """Layer 1: conditional "become a copy of target" effects (RULE 707.2,
+    Vesuvan Shapeshifter-style "as long as untapped, ~ is a copy of …").
+
+    Transition-only, unlike every other layer here: `copy_mechanics.
+    become_copy` wipes and rebinds the object's whole ability set from the
+    copied card, so re-running it every single pass regardless of whether
+    anything changed would destroy per-turn bookkeeping on the copy's own
+    granted triggered abilities. There is also deliberately no "ability
+    disappeared -> revert" branch: per the real Vesuvan Shapeshifter ruling,
+    a successful copy that lands on a creature without a similar ability
+    *consumes* the very ability that caused it — the object simply stays
+    what it currently is from then on, it doesn't revert on its own.
+    """
+    from . import copy_mechanics  # function-scoped: avoid an import cycle
+
+    for src in state.battlefield:
+        ability = next(
+            (ab for ab in getattr(src, "static_effects", [])
+             if isinstance(ab, StaticAbility) and ab.layer == "copy"),
+            None,
+        )
+        if ability is None:
+            continue  # nothing driving a copy/revert here right now
+
+        condition_holds = not (ability.params.get("requires_untapped") and src.tapped)
+        if not condition_holds:
+            if src._copy_base is not None:
+                copy_mechanics.restore_face(src, src._copy_base)
+                src._copy_base = None
+                src._copy_applied_target_id = None
+            continue
+
+        target_id = src.copy_target_id
+        if target_id is not None and target_id != src._copy_applied_target_id:
+            target = state.find_object(target_id)
+            if target is not None and target in state.battlefield and target is not src:
+                if src._copy_base is None:
+                    src._copy_base = copy_mechanics.snapshot_face(src)
+                copy_mechanics.become_copy(
+                    src, target, ability.params.get("add_types"), ability.params.get("add_subtypes")
+                )
+                src._copy_applied_target_id = target_id
+
+
+def _order_control_effects(abilities: list[StaticAbility]) -> list[StaticAbility]:
+    """RULE 613.8, bounded to layer 2 (see module docstring for why only
+    here): a controller-scoped ``affects`` selector ("creatures you
+    control") can see a different object set depending on whether another
+    control-change already ran, so those must apply *after* every direct-
+    scoped ability (``self``/``attached_permanent``) regardless of
+    timestamp. Two buckets, each still timestamp-ordered internally
+    (``abilities`` is already `_in_layer`-sorted) — not a general
+    dependency graph, since nothing else in this engine's vocabulary needs
+    one.
+    """
+    direct = [a for a in abilities if a.affects in ("self", "attached_permanent")]
+    scoped = [a for a in abilities if a not in direct]
+    return direct + scoped
+
+
 def recompute(state: "GameState") -> None:
     """Re-derive every battlefield permanent's characteristics (RULE 613)."""
     # Restore any controller a prior layer-2 pass changed, so this pass
@@ -293,10 +376,15 @@ def recompute(state: "GameState") -> None:
             obj._control_base = None
         obj.reset_derived()
 
+    # -- Layer 1: copy effects (RULE 707) — must run before `abilities` is
+    # gathered below, so a permanent that just became a copy has its freshly
+    # rebound abilities picked up by every other layer in this same pass.
+    _apply_copy_layer(state)
+
     abilities = [ab for ab in _battlefield_static_abilities(state) if ab.layer != "cost"]
 
     # -- Layer 2: control-changing effects (RULE 613.2).
-    for ability in _in_layer(abilities, "control"):
+    for ability in _order_control_effects(_in_layer(abilities, "control")):
         new_controller = ability.params.get("controller") or getattr(
             ability.source, "controller_id", None
         )
@@ -307,6 +395,20 @@ def recompute(state: "GameState") -> None:
                 obj._control_base = obj.controller_id
                 obj.controller_id = new_controller
                 _trace(obj, 2, _source_name(ability), f"controlled by {new_controller}")
+
+    # -- Layer 3: text-changing effects (RULE 612), scoped (see module
+    # docstring): word-substitution over `effective_oracle_text`, chained in
+    # timestamp order if 2+ apply to the same object.
+    for ability in _in_layer(abilities, "text"):
+        replace = {str(k): str(v) for k, v in (ability.params.get("replace") or {}).items()}
+        if not replace:
+            continue
+        for obj in affected_objects(state, ability):
+            text = obj._derived_oracle_text if obj._derived_oracle_text is not None else (obj.card.oracle_text or "")
+            for old, new in replace.items():
+                text = re.sub(rf"\b{re.escape(old)}\b", new, text, flags=re.IGNORECASE)
+            obj._derived_oracle_text = text
+            _trace(obj, 3, _source_name(ability), f"text: {replace}")
 
     # -- Layer 4: type-changing effects (may add "creature" + animation P/T).
     animation_pt: dict[int, tuple[int, int]] = {}
@@ -551,6 +653,10 @@ def _describe_ability(ability: StaticAbility) -> str:
         return "colours " + ", ".join(p.get("colors", []))
     if ability.layer == "control":
         return f"controls {ability.affects}"
+    if ability.layer == "copy":
+        return "is a copy of another target creature while untapped" if p.get("requires_untapped") else "is a copy of a target"
+    if ability.layer == "text":
+        return "rewrites text: " + ", ".join(f"{k}→{v}" for k, v in (p.get("replace") or {}).items())
     if ability.layer == "cost":
         return f"spells cost {{{p.get('generic', 0)}}} {'more' if p.get('increase') else 'less'}"
     return ability.affects

@@ -28,7 +28,7 @@ from ..models.game_state import GameState, StackItem
 from ..models.mana_cost import ManaCost
 from ..models.player import Player
 from ..parser.oracle.catalogue.saga import all_chapter_numbers
-from . import ability_catalogue, combat, continuous
+from . import ability_catalogue, combat, continuous, copy_mechanics
 from .combat import is_protected_from
 from .effects import (
     GameContext,
@@ -84,6 +84,14 @@ class RulesEngine:
         self._pending_replacement_callback: Optional[
             Callable[[Optional[GameEvent]], None]
         ] = None
+        #: The permanent currently awaiting an `enter_as_copy` choice (RULE
+        #: 614.1c/614.12), its `EnterAsCopyReplacement`, and the battlefield-
+        #: entry continuation to resume once it's answered — populated only
+        #: while that choice is pending; see `_offer_enter_as_copy`/
+        #: `resolve_enter_as_copy_choice`.
+        self._pending_enter_as_copy_obj: Optional[GameObject] = None
+        self._pending_enter_as_copy_effect: Optional[Any] = None
+        self._pending_enter_as_copy_continuation: Optional[Callable[[], None]] = None
         # Collect triggers for every event the game fires.
         state.subscribe(self._collect_triggers)
         # Tally spells cast this turn for the RULE 731.2 day/night check.
@@ -768,32 +776,12 @@ class RulesEngine:
         if item.kind == "spell" and item.obj is not None:
             obj = item.obj
             if self.is_permanent_spell(obj.card):
-                obj.summoning_sick = True
-                obj.tapped = ability_catalogue.enters_tapped(obj.card)  # RULE 614.1
-                self.state.add_to_battlefield(obj)
-                if self._attachment_kind(obj) == "enchant":
-                    targets = [t for t in item.targets if isinstance(t, GameObject)]
-                    if targets and self.attach_to_target(obj, targets[0]):
-                        pass
-                    else:
-                        self._move_to_graveyard(obj)
-                        self.state.fire_event(
-                            GameEvent(
-                                EventType.SPELL_RESOLVED,
-                                spell=obj.name,
-                                controller_id=item.controller_id,
-                            )
-                        )
-                        return item
-                self.state.fire_event(
-                    GameEvent(
-                        EventType.ENTERS_BATTLEFIELD,
-                        controller_id=obj.controller_id,
-                        card_id=obj.card.id,
-                        object=obj.name,
-                    )
-                )
-            elif obj.adventure_snapshot is not None:
+                # Self-contained: fires its own SPELL_RESOLVED (may pause on
+                # an `enter_as_copy` choice first — RULE 614.1c/614.12 — so
+                # it can't rely on the shared tail below).
+                self._resolve_permanent_spell(item, obj)
+                return item
+            if obj.adventure_snapshot is not None:
                 # RULE 715.3d: the Adventure instant/sorcery resolved — exile
                 # the card (as the creature, not the spell half) instead of
                 # the graveyard; it may be cast as the creature from there.
@@ -810,6 +798,112 @@ class RulesEngine:
 
         self.check_state_based_actions()
         return item
+
+    def _resolve_permanent_spell(self, item: StackItem, obj: GameObject) -> None:
+        """Finish resolving a permanent spell (RULE 608.3): summoning
+        sickness, RULE 614.1 tapped-entry, the battlefield zone change,
+        Aura attachment, and the ENTERS_BATTLEFIELD/SPELL_RESOLVED events.
+
+        If ``obj`` carries an `enter_as_copy_effects` "you may have this
+        enter as a copy of target X" (RULE 614.1c/614.12), that choice must
+        be resolved *first* — before the object is ever added to the
+        battlefield/fires ENTERS_BATTLEFIELD as itself — unlike every other
+        resolution path here, this can pause on a `pending_choice` and
+        resume later from `resolve_enter_as_copy_choice`.
+        """
+        def _finish() -> None:
+            obj.summoning_sick = True
+            obj.tapped = ability_catalogue.enters_tapped(obj.card)  # RULE 614.1
+            self.state.add_to_battlefield(obj)
+            if self._attachment_kind(obj) == "enchant":
+                targets = [t for t in item.targets if isinstance(t, GameObject)]
+                if not (targets and self.attach_to_target(obj, targets[0])):
+                    self._move_to_graveyard(obj)
+                    self.state.fire_event(
+                        GameEvent(
+                            EventType.SPELL_RESOLVED,
+                            spell=obj.name,
+                            controller_id=item.controller_id,
+                        )
+                    )
+                    self.check_state_based_actions()
+                    return
+            self.state.fire_event(
+                GameEvent(
+                    EventType.ENTERS_BATTLEFIELD,
+                    controller_id=obj.controller_id,
+                    card_id=obj.card.id,
+                    object=obj.name,
+                )
+            )
+            self.state.fire_event(
+                GameEvent(EventType.SPELL_RESOLVED, spell=obj.name, controller_id=item.controller_id)
+            )
+            self.check_state_based_actions()
+
+        if obj.enter_as_copy_effects:
+            self._offer_enter_as_copy(obj, _finish)
+        else:
+            _finish()
+
+    def _offer_enter_as_copy(self, obj: GameObject, continuation: Callable[[], None]) -> None:
+        """RULE 614.1c/614.12: offer ``obj``'s "you may have this enter as a
+        copy of target X" choice *before* it's added to the battlefield.
+
+        Calls ``continuation`` immediately if there's no legal target to
+        offer (RULE 603.3c-style: nothing to choose, nothing pauses);
+        otherwise opens an ``enter_as_copy`` `pending_choice` and stashes
+        ``continuation`` for `resolve_enter_as_copy_choice` to resume.
+        ``obj`` is not yet on the battlefield at this point — `legal_targets`
+        only needs it for exclusion/protection checks, both fine against an
+        object that isn't in ``state.battlefield`` yet.
+        """
+        effect = obj.enter_as_copy_effects[0]
+        spec = TargetSpec(kind=effect.target_kind)
+        options = legal_targets(self.state, obj.controller_id, spec, source=obj)
+        if not options:
+            continuation()
+            return
+        choice_options = [
+            {"id": str(o["instance_id"]), "label": o["name"], "instance_id": o["instance_id"]}
+            for o in options
+            if "instance_id" in o
+        ]
+        if effect.optional:
+            choice_options.append({"id": "decline", "label": "Nichts wählen"})
+        self._pending_enter_as_copy_obj = obj
+        self._pending_enter_as_copy_effect = effect
+        self._pending_enter_as_copy_continuation = continuation
+        self.state.pending_choice = {
+            "kind": "enter_as_copy",
+            "player_id": obj.controller_id,
+            "prompt": effect.description or "Als Kopie ins Spiel kommen lassen?",
+            "options": choice_options,
+        }
+
+    def resolve_enter_as_copy_choice(self, answer: Optional[str]) -> None:
+        """Answer a pending `enter_as_copy` choice, then resume whatever
+        battlefield-entry work `_offer_enter_as_copy` deferred.
+
+        ``answer`` is a target's stringified ``instance_id``, or
+        ``None``/``"decline"`` to enter as itself."""
+        choice = self.state.pending_choice
+        if not choice or choice.get("kind") != "enter_as_copy":
+            raise ValueError("no pending enter-as-copy choice to resolve")
+        self.state.pending_choice = None
+        obj = self._pending_enter_as_copy_obj
+        effect = self._pending_enter_as_copy_effect
+        continuation = self._pending_enter_as_copy_continuation
+        self._pending_enter_as_copy_obj = None
+        self._pending_enter_as_copy_effect = None
+        self._pending_enter_as_copy_continuation = None
+
+        if answer is not None and answer != "decline" and obj is not None and effect is not None:
+            target = self._resolve_choice_option(choice["options"], str(answer))
+            if target is not None and target is not obj:
+                copy_mechanics.become_copy(obj, target, effect.add_types, effect.add_subtypes)
+        if continuation is not None:
+            continuation()
 
     # ------------------------------------------------------------------
     # Rules primitives (routed through replacements + events)
@@ -1088,6 +1182,14 @@ class RulesEngine:
         this returns an empty list right away and the actual tokens are
         created later, once `resolve_replacement_order_choice` finishes the
         chain.
+
+        Known scoped gap: unlike `resolve_top_of_stack`'s `_resolve_
+        permanent_spell`, a token's own `enter_as_copy_effects` (RULE
+        614.1c/614.12 — e.g. a token copy of Clever Impersonator, via
+        `copy_permanent`) is bound but never offered here — interactively
+        pausing *inside* the ``final_count``-token creation loop is real
+        added complexity for a case no card in the pool needs (a copy of a
+        copy-effect creature). Revisit if one ever does.
         """
         from .effect_binder import bind_from_catalogue  # function-scoped: avoid cycle
 
@@ -1270,75 +1372,53 @@ class RulesEngine:
     ) -> None:
         """``obj`` itself becomes a copy of ``target`` (RULE 706/707.2).
 
-        Unlike `copy_permanent` (a new token), this mutates ``obj`` in place:
-        its `Card` is replaced by ``target``'s copiable values (RULE 706.2 —
-        name, mana cost, colours, card type/subtypes, rules text, P/T,
-        loyalty), and its own catalogue-derived abilities/keywords are
-        cleared and rebound from that new card, since a copy gains the
-        copied object's abilities rather than keeping its own (RULE 706.2).
-        Everything RULE 706.2 *doesn't* cover — instance id, zone, owner,
-        controller, counters, tapped state, attachments, summoning sickness —
-        is untouched, since none of that lives on `Card`.
+        Delegates to `copy_mechanics.become_copy` — moved there so
+        `game/continuous.py`'s layer-1 conditional-copy pass can call the
+        same mutate/rebind logic without importing this module (which would
+        be circular)."""
+        copy_mechanics.become_copy(obj, target, add_types, add_subtypes)
 
-        Mirrors `copy_permanent`'s simplification of always reading the
-        *front* face (RULE 712.4a's "currently shown face" nuance isn't
-        modeled for either). ``add_types``/``add_subtypes`` implement a copy
-        effect's own "except it's a(n) X in addition to its other types"
-        clause (`Card.as_copy`).
-        """
-        from .effect_binder import bind_from_catalogue  # function-scoped: avoid a cycle
+    def become_copy_until_end_of_turn(
+        self,
+        obj: GameObject,
+        target: GameObject,
+        add_types: Optional[list[str]] = None,
+        add_subtypes: Optional[list[str]] = None,
+    ) -> None:
+        """``obj`` becomes a copy of ``target`` until end of turn (Cursed
+        Mirror-style: "{T}: ~ becomes a copy of target creature until end of
+        turn."). Unlike `become_copy`'s permanent mutation, `GameEngine.
+        _step_cleanup` (RULE 514.2, the same step that ends pump/keyword
+        "until end of turn" effects) reverts this via the snapshot stashed
+        here — taken only the *first* time this turn, so a second activation
+        before cleanup doesn't overwrite the true original with an
+        already-copied state."""
+        if obj._copy_until_eot_base is None:
+            obj._copy_until_eot_base = copy_mechanics.snapshot_face(obj)
+        copy_mechanics.become_copy(obj, target, add_types, add_subtypes)
 
-        copiable = getattr(target, "_front_card", target.card)
-        obj.card = copiable.as_copy(add_types=add_types, add_subtypes=add_subtypes)
-
-        # A copy replaces the object's own copiable-derived abilities/keywords
-        # wholesale — static/triggered/activated/replacement effects granted
-        # by *other* permanents (auras, anthems) live on those objects, not
-        # here, so clearing these is exactly RULE 706.2's "loses its own,
-        # gains the copied object's" without touching anything external.
-        obj.static_effects = []
-        obj.triggered_abilities = []
-        obj.activated_abilities = []
-        obj.replacement_effects = []
-        obj.spell_effects = []
-        obj.intrinsic_keywords = set()
-        obj.parametric_keywords = {}
-        bind_from_catalogue(obj)
-
-        if obj.card.is_planeswalker and obj.card.loyalty and "loyalty" not in obj.counters:
-            obj.counters["loyalty"] = obj.card.loyalty
-
-    _FACE_ATTRS: tuple[str, ...] = (
-        "spell_effects",
-        "triggered_abilities",
-        "activated_abilities",
-        "static_effects",
-        "replacement_effects",
-        "intrinsic_keywords",
-        "parametric_keywords",
-    )
+    def set_copy_target(self, obj: GameObject, target: GameObject) -> None:
+        """Choose/change the target a layer-1 conditional-copy static ability
+        copies (Vesuvan Shapeshifter's "you may have it be a copy of another
+        target creature") — `continuous.recompute`'s layer-1 pass reads
+        `obj.copy_target_id` fresh every recompute, the same idiom
+        `attached_to` uses."""
+        if target is not None and target is not obj:
+            obj.copy_target_id = target.instance_id
 
     def snapshot_face(self, obj: GameObject) -> dict[str, Any]:
         """Capture ``obj``'s current `Card` + catalogue-derived bindings.
 
         Pairs with `restore_face` to undo a `switch_to_face` — used when
         previewing or attempting a modal DFC's un-chosen face (RULE 712.10)
-        so a rejected cast never leaves the object silently switched."""
-        snapshot: dict[str, Any] = {"card": obj.card}
-        for attr in self._FACE_ATTRS:
-            value = getattr(obj, attr, None)
-            if isinstance(value, set):
-                snapshot[attr] = set(value)
-            elif isinstance(value, dict):
-                snapshot[attr] = dict(value)
-            else:
-                snapshot[attr] = list(value or [])
-        return snapshot
+        so a rejected cast never leaves the object silently switched.
+        Delegates to `copy_mechanics.snapshot_face`."""
+        return copy_mechanics.snapshot_face(obj)
 
     def restore_face(self, obj: GameObject, snapshot: dict[str, Any]) -> None:
-        """Undo a `switch_to_face`, restoring exactly what `snapshot_face` saved."""
-        for attr, value in snapshot.items():
-            setattr(obj, attr, value)
+        """Undo a `switch_to_face`, restoring exactly what `snapshot_face`
+        saved. Delegates to `copy_mechanics.restore_face`."""
+        copy_mechanics.restore_face(obj, snapshot)
 
     def switch_to_face(self, obj: GameObject, card: Card) -> None:
         """Rebind ``obj`` onto ``card`` — another face of the same physical
@@ -1358,6 +1438,7 @@ class RulesEngine:
         obj.activated_abilities = []
         obj.static_effects = []
         obj.replacement_effects = []
+        obj.enter_as_copy_effects = []
         obj.intrinsic_keywords = set()
         obj.parametric_keywords = {}
         bind_from_catalogue(obj)
@@ -1382,6 +1463,7 @@ class RulesEngine:
         obj.activated_abilities = []
         obj.static_effects = []
         obj.replacement_effects = []
+        obj.enter_as_copy_effects = []
         obj.intrinsic_keywords = set()
         obj.parametric_keywords = {}
         bind_from_catalogue(obj)

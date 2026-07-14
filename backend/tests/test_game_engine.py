@@ -382,33 +382,119 @@ def test_become_copy_applies_except_clause_overrides():
 
 
 def test_become_copy_end_to_end_via_registered_catalogue_entry():
-    # Clever Impersonator's ENTERS_BATTLEFIELD trigger, fully bound from the
-    # catalogue, resolved with an explicit target (the interactive "choose a
-    # target for a triggered ability" flow isn't wired yet — see
-    # ToDo_Backend.md — so the target is supplied directly, the same way
-    # other targeted-effect tests bypass that gap).
+    # RULE 614.1c/614.12: casting Clever Impersonator opens a real `enter_
+    # as_copy` replacement choice *before* it's added to the battlefield —
+    # it's never observably "itself" first, unlike the old ENTERS_
+    # BATTLEFIELD-trigger modeling this replaces.
+    impersonator_card = Card(id="CI", name="Clever Impersonator",
+                              type_line="Creature — Illusion",
+                              mana_cost_string="{5}{U}{U}", converted_mana_cost=7,
+                              is_creature=True, power=3, toughness=3)  # real printed stats
+    eng = make_engine([impersonator_card], hand=1)
+    eng.begin_turn()
+    eng.state.current_step = "main1"
+    p1 = eng.state.active_player
+    p1.mana_pool.add_many({"U": 2, "C": 5})
+
+    target = obj_on_battlefield(eng.state, eng, creature(
+        name="Grave Titan", cost="{4}{B}{B}", power=6, toughness=6,
+        keywords=["Deathtouch"], oracle_text="Deathtouch",
+    ))
+    impersonator = p1.hand[0]
+    bind_from_catalogue(impersonator)  # bind-on-load, done here as in production
+    eng.cast_spell(p1, impersonator)
+    eng.resolve_until_stable()
+
+    pending = eng.state.pending_choice
+    assert pending and pending["kind"] == "enter_as_copy"
+    assert impersonator not in eng.state.battlefield  # paused before entering as itself
+    opt = next(o for o in pending["options"] if o["id"] != "decline")
+    eng.resolve_pending_choice(opt["id"])
+
+    assert impersonator in eng.state.battlefield
+    assert impersonator.card.name == "Grave Titan"
+    assert (impersonator.power, impersonator.toughness) == (6, 6)
+    assert "deathtouch" in impersonator.intrinsic_keywords
+
+
+def test_become_copy_declining_enters_as_itself():
+    impersonator_card = Card(id="CI", name="Clever Impersonator",
+                              type_line="Creature — Illusion",
+                              mana_cost_string="{5}{U}{U}", converted_mana_cost=7,
+                              is_creature=True, power=3, toughness=3)
+    eng = make_engine([impersonator_card], hand=1)
+    eng.begin_turn()
+    eng.state.current_step = "main1"
+    p1 = eng.state.active_player
+    p1.mana_pool.add_many({"U": 2, "C": 5})
+
+    obj_on_battlefield(eng.state, eng, creature(name="Grave Titan", power=6, toughness=6))
+    impersonator = p1.hand[0]
+    bind_from_catalogue(impersonator)
+    eng.cast_spell(p1, impersonator)
+    eng.resolve_until_stable()
+
+    assert eng.state.pending_choice["kind"] == "enter_as_copy"
+    eng.resolve_pending_choice("decline")
+
+    assert impersonator in eng.state.battlefield
+    assert impersonator.card.name == "Clever Impersonator"
+    assert (impersonator.power, impersonator.toughness) == (3, 3)
+
+
+def test_become_copy_with_no_legal_target_enters_as_itself_without_pausing():
+    # RULE 603.3c-style: nothing to offer, so it never opens a pending
+    # choice at all — it just enters as itself, same turn, no pause.
+    impersonator_card = Card(id="CI", name="Clever Impersonator",
+                              type_line="Creature — Illusion",
+                              mana_cost_string="{5}{U}{U}", converted_mana_cost=7,
+                              is_creature=True, power=3, toughness=3)
+    eng = make_engine([impersonator_card], hand=1)
+    eng.begin_turn()
+    eng.state.current_step = "main1"
+    p1 = eng.state.active_player
+    p1.mana_pool.add_many({"U": 2, "C": 5})
+
+    impersonator = p1.hand[0]
+    bind_from_catalogue(impersonator)
+    eng.cast_spell(p1, impersonator)
+    eng.resolve_until_stable()
+
+    assert eng.state.pending_choice is None
+    assert impersonator in eng.state.battlefield
+    assert impersonator.card.name == "Clever Impersonator"
+
+
+def test_cursed_mirror_end_to_end_via_registered_catalogue_entry():
+    # Cursed Mirror's "{T}: ~ becomes a copy of target creature until end of
+    # turn", fully bound from the catalogue — a third copy mechanism (see
+    # `test_become_copy_*` for the permanent ETB one, and
+    # `test_continuous.py`'s conditional-copy tests for the continuous one),
+    # reverted automatically at cleanup (RULE 514.2).
     eng = make_engine([], hand=0)
     eng.begin_turn()
     eng.state.current_step = "main1"
 
     target = obj_on_battlefield(eng.state, eng, creature(
         name="Grave Titan", cost="{4}{B}{B}", power=6, toughness=6,
-        keywords=["Deathtouch"], oracle_text="Deathtouch",
     ))
-    impersonator_card = Card(id="CI", name="Clever Impersonator",
-                              type_line="Creature — Illusion",
-                              mana_cost_string="{5}{U}{U}", converted_mana_cost=7,
-                              is_creature=True, power=3, toughness=3)  # real printed stats
-    impersonator = obj_on_battlefield(eng.state, eng, impersonator_card)
-    bind_from_catalogue(impersonator)
+    mirror = obj_on_battlefield(eng.state, eng, Card(
+        id="CM", name="Cursed Mirror", type_line="Artifact"))
+    bind_from_catalogue(mirror)
 
-    [trigger] = impersonator.triggered_abilities
-    trigger.apply(eng.rules.context, targets=[target])
+    [ability] = mirror.activated_abilities
+    ability.apply(eng.rules.context, targets=[target])
     eng.recompute_continuous_effects()
+    assert mirror.card.name == "Grave Titan"
+    assert (mirror.power, mirror.toughness) == (6, 6)
 
-    assert impersonator.card.name == "Grave Titan"
-    assert (impersonator.power, impersonator.toughness) == (6, 6)
-    assert "deathtouch" in impersonator.intrinsic_keywords
+    eng._step_cleanup()
+    assert mirror.card.name == "Cursed Mirror"
+
+    # Activating again next turn copies again (a fresh snapshot each time).
+    ability.apply(eng.rules.context, targets=[target])
+    eng.recompute_continuous_effects()
+    assert mirror.card.name == "Grave Titan"
 
 
 def test_enchant_creature_oracle_text_follows_aura_logic():

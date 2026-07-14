@@ -111,6 +111,35 @@ def test_cleanup_ends_the_until_end_of_turn_pump():
     assert "flying" not in bear.granted_keywords
 
 
+def test_cleanup_ends_a_becomes_copy_until_end_of_turn_effect():
+    # Cursed Mirror-style "{T}: ~ becomes a copy of target creature until end
+    # of turn" (RULE 514.2) — unlike `become_copy`'s permanent mutation, this
+    # reverts on its own at cleanup.
+    eng = GameEngine.new_game(
+        [("p1", "Alice", [_bear()]), ("p2", "Bob", [_bear()])],
+        starting_life=20, starting_hand=0,
+    )
+    mirror = GameObject(Card(id="CM", name="Cursed Mirror", type_line="Artifact"),
+                         owner_id="p1", zone=Zone.BATTLEFIELD)
+    mirror.summoning_sick = False
+    eng.state.add_to_battlefield(mirror)
+    titan = GameObject(
+        Card(id="GT", name="Grave Titan", type_line="Creature — Giant",
+             is_creature=True, power=6, toughness=6),
+        owner_id="p2", zone=Zone.BATTLEFIELD,
+    )
+    eng.state.add_to_battlefield(titan)
+
+    eng.rules.become_copy_until_end_of_turn(mirror, titan)
+    eng.recompute_continuous_effects()
+    assert mirror.card.name == "Grave Titan"
+    assert (mirror.power, mirror.toughness) == (6, 6)
+
+    eng._step_cleanup()  # RULE 514.2
+    assert mirror.card.name == "Cursed Mirror"
+    assert mirror._copy_until_eot_base is None
+
+
 # -- -1/-1 counters ----------------------------------------------------------
 
 

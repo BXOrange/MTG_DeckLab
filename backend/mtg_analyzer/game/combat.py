@@ -162,16 +162,20 @@ def keywords_of(card: "Card") -> frozenset[str]:
     return frozenset(found)
 
 
-def protections_of(card: "Card") -> frozenset[str]:
-    """The qualities `card` has protection from, as normalized tokens.
+def protections_of_text(text: str) -> frozenset[str]:
+    """The qualities a raw oracle-text string grants protection from, as
+    normalized tokens.
 
     Colours collapse to identity letters (``"red"`` → ``"R"``); the blanket
     forms map to sentinels (``"everything"``, ``"all_colors"``); object-type
     qualities are kept as words (``"creatures"``, ``"artifacts"``). Combat
     only consults colour, ``"creatures"``, ``"all_colors"`` and
     ``"everything"``; the rest are recognized so nothing is silently dropped.
+    Takes a plain string (rather than a `Card`) so a layer-3 "text_change"
+    static ability's rewritten text (`GameObject.effective_oracle_text`) can
+    be checked the same way as a card's printed text (`protections_of`).
     """
-    text = (getattr(card, "oracle_text", "") or "").lower()
+    text = (text or "").lower()
     quals: set[str] = set()
     for match in _PROTECTION_RE.finditer(text):
         clause = match.group(1)
@@ -188,6 +192,13 @@ def protections_of(card: "Card") -> frozenset[str]:
             else:
                 quals.add(quality)
     return frozenset(quals)
+
+
+def protections_of(card: "Card") -> frozenset[str]:
+    """The qualities `card` has protection from — `protections_of_text`
+    over its printed ``oracle_text``. See `is_protected_from` for the
+    per-object variant that also honours a layer-3 text-changing effect."""
+    return protections_of_text(getattr(card, "oracle_text", "") or "")
 
 
 # --- Per-object predicates ---------------------------------------------------
@@ -298,9 +309,12 @@ def is_protected_from(obj: "GameObject", source: "GameObject") -> bool:
     colors" (any coloured source), and "everything". Colour is read from the
     source's colour identity — the model's available proxy for a permanent's
     colour (RULE 105); good enough for the common mono/gold creatures, and it
-    fails safe (no protection) when unknown.
+    fails safe (no protection) when unknown. Reads ``obj.effective_oracle_
+    text`` rather than ``obj.card.oracle_text`` directly, so a layer-3
+    "text_change" static ability (RULE 612, e.g. Artificial Evolution's
+    "protection from red" → "protection from blue") is honoured.
     """
-    quals = protections_of(obj.card)
+    quals = protections_of_text(obj.effective_oracle_text)
     if not quals:
         return False
     if "everything" in quals:

@@ -457,7 +457,10 @@ class GameEngine:
         if excess > 0:
             self.rules.discard(active, excess)
         # RULE 514.2: remove marked damage and end "until end of turn" effects
-        # (pump P/T bonuses and temporary keyword grants).
+        # (pump P/T bonuses, temporary keyword grants, and a "becomes a copy
+        # of target creature until end of turn" activation — Cursed Mirror).
+        from . import copy_mechanics
+
         ended_effects = False
         for obj in self.state.permanents():
             obj.damage_marked = 0
@@ -465,6 +468,10 @@ class GameEngine:
                 obj.temp_power = 0
                 obj.temp_toughness = 0
                 obj.temp_keywords.clear()
+                ended_effects = True
+            if obj._copy_until_eot_base is not None:
+                copy_mechanics.restore_face(obj, obj._copy_until_eot_base)
+                obj._copy_until_eot_base = None
                 ended_effects = True
         if ended_effects:
             self.recompute_continuous_effects()  # re-derive P/T sans the pumps
@@ -595,6 +602,10 @@ class GameEngine:
             # effect to apply next.
             index = None if declined else int(answer)
             self.rules.resolve_replacement_order_choice(index)
+        elif kind == "enter_as_copy":
+            # RULE 614.1c/614.12: the option id is a permanent's instance id,
+            # or decline to enter as itself.
+            self.rules.resolve_enter_as_copy_choice(None if declined else str(answer))
         else:  # search: a card's instance id, or decline
             instance_id = None if declined else int(answer)
             self.rules.resolve_search_choice(instance_id)

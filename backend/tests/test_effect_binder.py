@@ -74,6 +74,18 @@ class TestStaticEffectRegistryBridges:
         assert effect.layer == "pt_switch"
         assert effect.affects == "self"
 
+    def test_conditional_copy_defaults_to_self_and_carries_its_condition(self):
+        [effect] = build_effects([EffectSpec("conditional_copy", {"requires_untapped": True})])
+        assert effect.layer == "copy"
+        assert effect.affects == "self"
+        assert effect.params["requires_untapped"] is True
+
+    def test_text_change_carries_its_replacements(self):
+        [effect] = build_effects([EffectSpec("text_change", {"replace": {"red": "blue"}})])
+        assert effect.layer == "text"
+        assert effect.affects == "self"
+        assert effect.params["replace"] == {"red": "blue"}
+
 
 class TestBindAbility:
     def test_spell_effect_returns_effect_list(self):

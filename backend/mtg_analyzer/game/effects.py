@@ -118,6 +118,18 @@ class GameContext:
     ) -> None:
         self.engine.become_copy(obj, target, add_types, add_subtypes)
 
+    def become_copy_until_end_of_turn(
+        self,
+        obj: "GameObject",
+        target: "GameObject",
+        add_types: Optional[list] = None,
+        add_subtypes: Optional[list] = None,
+    ) -> None:
+        self.engine.become_copy_until_end_of_turn(obj, target, add_types, add_subtypes)
+
+    def set_copy_target(self, obj: "GameObject", target: "GameObject") -> None:
+        self.engine.set_copy_target(obj, target)
+
     def gain_life(self, player: "Player", amount: int) -> None:
         self.engine.gain_life(player, amount)
 
@@ -256,7 +268,9 @@ class StaticAbility(GameEffect):
     """
 
     LAYER_NUMBERS: dict[str, int] = {
+        "copy": 1,         # layer 1 — copy effects (RULE 707)
         "control": 2,      # layer 2 — control-changing effects (RULE 613.2)
+        "text": 3,         # layer 3 — text-changing effects (RULE 612)
         "type": 4,         # layer 4 — type-changing effects
         "color": 5,        # layer 5 — colour-changing effects
         "ability": 6,      # layer 6 — ability-adding effects
@@ -929,21 +943,21 @@ class CopyPermanentEffect(GameEffect):
         context.copy_permanent(controller_id, target, self.count)
 
 
-class BecomeCopyEffect(GameEffect):
-    """*This* permanent becomes a copy of a target permanent (RULE 706/707.2).
+class EnterAsCopyReplacement(GameEffect):
+    """"You may have this permanent enter the battlefield as a copy of
+    target X" (RULE 614.1c/614.12, Clever Impersonator/Phantasmal Image/Copy
+    Artifact/Vesuvan Shapeshifter-style) — a pure data holder, never applied
+    imperatively (``apply`` returns ``None``, same "consulted elsewhere"
+    idiom as `StaticAbility`/`ReplacementEffect`).
 
-    Unlike `CopyPermanentEffect` (which creates a *new token* copy), this
-    mutates the effect's own source in place — Clone/Phantasmal Image/Copy
-    Artifact-style "you may have this [permanent] enter as a copy of target
-    [permanent]" — while keeping the source's own instance identity, zone,
-    controller, counters and attachments untouched (none of those are
-    copiable characteristics, RULE 706.2).
-
-    Modeled as an ordinary `ENTERS_BATTLEFIELD` trigger rather than the true
-    RULE 614.1c/614.12 replacement-effect timing ("as ~ enters") — a known,
-    documented simplification (ToDo_Backend.md), shared with the still-open
-    conditional-tapland gap: there's a brief window after entering, before
-    this trigger resolves, where the permanent is still legally itself.
+    `RulesEngine._offer_enter_as_copy` reads this off `GameObject.
+    enter_as_copy_effects` at the one choke point where the permanent is
+    about to be added to the battlefield (`resolve_top_of_stack`/
+    `create_token`), *before* `add_to_battlefield`/`ENTERS_BATTLEFIELD` — so
+    the object is never observably "itself" first, unlike the previous
+    ENTERS_BATTLEFIELD-trigger modeling this replaces. A legal-target check
+    there resolves the choice (interactively, if 2+ options) and calls
+    `copy_mechanics.become_copy` before finishing battlefield entry.
 
     ``add_types``/``add_subtypes`` cover a card's own "except it's a(n) X in
     addition to its other types" clause (`Card.as_copy`).
@@ -951,23 +965,75 @@ class BecomeCopyEffect(GameEffect):
 
     def __init__(
         self,
-        target: Any = None,
-        source: Optional["GameObject"] = None,
         target_kind: str = "permanent",
         add_types: Optional[list[str]] = None,
         add_subtypes: Optional[list[str]] = None,
+        optional: bool = True,
+        description: str = "",
+    ) -> None:
+        super().__init__(None)
+        self.target_kind = target_kind
+        self.add_types = list(add_types or [])
+        self.add_subtypes = list(add_subtypes or [])
+        self.optional = optional
+        self.description = description
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        return None  # consulted by RulesEngine._offer_enter_as_copy, not applied
+
+
+class BecomeCopyUntilEndOfTurnEffect(GameEffect):
+    """*This* permanent becomes a copy of a target creature until end of
+    turn (Cursed Mirror-style: "{T}: ~ becomes a copy of target creature
+    until end of turn.").
+
+    Unlike `RulesEngine.become_copy` (a permanent mutation, RULE 706.2), this
+    reverts automatically at cleanup (RULE 514.2) — see `RulesEngine.
+    become_copy_until_end_of_turn` and `GameEngine._step_cleanup`.
+    """
+
+    def __init__(
+        self,
+        target: Any = None,
+        source: Optional["GameObject"] = None,
+        target_kind: str = "creature",
     ) -> None:
         super().__init__(source)
         self.target = target
         self.target_spec = TargetSpec(kind=target_kind)
-        self.add_types = list(add_types or [])
-        self.add_subtypes = list(add_subtypes or [])
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
         target = (targets[0] if targets else None) or self.target
         if target is None or self.source is None or target is self.source:
             return
-        context.become_copy(self.source, target, self.add_types, self.add_subtypes)
+        context.become_copy_until_end_of_turn(self.source, target)
+
+
+class SetCopyTargetEffect(GameEffect):
+    """Choose/change the target a layer-1 conditional-copy static ability
+    copies (Vesuvan Shapeshifter's "you may have it be a copy of another
+    target creature") — sets `GameObject.copy_target_id`, which
+    `continuous.recompute`'s layer-1 pass (`_apply_copy_layer`) reads fresh
+    every pass. A simplified stand-in for RULE 707.9's "special action"
+    timing (the same simplification tier `EnterAsCopyReplacement` uses
+    elsewhere) — modeled as a costless activated ability instead.
+    """
+
+    def __init__(
+        self,
+        target: Any = None,
+        source: Optional["GameObject"] = None,
+        target_kind: str = "creature",
+    ) -> None:
+        super().__init__(source)
+        self.target = target
+        self.target_spec = TargetSpec(kind=target_kind)
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        target = (targets[0] if targets else None) or self.target
+        if target is None or self.source is None or target is self.source:
+            return
+        context.set_copy_target(self.source, target)
 
 
 class SearchLibraryEffect(GameEffect):
@@ -1162,12 +1228,46 @@ EffectRegistry.register(
     ),
 )
 EffectRegistry.register(
-    "become_copy",  # "You may have this enter as a copy of target permanent" (RULE 706/707)
-    lambda p: BecomeCopyEffect(
-        target=p.get("target"),
+    "enter_as_copy",  # "You may have this enter as a copy of target X" (RULE 614.1c/614.12)
+    lambda p: EnterAsCopyReplacement(
         target_kind=p.get("target_kind", "permanent"),
         add_types=list(p.get("add_types", [])),
         add_subtypes=list(p.get("add_subtypes", [])),
+        optional=bool(p.get("optional", True)),
+    ),
+)
+EffectRegistry.register(
+    "become_copy_until_eot",  # "~ becomes a copy of target creature until end of turn" (Cursed Mirror)
+    lambda p: BecomeCopyUntilEndOfTurnEffect(
+        target=p.get("target"),
+        target_kind=p.get("target_kind", "creature"),
+    ),
+)
+EffectRegistry.register(
+    "set_copy_target",  # Vesuvan Shapeshifter's "you may have it be a copy of another target creature"
+    lambda p: SetCopyTargetEffect(
+        target=p.get("target"),
+        target_kind=p.get("target_kind", "creature"),
+    ),
+)
+EffectRegistry.register(
+    "conditional_copy",  # RULE 707/613 layer 1 — "as long as [condition], ~ is a copy of [target]"
+    lambda p: StaticAbility(
+        "copy",
+        affects="self",
+        params={
+            "requires_untapped": bool(p.get("requires_untapped", False)),
+            "add_types": list(p.get("add_types", [])),
+            "add_subtypes": list(p.get("add_subtypes", [])),
+        },
+    ),
+)
+EffectRegistry.register(
+    "text_change",  # RULE 612 layer 3 — word-substitution over effective_oracle_text
+    lambda p: StaticAbility(
+        "text",
+        affects=p.get("affects", "self"),
+        params={"replace": {str(k): str(v) for k, v in dict(p.get("replace", {})).items()}},
     ),
 )
 EffectRegistry.register(

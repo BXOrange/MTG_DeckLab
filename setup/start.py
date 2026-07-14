@@ -74,6 +74,9 @@ def start_frontend(port: int, open_browser: bool) -> subprocess.Popen:
 
     if open_browser:
         if not wait_for_port("127.0.0.1", port):
+            # Don't leave the just-spawned server running as an orphan that
+            # blocks this same port on the next attempt.
+            _stop(frontend_proc)
             raise RuntimeError(f"Frontend server did not become ready on port {port}.")
         webbrowser.open(url)
 

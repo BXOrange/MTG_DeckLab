@@ -36,7 +36,7 @@ from .effects import (
 #: `intrinsic_keywords` in `attach_to_object` instead — so they're handled
 #: there, not here.
 _SUPPORTED_KINDS: frozenset[str] = frozenset(
-    {"spell_effect", "triggered", "activated", "static", "replacement"}
+    {"spell_effect", "triggered", "activated", "static", "replacement", "enter_replacement"}
 )
 
 #: Params that make a keyword *parametric* (kicker cost, annihilator N,
@@ -151,6 +151,10 @@ def bind_ability(
       * ``triggered``    → a `TriggeredAbility`,
       * ``static``       → the list of `StaticAbility` effects,
       * ``replacement``  → the list of `ReplacementEffect`s,
+      * ``enter_replacement`` → the list of `EnterAsCopyReplacement`-style
+        effects (RULE 614.1c/614.12 "as ~ enters" — a different family from
+        ``replacement``'s event-transform `ReplacementEffect`s, bound
+        through `EffectRegistry` instead of `ReplacementRegistry`),
       * ``activated``    → an `ActivatedAbility`.
 
     ``source`` is the `GameObject` the ability belongs to (used as each
@@ -169,6 +173,16 @@ def bind_ability(
             if not effect.description:
                 effect.description = spec.raw_text
         return replacements
+
+    if spec.ability_kind == "enter_replacement":
+        # RULE 614.1c/614.12: bound through `EffectRegistry` (unlike
+        # "replacement"'s `ReplacementRegistry`) since these aren't pure
+        # event-transform `ReplacementEffect`s.
+        effects = build_effects(spec.effects, source)
+        for effect in effects:
+            if not effect.description:
+                effect.description = spec.raw_text
+        return effects
 
     effects = build_effects(spec.effects, source)
 
@@ -297,6 +311,8 @@ def attach_to_object(obj: Any, specs: list[AbilitySpec]) -> None:
             obj.static_effects.extend(bound)
         elif spec.ability_kind == "replacement":
             obj.replacement_effects.extend(bound)
+        elif spec.ability_kind == "enter_replacement":
+            obj.enter_as_copy_effects.extend(bound)
         else:  # pragma: no cover - bind_ability already refused it
             raise BindError(f"cannot attach ability_kind {spec.ability_kind!r}")
 

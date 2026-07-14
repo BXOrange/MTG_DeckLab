@@ -26,13 +26,14 @@ from typing import Any, Optional
 #: The kinds of ability an `AbilitySpec` can describe (docs/09 IR).
 #: Mirrors the effect hierarchy in game/effects.py plus "keyword".
 ALLOWED_ABILITY_KINDS: frozenset[str] = frozenset(
-    {"spell_effect", "triggered", "activated", "static", "replacement", "keyword"}
+    {"spell_effect", "triggered", "activated", "static", "replacement",
+     "enter_replacement", "keyword"}
 )
 
 #: Ability kinds that resolve one or more one-shot effects (and therefore
 #: must carry at least one `EffectSpec`).
 _EFFECT_BEARING_KINDS: frozenset[str] = frozenset(
-    {"spell_effect", "triggered", "activated"}
+    {"spell_effect", "triggered", "activated", "enter_replacement"}
 )
 
 #: Hard cap on numeric effect parameters. A malformed/hostile spec must not

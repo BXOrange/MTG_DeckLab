@@ -399,9 +399,8 @@ def test_clever_impersonator_specs_shape():
     card = Card(id="CI", name="Clever Impersonator", type_line="Creature — Illusion",
                 is_creature=True, power=3, toughness=3)
     [spec] = ability_catalogue.specs_for(card)
-    assert spec.ability_kind == "triggered"
-    assert spec.trigger["event"] == "ENTERS_BATTLEFIELD"
-    assert spec.effects[0].type == "become_copy"
+    assert spec.ability_kind == "enter_replacement"
+    assert spec.effects[0].type == "enter_as_copy"
     assert spec.effects[0].params["target_kind"] == "permanent"
 
 
@@ -416,3 +415,24 @@ def test_copy_artifact_carries_the_enchantment_type_override():
     card = Card(id="CA", name="Copy Artifact", type_line="Enchantment")
     [spec] = ability_catalogue.specs_for(card)
     assert spec.effects[0].params["add_types"] == ["Enchantment"]
+
+
+def test_vesuvan_shapeshifter_specs_shape():
+    card = Card(id="VS", name="Vesuvan Shapeshifter", type_line="Creature — Shapeshifter",
+                is_creature=True, power=2, toughness=2)
+    triggered, static, activated = ability_catalogue.specs_for(card)
+    assert triggered.ability_kind == "enter_replacement"
+    assert triggered.effects[0].type == "enter_as_copy"
+    assert static.ability_kind == "static"
+    assert static.effects[0].type == "conditional_copy"
+    assert static.effects[0].params["requires_untapped"] is True
+    assert activated.ability_kind == "activated"
+    assert activated.effects[0].type == "set_copy_target"
+
+
+def test_cursed_mirror_specs_shape():
+    card = Card(id="CM", name="Cursed Mirror", type_line="Artifact")
+    [spec] = ability_catalogue.specs_for(card)
+    assert spec.ability_kind == "activated"
+    assert spec.cost["taps_self"] is True
+    assert spec.effects[0].type == "become_copy_until_eot"

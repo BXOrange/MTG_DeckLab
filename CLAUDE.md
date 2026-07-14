@@ -117,14 +117,21 @@ loop; London mulligan; targeting; mana (generic/color/colorless/hybrid/mono-
 hybrid/phyrexian/{X}); all common **combat keywords** (flying, reach, first/
 double strike, deathtouch, trample, vigilance, lifelink, menace, defender,
 haste, indestructible, protection-from, **landwalk**); **static abilities** via
-the layer system (layers 2 control / 4 type / 5 colour / 6 abilities / 7a CDA /
-7b–d P/T / 7e switch, **timestamp-ordered within a layer**, + cost adjustment;
-`EffectRegistry` bridges every layer for hand-authored/parsed `static` specs —
-`anthem`/`pt_set`/`grant_keyword`/`type_change`/`cost_reduction`/`color_change`/
-`control_change`/`pt_cda`/`pt_switch` — and `affects="attached_permanent"`
+the layer system (layers 1 copy / 2 control / 3 text / 4 type / 5 colour /
+6 abilities / 7a CDA / 7b–d P/T / 7e switch, **timestamp-ordered within a
+layer**, + a bounded RULE 613.8 dependency pass within layer 2 + cost
+adjustment; `EffectRegistry` bridges every layer for hand-authored/parsed
+`static` specs — `anthem`/`pt_set`/`grant_keyword`/`type_change`/
+`cost_reduction`/`color_change`/`control_change`/`pt_cda`/`pt_switch`/
+`conditional_copy`/`text_change` — and `affects="attached_permanent"`
 resolves off a static ability's own source's `attached_to`, so an
 Aura/Equipment/Reconfigure's own buff/keyword-grant/colour-/control-change
-lands on whatever it's attached to, docs/11 §6); **layer 6 also grants a
+lands on whatever it's attached to, docs/11 §6); layer 1's `conditional_copy`
+(Vesuvan Shapeshifter) and layer 3's `text_change` (Artificial-Evolution-style
+colour-word substitution, consumed only by `combat.protections_of_text` today)
+are both scoped/bounded rather than general — see `game/continuous.py`'s
+module docstring for exactly what each does and doesn't cover; **layer 6 also
+grants a
 non-keyword ability** — `grant_mana_ability` (a mana ability, e.g. Tyvar
 Kell's "Elves you control have '{T}: Add {B}.'"; folded onto a permanent's
 printed mana options by `mana_abilities.mana_options_for`) and
@@ -134,8 +141,8 @@ RULE 701.21b — each grantee gets its own scoped, cross-recompute-cached
 `TriggeredAbility` instance, `GameState._granted_ability_cache`, so
 `TriggeredAbility.once_per_turn` state survives passes and the grant vanishes
 the instant it stops applying); despite CR 612.1 mentioning text "granted …
-by other effects", this is layer 6 (RULE 613.1 ability-adding), not layer 3
-— see the "not yet" note below); **Aura/Equipment/Fortify/
+by other effects", this is layer 6 (RULE 613.1 ability-adding), not layer 3);
+**Aura/Equipment/Fortify/
 Reconfigure attachment** (RULE 303.4f/301.5/702.6/67/151: ETB attach on
 resolution, sorcery-speed equip/fortify/reconfigure activated abilities,
 RULE 704.5m/n on the host leaving — Aura to the graveyard, Equipment/
@@ -171,14 +178,27 @@ legal option); one-shot effects
 ±1/±1-counters/**pump** ("+N/+N until end of turn" temp P/T + keyword grant,
 folded at layers 7d/6 and cleared at cleanup, RULE 613.4d/514.2)/**scry**/
 create-token/**copy_permanent**/**become_copy**/cascade/discover/…);
-`become_copy` (RULE 706/707.2) is a layer-1 "becomes a copy of target
-permanent" — unlike `copy_permanent` (a new token) it mutates the source
-object itself (`RulesEngine.become_copy`: swaps its `Card` for the target's
-copiable values via `Card.as_copy` and rebinds its abilities), registered
-for `Clever Impersonator`/`Phantasmal Image`/`Copy Artifact` — genuinely
-interactively playable end-to-end via the trigger-target choice above;
-modeled as an ordinary ENTERS_BATTLEFIELD trigger rather than true RULE
-614.1c/614.12 replacement timing; **tokens**
+`become_copy` (RULE 706/707.2) "becomes a copy of target permanent" — unlike
+`copy_permanent` (a new token) it mutates the source object itself
+(`game/copy_mechanics.become_copy`: swaps its `Card` for the target's
+copiable values via `Card.as_copy` and rebinds its abilities; moved out of
+`RulesEngine` into a standalone module so `game/continuous.py` can call it
+too, without an import cycle). Three distinct copy mechanisms share it: a
+**permanent ETB copy** (Clever Impersonator/Phantasmal Image/Copy Artifact)
+now wired through **true RULE 614.1c/614.12 "as ~ enters" replacement
+timing** — an `enter_replacement` `AbilitySpec`/`enter_as_copy` `EffectSpec`
+binds an `EnterAsCopyReplacement` that `RulesEngine._offer_enter_as_copy`
+(called from `resolve_top_of_stack`, *before* the object is added to the
+battlefield) resolves via its own `enter_as_copy` `pending_choice`, so the
+permanent is never observably "itself" first; a **continuous conditional
+copy** — a genuine RULE 613 **layer 1** (Vesuvan Shapeshifter's "as long as
+untapped, ~ is a copy of another target creature", `continuous.
+_apply_copy_layer` — transition-only, so it never re-runs the mutate/rebind
+on an unchanged pass, and correctly "locks in" once the copied creature
+grants no equivalent ability, per the real card's ruling); and a **temporary
+"… until end of turn" copy** (Cursed Mirror, `RulesEngine.
+become_copy_until_end_of_turn`, reverted at cleanup like a pump effect).
+**Tokens**
 with the RULE 704.5d cease-to-exist lifecycle (`GameObject.is_token`,
 `RulesEngine.create_token`); **planeswalkers** (loyalty abilities at
 sorcery-speed with a once-per-turn gate, damage removes loyalty, 0-loyalty SBA);
@@ -264,14 +284,6 @@ keywords (kicker/escape alt-costs, annihilator/afflict combat maths — the
 parameter binds onto `parametric_keywords` but nothing consumes it yet);
 wiring the interactive priority primitive
 into the **multiplayer session/WebSocket** (`create_multiplayer` still stubbed);
-literal layer 3 (RULE 612 text-changing — rewriting a word in a card's own
-text, e.g. Artificial Evolution; *not* the same as granting another ability,
-which is layer 6 and covered above) and full RULE 613.8 dependency ordering
-— deliberately not built: nothing in the ~1000-card cache needs literal
-layer 3, and the current effect vocabulary can't construct a same-layer
-dependency case (every real interaction crosses layers, already sequenced by
-the fixed layer order), so a general implementation of either would be
-speculative and untestable (revisit if a card/effect ever needs one);
 combining the (opt-in) interactive
 trigger-ordering choice with a targeted trigger among the ordered set (a
 trigger placed via `resolve_trigger_order_choice` doesn't get a target-choice

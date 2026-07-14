@@ -167,6 +167,12 @@ class GameObject:
         #: model→game import; they hold `GameEffect` subclasses.
         self.triggered_abilities: list[Any] = []
         self.replacement_effects: list[Any] = []
+        #: "You may have this enter the battlefield as a copy of target X"
+        #: (RULE 614.1c/614.12, `EnterAsCopyReplacement`) — consulted by
+        #: `RulesEngine._offer_enter_as_copy` *before* this object is added
+        #: to the battlefield, unlike `replacement_effects`'s event-transform
+        #: `ReplacementEffect`s.
+        self.enter_as_copy_effects: list[Any] = []
         #: Static abilities (`StaticAbility`) this object grants through the
         #: layer system (RULE 613) — anthems, keyword grants, type changes,
         #: cost reductions. Read by `game/continuous.py`.
@@ -214,6 +220,12 @@ class GameObject:
         #: means no colour-changing effect applies, so `colors` falls back to
         #: the printed card's ``color_identity``.
         self._derived_colors: Optional[set[str]] = None
+        #: Oracle text rewritten by a layer-3 "text_change" static ability
+        #: (RULE 612), or ``None`` if none applies. Consulted today only by
+        #: `combat.protections_of_text` via `effective_oracle_text` below —
+        #: bound abilities are still derived from the *printed* text once at
+        #: bind time, unaffected (a live full re-parse is out of scope).
+        self._derived_oracle_text: Optional[str] = None
         #: Timestamp for within-a-layer ordering (RULE 613.7b), stamped when the
         #: object enters the battlefield. Later timestamp = applied later.
         self.timestamp: int = 0
@@ -238,6 +250,31 @@ class GameObject:
         self.temp_toughness: int = 0
         self.temp_keywords: set[str] = set()
 
+        #: "Another target creature" a layer-1 conditional-copy static
+        #: ability (Vesuvan Shapeshifter) should copy — read fresh every
+        #: `continuous.recompute` pass, the same idiom `attached_to` uses.
+        #: Set by `RulesEngine.set_copy_target`.
+        self.copy_target_id: Optional[int] = None
+        #: Stashed pre-copy face+ability bundle (`copy_mechanics.
+        #: snapshot_face`'s shape) — set the first time a layer-1 copy
+        #: ability transitions into applying, so the condition going false
+        #: can restore it. `None` whenever no layer-1 copy is currently
+        #: applied. Persists across a recompute (not cleared by
+        #: `reset_derived`).
+        self._copy_base: Optional[dict[str, Any]] = None
+        #: Which `copy_target_id` is *currently* applied (distinct from the
+        #: condition itself) — lets `continuous.recompute` tell "already
+        #: copying this exact target, no-op" from "target changed, re-copy"
+        #: without re-running the mutate/rebind (and destroying granted-
+        #: ability bookkeeping) on every single pass. `None` whenever
+        #: nothing is currently applied.
+        self._copy_applied_target_id: Optional[int] = None
+        #: Stashed pre-copy snapshot for a "becomes a copy … until end of
+        #: turn" effect (Cursed Mirror-style, `RulesEngine.
+        #: become_copy_until_end_of_turn`) — taken only the first time this
+        #: turn, restored by `GameEngine._step_cleanup` (RULE 514.2).
+        self._copy_until_eot_base: Optional[dict[str, Any]] = None
+
     def reset_derived(self) -> None:
         """Clear layer-engine output before a fresh `continuous.recompute`."""
         self._derived_power = None
@@ -248,6 +285,7 @@ class GameObject:
         self._added_types = set()
         self._removed_types = set()
         self._derived_colors = None
+        self._derived_oracle_text = None
         self.static_trace = []
 
     @property
@@ -260,6 +298,17 @@ class GameObject:
         if self._derived_colors is not None:
             return set(self._derived_colors)
         return set(self.card.color_identity or set())
+
+    @property
+    def effective_oracle_text(self) -> str:
+        """Effective oracle text (RULE 612 / layer 3), or the printed text.
+
+        Prefers text a layer-3 "text_change" static ability rewrote
+        (`_derived_oracle_text`); otherwise the printed card's own
+        ``oracle_text``."""
+        if self._derived_oracle_text is not None:
+            return self._derived_oracle_text
+        return self.card.oracle_text or ""
 
     # -- Delegated characteristics (read from the printed card) ---------
 
