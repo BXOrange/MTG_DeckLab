@@ -1850,6 +1850,52 @@ textarea {
   outline-offset: 1px;
 }
 
+/* A triggered/activated ability's tile: the source permanent's art with the
+   ability text overlaid at the bottom and a small link icon back to that
+   source in the top corner (RULE 603/602 abilities have no card of their
+   own on the stack, so without this they'd otherwise just be a bare text
+   box — see stackItemHtml). */
+.gf-stack-item .card {
+  position: relative;
+}
+
+.gf-stack-ability-overlay {
+  position: absolute;
+  inset: auto 0 0 0;
+  max-height: 70%;
+  overflow-y: auto;
+  background: linear-gradient(to top, rgba(0, 0, 0, 0.85), rgba(0, 0, 0, 0.55) 70%, transparent);
+  color: #fff;
+  font-size: 0.62rem;
+  line-height: 1.25;
+  padding: 0.6rem 0.35rem 0.3rem;
+  white-space: normal;
+}
+
+.gf-stack-source-link {
+  position: absolute;
+  top: 0.25rem;
+  right: 0.25rem;
+  width: 1.4rem;
+  height: 1.4rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.6);
+  border: 1px solid rgba(255, 255, 255, 0.4);
+  border-radius: 999px;
+  color: #fff;
+  font-size: 0.7rem;
+  line-height: 1;
+  cursor: pointer;
+  padding: 0;
+}
+
+.gf-stack-source-link:hover {
+  background: var(--accent);
+  border-color: var(--accent);
+}
+
 .gf-stack-badge {
   display: inline-flex;
   align-items: center;

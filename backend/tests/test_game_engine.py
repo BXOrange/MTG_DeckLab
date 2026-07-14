@@ -1047,6 +1047,29 @@ def test_triggered_ability_goes_on_stack_and_resolves():
     assert not eng.rules.pending_triggers
 
 
+def test_triggered_ability_stack_item_carries_its_source():
+    """A stack item for a triggered ability exposes the permanent it belongs
+    to (`StackItem.source`), so the UI can show that card's image/link."""
+    eng = make_engine([land("Forest"), land("Forest")], hand=0)
+    p1 = eng.state.player_by_id("p1")
+    trigger = TriggeredAbility(
+        trigger_event=EventType.SPELL_CAST,
+        effects=[DrawCardEffect(count=1, player=p1)],
+        controller_id="p1",
+        description="draw on cast",
+        source=None,  # set below, mirroring how the binder sets it
+    )
+    watcher = obj_on_battlefield(eng.state, eng, creature("Watcher"))
+    trigger.source = watcher
+    watcher.triggered_abilities.append(trigger)
+
+    eng.state.fire_event(GameEvent(EventType.SPELL_CAST, player_id="p1"))
+    eng.rules.put_triggers_on_stack()
+    assert len(eng.state.stack) == 1
+    assert eng.state.stack[0].source is watcher
+    assert eng.state.stack[0].to_dict()["source"]["instance_id"] == watcher.instance_id
+
+
 # ---------------------------------------------------------------------------
 # Phase skipping (docs/07 PART 8)
 # ---------------------------------------------------------------------------
@@ -2054,6 +2077,7 @@ def test_activate_pays_mana_and_taps_source_then_stacks():
     assert obj.tapped
     assert p1.mana_pool.total() == 0  # the {1} was paid
     assert len(eng.state.stack) == 1  # ability waits on the stack
+    assert eng.state.stack[0].source is obj
     eng.resolve_until_stable()
     assert len(p1.hand) == 1  # it resolved and drew
 

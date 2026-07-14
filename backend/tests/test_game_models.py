@@ -142,6 +142,19 @@ def test_stack_item_spell_exposes_type_line():
     assert item.to_dict()["type_line"] == obj.card.type_line
 
 
+def test_stack_item_source_defaults_to_none():
+    item = StackItem(kind="spell", controller_id="p1", description="Bolt")
+    assert item.source is None
+    assert item.to_dict()["source"] is None
+
+
+def test_stack_item_ability_exposes_its_source():
+    source = GameObject(make_card(), owner_id="p1")
+    item = StackItem(kind="ability", controller_id="p1", description="tap: draw", source=source)
+    assert item.source is source
+    assert item.to_dict()["source"]["instance_id"] == source.instance_id
+
+
 def test_battlefield_membership_by_controller():
     p1 = Player(id="p1")
     state = GameState(players=[p1])

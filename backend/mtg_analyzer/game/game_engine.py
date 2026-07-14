@@ -1336,6 +1336,7 @@ class GameEngine:
                 description=ability.description or f"{source.name} ability",
                 targets=targets,
                 x=x,
+                source=source,
             )
         )
         # RULE 117.3c: taking an action reclaims priority for its taker.

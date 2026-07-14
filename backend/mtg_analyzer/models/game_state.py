@@ -38,6 +38,13 @@ class StackItem:
     ``"triggered_ability"``, or ``"activated_ability"`` (RULE 601 / 602 /
     603). When not given it is derived from the effect on the stack by
     class name, which keeps this model free of a `game/` import.
+
+    ``source`` is the permanent an *ability* item's stack image/overlay is
+    shown for — a triggered ability's `TriggeredAbility.source` or an
+    activated ability's own permanent (RULE 113.7a: the source of a
+    granted ability is the object that has it, not whatever granted it).
+    ``None`` for a spell (``obj`` already *is* the thing on the stack) or
+    for the rare hand-built ability with no bound source.
     """
 
     def __init__(
@@ -50,6 +57,7 @@ class StackItem:
         targets: Optional[list[Any]] = None,
         x: int = 0,
         category: Optional[str] = None,
+        source: Optional[GameObject] = None,
     ) -> None:
         self.kind = kind
         self.controller_id = controller_id
@@ -59,6 +67,7 @@ class StackItem:
         self.targets = targets or []
         self.x = x
         self.category = category or self._derive_category()
+        self.source = source
 
     def _derive_category(self) -> str:
         """Classify the item for display without importing `game/` types.
@@ -87,6 +96,10 @@ class StackItem:
             "object": self.obj.to_dict() if self.obj else None,
             "type_line": self.obj.card.type_line if self.obj else "",
             "x": self.x,
+            # An ability item's source permanent (None for a spell — `object`
+            # above already covers it) — the UI shows this card's image with
+            # the ability text overlaid, and a link back to it.
+            "source": self.source.to_dict() if self.source else None,
         }
 
     def __repr__(self) -> str:

@@ -161,49 +161,6 @@ Weeks 1–4 roadmap is archived at
       be speculative and untestable. Revisit both if a card or a new effect
       type ever needs them. Tests: `test_continuous.py`,
       `test_effect_binder.py` (`TestStaticEffectRegistryBridges`).
-- [x] Layer 6 ability-adding grant of a *non-keyword* ability (RULE 613.7f)
-      — **done** (2026-07-09). Follow-up correction to the "layer 3" entry
-      above: two real cards — Tyvar Kell ("Elves you control have '{T}: Add
-      {B}.'") and Dionus, Elvish Archdruid ("Elves you control have '\<a
-      triggered ability\>'") — were initially reported as needing layer 3
-      (RULE 612 text-changing), citing CR 612.1's mention of text "granted …
-      by other effects". That's wrong: RULE 613.1 puts ability-adding in
-      layer 6, the same layer `grant_keyword` already used — these two just
-      grant a mana ability / a full triggered ability instead of a bare
-      keyword slug, not a text substitution. New `EffectSpec` types
-      `grant_mana_ability` (`mana`, a `mana_options`-shaped list) and
-      `grant_triggered_ability` (`trigger_event`, `grant_effects` — nested
-      one-shot-effect specs through the same `EffectRegistry` whitelist,
-      `once_per_turn`, `optional`, `controllers_turn_only`), docs/11 §6.
-      `mana_abilities.mana_options_for(obj)` folds the grant onto the
-      permanent's own printed options (`game_engine.py`'s 3 call sites
-      switched to it). A granted *triggered* ability needs a genuinely new
-      primitive: a stable instance per (granting ability, affected object)
-      relationship (`GameState._granted_ability_cache`), rebuilt from cache
-      every recompute rather than freshly constructed, so per-instance state
-      — `TriggeredAbility.once_per_turn`/`_last_triggered_turn` (also new;
-      RULE 603.2) — survives across passes; the cache is pruned back to only
-      currently-valid relationships every pass, so the grant (and its turn-
-      tracking) disappears the instant it stops applying, no separate
-      removal code (RULE 613.6). Each grantee gets its *own* scoped instance
-      (`continuous._granted_trigger_condition`, matched on the firing
-      event's `instance_id`) — without it, e.g. tapping one Elf would
-      incorrectly fire every other Elf's copy of the same granted ability
-      too. Needed a real primitive that plain didn't exist: a `TAPPED` event
-      (RULE 701.21b, "whenever ~ becomes tapped") — `RulesEngine.set_tapped`
-      now fires it on a genuine untapped→tapped transition (never for a
-      permanent entering already tapped, matching the real "becomes tapped"
-      ruling), and the three call sites that used to tap a permanent via the
-      bare `GameObject.tap()` (declare attackers, `tap_for_mana`,
-      `activate_ability`'s tap cost) now go through it. `TapEffect` gained
-      the same untargeted self-acting mode `AddCountersEffect` already had
-      (`target_kind=None` → acts on the effect's own source, no player
-      choice — "untap it" in Dionus's granted ability always means the
-      specific Elf, never a target pick). Registered: `Tyvar Kell`,
-      `Dionus, Elvish Archdruid` (`ability_catalogue.py`) — static clauses
-      only; their loyalty abilities/emblem are a separate, unrelated gap
-      (loyalty abilities in general are modeled; emblems aren't at all).
-      Tests: `test_static_ability_grants.py`.
 - [~] "Become a copy of target permanent" (RULE 706/707, layer 1) —
       **core mechanic done**. `RulesEngine.become_copy(obj, target,
       add_types, add_subtypes)` mutates `obj.card` in place to `target`'s
@@ -220,124 +177,12 @@ Weeks 1–4 roadmap is archived at
       `ENTERS_BATTLEFIELD` trigger rather than the true RULE 614.1c/614.12
       "as ~ enters" replacement timing (not wired — same gap as the
       conditional-tapland item above). **The "newly surfaced" targeting gap
-      this uncovered is now fixed too** (see "Triggered-ability target
-      choice" below) — these three cards are genuinely interactively
-      playable end-to-end, including the "you may" decline, through the
-      normal session `choose`/`decline` path. Tests: `test_card.py`
-      (`TestAsCopy`), `test_ability_catalogue.py`, `test_game_engine.py`
-      (`test_become_copy_*`), `test_trigger_targeting.py`.
-- [x] Triggered-ability target choice (RULE 115 / 603.3c / 603.5) —
-      **done**. A triggered ability's own targeting effect used to place
-      blind (`_place_trigger` pushed a `TriggeredAbility` with no
-      `targets` at all — the gap `become_copy` surfaced, above). Fixed
-      generally, not just for `become_copy`: `put_triggers_on_stack` /
-      `RulesEngine._place_triggers` now check each queued trigger's first
-      targeting effect (`_trigger_target_spec`) and, if it has one, open a
-      `trigger_target` `pending_choice` — one option per legal target,
-      built the same `{"id","label","instance_id"?}` shape as search/
-      cascade/discover/order_triggers, so the existing generic choice UI
-      renders it with **zero frontend changes**. `resolve_trigger_target_
-      choice` places the chosen target (or, for an optional/"you may"
-      ability, honours a "decline" option) and resumes whatever else was
-      queued behind it; a *required* target with no legal option at all
-      never goes on the stack (RULE 603.3c), matching real rules exactly
-      rather than resolving with an absent target. **Also covers RULE
-      603.5 for a targetless "you may"** — previously `TriggeredAbility.
-      optional` was carried but never consulted, so e.g. "you may draw a
-      card" always just happened; now it opens a plain do/decline choice
-      (`_trigger_may_choice`, the `"do"` sentinel `resolve_trigger_target_
-      choice` recognizes) before placing. Wired into
-      `GameEngine.resolve_pending_choice` (`kind == "trigger_target"`) —
-      answered through the same session `choose`/`decline` action as every
-      other pending choice. **Known narrow gap**: a trigger placed via the
-      separate, opt-in RULE 603.3b interactive-ordering choice
-      (`resolve_trigger_order_choice`) still places directly without a
-      target-choice pause — combining manual trigger ordering with a
-      targeted trigger among the ordered set isn't handled (both features
-      are individually solid; the two together is untested/unhandled).
-      Tests: `test_trigger_targeting.py`.
-- [x] Replacement-effect ordering by the affected player (RULE 616.1) —
-      **done**. `RulesEngine.apply_replacements` opens a `replacement_order`
-      `pending_choice` whenever 2+ replacement effects are simultaneously
-      applicable to the same event, mirroring RULE 603.3b's trigger-order
-      pause/resume; `resolve_replacement_order_choice` applies the chosen
-      one and re-asks if more remain (RULE 616.1f). Unlike trigger
-      ordering this is *not* gated behind an opt-in flag — replacement
-      collisions are rare enough (only two doubling/two damage-modifying
-      effects on the battlefield at once) that it's always interactive.
-      Four new replacement families exercise it: `double_damage`/
-      `additional_damage` (Furnace of Rath, Gratuitous Violence, Torbran,
-      Thane of Red Fell) and `double_counters`/`double_tokens` (Doubling
-      Season, Parallel Lives) — hand-authored in `ability_catalogue.py`.
-      See Done "Replacement ordering".
-- [x] Trigger ordering *within* a controller (RULE 603.3b) — **done**.
-      When `state.interactive_ordering` is on and the active player has two
-      or more simultaneous triggers, `put_triggers_on_stack` opens an
-      `order_triggers` `pending_choice`; `resolve_trigger_order_choice`
-      places them in the chosen order (picked-first → placed-first →
-      resolves-last). Off by default so solo goldfishing is unchanged.
-      Tests: `test_ordering.py`.
-- [x] Loyalty / planeswalker abilities (RULE 606) — **done (basic)**.
-      `costs.ActivationCost.loyalty` (a signed `[±N]` cost, parsed by
-      `_LOYALTY_RE` + the segmenter's `[±N]:` recognition); planeswalkers
-      enter with printed starting loyalty (`Card.loyalty`, set in
-      `add_to_battlefield`); `GameEngine._can_activate_loyalty` gates to
-      sorcery speed + once-per-turn (`activated_loyalty_this_turn`, reset at
-      untap); activation pays by changing loyalty counters; combat/other
-      damage to a planeswalker removes loyalty (`deal_damage`); the 0-loyalty
-      SBA (RULE 704.5i) sends it to the graveyard. Tests:
-      `test_planeswalker.py`. Not yet: the specific chapter/loyalty *effects*
-      beyond what the handler table already covers.
-- [x] Aura / Equipment **attachment resolution** (RULE 303 auras, 301.5
-      equipment, keyword `equip`/`fortify`/`reconfigure` RULE 702.6/67/151) —
-      **done**. An Aura attaches to its cast-time target on resolution (RULE
-      303.4f, `RulesEngine.resolve_top_of_stack`; fails to attach → straight
-      to the graveyard); Equip/Fortify/Reconfigure are live sorcery-speed
-      activated abilities (`effect_binder._keyword_activated_ability`,
-      untapped/re-payable per RULE 301.5c/702.151b); targeting is restricted
-      to what each can legally attach to (`targeting.legal_targets`,
-      `RulesEngine._attachment_legal` — creatures for Equip/Reconfigure, the
-      Aura's `enchant` quality otherwise). RULE 704.5m/n on the host leaving:
-      an Aura goes to the graveyard, an Equipment/Fortification/Reconfigure
-      permanent just becomes unattached and stays on the battlefield
-      (`RulesEngine._detach_attachments_from`). RULE 702.151b: a Reconfigure
-      permanent stops being a creature while attached and regains it the
-      moment it's unattached (`GameObject._removed_types`, computed in
-      `continuous.recompute`'s layer-4 pass). And the attached buff/keyword
-      *does* now flow through the layer engine — see the layer-system entry
-      above (`affects="attached_permanent"`). Tests: `test_game_engine.py`
-      (aura/equipment/reconfigure attach+detach+buff tests),
-      `test_continuous.py`. Remaining: re-validating an *existing* attachment's
-      legality every SBA pass (RULE 704.5m/n also cover a target that stays on
-      the battlefield but becomes illegal, e.g. by gaining protection — today
-      only "host left the battlefield" is checked); update the Engine-Status
-      tab (`implementationStatusView.js`) off "partial".
-- [x] Commander tax (RULE 903.8) — **done**. `Player.commander_casts`
-      (instance id → count) is incremented on a command-zone cast in
-      `GameEngine.cast_spell`; `effective_cast_cost` adds `{2}` per previous
-      cast via `commander_tax()`, floored generic, and surfaced in the cast
-      action (`commander_tax`/`effective_cost`). The counter deep-copies with
-      the player for rewind. Tests: `test_game_engine.py`
-      `test_commander_tax_adds_two_per_previous_cast`.
-- [x] Conditional enters-tapped choice (RULE 614.1 replacement) — **done**.
-      `ability_catalogue.land_tap_condition(card)` classifies a land's
-      tapped-entry clause off its oracle text: `"always"` (plain tap-land),
-      `"never"` (no clause, or an unrecognized conditional shape — fails
-      safe untapped), `"pay_life"` (shock lands: "you may pay N life. If
-      you don't, ~ enters tapped."), `"unless_types"` (check lands: "unless
-      you control a/an X [or a/an Y …]"), or `"unless_count"` (fast/slow
-      lands: "unless you control N or fewer/more other lands").
-      `RulesEngine.enter_land_tapped`, called from `GameEngine.play_land`,
-      resolves the deterministic shapes immediately against the board the
-      controller already has (evaluated before the land itself joins the
-      battlefield, so "other lands" naturally excludes it); a shock land
-      opens a genuine `land_tapped` `pending_choice` (tapped by default, as
-      if declined) — `resolve_land_tapped_choice("pay")` pays the life
-      (`RulesEngine.lose_life`) and flips it untapped, reusing the same
-      `pending_choice`/`resolve_pending_choice` plumbing as search/cascade/
-      trigger-target choices. Pain lands (no "enters tapped" text at all)
-      and other unrecognized conditional shapes are untouched. Tests:
-      `test_ability_catalogue.py`.
+      this uncovered is now fixed too** (`docs/implementation-state/
+      Done_Backend.md` "Triggered-ability target choice") — these three
+      cards are genuinely interactively playable end-to-end, including the
+      "you may" decline, through the normal session `choose`/`decline`
+      path. Tests: `test_card.py` (`TestAsCopy`), `test_ability_catalogue.py`,
+      `test_game_engine.py` (`test_become_copy_*`), `test_trigger_targeting.py`.
 
 ## Card-type & structural coverage (Backlog)
 
@@ -358,19 +203,17 @@ eventually own. Roughly in decreasing commonness:
       turn, transform ~") is deliberately not modeled, superseded by RULE
       731; and MDFC commanders cast from the command zone are a known,
       deliberately unhandled edge case (only hand-cast offers both faces).
-- [x] Adventure cards (RULE 715) and Split/Fuse cards (RULE 709): **done**
-      — see `docs/implementation-state/Done_Backend.md` "Card-type &
-      structural coverage".
-- [x] Saga (RULE 714) / Class (RULE 716) / Leveler (RULE 711): **all three
-      done** — see `docs/implementation-state/Done_Backend.md` "Card-type &
-      structural coverage". Residual edges, left `UNMODELED`/fail-closed
-      rather than guessed: a Class level combining both a static "cumulative"
-      grant and a separate one-shot "when this Class becomes level N" trigger
-      in the same block; a level-block body using a trigger phrase/effect
-      family the oracle parser doesn't already recognize (independent of this
-      work — e.g. "creature deals combat damage to a player"); CDA-based
-      Leveler P/T (``*/*``, no card in the pool needs it); a Leveler's rare
-      non-keyword *base* (pre-`LEVEL`) ability line (parsed ungated).
+- [ ] Saga (RULE 714) / Class (RULE 716) / Leveler (RULE 711) residual
+      edges — the mechanics themselves are done (`docs/implementation-state/
+      Done_Backend.md` "Card-type & structural coverage"); these are left
+      `UNMODELED`/fail-closed rather than guessed: a Class level combining
+      both a static "cumulative" grant and a separate one-shot "when this
+      Class becomes level N" trigger in the same block; a level-block body
+      using a trigger phrase/effect family the oracle parser doesn't
+      already recognize (independent of this work — e.g. "creature deals
+      combat damage to a player"); CDA-based Leveler P/T (``*/*``, no card
+      in the pool needs it); a Leveler's rare non-keyword *base*
+      (pre-`LEVEL`) ability line (parsed ungated).
 - [~] Copying objects (RULE 707): **token copies done** —
       `RulesEngine.copy_permanent` + the `copy_permanent` effect create a token
       clone of a target permanent's copiable card. Remaining: "becomes a copy

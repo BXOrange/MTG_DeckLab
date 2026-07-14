@@ -187,6 +187,33 @@ now holds only open items). Section headers mirror that file.
       default) — clicking reads the input's current value at click time
       (`data-cast-x`/`data-x-input`, wired in `wire()`) and sends it as
       `x` on the `cast_spell` action. `.gf-cast-x` in `main.css`.
+- [x] Stack tiles for triggered/activated abilities now show their
+      *source permanent's* card art instead of a bare text box
+      (`gameBoardView.js`'s `stackItemHtml`, the shared board module
+      `goldfishView.js`'s stack display above was later extracted into):
+      the ability's description renders as a text banner overlaid on that
+      art (`.gf-stack-ability-overlay`), and a small 🔗 `.gf-stack-source-
+      link` icon in the corner exposes the same source via the existing
+      global name-hover preview (`cardHoverDetail.js`) — driven by the new
+      backend `StackItem.source` field (`Done_Backend.md` "Rules Engine").
+      Falls back to the pre-existing plain-text tile when there's no
+      source or no resolvable art. A code audit confirmed every triggered
+      ability (`_collect_triggers`/`put_triggers_on_stack`) and activated
+      ability (`GameEngine.activate_ability`, including Equip/Fortify/
+      Reconfigure and loyalty abilities) goes through one of these two
+      choke points and so is now covered — mana abilities correctly never
+      reach the stack at all (RULE 605.1a) and were never meant to be.
+- [x] RULE 616.1 replacement-effect ordering popup: the `replacement_
+      order` `pending_choice` (`Done_Backend.md` "Rules Engine" —
+      "Replacement ordering") gets a dedicated drag-and-drop list
+      (`gameBoardView.js`'s `replacementOrderHtml`/
+      `confirmReplacementOrder`, `.gf-reorder-list` in `main.css`) instead
+      of the generic one-button-per-option modal every other choice kind
+      shares — the app's first drag-and-drop UI. Dragging only reorders
+      client-side state; confirming replays the chosen order as a
+      sequence of the same single `choose` picks the backend already
+      expects, stopping the auto-play rather than submitting a stale pick
+      if the server's freshly re-offered options ever don't match.
 
 ## Multiplayer
 

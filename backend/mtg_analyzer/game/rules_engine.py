@@ -443,6 +443,7 @@ class RulesEngine:
                 effects=[ability],
                 description=ability.description or "triggered ability",
                 targets=targets,
+                source=ability.source,
             )
         )
 
