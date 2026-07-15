@@ -271,6 +271,19 @@ def has_indestructible(obj: "GameObject") -> bool:
     return "indestructible" in _obj_keywords(obj)
 
 
+def has_hexproof(obj: "GameObject") -> bool:
+    """RULE 702.11b: can't be the target of a spell/ability an opponent
+    controls (an opponent's own permanents/self-targets are unaffected —
+    unlike protection, hexproof never stops its own controller). Not a
+    "combat" keyword in the RULE 702 evasion sense (it doesn't shape
+    blocking/damage), but lives here so it reads off the same
+    `_obj_keywords` union (card + `intrinsic_keywords` the parser catalogue
+    docks a flag keyword onto + `granted_keywords`) every other keyword
+    predicate in this module already does, instead of a second recognition
+    path. `targeting.py` is the sole consumer (`_targetable_by`)."""
+    return "hexproof" in _obj_keywords(obj)
+
+
 def min_blockers(obj: "GameObject") -> int:
     """How many creatures must block ``obj`` for the block to be legal.
 

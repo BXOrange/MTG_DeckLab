@@ -89,6 +89,15 @@ class EventType:
     LIFE_LOST = "LIFE_LOST"
     ATTACKS = "ATTACKS"
     BLOCKS = "BLOCKS"
+    #: An attacker goes from unblocked to blocked (RULE 509.5) — fired once
+    #: per attacker (never once per blocker), the moment its ``blocked_by``
+    #: transitions from empty to non-empty within one `declare_blockers`
+    #: call, carrying ``blocker_count`` (the final count) for keywords whose
+    #: trigger amount scales with it (rampage). Distinct from `BLOCKS`, which
+    #: fires per *blocker* and scopes to the blocker's own controller/type —
+    #: afflict/bushido/rampage (RULE 702.130/702.45/702.23) all trigger off
+    #: the *attacker* becoming blocked, which `BLOCKS` alone can't express.
+    BECOMES_BLOCKED = "BECOMES_BLOCKED"
 
     # Win/loss (RULE 104, RULE 704).
     PLAYER_WOULD_LOSE = "PLAYER_WOULD_LOSE"

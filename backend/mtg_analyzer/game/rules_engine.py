@@ -50,6 +50,26 @@ def _saga_final_chapter(card: Card) -> int:
     return max(all_chapter_numbers(card.oracle_text or ""), default=0)
 
 
+def _matches_permanent_type(obj: GameObject, what: str) -> bool:
+    """Whether ``obj`` matches a sacrifice cost/effect's type word (RULE
+    701.17), e.g. ``"creature"``/``"artifact"``/``"enchantment"``/``"land"``/
+    ``"permanent"``. Mirrors `GameEngine._matches_sacrifice_type` (the
+    cost-payment path) for the effect-driven path (`RulesEngine.sacrifice`);
+    kept as its own small copy rather than a cross-module import, since
+    `game_engine.py` imports `rules_engine.py`, not the reverse."""
+    if what in ("permanent", "another"):
+        return True
+    if what == "creature":
+        return obj.is_creature
+    if what == "artifact":
+        return obj.card.is_artifact
+    if what == "enchantment":
+        return obj.card.is_enchantment
+    if what == "land":
+        return obj.is_land
+    return True  # unknown type word → any permanent, so the cost is payable
+
+
 class RulesEngine:
     """Applies MTG rules to a `GameState`."""
 
@@ -1081,6 +1101,27 @@ class RulesEngine:
 
     def destroy(self, obj: GameObject) -> None:
         self._move_to_graveyard(obj)
+
+    def sacrifice(self, player: Player, what: str = "permanent", count: int = 1) -> None:
+        """``player`` sacrifices up to ``count`` permanents matching ``what``
+        (RULE 701.17) — an effect-driven sacrifice (annihilator, RULE
+        702.86), not a cost payment (`GameEngine._sacrifice_candidate`
+        handles that separate path). Auto-picks the first matching permanent
+        each time, the same non-interactive MVP convention the cost path
+        uses; stops early if the player runs out of matching permanents.
+        """
+        for _ in range(count):
+            candidate = next(
+                (
+                    obj
+                    for obj in self.state.permanents_controlled_by(player.id)
+                    if _matches_permanent_type(obj, what)
+                ),
+                None,
+            )
+            if candidate is None:
+                return
+            self.destroy(candidate)
 
     def exile(self, obj: GameObject) -> None:
         """Move ``obj`` to its owner's exile zone (RULE 406), from anywhere.

@@ -559,6 +559,52 @@ the Phase-1 models. Tests: `test_game_engine.py`.
       `test_game_engine.py` (`test_become_copy_*`, `test_cursed_mirror_*`),
       `test_trigger_targeting.py`.
 
+- [x] **M2 combat-math keywords + hexproof (2026-07-15):** the first
+      parametric keywords beyond landwalk to get real behaviour, not just a
+      carried parameter. **Annihilator** (702.86), **afflict** (702.130) and
+      **bushido** (702.45) are each genuinely triggered abilities, so rather
+      than special-casing them procedurally in `game/combat.py` alongside the
+      static evasion keywords, `effect_binder._keyword_triggered_abilities`
+      synthesizes real `TriggeredAbility` objects at bind time (mirroring
+      `_keyword_activated_ability`'s existing Equip/Fortify/Reconfigure
+      treatment) — they go through the ordinary stack/priority pipeline, so a
+      player can respond to any of them. Afflict/bushido's "becomes blocked"
+      half needed a genuinely new hook: `models/events.py` gained
+      `EventType.BECOMES_BLOCKED`, fired once per attacker (never once per
+      blocker) by `GameEngine.declare_blockers` the moment its `blocked_by`
+      transitions from empty to non-empty within one call — distinct from the
+      existing per-blocker `BLOCKS` event, which can't express "the attacker
+      became blocked" at all. New one-shot effects: `SacrificeEffect`
+      (+ `RulesEngine.sacrifice`/`GameContext.sacrifice`, an MVP auto-choice
+      mirroring `GameEngine._sacrifice_candidate`'s cost-payment convention)
+      and `LoseLifeEffect` (+ `GameContext.lose_life`, a thin wrapper over the
+      pre-existing `RulesEngine.lose_life`); bushido reuses the existing
+      `PumpEffect` unchanged. Annihilator/afflict resolve "defending player"
+      dynamically via a new `effects._defending_player_of` helper reading the
+      attacker's `combat_defender` spec (works for both a player and a
+      planeswalker defender). Separately, **hexproof** (702.11b) now actually
+      gates targeting — `combat.has_hexproof` (reads the parser-bound
+      `intrinsic_keywords`, same as every other flag keyword) plugs into
+      `targeting._targetable_by` (renamed from `_not_protected`, now covering
+      both protection and hexproof at every one of its call sites), excluding
+      a hexproof permanent from an *opponent's* target options while leaving
+      it targetable by its own controller. **Deliberately deferred**:
+      **rampage** (702.23) needs its pump amount to scale with the specific
+      block's final blocker count, and `TriggeredAbility` binds one fixed
+      `effects` list once at bind-on-load, reused for every firing
+      (`RulesEngine._place_trigger` — no per-firing event data reaches
+      `apply()`) — a per-event dynamic-amount seam none of the other three
+      keywords need; **ward** (702.21) needs a "becomes the target"
+      interception point cutting across both `cast_spell` and
+      `activate_ability`, architecturally different from "add a new event
+      type" (the pay-or-counter mechanics themselves are directly reusable
+      from `RulesEngine.counter_unless_pays`). Both tracked in
+      `ToDo_Backend.md`. Tests: `test_game_engine.py`
+      (`test_annihilator_makes_defending_player_sacrifice_permanents`,
+      `test_afflict_causes_defending_player_to_lose_life_on_block`,
+      `test_bushido_pumps_the_blocker_when_it_blocks`,
+      `test_hexproof_creature_cannot_be_targeted_by_an_opponent`).
+
 ## Game Engine (Phase 3)
 
 `mtg_analyzer/game/game_engine.py`, tests in `test_game_engine.py`.

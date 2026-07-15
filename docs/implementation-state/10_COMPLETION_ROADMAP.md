@@ -116,15 +116,27 @@ Follows [`09_ORACLE_EFFECT_PARSER.md`](../concepts/09_ORACLE_EFFECT_PARSER.md). 
 
 - Landwalk is **done** (fully bound into combat, RULE 702.14) — the first
   parametric keyword to go all the way from parse → parameter → behaviour.
+- **Annihilator/afflict/bushido and hexproof are done** (2026-07-15):
+  `effect_binder._keyword_triggered_abilities` synthesizes real
+  `TriggeredAbility`s for the three combat-math triggers (routed through the
+  ordinary stack, not special-cased in `combat.py`), backed by a new
+  `EventType.BECOMES_BLOCKED` (fires once per attacker transitioning from
+  unblocked to blocked) plus new `SacrificeEffect`/`LoseLifeEffect`
+  one-shots; hexproof gates `targeting.legal_targets` via
+  `combat.has_hexproof`.
 - Still open: alternative/additional-cost keywords (kicker, multikicker,
   buyback, escape, flashback…) via the cost system + cast-time choices;
-  combat-math keywords (annihilator N, afflict, bushido, rampage…);
-  protection *quality*, ward, hexproof-from as targeting/replacement
-  filters. Each parameter already binds onto
-  `GameObject.parametric_keywords` — nothing yet *consumes* it except
-  landwalk.
+  **rampage** (needs a per-firing dynamic effect amount `TriggeredAbility`
+  can't express yet); **ward** (needs a new "becomes the target"
+  interception point across `cast_spell`/`activate_ability`); protection
+  *quality* (already fully working via a separate, older path —
+  `combat.is_protected_from` — not `parametric_keywords` at all); and
+  hexproof-*from*'s quality (currently aliased onto plain hexproof, losing
+  the "from X" scope). Each parameter already binds onto
+  `GameObject.parametric_keywords` — landwalk/annihilator/afflict/bushido
+  now consume theirs.
 - **Depends on:** M1 keyword catalogue (done) + cost/targeting systems (done).
-- Backlog: `ToDo_Backend.md` "Rules Engine … parser" progress note.
+- Backlog: `ToDo_Backend.md` "M2 parametric keyword behaviour".
 
 ### M3 — Layer system completion (RULE 613) — done, two corners deliberately deferred
 **Goal:** finish `game/continuous.py` to the full layer set.

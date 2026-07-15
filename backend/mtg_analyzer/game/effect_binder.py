@@ -18,6 +18,7 @@ from __future__ import annotations
 
 from typing import Any, Callable, Optional, Union
 
+from ..models.events import EventType
 from ..parser.oracle.spec import AbilitySpec, EffectSpec
 from .costs import parse_activation_cost
 from .effects import (
@@ -25,8 +26,11 @@ from .effects import (
     AttachEffect,
     EffectRegistry,
     GameEffect,
+    LoseLifeEffect,
+    PumpEffect,
     ReplacementEffect,
     ReplacementRegistry,
+    SacrificeEffect,
     StaticAbility,
     TriggeredAbility,
 )
@@ -40,9 +44,12 @@ _SUPPORTED_KINDS: frozenset[str] = frozenset(
 )
 
 #: Params that make a keyword *parametric* (kicker cost, annihilator N,
-#: protection quality). Only flag keywords (name alone) bind today; parametric
-#: keywords need dedicated behaviour (alternative costs, etc.) and are carried
-#: in the spec but not yet bound.
+#: protection quality). Every parametric keyword's parameter is carried onto
+#: `GameObject.parametric_keywords`; landwalk, annihilator/afflict/bushido
+#: (`_keyword_triggered_abilities`) and equip/fortify/reconfigure
+#: (`_keyword_activated_ability`) also get real behaviour wired in at bind
+#: time. The rest (kicker/ward/rampage/protection quality/…) are still
+#: carried-but-inert — see `ToDo_Backend.md` "Rules Engine … M2".
 _PARAMETRIC_KEYWORD_KEYS: frozenset[str] = frozenset({"n", "cost", "quality"})
 
 
@@ -378,6 +385,88 @@ def _keyword_activated_ability(obj: Any, spec: AbilitySpec) -> Optional[Activate
     )
 
 
+def _self_only_condition(instance_id: Optional[int]) -> Callable[[Any, Any], bool]:
+    """A trigger condition matching only events about ``instance_id`` itself —
+    the same "self" scoping `_subject_condition` gives an oracle-parsed
+    trigger, for the hand-synthesized combat-math keyword abilities below
+    (which carry no oracle-text ``condition`` dict to read one from)."""
+
+    def _check(event: Any, context: Any, iid=instance_id) -> bool:
+        return event.get("instance_id") == iid
+
+    return _check
+
+
+def _keyword_triggered_abilities(obj: Any, spec: AbilitySpec) -> list[TriggeredAbility]:
+    """Synthesize real triggered abilities for combat-math keywords whose
+    RULE 702 text *is* a triggered ability — annihilator (702.86), afflict
+    (702.130), bushido (702.45) — mirroring `_keyword_activated_ability`'s
+    Equip/Fortify/Reconfigure treatment: these route through the ordinary
+    stack/priority/response pipeline like any parsed "when ~ attacks..."
+    trigger, rather than being special-cased procedurally in `game/combat.py`
+    alongside the purely-static evasion keywords (flying, trample, ...),
+    since a player can actually respond to any of the three.
+
+    Rampage (702.23) is deliberately not built here: its pump amount scales
+    with the *specific* block's final blocker count, which needs the
+    triggering event's data threaded through to resolution — `TriggeredAbility`
+    binds one fixed `effects` list once at bind-on-load and reuses it for
+    every firing (see `RulesEngine._place_trigger`), so a per-firing dynamic
+    amount needs a new "build effects from this event" seam none of
+    annihilator/afflict/bushido need. Left for a follow-up.
+    """
+    keyword = spec.keyword or {}
+    name = str(keyword.get("name") or "")
+    n = keyword.get("n")
+    if n is None:
+        return []
+    n = int(n)
+    condition = _self_only_condition(getattr(obj, "instance_id", None))
+
+    if name == "annihilator":
+        return [
+            TriggeredAbility(
+                trigger_event=EventType.ATTACKS,
+                effects=[SacrificeEffect(count=n, selector="defending_player")],
+                condition=condition,
+                source=obj,
+                description=spec.raw_text or f"Annihilator {n}",
+            )
+        ]
+    if name == "afflict":
+        return [
+            TriggeredAbility(
+                trigger_event=EventType.BECOMES_BLOCKED,
+                effects=[LoseLifeEffect(amount=n, selector="defending_player")],
+                condition=condition,
+                source=obj,
+                description=spec.raw_text or f"Afflict {n}",
+            )
+        ]
+    if name == "bushido":
+        # RULE 702.45a: bushido triggers both when this creature blocks
+        # (BLOCKS, this object as the blocker) and when it becomes blocked
+        # (BECOMES_BLOCKED, this object as the attacker) — two abilities,
+        # each pumping only in the combat where its own event fired.
+        return [
+            TriggeredAbility(
+                trigger_event=EventType.BLOCKS,
+                effects=[PumpEffect(power=n, toughness=n)],
+                condition=condition,
+                source=obj,
+                description=spec.raw_text or f"Bushido {n}",
+            ),
+            TriggeredAbility(
+                trigger_event=EventType.BECOMES_BLOCKED,
+                effects=[PumpEffect(power=n, toughness=n)],
+                condition=condition,
+                source=obj,
+                description=spec.raw_text or f"Bushido {n}",
+            ),
+        ]
+    return []
+
+
 def _attach_modes(obj: Any, modes: dict[str, Any]) -> None:
     """Bind a modal spell's "Choose one —" options onto ``obj`` (RULE 700.2).
 
@@ -429,6 +518,7 @@ def attach_to_object(obj: Any, specs: list[AbilitySpec]) -> None:
             keyword_ability = _keyword_activated_ability(obj, spec)
             if keyword_ability is not None:
                 obj.activated_abilities.append(keyword_ability)
+            obj.triggered_abilities.extend(_keyword_triggered_abilities(obj, spec))
             continue
         bound = bind_ability(spec, source=obj)
         if spec.ability_kind == "spell_effect":

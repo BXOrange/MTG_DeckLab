@@ -1147,6 +1147,16 @@ class GameEngine:
                     f"{attacker.name} has menace and must be blocked by two or more creatures"
                 )
 
+        # RULE 702.130/702.45/702.23 (afflict/bushido/rampage): capture, before
+        # any mutation, which attackers are transitioning from unblocked to
+        # blocked this call — BECOMES_BLOCKED fires once per such attacker,
+        # never once per blocker, only on that transition (RULE 509.5).
+        newly_blocked = [
+            attacker
+            for attacker in {attacker.instance_id: attacker for _, attacker in resolved}.values()
+            if not attacker.blocked_by
+        ]
+
         for blocker, attacker in resolved:
             blocker.blocking = attacker.instance_id
             if blocker.instance_id not in attacker.blocked_by:
@@ -1158,6 +1168,18 @@ class GameEngine:
                     player_id=player.id,  # RULE 509.1b: the blocker's controller
                     instance_id=blocker.instance_id,
                     object_types=sorted(blocker.type_words),
+                )
+            )
+
+        for attacker in newly_blocked:
+            self.state.fire_event(
+                GameEvent(
+                    EventType.BECOMES_BLOCKED,
+                    attacker=attacker.name,
+                    player_id=attacker.controller_id,  # the attacker's own controller
+                    instance_id=attacker.instance_id,
+                    object_types=sorted(attacker.type_words),
+                    blocker_count=len(attacker.blocked_by),
                 )
             )
 

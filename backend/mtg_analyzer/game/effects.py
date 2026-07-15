@@ -133,6 +133,12 @@ class GameContext:
     def gain_life(self, player: "Player", amount: int) -> None:
         self.engine.gain_life(player, amount)
 
+    def lose_life(self, player: "Player", amount: int) -> None:
+        self.engine.lose_life(player, amount, cause="effect")
+
+    def sacrifice(self, player: "Player", what: str = "permanent", count: int = 1) -> None:
+        self.engine.sacrifice(player, what, count)
+
     def request_search(
         self,
         player: "Player",
@@ -184,6 +190,34 @@ def _controller_of(source: Optional["GameObject"], context: GameContext) -> Opti
         except (KeyError, ValueError):
             pass
     return context.active_player
+
+
+def _defending_player_of(source: Optional["GameObject"], context: GameContext) -> Optional["Player"]:
+    """The player ``source`` (an attacking creature) is attacking (RULE 506.4),
+    for a combat-math keyword's "defending player" clause (annihilator 702.86,
+    afflict 702.130). Reads the ``combat_defender`` spec `declare_attackers`
+    stamped onto the attacker — a player id directly, or a planeswalker's
+    controller when the attack target was a planeswalker (RULE 506.4d).
+    ``None`` if ``source`` isn't a live, currently-attacking object (e.g. a
+    hand-built test event with no real attack declared).
+    """
+    spec = getattr(source, "combat_defender", None)
+    if not spec:
+        return None
+    if spec.get("kind") == "player":
+        try:
+            return context.state.player_by_id(spec["id"])
+        except (KeyError, ValueError):
+            return None
+    if spec.get("kind") == "planeswalker":
+        pw = context.state.find_object(spec["instance_id"])
+        if pw is None:
+            return None
+        try:
+            return context.state.player_by_id(pw.controller_id)
+        except (KeyError, ValueError):
+            return None
+    return None
 
 
 # ---------------------------------------------------------------------------
@@ -610,6 +644,70 @@ class GainLifeEffect(GameEffect):
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
         player = self.player or (targets[0] if targets else None) or context.active_player
         context.gain_life(player, self.amount)
+
+
+class LoseLifeEffect(GameEffect):
+    """A player loses ``amount`` life (RULE 118/119) — untargeted.
+
+    ``selector="defending_player"`` (afflict, RULE 702.130) resolves the
+    player dynamically at apply-time via `_defending_player_of`, since the
+    same bound ability fires against a different defender each combat;
+    a plain ``player``/target keeps the shape every other simple player
+    effect (`GainLifeEffect`, `DiscardEffect`) already uses.
+    """
+
+    def __init__(
+        self,
+        amount: int = 0,
+        player: Any = None,
+        selector: Optional[str] = None,
+        source: Optional["GameObject"] = None,
+    ) -> None:
+        super().__init__(source)
+        self.amount = amount
+        self.player = player
+        self.selector = selector
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        player = self.player or (targets[0] if targets else None)
+        if player is None and self.selector == "defending_player":
+            player = _defending_player_of(self.source, context)
+        if player is None:
+            player = context.active_player
+        context.lose_life(player, self.amount)
+
+
+class SacrificeEffect(GameEffect):
+    """A player sacrifices up to ``count`` permanents matching ``what``
+    (RULE 701.17) — untargeted, an MVP auto-choice matching
+    `GameEngine._sacrifice_candidate`'s non-interactive convention (an
+    interactive picker is a future upgrade, not modeled here).
+
+    ``selector="defending_player"`` (annihilator, RULE 702.86) resolves the
+    player dynamically at apply-time, the same way `LoseLifeEffect` does.
+    """
+
+    def __init__(
+        self,
+        count: int = 1,
+        what: str = "permanent",
+        player: Any = None,
+        selector: Optional[str] = None,
+        source: Optional["GameObject"] = None,
+    ) -> None:
+        super().__init__(source)
+        self.count = count
+        self.what = what
+        self.player = player
+        self.selector = selector
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        player = self.player or (targets[0] if targets else None)
+        if player is None and self.selector == "defending_player":
+            player = _defending_player_of(self.source, context)
+        if player is None:
+            return
+        context.sacrifice(player, self.what, self.count)
 
 
 class CounterSpellEffect(GameEffect):

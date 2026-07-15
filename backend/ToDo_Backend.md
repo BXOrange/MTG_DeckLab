@@ -154,15 +154,43 @@ Weeks 1–4 roadmap is archived at
       triggers, "add 1 mana of any color" (a mana *choice*); oracle-text
       *recognition* of replacement clauses (the binder is ready; a
       target/duration grammar for the front-end is not); parse-on-load
-      memoization in `LazyCardLoader`; *behaviour* for the remaining
-      parametric keywords (alternative costs, combat maths); and the
-      remaining processing-list tail (run `parser/oracle/
+      memoization in `LazyCardLoader`; and the remaining processing-list tail
+      (run `parser/oracle/
       processing_list.coverage_over_cards` for the current ranking —
       top blockers now: "\<cost\>: untap this artifact", prohibition
       statics ("activated abilities of artifacts can't be activated",
       "players can't draw cards"), cost-modification statics
       ("noncreature spells cost {1} more to cast"), emblems, and
       "for each"-scaled effects).
+- [~] **M2 parametric keyword behaviour**: annihilator/afflict/bushido and
+      hexproof-as-a-targeting-filter shipped — moved to
+      [Done_Backend.md](../docs/implementation-state/Done_Backend.md) "Rules
+      Engine (Phase 2)". Still open: **rampage** (702.23) — its pump amount
+      scales with the specific block's final blocker count, which needs a
+      per-firing "build effects from this triggering event" seam
+      `TriggeredAbility` doesn't have yet (it binds one fixed `effects` list
+      once at bind-on-load); **ward** (702.21) — needs a new "becomes the
+      target" interception point cutting across both `cast_spell` and
+      `activate_ability` (the pay-or-counter mechanics themselves are
+      directly reusable from `RulesEngine.counter_unless_pays`); and the
+      alternative/additional-cost keyword family (**kicker**/multikicker/
+      buyback/escape/flashback) — kicker/buyback fit the existing `x`/`mode`
+      cast-time-parameter pattern (`GameEngine.cast_spell`) plus a new
+      "add another full `ManaCost`" method and (for buyback) a resolve-time
+      zone-routing branch mirroring the adventure-snapshot exile branch in
+      `RulesEngine.resolve_top_of_stack`; escape/flashback need a
+      cast-from-graveyard zone gate in `GameEngine.can_cast`/`legal_actions`
+      (the low-level engine — `_remove_from_current_zone`,
+      `cast_without_paying` — is already zone-agnostic by design); escape's
+      "exile N other cards from your graveyard" cost component is currently
+      silently dropped by the parser and needs new grammar work first;
+      multikicker also needs its "repeatable" identity preserved through
+      parsing (today's `_ALIASES` collapses it onto plain Kicker,
+      indistinguishable post-parse). Also noted in passing: `Hexproof from
+      X`'s "from X" quality is silently dropped (aliased onto plain
+      `hexproof`, a `FLAG`-shaped catalogue row) rather than scoped — safe
+      (overprotective, not a legality bug) but not fully accurate; would need
+      giving `Hexproof` a `QUALITY` shape like `Protection`'s.
 - [ ] Leaves-the-battlefield triggers don't "look back in time" (RULE
       603.6a): `RulesEngine._move_to_graveyard` fires `DIES`/
       `LEAVES_BATTLEFIELD` *after* removing the object, and

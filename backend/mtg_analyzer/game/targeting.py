@@ -101,13 +101,20 @@ def spell_target_specs(obj: GameObject) -> list[TargetSpec]:
     return specs
 
 
-def _not_protected(obj: GameObject, source: Optional[GameObject]) -> bool:
+def _targetable_by(obj: GameObject, source: Optional[GameObject]) -> bool:
     """Whether ``obj`` is a legal target/attachment host for ``source`` under
-    protection (RULE 702.16b/e: protection prevents being targeted by, or
-    enchanted/equipped/fortified by, a source of the stated quality)."""
+    protection and hexproof (RULE 702.16b/e: protection prevents being
+    targeted by, or enchanted/equipped/fortified by, a source of the stated
+    quality; RULE 702.11b: hexproof prevents being targeted by a spell/
+    ability an *opponent* controls — unlike protection, a controller's own
+    spells/abilities can still target their own hexproof permanent)."""
     if source is None:
         return True
-    return not combat.is_protected_from(obj, source)
+    if combat.is_protected_from(obj, source):
+        return False
+    if combat.has_hexproof(obj) and obj.controller_id != source.controller_id:
+        return False
+    return True
 
 
 def _spell_matches_filter(obj: GameObject, spell_filter: dict[str, Any]) -> bool:
@@ -153,7 +160,9 @@ def legal_targets(
     target itself where that's illegal (RULE 115.6 for the common cases here),
     and excludes any object protected from ``source`` (RULE 702.16b: can't be
     the target of, or be enchanted/equipped/fortified by, a source of the
-    protected quality) — the offer-time half, matching how a locked action
+    protected quality) or hexproof against it (RULE 702.11b: can't be
+    targeted by an opponent's spell/ability) — the offer-time half, matching
+    how a locked action
     already keeps a spell with no legal targets from being cast (601.2c).
     Determinism/serializability matters: these descriptors flow to the UI and
     back through `game_session._resolve_targets`.
@@ -173,19 +182,19 @@ def legal_targets(
                 for o in state.battlefield
                 if (o.is_creature or o.card.is_artifact)
                 and o is not source
-                and _not_protected(o, source)
+                and _targetable_by(o, source)
             ]
         if attachment_kind == "reconfigure":
             return [
                 {"instance_id": o.instance_id, "name": o.name}
                 for o in state.battlefield
-                if o.is_creature and o is not source and _not_protected(o, source)
+                if o.is_creature and o is not source and _targetable_by(o, source)
             ]
         if attachment_kind == "fortify":
             return [
                 {"instance_id": o.instance_id, "name": o.name}
                 for o in state.battlefield
-                if o.is_land and o is not source and _not_protected(o, source)
+                if o.is_land and o is not source and _targetable_by(o, source)
             ]
         if attachment_kind == "enchant":
             quality = ((source.parametric_keywords or {}).get("enchant") or {}).get("quality", "")
@@ -194,37 +203,37 @@ def legal_targets(
                 return [
                     {"instance_id": o.instance_id, "name": o.name}
                     for o in state.battlefield
-                    if o is not source and _not_protected(o, source)
+                    if o is not source and _targetable_by(o, source)
                 ]
             if quality == "creature":
                 return [
                     {"instance_id": o.instance_id, "name": o.name}
                     for o in state.battlefield
-                    if o.is_creature and o is not source and _not_protected(o, source)
+                    if o.is_creature and o is not source and _targetable_by(o, source)
                 ]
             if quality == "artifact":
                 return [
                     {"instance_id": o.instance_id, "name": o.name}
                     for o in state.battlefield
-                    if o.card.is_artifact and o is not source and _not_protected(o, source)
+                    if o.card.is_artifact and o is not source and _targetable_by(o, source)
                 ]
             if quality == "enchantment":
                 return [
                     {"instance_id": o.instance_id, "name": o.name}
                     for o in state.battlefield
-                    if o.card.is_enchantment and o is not source and _not_protected(o, source)
+                    if o.card.is_enchantment and o is not source and _targetable_by(o, source)
                 ]
             if quality == "land":
                 return [
                     {"instance_id": o.instance_id, "name": o.name}
                     for o in state.battlefield
-                    if o.is_land and o is not source and _not_protected(o, source)
+                    if o.is_land and o is not source and _targetable_by(o, source)
                 ]
             if quality == "planeswalker":
                 return [
                     {"instance_id": o.instance_id, "name": o.name}
                     for o in state.battlefield
-                    if o.is_planeswalker and o is not source and _not_protected(o, source)
+                    if o.is_planeswalker and o is not source and _targetable_by(o, source)
                 ]
     if kind == "player":
         return [
@@ -235,7 +244,7 @@ def legal_targets(
         objs = [
             {"instance_id": o.instance_id, "name": o.name}
             for o in state.battlefield
-            if o.is_creature and o is not source and _not_protected(o, source)
+            if o.is_creature and o is not source and _targetable_by(o, source)
         ]
         players = [{"player_id": p.id, "name": p.name} for p in state.living_players()]
         return objs + players
@@ -245,7 +254,7 @@ def legal_targets(
             for o in state.battlefield
             if (kind == "permanent" or o.is_creature)
             and o is not source
-            and _not_protected(o, source)
+            and _targetable_by(o, source)
         ]
     if kind in ("creature_you_control", "land_you_control"):
         # RULE 115/603.3c controller-restricted pick — and the same shape for
@@ -258,7 +267,7 @@ def legal_targets(
             if (o.is_land if wants_land else o.is_creature)
             and o.controller_id == controller_id
             and o is not source
-            and _not_protected(o, source)
+            and _targetable_by(o, source)
         ]
     if kind == "graveyard_creature":
         # RULE 115: "target creature card from your graveyard" — restricted
