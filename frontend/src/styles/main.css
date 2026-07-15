@@ -168,8 +168,67 @@ body {
   display: flex;
 }
 
+.app-header-right {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  flex: 0 0 auto;
+}
+
 #header-connection-status {
   flex: 0 0 auto;
+}
+
+.icon-button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  padding: 0;
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: 50%;
+  cursor: pointer;
+}
+
+.icon-button svg {
+  width: 18px;
+  height: 18px;
+  fill: none;
+  stroke: var(--text-dim);
+  stroke-width: 1.6;
+}
+
+.settings-button svg {
+  fill: var(--text-dim);
+  stroke: none;
+}
+
+.settings-button.active {
+  border-color: var(--accent);
+}
+
+.settings-button.active svg {
+  fill: var(--accent);
+}
+
+.profile-button svg {
+  fill: var(--text-dim);
+  stroke: none;
+}
+
+.profile-button.active {
+  border-color: var(--accent);
+}
+
+.profile-button.active svg {
+  fill: var(--accent);
+}
+
+.profile-button:hover,
+.settings-button:hover {
+  border-color: var(--text-dim);
 }
 
 .connection-indicator {
@@ -208,6 +267,15 @@ body {
   color: #1b1e24;
   border-color: var(--accent);
   font-weight: 600;
+}
+
+.tab-button.icon-button {
+  padding: 0;
+  border-radius: 50%;
+}
+
+.tab-button.icon-button.active {
+  background: transparent;
 }
 
 main {
@@ -380,11 +448,12 @@ textarea {
 
 .save-deck-controls {
   display: flex;
+  flex-wrap: wrap;
   gap: 0.5rem;
 }
 
 .save-deck-controls input {
-  flex: 1;
+  flex: 1 1 140px;
   background: var(--bg);
   color: var(--text);
   border: 1px solid var(--border);
@@ -670,7 +739,8 @@ textarea {
   width: 4rem;
 }
 
-#cache-filter-reset {
+#cache-filter-reset,
+#saved-decks-filter-reset {
   align-self: flex-end;
 }
 
@@ -1321,6 +1391,15 @@ textarea {
 .saved-deck-commander {
   color: var(--text-dim);
   font-size: 0.82rem;
+}
+
+.saved-deck-author {
+  color: var(--text-dim);
+  font-size: 0.82rem;
+}
+
+.saved-deck-row--hidden {
+  display: none;
 }
 
 .saved-deck-meta {

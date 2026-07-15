@@ -1,8 +1,12 @@
 # Frontend TODO
 
-Open frontend items. Completed work has moved to
+Open frontend items only — **when an item is finished, move its narrative
+into the matching section of
 [Done_Frontend.md](../docs/implementation-state/Done_Frontend.md) (section
-headers there mirror these). No Node/npm on this machine, so there's no JS linter/test runner
+headers here mirror there) instead of leaving it checked off in place**; a
+one-line "moved to Done_Frontend.md, section name" pointer, or deleting the
+line outright, is enough — see CLAUDE.md "Conventions & gotchas". No
+Node/npm on this machine, so there's no JS linter/test runner
 and no way to drive a real browser — changes are verified by reading the
 code plus replaying the equivalent API calls against a running backend,
 **not** by an actual rendered page (see "Cleanup / polish").

@@ -50,6 +50,19 @@ class TestAnalysisHook:
         assert deck.analysis_id == "analysis-123"
 
 
+class TestAuthor:
+    def test_author_defaults_to_none(self):
+        assert Deck().author is None
+
+    def test_author_can_be_set(self):
+        deck = Deck(author="Alex")
+        assert deck.author == "Alex"
+
+    def test_author_can_be_empty(self):
+        deck = Deck(author="")
+        assert deck.author == ""
+
+
 class TestCachedIdentity:
     def test_color_identity_and_commanders_default_to_none(self):
         deck = Deck()
@@ -91,6 +104,7 @@ class TestSerialization:
             "createdAt",
             "analysisId",
             "sleeveId",
+            "author",
             "colorIdentity",
             "commanders",
         }

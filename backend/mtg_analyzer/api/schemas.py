@@ -29,6 +29,7 @@ class SaveDeckRequest(BaseModel):
     mainboard_text: str = Field(default="", alias="mainboardText")
     sideboard_text: str = Field(default="", alias="sideboardText")
     sleeve_id: Optional[str] = Field(default=None, alias="sleeveId")
+    author: Optional[str] = None
 
 
 class DeckSubmission(BaseModel):

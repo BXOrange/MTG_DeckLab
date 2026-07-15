@@ -67,6 +67,8 @@ def save_deck(
         # full deck with a new sleeveId), but preserved across unrelated
         # edits (e.g. re-saving decklist text) when the caller omits it.
         sleeve_id=request.sleeve_id if request.sleeve_id is not None else (existing.sleeve_id if existing else None),
+        # Same preserve-on-omission treatment as sleeve_id above.
+        author=request.author if request.author is not None else (existing.author if existing else None),
         # Reset when the decklist text actually changed (stale cache), keep
         # the cached values otherwise (e.g. a sleeve-only re-save).
         color_identity=None if text_changed else existing.color_identity,

@@ -52,6 +52,7 @@ class TestSaveDeck:
         assert body["commanderText"] == "1 Krenko, Mob Boss\n"
         assert body["id"]
         assert body["analysisId"] is None
+        assert body["author"] is None
 
     def test_saving_twice_without_id_creates_two_decks(self):
         database = _override_database()
@@ -92,6 +93,40 @@ class TestSaveDeck:
         ).json()
 
         assert updated["analysisId"] == "analysis-123"
+
+    def test_save_with_author_persists_it(self):
+        _override_database()
+        client = TestClient(app)
+
+        created = client.post("/api/decks/save", json={"name": "Goblins", "author": "Alex"}).json()
+
+        assert created["author"] == "Alex"
+
+    def test_update_preserves_author_when_omitted(self):
+        _override_database()
+        client = TestClient(app)
+
+        created = client.post("/api/decks/save", json={"name": "Goblins", "author": "Alex"}).json()
+
+        updated = client.post(
+            "/api/decks/save",
+            json={"id": created["id"], "name": "Goblins v2", "mainboardText": "1 Sol Ring\n"},
+        ).json()
+
+        assert updated["author"] == "Alex"
+
+    def test_author_can_be_cleared(self):
+        _override_database()
+        client = TestClient(app)
+
+        created = client.post("/api/decks/save", json={"name": "Goblins", "author": "Alex"}).json()
+
+        updated = client.post(
+            "/api/decks/save",
+            json={"id": created["id"], "name": "Goblins", "author": ""},
+        ).json()
+
+        assert updated["author"] == ""
 
 
 class TestListDecks:

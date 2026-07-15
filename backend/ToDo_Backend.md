@@ -1,8 +1,14 @@
 # Backend TODO
 
-Open backend items. Completed work has moved to
+Open backend items only — **when an item is finished, move its narrative
+into the matching section of
 [Done_Backend.md](../docs/implementation-state/Done_Backend.md) (section
-headers there mirror these).
+headers here mirror there) instead of leaving it `[x]` in place.** This file
+is read in full fairly often (by humans and Claude); a `[x]` entry with a
+full writeup left behind defeats the split and re-bloats every future read.
+A one-line "moved to Done_Backend.md, section name" pointer, or just
+deleting the line outright, is enough — the ToDo/Done split only pays off if
+it's kept up, see CLAUDE.md "Conventions & gotchas".
 See [../docs/implementation-state/10_COMPLETION_ROADMAP.md](../docs/implementation-state/10_COMPLETION_ROADMAP.md)
 for the dependency-ordered plan to finish the implementation. The original
 Weeks 1–4 roadmap is archived at
@@ -235,56 +241,11 @@ Weeks 1–4 roadmap is archived at
       now, regardless of timestamp; every other sublayer is provably safe
       to leave on pure timestamp order. Tests: `test_continuous.py`,
       `test_effect_binder.py` (`TestStaticEffectRegistryBridges`).
-- [x] "Become a copy of target permanent/creature" (RULE 706/707) — three
-      distinct mechanisms, all sharing `game/copy_mechanics.py`'s mutate/
-      snapshot/restore primitives (`become_copy`/`snapshot_face`/
-      `restore_face`, moved out of `rules_engine.py` so `continuous.py` can
-      call them without an import cycle):
-      1. **Permanent ETB copy** (Clever Impersonator/Phantasmal Image/Copy
-         Artifact) — now wired through **true RULE 614.1c/614.12
-         replacement timing**, not the previous ENTERS_BATTLEFIELD-trigger
-         simplification: an `enter_replacement` `AbilitySpec`/
-         `enter_as_copy` `EffectSpec` binds an `EnterAsCopyReplacement`
-         onto `GameObject.enter_as_copy_effects`, and `RulesEngine.
-         _resolve_permanent_spell`/`_offer_enter_as_copy` (called from
-         `resolve_top_of_stack`) offer/resolve the choice — opening a new
-         `enter_as_copy` `pending_choice` if there's a legal target —
-         *before* the object is ever added to the battlefield/fires
-         ENTERS_BATTLEFIELD, so it's never observably "itself" first (the
-         old trigger-based version's actual bug: the fired event carried no
-         `instance_id`, so the trigger couldn't even scope to its own
-         entry). `resolve_enter_as_copy_choice` finishes the job via
-         `copy_mechanics.become_copy`. `create_token`'s token-creation path
-         still doesn't offer this (a token copy of one of these cards is a
-         known, scoped, undemonstrated-by-any-card gap — see its
-         docstring).
-      2. **Continuous conditional copy** (Vesuvan Shapeshifter's "as long as
-         untapped, ~ is a copy of another target creature") — a genuine new
-         RULE 613 **layer 1**, `continuous._apply_copy_layer`: transition-
-         only (only mutates on a condition/target *change*, never every
-         pass — re-running `become_copy` unconditionally would destroy
-         per-turn bookkeeping on the copy's own granted triggered
-         abilities) and, per the real card's ruling, permanently "locks in"
-         once it copies a creature with no equivalent ability (no "ability
-         disappeared → revert" branch). `RulesEngine.set_copy_target`
-         (`GameObject.copy_target_id`) and a new `conditional_copy`
-         `EffectSpec` → `StaticAbility("copy", …)` drive it.
-      3. **Temporary "… until end of turn" copy** (Cursed Mirror) —
-         `RulesEngine.become_copy_until_end_of_turn`, reverted by
-         `GameEngine._step_cleanup` (RULE 514.2, the same step that already
-         ends pump/keyword "until end of turn" effects) via a stashed
-         `GameObject._copy_until_eot_base` snapshot.
 
-      `Card.as_copy` (name, mana cost, colours, type/subtypes, rules text,
-      P/T, loyalty; RULE 706.2) is the shared copiable-values computation
-      underneath all three; everything RULE 706.2 doesn't cover (instance
-      id, zone, owner, controller, counters, tapped state, attachments) is
-      untouched. Tests: `test_card.py` (`TestAsCopy`),
-      `test_ability_catalogue.py`, `test_continuous.py`
-      (conditional-copy section), `test_effect_binder.py`,
-      `test_effect_families.py` (cleanup-reverts-the-until-EOT-copy),
-      `test_game_engine.py` (`test_become_copy_*`, `test_cursed_mirror_*`),
-      `test_trigger_targeting.py`.
+      "Become a copy of target permanent/creature" (RULE 706/707, incl. the
+      layer-1 continuous form) shipped — moved to
+      [Done_Backend.md](../docs/implementation-state/Done_Backend.md)
+      "Rules Engine (Phase 2)".
 
 ## Card-type & structural coverage (Backlog)
 
@@ -316,11 +277,11 @@ eventually own. Roughly in decreasing commonness:
       combat damage to a player"); CDA-based Leveler P/T (``*/*``, no card
       in the pool needs it); a Leveler's rare non-keyword *base*
       (pre-`LEVEL`) ability line (parsed ungated).
-- [x] Copying objects (RULE 707): **token copies** —
-      `RulesEngine.copy_permanent` + the `copy_permanent` effect create a token
-      clone of a target permanent's copiable card. **"Becomes a copy of" as
-      a layer-1 continuous effect is also done now** — see "Become a copy
-      of target permanent/creature" above (Vesuvan Shapeshifter).
+
+      Copying objects (RULE 707, token copies + "becomes a copy of") shipped
+      — moved to
+      [Done_Backend.md](../docs/implementation-state/Done_Backend.md)
+      "Card-type & structural coverage".
 - [ ] Battles (RULE 310) and Dungeons (RULE 309) — new type lines with
       their own attack/venture subsystems.
 - [ ] Niche/format extras: Emblems (RULE 114), Stickers (RULE 123), the

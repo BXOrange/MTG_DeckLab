@@ -156,7 +156,7 @@ export async function listCachedCards() {
 
 /**
  * Save a new deck, or update one already saved (pass its `id` back).
- * @param {{id?: string, name: string, commanderText: string, mainboardText: string, sideboardText: string}} deck
+ * @param {{id?: string, name: string, commanderText: string, mainboardText: string, sideboardText: string, sleeveId?: string | null, author?: string | null}} deck
  * @returns {Promise<object | null>} the saved deck (with its id), or null on failure
  */
 export async function saveDeck(deck) {

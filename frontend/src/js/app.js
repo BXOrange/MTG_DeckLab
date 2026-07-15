@@ -7,6 +7,7 @@ import { renderCachedCardsView } from './cachedCardsView.js';
 import { renderSavedDecksView } from './savedDecksView.js';
 import { renderAnalyzeView } from './analyzeView.js';
 import { renderConnectionSettingsView } from './connectionSettingsView.js';
+import { renderProfileView } from './profileView.js';
 import { renderImplementationStatusView } from './implementationStatusView.js';
 import { renderConnectionIndicator } from './connectionStatus.js';
 import { initCardHoverDetail } from './cardHoverDetail.js';
@@ -33,6 +34,7 @@ const views = {
   multiplayer: document.getElementById('view-multiplayer'),
   cache: document.getElementById('view-cache'),
   connection: document.getElementById('view-connection'),
+  profile: document.getElementById('view-profile'),
   status: document.getElementById('view-status'),
 };
 
@@ -97,6 +99,7 @@ renderSavedDecksView(views.savedDecks, {
   },
 });
 renderConnectionSettingsView(views.connection);
+renderProfileView(views.profile);
 renderImplementationStatusView(views.status);
 
 showTab('import');
