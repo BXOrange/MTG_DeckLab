@@ -750,6 +750,42 @@ class CounterSpellEffect(GameEffect):
             context.counter(target, unless_pays=self.unless_pays, source=self.source)
 
 
+class WardEffect(GameEffect):
+    """A ward triggered ability's own resolution body (RULE 702.21a):
+    "counter that spell or ability unless that player pays [cost]."
+
+    Unlike `CounterSpellEffect`/`CounterSpellEffect.unless_pays` (where the
+    *target's controller* decides whether to pay — RULE 601's "Mana Leak"
+    template), ward's decision belongs to the *caster* of the countered
+    item. ``item``/``caster_id``/``cost`` are fixed the moment the warded
+    permanent became a target (RULE 603.3a's trigger-time lock-in), not
+    re-derived here — so even if the caster or the item's legality changes
+    before this resolves, the ability still asks the right player about the
+    right item (RULE 603.6/603.10 "look back in time").
+
+    Never built via `EffectRegistry` — always constructed directly by
+    `RulesEngine.check_ward`, one instance per warded target, each wrapped
+    in its own `StackItem` placed on top of the triggering spell/ability so
+    normal priority-passing carries it (RULE 603.3), rather than resolved
+    inline as a synchronous choice.
+    """
+
+    def __init__(
+        self,
+        item: Any,
+        caster_id: str,
+        cost: Any,
+        source: Optional["GameObject"] = None,
+    ) -> None:
+        super().__init__(source)
+        self.item = item
+        self.caster_id = caster_id
+        self.cost = cost
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        context.engine.resolve_ward_effect(self.item, self.caster_id, self.cost)
+
+
 class CantBeCounteredEffect(GameEffect):
     """Marker: "This spell can't be countered." (RULE 118-area).
 

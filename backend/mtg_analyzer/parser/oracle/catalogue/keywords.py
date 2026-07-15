@@ -112,6 +112,20 @@ _SPECIAL_REGEX: dict[str, re.Pattern[str]] = {
     "gift": re.compile(r"gift an? (?P<quality>[a-z][a-z ]*?)(?=[.\n(]|$)", re.I),
 }
 
+#: Ward's cost line may be a non-mana clause ("Ward—Discard a card.",
+#: "Ward—Pay 3 life.", "Ward—Sacrifice a creature.") that the mana-only
+#: ``_auto_regex`` COST pattern above can't see (RULE 702.21 puts no
+#: constraint on the cost's shape, unlike most other COST-shaped keywords in
+#: this table, which are mana-only on every real card). Captured as free
+#: text — not whitespace-collapsed like a mana run — so
+#: `game/costs.parse_activation_cost` (the same grammar a "<cost>: <effect>"
+#: activated ability's cost already goes through, RULE 602.1) can recognize
+#: it downstream. Only consulted as a fallback when the mana regex above
+#: finds nothing.
+_WARD_TEXT_COST_RE = re.compile(
+    r"\bward\b[\s—-]*(?P<cost>[a-zA-Z][^.\n(]*?)\s*(?=[.\n(]|$)", re.I
+)
+
 
 def _auto_regex(display: str, shape: KeywordShape) -> Optional[re.Pattern[str]]:
     """The parameter extractor for a *regular* parametric keyword.
@@ -421,9 +435,12 @@ def _clause_for(text: str, display: str) -> str:
 def _extract_param(kdef: KeywordDef, text: str, forced_quality: Optional[str]) -> dict:
     """Build the keyword's ``{name, param?}`` dict, extracting from oracle text.
 
-    Fail-safe: if a parametric keyword's regex finds nothing (e.g. ``Ward—Pay
-    3 life`` carries no mana cost), the parameter is simply omitted rather
-    than guessed — a bare, still-valid keyword spec (docs/09 "fail-closed").
+    Fail-safe: if a parametric keyword's regex finds nothing, the parameter
+    is simply omitted rather than guessed — a bare, still-valid keyword spec
+    (docs/09 "fail-closed"). Ward (RULE 702.21) is the one exception: a
+    non-mana cost falls back to `_WARD_TEXT_COST_RE` instead of staying
+    bare, since its cost is genuinely modeled downstream (`game/costs.
+    parse_activation_cost`), not merely carried.
     """
     param: dict = {"name": kdef.slug}
     if forced_quality:
@@ -439,6 +456,10 @@ def _extract_param(kdef: KeywordDef, text: str, forced_quality: Optional[str]) -
                 param["cost"] = re.sub(r"\s+", "", groups["cost"])
             if groups.get("quality"):
                 param["quality"] = groups["quality"].strip()
+    if kdef.slug == "ward" and "cost" not in param:
+        fallback = _WARD_TEXT_COST_RE.search(text)
+        if fallback:
+            param["cost"] = fallback.group("cost").strip()
     return param
 
 

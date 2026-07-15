@@ -52,7 +52,7 @@ function labelStep(name) {
 const CHOICE_ICONS = {
   search: '🔎', cascade: '🌊', discover: '🔮', replacement_order: '⚖️',
   land_tapped: '💧', order_triggers: '🔀', trigger_target: '🎯',
-  enter_as_copy: '🪞', counter_unless_pays: '🚫',
+  enter_as_copy: '🪞', counter_unless_pays: '🚫', ward: '🛡️',
 };
 
 /**

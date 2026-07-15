@@ -162,18 +162,21 @@ Weeks 1–4 roadmap is archived at
       "players can't draw cards"), cost-modification statics
       ("noncreature spells cost {1} more to cast"), emblems, and
       "for each"-scaled effects).
-- [~] **M2 parametric keyword behaviour**: annihilator/afflict/bushido and
-      hexproof-as-a-targeting-filter shipped — moved to
-      [Done_Backend.md](../docs/implementation-state/Done_Backend.md) "Rules
-      Engine (Phase 2)". Still open: **rampage** (702.23) — its pump amount
-      scales with the specific block's final blocker count, which needs a
-      per-firing "build effects from this triggering event" seam
+- [~] **M2 parametric keyword behaviour**: annihilator/afflict/bushido,
+      hexproof-as-a-targeting-filter, and ward (a genuine stack object per
+      RULE 603.3, with mana/life/discard/sacrifice cost types) all shipped —
+      moved to [Done_Backend.md](../docs/implementation-state/Done_Backend.md)
+      "Rules Engine (Phase 2)". Narrow rough edges left on those (a ward cost
+      with `{X}`; hexproof-*from*'s quality aliased onto blanket hexproof):
+      [ToDo_EdgeCases.md](../docs/implementation-state/ToDo_EdgeCases.md).
+      Still open as real features: **rampage** (702.23) — its pump
+      amount scales with the specific block's final blocker count, which
+      needs a per-firing "build effects from this triggering event" seam
       `TriggeredAbility` doesn't have yet (it binds one fixed `effects` list
-      once at bind-on-load); **ward** (702.21) — needs a new "becomes the
-      target" interception point cutting across both `cast_spell` and
-      `activate_ability` (the pay-or-counter mechanics themselves are
-      directly reusable from `RulesEngine.counter_unless_pays`); and the
-      alternative/additional-cost keyword family (**kicker**/multikicker/
+      once at bind-on-load; ward's own equivalent problem was solved by
+      building its effect directly rather than through that pipeline — see
+      the Done entry); and the alternative/
+      additional-cost keyword family (**kicker**/multikicker/
       buyback/escape/flashback) — kicker/buyback fit the existing `x`/`mode`
       cast-time-parameter pattern (`GameEngine.cast_spell`) plus a new
       "add another full `ManaCost`" method and (for buyback) a resolve-time
@@ -186,11 +189,7 @@ Weeks 1–4 roadmap is archived at
       silently dropped by the parser and needs new grammar work first;
       multikicker also needs its "repeatable" identity preserved through
       parsing (today's `_ALIASES` collapses it onto plain Kicker,
-      indistinguishable post-parse). Also noted in passing: `Hexproof from
-      X`'s "from X" quality is silently dropped (aliased onto plain
-      `hexproof`, a `FLAG`-shaped catalogue row) rather than scoped — safe
-      (overprotective, not a legality bug) but not fully accurate; would need
-      giving `Hexproof` a `QUALITY` shape like `Protection`'s.
+      indistinguishable post-parse).
 - [ ] Leaves-the-battlefield triggers don't "look back in time" (RULE
       603.6a): `RulesEngine._move_to_graveyard` fires `DIES`/
       `LEAVES_BATTLEFIELD` *after* removing the object, and

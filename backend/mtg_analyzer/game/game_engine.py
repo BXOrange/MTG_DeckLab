@@ -610,6 +610,11 @@ class GameEngine:
         elif kind == "counter_unless_pays":
             # RULE 601: "pay" saves the target spell, anything else counters it.
             self.rules.resolve_counter_unless_pays_choice(None if declined else str(answer))
+        elif kind == "ward":
+            # RULE 702.21: "pay" saves the caster's spell/ability, anything
+            # else counters it — the caster decides, not the target's
+            # controller (unlike counter_unless_pays).
+            self.rules.resolve_ward_choice(None if declined else str(answer))
         else:  # search: a card's instance id, or decline
             instance_id = None if declined else int(answer)
             self.rules.resolve_search_choice(instance_id)
@@ -1526,17 +1531,17 @@ class GameEngine:
             source.add_counters("loyalty", cost.loyalty)
             source.activated_loyalty_this_turn = True
 
-        self.state.stack.append(
-            StackItem(
-                kind="ability",
-                controller_id=player.id,
-                effects=[ability],
-                description=ability.description or f"{source.name} ability",
-                targets=targets,
-                x=x,
-                source=source,
-            )
+        item = StackItem(
+            kind="ability",
+            controller_id=player.id,
+            effects=[ability],
+            description=ability.description or f"{source.name} ability",
+            targets=targets,
+            x=x,
+            source=source,
         )
+        self.state.stack.append(item)
+        self.rules.check_ward(item, player)
         # RULE 117.3c: taking an action reclaims priority for its taker.
         self.give_priority(player)
 

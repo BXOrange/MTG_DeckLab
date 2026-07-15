@@ -113,9 +113,20 @@ class TestCostKeywords:
         )
         assert specs[0].keyword == {"name": "escape", "cost": "{2}{B}{B}"}
 
-    def test_ward_without_a_mana_cost_stays_bare(self):
+    def test_ward_without_a_mana_cost_falls_back_to_free_text(self):
+        # A non-mana ward cost isn't dropped (unlike other COST-shaped
+        # keywords with no mana-cost match) — it's genuinely modeled
+        # downstream via `game/costs.parse_activation_cost`.
         specs = parse_keywords(_card(["Ward"], "Ward—Pay 3 life."))
-        assert specs[0].keyword == {"name": "ward"}
+        assert specs[0].keyword == {"name": "ward", "cost": "Pay 3 life"}
+
+    def test_ward_discard_cost_falls_back_to_free_text(self):
+        specs = parse_keywords(_card(["Ward"], "Ward—Discard a card."))
+        assert specs[0].keyword == {"name": "ward", "cost": "Discard a card"}
+
+    def test_ward_sacrifice_cost_falls_back_to_free_text(self):
+        specs = parse_keywords(_card(["Ward"], "Ward—Sacrifice a creature."))
+        assert specs[0].keyword == {"name": "ward", "cost": "Sacrifice a creature"}
 
 
 # --- Parametric: NUMBER_COST ------------------------------------------------

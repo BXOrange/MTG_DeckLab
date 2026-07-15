@@ -29,6 +29,11 @@ finest-grained/most current detail:
   [`implementation-state/Done_Frontend.md`](implementation-state/Done_Frontend.md)
   — these *do* live under `docs/`, since they're append-only history rather
   than something edited in lockstep with in-progress code.
+- Narrow, deliberately-unhandled **edge cases** of an already-shipped
+  feature (as opposed to a large open feature, which stays in the ToDo files
+  above): [`implementation-state/ToDo_EdgeCases.md`](implementation-state/ToDo_EdgeCases.md)
+  — a cross-cutting index, not a replacement for the ToDo/Done files' own
+  in-situ mentions.
 - User-facing engine coverage: the in-app **Engine-Status** tab
   (`../frontend/src/js/implementationStatusView.js`)
 

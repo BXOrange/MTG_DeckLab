@@ -172,13 +172,14 @@ cache-wide coverage (26.9% of the 1080-card cache fully `MODELED` as of
 scope on each): regenerate, "up to N" targets, "add 1 mana of any color";
 oracle-text *recognition* of replacement clauses (the binder side is ready);
 *behaviour* for the remaining parametric keywords (kicker/escape alt-costs,
-annihilator/afflict combat maths); wiring the interactive priority primitive
-into the multiplayer session/WebSocket; RULE 603.6a "look back in time" for
-leaves-the-battlefield triggers; combining interactive trigger-ordering with
-a targeted trigger in the same ordered set; re-validating an *existing*
-attachment's legality every SBA pass (not just on the host leaving); bespoke
-*conditional* transform triggers (Delver of Secrets) and the legacy
-pre-2021 non-daybound werewolf template; and battles/dungeons.
+rampage); wiring the interactive priority primitive into the multiplayer
+session/WebSocket; RULE 603.6a "look back in time" for leaves-the-battlefield
+triggers; and battles/dungeons. Narrower, already-shipped-feature rough edges
+(e.g. re-validating an *existing* attachment's legality every SBA pass, not
+just on the host leaving; combining interactive trigger-ordering with a
+targeted trigger; bespoke *conditional* transform triggers like Delver of
+Secrets) are tracked separately in
+[docs/implementation-state/ToDo_EdgeCases.md](docs/implementation-state/ToDo_EdgeCases.md).
 
 Hand-authoring a card's abilities directly (rather than waiting on the
 oracle-effect front-end, or for a replacement-clause/conditional-trigger the
@@ -191,7 +192,11 @@ code it tracks) and `docs/implementation-state/Done_Backend.md` (shipped —
 append-only history rather than something edited in lockstep with
 in-progress code, so it lives under `docs/`; same split for the frontend's
 `frontend/ToDo_Frontend.md` / `docs/implementation-state/Done_Frontend.md`).
-The plan to finish is `docs/implementation-state/10_COMPLETION_ROADMAP.md`
+[`docs/implementation-state/ToDo_EdgeCases.md`](docs/implementation-state/ToDo_EdgeCases.md)
+is a narrower, cross-cutting sibling: specific, low-probability scenarios a
+shipped feature deliberately leaves unhandled (not a large open feature —
+those stay in the ToDo files above) — check it before treating one of these
+as a surprise bug. The plan to finish is `docs/implementation-state/10_COMPLETION_ROADMAP.md`
 (dependency-ordered milestones, reconciling the backlog files above into a
 coverage table). `docs/` is organized by *kind of question*: `requirements/`
 (what should it do), `concepts/` (how is it designed — architecture, effect

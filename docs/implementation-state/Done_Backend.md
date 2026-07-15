@@ -598,12 +598,92 @@ the Phase-1 models. Tests: `test_game_engine.py`.
       interception point cutting across both `cast_spell` and
       `activate_ability`, architecturally different from "add a new event
       type" (the pay-or-counter mechanics themselves are directly reusable
-      from `RulesEngine.counter_unless_pays`). Both tracked in
-      `ToDo_Backend.md`. Tests: `test_game_engine.py`
+      from `RulesEngine.counter_unless_pays` — see the next entry, which
+      built exactly that). Tracked in `ToDo_Backend.md`. Tests:
+      `test_game_engine.py`
       (`test_annihilator_makes_defending_player_sacrifice_permanents`,
       `test_afflict_causes_defending_player_to_lose_life_on_block`,
       `test_bushido_pumps_the_blocker_when_it_blocks`,
       `test_hexproof_creature_cannot_be_targeted_by_an_opponent`).
+
+- [x] **M2 ward (2026-07-15, revised 2026-07-15):** RULE 702.21's "whenever
+      this permanent becomes the target of a spell or ability an opponent
+      controls, counter it unless they pay [cost]." First shipped as an
+      inline `pending_choice` (a `counter_unless_pays`-style simplification);
+      **revised the same day to be genuinely rules-accurate** — RULE 603.3
+      says a triggered ability "puts it on the stack... the next time a
+      player would receive priority," becoming the topmost object, so both
+      players get a normal priority window to respond to it (an instant, an
+      activated ability) before it resolves. The inline-choice version
+      skipped that window entirely; the fix was to stop resolving ward
+      synchronously and instead push a **real `StackItem`**.
+
+      The interception point is the same three call sites as before —
+      `RulesEngine.cast_spell`/`cast_without_paying` and `_place_trigger`,
+      plus `GameEngine.activate_ability` — each already builds a `StackItem`
+      with its final `targets` and calls `RulesEngine.check_ward(item,
+      caster)` right after. `check_ward` now pushes one `StackItem` per
+      warded target found (`kind="ability"`, `controller_id` = the *warded
+      permanent's* controller per RULE 603.3a — the caster only pays it,
+      doesn't control it), each wrapping a new `WardEffect(item, caster_id,
+      cost)`. It's constructed directly rather than routed through the
+      generic `TriggeredAbility`/event-collection pipeline
+      (`_collect_triggers`/`put_triggers_on_stack`) — that pipeline binds one
+      fixed `effects` list once at bind-on-load and reuses it for every
+      firing (the same limitation that deferred rampage, M2 combat-math
+      entry above), but ward's effect needs per-firing data (which item,
+      which caster) that a bind-once list can't carry, so it's built fresh
+      per trigger instead. Since `.append()` puts the ward ability on top and
+      `resolve_top_of_stack` pops LIFO, it resolves before the item that
+      triggered it with no other change needed — normal `pass_priority`/
+      `resolve_until_stable` carries it exactly like any other stack object.
+      `WardEffect.apply` calls the new `RulesEngine.resolve_ward_effect`,
+      which no-ops if the item already left the stack (RULE 608.2b/603.10
+      "look back in time" — e.g. a second simultaneous ward already
+      countered it, RULE 702.21c: multiple wards need no special sequencing
+      code at all now, since each is its own stack object and the stack
+      naturally resolves them one at a time), otherwise opens the same
+      pay-or-counter `pending_choice` shape `counter_unless_pays` uses, keyed
+      to the *caster* rather than the target's controller.
+
+      **Cost types**: originally mana-only. Ward's cost is now recognized and
+      paid through the same vocabulary an activated ability's cost already
+      uses (RULE 602.1 mana/pay-life/discard/sacrifice —
+      `game/costs.parse_activation_cost`/`ActivationCost`), not a
+      `ManaCost`-only path. The parser side needed a fix too: `keywords.py`'s
+      shared COST-shape regex only recognizes a `{...}` mana run, so
+      "Ward—Discard a card."/"Ward—Pay 3 life."/"Ward—Sacrifice a creature."
+      previously fell back to a bare, cost-less keyword spec (silently
+      unmodeled). A new Ward-specific fallback regex (`_WARD_TEXT_COST_RE`,
+      consulted only when the mana regex finds nothing) captures the free
+      text instead, scoped to just Ward — not the ~50 other COST-shaped
+      keywords in the table, which are mana-only on every real card and
+      didn't need touching. `RulesEngine._can_pay_ward_cost`/`_pay_ward_cost`
+      mirror `GameEngine._can_pay_activation_cost`'s per-component checks,
+      minus the tap/untap-source and remove-counters pieces (tied to a
+      specific permanent's own state, which doesn't apply — a ward cost
+      always comes from the caster's own resources).
+
+      Frontend: `gameBoardView.js`'s `CHOICE_ICONS` gained a `ward` entry
+      (🛡️); the generic `pending_choice` modal needed no other change (a
+      ward ability on the stack renders through the existing stack-item UI
+      like any triggered ability, no new rendering code either). Tests:
+      `test_game_engine.py`
+      (`test_ward_pushes_a_real_stack_item_above_the_spell`,
+      `test_ward_paid_lets_the_spell_resolve`,
+      `test_ward_declined_counters_the_spell`,
+      `test_ward_uncastable_cost_counters_the_spell_without_a_choice`,
+      `test_ward_does_not_trigger_against_its_own_controller`,
+      `test_ward_triggers_on_a_targeted_activated_ability`,
+      `test_ward_pay_life_cost`, `test_ward_discard_cost`,
+      `test_ward_sacrifice_cost`,
+      `test_ward_sacrifice_cost_unpayable_counters_without_a_choice`,
+      `test_ward_two_simultaneous_wards_each_ask_in_turn`,
+      `test_ward_one_of_two_simultaneous_wards_declined_counters_the_spell`),
+      `test_keyword_catalogue.py`
+      (`test_ward_without_a_mana_cost_falls_back_to_free_text`,
+      `test_ward_discard_cost_falls_back_to_free_text`,
+      `test_ward_sacrifice_cost_falls_back_to_free_text`).
 
 ## Game Engine (Phase 3)
 

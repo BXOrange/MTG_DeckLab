@@ -30,12 +30,14 @@ from ..models.player import Player
 from ..parser.oracle.catalogue.saga import all_chapter_numbers
 from . import ability_catalogue, combat, continuous, copy_mechanics
 from .combat import is_protected_from
+from .costs import DISCARD_HAND, ActivationCost, parse_activation_cost
 from .effects import (
     CantBeCounteredEffect,
     GameContext,
     ReplacementEffect,
     StaticEffect,
     TriggeredAbility,
+    WardEffect,
     WinConditionEffect,
 )
 from .targeting import TargetSpec, legal_targets
@@ -120,6 +122,19 @@ class RulesEngine:
         #: `resolve_counter_unless_pays_choice`.
         self._pending_counter_target: Any = None
         self._pending_counter_cost: Optional[ManaCost] = None
+        #: RULE 702.21 (ward): the item awaiting a `ward` pay-or-be-countered
+        #: choice, whose player must decide (the *caster*, unlike
+        #: `counter_unless_pays` where it's the target's controller), and
+        #: the `ActivationCost` currently being asked about. A ward ability
+        #: is a genuine `StackItem` of its own (`check_ward` pushes one per
+        #: warded target, on top of the triggering item), so — unlike
+        #: `counter_unless_pays` — multiple simultaneous wards need no queue
+        #: here: the stack itself sequences them one resolution at a time
+        #: (RULE 702.21c). Populated only while a ward choice is pending;
+        #: see `resolve_ward_effect`/`resolve_ward_choice`.
+        self._pending_ward_item: Optional[StackItem] = None
+        self._pending_ward_caster_id: Optional[str] = None
+        self._pending_ward_cost: Optional[ActivationCost] = None
         # Collect triggers for every event the game fires.
         state.subscribe(self._collect_triggers)
         # Tally spells cast this turn for the RULE 731.2 day/night check.
@@ -472,16 +487,22 @@ class RulesEngine:
             return None
 
     def _place_trigger(self, ability: "TriggeredAbility", targets: Optional[list[Any]] = None) -> None:
-        self.state.stack.append(
-            StackItem(
-                kind="ability",
-                controller_id=ability.controller_id or self.state.active_player.id,
-                effects=[ability],
-                description=ability.description or "triggered ability",
-                targets=targets,
-                source=ability.source,
-            )
+        controller_id = ability.controller_id or self.state.active_player.id
+        item = StackItem(
+            kind="ability",
+            controller_id=controller_id,
+            effects=[ability],
+            description=ability.description or "triggered ability",
+            targets=targets,
+            source=ability.source,
         )
+        self.state.stack.append(item)
+        try:
+            controller = self.state.player_by_id(controller_id)
+        except KeyError:
+            controller = None
+        if controller is not None:
+            self.check_ward(item, controller)
 
     def _trigger_order_choice(self) -> dict[str, Any]:
         """Build the `pending_choice` for ordering the active player's triggers.
@@ -691,6 +712,7 @@ class RulesEngine:
         self.state.fire_event(
             GameEvent(EventType.SPELL_CAST, player_id=player.id, card_id=obj.card.id, spell=obj.name)
         )
+        self.check_ward(item, player)
         return item
 
     def cast_without_paying(
@@ -732,6 +754,7 @@ class RulesEngine:
                 free=True,
             )
         )
+        self.check_ward(item, player)
         return item
 
     def _remove_from_current_zone(self, player: Player, obj: GameObject) -> None:
@@ -1718,6 +1741,165 @@ class RulesEngine:
                     self.lose_life(controller, life_spent, cause="cost")
             return
         self.counter_spell(target)
+
+    def check_ward(self, item: StackItem, caster: Player) -> None:
+        """RULE 702.21/603.3: after ``item`` (a spell, activated ability, or
+        triggered ability) is placed on the stack with its final targets,
+        push a genuine ward triggered-ability `StackItem` for every target
+        that has ward against ``caster`` — one per warded target (RULE
+        702.21c), each on top of ``item``.
+
+        This is what makes ward rules-accurate rather than an inline choice:
+        like any triggered ability, it becomes its own object on the stack
+        (RULE 603.3 — "the next time a player would receive priority"), so
+        both players get a normal priority window to respond to *it* (cast
+        an instant, activate an ability) before it resolves, and it resolves
+        before ``item`` since it went on top (RULE 608.1 LIFO) — see
+        `resolve_ward_effect` for the resolution itself. Constructed and
+        pushed directly here (not via the generic `TriggeredAbility`/event
+        pipeline `_collect_triggers` drives) because each firing needs its
+        own per-instance data (which item, which caster) baked in — a
+        `TriggeredAbility` binds one fixed `effects` list once at
+        bind-on-load and reuses it for every firing, which can't carry that.
+
+        Controlled by the warded permanent (RULE 603.3a: a triggered
+        ability's controller is whoever controlled its source when it
+        triggered) — the caster only *pays* it, they don't control it.
+
+        A no-op when ``item`` targets nothing warded — the overwhelming
+        common case — so every call site can call this unconditionally right
+        after a spell/ability's targets are finalized.
+        """
+        for target in item.targets or []:
+            if not isinstance(target, GameObject):
+                continue  # ward is on permanents (RULE 702.21) — never a player
+            ward = (getattr(target, "parametric_keywords", None) or {}).get("ward")
+            if not ward or target.controller_id == caster.id:
+                continue  # no ward, or "opponent" doesn't include its own controller
+            cost_text = ward.get("cost")
+            if not cost_text:
+                continue  # cost couldn't be recognized from the card text — skip, don't guess
+            cost = parse_activation_cost(cost_text)
+            self.state.stack.append(
+                StackItem(
+                    kind="ability",
+                    controller_id=target.controller_id,
+                    effects=[WardEffect(item, caster.id, cost, source=target)],
+                    description=f"Ward {cost.label()} ({target.name})",
+                    source=target,
+                )
+            )
+
+    def resolve_ward_effect(self, item: StackItem, caster_id: str, cost: ActivationCost) -> None:
+        """A ward ability's own resolution (RULE 702.21a) — the caster pays
+        ``cost`` (any mix of mana/life/discard/sacrifice, the same
+        vocabulary `costs.parse_activation_cost` gives an activated
+        ability's cost) or ``item`` is countered.
+
+        A no-op if ``item`` already left the stack (RULE 608.2b: nothing
+        left to counter — e.g. an earlier simultaneous ward already
+        countered it, RULE 702.21c) — this is also where "look back in
+        time" naturally falls out: the caster and cost were fixed when
+        `check_ward` triggered, so nothing about the warded permanent's
+        current state matters here.
+        """
+        if self._stack_item_for(item) is None:
+            return
+        try:
+            caster = self.state.player_by_id(caster_id)
+        except KeyError:
+            caster = None
+        if caster is None or not self._can_pay_ward_cost(caster, cost):
+            # No real decision — countered outright, same "don't stall a
+            # passive goldfish opponent on a choice nobody can act on"
+            # shortcut `counter_unless_pays` uses.
+            self.counter_spell(item)
+            return
+        self._pending_ward_item = item
+        self._pending_ward_caster_id = caster_id
+        self._pending_ward_cost = cost
+        cost_label = cost.label()
+        self.state.pending_choice = {
+            "kind": "ward",
+            "player_id": caster.id,
+            "prompt": f"Ward {cost_label} — zahlen, um deinen Zauberspruch/deine Fähigkeit zu "
+            "behalten?",
+            "options": [
+                {"id": "pay", "label": f"{cost_label} zahlen"},
+                {"id": "decline", "label": "Nicht zahlen"},
+            ],
+        }
+
+    def _can_pay_ward_cost(self, player: Player, cost: ActivationCost) -> bool:
+        """Whether ``player`` can pay a ward cost (RULE 702.21).
+
+        The same per-component affordability checks
+        `GameEngine._can_pay_activation_cost` uses for an activated
+        ability's cost, minus the tap/untap-source and remove-counters
+        components — those are tied to a specific permanent's own state,
+        which doesn't apply here: a ward cost is always paid from the
+        caster's own resources (mana, life, hand, permanents they control),
+        never "this permanent".
+        """
+        if cost.mana.symbols and not player.mana_pool.can_pay(
+            cost.mana, life_available=player.life
+        ):
+            return False
+        if cost.pay_life and player.life < cost.pay_life:
+            return False
+        if cost.discard and cost.discard != DISCARD_HAND and len(player.hand) < cost.discard:
+            return False
+        if cost.sacrifice and not any(
+            _matches_permanent_type(obj, cost.sacrifice)
+            for obj in self.state.permanents_controlled_by(player.id)
+        ):
+            return False
+        return True
+
+    def _pay_ward_cost(self, player: Player, cost: ActivationCost) -> None:
+        """Charge ``player`` a ward cost's components (RULE 702.21) — reuses
+        the same per-kind payment primitives `GameEngine.activate_ability`
+        charges an activated ability's cost with."""
+        if cost.mana.symbols:
+            life_spent = player.mana_pool.pay(cost.mana, life_available=player.life)
+            self.lose_life(player, life_spent, cause="cost")
+        if cost.pay_life:
+            self.lose_life(player, cost.pay_life, cause="cost")
+        if cost.discard:
+            self.discard(player, len(player.hand) if cost.discard == DISCARD_HAND else cost.discard)
+        if cost.sacrifice:
+            self.sacrifice(player, cost.sacrifice, 1)
+
+    def resolve_ward_choice(self, answer: Optional[str]) -> None:
+        """Answer a pending `ward` choice (RULE 702.21).
+
+        ``answer == "pay"`` charges the *caster* the cost and leaves the
+        item on the stack; anything else counters it. Either way, if
+        another ward ability is still on the stack (RULE 702.21c, a
+        different warded target of the same spell/ability), it simply
+        becomes the new top of the stack and resolves next through the
+        ordinary stack loop — no extra bookkeeping needed here.
+        """
+        choice = self.state.pending_choice
+        if not choice or choice.get("kind") != "ward":
+            raise ValueError("no pending ward choice to resolve")
+        self.state.pending_choice = None
+        item = self._pending_ward_item
+        cost = self._pending_ward_cost
+        caster_id = self._pending_ward_caster_id
+        self._pending_ward_item = None
+        self._pending_ward_cost = None
+        self._pending_ward_caster_id = None
+        if answer == "pay" and cost is not None and caster_id:
+            try:
+                caster = self.state.player_by_id(caster_id)
+            except KeyError:
+                caster = None
+            if caster is not None:
+                self._pay_ward_cost(caster, cost)
+            return
+        if item is not None:
+            self.counter_spell(item)
 
     # ------------------------------------------------------------------
     # Library search + shuffle + the pending-choice it needs (RULE 701.19/20)

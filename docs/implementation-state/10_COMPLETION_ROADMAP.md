@@ -58,7 +58,7 @@ else is comparatively narrow, additive work.
 | 300–315 Card types | ◐ | artifact/creature/enchant/instant/land/sorcery/planeswalker done, incl. Aura/Equip/Fortify/Reconfigure attachment. Battles/dungeons/adventure/split not; Saga/DFC partial (see 700–733). |
 | 400–408 Zones | ✅ | battlefield/stack/hand/library/graveyard/exile/command all present. |
 | 500–514 Turn structure | ✅ | complete, walked from a sequence with skip effects. |
-| 600–616 Spells/abilities/effects | ◐ | casting/activated/triggered/static/mana/replacement/loyalty (606) done; layers (613) done except layer 3 + full dependency ordering (deliberately deferred, see M3); replacement/prevention ordering (616.1) still deterministic, not player-chosen. |
+| 600–616 Spells/abilities/effects | ◐ | casting/activated/triggered/static/mana/replacement/loyalty (606) done; layers (613) done except layer 3 + full dependency ordering (deliberately deferred, see M3); replacement/prevention ordering (616.1e/f) is interactive, by the affected player. |
 | 700–733 Additional | ◐ | SBAs (704) done; keyword abilities (702) recognized + bound (flag + landwalk); keyword *actions* (701) partial via effects. Copying (707): token copies + `become_copy` done, not a true layer-1 continuous effect. DFC transform (712.3–9) + MDFC back-face cast (712.10) done; Saga (714) lore-counter mechanics done, chapter *abilities* not; Adventure (715)/Split-Fuse (709)/Class (716)/Leveler (711)/Day-Night (731)/Monarch/Initiative not. |
 | 800–811 Multiplayer | ✖ | interactive `pass_priority(player)` primitive built; `create_multiplayer` still raises, route returns 501. |
 | 900–905 Casual variants | ◐ | Commander (903) damage + command zone + tax (903.8) done. Others not. |
@@ -124,21 +124,38 @@ Follows [`09_ORACLE_EFFECT_PARSER.md`](../concepts/09_ORACLE_EFFECT_PARSER.md). 
   unblocked to blocked) plus new `SacrificeEffect`/`LoseLifeEffect`
   one-shots; hexproof gates `targeting.legal_targets` via
   `combat.has_hexproof`.
+- **Ward is done** (2026-07-15, rules-accurate as of the same day):
+  `RulesEngine.check_ward`, called wherever a spell/activated/triggered
+  ability's targets are finalized (`cast_spell`/`cast_without_paying`/
+  `_place_trigger`/`GameEngine.activate_ability`), pushes a genuine
+  `StackItem` (a `WardEffect`) on top of the triggering item for every
+  warded target — a real triggered ability per RULE 603.3, not an inline
+  choice, so normal priority-passing gives both players a response window
+  before it resolves; RULE 702.21c's multiple-simultaneous-ward case needs
+  no special sequencing since each ward is its own stack object and the
+  stack naturally resolves them one at a time. The pay-or-counter decision
+  (belonging to the *caster*, unlike `counter_unless_pays`'s target-
+  controller) reuses `ActivationCost`/`costs.parse_activation_cost` — the
+  same mana/pay-life/discard/sacrifice vocabulary an activated ability's
+  cost already uses — via a small parser fix (`keywords.py`'s
+  `_WARD_TEXT_COST_RE` fallback, since the shared COST-shape regex is
+  mana-only and previously dropped a non-mana ward clause entirely).
 - Still open: alternative/additional-cost keywords (kicker, multikicker,
   buyback, escape, flashback…) via the cost system + cast-time choices;
   **rampage** (needs a per-firing dynamic effect amount `TriggeredAbility`
-  can't express yet); **ward** (needs a new "becomes the target"
-  interception point across `cast_spell`/`activate_ability`); protection
-  *quality* (already fully working via a separate, older path —
-  `combat.is_protected_from` — not `parametric_keywords` at all); and
-  hexproof-*from*'s quality (currently aliased onto plain hexproof, losing
-  the "from X" scope). Each parameter already binds onto
-  `GameObject.parametric_keywords` — landwalk/annihilator/afflict/bushido
-  now consume theirs.
+  can't express yet — ward hit the identical problem and solved it by
+  building its effect directly rather than through that pipeline); a ward
+  cost with `{X}` in it (RULE 702.21b) isn't specially resolved (no known
+  real card needs it); protection *quality* (already fully working via a
+  separate, older path — `combat.is_protected_from` — not
+  `parametric_keywords` at all); and hexproof-*from*'s quality (currently
+  aliased onto plain hexproof, losing the "from X" scope). Each parameter
+  already binds onto `GameObject.parametric_keywords` —
+  landwalk/annihilator/afflict/bushido/ward now consume theirs.
 - **Depends on:** M1 keyword catalogue (done) + cost/targeting systems (done).
 - Backlog: `ToDo_Backend.md` "M2 parametric keyword behaviour".
 
-### M3 — Layer system completion (RULE 613) — done, two corners deliberately deferred
+### M3 — Layer system completion (RULE 613) — done, narrowly scoped in two corners
 **Goal:** finish `game/continuous.py` to the full layer set.
 
 - ✅ Layers 2 (control), 4 (type), 5 (colour), 6 (ability-adding — incl.
@@ -147,14 +164,12 @@ Follows [`09_ORACLE_EFFECT_PARSER.md`](../concepts/09_ORACLE_EFFECT_PARSER.md). 
   `StaticAbility`/`EffectRegistry`, timestamp-ordered within a layer.
 - ◐ Layer 1 (copy effects, RULE 707): `become_copy` mutates the object in
   place rather than running as a per-recompute layer-1 pass; see M6.
-- ✖ **Deliberately not built** (evaluated 2026-07-09, audited the full
-  ~1000-card cache): literal **layer 3** (RULE 612 text-changing, e.g.
-  Artificial Evolution) — zero cards in the cache need it, nothing to
-  build or test against. Full **RULE 613.8 dependency ordering** — every
-  real interaction in the current effect vocabulary crosses *different*
-  layers, already sequenced correctly by the fixed layer order; no same-layer
-  dependency case exists to construct one against. Revisit both if a
-  card/effect ever needs them.
+- ✅ **Layer 3 and RULE 613.8 dependency ordering are built** (2026-07-14,
+  reopening a 2026-07-09 "deliberately not built" decision), each narrowly
+  scoped rather than fully general — see
+  [ToDo_EdgeCases.md](ToDo_EdgeCases.md) "Layers / static abilities" for the
+  exact scope of each and `backend/ToDo_Backend.md`'s "Static abilities /
+  continuous-effects layer system" entry for the full writeup.
 - **Depends on:** layer 1 overlaps with M6 copying.
 
 ### M4 — Permanent subsystems — done
@@ -192,12 +207,14 @@ All four are **done**:
   may" choice (115/603.3c/603.5) are both interactive. Known narrow gap:
   the two together (a targeted trigger placed via the manual-ordering path)
   isn't handled.
+- ✅ Replacement/prevention ordering by the affected player (616.1e/f) is
+  interactive: `RulesEngine.apply_replacements` opens a `replacement_order`
+  `pending_choice` whenever 2+ apply simultaneously (`Done_Backend.md`
+  "Replacement ordering").
 - ⏳ Still open: wire `WebSocket /ws/game/{id}` into a server-held session
   (run the action through the engine, broadcast `GameState.to_dict()`);
   remove the `create_multiplayer` stub; interactive **blocker declaration**
-  UI (engine-ready via `declare_blockers`, no opponent-side UI yet);
-  replacement/prevention ordering by the affected player (616.1, still
-  deterministic).
+  UI (engine-ready via `declare_blockers`, no opponent-side UI yet).
 - **UI:** opponent zones, hidden opponent hand, turn/priority indicator,
   per-creature attacker subset selection, slow-opponent timeout — all still
   open (`ToDo_Frontend.md` "Multiplayer").
