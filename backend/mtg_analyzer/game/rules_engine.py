@@ -1024,6 +1024,7 @@ class RulesEngine:
             obj = player.library.pop()
             obj.zone = Zone.GRAVEYARD
             player.graveyard.append(obj)
+            self._flag_commander_zone_choice(obj)  # RULE 903.9a (rare: a commander milled from the library)
         self.state.fire_event(GameEvent(EventType.MILL, player_id=player.id, count=count))
 
     def discard(self, player: Player, count: int = 1) -> None:
@@ -1034,6 +1035,7 @@ class RulesEngine:
             obj = player.hand.pop()  # auto-choose (no chooser in MVP)
             obj.zone = Zone.GRAVEYARD
             player.graveyard.append(obj)
+            self._flag_commander_zone_choice(obj)  # RULE 903.9a
             discarded += 1
         if discarded:
             self.state.fire_event(
@@ -1149,24 +1151,33 @@ class RulesEngine:
     def exile(self, obj: GameObject) -> None:
         """Move ``obj`` to its owner's exile zone (RULE 406), from anywhere.
 
-        Fires `LEAVES_BATTLEFIELD` when it was in play, then `EXILE`. Unlike
-        destroy this never diverts a commander to the command zone — exile is
-        a specific zone move, and command-zone replacement is destroy/death's
-        rule (903.9).
+        Fires `LEAVES_BATTLEFIELD` when it was in play, then `EXILE`. RULE
+        903.9a covers a commander landing in exile exactly like one landing
+        in a graveyard — `_flag_commander_zone_choice` marks it for the same
+        SBA-offered move to the command zone.
         """
         was_on_battlefield = obj in self.state.battlefield
         owner = self.state.player_by_id(obj.owner_id)
         if was_on_battlefield:
+            # RULE 603.6a "look back in time" — fire before removal, see
+            # `_move_to_graveyard` for the full rationale.
+            self.state.fire_event(
+                GameEvent(
+                    EventType.LEAVES_BATTLEFIELD,
+                    object=obj.name,
+                    owner_id=obj.owner_id,
+                    controller_id=obj.controller_id,
+                    instance_id=obj.instance_id,
+                    object_types=sorted(obj.type_words),
+                )
+            )
             self.state.remove_from_battlefield(obj)
         else:
             self._remove_from_current_zone(owner, obj)
         obj.tapped = False
         obj.damage_marked = 0
         owner.add_to_zone(obj, Zone.EXILE)
-        if was_on_battlefield:
-            self.state.fire_event(
-                GameEvent(EventType.LEAVES_BATTLEFIELD, object=obj.name, owner_id=obj.owner_id)
-            )
+        self._flag_commander_zone_choice(obj)
         self.state.fire_event(
             GameEvent(EventType.EXILE, object=obj.name, owner_id=obj.owner_id)
         )
@@ -1179,20 +1190,39 @@ class RulesEngine:
         hand — the next SBA pass's RULE 704.5d stranded-token cleanup
         (`_remove_stranded_tokens`) reaps it the instant it's off the
         battlefield.
+
+        RULE 903.9b: unlike graveyard/exile (903.9a, an *SBA* offered after
+        the fact), a commander headed to hand (or library) gets a
+        *replacement* choice — conceptually offered before the move, so it
+        may never touch hand at all. This MVP applies the same
+        default-then-fixup shape `enters_tapped`'s shock-land choice already
+        uses: ``obj`` lands in hand as normal (the "declined" outcome) and a
+        `commander_zone` `pending_choice` opens immediately to redirect it to
+        the command zone if the owner chooses to.
         """
         was_on_battlefield = obj in self.state.battlefield
         owner = self.state.player_by_id(obj.owner_id)
         if was_on_battlefield:
+            # RULE 603.6a "look back in time" — fire before removal, see
+            # `_move_to_graveyard` for the full rationale.
+            self.state.fire_event(
+                GameEvent(
+                    EventType.LEAVES_BATTLEFIELD,
+                    object=obj.name,
+                    owner_id=obj.owner_id,
+                    controller_id=obj.controller_id,
+                    instance_id=obj.instance_id,
+                    object_types=sorted(obj.type_words),
+                )
+            )
             self.state.remove_from_battlefield(obj)
         else:
             self._remove_from_current_zone(owner, obj)
         obj.tapped = False
         obj.damage_marked = 0
         owner.add_to_zone(obj, Zone.HAND)
-        if was_on_battlefield:
-            self.state.fire_event(
-                GameEvent(EventType.LEAVES_BATTLEFIELD, object=obj.name, owner_id=obj.owner_id)
-            )
+        if obj.is_commander:
+            self.state.pending_choice = self._commander_zone_choice(obj, Zone.HAND)
 
     def return_from_graveyard(self, obj: GameObject, destination: str = "battlefield") -> None:
         """Return ``obj`` from a graveyard to ``destination`` (RULE 701.3,
@@ -1663,8 +1693,8 @@ class RulesEngine:
         self.state.stack.remove(item)
         if item.obj is not None:
             owner = self.state.player_by_id(item.obj.owner_id)
-            destination = Zone.COMMAND if item.obj.is_commander else Zone.GRAVEYARD
-            owner.add_to_zone(item.obj, destination)
+            owner.add_to_zone(item.obj, Zone.GRAVEYARD)
+            self._flag_commander_zone_choice(item.obj)
         self.state.fire_event(
             GameEvent(EventType.SPELL_RESOLVED, spell=item.description, countered=True)
         )
@@ -2230,21 +2260,23 @@ class RulesEngine:
     def _move_to_graveyard(self, obj: GameObject) -> None:
         was_on_battlefield = obj in self.state.battlefield
         was_creature = obj.is_creature
-        if was_on_battlefield:
-            self.state.remove_from_battlefield(obj)
-            self._detach_attachments_from(obj)
         owner = self.state.player_by_id(obj.owner_id)
-        obj.tapped = False
-        obj.damage_marked = 0
-        # RULE 903.9: a commander's owner may put it into the command zone
-        # instead of wherever it would otherwise go. This MVP always takes
-        # that near-universal choice rather than modeling it as an actual
-        # (optional) player decision.
-        destination = Zone.COMMAND if obj.is_commander else Zone.GRAVEYARD
-        owner.add_to_zone(obj, destination)
+
         if was_on_battlefield:
+            # RULE 603.6a "look back in time": fire while `obj` is still on
+            # the battlefield so `_collect_triggers` (which only scans
+            # `state.permanents()`) finds this object's own leave/dies
+            # triggers. Mirrors `GameState.add_to_battlefield`'s
+            # append-then-fire ordering for SAGA_CHAPTER/CLASS_LEVEL.
             self.state.fire_event(
-                GameEvent(EventType.LEAVES_BATTLEFIELD, object=obj.name, owner_id=obj.owner_id)
+                GameEvent(
+                    EventType.LEAVES_BATTLEFIELD,
+                    object=obj.name,
+                    owner_id=obj.owner_id,
+                    controller_id=obj.controller_id,
+                    instance_id=obj.instance_id,
+                    object_types=sorted(obj.type_words),
+                )
             )
             if was_creature:
                 self.state.fire_event(
@@ -2257,6 +2289,65 @@ class RulesEngine:
                         object_types=sorted(obj.type_words),
                     )
                 )
+            self.state.remove_from_battlefield(obj)
+            self._detach_attachments_from(obj)
+
+        obj.tapped = False
+        obj.damage_marked = 0
+        owner.add_to_zone(obj, Zone.GRAVEYARD)
+        self._flag_commander_zone_choice(obj)
+
+    def _flag_commander_zone_choice(self, obj: GameObject) -> None:
+        """RULE 903.9a: a commander that just landed in a graveyard or exile
+        may be moved to the command zone by its owner instead — offered once,
+        as a state-based action (`_sba_pass`), not baked into the move
+        itself. Marks ``obj`` eligible; the SBA consumes and clears the flag
+        the moment it opens the `pending_choice`."""
+        if obj.is_commander and obj.zone in (Zone.GRAVEYARD, Zone.EXILE):
+            obj.commander_zone_choice_pending = True
+
+    _COMMANDER_ZONE_LABELS = {
+        Zone.GRAVEYARD: "Friedhof",
+        Zone.EXILE: "Exil",
+        Zone.HAND: "Hand",
+    }
+
+    def _commander_zone_choice(self, obj: GameObject, zone: str) -> dict[str, Any]:
+        """Build the RULE 903.9a/9b `pending_choice` offering to move a
+        commander from ``zone`` (graveyard/exile — 903.9a, already there; or
+        hand — 903.9b, about to land there) into the command zone instead."""
+        label = self._COMMANDER_ZONE_LABELS.get(zone, str(zone))
+        return {
+            "kind": "commander_zone",
+            "player_id": obj.owner_id,
+            "instance_id": obj.instance_id,
+            "prompt": f"{obj.name}: aus {'dem' if zone != Zone.HAND else 'der'} {label} "
+            "in die Kommandozone legen?",
+            "options": [
+                {"id": "command", "label": "In die Kommandozone legen"},
+                {"id": "decline", "label": f"Im {label} bleiben"},
+            ],
+        }
+
+    def resolve_commander_zone_choice(self, answer: Optional[str]) -> None:
+        """Answer a pending RULE 903.9a/9b `commander_zone` choice.
+
+        ``"command"`` moves the commander into the command zone from
+        whichever zone currently holds it; anything else (``None``/
+        ``"decline"``) leaves it exactly where it already is.
+        """
+        choice = self.state.pending_choice
+        if not choice or choice.get("kind") != "commander_zone":
+            raise ValueError("no pending commander-zone choice to resolve")
+        self.state.pending_choice = None
+        if answer != "command":
+            return
+        obj = self.state.find_object(choice["instance_id"])
+        if obj is None:
+            return
+        owner = self.state.player_by_id(obj.owner_id)
+        self._remove_from_current_zone(owner, obj)
+        owner.add_to_zone(obj, Zone.COMMAND)
 
     # ------------------------------------------------------------------
     # State-based actions (RULE 704)
@@ -2278,6 +2369,13 @@ class RulesEngine:
         return any_action
 
     def _sba_pass(self) -> bool:
+        # A pending_choice (e.g. the RULE 903.9a commander-zone choice just
+        # below) pauses SBA processing until it's answered — mirrors the
+        # guard `resolve_until_stable`/`pass_priority` already apply after
+        # calling `check_state_based_actions`.
+        if self.state.pending_choice:
+            return False
+
         # Re-derive continuous effects first (RULE 613) so P/T, types and
         # granted keywords are current before any SBA reads them — an anthem
         # dropping a creature to 0 toughness must be seen here.
@@ -2366,6 +2464,19 @@ class RulesEngine:
         # 704.5j: legend rule — same-named legendaries a player controls.
         if self._apply_legend_rule():
             return True
+
+        # 903.9a: a commander freshly landed in a graveyard or exile may be
+        # moved to the command zone by its owner instead — a one-time SBA
+        # offer (`_flag_commander_zone_choice` marks eligibility at the
+        # moment it lands there; consumed and cleared here the instant it's
+        # offered, so it isn't re-asked on every subsequent SBA pass).
+        for player in self.state.players:
+            for zone in (Zone.GRAVEYARD, Zone.EXILE):
+                for obj in player.zones[zone]:
+                    if obj.commander_zone_choice_pending:
+                        obj.commander_zone_choice_pending = False
+                        self.state.pending_choice = self._commander_zone_choice(obj, zone)
+                        return True
 
         # 704.5d: a token in any zone other than the battlefield ceases to
         # exist. It *did* reach that zone (its owner's graveyard/exile/…) long

@@ -488,6 +488,48 @@ the Phase-1 models. Tests: `test_game_engine.py`.
       in the cast action (`commander_tax`/`effective_cost`). The counter
       deep-copies with the player for rewind. Tests: `test_game_engine.py`
       `test_commander_tax_adds_two_per_previous_cast`.
+- [x] Commander zone-replacement choice (RULE 903.9a/9b, 2026-07-15) —
+      previously `_move_to_graveyard`/`counter_spell` *unconditionally*
+      diverted a commander straight to the command zone (never actually
+      touching the graveyard even briefly, and with no real "may"), while
+      `exile()` skipped the diversion entirely (an incorrect docstring
+      claimed 903.9 was graveyard/death-only) and `return_to_hand()`
+      offered no diversion at all. Replaced with a real, owner-chosen
+      `pending_choice`, split along the rule's own two mechanisms:
+      **903.9a** (graveyard/exile — a *state-based action*): the commander
+      now actually lands in the graveyard/exile first;
+      `RulesEngine._flag_commander_zone_choice` marks it eligible, and a new
+      `_sba_pass` clause (checked once, right after the legend rule) opens
+      a `commander_zone` `pending_choice` the next time SBAs are checked —
+      not baked into the move itself. **903.9b** (hand, and — once a
+      battlefield→library effect exists — library — a *replacement
+      effect*): `return_to_hand()` reuses the same default-then-fixup shape
+      the shock-land `land_tapped` choice already established (object
+      lands in hand as the "declined" outcome, `pending_choice` opens
+      immediately to redirect it). Both share one builder/resolver pair,
+      `_commander_zone_choice`/`resolve_commander_zone_choice`
+      (`"command"` moves it via `GameState.find_object` + `owner.add_to_zone`;
+      anything else leaves it put), wired into `GameEngine.
+      resolve_pending_choice`'s dispatch under kind `"commander_zone"`. Also
+      now flagged from `mill()`/`discard()`'s direct graveyard writes (a
+      commander milled/discarded from hand/library, not just one dying off
+      the battlefield). A new `_sba_pass` top-of-loop
+      `if self.state.pending_choice: return False` guard stops the SBA
+      fixpoint loop cleanly once the choice opens (no prior SBA opened a
+      `pending_choice` mid-pass, so this needed adding). Frontend: the
+      generic `pending_choice` modal needed no new rendering code (same
+      `options`/`kind` shape every other choice uses); `gameBoardView.js`'s
+      `CHOICE_ICONS` gained a `commander_zone` entry (👑). Tests:
+      `test_game_engine.py`
+      (`test_commander_dying_offers_command_zone_choice_and_can_move_there`,
+      `test_commander_dying_choice_declined_stays_in_graveyard`,
+      `test_countered_commander_spell_offers_command_zone_choice`,
+      `test_exiled_commander_offers_command_zone_choice`,
+      `test_bounced_commander_offers_command_zone_choice`,
+      `test_bounced_commander_choice_declined_stays_in_hand`,
+      `test_non_commander_permanent_never_offers_command_zone_choice`).
+      Still open: a battlefield→library ("tuck") effect family (no code
+      path exists yet for 903.9b's library half to apply to).
 - [x] Conditional enters-tapped choice (RULE 614.1 replacement) —
       `ability_catalogue.land_tap_condition(card)` classifies a land's
       tapped-entry clause off its oracle text: `"always"` (plain
@@ -684,6 +726,38 @@ the Phase-1 models. Tests: `test_game_engine.py`.
       (`test_ward_without_a_mana_cost_falls_back_to_free_text`,
       `test_ward_discard_cost_falls_back_to_free_text`,
       `test_ward_sacrifice_cost_falls_back_to_free_text`).
+
+- **Leaves-the-battlefield triggers now "look back in time" (RULE 603.6a,
+  2026-07-15):** `RulesEngine._move_to_graveyard`/`exile`/`return_to_hand` used
+  to call `state.remove_from_battlefield(obj)` *before* firing
+  `LEAVES_BATTLEFIELD`/`DIES` — since `_collect_triggers` only ever scans
+  `state.permanents()` (the live battlefield) at the moment an event fires, a
+  permanent's own "when this dies"/"when ~ leaves the battlefield" triggered
+  ability was structurally unreachable, regardless of the (already-correct)
+  RULE 603.1 subject-scoping. Fixed by reordering all three methods to fire
+  while the object is still spliced into `self.battlefield`, then remove it —
+  the mirror image of `GameState.add_to_battlefield`'s existing
+  append-then-fire ordering for `SAGA_CHAPTER`/`CLASS_LEVEL`. No state
+  snapshot/clone was needed: `GameObject` instances are never recreated on a
+  zone change (the same instance is spliced between zone-list containers), so
+  `obj.triggered_abilities` is fully intact at fire time either way.
+  `LEAVES_BATTLEFIELD`'s event payload was also thinner than `DIES`'s
+  (missing `instance_id`/`controller_id`/`object_types`) and is now enriched
+  to match in all three methods, so a `{"subject": "self"}` trigger can match
+  on it too. `_detach_attachments_from`'s recursive call into
+  `_move_to_graveyard` (an attached Aura dying alongside its host) needed no
+  special-casing — the Aura is still on the battlefield when the recursive
+  call runs, so the same fixed sequence applies to its own death correctly.
+  `EXILE`'s own payload/timing was deliberately left alone (it describes
+  arrival in the new zone, not departure, so moving it earlier wouldn't help
+  a self-referential "when ~ is exiled" trigger — a distinct, larger feature
+  no current oracle-text handler produces anyway). Tests:
+  `test_oracle_triggers.py`
+  (`test_self_dies_trigger_fires_through_real_destroy_pipeline`,
+  `test_self_dies_trigger_fires_through_lethal_damage_sba`,
+  `test_self_leaves_battlefield_trigger_fires_on_exile_and_return_to_hand`,
+  `test_blood_artist_shaped_group_trigger_fires_once_on_real_death` as a
+  no-double-firing regression guard for group-scoped triggers).
 
 ## Game Engine (Phase 3)
 

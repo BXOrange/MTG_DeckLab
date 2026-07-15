@@ -615,6 +615,11 @@ class GameEngine:
             # else counters it — the caster decides, not the target's
             # controller (unlike counter_unless_pays).
             self.rules.resolve_ward_choice(None if declined else str(answer))
+        elif kind == "commander_zone":
+            # RULE 903.9a/9b: "command" moves the commander to the command
+            # zone instead of wherever it landed/was headed; anything else
+            # leaves it there.
+            self.rules.resolve_commander_zone_choice(None if declined else str(answer))
         else:  # search: a card's instance id, or decline
             instance_id = None if declined else int(answer)
             self.rules.resolve_search_choice(instance_id)

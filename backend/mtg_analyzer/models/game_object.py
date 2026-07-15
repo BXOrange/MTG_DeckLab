@@ -110,11 +110,17 @@ class GameObject:
         #: action once it leaves the battlefield, RULE 704.5d) hangs off this
         #: flag, not the printed definition. Defaults to the card's own token-ness.
         self.is_token: bool = card.is_token if is_token is None else is_token
-        #: Whether this object is a commander (RULE 903.6) — governs
-        #: whether it returns to the command zone instead of the
-        #: graveyard/etc. when it would otherwise leave play (RULE 903.9,
-        #: see `RulesEngine._move_to_graveyard`/`counter_spell`).
+        #: Whether this object is a commander (RULE 903.6) — governs whether
+        #: its owner may move it into the command zone instead of wherever
+        #: it would otherwise go when it would leave play (RULE 903.9, see
+        #: `RulesEngine._commander_zone_choice`/`resolve_commander_zone_choice`).
         self.is_commander = is_commander
+        #: RULE 903.9a: set the instant this commander lands in a graveyard
+        #: or exile zone, offering its owner a one-time SBA choice to move it
+        #: to the command zone instead; cleared the moment that choice opens
+        #: (`RulesEngine._sba_pass`), so it's a transient "just arrived, not
+        #: yet offered" marker, not a persistent commander-ness fact.
+        self.commander_zone_choice_pending: bool = False
 
         # Permanent state (meaningful on the battlefield).
         self.tapped: bool = False

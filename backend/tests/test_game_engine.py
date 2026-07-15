@@ -799,7 +799,10 @@ def test_commander_tax_adds_two_per_previous_cast():
     assert eng.commander_tax(p1, commander) == 4
 
 
-def test_commander_returns_to_command_zone_when_it_dies():
+def test_commander_dying_offers_command_zone_choice_and_can_move_there():
+    # RULE 903.9a: a commander that dies actually reaches the graveyard —
+    # unlike a non-commander, its owner is then offered a one-time SBA
+    # choice to move it to the command zone instead of leaving it there.
     eng = make_engine([], hand=0)
     p1 = eng.state.active_player
     commander = GameObject(
@@ -812,11 +815,38 @@ def test_commander_returns_to_command_zone_when_it_dies():
     eng.rules.check_state_based_actions()
 
     assert commander not in eng.state.battlefield
+    assert commander in p1.graveyard
+    assert commander not in p1.command
+    choice = eng.state.pending_choice
+    assert choice is not None and choice["kind"] == "commander_zone"
+    assert choice["instance_id"] == commander.instance_id
+
+    eng.rules.resolve_commander_zone_choice("command")
+
     assert commander in p1.command
     assert commander not in p1.graveyard
+    assert eng.state.pending_choice is None
 
 
-def test_countered_commander_spell_returns_to_command_zone_not_graveyard():
+def test_commander_dying_choice_declined_stays_in_graveyard():
+    eng = make_engine([], hand=0)
+    p1 = eng.state.active_player
+    commander = GameObject(
+        creature(name="Commander Bear", toughness=1), owner_id="p1", is_commander=True
+    )
+    commander.summoning_sick = False
+    eng.state.add_to_battlefield(commander)
+
+    eng.rules.deal_damage(commander, 1)
+    eng.rules.check_state_based_actions()
+    eng.rules.resolve_commander_zone_choice("decline")
+
+    assert commander in p1.graveyard
+    assert commander not in p1.command
+    assert eng.state.pending_choice is None
+
+
+def test_countered_commander_spell_offers_command_zone_choice():
     eng = make_engine([], hand=0)
     p1 = eng.state.active_player
     commander = GameObject(creature(name="Commander Bear"), owner_id="p1", is_commander=True)
@@ -827,8 +857,89 @@ def test_countered_commander_spell_returns_to_command_zone_not_graveyard():
 
     eng.rules.counter_spell(commander)
 
+    assert commander in p1.graveyard
+    assert commander not in p1.command
+    choice = eng.state.pending_choice
+    assert choice is None  # counter_spell doesn't itself check SBAs
+
+    eng.rules.check_state_based_actions()
+    choice = eng.state.pending_choice
+    assert choice is not None and choice["kind"] == "commander_zone"
+    eng.rules.resolve_commander_zone_choice("command")
+
     assert commander in p1.command
     assert commander not in p1.graveyard
+
+
+def test_exiled_commander_offers_command_zone_choice():
+    # RULE 903.9a covers exile identically to graveyard.
+    eng = make_engine([], hand=0)
+    p1 = eng.state.active_player
+    commander = GameObject(creature(name="Commander Bear"), owner_id="p1", is_commander=True)
+    commander.summoning_sick = False
+    eng.state.add_to_battlefield(commander)
+
+    eng.rules.exile(commander)
+    eng.rules.check_state_based_actions()
+
+    assert commander in p1.exile
+    choice = eng.state.pending_choice
+    assert choice is not None and choice["kind"] == "commander_zone"
+
+    eng.rules.resolve_commander_zone_choice("command")
+
+    assert commander in p1.command
+    assert commander not in p1.exile
+
+
+def test_bounced_commander_offers_command_zone_choice():
+    # RULE 903.9b: hand (unlike graveyard/exile) is a replacement effect —
+    # the choice opens immediately, not on the next SBA check.
+    eng = make_engine([], hand=0)
+    p1 = eng.state.active_player
+    commander = GameObject(creature(name="Commander Bear"), owner_id="p1", is_commander=True)
+    commander.summoning_sick = False
+    eng.state.add_to_battlefield(commander)
+
+    eng.rules.return_to_hand(commander)
+
+    assert commander in p1.hand
+    choice = eng.state.pending_choice
+    assert choice is not None and choice["kind"] == "commander_zone"
+    assert choice["instance_id"] == commander.instance_id
+
+    eng.rules.resolve_commander_zone_choice("command")
+
+    assert commander in p1.command
+    assert commander not in p1.hand
+
+
+def test_bounced_commander_choice_declined_stays_in_hand():
+    eng = make_engine([], hand=0)
+    p1 = eng.state.active_player
+    commander = GameObject(creature(name="Commander Bear"), owner_id="p1", is_commander=True)
+    commander.summoning_sick = False
+    eng.state.add_to_battlefield(commander)
+
+    eng.rules.return_to_hand(commander)
+    eng.rules.resolve_commander_zone_choice("decline")
+
+    assert commander in p1.hand
+    assert commander not in p1.command
+
+
+def test_non_commander_permanent_never_offers_command_zone_choice():
+    eng = make_engine([], hand=0)
+    p1 = eng.state.active_player
+    bear = GameObject(creature(name="Plain Bear", toughness=1), owner_id="p1")
+    bear.summoning_sick = False
+    eng.state.add_to_battlefield(bear)
+
+    eng.rules.deal_damage(bear, 1)
+    eng.rules.check_state_based_actions()
+
+    assert bear in p1.graveyard
+    assert eng.state.pending_choice is None
 
 
 def test_instant_can_be_cast_at_instant_speed():

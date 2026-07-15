@@ -190,18 +190,6 @@ Weeks 1–4 roadmap is archived at
       multikicker also needs its "repeatable" identity preserved through
       parsing (today's `_ALIASES` collapses it onto plain Kicker,
       indistinguishable post-parse).
-- [ ] Leaves-the-battlefield triggers don't "look back in time" (RULE
-      603.6a): `RulesEngine._move_to_graveyard` fires `DIES`/
-      `LEAVES_BATTLEFIELD` *after* removing the object, and
-      `_collect_triggers` only scans `state.permanents()` (the current
-      battlefield) — so a permanent's own "when this dies" triggered
-      ability is never found/checked by the live death pipeline. The
-      trigger-condition scoping itself works (verified by firing `DIES`
-      against a still-on-battlefield object in
-      `test_oracle_triggers.py`, with a comment on this gap); the fix is
-      to collect leave-triggers from the game state as it existed just
-      before the event (RULE 603.6a/603.10), e.g. snapshot the leaving
-      object's abilities at removal time.
 - [~] Combat blocking + creature-vs-creature damage: **engine done** —
       `GameEngine.declare_blockers`/`can_block` and a rewritten
       `_step_combat_damage` handle blocked/unblocked attackers, gang blocks

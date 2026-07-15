@@ -20,6 +20,7 @@ from mtg_analyzer.models.card import Card
 from mtg_analyzer.models.events import EventType, GameEvent
 from mtg_analyzer.models.game_object import GameObject, Zone
 from mtg_analyzer.game.effect_binder import bind_from_catalogue
+from mtg_analyzer.game.effects import DrawCardEffect, TriggeredAbility
 from mtg_analyzer.game.game_engine import GameEngine
 from mtg_analyzer.parser.oracle import UNMODELED, parse_oracle
 from mtg_analyzer.parser.oracle.segmenter import _trigger_condition
@@ -178,15 +179,13 @@ def _fire_dies(eng, obj):
 
 
 def test_self_dies_trigger_fires_only_for_its_own_death():
-    # `DIES` is fired only *after* `RulesEngine._move_to_graveyard` has
-    # already removed the object from the battlefield (RULE 603.6a's
-    # "look back in time" for leaves-the-battlefield triggers isn't modeled —
-    # a separate, pre-existing gap from the subject-scoping this test
-    # covers), so `_collect_triggers`' battlefield scan wouldn't see a
-    # departed object's own trigger either way. Firing the `DIES` event
-    # directly, with the object still on the battlefield, isolates exactly
-    # what's under test here: the "self" subject predicate reads the event's
-    # `instance_id`, not "did this object literally still exist".
+    # Firing the `DIES` event directly, with the object still on the
+    # battlefield, isolates exactly what's under test here: the "self"
+    # subject predicate reads the event's `instance_id`, not "did this
+    # object literally still exist" (that end-to-end path — actually going
+    # through `RulesEngine._move_to_graveyard`/`destroy` — is covered
+    # separately by `test_self_dies_trigger_fires_through_real_destroy_pipeline`
+    # below, RULE 603.6a "look back in time").
     eng = _new_engine(("p1", "Alice", [land_card()] * 20))
     p1 = _ready_main_phase(eng)
 
@@ -212,6 +211,128 @@ def test_self_dies_trigger_fires_only_for_its_own_death():
     _fire_dies(eng, reaper)
     eng.resolve_until_stable()
     assert len(p1.hand) == hand_before + 1
+
+
+def test_self_dies_trigger_fires_through_real_destroy_pipeline():
+    # RULE 603.6a "look back in time": `RulesEngine.destroy`/`_move_to_graveyard`
+    # now fires `DIES` *before* removing the object from the battlefield, so
+    # the object's own "when this dies" trigger is found by the live death
+    # pipeline (not just by a synthetic `fire_event` call, as in
+    # `test_self_dies_trigger_fires_only_for_its_own_death` above).
+    eng = _new_engine(("p1", "Alice", [land_card()] * 20))
+    p1 = _ready_main_phase(eng)
+
+    reaper = GameObject(
+        perm("Reaper", "When Reaper dies, draw a card."), owner_id="p1", zone=Zone.BATTLEFIELD,
+    )
+    reaper.summoning_sick = False
+    eng.state.add_to_battlefield(reaper)
+    bind_from_catalogue(reaper)
+
+    hand_before = len(p1.hand)
+    eng.rules.destroy(reaper)
+    eng.resolve_until_stable()
+    assert reaper not in eng.state.battlefield
+    assert reaper in p1.graveyard
+    assert len(p1.hand) == hand_before + 1
+
+
+def test_self_dies_trigger_fires_through_lethal_damage_sba():
+    # Same as above, but through the RULE 704.5g state-based-action path
+    # (lethal damage) rather than a direct `destroy()` call, to cover the
+    # other callers of `_move_to_graveyard` (0-toughness, 0-loyalty, legend
+    # rule, Saga final chapter all share the same fixed method).
+    eng = _new_engine(("p1", "Alice", [land_card()] * 20))
+    p1 = _ready_main_phase(eng)
+
+    reaper = GameObject(
+        perm("Reaper", "When Reaper dies, draw a card."), owner_id="p1", zone=Zone.BATTLEFIELD,
+    )
+    reaper.summoning_sick = False
+    eng.state.add_to_battlefield(reaper)
+    bind_from_catalogue(reaper)
+
+    hand_before = len(p1.hand)
+    reaper.damage_marked = reaper.toughness
+    eng.rules.check_state_based_actions()
+    eng.resolve_until_stable()
+    assert reaper not in eng.state.battlefield
+    assert len(p1.hand) == hand_before + 1
+
+
+def test_self_leaves_battlefield_trigger_fires_on_exile_and_return_to_hand():
+    # RULE 603.6a again, but for `RulesEngine.exile`/`return_to_hand` rather
+    # than `_move_to_graveyard` — no oracle-text handler binds a trigger to
+    # `EventType.LEAVES_BATTLEFIELD` yet, so the ability is hand-constructed
+    # here the same way `effect_binder._keyword_triggered_abilities` builds
+    # the combat-math keyword triggers.
+    eng = _new_engine(("p1", "Alice", [land_card()] * 20))
+    p1 = _ready_main_phase(eng)
+
+    def _leaves_trigger(obj):
+        return TriggeredAbility(
+            trigger_event=EventType.LEAVES_BATTLEFIELD,
+            effects=[DrawCardEffect(count=1)],
+            condition=lambda event, ctx, iid=obj.instance_id: event.get("instance_id") == iid,
+            controller_id=obj.controller_id,
+            source=obj,
+        )
+
+    wanderer = GameObject(vanilla("Wanderer"), owner_id="p1", zone=Zone.BATTLEFIELD)
+    wanderer.summoning_sick = False
+    eng.state.add_to_battlefield(wanderer)
+    wanderer.triggered_abilities.append(_leaves_trigger(wanderer))
+
+    hand_before = len(p1.hand)
+    eng.rules.exile(wanderer)
+    eng.resolve_until_stable()
+    assert wanderer not in eng.state.battlefield
+    assert len(p1.hand) == hand_before + 1
+
+    drifter = GameObject(vanilla("Drifter"), owner_id="p1", zone=Zone.BATTLEFIELD)
+    drifter.summoning_sick = False
+    eng.state.add_to_battlefield(drifter)
+    drifter.triggered_abilities.append(_leaves_trigger(drifter))
+
+    hand_before2 = len(p1.hand)
+    eng.rules.return_to_hand(drifter)
+    eng.resolve_until_stable()
+    assert drifter not in eng.state.battlefield
+    assert drifter in p1.hand
+    # +1 for Drifter itself landing in hand, +1 for the triggered draw.
+    assert len(p1.hand) == hand_before2 + 2
+
+
+def test_blood_artist_shaped_group_trigger_fires_once_on_real_death():
+    # Regression guard for the RULE 603.6a fix above: a *different*
+    # permanent's group-scoped "whenever a creature dies" trigger must still
+    # fire exactly once (not double-fire) now that the dying creature is
+    # visible to `_collect_triggers` for one extra instant before removal.
+    eng = _new_engine(("p1", "Alice", [land_card()] * 20))
+    p1 = _ready_main_phase(eng)
+
+    artist = GameObject(
+        perm(
+            "Artist",
+            "Whenever a creature dies, you gain 1 life.",
+            power=0, toughness=1,
+        ),
+        owner_id="p1", zone=Zone.HAND,
+    )
+    bind_from_catalogue(artist)
+    p1.add_to_zone(artist, Zone.HAND)
+    eng.cast_spell(p1, artist)
+    eng.resolve_until_stable()
+    assert artist in eng.state.battlefield
+
+    victim = GameObject(vanilla("Victim"), owner_id="p1", zone=Zone.BATTLEFIELD)
+    victim.summoning_sick = False
+    eng.state.add_to_battlefield(victim)
+
+    life_before = p1.life
+    eng.rules.destroy(victim)
+    eng.resolve_until_stable()
+    assert p1.life == life_before + 1
 
 
 def test_soul_warden_shaped_group_trigger():
