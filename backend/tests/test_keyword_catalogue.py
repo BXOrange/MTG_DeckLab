@@ -108,10 +108,17 @@ class TestCostKeywords:
         assert specs[0].keyword == {"name": "equip", "cost": "{2}"}
 
     def test_escape_reads_cost_after_the_dash(self):
+        # The full clause is captured (not just the mana pips) — the
+        # "Exile N other cards from your graveyard" component is genuinely
+        # modeled downstream (`game/costs.parse_activation_cost`), not
+        # merely carried, so dropping it here would silently lose it.
         specs = parse_keywords(
             _card(["Escape"], "Escape—{2}{B}{B}, Exile four other cards from your graveyard.")
         )
-        assert specs[0].keyword == {"name": "escape", "cost": "{2}{B}{B}"}
+        assert specs[0].keyword == {
+            "name": "escape",
+            "cost": "{2}{B}{B}, Exile four other cards from your graveyard",
+        }
 
     def test_ward_without_a_mana_cost_falls_back_to_free_text(self):
         # A non-mana ward cost isn't dropped (unlike other COST-shaped

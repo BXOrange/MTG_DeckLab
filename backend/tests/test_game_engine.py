@@ -2359,6 +2359,83 @@ def test_bushido_pumps_the_blocker_when_it_blocks():
     assert blocker.toughness == 2
 
 
+def _rampage_attacker(eng, n=2):
+    return obj_on_battlefield(
+        eng.state,
+        eng,
+        creature(
+            power=2,
+            toughness=2,
+            keywords=["Rampage"],
+            oracle_text=f"Rampage {n} (Whenever this creature becomes blocked, it gets "
+            f"+{n}/+{n} until end of turn for each creature blocking it beyond the first.)",
+        ),
+    )
+
+
+def test_rampage_does_not_trigger_with_only_one_blocker():
+    eng = make_engine([land()], [land()], hand=0)
+    _to_declare_attackers(eng)
+    attacker = _rampage_attacker(eng)
+    bind_from_catalogue(attacker)
+    blocker = obj_on_battlefield(eng.state, eng, creature(), controller="p2")
+    p2 = _attack_then_blockers_step(eng, attacker)
+    eng.declare_blockers(p2, [{"blocker": blocker, "attacker": attacker}])
+    eng.resolve_until_stable()
+
+    assert attacker.power == 2  # "beyond the first" — a single blocker adds nothing
+    assert attacker.toughness == 2
+
+
+def test_rampage_pumps_once_per_blocker_beyond_the_first():
+    eng = make_engine([land()], [land()], hand=0)
+    _to_declare_attackers(eng)
+    attacker = _rampage_attacker(eng, n=2)
+    bind_from_catalogue(attacker)
+    blocker1 = obj_on_battlefield(eng.state, eng, creature(), controller="p2")
+    blocker2 = obj_on_battlefield(eng.state, eng, creature(), controller="p2")
+    blocker3 = obj_on_battlefield(eng.state, eng, creature(), controller="p2")
+    p2 = _attack_then_blockers_step(eng, attacker)
+    eng.declare_blockers(
+        p2,
+        [
+            {"blocker": blocker1, "attacker": attacker},
+            {"blocker": blocker2, "attacker": attacker},
+            {"blocker": blocker3, "attacker": attacker},
+        ],
+    )
+    eng.resolve_until_stable()
+
+    # Three blockers, two "beyond the first" — +2/+2 twice.
+    assert attacker.power == 6
+    assert attacker.toughness == 6
+
+
+def test_rampage_goes_on_the_stack_as_a_real_triggered_ability():
+    eng = make_engine([land()], [land()], hand=0)
+    _to_declare_attackers(eng)
+    attacker = _rampage_attacker(eng)
+    bind_from_catalogue(attacker)
+    blocker1 = obj_on_battlefield(eng.state, eng, creature(), controller="p2")
+    blocker2 = obj_on_battlefield(eng.state, eng, creature(), controller="p2")
+    p2 = _attack_then_blockers_step(eng, attacker)
+    eng.declare_blockers(
+        p2,
+        [
+            {"blocker": blocker1, "attacker": attacker},
+            {"blocker": blocker2, "attacker": attacker},
+        ],
+    )
+
+    assert len(eng.state.stack) == 1  # a real stack object, not an inline effect
+    top = eng.state.stack[-1]
+    assert top.controller_id == "p1"  # RULE 603.3a: the attacker's own controller
+    assert attacker.power == 2  # not yet resolved
+
+    eng.resolve_until_stable()
+    assert attacker.power == 4
+
+
 def test_hexproof_creature_cannot_be_targeted_by_an_opponent():
     eng = make_engine([land()], [land()], hand=0)
     hex_creature = obj_on_battlefield(
@@ -2843,6 +2920,396 @@ def test_activated_attach_ability_attaches_to_target_on_resolution():
     eng.resolve_until_stable()
 
     assert source.attached_to == host.instance_id
+
+
+# -- Kicker / Multikicker (RULE 702.33) --------------------------------------
+
+
+def test_kicker_can_be_declined_and_pays_only_the_printed_cost():
+    eng = make_engine([instant(name="Kicked One", cost="{R}")], hand=1)
+    eng.begin_turn()
+    eng.state.current_step = "main1"
+    p1 = eng.state.active_player
+    spell = p1.hand[0]
+    spell.parametric_keywords = {"kicker": {"cost": "{1}{R}"}}
+    p1.mana_pool.add_many({"R": 1})
+
+    assert eng.can_cast(p1, spell)  # unkicked is always legal if affordable
+    eng.cast_spell(p1, spell)
+
+    assert p1.mana_pool.total() == 0
+    assert eng.state.stack[-1].obj.kicker_count == 0
+
+
+def test_kicker_paid_adds_its_own_cost_and_is_recorded():
+    eng = make_engine([instant(name="Kicked One", cost="{R}")], hand=1)
+    eng.begin_turn()
+    eng.state.current_step = "main1"
+    p1 = eng.state.active_player
+    spell = p1.hand[0]
+    spell.parametric_keywords = {"kicker": {"cost": "{1}{R}"}}
+    p1.mana_pool.add_many({"R": 2, "C": 1})
+
+    assert eng.can_cast(p1, spell, kicked=1)
+    eng.cast_spell(p1, spell, kicked=1)
+
+    assert p1.mana_pool.total() == 0  # {R} printed + {1}{R} kicker == RR + 1 generic
+    assert eng.state.stack[-1].obj.kicker_count == 1
+
+
+def test_kicker_cannot_be_paid_without_enough_mana():
+    eng = make_engine([instant(name="Kicked One", cost="{R}")], hand=1)
+    eng.begin_turn()
+    eng.state.current_step = "main1"
+    p1 = eng.state.active_player
+    spell = p1.hand[0]
+    spell.parametric_keywords = {"kicker": {"cost": "{1}{R}"}}
+    p1.mana_pool.add_many({"R": 1})  # only enough for the printed cost
+
+    assert not eng.can_cast(p1, spell, kicked=1)
+    with pytest.raises(ValueError):
+        eng.cast_spell(p1, spell, kicked=1)
+
+
+def test_plain_kicker_rejects_paying_it_twice():
+    eng = make_engine([instant(name="Kicked One", cost="{R}")], hand=1)
+    eng.begin_turn()
+    eng.state.current_step = "main1"
+    p1 = eng.state.active_player
+    spell = p1.hand[0]
+    spell.parametric_keywords = {"kicker": {"cost": "{R}"}}  # no "multi" flag
+    p1.mana_pool.add_many({"R": 3})
+
+    assert not eng.can_cast(p1, spell, kicked=2)
+
+
+def test_multikicker_allows_paying_it_repeatedly():
+    eng = make_engine([instant(name="Kicked Many", cost="{R}")], hand=1)
+    eng.begin_turn()
+    eng.state.current_step = "main1"
+    p1 = eng.state.active_player
+    spell = p1.hand[0]
+    spell.parametric_keywords = {"kicker": {"cost": "{R}", "multi": True}}
+    p1.mana_pool.add_many({"R": 4})  # {R} printed + 3x{R} multikicker
+
+    assert eng.can_cast(p1, spell, kicked=3)
+    eng.cast_spell(p1, spell, kicked=3)
+
+    assert p1.mana_pool.total() == 0
+    assert eng.state.stack[-1].obj.kicker_count == 3
+
+
+def test_multikicker_keyword_parsing_marks_the_repeatable_flag():
+    from mtg_analyzer.parser.oracle.catalogue.keywords import parse_keywords
+
+    card = Card(
+        id="Rousing Read",
+        name="Rousing Read",
+        type_line="Sorcery",
+        mana_cost_string="{2}{U}",
+        converted_mana_cost=3,
+        is_sorcery=True,
+        keywords=["Multikicker"],
+        oracle_text="Multikicker {1}\nDraw a card.",
+    )
+    specs = parse_keywords(card)
+    assert len(specs) == 1
+    assert specs[0].keyword == {"name": "kicker", "cost": "{1}", "multi": True}
+
+
+def test_legal_actions_surfaces_kicker_offer():
+    eng = make_engine([instant(name="Kicked One", cost="{R}")], hand=1)
+    eng.begin_turn()
+    eng.state.current_step = "main1"
+    p1 = eng.state.active_player
+    spell = p1.hand[0]
+    spell.parametric_keywords = {"kicker": {"cost": "{1}{R}", "multi": True}}
+    p1.mana_pool.add_many({"R": 3, "C": 2})
+
+    actions = eng.legal_actions(p1)
+    cast_action = next(a for a in actions if a.get("type") == "cast_spell")
+    assert cast_action["has_kicker"] is True
+    assert cast_action["kicker_cost"] == "{1}{R}"
+    assert cast_action["kicker_multi"] is True
+    assert cast_action["max_kicker"] >= 1
+
+
+# -- Buyback (RULE 702.27) ----------------------------------------------------
+
+
+def test_buyback_declined_resolves_to_the_graveyard_as_normal():
+    eng = make_engine([instant(name="Bought Back", cost="{R}")], hand=1)
+    eng.begin_turn()
+    eng.state.current_step = "main1"
+    p1 = eng.state.active_player
+    spell = p1.hand[0]
+    spell.parametric_keywords = {"buyback": {"cost": "{2}{U}"}}
+    p1.mana_pool.add_many({"R": 1})
+
+    eng.cast_spell(p1, spell)
+    eng.resolve_until_stable()
+
+    assert spell in p1.graveyard
+    assert spell not in p1.hand
+    assert spell.buyback_paid is False
+
+
+def test_buyback_paid_returns_the_spell_to_hand_instead_of_the_graveyard():
+    eng = make_engine([instant(name="Bought Back", cost="{R}")], hand=1)
+    eng.begin_turn()
+    eng.state.current_step = "main1"
+    p1 = eng.state.active_player
+    spell = p1.hand[0]
+    spell.parametric_keywords = {"buyback": {"cost": "{2}{U}"}}
+    p1.mana_pool.add_many({"R": 1, "U": 1, "C": 2})
+
+    assert eng.can_cast(p1, spell, buyback=True)
+    eng.cast_spell(p1, spell, buyback=True)
+    assert p1.mana_pool.total() == 0  # {R} printed + {2}{U} buyback all spent
+
+    eng.resolve_until_stable()
+
+    assert spell in p1.hand
+    assert spell not in p1.graveyard
+    assert spell.buyback_paid is False  # cleared once consumed
+
+
+def test_buyback_cannot_be_paid_without_enough_mana():
+    eng = make_engine([instant(name="Bought Back", cost="{R}")], hand=1)
+    eng.begin_turn()
+    eng.state.current_step = "main1"
+    p1 = eng.state.active_player
+    spell = p1.hand[0]
+    spell.parametric_keywords = {"buyback": {"cost": "{2}{U}"}}
+    p1.mana_pool.add_many({"R": 1})  # nothing left over for buyback
+
+    assert not eng.can_cast(p1, spell, buyback=True)
+    with pytest.raises(ValueError):
+        eng.cast_spell(p1, spell, buyback=True)
+
+
+def test_buyback_rejected_on_a_spell_without_the_keyword():
+    eng = make_engine([instant(name="Plain Spell", cost="{R}")], hand=1)
+    eng.begin_turn()
+    eng.state.current_step = "main1"
+    p1 = eng.state.active_player
+    spell = p1.hand[0]
+    p1.mana_pool.add_many({"R": 5, "U": 5, "C": 5})
+
+    assert not eng.can_cast(p1, spell, buyback=True)
+
+
+def test_legal_actions_surfaces_buyback_offer():
+    eng = make_engine([instant(name="Bought Back", cost="{R}")], hand=1)
+    eng.begin_turn()
+    eng.state.current_step = "main1"
+    p1 = eng.state.active_player
+    spell = p1.hand[0]
+    spell.parametric_keywords = {"buyback": {"cost": "{2}{U}"}}
+    p1.mana_pool.add_many({"R": 1, "U": 1, "C": 2})
+
+    actions = eng.legal_actions(p1)
+    cast_action = next(a for a in actions if a.get("type") == "cast_spell")
+    assert cast_action["has_buyback"] is True
+    assert cast_action["buyback_cost"] == "{2}{U}"
+    assert cast_action["buyback_affordable"] is True
+
+
+# -- Flashback (RULE 702.34) --------------------------------------------------
+
+
+def _in_graveyard(player, card):
+    """A `GameObject` for ``card`` sitting directly in ``player``'s graveyard,
+    as if it had already been cast and resolved there some previous turn."""
+    obj = GameObject(card, owner_id=player.id, zone=Zone.GRAVEYARD)
+    player.add_to_zone(obj, Zone.GRAVEYARD)
+    return obj
+
+
+def test_flashback_not_castable_from_hand_or_without_the_keyword():
+    eng = make_engine([instant(name="Plain Spell", cost="{R}")], hand=1)
+    eng.begin_turn()
+    eng.state.current_step = "main1"
+    p1 = eng.state.active_player
+    spell = p1.hand[0]
+    p1.mana_pool.add_many({"R": 5, "U": 5, "C": 5})
+    p1.hand.remove(spell)
+    grave_spell = _in_graveyard(p1, spell.card)
+
+    assert not eng.can_cast(p1, grave_spell)  # no flashback keyword at all
+
+
+def test_flashback_castable_from_the_graveyard_for_its_own_cost():
+    eng = make_engine([], hand=0)
+    eng.begin_turn()
+    eng.state.current_step = "main1"
+    p1 = eng.state.active_player
+    card = instant(name="Flashed Back", cost="{3}{R}")
+    grave_spell = _in_graveyard(p1, card)
+    grave_spell.parametric_keywords = {"flashback": {"cost": "{U}"}}
+    p1.mana_pool.add_many({"U": 1})  # not enough for the printed {3}{R}
+
+    assert eng.can_cast(p1, grave_spell)  # affordable via the flashback cost
+    eng.cast_spell(p1, grave_spell)
+
+    assert p1.mana_pool.total() == 0
+    assert grave_spell not in p1.graveyard
+    assert eng.state.stack[-1].obj is grave_spell
+
+
+def test_flashback_cast_spell_is_exiled_instead_of_returning_to_the_graveyard():
+    eng = make_engine([], hand=0)
+    eng.begin_turn()
+    eng.state.current_step = "main1"
+    p1 = eng.state.active_player
+    card = instant(name="Flashed Back", cost="{3}{R}")
+    grave_spell = _in_graveyard(p1, card)
+    grave_spell.parametric_keywords = {"flashback": {"cost": "{U}"}}
+    p1.mana_pool.add_many({"U": 1})
+
+    eng.cast_spell(p1, grave_spell)
+    eng.resolve_until_stable()
+
+    assert grave_spell in p1.exile
+    assert grave_spell not in p1.graveyard
+    assert grave_spell.cast_via_flashback is False  # cleared once consumed
+
+
+def test_flashback_cannot_be_paid_without_enough_mana():
+    eng = make_engine([], hand=0)
+    eng.begin_turn()
+    eng.state.current_step = "main1"
+    p1 = eng.state.active_player
+    card = instant(name="Flashed Back", cost="{3}{R}")
+    grave_spell = _in_graveyard(p1, card)
+    grave_spell.parametric_keywords = {"flashback": {"cost": "{2}{U}"}}
+    p1.mana_pool.add_many({"U": 1})  # not enough for {2}{U}
+
+    assert not eng.can_cast(p1, grave_spell)
+    with pytest.raises(ValueError):
+        eng.cast_spell(p1, grave_spell)
+
+
+def test_legal_actions_surfaces_flashback_cast_from_graveyard():
+    eng = make_engine([], hand=0)
+    eng.begin_turn()
+    eng.state.current_step = "main1"
+    p1 = eng.state.active_player
+    card = instant(name="Flashed Back", cost="{3}{R}")
+    grave_spell = _in_graveyard(p1, card)
+    grave_spell.parametric_keywords = {"flashback": {"cost": "{U}"}}
+    p1.mana_pool.add_many({"U": 1})
+
+    actions = eng.legal_actions(p1)
+    cast_action = next(
+        a for a in actions
+        if a.get("type") == "cast_spell" and a.get("instance_id") == grave_spell.instance_id
+    )
+    assert cast_action["cast_from_graveyard"] == "flashback"
+    assert cast_action["base_cost"] == "{3}{R}"
+    assert cast_action["effective_cost"] == "{U}"
+
+
+# -- Escape (RULE 702.138) ----------------------------------------------------
+
+
+def test_escape_not_castable_without_enough_other_graveyard_cards():
+    eng = make_engine([], hand=0)
+    eng.begin_turn()
+    eng.state.current_step = "main1"
+    p1 = eng.state.active_player
+    card = creature(name="Escaped Thing", cost="{2}{B}")
+    grave_spell = _in_graveyard(p1, card)
+    grave_spell.parametric_keywords = {
+        "escape": {"cost": "{1}{B}, Exile two other cards from your graveyard"}
+    }
+    p1.mana_pool.add_many({"B": 2, "C": 1})
+    # No other cards in the graveyard yet — only the escaping card itself.
+
+    assert not eng.can_cast(p1, grave_spell)
+
+
+def test_escape_castable_once_enough_other_cards_are_present():
+    eng = make_engine([], hand=0)
+    eng.begin_turn()
+    eng.state.current_step = "main1"
+    p1 = eng.state.active_player
+    card = creature(name="Escaped Thing", cost="{2}{B}")
+    grave_spell = _in_graveyard(p1, card)
+    grave_spell.parametric_keywords = {
+        "escape": {"cost": "{1}{B}, Exile two other cards from your graveyard"}
+    }
+    _in_graveyard(p1, instant(name="Filler 1"))
+    _in_graveyard(p1, instant(name="Filler 2"))
+    p1.mana_pool.add_many({"B": 2, "C": 1})  # not enough for the printed {2}{B}
+
+    assert eng.can_cast(p1, grave_spell)  # affordable via the escape cost
+
+
+def test_escape_exiles_the_announced_other_cards_and_pays_its_own_cost():
+    eng = make_engine([], hand=0)
+    eng.begin_turn()
+    eng.state.current_step = "main1"
+    p1 = eng.state.active_player
+    card = creature(name="Escaped Thing", cost="{2}{B}")
+    grave_spell = _in_graveyard(p1, card)
+    grave_spell.parametric_keywords = {
+        "escape": {"cost": "{1}{B}, Exile two other cards from your graveyard"}
+    }
+    filler1 = _in_graveyard(p1, instant(name="Filler 1"))
+    filler2 = _in_graveyard(p1, instant(name="Filler 2"))
+    p1.mana_pool.add_many({"B": 2, "C": 1})
+
+    eng.cast_spell(p1, grave_spell)
+
+    assert p1.mana_pool.total() == 1  # {1}{B} escape cost spent, {B}{C} pool - 2 leaves 1
+    assert grave_spell not in p1.graveyard
+    assert filler1 in p1.exile
+    assert filler2 in p1.exile
+    assert filler1 not in p1.graveyard
+    assert filler2 not in p1.graveyard
+
+
+def test_escape_cast_creature_resolves_onto_the_battlefield():
+    eng = make_engine([], hand=0)
+    eng.begin_turn()
+    eng.state.current_step = "main1"
+    p1 = eng.state.active_player
+    card = creature(name="Escaped Thing", cost="{2}{B}")
+    grave_spell = _in_graveyard(p1, card)
+    grave_spell.parametric_keywords = {"escape": {"cost": "{1}{B}"}}  # no exile component
+    p1.mana_pool.add_many({"B": 2, "C": 1})
+
+    eng.cast_spell(p1, grave_spell)
+    eng.resolve_until_stable()
+
+    assert grave_spell in eng.state.battlefield
+    assert grave_spell not in p1.graveyard
+    assert grave_spell not in p1.exile  # unlike Flashback, Escape doesn't exile after resolving
+
+
+def test_legal_actions_surfaces_escape_offer():
+    eng = make_engine([], hand=0)
+    eng.begin_turn()
+    eng.state.current_step = "main1"
+    p1 = eng.state.active_player
+    card = creature(name="Escaped Thing", cost="{2}{B}")
+    grave_spell = _in_graveyard(p1, card)
+    grave_spell.parametric_keywords = {
+        "escape": {"cost": "{1}{B}, Exile two other cards from your graveyard"}
+    }
+    _in_graveyard(p1, instant(name="Filler 1"))
+    _in_graveyard(p1, instant(name="Filler 2"))
+    p1.mana_pool.add_many({"B": 2, "C": 1})
+
+    actions = eng.legal_actions(p1)
+    cast_action = next(
+        a for a in actions
+        if a.get("type") == "cast_spell" and a.get("instance_id") == grave_spell.instance_id
+    )
+    assert cast_action["cast_from_graveyard"] == "escape"
+    assert cast_action["escape_exile_count"] == 2
+    assert cast_action["effective_cost"] == "{1}{B}"
 
 
 def test_bind_from_catalogue_creates_equipment_ability_from_keyword():

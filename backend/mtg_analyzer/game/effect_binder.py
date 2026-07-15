@@ -407,13 +407,14 @@ def _keyword_triggered_abilities(obj: Any, spec: AbilitySpec) -> list[TriggeredA
     alongside the purely-static evasion keywords (flying, trample, ...),
     since a player can actually respond to any of the three.
 
-    Rampage (702.23) is deliberately not built here: its pump amount scales
-    with the *specific* block's final blocker count, which needs the
-    triggering event's data threaded through to resolution — `TriggeredAbility`
-    binds one fixed `effects` list once at bind-on-load and reuses it for
-    every firing (see `RulesEngine._place_trigger`), so a per-firing dynamic
-    amount needs a new "build effects from this event" seam none of
-    annihilator/afflict/bushido need. Left for a follow-up.
+    Rampage (702.23) is deliberately *not* built here: its pump amount
+    scales with the *specific* block's final blocker count, which a
+    bind-on-load `TriggeredAbility` (one fixed `effects` list, reused for
+    every firing) can't carry. It's built directly instead — the identical
+    "per-firing dynamic amount" problem Ward solves the same way — by
+    `RulesEngine.check_rampage`, called from `GameEngine.declare_blockers`
+    right where `BECOMES_BLOCKED` fires (which already carries a
+    `blocker_count` payload for exactly this).
     """
     keyword = spec.keyword or {}
     name = str(keyword.get("name") or "")

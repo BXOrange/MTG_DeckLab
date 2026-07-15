@@ -111,7 +111,7 @@ Follows [`09_ORACLE_EFFECT_PARSER.md`](../concepts/09_ORACLE_EFFECT_PARSER.md). 
   abilities from the handled families already resolve with no catalogue
   entry; is the seam M2 plugs into. *(docs/09 Phases 1–2.)*
 
-### M2 — Parametric keyword binding (open)
+### M2 — Parametric keyword binding — done
 **Goal:** give behaviour to keywords already parsed-but-inert.
 
 - Landwalk is **done** (fully bound into combat, RULE 702.14) — the first
@@ -140,20 +140,42 @@ Follows [`09_ORACLE_EFFECT_PARSER.md`](../concepts/09_ORACLE_EFFECT_PARSER.md). 
   cost already uses — via a small parser fix (`keywords.py`'s
   `_WARD_TEXT_COST_RE` fallback, since the shared COST-shape regex is
   mana-only and previously dropped a non-mana ward clause entirely).
-- Still open: alternative/additional-cost keywords (kicker, multikicker,
-  buyback, escape, flashback…) via the cost system + cast-time choices;
-  **rampage** (needs a per-firing dynamic effect amount `TriggeredAbility`
-  can't express yet — ward hit the identical problem and solved it by
-  building its effect directly rather than through that pipeline); a ward
-  cost with `{X}` in it (RULE 702.21b) isn't specially resolved (no known
-  real card needs it); protection *quality* (already fully working via a
-  separate, older path — `combat.is_protected_from` — not
-  `parametric_keywords` at all); and hexproof-*from*'s quality (currently
-  aliased onto plain hexproof, losing the "from X" scope). Each parameter
-  already binds onto `GameObject.parametric_keywords` —
-  landwalk/annihilator/afflict/bushido/ward now consume theirs.
+- **Alternative/additional-cost keywords are done** (2026-07-15): Kicker/
+  Multikicker (an optional, cast-time-parameterized additional cost — the
+  same `x`/`mode` shape `GameEngine.cast_spell` already uses for `{X}`/modal
+  spells, plus a new `ManaCost.add` to compose it with the printed cost),
+  Buyback (same shape, plus a `RulesEngine.resolve_top_of_stack` branch
+  returning the spell to hand instead of the graveyard), and Flashback/
+  Escape (a shared graveyard-cast zone gate in `GameEngine.can_cast`/
+  `legal_actions`, each substituting its own alternative cost for the
+  printed one; Flashback exiles the spell after resolving, Escape resolves
+  normally). Escape's own new cost-grammar work: "exile N other cards from
+  your graveyard" — previously silently dropped by the mana-only COST-shape
+  extractor — now parses via a new `_ESCAPE_TEXT_COST_RE` free-text fallback
+  plus `ActivationCost.exile_from_graveyard`/`_EXILE_GRAVEYARD_RE`
+  (`game/costs.py`). See `Done_Backend.md` "Rules Engine (Phase 2)" for the
+  full writeup. Not part of this slice (a deliberate follow-up, tracked in
+  `ToDo_Backend.md`'s M1 section): a spell's "if this spell was kicked, …"
+  resolve-time conditional effect doesn't yet consume
+  `GameObject.kicker_count` — that needs new oracle-parser
+  conditional-clause grammar, not cost-mechanic wiring.
+- **Rampage is done** (RULE 702.23, 2026-07-15) — the same "per-firing
+  dynamic effect amount" problem Ward solved, solved the same way: new
+  `RulesEngine.check_rampage`, called from `GameEngine.declare_blockers`
+  right where `BECOMES_BLOCKED` fires, builds a fresh `TriggeredAbility`
+  with a `PumpEffect` sized to that specific block's blocker count and
+  pushes it via the existing `_place_trigger` — a real stack object, not an
+  inline effect. See `Done_Backend.md` "M2 Rampage" for the full writeup.
+- Remaining narrow rough edges, not new features: a ward cost with `{X}` in
+  it (RULE 702.21b) isn't specially resolved (no known real card needs it);
+  protection *quality* (already fully working via a separate, older path —
+  `combat.is_protected_from` — not `parametric_keywords` at all); and
+  hexproof-*from*'s quality (currently aliased onto plain hexproof, losing
+  the "from X" scope) — see `ToDo_EdgeCases.md`. Every parametric keyword
+  this engine models now binds onto `GameObject.parametric_keywords` *and*
+  consumes it: landwalk/annihilator/afflict/bushido/ward/rampage/kicker/
+  buyback/escape/flashback.
 - **Depends on:** M1 keyword catalogue (done) + cost/targeting systems (done).
-- Backlog: `ToDo_Backend.md` "M2 parametric keyword behaviour".
 
 ### M3 — Layer system completion (RULE 613) — done, narrowly scoped in two corners
 **Goal:** finish `game/continuous.py` to the full layer set.
@@ -274,7 +296,7 @@ depend on M1, and copies feed M3's layer 1.
 ## Suggested sequencing
 
 ```
-M1 (oracle parser) ──┬─▶ M2 (parametric keyword behaviour)
+M1 (oracle parser) ──┬─▶ M2 (parametric keyword behaviour) ── done
                      └─▶ M6 remainder (Adventure/Split, Battles/Dungeons)
 M3 (layers)          ── done except two deliberately-deferred corners
 M4 (permanent subsystems) ── done (engine-side); UI hookups remain in ToDo_Frontend.md

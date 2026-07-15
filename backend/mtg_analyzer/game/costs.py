@@ -44,6 +44,11 @@ _DISCARD_RE = re.compile(
 _REMOVE_COUNTERS_RE = re.compile(
     r"remove\s+(\d+|[a-z]+)\s+([+\-]?\d+/[+\-]?\d+|[a-z]+)\s+counters?", re.IGNORECASE
 )
+#: RULE 702.138b — Escape's own cost component: "Exile N other cards from
+#: your graveyard". ``N`` may be a digit or a spelled-out number word.
+_EXILE_GRAVEYARD_RE = re.compile(
+    r"exile\s+(\d+|[a-z]+)\s+other\s+cards?\s+from\s+your\s+graveyard", re.IGNORECASE
+)
 #: A planeswalker loyalty ability's cost — the ``[+2]`` / ``[-3]`` / ``[0]``
 #: bracket at the start of the ability (RULE 606.5c). A leading "+" or no sign
 #: means add loyalty; "−"/"-" means remove it. Accepts the Unicode minus too.
@@ -83,6 +88,9 @@ class ActivationCost:
     pay_life: int = 0
     discard: int = 0
     remove_counters: Optional[tuple[str, int]] = None
+    #: RULE 702.138b (Escape): how many *other* cards must be exiled from the
+    #: payer's own graveyard — "Exile four other cards from your graveyard".
+    exile_from_graveyard: int = 0
     #: Loyalty-ability cost (RULE 606.5c): the signed change to the source's
     #: loyalty counters — ``+2`` for ``[+2]``, ``-3`` for ``[-3]``, ``0`` for
     #: ``[0]``. ``None`` means this is not a loyalty ability.
@@ -114,6 +122,7 @@ class ActivationCost:
             or self.discard
             or self.remove_counters
             or self.loyalty is not None
+            or self.exile_from_graveyard
         )
 
     def label(self) -> str:
@@ -136,6 +145,8 @@ class ActivationCost:
         if self.remove_counters:
             kind, count = self.remove_counters
             parts.append(f"Remove {count} {kind} counter(s)")
+        if self.exile_from_graveyard:
+            parts.append(f"Exile {self.exile_from_graveyard} other card(s) from your graveyard")
         if self.loyalty is not None:
             parts.append(f"[{'+' if self.loyalty >= 0 else ''}{self.loyalty}]")
         return ", ".join(parts)
@@ -149,6 +160,7 @@ class ActivationCost:
             "pay_life": self.pay_life,
             "discard": self.discard,
             "remove_counters": list(self.remove_counters) if self.remove_counters else None,
+            "exile_from_graveyard": self.exile_from_graveyard,
             "loyalty": self.loyalty,
             "label": self.label(),
         }
@@ -190,6 +202,8 @@ def parse_activation_cost(
         parsed.discard = int(cost["discard"])
     if cost.get("loyalty") is not None:
         parsed.loyalty = int(cost["loyalty"])
+    if "exile_from_graveyard" in cost:
+        parsed.exile_from_graveyard = int(cost["exile_from_graveyard"])
     if "sorcery_speed_only" in cost:
         parsed.sorcery_speed_only = bool(cost["sorcery_speed_only"])
     if cost.get("class_level") is not None:
@@ -253,5 +267,9 @@ def _parse_text(text: str) -> ActivationCost:
     if counters:
         count = _word_to_int(counters.group(1))
         cost.remove_counters = (counters.group(2).lower(), count)
+
+    exile_graveyard = _EXILE_GRAVEYARD_RE.search(cost_text)
+    if exile_graveyard:
+        cost.exile_from_graveyard = _word_to_int(exile_graveyard.group(1))
 
     return cost

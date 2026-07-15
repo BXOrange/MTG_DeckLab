@@ -126,6 +126,17 @@ _WARD_TEXT_COST_RE = re.compile(
     r"\bward\b[\s—-]*(?P<cost>[a-zA-Z][^.\n(]*?)\s*(?=[.\n(]|$)", re.I
 )
 
+#: Escape's cost line is a comma-joined "{mana}, Exile N other cards from
+#: your graveyard" (RULE 702.138b) — the mana-only ``_auto_regex`` COST
+#: pattern above only ever sees the ``{...}`` pips, silently dropping the
+#: exile-count clause. Unlike Ward's fallback (only consulted when the mana
+#: regex finds nothing), this one always wins for Escape: the full clause is
+#: needed downstream, not just the mana portion, so `game/costs.
+#: parse_activation_cost` can recognize both components together.
+_ESCAPE_TEXT_COST_RE = re.compile(
+    r"\bescape\b[\s—-]*(?P<cost>[^.\n(]*?)\s*(?=[.\n(]|$)", re.I
+)
+
 
 def _auto_regex(display: str, shape: KeywordShape) -> Optional[re.Pattern[str]]:
     """The parameter extractor for a *regular* parametric keyword.
@@ -437,10 +448,10 @@ def _extract_param(kdef: KeywordDef, text: str, forced_quality: Optional[str]) -
 
     Fail-safe: if a parametric keyword's regex finds nothing, the parameter
     is simply omitted rather than guessed — a bare, still-valid keyword spec
-    (docs/09 "fail-closed"). Ward (RULE 702.21) is the one exception: a
-    non-mana cost falls back to `_WARD_TEXT_COST_RE` instead of staying
-    bare, since its cost is genuinely modeled downstream (`game/costs.
-    parse_activation_cost`), not merely carried.
+    (docs/09 "fail-closed"). Ward (RULE 702.21) and Escape (RULE 702.138)
+    are the two exceptions: their cost is genuinely modeled downstream
+    (`game/costs.parse_activation_cost`), not merely carried, so each falls
+    back to its own free-text regex instead of staying mana-only/bare.
     """
     param: dict = {"name": kdef.slug}
     if forced_quality:
@@ -458,6 +469,12 @@ def _extract_param(kdef: KeywordDef, text: str, forced_quality: Optional[str]) -
                 param["quality"] = groups["quality"].strip()
     if kdef.slug == "ward" and "cost" not in param:
         fallback = _WARD_TEXT_COST_RE.search(text)
+        if fallback:
+            param["cost"] = fallback.group("cost").strip()
+    if kdef.slug == "escape":
+        # Always prefer the full clause over the mana-only match above (if
+        # any) — Escape's exile-count component only lives in this capture.
+        fallback = _ESCAPE_TEXT_COST_RE.search(text)
         if fallback:
             param["cost"] = fallback.group("cost").strip()
     return param
@@ -537,6 +554,13 @@ def parse_keywords(card: "Card") -> list[AbilitySpec]:
         seen.add(dedupe_key)
 
         param = _extract_param(kdef, text, forced_quality)
+        if _slug(str(raw_name)) == "multikicker":
+            # RULE 702.34a: Multikicker is Kicker's repeatable variant — both
+            # alias onto the same "kicker" slug/behaviour, but the "may pay
+            # this cost any number of times" identity must survive the alias
+            # collapse or a Multikicker card is indistinguishable from plain
+            # Kicker post-parse.
+            param["multi"] = True
         spec = AbilitySpec(
             ability_kind="keyword",
             keyword=param,

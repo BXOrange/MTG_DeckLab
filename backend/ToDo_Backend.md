@@ -154,42 +154,19 @@ Weeks 1–4 roadmap is archived at
       triggers, "add 1 mana of any color" (a mana *choice*); oracle-text
       *recognition* of replacement clauses (the binder is ready; a
       target/duration grammar for the front-end is not); parse-on-load
-      memoization in `LazyCardLoader`; and the remaining processing-list tail
-      (run `parser/oracle/
+      memoization in `LazyCardLoader`; a spell's "if this spell was kicked,
+      …" resolve-time conditional effect, which needs new conditional-clause
+      grammar to recognize the "if kicked" clause shape and gate which
+      `EffectSpec`s apply (Kicker's own cast-time payment/tracking is fully
+      modeled — see Done_Backend.md "M2 alt-cost keywords" — this is purely
+      about a spell consuming that state); and the remaining processing-list
+      tail (run `parser/oracle/
       processing_list.coverage_over_cards` for the current ranking —
       top blockers now: "\<cost\>: untap this artifact", prohibition
       statics ("activated abilities of artifacts can't be activated",
       "players can't draw cards"), cost-modification statics
       ("noncreature spells cost {1} more to cast"), emblems, and
       "for each"-scaled effects).
-- [~] **M2 parametric keyword behaviour**: annihilator/afflict/bushido,
-      hexproof-as-a-targeting-filter, and ward (a genuine stack object per
-      RULE 603.3, with mana/life/discard/sacrifice cost types) all shipped —
-      moved to [Done_Backend.md](../docs/implementation-state/Done_Backend.md)
-      "Rules Engine (Phase 2)". Narrow rough edges left on those (a ward cost
-      with `{X}`; hexproof-*from*'s quality aliased onto blanket hexproof):
-      [ToDo_EdgeCases.md](../docs/implementation-state/ToDo_EdgeCases.md).
-      Still open as real features: **rampage** (702.23) — its pump
-      amount scales with the specific block's final blocker count, which
-      needs a per-firing "build effects from this triggering event" seam
-      `TriggeredAbility` doesn't have yet (it binds one fixed `effects` list
-      once at bind-on-load; ward's own equivalent problem was solved by
-      building its effect directly rather than through that pipeline — see
-      the Done entry); and the alternative/
-      additional-cost keyword family (**kicker**/multikicker/
-      buyback/escape/flashback) — kicker/buyback fit the existing `x`/`mode`
-      cast-time-parameter pattern (`GameEngine.cast_spell`) plus a new
-      "add another full `ManaCost`" method and (for buyback) a resolve-time
-      zone-routing branch mirroring the adventure-snapshot exile branch in
-      `RulesEngine.resolve_top_of_stack`; escape/flashback need a
-      cast-from-graveyard zone gate in `GameEngine.can_cast`/`legal_actions`
-      (the low-level engine — `_remove_from_current_zone`,
-      `cast_without_paying` — is already zone-agnostic by design); escape's
-      "exile N other cards from your graveyard" cost component is currently
-      silently dropped by the parser and needs new grammar work first;
-      multikicker also needs its "repeatable" identity preserved through
-      parsing (today's `_ALIASES` collapses it onto plain Kicker,
-      indistinguishable post-parse).
 - [~] Combat blocking + creature-vs-creature damage: **engine done** —
       `GameEngine.declare_blockers`/`can_block` and a rewritten
       `_step_combat_damage` handle blocked/unblocked attackers, gang blocks

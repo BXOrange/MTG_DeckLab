@@ -98,6 +98,19 @@ class GameObject:
         #: cleanup only for as long as that source stays on the battlefield
         #: with `prepared` still set. None on every other object.
         self.prepared_source_id: Optional[int] = None
+        #: RULE 702.33b: how many times Kicker was paid when this spell was
+        #: cast — 0 (not kicked), 1 for a plain Kicker, or 0..N for
+        #: Multikicker. Set once at cast time by `GameEngine._cast_current_face`
+        #: and left on the object afterward as a record of what was paid.
+        self.kicker_count: int = 0
+        #: RULE 702.27a: whether Buyback's additional cost was paid when this
+        #: spell was cast — if so, `RulesEngine.resolve_top_of_stack` returns
+        #: it to hand instead of the graveyard, then clears this flag.
+        self.buyback_paid: bool = False
+        #: RULE 702.34a: whether this spell was cast from the graveyard via
+        #: Flashback — if so, `RulesEngine.resolve_top_of_stack` exiles it
+        #: instead of sending it to the graveyard, then clears this flag.
+        self.cast_via_flashback: bool = False
         self.owner_id = owner_id
         #: Who currently controls the object; defaults to its owner
         #: (RULE 108.4). Control can change but ownership can't.
@@ -523,6 +536,11 @@ class GameObject:
             # copy is castable — see the "adventure_castable"-style scan of
             # the exile zone for that copy's own board tile/actions).
             "prepared": self.prepared,
+            # RULE 702.33b/27a/34a: alt-cost casting state, for the board to
+            # show a kicked/bought-back/flashed-back spell's own badge.
+            "kicker_count": self.kicker_count,
+            "buyback_paid": self.buyback_paid,
+            "cast_via_flashback": self.cast_via_flashback,
             # Types added by a layer-4 effect (e.g. "creature"), for the board.
             "added_types": sorted(self._added_types),
             "attacking": self.attacking,

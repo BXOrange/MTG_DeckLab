@@ -34,6 +34,7 @@ from .costs import DISCARD_HAND, ActivationCost, parse_activation_cost
 from .effects import (
     CantBeCounteredEffect,
     GameContext,
+    PumpEffect,
     ReplacementEffect,
     StaticEffect,
     TriggeredAbility,
@@ -867,6 +868,18 @@ class RulesEngine:
                 self.restore_face(obj, snapshot)
                 self.exile(obj)
                 obj.adventure_castable = True
+            elif obj.buyback_paid:
+                # RULE 702.27a: Buyback's additional cost was paid at cast
+                # time — return the card to its owner's hand instead of the
+                # graveyard, reusing the same zone-routing `return_to_hand`
+                # an Unsummon-style bounce uses.
+                obj.buyback_paid = False
+                self.return_to_hand(obj)
+            elif obj.cast_via_flashback:
+                # RULE 702.34a: a spell cast via Flashback is exiled instead
+                # of going to the graveyard when it resolves.
+                obj.cast_via_flashback = False
+                self.exile(obj)
             else:
                 self._move_to_graveyard(obj)
             self.state.fire_event(
@@ -1930,6 +1943,37 @@ class RulesEngine:
             return
         if item is not None:
             self.counter_spell(item)
+
+    def check_rampage(self, attacker: GameObject, blocker_count: int) -> None:
+        """RULE 702.23: place Rampage's triggered ability, if any, right when
+        ``attacker`` becomes blocked — built directly (not via the generic
+        `TriggeredAbility`/`_collect_triggers` event pipeline `_place_trigger`
+        normally drives *from*, though it still ends by calling that same
+        method to go on the stack) because its pump amount is fixed *at
+        trigger time* to this specific block's blocker count (RULE 603.4),
+        which a bind-on-load `TriggeredAbility` — one fixed `effects` list,
+        reused for every firing — can't carry. The identical "per-firing
+        data" problem `check_ward` solves the same way, for the same reason.
+
+        A no-op when ``attacker`` has no Rampage, or wasn't blocked by more
+        than one creature (RULE 702.23a: "for each creature blocking it
+        beyond the first" — zero bonus for a single blocker, so nothing to
+        place).
+        """
+        param = (getattr(attacker, "parametric_keywords", None) or {}).get("rampage")
+        if not param or param.get("n") is None:
+            return
+        bonus = int(param["n"]) * max(0, blocker_count - 1)
+        if bonus <= 0:
+            return
+        ability = TriggeredAbility(
+            trigger_event=EventType.BECOMES_BLOCKED,
+            effects=[PumpEffect(power=bonus, toughness=bonus)],
+            controller_id=attacker.controller_id,
+            source=attacker,
+            description=f"Rampage {param['n']}",
+        )
+        self._place_trigger(ability)
 
     # ------------------------------------------------------------------
     # Library search + shuffle + the pending-choice it needs (RULE 701.19/20)

@@ -759,6 +759,104 @@ the Phase-1 models. Tests: `test_game_engine.py`.
   `test_blood_artist_shaped_group_trigger_fires_once_on_real_death` as a
   no-double-firing regression guard for group-scoped triggers).
 
+- **M2 alt-cost keywords — Kicker/Multikicker, Buyback, Escape, Flashback
+  (2026-07-15):** the last open M2 keyword family (`backend/ToDo_Backend.md`)
+  — each was parsed-but-inert in `GameObject.parametric_keywords` before
+  this; all four now have real cast-time/resolve-time behaviour.
+  **Foundation:** `ManaCost.add(other)` (`models/mana_cost.py`) concatenates
+  two costs' symbol lists (unlike `increase_generic`, it carries colored/
+  hybrid/Phyrexian pips, not just generic ones) — Kicker/Multikicker/Buyback
+  all compose the printed cost with an independent additional cost this way.
+  Multikicker's "repeatable" identity survives the `_ALIASES` collapse onto
+  plain Kicker (`parser/oracle/catalogue/keywords.py` `parse_keywords`): the
+  raw Scryfall name is checked *before* aliasing (the same "check before
+  collapse" trick landwalk's `forced_quality` already used), stamping
+  `multi=True` into the extracted param dict. New `GameObject` fields
+  `kicker_count`/`buyback_paid`/`cast_via_flashback` (`models/game_object.py`)
+  carry each cast's paid state, exposed in `to_dict` for the board.
+  **Kicker/Multikicker (RULE 702.33):** `GameEngine.cast_spell`/`can_cast`/
+  `effective_cast_cost` grow a `kicked: int` parameter following the exact
+  shape `x`/`mode` already use — `_kicker_cost`/`max_affordable_kicker`
+  mirror `max_affordable_x`'s "scan down from an upper bound" shape;
+  `can_cast` rejects `kicked > 1` unless the keyword's own `multi` flag is
+  set. `legal_actions`/`_cast_action` surface `has_kicker`/`kicker_cost`/
+  `kicker_multi`/`max_kicker`, the same `has_x`/`max_x` treatment. Consuming
+  "if this spell was kicked, …" at resolve time is a deliberate follow-up
+  (new oracle-parser conditional-clause grammar), not part of this slice —
+  see `backend/ToDo_Backend.md`. **Buyback (RULE 702.27):** an optional
+  additional cost the same shape as Kicker; `RulesEngine.
+  resolve_top_of_stack` grows an `elif obj.buyback_paid` branch (mirroring
+  the pre-existing adventure-snapshot exile branch) that calls
+  `RulesEngine.return_to_hand` instead of `_move_to_graveyard` — reusing the
+  Unsummon-style bounce helper wholesale, including its commander-zone-choice
+  handling, rather than duplicating zone-move logic. **Flashback (RULE
+  702.34)/Escape (RULE 702.138):** share one graveyard zone gate —
+  `_graveyard_cast_keyword`/`_castable_from_graveyard`
+  (`game/game_engine.py`, mirroring `_castable_from_exile`'s "no extra
+  per-object flag needed" shape, since either keyword's mere presence is
+  enough) feed a fourth `player.graveyard` loop in `legal_actions` and a new
+  disjunct in `can_cast`'s `in_castable_zone`. `effective_cast_cost`
+  substitutes (not adds) the alternative cost when `obj in player.graveyard`
+  — Flashback's own `ManaCost`, or Escape's `ActivationCost.mana` — applied
+  *before* the existing reduction/tax so those still layer on top correctly.
+  A successful graveyard cast is auto-detected purely from `obj`'s own state
+  (no separate "I meant to flashback" flag from the caller needed, same as
+  Adventure): `_cast_current_face` reads `_graveyard_cast_keyword(obj)`
+  before `RulesEngine.cast_spell` moves it off the graveyard, then sets
+  `obj.cast_via_flashback` accordingly; `resolve_top_of_stack` grows an
+  `elif obj.cast_via_flashback` branch exiling the spell instead of
+  returning it to the graveyard (RULE 702.34a) — Escape has no such clause,
+  so an Escaped instant/sorcery falls through to the ordinary graveyard
+  branch and an Escaped permanent enters the battlefield exactly like any
+  other permanent spell. **Escape's own new cost-grammar work:** its cost is
+  "{mana}, Exile N other cards from your graveyard" — the mana-only
+  `_auto_regex` COST-shape extractor could only ever see the `{...}` pips,
+  silently dropping the exile clause (`test_escape_reads_cost_after_the_dash`
+  used to assert exactly that gap). A new always-wins fallback
+  (`_ESCAPE_TEXT_COST_RE`, unlike Ward's own fallback which is only
+  consulted when the mana regex finds nothing) captures the full clause as
+  free text; `game/costs.py` gained `ActivationCost.exile_from_graveyard`
+  plus `_EXILE_GRAVEYARD_RE` so `parse_activation_cost` recognizes it
+  downstream (`_escape_cost` parses the full clause via the shared
+  activated-ability cost grammar, not just `ManaCost`, since Escape's cost
+  has a non-mana component). `can_cast` checks
+  `len(player.graveyard) - 1 >= exile_from_graveyard` ("N *other* cards" —
+  ``obj`` itself doesn't count); `_pay_escape_graveyard_cost` exiles an
+  auto-chosen (non-interactive MVP simplification, matching
+  `_sacrifice_candidate`'s existing pattern) `count` of the remaining
+  graveyard, called *after* the escaping card itself has already left, so it
+  can never exile itself. Tests: `test_game_engine.py` ("Kicker /
+  Multikicker", "Buyback", "Flashback", "Escape" sections — cast-time
+  payment/legality/tracking and resolve-time zone routing, end to end
+  through `GameEngine`/`RulesEngine`, not just the parser layer), plus
+  `test_keyword_catalogue.py` (Multikicker's `multi` flag, Escape's
+  full-clause cost capture).
+
+- **M2 Rampage (RULE 702.23, 2026-07-15) — M2 now fully closed:** the last
+  open M2 parametric keyword. Its pump amount scales with the *specific*
+  block's final blocker count ("+N/+N for each creature blocking it beyond
+  the first"), which a bind-on-load `TriggeredAbility` — one fixed `effects`
+  list, reused for every firing — can't carry; the identical "per-firing
+  dynamic amount" problem Ward already solved by building its effect
+  directly rather than through the generic `_collect_triggers`/
+  `TriggeredAbility` event pipeline (see the M2 Ward entry above). New
+  `RulesEngine.check_rampage(attacker, blocker_count)` mirrors that: reads
+  the `rampage` parametric keyword (already docked by `attach_keyword` like
+  any `NUMBER`-shaped keyword — no parser change needed, this was purely an
+  engine-side gap), computes `n * max(0, blocker_count - 1)`, and — when
+  positive — builds a fresh `TriggeredAbility` with a `PumpEffect` at that
+  exact amount and pushes it via the existing `_place_trigger` (so it's a
+  real stack object with a normal priority/response window, controlled by
+  the attacker's own controller per RULE 603.3a, exactly like the
+  annihilator/afflict/bushido triggers `effect_binder._keyword_triggered_
+  abilities` builds at bind-on-load — just built per-firing instead). Called
+  from `GameEngine.declare_blockers` right where `BECOMES_BLOCKED` fires for
+  each newly-blocked attacker — that event already carried a `blocker_count`
+  payload (added alongside the afflict/bushido work specifically for this).
+  Tests: `test_game_engine.py` (`test_rampage_does_not_trigger_with_only_
+  one_blocker`, `test_rampage_pumps_once_per_blocker_beyond_the_first`,
+  `test_rampage_goes_on_the_stack_as_a_real_triggered_ability`).
+
 ## Game Engine (Phase 3)
 
 `mtg_analyzer/game/game_engine.py`, tests in `test_game_engine.py`.

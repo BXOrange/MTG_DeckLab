@@ -25,7 +25,7 @@ from ..models.game_state import GameState, StackItem
 from ..models.mana_cost import ManaCost
 from ..models.player import Player
 from . import combat, continuous
-from .costs import DISCARD_HAND, PAY_LIFE_X, ActivationCost
+from .costs import DISCARD_HAND, PAY_LIFE_X, ActivationCost, parse_activation_cost
 from .effects import ActivatedAbility
 from .mana_abilities import mana_options_for, option_label
 from .phases import GamePhase, GameStep, default_turn_sequence
@@ -716,7 +716,64 @@ class GameEngine:
         """
         return obj.adventure_castable or obj.prepared_source_id is not None
 
-    def can_cast(self, player: Player, obj: GameObject, x: int = 0, face: str = "front") -> bool:
+    @staticmethod
+    def _graveyard_cast_keyword(obj: GameObject) -> Optional[str]:
+        """Which alt-cost-from-graveyard keyword ``obj`` carries — ``"flashback"``
+        (RULE 702.34) or ``"escape"`` (RULE 702.138) — or ``None``. The two
+        share the same "cast from the graveyard for an alternative cost"
+        zone gate; only what that cost is (and whether the card is exiled
+        after resolving, Flashback only) differs.
+        """
+        params = getattr(obj, "parametric_keywords", None) or {}
+        if "flashback" in params:
+            return "flashback"
+        if "escape" in params:
+            return "escape"
+        return None
+
+    @classmethod
+    def _castable_from_graveyard(cls, obj: GameObject) -> bool:
+        """Whether an object sitting in a graveyard is castable from there
+        (RULE 702.34/702.138) — unlike `_castable_from_exile`, this needs no
+        extra per-object flag: the keyword's mere presence is enough, since
+        Flashback/Escape are always-available alternative costs, not a
+        one-shot grant from some other effect.
+        """
+        return cls._graveyard_cast_keyword(obj) is not None
+
+    @staticmethod
+    def _flashback_cost(obj: GameObject) -> Optional["ManaCost"]:
+        """RULE 702.34b: ``obj``'s Flashback cost as a `ManaCost`, or
+        ``None`` if it carries no Flashback keyword (or one with no parsed
+        cost)."""
+        param = (getattr(obj, "parametric_keywords", None) or {}).get("flashback")
+        if not param or not param.get("cost"):
+            return None
+        return ManaCost.parse(str(param["cost"]))
+
+    @staticmethod
+    def _escape_cost(obj: GameObject) -> Optional["ActivationCost"]:
+        """RULE 702.138b: ``obj``'s Escape cost — mana plus "exile N other
+        cards from your graveyard" — as a parsed `ActivationCost`, or
+        ``None`` if it carries no Escape keyword (or one with no parsed
+        cost). Uses the full activated-ability cost grammar (`game/costs.
+        parse_activation_cost`), not just `ManaCost`, since Escape's cost
+        has a non-mana component the mana model alone can't hold.
+        """
+        param = (getattr(obj, "parametric_keywords", None) or {}).get("escape")
+        if not param or not param.get("cost"):
+            return None
+        return parse_activation_cost(str(param["cost"]))
+
+    def can_cast(
+        self,
+        player: Player,
+        obj: GameObject,
+        x: int = 0,
+        face: str = "front",
+        kicked: int = 0,
+        buyback: bool = False,
+    ) -> bool:
         """RULE 601/602.5: is this spell castable by ``player`` right now?
 
         ``x`` is the value that would be announced for a cost containing
@@ -725,16 +782,25 @@ class GameEngine:
         affordable. ``face="back"``/``"fuse"`` check a second castable face
         (see `_face_card`) instead, without mutating ``obj`` — a preview,
         used by `legal_actions` to decide whether to offer casting it.
+        ``kicked`` is how many times Kicker (RULE 702.33) would be paid — 0
+        (the default), or a value validated against the object's own
+        ``kicker`` parametric keyword (see `_kicker_cost`): any nonzero value
+        without one is illegal, and only Multikicker permits more than 1.
+        ``buyback`` is whether Buyback's own additional cost (RULE 702.27)
+        would also be paid — illegal (``False``) for an object with no
+        ``buyback`` parametric keyword.
         """
         # A commander may be cast from the command zone as well as the
         # hand (RULE 903.6, 903.8) — commander tax (RULE 903.8, +{2} per
         # previous cast from there) isn't modeled yet. An Adventure creature
         # or a prepared copy sitting in exile may also be castable — see
-        # `_castable_from_exile`.
+        # `_castable_from_exile`. A graveyard card with Flashback/Escape may
+        # be castable from there too — see `_castable_from_graveyard`.
         in_castable_zone = (
             obj in player.hand
             or obj in player.command
             or (obj in player.exile and self._castable_from_exile(obj))
+            or (obj in player.graveyard and self._castable_from_graveyard(obj))
         )
         if not in_castable_zone:
             return False
@@ -749,7 +815,24 @@ class GameEngine:
                 return False
             if not self._in_main_phase() or self.state.stack:
                 return False
-        cost = self.effective_cast_cost(player, obj, x, face=face)
+        if kicked:
+            kicker_cost = self._kicker_cost(obj)
+            if kicker_cost is None:
+                return False
+            kicker_param = (getattr(obj, "parametric_keywords", None) or {}).get("kicker") or {}
+            if kicked > 1 and not kicker_param.get("multi"):
+                return False
+        if buyback and self._buyback_cost(obj) is None:
+            return False
+        if obj in player.graveyard and self._graveyard_cast_keyword(obj) == "escape":
+            # RULE 702.138b: "exile N *other* cards from your graveyard" —
+            # ``obj`` itself doesn't count toward that N.
+            escape_cost = self._escape_cost(obj)
+            if escape_cost is None:
+                return False
+            if len(player.graveyard) - 1 < escape_cost.exile_from_graveyard:
+                return False
+        cost = self.effective_cast_cost(player, obj, x, face=face, kicked=kicked, buyback=buyback)
         if not player.mana_pool.can_pay(cost, life_available=player.life):
             return False
         # RULE 601.2b: an "as an additional cost to cast this spell, …"
@@ -760,8 +843,54 @@ class GameEngine:
             player, obj, getattr(obj, "additional_cast_cost", None), x
         )
 
+    @staticmethod
+    def _buyback_cost(obj: GameObject) -> Optional["ManaCost"]:
+        """RULE 702.27: ``obj``'s Buyback cost as a `ManaCost`, or ``None``
+        if it carries no Buyback keyword (or one with no parsed cost)."""
+        param = (getattr(obj, "parametric_keywords", None) or {}).get("buyback")
+        if not param or not param.get("cost"):
+            return None
+        return ManaCost.parse(str(param["cost"]))
+
+    @staticmethod
+    def _kicker_cost(obj: GameObject) -> Optional["ManaCost"]:
+        """RULE 702.33: ``obj``'s Kicker cost as a `ManaCost`, or ``None`` if
+        it carries no Kicker/Multikicker keyword (or one with no parsed
+        cost). Multikicker shares this same ``kicker`` param shape — see
+        `effect_binder.attach_keyword` — distinguished only by its ``multi``
+        flag, which callers check separately.
+        """
+        param = (getattr(obj, "parametric_keywords", None) or {}).get("kicker")
+        if not param or not param.get("cost"):
+            return None
+        return ManaCost.parse(str(param["cost"]))
+
+    def max_affordable_kicker(self, player: Player, obj: GameObject) -> int:
+        """The highest number of times ``player`` could pay Kicker and still
+        cast ``obj`` (RULE 702.33) — 0 or 1 for a plain Kicker, 0..N for
+        Multikicker. Mirrors `max_affordable_x`'s "scan down from an upper
+        bound" shape; the interaction with an independently announced ``{X}``
+        isn't modeled (an MVP simplification — no card needs both solved
+        jointly today).
+        """
+        kicker_cost = self._kicker_cost(obj)
+        if kicker_cost is None:
+            return 0
+        kicker_param = (getattr(obj, "parametric_keywords", None) or {}).get("kicker") or {}
+        upper = player.mana_pool.total() if kicker_param.get("multi") else 1
+        for kicked in range(upper, -1, -1):
+            if self.can_cast(player, obj, kicked=kicked):
+                return kicked
+        return 0
+
     def effective_cast_cost(
-        self, player: Player, obj: GameObject, x: int = 0, face: str = "front"
+        self,
+        player: Player,
+        obj: GameObject,
+        x: int = 0,
+        face: str = "front",
+        kicked: int = 0,
+        buyback: bool = False,
     ) -> "ManaCost":
         """``obj``'s mana cost after static cost adjustments (RULE 601.2f/903.8).
 
@@ -771,16 +900,46 @@ class GameEngine:
         from the command zone, RULE 903.8) when it's being cast from there.
         Generic-only and floored at zero — the common, safe case. ``face``
         previews a second castable face's own printed cost (see
-        `_face_card`) without mutating ``obj``.
+        `_face_card`) without mutating ``obj``. ``kicked`` adds Kicker's own
+        cost (RULE 702.33b) once per time paid, and ``buyback`` adds
+        Buyback's own cost once (RULE 702.27), both via `ManaCost.add` — not
+        subject to the generic-only reduction above, since each is a
+        distinct additional cost, not part of the printed one.
+
+        RULE 601.2b/702.34b: a card actually sitting in ``player``'s
+        graveyard (only reachable at all via `_castable_from_graveyard`) is
+        cast for its alternative Flashback/Escape cost *instead of* the
+        printed one — a substitution, not an addition, applied before the
+        reduction/tax below so those still apply on top of it as usual.
         """
         card = self._face_card(obj, face) or obj.card
-        cost = self.rules.mana_cost_of(card)
+        if obj in player.graveyard:
+            keyword = self._graveyard_cast_keyword(obj)
+            if keyword == "flashback":
+                alt_cost = self._flashback_cost(obj)
+            elif keyword == "escape":
+                escape_cost = self._escape_cost(obj)
+                alt_cost = escape_cost.mana if escape_cost is not None else None
+            else:
+                alt_cost = None
+            cost = alt_cost if alt_cost is not None else self.rules.mana_cost_of(card)
+        else:
+            cost = self.rules.mana_cost_of(card)
         if cost.has_variable:
             cost = cost.with_x(x)
         cost = self._adjust_cost(cost, player)
         tax = self.commander_tax(player, obj)
         if tax:
             cost = cost.increase_generic(tax)
+        if kicked:
+            kicker_cost = self._kicker_cost(obj)
+            if kicker_cost is not None:
+                for _ in range(kicked):
+                    cost = cost.add(kicker_cost)
+        if buyback:
+            buyback_cost = self._buyback_cost(obj)
+            if buyback_cost is not None:
+                cost = cost.add(buyback_cost)
         return cost
 
     @staticmethod
@@ -831,6 +990,8 @@ class GameEngine:
         x: int = 0,
         face: str = "front",
         mode: Optional[Any] = None,
+        kicked: int = 0,
+        buyback: bool = False,
     ):
         """Cast a spell after validating timing, payability and targets (RULE 601).
 
@@ -849,9 +1010,16 @@ class GameEngine:
         or the literal ``"both"`` (RULE 700.2e, only when
         ``obj.spell_modes_or_both``). Required — raises — for a spell that
         carries ``spell_modes``; ignored otherwise. See `_mode_effects_applied`.
+
+        ``kicked`` is how many times to pay Kicker (RULE 702.33b) — see
+        `can_cast`/`effective_cast_cost`; recorded on ``obj.kicker_count``
+        once the cast succeeds. ``buyback`` is whether to pay Buyback's
+        additional cost (RULE 702.27) — recorded on ``obj.buyback_paid``,
+        consulted by `RulesEngine.resolve_top_of_stack` to route the spell
+        back to hand instead of the graveyard.
         """
         if face in ("back", "fuse"):
-            if not self.can_cast(player, obj, x, face=face):
+            if not self.can_cast(player, obj, x, face=face, kicked=kicked, buyback=buyback):
                 raise ValueError(f"{player.id} cannot cast {obj.name} now")
             # RULE 715.2b: an Adventure spell half must be recognized while
             # ``obj.card`` is still the front (creature) face, before the
@@ -862,14 +1030,18 @@ class GameEngine:
             snapshot = self.rules.snapshot_face(obj)
             self.rules.switch_to_face(obj, alt)
             try:
-                result = self._cast_current_face(player, obj, targets, x, mode=mode)
+                result = self._cast_current_face(
+                    player, obj, targets, x, mode=mode, kicked=kicked, buyback=buyback
+                )
             except Exception:
                 self.rules.restore_face(obj, snapshot)
                 raise
             if is_adventure_cast:
                 obj.adventure_snapshot = snapshot
             return result
-        return self._cast_current_face(player, obj, targets, x, mode=mode)
+        return self._cast_current_face(
+            player, obj, targets, x, mode=mode, kicked=kicked, buyback=buyback
+        )
 
     def _effects_for_mode(self, obj: GameObject, mode: Any) -> list[Any]:
         """The `GameEffect`s a modal spell's chosen ``mode`` resolves with.
@@ -933,20 +1105,29 @@ class GameEngine:
         targets: Optional[list[Any]],
         x: int,
         mode: Optional[Any] = None,
+        kicked: int = 0,
+        buyback: bool = False,
     ):
         """The common cast body, reading whatever `obj.card` currently is."""
         with self._mode_effects_applied(obj, mode):
-            if not self.can_cast(player, obj, x):
+            if not self.can_cast(player, obj, x, kicked=kicked, buyback=buyback):
                 raise ValueError(f"{player.id} cannot cast {obj.name} now")
             # RULE 601.2c: a spell that requires a target can't be cast unless
             # a legal target is available — the same check that locks the offer.
             if not self.has_legal_targets(player, obj):
                 raise ValueError(f"{obj.name} has no legal target")
-            cost = self.effective_cast_cost(player, obj, x)
+            cost = self.effective_cast_cost(player, obj, x, kicked=kicked, buyback=buyback)
             # RULE 903.8: record this command-zone cast so the next one is
             # taxed {2} more. Read *before* the cast moves the card off the
             # command zone.
             from_command = obj.is_commander and obj in player.command
+            # RULE 702.34a: likewise read *before* the cast moves the card
+            # off the graveyard — only a Flashback cast is exiled instead of
+            # going to the graveyard on resolution (Escape has no such
+            # after-resolving clause).
+            graveyard_keyword = (
+                self._graveyard_cast_keyword(obj) if obj in player.graveyard else None
+            )
             result = self.rules.cast_spell(player, obj, targets, x, cost=cost)
             # RULE 601.2b/601.2h: an additional cost is paid as part of
             # casting, not resolving — so it stays paid even if the spell is
@@ -956,6 +1137,26 @@ class GameEngine:
             self._pay_additional_cast_cost(
                 player, obj, getattr(obj, "additional_cast_cost", None), x
             )
+            # RULE 702.33b: record how many times Kicker was paid, so a
+            # resolve-time effect that reads "if this spell was kicked" (a
+            # follow-up, not yet parsed) has something to consult.
+            obj.kicker_count = kicked
+            # RULE 702.27a: record whether Buyback was paid — consulted by
+            # `RulesEngine.resolve_top_of_stack` to route the spell back to
+            # hand instead of the graveyard.
+            obj.buyback_paid = buyback
+            # RULE 702.34a: record a Flashback cast — consulted by
+            # `RulesEngine.resolve_top_of_stack` to exile the spell instead
+            # of returning it to the graveyard on resolution.
+            obj.cast_via_flashback = graveyard_keyword == "flashback"
+            # RULE 702.138b: Escape's own "exile N other cards from your
+            # graveyard" cost, paid as part of casting (like any other
+            # additional cost) now that ``obj`` itself has left the
+            # graveyard (so it can't accidentally exile itself).
+            if graveyard_keyword == "escape":
+                escape_cost = self._escape_cost(obj)
+                if escape_cost is not None and escape_cost.exile_from_graveyard:
+                    self._pay_escape_graveyard_cost(player, escape_cost.exile_from_graveyard)
         if from_command:
             player.commander_casts[obj.instance_id] = (
                 player.commander_casts.get(obj.instance_id, 0) + 1
@@ -1182,6 +1383,7 @@ class GameEngine:
             )
 
         for attacker in newly_blocked:
+            blocker_count = len(attacker.blocked_by)
             self.state.fire_event(
                 GameEvent(
                     EventType.BECOMES_BLOCKED,
@@ -1189,9 +1391,13 @@ class GameEngine:
                     player_id=attacker.controller_id,  # the attacker's own controller
                     instance_id=attacker.instance_id,
                     object_types=sorted(attacker.type_words),
-                    blocker_count=len(attacker.blocked_by),
+                    blocker_count=blocker_count,
                 )
             )
+            # RULE 702.23: Rampage's own per-firing dynamic pump — see
+            # `RulesEngine.check_rampage` for why this can't go through the
+            # ordinary annihilator/afflict/bushido `TriggeredAbility` path.
+            self.rules.check_rampage(attacker, blocker_count)
 
     def can_block(self, player: Player, blocker: GameObject, attacker: GameObject) -> bool:
         """RULE 509.1a: an untapped creature ``player`` controls may block an
@@ -1458,6 +1664,17 @@ class GameEngine:
             amount = x if cost.pay_life == PAY_LIFE_X else cost.pay_life
             self.rules.lose_life(player, amount, cause="cost")
 
+    def _pay_escape_graveyard_cost(self, player: Player, count: int) -> None:
+        """RULE 702.138b: exile ``count`` other cards from ``player``'s
+        graveyard as part of casting via Escape — an auto-choice (the first
+        ``count`` remaining cards), the same non-interactive MVP
+        simplification `_sacrifice_candidate`'s callers already make for
+        other costs. Called after the escaping card itself has already left
+        the graveyard, so it can never be exiled as its own cost.
+        """
+        for victim in list(player.graveyard)[:count]:
+            self.rules.exile(victim)
+
     def _sacrifice_candidate(
         self, player: Player, source: GameObject, what: str
     ) -> Optional[GameObject]:
@@ -1599,12 +1816,41 @@ class GameEngine:
             action["has_x"] = True
             action["max_x"] = self.max_affordable_x(player, obj)
 
+        # RULE 702.33: surface Kicker/Multikicker so the UI can prompt for
+        # how many times to pay it, the same "has_x/max_x" shape as {X}.
+        kicker_cost = self._kicker_cost(obj)
+        if kicker_cost is not None:
+            kicker_param = (getattr(obj, "parametric_keywords", None) or {}).get("kicker") or {}
+            action["has_kicker"] = True
+            action["kicker_cost"] = kicker_cost.raw
+            action["kicker_multi"] = bool(kicker_param.get("multi"))
+            action["max_kicker"] = self.max_affordable_kicker(player, obj)
+
+        # RULE 702.27: surface Buyback so the UI can offer a "pay to buy
+        # back" toggle, locked when its own cost isn't affordable.
+        buyback_cost = self._buyback_cost(obj)
+        if buyback_cost is not None:
+            action["has_buyback"] = True
+            action["buyback_cost"] = buyback_cost.raw
+            action["buyback_affordable"] = self.can_cast(player, obj, buyback=True)
+
+        # RULE 702.34/702.138: a graveyard cast is by definition via
+        # Flashback/Escape's own alternative cost, not the printed one — tag
+        # it so the UI can label the offer distinctly from a normal cast.
+        graveyard_keyword = self._graveyard_cast_keyword(obj) if obj in player.graveyard else None
+        if graveyard_keyword is not None:
+            action["cast_from_graveyard"] = graveyard_keyword
+            if graveyard_keyword == "escape":
+                escape_cost = self._escape_cost(obj)
+                if escape_cost is not None and escape_cost.exile_from_graveyard:
+                    action["escape_exile_count"] = escape_cost.exile_from_graveyard
+
         # Static cost adjustment (RULE 601.2f): surface base vs. reduced so the
         # UI can show "was {3}, now {1}" and the static-effects panel can
         # attribute it. Only attached when something actually changes the cost.
         reduction, contributors = continuous.cost_reduction_for(self.state, player)
         tax = self.commander_tax(player, obj)
-        if (reduction or tax) and cost.raw:
+        if (reduction or tax or graveyard_keyword) and cost.raw:
             action["base_cost"] = cost.raw
             action["effective_cost"] = self.effective_cast_cost(player, obj).raw
             if reduction:
@@ -1697,6 +1943,15 @@ class GameEngine:
             # RULE 715.3d / 722.3c: an Adventure creature exiled by its own
             # spell half, or a prepared copy, may be cast from exile.
             if self._castable_from_exile(obj) and self.can_cast(player, obj):
+                if getattr(obj, "spell_modes", None):
+                    actions.extend(self._modal_cast_actions(player, obj))
+                else:
+                    actions.append(self._cast_action(player, obj))
+
+        for obj in list(player.graveyard):
+            # RULE 702.34 / 702.138: Flashback/Escape let a card be cast
+            # from the graveyard for an alternative cost.
+            if self._castable_from_graveyard(obj) and self.can_cast(player, obj):
                 if getattr(obj, "spell_modes", None):
                     actions.extend(self._modal_cast_actions(player, obj))
                 else:

@@ -270,6 +270,19 @@ class ManaCost:
             symbols.insert(0, ManaSymbol(GENERIC, amount=amount))
         return ManaCost(symbols, raw=ManaCost(symbols).render())
 
+    def add(self, other: "ManaCost") -> "ManaCost":
+        """A copy with ``other``'s symbols appended (RULE 601.2f-style stacking).
+
+        Unlike `increase_generic`, this concatenates the full symbol list —
+        including colored/hybrid/Phyrexian pips, not just generic ones — so
+        it composes a printed cost with an independent additional cost (e.g.
+        Kicker, Buyback) that may carry its own colors. `ManaPool.can_pay`/
+        `pay` iterate every symbol regardless of which cost it came from, so
+        no merging beyond concatenation is needed.
+        """
+        symbols = list(self.symbols) + list(other.symbols)
+        return ManaCost(symbols, raw=ManaCost(symbols).render())
+
     def render(self) -> str:
         """Reconstruct a Scryfall-style ``{…}`` cost string from the symbols."""
         parts: list[str] = []

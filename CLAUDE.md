@@ -169,12 +169,13 @@ cache-wide coverage (26.9% of the 1080-card cache fully `MODELED` as of
 2026-07-14) and ranks the next handlers worth building.
 
 **Notable gaps** (see `backend/ToDo_Backend.md` for the full list with exact
-scope on each): regenerate, "up to N" targets, "add 1 mana of any color";
-oracle-text *recognition* of replacement clauses (the binder side is ready);
-*behaviour* for the remaining parametric keywords (kicker/escape alt-costs,
-rampage); wiring the interactive priority primitive into the multiplayer
-session/WebSocket; RULE 603.6a "look back in time" for leaves-the-battlefield
-triggers; and battles/dungeons. Narrower, already-shipped-feature rough edges
+scope on each): regenerate, "up to N" targets, "add 1 mana of any color"; a
+kicked spell's "if this spell was kicked, …" resolve-time conditional effect
+(new conditional-clause grammar — the M2 parametric-keyword *behaviour* work
+itself, kicker included, is done); oracle-text *recognition* of replacement
+clauses (the binder side is ready); wiring the interactive priority primitive
+into the multiplayer session/WebSocket; and battles/dungeons. Narrower,
+already-shipped-feature rough edges
 (e.g. re-validating an *existing* attachment's legality every SBA pass, not
 just on the host leaving; combining interactive trigger-ordering with a
 targeted trigger; bespoke *conditional* transform triggers like Delver of
