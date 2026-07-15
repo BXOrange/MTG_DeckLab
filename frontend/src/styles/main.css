@@ -2134,6 +2134,23 @@ textarea {
   color: var(--text);
 }
 
+/* Loyalty-ability buttons ([+N]/[-N]/[0], RULE 606) — color-coded by sign
+   so a planeswalker's plus/minus/zero abilities read apart at a glance. */
+.gf-card-action--loyalty-plus {
+  border-color: var(--ok);
+  color: var(--ok);
+}
+
+.gf-card-action--loyalty-minus {
+  border-color: var(--error);
+  color: var(--error);
+}
+
+.gf-card-action--loyalty-zero {
+  border-color: var(--text-dim);
+  color: var(--text-dim);
+}
+
 /* --- Battlefield: type rows, attachments, combat --- */
 
 .gf-bf-head {
@@ -2207,6 +2224,24 @@ textarea {
   font-size: 0.58rem;
   font-weight: 700;
   padding: 0.05rem 0.28rem;
+  border-radius: 999px;
+  white-space: nowrap;
+  pointer-events: none;
+}
+
+/* RULE 606: a planeswalker's current loyalty, top-right corner (shares the
+   spot with .gf-attacking-badge, but planeswalkers don't attack in this
+   engine, so the two never co-occur in practice). */
+.gf-loyalty-badge {
+  position: absolute;
+  top: -0.4rem;
+  right: -0.4rem;
+  background: var(--accent);
+  color: #10151c;
+  font-size: 0.62rem;
+  font-weight: 700;
+  line-height: 1.2;
+  padding: 0.1rem 0.32rem;
   border-radius: 999px;
   white-space: nowrap;
   pointer-events: none;

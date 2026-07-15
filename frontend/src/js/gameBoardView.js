@@ -49,7 +49,11 @@ function labelStep(name) {
 
 // Icon per choice kind — search, cascade and discover share the same
 // "answer one of these options" shape, so one renderer covers them.
-const CHOICE_ICONS = { search: '🔎', cascade: '🌊', discover: '🔮', replacement_order: '⚖️' };
+const CHOICE_ICONS = {
+  search: '🔎', cascade: '🌊', discover: '🔮', replacement_order: '⚖️',
+  land_tapped: '💧', order_triggers: '🔀', trigger_target: '🎯',
+  enter_as_copy: '🪞', counter_unless_pays: '🚫',
+};
 
 /**
  * @param {object} [opts]
@@ -803,7 +807,15 @@ export function createGameBoardView(opts = {}) {
     const attackBadge = o.attacking
       ? `<span class="gf-attacking-badge">⚔️${o.combat_defender ? ` ${escapeHtml(o.combat_defender.label || '')}` : ''}</span>`
       : '';
-    const counterEntries = Object.entries(o.counters || {});
+    // RULE 606: a planeswalker's loyalty gets its own badge (mirrors the
+    // ♦{loyalty} glyph on the Replay board editor) rather than being read
+    // off the generic counter badge, which would otherwise show it twice
+    // (`counters` also carries a "loyalty" key — GameObject.loyalty reads it).
+    const loyaltyBadge = o.is_planeswalker && o.loyalty != null
+      ? `<span class="gf-loyalty-badge">◆ ${o.loyalty}</span>`
+      : '';
+    const counterEntries = Object.entries(o.counters || {})
+      .filter(([k]) => !(o.is_planeswalker && k === 'loyalty'));
     const counterBadge = counterEntries.length
       ? `<span class="gf-counter-badge">${counterEntries.map(([k, v]) => `${escapeHtml(k)}×${v}`).join(' · ')}</span>`
       : '';
@@ -822,7 +834,7 @@ export function createGameBoardView(opts = {}) {
       : '';
     return `
       <div class="gf-card-slot">
-        <div class="${classes.join(' ')}" data-hover-card="${escapeHtml(o.name)}" title="${escapeHtml(o.name)}${pt}${o.tapped ? ' — getappt' : ''}">${inner}${attackBadge}${counterBadge}${keywordBadge}${adventureBadge}${preparedBadge}</div>
+        <div class="${classes.join(' ')}" data-hover-card="${escapeHtml(o.name)}" title="${escapeHtml(o.name)}${pt}${o.tapped ? ' — getappt' : ''}">${inner}${attackBadge}${loyaltyBadge}${counterBadge}${keywordBadge}${adventureBadge}${preparedBadge}</div>
         ${buttons}
       </div>`;
   }
@@ -858,6 +870,20 @@ export function createGameBoardView(opts = {}) {
   function faceHint(a) {
     if (a.face === 'fuse') return ' (Fuse — beide Hälften)';
     return a.face ? ` — ${escapeHtml(a.name)}` : '';
+  }
+
+  // RULE 606: color-code a loyalty ability's button by its [+N]/[-N]/[0]
+  // sign, so it reads at a glance distinctly from an ordinary activated
+  // ability — the wire action only carries the pre-rendered cost_label
+  // string (e.g. "[+2]"), not a raw signed int.
+  const LOYALTY_COST_RE = /^\[([+-]?\d+)\]$/;
+  function loyaltyModifierClass(costLabel) {
+    const m = LOYALTY_COST_RE.exec(costLabel || '');
+    if (!m) return '';
+    const n = parseInt(m[1], 10);
+    if (n > 0) return ' gf-card-action--loyalty-plus';
+    if (n < 0) return ' gf-card-action--loyalty-minus';
+    return ' gf-card-action--loyalty-zero';
   }
 
   function cardActionButtons(cardActions) {
@@ -906,14 +932,15 @@ export function createGameBoardView(opts = {}) {
         buttons.push(`
           <div class="gf-cast-x">
             <input type="number" min="0" max="${a.max_x}" value="${a.max_x}" data-x-input="${a.instance_id}" />
-            <button type="button" class="gf-card-action" data-activate-x='${escapeAttr(JSON.stringify({ iid: a.instance_id, ability_index: a.ability_index }))}'>⚡ ${escapeHtml(a.cost_label || 'Aktivieren')} (X)</button>
+            <button type="button" class="gf-card-action${loyaltyModifierClass(a.cost_label)}" data-activate-x='${escapeAttr(JSON.stringify({ iid: a.instance_id, ability_index: a.ability_index }))}'>⚡ ${escapeHtml(a.cost_label || 'Aktivieren')} (X)</button>
           </div>
         `);
       } else if (a.type === 'activate_ability') {
         buttons.push(
           actionButton(
             { type: 'activate_ability', instance_id: a.instance_id, ability_index: a.ability_index, name: a.name },
-            `⚡ ${escapeHtml(a.cost_label || 'Aktivieren')}`
+            `⚡ ${escapeHtml(a.cost_label || 'Aktivieren')}`,
+            loyaltyModifierClass(a.cost_label)
           )
         );
       } else if (a.type === 'tap_for_mana') {
@@ -941,7 +968,8 @@ export function createGameBoardView(opts = {}) {
     const label = a.type === 'activate_ability'
       ? `⚡ ${escapeHtml(a.cost_label || 'Aktivieren')} → Ziel ▾`
       : `✨ Zaubern → Ziel ▾${faceHint(a)}`;
-    return `<div class="gf-cast-targets">${xField}<button type="button" class="gf-card-action" data-cast-target-start='${escapeAttr(startInfo)}'>${label}</button></div>`;
+    const lc = a.type === 'activate_ability' ? loyaltyModifierClass(a.cost_label) : '';
+    return `<div class="gf-cast-targets">${xField}<button type="button" class="gf-card-action${lc}" data-cast-target-start='${escapeAttr(startInfo)}'>${label}</button></div>`;
   }
 
   function castTargetModalHtml() {
@@ -1020,8 +1048,8 @@ export function createGameBoardView(opts = {}) {
       : { kind: 'player', id: d.id };
   }
 
-  function actionButton(action, label) {
-    return `<button type="button" class="gf-card-action" data-action='${escapeAttr(JSON.stringify(action))}'>${label}</button>`;
+  function actionButton(action, label, extraClass = '') {
+    return `<button type="button" class="gf-card-action${extraClass}" data-action='${escapeAttr(JSON.stringify(action))}'>${label}</button>`;
   }
 
   // The passive "goldfish" opponent: a compact strip with its life (the

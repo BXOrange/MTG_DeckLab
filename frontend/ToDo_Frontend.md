@@ -33,29 +33,16 @@ code plus replaying the equivalent API calls against a running backend,
 
 ## Game engine hookup
 
-- [ ] Targeting UI: select target(s) when a spell/ability requires it
-      (docs/05 PART 5). Search-your-library *choices* are handled (the
-      "🔎 Suche …" panel), but a spell that needs a chosen target on cast
-      still can't pick one from the UI.
+Targeting UI, activated abilities beyond tap-for-mana, planeswalker loyalty
+(abilities + display), Aura/Equipment attachment UX, and the conditional-land
+prompt all shipped — moved to
+[Done_Frontend.md](../docs/implementation-state/Done_Frontend.md) "Game
+engine hookup".
+
 - [ ] Subset attacker selection: attacking currently swings with **every**
       able creature (one "⚔️ Angreifen (N)" control). Per-creature select
       needs the backend to accumulate declared attackers rather than
       replace them.
-- [ ] Activated abilities beyond tap-for-mana — arbitrary costed
-      abilities on permanents (docs/05 PART 6). Tap-for-mana (incl. the
-      dual-land colour choice) is done.
-- [ ] Planeswalker loyalty abilities: render the `[+N]`/`[-N]`/`[0]`
-      abilities as clickable controls (sorcery-speed, once per turn) and
-      show the loyalty counter — blocked on the backend loyalty-ability
-      engine (backend/ToDo_Backend.md "Loyalty / planeswalker abilities").
-- [ ] Aura/Equipment attachment UX: pick a target when casting an Aura and
-      an "Ausrüsten" (equip) control on equipment, then show the buff on
-      the host — blocked on backend attachment resolution
-      (backend/ToDo_Backend.md "Aura / Equipment attachment"). The current
-      board only groups attachments visually.
-- [ ] Conditional-land prompt: when a shock/check land enters, ask whether
-      to pay 2 life / show the untapped-vs-tapped outcome, once the backend
-      models the choice (backend/ToDo_Backend.md "Conditional enters-tapped").
 
 ## Multiplayer
 

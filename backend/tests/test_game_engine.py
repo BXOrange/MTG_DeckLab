@@ -698,6 +698,44 @@ def test_reconfigure_ability_only_offers_creature_attachment_targets():
     assert illegal_host.instance_id not in option_ids
 
 
+def test_fortify_ability_only_offers_land_attachment_targets():
+    # RULE 702.151b/301.5c: Fortify attaches to a land, not a creature —
+    # unlike Equip/Reconfigure above, offering (and resolving) it against
+    # any permanent was a real gap until targeting.py/_attachment_legal
+    # gained an explicit "fortify" case.
+    eng = make_engine([land()], hand=0)
+    eng.begin_turn()
+    p1 = eng.state.active_player
+
+    legal_host = obj_on_battlefield(eng.state, eng, land(name="Mountain", produces="Mountain"))
+    illegal_host = obj_on_battlefield(eng.state, eng, creature(name="Host", cost="{1}"))
+
+    card = Card(
+        id="Fortification",
+        name="Fortification",
+        type_line="Artifact — Fortification",
+        mana_cost_string="{1}",
+        converted_mana_cost=1,
+    )
+    card.keywords = ["Fortify"]
+    card.oracle_text = "Fortify {2}"
+    source = GameObject(card, owner_id="p1", zone=Zone.BATTLEFIELD)
+    source.summoning_sick = False
+    eng.state.add_to_battlefield(source)
+    bind_from_catalogue(source)
+
+    requirements = eng._ability_target_requirements(p1, source.activated_abilities[0], source)
+    option_ids = {opt["instance_id"] for opt in requirements[0]["options"]}
+
+    assert legal_host.instance_id in option_ids
+    assert illegal_host.instance_id not in option_ids
+
+    assert eng.rules.attach_to_target(source, legal_host)
+    assert source.attached_to == legal_host.instance_id
+    source.attached_to = None
+    assert not eng.rules._attachment_legal(source, illegal_host)
+
+
 def test_reconfigure_permanent_stops_being_a_creature_while_attached():
     # RULE 702.151b: attaching a Reconfigure permanent to another creature
     # turns it into a (non-creature) Equipment until it becomes unattached —

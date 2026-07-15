@@ -459,8 +459,14 @@ the Phase-1 models. Tests: `test_game_engine.py`.
       (`effect_binder._keyword_activated_ability`, untapped/re-payable per
       RULE 301.5c/702.151b); targeting is restricted to what each can
       legally attach to (`targeting.legal_targets`,
-      `RulesEngine._attachment_legal` — creatures for Equip/Reconfigure,
-      the Aura's `enchant` quality otherwise). RULE 704.5m/n on the host
+      `RulesEngine._attachment_legal` — creatures/artifacts for Equip,
+      creatures for Reconfigure, **lands for Fortify** (301.5c — fixed
+      2026-07-15: `targeting.py`/`_attachment_legal` recognized
+      `equip`/`reconfigure`/`enchant` but had no `fortify` case, so it fell
+      through to "any permanent" instead of narrowing to lands; both now
+      have an explicit branch, `test_fortify_ability_only_offers_land_
+      attachment_targets`), the Aura's `enchant` quality otherwise). RULE
+      704.5m/n on the host
       leaving: an Aura goes to the graveyard, an Equipment/Fortification/
       Reconfigure permanent just becomes unattached and stays on the
       battlefield (`RulesEngine._detach_attachments_from`). RULE 702.151b:

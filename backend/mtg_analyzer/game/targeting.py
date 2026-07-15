@@ -181,6 +181,12 @@ def legal_targets(
                 for o in state.battlefield
                 if o.is_creature and o is not source and _not_protected(o, source)
             ]
+        if attachment_kind == "fortify":
+            return [
+                {"instance_id": o.instance_id, "name": o.name}
+                for o in state.battlefield
+                if o.is_land and o is not source and _not_protected(o, source)
+            ]
         if attachment_kind == "enchant":
             quality = ((source.parametric_keywords or {}).get("enchant") or {}).get("quality", "")
             quality = str(quality).strip().lower()

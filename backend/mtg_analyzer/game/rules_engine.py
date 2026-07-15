@@ -744,6 +744,8 @@ class RulesEngine:
             return target.is_creature or target.card.is_artifact
         if kind == "reconfigure":
             return target.is_creature and target is not obj
+        if kind == "fortify":
+            return target.is_land
         if kind == "enchant":
             quality = ((obj.parametric_keywords or {}).get(kind) or {}).get("quality", "")
             quality = str(quality).strip().lower()

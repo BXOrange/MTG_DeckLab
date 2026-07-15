@@ -214,6 +214,36 @@ now holds only open items). Section headers mirror that file.
       sequence of the same single `choose` picks the backend already
       expects, stopping the auto-play rather than submitting a stale pick
       if the server's freshly re-offered options ever don't match.
+- [x] Generic cast/activate-ability **targeting UI** (RULE 115/601.2c):
+      `castTargetHtml`/`castTargetModalHtml` (`gameBoardView.js`) turn any
+      `cast_spell`/`activate_ability` legal action with `requires_target`
+      into a "→ Ziel ▾" button opening a `.gf-target-modal` that walks
+      through each target requirement in turn (multi-target support via
+      `reqIndex`), offering `∅ Kein Ziel` when optional, before sending the
+      picked `targets`/`x` with the actual action. This single mechanism
+      covers spell targeting, Aura casting (an Aura's ETB attach target is
+      just its spell target), and Equip/Fortify/Reconfigure (ordinary
+      `activate_ability`s with an `AttachEffect`) — no separate "equip
+      control" was needed. `attached_to` battlefield grouping
+      (`.gf-attach-group`) was already in place from earlier work.
+- [x] `pending_choice` modal coverage extended beyond search/cascade/
+      discover/replacement-order to the remaining kinds that already rode
+      the same generic mechanism server-side but fell back to a plain ❔
+      icon: `land_tapped` (shock-land pay-life, RULE 614.1), `trigger_target`
+      (a triggered ability's own target/"you may"), `order_triggers`,
+      `enter_as_copy`, `counter_unless_pays` all now have a themed
+      `CHOICE_ICONS` entry.
+- [x] Planeswalker loyalty display (RULE 606): `objCard()` renders a
+      dedicated `◆ {loyalty}` badge (`.gf-loyalty-badge`, top-right corner)
+      off `GameObject.loyalty`, excluded from the generic counter badge to
+      avoid double-showing the same number. Loyalty-ability buttons
+      (`[+N]`/`[-N]`/`[0]`, parsed from `cost_label` via
+      `loyaltyModifierClass`) get a color-coded modifier class
+      (`--ok`/`--error`/`--text-dim` for plus/minus/zero) across all three
+      `activate_ability` render paths (plain, X-cost, target-requiring) so
+      they read apart from an ordinary activated-ability button at a
+      glance — the once-per-turn/sorcery-speed/loyalty-affordability gating
+      was already enforced server-side.
 
 ## Multiplayer
 
