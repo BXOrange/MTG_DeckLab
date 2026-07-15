@@ -98,6 +98,13 @@ def _has_subtype(obj: "GameObject", subtype: str) -> bool:
     return subtype.lower() in sub
 
 
+def has_subtype(obj: "GameObject", subtype: str) -> bool:
+    """Public wrapper over `_has_subtype` for callers outside this module
+    (e.g. `game_engine`'s "tap N untapped Elves you control" cost, RULE
+    602.1 — `game/costs.py`'s ``tap_others``)."""
+    return _has_subtype(obj, subtype)
+
+
 def _has_color(obj: "GameObject", colors: list) -> bool:
     """Whether ``obj`` is any of ``colors`` (RULE 105 / colour-scoped anthems).
 

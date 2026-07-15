@@ -857,6 +857,114 @@ the Phase-1 models. Tests: `test_game_engine.py`.
   one_blocker`, `test_rampage_pumps_once_per_blocker_beyond_the_first`,
   `test_rampage_goes_on_the_stack_as_a_real_triggered_ability`).
 
+- **Mana-ability costs redone properly (RULE 605.1a/602.1, 2026-07-15):**
+  `tap_for_mana` used to only ever tap the source itself — any other cost
+  component a mana ability printed was silently free, and a whole-oracle-
+  text regex (`game/mana_abilities.py`'s old `mana_options`) meant a
+  card's cost text never even reached the engine. Verified against the
+  Elf mana-dork family (`tests/test_elf_mana_costs.py`,
+  `tests/test_mana_abilities.py`), which turned out to cover an unusually
+  wide spread of real cost/production shapes:
+  - **Non-tap costs now charged**: `game/costs.py` gained `tap_others`
+    ("Tap two/three untapped Elves you control" — Birchlore Rangers,
+    Heritage Druid — taps permanents matching a creature type as a cost
+    instead of the source's own `{T}`; not gated by the tapped permanents'
+    own summoning sickness, since RULE 302.6 only restricts a permanent's
+    own {T}-ability) and `add_counters_cost` ("Put a -1/-1 counter on this
+    creature" — Devoted Druid's untap ability; always payable, unlike
+    `remove_counters`). `game_engine.py` factored the actual charging logic
+    out of `activate_ability` into a shared `_pay_activation_cost`, so
+    `tap_for_mana` charges a mana ability's **full** cost (mana pips,
+    `{T}`/`{Q}`, life, sacrifice, tap_others, add_counters_cost) the same
+    way a normal activated ability does — Selvala's `{G}` and Gnarlroot
+    Trapper's 1 life are now actually paid, not silently skipped.
+    **`tap_others` is a real player choice, not an engine auto-pick**
+    (2026-07-15 follow-up, after review caught two bugs in the first cut):
+    the printed cost has no "other"/"another" qualifier, so the ability's
+    own source is itself an eligible pick (Birchlore Rangers can tap
+    itself as one of its own two Elves — confirmed real-card ruling); and
+    *which* permanents pay the cost is the player's decision, the same way
+    a target is, not something the engine should decide for them.
+    `_tap_others_pool` (candidates) / `_resolve_tap_others` (validate a
+    pick, or auto-pick the first N when no pick is given — non-interactive
+    callers like tests/the goldfish bot) replace the old always-auto-pick
+    `_tap_others_candidates`; `can_activate`/`_can_pay_activation_cost`/
+    `_pay_activation_cost`/`activate_ability`/`tap_for_mana` all thread an
+    optional `tap_choices` (instance ids). `legal_actions`/`_activate_action`
+    expose the full eligible pool as `tap_cost: {count, options}` so the UI
+    can offer a real choice; the goldfish board reuses its existing
+    one-pick-at-a-time target-choice modal (`castTargeting` in
+    `gameBoardView.js`, generalised with an `excludePicked` flag so the same
+    permanent can't be picked twice) rather than a new widget, translating
+    the picks into `tap_choices` instead of `targets` on send.
+  - **`mana_abilities.py` rewritten line-by-line** instead of one whole-
+    text regex: each `<cost>: Add …` line becomes its own `ManaAbility`
+    (cost + options), so one line's cost can no longer bleed into
+    another's production, and a line whose text is quoted inside another
+    ability ("Each creature you control with a counter on it has '{T}: Add
+    {G}.'", Rishkar) is correctly recognised as a *grant* onto other
+    objects, not Rishkar's own ability (RULE 613.7f grants stay
+    hand-authored in `ability_catalogue.py`, not auto-parsed here).
+  - **RULE 605.1a enforced**: a line whose effect mentions "target" is
+    never treated as a mana ability, however mana-shaped it looks —
+    Deathrite Shaman's graveyard-exile abilities produce mana but target,
+    so real Magic makes them stack-using, responds-to-able activated
+    abilities instead of a mana ability. Previously they were wrongly
+    offered as a free, stack-skipping tap; now they're correctly excluded
+    (and not yet re-implemented as the real targeted ability — see
+    `backend/ToDo_Backend.md`).
+  - **Variable ("for each"/"equal to … power") amounts**: a new
+    `amount_selector` on `ManaAbility`, resolved against the live
+    `GameState` at activation time (`resolve_options`/`_resolve_amount`) —
+    covers "for each Elf/creature you control" (Elvish Archdruid, Circle of
+    Dreams Druid), "for each Elf on the battlefield" (Priest of Titania —
+    counts *both* players' Elves, not just yours), "for each +1/+1 counter
+    on this creature" (Gyre Sage), "equal to this creature's/~'s power"
+    (Viridian Joiner, Marwyn), and "X mana of any one color, where X is the
+    number of Elves on the battlefield" (Wirewood Channeler — a variable
+    amount *and* a colour choice together, since the same base-options ×
+    N scaling covers both). Resolves to a conservative 1× with no
+    `GameState` (a bare `Card` query, e.g. the pre-existing
+    `mana_options(card)` tests) — no regression for callers that never
+    supplied one.
+  - **A mana ability's own side effect**: `self_damage` on `ManaAbility`
+    for the painland/Elves-of-Deep-Shadow "This creature deals N damage to
+    you" rider (RULE 605.1a permits effects beyond producing mana),
+    applied via `RulesEngine.deal_damage` right alongside `tap_for_mana`,
+    no stack involved.
+  - **Devoted Druid's own untap ability** needed a genuinely new effect
+    shape: "Untap this creature" has no RULE 115 target at all (unlike
+    "untap target permanent"), so `parser/oracle/catalogue/handlers.py`
+    gained a `tap_self` handler (`_SELF_SUBJECT` — "~"/"it"/"this
+    permanent"/"this creature"/…) alongside the existing targeted `tap`
+    one, binding to `TapEffect(target_kind=None)`'s existing self-mode.
+    `segmenter._COST_LOOKS_REAL` was extended to recognise "put a … counter
+    on …" as a real cost shape too, so the ability segments at all instead
+    of falling through unclaimed. (Verified end to end: activating it on a
+    vanilla 1/1 correctly kills it via the 0-toughness SBA the instant the
+    counter lands — same real-world reason this line combos with
+    counter-prevention like Vizier of Remedies rather than being free
+    extra mana on its own.)
+  - `legal_actions`/the goldfish auto-player were updated to the new
+    per-(source, mana-ability-index) shape: each ability's own payability
+    gates its offer (so a card whose only ability doesn't tap itself can
+    still be offered while tapped), and the greedy auto-player only
+    self-taps a plain `{T}`-only ability, leaving anything with a real
+    extra cost for the player to choose. `ability_index` threads through
+    `game_session.py`'s `tap_for_mana` action and the goldfish board's
+    button wiring (`frontend/src/js/gameBoardView.js`), which also now
+    shows the ability's full cost label instead of a bare "Tappen" when
+    it's more than `{T}`.
+  - Still open (see `backend/ToDo_Backend.md`): mana *spend* restrictions
+    ("spend this mana only to cast an Elf creature spell") aren't tracked
+    by `ManaPool` at all; "any combination of colours" (Selvala, Gwenna)
+    isn't a colour-choice shape this grammar covers; hand-zone mana
+    abilities (Elvish Spirit Guide's "Exile this card from your hand:
+    Add …") have no activation path since they're not on the battlefield
+    at all; and a Leveler's mana ability isn't level-gated (Joraga
+    Treespeaker's `{T}: Add {G}{G}.` applies unconditionally instead of
+    only at levels 1-4).
+
 ## Game Engine (Phase 3)
 
 `mtg_analyzer/game/game_engine.py`, tests in `test_game_engine.py`.

@@ -44,6 +44,28 @@ _DISCARD_RE = re.compile(
 _REMOVE_COUNTERS_RE = re.compile(
     r"remove\s+(\d+|[a-z]+)\s+([+\-]?\d+/[+\-]?\d+|[a-z]+)\s+counters?", re.IGNORECASE
 )
+#: RULE 702.x-adjacent bulk-tap cost: "Tap two untapped Elves you control"
+#: (Birchlore Rangers, Heritage Druid) — taps *other* permanents of a
+#: creature type instead of the source itself. The type word is kept as
+#: printed (plural, e.g. "Elves") and singularised by `_singularize` below.
+_TAP_OTHERS_RE = re.compile(
+    r"tap\s+(\d+|[a-z]+)\s+untapped\s+([a-z]+)\s+you control", re.IGNORECASE
+)
+#: "Put a -1/-1 counter on this creature" (Devoted Druid) as an activation
+#: *cost* — distinct from `_REMOVE_COUNTERS_RE` (paying by removing existing
+#: counters): adding one is always payable.
+_ADD_COUNTER_COST_RE = re.compile(
+    r"put an?\s+([+\-]?\d+/[+\-]?\d+|[a-z]+)\s+counter on (?:this\s+\w+|~)",
+    re.IGNORECASE,
+)
+#: An alternative-zone cost: "Exile this creature/card from your hand"
+#: (Elvish Spirit Guide) — the ability is activated from hand, not the
+#: battlefield; not itself charged by the engine yet (no hand-zone
+#: activation path — see `backend/ToDo_Backend.md`), but recognised so such
+#: a line is never mistaken for a free/costless battlefield tap ability.
+_EXILE_FROM_HAND_RE = re.compile(
+    r"exile this \w+ from your hand", re.IGNORECASE
+)
 #: RULE 702.138b — Escape's own cost component: "Exile N other cards from
 #: your graveyard". ``N`` may be a digit or a spelled-out number word.
 _EXILE_GRAVEYARD_RE = re.compile(
@@ -70,6 +92,15 @@ def _word_to_int(word: str) -> int:
     return _NUMBER_WORDS.get(word, 1)
 
 
+def _singularize(word: str) -> str:
+    """A plural creature type → singular ("elves"→"elf", "goblins"→"goblin")."""
+    if word.endswith("ves"):
+        return word[:-3] + "f"
+    if word.endswith("s"):
+        return word[:-1]
+    return word
+
+
 @dataclass
 class ActivationCost:
     """The parsed cost of an activated ability (RULE 602.1), as pure data.
@@ -91,6 +122,21 @@ class ActivationCost:
     #: RULE 702.138b (Escape): how many *other* cards must be exiled from the
     #: payer's own graveyard — "Exile four other cards from your graveyard".
     exile_from_graveyard: int = 0
+    #: "Tap N untapped <type>s you control" (Birchlore Rangers, Heritage
+    #: Druid) — ``(count, singular type word)``; taps *other* permanents
+    #: instead of the source. Not limited by the tapped permanents' own
+    #: summoning sickness (RULE 302.6 only restricts a permanent's own
+    #: {T}-cost ability, not being tapped as someone else's cost).
+    tap_others: Optional[tuple[int, str]] = None
+    #: "Put a <kind> counter on this creature" as a *cost* (Devoted Druid's
+    #: untap ability) — ``(kind, count)``; always payable (no minimum to
+    #: check), unlike `remove_counters`.
+    add_counters_cost: Optional[tuple[str, int]] = None
+    #: "Exile this card from your hand" (Elvish Spirit Guide) — an
+    #: alternative-zone cost the engine doesn't charge yet (no hand-zone
+    #: activation path); recognised so the ability is never treated as a
+    #: free battlefield tap (see `game/mana_abilities.py`).
+    exile_self_from_hand: bool = False
     #: Loyalty-ability cost (RULE 606.5c): the signed change to the source's
     #: loyalty counters — ``+2`` for ``[+2]``, ``-3`` for ``[-3]``, ``0`` for
     #: ``[0]``. ``None`` means this is not a loyalty ability.
@@ -123,6 +169,9 @@ class ActivationCost:
             or self.remove_counters
             or self.loyalty is not None
             or self.exile_from_graveyard
+            or self.tap_others
+            or self.add_counters_cost
+            or self.exile_self_from_hand
         )
 
     def label(self) -> str:
@@ -147,6 +196,14 @@ class ActivationCost:
             parts.append(f"Remove {count} {kind} counter(s)")
         if self.exile_from_graveyard:
             parts.append(f"Exile {self.exile_from_graveyard} other card(s) from your graveyard")
+        if self.tap_others:
+            count, subtype = self.tap_others
+            parts.append(f"Tap {count} untapped {subtype}(s) you control")
+        if self.add_counters_cost:
+            kind, count = self.add_counters_cost
+            parts.append(f"Put {count} {kind} counter(s) on this")
+        if self.exile_self_from_hand:
+            parts.append("Exile this card from your hand")
         if self.loyalty is not None:
             parts.append(f"[{'+' if self.loyalty >= 0 else ''}{self.loyalty}]")
         return ", ".join(parts)
@@ -161,6 +218,9 @@ class ActivationCost:
             "discard": self.discard,
             "remove_counters": list(self.remove_counters) if self.remove_counters else None,
             "exile_from_graveyard": self.exile_from_graveyard,
+            "tap_others": list(self.tap_others) if self.tap_others else None,
+            "add_counters_cost": list(self.add_counters_cost) if self.add_counters_cost else None,
+            "exile_self_from_hand": self.exile_self_from_hand,
             "loyalty": self.loyalty,
             "label": self.label(),
         }
@@ -204,6 +264,14 @@ def parse_activation_cost(
         parsed.loyalty = int(cost["loyalty"])
     if "exile_from_graveyard" in cost:
         parsed.exile_from_graveyard = int(cost["exile_from_graveyard"])
+    if cost.get("tap_others"):
+        count, subtype = cost["tap_others"]
+        parsed.tap_others = (int(count), str(subtype))
+    if cost.get("add_counters_cost"):
+        kind, count = cost["add_counters_cost"]
+        parsed.add_counters_cost = (str(kind), int(count))
+    if "exile_self_from_hand" in cost:
+        parsed.exile_self_from_hand = bool(cost["exile_self_from_hand"])
     if "sorcery_speed_only" in cost:
         parsed.sorcery_speed_only = bool(cost["sorcery_speed_only"])
     if cost.get("class_level") is not None:
@@ -271,5 +339,17 @@ def _parse_text(text: str) -> ActivationCost:
     exile_graveyard = _EXILE_GRAVEYARD_RE.search(cost_text)
     if exile_graveyard:
         cost.exile_from_graveyard = _word_to_int(exile_graveyard.group(1))
+
+    tap_others = _TAP_OTHERS_RE.search(cost_text)
+    if tap_others:
+        count = _word_to_int(tap_others.group(1))
+        cost.tap_others = (count, _singularize(tap_others.group(2).lower()))
+
+    add_counter = _ADD_COUNTER_COST_RE.search(cost_text)
+    if add_counter:
+        cost.add_counters_cost = (add_counter.group(1).lower(), 1)
+
+    if _EXILE_FROM_HAND_RE.search(cost_text):
+        cost.exile_self_from_hand = True
 
     return cost

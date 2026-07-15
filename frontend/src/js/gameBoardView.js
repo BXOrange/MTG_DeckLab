@@ -575,6 +575,32 @@ export function createGameBoardView(opts = {}) {
         render();
       });
     });
+
+    root.querySelectorAll('[data-tap-choice-start]').forEach((el) => {
+      el.addEventListener('click', () => {
+        const info = JSON.parse(el.dataset.tapChoiceStart);
+        const iid = Number(info.iid);
+        const action = (view?.legal_actions || []).find(
+          (a) => a.type === info.type && a.instance_id === iid && a.ability_index === info.ability_index,
+        );
+        if (!action || !action.tap_cost) return;
+        const { count, options } = action.tap_cost;
+        // One synthetic "requirement" per permanent to tap — reuses the
+        // same one-pick-at-a-time modal RULE 115 targets use, since it's
+        // the same UX (choose N from a pool); `excludePicked` stops the
+        // same permanent being picked twice.
+        const requirements = Array.from({ length: count }, () => ({
+          label: 'zu tappende Kreatur', options, optional: false,
+        }));
+        const send = info.type === 'activate_ability'
+          ? { type: 'activate_ability', instance_id: iid, ability_index: info.ability_index }
+          : { type: 'tap_for_mana', instance_id: iid, ability_index: info.ability_index, option_index: info.option_index };
+        castTargeting = {
+          instanceId: iid, requirements, reqIndex: 0, targets: [], x: 0, send, excludePicked: true,
+        };
+        finishCastIfReady();
+      });
+    });
   }
 
   // Modal-DFC (RULE 712.10) actions for the same card differ only by
@@ -598,9 +624,16 @@ export function createGameBoardView(opts = {}) {
   function finishCastIfReady() {
     if (!castTargeting) return;
     if (castTargeting.reqIndex >= castTargeting.requirements.length) {
-      const { send, targets, x } = castTargeting;
+      const { send, targets, x, excludePicked } = castTargeting;
       castTargeting = null;
-      act({ ...send, targets, x });
+      if (excludePicked) {
+        // A "tap N untapped <type>s you control" cost choice (RULE 602.1),
+        // not a RULE 115 target — send the picked instance ids as
+        // `tap_choices` instead of `targets`.
+        act({ ...send, tap_choices: targets.map((t) => t.instance_id) });
+      } else {
+        act({ ...send, targets, x });
+      }
     } else {
       render();
     }
@@ -936,6 +969,13 @@ export function createGameBoardView(opts = {}) {
             <button type="button" class="gf-card-action${loyaltyModifierClass(a.cost_label)}" data-activate-x='${escapeAttr(JSON.stringify({ iid: a.instance_id, ability_index: a.ability_index }))}'>⚡ ${escapeHtml(a.cost_label || 'Aktivieren')} (X)</button>
           </div>
         `);
+      } else if (a.type === 'activate_ability' && a.tap_cost) {
+        // Cost includes "tap N untapped <type>s you control" (RULE 602.1) —
+        // which ones is the player's own choice, not an engine auto-pick.
+        const startInfo = JSON.stringify({ iid: a.instance_id, type: 'activate_ability', ability_index: a.ability_index });
+        buttons.push(
+          `<button type="button" class="gf-card-action${loyaltyModifierClass(a.cost_label)}" data-tap-choice-start='${escapeAttr(startInfo)}'>⚡ ${escapeHtml(a.cost_label || 'Aktivieren')}</button>`
+        );
       } else if (a.type === 'activate_ability') {
         buttons.push(
           actionButton(
@@ -946,12 +986,33 @@ export function createGameBoardView(opts = {}) {
         );
       } else if (a.type === 'tap_for_mana') {
         const optsList = a.options || [{ index: 0, label: '⟳' }];
+        // A mana ability whose cost is more than tapping itself (Selvala's
+        // {G}, Gnarlroot Trapper's life payment, Birchlore Rangers' "tap two
+        // other Elves") shows its full cost instead of a bare "Tappen".
+        const extraCost = a.cost_label && a.cost_label !== '{T}';
         for (const opt of optsList) {
           const glyph = opt.label || '⟳';
-          const text = optsList.length > 1 ? `⟳ ${glyph}` : `⟳ Tappen`;
-          buttons.push(
-            actionButton({ type: 'tap_for_mana', instance_id: a.instance_id, option_index: opt.index }, text)
-          );
+          const text = extraCost
+            ? `⟳ ${escapeHtml(a.cost_label)} → ${glyph}`
+            : (optsList.length > 1 ? `⟳ ${glyph}` : `⟳ Tappen`);
+          if (a.tap_cost) {
+            // Which Elves pay the "tap N" part is the player's own choice
+            // (RULE 602.1) — open the picker instead of sending right away.
+            const startInfo = JSON.stringify({
+              iid: a.instance_id, type: 'tap_for_mana',
+              ability_index: a.ability_index, option_index: opt.index,
+            });
+            buttons.push(
+              `<button type="button" class="gf-card-action" data-tap-choice-start='${escapeAttr(startInfo)}'>${text}</button>`
+            );
+          } else {
+            buttons.push(
+              actionButton(
+                { type: 'tap_for_mana', instance_id: a.instance_id, option_index: opt.index, ability_index: a.ability_index },
+                text
+              )
+            );
+          }
         }
       } else if (a.type === 'attack') {
         buttons.push(attackControlHtml(a));
@@ -979,24 +1040,32 @@ export function createGameBoardView(opts = {}) {
     const total = castTargeting.requirements.length;
     const idx = castTargeting.reqIndex;
     const req = castTargeting.requirements[idx] || {};
-    const options = req.options || [];
+    let options = req.options || [];
+    if (castTargeting.excludePicked) {
+      // A "tap N untapped <type>s you control" cost (RULE 602.1): the same
+      // permanent can't pay two of the N picks.
+      const pickedIds = new Set(castTargeting.targets.map((t) => t.instance_id));
+      options = options.filter((o) => !pickedIds.has(o.instance_id));
+    }
     const buttons = options.map((o) => {
       const payload = JSON.stringify({ instance_id: iid, target: targetOptionPayload(o) });
       const hover = o.instance_id != null ? ` data-hover-card="${escapeHtml(o.name || '')}"` : '';
-      return `<button type="button"${hover} data-cast-target-pick='${escapeAttr(payload)}'>🎯 ${escapeHtml(o.name)}</button>`;
+      const glyph = castTargeting.excludePicked ? '⟳' : '🎯';
+      return `<button type="button"${hover} data-cast-target-pick='${escapeAttr(payload)}'>${glyph} ${escapeHtml(o.name)}</button>`;
     });
     if (req.optional) {
       const skip = JSON.stringify({ instance_id: iid, target: null });
       buttons.push(`<button type="button" class="gf-decline" data-cast-target-pick='${escapeAttr(skip)}'>∅ Kein Ziel</button>`);
     }
-    const progress = total > 1 ? `Ziel ${idx + 1} von ${total}` : 'Ziel wählen';
+    const heading = castTargeting.excludePicked ? 'Kosten bezahlen' : 'Ziel wählen';
+    const progress = total > 1 ? `${idx + 1} von ${total}` : (castTargeting.excludePicked ? 'Auswählen' : 'Ziel wählen');
     return `
       <div class="gf-modal-overlay">
         <div class="gf-modal gf-target-modal" role="dialog" aria-modal="true">
           <div class="gf-modal-head">
-            <span class="gf-modal-icon">🎯</span>
+            <span class="gf-modal-icon">${castTargeting.excludePicked ? '⟳' : '🎯'}</span>
             <div>
-              <h4>Ziel wählen: ${escapeHtml(req.label || '')}</h4>
+              <h4>${heading}: ${escapeHtml(req.label || '')}</h4>
               <p class="gf-modal-who">${escapeHtml(progress)}</p>
             </div>
           </div>

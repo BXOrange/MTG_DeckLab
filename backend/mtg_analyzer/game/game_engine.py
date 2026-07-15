@@ -27,7 +27,7 @@ from ..models.player import Player
 from . import combat, continuous
 from .costs import DISCARD_HAND, PAY_LIFE_X, ActivationCost, parse_activation_cost
 from .effects import ActivatedAbility
-from .mana_abilities import mana_options_for, option_label
+from .mana_abilities import mana_abilities_for, option_label
 from .phases import GamePhase, GameStep, default_turn_sequence
 from .rules_engine import RulesEngine
 from .targeting import (
@@ -1439,39 +1439,63 @@ class GameEngine:
         return pw is not None and pw.controller_id == player.id
 
     def tap_for_mana(
-        self, player: Player, source: GameObject, option_index: int = 0
+        self,
+        player: Player,
+        source: GameObject,
+        option_index: int = 0,
+        ability_index: int = 0,
+        tap_choices: Optional[list[Any]] = None,
     ) -> dict[str, int]:
-        """Tap a permanent for one of its mana options (RULE 605).
+        """Activate one of a permanent's mana abilities (RULE 605) — the
+        fast, no-stack path.
 
-        ``option_index`` picks which production to make — this is the
-        dual-land fix: a "{T}: Add {W} or {U}." land makes *one* colour,
-        the chosen option, not both. Returns the mana added.
+        ``ability_index`` picks *which* mana ability (most permanents print
+        just one; Devoted Druid's second line isn't a mana ability at all,
+        so it never counts here); ``option_index`` then picks one of *that*
+        ability's mutually-exclusive production options (the dual-land fix:
+        a "{T}: Add {W} or {U}." land makes *one* colour, not both). Charges
+        the ability's **full** cost (RULE 602.1) — not just {T} — so e.g.
+        Selvala's {G} or Gnarlroot Trapper's 1 life are actually paid.
+        ``tap_choices`` is the player's own pick of *which* permanents pay a
+        "tap N untapped Elves you control" cost (Birchlore Rangers, Heritage
+        Druid — a real cost choice, not an auto-pick, and the source itself
+        is eligible since the printed text doesn't say "other"); ``None``
+        falls back to an auto-pick (non-interactive callers). Returns the
+        mana added.
         """
         if source not in self.state.battlefield or source.controller_id != player.id:
             raise ValueError("can only tap your own permanents in play")
-        if source.tapped:
-            raise ValueError(f"{source.name} is already tapped")
-        # RULE 302.6: a summoning-sick creature (Llanowar Elves, Birds of
-        # Paradise, …) can't tap for mana — its mana ability has the {T} symbol.
-        if self._summoning_sick_for_tap(source):
-            raise ValueError(f"{source.name} has summoning sickness and can't tap for mana")
-        options = mana_options_for(source)
-        if not options:
-            raise ValueError(f"{source.name} has no mana ability")
-        if not 0 <= option_index < len(options):
+        abilities = mana_abilities_for(source, state=self.state)
+        if not 0 <= ability_index < len(abilities):
+            raise ValueError(f"{source.name} has no mana ability #{ability_index}")
+        ability = abilities[ability_index]
+        cost = ability.cost
+        if not self._can_pay_activation_cost(player, source, cost, x=0, tap_choices=tap_choices):
+            raise ValueError(f"cannot pay {source.name}'s mana ability cost")
+        if not 0 <= option_index < len(ability.options):
             raise ValueError(f"invalid mana option {option_index} for {source.name}")
-        produced = options[option_index]
-        self.rules.set_tapped(source, True)
+        produced = dict(ability.options[option_index])
+        self._pay_activation_cost(player, source, cost, x=0, tap_choices=tap_choices)
         player.mana_pool.add_many(produced)
+        if ability.self_damage:
+            # RULE 605.1a: a mana ability may have effects besides producing
+            # mana (the painland/Elves-of-Deep-Shadow "deals N damage to
+            # you" rider) — applied right alongside it, no stack involved.
+            self.rules.deal_damage(player, ability.self_damage, source=source)
         self.state.record_stat(player.id, "mana", amount=sum(produced.values()))
-        return dict(produced)
+        return produced
 
     # ------------------------------------------------------------------
     # Activated abilities (RULE 602)
     # ------------------------------------------------------------------
 
     def can_activate(
-        self, player: Player, source: GameObject, ability: ActivatedAbility, x: int = 0
+        self,
+        player: Player,
+        source: GameObject,
+        ability: ActivatedAbility,
+        x: int = 0,
+        tap_choices: Optional[list[Any]] = None,
     ) -> bool:
         """Whether ``player`` may activate ``ability`` of ``source`` right now.
 
@@ -1492,7 +1516,7 @@ class GameEngine:
             source, ability.cost.class_level
         ):
             return False
-        return self._can_pay_activation_cost(player, source, ability.cost, x)
+        return self._can_pay_activation_cost(player, source, ability.cost, x, tap_choices=tap_choices)
 
     def _sorcery_speed_ok(self, player: Player) -> bool:
         """RULE 117.1a-style sorcery-speed timing: the controller's main
@@ -1564,6 +1588,8 @@ class GameEngine:
             if not all_requirements_satisfiable(requirements):
                 action["locked"] = True
                 action["lock_reason"] = "Kein gültiges Ziel im Spiel"
+        if ability.cost.tap_others:
+            action["tap_cost"] = self._tap_cost_choice(player, source, ability.cost)
         return action
 
     def _max_x_for_mana(self, player: Player, mana: "ManaCost") -> int:
@@ -1574,7 +1600,12 @@ class GameEngine:
         return 0
 
     def _can_pay_activation_cost(
-        self, player: Player, source: GameObject, cost: "ActivationCost", x: int
+        self,
+        player: Player,
+        source: GameObject,
+        cost: "ActivationCost",
+        x: int,
+        tap_choices: Optional[list[Any]] = None,
     ) -> bool:
         # {T} needs an untapped source; {Q} a tapped one. Either symbol also
         # needs a non-summoning-sick source unless it has haste (RULE 302.6,
@@ -1596,11 +1627,77 @@ class GameEngine:
             kind, count = cost.remove_counters
             if source.counters.get(kind, 0) < count:
                 return False
+        if cost.tap_others:
+            count, subtype = cost.tap_others
+            if self._resolve_tap_others(player, source, count, subtype, tap_choices) is None:
+                return False
+        if cost.exile_self_from_hand:
+            # No hand-zone ability-activation path yet (see `backend/
+            # ToDo_Backend.md`) — never payable from the battlefield.
+            return False
         # A minus loyalty ability can't be activated for more loyalty than the
         # planeswalker has (RULE 606.5c / 118.5).
         if cost.loyalty is not None and cost.loyalty < 0 and source.loyalty < -cost.loyalty:
             return False
         return True
+
+    def _tap_others_pool(self, player: Player, source: GameObject, subtype: str) -> list[GameObject]:
+        """Every untapped permanent of type ``subtype`` ``player`` controls,
+        eligible to pay a "Tap N untapped <type>s you control" cost
+        (Birchlore Rangers, Heritage Druid) — **including the ability's own
+        source**, since the printed text doesn't say "other" (RULE 602.1;
+        the real card lets Birchlore Rangers tap itself as one of the two).
+        Not gated by summoning sickness: RULE 302.6 only restricts a
+        permanent's own {T}-cost ability, not being tapped to pay a
+        *different* ability's cost. This is the full candidate pool the
+        player picks from — see `_resolve_tap_others` for the actual choice.
+        """
+        return [
+            o for o in self.state.permanents_controlled_by(player.id)
+            if not o.tapped and continuous.has_subtype(o, subtype)
+        ]
+
+    def _tap_cost_choice(
+        self, player: Player, source: GameObject, cost: "ActivationCost"
+    ) -> dict[str, Any]:
+        """The offer-time UI shape for a `tap_others` cost: how many to pick
+        (``count``) and the full eligible pool (``options``) — the player
+        picks exactly ``count`` of them (RULE 602.1's cost *choice*, not an
+        engine auto-pick; see `_resolve_tap_others`)."""
+        count, subtype = cost.tap_others
+        pool = self._tap_others_pool(player, source, subtype)
+        return {
+            "count": count,
+            "options": [{"instance_id": o.instance_id, "name": o.name} for o in pool],
+        }
+
+    def _resolve_tap_others(
+        self,
+        player: Player,
+        source: GameObject,
+        count: int,
+        subtype: str,
+        chosen_ids: Optional[list[Any]],
+    ) -> Optional[list[GameObject]]:
+        """The permanents to actually tap for a `tap_others` cost.
+
+        ``chosen_ids`` is the player's own pick (instance ids) — this is a
+        real cost *choice*, not something the engine should auto-decide, so
+        an interactive caller always supplies it. ``None`` falls back to an
+        auto-pick of the first ``count`` eligible permanents, for
+        non-interactive callers (tests, the goldfish auto-player). Returns
+        ``None`` (not payable / not a valid choice) if fewer than ``count``
+        are eligible, or ``chosen_ids`` doesn't name exactly ``count``
+        distinct eligible permanents.
+        """
+        pool = self._tap_others_pool(player, source, subtype)
+        if chosen_ids is None:
+            return pool[:count] if len(pool) >= count else None
+        if len(chosen_ids) != count or len(set(chosen_ids)) != count:
+            return None
+        by_id = {o.instance_id: o for o in pool}
+        chosen = [by_id[i] for i in chosen_ids if i in by_id]
+        return chosen if len(chosen) == count else None
 
     def _can_pay_additional_cast_cost(
         self, player: Player, obj: GameObject, cost: Optional["ActivationCost"], x: int
@@ -1705,33 +1802,30 @@ class GameEngine:
             return obj.is_land
         return True  # unknown type word → any permanent, so the cost is payable
 
-    def activate_ability(
+    def _pay_activation_cost(
         self,
         player: Player,
         source: GameObject,
-        ability_index: int = 0,
-        targets: Optional[list[Any]] = None,
-        x: int = 0,
+        cost: "ActivationCost",
+        x: int,
+        tap_choices: Optional[list[Any]] = None,
     ) -> None:
-        """Pay an activated ability's cost and put it on the stack (RULE 602.2).
-
-        Costs are paid in one go (RULE 601.2h analogue for abilities): tap /
-        untap the source, pay mana, pay life, sacrifice, discard, remove
-        counters — then the ability goes on the stack to resolve later like any
-        other object. Raises ValueError if the ability can't be paid for.
+        """Charge every component of ``cost`` (RULE 601.2h analogue for
+        abilities) — tap/untap the source, tap other permanents, pay mana,
+        pay life, sacrifice, discard, add/remove counters, loyalty. Shared by
+        `activate_ability` and `tap_for_mana` (a mana ability's cost is
+        charged exactly the same way, just without going on the stack).
+        Assumes `_can_pay_activation_cost` already passed (with the same
+        ``tap_choices``, if any).
         """
-        abilities = source.activated_abilities
-        if not 0 <= ability_index < len(abilities):
-            raise ValueError(f"{source.name} has no activated ability #{ability_index}")
-        ability = abilities[ability_index]
-        if not self.can_activate(player, source, ability, x):
-            raise ValueError(f"cannot activate {source.name}'s ability")
-
-        cost = ability.cost
         if cost.taps_self:
             self.rules.set_tapped(source, True)
         if cost.untaps_self:
             source.untap()
+        if cost.tap_others:
+            count, subtype = cost.tap_others
+            for obj in self._resolve_tap_others(player, source, count, subtype, tap_choices) or []:
+                self.rules.set_tapped(obj, True)
         mana = cost.mana.with_x(x) if cost.mana.has_variable else cost.mana
         if mana.symbols:
             life_spent = player.mana_pool.pay(mana, life_available=player.life)
@@ -1747,11 +1841,41 @@ class GameEngine:
         if cost.remove_counters:
             kind, count = cost.remove_counters
             source.add_counters(kind, -count)
+        if cost.add_counters_cost:
+            kind, count = cost.add_counters_cost
+            source.add_counters(kind, count)
         if cost.loyalty is not None:
             # RULE 606.5c: pay by changing loyalty; a loyalty ability is once
             # per turn per planeswalker (RULE 606.3).
             source.add_counters("loyalty", cost.loyalty)
             source.activated_loyalty_this_turn = True
+
+    def activate_ability(
+        self,
+        player: Player,
+        source: GameObject,
+        ability_index: int = 0,
+        targets: Optional[list[Any]] = None,
+        x: int = 0,
+        tap_choices: Optional[list[Any]] = None,
+    ) -> None:
+        """Pay an activated ability's cost and put it on the stack (RULE 602.2).
+
+        Costs are paid in one go (RULE 601.2h analogue for abilities): tap /
+        untap the source, pay mana, pay life, sacrifice, discard, remove
+        counters — then the ability goes on the stack to resolve later like any
+        other object. ``tap_choices`` is the player's pick for a "tap N
+        untapped <type>s you control" cost, if any (see `tap_for_mana`).
+        Raises ValueError if the ability can't be paid for.
+        """
+        abilities = source.activated_abilities
+        if not 0 <= ability_index < len(abilities):
+            raise ValueError(f"{source.name} has no activated ability #{ability_index}")
+        ability = abilities[ability_index]
+        if not self.can_activate(player, source, ability, x, tap_choices=tap_choices):
+            raise ValueError(f"cannot activate {source.name}'s ability")
+
+        self._pay_activation_cost(player, source, ability.cost, x, tap_choices=tap_choices)
 
         item = StackItem(
             kind="ability",
@@ -1978,26 +2102,38 @@ class GameEngine:
                     )
 
         for source in self.state.permanents_controlled_by(player.id):
-            # A tapped source, or a summoning-sick creature (RULE 302.6), can't
-            # tap for mana — don't offer it as a legal action.
-            if source.tapped or self._summoning_sick_for_tap(source):
-                continue
-            options = mana_options_for(source)
-            if not options:
-                continue
-            # Each option is a distinct choice (dual-land "W or U"); the UI
-            # shows one button per option so the player picks the colour.
-            actions.append(
-                {
+            # One offer per mana ability the source has (almost always just
+            # one) — `_can_pay_activation_cost` covers tap/summoning-sickness
+            # *and* any extra cost component (Selvala's {G}, Gnarlroot
+            # Trapper's life payment, Birchlore Rangers' "tap two other
+            # Elves" — RULE 602.1), so a source that can't tap itself can
+            # still offer an ability that doesn't need to.
+            for ability_index, ability in enumerate(mana_abilities_for(source, state=self.state)):
+                if not ability.options:
+                    continue
+                # Existence-only check here (no chosen tap_others yet — the
+                # player picks those in the UI *after* choosing to activate,
+                # same as a target); `tap_for_mana` re-validates the actual
+                # choice at payment time.
+                if not self._can_pay_activation_cost(player, source, ability.cost, x=0):
+                    continue
+                action = {
                     "type": "tap_for_mana",
                     "instance_id": source.instance_id,
                     "name": source.name,
+                    "ability_index": ability_index,
+                    "cost_label": ability.cost.label(),
+                    # Each option is a distinct choice (dual-land "W or U");
+                    # the UI shows one button per option so the player picks
+                    # the colour.
                     "options": [
                         {"index": i, "mana": opt, "label": option_label(opt)}
-                        for i, opt in enumerate(options)
+                        for i, opt in enumerate(ability.options)
                     ],
                 }
-            )
+                if ability.cost.tap_others:
+                    action["tap_cost"] = self._tap_cost_choice(player, source, ability.cost)
+                actions.append(action)
 
         # Activated abilities (RULE 602) bound onto permanents this player
         # controls — one offer per payable ability (a fetch land's
@@ -2052,12 +2188,28 @@ class GameEngine:
         if land is not None:
             self.play_land(active, land)
         for source in self.state.permanents_controlled_by(active.id):
-            if (
-                not source.tapped
-                and mana_options_for(source)
-                and not self._summoning_sick_for_tap(source)  # RULE 302.6
-            ):
-                self.tap_for_mana(active, source)  # option 0 (greedy)
+            for ability_index, ability in enumerate(mana_abilities_for(source, state=self.state)):
+                cost = ability.cost
+                # Keep the greedy auto-player conservative: only a plain
+                # {T}-only mana ability taps itself automatically — one that
+                # also costs mana/life/other-Elves (Selvala, Gnarlroot
+                # Trapper, Birchlore Rangers) needs a real choice the bot
+                # doesn't make.
+                simple = (
+                    cost.taps_self
+                    and not cost.mana.symbols
+                    and not cost.pay_life
+                    and not cost.tap_others
+                    and not cost.sacrifice
+                    and not cost.discard
+                    and not cost.add_counters_cost
+                )
+                if not simple or not ability.options:
+                    continue
+                if not self._can_pay_activation_cost(active, source, cost, x=0):
+                    continue
+                self.tap_for_mana(active, source, ability_index=ability_index)  # option 0 (greedy)
+                break
         # Cast affordable non-land spells cheapest first.
         castable = sorted(
             (o for o in active.hand if not o.card.is_land),

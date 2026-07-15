@@ -98,6 +98,46 @@ class TestStackAndChoices:
         )
         assert state.active_player.mana_pool.pool["G"] == 1
 
+    def test_tap_for_mana_with_explicit_tap_choices(self):
+        # Birchlore Rangers-shaped cost ("tap two untapped Elves you
+        # control") — the player's own choice of which two, round-tripped
+        # through the session action as `tap_choices` (RULE 602.1).
+        from mtg_analyzer.models.game_object import GameObject, Zone
+
+        def elf(name, oracle):
+            return Card(
+                id=name, name=name, type_line="Creature — Elf Druid",
+                is_creature=True, oracle_text=oracle,
+            )
+
+        session = make_session(library=[land()] * 5, hand=0)
+        self._advance_to_main1(session)
+        state = session.engine.state
+        source = GameObject(elf(
+            "Birchlore Rangers",
+            "Tap two untapped Elves you control: Add one mana of any color.",
+        ), owner_id="p1", zone=Zone.BATTLEFIELD)
+        state.add_to_battlefield(source)
+        e1 = GameObject(elf("Llanowar Elves", "{T}: Add {G}."), owner_id="p1", zone=Zone.BATTLEFIELD)
+        state.add_to_battlefield(e1)
+
+        # Sanity: legal_actions offers the eligible pool, itself included.
+        action = next(
+            a for a in session.legal_actions()
+            if a["type"] == "tap_for_mana" and a["instance_id"] == source.instance_id
+        )
+        pool_ids = {o["instance_id"] for o in action["tap_cost"]["options"]}
+        assert pool_ids == {source.instance_id, e1.instance_id}
+
+        session.apply_action({
+            "type": "tap_for_mana",
+            "instance_id": source.instance_id,
+            "option_index": 4,  # green
+            "tap_choices": [source.instance_id, e1.instance_id],
+        })
+        assert state.active_player.mana_pool.pool["G"] == 1
+        assert source.tapped and e1.tapped
+
     def test_pending_search_gates_actions_and_choose_completes_it(self):
         from mtg_analyzer.models.game_state import StackItem
         from mtg_analyzer.game.effects import SearchLibraryEffect

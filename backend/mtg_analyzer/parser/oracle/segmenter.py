@@ -79,8 +79,15 @@ _ACTIVATED_RE = re.compile(r"^(?P<cost>[^:]+):\s*(?P<effect>.+)$", re.S)
 #: A cost is only trusted as one if it actually *looks* like a cost — a mana/
 #: {T} symbol, or one of the non-mana cost words. This keeps a stray sentence
 #: colon (and loyalty "[+1]:" costs, not modeled yet — RULE 606) from being
-#: mis-read as an activation cost (fail-closed).
-_COST_LOOKS_REAL = re.compile(r"\{[^}]+\}|sacrifice|pay \d+ life|discard", re.I)
+#: mis-read as an activation cost (fail-closed). "put a counter on this/~"
+#: is Devoted Druid's "Put a -1/-1 counter on this creature: Untap this
+#: creature." cost; "tap ... untapped ... you control" is Birchlore Rangers'/
+#: Heritage Druid's bulk-tap cost (RULE 602.1, `costs.tap_others`).
+_COST_LOOKS_REAL = re.compile(
+    r"\{[^}]+\}|sacrifice|pay \d+ life|discard|put an? .+ counter on|"
+    r"tap .+ untapped .+ you control",
+    re.I,
+)
 
 #: A planeswalker loyalty ability: "[+N]:", "[-N]:", "[0]:" then the effect
 #: (RULE 606.5c). The bracket is the whole cost; the sign says add/remove.

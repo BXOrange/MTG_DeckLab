@@ -10,16 +10,44 @@ of mutually-exclusive *production options*, each a `{colour: count}`
 dict; tapping picks one (index 0 when there's only one, so basics need no
 prompt).
 
+Beyond the printed options, a mana ability carries its own **cost**
+(RULE 602.1) — almost always just `{T}`, but not always: Selvala, Heart of
+the Wilds also charges `{G}`; Gnarlroot Trapper charges a life payment;
+Birchlore Rangers/Heritage Druid tap *other* Elves instead of tapping
+themselves at all. `parse_mana_abilities`/`mana_abilities_for` expose that
+cost (an `ActivationCost`, `game/costs.py`) alongside the production
+options so the engine actually charges it (`GameEngine.tap_for_mana`),
+rather than assuming every mana ability's only cost is tapping its source.
+
+Some mana abilities produce a *variable* amount — "Add {G} for each Elf you
+control" (Elvish Archdruid), "equal to this creature's power" (Viridian
+Joiner) — resolved against the battlefield at activation time
+(`resolve_options`, given an optional `state`); with no `state` (a bare
+`Card`/`GameObject` query, or a test not wired to a live game) the variable
+count conservatively resolves to 1, same as the pre-existing (unscaled)
+behaviour.
+
 Parsing is intentionally simple — it covers basics, guildgates/duals,
-tri-lands, "add one mana of any colour", and multi-pip lands (`{C}{C}`)
-— and approximates the long tail (filter lands, "any one colour" with an
-amount) rather than modeling every printed ability.
+tri-lands, "add one mana of any colour", multi-pip lands (`{C}{C}`), and the
+"for each"/"equal to ... power" variable-amount family — and approximates
+the long tail (filter lands, mana *spend* restrictions like "spend this
+mana only to cast a creature spell", "any combination of colours") rather
+than modeling every printed ability. RULE 605.1a excludes any ability that
+requires a target from being a mana ability at all (Deathrite Shaman's
+graveyard-exile abilities produce mana but target, so they're deliberately
+never offered here — they belong on the stack like any other activated
+ability, not through this fast no-stack path) — see `backend/ToDo_Backend.md`
+for what's still open.
 """
 
 from __future__ import annotations
 
 import re
-from typing import Any
+from dataclasses import dataclass, field
+from typing import Any, Optional
+
+from . import continuous
+from .costs import ActivationCost, parse_activation_cost
 
 #: Colours the five basic lands produce, by their basic land *type*.
 BASIC_LAND_MANA = {
@@ -35,6 +63,132 @@ _ADD_CLAUSE_RE = re.compile(r"Add ([^.]*)\.")
 _PIP_RE = re.compile(r"\{([WUBRGC])\}")
 _ALTERNATIVE_SPLIT_RE = re.compile(r",| or ")
 _ALL_COLORS = ("W", "U", "B", "R", "G")
+#: Phrases meaning "the payer picks one colour" — either a fixed amount of it
+#: ("one mana of any color", Elvish Harbinger) or a variable amount peeled off
+#: by `_WHERE_X_RE` first ("X mana of any one color", Wirewood Channeler).
+_ANY_COLOR_PHRASES = ("any color", "any colour", "any one color", "any one colour")
+
+#: RULE 605.1a: an ability that requires a target is never a mana ability,
+#: however "mana-shaped" its effect looks (Deathrite Shaman's "Exile target
+#: land card from a graveyard. Add one mana of any color." is a normal,
+#: stack-using, responds-to-able activated ability, not a mana ability).
+_TARGET_RE = re.compile(r"\btarget\b", re.IGNORECASE)
+
+#: A mana ability's own extra "this creature/land deals N damage to you"
+#: side effect (RULE 605.1a permits a mana ability other effects besides
+#: producing mana) — the painland/Elves-of-Deep-Shadow template.
+_SELF_DAMAGE_RE = re.compile(
+    r"(?:this creature|this land|this permanent|~) deals (\d+) damage to you",
+    re.IGNORECASE,
+)
+
+#: "<base> for each <subject>" (Elvish Archdruid, Circle of Dreams Druid,
+#: Priest of Titania, Gyre Sage).
+_FOR_EACH_RE = re.compile(r"^(?P<base>.*?)\s+for each\s+(?P<subject>.+?)$", re.IGNORECASE)
+#: "an amount of <base> equal to <who>'s power" (Marwyn, Viridian Joiner).
+_EQUAL_TO_POWER_RE = re.compile(
+    r"^an amount of\s+(?P<base>.*?)\s+equal to\s+(?P<who>.+?)'s power$", re.IGNORECASE
+)
+#: "X mana of any one color, where X is the number of <subject>" (Wirewood
+#: Channeler) — captures the (still-variable) base clause and the subject
+#: separately, since the base itself needs `_parse_clause`'s any-colour path.
+_WHERE_X_RE = re.compile(
+    r"^(?P<base>x mana of any one colou?r),\s*where x is the number of\s+(?P<subject>.+?)$",
+    re.IGNORECASE,
+)
+_SUBJECT_CONTROL_RE = re.compile(r"^(?P<noun>.+?)\s+you control$", re.IGNORECASE)
+_SUBJECT_BATTLEFIELD_RE = re.compile(r"^(?P<noun>.+?)\s+on the battlefield$", re.IGNORECASE)
+_SUBJECT_COUNTER_RE = re.compile(
+    r"^(?P<kind>[+\-]?\d+/[+\-]?\d+) counters? on (?:this creature|~)$", re.IGNORECASE
+)
+
+
+def _singularize(word: str) -> str:
+    """A plural creature type → singular ("elves"→"elf", "goblins"→"goblin")."""
+    if word.endswith("ves"):
+        return word[:-3] + "f"
+    if word.endswith("s"):
+        return word[:-1]
+    return word
+
+
+@dataclass
+class ManaAbility:
+    """One parsed "<cost>: Add …" line (or a granted/basic-land equivalent).
+
+    ``options`` are the *base* (unscaled) mutually-exclusive production
+    choices — already resolved for a fixed-amount ability, or the per-colour
+    ``{c: 1}`` base a variable one scales from `amount_selector`.
+    ``self_damage`` is a mana ability's own "deals N damage to you" rider
+    (Elves of Deep Shadow), applied when the ability is activated.
+    """
+
+    cost: ActivationCost = field(default_factory=ActivationCost)
+    options: list[dict[str, int]] = field(default_factory=list)
+    amount_selector: Optional[dict[str, Any]] = None
+    self_damage: int = 0
+
+
+def _selector_from_subject(subject: str) -> Optional[dict[str, Any]]:
+    """RULE 605.1a-adjacent "for each <subject>" → a count selector dict, or
+    ``None`` for a subject shape outside the small recognised vocabulary
+    (fail-soft: the caller then leaves the amount unscaled, same as before
+    this grammar existed)."""
+    subject = subject.strip().rstrip(".")
+    m = _SUBJECT_COUNTER_RE.match(subject)
+    if m is not None:
+        return {"kind": "counters_on_self", "counter": m.group("kind").lower()}
+    m = _SUBJECT_CONTROL_RE.match(subject)
+    if m is not None:
+        noun = _singularize(m.group("noun").strip().lower())
+        return {"kind": "count", "scope": "control", "subtype": None if noun == "creature" else noun}
+    m = _SUBJECT_BATTLEFIELD_RE.match(subject)
+    if m is not None:
+        noun = _singularize(m.group("noun").strip().lower())
+        return {"kind": "count", "scope": "battlefield", "subtype": None if noun == "creature" else noun}
+    return None
+
+
+def _self_name_forms(card_name: Optional[str]) -> set:
+    name = (card_name or "").strip()
+    forms = {name.lower()} if name else set()
+    if "," in name:
+        forms.add(name.split(",")[0].strip().lower())
+    if "//" in name:
+        forms.add(name.split("//")[0].strip().lower())
+    return forms
+
+
+def _power_selector(who: str, card_name: Optional[str]) -> Optional[dict[str, Any]]:
+    who = who.strip().lower()
+    if who in ("this creature", "~") or who in _self_name_forms(card_name):
+        return {"kind": "power_of_self"}
+    return None
+
+
+def _peel_amount_selector(clause: str, card_name: Optional[str]) -> tuple[str, Optional[dict[str, Any]]]:
+    """Split a variable "Add …" clause into its base (still-parseable)
+    production clause and an `amount_selector`, or return ``clause``
+    unchanged with no selector when it isn't one of the recognised variable
+    shapes (including a "for each"/"equal to" subject this grammar doesn't
+    recognise — fail-soft, not fail-closed: the base clause still parses to
+    whatever fixed amount it names, exactly the pre-existing behaviour)."""
+    m = _WHERE_X_RE.match(clause)
+    if m is not None:
+        selector = _selector_from_subject(m.group("subject"))
+        if selector is not None:
+            return m.group("base"), selector
+    m = _EQUAL_TO_POWER_RE.match(clause)
+    if m is not None:
+        selector = _power_selector(m.group("who"), card_name)
+        if selector is not None:
+            return m.group("base"), selector
+    m = _FOR_EACH_RE.match(clause)
+    if m is not None:
+        selector = _selector_from_subject(m.group("subject"))
+        if selector is not None:
+            return m.group("base"), selector
+    return clause, None
 
 
 def mana_options(card: Any) -> list[dict[str, int]]:
@@ -43,28 +197,134 @@ def mana_options(card: Any) -> list[dict[str, int]]:
     Returns e.g. ``[{"G": 1}]`` for a Forest, ``[{"W": 1}, {"U": 1}]`` for
     a WU dual, ``[{"C": 2}]`` for an Eldrazi land, or one option per colour
     for "add one mana of any colour". The first option is the default the
-    goldfish auto-player / a single-option tap uses.
+    goldfish auto-player / a single-option tap uses. A thin flattening view
+    over `parse_mana_abilities` — see that for cost/variable-amount detail.
     """
-    basic = _basic_options(card)
-    if basic:
-        return basic
-
     options: list[dict[str, int]] = []
-    for clause in _ADD_CLAUSE_RE.findall(getattr(card, "oracle_text", "") or ""):
-        options.extend(_parse_clause(clause))
+    for ability in parse_mana_abilities(card):
+        options.extend(ability.options)
     return _dedupe(options)
 
 
-def mana_options_for(obj: Any) -> list[dict[str, int]]:
-    """``mana_options`` for a `GameObject`, folding in layer-6 grants too.
+def parse_mana_abilities(card: Any) -> list[ManaAbility]:
+    """Every mana ability (RULE 605) `card` prints, cost and production both.
 
-    A permanent's own printed options, plus any a static ability granted it
-    (RULE 613.7f — "Elves you control have '{T}: Add {B}.'", Tyvar Kell;
-    `game/continuous.py` stamps these onto ``obj.granted_mana_options`` every
-    recompute). Duck-typed: any object with ``.card`` and
-    ``.granted_mana_options`` works, so tests can pass a bare stub.
+    Line-based (unlike the old whole-text regex): each ``<cost>: Add …``
+    line becomes its own `ManaAbility`, so a card with more than one line
+    doesn't have one line's cost bleed into another's production. A basic
+    land's colour comes from its type line, not oracle text, so it gets a
+    synthetic ``{T}``-only ability instead. RULE 605.1a's "no target"
+    requirement is enforced per line — a line whose effect mentions "target"
+    is skipped entirely (never a mana ability, whatever it produces).
     """
-    return _dedupe(mana_options(obj.card) + list(getattr(obj, "granted_mana_options", [])))
+    basic = _basic_options(card)
+    if basic:
+        return [ManaAbility(cost=ActivationCost(taps_self=True), options=basic)]
+
+    name = getattr(card, "name", None)
+    abilities: list[ManaAbility] = []
+    for line in (getattr(card, "oracle_text", "") or "").split("\n"):
+        line = line.strip()
+        if '"' in line:
+            # A granted-ability description quoted inside another line
+            # ("Each creature you control with a counter on it has '{T}:
+            # Add {G}.'", Rishkar) — that ability belongs to whatever it's
+            # granted to, not this card itself (RULE 613.7f grants are
+            # hand-authored in `game/ability_catalogue.py`, not auto-parsed
+            # here); skip so it doesn't get mis-attributed as this card's
+            # own mana ability.
+            continue
+        cost_text, sep, effect_text = line.partition(":")
+        if not sep:
+            continue
+        effect_text = effect_text.strip()
+        add_match = _ADD_CLAUSE_RE.search(effect_text)
+        if add_match is None:
+            continue
+        if _TARGET_RE.search(effect_text) or _TARGET_RE.search(cost_text):
+            continue  # RULE 605.1a — a targeted ability is never a mana ability
+        cost = parse_activation_cost(cost_text)
+        if cost.exile_self_from_hand:
+            continue  # not activatable from the battlefield at all (Elvish Spirit Guide)
+        base_clause, selector = _peel_amount_selector(add_match.group(1), name)
+        options = _dedupe(_parse_clause(base_clause))
+        if not options:
+            continue
+        damage_match = _SELF_DAMAGE_RE.search(effect_text)
+        abilities.append(ManaAbility(
+            cost=cost,
+            options=options,
+            amount_selector=selector,
+            self_damage=int(damage_match.group(1)) if damage_match else 0,
+        ))
+    return abilities
+
+
+def mana_abilities_for(obj: Any, state: Optional[Any] = None) -> list[ManaAbility]:
+    """`parse_mana_abilities` for a `GameObject`, folding in layer-6 grants
+    (RULE 613.7f — "Elves you control have '{T}: Add {B}.'") as plain
+    ``{T}``-only abilities, and resolving each one's `amount_selector`
+    against ``state`` (``None`` leaves a variable amount at its
+    conservative 1x default)."""
+    printed = [
+        ManaAbility(
+            cost=ability.cost,
+            options=resolve_options(ability, obj, state),
+            amount_selector=None,
+            self_damage=ability.self_damage,
+        )
+        for ability in parse_mana_abilities(obj.card)
+    ]
+    granted = [
+        ManaAbility(cost=ActivationCost(taps_self=True), options=[dict(opt)])
+        for opt in getattr(obj, "granted_mana_options", [])
+    ]
+    return printed + granted
+
+
+def resolve_options(ability: ManaAbility, obj: Any, state: Optional[Any] = None) -> list[dict[str, int]]:
+    """``ability.options`` scaled by its `amount_selector` (if any) against
+    ``obj``/``state`` — e.g. Elvish Archdruid's ``{"G": 1}`` base becomes
+    ``{"G": 4}`` with four Elves on the battlefield."""
+    if ability.amount_selector is None:
+        return [dict(opt) for opt in ability.options]
+    n = _resolve_amount(ability.amount_selector, obj, state)
+    return [{color: count * n for color, count in opt.items()} for opt in ability.options]
+
+
+def _resolve_amount(selector: dict[str, Any], obj: Any, state: Optional[Any]) -> int:
+    kind = selector["kind"]
+    if kind == "power_of_self":
+        return max(0, getattr(obj, "power", 0) or 0)
+    if kind == "counters_on_self":
+        counters = getattr(obj, "counters", None) or {}
+        return counters.get(selector["counter"], 0)
+    if kind == "count":
+        if state is None:
+            return 1  # no battlefield to count against — conservative default
+        battlefield = getattr(state, "battlefield", None) or []
+        subtype = selector.get("subtype")
+        if selector["scope"] == "control":
+            controller = getattr(obj, "controller_id", None)
+            pool = [o for o in battlefield if getattr(o, "controller_id", None) == controller]
+        else:
+            pool = list(battlefield)
+        if subtype is None:
+            return sum(1 for o in pool if getattr(o, "is_creature", False))
+        return sum(1 for o in pool if continuous.has_subtype(o, subtype))
+    return 1
+
+
+def mana_options_for(obj: Any, state: Optional[Any] = None) -> list[dict[str, int]]:
+    """``mana_options`` for a `GameObject`, folding in layer-6 grants and
+    resolving variable amounts against ``state`` when given. Duck-typed: any
+    object with ``.card``, ``.controller_id`` and ``.granted_mana_options``
+    works, so tests can pass a bare stub.
+    """
+    options: list[dict[str, int]] = []
+    for ability in mana_abilities_for(obj, state):
+        options.extend(ability.options)
+    return _dedupe(options)
 
 
 def _basic_options(card: Any) -> list[dict[str, int]]:
@@ -80,8 +340,9 @@ def _basic_options(card: Any) -> list[dict[str, int]]:
 
 def _parse_clause(clause: str) -> list[dict[str, int]]:
     lowered = clause.lower()
-    if "any color" in lowered or "any colour" in lowered:
-        # "one mana of any colour" — one single-colour option each.
+    if any(phrase in lowered for phrase in _ANY_COLOR_PHRASES):
+        # "one mana of any colour" / "X mana of any one colour" — one
+        # single-colour option each (the payer picks the colour).
         return [{color: 1} for color in _ALL_COLORS]
 
     options: list[dict[str, int]] = []

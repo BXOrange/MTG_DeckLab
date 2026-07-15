@@ -167,6 +167,42 @@ Weeks 1–4 roadmap is archived at
       "players can't draw cards"), cost-modification statics
       ("noncreature spells cost {1} more to cast"), emblems, and
       "for each"-scaled effects).
+      **Mana-ability costs/production redone (RULE 605.1a/602.1)** — moved
+      to [Done_Backend.md](../docs/implementation-state/Done_Backend.md)
+      "Rules Engine (Phase 2)" (2026-07-15 entry). Verified against the Elf
+      mana-dork family; still open from that pass:
+      - Mana *spend* restrictions ("Spend this mana only to cast an Elf
+        creature spell/a creature spell", Gnarlroot Trapper/Beastcaller
+        Savant/Incubation Druid/Selvala/Gwenna) aren't tracked at all —
+        `models/mana_pool.py` has no concept of restricted mana, so the
+        restriction is silently unenforced once the mana's in the pool.
+      - "Add X mana **in any combination of colors**" (Selvala, Gwenna) —
+        a genuinely different shape from "any one colour" (Wirewood
+        Channeler, now modeled): the payer picks a *split* across colours,
+        not one colour repeated. Currently produces no options at all
+        (fail-soft, not a regression — it never produced any before
+        either).
+      - Hand-zone mana abilities ("Exile this card from your hand: Add
+        …" — Elvish Spirit Guide and the same template on other colours)
+        have no activation path whatsoever: `tap_for_mana`/`legal_actions`
+        only ever look at the battlefield. Needs a small hand-zone
+        ability-activation surface (a new legal-action kind, a
+        `GameEngine` method, wiring through `game_session.py`) — there's no
+        existing precedent for it (cycling/unearth aren't modeled either).
+      - A Leveler's mana ability isn't level-gated: Joraga Treespeaker's
+        `{T}: Add {G}{G}.` (its LEVEL 1-4 tier) applies unconditionally
+        instead of only while `class_level`/level counters are in that
+        range, the same `min_level`/`max_level` gating `continuous.py`
+        already does for *static* Leveler tiers (RULE 711) — mana abilities
+        never got the same treatment.
+      - Deathrite Shaman's abilities are correctly excluded from being mana
+        abilities now (RULE 605.1a — they target), but aren't implemented
+        as the real thing either: a normal, stack-using, targeted activated
+        ability whose effect both exiles a graveyard card *and* adds mana
+        (needs a "target card in a graveyard" target kind `targeting.py`
+        doesn't have yet, plus a resolve-time "add one mana of any colour"
+        player choice `handlers.py`'s `_add_mana` doesn't cover — that one
+        only claims a fixed `{...}` symbol run).
 - [~] Combat blocking + creature-vs-creature damage: **engine done** —
       `GameEngine.declare_blockers`/`can_block` and a rewritten
       `_step_combat_damage` handle blocked/unblocked attackers, gang blocks

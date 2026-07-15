@@ -313,7 +313,9 @@ class GameSession:
 
         if kind == "tap_for_mana":
             option_index = int(action.get("option_index", 0))
-            self.engine.tap_for_mana(active, self._object(action), option_index)
+            ability_index = int(action.get("ability_index", 0))
+            tap_choices = self._resolve_tap_choices(action.get("tap_choices"))
+            self.engine.tap_for_mana(active, self._object(action), option_index, ability_index, tap_choices)
             return
 
         if kind == "cast_spell":
@@ -337,7 +339,8 @@ class GameSession:
             targets = self._resolve_targets(action.get("targets"))
             x = int(action.get("x", 0))
             index = int(action.get("ability_index", 0))
-            self.engine.activate_ability(active, self._object(action), index, targets, x)
+            tap_choices = self._resolve_tap_choices(action.get("tap_choices"))
+            self.engine.activate_ability(active, self._object(action), index, targets, x, tap_choices)
             return
 
         if kind in ("attack", "declare_attackers"):
@@ -726,6 +729,17 @@ class GameSession:
             obj = self._object_by_id(defender["instance_id"])
             return {"kind": "planeswalker", "instance_id": obj.instance_id, "label": obj.name}
         raise GameActionError(f"unknown defender kind: {kind!r}")
+
+    @staticmethod
+    def _resolve_tap_choices(tap_choices: Optional[list[Any]]) -> Optional[list[Any]]:
+        """The player's pick of *which* permanents pay a "tap N untapped
+        <type>s you control" cost (RULE 602.1, Birchlore Rangers/Heritage
+        Druid) — just instance ids; `GameEngine` resolves and validates them
+        against the eligible pool itself. ``None`` (not an empty list) when
+        absent, so the engine falls back to its own auto-pick."""
+        if tap_choices is None:
+            return None
+        return [int(i) for i in tap_choices]
 
     def _resolve_targets(self, targets: Optional[list[Any]]) -> Optional[list[Any]]:
         if not targets:

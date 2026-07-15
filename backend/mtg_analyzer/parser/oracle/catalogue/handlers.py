@@ -162,6 +162,18 @@ def _tap(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     return [EffectSpec("tap", {"target_kind": kind, "untap": untap})]
 
 
+#: "Untap this creature" (Devoted Druid's counter-cost untap ability) / "tap
+#: ~" — the *self* form, no RULE 115 target at all (`target_kind=None` makes
+#: `TapEffect` act on its own source, mirroring `AttachEffect`'s ``~``/"it"
+#: self-reference).
+_SELF_SUBJECT = r"(?:~|it|this permanent|this creature|this artifact|this land)"
+
+
+def _tap_self(m: re.Match[str]) -> list[EffectSpec]:
+    untap = m.group("verb").lower() == "untap"
+    return [EffectSpec("tap", {"target_kind": None, "untap": untap})]
+
+
 #: "return target creature to its owner's hand" / "return a land you control
 #: to its owner's hand" (RULE 701.3) — the bounce family. ``target_kind``
 #: reuses the shared `TARGET` grammar, so this claims both a genuine RULE 115
@@ -482,6 +494,13 @@ HANDLERS: list[EffectHandler] = [
         "tap",
         _c(rf"(?P<verb>tap|untap) {TARGET}"),
         _tap,
+    ),
+    # "untap this creature" / "untap ~" / "tap it" — the self form (Devoted
+    # Druid's "Put a -1/-1 counter on this creature: Untap this creature.").
+    EffectHandler(
+        "tap_self",
+        _c(rf"(?P<verb>tap|untap) {_SELF_SUBJECT}"),
+        _tap_self,
     ),
     # "return target creature to its owner's hand" / "return a land you
     # control to its owner's hand" (RULE 701.3 — the bounce family).
