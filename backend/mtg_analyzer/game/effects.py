@@ -551,6 +551,46 @@ class WinConditionEffect(GameEffect):
         return None
 
 
+class TopLibraryPermissionEffect(GameEffect):
+    """Standing permission to look at / play lands from / cast spells from
+    the top of the controller's library (Oracle of Mul Daya/Glarb, Calamity's
+    Augur/Future Sight-shaped) — RULE 701 has no native "play from the top"
+    provision, so each real card grants it as its own static ability.
+
+    Bound like any other ``static`` ability (`game/effect_binder.py`'s
+    ordinary dispatch), so it lands in ``obj.static_effects`` alongside
+    `StaticAbility` — but it carries no layer/characteristic behaviour of its
+    own: `continuous.recompute` only ever reads `StaticAbility` instances off
+    that list (this isn't one, the same precedent as `CantBeCounteredEffect`
+    above), so it's inert there. The only consumer is
+    `game/top_library.py`, which scans every battlefield permanent a player
+    controls for one of these (honouring ``requires_attached`` — an
+    Equipment/Reconfigure-shaped grant that only counts while actually
+    attached to something) and merges the results: multiple simultaneous
+    grants OR together (a spell is castable if *any* active grant's
+    ``min_mana_value`` gate — or lack of one — allows it), never AND.
+    """
+
+    def __init__(
+        self,
+        look: bool = False,
+        play_lands: bool = False,
+        cast_spells: bool = False,
+        min_mana_value: Optional[int] = None,
+        requires_attached: bool = False,
+        source: Optional["GameObject"] = None,
+    ) -> None:
+        super().__init__(source)
+        self.look = look
+        self.play_lands = play_lands
+        self.cast_spells = cast_spells
+        self.min_mana_value = min_mana_value
+        self.requires_attached = requires_attached
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        return None  # continuous marker — consulted by top_library.py, not applied
+
+
 # ---------------------------------------------------------------------------
 # SPECIAL: Conditional effect wrapper (parser/oracle/spec.py's EffectSpec.condition)
 # ---------------------------------------------------------------------------
@@ -1850,6 +1890,16 @@ EffectRegistry.register(
 )
 EffectRegistry.register(
     "surveil", lambda p: SurveilEffect(count=p.get("count", p.get("amount", 1)))
+)
+EffectRegistry.register(
+    "top_library_permission",
+    lambda p: TopLibraryPermissionEffect(
+        look=p.get("look", False),
+        play_lands=p.get("play_lands", False),
+        cast_spells=p.get("cast_spells", False),
+        min_mana_value=p.get("min_mana_value"),
+        requires_attached=p.get("requires_attached", False),
+    ),
 )
 EffectRegistry.register(
     "create_token",

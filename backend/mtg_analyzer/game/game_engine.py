@@ -43,6 +43,10 @@ from .targeting import (
     requirements_with_targets,
     spell_target_specs,
 )
+from .top_library import (
+    may_cast_spell_from_top_of_library,
+    may_play_land_from_top_of_library,
+)
 
 #: Maximum hand size enforced at cleanup (RULE 402.2 / 514.1).
 MAX_HAND_SIZE = 7
@@ -680,13 +684,20 @@ class GameEngine:
 
     def can_play_land(self, player: Player, obj: GameObject, face: str = "front") -> bool:
         card = self._face_card(obj, face)
+        # RULE 505.5b: from hand, always — or from the top of the library
+        # (Oracle of Mul Daya-shaped) when some permanent grants that.
+        in_playable_zone = obj in player.hand or (
+            bool(player.library)
+            and obj is player.library[-1]
+            and may_play_land_from_top_of_library(player, self.state)
+        )
         return (
             card is not None
             and player is self.state.active_player
             and self._in_main_phase()
             and not self.state.stack
             and player.lands_played_this_turn < player.max_lands_per_turn
-            and obj in player.hand
+            and in_playable_zone
             and card.is_land
         )
 
@@ -703,7 +714,12 @@ class GameEngine:
             raise ValueError(f"{player.id} cannot play {obj.name} now")
         if face == "back":
             self.rules.switch_to_face(obj, obj.card.back_face())
-        player.remove_from_zone(obj, Zone.HAND)
+        # Zone-agnostic (not just hand) so a land can be played from the top
+        # of the library (Oracle of Mul Daya-shaped, `can_play_land` above) —
+        # ``obj.zone`` is always accurate (set on creation/every zone move),
+        # the same "read the object's own zone" idiom
+        # `RulesEngine._remove_from_current_zone` uses for casting.
+        player.remove_from_zone(obj, obj.zone)
         obj.summoning_sick = True
         # RULE 614.1: a tap-land enters the battlefield tapped — including a
         # shock/check/fast/slow land's conditional shape (payment choice or
@@ -767,6 +783,13 @@ class GameEngine:
         """
         return cls._graveyard_cast_keyword(obj) is not None
 
+    def _castable_from_library(self, player: Player, obj: GameObject) -> bool:
+        """Whether the top-of-library card ``obj`` is castable from there
+        right now (Oracle of Mul Daya/Glarb, Calamity's Augur-shaped — see
+        `game/top_library.py`). Only ever called for ``player.library[-1]``
+        (the top); a card any deeper in the library is never castable."""
+        return may_cast_spell_from_top_of_library(player, self.state, obj.card)
+
     @staticmethod
     def _flashback_cost(obj: GameObject) -> Optional["ManaCost"]:
         """RULE 702.34b: ``obj``'s Flashback cost as a `ManaCost`, or
@@ -821,12 +844,20 @@ class GameEngine:
         # previous cast from there) isn't modeled yet. An Adventure creature
         # or a prepared copy sitting in exile may also be castable — see
         # `_castable_from_exile`. A graveyard card with Flashback/Escape may
-        # be castable from there too — see `_castable_from_graveyard`.
+        # be castable from there too — see `_castable_from_graveyard`. The
+        # top of the library may be castable too (Oracle of Mul Daya/Glarb,
+        # Calamity's Augur-shaped) — see `_castable_from_library`; only the
+        # top card itself ever qualifies, never anything deeper.
         in_castable_zone = (
             obj in player.hand
             or obj in player.command
             or (obj in player.exile and self._castable_from_exile(obj))
             or (obj in player.graveyard and self._castable_from_graveyard(obj))
+            or (
+                bool(player.library)
+                and obj is player.library[-1]
+                and self._castable_from_library(player, obj)
+            )
         )
         if not in_castable_zone:
             return False
@@ -2181,6 +2212,22 @@ class GameEngine:
                     actions.extend(self._modal_cast_actions(player, obj))
                 else:
                     actions.append(self._cast_action(player, obj))
+
+        if player.library:
+            # Oracle of Mul Daya/Glarb, Calamity's Augur-shaped: a permanent
+            # may grant playing lands and/or casting spells straight off the
+            # top of the library — see `game/top_library.py`. Only the top
+            # card itself is ever offered.
+            top = player.library[-1]
+            if self.can_play_land(player, top):
+                actions.append(
+                    {"type": "play_land", "instance_id": top.instance_id, "name": top.name}
+                )
+            if self.can_cast(player, top):
+                if getattr(top, "spell_modes", None):
+                    actions.extend(self._modal_cast_actions(player, top))
+                else:
+                    actions.append(self._cast_action(player, top))
 
         if (
             player is self.state.active_player

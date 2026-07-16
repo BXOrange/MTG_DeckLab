@@ -1874,6 +1874,95 @@ the Phase-1 models. Tests: `test_game_engine.py`.
       `test_effect_families.py`), plus the 4 memoization tests and 1
       Class-regex regression test above — 8 new tests total (Batch 12).
 
+- [x] **(2026-07-16) "Play/cast from the top of your library" permission**
+      (Oracle of Mul Daya/Glarb, Calamity's Augur-shaped — the frontend's
+      library-zone visualization, `frontend/ToDo_Frontend.md`/
+      `Done_Frontend.md` "Game engine hookup", asked for the engine
+      capability underneath it). RULE 701 has no native "play from the
+      top" provision — every real card grants it as its own static
+      ability — so this is a new, self-contained engine mechanism rather
+      than an extension of an existing family:
+
+      **New marker effect** `TopLibraryPermissionEffect` (`game/
+      effects.py`, registered as `"top_library_permission"`): carries
+      `look`/`play_lands`/`cast_spells`/`min_mana_value`/`requires_
+      attached` params, binds via the ordinary `static` `AbilitySpec`
+      dispatch onto its source's `obj.static_effects` — the same list
+      `StaticAbility`s live in, but this isn't one (mirrors the existing
+      `CantBeCounteredEffect` precedent: `continuous.recompute` only ever
+      reads `StaticAbility` instances off that list via an `isinstance`
+      filter, so it's inert to the layer system; a dedicated reader
+      consumes it instead).
+
+      **New `game/top_library.py`** reads these live off the battlefield
+      (`state.permanents_controlled_by(player.id)`, mirroring `game/
+      mana_abilities.py`'s "scan on demand" shape rather than a cached
+      derived field) — so the permission disappears the instant its
+      source leaves the battlefield, or (for a `requires_attached` grant,
+      an Equipment/Reconfigure shape) the instant it's unattached, with no
+      separate cleanup step. `may_look_at_top_of_library`/`may_play_land_
+      from_top_of_library`/`may_cast_spell_from_top_of_library(card)` are
+      the three consumer-facing predicates; multiple simultaneous grants
+      **OR together** (a spell is castable if *any* active grant's
+      `min_mana_value` gate, or lack of one, allows it — never the
+      intersection of every grant's own filter).
+
+      **Engine wiring** — all zone-agnostic, reusing existing machinery
+      rather than adding a parallel path: `GameEngine.can_play_land`/
+      `can_cast`'s zone gates each grew one more disjunct
+      (`player.library[-1]` plus the matching permission check, mirroring
+      the pre-existing exile/graveyard "castable from X" precedent);
+      `play_land` changed its hardcoded `Zone.HAND` removal to
+      `player.remove_from_zone(obj, obj.zone)` (zone-agnostic — `obj.zone`
+      is always accurate, the same idiom `RulesEngine.
+      _remove_from_current_zone` already used for casting, which turned
+      out to have been **zone-agnostic for the library already** — its own
+      docstring already said "hand, exile, library, graveyard", so casting
+      from the library top needed no `RulesEngine` change at all, only the
+      `GameEngine`-level legality gates). `legal_actions` grew one more
+      zone loop (`player.library[-1]`, mirroring the graveyard loop
+      immediately above it) offering `play_land`/`cast_spell` actions —
+      which, being ordinary actions keyed by `instance_id`, dispatch
+      through the pre-existing zone-agnostic `GameSession._object`/
+      `find_object` with no changes there either.
+
+      **Two real cards hand-authored** (`game/ability_catalogue.py`,
+      confirmed against the live cache's exact oracle text): Oracle of Mul
+      Daya (`look`/`play_lands` only — its "additional land drop" line is
+      a separate, still-unmodeled player-level permission, deliberately
+      left off rather than guessed at) and Glarb, Calamity's Augur
+      (`look`/`play_lands`/`cast_spells` with `min_mana_value=4`, plus its
+      `{T}: Surveil 2.` activated ability using Batch 12's new `surveil`
+      effect — Deathtouch comes from the RULE 702 keyword catalogue
+      automatically, unconditional on registration).
+
+      **Session view**: a new `top_library_visible: {player_id: bool}`
+      field (`services/game_session.py`'s `view()`) tells the frontend
+      whether to render that player's top card at all — the card's own
+      data was already unconditionally on the wire (`Player.to_dict()`'s
+      `library` array; this app has no hidden-zone redaction layer at
+      all, a pre-existing property of this single-process, no-auth tool),
+      so this is purely a "should the UI show it" signal, not new data
+      exposure. Whether it's actually playable/castable is conveyed the
+      ordinary way, through `legal_actions`.
+
+      **Not modeled**: the temporary/activated-cost-based shape (pay a
+      cost to gain the permission for a turn, as opposed to a permanent's
+      standing "as long as it's on the battlefield" grant) — no real card
+      in the local cache needs it yet (The Reality Chip, the shape the
+      user asked about by name, isn't in the local cache to verify its
+      exact oracle text against; from general knowledge its "as long as
+      attached" permission is actually the *same* continuous shape as
+      Oracle of Mul Daya/Glarb, just Equipment-gated — supported already
+      via `requires_attached`, once the card is cached). A real N>=2
+      "look at the top N and choose" variant (Future Sight-adjacent) is
+      also out of scope — every card modeled here only ever exposes the
+      single top card. Tests: new `tests/test_top_library.py` (19 tests —
+      unit coverage of the merge/OR/`requires_attached`/liveness
+      semantics, `GameEngine` integration for `can_play_land`/`play_land`/
+      `can_cast`/`cast_spell`/`legal_actions`, both hand-authored cards
+      end to end, and the session-view flag).
+
 ## Game Engine (Phase 3)
 
 `mtg_analyzer/game/game_engine.py`, tests in `test_game_engine.py`.

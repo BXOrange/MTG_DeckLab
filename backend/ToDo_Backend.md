@@ -179,10 +179,17 @@ Weeks 1–4 roadmap is archived at
       one or both" — a genuinely bigger feature than the N=1 "up to one
       target" case shipped in Batch 11: an interactive multi-*mode*
       selection, not a target choice), "you may look at the top card of
-      your library any time" (a standing *permission*, not a one-shot or
-      triggered effect — no existing family shape to reuse), monarch/
-      initiative (deferred per M6), prohibition/cost-modification
-      statics, and emblems).
+      your library any time" (a standing *permission* — the underlying
+      **engine capability now exists** as of 2026-07-16
+      [`game/top_library.py`, moved to Done_Backend.md "Rules Engine
+      (Phase 2)"], hand-authored for its two real cards already in the
+      local cache, Oracle of Mul Daya and Glarb, Calamity's Augur — but
+      this processing-list template still shows all 13, unmoved, since
+      `coverage_over_cards()` runs the oracle-text *parser* only and has
+      no way to know about the hand-authored registry; closing this
+      template for real needs the parser's own front-end recognition of
+      the clause, a separate follow-up), monarch/initiative (deferred per
+      M6), prohibition/cost-modification statics, and emblems).
       Parse-on-load memoization (`parser/oracle/gate.py`) and surveil
       (RULE 701.31) are **done** — moved to Done_Backend.md "M1 —
       Oracle-effect parser" (2026-07-16 "Batch 12" entry), which also

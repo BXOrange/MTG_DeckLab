@@ -565,3 +565,64 @@ def _torbran_thane_of_red_fell() -> list[AbilitySpec]:
 
 
 register("Torbran, Thane of Red Fell", _torbran_thane_of_red_fell)
+
+
+def _oracle_of_mul_daya() -> list[AbilitySpec]:
+    """You may play an additional land on each of your turns.
+    Play with the top card of your library revealed.
+    You may play lands from the top of your library.
+
+    — Oracle of Mul Daya. Only the reveal/play-lands-from-top lines are
+    modeled here (`top_library_permission`, `game/top_library.py`); the
+    "additional land drop" line is a separate, still-unmodeled player-level
+    permission (`backend/ToDo_Backend.md`'s processing-list tail — "you may
+    play an additional land on each of your turns") — deliberately left
+    off rather than guessed at, not silently dropped by oversight.
+    """
+    return [
+        AbilitySpec(
+            "static",
+            [EffectSpec("top_library_permission", {"look": True, "play_lands": True})],
+            raw_text="Spiele mit der obersten Karte deiner Bibliothek aufgedeckt. Du "
+                     "darfst Länder von der Oberseite deiner Bibliothek spielen.",
+        )
+    ]
+
+
+register("Oracle of Mul Daya", _oracle_of_mul_daya)
+
+
+def _glarb_calamitys_augur() -> list[AbilitySpec]:
+    """Deathtouch
+    You may look at the top card of your library any time.
+    You may play lands and cast spells with mana value 4 or greater from
+    the top of your library.
+    {T}: Surveil 2.
+
+    — Glarb, Calamity's Augur. Deathtouch comes from the RULE 702 keyword
+    catalogue (Scryfall's own ``keywords`` array, folded in automatically
+    regardless of registration — see `specs_for`), so only the top-library
+    permission (`top_library_permission`, mana-value-gated via
+    ``min_mana_value``) and the surveil activated ability need
+    hand-authoring here.
+    """
+    return [
+        AbilitySpec(
+            "static",
+            [EffectSpec("top_library_permission", {
+                "look": True, "play_lands": True, "cast_spells": True, "min_mana_value": 4,
+            })],
+            raw_text="Du darfst dir jederzeit die oberste Karte deiner Bibliothek "
+                     "ansehen. Du darfst Länder spielen und Sprüche mit Manawert 4 "
+                     "oder größer von der Oberseite deiner Bibliothek wirken.",
+        ),
+        AbilitySpec(
+            "activated",
+            [EffectSpec("surveil", {"count": 2})],
+            cost={"text": "{T}"},
+            raw_text="{T}: Surveile 2.",
+        ),
+    ]
+
+
+register("Glarb, Calamity's Augur", _glarb_calamitys_augur)

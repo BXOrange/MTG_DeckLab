@@ -159,9 +159,13 @@ chosen interactively too; the one-shot effect library (damage/draw/discard/
 destroy/counter/search/gain_life/mill/exile/tap/counters/pump/scry/
 create-token/copy_permanent/become_copy/cascade/discover/…); tokens (RULE
 704.5d lifecycle); planeswalkers; commander damage + tax; the full RULE 702
-keyword catalogue (194 keywords, flag keywords bound to combat); and the
-deeper card-type structures — DFC transform + day/night/daybound-nightbound,
-modal-DFC/Adventure/Split-Fuse/Prepared casting, Saga chapters, Class/Leveler
+keyword catalogue (194 keywords, flag keywords bound to combat); "play/cast
+from the top of your library" as a standing, battlefield-sourced permission
+(`game/top_library.py` — Oracle of Mul Daya/Glarb, Calamity's Augur
+hand-authored; the goldfish board's library zone shows the top card and its
+buttons whenever a player has this active); and the deeper card-type
+structures — DFC transform + day/night/daybound-nightbound, modal-DFC/
+Adventure/Split-Fuse/Prepared casting, Saga chapters, Class/Leveler
 level-ups.
 
 The **oracle-text → behaviour parser** (docs/09, `parser/oracle/`) is the
@@ -312,6 +316,7 @@ English and German.
 | Card abilities / fetch lands / enters-tapped | `game/ability_catalogue.py`, `effect_binder.bind_from_catalogue` |
 | Hand-authoring a specific card's effects | [docs/Reference/11_CARD_CATALOGUE_AUTHORING_GUIDE.md](docs/Reference/11_CARD_CATALOGUE_AUTHORING_GUIDE.md) |
 | Effects / triggers | `game/effects.py`, `game/effect_binder.py` |
+| "Play/cast from top of library" permission | `game/top_library.py`, `game/game_engine.py` (`can_play_land`/`can_cast`/`legal_actions`), `gameBoardView.js` (`libraryTopHtml`) |
 | On-disk paths / env-var config | `backend/mtg_analyzer/config.py` |
 | Goldfish UI | `frontend/src/js/goldfishView.js` |
 | Replay/Puzzle mode (build+save/load a board) | `backend/mtg_analyzer/services/replay.py`, `game_session.py` (`edit_*` actions), `frontend/src/js/replayView.js` |

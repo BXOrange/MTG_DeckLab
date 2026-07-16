@@ -279,6 +279,7 @@ export function createGameBoardView(opts = {}) {
             <div class="gf-zone gf-library">
               <h4>Bibliothek</h4>
               <p class="library-count">${p.library_count} Karten</p>
+              ${libraryTopHtml(p, byInstance, pending)}
             </div>
             <div class="gf-zone gf-graveyard">
               <h4>Friedhof (${p.graveyard.length})</h4>
@@ -315,6 +316,26 @@ export function createGameBoardView(opts = {}) {
           </div>
         </div>
       </section>`;
+  }
+
+  // The top card of a library is normally face-down (`library_count` is
+  // all the board shows). A permanent granting "play with the top card of
+  // your library revealed" (Oracle of Mul Daya/Glarb, Calamity's Augur-
+  // shaped) flips `top_library_visible[player_id]` server-side
+  // (`services/game_session.py`'s `view()`) — the card itself is already
+  // on the wire either way (`Player.to_dict()`'s `library` array), so this
+  // only decides whether to *render* it. Whether it's actually playable/
+  // castable from there is conveyed the ordinary way: `objGrid` attaches
+  // whatever `play_land`/`cast_spell` buttons `legal_actions` offered for
+  // that instance_id, same as any hand card — a look-only permission (no
+  // matching legal action) simply shows the card with no buttons.
+  function libraryTopHtml(p, byInstance, pending) {
+    if (!view.top_library_visible?.[p.id] || !p.library.length) return '';
+    const top = p.library[p.library.length - 1];
+    return `
+      <p class="library-top-hint">👁️ Oberste Karte sichtbar</p>
+      ${objGrid([top], '', byInstance, pending)}
+    `;
   }
 
   function playerName(id) {

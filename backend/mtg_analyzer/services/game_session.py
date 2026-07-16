@@ -35,6 +35,7 @@ from mtg_analyzer.models.player import Player
 from mtg_analyzer.game.game_engine import GameEngine
 from mtg_analyzer.game import continuous
 from mtg_analyzer.game.effect_binder import bind_from_catalogue
+from mtg_analyzer.game.top_library import may_look_at_top_of_library
 from mtg_analyzer.services import replay
 
 #: How many undo snapshots to retain (older moves drop off the bottom).
@@ -873,6 +874,17 @@ class GameSession:
             "move_log": list(self.move_log),
             # Every static ability in play, for the UI's optional layer panel.
             "static_effects": continuous.active_static_abilities(self.engine.state),
+            # Which players currently have a "play with the top card of your
+            # library revealed"-shaped permission active (Oracle of Mul
+            # Daya/Glarb, Calamity's Augur-shaped, `game/top_library.py`) —
+            # the board only renders a player's own top-of-library card when
+            # this is true for them; whether it's actually playable/castable
+            # from there is conveyed the ordinary way, through
+            # ``legal_actions``' per-instance offers.
+            "top_library_visible": {
+                p.id: may_look_at_top_of_library(p, self.engine.state)
+                for p in self.engine.state.players
+            },
             "setup": {
                 "complete": self._setup_complete,
                 "mulligan_count": self._mulligan_count,

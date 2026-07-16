@@ -244,6 +244,21 @@ now holds only open items). Section headers mirror that file.
       they read apart from an ordinary activated-ability button at a
       glance — the once-per-turn/sorcery-speed/loyalty-affordability gating
       was already enforced server-side.
+- [x] **"Play/cast from the top of your library" visualization**
+      (Oracle of Mul Daya/Glarb, Calamity's Augur-shaped — a new backend
+      capability, `game/top_library.py`/`Done_Backend.md` "Rules Engine
+      (Phase 2)"): the library zone (`gameBoardView.js`'s
+      `libraryTopHtml`) renders the top card's face — with whatever
+      `play_land`/`cast_spell` buttons `legal_actions` offered for it,
+      via the same per-instance `byInstance` mechanism every other zone
+      already uses, so a look-only grant (no matching legal action) shows
+      the card with no buttons while a play/cast-enabling grant works
+      exactly like a hand card — whenever the new `view()` field
+      `top_library_visible[player_id]` is true; hidden otherwise (the
+      ordinary case). No new component needed: the card's own data was
+      already on the wire (`Player.to_dict()`'s `library` array), and
+      `objGrid` already builds a card tile with its actions from any
+      object list.
 
 ## Multiplayer
 
