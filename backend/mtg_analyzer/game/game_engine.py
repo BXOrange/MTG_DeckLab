@@ -27,7 +27,12 @@ from ..models.player import Player
 from . import combat, continuous
 from .costs import DISCARD_HAND, PAY_LIFE_X, ActivationCost, parse_activation_cost
 from .effects import ActivatedAbility
-from .mana_abilities import mana_abilities_for, option_label
+from .mana_abilities import (
+    mana_abilities_for,
+    option_label,
+    restriction_predicate_for_activation,
+    restriction_predicate_for_cast,
+)
 from .phases import GamePhase, GameStep, default_turn_sequence
 from .rules_engine import RulesEngine
 from .targeting import (
@@ -845,7 +850,8 @@ class GameEngine:
             if len(player.graveyard) - 1 < escape_cost.exile_from_graveyard:
                 return False
         cost = self.effective_cast_cost(player, obj, x, face=face, kicked=kicked, buyback=buyback)
-        if not player.mana_pool.can_pay(cost, life_available=player.life):
+        allows_restriction = restriction_predicate_for_cast(obj, has_x=cost.has_variable)
+        if not player.mana_pool.can_pay(cost, life_available=player.life, allows_restriction=allows_restriction):
             return False
         # RULE 601.2b: an "as an additional cost to cast this spell, …"
         # clause is a separate legality gate from the mana cost above — a
@@ -1488,7 +1494,7 @@ class GameEngine:
             raise ValueError(f"invalid mana option {option_index} for {source.name}")
         produced = dict(ability.options[option_index])
         self._pay_activation_cost(player, source, cost, x=0, tap_choices=tap_choices)
-        player.mana_pool.add_many(produced)
+        player.mana_pool.add_many(produced, restriction=ability.restriction)
         if ability.self_damage:
             # RULE 605.1a: a mana ability may have effects besides producing
             # mana (the painland/Elves-of-Deep-Shadow "deals N damage to
@@ -1592,7 +1598,7 @@ class GameEngine:
         mana = ability.cost.mana
         if mana.has_variable:
             action["has_x"] = True
-            action["max_x"] = self._max_x_for_mana(player, mana)
+            action["max_x"] = self._max_x_for_mana(player, source, mana)
         requirements = self._ability_target_requirements(player, ability, source)
         if requirements:
             action["requires_target"] = True
@@ -1604,10 +1610,13 @@ class GameEngine:
             action["tap_cost"] = self._tap_cost_choice(player, source, ability.cost)
         return action
 
-    def _max_x_for_mana(self, player: Player, mana: "ManaCost") -> int:
+    def _max_x_for_mana(self, player: Player, source: GameObject, mana: "ManaCost") -> int:
         bound = player.mana_pool.total()
+        allows_restriction = restriction_predicate_for_activation(source, has_x=True)
         for x in range(bound, -1, -1):
-            if player.mana_pool.can_pay(mana.with_x(x), life_available=player.life):
+            if player.mana_pool.can_pay(
+                mana.with_x(x), life_available=player.life, allows_restriction=allows_restriction
+            ):
                 return x
         return 0
 
@@ -1627,8 +1636,12 @@ class GameEngine:
         if cost.untaps_self and (not source.tapped or self._summoning_sick_for_tap(source)):
             return False
         mana = cost.mana.with_x(x) if cost.mana.has_variable else cost.mana
-        if mana.symbols and not player.mana_pool.can_pay(mana, life_available=player.life):
-            return False
+        if mana.symbols:
+            allows_restriction = restriction_predicate_for_activation(source, has_x=cost.mana.has_variable)
+            if not player.mana_pool.can_pay(
+                mana, life_available=player.life, allows_restriction=allows_restriction
+            ):
+                return False
         if cost.pay_life and player.life < cost.pay_life:
             return False
         if cost.discard and cost.discard != DISCARD_HAND and len(player.hand) < cost.discard:
@@ -1840,7 +1853,10 @@ class GameEngine:
                 self.rules.set_tapped(obj, True)
         mana = cost.mana.with_x(x) if cost.mana.has_variable else cost.mana
         if mana.symbols:
-            life_spent = player.mana_pool.pay(mana, life_available=player.life)
+            allows_restriction = restriction_predicate_for_activation(source, has_x=cost.mana.has_variable)
+            life_spent = player.mana_pool.pay(
+                mana, life_available=player.life, allows_restriction=allows_restriction
+            )
             self.rules.lose_life(player, life_spent, cause="cost")
         if cost.pay_life:
             self.rules.lose_life(player, cost.pay_life, cause="cost")

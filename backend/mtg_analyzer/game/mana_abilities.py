@@ -30,21 +30,36 @@ behaviour.
 Parsing is intentionally simple — it covers basics, guildgates/duals,
 tri-lands, "add one mana of any colour", multi-pip lands (`{C}{C}`), and the
 "for each"/"equal to ... power" variable-amount family — and approximates
-the long tail (filter lands, mana *spend* restrictions like "spend this
-mana only to cast a creature spell", "any combination of colours") rather
-than modeling every printed ability. RULE 605.1a excludes any ability that
+the long tail (filter lands, "any combination of colours") rather than
+modeling every printed ability. RULE 605.1a excludes any ability that
 requires a target from being a mana ability at all (Deathrite Shaman's
 graveyard-exile abilities produce mana but target, so they're deliberately
 never offered here — they belong on the stack like any other activated
 ability, not through this fast no-stack path) — see `backend/ToDo_Backend.md`
 for what's still open.
+
+RULE 605.3a **mana spend restrictions** ("Spend this mana only to cast a
+creature spell.") tag a `ManaAbility` with a ``restriction`` dict (see
+`_parse_restriction`) recognizing the observed real-card shapes: casting a
+creature/legendary/instant-or-sorcery/named-creature-type spell, casting
+your commander, or paying a cost that itself contains ``{X}`` — several of
+these also cover "... or activate an ability of a <same-type> source"
+(Castle Garenbrig, Primal Beyond). A "spend this mana only" clause outside
+that vocabulary (a land's own "of the chosen type"/"of that color", or a
+mana-value-threshold clause) is left unrestricted — fail-soft like every
+other unrecognized shape in this file, not a regression since the mana
+still wasn't restriction-checked before this existed either. `ManaPool`
+(`models/mana_pool.py`) itself stays ignorant of what a restriction
+*means* — `restriction_predicate_for_cast`/`restriction_predicate_for_
+activation` below build the actual predicate `ManaPool.can_pay`/`pay`
+evaluate it with, from a spell/ability-source's printed characteristics.
 """
 
 from __future__ import annotations
 
 import re
 from dataclasses import dataclass, field
-from typing import Any, Optional
+from typing import Any, Callable, Optional
 
 from ..parser.oracle.catalogue.levels import LEVEL_TIER_RE
 from . import continuous
@@ -103,6 +118,44 @@ _SUBJECT_COUNTER_RE = re.compile(
     r"^(?P<kind>[+\-]?\d+/[+\-]?\d+) counters? on (?:this creature|~)$", re.IGNORECASE
 )
 
+# --- RULE 605.3a mana spend restrictions ("Spend this mana only ...") ----
+
+#: The whole restriction sentence's own clause, captured separately from the
+#: "Add ..." clause since they're two sentences on the same cost line.
+_RESTRICTION_CLAUSE_RE = re.compile(r"spend this mana only (?:to|on)\s+(?P<clause>.+?)\.", re.IGNORECASE)
+#: RULE 601.2c's "and that spell can't be countered" rider, printed on some
+#: of these (Cavern of Souls, Delighted Halfling) — stripped before
+#: classifying the clause below; the "can't be countered" half isn't a
+#: spend restriction at all and isn't modeled here (a resolve-time
+#: property of the cast spell, not the mana that paid for it).
+_CANT_BE_COUNTERED_TAIL_RE = re.compile(r",\s*and that spell can'?t be countered$", re.IGNORECASE)
+#: "... or activate an ability of a(n) <source>" / "... or activate
+#: abilities of <source>(s)" — peeled off the end of a clause (Castle
+#: Garenbrig, Primal Beyond); the exact trailing source word isn't
+#: re-verified against the clause's own type (fail-soft: every real card
+#: found pairs them, so this is a simplification, not a guess).
+_RESTRICTION_ABILITY_TAIL_RE = re.compile(
+    r"^(?P<head>.+?)\s+or activate (?:an ability of an?|abilities of)\s+.+$", re.IGNORECASE
+)
+_RESTRICTION_CONTAINS_X_RE = re.compile(r"^costs that contain \{x\}$", re.IGNORECASE)
+_RESTRICTION_CREATURE_SPELL_RE = re.compile(r"^cast (?:an? )?creature spells?$", re.IGNORECASE)
+_RESTRICTION_COMMANDER_RE = re.compile(r"^cast your commander$", re.IGNORECASE)
+_RESTRICTION_LEGENDARY_RE = re.compile(r"^cast (?:an? )?legendary spell$", re.IGNORECASE)
+_RESTRICTION_INSTANT_SORCERY_RE = re.compile(
+    r"^cast (?:an? )?instant (?:and|or) sorcery spells?$", re.IGNORECASE
+)
+#: "cast a <Type1> or <Type2> spell" (Turtle Lair) — checked before the
+#: single-type form below since it also matches "cast (?:an? )?[a-z]+".
+_RESTRICTION_MULTI_TYPE_RE = re.compile(
+    r"^cast (?:an? )?(?P<t1>[a-z]+) or (?P<t2>[a-z]+) spells?$", re.IGNORECASE
+)
+#: "cast a(n) <Type> spell" / "cast a(n) <Type> creature spell" (Flamebraider's
+#: "Elemental", Gnarlroot Trapper's "Elf creature") — a single named
+#: creature type, the optional literal "creature" just along for the ride.
+_RESTRICTION_TYPE_RE = re.compile(
+    r"^cast (?:an? )?(?P<type>[a-z]+)(?: creature)? spells?$", re.IGNORECASE
+)
+
 
 def _singularize(word: str) -> str:
     """A plural creature type → singular ("elves"→"elf", "goblins"→"goblin")."""
@@ -130,6 +183,12 @@ class ManaAbility:
     gate (same field names, same "as long as this object's own level
     counter is in range" condition, RULE 613.6), just applied to a mana
     ability instead of a `StaticAbility` — see `mana_abilities_for`.
+
+    ``restriction`` (RULE 605.3a, ``None`` — no restriction — by default)
+    is the parsed "Spend this mana only ..." clause, tagged onto the mana
+    this ability produces (`GameEngine.tap_for_mana`) so `ManaPool` only
+    lets it pay a cost `restriction_predicate_for_cast`/`_for_activation`
+    says it may.
     """
 
     cost: ActivationCost = field(default_factory=ActivationCost)
@@ -138,6 +197,7 @@ class ManaAbility:
     self_damage: int = 0
     min_level: Optional[int] = None
     max_level: Optional[int] = None
+    restriction: Optional[dict[str, Any]] = None
 
 
 def _selector_from_subject(subject: str) -> Optional[dict[str, Any]]:
@@ -202,6 +262,98 @@ def _peel_amount_selector(clause: str, card_name: Optional[str]) -> tuple[str, O
     return clause, None
 
 
+def _parse_restriction(effect_text: str) -> Optional[dict[str, Any]]:
+    """A "Spend this mana only ..." clause (RULE 605.3a) in ``effect_text``
+    as a restriction dict, or ``None`` when there's no such clause at all
+    *or* it's outside the recognised vocabulary (fail-soft — the "Add ..."
+    production still parses either way, just unrestricted; see the module
+    docstring for exactly which shapes this covers)."""
+    m = _RESTRICTION_CLAUSE_RE.search(effect_text)
+    if m is None:
+        return None
+    clause = _CANT_BE_COUNTERED_TAIL_RE.sub("", m.group("clause").strip())
+    allow_ability = False
+    tail = _RESTRICTION_ABILITY_TAIL_RE.match(clause)
+    if tail is not None:
+        clause, allow_ability = tail.group("head"), True
+
+    if _RESTRICTION_CONTAINS_X_RE.match(clause):
+        return {"kind": "contains_x"}
+    if _RESTRICTION_CREATURE_SPELL_RE.match(clause):
+        return {"kind": "creature_spell", "allow_ability": allow_ability}
+    if _RESTRICTION_COMMANDER_RE.match(clause):
+        return {"kind": "commander_spell"}
+    if _RESTRICTION_LEGENDARY_RE.match(clause):
+        return {"kind": "legendary_spell"}
+    if _RESTRICTION_INSTANT_SORCERY_RE.match(clause):
+        return {"kind": "instant_or_sorcery_spell"}
+    m = _RESTRICTION_MULTI_TYPE_RE.match(clause)
+    if m is not None:
+        return {
+            "kind": "type_spell",
+            "types": [m.group("t1").lower(), m.group("t2").lower()],
+            "allow_ability": allow_ability,
+        }
+    m = _RESTRICTION_TYPE_RE.match(clause)
+    if m is not None:
+        return {"kind": "type_spell", "types": [m.group("type").lower()], "allow_ability": allow_ability}
+    return None
+
+
+def _restriction_allows_cast(restriction: dict[str, Any], obj: Any, has_x: bool) -> bool:
+    kind = restriction.get("kind")
+    if kind == "contains_x":
+        return has_x
+    card = getattr(obj, "card", obj)
+    if kind == "creature_spell":
+        return bool(getattr(card, "is_creature", False))
+    if kind == "type_spell":
+        return any(continuous.has_subtype(obj, t) for t in restriction.get("types", ()))
+    if kind == "legendary_spell":
+        return bool(getattr(card, "is_legendary", False))
+    if kind == "commander_spell":
+        return bool(getattr(obj, "is_commander", False))
+    if kind == "instant_or_sorcery_spell":
+        return bool(getattr(card, "is_instant", False) or getattr(card, "is_sorcery", False))
+    return False  # unrecognised restriction kind — fail closed, never usable
+
+
+def restriction_predicate_for_cast(obj: Any, has_x: bool = False) -> Callable[[dict], bool]:
+    """An ``allows_restriction`` predicate (`ManaPool.can_pay`/`pay`) for
+    casting ``obj`` — whether a restricted mana lot (RULE 605.3a) may pay
+    for *this* spell. ``has_x`` is whether the cost actually being paid
+    contains an unresolved ``{X}`` (`ManaCost.has_variable` stays ``True``
+    post-`with_x`, see `models/mana_cost.py`) — only the ``contains_x``
+    restriction kind consults it.
+    """
+    return lambda restriction: _restriction_allows_cast(restriction, obj, has_x)
+
+
+def _restriction_allows_activation(restriction: dict[str, Any], source: Any, has_x: bool) -> bool:
+    kind = restriction.get("kind")
+    if kind == "contains_x":
+        return has_x
+    # legendary_spell/commander_spell/instant_or_sorcery_spell only ever
+    # gate *casting a spell* (RULE 605.3a's printed text never pairs them
+    # with "or activate an ability of ...") — no observed card needs them
+    # here, so they simply never authorize paying an ability's cost.
+    if not restriction.get("allow_ability"):
+        return False
+    if kind == "creature_spell":
+        return bool(getattr(source, "is_creature", False))
+    if kind == "type_spell":
+        return any(continuous.has_subtype(source, t) for t in restriction.get("types", ()))
+    return False
+
+
+def restriction_predicate_for_activation(source: Any, has_x: bool = False) -> Callable[[dict], bool]:
+    """``restriction_predicate_for_cast``'s counterpart for activating an
+    ability on ``source`` (RULE 605.3a's "... or activate an ability of a
+    creature") — only a restriction explicitly recognised as covering
+    ability activation (``allow_ability``) or ``contains_x`` ever applies."""
+    return lambda restriction: _restriction_allows_activation(restriction, source, has_x)
+
+
 def mana_options(card: Any) -> list[dict[str, int]]:
     """Mutually-exclusive ways a card taps for mana (empty if it can't).
 
@@ -259,6 +411,7 @@ def _parse_mana_ability_lines(text: str, name: Optional[str]) -> list[ManaAbilit
             options=options,
             amount_selector=selector,
             self_damage=int(damage_match.group(1)) if damage_match else 0,
+            restriction=_parse_restriction(effect_text),
         ))
     return abilities
 
@@ -363,6 +516,7 @@ def mana_abilities_for(obj: Any, state: Optional[Any] = None) -> list[ManaAbilit
             options=resolve_options(ability, obj, state),
             amount_selector=None,
             self_damage=ability.self_damage,
+            restriction=ability.restriction,
         )
         for ability in parse_mana_abilities(obj.card)
         if _leveler_tier_active(obj, ability)

@@ -173,9 +173,13 @@ Weeks 1–4 roadmap is archived at
       mana-dork family; still open from that pass:
       - Mana *spend* restrictions ("Spend this mana only to cast an Elf
         creature spell/a creature spell", Gnarlroot Trapper/Beastcaller
-        Savant/Incubation Druid/Selvala/Gwenna) aren't tracked at all —
-        `models/mana_pool.py` has no concept of restricted mana, so the
-        restriction is silently unenforced once the mana's in the pool.
+        Savant) are **done** for the creature/legendary/commander/instant-
+        or-sorcery/named-creature-type/contains-{X} shapes (moved to
+        Done_Backend.md, "Rules Engine (Phase 2)", 2026-07-16 entry) — a
+        land's own "spend only on a spell of the *chosen* creature
+        type/color" variant (Cavern of Souls, Unclaimed Territory, Throne
+        of Eldraine) and a mana-value-threshold clause (Helga, Troyan)
+        remain unrecognized (fail-soft, same as before this batch).
       - "Add X mana **in any combination of colors**" (Selvala, Gwenna) —
         a genuinely different shape from "any one colour" (Wirewood
         Channeler, now modeled): the payer picks a *split* across colours,

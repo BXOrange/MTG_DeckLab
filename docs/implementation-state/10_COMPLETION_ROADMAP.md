@@ -270,6 +270,32 @@ Follows [`09_ORACLE_EFFECT_PARSER.md`](../concepts/09_ORACLE_EFFECT_PARSER.md). 
   scope combination + fail-closed negatives, gate integration, engine:
   control-steal from an opponent's graveyard, life-loss selectors, and a
   full Deathrite Shaman oracle-text-to-engine test over all 3 abilities).
+- ✅ **Mana spend restrictions, RULE 605.3a** (2026-07-16): the largest
+  architectural item in the plan — `models/mana_pool.py`'s flat
+  `dict[str, int]` had no way to tag mana as spendable only on a subset
+  of costs, so "Spend this mana only to cast a creature spell." was
+  silently unenforced once produced. `ManaPool` gained a parallel
+  `restricted` lot structure (a caller-supplied `allows_restriction`
+  predicate opts specific lots in per payment; `None`, the default,
+  keeps every pre-existing call site unaffected), and every payment call
+  site that pays from a pool (`GameEngine.can_cast`/`tap_for_mana`/
+  `_can_pay_activation_cost`/`_pay_activation_cost`/`_max_x_for_mana`,
+  `RulesEngine.cast_spell`) now builds the right predicate from the
+  spell/ability-source's printed characteristics via two new
+  `game/mana_abilities.py` builders. Parser side: a new
+  `_parse_restriction` recognizes the real-card vocabulary (creature/
+  legendary/instant-or-sorcery/named-type spell, your commander, a cost
+  containing `{X}`, several paired with "... or activate an ability of a
+  \<same type\>") — a land's own "of the *chosen* type/color" and a
+  mana-value-threshold clause stay unrestricted (fail-soft, not a
+  regression). **Real-cache yield**: 13 of the 18 cards that already
+  produce a real `ManaAbility` (of 27 total printing the clause; 9 are
+  granted-ability templates excluded by a separate, pre-existing gate,
+  5 more don't produce mana at all yet — Batch 7 territory) now get a
+  correctly modeled restriction. Full writeup + card list:
+  Done_Backend.md "Rules Engine (Phase 2)". Tests:
+  `test_mana_spend_restrictions.py` (35 tests: pool mechanics, clause
+  parsing, predicate builders, full engine end-to-end).
 - ⏳ **Remaining, priority-ordered by real cards-unlocked** (verified
   2026-07-16 by running `processing_list.coverage_over_cards()` over the
   live cache — 21.3% of 2,507 cards fully `MODELED`; **re-run this before
@@ -300,11 +326,12 @@ Follows [`09_ORACLE_EFFECT_PARSER.md`](../concepts/09_ORACLE_EFFECT_PARSER.md). 
      cards found above and are plausibly reusable across other unclaimed
      lines too.
   - **Related, same pipeline, separately tracked in `ToDo_Backend.md`**:
-    mana-ability follow-ups from the 2026-07-15 Elf-mana-dork pass (spend
-    restrictions, "any combination of colors", hand-zone activation,
-    Leveler-gated mana abilities — Deathrite Shaman itself is now done)
-    — not cache-coverage-ranked since mana abilities are recognized
-    without needing a `MODELED` spec; prioritize by card value instead.
+    mana-ability follow-ups from the 2026-07-15 Elf-mana-dork pass — "any
+    combination of colors" and hand-zone activation are what's left
+    (spend restrictions, Leveler-gating, and Deathrite Shaman itself are
+    all now done) — not cache-coverage-ranked since mana abilities are
+    recognized without needing a `MODELED` spec; prioritize by card value
+    instead.
 - **Unblocks:** plain instants/sorceries/ETB-triggers/activated/static
   abilities from the handled families already resolve with no catalogue
   entry; is the seam M2 plugs into. *(docs/09 Phases 1–2.)*

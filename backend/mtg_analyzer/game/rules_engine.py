@@ -31,6 +31,7 @@ from ..parser.oracle.catalogue.saga import all_chapter_numbers
 from . import ability_catalogue, combat, continuous, copy_mechanics
 from .combat import is_protected_from
 from .costs import DISCARD_HAND, ActivationCost, parse_activation_cost
+from .mana_abilities import restriction_predicate_for_cast
 from .effects import (
     CantBeCounteredEffect,
     GameContext,
@@ -835,9 +836,14 @@ class RulesEngine:
             cost = self.mana_cost_of(obj.card)
             if cost.has_variable:
                 cost = cost.with_x(x)
-        if not player.mana_pool.can_pay(cost, life_available=player.life):
+        allows_restriction = restriction_predicate_for_cast(obj, has_x=cost.has_variable)
+        if not player.mana_pool.can_pay(
+            cost, life_available=player.life, allows_restriction=allows_restriction
+        ):
             raise ValueError(f"{player.id} cannot pay for {obj.name}")
-        life_spent = player.mana_pool.pay(cost, life_available=player.life)
+        life_spent = player.mana_pool.pay(
+            cost, life_available=player.life, allows_restriction=allows_restriction
+        )
         self.lose_life(player, life_spent, cause="cost")
         # RULE 601.2b: remember the announced X on the object itself (not
         # just this ephemeral StackItem) — an "unless its controller pays

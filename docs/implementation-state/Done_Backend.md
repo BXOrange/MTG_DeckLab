@@ -1329,6 +1329,106 @@ the Phase-1 models. Tests: `test_game_engine.py`.
       levels 1 and 4 both offer it, level 5+ loses its own ability, and a
       non-Leveler card is unaffected).
 
+- [x] **Mana spend restrictions, RULE 605.3a (2026-07-16):** "Spend this
+      mana only to cast a creature spell." was parsed as far as the "Add
+      …" clause but the restriction itself was silently dropped —
+      `models/mana_pool.py` had no concept of tagged/restricted mana at
+      all (a flat `dict[str, int]`), so once a Castle Garenbrig or
+      Gnarlroot Trapper's mana landed in the pool it was fungible with
+      everything else, payable toward any cost. This was flagged as the
+      single largest architectural item left in the whole M1 plan (the
+      only one touching the core payment solver rather than just the
+      parser front-end).
+
+      **`ManaPool`** (`models/mana_pool.py`) gained a second structure
+      alongside the existing flat `self.pool`: `self.restricted`, a list
+      of `{"restriction": dict, "amounts": {type: count}}` lots (merged
+      in-place when `add`'s `restriction` dict matches an existing lot,
+      so the list doesn't grow per mana unit). `ManaPool` itself stays
+      completely ignorant of what a restriction dict *means* — the
+      "models/ must not import game/" boundary (CLAUDE.md) — it only ever
+      calls a caller-supplied `allows_restriction(restriction) -> bool`
+      predicate (`can_pay`/`pay`'s new keyword, default `None` = no
+      restricted lot usable, so every pre-existing call site is
+      unaffected until explicitly updated). `_find_payment`/`_solve`
+      (the existing backtracking cost solver) run unchanged against a
+      *merged* view (unrestricted + whichever lots the predicate allows);
+      actually committing a solved payment now goes through a new
+      `_consume`, which drains a usable restricted lot before touching
+      unrestricted mana of the same type (restricted mana is otherwise
+      simply wasted the next time the pool empties, RULE 500.4 — spending
+      it first is always at least as good as spending unrestricted
+      instead). `total()`/`empty()` cover both structures; `to_dict()`
+      additively includes a `"restricted"` key only when non-empty (no
+      frontend display yet — see `frontend/ToDo_Frontend.md`).
+
+      **`game/mana_abilities.py`**: `ManaAbility` gained a `restriction`
+      field, populated by a new `_parse_restriction` recognizing the
+      real-card vocabulary found via a live-cache scan (27 cards contain
+      "spend this mana only", `re.search`, case-insensitive) — casting a
+      creature/legendary/instant-or-sorcery spell, a named creature type
+      ("an Elemental spell", "a Ninja or Turtle spell", "an Elf creature
+      spell"), your commander, or paying any cost containing `{X}`;
+      several also pair with "... or activate an ability of a
+      \<same-type\>" (Castle Garenbrig, Primal Beyond), tagged as
+      `allow_ability`. Unrecognized shapes — a land's own "of the *chosen*
+      creature type/color" (Cavern of Souls, Secluded Courtyard,
+      Unclaimed Territory, Throne of Eldraine — no per-object "chosen
+      type" read exists at the mana-ability layer yet) and a
+      mana-value-threshold clause (Helga, Troyan) — are left unrestricted,
+      fail-soft exactly like every other unrecognized shape in this file;
+      not a regression, since the restriction was already silently
+      unenforced for them before this batch too. Two new predicate
+      builders, `restriction_predicate_for_cast(obj, has_x)` and
+      `restriction_predicate_for_activation(source, has_x)`, turn a
+      spell/ability-source's printed characteristics
+      (`card.is_creature`/`is_legendary`/`is_instant`/`is_sorcery`,
+      `obj.is_commander`, `continuous.has_subtype`) into the
+      `allows_restriction` predicate `ManaPool` consumes — `has_x` reads
+      `ManaCost.has_variable`, which (confirmed) stays `True` after
+      `with_x` resolves the announced value, so no separate "did this
+      cost print `{X}`" tracking was needed.
+
+      **Wired at every payment call site** that pays *from* a player's
+      pool: `GameEngine.tap_for_mana` now tags produced mana with
+      `ability.restriction`; `GameEngine.can_cast`/`RulesEngine.cast_spell`
+      build a cast-context predicate from the spell object; `GameEngine.
+      _can_pay_activation_cost`/`_pay_activation_cost`/`_max_x_for_mana`
+      build an activation-context predicate from the ability's `source`
+      (covering both real activated abilities and a mana ability's own
+      non-`{T}` cost component). Ward/"counter unless pays" costs
+      (`RulesEngine._pay_ward_cost`/`resolve_counter_unless_pays_choice`)
+      were deliberately left at the `allows_restriction=None` default —
+      no printed restriction on any real card covers paying those.
+
+      **Real-cache yield**: of the 27 cards printing a "spend this mana
+      only" clause, 9 are granted-ability templates quoted inside another
+      permanent's own text ("Artifacts you control have '{T}: Add …'") —
+      already excluded from `parse_mana_abilities` entirely by its
+      pre-existing quote-skip (a separate, unrelated gap: the granted-
+      ability/layer-6 static-grant system doesn't carry a restriction
+      through yet either) — and 5 more don't produce any mana option at
+      all today regardless of restriction ("any combination of colors",
+      "the chosen color" — Batch 7 territory). Of the 18 cards that
+      already produce a real `ManaAbility`, **13 now get a correctly
+      modeled restriction** (Abundant Countryside, Ancient Ziggurat,
+      Beastcaller Savant, Castle Garenbrig, Delighted Halfling,
+      Elementalist's Palette, Food Chain, Gnarlroot Trapper, Jeweled
+      Lotus, Plaza of Heroes, Primal Beyond, Somberwald Sage, Turtle
+      Lair); the remaining 5 (Cavern of Souls, Helga, Secluded Courtyard,
+      Troyan, Unclaimed Territory) hit one of the two documented
+      unrecognized shapes above and stay unrestricted, same as before.
+      Doesn't move the oracle-text parser coverage percentage (mana
+      abilities sit outside the `MODELED` gate). Tests: new
+      `tests/test_mana_spend_restrictions.py` (35 tests) — `ManaPool`
+      lot tagging/consumption-order/emptying, `_parse_restriction` across
+      all recognized and deliberately-unrecognized shapes, the predicate
+      builders in isolation, and full engine-level end-to-end coverage
+      (Gnarlroot Trapper's restricted mana can cast an Elf creature spell
+      but not a plain instant; Jeweled Lotus's mana only pays for the
+      commander; Castle Garenbrig's restricted mana pays a creature's
+      activated ability but not a noncreature source's).
+
 ## Game Engine (Phase 3)
 
 `mtg_analyzer/game/game_engine.py`, tests in `test_game_engine.py`.

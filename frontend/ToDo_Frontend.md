@@ -43,6 +43,13 @@ engine hookup".
       able creature (one "⚔️ Angreifen (N)" control). Per-creature select
       needs the backend to accumulate declared attackers rather than
       replace them.
+- [ ] Restricted-mana display: a mana ability's RULE 605.3a "Spend this
+      mana only to cast a creature spell" restriction is now tracked
+      server-side (`models/mana_pool.py`'s tagged `restricted` lots,
+      `Player.to_dict`'s additive `mana_pool.restricted` key) but the
+      board's mana-pool readout doesn't distinguish it from ordinary mana
+      yet — a player can't currently see *which* floating mana is
+      restricted, or to what.
 
 ## Multiplayer
 
