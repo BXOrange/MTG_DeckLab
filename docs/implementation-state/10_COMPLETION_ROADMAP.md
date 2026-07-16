@@ -313,6 +313,24 @@ Follows [`09_ORACLE_EFFECT_PARSER.md`](../concepts/09_ORACLE_EFFECT_PARSER.md). 
   effect, not a mana ability, correctly out of scope). Full writeup:
   Done_Backend.md "Rules Engine (Phase 2)". Tests:
   `test_mana_combination.py` (17 tests).
+- ✅ **Hand-zone mana abilities, RULE 605.1a** (2026-07-16): "Exile this
+  card from your hand: Add …" (Elvish/Simian Spirit Guide) — a mana
+  ability with no battlefield permanent and no {T} at all, activated
+  straight from hand; previously had no activation path whatsoever
+  (`parse_mana_abilities` deliberately excluded it, and nothing else
+  picked it up). New `hand_mana_abilities`/`hand_mana_abilities_for`
+  (`game/mana_abilities.py`, sharing `parse_mana_abilities`'s line
+  grammar via a new `want_hand_exile` filter) + `GameEngine.
+  activate_hand_mana_ability` (pays via the existing `RulesEngine.exile`
+  zone-move primitive rather than the battlefield-oriented
+  `_pay_activation_cost`), wired through a new `activate_hand_mana`
+  legal-action kind and `game_session.py`. No frontend UI yet
+  (`frontend/ToDo_Frontend.md`). **Real-cache yield**: 1 of 6 substring
+  hits is a genuine hand-zone mana ability (Simian Spirit Guide); the
+  other 5 are Foretell/Plot reminder text using the same phrase for an
+  unrelated cost, correctly unmatched. Full writeup: Done_Backend.md
+  "Rules Engine (Phase 2)". Tests: `test_hand_mana_abilities.py`
+  (11 tests).
 - ⏳ **Remaining, priority-ordered by real cards-unlocked** (verified
   2026-07-16 by running `processing_list.coverage_over_cards()` over the
   live cache — 21.3% of 2,507 cards fully `MODELED`; **re-run this before
@@ -343,11 +361,11 @@ Follows [`09_ORACLE_EFFECT_PARSER.md`](../concepts/09_ORACLE_EFFECT_PARSER.md). 
      cards found above and are plausibly reusable across other unclaimed
      lines too.
   - **Related, same pipeline, separately tracked in `ToDo_Backend.md`**:
-    mana-ability follow-ups from the 2026-07-15 Elf-mana-dork pass — only
-    hand-zone activation is what's left (spend restrictions, Leveler-
-    gating, Deathrite Shaman, and "any combination of colors" are all now
-    done) — not cache-coverage-ranked since mana abilities are recognized
-    without needing a `MODELED` spec; prioritize by card value instead.
+    the mana-ability follow-up list from the 2026-07-15 Elf-mana-dork pass
+    is now fully done (spend restrictions, Leveler-gating, Deathrite
+    Shaman, "any combination of colors", and hand-zone activation) — not
+    cache-coverage-ranked since mana abilities are recognized without
+    needing a `MODELED` spec.
 - **Unblocks:** plain instants/sorceries/ETB-triggers/activated/static
   abilities from the handled families already resolve with no catalogue
   entry; is the seam M2 plugs into. *(docs/09 Phases 1–2.)*

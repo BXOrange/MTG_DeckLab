@@ -322,6 +322,18 @@ class GameSession:
             )
             return
 
+        if kind == "activate_hand_mana":
+            # RULE 605.1a "Exile this card from your hand: Add …" (Elvish/
+            # Simian Spirit Guide) — `tap_for_mana`'s hand-zone counterpart.
+            option_index = int(action.get("option_index", 0))
+            ability_index = int(action.get("ability_index", 0))
+            color_split = self._resolve_color_split(action.get("color_split"))
+            self.engine.activate_hand_mana_ability(
+                active, self._object(action), option_index, ability_index,
+                color_split=color_split,
+            )
+            return
+
         if kind == "cast_spell":
             # The spell goes on the stack; it does NOT auto-resolve, so the
             # player can respond (cast an instant) or pass priority to let

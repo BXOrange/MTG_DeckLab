@@ -59,10 +59,13 @@ _ADD_COUNTER_COST_RE = re.compile(
     re.IGNORECASE,
 )
 #: An alternative-zone cost: "Exile this creature/card from your hand"
-#: (Elvish Spirit Guide) — the ability is activated from hand, not the
-#: battlefield; not itself charged by the engine yet (no hand-zone
-#: activation path — see `backend/ToDo_Backend.md`), but recognised so such
-#: a line is never mistaken for a free/costless battlefield tap ability.
+#: (Elvish/Simian Spirit Guide) — the ability is activated from hand, not
+#: the battlefield; `game/mana_abilities.py`'s `hand_mana_abilities`/
+#: `GameEngine.activate_hand_mana_ability` charge it (paid by
+#: `RulesEngine.exile`, not through this file's battlefield-oriented
+#: `_pay_activation_cost`), and `parse_mana_abilities`'s battlefield path
+#: excludes it so such a line is never mistaken for a free/costless
+#: battlefield tap ability.
 _EXILE_FROM_HAND_RE = re.compile(
     r"exile this \w+ from your hand", re.IGNORECASE
 )

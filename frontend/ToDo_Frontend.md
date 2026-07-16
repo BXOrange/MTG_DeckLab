@@ -58,6 +58,12 @@ engine hookup".
       `services/game_session.py`), but there's no UI to build one yet —
       the board still only offers the existing per-colour buttons (a
       legal but inflexible single-colour tap).
+- [ ] Hand-zone mana abilities ("Exile this card from your hand: Add …",
+      RULE 605.1a — Elvish/Simian Spirit Guide) have a working backend
+      path now (`GameEngine.activate_hand_mana_ability`, a new
+      `activate_hand_mana` legal-action kind alongside `tap_for_mana`),
+      but the board has no UI trigger for it — a card in hand can only be
+      played/cast today, not exiled for mana.
 
 ## Multiplayer
 

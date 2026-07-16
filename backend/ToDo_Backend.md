@@ -189,12 +189,12 @@ Weeks 1–4 roadmap is archived at
         (frontend/ToDo_Frontend.md), so today's board still offers a
         single-colour default per the pre-existing options list.
       - Hand-zone mana abilities ("Exile this card from your hand: Add
-        …" — Elvish Spirit Guide and the same template on other colours)
-        have no activation path whatsoever: `tap_for_mana`/`legal_actions`
-        only ever look at the battlefield. Needs a small hand-zone
-        ability-activation surface (a new legal-action kind, a
-        `GameEngine` method, wiring through `game_session.py`) — there's no
-        existing precedent for it (cycling/unearth aren't modeled either).
+        …" — Elvish/Simian Spirit Guide) are **done** (moved to
+        Done_Backend.md, "Rules Engine (Phase 2)", 2026-07-16 entry) —
+        `hand_mana_abilities`/`hand_mana_abilities_for` +
+        `GameEngine.activate_hand_mana_ability`, a new `activate_hand_mana`
+        legal-action kind wired through `game_session.py`; no frontend UI
+        for it yet (`frontend/ToDo_Frontend.md`).
       - A Leveler's mana ability is now level-gated (moved to
         Done_Backend.md, "Rules Engine (Phase 2)", 2026-07-16 entry) —
         `game/mana_abilities.py` tags a tier's own mana ability with that

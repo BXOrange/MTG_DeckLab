@@ -1490,6 +1490,73 @@ the Phase-1 models. Tests: `test_game_engine.py`.
       incidental `color_split`, a restriction still tagged onto combination
       mana, and the `legal_actions` offer's new fields).
 
+- [x] **Hand-zone mana abilities, RULE 605.1a (2026-07-16):** "Exile this
+      card from your hand: Add …" (Elvish Spirit Guide, Simian Spirit
+      Guide) is a mana ability activated straight from a player's hand —
+      no battlefield permanent, no {T}, a fundamentally different
+      activation surface from every other mana ability this file models.
+      `game/costs.py` already parsed the cost shape into
+      `ActivationCost.exile_self_from_hand`, but `parse_mana_abilities`
+      deliberately skipped any line with it (never a *battlefield* tap
+      ability) and nothing else picked such a line up — the ability had
+      no activation path whatsoever, a genuinely unprecedented gap (no
+      existing "from hand" activation surface to extend — cycling/unearth
+      aren't modeled either).
+
+      **`game/mana_abilities.py`**: `_parse_mana_ability_lines` gained a
+      `want_hand_exile: bool` parameter — `False` (the default,
+      `parse_mana_abilities`'s existing behaviour, unchanged) keeps only
+      non-hand-exile lines; `True` inverts the filter. Two new public
+      functions, `hand_mana_abilities(card)` and
+      `hand_mana_abilities_for(obj, state=None)`, mirror
+      `parse_mana_abilities`/`mana_abilities_for` exactly (same
+      `ManaAbility` shape, same `resolve_options` scaling machinery, so a
+      hand-exile ability can in principle be an "any one colour" or "any
+      combination of colours" (Batch 7) choice too, or carry a RULE 605.3a
+      restriction, with zero extra code) but select the opposite lines and
+      skip Leveler-block splitting (no observed card pairs the two
+      shapes) and layer-6 grants (that machinery only ever targets
+      battlefield permanents).
+
+      **`GameEngine.activate_hand_mana_ability`** is `tap_for_mana`'s
+      hand-zone counterpart: validates `source` is in `player.hand`
+      (not the battlefield), looks up the ability via
+      `hand_mana_abilities_for`, resolves `option_index`/`color_split`
+      exactly like `tap_for_mana` does, then pays the cost via
+      `RulesEngine.exile(source)` (the existing general "move to exile
+      from anywhere" primitive already handles a hand→exile zone move and
+      fires the right event — no new zone-transition code needed) before
+      tagging the produced mana into the pool. No `_can_pay_activation_
+      cost`/`_pay_activation_cost` reuse: those assume a battlefield
+      permanent (`source.tapped`, summoning sickness) and already
+      hard-`False` on `exile_self_from_hand` for exactly this reason (see
+      their updated comments). Every real printed card's only cost
+      component is the exile itself; a future card pairing it with e.g. a
+      life payment isn't handled and would need this extended.
+
+      **Wired end to end**: a new `activate_hand_mana` legal-action kind
+      (`GameEngine.legal_actions`, mirroring the battlefield `tap_for_mana`
+      offer's shape — `options`/`any_combination`/`combination_total`) and
+      `services/game_session.py`'s matching action handler. No frontend UI
+      yet — see `frontend/ToDo_Frontend.md`.
+
+      **Real-cache yield**: of the 6 cards whose oracle text contains
+      "exile this card from your hand" (live-cache scan), only 1
+      (Simian Spirit Guide) is a genuine hand-zone mana ability; the
+      other 5 (Dual Strike, Haunting Voyage, Highway Robbery, Poison the
+      Cup, Railway Brawler) are Foretell/Plot reminder text using the same
+      phrase for an unrelated alternative-casting cost, correctly not
+      matched (no "Add …" clause on those lines at all). Elvish Spirit
+      Guide itself isn't in the current cache. Doesn't move the
+      oracle-text parser coverage percentage (mana abilities sit outside
+      the `MODELED` gate, same as the other mana-ability batches). Tests:
+      new `tests/test_hand_mana_abilities.py` (11 tests) — the parser
+      split (a card with both a battlefield and a hand-exile line stays
+      correctly separated), `any_combination`/restriction threading
+      through the hand path, and full engine-level coverage (exile +
+      mana production, rejecting a battlefield source, the
+      `legal_actions` offer, a combination-ability `color_split`).
+
 ## Game Engine (Phase 3)
 
 `mtg_analyzer/game/game_engine.py`, tests in `test_game_engine.py`.

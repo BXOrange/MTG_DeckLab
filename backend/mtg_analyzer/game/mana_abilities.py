@@ -38,6 +38,12 @@ never offered here — they belong on the stack like any other activated
 ability, not through this fast no-stack path) — see `backend/ToDo_Backend.md`
 for what's still open.
 
+A "Exile this card from your hand: Add …" mana ability (Elvish/Simian
+Spirit Guide) is never a *battlefield* one — `parse_mana_abilities`
+excludes it, and its hand-zone counterpart `hand_mana_abilities`/
+`hand_mana_abilities_for` picks it up instead
+(`GameEngine.activate_hand_mana_ability`).
+
 RULE 605.3a **mana spend restrictions** ("Spend this mana only to cast a
 creature spell.") tag a `ManaAbility` with a ``restriction`` dict (see
 `_parse_restriction`) recognizing the observed real-card shapes: casting a
@@ -434,13 +440,24 @@ def mana_options(card: Any) -> list[dict[str, int]]:
     return _dedupe(options)
 
 
-def _parse_mana_ability_lines(text: str, name: Optional[str]) -> list[ManaAbility]:
+def _parse_mana_ability_lines(
+    text: str, name: Optional[str], want_hand_exile: bool = False
+) -> list[ManaAbility]:
     """`ManaAbility`s from each ``<cost>: Add …`` line in ``text`` — the
-    line-based core `parse_mana_abilities` and its Leveler block-splitting
-    both funnel through, so a card with more than one line doesn't have one
-    line's cost bleed into another's production. RULE 605.1a's "no target"
-    requirement is enforced per line — a line whose effect mentions "target"
-    is skipped entirely (never a mana ability, whatever it produces).
+    line-based core `parse_mana_abilities`/`hand_mana_abilities` and
+    `parse_mana_abilities`' Leveler block-splitting both funnel through, so
+    a card with more than one line doesn't have one line's cost bleed into
+    another's production. RULE 605.1a's "no target" requirement is enforced
+    per line — a line whose effect mentions "target" is skipped entirely
+    (never a mana ability, whatever it produces).
+
+    ``want_hand_exile`` selects *which* lines: ``False`` (the default,
+    `parse_mana_abilities`' battlefield tap-for-mana path) keeps only lines
+    whose cost is *not* "Exile this card from your hand" (Elvish/Simian
+    Spirit Guide — never activatable from the battlefield, since it's a
+    hand-zone-only cost, not a target of `GameEngine.tap_for_mana` at all);
+    ``True`` (`hand_mana_abilities`) inverts that, keeping only the
+    hand-exile lines.
     """
     abilities: list[ManaAbility] = []
     for line in text.split("\n"):
@@ -464,8 +481,8 @@ def _parse_mana_ability_lines(text: str, name: Optional[str]) -> list[ManaAbilit
         if _TARGET_RE.search(effect_text) or _TARGET_RE.search(cost_text):
             continue  # RULE 605.1a — a targeted ability is never a mana ability
         cost = parse_activation_cost(cost_text)
-        if cost.exile_self_from_hand:
-            continue  # not activatable from the battlefield at all (Elvish Spirit Guide)
+        if cost.exile_self_from_hand != want_hand_exile:
+            continue
         combination_selector = _parse_combination_selector(add_match.group(1))
         if combination_selector is not None:
             damage_match = _SELF_DAMAGE_RE.search(effect_text)
@@ -604,6 +621,40 @@ def mana_abilities_for(obj: Any, state: Optional[Any] = None) -> list[ManaAbilit
         for opt in getattr(obj, "granted_mana_options", [])
     ]
     return printed + granted
+
+
+def hand_mana_abilities(card: Any) -> list[ManaAbility]:
+    """RULE 605.1a "Exile this card from your hand: Add …" mana abilities
+    (Elvish Spirit Guide, Simian Spirit Guide) — `parse_mana_abilities`'
+    hand-zone counterpart, since a card printing only this line is never a
+    *battlefield* tap-for-mana source at all (`parse_mana_abilities`
+    deliberately excludes it). Not Leveler-block-aware (no observed real
+    card pairs the two shapes) and never granted by a layer-6 static
+    effect (that grant machinery only ever targets battlefield
+    permanents) — both simplifications, same fail-soft convention as the
+    rest of this module."""
+    name = getattr(card, "name", None)
+    raw_text = getattr(card, "oracle_text", "") or ""
+    return _parse_mana_ability_lines(raw_text, name, want_hand_exile=True)
+
+
+def hand_mana_abilities_for(obj: Any, state: Optional[Any] = None) -> list[ManaAbility]:
+    """`hand_mana_abilities` for a `GameObject` sitting in a player's hand,
+    resolving each one's `amount_selector` against ``state`` the same way
+    `mana_abilities_for` does for a battlefield permanent (no observed real
+    card needs it — every hand-exile ability prints a fixed amount — kept
+    for shape parity rather than special-cased away)."""
+    return [
+        ManaAbility(
+            cost=ability.cost,
+            options=resolve_options(ability, obj, state),
+            amount_selector=None,
+            self_damage=ability.self_damage,
+            restriction=ability.restriction,
+            any_combination=ability.any_combination,
+        )
+        for ability in hand_mana_abilities(obj.card)
+    ]
 
 
 def resolve_options(ability: ManaAbility, obj: Any, state: Optional[Any] = None) -> list[dict[str, int]]:

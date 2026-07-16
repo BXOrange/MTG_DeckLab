@@ -28,6 +28,7 @@ from . import combat, continuous
 from .costs import DISCARD_HAND, PAY_LIFE_X, ActivationCost, parse_activation_cost
 from .effects import ActivatedAbility
 from .mana_abilities import (
+    hand_mana_abilities_for,
     mana_abilities_for,
     option_label,
     restriction_predicate_for_activation,
@@ -1517,6 +1518,49 @@ class GameEngine:
         self.state.record_stat(player.id, "mana", amount=sum(produced.values()))
         return produced
 
+    def activate_hand_mana_ability(
+        self,
+        player: Player,
+        source: GameObject,
+        option_index: int = 0,
+        ability_index: int = 0,
+        color_split: Optional[dict[str, int]] = None,
+    ) -> dict[str, int]:
+        """RULE 605.1a "Exile this card from your hand: Add …" (Elvish
+        Spirit Guide, Simian Spirit Guide) — `tap_for_mana`'s hand-zone
+        counterpart: no battlefield permanent, no {T}/summoning-sickness
+        check; the cost is exiling the card itself straight out of hand
+        (`RulesEngine.exile` already handles the hand→exile zone move and
+        its event). Every real printed card's only cost component is the
+        exile itself; a future card pairing it with e.g. a life payment
+        would need this extended, same as `tap_for_mana`'s cost handling.
+        ``option_index``/``ability_index``/``color_split`` mirror
+        `tap_for_mana`'s parameters exactly (a hand-exile ability could in
+        principle be a dual-colour choice or an "any combination of
+        colours" one, same as a battlefield one). Returns the mana added.
+        """
+        if source not in player.hand:
+            raise ValueError("can only activate a hand mana ability from your own hand")
+        abilities = hand_mana_abilities_for(source, state=self.state)
+        if not 0 <= ability_index < len(abilities):
+            raise ValueError(f"{source.name} has no hand mana ability #{ability_index}")
+        ability = abilities[ability_index]
+        if not ability.options:
+            raise ValueError(f"{source.name}'s mana ability produces nothing")
+        if ability.any_combination and color_split is not None:
+            total = sum(ability.options[0].values())
+            produced = validate_color_split(color_split, total)
+        else:
+            if not 0 <= option_index < len(ability.options):
+                raise ValueError(f"invalid mana option {option_index} for {source.name}")
+            produced = dict(ability.options[option_index])
+        self.rules.exile(source)
+        player.mana_pool.add_many(produced, restriction=ability.restriction)
+        if ability.self_damage:
+            self.rules.deal_damage(player, ability.self_damage, source=source)
+        self.state.record_stat(player.id, "mana", amount=sum(produced.values()))
+        return produced
+
     # ------------------------------------------------------------------
     # Activated abilities (RULE 602)
     # ------------------------------------------------------------------
@@ -1671,8 +1715,11 @@ class GameEngine:
             if self._resolve_tap_others(player, source, count, subtype, tap_choices) is None:
                 return False
         if cost.exile_self_from_hand:
-            # No hand-zone ability-activation path yet (see `backend/
-            # ToDo_Backend.md`) — never payable from the battlefield.
+            # This path is for a battlefield permanent's own ability cost
+            # (`can_activate`/`tap_for_mana`'s non-hand-exile branch) — an
+            # "Exile this card from your hand" cost is never payable here,
+            # whatever `source` is; see `activate_hand_mana_ability` for
+            # the actual hand-zone counterpart (Elvish/Simian Spirit Guide).
             return False
         # A minus loyalty ability can't be activated for more loyalty than the
         # planeswalker has (RULE 606.5c / 118.5).
@@ -2185,6 +2232,31 @@ class GameEngine:
                     action["combination_total"] = sum(ability.options[0].values())
                 if ability.cost.tap_others:
                     action["tap_cost"] = self._tap_cost_choice(player, source, ability.cost)
+                actions.append(action)
+
+        for source in list(player.hand):
+            # RULE 605.1a "Exile this card from your hand: Add …" (Elvish/
+            # Simian Spirit Guide) — the hand-zone counterpart of the
+            # battlefield loop above; every real card's cost is just the
+            # exile itself, so (unlike `tap_for_mana`'s offer) there's no
+            # extra payability check here.
+            for ability_index, ability in enumerate(hand_mana_abilities_for(source, state=self.state)):
+                if not ability.options:
+                    continue
+                action = {
+                    "type": "activate_hand_mana",
+                    "instance_id": source.instance_id,
+                    "name": source.name,
+                    "ability_index": ability_index,
+                    "cost_label": ability.cost.label(),
+                    "options": [
+                        {"index": i, "mana": opt, "label": option_label(opt)}
+                        for i, opt in enumerate(ability.options)
+                    ],
+                }
+                if ability.any_combination:
+                    action["any_combination"] = True
+                    action["combination_total"] = sum(ability.options[0].values())
                 actions.append(action)
 
         # Activated abilities (RULE 602) bound onto permanents this player
