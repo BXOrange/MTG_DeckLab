@@ -87,11 +87,18 @@ class RulesEngine:
         #: Populated only while `state.interactive_ordering` drives a choice.
         self._ordering_active: list[tuple[TriggeredAbility, GameEvent]] = []
         self._ordering_rest: list[tuple[TriggeredAbility, GameEvent]] = []
-        #: The triggered ability currently awaiting a `trigger_target` choice
-        #: (RULE 115/603.3c), and the still-to-place queue behind it —
-        #: populated only while that choice is pending.
+        #: The triggered ability currently awaiting a `trigger_target` or
+        #: `trigger_mode` choice (RULE 115/603.3c, RULE 700.2), and the
+        #: still-to-place queue behind it — populated only while that choice
+        #: is pending. ``_pending_trigger_effects`` is the effects list the
+        #: choice resolves *against* — the ability's own fixed ``effects``
+        #: for an ordinary trigger, or a modal trigger's already-chosen
+        #: mode's effects while its own target/"you may" choice is pending
+        #: (``None`` selects the ability's own ``effects``, keeping the
+        #: non-modal path unchanged).
         self._pending_trigger_ability: Optional[TriggeredAbility] = None
         self._pending_trigger_queue: list[tuple[TriggeredAbility, GameEvent]] = []
+        self._pending_trigger_effects: Optional[list[Any]] = None
         #: The shock land currently awaiting a `land_tapped` pay-life choice
         #: (RULE 614.1), and how much life it costs to keep it untapped —
         #: populated only while that choice is pending.
@@ -350,60 +357,162 @@ class RulesEngine:
         return count
 
     @staticmethod
-    def _trigger_target_spec(ability: "TriggeredAbility") -> Optional[TargetSpec]:
-        """The *first* targeting effect's requirement, if any (RULE 115.1).
+    def _trigger_target_spec(effects: list[Any]) -> Optional[TargetSpec]:
+        """The *first* targeting effect's requirement in ``effects``, if any
+        (RULE 115.1).
 
         Mirrors the "one targeting effect resolves correctly per ability"
         limit spells/activated abilities already have (docs/11 §5) — every
-        effect in `ability.effects` gets the same resolved targets list and
-        reads `targets[0]`, so only the first target_spec is meaningful.
+        effect gets the same resolved targets list and reads `targets[0]`,
+        so only the first target_spec is meaningful. Takes a raw effects
+        list rather than an ability, since a modal trigger's *chosen mode*
+        — not the ability's own (possibly empty) ``effects`` — is what
+        actually needs a target; RULE 700.2's mode choice is made first
+        (see `_place_triggers`), before this ever runs on the mode's
+        effects.
         """
-        for effect in ability.effects:
+        for effect in effects:
             spec = getattr(effect, "target_spec", None)
             if spec is not None:
                 return spec
         return None
 
     def _place_triggers(self, queue: list[tuple["TriggeredAbility", GameEvent]]) -> None:
-        """Place queued triggers (RULE 603.3), pausing on one that needs a
-        target, or is a "you may" with nothing to target, instead of just
-        resolving/skipping it blind (RULE 115/603.3c/603.5).
+        """Place queued triggers (RULE 603.3), pausing on one that's modal
+        (RULE 700.2 — the mode is chosen first, before any target/"you may"
+        choice its own effects might still need), needs a target, or is a
+        "you may" with nothing to target, instead of just resolving/skipping
+        it blind (RULE 115/603.3c/603.5).
 
-        A mandatory trigger with no targeting effect is placed immediately
-        (unaffected — the overwhelming common case). One that targets, or is
-        optional, opens a `trigger_target` `pending_choice`:
-        `resolve_trigger_target_choice` places it (or not, if declined) and
-        resumes this same queue. A *required* target with no legal option at
-        all doesn't go on the stack (RULE 603.3c) — dropped, not placed.
+        A mandatory, non-modal trigger with no targeting effect is placed
+        immediately (unaffected — the overwhelming common case). One that's
+        modal, targets, or is optional, opens a `pending_choice`:
+        `resolve_trigger_mode_choice`/`resolve_trigger_target_choice` places
+        it (or not, if declined) and resumes this same queue. A *required*
+        target with no legal option at all doesn't go on the stack (RULE
+        603.3c) — dropped, not placed.
 
         Note: a trigger placed via the (opt-in, off-by-default) RULE 603.3b
         interactive-ordering choice (`resolve_trigger_order_choice`) is
-        placed directly and does *not* pause for either choice — combining
-        manual trigger ordering with an optional/targeted trigger among the
-        ordered set is a narrow, undocumented-further edge case, not handled
-        here.
+        placed directly and does *not* pause for any of these — combining
+        manual trigger ordering with a modal/optional/targeted trigger among
+        the ordered set is a narrow, undocumented-further edge case, not
+        handled here.
         """
         while queue:
             ability, _event = queue.pop(0)
-            spec = self._trigger_target_spec(ability)
-            if spec is None:
-                if not ability.optional:
-                    self._place_trigger(ability)
-                    continue
-                # RULE 603.5: a "you may" with no target still needs a choice
-                # of whether to do it at all.
+            if ability.modes:
                 self._pending_trigger_ability = ability
                 self._pending_trigger_queue = queue
-                self.state.pending_choice = self._trigger_may_choice(ability)
+                self.state.pending_choice = self._trigger_mode_choice(ability)
                 return
-            controller_id = ability.controller_id or self.state.active_player.id
-            options = legal_targets(self.state, controller_id, spec, source=ability.source)
-            if not options:
-                continue  # RULE 603.3c: no legal target — never placed
+            if not self._place_or_pause_trigger(ability, ability.effects, queue):
+                return
+
+    def _place_or_pause_trigger(
+        self,
+        ability: "TriggeredAbility",
+        effects: list[Any],
+        queue: list[tuple["TriggeredAbility", GameEvent]],
+    ) -> bool:
+        """Place ``ability`` using ``effects`` as its resolve-time effects if
+        it can go on the stack immediately; otherwise open the matching
+        `pending_choice` and return ``False`` (the caller must stop — the
+        choice resolver re-enters `_place_triggers` on ``queue`` once
+        answered). Returns ``True`` when the caller's loop may continue
+        synchronously (placed, or dropped for lacking a legal required
+        target).
+
+        ``effects`` is ``ability.effects`` for an ordinary trigger, or a
+        modal trigger's already-chosen mode's effects (`_trigger_mode_
+        choice`/`resolve_trigger_mode_choice`) — only in the latter case
+        does the placed `StackItem` carry ``effects`` directly instead of
+        the `TriggeredAbility` wrapper (`_place_trigger`'s
+        ``effects_override``), since the ability's own fixed ``effects``
+        (empty for a modal trigger) is never what should resolve.
+        """
+        spec = self._trigger_target_spec(effects)
+        override = effects if effects is not ability.effects else None
+        if spec is None:
+            if not ability.optional:
+                self._place_trigger(ability, effects_override=override)
+                return True
+            # RULE 603.5: a "you may" with no target still needs a choice
+            # of whether to do it at all.
             self._pending_trigger_ability = ability
+            self._pending_trigger_effects = override
             self._pending_trigger_queue = queue
-            self.state.pending_choice = self._trigger_target_choice(ability, options)
+            self.state.pending_choice = self._trigger_may_choice(ability)
+            return False
+        controller_id = ability.controller_id or self.state.active_player.id
+        options = legal_targets(self.state, controller_id, spec, source=ability.source)
+        if not options:
+            return True  # RULE 603.3c: no legal target — never placed
+        self._pending_trigger_ability = ability
+        self._pending_trigger_effects = override
+        self._pending_trigger_queue = queue
+        self.state.pending_choice = self._trigger_target_choice(ability, options)
+        return False
+
+    def _trigger_mode_choice(self, ability: "TriggeredAbility") -> dict[str, Any]:
+        """Build the `pending_choice` for a modal triggered ability's mode
+        (RULE 700.2) — chosen as it's put on the stack, before any target/
+        "you may" choice the chosen mode's own effects might still need
+        (`resolve_trigger_mode_choice` hands off to `_place_or_pause_
+        trigger` for that)."""
+        options = ability.modes or []
+        choice_options: list[dict[str, Any]] = [
+            {"id": str(i), "label": opt.get("description") or f"Modus {i + 1}"}
+            for i, opt in enumerate(options)
+        ]
+        if ability.modes_or_both and len(options) == 2:  # RULE 700.2e
+            choice_options.append({"id": "both", "label": "Beides"})
+        return {
+            "kind": "trigger_mode",
+            "player_id": ability.controller_id or self.state.active_player.id,
+            "prompt": ability.description or "Modus für ausgelöste Fähigkeit wählen",
+            "options": choice_options,
+        }
+
+    def resolve_trigger_mode_choice(self, answer: Optional[str]) -> None:
+        """Answer a pending `trigger_mode` choice (RULE 700.2): pick which
+        mode(s) this firing uses, then continue exactly like a non-modal
+        trigger via `_place_or_pause_trigger` — the chosen mode's own
+        effects may still need their own target/"you may" choice next, so
+        this doesn't necessarily place anything itself. ``answer`` is a
+        mode's index (as a string) or ``"both"`` (RULE 700.2e); an
+        unrecognized/missing answer defaults to the first mode rather than
+        dropping a mandatory choice.
+        """
+        choice = self.state.pending_choice
+        if not choice or choice.get("kind") != "trigger_mode":
+            raise ValueError("no pending trigger mode choice to resolve")
+        self.state.pending_choice = None
+        ability = self._pending_trigger_ability
+        queue = self._pending_trigger_queue
+        self._pending_trigger_ability = None
+        self._pending_trigger_queue = []
+
+        options = (ability.modes or []) if ability is not None else []
+        if ability is None or not options:
+            self._place_triggers(queue)
             return
+
+        if answer == "both" and ability.modes_or_both and len(options) == 2:
+            effects: list[Any] = []
+            for opt in options:
+                effects.extend(opt["effects"])
+        else:
+            try:
+                idx = int(answer) if answer is not None else 0
+            except (TypeError, ValueError):
+                idx = 0
+            if not 0 <= idx < len(options):
+                idx = 0
+            effects = list(options[idx]["effects"])
+
+        if self._place_or_pause_trigger(ability, effects, queue):
+            self._place_triggers(queue)
 
     def _trigger_target_choice(self, ability: "TriggeredAbility", options: list[dict[str, Any]]) -> dict[str, Any]:
         """Build the `pending_choice` offering ``options`` as an ability's
@@ -458,19 +567,21 @@ class RulesEngine:
         self.state.pending_choice = None
         ability = self._pending_trigger_ability
         queue = self._pending_trigger_queue
+        effects_override = self._pending_trigger_effects
         self._pending_trigger_ability = None
         self._pending_trigger_queue = []
+        self._pending_trigger_effects = None
 
         if answer == "do":
             if ability is not None:
-                self._place_trigger(ability)
+                self._place_trigger(ability, effects_override=effects_override)
             self._place_triggers(queue)
             return
 
         if answer is not None and answer != "decline" and ability is not None:
             target = self._resolve_choice_option(choice["options"], str(answer))
             if target is not None:
-                self._place_trigger(ability, targets=[target])
+                self._place_trigger(ability, targets=[target], effects_override=effects_override)
         self._place_triggers(queue)
 
     def _resolve_choice_option(self, options: list[dict[str, Any]], answer: str) -> Any:
@@ -487,12 +598,25 @@ class RulesEngine:
         except KeyError:
             return None
 
-    def _place_trigger(self, ability: "TriggeredAbility", targets: Optional[list[Any]] = None) -> None:
+    def _place_trigger(
+        self,
+        ability: "TriggeredAbility",
+        targets: Optional[list[Any]] = None,
+        effects_override: Optional[list[Any]] = None,
+    ) -> None:
+        """Push ``ability`` onto the stack. ``effects_override``, when given,
+        replaces the usual ``[ability]`` wrapper with a raw effects list — a
+        modal trigger's already-chosen mode (`_place_or_pause_trigger`),
+        which resolves those effects directly rather than through
+        `TriggeredAbility.apply()` reading the ability's own (empty)
+        ``effects``. `StackItem._derive_category` still classifies the item
+        as ``"triggered_ability"`` either way (any non-spell ability item
+        defaults to that), so nothing downstream needs to know."""
         controller_id = ability.controller_id or self.state.active_player.id
         item = StackItem(
             kind="ability",
             controller_id=controller_id,
-            effects=[ability],
+            effects=effects_override if effects_override is not None else [ability],
             description=ability.description or "triggered ability",
             targets=targets,
             source=ability.source,
@@ -548,6 +672,29 @@ class RulesEngine:
         self._ordering_active = []
         self._ordering_rest = []
         self.state.pending_choice = None
+
+    # ------------------------------------------------------------------
+    # "Enters with N counters" (RULE 614.1-style replacement clause)
+    # ------------------------------------------------------------------
+
+    def _apply_entry_counters(self, obj: GameObject, x_paid: int = 0) -> None:
+        """Put ``obj``'s RULE 614.1-style "enters with N counters" starting
+        counters on it, read off its printed text.
+
+        Called at every battlefield-entry site right after the tapped-entry
+        check (`ability_catalogue.enters_tapped`) and before ``obj`` is
+        actually added to the battlefield, so the counters are already
+        present when ENTERS_BATTLEFIELD fires and any trigger/continuous
+        pass reads them. ``x_paid`` is the object's actual paid X (RULE
+        107.3c) — 0 for anything that didn't just resolve off a cast-for-X
+        (a token, a card reanimated/searched onto the battlefield, …).
+        """
+        condition = ability_catalogue.entry_counters(obj.card)
+        if condition is None:
+            return
+        amount = x_paid if condition["is_x"] else condition["count"]
+        if amount > 0:
+            obj.add_counters(condition["counter_type"], amount)
 
     # ------------------------------------------------------------------
     # Conditional tap-lands (RULE 614.1)
@@ -607,6 +754,18 @@ class RulesEngine:
                 p for p in self.state.living_players() if p.id != obj.controller_id
             ]
             obj.tapped = not (len(opponents) >= condition["count"])
+        elif kind == "unless_opponents_count":
+            # "Turbulent" land cycle: untapped iff the *total* lands across
+            # all opponents (not the controller's own) compares as stated.
+            opponent_lands = sum(
+                1
+                for o in self.state.battlefield
+                if o.is_land and o.controller_id != obj.controller_id
+            )
+            if condition["cmp"] == "le":
+                obj.tapped = not (opponent_lands <= condition["count"])
+            else:
+                obj.tapped = not (opponent_lands >= condition["count"])
         elif kind == "pay_life":
             obj.tapped = True
             self._pending_land_choice_obj = obj
@@ -904,6 +1063,7 @@ class RulesEngine:
         def _finish() -> None:
             obj.summoning_sick = True
             obj.tapped = ability_catalogue.enters_tapped(obj.card)  # RULE 614.1
+            self._apply_entry_counters(obj, x_paid=getattr(obj, "x_paid", 0) or 0)
             self.state.add_to_battlefield(obj)
             if self._attachment_kind(obj) == "enchant":
                 targets = [t for t in item.targets if isinstance(t, GameObject)]
@@ -1237,7 +1397,9 @@ class RulesEngine:
         if obj.is_commander:
             self.state.pending_choice = self._commander_zone_choice(obj, Zone.HAND)
 
-    def return_from_graveyard(self, obj: GameObject, destination: str = "battlefield") -> None:
+    def return_from_graveyard(
+        self, obj: GameObject, destination: str = "battlefield", controller_id: Optional[str] = None
+    ) -> None:
         """Return ``obj`` from a graveyard to ``destination`` (RULE 701.3,
         the Regrowth/Reanimate-shaped recursion family).
 
@@ -1246,10 +1408,22 @@ class RulesEngine:
         a reanimated permanent's `ENTERS_BATTLEFIELD` triggers fire exactly
         like a tutored one's, rather than reimplementing that zone-entry
         machinery here.
+
+        ``controller_id``, when given, is the Reanimate/Virtue of
+        Persistence "put … onto the battlefield **under your control**"
+        shape: ``obj`` enters under that player's control (stamped onto
+        ``obj.controller_id`` before the battlefield add, so triggers/layer
+        effects see it too) instead of its owner's — real Magic only ever
+        pairs this with ``destination="battlefield"``, never "hand" (a card
+        can't go to a hand that isn't its owner's).
         """
         owner = self.state.player_by_id(obj.owner_id)
         self._remove_from_current_zone(owner, obj)
-        self._put_searched_card(owner, obj, destination)
+        if controller_id is not None and destination in ("battlefield", "battlefield_tapped"):
+            obj.controller_id = controller_id
+            self._put_searched_card(self.state.player_by_id(controller_id), obj, destination)
+        else:
+            self._put_searched_card(owner, obj, destination)
 
     def add_mana(self, player: Player, color: str, amount: int = 1) -> None:
         """Add ``amount`` mana of ``color`` straight to ``player``'s pool
@@ -1259,6 +1433,50 @@ class RulesEngine:
         entirely, never routed through this engine at all).
         """
         player.mana_pool.add(color, amount)
+
+    #: German labels for the interactive "add one mana of any color" choice.
+    _ANY_COLOR_LABELS: dict[str, str] = {
+        "W": "Weiß", "U": "Blau", "B": "Schwarz", "R": "Rot", "G": "Grün",
+    }
+
+    def add_mana_any_color(self, player: Player) -> None:
+        """Open the interactive colour choice for a resolve-time "add one
+        mana of any color" effect (RULE 106.4) — e.g. Deathrite Shaman's
+        graveyard-exile ability, which targets and so can never be a
+        `mana_abilities.py` mana ability at all (RULE 605.1a excludes any
+        ability that requires a target), unlike an ordinary dual land's
+        pre-declared tap-for-mana choice.
+
+        Opens an `add_mana_any_color` `pending_choice`;
+        `resolve_add_mana_any_color_choice` finishes it by adding one mana
+        of the chosen colour to ``player``'s pool.
+        """
+        self.state.pending_choice = {
+            "kind": "add_mana_any_color",
+            "player_id": player.id,
+            "prompt": "Farbe für die Manaerzeugung wählen",
+            "options": [
+                {"id": color, "label": label}
+                for color, label in self._ANY_COLOR_LABELS.items()
+            ],
+        }
+
+    def resolve_add_mana_any_color_choice(self, answer: Optional[str]) -> None:
+        """Answer a pending `add_mana_any_color` choice.
+
+        A mandatory choice (RULE 106.4 mana must have a colour) — an
+        unrecognized or missing ``answer`` defaults to the first colour
+        ("W") rather than adding nothing, the same "defaults instead of
+        dropping the effect" treatment `resolve_trigger_mode_choice` gives
+        a missing mode answer.
+        """
+        choice = self.state.pending_choice
+        if not choice or choice.get("kind") != "add_mana_any_color":
+            raise ValueError("no pending add-mana-any-color choice to resolve")
+        self.state.pending_choice = None
+        player = self.state.player_by_id(choice["player_id"])
+        color = answer if answer in self._ANY_COLOR_LABELS else "W"
+        self.add_mana(player, color)
 
     def set_tapped(self, obj: GameObject, tapped: bool = True) -> None:
         """Tap or untap a permanent (RULE 701.21 / 701.22) — the choke point
@@ -1395,6 +1613,7 @@ class RulesEngine:
                 if zone == Zone.BATTLEFIELD:
                     token.summoning_sick = True  # RULE 302.6 applies to tokens too
                     token.tapped = ability_catalogue.enters_tapped(token_card)  # RULE 614.1
+                    self._apply_entry_counters(token)  # a token was never cast, so X is 0
                     self.state.add_to_battlefield(token)
                     self.state.fire_event(
                         GameEvent(

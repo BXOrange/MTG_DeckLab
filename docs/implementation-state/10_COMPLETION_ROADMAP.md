@@ -103,10 +103,208 @@ Follows [`09_ORACLE_EFFECT_PARSER.md`](../concepts/09_ORACLE_EFFECT_PARSER.md). 
   `replacement` spec builds a `ReplacementEffect` via `ReplacementRegistry`
   (`prevent_damage` shipped). Oracle-text *recognition* of replacement
   clauses (a target/duration grammar for the front-end) is still open.
-- ⏳ Remaining: more effect families (**regenerate**, mode "choose one", "up
-  to N" targets — each needs a one-shot `GameEffect` + registry entry
-  first); parse-on-load memoization in `LazyCardLoader` (bind-per-game
-  already wired).
+- ✅ **Modal triggered abilities** (2026-07-16): "When ~ enters, choose
+  one —" (RULE 700.2 wrapped in RULE 603) now parses and binds —
+  `spec.py` allows `modes` on `ability_kind == "triggered"` (was
+  `spell_effect`-only), `gate.py` recognizes the trigger-wrapped header
+  (`_split_triggered_modal_block`, reusing `catalogue/modal.py`'s bullet
+  collector and `segmenter.py`'s trigger event/condition grammar) and
+  emits a `triggered` spec carrying `modes`, and the binder builds each
+  mode's effects onto `TriggeredAbility.modes`. Resolution is a new
+  `trigger_mode` interactive `pending_choice` in
+  `game/rules_engine.py`'s `_place_triggers` — the mode is chosen as the
+  ability is put on the stack (RULE 603.3), *before* any target/"you
+  may" choice its chosen mode's own effects might still need (both
+  choices compose correctly, including RULE 700.2e "or both" combining
+  two modes' effects into one placement).
+  **Real-cache yield correction**: the pre-implementation estimate
+  ("33 cards") came from `processing_list`'s *abstracted* template
+  count, which collapses a trigger-wrapped modal header and a bare
+  modal-*spell* header with an unparseable bullet to the same
+  `"choose <n> —"` template string — most of that 33 turned out to be
+  the latter (unrelated, pre-existing gap), not this one. A direct scan
+  (`_split_triggered_modal_block` over the live cache) found only **6**
+  cards actually shaped this way (Aether Channeler, Ao the Dawn Sky,
+  Atsushi the Blazing Sky, Charming Prince, Kura the Boundless Sky,
+  Voracious Hydra) — and **all 6** remain `UNMODELED` today because each
+  also needs a *different*, still-missing effect family in at least one
+  of their modes (flicker/exile-then-return, fight, a filtered bounce
+  target, "double this creature's counters", …). So this fix is
+  necessary-but-not-sufficient infrastructure — real coverage-% movement
+  needs those effect families too, not tracked as part of this item.
+  **Lesson for future prioritization**: cross-check an abstracted
+  processing-list count against a direct code-level scan before treating
+  it as the true cards-unlocked figure for a specific fix — the
+  abstraction is a great ranking signal but conflates root causes.
+  Tests: `test_modal_spells.py` (parser/spec/binder/engine, incl. the
+  `trigger_mode`/`trigger_target` choice composing and "or both").
+- ✅ **"Enters with N counters" replacement effect** (RULE 614.1-style,
+  2026-07-16): "~ enters (the battlefield) with N/X `<counter-type>`
+  counters on it." now parses and resolves — new `catalogue/counters.py`
+  mirrors `catalogue/lands.py`'s tapped-entry split
+  (`entry_counters_condition(line)` classifies the clause,
+  `entry_counters(card)` reads it off a card's text; both the coverage
+  gate, claiming the line without emitting a spec — same non-effect-spec
+  treatment as tapped-entry — and the engine
+  (`game/ability_catalogue.entry_counters`) share this single source of
+  truth). `RulesEngine._apply_entry_counters` is called at both existing
+  `enters_tapped` call sites: `_resolve_permanent_spell`'s cast-resolution
+  path, with `obj.x_paid` (RULE 107.3c: 0 if not cast for X) supplying the
+  X amount, and the token-creation path (always X=0). Handles a fixed
+  amount ("three +1/+1 counters"/"four ice counters"/"a charge counter",
+  "a"/"an" folding to 1) and the variable "X" amount, for any counter kind
+  (+1/+1, -1/-1, or a bare word like ice/charge/wish/study).
+  **Real-cache yield correction** (same lesson as the modal-trigger batch
+  above, cross-checked *before* committing to a number this time): a
+  direct scan of the live cache found the clause on **23 cards**, not the
+  14 the abstracted processing-list template suggested — the abstraction
+  split the X-amount and fixed-amount phrasings into two separate
+  templates that this one implementation covers together. Of those 23,
+  only **2** (Steelbane Hydra, Stonecoil Serpent) had no other unclaimed
+  line and so flip to fully `MODELED` immediately (cache-wide: 509 → 511
+  modeled, 20.3% → 20.4%); the other 21 (mostly Hydras: Walking Ballista,
+  Voracious Hydra, Hangarback Walker, Primordial Hydra, …) still need one
+  or more *other* missing effect families (dies-triggers scaled by
+  counter count, upkeep-trigger counter-doubling, fight, conditional-on-X
+  effects) — necessary-but-not-sufficient infrastructure for most of them,
+  same shape as the modal-trigger finding.
+  Tests: `test_oracle_counters.py` (clause recognition + coverage-gate
+  integration), `test_entry_counters.py` (engine: fixed/X amount, X=0,
+  ordinary creature unaffected).
+- ✅ **Fourth land-tapped clause variant** (2026-07-16): "~ enters tapped
+  unless your opponents control N or more lands" (the "Turbulent" land
+  cycle) — distinct from the three `_UNLESS_*_RE` shapes `lands.py`
+  already had (all check *your own* board/opponent-*count*, none check
+  *opponents'* land count). New `_UNLESS_OPPONENTS_COUNT_RE` in
+  `catalogue/lands.py`, same `cmp`/`count` shape as the existing
+  `unless_count`, plus a new `unless_opponents_count` branch in
+  `RulesEngine.enter_land_tapped` summing lands across every player
+  except the controller. Verified against the live cache *before*
+  implementing (per the lesson above): exactly **5 cards** (the
+  Turbulent Fen/Moor/Springs/Steppe/Wilderness cycle), each with no other
+  unclaimed line — all 5 flip to fully `MODELED` (cache-wide: 511 → 516
+  modeled, 20.4% → 20.6%), a clean full-yield batch unlike the two above.
+  Tests: `test_oracle_lands.py` (clause recognition + gate integration),
+  `test_land_tap_conditions.py` (engine: too-few/enough/summed-across-
+  opponents/controller's-own-lands-ignored).
+- ✅ **"Add 1 mana of any color" resolve-time colour choice** (2026-07-16):
+  a spell/activated/triggered ability's own bare "Add 1 mana of any
+  color." body — as opposed to a permanent's *mana ability*
+  (`mana_abilities.py`), which already supported "any color" via its
+  pre-declared tap-for-mana options and needed nothing here. New
+  `_ADD_MANA_ANY_COLOR_RE`/`_add_mana_any_color` in `catalogue/
+  handlers.py` emits `EffectSpec("add_mana", {"colors": ["any"]})`
+  (deliberately narrow to the singular "1 mana" phrasing — real cards
+  templating a multi-mana choice always say "any *one* color" instead, a
+  different, still-unclaimed shape). `AddManaEffect` (`game/effects.py`)
+  treats an `"ANY"` entry as a genuine resolve-time player decision
+  instead of guessing: `GameContext.add_mana_any_color` →
+  `RulesEngine.add_mana_any_color` opens an `add_mana_any_color`
+  `pending_choice` (mirroring `counter_unless_pays`'s established
+  "open a choice mid-effect-apply, the resolve loop pauses on it"
+  pattern), and `resolve_add_mana_any_color_choice` finishes it — a
+  missing/invalid answer defaults to White rather than dropping the
+  mana, the same "defaults instead of dropping" treatment
+  `resolve_trigger_mode_choice` gives a missing mode answer.
+  **Real-cache yield: 0 cards**, exactly as predicted before starting
+  (this was never a coverage-% play) — every real card printing this
+  clause (Deathrite Shaman, Crystalline Crawler, Mana Bloom, Fertile
+  Ground) is still blocked by a *different*, unrelated gap on the same
+  card: a "remove a counter" activation-cost shape `costs.py` doesn't
+  parse yet (Crystalline Crawler, Mana Bloom), generic "card in any
+  graveyard" targeting not yet existing (Deathrite Shaman — Batch 5,
+  next), or an entirely different triggered-ability event ("whenever
+  enchanted land is tapped for mana", Fertile Ground). This batch is
+  purely the shared primitive the plan called for — real payoff is
+  Deathrite Shaman once Batch 5 also lands. Tests:
+  `test_effect_families_wave3.py` (parser recognition + negative cases,
+  gate-level `MODELED` integration, engine: opens the choice/resolves to
+  the chosen colour/defaults to White on a missing answer).
+- ✅ **Generalized graveyard-card targeting + Deathrite Shaman**
+  (2026-07-16): the Regrowth/Reanimate-shaped recursion family
+  (`graveyard_creature`) generalized in `game/targeting.py` from
+  "creature, your own graveyard, to battlefield/hand only" to card type
+  (any/creature/land/artifact/enchantment/instant-or-sorcery/permanent/
+  nonland permanent) × graveyard scope (own/any single graveyard/an
+  opponent's) — `_GRAVEYARD_TARGET_KINDS`, their cross product. Three
+  parser handlers in `catalogue/handlers.py`: the generalized
+  `return_from_graveyard` (+ "put … under its owner's control", same
+  effect); a new `reanimate_under_your_control` ("put … under **your**
+  control" — Reanimate/Virtue of Persistence, a genuinely different
+  effect: `ReturnFromGraveyardEffect` gained `under_your_control`,
+  threading a `controller_id` override through
+  `RulesEngine.return_from_graveyard` so the stolen card's owner and
+  controller correctly diverge); and a new `exile_from_graveyard`
+  (Deathrite Shaman/Scavenging Ooze-shaped — `ExileEffect` already
+  worked "from anywhere," no engine change needed).
+  **Surfaced two real, previously-invisible gaps while chasing Deathrite
+  Shaman's third ability to an actual runtime test**, not just the
+  parser's `MODELED` verdict: (1) "X loses N life" had *no* parser
+  handler or `EffectRegistry` entry at all — added `lose_life`/
+  `lose_life_selector` (mirroring `gain_life`/`_damage_selector`); (2) a
+  real pre-existing bug in `GainLifeEffect`/`LoseLifeEffect`, which
+  silently read `targets[0]` off a *shared* ability/spell target list as
+  a fallback player — correct only because no previously-modeled card
+  combined either with an unrelated targeted effect in the same chain.
+  Deathrite's "Exile target creature card from a graveyard. You gain 2
+  life." does exactly that (`targets[0]` was the exiled card, not a
+  player) and crashed with an `AttributeError` the first time it
+  actually resolved. Fixed by switching both to `_controller_of(source,
+  context)`, the same correct pattern `AddManaEffect` already used (why
+  it never hit this). **Real-cache yield, verified via a true before/
+  after diff** (a temporary handler-table monkeypatch, since this session
+  never committed between batches): **19 cards** newly fully `MODELED`
+  (516 → 535, 20.6% → 21.3%) — Deathrite Shaman itself, Eternal Witness,
+  Regrowth, Sanctum Gargoyle, Trading Post, Trash for Treasure,
+  Restoration Seminar, Revolutionist, Pinnacle Monk, Bala Ged Recovery,
+  Buried Ruin, Colossal Skyturtle, Siege Zombie, Cryptbreaker, plus — a
+  side benefit of the `lose_life` fix alone — Anguished Unmaking,
+  Infernal Grasp, Night's Whisper, Read the Bones, Grim Tutor (well-known
+  staples). Many more graveyard-shaped cards (Reanimate, Karmic Guide,
+  Zombify, Puppeteer Clique, …) still have their graveyard-targeting line
+  claimed but remain `UNMODELED` on a *different* line (a life-total-
+  scaled amount, a `-1/-1`-counter qualifier, "up to one target", …) —
+  necessary-but-not-sufficient infrastructure, same shape as the modal-
+  trigger/enters-with-counters findings above. Tests:
+  `test_effect_families_wave3.py` (parser recognition for every type ×
+  scope combination + fail-closed negatives, gate integration, engine:
+  control-steal from an opponent's graveyard, life-loss selectors, and a
+  full Deathrite Shaman oracle-text-to-engine test over all 3 abilities).
+- ⏳ **Remaining, priority-ordered by real cards-unlocked** (verified
+  2026-07-16 by running `processing_list.coverage_over_cards()` over the
+  live cache — 21.3% of 2,507 cards fully `MODELED`; **re-run this before
+  trusting the counts below**, the cache keeps growing and the ranking
+  shifts):
+  1. Everything else previously listed here — **regenerate**, "up to N"
+     targets, a "remove a counter from ~" activation-cost shape
+     (`costs.py` — newly surfaced by an earlier batch's real-card
+     debugging, blocks Crystalline Crawler/Mana Bloom/Walking Ballista/
+     Triskelion/Wishclaw Talisman/Transmogrifying Wand — plausibly the
+     next highest-leverage single fix, not yet template-ranked), a
+     life-total-scaled amount ("lose life equal to that card's mana
+     value" — Reanimate/Rise from the Grave/Kenrith, newly surfaced by
+     this batch, blocks otherwise-complete graveyard-recursion cards),
+     replacement-clause *recognition* (binder side is ready), a kicked
+     spell's "if kicked" resolve-time
+     conditional, parse-on-load memoization in `LazyCardLoader`, and the
+     processing-list tail (prohibition/cost-modification statics, emblems,
+     "for each"-scaled effects, "choose 2/more" modal headers — a
+     genuinely different, larger grammar than RULE 700.2's "choose
+     one"/"choose one or both", still unclaimed) — each verified at
+     **≤9 cards** per template in the live ranking. **New, higher-value
+     candidates surfaced by this batch's real-card debugging** (not yet
+     template-ranked, worth
+     a fresh `coverage_over_cards()` pass to size properly): a "fight"
+     effect family (RULE 701.12) and a filtered/qualified bounce target
+     ("return another target nonland permanent…") — both block modal
+     cards found above and are plausibly reusable across other unclaimed
+     lines too.
+  - **Related, same pipeline, separately tracked in `ToDo_Backend.md`**:
+    mana-ability follow-ups from the 2026-07-15 Elf-mana-dork pass (spend
+    restrictions, "any combination of colors", hand-zone activation,
+    Leveler-gated mana abilities — Deathrite Shaman itself is now done)
+    — not cache-coverage-ranked since mana abilities are recognized
+    without needing a `MODELED` spec; prioritize by card value instead.
 - **Unblocks:** plain instants/sorceries/ETB-triggers/activated/static
   abilities from the handled families already resolve with no catalogue
   entry; is the seam M2 plugs into. *(docs/09 Phases 1–2.)*

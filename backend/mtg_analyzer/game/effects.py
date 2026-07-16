@@ -169,11 +169,16 @@ class GameContext:
     def return_to_hand(self, target: "GameObject") -> None:
         self.engine.return_to_hand(target)
 
-    def return_from_graveyard(self, target: "GameObject", destination: str = "battlefield") -> None:
-        self.engine.return_from_graveyard(target, destination)
+    def return_from_graveyard(
+        self, target: "GameObject", destination: str = "battlefield", controller_id: Optional[str] = None
+    ) -> None:
+        self.engine.return_from_graveyard(target, destination, controller_id=controller_id)
 
     def add_mana(self, player: "Player", color: str, amount: int = 1) -> None:
         self.engine.add_mana(player, color, amount)
+
+    def add_mana_any_color(self, player: "Player") -> None:
+        self.engine.add_mana_any_color(player)
 
 
 def _controller_of(source: Optional["GameObject"], context: GameContext) -> Optional["Player"]:
@@ -361,7 +366,15 @@ class TriggeredAbility(GameEffect):
 
     ``trigger_event`` is the `EventType` to watch. ``condition`` is an
     optional extra predicate ``(event, context) -> bool``. ``effects`` are
-    the one-shot effects placed on the stack when it triggers.
+    the one-shot effects placed on the stack when it triggers — or, for a
+    modal ability (RULE 700.2), ignored in favour of ``modes``: a list of
+    ``{"effects": [GameEffect, ...], "description": str}`` entries, one per
+    printed mode. ``modes`` is chosen from interactively as the ability is
+    placed on the stack (`game/rules_engine.py`'s `_place_triggers`/
+    `resolve_trigger_mode_choice`, a `trigger_mode` `pending_choice` — the
+    same "chosen before target/optional choice" ordering a modal spell's own
+    mode gets at cast time); ``modes_or_both`` mirrors RULE 700.2e for a
+    triggered ability with exactly two modes.
     """
 
     def __init__(
@@ -374,6 +387,8 @@ class TriggeredAbility(GameEffect):
         controller_id: Optional[str] = None,
         source: Optional["GameObject"] = None,
         description: str = "",
+        modes: Optional[list[dict[str, Any]]] = None,
+        modes_or_both: bool = False,
     ) -> None:
         super().__init__(source)
         self.trigger_event = trigger_event
@@ -382,6 +397,8 @@ class TriggeredAbility(GameEffect):
         self.optional = optional
         self.controller_id = controller_id
         self.description = description
+        self.modes = modes
+        self.modes_or_both = modes_or_both
         #: "This ability triggers only once each turn" (RULE 603.2, e.g.
         #: Dionus, Elvish Archdruid's granted ability). Stamped by
         #: `check_trigger` the moment it fires — regardless of whether the
@@ -634,7 +651,20 @@ class DestroyEffect(GameEffect):
 
 
 class GainLifeEffect(GameEffect):
-    """The effect's controller (or a target player) gains ``amount`` life."""
+    """The effect's controller (or an explicitly given ``player``) gains
+    ``amount`` life — untargeted (no parser handler currently emits a
+    genuinely-targeted "target player gains N life"; ``player`` is for a
+    hand-authored/direct construction only).
+
+    Deliberately does **not** fall back to a shared ``targets`` list the
+    way `DealDamageEffect`/`DestroyEffect` do: this effect never declares
+    its own `target_spec`, so any ``targets`` passed to `apply` belong to
+    a *different* effect on the same ability/spell (e.g. Deathrite
+    Shaman's "Exile target creature card from a graveyard. You gain 2
+    life." — the exiled card, not a player) — reading `targets[0]` here
+    would silently hand `RulesEngine.gain_life` a `GameObject` instead of
+    a `Player`.
+    """
 
     def __init__(self, amount: int = 0, player: Any = None, source: Optional["GameObject"] = None) -> None:
         super().__init__(source)
@@ -642,8 +672,15 @@ class GainLifeEffect(GameEffect):
         self.player = player
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
-        player = self.player or (targets[0] if targets else None) or context.active_player
+        player = self.player or _controller_of(self.source, context)
         context.gain_life(player, self.amount)
+
+
+#: `LoseLifeEffect`'s mass-selector vocabulary ("each opponent loses N
+#: life"/"each player loses N life", RULE 601.2c) — the same closed,
+#: untargeted-group shape `DealDamageEffect`'s `_DAMAGE_SELECTORS` uses (no
+#: "each_creature" here — life loss never targets a creature).
+_LOSE_LIFE_SELECTORS: frozenset[str] = frozenset({"each_player", "each_opponent"})
 
 
 class LoseLifeEffect(GameEffect):
@@ -654,6 +691,15 @@ class LoseLifeEffect(GameEffect):
     same bound ability fires against a different defender each combat;
     a plain ``player``/target keeps the shape every other simple player
     effect (`GainLifeEffect`, `DiscardEffect`) already uses.
+    ``selector="each_opponent"``/``"each_player"`` (RULE 601.2c) instead
+    hits every matching player, the same mass-effect shape
+    `DealDamageEffect.selector` uses for "~ deals N damage to each player".
+
+    Like `GainLifeEffect`, the plain (no-selector) path never falls back to
+    a shared ``targets`` list — this effect declares no `target_spec` of
+    its own, so any ``targets`` passed to `apply` belong to a *different*
+    effect in the same chain (Infernal Grasp's "Destroy target creature.
+    You lose 2 life.", Deathrite Shaman's exile-then-drain ability, …).
     """
 
     def __init__(
@@ -669,11 +715,18 @@ class LoseLifeEffect(GameEffect):
         self.selector = selector
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
-        player = self.player or (targets[0] if targets else None)
+        if self.selector in _LOSE_LIFE_SELECTORS:
+            controller_id = getattr(self.source, "controller_id", None)
+            for p in context.state.living_players():
+                if self.selector == "each_opponent" and p.id == controller_id:
+                    continue
+                context.lose_life(p, self.amount)
+            return
+        player = self.player
         if player is None and self.selector == "defending_player":
             player = _defending_player_of(self.source, context)
         if player is None:
-            player = context.active_player
+            player = _controller_of(self.source, context)
         context.lose_life(player, self.amount)
 
 
@@ -879,12 +932,21 @@ class ReturnToHandEffect(GameEffect):
 
 
 class ReturnFromGraveyardEffect(GameEffect):
-    """Return a target creature card from a graveyard to the battlefield or
-    hand (RULE 701.3, the Regrowth/Reanimate-shaped recursion family).
+    """Return/put a target card from a graveyard onto the battlefield or to
+    a hand (RULE 701.3, the Regrowth/Reanimate/Deathrite-adjacent recursion
+    family — see `targeting.legal_targets`'s `_GRAVEYARD_TARGET_KINDS` for
+    the full ``target_kind`` vocabulary: own/any/opponent graveyard scope ×
+    card/creature/land/artifact/enchantment/instant-or-sorcery/permanent
+    type). ``destination`` is ``"battlefield"`` (default) or ``"hand"``.
 
-    ``target_kind`` is ``"graveyard_creature"`` (RULE 115, restricted to the
-    controller's own graveyard — see `targeting.legal_targets`);
-    ``destination`` is ``"battlefield"`` (default) or ``"hand"``.
+    ``under_your_control`` is the Reanimate/Rise from the Grave/Virtue of
+    Persistence shape — "put target creature card from a graveyard onto
+    the battlefield **under your control**" — as opposed to the plain
+    Regrowth/Karmic Guide/Kenrith shape (this effect's default), which
+    always returns to the card's *owner*'s control, matching how "return
+    … to the battlefield"/"under its owner's control" reads. Only
+    meaningful with ``destination="battlefield"`` — a card can't go to
+    "your hand" when it isn't yours; real cards never combine the two.
     """
 
     def __init__(
@@ -893,16 +955,23 @@ class ReturnFromGraveyardEffect(GameEffect):
         source: Optional["GameObject"] = None,
         target_kind: str = "graveyard_creature",
         destination: str = "battlefield",
+        under_your_control: bool = False,
     ) -> None:
         super().__init__(source)
         self.target = target
         self.destination = destination if destination in ("battlefield", "hand") else "battlefield"
+        self.under_your_control = under_your_control
         self.target_spec = TargetSpec(kind=target_kind)
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
         target = (targets[0] if targets else None) or self.target
-        if target is not None:
-            context.return_from_graveyard(target, self.destination)
+        if target is None:
+            return
+        controller_id = None
+        if self.under_your_control and self.destination == "battlefield":
+            player = _controller_of(self.source, context)
+            controller_id = player.id if player is not None else None
+        context.return_from_graveyard(target, self.destination, controller_id=controller_id)
 
 
 class AddManaEffect(GameEffect):
@@ -910,9 +979,18 @@ class AddManaEffect(GameEffect):
     spell's own bare "Add {B}{B}{B}." resolve-time body (Dark Ritual-shaped),
     as opposed to a permanent's mana ability (`game/mana_abilities.py`,
     tapped for mana outside the stack entirely, never a resolve-time effect).
+    Also covers a *targeted* activated ability's own "Add one mana of any
+    color" body (Deathrite Shaman's graveyard-exile abilities) — RULE 605.1a
+    excludes anything that targets from ever being a `mana_abilities.py`
+    mana ability at all, so that shape can only ever resolve here.
 
     ``colors`` is one WUBRGC letter per mana symbol printed, in the order
-    printed; untargeted (mana can't be targeted, RULE 106.4).
+    printed, or the sentinel ``"ANY"`` for "one mana of any color" — a
+    genuine player decision, opened as an interactive `add_mana_any_color`
+    `pending_choice` (`RulesEngine.add_mana_any_color`/`resolve_add_mana_
+    any_color_choice`) rather than guessed at. Untargeted (mana itself
+    can't be targeted, RULE 106.4 — unrelated to whatever cost the
+    ability/spell producing it might target).
     """
 
     def __init__(self, colors: Optional[list[str]] = None, source: Optional["GameObject"] = None) -> None:
@@ -924,7 +1002,10 @@ class AddManaEffect(GameEffect):
         if player is None:
             return
         for color in self.colors:
-            context.add_mana(player, color)
+            if color == "ANY":
+                context.add_mana_any_color(player)
+            else:
+                context.add_mana(player, color)
 
 
 class TapEffect(GameEffect):
@@ -1507,6 +1588,12 @@ EffectRegistry.register(
     "gain_life", lambda p: GainLifeEffect(amount=p.get("amount", 0), player=p.get("player"))
 )
 EffectRegistry.register(
+    "lose_life",
+    lambda p: LoseLifeEffect(
+        amount=p.get("amount", 0), player=p.get("player"), selector=p.get("selector")
+    ),
+)
+EffectRegistry.register(
     "counter",
     lambda p: CounterSpellEffect(
         target=p.get("target"),
@@ -1538,6 +1625,7 @@ EffectRegistry.register(
         target=p.get("target"),
         target_kind=p.get("target_kind", "graveyard_creature"),
         destination=p.get("destination", "battlefield"),
+        under_your_control=bool(p.get("under_your_control", False)),
     ),
 )
 EffectRegistry.register(

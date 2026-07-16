@@ -22,6 +22,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any, Optional
 
+from .catalogue.counters import entry_counters_condition
 from .catalogue.keywords import parse_keywords
 from .catalogue.lands import tap_clause_condition
 from .catalogue.levels import (
@@ -30,9 +31,16 @@ from .catalogue.levels import (
     split_class_blocks,
     split_leveler_blocks,
 )
-from .catalogue.modal import split_modal_block
+from .catalogue.modal import MODAL_HEADER_RE, collect_mode_bodies, split_modal_block
 from .normalize import normalize
-from .segmenter import Segment, parse_effect_body, segment_line
+from .segmenter import (
+    Segment,
+    _TRIGGER_RE,
+    _trigger_condition,
+    _trigger_event,
+    parse_effect_body,
+    segment_line,
+)
 from .spec import AbilitySpec, EffectSpec, ParserProvenance
 
 MODELED = "MODELED"
@@ -71,6 +79,42 @@ def _is_spell(card: Any) -> bool:
     return bool(getattr(card, "is_instant", False) or getattr(card, "is_sorcery", False))
 
 
+def _split_triggered_modal_block(
+    lines: list[str], start: int
+) -> Optional[tuple[str, dict[str, Any], bool, list[str], int]]:
+    """A permanent's modal *triggered* ability: "When ~ enters, choose 1 —"
+    on one line, then two or more "• " mode lines (RULE 700.2 wrapped in a
+    RULE 603.1 trigger) — the trigger-wrapped sibling of `split_modal_block`
+    (a modal *spell*'s bare header). Both a recognised trigger event/subject
+    scope (`_trigger_event`/`_trigger_condition`, the same grammar
+    `segment_line` uses for an ordinary triggered ability) and a modal
+    header are required; unlike a plain triggered ability's body, the modal
+    header's "effect" is the whole bullet block, not `trig.group("body")`
+    itself.
+
+    Returns ``(event, condition, or_both, mode_bodies, next_index)``, or
+    ``None`` if ``lines[start]`` isn't this shape at all — fail-closed, the
+    caller falls back to ordinary per-line segmentation.
+    """
+    trig = _TRIGGER_RE.match(lines[start].strip())
+    if trig is None:
+        return None
+    header = MODAL_HEADER_RE.match(trig.group("body").strip())
+    if header is None:
+        return None
+    event = _trigger_event(trig.group("cond"))
+    if event is None:
+        return None
+    condition = _trigger_condition(trig.group("cond"))
+    if condition is None:
+        return None
+    collected = collect_mode_bodies(lines, start + 1)
+    if collected is None:
+        return None
+    mode_bodies, next_i = collected
+    return event, condition, bool(header.group("or_both")), mode_bodies, next_i
+
+
 def _parse_mode_body(body: str) -> Optional[list[EffectSpec]]:
     """One modal "• " line's effect body → its `EffectSpec`s, or ``None``.
 
@@ -89,6 +133,23 @@ def _parse_mode_body(body: str) -> Optional[list[EffectSpec]]:
         if effects is not None:
             return effects
     return None
+
+
+def _parse_mode_options(
+    mode_bodies: list[str],
+) -> Optional[tuple[list[list[EffectSpec]], list[str]]]:
+    """Each "• " mode body → its `EffectSpec`s, or ``None`` if any one fails
+    (fail-closed — a modal block is never half-claimed). Shared by a modal
+    spell's and a modal triggered ability's block processing."""
+    options: list[list[EffectSpec]] = []
+    descriptions: list[str] = []
+    for body in mode_bodies:
+        effects = _parse_mode_body(body)
+        if effects is None:
+            return None
+        options.append(effects)
+        descriptions.append(body)
+    return options, descriptions
 
 
 def parse_oracle(card: Any) -> ParseResult:
@@ -133,6 +194,12 @@ def parse_oracle(card: Any) -> ParseResult:
         # spec — claim the line without emitting one, the same way a mana
         # ability's "add {g}" is covered-without-spec in the segmenter.
         if tap_clause_condition(line) is not None:
+            return
+        # RULE 614.1-style "enters with N counters" clauses: same split as
+        # tapped-entry above — covered by `game/ability_catalogue.
+        # entry_counters` (`RulesEngine`'s battlefield-entry resolution),
+        # not an effect spec.
+        if entry_counters_condition(line) is not None:
             return
         seg: Segment = segment_line(
             line, allow_spell_effect=allow_spell_effect, provenance=provenance, is_saga=is_saga
@@ -204,24 +271,49 @@ def parse_oracle(card: Any) -> ParseResult:
 
     def _process_modal_block(header: str, or_both: bool, mode_bodies: list[str]) -> None:
         nonlocal all_claimed
-        # RULE 700.2: instants/sorceries only for now — a modal *permanent*
-        # ability (an ETB "choose one —") isn't this grammar's job, so it's
-        # left unclaimed by never being offered the block here at all (the
-        # caller only tries this when `allow_spell_effect`).
-        options: list[list[EffectSpec]] = []
-        descriptions: list[str] = []
-        for body in mode_bodies:
-            effects = _parse_mode_body(body)
-            if effects is None:
-                all_claimed = False
-                unclaimed.append(header)
-                unclaimed.extend(f"• {b}" for b in mode_bodies)
-                return
-            options.append(effects)
-            descriptions.append(body)
+        # RULE 700.2: a modal spell's own bare header. A permanent's modal
+        # *triggered* ability ("When ~ enters, choose one —") is a different
+        # shape (the header trails a trigger wrapper) — see
+        # `_process_triggered_modal_block` below.
+        parsed = _parse_mode_options(mode_bodies)
+        if parsed is None:
+            all_claimed = False
+            unclaimed.append(header)
+            unclaimed.extend(f"• {b}" for b in mode_bodies)
+            return
+        options, descriptions = parsed
         effect_specs.append(AbilitySpec(
             "spell_effect",
             effects=[],
+            modes={"or_both": or_both, "options": options, "descriptions": descriptions},
+            raw_text=header,
+            parser=provenance,
+        ))
+
+    def _process_triggered_modal_block(
+        header: str,
+        event: str,
+        condition: dict[str, Any],
+        or_both: bool,
+        mode_bodies: list[str],
+    ) -> None:
+        nonlocal all_claimed
+        # RULE 700.2 wrapped in a RULE 603.1 trigger — e.g. "When ~ enters
+        # the battlefield, choose one — • Mode A. • Mode B.": the chosen
+        # mode is picked interactively as the ability is put on the stack
+        # (`game/rules_engine.py`'s `trigger_mode` choice), not at cast time
+        # like a modal spell.
+        parsed = _parse_mode_options(mode_bodies)
+        if parsed is None:
+            all_claimed = False
+            unclaimed.append(header)
+            unclaimed.extend(f"• {b}" for b in mode_bodies)
+            return
+        options, descriptions = parsed
+        effect_specs.append(AbilitySpec(
+            "triggered",
+            effects=[],
+            trigger={"event": event, "condition": condition},
             modes={"or_both": or_both, "options": options, "descriptions": descriptions},
             raw_text=header,
             parser=provenance,
@@ -286,6 +378,12 @@ def parse_oracle(card: Any) -> ParseResult:
             if block is not None:
                 or_both, mode_bodies, next_i = block
                 _process_modal_block(lines[i], or_both, mode_bodies)
+                i = next_i
+                continue
+            trig_block = _split_triggered_modal_block(lines, i)
+            if trig_block is not None:
+                event, condition, or_both, mode_bodies, next_i = trig_block
+                _process_triggered_modal_block(lines[i], event, condition, or_both, mode_bodies)
                 i = next_i
                 continue
             _process_line(lines[i])

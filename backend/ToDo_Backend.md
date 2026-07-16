@@ -150,8 +150,8 @@ Weeks 1–4 roadmap is archived at
         mass damage ("deals N damage to each creature/player/opponent",
         a closed `selector` on `DealDamageEffect`), and ETB self-attach
         for Equipment (`test_effect_families_wave3.py`).
-      Still open: regenerate, "up to N" targets, permanents' modal ETB
-      triggers, "add 1 mana of any color" (a mana *choice*); oracle-text
+      Still open: regenerate, "up to N" targets, "add 1 mana of any color"
+      (a mana *choice*); oracle-text
       *recognition* of replacement clauses (the binder is ready; a
       target/duration grammar for the front-end is not); parse-on-load
       memoization in `LazyCardLoader`; a spell's "if this spell was kicked,
@@ -189,20 +189,17 @@ Weeks 1–4 roadmap is archived at
         ability-activation surface (a new legal-action kind, a
         `GameEngine` method, wiring through `game_session.py`) — there's no
         existing precedent for it (cycling/unearth aren't modeled either).
-      - A Leveler's mana ability isn't level-gated: Joraga Treespeaker's
-        `{T}: Add {G}{G}.` (its LEVEL 1-4 tier) applies unconditionally
-        instead of only while `class_level`/level counters are in that
-        range, the same `min_level`/`max_level` gating `continuous.py`
-        already does for *static* Leveler tiers (RULE 711) — mana abilities
-        never got the same treatment.
-      - Deathrite Shaman's abilities are correctly excluded from being mana
-        abilities now (RULE 605.1a — they target), but aren't implemented
-        as the real thing either: a normal, stack-using, targeted activated
-        ability whose effect both exiles a graveyard card *and* adds mana
-        (needs a "target card in a graveyard" target kind `targeting.py`
-        doesn't have yet, plus a resolve-time "add one mana of any colour"
-        player choice `handlers.py`'s `_add_mana` doesn't cover — that one
-        only claims a fixed `{...}` symbol run).
+      - A Leveler's mana ability is now level-gated (moved to
+        Done_Backend.md, "Rules Engine (Phase 2)", 2026-07-16 entry) —
+        `game/mana_abilities.py` tags a tier's own mana ability with that
+        tier's `min_level`/`max_level` and `mana_abilities_for` filters by
+        the object's current `level` counter, the same gate
+        `continuous.py` already applied to *static* Leveler tiers.
+      - Deathrite Shaman is **done** (moved to Done_Backend.md, "Rules
+        Engine (Phase 2)", 2026-07-16 entry) — all three abilities now
+        parse and resolve end to end via the generalized graveyard-card
+        targeting family (`game/targeting.py`'s `_GRAVEYARD_TARGET_KINDS`)
+        plus the 2026-07-16 "add one mana of any colour" primitive.
 - [~] Combat blocking + creature-vs-creature damage: **engine done** —
       `GameEngine.declare_blockers`/`can_block` and a rewritten
       `_step_combat_damage` handle blocked/unblocked attackers, gang blocks

@@ -965,6 +965,370 @@ the Phase-1 models. Tests: `test_game_engine.py`.
     Treespeaker's `{T}: Add {G}{G}.` applies unconditionally instead of
     only at levels 1-4).
 
+- [x] **Modal triggered abilities (RULE 700.2 wrapped in RULE 603,
+      2026-07-16):** "When ~ enters, choose one —" on a permanent now
+      parses and binds — previously only a modal *spell*'s bare header
+      worked (`spec.py`'s `modes` was `spell_effect`-only). `spec.py`
+      now allows `modes` on `ability_kind == "triggered"` too.
+      `parser/oracle/catalogue/modal.py`'s bullet-collection loop
+      (`collect_mode_bodies`) was factored out of `split_modal_block` so
+      it can be shared; `gate.py` gained `_split_triggered_modal_block`,
+      which reuses `segmenter.py`'s trigger event/condition grammar
+      (`_TRIGGER_RE`/`_trigger_event`/`_trigger_condition` — the same
+      recognizer an ordinary triggered ability uses) to peel the trigger
+      wrapper *before* checking the remainder against
+      `MODAL_HEADER_RE`, then reuses the same per-bullet effect parsing
+      (`_parse_mode_options`, factored out of `_process_modal_block`) a
+      modal spell already had. `effect_binder.py`'s `bind_ability`
+      builds each mode's effects onto a new `TriggeredAbility.modes`
+      field (`_build_mode_entries`, factored out of `_attach_modes` so
+      spell and triggered modes share one binder path) instead of
+      `obj.spell_modes`, since a triggered ability's mode is chosen at a
+      different time than a spell's.
+
+      **Resolution is a new interactive choice**, not a cast-time
+      parameter: RULE 603.3's mode selection happens as the ability is
+      put on the stack, so `game/rules_engine.py`'s `_place_triggers`
+      now checks `ability.modes` *before* its existing target/"you may"
+      checks and opens a `trigger_mode` `pending_choice`
+      (`_trigger_mode_choice`/`resolve_trigger_mode_choice`) — generic
+      choice UI, no frontend changes needed beyond a cosmetic
+      `CHOICE_ICONS` entry (`gameBoardView.js`). Once a mode (or "both",
+      RULE 700.2e) is chosen, the *existing* target-choice machinery
+      still has to run against that mode's own effects — `_trigger_
+      target_spec`/`_place_triggers`'s per-item logic was generalized
+      from reading `ability.effects` to taking an arbitrary effects list
+      (`_place_or_pause_trigger`, replacing the old inline loop body),
+      and `_place_trigger` gained an `effects_override` parameter so the
+      placed `StackItem` carries the chosen mode's effects directly
+      instead of the `TriggeredAbility` wrapper (`StackItem._derive_
+      category` still classifies it as `"triggered_ability"` either way,
+      so nothing downstream needed to change). The ability's own shared,
+      reused-across-firings `effects` list is never mutated — the chosen
+      mode's effects flow through `_pending_trigger_effects`/`effects_
+      override` instead, the same "per-firing data without a per-firing
+      object" shape `targets` already used.
+
+      **Real-cache yield turned out much smaller than estimated**: the
+      pre-implementation processing-list ranking said "33 cards" for
+      this shape, but that count came from an *abstracted* clause
+      template (`"choose <n> —"`) that collapses this trigger-wrapped
+      case together with an unrelated one — a modal *spell* whose header
+      parses fine but one of its bullets doesn't (already-unclaimed
+      before this fix, for a different reason). A direct scan of the
+      live cache for the actual trigger-wrapped shape found only 6 cards
+      (Aether Channeler, Ao the Dawn Sky, Atsushi the Blazing Sky,
+      Charming Prince, Kura the Boundless Sky, Voracious Hydra), and all
+      6 remain `UNMODELED` regardless — each also needs at least one
+      other still-missing effect family in one of its modes (a "fight"
+      effect, RULE 701.12; a filtered/qualified bounce target like
+      "another target nonland permanent"; a flicker/exile-then-return
+      effect; "double this creature's own counters"). This fix is
+      correctness/architecture that any future modal-trigger card needs,
+      not a coverage-% win by itself — see `backend/ToDo_Backend.md` and
+      `10_COMPLETION_ROADMAP.md`'s M1 section for the follow-up effect
+      families it exposed. Tests: `test_modal_spells.py` (parser → spec
+      → binder → engine, including the `trigger_mode`/`trigger_target`
+      choice sequencing and "or both").
+
+- [x] **"Enters with N counters" replacement effect (RULE 614.1-style,
+      2026-07-16):** "~ enters (the battlefield) with N/X `<counter-type>`
+      counters on it." now parses and resolves. New
+      `parser/oracle/catalogue/counters.py` mirrors `catalogue/lands.py`'s
+      tapped-entry split: `entry_counters_condition(line)` classifies one
+      already-normalized oracle line, `entry_counters(card)` reads it off
+      a card's full text. Like tapped-entry, this clause isn't an effect
+      spec — `gate.py`'s `_process_line` claims the line without emitting
+      one (an ``X`` amount needs the object's *actual* paid X, RULE
+      107.3c, which the binder can't precompute onto a reusable spec), and
+      `game/ability_catalogue.entry_counters(card)` is the engine-facing
+      wrapper, the same split `land_tap_condition` uses — so the shapes
+      the gate claims and the shapes the engine resolves can never drift
+      apart.
+
+      Resolution is `RulesEngine._apply_entry_counters(obj, x_paid=0)`,
+      called at both existing `ability_catalogue.enters_tapped` call
+      sites right before the object is added to the battlefield (so the
+      counters are present when `ENTERS_BATTLEFIELD` fires and any
+      trigger/continuous pass reads them): `_resolve_permanent_spell`'s
+      `_finish()` (the cast-resolution path, passing `obj.x_paid` — set
+      by `RulesEngine.cast_spell` from the announced X, RULE 601.2b) and
+      `create_token`'s battlefield-entry branch (always `x_paid=0` — a
+      token was never cast). A fixed amount ("three +1/+1 counters"/"four
+      ice counters"/"a charge counter", "a"/"an" folding to 1) or the
+      variable "X" (0 if the object didn't just resolve off a cast-for-X)
+      works for any counter kind: `+1/+1`, `-1/-1`, or a bare word
+      (ice/charge/wish/study/…) — `GameObject.add_counters` already
+      handles the kind generically.
+
+      **Real-cache yield correction** (cross-checked against a direct
+      scan *before* committing to a number, applying the lesson the
+      modal-trigger batch above learned the hard way): the clause
+      actually appears on **23 cards**, not the 14 the abstracted
+      processing-list template suggested — the abstraction split the
+      X-amount and fixed-amount phrasings into two separate templates
+      that this one implementation covers together. Of those 23, only
+      **2** (Steelbane Hydra, Stonecoil Serpent) had no other unclaimed
+      line and so flip to fully `MODELED` immediately (cache-wide: 509 →
+      511 modeled, 20.3% → 20.4%); the other 21 — mostly Hydras (Walking
+      Ballista, Voracious Hydra, Hangarback Walker, Primordial Hydra,
+      Benevolent Hydra, Hungering Hydra, Hydroid Krasis, Kinetic Ooze,
+      Lifeblood Hydra, Genesis Hydra, Goldvein Hydra, Ingenious Prodigy,
+      The Goose Mother) plus Triskelion/Threefold Thunderhulk/Mossborn
+      Hydra/Thing in the Ice/Wishclaw Talisman/Transmogrifying
+      Wand/Mana Bloom/Lattice Library — still need one or more *other*
+      missing effect families (dies-triggers scaled by counter count,
+      upkeep-trigger counter-doubling, "fight", conditional-on-X effects,
+      activated abilities that remove a counter as a cost) before they're
+      fully modeled. Necessary-but-not-sufficient infrastructure for most
+      of them, the same shape the modal-trigger finding above had.
+      Tests: `test_oracle_counters.py` (clause recognition + coverage-gate
+      integration, incl. a fail-closed "unrelated unclaimed line stays
+      unclaimed" case), `test_entry_counters.py` (engine: fixed amount,
+      bare-word counter type, X amount uses the paid X, X=0 puts nothing,
+      an ordinary creature is unaffected).
+
+- [x] **Fourth land-tapped clause variant (2026-07-16):** "~ enters tapped
+      unless your opponents control N or more lands" (the "Turbulent" land
+      cycle) — distinct from the three `_UNLESS_*_RE` shapes
+      `catalogue/lands.py` already had: `_UNLESS_COUNT_RE`/`_UNLESS_
+      BASIC_COUNT_RE` count the *controller's own* other lands, and
+      `_UNLESS_OPPONENTS_RE` counts opponent *players*, not their lands.
+      New `_UNLESS_OPPONENTS_COUNT_RE`, same `cmp`("le"/"ge")/`count`
+      shape `unless_count` already returns, under a new
+      `unless_opponents_count` kind. `RulesEngine.enter_land_tapped`
+      gained the matching branch: sums lands across every player except
+      the controller (unlike the other `unless_count`-family branches,
+      which sum the controller's own battlefield) and compares against
+      `condition["count"]`.
+
+      Verified against the live cache *before* implementing (applying the
+      lesson the previous two batches' yield corrections taught): exactly
+      **5 cards** — the Turbulent Fen/Moor/Springs/Steppe/Wilderness
+      cycle — each with this as its *only* unclaimed line, so all 5 flip
+      to fully `MODELED` (cache-wide: 511 → 516 modeled, 20.4% → 20.6%).
+      Unlike the modal-trigger and enters-with-counters batches, this one
+      is a clean full-yield fix — no other missing effect family blocks
+      any of the 5 cards. Tests: `test_oracle_lands.py` (clause
+      recognition + gate-level `MODELED` integration),
+      `test_land_tap_conditions.py` (engine: too-few opponent lands stay
+      tapped, enough go untapped, the count sums across multiple
+      opponents, and the controller's own lands don't count toward it).
+
+- [x] **"Add 1 mana of any color" resolve-time colour choice (2026-07-16):**
+      a spell/activated/triggered ability's own bare "Add 1 mana of any
+      color." body — distinct from a permanent's *mana ability*
+      (`game/mana_abilities.py`), which already supported "any color" via
+      its pre-declared tap-for-mana options (a dual land, Elvish
+      Harbinger) and needed no changes here. New
+      `_ADD_MANA_ANY_COLOR_RE`/`_add_mana_any_color` handler in
+      `parser/oracle/catalogue/handlers.py`, tried before the existing
+      fixed-pip `_ADD_MANA_RE` (which has no `{…}` symbols to match this
+      shape anyway), emits `EffectSpec("add_mana", {"colors": ["any"]})`.
+      Deliberately narrow to the singular "1 mana" phrasing — real cards
+      templating a multi-mana version always say "any *one* color"
+      instead (Wirewood Channeler's `_WHERE_X_RE`-family shape, already
+      modeled on the mana-ability side, a different clause), so a bare
+      "add 2 mana of any color" is correctly left unclaimed rather than
+      guessed at.
+
+      `AddManaEffect` (`game/effects.py`) now treats a `colors` entry of
+      `"ANY"` (its constructor already uppercases every entry, so the
+      spec's lowercase `"any"` needs no special-casing there) as a
+      genuine resolve-time player decision instead of guessing:
+      `GameContext.add_mana_any_color` → new
+      `RulesEngine.add_mana_any_color` opens an `add_mana_any_color`
+      `pending_choice` (W/U/B/R/G options) — the same "an effect opens a
+      choice mid-`apply()`, the resolve loop naturally pauses there"
+      pattern `request_search`/`counter_unless_pays` already use, not a
+      new architecture. `resolve_add_mana_any_color_choice` finishes it;
+      a missing/invalid answer defaults to White rather than dropping the
+      mana entirely, the same "defaults instead of dropping" treatment
+      `resolve_trigger_mode_choice` (the modal-trigger batch above) gives
+      a missing mode answer. `GameEngine.resolve_pending_choice` and
+      `gameBoardView.js`'s `CHOICE_ICONS` got the matching dispatch/icon
+      entries — no other frontend change needed, the choice UI is generic.
+
+      **Real-cache yield: 0 cards** — predicted honestly before starting,
+      not a surprise: this was always framed as shared infrastructure
+      for Deathrite Shaman (still open, needs a "card in any graveyard"
+      target kind next — see `backend/ToDo_Backend.md`), not a
+      coverage-% play. Confirmed against the live cache: every real card
+      with this clause (Deathrite Shaman, Crystalline Crawler, Mana
+      Bloom, Fertile Ground) is still blocked by a *different* gap on the
+      same card — a "remove a counter from ~" activation-cost shape
+      `costs.py` doesn't parse yet (Crystalline Crawler, Mana Bloom — the
+      same gap Walking Ballista/Triskelion/Wishclaw Talisman/
+      Transmogrifying Wand were already found blocked on in earlier
+      batches, newly worth prioritizing), the not-yet-built graveyard
+      target kind (Deathrite Shaman), or an unrelated triggered-ability
+      event shape ("whenever enchanted land is tapped for mana", Fertile
+      Ground). Tests: `test_effect_families_wave3.py` (parser recognition
+      incl. the narrow-shape negatives, gate-level `MODELED` integration
+      on a synthetic card, engine: opens the choice/resolves to the
+      chosen colour/defaults to White on a missing answer).
+
+- [x] **Generalized graveyard-card targeting + Deathrite Shaman
+      (2026-07-16):** the Regrowth/Reanimate-shaped recursion family
+      (`graveyard_creature`) generalized from "creature, your own
+      graveyard, return-to-battlefield/hand only" to the full real-card
+      vocabulary: **card type** (any card/creature/land/artifact/
+      enchantment/instant-or-sorcery/permanent/nonland permanent) ×
+      **graveyard scope** (own/"a graveyard" — any single graveyard,
+      whosever/an opponent's specifically). New `game/targeting.py`
+      tables — `_GRAVEYARD_SCOPE_PREFIXES`, `_GRAVEYARD_TYPE_FILTERS`,
+      `_GRAVEYARD_TARGET_KINDS` (their cross product, e.g.
+      `any_graveyard_land`/`opponent_graveyard_creature`) — replace the
+      old single `if kind == "graveyard_creature"` branch in
+      `legal_targets` with one generic branch reading whichever
+      graveyard(s) the scope implies (own/all-but-controller's/all) and
+      filtering by the type predicate; `_graveyard_label` builds a German
+      `TargetSpec.label()` for any combination instead of a static dict.
+      No protection/hexproof filtering applies (a graveyard card isn't a
+      permanent/spell, so `_targetable_by` doesn't run there).
+
+      **Three new/generalized effects** on the parser side
+      (`catalogue/handlers.py`), all sharing a `_graveyard_target_kind
+      (type_word, scope_word)` helper that maps a matched clause's
+      card-type + scope words onto the right `_GRAVEYARD_TARGET_KINDS`
+      member:
+      - `return_from_graveyard` (generalized): "return target [type] card
+        from [scope] graveyard to the battlefield/your hand/its owner's
+        hand" *and* "put target [type] card from [scope] graveyard onto
+        the battlefield under **its owner's**  control" (Kenrith-shaped) —
+        both land under the card's own owner, so they share one builder.
+      - `reanimate_under_your_control` (new): "put target [type] card
+        from [scope] graveyard onto the battlefield under **your**
+        control" (Reanimate/Rise from the Grave/Virtue of Persistence) —
+        a genuinely different effect: the activating player steals
+        control regardless of whose graveyard the card came from.
+        `ReturnFromGraveyardEffect` gained a `under_your_control: bool`
+        flag; when set (and only for `destination="battlefield"` — real
+        cards never combine "under your control" with a hand
+        destination), `apply()` resolves the effect's own controller and
+        passes it through as `RulesEngine.return_from_graveyard`'s new
+        `controller_id` param, which stamps `obj.controller_id` before
+        the battlefield add (so triggers/layer effects see the new
+        controller immediately) while `obj.owner_id` stays untouched
+        (RULE 108.4/111.4: control and ownership are independent).
+      - `exile_from_graveyard` (new): "exile target [type] card from
+        [scope] graveyard" (RULE 701.5a) — the Deathrite Shaman/
+        Scavenging Ooze/Lion Sash graveyard-hate family. No new engine
+        code needed: `RulesEngine.exile`/`ExileEffect` already move an
+        object "from anywhere," including a graveyard.
+
+      **A genuinely missing effect family, surfaced by chasing Deathrite
+      Shaman's third ability to a real runtime test rather than stopping
+      at the parser claiming it `MODELED`**: "X loses N life" had *no*
+      handler or `EffectRegistry` entry at all (not even the plain
+      "target player loses N life"/"you lose N life" case — only
+      `gain_life` existed). Added `lose_life`/`lose_life_selector`
+      handlers (mirroring `gain_life`/`_damage_selector` exactly) and
+      registered `LoseLifeEffect` (which already existed, used internally
+      by Afflict, but was never reachable from the oracle parser) under
+      `"lose_life"`; `_LOSE_LIFE_SELECTORS` gives it the same "each
+      opponent"/"each player" mass-effect shape `DealDamageEffect`
+      already has (no "each creature" — life loss never targets one).
+
+      **A real, pre-existing correctness bug this surfaced and fixed**:
+      `GainLifeEffect`/`LoseLifeEffect`'s "controller, or a target player"
+      fallback read `targets[0]` from the ability/spell's *shared* target
+      list whenever their own `self.player` wasn't set — silently correct
+      only because no card previously combined one of these with an
+      unrelated *targeted* effect in the same chain. Deathrite Shaman's
+      third ability ("Exile target creature card from a graveyard. You
+      gain 2 life.") does exactly that: `targets[0]` was the exiled
+      *card*, not a player, crashing `RulesEngine.gain_life` with an
+      `AttributeError` the first time the ability actually resolved in a
+      test — the parser's fail-closed `MODELED` gate catches missing
+      coverage, not a runtime type mismatch inside effects it does claim.
+      Newly-unlocked real cards hit the identical shape (Infernal Grasp
+      "Destroy target creature. You lose 2 life.", Anguished Unmaking).
+      Fixed by dropping the `targets[0]` fallback entirely and using
+      `_controller_of(self.source, context)` instead — the same correct
+      "effect's own controller, defaulting to the active player" pattern
+      `AddManaEffect` already used (which is why *that* effect never hit
+      this bug). `LoseLifeEffect`'s `selector="defending_player"`
+      (Afflict) path is unaffected — it already resolved via
+      `_defending_player_of` before ever reaching the `targets` fallback.
+
+      **Real-cache yield, verified via a true before/after diff** (a
+      temporary monkeypatch reconstructing the pre-batch handler table,
+      since two batches now touch overlapping files/handler names in the
+      same session with no intermediate commit) — **19 cards newly fully
+      `MODELED`** (511 → 535 cumulative since Batch 3, this batch alone:
+      516 → 535, 20.6% → 21.3%): Deathrite Shaman (the batch's named
+      target), Eternal Witness, Regrowth, Sanctum Gargoyle, Trading Post,
+      Trash for Treasure, Restoration Seminar, Revolutionist, Pinnacle
+      Monk, Bala Ged Recovery, Buried Ruin, Colossal Skyturtle, Siege
+      Zombie, Cryptbreaker (the generalized graveyard family), plus — a
+      side benefit of the `lose_life` fix alone, no graveyard clause
+      involved — Anguished Unmaking, Infernal Grasp, Night's Whisper,
+      Read the Bones, Grim Tutor (well-known constructed/Commander
+      staples). Many more graveyard-shaped cards (Reanimate, Rise from
+      the Grave, Persist, Karmic Guide, Zombify, Puppeteer Clique, …)
+      still have the graveyard-targeting line claimed but remain
+      `UNMODELED` on a *different* line — a life-total-scaled amount
+      ("lose life equal to that card's mana value"), a `-1/-1`-counter
+      qualifier, "up to one target", a Leveler-adjacent corpse-counter
+      clause, etc. — necessary-but-not-sufficient infrastructure for
+      those, same shape as the modal-trigger/enters-with-counters
+      findings above.
+      Tests: `test_effect_families_wave3.py` (parser recognition for
+      every type/scope combination + fail-closed negatives, gate-level
+      `MODELED` integration, engine: `under_your_control` steals from an
+      opponent's graveyard while leaving ownership alone,
+      `LoseLifeEffect` selectors hit the right players, and a full
+      Deathrite Shaman oracle-text-to-engine test exercising all three
+      abilities — including the interactive `add_mana_any_color` choice
+      from the batch before this one).
+
+- [x] **Leveler-gated mana abilities (2026-07-16):** a Leveler's (RULE
+      711.4c) own mana ability, printed inside a `LEVEL n-m`/`n+` tier,
+      applied unconditionally regardless of the object's actual level —
+      Joraga Treespeaker's `{T}: Add {G}{G}.` (its `LEVEL 1-4` tier)
+      offered mana at level 0 (before levelling up at all) and stayed
+      available forever past level 5, when that tier's text instead
+      *grants* the ability to Elves (an unrelated, already-gated layer-6
+      static effect) rather than keeping one of its own. The exact
+      `min_level`/`max_level` gate `game/continuous.py` already applied to
+      a Leveler's *static* tiers (RULE 613.6, "as long as this object's
+      own level counter is in range") had never been extended to mana
+      abilities, since `mana_abilities.py` reads a card's raw oracle text
+      line-by-line with no awareness of `LEVEL` block boundaries at all.
+
+      `ManaAbility` (`game/mana_abilities.py`) gained `min_level`/
+      `max_level` fields (`None`/`None` — unconditional — for every
+      non-Leveler card, so no behaviour change there). `parse_mana_
+      abilities` now branches on `card.is_leveler`: a new
+      `_split_leveler_blocks_raw` (mirrors `parser/oracle/catalogue/
+      levels.split_leveler_blocks`'s block-splitting logic, but on *raw*,
+      mixed-case oracle text — `mana_abilities.py`'s own regexes like
+      `_ADD_CLAUSE_RE` are case-sensitive, unlike the normalized/lowercased
+      text `levels.py`'s version expects) splits the card into a preamble
+      plus its tiers, and the existing per-line parser (factored out
+      unchanged as `_parse_mana_ability_lines`) runs once per tier's body
+      text, tagging each resulting ability with that tier's range.
+      `mana_abilities_for` (the `GameObject`-level, actually-played-with
+      entry point) filters through a new `_leveler_tier_active(obj,
+      ability)`, reading `obj.counters.get("level", 0)` the same way
+      `continuous.py`'s static gate reads a source's own level counter.
+      `mana_options(card)` (the card-only, no-game-state display helper
+      used for static "what can this card make" UI queries) is
+      deliberately left unfiltered — it has no object/level to filter by,
+      so it still shows every tier's options, same as showing full card
+      text regardless of current game state.
+
+      **Real-cache yield**: exactly **1 card** — Joraga Treespeaker is the
+      only Leveler in the entire 2,507-card cache, and the only one with a
+      tier-nested mana ability at all (confirming the plan's own framing
+      of this as the smallest item in its bucket). Doesn't move the
+      parser coverage percentage (mana abilities are recognized outside
+      the `MODELED` gate entirely). Tests: `test_mana_abilities.py`'s new
+      `TestLevelerGatedManaAbilities` (tier tagging, level 0 has nothing,
+      levels 1 and 4 both offer it, level 5+ loses its own ability, and a
+      non-Leveler card is unaffected).
+
 ## Game Engine (Phase 3)
 
 `mtg_analyzer/game/game_engine.py`, tests in `test_game_engine.py`.

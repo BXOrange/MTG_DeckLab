@@ -121,14 +121,19 @@ class AbilitySpec:
     #: "quality": "red"}`` (docs/09 "Keyword abilities: the privileged
     #: fast-path handler class"). ``name`` is a catalogue slug (RULE 702.x).
     keyword: Optional[dict[str, Any]] = None
-    #: A modal spell's "Choose one —" block (RULE 700.2), ``spell_effect``
-    #: only: ``{"or_both": bool, "options": [[EffectSpec, ...], ...],
+    #: A modal "Choose one —" block (RULE 700.2), ``spell_effect`` or
+    #: ``triggered``: ``{"or_both": bool, "options": [[EffectSpec, ...], ...],
     #: "descriptions": [str, ...]}`` — one entry per printed mode, in
     #: printed order. ``or_both`` is RULE 700.2e ("Choose one or both —"):
-    #: the engine also offers casting both modes together. When set, the
-    #: ability carries no top-level ``effects`` of its own — each mode's
-    #: effects only apply once that mode is chosen (`game/game_engine.py`
-    #: offers one cast action per mode, like an MDFC's two faces).
+    #: the engine also offers casting/resolving both modes together. When
+    #: set, the ability carries no top-level ``effects`` of its own — each
+    #: mode's effects only apply once that mode is chosen. A ``spell_effect``
+    #: offers one cast action per mode (`game/game_engine.py`, like an MDFC's
+    #: two faces); a ``triggered`` ability's mode is instead chosen as it's
+    #: put on the stack (RULE 603.3), via a `trigger_mode` interactive choice
+    #: (`game/rules_engine.py`'s `_place_triggers`/`resolve_trigger_mode_
+    #: choice`) — the same "choice made before the target/optional choice"
+    #: ordering RULE 601.2c already uses for a spell's own mode.
     modes: Optional[dict[str, Any]] = None
     #: RULE 601.2b/604.3: a spell's "as an additional cost to cast this
     #: spell, <cost>." clause — ``spell_effect`` only, a single-key dict from
@@ -192,8 +197,10 @@ class AbilitySpec:
 
     def _validate_modes(self) -> None:
         """Structural check for a modal ``modes`` block (RULE 700.2)."""
-        if self.ability_kind != "spell_effect":
-            raise SpecValidationError("'modes' is only supported on spell_effect abilities")
+        if self.ability_kind not in ("spell_effect", "triggered"):
+            raise SpecValidationError(
+                "'modes' is only supported on spell_effect/triggered abilities"
+            )
         if not isinstance(self.modes, dict):
             raise SpecValidationError("'modes' must be a dict")
         options = self.modes.get("options")

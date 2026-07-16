@@ -110,6 +110,24 @@ def _gain_life(m: re.Match[str]) -> list[EffectSpec]:
     return [EffectSpec("gain_life", {"amount": int(m.group("n"))})]
 
 
+def _lose_life(m: re.Match[str]) -> list[EffectSpec]:
+    return [EffectSpec("lose_life", {"amount": int(m.group("n"))})]
+
+
+#: "each opponent loses N life" / "each player loses N life" — the same
+#: mass/untargeted-selector shape `_DAMAGE_SELECTOR_WORDS` uses (RULE
+#: 601.2c, not RULE 115 targeting — see that constant's note on why "each
+#: opponent"/"each player" stay out of the `TARGET` grammar).
+_LOSE_LIFE_SELECTOR_WORDS: dict[str, str] = {
+    "each player": "each_player", "each opponent": "each_opponent",
+}
+
+
+def _lose_life_selector(m: re.Match[str]) -> list[EffectSpec]:
+    selector = _LOSE_LIFE_SELECTOR_WORDS[m.group("selector")]
+    return [EffectSpec("lose_life", {"amount": int(m.group("n")), "selector": selector})]
+
+
 def _destroy(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     kind = resolve_target_kind(m.group("target"))
     if kind is None or kind not in ("creature", "permanent"):
@@ -191,21 +209,100 @@ def _return_to_hand(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     return [EffectSpec("return_to_hand", {"target_kind": kind})]
 
 
-#: "return target creature card from your graveyard to the battlefield" /
-#: "… to your hand" (RULE 701.3, the Regrowth/Reanimate-shaped recursion
-#: family) — a dedicated clause rather than reusing `TARGET`, since the
-#: "from your graveyard"/destination phrasing is specific to this template.
+#: A graveyard clause's card-*type* word, right before "card" — "target
+#: [instant or sorcery/nonland permanent/creature/artifact/enchantment/
+#: land/permanent] card", or no word at all for a bare "target card"
+#: (longest-alternative-first so "nonland permanent" wins over "permanent").
+_GRAVEYARD_TYPE_WORD = (
+    r"instant or sorcery|nonland permanent|creature|artifact|enchantment|land|permanent"
+)
+#: A graveyard clause's *scope* — whose graveyard — "your"/"a" (any single
+#: graveyard)/"an opponent's" (longest-alternative-first, same reason).
+_GRAVEYARD_SCOPE_WORD = r"an opponent'?s|your|a"
+#: Scope word → `targeting._GRAVEYARD_SCOPE_PREFIXES` key.
+_GRAVEYARD_SCOPE_KIND: dict[str, str] = {
+    "your": "graveyard", "a": "any_graveyard", "an opponents": "opponent_graveyard",
+}
+
+
+def _graveyard_target_kind(type_word: Optional[str], scope_word: str) -> Optional[str]:
+    """A graveyard clause's ``(type_word, scope_word)`` → engine
+    ``target_kind`` string (`game/targeting.py`'s `_GRAVEYARD_TARGET_KINDS`),
+    or ``None`` if either half isn't one of the recognised shapes."""
+    scope_key = _GRAVEYARD_SCOPE_KIND.get(re.sub(r"'", "", scope_word.strip().lower()))
+    if scope_key is None:
+        return None
+    type_key = {
+        "": "card", "instant or sorcery": "instant_or_sorcery",
+        "nonland permanent": "nonland_permanent",
+    }.get((type_word or "").strip().lower(), (type_word or "").strip().lower() or "card")
+    return f"{scope_key}_{type_key}"
+
+
+#: "return target [type] card from [scope] graveyard to the battlefield/
+#: your hand/its owner's hand" / "put target [type] card from [scope]
+#: graveyard onto the battlefield under its owner's control" (RULE 701.3,
+#: the Regrowth/Reanimate/Deathrite-adjacent recursion family — see
+#: `game/targeting.py`'s `_GRAVEYARD_TARGET_KINDS` for the scope × type
+#: vocabulary this claims). Both verb shapes land the object under its own
+#: *owner*'s control — the "steal it for yourself" shape is
+#: `_reanimate_under_your_control` below, a genuinely different effect.
 _RETURN_FROM_GRAVEYARD_RE = _c(
-    r"return target creature card from your graveyard to (?P<dest>the battlefield|your hand)"
+    rf"return target (?:(?P<type>{_GRAVEYARD_TYPE_WORD}) )?card from "
+    rf"(?P<scope>{_GRAVEYARD_SCOPE_WORD}) graveyard to "
+    r"(?P<dest>the battlefield|your hand|its owner'?s hand)"
+)
+_PUT_FROM_GRAVEYARD_OWNER_CONTROL_RE = _c(
+    rf"put target (?:(?P<type>{_GRAVEYARD_TYPE_WORD}) )?card from "
+    rf"(?P<scope>{_GRAVEYARD_SCOPE_WORD}) graveyard onto the battlefield under its owner'?s control"
 )
 
 
-def _return_from_graveyard(m: re.Match[str]) -> list[EffectSpec]:
-    destination = "battlefield" if m.group("dest") == "the battlefield" else "hand"
+def _return_from_graveyard(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    kind = _graveyard_target_kind(m.groupdict().get("type"), m.group("scope"))
+    if kind is None:
+        return None
+    dest = m.groupdict().get("dest")
+    destination = "battlefield" if dest is None or dest == "the battlefield" else "hand"
+    return [EffectSpec(
+        "return_from_graveyard", {"target_kind": kind, "destination": destination},
+    )]
+
+
+#: "put target [type] card from [scope] graveyard onto the battlefield
+#: under your control" (Reanimate/Rise from the Grave/Virtue of Persistence)
+#: — unlike the two shapes above, this one *steals* the card for the
+#: activating/casting player regardless of whose graveyard it came from.
+_REANIMATE_UNDER_YOUR_CONTROL_RE = _c(
+    rf"put target (?:(?P<type>{_GRAVEYARD_TYPE_WORD}) )?card from "
+    rf"(?P<scope>{_GRAVEYARD_SCOPE_WORD}) graveyard onto the battlefield under your control"
+)
+
+
+def _reanimate_under_your_control(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    kind = _graveyard_target_kind(m.groupdict().get("type"), m.group("scope"))
+    if kind is None:
+        return None
     return [EffectSpec(
         "return_from_graveyard",
-        {"target_kind": "graveyard_creature", "destination": destination},
+        {"target_kind": kind, "destination": "battlefield", "under_your_control": True},
     )]
+
+
+#: "exile target [type] card from [scope] graveyard" (RULE 701.5a) — the
+#: Deathrite Shaman/Scavenging Ooze/Lion Sash graveyard-hate family; almost
+#: always "a graveyard" in practice, but the same scope vocabulary applies.
+_EXILE_FROM_GRAVEYARD_RE = _c(
+    rf"exile target (?:(?P<type>{_GRAVEYARD_TYPE_WORD}) )?card from "
+    rf"(?P<scope>{_GRAVEYARD_SCOPE_WORD}) graveyard"
+)
+
+
+def _exile_from_graveyard(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    kind = _graveyard_target_kind(m.groupdict().get("type"), m.group("scope"))
+    if kind is None:
+        return None
+    return [EffectSpec("exile", {"target_kind": kind})]
 
 
 #: "search your library for a card, put that card into your hand, then
@@ -250,11 +347,22 @@ def _attach(m: re.Match[str]) -> Optional[list[EffectSpec]]:
 #: rather than guessed at (that's a player choice, not modeled yet).
 _MANA_SYMBOL = r"\{[wubrgc]\}"
 _ADD_MANA_RE = _c(rf"add (?P<syms>(?:{_MANA_SYMBOL}){{1,20}})")
+#: "add 1 mana of any color" (number words already folded to digits by
+#: `normalize`) — a genuine resolve-time player choice (RULE 106.4), unlike
+#: the fixed pip run above. Deliberately narrow: real cards only print this
+#: singular form (a multi-mana "any color" clause is always templated "any
+#: *one* color" instead, a different, not-yet-modeled shape — guessing it
+#: means the same thing here would be wrong).
+_ADD_MANA_ANY_COLOR_RE = _c(r"add 1 mana of any colou?r")
 
 
 def _add_mana(m: re.Match[str]) -> list[EffectSpec]:
     colors = [s.upper() for s in re.findall(r"\{([wubrgc])\}", m.group("syms"))]
     return [EffectSpec("add_mana", {"colors": colors})]
+
+
+def _add_mana_any_color(m: re.Match[str]) -> list[EffectSpec]:
+    return [EffectSpec("add_mana", {"colors": ["any"]})]
 
 
 def _transform(m: re.Match[str]) -> list[EffectSpec]:
@@ -454,6 +562,19 @@ HANDLERS: list[EffectHandler] = [
         _c(rf"(?:you )?gains? {NUMBER} life"),
         _gain_life,
     ),
+    # "you lose 2 life" / "target player loses 2 life"
+    EffectHandler(
+        "lose_life",
+        _c(rf"(?:you |target player )?loses? {NUMBER} life"),
+        _lose_life,
+    ),
+    # "each opponent loses 2 life" / "each player loses 2 life" (RULE
+    # 601.2c mass effect, Deathrite Shaman-shaped).
+    EffectHandler(
+        "lose_life_selector",
+        _c(rf"(?P<selector>each player|each opponent) loses? {NUMBER} life"),
+        _lose_life_selector,
+    ),
     # "destroy target creature" / "destroy target artifact"
     EffectHandler(
         "destroy",
@@ -509,12 +630,36 @@ HANDLERS: list[EffectHandler] = [
         _c(rf"return {TARGET} to its owner's hand"),
         _return_to_hand,
     ),
-    # "return target creature card from your graveyard to the battlefield"/
-    # "… to your hand" (RULE 701.3, Regrowth/Reanimate-shaped recursion).
+    # "return target [type] card from [scope] graveyard to the
+    # battlefield/your hand/its owner's hand" / "put target [type] card
+    # from [scope] graveyard onto the battlefield under its owner's
+    # control" (RULE 701.3, the Regrowth/Reanimate/Deathrite-adjacent
+    # recursion family — own/any/opponent graveyard scope).
     EffectHandler(
         "return_from_graveyard",
         _RETURN_FROM_GRAVEYARD_RE,
         _return_from_graveyard,
+    ),
+    EffectHandler(
+        "return_from_graveyard_owner_control",
+        _PUT_FROM_GRAVEYARD_OWNER_CONTROL_RE,
+        _return_from_graveyard,
+    ),
+    # "put target [type] card from [scope] graveyard onto the battlefield
+    # under your control" (Reanimate/Rise from the Grave/Virtue of
+    # Persistence) — a genuinely different effect from the two above: the
+    # activating player takes control, not the card's owner.
+    EffectHandler(
+        "reanimate_under_your_control",
+        _REANIMATE_UNDER_YOUR_CONTROL_RE,
+        _reanimate_under_your_control,
+    ),
+    # "exile target [type] card from [scope] graveyard" (RULE 701.5a,
+    # Deathrite Shaman/Scavenging Ooze/Lion Sash-shaped graveyard hate).
+    EffectHandler(
+        "exile_from_graveyard",
+        _EXILE_FROM_GRAVEYARD_RE,
+        _exile_from_graveyard,
     ),
     # "search your library for a card, put that card into your hand, then
     # shuffle." (RULE 701.19, an unrestricted tutor).
@@ -536,6 +681,14 @@ HANDLERS: list[EffectHandler] = [
         "attach",
         _c(rf"attach (?:it|{re.escape(SELF)}) to {TARGET}"),
         _attach,
+    ),
+    # "add 1 mana of any color" — a genuine resolve-time colour choice,
+    # tried before the fixed-pip pattern below since it has no {…} symbols
+    # for that one to (fail to) match anyway.
+    EffectHandler(
+        "add_mana_any_color",
+        _ADD_MANA_ANY_COLOR_RE,
+        _add_mana_any_color,
     ),
     # "add {b}{b}{b}." (Dark Ritual-shaped bare mana-symbol spell body).
     EffectHandler(

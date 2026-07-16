@@ -1,10 +1,15 @@
-"""Modal spells — "Choose one —" / "Choose one or both —" (RULE 700.2).
+"""Modal spells and triggered abilities — "Choose one —" / "Choose one or
+both —" (RULE 700.2).
 
 Covers the whole pipeline: the `gate.py` block grouper that recognises a
-"Choose one —" header plus its "• " mode lines (`parser/oracle/catalogue/
-modal.py`), the `AbilitySpec.modes` IR (`parser/oracle/spec.py`), the
-binder that turns it into `obj.spell_modes` (`game/effect_binder.py`), and
-the engine's per-mode cast offer/commit (`game/game_engine.py`).
+"Choose one —" header plus its "• " mode lines, bare (a modal spell) or
+trigger-wrapped (a permanent's modal triggered ability,
+`parser/oracle/catalogue/modal.py`), the `AbilitySpec.modes` IR
+(`parser/oracle/spec.py`), the binder that turns it into `obj.spell_modes`
+or a `TriggeredAbility.modes` (`game/effect_binder.py`), and the engine's
+per-mode cast offer/commit for a spell (`game/game_engine.py`) or the
+`trigger_mode` interactive choice for a triggered ability
+(`game/rules_engine.py`).
 """
 
 import pytest
@@ -12,6 +17,7 @@ import pytest
 from mtg_analyzer.models.card import Card
 from mtg_analyzer.models.game_object import GameObject, Zone
 from mtg_analyzer.game.effect_binder import attach_to_object, bind_from_catalogue
+from mtg_analyzer.game.effects import TriggeredAbility
 from mtg_analyzer.game.game_engine import GameEngine
 from mtg_analyzer.parser.oracle.gate import parse_oracle
 from mtg_analyzer.parser.oracle.spec import AbilitySpec, EffectSpec, SpecValidationError
@@ -125,13 +131,58 @@ def test_choose_one_or_more_is_not_this_grammar_and_stays_unclaimed():
     assert not result.modeled
 
 
-def test_modal_block_on_a_permanent_is_out_of_scope_and_unclaimed():
-    # Only instants/sorceries are grouped as modal spell blocks (RULE 700.2
-    # ETB triggers on a permanent aren't this shape yet).
+def test_modal_triggered_ability_on_a_permanent_is_claimed():
+    # A permanent's modal ETB trigger ("When ~ enters, choose one — …") is a
+    # trigger-wrapped sibling of the bare modal-spell header — claimed as a
+    # `triggered` spec carrying `modes`, not `spell_effect`.
     card = Card(
         id="Modal Permanent", name="Modal Permanent", type_line="Creature — Bear",
         is_creature=True, power=2, toughness=2,
         oracle_text="When ~ enters, choose one —\n• Deal 3 damage to any target.\n• Draw 2 cards.",
+    )
+    result = parse_oracle(card)
+    assert result.modeled
+    assert result.unclaimed == []
+    modal_specs = [s for s in result.specs if s.modes is not None]
+    assert len(modal_specs) == 1
+    spec = modal_specs[0]
+    assert spec.ability_kind == "triggered"
+    assert spec.effects == []
+    assert spec.trigger == {"event": "ENTERS_BATTLEFIELD", "condition": {"subject": "self"}}
+    assert spec.modes["or_both"] is False
+    assert len(spec.modes["options"]) == 2
+    assert spec.modes["options"][0][0].type == "damage"
+    assert spec.modes["options"][1][0].type == "draw"
+
+
+def test_modal_triggered_ability_with_one_unparseable_mode_stays_unmodeled():
+    card = Card(
+        id="Modal Permanent Bad", name="Modal Permanent Bad", type_line="Creature — Bear",
+        is_creature=True, power=2, toughness=2,
+        oracle_text=(
+            "When ~ enters, choose one —\n• Deal 3 damage to any target.\n"
+            "• Do something no handler recognizes whatsoever."
+        ),
+    )
+    result = parse_oracle(card)
+    assert not result.modeled
+    assert "when ~ enters, choose 1 —" in result.unclaimed
+    assert any("do something no handler" in u for u in result.unclaimed)
+    assert not any(s.modes is not None for s in result.specs)
+
+
+def test_modal_triggered_ability_needs_a_recognized_trigger_event():
+    # A trigger wrapper `_trigger_event` doesn't recognize (only enters/dies/
+    # attacks/blocks are modeled) leaves the whole block unclaimed rather than
+    # guessing a trigger — the ordinary trigger-recognition gate applies to a
+    # modal trigger's wrapper exactly like a non-modal one.
+    card = Card(
+        id="Modal Permanent Unknown Trigger", name="Modal Permanent Unknown Trigger",
+        type_line="Creature — Bear", is_creature=True, power=2, toughness=2,
+        oracle_text=(
+            "When you cast a spell, choose one —\n• Deal 3 damage to any target.\n"
+            "• Draw 2 cards."
+        ),
     )
     result = parse_oracle(card)
     assert not result.modeled
@@ -172,10 +223,26 @@ def test_ability_spec_modes_needs_at_least_two_options():
         spec.validate()
 
 
-def test_ability_spec_modes_only_supported_on_spell_effect():
+def test_ability_spec_modes_supported_on_triggered_too():
     spec = AbilitySpec(
         "triggered", trigger={"event": "ENTERS_BATTLEFIELD"},
-        effects=[EffectSpec("draw", {"count": 1})],
+        effects=[],
+        modes={
+            "or_both": False,
+            "options": [
+                [EffectSpec("draw", {"count": 1})],
+                [EffectSpec("draw", {"count": 2})],
+            ],
+            "descriptions": ["draw 1", "draw 2"],
+        },
+    )
+    spec.validate()  # does not raise
+
+
+def test_ability_spec_modes_rejected_on_activated():
+    spec = AbilitySpec(
+        "activated", effects=[],
+        cost={"text": "{2}"},
         modes={
             "or_both": False,
             "options": [
@@ -446,3 +513,196 @@ def test_cast_spell_action_rejects_a_missing_mode_via_the_session():
     restored_hand = {o.instance_id for o in session.engine.state.active_player.hand}
     assert restored_hand == hand_before
     assert spell_obj.instance_id in restored_hand
+
+
+# -- Triggered modal abilities (RULE 700.2 wrapped in RULE 603) --------------
+
+
+def _modal_etb_trigger(source):
+    """A "When ~ enters, choose one —" ability with a no-target mode 0
+    (gain 3 life) and a targeted mode 1 (destroy target permanent) —
+    mirrors `test_trigger_targeting.py`'s low-level construction pattern,
+    exercising `game/rules_engine.py`'s `trigger_mode` choice directly
+    rather than round-tripping through oracle text.
+    """
+    from mtg_analyzer.game.effects import DestroyEffect, GainLifeEffect
+
+    return TriggeredAbility(
+        trigger_event="ENTERS_BATTLEFIELD",
+        effects=[],
+        modes=[
+            {"effects": [GainLifeEffect(amount=3)], "description": "gain 3 life"},
+            {"effects": [DestroyEffect(source=source)], "description": "destroy target permanent"},
+        ],
+        controller_id=source.controller_id,
+        source=source,
+        description="modal ETB trigger",
+    )
+
+
+def _modal_etb_trigger_or_both(source):
+    """An "or both" (RULE 700.2e) variant with two *untargeted* modes (gain
+    life / draw a card) — real "or both" templating always pairs same-shape
+    modes (see `modal_pump_instant`'s two same-target spell modes), so this
+    keeps the "both" test from exercising the unrelated, pre-existing
+    "every effect on one ability shares one targets list" limitation a
+    target+no-target combination would hit (`_trigger_target_spec`'s "only
+    the first target_spec is meaningful")."""
+    from mtg_analyzer.game.effects import DrawCardEffect, GainLifeEffect
+
+    return TriggeredAbility(
+        trigger_event="ENTERS_BATTLEFIELD",
+        effects=[],
+        modes=[
+            {"effects": [GainLifeEffect(amount=3)], "description": "gain 3 life"},
+            {"effects": [DrawCardEffect(count=1)], "description": "draw a card"},
+        ],
+        modes_or_both=True,
+        controller_id=source.controller_id,
+        source=source,
+        description="modal ETB trigger (or both)",
+    )
+
+
+def test_modal_trigger_opens_a_trigger_mode_choice_first():
+    eng = make_engine()
+    eng.begin_turn()
+    source = _put(eng, creature("Source"))
+
+    eng.rules.pending_triggers = [(_modal_etb_trigger(source), None)]
+    eng.rules.put_triggers_on_stack()
+
+    assert not eng.state.stack  # not placed yet — awaiting the mode
+    choice = eng.state.pending_choice
+    assert choice["kind"] == "trigger_mode"
+    assert [o["label"] for o in choice["options"]] == ["gain 3 life", "destroy target permanent"]
+
+
+def test_choosing_a_no_target_mode_places_and_resolves_immediately():
+    eng = make_engine()
+    eng.begin_turn()
+    p1 = eng.state.player_by_id("p1")
+    source = _put(eng, creature("Source"))
+    life_before = p1.life
+
+    eng.rules.pending_triggers = [(_modal_etb_trigger(source), None)]
+    eng.rules.put_triggers_on_stack()
+    eng.rules.resolve_trigger_mode_choice("0")
+
+    assert eng.state.pending_choice is None
+    assert len(eng.state.stack) == 1
+    eng.resolve_until_stable()
+    assert p1.life == life_before + 3
+
+
+def test_choosing_a_targeted_mode_opens_the_target_choice_next():
+    eng = make_engine()
+    eng.begin_turn()
+    source = _put(eng, creature("Source"))
+    victim = _put(eng, creature("Victim"))
+
+    eng.rules.pending_triggers = [(_modal_etb_trigger(source), None)]
+    eng.rules.put_triggers_on_stack()
+    eng.rules.resolve_trigger_mode_choice("1")
+
+    assert not eng.state.stack  # still awaiting the target
+    choice = eng.state.pending_choice
+    assert choice["kind"] == "trigger_target"
+    victim_option = next(o for o in choice["options"] if o["instance_id"] == victim.instance_id)
+    assert source.instance_id not in {o.get("instance_id") for o in choice["options"]}
+
+    eng.rules.resolve_trigger_target_choice(victim_option["id"])
+    assert len(eng.state.stack) == 1
+    assert eng.state.stack[0].targets == [victim]
+    eng.resolve_until_stable()
+    assert victim not in eng.state.battlefield
+    assert source in eng.state.battlefield
+
+
+def test_missing_mode_answer_defaults_to_the_first_mode():
+    # RULE 700.2's mode choice is mandatory — an unrecognized/declined
+    # answer must still resolve, not silently drop the trigger.
+    eng = make_engine()
+    eng.begin_turn()
+    p1 = eng.state.player_by_id("p1")
+    source = _put(eng, creature("Source"))
+    life_before = p1.life
+
+    eng.rules.pending_triggers = [(_modal_etb_trigger(source), None)]
+    eng.rules.put_triggers_on_stack()
+    eng.rules.resolve_trigger_mode_choice(None)
+
+    eng.resolve_until_stable()
+    assert p1.life == life_before + 3  # mode 0, the first option
+
+
+def test_or_both_offers_a_combined_both_choice():
+    eng = make_engine(p1_library=[land(), land()])
+    eng.begin_turn()
+    p1 = eng.state.player_by_id("p1")
+    source = _put(eng, creature("Source"))
+    life_before = p1.life
+    hand_before = len(p1.hand)
+
+    eng.rules.pending_triggers = [(_modal_etb_trigger_or_both(source), None)]
+    eng.rules.put_triggers_on_stack()
+    choice = eng.state.pending_choice
+    assert {o["id"] for o in choice["options"]} == {"0", "1", "both"}
+
+    eng.rules.resolve_trigger_mode_choice("both")
+    # Neither mode needs a target — "both" places and resolves immediately,
+    # applying both modes' effects together (RULE 700.2e).
+    assert eng.state.pending_choice is None
+    assert len(eng.state.stack) == 1
+    eng.resolve_until_stable()
+    assert p1.life == life_before + 3
+    assert len(p1.hand) == hand_before + 1
+
+
+def test_choosing_one_mode_of_an_or_both_ability_applies_only_that_one():
+    eng = make_engine(p1_library=[land(), land()])
+    eng.begin_turn()
+    p1 = eng.state.player_by_id("p1")
+    source = _put(eng, creature("Source"))
+    life_before = p1.life
+    hand_before = len(p1.hand)
+
+    eng.rules.pending_triggers = [(_modal_etb_trigger_or_both(source), None)]
+    eng.rules.put_triggers_on_stack()
+    eng.rules.resolve_trigger_mode_choice("0")
+
+    eng.resolve_until_stable()
+    assert p1.life == life_before + 3
+    assert len(p1.hand) == hand_before  # mode 1 (draw) wasn't chosen
+
+
+def test_modal_triggered_ability_end_to_end_from_oracle_text():
+    """The full pipeline: oracle text → gate.py → spec.py → effect_binder.py
+    → a real firing through the event bus, no low-level construction."""
+    eng = make_engine()
+    eng.begin_turn()
+    p1 = eng.state.player_by_id("p1")
+    life_before = p1.life
+    card = Card(
+        id="Modal ETB Bear", name="Modal ETB Bear", type_line="Creature — Bear",
+        is_creature=True, power=2, toughness=2,
+        oracle_text="When ~ enters, choose one —\n• You gain 3 life.\n• Draw a card.",
+    )
+    obj = GameObject(card, owner_id="p1")
+    eng.state.player_by_id("p1").add_to_zone(obj, Zone.HAND)
+    hand_before = len(p1.hand) - 1  # excluding the creature itself
+
+    # Cast it as a permanent spell: resolves onto the battlefield, fires
+    # ENTERS_BATTLEFIELD, and its bound modal trigger should fire.
+    p1.mana_pool.add_many({"C": 10})
+    bind_from_catalogue(obj)
+    eng.state.current_step = "main1"
+    eng.cast_spell(p1, obj)
+    eng.resolve_until_stable()
+
+    choice = eng.state.pending_choice
+    assert choice is not None and choice["kind"] == "trigger_mode"
+    eng.rules.resolve_trigger_mode_choice("0")
+    eng.resolve_until_stable()
+    assert p1.life == life_before + 3
+    assert obj in eng.state.battlefield

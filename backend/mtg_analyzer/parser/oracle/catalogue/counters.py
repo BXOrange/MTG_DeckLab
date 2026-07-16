@@ -1,0 +1,92 @@
+"""RULE 614.1-style "enters with N counters" replacement-clause recognition
+(docs/09).
+
+Mirrors `catalogue/lands.py`'s tapped-entry machinery: an entry-counters
+clause isn't resolved through the generic effect-handler table
+(`catalogue/handlers.py`, step 3) because on an ``X`` amount it needs the
+object's *actual* paid X (RULE 107.3c: 0 if it didn't enter by being cast
+for X) at the moment it enters the battlefield — not a value the binder can
+precompute onto a reusable spec. The engine resolves it directly through
+`game/ability_catalogue.entry_counters`, the same split `lands.py` uses for
+tapped-entry.
+
+This module is the **single source of truth** for recognising these clauses;
+both the coverage gate (`gate.py`, claims the line without emitting a spec)
+and the engine-facing card-level API (`game/ability_catalogue.entry_counters`)
+call into it, so the shapes the gate claims and the shapes the engine
+resolves can never drift apart.
+
+Pure — **no `game/` imports** (front-end security boundary, docs/09).
+"""
+
+from __future__ import annotations
+
+import re
+from typing import Any, Optional
+
+from ..normalize import normalize
+
+#: A tapped-entry-style subject: the card's own name (already folded to "~"
+#: by `normalize`) or one of the literal subjects real cards print.
+_SUBJECT = r"(?:this creature|this artifact|this enchantment|this permanent|~)"
+_ENTERS = r"enters(?: the battlefield)?"
+#: "a"/"an" (=1), a bare number (number words are already folded to digits
+#: by `normalize`), or the variable "x".
+_AMOUNT = r"(a|an|x|\d+)"
+#: The counter's kind: "+1/+1"/"-1/-1" (number words are already folded to
+#: digits by `normalize`), or a bare word like "ice"/"charge".
+_COUNTER_TYPE = r"(\+\d+/\+\d+|-\d+/-\d+|[a-z]+)"
+
+#: "~ enters with X +1/+1 counters on it." / "this creature enters with
+#: three ice counters on it." / "this artifact enters with a charge counter
+#: on it." — 20+ cards across Hydras, counters-matter artifacts/enchantments.
+_ENTRY_COUNTERS_RE = re.compile(
+    rf"^{_SUBJECT} {_ENTERS} with {_AMOUNT} {_COUNTER_TYPE} counters? on it\.?$",
+    re.IGNORECASE,
+)
+
+
+def entry_counters_condition(line: str) -> Optional[dict[str, Any]]:
+    """Classify one **already-normalized** oracle line as a RULE 614.1-style
+    "enters with N counters" replacement clause, or ``None`` if it isn't one.
+
+    Full-matches the line — never claims a line with extra, unrecognized
+    text tacked onto a recognized shape (keeps the coverage gate fail-closed,
+    docs/09). Returns one of:
+
+    - ``{"is_x": True, "counter_type": "+1/+1"}`` — the amount is the
+      object's actual paid X (RULE 107.3c; 0 outside a cast-for-X).
+    - ``{"is_x": False, "count": N, "counter_type": "ice"}`` — a fixed
+      amount ("a"/"an" folds to 1).
+    """
+    match = _ENTRY_COUNTERS_RE.match(line)
+    if not match:
+        return None
+    amount_raw = match.group(1).lower()
+    counter_type = match.group(2).lower()
+    if amount_raw == "x":
+        return {"is_x": True, "counter_type": counter_type}
+    count = 1 if amount_raw in ("a", "an") else int(amount_raw)
+    return {"is_x": False, "count": count, "counter_type": counter_type}
+
+
+def entry_counters(card: Any) -> Optional[dict[str, Any]]:
+    """How ``card``'s RULE 614.1-style "enters with N counters" clause
+    resolves, read off its text — ``None`` if it has no such clause.
+
+    Normalizes the card's oracle text the same way the front-end pipeline
+    does (self-name folded to "~", reminder text stripped, number words
+    folded to digits — docs/09 step 1) and classifies each line with
+    `entry_counters_condition`, so the shapes recognised here can never
+    drift from the shapes the coverage gate (`gate.py`) claims.
+    """
+    text = getattr(card, "oracle_text", "") or ""
+    normalized = normalize(text, getattr(card, "name", None))
+    for line in normalized.split("\n"):
+        line = line.strip()
+        if not line:
+            continue
+        condition = entry_counters_condition(line)
+        if condition is not None:
+            return condition
+    return None

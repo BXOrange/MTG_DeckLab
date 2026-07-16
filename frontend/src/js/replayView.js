@@ -676,11 +676,24 @@ export function createReplayView() {
     const lands = top.filter((o) => !o.is_creature && o.is_land);
     const other = top.filter((o) => !o.is_creature && !o.is_land);
 
+    // A Reconfigure permanent is itself a legal Aura/Equipment target while
+    // unattached, then becomes non-creature "equipment" once attached to a
+    // host (RULE 702.151b) — so its own attachments form a second chain link
+    // (Aura/Equipment -> Reconfigure permanent -> host). Render that nested,
+    // rather than dropping it: only `top`-level hosts were being walked here,
+    // so anything attached to an *attachment* never appeared at all.
+    const renderAttached = (o) => {
+      const card = renderCard(o, p, s);
+      const nested = attachments.get(o.instance_id);
+      if (!nested || !nested.length) return card;
+      return card + nested.map(renderAttached).join('');
+    };
+
     const renderObj = (o) => {
       const host = renderCard(o, p, s);
       const atts = attachments.get(o.instance_id);
       if (!atts || !atts.length) return host;
-      const attached = atts.map((a) => renderCard(a, p, s)).join('');
+      const attached = atts.map(renderAttached).join('');
       return `<div class="gf-attach-group" title="Verbundene Karten (Aura/Ausrüstung)">${host}${attached}</div>`;
     };
 

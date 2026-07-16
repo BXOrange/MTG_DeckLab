@@ -18,13 +18,17 @@ recognition to `parser.oracle.catalogue.lands`, the coverage gate's own
 source of truth for these shapes), so every plain tap-land — and the shock/
 check/fast/slow/Battlebond-land conditional shapes `GameEngine.play_land`
 resolves via `RulesEngine.enter_land_tapped` — works without being registered.
+`entry_counters(card)` is the same split for a RULE 614.1-style "enters with
+N counters" clause (`parser.oracle.catalogue.counters`), resolved by
+`RulesEngine`'s battlefield-entry paths.
 """
 
 from __future__ import annotations
 
-from typing import Any, Callable
+from typing import Any, Callable, Optional
 
 from ..models.events import EventType
+from ..parser.oracle.catalogue.counters import entry_counters as _entry_counters
 from ..parser.oracle.catalogue.keywords import parse_keywords
 from ..parser.oracle.catalogue.lands import land_tap_condition as _land_tap_condition
 from ..parser.oracle.gate import parse_oracle
@@ -101,6 +105,9 @@ def land_tap_condition(card: Any) -> dict[str, Any]:
       controller controls compares as stated.
     - ``{"kind": "unless_opponents", "count": N}`` — a Commander
       "Battlebond" land: untapped iff the game has at least ``N`` opponents.
+    - ``{"kind": "unless_opponents_count", "cmp": "le" | "ge", "count": N}``
+      — the "Turbulent" land cycle: untapped iff the *total* count of lands
+      across all opponents compares as stated.
 
     The conditional shapes are deterministic on game/board state at entry —
     no player decision, unlike the shock land's payment. Delegates to the
@@ -118,6 +125,22 @@ def enters_tapped(card: Any) -> bool:
     fast/slow lands, see `land_tap_condition`) are *not* "always" and so
     read as ``False`` here; `GameEngine.play_land` resolves those properly."""
     return land_tap_condition(card)["kind"] == "always"
+
+
+def entry_counters(card: Any) -> Optional[dict[str, Any]]:
+    """``card``'s RULE 614.1-style "enters with N counters" clause, or
+    ``None`` if it has none. One of:
+
+    - ``{"is_x": True, "counter_type": "+1/+1"}`` — the amount is the
+      object's actual paid X (RULE 107.3c: 0 outside a cast-for-X).
+    - ``{"is_x": False, "count": N, "counter_type": "ice"}`` — a fixed
+      amount.
+
+    Delegates to `parser.oracle.catalogue.counters.entry_counters` (the
+    coverage gate's single source of truth for this clause shape), the same
+    split `land_tap_condition` uses for tapped-entry.
+    """
+    return _entry_counters(card)
 
 
 # ---------------------------------------------------------------------------

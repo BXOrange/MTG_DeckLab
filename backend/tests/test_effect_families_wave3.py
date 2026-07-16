@@ -19,8 +19,10 @@ from mtg_analyzer.models.game_state import GameState
 from mtg_analyzer.models.player import Player
 from mtg_analyzer.game.effect_binder import attach_to_object, bind_from_catalogue
 from mtg_analyzer.game.effects import EffectRegistry
+from mtg_analyzer.game.game_engine import GameEngine
 from mtg_analyzer.game.rules_engine import RulesEngine
 from mtg_analyzer.game.targeting import ALLOWED_TARGET_KINDS, requirements_with_targets
+from mtg_analyzer.parser.oracle.gate import MODELED, parse_oracle
 from mtg_analyzer.parser.oracle.segmenter import parse_effect_body
 from mtg_analyzer.parser.oracle.spec import AbilitySpec, EffectSpec
 
@@ -108,10 +110,118 @@ def test_return_from_graveyard_recognizes_battlefield_and_hand_destinations():
     assert regrowth.params == {"target_kind": "graveyard_creature", "destination": "hand"}
 
 
-def test_return_from_graveyard_fails_closed_on_the_wrong_card_type():
-    assert parse_effect_body(
+def test_return_from_graveyard_recognizes_any_card_type():
+    # Generalized (2026-07-16) from a creature-only, own-graveyard-only
+    # clause to the full Regrowth/Reanimate/Deathrite-adjacent family —
+    # card type × graveyard scope, see game/targeting.py's
+    # `_GRAVEYARD_TARGET_KINDS`.
+    artifact = parse_effect_body(
         "return target artifact card from your graveyard to the battlefield"
+    )[0]
+    assert artifact.params == {"target_kind": "graveyard_artifact", "destination": "battlefield"}
+
+    bare_card = parse_effect_body("return target card from your graveyard to your hand")[0]
+    assert bare_card.params == {"target_kind": "graveyard_card", "destination": "hand"}
+
+    instant_or_sorcery = parse_effect_body(
+        "return target instant or sorcery card from your graveyard to your hand"
+    )[0]
+    assert instant_or_sorcery.params == {
+        "target_kind": "graveyard_instant_or_sorcery", "destination": "hand",
+    }
+
+    nonland_permanent = parse_effect_body(
+        "return target nonland permanent card from your graveyard to the battlefield"
+    )[0]
+    assert nonland_permanent.params == {
+        "target_kind": "graveyard_nonland_permanent", "destination": "battlefield",
+    }
+
+
+def test_return_from_graveyard_recognizes_any_and_opponent_scope():
+    any_scope = parse_effect_body(
+        "return target creature card from a graveyard to its owner's hand"
+    )[0]
+    assert any_scope.params == {"target_kind": "any_graveyard_creature", "destination": "hand"}
+
+    opponent_scope = parse_effect_body(
+        "return target land card from an opponent's graveyard to the battlefield"
+    )[0]
+    assert opponent_scope.params == {
+        "target_kind": "opponent_graveyard_land", "destination": "battlefield",
+    }
+
+
+def test_return_from_graveyard_fails_closed_on_an_unrecognized_shape():
+    # A qualifier this batch doesn't model (mana value, "nonlegendary", …)
+    # correctly stays unclaimed rather than guessed at.
+    assert parse_effect_body(
+        "return target creature card with mana value 2 from your graveyard to the battlefield"
     ) is None
+    assert parse_effect_body(
+        "return target nonlegendary creature card from your graveyard to the battlefield"
+    ) is None
+
+
+def test_put_from_graveyard_under_its_owners_control_reuses_return_from_graveyard():
+    # "put … onto the battlefield under its owner's control" (Kenrith) is
+    # the same effect as "return … to the battlefield" (Karmic Guide) —
+    # both leave the card under its own owner's control.
+    kenrith_shape = parse_effect_body(
+        "put target creature card from a graveyard onto the battlefield under its owner's control"
+    )[0]
+    assert kenrith_shape.type == "return_from_graveyard"
+    assert kenrith_shape.params == {
+        "target_kind": "any_graveyard_creature", "destination": "battlefield",
+    }
+
+
+def test_reanimate_under_your_control_recognizes_the_steal_shape():
+    reanimate = parse_effect_body(
+        "put target creature card from a graveyard onto the battlefield under your control"
+    )[0]
+    assert reanimate.type == "return_from_graveyard"
+    assert reanimate.params == {
+        "target_kind": "any_graveyard_creature",
+        "destination": "battlefield",
+        "under_your_control": True,
+    }
+
+    puppeteer_clique_shape = parse_effect_body(
+        "put target creature card from an opponent's graveyard onto the battlefield under your control"
+    )[0]
+    assert puppeteer_clique_shape.params == {
+        "target_kind": "opponent_graveyard_creature",
+        "destination": "battlefield",
+        "under_your_control": True,
+    }
+
+
+def test_exile_from_graveyard_recognizes_type_and_scope():
+    bare = parse_effect_body("exile target card from a graveyard")[0]
+    assert bare.type == "exile"
+    assert bare.params == {"target_kind": "any_graveyard_card"}
+
+    land = parse_effect_body("exile target land card from a graveyard")[0]
+    assert land.params == {"target_kind": "any_graveyard_land"}
+
+    own = parse_effect_body("exile target creature card from your graveyard")[0]
+    assert own.params == {"target_kind": "graveyard_creature"}
+
+
+def test_lose_life_recognizes_plain_and_selector_forms():
+    plain = parse_effect_body("you lose 2 life")[0]
+    assert plain.type == "lose_life"
+    assert plain.params == {"amount": 2}
+
+    targeted = parse_effect_body("target player loses 3 life")[0]
+    assert targeted.params == {"amount": 3}
+
+    each_opponent = parse_effect_body("each opponent loses 2 life")[0]
+    assert each_opponent.params == {"amount": 2, "selector": "each_opponent"}
+
+    each_player = parse_effect_body("each player loses 1 life")[0]
+    assert each_player.params == {"amount": 1, "selector": "each_player"}
 
 
 def test_search_handlers_recognize_the_unrestricted_tutor_and_basic_land_fetch():
@@ -136,12 +246,31 @@ def test_search_handler_fails_closed_on_a_mana_value_qualifier():
     ) is None
 
 
-def test_add_mana_handler_recognizes_a_pure_symbol_run_and_rejects_a_choice():
+def test_add_mana_handler_recognizes_a_pure_symbol_run():
     ritual = parse_effect_body("add {b}{b}{b}")[0]
     assert ritual.type == "add_mana"
     assert ritual.params == {"colors": ["B", "B", "B"]}
-    # "add 1 mana of any color" is a player choice, not modeled — fail-closed.
-    assert parse_effect_body("add 1 mana of any color") is None
+
+
+def test_add_mana_handler_recognizes_any_color():
+    # A genuine resolve-time player choice (RULE 106.4) — recognized as its
+    # own clause shape, resolved interactively by the engine
+    # (`RulesEngine.add_mana_any_color`), not guessed at by the parser.
+    any_color = parse_effect_body("add 1 mana of any color")[0]
+    assert any_color.type == "add_mana"
+    assert any_color.params == {"colors": ["any"]}
+    # Deliberately narrow: a multi-mana "any color" clause is always
+    # templated "any *one* color" instead — a different, unclaimed shape.
+    assert parse_effect_body("add 2 mana of any color") is None
+    assert parse_effect_body("add 2 mana of any one color") is None
+
+
+def test_gate_claims_a_bare_add_any_color_spell_as_modeled():
+    card = Card(id="Test Ritual", name="Test Ritual", type_line="Instant",
+                is_instant=True, oracle_text="Add one mana of any color.")
+    result = parse_oracle(card)
+    assert result.coverage == MODELED
+    assert result.unclaimed == []
 
 
 def test_attach_handler_recognizes_an_equipments_own_etb_self_attach():
@@ -170,7 +299,11 @@ def test_damage_selector_handler_recognizes_each_creature_player_and_opponent():
 
 
 def test_new_target_kinds_are_registered_and_each_x_stays_out_of_target_grammar():
-    assert {"creature_you_control", "land_you_control", "graveyard_creature"} <= ALLOWED_TARGET_KINDS
+    assert {
+        "creature_you_control", "land_you_control", "graveyard_creature",
+        "graveyard_card", "any_graveyard_creature", "any_graveyard_land",
+        "opponent_graveyard_creature", "opponent_graveyard_card",
+    } <= ALLOWED_TARGET_KINDS
     # "each opponent"/"each player" are mass selectors, not RULE 115 targets —
     # a generic destroy/exile/tap handler must not (wrongly) accept them as a
     # single chosen "player" target via the shared TARGET grammar.
@@ -304,6 +437,121 @@ def test_reanimate_spell_end_to_end_targets_a_graveyard_creature():
     assert dead_obj.summoning_sick is True
 
 
+def test_reanimate_under_your_control_steals_from_an_opponents_graveyard():
+    # RULE 115/701.3: "put target creature card from a graveyard onto the
+    # battlefield under your control" — p1 casts it, but the creature was
+    # p2's; p1 takes control while p2 stays the owner (RULE 108.4/109.4).
+    engine, state, p1, p2 = _rules()
+    opp_dead = GameObject(_bear("Opponent's Bear", power=3, toughness=3), owner_id="p2",
+                           zone=Zone.GRAVEYARD)
+    p2.add_to_zone(opp_dead, Zone.GRAVEYARD)
+
+    reanimate = _spell(
+        "Test Reanimate", "Put target creature card from a graveyard onto the "
+        "battlefield under your control.",
+        [EffectSpec("return_from_graveyard", {
+            "target_kind": "any_graveyard_creature", "destination": "battlefield",
+            "under_your_control": True,
+        })],
+        target={"kind": "any_graveyard_creature"},
+    )
+    p1.hand.append(reanimate)
+
+    reqs = requirements_with_targets(state, "p1", reanimate)
+    assert {o["instance_id"] for o in reqs[0]["options"]} == {opp_dead.instance_id}
+
+    engine.cast_spell(p1, reanimate, targets=[opp_dead])
+    engine.resolve_top_of_stack()
+
+    assert opp_dead in state.battlefield
+    assert opp_dead.controller_id == "p1"  # stolen
+    assert opp_dead.owner_id == "p2"  # still p2's card
+
+
+def test_lose_life_effect_selectors_hit_the_right_players():
+    from mtg_analyzer.game.effects import GameContext, LoseLifeEffect
+
+    engine, state, p1, p2 = _rules()
+    ctx = GameContext(state, engine)
+    source = GameObject(_bear("Drainer"), owner_id="p1", zone=Zone.BATTLEFIELD)
+
+    LoseLifeEffect(amount=2, selector="each_opponent", source=source).apply(ctx)
+    assert p1.life == 20 and p2.life == 18  # controller excluded
+
+    LoseLifeEffect(amount=1, selector="each_player", source=source).apply(ctx)
+    assert p1.life == 19 and p2.life == 17  # everyone included
+
+
+# ---------------------------------------------------------------------------
+# ENGINE: Deathrite Shaman — full oracle-text end-to-end (RULE 605.1a's
+# excluded-from-mana-abilities shape, exercising the graveyard-targeting +
+# "add mana of any colour" + lose_life primitives together)
+# ---------------------------------------------------------------------------
+
+
+def test_deathrite_shaman_end_to_end_from_real_oracle_text():
+    deathrite_card = Card(
+        id="Deathrite Shaman", name="Deathrite Shaman", type_line="Creature — Elf Shaman",
+        is_creature=True, power=2, toughness=1,
+        oracle_text=(
+            "{T}: Exile target land card from a graveyard. Add one mana of any color.\n"
+            "{B}, {T}: Exile target instant or sorcery card from a graveyard. "
+            "Each opponent loses 2 life.\n"
+            "{G}, {T}: Exile target creature card from a graveyard. You gain 2 life."
+        ),
+    )
+    # Fully MODELED end to end: bind_from_catalogue must reach the oracle
+    # parser (no hand-authored catalogue entry for this name).
+    result = parse_oracle(deathrite_card)
+    assert result.coverage == MODELED
+
+    p1 = Player(id="p1", life=20)
+    p2 = Player(id="p2", life=20)
+    state = GameState(players=[p1, p2])
+    engine = GameEngine(state)
+
+    deathrite = _bf(state, deathrite_card)
+    bind_from_catalogue(deathrite)
+    assert len(deathrite.activated_abilities) == 3
+
+    dead_land = GameObject(_land("Dead Forest"), owner_id="p2", zone=Zone.GRAVEYARD)
+    p2.add_to_zone(dead_land, Zone.GRAVEYARD)
+    dead_instant = GameObject(
+        Card(id="Dead Bolt", name="Dead Bolt", type_line="Instant", is_instant=True),
+        owner_id="p1", zone=Zone.GRAVEYARD,
+    )
+    p1.add_to_zone(dead_instant, Zone.GRAVEYARD)
+    dead_creature = GameObject(_bear("Dead Bear"), owner_id="p1", zone=Zone.GRAVEYARD)
+    p1.add_to_zone(dead_creature, Zone.GRAVEYARD)
+
+    # Ability 0: exile a land from any graveyard, add mana of a chosen colour.
+    engine.activate_ability(p1, deathrite, ability_index=0, targets=[dead_land])
+    engine.rules.resolve_top_of_stack()
+    assert dead_land.zone == Zone.EXILE
+    choice = state.pending_choice
+    assert choice["kind"] == "add_mana_any_color"
+    engine.rules.resolve_add_mana_any_color_choice("G")
+    assert p1.mana_pool.pool["G"] == 1
+
+    deathrite.tapped = False  # simulate untapping for the next ability in this test
+
+    # Ability 1: exile an instant/sorcery from your own graveyard, drain opponents.
+    p1.mana_pool.add("B", 1)
+    engine.activate_ability(p1, deathrite, ability_index=1, targets=[dead_instant])
+    engine.rules.resolve_top_of_stack()
+    assert dead_instant.zone == Zone.EXILE
+    assert p2.life == 18
+
+    deathrite.tapped = False
+
+    # Ability 2: exile a creature from your own graveyard, gain life.
+    p1.mana_pool.add("G", 1)
+    engine.activate_ability(p1, deathrite, ability_index=2, targets=[dead_creature])
+    engine.rules.resolve_top_of_stack()
+    assert dead_creature.zone == Zone.EXILE
+    assert p1.life == 22
+
+
 # ---------------------------------------------------------------------------
 # ENGINE: search-to-hand (existing "search" effect, new recognition)
 # ---------------------------------------------------------------------------
@@ -374,6 +622,43 @@ def test_dark_ritual_end_to_end_adds_black_mana_to_the_pool():
     engine.resolve_top_of_stack()
 
     assert p1.mana_pool.pool["B"] == 3
+
+
+def test_add_mana_any_color_opens_an_interactive_choice():
+    engine, state, p1, p2 = _rules()
+    spell = _spell("Test Any Color Ritual", "Add 1 mana of any color.",
+                    [EffectSpec("add_mana", {"colors": ["any"]})])
+    p1.hand.append(spell)
+
+    engine.cast_spell(p1, spell)
+    engine.resolve_top_of_stack()
+
+    # Resolving the effect pauses on a mandatory colour choice rather than
+    # guessing — nothing is added to the pool yet.
+    assert sum(p1.mana_pool.pool.values()) == 0
+    choice = state.pending_choice
+    assert choice is not None
+    assert choice["kind"] == "add_mana_any_color"
+    assert choice["player_id"] == "p1"
+    assert {opt["id"] for opt in choice["options"]} == {"W", "U", "B", "R", "G"}
+
+    engine.resolve_add_mana_any_color_choice("R")
+
+    assert state.pending_choice is None
+    assert p1.mana_pool.pool["R"] == 1
+
+
+def test_add_mana_any_color_missing_answer_defaults_to_white():
+    engine, state, p1, p2 = _rules()
+    spell = _spell("Test Any Color Ritual", "Add 1 mana of any color.",
+                    [EffectSpec("add_mana", {"colors": ["any"]})])
+    p1.hand.append(spell)
+
+    engine.cast_spell(p1, spell)
+    engine.resolve_top_of_stack()
+    engine.resolve_add_mana_any_color_choice(None)
+
+    assert p1.mana_pool.pool["W"] == 1
 
 
 # ---------------------------------------------------------------------------

@@ -63,6 +63,15 @@ _UNLESS_TYPES_RE = re.compile(
     rf"^{_SUBJECT} {_ENTERS} tapped unless you control an? (.+?)\.?$",
     re.IGNORECASE,
 )
+#: A fourth "unless" variant counting the *opponents'* lands rather than the
+#: controller's own (distinct from `_UNLESS_COUNT_RE`, "you control", and
+#: `_UNLESS_OPPONENTS_RE`, which counts opponent *players*, not lands) — the
+#: "Turbulent" land cycle: "~ enters tapped unless your opponents control N
+#: or more lands."
+_UNLESS_OPPONENTS_COUNT_RE = re.compile(
+    rf"^{_SUBJECT} {_ENTERS} tapped unless your opponents control (\d+) or (more|fewer) lands\.?$",
+    re.IGNORECASE,
+)
 
 
 def _split_types_clause(clause: str) -> list[str]:
@@ -96,10 +105,18 @@ def tap_clause_condition(line: str) -> Optional[dict[str, Any]]:
     - ``{"kind": "unless_opponents", "count": N}`` — a Commander
       "Battlebond" land: untapped iff the game has at least ``N`` opponents
       of the controller.
+    - ``{"kind": "unless_opponents_count", "cmp": "le" | "ge", "count": N}``
+      — the "Turbulent" land cycle: untapped iff the *total* count of lands
+      across all opponents compares as stated (unlike ``unless_count``,
+      which counts the controller's own other lands).
     """
     match = _PAY_LIFE_RE.match(line)
     if match:
         return {"kind": "pay_life", "amount": int(match.group(1))}
+    match = _UNLESS_OPPONENTS_COUNT_RE.match(line)
+    if match:
+        cmp_op = "le" if match.group(2).lower() == "fewer" else "ge"
+        return {"kind": "unless_opponents_count", "cmp": cmp_op, "count": int(match.group(1))}
     match = _UNLESS_OPPONENTS_RE.match(line)
     if match:
         return {"kind": "unless_opponents", "count": int(match.group(1))}

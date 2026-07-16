@@ -293,9 +293,12 @@ def bind_ability(
 
     if spec.ability_kind == "triggered":
         assert spec.trigger is not None  # validate() guarantees this
+        modes = _build_mode_entries(spec.modes, source) if spec.modes else None
         return TriggeredAbility(
             trigger_event=spec.trigger["event"],
             effects=effects,
+            modes=modes,
+            modes_or_both=bool(spec.modes.get("or_both", False)) if spec.modes else False,
             condition=_trigger_condition(spec.trigger, source),
             optional=spec.optional,
             controller_id=getattr(source, "controller_id", None),
@@ -468,6 +471,20 @@ def _keyword_triggered_abilities(obj: Any, spec: AbilitySpec) -> list[TriggeredA
     return []
 
 
+def _build_mode_entries(modes: dict[str, Any], source: Any) -> list[dict[str, Any]]:
+    """Bind each mode's effects (RULE 700.2) into ``{"effects": [GameEffect,
+    ...], "description": str}`` entries, one per printed mode — shared by a
+    modal spell's ``obj.spell_modes`` (`_attach_modes`) and a modal
+    triggered ability's own ``TriggeredAbility.modes``
+    (`bind_ability`'s ``triggered`` branch)."""
+    return [
+        {"effects": build_effects(option, source), "description": description}
+        for option, description in zip(
+            modes.get("options", []), modes.get("descriptions") or []
+        )
+    ]
+
+
 def _attach_modes(obj: Any, modes: dict[str, Any]) -> None:
     """Bind a modal spell's "Choose one —" options onto ``obj`` (RULE 700.2).
 
@@ -481,12 +498,7 @@ def _attach_modes(obj: Any, modes: dict[str, Any]) -> None:
     targeting/resolution machinery (which reads that attribute) needs no
     change to be modal-aware.
     """
-    entries = [
-        {"effects": build_effects(option, obj), "description": description}
-        for option, description in zip(
-            modes.get("options", []), modes.get("descriptions") or []
-        )
-    ]
+    entries = _build_mode_entries(modes, obj)
     existing = list(getattr(obj, "spell_modes", None) or [])
     obj.spell_modes = existing + entries
     obj.spell_modes_or_both = bool(modes.get("or_both", False))

@@ -44,6 +44,27 @@ def test_battlebond_unless_opponents():
     assert tap_clause_condition(line) == {"kind": "unless_opponents", "count": 2}
 
 
+def test_turbulent_land_unless_opponents_control_lands():
+    # Distinct from `unless_opponents` (opponent *player* count) and
+    # `unless_count` (the controller's *own* lands) — this one counts the
+    # opponents' total lands.
+    line = "this land enters tapped unless your opponents control 8 or more lands."
+    assert tap_clause_condition(line) == {
+        "kind": "unless_opponents_count",
+        "cmp": "ge",
+        "count": 8,
+    }
+
+
+def test_turbulent_land_fewer_variant():
+    line = "this land enters tapped unless your opponents control 3 or fewer lands."
+    assert tap_clause_condition(line) == {
+        "kind": "unless_opponents_count",
+        "cmp": "le",
+        "count": 3,
+    }
+
+
 def test_fast_land_unless_count_fewer_other_lands():
     line = "this land enters tapped unless you control 2 or fewer other lands."
     assert tap_clause_condition(line) == {"kind": "unless_count", "cmp": "le", "count": 2}
@@ -138,6 +159,16 @@ def test_gate_claims_basic_count_land_as_modeled():
         "Hypothetical Basic-Counting Land",
         "This land enters tapped unless you control two or more basic lands.\n"
         "{T}: Add {B} or {G}.",
+    )
+    result = parse_oracle(card)
+    assert result.coverage == MODELED
+
+
+def test_gate_claims_turbulent_land_as_modeled():
+    card = _land(
+        "Turbulent Fen",
+        "This land enters tapped unless your opponents control eight or more lands.\n"
+        "{T}: Add {B} or {R}.",
     )
     result = parse_oracle(card)
     assert result.coverage == MODELED

@@ -53,7 +53,7 @@ const CHOICE_ICONS = {
   search: '🔎', cascade: '🌊', discover: '🔮', replacement_order: '⚖️',
   land_tapped: '💧', order_triggers: '🔀', trigger_target: '🎯',
   enter_as_copy: '🪞', counter_unless_pays: '🚫', ward: '🛡️',
-  commander_zone: '👑',
+  commander_zone: '👑', trigger_mode: '🎭', add_mana_any_color: '💎',
 };
 
 /**
@@ -665,14 +665,25 @@ export function createGameBoardView(opts = {}) {
     const lands = top.filter((o) => !o.is_creature && o.is_land);
     const other = top.filter((o) => !o.is_creature && !o.is_land);
 
+    // A Reconfigure permanent is itself a legal Aura/Equipment target while
+    // unattached, then becomes non-creature "equipment" once attached to a
+    // host (RULE 702.151b) — so its own attachments form a second chain link
+    // (Aura/Equipment -> Reconfigure permanent -> host). Render that nested,
+    // rather than dropping it: only `top`-level hosts were being walked here,
+    // so anything attached to an *attachment* never appeared at all.
+    const renderAttached = (o) => {
+      const card = objCard(o, imageCache, pending ? [] : byInstance[o.instance_id] || []);
+      const nested = attachments.get(o.instance_id);
+      if (!nested || !nested.length) return card;
+      return card + nested.map(renderAttached).join('');
+    };
+
     const renderObj = (o) => {
       const actions = pending ? [] : byInstance[o.instance_id] || [];
       const host = objCard(o, imageCache, actions);
       const atts = attachments.get(o.instance_id);
       if (!atts || !atts.length) return host;
-      const attached = atts
-        .map((a) => objCard(a, imageCache, pending ? [] : byInstance[a.instance_id] || []))
-        .join('');
+      const attached = atts.map(renderAttached).join('');
       return `<div class="gf-attach-group" title="Verbundene Karten (Aura/Ausrüstung)">${host}${attached}</div>`;
     };
 

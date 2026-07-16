@@ -1,9 +1,10 @@
 """Engine-side behaviour tests for the RULE 614.1 tapped-entry kinds the
 oracle-text front-end (`parser/oracle/catalogue/lands.py`) newly claims:
-Commander "Battlebond" lands (``unless_opponents``) and the basic-land-
-counting fast/slow-land variant (``unless_count`` with ``basic: True``).
-The pre-existing kinds (always/pay_life/unless_types/unless_count) are
-already covered by `test_ability_catalogue.py`.
+Commander "Battlebond" lands (``unless_opponents``), the basic-land-
+counting fast/slow-land variant (``unless_count`` with ``basic: True``),
+and the "Turbulent" land cycle's opponents'-lands-count variant
+(``unless_opponents_count``). The pre-existing kinds (always/pay_life/
+unless_types/unless_count) are already covered by `test_ability_catalogue.py`.
 """
 
 from mtg_analyzer.models.card import Card
@@ -27,6 +28,14 @@ def basic_count_land():
         id="HBL", name="Hypothetical Basic-Counting Land", type_line="Land", is_land=True,
         oracle_text="This land enters tapped unless you control two or more basic lands.\n"
                     "{T}: Add {B} or {G}.",
+    )
+
+
+def turbulent_land():
+    return Card(
+        id="TF", name="Turbulent Fen", type_line="Land", is_land=True,
+        oracle_text="This land enters tapped unless your opponents control eight or more lands.\n"
+                    "{T}: Add {B} or {R}.",
     )
 
 
@@ -133,3 +142,64 @@ def test_basic_count_land_tapped_with_zero_basic_lands():
     land = p1.hand[0]
     engine.play_land(p1, land)
     assert land.tapped is True
+
+
+# ---------------------------------------------------------------------------
+# unless_opponents_count ("Turbulent" land cycle: opponents' total lands)
+# ---------------------------------------------------------------------------
+
+
+def test_turbulent_land_tapped_with_too_few_opponent_lands():
+    p1 = Player(id="p1", name="You")
+    p2 = Player(id="p2", name="Opp1")
+    land_obj = GameObject(turbulent_land(), owner_id="p1", zone=Zone.HAND)
+    p1.hand.append(land_obj)
+    state = GameState(players=[p1, p2])
+    for _ in range(7):
+        state.add_to_battlefield(GameObject(basic_land("Forest"), owner_id="p2", zone=Zone.BATTLEFIELD))
+    engine = GameEngine(state)
+    engine.rules.enter_land_tapped(land_obj)
+    assert land_obj.tapped is True  # 7 opponent lands < 8
+
+
+def test_turbulent_land_untapped_with_enough_opponent_lands():
+    p1 = Player(id="p1", name="You")
+    p2 = Player(id="p2", name="Opp1")
+    land_obj = GameObject(turbulent_land(), owner_id="p1", zone=Zone.HAND)
+    p1.hand.append(land_obj)
+    state = GameState(players=[p1, p2])
+    for _ in range(8):
+        state.add_to_battlefield(GameObject(basic_land("Forest"), owner_id="p2", zone=Zone.BATTLEFIELD))
+    engine = GameEngine(state)
+    engine.rules.enter_land_tapped(land_obj)
+    assert land_obj.tapped is False  # 8 opponent lands >= 8
+
+
+def test_turbulent_land_sums_lands_across_multiple_opponents():
+    p1 = Player(id="p1", name="You")
+    p2 = Player(id="p2", name="Opp1")
+    p3 = Player(id="p3", name="Opp2")
+    land_obj = GameObject(turbulent_land(), owner_id="p1", zone=Zone.HAND)
+    p1.hand.append(land_obj)
+    state = GameState(players=[p1, p2, p3])
+    for _ in range(4):
+        state.add_to_battlefield(GameObject(basic_land("Forest"), owner_id="p2", zone=Zone.BATTLEFIELD))
+    for _ in range(4):
+        state.add_to_battlefield(GameObject(basic_land("Plains"), owner_id="p3", zone=Zone.BATTLEFIELD))
+    engine = GameEngine(state)
+    engine.rules.enter_land_tapped(land_obj)
+    assert land_obj.tapped is False  # 4 + 4 = 8 total opponent lands >= 8
+
+
+def test_turbulent_land_ignores_the_controllers_own_lands():
+    p1 = Player(id="p1", name="You")
+    p2 = Player(id="p2", name="Opp1")
+    land_obj = GameObject(turbulent_land(), owner_id="p1", zone=Zone.HAND)
+    p1.hand.append(land_obj)
+    state = GameState(players=[p1, p2])
+    # The controller's own 8 lands don't count toward the opponents' total.
+    for _ in range(8):
+        state.add_to_battlefield(GameObject(basic_land("Forest"), owner_id="p1", zone=Zone.BATTLEFIELD))
+    engine = GameEngine(state)
+    engine.rules.enter_land_tapped(land_obj)
+    assert land_obj.tapped is True

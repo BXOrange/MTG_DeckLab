@@ -27,21 +27,92 @@ from ..models.game_object import GameObject
 from ..models.game_state import GameState
 from . import combat
 
+#: A graveyard-card target's *scope* — whose graveyard(s) are searched — by
+#: its `graveyard_*`/`any_graveyard_*`/`opponent_graveyard_*` kind prefix.
+#: ``"own"`` is the controller's own graveyard (RULE 115, the recursion/
+#: reanimation family — Regrowth/Reanimate-shaped, always says "your
+#: graveyard"); ``"any"`` is Magic's "a graveyard" — one card from any single
+#: graveyard, whosever it is (Deathrite Shaman, Virtue of Persistence);
+#: ``"opponent"`` is "an opponent's graveyard" specifically (Puppeteer
+#: Clique). Each maps to a `_GRAVEYARD_TYPE_FILTERS` suffix appended after
+#: the prefix, e.g. ``graveyard_creature``/``any_graveyard_land``/
+#: ``opponent_graveyard_card``.
+_GRAVEYARD_SCOPE_PREFIXES: dict[str, str] = {
+    "graveyard": "own",
+    "any_graveyard": "any",
+    "opponent_graveyard": "opponent",
+}
+#: A graveyard-card target's card-*type* filter, by kind suffix — the same
+#: characteristics `_spell_matches_filter` checks for a "spell" target, just
+#: read off the graveyard card's printed characteristics instead (no
+#: layer-engine pass applies to a card that isn't on the battlefield).
+_GRAVEYARD_TYPE_FILTERS: dict[str, Any] = {
+    "card": lambda o: True,
+    "creature": lambda o: o.is_creature,
+    "land": lambda o: o.is_land,
+    "artifact": lambda o: bool(o.card.is_artifact),
+    "enchantment": lambda o: bool(o.card.is_enchantment),
+    "instant_or_sorcery": lambda o: bool(o.card.is_instant or o.card.is_sorcery),
+    "permanent": lambda o: o.is_creature or o.is_land or o.is_planeswalker
+    or bool(o.card.is_artifact or o.card.is_enchantment),
+    "nonland_permanent": lambda o: o.is_creature or o.is_planeswalker
+    or bool(o.card.is_artifact or o.card.is_enchantment),
+}
+#: Every ``{prefix}_{suffix}`` combination — the full graveyard-target kind
+#: vocabulary (docs/09's Regrowth/Reanimate/Deathrite Shaman/Virtue of
+#: Persistence family). ``graveyard_creature`` keeps its pre-existing bare
+#: name (no redundant "_card"), matching the one kind this module already
+#: had before generalizing.
+_GRAVEYARD_TARGET_KINDS: frozenset[str] = frozenset(
+    f"{prefix}_{suffix}" for prefix in _GRAVEYARD_SCOPE_PREFIXES for suffix in _GRAVEYARD_TYPE_FILTERS
+)
+
 #: The target categories the engine can resolve to concrete board objects.
 #: "any" is Magic's "any target" (RULE 115.4): any creature or player (we
 #: don't model planeswalkers/battles yet). Extend as new restrictions land.
 #: ``creature_you_control``/``land_you_control`` narrow a battlefield pick to
 #: the controller's own permanents (RULE 115/603.3c, or a non-"target"
 #: resolve-time choice among one's own permanents modeled the same way, e.g.
-#: a bounce-land's "return a land you control…"); ``graveyard_creature`` is a
-#: creature card in the controller's own graveyard (RULE 115, the
-#: recursion/reanimation family — Regrowth/Reanimate-shaped).
+#: a bounce-land's "return a land you control…"); the `graveyard_*`/
+#: `any_graveyard_*`/`opponent_graveyard_*` family (see
+#: `_GRAVEYARD_TARGET_KINDS`) is a card of some type in some graveyard.
 ALLOWED_TARGET_KINDS: frozenset[str] = frozenset(
     {
         "any", "creature", "permanent", "player", "spell",
-        "creature_you_control", "land_you_control", "graveyard_creature",
+        "creature_you_control", "land_you_control",
     }
-)
+) | _GRAVEYARD_TARGET_KINDS
+
+#: German noun phrase per `_GRAVEYARD_TYPE_FILTERS` suffix, for `_graveyard_label`.
+_GRAVEYARD_TYPE_LABELS: dict[str, str] = {
+    "card": "Karte",
+    "creature": "Kreaturenkarte",
+    "land": "Landkarte",
+    "artifact": "Artefaktkarte",
+    "enchantment": "Verzauberungskarte",
+    "instant_or_sorcery": "Spontanzauber- oder Hexereikarte",
+    "permanent": "Karte eines bleibenden Kartentyps",
+    "nonland_permanent": "Karte eines nichtländlichen bleibenden Kartentyps",
+}
+#: German "whose graveyard" phrase per `_GRAVEYARD_SCOPE_PREFIXES` scope.
+_GRAVEYARD_SCOPE_LABELS: dict[str, str] = {
+    "own": "in deinem Friedhof",
+    "any": "in einem Friedhof",
+    "opponent": "im Friedhof eines Gegners",
+}
+
+
+def _graveyard_label(kind: str) -> Optional[str]:
+    """A `TargetSpec.label()` for a `_GRAVEYARD_TARGET_KINDS` member, or
+    ``None`` for any other kind."""
+    for prefix, scope in _GRAVEYARD_SCOPE_PREFIXES.items():
+        if kind.startswith(prefix + "_"):
+            suffix = kind[len(prefix) + 1:]
+            type_label = _GRAVEYARD_TYPE_LABELS.get(suffix)
+            if type_label is None:
+                return None
+            return f"{type_label} {_GRAVEYARD_SCOPE_LABELS[scope]}"
+    return None
 
 
 @dataclass(frozen=True)
@@ -65,7 +136,7 @@ class TargetSpec:
     spell_filter: Optional[dict[str, Any]] = None
 
     def label(self) -> str:
-        return self.description or {
+        return self.description or _graveyard_label(self.kind) or {
             "any": "beliebiges Ziel",
             "creature": "Kreatur",
             "permanent": "bleibende Karte",
@@ -73,7 +144,6 @@ class TargetSpec:
             "spell": "Zauberspruch",
             "creature_you_control": "Kreatur unter deiner Kontrolle",
             "land_you_control": "Land unter deiner Kontrolle",
-            "graveyard_creature": "Kreaturenkarte in deinem Friedhof",
         }.get(self.kind, self.kind)
 
 
@@ -269,18 +339,33 @@ def legal_targets(
             and o is not source
             and _targetable_by(o, source)
         ]
-    if kind == "graveyard_creature":
-        # RULE 115: "target creature card from your graveyard" — restricted
-        # to the controller's own graveyard (the recursion/reanimation
-        # family always says "your graveyard", never any graveyard).
-        try:
-            owner = state.player_by_id(controller_id)
-        except KeyError:
-            return []
+    if kind in _GRAVEYARD_TARGET_KINDS:
+        # RULE 115: a card of some type in some graveyard — the Regrowth/
+        # Reanimate ("your graveyard"), Deathrite Shaman/Virtue of
+        # Persistence ("a graveyard" — any single graveyard, whosever it
+        # is), and Puppeteer Clique ("an opponent's graveyard") families.
+        # A graveyard card is never targetable *by* anything (it isn't a
+        # permanent/spell), so no protection/hexproof filtering applies —
+        # unlike every battlefield-object branch above.
+        prefix, suffix = next(
+            (p, kind[len(p) + 1:]) for p in _GRAVEYARD_SCOPE_PREFIXES if kind.startswith(p + "_")
+        )
+        scope = _GRAVEYARD_SCOPE_PREFIXES[prefix]
+        type_filter = _GRAVEYARD_TYPE_FILTERS[suffix]
+        if scope == "own":
+            try:
+                graveyards = [state.player_by_id(controller_id).graveyard]
+            except KeyError:
+                graveyards = []
+        elif scope == "opponent":
+            graveyards = [p.graveyard for p in state.living_players() if p.id != controller_id]
+        else:  # "any": every player's graveyard, including the controller's own
+            graveyards = [p.graveyard for p in state.living_players()]
         return [
             {"instance_id": o.instance_id, "name": o.name}
-            for o in owner.graveyard
-            if o.is_creature
+            for gy in graveyards
+            for o in gy
+            if type_filter(o)
         ]
     if kind == "spell":
         items = [

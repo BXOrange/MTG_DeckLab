@@ -4,7 +4,10 @@ Reference: mtg_analyzer/game/mana_abilities.py, docs/02 R2.6.
 """
 
 from mtg_analyzer.models.card import Card
-from mtg_analyzer.game.mana_abilities import mana_options, option_label, parse_mana_abilities
+from mtg_analyzer.models.game_object import GameObject, Zone
+from mtg_analyzer.game.mana_abilities import (
+    mana_abilities_for, mana_options, option_label, parse_mana_abilities,
+)
 
 
 def land(name="Land", type_line="Land", oracle="", **kw):
@@ -155,8 +158,9 @@ class TestPerLineCostAndVariableAmounts:
     def test_deathrite_shaman_targeted_ability_is_not_a_mana_ability(self):
         # RULE 605.1a: a targeted ability is never a mana ability, however
         # mana-shaped its effect looks — this is a real, stack-using,
-        # responds-to-able activated ability instead (not yet implemented as
-        # one; see backend/ToDo_Backend.md).
+        # responds-to-able activated ability instead (built via the oracle
+        # parser's generalized graveyard-targeting family, see
+        # test_effect_families_wave3.py's Deathrite Shaman end-to-end test).
         card = _elf(
             "Deathrite Shaman",
             "{T}: Exile target land card from a graveyard. Add one mana of any color.\n"
@@ -182,3 +186,65 @@ class TestPerLineCostAndVariableAmounts:
             'Each creature you control with a counter on it has "{T}: Add {G}."',
         )
         assert parse_mana_abilities(card) == []
+
+
+class TestLevelerGatedManaAbilities:
+    """RULE 711.4c: a Leveler's own mana ability, printed inside a ``LEVEL
+    n-m``/``n+`` tier, only applies while the object's own ``level`` counter
+    is in that tier's range — mirrors `game/continuous.py`'s identical gate
+    for a Leveler's *static* tiers (min_level/max_level), just applied to a
+    mana ability instead. Verified against the real Joraga Treespeaker
+    (backend/ToDo_Backend.md's original example of this gap)."""
+
+    def _joraga(self):
+        return Card(
+            id="Joraga Treespeaker", name="Joraga Treespeaker",
+            type_line="Creature — Elf Druid", is_creature=True, power=1, toughness=1,
+            oracle_text=(
+                "Level up {1}{G} ({1}{G}: Put a level counter on this. "
+                "Level up only as a sorcery.)\n"
+                "LEVEL 1-4\n1/2\n{T}: Add {G}{G}.\n"
+                "LEVEL 5+\n1/4\n"
+                'Elves you control have "{T}: Add {G}{G}."'
+            ),
+        )
+
+    def test_is_leveler_and_the_tier_ability_is_tagged_with_its_range(self):
+        card = self._joraga()
+        assert card.is_leveler
+        [ability] = parse_mana_abilities(card)
+        assert ability.options == [{"G": 2}]
+        assert ability.min_level == 1
+        assert ability.max_level == 4
+
+    def test_level_zero_has_no_own_mana_ability(self):
+        # Before levelling up at all — no LEVEL tier's counter range holds,
+        # and the printed granted-to-Elves ability doesn't apply until 5+.
+        obj = GameObject(self._joraga(), owner_id="p1", zone=Zone.BATTLEFIELD)
+        assert mana_abilities_for(obj) == []
+
+    def test_level_within_the_1_to_4_tier_offers_the_ability(self):
+        obj = GameObject(self._joraga(), owner_id="p1", zone=Zone.BATTLEFIELD)
+        obj.counters["level"] = 1
+        [ability] = mana_abilities_for(obj)
+        assert ability.options == [{"G": 2}]
+
+        obj.counters["level"] = 4
+        [ability] = mana_abilities_for(obj)
+        assert ability.options == [{"G": 2}]
+
+    def test_level_five_or_more_loses_its_own_ability(self):
+        # LEVEL 5+ instead *grants* the ability to Elves (a separate,
+        # already-gated layer-6 static effect) — Joraga itself has none of
+        # its own printed there.
+        obj = GameObject(self._joraga(), owner_id="p1", zone=Zone.BATTLEFIELD)
+        obj.counters["level"] = 5
+        assert mana_abilities_for(obj) == []
+
+    def test_non_leveler_card_is_unaffected(self):
+        # A plain mana dork's ability has no min_level/max_level at all and
+        # applies regardless of any (nonexistent) level counter.
+        card = _elf("Llanowar Elves", "{T}: Add {G}.")
+        obj = GameObject(card, owner_id="p1", zone=Zone.BATTLEFIELD)
+        [ability] = mana_abilities_for(obj)
+        assert ability.options == [{"G": 1}]

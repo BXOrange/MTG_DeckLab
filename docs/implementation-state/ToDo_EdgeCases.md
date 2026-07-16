@@ -67,18 +67,6 @@ instead of re-discovering it as a surprise bug.
   creature" is real complexity no card in the pool currently needs.
   (`RulesEngine.create_token`, `game/rules_engine.py`.)
 
-## Combat
-
-- **Rampage (RULE 702.23) isn't built.** Its pump amount scales with the
-  *specific* block's final blocker count, which needs a per-firing "build
-  effects from this triggering event" seam `TriggeredAbility` doesn't have —
-  it binds one fixed `effects` list once at bind-on-load and reuses it for
-  every firing (`RulesEngine._place_trigger`). Ward hit the identical
-  problem (which item, which caster, varies per firing) and solved it by
-  constructing its effect directly rather than routing through
-  `TriggeredAbility`/`_collect_triggers` at all — the same approach would
-  unblock rampage. (`effect_binder._keyword_triggered_abilities`.)
-
 ## Layers / static abilities (RULE 613)
 
 - **Layer 3 (RULE 612 text-changing) is scoped to one consumer.** Built, but
@@ -176,17 +164,6 @@ instead of re-discovering it as a surprise bug.
 - **`{E}` (energy) pips in cost text are silently ignored**, not modeled as
   the energy-counter mechanic. (`costs.parse_activation_cost`,
   `game/costs.py`.)
-
-- **Escape's "exile N other cards from your graveyard" cost component is
-  dropped by the parser.** Within the still-open kicker/multikicker/buyback/
-  escape/flashback family (a real ToDo item, `backend/ToDo_Backend.md`),
-  this specific clause needs new grammar work before escape/flashback
-  casting-from-graveyard can even be attempted.
-
-- **Multikicker's "repeatable" identity is lost during parsing.**
-  `_ALIASES` collapses Multikicker onto plain Kicker, so post-parse there's
-  no way to tell a multikicker card apart from a single-kick one.
-  (`parser/oracle/catalogue/keywords.py`'s `_ALIASES`.)
 
 - **"Add 1 mana of any color" is left unclaimed.** The mana-symbol-run
   handler only claims a *pure* run of `{colour}` symbols (fail-closed) —

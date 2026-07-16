@@ -595,9 +595,21 @@ class GameEngine:
             # RULE 115/603.3c: the option id is a permanent's instance id or a
             # player's id (not always int-castable, unlike the other kinds).
             self.rules.resolve_trigger_target_choice(None if declined else str(answer))
+        elif kind == "trigger_mode":
+            # RULE 700.2: the option id is a mode's index, or "both" (700.2e)
+            # — a mandatory choice, so a decline still resolves the first mode
+            # rather than dropping it (`resolve_trigger_mode_choice` defaults
+            # an unrecognized/missing answer the same way).
+            self.rules.resolve_trigger_mode_choice(None if declined else str(answer))
         elif kind == "land_tapped":
             # RULE 614.1: a shock land's "pay life to stay untapped" choice.
             self.rules.resolve_land_tapped_choice(None if declined else str(answer))
+        elif kind == "add_mana_any_color":
+            # RULE 106.4: which color to add — a mandatory choice, so a
+            # decline still resolves to a color rather than adding nothing
+            # (`resolve_add_mana_any_color_choice` defaults an
+            # unrecognized/missing answer the same way trigger_mode does).
+            self.rules.resolve_add_mana_any_color_choice(None if declined else str(answer))
         elif kind == "replacement_order":
             # RULE 616.1: the option id is the index of the replacement
             # effect to apply next.

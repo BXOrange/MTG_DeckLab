@@ -162,15 +162,21 @@ main ongoing effort: `normalize` → `segmenter` → `catalogue/handlers` →
 `MODELED`/`UNMODELED` coverage verdict (a card only gets parsed effects when
 *fully* modeled — never half-resolved). It covers most one-shot effect
 families, ETB/dies/attacks/blocks/Saga-chapter triggers with RULE 603.1
-subject scoping, `<cost>: <effect>` activated abilities, modal spells,
-additional cast costs, the counter family, RULE 614.1 enters-tapped clauses,
-and static anthem/lord clauses. `parser/oracle/processing_list.py` tracks
-cache-wide coverage (26.9% of the 1080-card cache fully `MODELED` as of
-2026-07-14) and ranks the next handlers worth building.
+subject scoping, `<cost>: <effect>` activated abilities, modal spells (both
+spell-level and, since 2026-07-16, triggered-ability-level "choose one —"),
+additional cast costs, the counter family, RULE 614.1 enters-tapped clauses
+(all four conditional variants) and enters-with-N-counters clauses, static
+anthem/lord clauses, and graveyard-card recursion/exile (Regrowth/
+Reanimate/Deathrite Shaman-shaped — own/any/an opponent's graveyard × any
+card type). `parser/oracle/processing_list.py` tracks cache-wide coverage
+(21.3% of the 2,507-card cache fully `MODELED` as of 2026-07-16 — re-run
+`coverage_over_cards()` before trusting this number, the cache grows) and
+ranks the next handlers worth building.
 
 **Notable gaps** (see `backend/ToDo_Backend.md` for the full list with exact
-scope on each): regenerate, "up to N" targets, "add 1 mana of any color"; a
-kicked spell's "if this spell was kicked, …" resolve-time conditional effect
+scope on each): regenerate, "up to N" targets, a "remove a counter from ~"
+activation-cost shape (`costs.py`); a kicked spell's "if this spell was
+kicked, …" resolve-time conditional effect
 (new conditional-clause grammar — the M2 parametric-keyword *behaviour* work
 itself, kicker included, is done); oracle-text *recognition* of replacement
 clauses (the binder side is ready); wiring the interactive priority primitive
