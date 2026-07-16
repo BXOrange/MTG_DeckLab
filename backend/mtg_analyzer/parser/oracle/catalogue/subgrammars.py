@@ -57,10 +57,28 @@ _TARGET_ROWS: list[tuple[str, str]] = [
 #: (``each_creature``/``each_player``/``each_opponent``) claims those
 #: phrases on its own, bypassing TARGET entirely.
 
+#: An optional "up to one "/"up to 1 " prefix (RULE 115.1a) a TARGET phrase
+#: may carry — "destroy up to one target creature" is the same choice as
+#: "destroy target creature" except zero targets is also legal
+#: (`TargetSpec.optional`, `target_is_optional`). Deliberately just N=1: a
+#: real "up to two/three/N" multi-target choice needs an interactive
+#: multi-select and per-effect application over a *list* of targets — a
+#: materially larger feature this grammar doesn't attempt (see
+#: `docs/implementation-state/ToDo_EdgeCases.md`). Exported (not
+#: underscore-private) so a handler with its own hand-rolled "return/put
+#: target …" grammar (the graveyard-recursion family) can embed it too,
+#: without going through the shared `TARGET` alternation.
+UP_TO_ONE = r"(?:up to (?:one|1) )?"
+
 #: The TARGET fragment, as an alternation with a named ``target`` group. Used
 #: *inside* a handler regex ("deal (\\d+) damage to <TARGET>"), so it is not
-#: anchored itself.
-TARGET = r"(?P<target>" + "|".join(f"(?:{frag})" for frag, _ in _TARGET_ROWS) + r")"
+#: anchored itself. The optional ``up_to_one`` group sits *outside* ``target``
+#: so `resolve_target_kind` keeps seeing exactly the row text it already
+#: matches against.
+TARGET = (
+    r"(?P<up_to_one>" + UP_TO_ONE + r")"
+    r"(?P<target>" + "|".join(f"(?:{frag})" for frag, _ in _TARGET_ROWS) + r")"
+)
 
 #: Each row's fragment compiled with a full-match anchor, in order, so
 #: `resolve_target_kind` can classify a matched target phrase deterministically.
@@ -88,6 +106,15 @@ def resolve_target_kind(phrase: str) -> Optional[str]:
         if pattern.match(text):
             return kind
     return None
+
+
+def target_is_optional(m: "re.Match[str]") -> bool:
+    """Whether a `TARGET`-bearing match carries an "up to one" prefix.
+
+    Every handler regex built with `{TARGET}` gets the ``up_to_one`` group
+    for free, so this is safe to call on any such match.
+    """
+    return bool(m.group("up_to_one"))
 
 
 def count_of(token: str) -> int:

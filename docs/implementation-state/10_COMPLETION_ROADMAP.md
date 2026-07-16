@@ -331,35 +331,93 @@ Follows [`09_ORACLE_EFFECT_PARSER.md`](../concepts/09_ORACLE_EFFECT_PARSER.md). 
   unrelated cost, correctly unmatched. Full writeup: Done_Backend.md
   "Rules Engine (Phase 2)". Tests: `test_hand_mana_abilities.py`
   (11 tests).
+- ✅ **Regenerate, RULE 701.16 (2026-07-16):** a new `EventType.DESTROY`
+  `RulesEngine.destroy` fires pre-emptively (through the existing
+  `apply_replacements` machinery, additive/back-compat for every existing
+  caller) so `RulesEngine.regenerate` can attach a self-consuming
+  regeneration-shield `ReplacementEffect`; RULE 704.5g's lethal-damage SBA
+  now routes through `destroy` so a shield can intercept it. Also fixed a
+  RULE 701.16c gap this surfaced: sacrifice (`RulesEngine.sacrifice` +
+  `GameEngine`'s two cost-payment sacrifice sites) previously called
+  `destroy` directly, which would have let a shield illegally save a
+  sacrificed permanent — all three now use the new non-destructive
+  `RulesEngine.put_into_graveyard`. `RegenerateEffect` (`game/effects.py`)
+  plus two parser handlers (`"regenerate target creature"` / self-form
+  `"regenerate ~"`) mirror the existing `destroy`/`tap`/`tap_self` shapes.
+  **Real-cache yield: zero net coverage movement (535/2507, 21.3%,
+  unchanged)** — of 10 cache hits for "regenerate", 9 are "can't be
+  regenerated" Destroy-tags (out of scope) and the 1 genuine ability
+  (Ezuri, Renegade Leader, "Regenerate another target Elf") needs a
+  subtype-filtered target shape no handler has yet, so it fails closed.
+  Shipped anyway as a self-contained RULE 701.16 engine capability for
+  future cache growth/hand-authoring. Full writeup: Done_Backend.md
+  "Rules Engine (Phase 2)". Tests: `test_regenerate.py` (17 tests).
+- ✅ **Batch 11 (2026-07-16): "up to one" targets (N=1), "if kicked"
+  additional effects, replacement-clause recognition (3 of 5 families).**
+  The shared `TARGET` grammar (`subgrammars.py`) now recognizes an "up to
+  one "/"up to 1 " prefix for free on every `{TARGET}`-based handler
+  (`optional` threaded through to each consuming effect's `TargetSpec` —
+  `TargetSpec.optional`/`has_legal_targets` already understood it
+  correctly, just nothing had ever set it); a real N>=2 multi-target choice
+  is explicitly **not** attempted (needs an interactive multi-select + per-
+  effect application over a list, a materially larger feature). A new
+  `EffectSpec.condition` field (parallel to `AbilitySpec.modes`, whitelisted
+  to `{"kicked": bool}`) + `game/effects.py`'s `ConditionalEffect` wrapper
+  cover RULE 702.33b's "if this spell was kicked, \<effect\>." — only the
+  *additional-effect* shape (Vastwood Surge), not "if kicked, ... instead"
+  (overriding an existing effect's amount — Burst Lightning/Rite of
+  Replication-shaped, a different unmodeled grammar). New
+  `parser/oracle/catalogue/replacements.py` recognizes 3 of the 5 already-
+  bound `ReplacementRegistry` families as standing permanent clauses
+  (`double_tokens`/`double_counters`/`additional_damage`, Doubling
+  Season/Anointed Procession/Torbran-shaped) — found and fixed a real bug
+  this exposed: `gate.py`'s `ParseResult.effect_specs` excluded
+  `ability_kind == "replacement"` entirely, so nothing a `replacement`
+  spec claimed would ever have reached `obj.replacement_effects` despite
+  parsing `MODELED`. `prevent_damage`'s two real cards (Riot Control/
+  Thought Lash) are a different, unmodeled *one-shot spell effect* shape
+  (Regenerate-shaped, not a standing clause) and stay open. Also: an
+  `AddCountersEffect` mass `selector="each_creature_you_control"` (RULE
+  601.2c) and the basic-land search handler recognizing "up to N" (both
+  needed to make Vastwood Surge's own kicked clause reach `MODELED`).
+  **Real-cache yield: 583 → 594 fully `MODELED` (+11, 20.3% → 20.7% of
+  2,869 cards — cache grew since the last measurement), zero regressions.**
+  The "up to one target" grammar itself is real and independently verified
+  (9 clause instances now parse correctly) but contributed 0 whole-card
+  flips this round — every one of those 9 cards has a *different* separate
+  unmodeled clause on the same card; reported transparently rather than
+  claimed. Full writeup: Done_Backend.md "M1 — Oracle-effect parser".
+  Tests: `test_optional_targets.py` (10), `test_kicked_conditional.py`
+  (15), `test_replacement_clause_recognition.py` (11), +1 in
+  `test_effect_families_wave3.py` — 37 new tests.
 - ⏳ **Remaining, priority-ordered by real cards-unlocked** (verified
   2026-07-16 by running `processing_list.coverage_over_cards()` over the
-  live cache — 21.3% of 2,507 cards fully `MODELED`; **re-run this before
+  live cache — 20.7% of 2,869 cards fully `MODELED`; **re-run this before
   trusting the counts below**, the cache keeps growing and the ranking
   shifts):
-  1. Everything else previously listed here — **regenerate**, "up to N"
-     targets, a "remove a counter from ~" activation-cost shape
-     (`costs.py` — newly surfaced by an earlier batch's real-card
+  1. A real "up to two/three/N"/"up to X" **multi**-target choice (N>=2,
+     see Batch 11 above for why it's a separate, larger feature from the
+     N=1 case just shipped), a "remove a counter from ~" activation-cost
+     shape (`costs.py` — newly surfaced by an earlier batch's real-card
      debugging, blocks Crystalline Crawler/Mana Bloom/Walking Ballista/
      Triskelion/Wishclaw Talisman/Transmogrifying Wand — plausibly the
      next highest-leverage single fix, not yet template-ranked), a
      life-total-scaled amount ("lose life equal to that card's mana
      value" — Reanimate/Rise from the Grave/Kenrith, newly surfaced by
-     this batch, blocks otherwise-complete graveyard-recursion cards),
-     replacement-clause *recognition* (binder side is ready), a kicked
-     spell's "if kicked" resolve-time
-     conditional, parse-on-load memoization in `LazyCardLoader`, and the
-     processing-list tail (prohibition/cost-modification statics, emblems,
-     "for each"-scaled effects, "choose 2/more" modal headers — a
-     genuinely different, larger grammar than RULE 700.2's "choose
-     one"/"choose one or both", still unclaimed) — each verified at
-     **≤9 cards** per template in the live ranking. **New, higher-value
-     candidates surfaced by this batch's real-card debugging** (not yet
-     template-ranked, worth
-     a fresh `coverage_over_cards()` pass to size properly): a "fight"
-     effect family (RULE 701.12) and a filtered/qualified bounce target
-     ("return another target nonland permanent…") — both block modal
-     cards found above and are plausibly reusable across other unclaimed
-     lines too.
+     an earlier batch, blocks otherwise-complete graveyard-recursion
+     cards), the remaining RULE 616.1 replacement-clause formulations
+     (`prevent_damage`'s one-shot-spell shape, differently-scoped/
+     compound-filter variants — see Batch 11), a kicked spell's "if
+     kicked, ... instead" *override* shape (as opposed to the additional-
+     effect shape Batch 11 covers), parse-on-load memoization in
+     `LazyCardLoader`, and the processing-list tail — current top
+     blockers per the live ranking: "choose \<n\> —"/"choose \<n\> or
+     more —" (31+6 cards, a genuinely larger grammar than RULE 700.2's
+     "choose one"/"choose one or both", still unclaimed), "you may look
+     at the top card of your library any time" (13), "when this land
+     enters, surveil \<n\>." (10), "\<cost\>: level \<n\>" (9),
+     monarch/initiative (7-9 each, deferred per M6), cost-modification
+     statics, and emblems.
   - **Related, same pipeline, separately tracked in `ToDo_Backend.md`**:
     the mana-ability follow-up list from the 2026-07-15 Elf-mana-dork pass
     is now fully done (spend restrictions, Leveler-gating, Deathrite

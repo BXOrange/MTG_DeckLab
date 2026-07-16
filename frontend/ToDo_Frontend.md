@@ -64,6 +64,14 @@ engine hookup".
       `activate_hand_mana` legal-action kind alongside `tap_for_mana`),
       but the board has no UI trigger for it — a card in hand can only be
       played/cast today, not exiled for mana.
+- [ ] "Up to one target" (RULE 115.1a — `destroy up to one target
+      creature`-shaped clauses, `TargetSpec.optional`) is now recognized
+      and never locks a cast/legal-actions offer server-side, but the
+      target-selection UI has no way to actually *decline* an optional
+      target — a player can pick one of the offered options, but not
+      submit "none". Casting with no `targets` (or an empty list) is
+      already a legal request (`services/game_session.py`'s
+      `_resolve_targets` treats an empty list the same as omitted).
 
 ## Multiplayer
 

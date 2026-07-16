@@ -292,9 +292,9 @@ def test_create_token_with_nonflag_ability_is_unclaimed():
 
 
 def test_unhandled_clause_is_unclaimed():
-    # "proliferate" / "regenerate" have no one-shot effect yet — fail-closed.
+    # "proliferate" / "fateseal" have no one-shot effect yet — fail-closed.
     assert parse_effect_body("proliferate") is None
-    assert parse_effect_body("regenerate target creature") is None
+    assert parse_effect_body("fateseal 2") is None
     # A half-known chain fails whole (fail-closed), not partially.
     assert parse_effect_body("draw a card and mill your opponent") is None
 
@@ -353,8 +353,8 @@ def test_unknown_clause_makes_card_unmodeled():
 
 
 def test_partial_card_is_unmodeled_all_or_nothing():
-    # One line handled (draw), one not (regenerate) → the whole card is UNMODELED.
-    r = parse_oracle(spell("Half", "Draw a card.\nRegenerate target creature."))
+    # One line handled (draw), one not (fateseal) → the whole card is UNMODELED.
+    r = parse_oracle(spell("Half", "Draw a card.\nFateseal 2."))
     assert r.coverage == UNMODELED
 
 
@@ -497,7 +497,7 @@ def test_specs_for_uses_parser_for_unregistered_modeled_card():
 
 
 def test_specs_for_omits_effects_from_unmodeled_card():
-    specs = ability_catalogue.specs_for(spell("Weird", "Regenerate target creature."))
+    specs = ability_catalogue.specs_for(spell("Weird", "Fateseal 2."))
     assert not any(s.ability_kind in ("spell_effect", "triggered") for s in specs)
 
 
@@ -625,14 +625,14 @@ def test_coverage_report_metric_and_ranking():
     cards = [
         spell("Bolt", "Bolt deals 3 damage to any target."),         # MODELED
         spell("Divi", "Draw two cards.", instant=False, sorcery=True),  # MODELED
-        spell("RegenA", "Regenerate target creature."),              # unclaimed: regen
-        spell("RegenB", "Regenerate target creature."),              # same template
+        spell("FateA", "Fateseal 2."),                                # unclaimed: fateseal
+        spell("FateB", "Fateseal 2."),                                # same template
         spell("Scry", "Scry 2."),                                    # unclaimed: scry
     ]
     report = coverage_over_cards(cards)
     assert report.total == 5 and report.modeled == 2
     assert report.modeled_fraction == 0.4
-    # The regenerate template blocks 2 cards, scry 1 → regenerate ranks first.
+    # The fateseal template blocks 2 cards, scry 1 → fateseal ranks first.
     top = report.processing_list[0]
-    assert top.cards == 2 and "regenerate" in top.template
+    assert top.cards == 2 and "fateseal" in top.template
     assert report.to_dict()["modeled"] == 2

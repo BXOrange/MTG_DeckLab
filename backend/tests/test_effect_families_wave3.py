@@ -246,6 +246,22 @@ def test_search_handler_fails_closed_on_a_mana_value_qualifier():
     ) is None
 
 
+def test_basic_land_fetch_recognizes_an_up_to_n_count():
+    # "up to two basic land cards, put them ..." (Explosive Vegetation/
+    # Burnished Hart/Blighted Woodland-shaped) — the plural, RULE
+    # 115.1a-adjacent count variant of the singular fetch-land shape above;
+    # `SearchLibraryEffect.count` already offers a search "up to N" one card
+    # at a time, only recognition was missing (Batch 11's A.2/A.7 pass).
+    fetch = parse_effect_body(
+        "search your library for up to 2 basic land cards, put them onto "
+        "the battlefield tapped, then shuffle"
+    )[0]
+    assert fetch.type == "search"
+    assert fetch.params == {
+        "criteria": {"basic": True}, "destination": "battlefield_tapped", "count": 2,
+    }
+
+
 def test_add_mana_handler_recognizes_a_pure_symbol_run():
     ritual = parse_effect_body("add {b}{b}{b}")[0]
     assert ritual.type == "add_mana"

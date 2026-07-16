@@ -32,9 +32,11 @@ from .subgrammars import (
     NUMBER,
     SPELL_TARGET,
     TARGET,
+    UP_TO_ONE,
     count_of,
     resolve_spell_filter,
     resolve_target_kind,
+    target_is_optional,
 )
 
 #: Colour words → their WUBRG symbol (for a created token's colours).
@@ -75,11 +77,18 @@ def _c(pattern: str) -> re.Pattern[str]:
 # (an unknown target phrase → fail-closed, don't guess).
 
 
+#: RULE 115.1a "up to one" (`subgrammars.target_is_optional`) → the
+#: `{"optional": True}` param sliver every `{TARGET}`-based builder below
+#: merges in, or ``{}`` for a bare "target X" (still required, unchanged).
+def _optional_param(m: re.Match[str]) -> dict:
+    return {"optional": True} if target_is_optional(m) else {}
+
+
 def _damage(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     kind = resolve_target_kind(m.group("target"))
     if kind is None:
         return None
-    return [EffectSpec("damage", {"amount": int(m.group("n")), "target_kind": kind})]
+    return [EffectSpec("damage", {"amount": int(m.group("n")), "target_kind": kind, **_optional_param(m)})]
 
 
 #: "~ deals N damage to each creature/player/opponent" — a *mass* effect
@@ -132,7 +141,18 @@ def _destroy(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     kind = resolve_target_kind(m.group("target"))
     if kind is None or kind not in ("creature", "permanent"):
         return None
-    return [EffectSpec("destroy", {"target_kind": kind})]
+    return [EffectSpec("destroy", {"target_kind": kind, **_optional_param(m)})]
+
+
+def _regenerate(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    kind = resolve_target_kind(m.group("target"))
+    if kind is None or kind not in ("creature", "permanent"):
+        return None
+    return [EffectSpec("regenerate", {"target_kind": kind})]
+
+
+def _regenerate_self(m: re.Match[str]) -> list[EffectSpec]:
+    return [EffectSpec("regenerate", {"target_kind": None})]
 
 
 def _counter(m: re.Match[str]) -> Optional[list[EffectSpec]]:
@@ -169,7 +189,7 @@ def _exile(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     kind = resolve_target_kind(m.group("target"))
     if kind is None or kind not in ("creature", "permanent"):
         return None
-    return [EffectSpec("exile", {"target_kind": kind})]
+    return [EffectSpec("exile", {"target_kind": kind, **_optional_param(m)})]
 
 
 def _tap(m: re.Match[str]) -> Optional[list[EffectSpec]]:
@@ -177,7 +197,7 @@ def _tap(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     if kind is None or kind not in ("creature", "permanent"):
         return None
     untap = m.group("verb").lower() == "untap"
-    return [EffectSpec("tap", {"target_kind": kind, "untap": untap})]
+    return [EffectSpec("tap", {"target_kind": kind, "untap": untap, **_optional_param(m)})]
 
 
 #: "Untap this creature" (Devoted Druid's counter-cost untap ability) / "tap
@@ -206,7 +226,7 @@ def _return_to_hand(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     kind = resolve_target_kind(m.group("target"))
     if kind is None or kind not in _RETURN_TO_HAND_KINDS:
         return None
-    return [EffectSpec("return_to_hand", {"target_kind": kind})]
+    return [EffectSpec("return_to_hand", {"target_kind": kind, **_optional_param(m)})]
 
 
 #: A graveyard clause's card-*type* word, right before "card" — "target
@@ -248,12 +268,12 @@ def _graveyard_target_kind(type_word: Optional[str], scope_word: str) -> Optiona
 #: *owner*'s control — the "steal it for yourself" shape is
 #: `_reanimate_under_your_control` below, a genuinely different effect.
 _RETURN_FROM_GRAVEYARD_RE = _c(
-    rf"return target (?:(?P<type>{_GRAVEYARD_TYPE_WORD}) )?card from "
+    rf"return (?P<up_to_one>{UP_TO_ONE})target (?:(?P<type>{_GRAVEYARD_TYPE_WORD}) )?card from "
     rf"(?P<scope>{_GRAVEYARD_SCOPE_WORD}) graveyard to "
     r"(?P<dest>the battlefield|your hand|its owner'?s hand)"
 )
 _PUT_FROM_GRAVEYARD_OWNER_CONTROL_RE = _c(
-    rf"put target (?:(?P<type>{_GRAVEYARD_TYPE_WORD}) )?card from "
+    rf"put (?P<up_to_one>{UP_TO_ONE})target (?:(?P<type>{_GRAVEYARD_TYPE_WORD}) )?card from "
     rf"(?P<scope>{_GRAVEYARD_SCOPE_WORD}) graveyard onto the battlefield under its owner'?s control"
 )
 
@@ -264,9 +284,10 @@ def _return_from_graveyard(m: re.Match[str]) -> Optional[list[EffectSpec]]:
         return None
     dest = m.groupdict().get("dest")
     destination = "battlefield" if dest is None or dest == "the battlefield" else "hand"
-    return [EffectSpec(
-        "return_from_graveyard", {"target_kind": kind, "destination": destination},
-    )]
+    params: dict = {"target_kind": kind, "destination": destination}
+    if m.groupdict().get("up_to_one"):
+        params["optional"] = True
+    return [EffectSpec("return_from_graveyard", params)]
 
 
 #: "put target [type] card from [scope] graveyard onto the battlefield
@@ -274,7 +295,7 @@ def _return_from_graveyard(m: re.Match[str]) -> Optional[list[EffectSpec]]:
 #: — unlike the two shapes above, this one *steals* the card for the
 #: activating/casting player regardless of whose graveyard it came from.
 _REANIMATE_UNDER_YOUR_CONTROL_RE = _c(
-    rf"put target (?:(?P<type>{_GRAVEYARD_TYPE_WORD}) )?card from "
+    rf"put (?P<up_to_one>{UP_TO_ONE})target (?:(?P<type>{_GRAVEYARD_TYPE_WORD}) )?card from "
     rf"(?P<scope>{_GRAVEYARD_SCOPE_WORD}) graveyard onto the battlefield under your control"
 )
 
@@ -283,10 +304,10 @@ def _reanimate_under_your_control(m: re.Match[str]) -> Optional[list[EffectSpec]
     kind = _graveyard_target_kind(m.groupdict().get("type"), m.group("scope"))
     if kind is None:
         return None
-    return [EffectSpec(
-        "return_from_graveyard",
-        {"target_kind": kind, "destination": "battlefield", "under_your_control": True},
-    )]
+    params: dict = {"target_kind": kind, "destination": "battlefield", "under_your_control": True}
+    if m.groupdict().get("up_to_one"):
+        params["optional"] = True
+    return [EffectSpec("return_from_graveyard", params)]
 
 
 #: "exile target [type] card from [scope] graveyard" (RULE 701.5a) — the
@@ -316,8 +337,13 @@ def _exile_from_graveyard(m: re.Match[str]) -> Optional[list[EffectSpec]]:
 _SEARCH_TO_HAND_RE = _c(
     r"search your library for a card,? put that card into your hand,? then shuffle"
 )
+#: "for a basic land card, put it …" (singular, the fetch-land shape) / "for
+#: up to N basic land cards, put them …" (RULE 115.1a-adjacent count choice,
+#: Vastwood Surge-shaped — `SearchLibraryEffect.count` already offers a
+#: search "up to N" one card at a time; only recognition was missing).
 _SEARCH_BASIC_LAND_TAPPED_RE = _c(
-    r"search your library for a basic land card,? put it onto the battlefield tapped,? then shuffle"
+    r"search your library for (?:a|up to (?P<n>\d+)) basic land cards?,? "
+    r"put (?:it|them) onto the battlefield tapped,? then shuffle"
 )
 
 
@@ -326,9 +352,11 @@ def _search_to_hand(m: re.Match[str]) -> list[EffectSpec]:
 
 
 def _search_basic_land_tapped(m: re.Match[str]) -> list[EffectSpec]:
-    return [EffectSpec(
-        "search", {"criteria": {"basic": True}, "destination": "battlefield_tapped"}
-    )]
+    params: dict = {"criteria": {"basic": True}, "destination": "battlefield_tapped"}
+    n = m.groupdict().get("n")
+    if n is not None:
+        params["count"] = int(n)
+    return [EffectSpec("search", params)]
 
 
 #: "attach it to target creature you control" / "attach ~ to target creature
@@ -441,7 +469,21 @@ def _add_counters(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     if kind not in ("creature", "permanent"):
         return None
     params["target_kind"] = kind
+    params.update(_optional_param(m))
     return [EffectSpec("add_counters", params)]
+
+
+#: "put N +1/+1 counters on each creature you control" (RULE 601.2c mass
+#: effect, Vastwood Surge-shaped) — a genuinely different shape from
+#: `_add_counters`'s RULE 115 target/self forms, so its own handler row
+#: rather than folding "each creature you control" into `TARGET` (that
+#: grammar deliberately keeps "each ..." selectors out, see
+#: `subgrammars._TARGET_ROWS`'s note).
+def _add_counters_selector(m: re.Match[str]) -> list[EffectSpec]:
+    ckind = "-1/-1" if m.group("ckind").lstrip()[0] in "-−" else "+1/+1"
+    return [EffectSpec("add_counters", {
+        "count": count_of(m.group("n")), "kind": ckind, "selector": "each_creature_you_control",
+    })]
 
 
 def _pump_target(m: re.Match[str]) -> Optional[tuple[Optional[str], Optional[str]]]:
@@ -580,6 +622,23 @@ HANDLERS: list[EffectHandler] = [
         "destroy",
         _c(rf"destroy {TARGET}"),
         _destroy,
+    ),
+    # "regenerate target creature" (RULE 701.16, Ezuri, Renegade Leader's
+    # "Regenerate another target Elf" is a genuinely different, subtype-
+    # filtered target this grammar doesn't cover — fails closed, stays
+    # unclaimed rather than dropping the subtype filter).
+    EffectHandler(
+        "regenerate",
+        _c(rf"regenerate {TARGET}"),
+        _regenerate,
+    ),
+    # "regenerate ~" / "regenerate it" / "regenerate this creature" — the
+    # *self* form (Broodhatch Nantuko/Thorn Elemental-shaped "{cost}:
+    # Regenerate ~."), mirroring `tap_self`'s no-RULE-115-target shape.
+    EffectHandler(
+        "regenerate_self",
+        _c(rf"regenerate {_SELF_SUBJECT}"),
+        _regenerate_self,
     ),
     # "counter target spell" / "counter target noncreature spell" / "counter
     # target instant or sorcery spell" / "counter target spell with mana
@@ -721,6 +780,16 @@ HANDLERS: list[EffectHandler] = [
             rf"(?:{TARGET}|(?P<selfref>{re.escape(SELF)}))"
         ),
         _add_counters,
+    ),
+    # "put N +1/+1 counters on each creature you control" (RULE 601.2c mass
+    # effect, Vastwood Surge-shaped).
+    EffectHandler(
+        "add_counters_selector",
+        _c(
+            rf"put {COUNT} (?P<ckind>[+\-−]1/[+\-−]1) counters? on "
+            r"each creature you control"
+        ),
+        _add_counters_selector,
     ),
     # "target creature gets +3/+3 until end of turn" / "gets -2/-2 …" /
     # "gets +1/+1 and gains trample until end of turn" / "~ gets +1/+0 …" /

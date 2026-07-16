@@ -481,6 +481,13 @@ class GameEngine:
                 copy_mechanics.restore_face(obj, obj._copy_until_eot_base)
                 obj._copy_until_eot_base = None
                 ended_effects = True
+            # RULE 701.16a: an unused regeneration shield lasts only "that
+            # turn" — sweep it here rather than only on consumption
+            # (`RulesEngine.regenerate`'s own removal handles the used case).
+            if any(getattr(e, "regeneration_shield", False) for e in obj.replacement_effects):
+                obj.replacement_effects = [
+                    e for e in obj.replacement_effects if not getattr(e, "regeneration_shield", False)
+                ]
         if ended_effects:
             self.recompute_continuous_effects()  # re-derive P/T sans the pumps
         self._clear_combat()
@@ -1838,7 +1845,10 @@ class GameEngine:
         if cost.sacrifice:
             victim = self._sacrifice_candidate(player, obj, cost.sacrifice)
             if victim is not None:
-                self.rules.destroy(victim)
+                # RULE 701.16c: sacrifice isn't destruction — regeneration
+                # can't save it — so this bypasses `destroy` and its
+                # regeneration-shield check.
+                self.rules.put_into_graveyard(victim)
         if cost.discard:
             self.rules.discard(
                 player, len(player.hand) if cost.discard == DISCARD_HAND else cost.discard
@@ -1924,7 +1934,9 @@ class GameEngine:
         if cost.sacrifice:
             victim = self._sacrifice_candidate(player, source, cost.sacrifice)
             if victim is not None:
-                self.rules.destroy(victim)
+                # RULE 701.16c: sacrifice isn't destruction — see the
+                # matching comment in `_pay_additional_cast_cost`.
+                self.rules.put_into_graveyard(victim)
         if cost.discard:
             self.rules.discard(player, len(player.hand) if cost.discard == DISCARD_HAND else cost.discard)
         if cost.remove_counters:

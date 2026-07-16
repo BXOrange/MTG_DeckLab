@@ -150,23 +150,37 @@ Weeks 1–4 roadmap is archived at
         mass damage ("deals N damage to each creature/player/opponent",
         a closed `selector` on `DealDamageEffect`), and ETB self-attach
         for Equipment (`test_effect_families_wave3.py`).
-      Still open: regenerate, "up to N" targets, "add 1 mana of any color"
-      (a mana *choice*); oracle-text
-      *recognition* of replacement clauses (the binder is ready; a
-      target/duration grammar for the front-end is not); parse-on-load
-      memoization in `LazyCardLoader`; a spell's "if this spell was kicked,
-      …" resolve-time conditional effect, which needs new conditional-clause
-      grammar to recognize the "if kicked" clause shape and gate which
-      `EffectSpec`s apply (Kicker's own cast-time payment/tracking is fully
-      modeled — see Done_Backend.md "M2 alt-cost keywords" — this is purely
-      about a spell consuming that state); and the remaining processing-list
-      tail (run `parser/oracle/
+      Regenerate (RULE 701.16) is done — moved to Done_Backend.md "M1 —
+      Oracle-effect parser".
+      "Up to one" targets (RULE 115.1a, N=1 only), the "if this spell was
+      kicked, \<effect\>." additional-effect conditional (RULE 702.33b), and
+      oracle-text recognition of three of the five registered replacement
+      families (`double_tokens`/`double_counters`/`additional_damage`) are
+      **done** — moved to Done_Backend.md "M1 — Oracle-effect parser"
+      (2026-07-16 "Batch 11" entry).
+      Still open: a real "up to two/three/N"/"up to X" **multi**-target
+      choice (N>=2 — needs an interactive multi-select and per-effect
+      application over a *list* of targets, a materially larger feature
+      than the N=1 case just shipped); "add 1 mana of any color" (a mana
+      *choice*); `prevent_damage`'s two real cards (Riot Control/Thought
+      Lash) — a *one-shot spell effect* that grants a temporary shield
+      (Regenerate-shaped: a new effect class + `RulesEngine` method), not
+      the standing-permanent replacement-clause shape the other three
+      families used; a differently-scoped counter-doubling clause
+      (Innkeeper's Talent's "on a permanent or player") and a compound
+      colour/type filter (Mechanized Warfare's "a red or artifact source")
+      — both fail closed today, deliberately not guessed; the full RULE
+      616.1 "if X would Y, Z instead" grammar beyond those five fixed
+      sentences (many more real formulations — target/duration variants);
+      parse-on-load memoization in `LazyCardLoader`; and the remaining
+      processing-list tail (run `parser/oracle/
       processing_list.coverage_over_cards` for the current ranking —
-      top blockers now: "\<cost\>: untap this artifact", prohibition
-      statics ("activated abilities of artifacts can't be activated",
-      "players can't draw cards"), cost-modification statics
-      ("noncreature spells cost {1} more to cast"), emblems, and
-      "for each"-scaled effects).
+      top blockers now: "choose \<n\> —"/"choose \<n\> or more —" (a
+      larger modal-header grammar than RULE 700.2's "choose one"/"choose
+      one or both"), "you may look at the top card of your library any
+      time", "when this land enters, surveil \<n\>.", "\<cost\>: level
+      \<n\>", monarch/initiative (deferred per M6), prohibition/cost-
+      modification statics, and emblems).
       **Mana-ability costs/production redone (RULE 605.1a/602.1)** — moved
       to [Done_Backend.md](../docs/implementation-state/Done_Backend.md)
       "Rules Engine (Phase 2)" (2026-07-15 entry). Verified against the Elf

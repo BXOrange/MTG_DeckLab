@@ -1304,6 +1304,72 @@ class RulesEngine:
         )
 
     def destroy(self, obj: GameObject) -> None:
+        """RULE 701.6: destroy ``obj`` — replaceable (RULE 616), chiefly by a
+        regeneration shield (RULE 701.16, `regenerate`) consuming the event
+        instead of letting the permanent reach the graveyard. Not the entry
+        point for a *non*-destruction move to the graveyard (sacrifice, 0
+        toughness, …) — those go through `put_into_graveyard`/
+        `_move_to_graveyard` directly, since RULE 701.16c says regeneration
+        never applies to them.
+        """
+        event = GameEvent(EventType.DESTROY, target_id=obj.instance_id, object=obj.name)
+
+        def _finish(resolved: Optional[GameEvent]) -> None:
+            if resolved is not None:
+                self._move_to_graveyard(obj)
+
+        self.apply_replacements(event, on_resolved=_finish)
+
+    def regenerate(self, obj: GameObject) -> None:
+        """RULE 701.16: give ``obj`` a regeneration shield.
+
+        The next time this turn ``obj`` would be destroyed (`destroy`, e.g.
+        via RULE 704.5g lethal damage), the shield replaces that event with:
+        remove it from combat, tap it, and remove all damage marked on it —
+        instead of moving it to the graveyard. RULE 701.16c: this never
+        applies to sacrifice, 0 toughness, or any other non-destruction move
+        to the graveyard.
+
+        Consumed on first use; each call adds its own independent shield
+        (RULE 701.16a — several activations stack several shields). Any
+        shield still unused simply sits in ``replacement_effects`` until
+        `GameEngine._step_cleanup` sweeps it at end of turn (RULE 514.2),
+        identified by the ``regeneration_shield`` marker so cleanup doesn't
+        touch a card's own bind-time replacement effects living in the same
+        list.
+        """
+        effect = ReplacementEffect(
+            event_type=EventType.DESTROY,
+            replacement_fn=lambda e, c: e,  # replaced below once `effect` exists
+            condition=lambda e, c: e.get("target_id") == obj.instance_id,
+            source=obj,
+            description=f"{obj.name}: Regenerationsschild",
+        )
+        effect.regeneration_shield = True
+
+        def _replace(event: GameEvent, _context: GameContext) -> Optional[GameEvent]:
+            if effect in obj.replacement_effects:
+                obj.replacement_effects.remove(effect)
+            obj.attacking = False
+            obj.combat_defender = None
+            obj.blocking = None
+            obj.blocked_by = []
+            obj.dealt_deathtouch_damage = False
+            obj.tapped = True
+            obj.damage_marked = 0
+            return None
+
+        effect.replacement_fn = _replace
+        obj.replacement_effects.append(effect)
+
+    def put_into_graveyard(self, obj: GameObject) -> None:
+        """Move ``obj`` to its owner's graveyard *without* going through
+        `destroy` (RULE 701.16c: sacrifice is not destruction and can't be
+        replaced by regeneration) — the entry point for a specific,
+        already-chosen sacrifice victim (`GameEngine`'s cost-payment
+        sacrifice path). `sacrifice`'s own auto-picked effect-driven
+        sacrifice (RULE 701.17) uses this too, for the same reason.
+        """
         self._move_to_graveyard(obj)
 
     def sacrifice(self, player: Player, what: str = "permanent", count: int = 1) -> None:
@@ -1325,7 +1391,7 @@ class RulesEngine:
             )
             if candidate is None:
                 return
-            self.destroy(candidate)
+            self.put_into_graveyard(candidate)
 
     def exile(self, obj: GameObject) -> None:
         """Move ``obj`` to its owner's exile zone (RULE 406), from anywhere.
@@ -2706,7 +2772,10 @@ class RulesEngine:
 
         # 704.5g: creature with lethal marked damage is destroyed — or one
         # that was dealt any damage by a deathtouch source (RULE 702.2b makes
-        # that lethal). Indestructible (RULE 702.12b) is destroyed by neither.
+        # that lethal). Indestructible (RULE 702.12b) is destroyed by
+        # neither. Routed through `destroy` (not a raw `_move_to_graveyard`)
+        # so a regeneration shield (RULE 701.16) gets a chance to intercept
+        # it — the classic regenerate-a-blocker use case.
         for obj in self.state.permanents():
             if not obj.is_creature or obj.toughness is None:
                 continue
@@ -2714,7 +2783,7 @@ class RulesEngine:
                 continue
             lethal_marked = obj.toughness > 0 and obj.damage_marked >= obj.toughness
             if lethal_marked or (obj.dealt_deathtouch_damage and obj.damage_marked > 0):
-                self._move_to_graveyard(obj)
+                self.destroy(obj)
                 return True
 
         # 704.5q: a permanent with both +1/+1 and -1/-1 counters removes an

@@ -24,6 +24,7 @@ from .costs import parse_activation_cost
 from .effects import (
     ActivatedAbility,
     AttachEffect,
+    ConditionalEffect,
     EffectRegistry,
     GameEffect,
     LoseLifeEffect,
@@ -69,6 +70,8 @@ def build_effects(effects: list[EffectSpec], source: Optional[Any] = None) -> li
             raise BindError(f"no registered effect for type {spec.type!r}")
         effect = EffectRegistry.create(spec.type, dict(spec.params))
         effect.source = source
+        if spec.condition is not None:
+            effect = ConditionalEffect(spec.condition, effect, source=source)
         built.append(effect)
     return built
 

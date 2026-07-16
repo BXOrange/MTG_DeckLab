@@ -45,6 +45,9 @@ MAX_EFFECT_MAGNITUDE: int = 10_000
 #: Numeric effect params subject to clamping (includes a keyword's "n").
 _CLAMPED_PARAM_KEYS: tuple[str, ...] = ("amount", "count", "x", "n")
 
+#: `EffectSpec.condition`'s whitelisted keys — see that field's docstring.
+_ALLOWED_CONDITION_KEYS: frozenset[str] = frozenset({"kicked"})
+
 #: RULE 601.2b/604.3 "as an additional cost to cast this spell, <cost>." —
 #: the closed vocabulary an `AbilitySpec.additional_cost` may name. Kept this
 #: small (rather than reusing the free-text `ActivationCost` parser) because
@@ -90,17 +93,35 @@ class EffectSpec:
 
     ``type``/``params`` match `EffectRegistry.create(type, params)` exactly,
     so binding is a direct lookup (e.g. ``EffectSpec("damage", {"amount": 3})``).
+
+    ``condition`` (parallel to `AbilitySpec.modes`) gates whether this
+    *specific* effect fires at resolve time, checked against runtime state
+    the binder wraps in a `game.effects.ConditionalEffect` — today just
+    RULE 702.33b's "if this spell was kicked, <effect>." (``{"kicked":
+    True}``, checked against ``obj.kicker_count``). A whitelisted shape
+    (`_ALLOWED_CONDITION_KEYS`), not an arbitrary predicate — it can only
+    gate whether an already-whitelisted effect applies, never choose *which*
+    effect runs, so it doesn't widen the security boundary docs/09 sets out.
     """
 
     type: str
     params: dict[str, Any] = field(default_factory=dict)
+    condition: Optional[dict[str, Any]] = None
 
     def to_dict(self) -> dict[str, Any]:
-        return {"type": self.type, "params": dict(self.params)}
+        d: dict[str, Any] = {"type": self.type, "params": dict(self.params)}
+        if self.condition is not None:
+            d["condition"] = dict(self.condition)
+        return d
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> "EffectSpec":
-        return cls(type=str(data["type"]), params=dict(data.get("params") or {}))
+        condition = data.get("condition")
+        return cls(
+            type=str(data["type"]),
+            params=dict(data.get("params") or {}),
+            condition=dict(condition) if condition else None,
+        )
 
 
 @dataclass
@@ -167,6 +188,8 @@ class AbilitySpec:
             if not isinstance(effect, EffectSpec) or not effect.type:
                 raise SpecValidationError(f"malformed effect spec: {effect!r}")
             self._clamp_params(effect.params)
+            if effect.condition is not None:
+                self._validate_condition(effect.condition)
 
         if (
             self.ability_kind in _EFFECT_BEARING_KINDS
@@ -245,6 +268,18 @@ class AbilitySpec:
                 )
         else:
             raise SpecValidationError(f"unknown additional_cost kind {key!r}")
+
+    @staticmethod
+    def _validate_condition(condition: dict[str, Any]) -> None:
+        """Structural check for an `EffectSpec.condition` (RULE 702.33b's
+        kicked-gate, so far the only member)."""
+        if not isinstance(condition, dict) or not condition:
+            raise SpecValidationError(f"malformed effect condition: {condition!r}")
+        for key, value in condition.items():
+            if key not in _ALLOWED_CONDITION_KEYS:
+                raise SpecValidationError(f"unknown effect condition key {key!r}")
+            if key == "kicked" and not isinstance(value, bool):
+                raise SpecValidationError("'kicked' condition must be a bool")
 
     @staticmethod
     def _clamp_params(params: dict[str, Any]) -> None:

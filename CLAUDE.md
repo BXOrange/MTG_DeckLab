@@ -176,18 +176,33 @@ additional cast costs, the counter family, RULE 614.1 enters-tapped clauses
 (all four conditional variants) and enters-with-N-counters clauses, static
 anthem/lord clauses, and graveyard-card recursion/exile (Regrowth/
 Reanimate/Deathrite Shaman-shaped — own/any/an opponent's graveyard × any
-card type). `parser/oracle/processing_list.py` tracks cache-wide coverage
-(21.3% of the 2,507-card cache fully `MODELED` as of 2026-07-16 — re-run
+card type); regenerate (RULE 701.16 — a new pre-emptively-fired
+`EventType.DESTROY` `RulesEngine.destroy` runs through the existing
+replacement-effect machinery so `RulesEngine.regenerate`'s shield can
+intercept it; also closed a RULE 701.16c gap where sacrifice previously
+went through `destroy` too and could have wrongly been save-able by a
+shield — sacrifice now uses the new non-destructive
+`RulesEngine.put_into_graveyard`); RULE 115.1a "up to one target" (any
+`{TARGET}`-based handler, N=1 only — a real N>=2 multi-target choice is a
+separate, larger unshipped feature); RULE 702.33b's "if this spell was
+kicked, \<effect\>." as an *additional* effect (`EffectSpec.condition` +
+`game/effects.py`'s `ConditionalEffect`, not the "if kicked, ... instead"
+amount-override shape); and oracle-text recognition of 3 of the 5
+already-bound replacement families (`double_tokens`/`double_counters`/
+`additional_damage` — standing-permanent clauses; `prevent_damage`'s
+two real cards are a different, still-unmodeled one-shot-spell shape).
+`parser/oracle/processing_list.py` tracks cache-wide coverage (20.7% of
+the 2,869-card cache fully `MODELED` as of 2026-07-16 — re-run
 `coverage_over_cards()` before trusting this number, the cache grows) and
 ranks the next handlers worth building.
 
 **Notable gaps** (see `backend/ToDo_Backend.md` for the full list with exact
-scope on each): regenerate, "up to N" targets, a "remove a counter from ~"
-activation-cost shape (`costs.py`); a kicked spell's "if this spell was
-kicked, …" resolve-time conditional effect
-(new conditional-clause grammar — the M2 parametric-keyword *behaviour* work
-itself, kicker included, is done); oracle-text *recognition* of replacement
-clauses (the binder side is ready); wiring the interactive priority primitive
+scope on each): a real N>=2 "up to N target(s)" multi-select; a "remove a
+counter from ~" activation-cost shape (`costs.py`); a kicked spell's "if
+kicked, ... instead" *override* conditional (as opposed to the additional-
+effect shape already shipped); the remaining RULE 616.1 replacement-clause
+formulations (`prevent_damage`'s one-shot-spell shape, differently-scoped/
+compound-filter variants); wiring the interactive priority primitive
 into the multiplayer session/WebSocket; and battles/dungeons. Narrower,
 already-shipped-feature rough edges
 (e.g. re-validating an *existing* attachment's legality every SBA pass, not

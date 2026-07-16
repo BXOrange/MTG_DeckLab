@@ -64,14 +64,15 @@ class ParseResult:
     def modeled(self) -> bool:
         return self.coverage == MODELED
 
-    #: The effect-bearing specs (triggered / spell_effect / activated) parsed
-    #: from text — as opposed to the keyword specs, which are safe individually.
-    #: The binder only trusts these when the whole card is `MODELED`.
+    #: The effect-bearing specs (triggered / spell_effect / activated /
+    #: static / replacement) parsed from text — as opposed to the keyword
+    #: specs, which are safe individually. The binder only trusts these when
+    #: the whole card is `MODELED`.
     @property
     def effect_specs(self) -> list[AbilitySpec]:
         return [
             s for s in self.specs
-            if s.ability_kind in ("triggered", "spell_effect", "activated", "static")
+            if s.ability_kind in ("triggered", "spell_effect", "activated", "static", "replacement")
         ]
 
 

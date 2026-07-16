@@ -22,6 +22,7 @@ from typing import Any, Optional
 
 from .catalogue.handlers import match_clause
 from .catalogue.keywords import KEYWORDS
+from .catalogue.replacements import replacement_clause_specs
 from .catalogue.saga import CHAPTER_LINE_RE, parse_chapter_token
 from .catalogue.static_handlers import static_effect_specs
 from .spec import AbilitySpec, EffectSpec, ParserProvenance
@@ -101,6 +102,17 @@ _MANA_EFFECT_RE = re.compile(r"^add\b", re.I)
 #: Connectors that chain two effect clauses in one ability body, tried in this
 #: order when the whole body isn't a single handled clause.
 _CONNECTORS: tuple[str, ...] = (r"\.\s+", r";\s+", r",?\s+then\s+", r"\s+and\s+")
+
+#: RULE 702.33b's "If this spell was kicked, <effect>." — a *second,
+#: additional* effect gated on the spell's own ``kicker_count`` (Vastwood
+#: Surge-shaped: a base effect, then this as its own sentence). Only this
+#: "additional effect" shape is recognised; "if kicked, it deals N damage
+#: instead" (overriding an *earlier* effect's own amount — Burst Lightning/
+#: Rite of Replication-shaped) is a different, unmodeled grammar — the
+#: wrapped ``rest`` there fails `match_clause` on its own (no target/full
+#: clause of its own), so it fails closed here too rather than needing a
+#: separate check.
+_KICKED_CONDITION_RE = re.compile(r"^if this spell was kicked,\s*(?P<rest>.+)$", re.IGNORECASE)
 
 #: RULE 601.2b/604.3's additional-cost line: "As an additional cost to cast
 #: this spell, <cost>." — instants/sorceries only (gated by
@@ -206,6 +218,13 @@ def parse_effect_body(body: str) -> Optional[list[EffectSpec]]:
     body = body.strip().rstrip(".").strip()
     if not body:
         return []
+
+    kicked = _KICKED_CONDITION_RE.match(body)
+    if kicked is not None:
+        inner = parse_effect_body(kicked.group("rest"))
+        if inner is None:
+            return None
+        return [EffectSpec(e.type, dict(e.params), condition={"kicked": True}) for e in inner]
 
     direct = match_clause(body)
     if direct is not None:
@@ -376,6 +395,16 @@ def segment_line(
         if static is not None:
             spec = AbilitySpec(
                 "static", effects=static, raw_text=raw, parser=provenance
+            )
+            return Segment(raw=raw, spec=spec, claimed=True)
+        # A standing "if X would Y, Z instead" line (RULE 614/616) is a
+        # replacement effect, not a static continuous ability — tried after
+        # `static_effect_specs` (the two never overlap in shape) before
+        # giving up.
+        replacement = replacement_clause_specs(raw)
+        if replacement is not None:
+            spec = AbilitySpec(
+                "replacement", effects=replacement, raw_text=raw, parser=provenance
             )
             return Segment(raw=raw, spec=spec, claimed=True)
         return Segment(raw=raw)  # permanent bare imperative → unclaimed

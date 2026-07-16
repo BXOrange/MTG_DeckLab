@@ -75,6 +75,9 @@ class GameContext:
     def destroy(self, target: "GameObject") -> None:
         self.engine.destroy(target)
 
+    def regenerate(self, target: "GameObject") -> None:
+        self.engine.regenerate(target)
+
     def exile(self, target: "GameObject") -> None:
         self.engine.exile(target)
 
@@ -546,6 +549,51 @@ class WinConditionEffect(GameEffect):
 
 
 # ---------------------------------------------------------------------------
+# SPECIAL: Conditional effect wrapper (parser/oracle/spec.py's EffectSpec.condition)
+# ---------------------------------------------------------------------------
+
+
+class ConditionalEffect(GameEffect):
+    """Gates ``inner`` so it only applies when ``condition`` holds (RULE
+    702.33b's "if this spell was kicked, <effect>." — a *second, additional*
+    effect on the same spell/ability, not a replacement of an earlier one;
+    see `parser.oracle.spec.EffectSpec.condition`'s docstring for why "if
+    kicked, ... instead" — overriding an *existing* effect's own amount —
+    is a different, unmodeled shape).
+
+    Built only by `game/effect_binder.py`'s `build_effects`, never directly
+    by `EffectRegistry` (``condition`` lives on the `EffectSpec`, not inside
+    ``params``, so there's no ``"conditional"`` registry entry to construct
+    one from card-text-derived data — keeps the whitelist's shape/behaviour
+    split from docs/09 intact).
+    """
+
+    def __init__(
+        self,
+        condition: dict[str, Any],
+        inner: GameEffect,
+        source: Optional["GameObject"] = None,
+    ) -> None:
+        super().__init__(source)
+        self.condition = condition
+        self.inner = inner
+        self.target_spec = inner.target_spec
+
+    def _condition_holds(self) -> bool:
+        kicked = self.condition.get("kicked")
+        if kicked is not None:
+            count = getattr(self.source, "kicker_count", 0) or 0
+            return (count > 0) if kicked else (count == 0)
+        return True
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        if self.inner.source is None:
+            self.inner.source = self.source
+        if self._condition_holds():
+            self.inner.apply(context, targets)
+
+
+# ---------------------------------------------------------------------------
 # Concrete one-shot effects (RULE 608 resolution bodies)
 # ---------------------------------------------------------------------------
 
@@ -573,6 +621,7 @@ class DealDamageEffect(GameEffect):
         source: Optional["GameObject"] = None,
         target_kind: str = "any",
         selector: Optional[str] = None,
+        optional: bool = False,
     ) -> None:
         super().__init__(source)
         self.amount = amount
@@ -581,7 +630,9 @@ class DealDamageEffect(GameEffect):
         if self.selector is None:
             # Damage targets "any target" by default (RULE 115.4); a card
             # that only hits creatures can narrow this to "creature".
-            self.target_spec = TargetSpec(kind=target_kind)
+            # ``optional`` is RULE 115.1a "up to one target" — zero targets
+            # is then a legal choice, so casting is never locked on it.
+            self.target_spec = TargetSpec(kind=target_kind, optional=optional)
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
         if self.selector is not None:
@@ -639,15 +690,42 @@ class DestroyEffect(GameEffect):
         target: Any = None,
         source: Optional["GameObject"] = None,
         target_kind: str = "permanent",
+        optional: bool = False,
     ) -> None:
         super().__init__(source)
         self.target = target
-        self.target_spec = TargetSpec(kind=target_kind)
+        self.target_spec = TargetSpec(kind=target_kind, optional=optional)
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
         target = (targets[0] if targets else None) or self.target
         if target is not None:
             context.destroy(target)
+
+
+class RegenerateEffect(GameEffect):
+    """Give a target permanent a regeneration shield (RULE 701.16).
+
+    ``target_kind=None`` (unlike the default ``"creature"``) makes it act on
+    the effect's own source with no player choice involved — "Regenerate
+    ~."/"Regenerate this creature.", mirroring `TapEffect`'s self mode.
+    """
+
+    def __init__(
+        self,
+        target: Any = None,
+        source: Optional["GameObject"] = None,
+        target_kind: Optional[str] = "creature",
+    ) -> None:
+        super().__init__(source)
+        self.target = target
+        self.target_spec = TargetSpec(kind=target_kind) if target_kind is not None else None
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        target = (targets[0] if targets else None) or self.target
+        if target is None and self.target_spec is None:
+            target = self.source
+        if target is not None:
+            context.regenerate(target)
 
 
 class GainLifeEffect(GameEffect):
@@ -893,10 +971,11 @@ class ExileEffect(GameEffect):
         target: Any = None,
         source: Optional["GameObject"] = None,
         target_kind: str = "permanent",
+        optional: bool = False,
     ) -> None:
         super().__init__(source)
         self.target = target
-        self.target_spec = TargetSpec(kind=target_kind)
+        self.target_spec = TargetSpec(kind=target_kind, optional=optional)
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
         target = (targets[0] if targets else None) or self.target
@@ -920,10 +999,11 @@ class ReturnToHandEffect(GameEffect):
         target: Any = None,
         source: Optional["GameObject"] = None,
         target_kind: str = "permanent",
+        optional: bool = False,
     ) -> None:
         super().__init__(source)
         self.target = target
-        self.target_spec = TargetSpec(kind=target_kind)
+        self.target_spec = TargetSpec(kind=target_kind, optional=optional)
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
         target = (targets[0] if targets else None) or self.target
@@ -956,12 +1036,13 @@ class ReturnFromGraveyardEffect(GameEffect):
         target_kind: str = "graveyard_creature",
         destination: str = "battlefield",
         under_your_control: bool = False,
+        optional: bool = False,
     ) -> None:
         super().__init__(source)
         self.target = target
         self.destination = destination if destination in ("battlefield", "hand") else "battlefield"
         self.under_your_control = under_your_control
-        self.target_spec = TargetSpec(kind=target_kind)
+        self.target_spec = TargetSpec(kind=target_kind, optional=optional)
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
         target = (targets[0] if targets else None) or self.target
@@ -1023,11 +1104,12 @@ class TapEffect(GameEffect):
         source: Optional["GameObject"] = None,
         target_kind: Optional[str] = "permanent",
         untap: bool = False,
+        optional: bool = False,
     ) -> None:
         super().__init__(source)
         self.target = target
         self.untap = untap
-        self.target_spec = TargetSpec(kind=target_kind) if target_kind is not None else None
+        self.target_spec = TargetSpec(kind=target_kind, optional=optional) if target_kind is not None else None
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
         target = (targets[0] if targets else None) or self.target
@@ -1105,7 +1187,13 @@ class AddCountersEffect(GameEffect):
     """Put ``amount`` +1/+1 counters on a target creature — or on the source.
 
     Untargeted, it buffs the effect's own source (an activated "put a +1/+1
-    counter on this creature"); with a ``target_kind`` it targets (RULE 122).
+    counter on this creature"); with a ``target_kind`` it targets (RULE 122),
+    optionally as an RULE 115.1a "up to one" pick. ``selector=
+    "each_creature_you_control"`` (RULE 601.2c, Vastwood Surge's "put two
+    +1/+1 counters on each creature you control") is instead a mass,
+    untargeted effect over the group `continuous.group_selector_objects`
+    already resolves for pump/anthem clauses — mirrors `DealDamageEffect.
+    selector`'s "no `target_spec` at all" shape.
     """
 
     def __init__(
@@ -1114,16 +1202,26 @@ class AddCountersEffect(GameEffect):
         target_kind: Optional[str] = None,
         source: Optional["GameObject"] = None,
         kind: str = "+1/+1",
+        optional: bool = False,
+        selector: Optional[str] = None,
     ) -> None:
         super().__init__(source)
         self.amount = amount
         # The counter type: "+1/+1" (default) or "-1/-1" (RULE 122). Both shift
         # net P/T the same machinery, just with opposite sign.
         self.kind = kind
-        if target_kind is not None:
-            self.target_spec = TargetSpec(kind=target_kind)
+        self.selector = selector if selector == "each_creature_you_control" else None
+        if self.selector is None and target_kind is not None:
+            self.target_spec = TargetSpec(kind=target_kind, optional=optional)
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        if self.selector == "each_creature_you_control":
+            from .continuous import group_selector_objects  # avoid the continuous↔effects cycle
+
+            controller_id = getattr(self.source, "controller_id", None)
+            for obj in group_selector_objects(context.state, controller_id, "creatures_you_control"):
+                context.add_counters(obj, self.amount, self.kind)
+            return
         if self.target_spec is not None:
             target = targets[0] if targets else None
         else:
@@ -1570,6 +1668,7 @@ EffectRegistry.register(
         target=p.get("target"),
         target_kind=p.get("target_kind", "any"),
         selector=p.get("selector"),
+        optional=bool(p.get("optional", False)),
     ),
 )
 EffectRegistry.register(
@@ -1581,7 +1680,15 @@ EffectRegistry.register(
 EffectRegistry.register(
     "destroy",
     lambda p: DestroyEffect(
-        target=p.get("target"), target_kind=p.get("target_kind", "permanent")
+        target=p.get("target"),
+        target_kind=p.get("target_kind", "permanent"),
+        optional=bool(p.get("optional", False)),
+    ),
+)
+EffectRegistry.register(
+    "regenerate",
+    lambda p: RegenerateEffect(
+        target=p.get("target"), target_kind=p.get("target_kind", "creature")
     ),
 )
 EffectRegistry.register(
@@ -1609,12 +1716,18 @@ EffectRegistry.register(
 )
 EffectRegistry.register(
     "exile",
-    lambda p: ExileEffect(target=p.get("target"), target_kind=p.get("target_kind", "permanent")),
+    lambda p: ExileEffect(
+        target=p.get("target"),
+        target_kind=p.get("target_kind", "permanent"),
+        optional=bool(p.get("optional", False)),
+    ),
 )
 EffectRegistry.register(
     "return_to_hand",  # "return target X to its owner's hand" (RULE 701.3)
     lambda p: ReturnToHandEffect(
-        target=p.get("target"), target_kind=p.get("target_kind", "permanent")
+        target=p.get("target"),
+        target_kind=p.get("target_kind", "permanent"),
+        optional=bool(p.get("optional", False)),
     ),
 )
 EffectRegistry.register(
@@ -1626,6 +1739,7 @@ EffectRegistry.register(
         target_kind=p.get("target_kind", "graveyard_creature"),
         destination=p.get("destination", "battlefield"),
         under_your_control=bool(p.get("under_your_control", False)),
+        optional=bool(p.get("optional", False)),
     ),
 )
 EffectRegistry.register(
@@ -1638,6 +1752,7 @@ EffectRegistry.register(
         target=p.get("target"),
         target_kind=p.get("target_kind", "permanent"),
         untap=bool(p.get("untap", False)),
+        optional=bool(p.get("optional", False)),
     ),
 )
 EffectRegistry.register(
@@ -1696,6 +1811,8 @@ EffectRegistry.register(
         amount=p.get("amount", p.get("count", 1)),
         target_kind=p.get("target_kind"),
         kind=p.get("kind", "+1/+1"),
+        optional=bool(p.get("optional", False)),
+        selector=p.get("selector"),
     ),
 )
 EffectRegistry.register(

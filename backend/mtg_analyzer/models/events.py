@@ -43,6 +43,14 @@ class EventType:
     ENTERS_BATTLEFIELD = "ENTERS_BATTLEFIELD"
     LEAVES_BATTLEFIELD = "LEAVES_BATTLEFIELD"
     DIES = "DIES"
+    #: A permanent (``target_id``) would be destroyed (RULE 701.6) — fired
+    #: pre-emptively by `RulesEngine.destroy` so a replacement effect can
+    #: intercept it, chiefly a regeneration shield (RULE 701.16,
+    #: `RulesEngine.regenerate`). Not fired by the *other* ways a permanent
+    #: reaches the graveyard (0 toughness, sacrifice, discard, …) — RULE
+    #: 701.16c/704.5f: those aren't "destruction" and regeneration can't
+    #: replace them.
+    DESTROY = "DESTROY"
     MILL = "MILL"
     #: A Saga (RULE 714) reached a new lore-counter count — carries
     #: ``instance_id`` (which Saga) and ``chapter`` (the new count), so a

@@ -1557,6 +1557,225 @@ the Phase-1 models. Tests: `test_game_engine.py`.
       mana production, rejecting a battlefield source, the
       `legal_actions` offer, a combination-ability `color_split`).
 
+- [x] **Regenerate, RULE 701.16 (2026-07-16):** the keyword action — "give a
+      permanent a regeneration shield that replaces the next time it would
+      be destroyed this turn with: remove it from combat, tap it, remove
+      all damage" — modeled end to end rather than as a hand-waved
+      "prevent destruction" shortcut, because RULE 701.16c's distinction
+      (regeneration only intercepts *destruction*, never sacrifice/0
+      toughness/exile/etc.) turned out to already be a latent gap in the
+      engine worth closing regardless of Regenerate itself.
+
+      **New `EventType.DESTROY`** (`models/events.py`): `RulesEngine.destroy`
+      now fires this pre-emptively and runs it through the existing
+      `apply_replacements`/`on_resolved` machinery (the same pattern
+      `deal_damage` already used) instead of moving straight to the
+      graveyard — a replacement effect gets a chance to intercept it first.
+      With no matching replacement, behavior is unchanged and fully
+      synchronous, so this is additive to every existing `destroy` caller.
+
+      **`RulesEngine.regenerate(obj)`** appends a `ReplacementEffect` keyed
+      on `DESTROY` + a `target_id` match to `obj.replacement_effects`,
+      tagged with a `regeneration_shield` marker attribute (the object's
+      `replacement_effects` list also holds a card's own permanent,
+      bind-time replacement effects — the marker is how cleanup tells them
+      apart). On the first `destroy` event it catches, the shield removes
+      itself from the list, clears combat state
+      (`attacking`/`combat_defender`/`blocking`/`blocked_by`/
+      `dealt_deathtouch_damage`), taps the permanent, zeroes
+      `damage_marked`, and cancels the event (no move to the graveyard).
+      Multiple `regenerate` calls stack independent shields (RULE
+      701.16a); two shields simultaneously applicable to the same event is
+      genuine RULE 616.1e ambiguity and opens the existing
+      `replacement_order` interactive choice, same as any other
+      multi-replacement collision this engine already handles
+      (`test_replacement_ordering.py`). An unused shield expires at
+      `GameEngine._step_cleanup` (RULE 514.2/701.16a "that turn"), swept by
+      the same `regeneration_shield` marker.
+
+      **RULE 704.5g's lethal-damage/deathtouch state-based action** now
+      calls `destroy(obj)` instead of the raw `_move_to_graveyard(obj)` —
+      the classic "regenerate a blocker" use case. RULE 704.5f (0
+      toughness) and every other SBA/zone-move that was never "destruction"
+      to begin with are untouched.
+
+      **RULE 701.16c fix (a real, if latent, bug this feature exposed):**
+      `RulesEngine.sacrifice` (the effect-driven RULE 701.17 auto-picker)
+      and `GameEngine`'s two cost-payment sacrifice call sites
+      (`_pay_additional_cast_cost`/`_pay_activation_cost`) previously all
+      called `RulesEngine.destroy` directly — harmless before regeneration
+      existed, but would have let a regeneration shield illegally save a
+      sacrificed permanent once it did. All three now call the new public
+      `RulesEngine.put_into_graveyard(obj)` (a `_move_to_graveyard` wrapper
+      that never fires `DESTROY`), the same non-destruction choke point
+      the pre-existing SBA graveyard moves already used internally.
+
+      **`RegenerateEffect`** (`game/effects.py`, registered as
+      `EffectRegistry`'s `"regenerate"`) mirrors `TapEffect`'s dual-mode
+      shape: `target_kind="creature"` (default, a real RULE 115 target) or
+      `target_kind=None` (acts on the effect's own source, no target
+      choice — "Regenerate ~."). `GameContext.regenerate` is the matching
+      facade delegate.
+
+      **Parser**: `catalogue/handlers.py` gained `"regenerate"` ("regenerate
+      target creature") and `"regenerate_self"` ("regenerate ~"/"it"/"this
+      creature") handlers, mirroring the existing `tap`/`tap_self` split
+      exactly — zero new grammar.
+
+      **Real-cache yield (honest, verified against the live 2,507-card
+      cache): zero net coverage-percentage movement (535/2507, 21.3%,
+      unchanged before/after).** Of 10 cards whose oracle text contains
+      "regenerate", 9 are "Destroy target creature. It can't be
+      regenerated." (Terminate/Pongify/Wrath of God-shaped) — a *modifier
+      on Destroy*, not a Regenerate ability, and out of this batch's scope.
+      The 1 remaining, Ezuri, Renegade Leader ("{G}: Regenerate another
+      target Elf"), needs a subtype-filtered + "another"-excluding target
+      shape (`targeting.py`/`subgrammars.py` have no "target \<subtype\>"
+      grammar for *any* handler yet, not just this one) — fails closed,
+      correctly stays unclaimed rather than dropping the filter. Shipped
+      anyway per the plan's own framing: a self-contained RULE 701.16
+      engine capability usable by future cache growth and hand-authored
+      catalogue entries (`ability_catalogue.py`) regardless of today's
+      zero-card yield. Tests: new `tests/test_regenerate.py` (17 tests) —
+      parser recognition (both forms + the Ezuri fail-closed negative),
+      the shield mechanism (absorbs lethal/deathtouch damage, single-use,
+      independent stacking + its RULE 616.1e ambiguity choice, a different
+      permanent's own shield doesn't leak), the RULE 701.16c sacrifice/0-
+      toughness non-interaction (including `GameEngine`'s own cost-sacrifice
+      choke point), cleanup-step expiry (and that it doesn't sweep a card's
+      unrelated permanent replacement effect), and `RegenerateEffect.apply`
+      in both target modes.
+
+- [x] **Batch 11 (2026-07-16): "up to one" targets, "if kicked" additional
+      effects, replacement-clause recognition.** Three independent parser/
+      engine features from the M1 backlog, shipped together (real-cache
+      verification below is honest about which parts actually moved the
+      needle).
+
+      **"Up to one" targets (RULE 115.1a, N=1 only):** the shared `TARGET`
+      fragment (`parser/oracle/catalogue/subgrammars.py`) grew an optional
+      `(?:up to (?:one|1) )?` prefix (its own named group, `up_to_one`,
+      sitting *outside* the existing `target` group so `resolve_target_kind`
+      keeps seeing exactly the row text it already matched) plus a
+      `target_is_optional(m)` helper — so **every** existing `{TARGET}`-based
+      handler recognizes "up to one target X" for free, no per-handler
+      grammar duplication. Threaded `optional: bool = False` through to
+      `EffectSpec.params`/each consuming effect class's constructor
+      (`DealDamageEffect`/`DestroyEffect`/`ExileEffect`/`TapEffect`/
+      `ReturnToHandEffect`/`AddCountersEffect`/`ReturnFromGraveyardEffect`)
+      → `TargetSpec(optional=...)`, which the pre-existing (but previously
+      unused by any of these) `optional` field on `TargetSpec` and
+      `targeting.all_requirements_satisfiable`/`GameEngine.has_legal_targets`
+      already understood correctly — "zero targets" simply never locks a
+      cast, and every effect's own `apply()` already treats a `None`
+      target as a no-op, so no `apply()` changes were needed at all. The
+      graveyard-recursion family's own hand-rolled "return/put target …"
+      regexes (not built on the shared `TARGET` fragment) got the same
+      prefix added separately (`UP_TO_ONE`, exported from `subgrammars.py`
+      for this reuse). Deliberately **N=1 only** — a real "up to
+      two/three/N"/"up to X" multi-target choice needs an interactive
+      multi-select and per-effect application over a *list* of targets (the
+      engine's `targets` list today is one entry *per targeting effect*,
+      not per "up to N" slot) — a materially larger feature left for a
+      future batch, not attempted here.
+
+      **"If this spell was kicked, \<effect\>." (RULE 702.33b), the
+      *additional-effect* shape only:** a new `EffectSpec.condition`
+      field (`parser/oracle/spec.py`, parallel to `AbilitySpec.modes`,
+      whitelisted to `{"kicked": bool}` via a new `_validate_condition` —
+      it can only gate whether an already-whitelisted effect fires, never
+      choose *which* effect runs, so it doesn't widen the docs/09 security
+      boundary) + a new `game/effects.py` `ConditionalEffect` wrapper
+      (checks `self.source.kicker_count`, forwards `target_spec`) that
+      `game/effect_binder.py`'s `build_effects` wraps any effect in when
+      its spec carries a `condition`. Parser side: `segmenter.py`'s
+      `parse_effect_body` gained a `_KICKED_CONDITION_RE` wrapper-peel,
+      tried before `match_clause`, so "if this spell was kicked, X" (as its
+      own sentence — `_CONNECTORS`'s existing `.` splitter already isolates
+      it from a preceding base effect) recursively parses `X` and tags
+      the result with `condition={"kicked": True}`. Deliberately **only**
+      the "additional effect" shape (Vastwood Surge: a base effect, then a
+      second sentence gated on kicked) — "if kicked, it deals N damage
+      *instead*" (overriding an *earlier* effect's own amount — Burst
+      Lightning/Rite of Replication-shaped) is a different, unmodeled
+      grammar; the wrapped inner clause there ("it deals 4 damage
+      instead", no target of its own) fails `match_clause` on its own, so
+      it fails closed automatically rather than needing a separate check.
+
+      **`AddCountersEffect` gained a mass `selector="each_creature_you_
+      control"`** (RULE 601.2c, mirroring `DealDamageEffect.selector`'s
+      "no `target_spec` at all" shape, reusing `continuous.
+      group_selector_objects`) + a parser handler for "put N +1/+1
+      counters on each creature you control" — built specifically to make
+      Vastwood Surge's kicked-conditional clause itself recognizable (it
+      wasn't, before this).
+
+      **The basic-land search handler learned "up to N" too**
+      (`_SEARCH_BASIC_LAND_TAPPED_RE`): "search your library for up to N
+      basic land cards, put them onto the battlefield tapped, then
+      shuffle" — a pre-existing engine capability
+      (`SearchLibraryEffect.count`, "offered one card at a time") that only
+      lacked recognition of the plural/count phrasing (previously only "a
+      basic land card"/"it" singular matched).
+
+      **Replacement-clause recognition (RULE 614/616), 3 of the 5
+      already-bound `ReplacementRegistry` families:** a new
+      `parser/oracle/catalogue/replacements.py` (`replacement_clause_specs`,
+      wired into `segmenter.segment_line`'s permanent-only static fallback,
+      right after `static_effect_specs` — the two shapes never collide) —
+      Doubling Season's/Anointed Procession's token-doubling line ("if an
+      effect would create 1 or more tokens under your control, it creates
+      twice that many of those tokens instead" → `double_tokens`),
+      Doubling Season's counter-doubling line (→ `double_counters`), and
+      Torbran/Mechanized Warfare's "plus N damage" line, single-colour
+      variant only (→ `additional_damage` with `your_sources_only`/
+      `to_opponent_only`/`color`) — each a single fixed real-card sentence,
+      full-matched exactly like `static_effect_specs`'s sibling handlers.
+      **Found and fixed a real bug this exposed**: `gate.py`'s
+      `ParseResult.effect_specs` property (the one thing `ability_catalogue.
+      specs_for` actually reads) excluded `ability_kind == "replacement"`
+      entirely — before this batch nothing ever produced one from oracle
+      text, so the gap was latent; now fixed, or none of this would have
+      reached `obj.replacement_effects` at all despite the card parsing as
+      `MODELED`. `prevent_damage`'s two real cards (Riot Control/Thought
+      Lash) are a structurally different *one-shot spell effect* shape (a
+      resolving instant grants a temporary shield — Regenerate-shaped, not
+      a standing permanent clause) and are explicitly **not** covered here;
+      Innkeeper's Talent's differently-scoped counter clause ("on a
+      permanent or player") and Mechanized Warfare's compound "a red or
+      artifact source" filter both fail closed, correctly unclaimed rather
+      than guessed.
+
+      **Real-cache yield (honest, verified against the live cache, which
+      grew to 2,869 cards since the last measurement — re-run
+      `coverage_over_cards()` before trusting any cached number): 583 →
+      594 fully `MODELED` (+11 cards, 20.3% → 20.7%), zero regressions.**
+      Gained: Anointed Procession, Doubling Season, Torbran (all
+      replacement-clause recognition — Doubling Season itself is also
+      hand-authored in `ability_catalogue.py`, so this specifically moves
+      the *parser's own* coverage metric, independent of runtime
+      behaviour, which was already correct via that hand-authored entry),
+      Blighted Woodland/Burnished Hart/Explosive Vegetation/Migration Path
+      (the "up to N basic land cards" search-count fix), Germination
+      Practicum/Leatherhead, Iron Gator (the new mass counter selector),
+      and Vastwood Surge (all three features combined — search-count +
+      mass-counter-selector + the kicked conditional together). The
+      RULE-115.1a "up to one target" grammar itself, despite being real
+      and independently verified (9 clause instances across 9 different
+      cards — Chainsaw, Killian Decisive Mentor, The Wandering Emperor,
+      Liliana Death Wielder, Loran of the Third Path, Salvation Engine,
+      Bottomless Pool, Aerial Extortionist — now parse correctly at the
+      clause level), contributed **0** whole-card flips in this
+      measurement: every one of those 9 cards has a *different*, separately
+      unmodeled clause elsewhere on the same card (goad, a "with a -1/-1
+      counter on it" target filter, "fights", Vehicle/Equipment mechanics,
+      etc.) — reported transparently rather than claimed as coverage it
+      didn't actually move, same as Batch 10's Regenerate. Tests: new
+      `tests/test_optional_targets.py` (10), `tests/test_kicked_
+      conditional.py` (15), `tests/test_replacement_clause_recognition.py`
+      (11), plus one added to `tests/test_effect_families_wave3.py`
+      (the search "up to N" recognition) — 37 new tests total.
+
 ## Game Engine (Phase 3)
 
 `mtg_analyzer/game/game_engine.py`, tests in `test_game_engine.py`.
