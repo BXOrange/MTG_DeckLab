@@ -296,6 +296,23 @@ Follows [`09_ORACLE_EFFECT_PARSER.md`](../concepts/09_ORACLE_EFFECT_PARSER.md). 
   Done_Backend.md "Rules Engine (Phase 2)". Tests:
   `test_mana_spend_restrictions.py` (35 tests: pool mechanics, clause
   parsing, predicate builders, full engine end-to-end).
+- ✅ **"Any combination of colors" mana, RULE 605.1a** (2026-07-16): "Add N
+  mana in any combination of colors" (Flamebraider/Gwenna/Smokebraider's
+  fixed "two", Selvala's variable "X" = greatest power among creatures you
+  control) — a *split* across colours, not a single-colour choice like
+  "any one colour". New `ManaAbility.any_combination` +
+  `_parse_combination_selector` (literal-number and
+  `greatest_power_control` amount kinds) in `game/mana_abilities.py`;
+  `GameEngine.tap_for_mana` gained a `color_split` parameter
+  (`validate_color_split`), consulted only for a combination ability and
+  falling back to the pre-existing `option_index` single-colour default
+  otherwise — additive, no existing caller changed behaviour. No split-
+  choice UI yet (`frontend/ToDo_Frontend.md`). **Real-cache yield**: all 4
+  cards that actually produce a combination mana ability now parse
+  correctly (a 5th cache hit, Realm-Scorcher Hellkite, is a triggered ETB
+  effect, not a mana ability, correctly out of scope). Full writeup:
+  Done_Backend.md "Rules Engine (Phase 2)". Tests:
+  `test_mana_combination.py` (17 tests).
 - ⏳ **Remaining, priority-ordered by real cards-unlocked** (verified
   2026-07-16 by running `processing_list.coverage_over_cards()` over the
   live cache — 21.3% of 2,507 cards fully `MODELED`; **re-run this before
@@ -326,12 +343,11 @@ Follows [`09_ORACLE_EFFECT_PARSER.md`](../concepts/09_ORACLE_EFFECT_PARSER.md). 
      cards found above and are plausibly reusable across other unclaimed
      lines too.
   - **Related, same pipeline, separately tracked in `ToDo_Backend.md`**:
-    mana-ability follow-ups from the 2026-07-15 Elf-mana-dork pass — "any
-    combination of colors" and hand-zone activation are what's left
-    (spend restrictions, Leveler-gating, and Deathrite Shaman itself are
-    all now done) — not cache-coverage-ranked since mana abilities are
-    recognized without needing a `MODELED` spec; prioritize by card value
-    instead.
+    mana-ability follow-ups from the 2026-07-15 Elf-mana-dork pass — only
+    hand-zone activation is what's left (spend restrictions, Leveler-
+    gating, Deathrite Shaman, and "any combination of colors" are all now
+    done) — not cache-coverage-ranked since mana abilities are recognized
+    without needing a `MODELED` spec; prioritize by card value instead.
 - **Unblocks:** plain instants/sorceries/ETB-triggers/activated/static
   abilities from the handled families already resolve with no catalogue
   entry; is the seam M2 plugs into. *(docs/09 Phases 1–2.)*

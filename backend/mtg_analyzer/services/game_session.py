@@ -315,7 +315,11 @@ class GameSession:
             option_index = int(action.get("option_index", 0))
             ability_index = int(action.get("ability_index", 0))
             tap_choices = self._resolve_tap_choices(action.get("tap_choices"))
-            self.engine.tap_for_mana(active, self._object(action), option_index, ability_index, tap_choices)
+            color_split = self._resolve_color_split(action.get("color_split"))
+            self.engine.tap_for_mana(
+                active, self._object(action), option_index, ability_index, tap_choices,
+                color_split=color_split,
+            )
             return
 
         if kind == "cast_spell":
@@ -740,6 +744,16 @@ class GameSession:
         if tap_choices is None:
             return None
         return [int(i) for i in tap_choices]
+
+    @staticmethod
+    def _resolve_color_split(color_split: Optional[dict[str, Any]]) -> Optional[dict[str, int]]:
+        """The player's chosen colour distribution for an "any combination
+        of colours" mana ability (`ManaAbility.any_combination`); ``None``
+        when absent, so `GameEngine.tap_for_mana` falls back to
+        ``option_index``'s single-colour choice."""
+        if color_split is None:
+            return None
+        return {str(color): int(count) for color, count in color_split.items()}
 
     def _resolve_targets(self, targets: Optional[list[Any]]) -> Optional[list[Any]]:
         if not targets:

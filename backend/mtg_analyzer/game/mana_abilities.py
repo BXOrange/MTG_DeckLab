@@ -28,11 +28,11 @@ count conservatively resolves to 1, same as the pre-existing (unscaled)
 behaviour.
 
 Parsing is intentionally simple — it covers basics, guildgates/duals,
-tri-lands, "add one mana of any colour", multi-pip lands (`{C}{C}`), and the
-"for each"/"equal to ... power" variable-amount family — and approximates
-the long tail (filter lands, "any combination of colours") rather than
-modeling every printed ability. RULE 605.1a excludes any ability that
-requires a target from being a mana ability at all (Deathrite Shaman's
+tri-lands, "add one mana of any colour", "any combination of colours",
+multi-pip lands (`{C}{C}`), and the "for each"/"equal to ... power"
+variable-amount family — and approximates the long tail (filter lands)
+rather than modeling every printed ability. RULE 605.1a excludes any
+ability that requires a target from being a mana ability at all (Deathrite Shaman's
 graveyard-exile abilities produce mana but target, so they're deliberately
 never offered here — they belong on the stack like any other activated
 ability, not through this fast no-stack path) — see `backend/ToDo_Backend.md`
@@ -53,6 +53,14 @@ still wasn't restriction-checked before this existed either. `ManaPool`
 *means* — `restriction_predicate_for_cast`/`restriction_predicate_for_
 activation` below build the actual predicate `ManaPool.can_pay`/`pay`
 evaluate it with, from a spell/ability-source's printed characteristics.
+
+"Add N mana **in any combination of colours**" (Flamebraider/Gwenna/
+Smokebraider's fixed N=2, Selvala's variable N = the greatest power among
+creatures you control) is a genuinely different shape from "any one
+colour" above — the payer *splits* the total across colours instead of
+picking a single colour repeated N times (`ManaAbility.any_combination`,
+`validate_color_split`, `GameEngine.tap_for_mana`'s ``color_split``
+parameter).
 """
 
 from __future__ import annotations
@@ -156,6 +164,51 @@ _RESTRICTION_TYPE_RE = re.compile(
     r"^cast (?:an? )?(?P<type>[a-z]+)(?: creature)? spells?$", re.IGNORECASE
 )
 
+# --- "any combination of colours" (a *split*, not a single-colour choice) --
+
+#: Spelled-out amount words, as printed on the "any combination" cards
+#: (Flamebraider/Gwenna/Smokebraider's fixed "two"; Selvala's "X").
+_NUMBER_WORDS = {
+    "one": 1, "two": 2, "three": 3, "four": 4, "five": 5,
+    "six": 6, "seven": 7, "eight": 8, "nine": 9, "ten": 10,
+}
+#: "<amount> mana in any combination of colours[, where X is <subject>]" —
+#: a genuinely different shape from "any one colour"/`_ANY_COLOR_PHRASES`
+#: above: the payer splits the total across colours instead of picking one
+#: colour repeated (see `ManaAbility.any_combination`).
+_COMBINATION_CLAUSE_RE = re.compile(
+    r"^(?P<amount>[a-z]+) mana in any combination of colou?rs"
+    r"(?:,\s*where\s+x\s+is\s+(?P<subject>.+))?$",
+    re.IGNORECASE,
+)
+#: Selvala, Heart of the Wilds' variable-amount subject — the only
+#: "where X is ..." subject observed on a combination-of-colours ability.
+_GREATEST_POWER_CONTROL_RE = re.compile(
+    r"^the greatest power among creatures you control$", re.IGNORECASE
+)
+
+
+def _parse_combination_selector(raw_clause: str) -> Optional[dict[str, Any]]:
+    """"<amount> mana in any combination of colours[, where X is <subject>]"
+    (Flamebraider/Gwenna/Smokebraider's fixed "two"; Selvala's variable "X")
+    → an `amount_selector`-shaped dict consumed by `_resolve_amount`'s
+    ``"literal"``/``"greatest_power_control"`` kinds, or ``None`` when
+    ``raw_clause`` isn't this shape at all, or is but names an unrecognised
+    ``X`` subject (fail-soft, same convention as the rest of this module —
+    the caller then falls through to the ordinary non-combination parse
+    path, same as before this shape existed)."""
+    m = _COMBINATION_CLAUSE_RE.match(raw_clause.strip())
+    if m is None:
+        return None
+    amount_word = m.group("amount").lower()
+    if amount_word == "x":
+        subject = m.group("subject")
+        if subject is not None and _GREATEST_POWER_CONTROL_RE.match(subject.strip()):
+            return {"kind": "greatest_power_control"}
+        return None
+    n = _NUMBER_WORDS.get(amount_word)
+    return {"kind": "literal", "n": n} if n is not None else None
+
 
 def _singularize(word: str) -> str:
     """A plural creature type → singular ("elves"→"elf", "goblins"→"goblin")."""
@@ -189,6 +242,17 @@ class ManaAbility:
     this ability produces (`GameEngine.tap_for_mana`) so `ManaPool` only
     lets it pay a cost `restriction_predicate_for_cast`/`_for_activation`
     says it may.
+
+    ``any_combination`` (``False`` by default) marks an "add N mana in any
+    combination of colours" ability (Flamebraider/Gwenna/Smokebraider's
+    fixed N=2, Selvala's variable N) — a genuinely different shape from
+    "any one colour" above: the payer *splits* the resolved total across
+    colours instead of picking a single colour repeated N times.
+    ``options`` still holds the same per-colour "N of that one colour"
+    menu as an any-one-colour ability (so a caller ignoring the split
+    still gets a legal, if inflexible, single-colour default via
+    ``option_index``) — `GameEngine.tap_for_mana`'s ``color_split``
+    parameter is what actually lets a caller distribute the total instead.
     """
 
     cost: ActivationCost = field(default_factory=ActivationCost)
@@ -198,6 +262,7 @@ class ManaAbility:
     min_level: Optional[int] = None
     max_level: Optional[int] = None
     restriction: Optional[dict[str, Any]] = None
+    any_combination: bool = False
 
 
 def _selector_from_subject(subject: str) -> Optional[dict[str, Any]]:
@@ -401,6 +466,18 @@ def _parse_mana_ability_lines(text: str, name: Optional[str]) -> list[ManaAbilit
         cost = parse_activation_cost(cost_text)
         if cost.exile_self_from_hand:
             continue  # not activatable from the battlefield at all (Elvish Spirit Guide)
+        combination_selector = _parse_combination_selector(add_match.group(1))
+        if combination_selector is not None:
+            damage_match = _SELF_DAMAGE_RE.search(effect_text)
+            abilities.append(ManaAbility(
+                cost=cost,
+                options=[{color: 1} for color in _ALL_COLORS],
+                amount_selector=combination_selector,
+                any_combination=True,
+                self_damage=int(damage_match.group(1)) if damage_match else 0,
+                restriction=_parse_restriction(effect_text),
+            ))
+            continue
         base_clause, selector = _peel_amount_selector(add_match.group(1), name)
         options = _dedupe(_parse_clause(base_clause))
         if not options:
@@ -517,6 +594,7 @@ def mana_abilities_for(obj: Any, state: Optional[Any] = None) -> list[ManaAbilit
             amount_selector=None,
             self_damage=ability.self_damage,
             restriction=ability.restriction,
+            any_combination=ability.any_combination,
         )
         for ability in parse_mana_abilities(obj.card)
         if _leveler_tier_active(obj, ability)
@@ -540,6 +618,19 @@ def resolve_options(ability: ManaAbility, obj: Any, state: Optional[Any] = None)
 
 def _resolve_amount(selector: dict[str, Any], obj: Any, state: Optional[Any]) -> int:
     kind = selector["kind"]
+    if kind == "literal":
+        return selector["n"]
+    if kind == "greatest_power_control":
+        if state is None:
+            return 1  # no battlefield to check power against — conservative default
+        battlefield = getattr(state, "battlefield", None) or []
+        controller = getattr(obj, "controller_id", None)
+        powers = [
+            getattr(o, "power", 0) or 0
+            for o in battlefield
+            if getattr(o, "controller_id", None) == controller and getattr(o, "is_creature", False)
+        ]
+        return max(powers) if powers else 0
     if kind == "power_of_self":
         return max(0, getattr(obj, "power", 0) or 0)
     if kind == "counters_on_self":
@@ -612,6 +703,30 @@ def _dedupe(options: list[dict[str, int]]) -> list[dict[str, int]]:
             seen.add(key)
             unique.append(option)
     return unique
+
+
+def validate_color_split(split: dict[str, int], total: int) -> dict[str, int]:
+    """A player's chosen colour distribution for an "any combination of
+    colours" mana ability (`ManaAbility.any_combination`) — every key must
+    be a real WUBRG colour (no printed "any combination" ability produces
+    colourless), every value a non-negative int, and the values must sum to
+    exactly ``total`` (the ability's resolved amount, e.g. Selvala's X).
+    Raises ``ValueError`` otherwise; `GameEngine.tap_for_mana` surfaces that
+    as an illegal action, same as any other invalid choice. Zero-count
+    colours are dropped from the returned dict (so it composes cleanly with
+    `ManaPool.add_many`)."""
+    cleaned: dict[str, int] = {}
+    for color, count in split.items():
+        if color not in _ALL_COLORS:
+            raise ValueError(f"invalid mana colour in combination split: {color!r}")
+        count = int(count)
+        if count < 0:
+            raise ValueError(f"invalid mana amount in combination split: {count!r}")
+        if count:
+            cleaned[color] = count
+    if sum(cleaned.values()) != total:
+        raise ValueError(f"combination split must total {total}, got {sum(cleaned.values())}")
+    return cleaned
 
 
 def option_label(option: dict[str, int]) -> str:

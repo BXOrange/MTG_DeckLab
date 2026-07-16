@@ -141,7 +141,9 @@ targeting; the whole mana model (generic/color/colorless/hybrid/mono-hybrid/
 Phyrexian/{X}), including RULE 605.3a **spend restrictions** ("Spend this
 mana only to cast a creature spell") as tagged lots in `models/mana_pool.py`
 gated by a caller-supplied predicate (`game/mana_abilities.py`'s
-`restriction_predicate_for_cast`/`_for_activation`); all common combat
+`restriction_predicate_for_cast`/`_for_activation`) and RULE 605.1a "any
+combination of colors" mana (`ManaAbility.any_combination`,
+`GameEngine.tap_for_mana`'s `color_split`); all common combat
 keywords incl. landwalk; the RULE 613
 **layer system** (layers 1–7, timestamp-ordered within a layer + a bounded
 RULE 613.8 dependency pass, `EffectRegistry`-bridged for every hand-authored/

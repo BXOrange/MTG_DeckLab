@@ -32,6 +32,7 @@ from .mana_abilities import (
     option_label,
     restriction_predicate_for_activation,
     restriction_predicate_for_cast,
+    validate_color_split,
 )
 from .phases import GamePhase, GameStep, default_turn_sequence
 from .rules_engine import RulesEngine
@@ -1463,6 +1464,7 @@ class GameEngine:
         option_index: int = 0,
         ability_index: int = 0,
         tap_choices: Optional[list[Any]] = None,
+        color_split: Optional[dict[str, int]] = None,
     ) -> dict[str, int]:
         """Activate one of a permanent's mana abilities (RULE 605) — the
         fast, no-stack path.
@@ -1478,8 +1480,14 @@ class GameEngine:
         "tap N untapped Elves you control" cost (Birchlore Rangers, Heritage
         Druid — a real cost choice, not an auto-pick, and the source itself
         is eligible since the printed text doesn't say "other"); ``None``
-        falls back to an auto-pick (non-interactive callers). Returns the
-        mana added.
+        falls back to an auto-pick (non-interactive callers). ``color_split``
+        is only consulted for an "any combination of colours" ability
+        (`ManaAbility.any_combination` — Flamebraider/Gwenna/Smokebraider/
+        Selvala): a ``{colour: count}`` distribution across WUBRG summing to
+        the ability's resolved total, validated by `validate_color_split`;
+        ``None`` (or a non-combination ability) falls back to
+        ``option_index``'s single-colour choice, same as before this
+        parameter existed. Returns the mana added.
         """
         if source not in self.state.battlefield or source.controller_id != player.id:
             raise ValueError("can only tap your own permanents in play")
@@ -1490,9 +1498,15 @@ class GameEngine:
         cost = ability.cost
         if not self._can_pay_activation_cost(player, source, cost, x=0, tap_choices=tap_choices):
             raise ValueError(f"cannot pay {source.name}'s mana ability cost")
-        if not 0 <= option_index < len(ability.options):
-            raise ValueError(f"invalid mana option {option_index} for {source.name}")
-        produced = dict(ability.options[option_index])
+        if not ability.options:
+            raise ValueError(f"{source.name}'s mana ability produces nothing")
+        if ability.any_combination and color_split is not None:
+            total = sum(ability.options[0].values())
+            produced = validate_color_split(color_split, total)
+        else:
+            if not 0 <= option_index < len(ability.options):
+                raise ValueError(f"invalid mana option {option_index} for {source.name}")
+            produced = dict(ability.options[option_index])
         self._pay_activation_cost(player, source, cost, x=0, tap_choices=tap_choices)
         player.mana_pool.add_many(produced, restriction=ability.restriction)
         if ability.self_damage:
@@ -2159,6 +2173,16 @@ class GameEngine:
                         for i, opt in enumerate(ability.options)
                     ],
                 }
+                if ability.any_combination:
+                    # RULE 605.1a "any combination of colours" (Flamebraider/
+                    # Gwenna/Smokebraider/Selvala) — the player may split
+                    # this total across colours (`color_split`) instead of
+                    # picking one of the single-colour ``options`` above;
+                    # no split UI exists yet (frontend/ToDo_Frontend.md), so
+                    # today's UI still offers the single-colour buttons as a
+                    # legal (if inflexible) fallback.
+                    action["any_combination"] = True
+                    action["combination_total"] = sum(ability.options[0].values())
                 if ability.cost.tap_others:
                     action["tap_cost"] = self._tap_cost_choice(player, source, ability.cost)
                 actions.append(action)

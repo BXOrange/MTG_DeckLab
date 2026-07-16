@@ -50,6 +50,14 @@ engine hookup".
       board's mana-pool readout doesn't distinguish it from ordinary mana
       yet — a player can't currently see *which* floating mana is
       restricted, or to what.
+- [ ] "Any combination of colors" split UI: a `tap_for_mana` action for
+      such an ability (RULE 605.1a — Flamebraider/Gwenna/Smokebraider/
+      Selvala) now carries `any_combination: true` and `combination_total`
+      (`GameEngine.legal_actions`), and the action accepts a `color_split`
+      dict (`{colour: count}` summing to the total,
+      `services/game_session.py`), but there's no UI to build one yet —
+      the board still only offers the existing per-colour buttons (a
+      legal but inflexible single-colour tap).
 
 ## Multiplayer
 

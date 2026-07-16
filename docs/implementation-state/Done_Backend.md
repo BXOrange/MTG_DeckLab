@@ -1429,6 +1429,67 @@ the Phase-1 models. Tests: `test_game_engine.py`.
       commander; Castle Garenbrig's restricted mana pays a creature's
       activated ability but not a noncreature source's).
 
+- [x] **"Any combination of colors" mana, RULE 605.1a (2026-07-16):** "Add
+      N mana in any combination of colors" (Flamebraider/Gwenna, Eyes of
+      Gaea/Smokebraider's fixed "two"; Selvala, Heart of the Wilds'
+      variable "X" = the greatest power among creatures you control) is a
+      genuinely different shape from "any one colour" (Wirewood Channeler,
+      already modeled) — the payer *splits* the resolved total across
+      colours instead of picking one colour repeated N times. Previously
+      produced no options at all (the "any color"/"any colour" phrase
+      match doesn't fire on "any combination of colors"'s different
+      wording), fail-soft, not a regression.
+
+      **`game/mana_abilities.py`**: `ManaAbility` gained an
+      `any_combination: bool` field. A new `_parse_combination_selector`
+      recognizes "\<amount\> mana in any combination of colou?rs[, where X
+      is \<subject\>]", turning a spelled-out number word ("two") into a
+      new `_resolve_amount` `"literal"` selector kind, or (Selvala's only
+      observed `X`-subject) "the greatest power among creatures you
+      control" into a new `"greatest_power_control"` kind (max power among
+      the controller's creatures on the battlefield, 0 with none, the
+      existing conservative-1 default with no `state`). The base
+      `options` menu is the same 5-entry per-colour palette as "any one
+      colour" (`[{c: 1} for c in WUBRG]`, scaled by the resolved total
+      through the existing `amount_selector` machinery) — a caller that
+      ignores the split still gets a legal, if inflexible, single-colour
+      default via `option_index`, same as before this batch existed. A new
+      `validate_color_split(split, total)` validates a caller's chosen
+      `{colour: count}` distribution (real WUBRG keys, non-negative
+      counts, summing to exactly the ability's resolved total) and drops
+      zero-count entries.
+
+      **`GameEngine.tap_for_mana`** gained a `color_split` parameter,
+      consulted only when `ability.any_combination` and non-`None`
+      (`total = sum(ability.options[0].values())`, validated via
+      `validate_color_split`); `None` (every pre-existing caller,
+      including the goldfish auto-player) falls back to the existing
+      `option_index` single-colour behaviour, so the change is additive.
+      `legal_actions`' `tap_for_mana` offer now also stamps
+      `any_combination`/`combination_total` on the action dict for a
+      future frontend split UI (none exists yet — see
+      `frontend/ToDo_Frontend.md`; today's board still only offers the
+      single-colour buttons). `services/game_session.py`'s `tap_for_mana`
+      action handler passes a `color_split` dict straight through
+      (`_resolve_color_split`, same defensive-cast convention as
+      `_resolve_tap_choices`).
+
+      **Real-cache yield**: of the 5 cards containing "any combination of
+      colors" (live-cache scan), 4 are real mana abilities and all 4 now
+      parse correctly (Flamebraider, Gwenna Eyes of Gaea, Smokebraider,
+      Selvala Heart of the Wilds); the 5th (Realm-Scorcher Hellkite) is a
+      triggered ETB effect, not a mana ability, correctly out of scope for
+      this file. Doesn't move the oracle-text parser coverage percentage
+      (mana abilities sit outside the `MODELED` gate, same as the spend-
+      restrictions batch above). Tests: new `tests/test_mana_combination.py`
+      (17 tests) — the parser (fixed/variable amount, the unrecognized-
+      `X`-subject fail-soft path, resolved scaling against a live
+      battlefield), `validate_color_split` in isolation, and engine-level
+      `tap_for_mana` coverage (default single-colour, an explicit split,
+      a wrong-total split rejected, a non-combination ability ignoring an
+      incidental `color_split`, a restriction still tagged onto combination
+      mana, and the `legal_actions` offer's new fields).
+
 ## Game Engine (Phase 3)
 
 `mtg_analyzer/game/game_engine.py`, tests in `test_game_engine.py`.

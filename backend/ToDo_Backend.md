@@ -180,12 +180,14 @@ Weeks 1–4 roadmap is archived at
         type/color" variant (Cavern of Souls, Unclaimed Territory, Throne
         of Eldraine) and a mana-value-threshold clause (Helga, Troyan)
         remain unrecognized (fail-soft, same as before this batch).
-      - "Add X mana **in any combination of colors**" (Selvala, Gwenna) —
-        a genuinely different shape from "any one colour" (Wirewood
-        Channeler, now modeled): the payer picks a *split* across colours,
-        not one colour repeated. Currently produces no options at all
-        (fail-soft, not a regression — it never produced any before
-        either).
+      - "Add N mana **in any combination of colors**" (Flamebraider/Gwenna/
+        Smokebraider's fixed "two", Selvala's variable "X" = the greatest
+        power among creatures you control) is **done** (moved to
+        Done_Backend.md, "Rules Engine (Phase 2)", 2026-07-16 entry) —
+        `ManaAbility.any_combination` + `GameEngine.tap_for_mana`'s
+        ``color_split`` parameter; no split-choice UI exists yet
+        (frontend/ToDo_Frontend.md), so today's board still offers a
+        single-colour default per the pre-existing options list.
       - Hand-zone mana abilities ("Exile this card from your hand: Add
         …" — Elvish Spirit Guide and the same template on other colours)
         have no activation path whatsoever: `tap_for_mana`/`legal_actions`
