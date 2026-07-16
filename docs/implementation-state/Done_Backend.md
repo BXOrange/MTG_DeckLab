@@ -1963,6 +1963,172 @@ the Phase-1 models. Tests: `test_game_engine.py`.
       `can_cast`/`cast_spell`/`legal_actions`, both hand-authored cards
       end to end, and the session-view flag).
 
+- [x] **Combat blocking + creature-vs-creature damage core:**
+      `GameEngine.declare_blockers`/`can_block` and `_step_combat_damage`
+      handle blocked/unblocked attackers, gang blocks (lethal-first
+      damage spread), and blockers striking back, with the SBA
+      destroying lethal-damaged creatures. Attackers declare a defender
+      (player or opponent planeswalker, RULE 508.1a); the solo goldfish
+      gains a passive dummy so swings connect. Combat/evasion keywords
+      (`game/combat.py`, recognized off Scryfall `keywords` + oracle
+      text): flying/reach, menace, defender, haste, vigilance, first
+      strike, double strike (two damage steps), deathtouch, trample,
+      lifelink, indestructible, and protection-from (colour/creatures/
+      everything) — surfaced on the board as badges.
+
+- [x] **RULE 613 layer system, full layer coverage + ordering:**
+      `game/continuous.py` re-derives every battlefield permanent's
+      characteristics in layer order (2 control, 4 type-changing, 5
+      colour, 6 ability-adding, 7a/7b/7c/7d/7e power/toughness), stamping
+      derived P/T, added types, granted keywords, and a per-object layer
+      *trace*; recomputed on every SBA pass and before the view.
+      `StaticAbility` + registry bridges every layer it implements:
+      `anthem`/`pt_set`/`grant_keyword`/`type_change`/`cost_reduction`
+      plus `color_change` (layer 5), `control_change` (layer 2), `pt_cda`
+      (layer 7a), and `pt_switch` (layer 7e) — previously those four were
+      only reachable by constructing a `StaticAbility` directly in a test
+      fixture, with no whitelisted `AbilitySpec` path. `affects` gained
+      `"attached_permanent"`, resolving off the ability source's own
+      `attached_to` (RULE 303.4/301.5) — the missing half of Aura/
+      Equipment support, and `control_change` + `"attached_permanent"`
+      covers Mind-Control-style "you control enchanted creature" Auras
+      (seed example: Armadillo Cloak). **Timestamp ordering** within a
+      layer (`_in_layer` sorts by `GameObject.timestamp`, stamped on
+      battlefield entry). **Layer 1 and 3, and RULE 613.8 dependency
+      ordering** round out the system: layer 3 (text-changing, RULE 612)
+      is scoped to word-substitution over a new `GameObject.
+      effective_oracle_text` derived field (`continuous.py`'s `text`
+      sublayer, between layers 2 and 4), consumed today only by `combat.
+      protections_of_text` (Artificial Evolution's "protection from red"
+      → "protection from blue") — not a full oracle-text re-parse, so
+      bound abilities/keywords are unaffected; no real card exercises it
+      yet (synthetic direct-`StaticAbility` test coverage, the same
+      bootstrap pattern `pt_cda`/`pt_switch` used before real-card
+      coverage existed). RULE 613.8 dependency ordering is bounded to
+      layer 2 (`_order_control_effects`): a `pt_cda`'s count-selectors
+      can only *count* objects, never read another object's power/
+      toughness, so 7a-level dependency is genuinely impossible, not just
+      unauthored; layer 2's controller-scoped `affects` ("creatures you
+      control") is the one real case (the textbook CR 613.8 example — two
+      control-changing effects where the second's scope depends on what
+      the first stole), so direct-scoped abilities (self/
+      attached_permanent) always apply before controller-scoped ones,
+      regardless of timestamp; every other sublayer is provably safe on
+      pure timestamp order. Tests: `test_continuous.py`,
+      `test_effect_binder.py` (`TestStaticEffectRegistryBridges`).
+
+- [x] **Oracle-effect parser — Phase 0/1 front-end (keyword catalogue +
+      effect-clause front-end):** the compiler design agreed in
+      [09_ORACLE_EFFECT_PARSER.md](../concepts/09_ORACLE_EFFECT_PARSER.md)
+      (two-stage: front-end parses `oracle_text` → `AbilitySpec` IR;
+      binder maps IR → `GameEffect` via the registry) shipped its first
+      two phases. **Keyword catalogue (Phase 1a):**
+      `parser/oracle/catalogue/keywords.py` maps the full RULE 702
+      vocabulary (194 keywords) to its `AbilitySpec` shape (flag/number/
+      cost/number+cost/quality) with a regex that extracts each
+      parametric keyword's one parameter; `parse_keywords(card)` anchors
+      on Scryfall's `keywords` array and pulls the parameter out of
+      oracle text. Flag keywords bind: `specs_for` folds the parsed
+      keyword specs in, the binder docks parameterless ones onto
+      `GameObject.intrinsic_keywords`, unioned into `game/combat.py`'s
+      recognition. **Effect-clause front-end (Phase 1b):** `parser/
+      oracle/` gained `normalize.py` (reminder-strip, self-name → `~`,
+      digit-word fold, newline-preserving), `catalogue/subgrammars.py`
+      (shared TARGET/NUMBER/COUNT matchers — one damage handler covers
+      "any target"/"target creature"/…), `catalogue/handlers.py` (the
+      effect-family table: damage/draw/discard/gain_life/destroy/
+      counter, each full-matching a clause), `segmenter.py` (peels
+      trigger wrappers → `EventType`, "you may" → optional, splits
+      chained clauses), and `gate.py` (`parse_oracle(card)` → specs + a
+      fail-closed `MODELED`/`UNMODELED` coverage verdict + unclaimed-
+      clause list). `ability_catalogue.specs_for` falls back to it for
+      unregistered cards, adding effect/triggered/activated specs only
+      when the card is fully `MODELED` (never half-resolves). Handled
+      effect families grew to mill, exile, tap/untap, +1/+1 counters,
+      and token creation (`MillEffect`/`ExileEffect`/`TapEffect`/
+      `AddCountersEffect`/`CreateTokenEffect` + engine primitives
+      `RulesEngine.exile`/`set_tapped`/`add_counters`/`create_token`).
+      **Tokens** carry the rules-critical lifecycle: `GameObject.
+      is_token` (a token *copy* of a real card is still a token), and a
+      new SBA `RulesEngine._remove_stranded_tokens` implements RULE
+      704.5d — a token that leaves the battlefield reaches its zone long
+      enough to fire its dies/leaves triggers, then ceases to exist
+      (RULE 111.7-8); exile and destroy both funnel through it. +1/+1
+      counters may target any permanent, not only creatures (RULE
+      122.1a). **Activated abilities parse too**: the segmenter peels a
+      `<cost>: <effect>` wrapper, feeds the cost to `costs.
+      parse_activation_cost` and the effect body to the same handler
+      table (loyalty `[+N]:` costs stayed `UNMODELED`, closed later).
+      `parser/oracle/processing_list.py` added the coverage metric +
+      ranked, template-abstracted processing list (docs/09 "coverage is
+      the roadmap"). **Static/anthem clauses** (`catalogue/
+      static_handlers.py`): "creatures you control get +N/+N", tribal
+      lords ("Other Goblins you control …", singularised), token anthems
+      (Intangible Virtue), and compound "get +N/+N and have [flag
+      keywords]" became `static` specs (`anthem`/`grant_keyword`);
+      `continuous.affected_objects` gained subtype/tokens/color/
+      exclude_self selectors (Changeling matches any subtype; colour vs
+      `card.color_identity`) plus global scope (Bad Moon/Crusade),
+      "all"/"each" markers, and multicolour scopes. **Landwalk binds**:
+      the binder docks a landwalk keyword spec onto the `<type>walk`
+      slug, flowing through as a layer-6 grant. **Replacement binding**:
+      `bind_ability` builds `ReplacementEffect`s from a `replacement`
+      spec via a new `ReplacementRegistry` whitelist (`prevent_damage`
+      shipped first), attached to `obj.replacement_effects`.
+      **Parametric keywords** bind their parameter onto `GameObject.
+      parametric_keywords` (annihilator N, kicker cost, ward,
+      protection quality). **More effect families**: `pump` ("+N/+N
+      until end of turn", also −N/−N and a temporary keyword grant, via
+      `GameObject.temp_power/temp_toughness/temp_keywords` folded at
+      layers 7d/6 and ended in cleanup, RULE 613.4d/514.2), `-1/-1`
+      counters, and `scry` (RULE 701.18). Tests: `test_oracle_pipeline.py`.
+
+- [x] **2026-07-14 — three waves of parser expansion** (cache-wide
+      coverage 16.9% → 26.9% fully-`MODELED`, suite 922 → 1027 tests):
+      - **Enters-tapped claiming** (RULE 614.1): tap-condition
+        recognition moved to pure `parser/oracle/catalogue/lands.py`
+        (`tap_clause_condition` full-matches one line; `game/
+        ability_catalogue.land_tap_condition` delegates), claimed as
+        covered-without-spec, plus two new engine kinds —
+        `unless_opponents` (Battlebond lands) and basic-land
+        `unless_count` (`test_oracle_lands.py`, `test_land_tap_
+        conditions.py`).
+      - **Attached-permanent statics**: "equipped/enchanted/fortified …
+        gets +N/+N [and has \<kw\>]" / "… has \<kw\>" parse to `anthem`/
+        `grant_keyword` with `affects="attached_permanent"` (engine side
+        already existed; `test_oracle_statics.py`).
+      - **Trigger-condition scoping** (RULE 603.1): the segmenter emits
+        `trigger.condition` ({subject: self} or {subject: group, type/
+        controller/other}); ENTERS_BATTLEFIELD/DIES/ATTACKS/BLOCKS events
+        carry `instance_id`+`object_types`; the binder builds the
+        matching predicates — fixed a live over-firing bug where a parsed
+        "when ~ enters" fired for *any* entering permanent
+        (`test_oracle_triggers.py`).
+      - **Counter family**: spell target filters (noncreature/card-type
+        list/mana-value on `TargetSpec.spell_filter`), "unless its
+        controller pays {…}" via a `counter_unless_pays` `pending_choice`
+        (auto-counter when unpayable), and "this spell can't be
+        countered" as a `CantBeCounteredEffect` marker `RulesEngine.
+        counter_spell` refuses (`test_counter_family.py`).
+      - **Modal spells** (RULE 700.2): "choose one —"/"choose one or
+        both —" blocks parse into `AbilitySpec.modes`
+        (`catalogue/modal.py`); casting offers one `cast_spell` action
+        per mode (the MDFC per-face pattern), the chosen mode's effects
+        becoming the spell's resolve-time effects (`test_modal_
+        spells.py`).
+      - **Additional cast costs** (RULE 601.2b/601.2h): "as an additional
+        cost …, sacrifice a creature/artifact/land | discard a card |
+        pay N/X life" parse onto `AbilitySpec.additional_cost`, gate cast
+        legality, and are paid at cast time (survive a counter); reuses
+        `costs.parse_activation_cost` (`test_additional_costs.py`).
+      - **New one-shot families**: return-to-hand (bounce), graveyard
+        recursion (new `graveyard_creature`/`creature_you_control`/
+        `land_you_control` target kinds), tutor-to-hand + basic-land
+        fetch (onto the existing `search`), `add_mana` (Dark Ritual),
+        mass damage ("deals N damage to each creature/player/opponent",
+        a closed `selector` on `DealDamageEffect`), and ETB self-attach
+        for Equipment (`test_effect_families_wave3.py`).
+
 ## Game Engine (Phase 3)
 
 `mtg_analyzer/game/game_engine.py`, tests in `test_game_engine.py`.
