@@ -380,7 +380,11 @@ class TriggeredAbility(GameEffect):
     `resolve_trigger_mode_choice`, a `trigger_mode` `pending_choice` — the
     same "chosen before target/optional choice" ordering a modal spell's own
     mode gets at cast time); ``modes_or_both`` mirrors RULE 700.2e for a
-    triggered ability with exactly two modes.
+    triggered ability with exactly two modes. ``modes_choose`` is RULE
+    700.2's "choose *N* —" count (``1`` for the ordinary "choose one" case);
+    for ``modes_choose > 1`` the choice is made iteratively, one mode per
+    round, mirroring how a library search offers "up to N" one card at a
+    time (`resolve_trigger_mode_choice`).
     """
 
     def __init__(
@@ -395,6 +399,7 @@ class TriggeredAbility(GameEffect):
         description: str = "",
         modes: Optional[list[dict[str, Any]]] = None,
         modes_or_both: bool = False,
+        modes_choose: int = 1,
     ) -> None:
         super().__init__(source)
         self.trigger_event = trigger_event
@@ -405,6 +410,7 @@ class TriggeredAbility(GameEffect):
         self.description = description
         self.modes = modes
         self.modes_or_both = modes_or_both
+        self.modes_choose = modes_choose
         #: "This ability triggers only once each turn" (RULE 603.2, e.g.
         #: Dionus, Elvish Archdruid's granted ability). Stamped by
         #: `check_trigger` the moment it fires — regardless of whether the
@@ -665,6 +671,7 @@ class DealDamageEffect(GameEffect):
         target_kind: str = "any",
         selector: Optional[str] = None,
         optional: bool = False,
+        count: int = 1,
     ) -> None:
         super().__init__(source)
         self.amount = amount
@@ -673,16 +680,27 @@ class DealDamageEffect(GameEffect):
         if self.selector is None:
             # Damage targets "any target" by default (RULE 115.4); a card
             # that only hits creatures can narrow this to "creature".
-            # ``optional`` is RULE 115.1a "up to one target" — zero targets
-            # is then a legal choice, so casting is never locked on it.
-            self.target_spec = TargetSpec(kind=target_kind, optional=optional)
+            # ``optional`` is RULE 115.1a "up to one/N target(s)" — fewer
+            # than ``count`` (including zero) is then a legal choice, so
+            # casting is never locked on it. ``count`` > 1 is "to each of
+            # up to N target X" (Volcanic Salvo-shaped) — the full amount
+            # applies to *every* chosen target, not divided among them.
+            self.target_spec = TargetSpec(kind=target_kind, optional=optional, count=count)
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
         if self.selector is not None:
             self._apply_selector(context)
             return
-        target = (targets[0] if targets else None) or self.target
-        if target is not None:
+        # Only this effect's own ``count`` targets, taken off the *front* of
+        # a (possibly longer) shared targets list — see `TargetSpec.count`'s
+        # docstring: a stack item's targets list is shared by every effect
+        # on it, so a single-target effect (count=1, the default) must not
+        # swallow entries meant for something else sharing the same cast.
+        chosen = (
+            targets[: self.target_spec.count] if targets
+            else ([self.target] if self.target is not None else [])
+        )
+        for target in chosen:
             context.deal_damage(target, self.amount, self.source)
 
     def _apply_selector(self, context: GameContext) -> None:
@@ -726,7 +744,10 @@ class DiscardEffect(GameEffect):
 
 
 class DestroyEffect(GameEffect):
-    """Destroy a target permanent."""
+    """Destroy a target permanent — or, with ``count`` > 1, every one of a
+    fixed/"up to N" set of chosen target permanents (RULE 115.1a
+    generalized to N>=2 — "destroy two target creatures"/"destroy up to two
+    target artifacts and/or enchantments")."""
 
     def __init__(
         self,
@@ -734,14 +755,20 @@ class DestroyEffect(GameEffect):
         source: Optional["GameObject"] = None,
         target_kind: str = "permanent",
         optional: bool = False,
+        count: int = 1,
     ) -> None:
         super().__init__(source)
         self.target = target
-        self.target_spec = TargetSpec(kind=target_kind, optional=optional)
+        self.target_spec = TargetSpec(kind=target_kind, optional=optional, count=count)
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
-        target = (targets[0] if targets else None) or self.target
-        if target is not None:
+        # See `DealDamageEffect.apply`'s comment: only this effect's own
+        # ``count`` targets, off the front of a possibly-shared list.
+        chosen = (
+            targets[: self.target_spec.count] if targets
+            else ([self.target] if self.target is not None else [])
+        )
+        for target in chosen:
             context.destroy(target)
 
 
@@ -1007,7 +1034,9 @@ class MillEffect(GameEffect):
 
 
 class ExileEffect(GameEffect):
-    """Exile a target permanent (RULE 406 / 701.5a)."""
+    """Exile a target permanent (RULE 406 / 701.5a) — or, with ``count`` >
+    1, every one of a fixed/"up to N" set of chosen targets (RULE 115.1a
+    generalized to N>=2 — "exile up to two target creatures you control")."""
 
     def __init__(
         self,
@@ -1015,14 +1044,20 @@ class ExileEffect(GameEffect):
         source: Optional["GameObject"] = None,
         target_kind: str = "permanent",
         optional: bool = False,
+        count: int = 1,
     ) -> None:
         super().__init__(source)
         self.target = target
-        self.target_spec = TargetSpec(kind=target_kind, optional=optional)
+        self.target_spec = TargetSpec(kind=target_kind, optional=optional, count=count)
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
-        target = (targets[0] if targets else None) or self.target
-        if target is not None:
+        # See `DealDamageEffect.apply`'s comment: only this effect's own
+        # ``count`` targets, off the front of a possibly-shared list.
+        chosen = (
+            targets[: self.target_spec.count] if targets
+            else ([self.target] if self.target is not None else [])
+        )
+        for target in chosen:
             context.exile(target)
 
 
@@ -1725,6 +1760,7 @@ EffectRegistry.register(
         target_kind=p.get("target_kind", "any"),
         selector=p.get("selector"),
         optional=bool(p.get("optional", False)),
+        count=p.get("count", 1),
     ),
 )
 EffectRegistry.register(
@@ -1739,6 +1775,7 @@ EffectRegistry.register(
         target=p.get("target"),
         target_kind=p.get("target_kind", "permanent"),
         optional=bool(p.get("optional", False)),
+        count=p.get("count", 1),
     ),
 )
 EffectRegistry.register(
@@ -1776,6 +1813,7 @@ EffectRegistry.register(
         target=p.get("target"),
         target_kind=p.get("target_kind", "permanent"),
         optional=bool(p.get("optional", False)),
+        count=p.get("count", 1),
     ),
 )
 EffectRegistry.register(

@@ -119,13 +119,24 @@ def _graveyard_label(kind: str) -> Optional[str]:
 class TargetSpec:
     """One required target of a targeting effect (RULE 115.1).
 
-    ``kind`` is one of `ALLOWED_TARGET_KINDS`; ``optional`` marks "up to one
-    target" (RULE 115.1a), which never locks a spell (zero targets is a legal
-    choice). ``description`` is a short UI label.
+    ``kind`` is one of `ALLOWED_TARGET_KINDS`; ``optional`` marks "up to
+    ``count``" (RULE 115.1a's "up to one" generalized to "up to N"), which
+    never locks a spell (fewer than ``count`` targets, including zero, is a
+    legal choice). ``count`` is how many targets this one targeting effect
+    wants — ``1`` for an ordinary single target, ``N`` for "N target
+    creatures"/"choose N target X" (mandatory, ``optional=False``) or "up to
+    N target X" (``optional=True``, 0..N). A single targeting effect
+    consuming its whole (flat, shared) resolved-targets list this way is
+    this engine's one multi-target shape today — see `game/effects.py`'s
+    affected `apply()` methods and `docs/implementation-state/
+    ToDo_EdgeCases.md` for what's deliberately still out of scope (several
+    *different* targeting effects on one spell, cross-target constraints).
+    ``description`` is a short UI label.
     """
 
     kind: str = "any"
     optional: bool = False
+    count: int = 1
     description: str = ""
     #: For ``kind="spell"`` only — a structured filter on *which* spells are
     #: legal targets (RULE 601.2c/115), e.g. ``{"noncreature": True}``,
@@ -392,6 +403,7 @@ def requirements_with_targets(
             {
                 "kind": spec.kind,
                 "optional": spec.optional,
+                "count": spec.count,
                 "label": spec.label(),
                 "options": legal_targets(state, controller_id, spec, source=obj),
             }
@@ -400,5 +412,12 @@ def requirements_with_targets(
 
 
 def all_requirements_satisfiable(requirements: list[dict[str, Any]]) -> bool:
-    """Whether every non-optional requirement has at least one legal target."""
-    return all(req["optional"] or req["options"] for req in requirements)
+    """Whether every requirement has enough legal targets to be castable.
+
+    RULE 601.2c: a mandatory "N target X" needs at least ``N`` legal
+    options to be castable at all; an "up to N" requirement is never
+    locked (0 is always a legal choice, same as the existing "up to one").
+    """
+    return all(
+        req["optional"] or len(req["options"]) >= req.get("count", 1) for req in requirements
+    )

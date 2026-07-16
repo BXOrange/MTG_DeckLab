@@ -2127,6 +2127,126 @@ the Phase-1 models. Tests: `test_game_engine.py`.
         a closed `selector` on `DealDamageEffect`), and ETB self-attach
         for Equipment (`test_effect_families_wave3.py`).
 
+- [x] **2026-07-16 — four engine mechanisms, chosen over further game-
+      engine (M5 multiplayer) work since they gate card-text coverage
+      directly**: a "remove a counter from ~" activation cost, a real
+      N>=2 multi-target choice, "choose *N* —" modality (N>=2), and a
+      generalized library-search/tutor grammar. `tests/`: `test_costs.py`
+      (already had cost-parsing coverage), `test_search_effects.py`
+      (new), `test_modal_choose_n.py` (new), `test_multi_target.py`
+      (new) — 1406 backend tests green.
+      - **"Remove a counter from ~" cost** (RULE 701.19/602.1): the
+        cost-parsing and payment machinery (`costs.py`'s
+        `ActivationCost.remove_counters`/`_REMOVE_COUNTERS_RE`,
+        `game_engine.py`'s `_can_pay_activation_cost`/`_pay_activation_
+        cost`) already existed and was already tested — the only gap was
+        `segmenter.py`'s `_COST_LOOKS_REAL` sniff not recognizing
+        "remove … counter" as a real cost, so a line whose *entire* cost
+        was this (no mana/{T} alongside it) never reached
+        `parse_activation_cost` at all. One new regex alternative fixes
+        it; Triskelion's real oracle text now parses fully `MODELED`
+        end to end. Scope: the fixed-count shape only (already what
+        `_REMOVE_COUNTERS_RE` supported) — variable counts ("remove X
+        counters", "remove up to 3", "remove any number") still fail
+        closed (`backend/ToDo_Backend.md`).
+      - **N>=2 multi-target** (RULE 115.1a generalized — "destroy two
+        target creatures"/"destroy up to two target artifacts and/or
+        enchantments"/"deals N damage to each of up to two target X"):
+        `game/targeting.py`'s `TargetSpec` gained a `count` field (the
+        existing `optional` flag is the 0-vs-`count` lower bound);
+        `all_requirements_satisfiable` now checks `len(options) >=
+        count` for a mandatory multi-target requirement (RULE 601.2c);
+        `DestroyEffect`/`ExileEffect`/`DealDamageEffect` each gained a
+        `count` param and now apply to `targets[:count]` instead of
+        `targets[0]` — sliced off the *front* of a stack item's shared
+        targets list, not the whole list, so an unrelated single-target
+        effect sharing that same list (a pre-existing pattern —
+        `test_ward_two_simultaneous_wards_each_ask_in_turn`) isn't over-
+        consumed. New `catalogue/handlers.py` grammar (`_MULTI_TARGET_
+        ROWS`/`_MULTI_TARGET_QUANTIFIER`, deliberately separate from the
+        shared singular `TARGET` macro other families use) recognizes
+        both the mandatory and "up to N" phrasing. Frontend
+        (`gameBoardView.js`): a `count > 1` requirement is expanded into
+        `count` synthetic one-per-round requirements sharing the same
+        options — reusing the *existing* "pick N from one pool, one at a
+        time" modal a "tap N untapped `<type>`s you control" cost choice
+        already used (`expandMultiTargetRequirements`); had to split the
+        old overloaded `excludePicked` flag into a pure dedup flag plus a
+        new `isTapChoice` flag (cost-payment UI/dispatch vs. a real RULE
+        115 target choice), since the two cases now share the picker but
+        need different labels and a different wire dispatch
+        (`tap_choices` vs. `targets`). Verified end to end in a real
+        browser (Playwright + Replay/Puzzle mode): Curtains' Call
+        ("destroy two target creatures") offered both creatures on
+        round 1, correctly excluded the round-1 pick on round 2, and
+        both died on resolution. Scope: one targeting effect wanting N
+        targets, wired up for `destroy`/`exile`/`damage` only — see
+        `docs/implementation-state/ToDo_EdgeCases.md`'s new entry on
+        why several *different* targeting effects sharing one spell
+        still don't each get their own targets (a real, pre-existing
+        limitation this work surfaced more prominently, not introduced).
+      - **"Choose *N* —" modality** (RULE 700.2, N>=2 —
+        Kolaghan's/Austere Command-shaped, both as a spell and as a
+        triggered ability): `MODAL_HEADER_RE` (`catalogue/modal.py`)
+        generalized from a fixed `choose 1` to a captured digit;
+        `AbilitySpec.modes` gained a `choose` field (`spec.py`,
+        validated `1 <= choose <= len(options)`, defaulting to 1 for
+        backward compatibility). For a *spell*, `game_engine.py`'s
+        `_modal_cast_actions` offers one cast action per legal
+        `itertools.combinations` of `choose` modes (`mode` becomes a
+        list of indices instead of a bare int/`"both"`); `_effects_for_
+        mode` combines the chosen modes' effects in **printed order**,
+        not pick order. For a *triggered* ability, `rules_engine.py`'s
+        `trigger_mode` choice became iterative — one mode picked per
+        round, already-picked ones excluded from the next offer — the
+        exact same "pick up to N one at a time" shape the library
+        search's `_search_choice`/`resolve_search_choice` already used,
+        so `answer` stays a single scalar string per round and neither
+        `game_session.py`'s generic choose/decline dispatch nor the
+        frontend needed any change (`gameBoardView.js` already renders
+        any `pending.options` array generically). Real Kolaghan's
+        Command text parses fully `MODELED`. Scope: fixed N only —
+        "choose one or more —" (Farewell, a variable N) is a different
+        grammar axis, not attempted.
+      - **Generalized "search your library for X" grammar** (RULE
+        701.19): the engine mechanism (`SearchLibraryEffect`/
+        `RulesEngine.request_search`) was already fully generic —
+        arbitrary criteria, arbitrary destination, arbitrary count,
+        proven against 15 popular real tutors by `test_search_popular_
+        tutors.py` — the gap was entirely in parser recognition, which
+        only covered two narrow phrasings ("search for a card, put in
+        hand" / "search for a basic land card, put onto the battlefield
+        tapped"). New `catalogue/handlers.py` grammar independently
+        combines: a criteria noun phrase (bare "a card", a type word
+        or "and/or" list, "basic land" as its own alternative so it
+        stays `{"basic": True}` rather than also setting a redundant
+        `type`), an optional "reveal `<pronoun>`" clause (consumed,
+        not modeled — no separate game-state effect at this engine's
+        fidelity), five destination phrasings, five pronoun variants
+        (a real phrasing difference across cards — "it"/"that card"/
+        "them"/"those cards"/"the card"), and both clause orders
+        ("…, then shuffle" and the reordered "…, then shuffle and put
+        `<pronoun>` on top"). 13 real popular tutors (Demonic/Diabolic
+        Tutor, Vampiric/Mystical/Enlightened/Worldly Tutor, Rampant
+        Growth, Farseek, Nature's Lore, Crop Rotation, Entomb, Buried
+        Alive, Eladamri's Call) now parse fully `MODELED` — Rampant
+        Growth specifically was previously blocked by a pronoun
+        mismatch the old narrow regex didn't anticipate ("put **that
+        card**" vs. the old handler's "it"/"them"-only). Scope
+        (deliberately unattempted, real cards found but left
+        unclaimed): "search library **and/or graveyard**" (Doomsday/
+        Finale of Devastation — `request_search` only reads
+        `player.library`, a real engine gap); a split destination per
+        found card (Cultivate); "search for N cards and exile the
+        rest" (Doomsday); a mana-value/colour-qualified criterion tied
+        to a spell's own X (Green Sun's Zenith/Chord of Calling).
+        Friedhof-Recherche ("search your graveyard") isn't a real
+        template at all — RULE 701.19 searching only applies to a
+        *hidden* zone; graveyard retrieval already ships as a
+        target-based `return_from_graveyard`/`exile_from_graveyard`
+        family (see this section, above) since a graveyard's contents
+        are public.
+
 ## Game Engine (Phase 3)
 
 `mtg_analyzer/game/game_engine.py`, tests in `test_game_engine.py`.

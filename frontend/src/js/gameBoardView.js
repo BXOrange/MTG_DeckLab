@@ -113,6 +113,24 @@ export function createGameBoardView(opts = {}) {
   // A targeting spell/ability (RULE 115) mid-cast: `{ instanceId, requirements,
   // reqIndex, targets: [], x, send }` or null. See `castTargetHtml`.
   let castTargeting = null;
+  // A single requirement with `count > 1` (RULE 115.1a generalized to N>=2 —
+  // "destroy two target creatures"/"up to two target artifacts") is expanded
+  // into `count` synthetic one-per-round requirements sharing the same
+  // options, reusing the exact same "pick N from one pool, one at a time"
+  // modal + `excludePicked` de-dup a "tap N untapped <type>s you control"
+  // cost choice already uses (`data-tap-choice-start` below) — an optional
+  // requirement's existing per-round "∅ Kein Ziel" decline button then
+  // doubles as "stop after fewer than N", giving "up to N" for free.
+  function expandMultiTargetRequirements(requirements) {
+    const expanded = [];
+    let excludePicked = false;
+    for (const req of requirements) {
+      const count = req.count || 1;
+      if (count > 1) excludePicked = true;
+      for (let i = 0; i < count; i += 1) expanded.push(req);
+    }
+    return { requirements: expanded, excludePicked };
+  }
   // The user's current drag-and-drop arrangement of a pending `replacement_
   // order` choice's options (RULE 616.1) — an array of option ids, reset
   // whenever a fresh choice with a different option set appears. See
@@ -575,7 +593,8 @@ export function createGameBoardView(opts = {}) {
         const send = info.type === 'activate_ability'
           ? { type: 'activate_ability', instance_id: iid, ability_index: info.ability_index, name: action.name }
           : { type: 'cast_spell', instance_id: iid, name: action.name, face: info.face };
-        castTargeting = { instanceId: iid, requirements: action.targets || [], reqIndex: 0, targets: [], x, send };
+        const { requirements, excludePicked } = expandMultiTargetRequirements(action.targets || []);
+        castTargeting = { instanceId: iid, requirements, reqIndex: 0, targets: [], x, send, excludePicked };
         finishCastIfReady();
       });
     });
@@ -609,7 +628,12 @@ export function createGameBoardView(opts = {}) {
         // One synthetic "requirement" per permanent to tap — reuses the
         // same one-pick-at-a-time modal RULE 115 targets use, since it's
         // the same UX (choose N from a pool); `excludePicked` stops the
-        // same permanent being picked twice.
+        // same permanent being picked twice. `isTapChoice` (not a RULE 115
+        // target at all — a cost) picks the "pay a cost" heading/glyph and
+        // the `tap_choices` dispatch in `finishCastIfReady`, distinct from a
+        // real multi-target requirement's own `excludePicked` (RULE 115.1a
+        // "N target X", `expandMultiTargetRequirements`) which still sends
+        // `targets`.
         const requirements = Array.from({ length: count }, () => ({
           label: 'zu tappende Kreatur', options, optional: false,
         }));
@@ -617,7 +641,8 @@ export function createGameBoardView(opts = {}) {
           ? { type: 'activate_ability', instance_id: iid, ability_index: info.ability_index }
           : { type: 'tap_for_mana', instance_id: iid, ability_index: info.ability_index, option_index: info.option_index };
         castTargeting = {
-          instanceId: iid, requirements, reqIndex: 0, targets: [], x: 0, send, excludePicked: true,
+          instanceId: iid, requirements, reqIndex: 0, targets: [], x: 0, send,
+          excludePicked: true, isTapChoice: true,
         };
         finishCastIfReady();
       });
@@ -645,9 +670,9 @@ export function createGameBoardView(opts = {}) {
   function finishCastIfReady() {
     if (!castTargeting) return;
     if (castTargeting.reqIndex >= castTargeting.requirements.length) {
-      const { send, targets, x, excludePicked } = castTargeting;
+      const { send, targets, x, isTapChoice } = castTargeting;
       castTargeting = null;
-      if (excludePicked) {
+      if (isTapChoice) {
         // A "tap N untapped <type>s you control" cost choice (RULE 602.1),
         // not a RULE 115 target — send the picked instance ids as
         // `tap_choices` instead of `targets`.
@@ -1082,20 +1107,20 @@ export function createGameBoardView(opts = {}) {
     const buttons = options.map((o) => {
       const payload = JSON.stringify({ instance_id: iid, target: targetOptionPayload(o) });
       const hover = o.instance_id != null ? ` data-hover-card="${escapeHtml(o.name || '')}"` : '';
-      const glyph = castTargeting.excludePicked ? '⟳' : '🎯';
+      const glyph = castTargeting.isTapChoice ? '⟳' : '🎯';
       return `<button type="button"${hover} data-cast-target-pick='${escapeAttr(payload)}'>${glyph} ${escapeHtml(o.name)}</button>`;
     });
     if (req.optional) {
       const skip = JSON.stringify({ instance_id: iid, target: null });
       buttons.push(`<button type="button" class="gf-decline" data-cast-target-pick='${escapeAttr(skip)}'>∅ Kein Ziel</button>`);
     }
-    const heading = castTargeting.excludePicked ? 'Kosten bezahlen' : 'Ziel wählen';
-    const progress = total > 1 ? `${idx + 1} von ${total}` : (castTargeting.excludePicked ? 'Auswählen' : 'Ziel wählen');
+    const heading = castTargeting.isTapChoice ? 'Kosten bezahlen' : 'Ziel wählen';
+    const progress = total > 1 ? `${idx + 1} von ${total}` : (castTargeting.isTapChoice ? 'Auswählen' : 'Ziel wählen');
     return `
       <div class="gf-modal-overlay">
         <div class="gf-modal gf-target-modal" role="dialog" aria-modal="true">
           <div class="gf-modal-head">
-            <span class="gf-modal-icon">${castTargeting.excludePicked ? '⟳' : '🎯'}</span>
+            <span class="gf-modal-icon">${castTargeting.isTapChoice ? '⟳' : '🎯'}</span>
             <div>
               <h4>${heading}: ${escapeHtml(req.label || '')}</h4>
               <p class="gf-modal-who">${escapeHtml(progress)}</p>

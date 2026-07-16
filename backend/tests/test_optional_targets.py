@@ -1,7 +1,10 @@
 """Tests for RULE 115.1a "up to one target" (Batch 11's A.2 item, the
-"up to N" targets backlog entry, scoped to N=1 — a real N>=2 multi-target
-choice needs an interactive multi-select and per-effect application over a
-list, a materially larger feature not attempted here).
+"up to N" targets backlog entry, scoped to N=1 for the families covered
+here). A real N>=2 multi-target choice (an interactive multi-select and
+per-effect application over a list) has since shipped for `destroy`/
+`exile`/`damage` — see `tests/test_multi_target.py` — but not yet for
+`return_from_graveyard`/`return_to_hand`/`tap`/`add_counters`, which remain
+N=1-only until a real card drives extending them too.
 
 Mirrors `test_targeting.py`'s fixture pattern (locked/unlocked cast offers,
 server-side `has_legal_targets` enforcement) plus
@@ -107,9 +110,18 @@ def test_up_to_one_target_recognized_for_return_from_graveyard():
     assert spec.type == "return_from_graveyard" and spec.params["optional"] is True
 
 
-def test_up_to_2_targets_stays_unclaimed():
-    # Deliberately out of scope — a real multi-target choice, not N=1.
-    assert parse_effect_body("destroy up to 2 target creatures") is None
+def test_up_to_2_targets_for_destroy_now_recognized():
+    # N>=2 has since shipped for destroy/exile/damage — see
+    # tests/test_multi_target.py for the full coverage of this family.
+    (spec,) = parse_effect_body("destroy up to 2 target creatures")
+    assert spec.type == "destroy"
+    assert spec.params == {"target_kind": "creature", "count": 2, "optional": True}
+
+
+def test_up_to_2_targets_still_unclaimed_for_a_family_not_yet_generalized():
+    # return_to_hand hasn't been extended to N>=2 yet (no real card drove
+    # it in this batch) — still fails closed rather than guessing.
+    assert parse_effect_body("return up to 2 target creatures to their owner's hand") is None
 
 
 # ---------------------------------------------------------------------------

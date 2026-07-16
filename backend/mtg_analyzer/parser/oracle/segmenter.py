@@ -83,10 +83,16 @@ _ACTIVATED_RE = re.compile(r"^(?P<cost>[^:]+):\s*(?P<effect>.+)$", re.S)
 #: mis-read as an activation cost (fail-closed). "put a counter on this/~"
 #: is Devoted Druid's "Put a -1/-1 counter on this creature: Untap this
 #: creature." cost; "tap ... untapped ... you control" is Birchlore Rangers'/
-#: Heritage Druid's bulk-tap cost (RULE 602.1, `costs.tap_others`).
+#: Heritage Druid's bulk-tap cost (RULE 602.1, `costs.tap_others`); "remove a
+#: [+1/+1] counter from this creature" is Walking Ballista/Triskelion's
+#: counter-removal cost (RULE 701.19, `costs.remove_counters` — this module
+#: can't import `game/costs.py`'s `_REMOVE_COUNTERS_RE` directly, front-end
+#: security boundary, so the count/kind shape here is kept loose and just
+#: needs to sniff "is this a cost at all", not fully parse it — keep the verb
+#: fragment in sync if that regex's grammar ever changes).
 _COST_LOOKS_REAL = re.compile(
     r"\{[^}]+\}|sacrifice|pay \d+ life|discard|put an? .+ counter on|"
-    r"tap .+ untapped .+ you control",
+    r"tap .+ untapped .+ you control|remove .+ counters?",
     re.I,
 )
 

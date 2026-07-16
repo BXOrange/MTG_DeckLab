@@ -143,17 +143,25 @@ class AbilitySpec:
     #: fast-path handler class"). ``name`` is a catalogue slug (RULE 702.x).
     keyword: Optional[dict[str, Any]] = None
     #: A modal "Choose one —" block (RULE 700.2), ``spell_effect`` or
-    #: ``triggered``: ``{"or_both": bool, "options": [[EffectSpec, ...], ...],
-    #: "descriptions": [str, ...]}`` — one entry per printed mode, in
-    #: printed order. ``or_both`` is RULE 700.2e ("Choose one or both —"):
-    #: the engine also offers casting/resolving both modes together. When
-    #: set, the ability carries no top-level ``effects`` of its own — each
-    #: mode's effects only apply once that mode is chosen. A ``spell_effect``
-    #: offers one cast action per mode (`game/game_engine.py`, like an MDFC's
-    #: two faces); a ``triggered`` ability's mode is instead chosen as it's
-    #: put on the stack (RULE 603.3), via a `trigger_mode` interactive choice
+    #: ``triggered``: ``{"or_both": bool, "choose": int, "options":
+    #: [[EffectSpec, ...], ...], "descriptions": [str, ...]}`` — one entry
+    #: per printed mode, in printed order. ``or_both`` is RULE 700.2e
+    #: ("Choose one or both —"): the engine also offers casting/resolving
+    #: both modes together. ``choose`` is RULE 700.2's "choose *N* —" header
+    #: (``N>=2`` — "Choose two —"/"Choose three —"; ``1`` for the ordinary
+    #: "choose one" case, the default when the key is absent so old specs
+    #: keep working). When set, the ability carries no top-level ``effects``
+    #: of its own — each mode's effects only apply once chosen. A
+    #: ``spell_effect`` offers one cast action per *legal combination* of
+    #: ``choose`` modes (`game/game_engine.py`, like an MDFC's two faces —
+    #: `itertools.combinations` for ``choose > 1``); a ``triggered``
+    #: ability's mode(s) are instead chosen as it's put on the stack (RULE
+    #: 603.3), via an iterative `trigger_mode` interactive choice
     #: (`game/rules_engine.py`'s `_place_triggers`/`resolve_trigger_mode_
-    #: choice`) — the same "choice made before the target/optional choice"
+    #: choice` — one mode picked per round, already-picked ones excluded
+    #: from the next offer, mirroring the existing library-search
+    #: `_search_choice`/`resolve_search_choice` "pick up to N one at a time"
+    #: pattern) — the same "choice made before the target/optional choice"
     #: ordering RULE 601.2c already uses for a spell's own mode.
     modes: Optional[dict[str, Any]] = None
     #: RULE 601.2b/604.3: a spell's "as an additional cost to cast this
@@ -241,6 +249,11 @@ class AbilitySpec:
             not isinstance(descriptions, list) or len(descriptions) != len(options)
         ):
             raise SpecValidationError("'modes' descriptions must match its options 1:1")
+        choose = self.modes.get("choose", 1)
+        if isinstance(choose, bool) or not isinstance(choose, int) or not 1 <= choose <= len(options):
+            raise SpecValidationError(
+                f"'modes' choose count must be an int in [1, {len(options)}]"
+            )
 
     def _validate_additional_cost(self) -> None:
         """Structural check for an ``additional_cost`` clause (RULE 601.2b/604.3)."""
@@ -310,6 +323,7 @@ class AbilitySpec:
             return None
         return {
             "or_both": bool(self.modes.get("or_both", False)),
+            "choose": int(self.modes.get("choose", 1)),
             "options": [[e.to_dict() for e in opt] for opt in self.modes.get("options", [])],
             "descriptions": list(self.modes.get("descriptions") or []),
         }
@@ -320,6 +334,7 @@ class AbilitySpec:
             return None
         return {
             "or_both": bool(data.get("or_both", False)),
+            "choose": int(data.get("choose", 1)),
             "options": [
                 [EffectSpec.from_dict(e) for e in opt] for opt in (data.get("options") or [])
             ],

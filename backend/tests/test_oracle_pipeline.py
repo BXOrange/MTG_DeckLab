@@ -566,6 +566,45 @@ def test_activated_ability_chains_effects():
     assert [e.type for e in act.effects] == ["draw", "discard"]
 
 
+def test_remove_counter_cost_line_is_modeled():
+    # RULE 701.19/602.1: a "Remove a <kind> counter from ~:" cost with no
+    # mana/{T} alongside it used to fail `segmenter._COST_LOOKS_REAL`'s sniff
+    # (only "{...}"/sacrifice/pay life/discard/put-a-counter-on/tap-others
+    # were trusted), so the whole line stayed unclaimed. Triskelion's real
+    # oracle text is exactly this shape end to end.
+    r = parse_oracle(perm(
+        "Triskelion",
+        "Triskelion enters the battlefield with three +1/+1 counters on it.\n"
+        "Remove a +1/+1 counter from Triskelion: It deals 1 damage to any target.",
+    ))
+    assert r.coverage == MODELED
+    (act,) = [s for s in r.specs if s.ability_kind == "activated"]
+    assert act.cost == {"text": "remove a +1/+1 counter from ~"}
+    assert act.effects[0].type == "damage" and act.effects[0].params["amount"] == 1
+
+
+def test_remove_counter_cost_binds_and_pays_end_to_end():
+    obj = GameObject(perm(
+        "Triskelion",
+        "Remove a +1/+1 counter from Triskelion: It deals 1 damage to any target.",
+    ), owner_id="p1", zone=Zone.BATTLEFIELD)
+    bind_from_catalogue(obj)
+    (ability,) = obj.activated_abilities
+    assert ability.cost.remove_counters == ("+1/+1", 1)
+
+    eng = GameEngine.new_game([("p1", "Alice", [land_card()] * 10)], starting_hand=0)
+    eng.begin_turn()
+    eng.state.current_step = "main1"
+    p1 = eng.state.active_player
+    obj.controller_id = p1.id
+    eng.state.battlefield.append(obj)
+    assert not eng.can_activate(p1, obj, ability)  # no counters yet
+    obj.add_counters("+1/+1", 1)
+    assert eng.can_activate(p1, obj, ability)
+    eng.activate_ability(p1, obj, targets=[p1])
+    assert obj.counters.get("+1/+1") is None  # the one counter was removed to pay
+
+
 def test_mana_ability_line_is_covered_without_a_spec():
     # The engine models mana abilities separately, so the card is MODELED but
     # the "add" line yields no effect spec.

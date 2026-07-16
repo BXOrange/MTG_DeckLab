@@ -32,23 +32,51 @@ for the dependency-ordered plan to finish the implementation.
       "can't be countered"), modal spells (spell- and triggered-ability-
       level), additional cast costs, "up to one target" (N=1), the
       kicked-spell additional-effect conditional, 3 of 5 replacement
-      families, regenerate, surveil, parse-on-load memoization, and the
+      families, regenerate, surveil, parse-on-load memoization, the
       full mana-ability rewrite (spend restrictions RULE 605.3a, "any
       combination of colours" RULE 605.1a, hand-zone mana abilities,
-      Leveler-gated mana, Deathrite Shaman) — is in
+      Leveler-gated mana, Deathrite Shaman), a real N>=2 multi-target
+      choice for destroy/exile/damage ("destroy two target creatures"/
+      "up to N target X", RULE 115.1a generalized), "choose *N* —" (RULE
+      700.2, N>=2 — Kolaghan's/Austere Command-shaped, spell and
+      triggered-ability modal alike), a "remove a counter from ~"
+      activation cost (RULE 701.19/602.1 — Walking Ballista/Triskelion-
+      shaped), and a generalized "search your library for X" tutor/ramp/
+      fetch grammar (criteria filters, "reveal", destination variants,
+      reordered "shuffle...put on top" — 13+ real popular tutors) — is in
       [Done_Backend.md](../docs/implementation-state/Done_Backend.md)
       "Rules Engine (Phase 2)". `parser/oracle/processing_list.py`
       tracks cache-wide coverage; run `coverage_over_cards()` for the
       current number before quoting one (21.4% as of 2026-07-16).
 
       **Still open:**
-      - A real "up to two/three/N"/"up to X" multi-target choice (N>=2 —
-        an interactive multi-select and per-effect application over a
-        *list* of targets, materially larger than the N=1 case shipped).
-      - "Choose <n> —"/"choose <n> or more —" (a bigger modal-header
-        grammar than RULE 700.2's "choose one"/"choose one or both" — an
-        interactive multi-*mode* selection, not a target choice) is the
-        current top processing-list blocker.
+      - N>=2 multi-target is only wired up for `destroy`/`exile`/`damage`
+        (the three effect classes/real cards driving it so far) — other
+        targeting families (`return_to_hand`/`tap`/`add_counters`/
+        `return_from_graveyard`) stay N=1-only until a real card needs it.
+        Also still out of scope: several *different* targeting effects on
+        one spell (a stack item's resolved targets list is shared by every
+        effect on it — see `docs/implementation-state/ToDo_EdgeCases.md`),
+        and cross-target constraints ("two target creatures controlled by
+        *different* players", Run Away Together).
+      - "Choose *N* or more —" (RULE 700.2, Farewell-shaped — a *variable*
+        N from 1 to every mode, a different grammar axis than the fixed-N
+        case shipped; combinatorially bigger for the spell-cast offer too,
+        2^N-1 combinations).
+      - "Remove a counter" cost: only the fixed count shape
+        (`costs._REMOVE_COUNTERS_RE`, already existed) is reachable from
+        oracle text now — variable-count phrasings ("remove X counters",
+        "remove up to 3 counters", "remove any number of counters",
+        "remove all counters from all permanents", ~38 real cards found)
+        still fail closed.
+      - Search/tutor: still unrecognized — "search your library **and/or
+        graveyard**" (Doomsday/Finale of Devastation — `request_search`
+        only reads `player.library`, a real engine gap, not just
+        unparsed); a split destination per found card ("put one onto the
+        battlefield tapped and the other into your hand", Cultivate/
+        Kodama's Reach — a different effect shape, one search always has
+        one destination); "search for N cards and exile the rest"
+        (Doomsday).
       - "You may look at the top card of your library any time" (a
         standing permission) — the engine capability exists
         (`game/top_library.py`, Done_Backend.md "Rules Engine

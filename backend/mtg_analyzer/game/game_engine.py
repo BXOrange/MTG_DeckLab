@@ -15,6 +15,7 @@ today). `run_goldfish_turn` wires those together into a solo auto-turn
 
 from __future__ import annotations
 
+import itertools
 from contextlib import contextmanager
 from typing import Any, Optional
 
@@ -1104,13 +1105,20 @@ class GameEngine:
     def _effects_for_mode(self, obj: GameObject, mode: Any) -> list[Any]:
         """The `GameEffect`s a modal spell's chosen ``mode`` resolves with.
 
-        ``mode`` is an index into ``obj.spell_modes``, or ``"both"`` (RULE
-        700.2e) — both modes' effects, in printed order. Raises for an
-        out-of-range index or a "both" not actually offered (`obj` has no
-        ``spell_modes`` at all, or isn't ``spell_modes_or_both``, or doesn't
-        have exactly the two modes RULE 700.2e's "or both" implies).
+        ``mode`` is an index into ``obj.spell_modes`` (only when
+        ``obj.spell_modes_choose == 1``), the literal ``"both"`` (RULE
+        700.2e — both modes' effects, in printed order), or a list/tuple of
+        exactly ``obj.spell_modes_choose`` distinct indices (RULE 700.2
+        "choose *N*", ``N>=2`` — `_modal_cast_actions` offers one action per
+        legal combination). Combined effects always run in *printed* order,
+        not the order given in ``mode``. Raises for an out-of-range/
+        wrong-length/duplicate index, or a "both" not actually offered
+        (`obj` has no ``spell_modes`` at all, or isn't
+        ``spell_modes_or_both``, or doesn't have exactly the two modes RULE
+        700.2e's "or both" implies).
         """
         modes = list(getattr(obj, "spell_modes", None) or [])
+        choose = getattr(obj, "spell_modes_choose", 1)
         if mode == "both":
             if not getattr(obj, "spell_modes_or_both", False) or len(modes) != 2:
                 raise ValueError(f"{obj.name} has no 'choose both' mode")
@@ -1118,7 +1126,20 @@ class GameEngine:
             for entry in modes:
                 effects.extend(entry["effects"])
             return effects
-        if not isinstance(mode, int) or not (0 <= mode < len(modes)):
+        if isinstance(mode, (list, tuple)):
+            indices = list(mode)
+            valid = (
+                len(indices) == choose
+                and len(set(indices)) == len(indices)
+                and all(isinstance(i, int) and 0 <= i < len(modes) for i in indices)
+            )
+            if not valid:
+                raise ValueError(f"{obj.name}: invalid mode combination {mode!r}")
+            effects = []
+            for i in sorted(indices):
+                effects.extend(modes[i]["effects"])
+            return effects
+        if choose != 1 or not isinstance(mode, int) or not (0 <= mode < len(modes)):
             raise ValueError(f"{obj.name}: invalid mode {mode!r}")
         return list(modes[mode]["effects"])
 
@@ -1127,6 +1148,10 @@ class GameEngine:
         modes = list(getattr(obj, "spell_modes", None) or [])
         if mode == "both":
             return " + ".join(entry.get("description", "") for entry in modes)
+        if isinstance(mode, (list, tuple)):
+            return " + ".join(
+                modes[i].get("description", "") for i in sorted(mode) if 0 <= i < len(modes)
+            )
         if isinstance(mode, int) and 0 <= mode < len(modes):
             return modes[mode].get("description", "")
         return ""
@@ -2137,15 +2162,28 @@ class GameEngine:
         return action
 
     def _modal_cast_actions(self, player: Player, obj: GameObject) -> list[dict[str, Any]]:
-        """One ``cast_spell`` action per mode of a modal spell (RULE 700.2),
-        plus a combined "both" action when ``obj.spell_modes_or_both``
-        (RULE 700.2e) — the same "an offer per option" treatment
-        `legal_actions` already gives an MDFC's two faces."""
+        """One ``cast_spell`` action per mode of a modal spell (RULE 700.2).
+
+        For the ordinary "choose one" case (``spell_modes_choose == 1``):
+        one action per single mode, plus a combined "both" action when
+        ``obj.spell_modes_or_both`` (RULE 700.2e) — the same "an offer per
+        option" treatment `legal_actions` already gives an MDFC's two faces.
+        For "choose *N*" (``N>=2`` — Kolaghan's Command/Austere Command
+        -shaped): one action per legal *combination* of ``N`` modes
+        (``itertools.combinations``), each tagged with a list of indices
+        instead of a bare int (see `_effects_for_mode`).
+        """
         modes = list(getattr(obj, "spell_modes", None) or [])
-        actions = [self._cast_action(player, obj, mode=i) for i in range(len(modes))]
-        if getattr(obj, "spell_modes_or_both", False) and len(modes) == 2:
-            actions.append(self._cast_action(player, obj, mode="both"))
-        return actions
+        choose = getattr(obj, "spell_modes_choose", 1)
+        if choose <= 1:
+            actions = [self._cast_action(player, obj, mode=i) for i in range(len(modes))]
+            if getattr(obj, "spell_modes_or_both", False) and len(modes) == 2:
+                actions.append(self._cast_action(player, obj, mode="both"))
+            return actions
+        return [
+            self._cast_action(player, obj, mode=list(combo))
+            for combo in itertools.combinations(range(len(modes)), choose)
+        ]
 
     def legal_actions(self, player: Player) -> list[dict[str, Any]]:
         """Every action ``player`` may legally take in the current state.

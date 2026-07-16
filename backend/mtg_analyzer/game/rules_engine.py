@@ -455,24 +455,38 @@ class RulesEngine:
         self.state.pending_choice = self._trigger_target_choice(ability, options)
         return False
 
-    def _trigger_mode_choice(self, ability: "TriggeredAbility") -> dict[str, Any]:
+    def _trigger_mode_choice(
+        self, ability: "TriggeredAbility", chosen: Optional[list[int]] = None
+    ) -> dict[str, Any]:
         """Build the `pending_choice` for a modal triggered ability's mode
         (RULE 700.2) — chosen as it's put on the stack, before any target/
         "you may" choice the chosen mode's own effects might still need
         (`resolve_trigger_mode_choice` hands off to `_place_or_pause_
-        trigger` for that)."""
+        trigger` for that).
+
+        ``chosen`` is the indices already picked in an earlier round of a
+        "choose *N*" (``N>=2``) ability — excluded from this round's offer
+        so the same mode can't be picked twice, mirroring the library
+        search's "pick up to N, one at a time" pattern (`_search_choice`).
+        Absent/empty for the first round and for the ordinary "choose one"
+        case (``modes_choose == 1``).
+        """
         options = ability.modes or []
+        picked = set(chosen or [])
         choice_options: list[dict[str, Any]] = [
             {"id": str(i), "label": opt.get("description") or f"Modus {i + 1}"}
             for i, opt in enumerate(options)
+            if i not in picked
         ]
-        if ability.modes_or_both and len(options) == 2:  # RULE 700.2e
+        if ability.modes_or_both and ability.modes_choose == 1 and len(options) == 2 and not picked:
+            # RULE 700.2e — only offered for the fixed choose-1-of-2 case.
             choice_options.append({"id": "both", "label": "Beides"})
         return {
             "kind": "trigger_mode",
             "player_id": ability.controller_id or self.state.active_player.id,
             "prompt": ability.description or "Modus für ausgelöste Fähigkeit wählen",
             "options": choice_options,
+            "chosen": list(chosen or []),
         }
 
     def resolve_trigger_mode_choice(self, answer: Optional[str]) -> None:
@@ -482,36 +496,59 @@ class RulesEngine:
         effects may still need their own target/"you may" choice next, so
         this doesn't necessarily place anything itself. ``answer`` is a
         mode's index (as a string) or ``"both"`` (RULE 700.2e); an
-        unrecognized/missing answer defaults to the first mode rather than
-        dropping a mandatory choice.
+        unrecognized/missing answer defaults to the first not-yet-chosen
+        mode rather than dropping a mandatory choice.
+
+        For a "choose *N*" ability (``modes_choose > 1``, RULE 700.2) this
+        picks one mode per call — once fewer than ``modes_choose`` are
+        picked, the choice re-opens (excluding what's already picked)
+        instead of placing anything, exactly like `resolve_search_choice`
+        offering a library search "one card at a time". Once enough are
+        picked, every chosen mode's effects combine **in printed order**
+        (not pick order) — RULE 700.2's modes resolve in the order the
+        ability's text lists them, same as RULE 700.2e "both" already did.
         """
         choice = self.state.pending_choice
         if not choice or choice.get("kind") != "trigger_mode":
             raise ValueError("no pending trigger mode choice to resolve")
-        self.state.pending_choice = None
         ability = self._pending_trigger_ability
         queue = self._pending_trigger_queue
-        self._pending_trigger_ability = None
-        self._pending_trigger_queue = []
 
         options = (ability.modes or []) if ability is not None else []
         if ability is None or not options:
+            self.state.pending_choice = None
+            self._pending_trigger_ability = None
+            self._pending_trigger_queue = []
             self._place_triggers(queue)
             return
 
-        if answer == "both" and ability.modes_or_both and len(options) == 2:
+        already_chosen: list[int] = list(choice.get("chosen") or [])
+
+        if answer == "both" and ability.modes_or_both and ability.modes_choose == 1 and len(options) == 2:
             effects: list[Any] = []
             for opt in options:
                 effects.extend(opt["effects"])
         else:
+            available = [i for i in range(len(options)) if i not in already_chosen]
             try:
-                idx = int(answer) if answer is not None else 0
+                idx = int(answer) if answer is not None else available[0]
             except (TypeError, ValueError):
-                idx = 0
-            if not 0 <= idx < len(options):
-                idx = 0
-            effects = list(options[idx]["effects"])
+                idx = available[0]
+            if idx not in available:
+                idx = available[0]
+            picked = already_chosen + [idx]
+            if len(picked) < ability.modes_choose:
+                # RULE 700.2 "choose N": re-open, excluding what's picked.
+                self.state.pending_choice = self._trigger_mode_choice(ability, chosen=picked)
+                return
+            # Enough modes picked — combine in printed order, not pick order.
+            effects = []
+            for i in sorted(picked):
+                effects.extend(options[i]["effects"])
 
+        self.state.pending_choice = None
+        self._pending_trigger_ability = None
+        self._pending_trigger_queue = []
         if self._place_or_pause_trigger(ability, effects, queue):
             self._place_triggers(queue)
 

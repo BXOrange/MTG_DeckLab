@@ -273,6 +273,9 @@ def parse_activation_cost(
     if cost.get("add_counters_cost"):
         kind, count = cost["add_counters_cost"]
         parsed.add_counters_cost = (str(kind), int(count))
+    if cost.get("remove_counters"):
+        kind, count = cost["remove_counters"]
+        parsed.remove_counters = (str(kind), int(count))
     if "exile_self_from_hand" in cost:
         parsed.exile_self_from_hand = bool(cost["exile_self_from_hand"])
     if "sorcery_speed_only" in cost:

@@ -302,6 +302,7 @@ def bind_ability(
             effects=effects,
             modes=modes,
             modes_or_both=bool(spec.modes.get("or_both", False)) if spec.modes else False,
+            modes_choose=int(spec.modes.get("choose", 1)) if spec.modes else 1,
             condition=_trigger_condition(spec.trigger, source),
             optional=spec.optional,
             controller_id=getattr(source, "controller_id", None),
@@ -493,18 +494,21 @@ def _attach_modes(obj: Any, modes: dict[str, Any]) -> None:
 
     Each option becomes its own entry in ``obj.spell_modes`` — a flat list
     of ``{"effects": [GameEffect, ...], "description": str}`` dicts, one
-    per printed mode — plus ``obj.spell_modes_or_both`` (RULE 700.2e). The
-    engine (`game/game_engine.py`) offers one cast action per mode, plus a
-    combined "both" action when ``or_both`` is set, the same per-face-offer
-    treatment MDFC/Adventure casting already uses; casting temporarily
-    swaps `obj.spell_effects` to the chosen mode(s) so the existing
-    targeting/resolution machinery (which reads that attribute) needs no
-    change to be modal-aware.
+    per printed mode — plus ``obj.spell_modes_or_both`` (RULE 700.2e) and
+    ``obj.spell_modes_choose`` (RULE 700.2's "choose *N* —", ``1`` for the
+    ordinary case). The engine (`game/game_engine.py`) offers one cast
+    action per *legal combination* of ``spell_modes_choose`` modes (plus a
+    combined "both" action when ``or_both`` is set, for the ``choose == 1``
+    binary case) — the same per-face-offer treatment MDFC/Adventure casting
+    already uses; casting temporarily swaps `obj.spell_effects` to the
+    chosen mode(s) so the existing targeting/resolution machinery (which
+    reads that attribute) needs no change to be modal-aware.
     """
     entries = _build_mode_entries(modes, obj)
     existing = list(getattr(obj, "spell_modes", None) or [])
     obj.spell_modes = existing + entries
     obj.spell_modes_or_both = bool(modes.get("or_both", False))
+    obj.spell_modes_choose = int(modes.get("choose", 1))
 
 
 def attach_to_object(obj: Any, specs: list[AbilitySpec]) -> None:

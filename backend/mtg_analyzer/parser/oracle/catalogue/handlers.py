@@ -84,11 +84,78 @@ def _optional_param(m: re.Match[str]) -> dict:
     return {"optional": True} if target_is_optional(m) else {}
 
 
+#: RULE 115.1a generalized to N>=2 — "destroy **two** target creatures",
+#: "destroy **up to two** target artifacts and/or enchantments", "deals N
+#: damage to each of **up to two** target creatures and/or planeswalkers".
+#: A deliberately separate, self-contained grammar from the shared `TARGET`
+#: macro above (`_TARGET_ROWS` is singular-only and reused by many other
+#: handler families — return_to_hand/tap/attach/… — that this feature
+#: doesn't touch): a plural noun phrase never collides with `TARGET`'s bare
+#: "target X"/"up to one target X" shapes, so there's no dispatch ambiguity
+#: registering both. Only wired up for `destroy`/`exile`/`damage` — the
+#: three effect classes `game/effects.py` actually loops a `count` over
+#: (`DestroyEffect`/`ExileEffect`/`DealDamageEffect`); every other targeting
+#: effect stays N=1-only until a real card drives extending it too.
+_MULTI_TARGET_ROWS: list[tuple[str, str]] = [
+    (r"target creatures and/or planeswalkers", "any"),
+    (r"target artifacts and/or enchantments", "permanent"),
+    (r"target creatures", "creature"),
+    (r"target permanents", "permanent"),
+    (r"target artifacts", "permanent"),
+    (r"target enchantments", "permanent"),
+    (r"target lands", "permanent"),
+    (r"target players", "player"),
+]
+_MULTI_TARGET_ALT = "|".join(f"(?:{frag})" for frag, _ in _MULTI_TARGET_ROWS)
+
+
+def _multi_target_kind(phrase: str) -> Optional[str]:
+    text = phrase.strip()
+    for frag, kind in _MULTI_TARGET_ROWS:
+        if re.fullmatch(frag, text, re.IGNORECASE):
+            return kind
+    return None
+
+
+#: A numeric quantifier before a plural TARGET phrase: "two "/"three " (a
+#: mandatory count — RULE 601.2c needs that many legal targets to even be
+#: castable) or "up to two "/"up to three " (optional, 0..N — never locks
+#: casting, same as "up to one"). Digits only — `normalize.py` already
+#: folds spelled-out numbers up to twelve.
+_MULTI_TARGET_QUANTIFIER = r"(?P<up_to>up to )?(?P<count>\d+) "
+
+
+def _multi_target_params(m: re.Match[str]) -> Optional[dict]:
+    """The shared ``{target_kind, count, optional?}`` params for a
+    `_MULTI_TARGET_QUANTIFIER` + `_MULTI_TARGET_ALT` match, or ``None`` if
+    the target phrase isn't recognized or the count is < 2 (the N=1 "up to
+    one"/bare-target case is the existing singular handler's job, not this
+    one's — a count of exactly 1 here would just be a confusing duplicate
+    route to the same effect)."""
+    kind = _multi_target_kind(m.group("target"))
+    if kind is None:
+        return None
+    count = int(m.group("count"))
+    if count < 2:
+        return None
+    params: dict = {"target_kind": kind, "count": count}
+    if m.groupdict().get("up_to"):
+        params["optional"] = True
+    return params
+
+
 def _damage(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     kind = resolve_target_kind(m.group("target"))
     if kind is None:
         return None
     return [EffectSpec("damage", {"amount": int(m.group("n")), "target_kind": kind, **_optional_param(m)})]
+
+
+def _damage_each_multi_target(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    params = _multi_target_params(m)
+    if params is None:
+        return None
+    return [EffectSpec("damage", {"amount": int(m.group("amount")), **params})]
 
 
 #: "~ deals N damage to each creature/player/opponent" — a *mass* effect
@@ -144,6 +211,13 @@ def _destroy(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     return [EffectSpec("destroy", {"target_kind": kind, **_optional_param(m)})]
 
 
+def _destroy_multi_target(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    params = _multi_target_params(m)
+    if params is None:
+        return None
+    return [EffectSpec("destroy", params)]
+
+
 def _regenerate(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     kind = resolve_target_kind(m.group("target"))
     if kind is None or kind not in ("creature", "permanent"):
@@ -190,6 +264,13 @@ def _exile(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     if kind is None or kind not in ("creature", "permanent"):
         return None
     return [EffectSpec("exile", {"target_kind": kind, **_optional_param(m)})]
+
+
+def _exile_multi_target(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    params = _multi_target_params(m)
+    if params is None:
+        return None
+    return [EffectSpec("exile", params)]
 
 
 def _tap(m: re.Match[str]) -> Optional[list[EffectSpec]]:
@@ -326,36 +407,132 @@ def _exile_from_graveyard(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     return [EffectSpec("exile", {"target_kind": kind})]
 
 
-#: "search your library for a card, put that card into your hand, then
-#: shuffle." (RULE 701.19, an unrestricted tutor) / "search your library for
-#: a basic land card, put it onto the battlefield tapped, then shuffle."
-#: (a fetch land's activated-ability body — mirrors Evolving Wilds'
-#: hand-authored `ability_catalogue.py` entry, just reached via the oracle-
-#: text front-end instead). Both map onto the engine's existing `"search"`
-#: `EffectSpec` (`game/effects.py`'s `SearchLibraryEffect`) — no new effect
-#: type needed, just recognition.
-_SEARCH_TO_HAND_RE = _c(
-    r"search your library for a card,? put that card into your hand,? then shuffle"
+#: "search your library for a [<criteria>] card, [reveal it,] put it/that
+#: card/them/those cards <destination>, then shuffle." (RULE 701.19, the
+#: general tutor/ramp/fetch family — Demonic Tutor/Rampant Growth/Farseek/
+#: Nature's Lore/Crop Rotation/Eladamri's Call/Buried Alive/Sylvan
+#: Scrying-shaped) and its reordered sibling "..., [reveal it,] then shuffle
+#: and put it/that card/the card on top." (Vampiric/Mystical/Enlightened/
+#: Worldly Tutor-shaped). Both map onto the engine's existing `"search"`
+#: `EffectSpec` (`game/effects.py`'s `SearchLibraryEffect`, already
+#: parameterized on criteria/destination/count — `tests/
+#: test_search_popular_tutors.py` proves it against 15 real popular tutors)
+#: — no new effect type needed, just recognition. Deliberately NOT attempted
+#: here (fail-closed, real cards found but left unclaimed): "library and/or
+#: graveyard" combined search (Doomsday/Finale of Devastation — `request_
+#: search` only reads `player.library`), a split destination per found card
+#: (Cultivate/Kodama's Reach — a single search always has one destination),
+#: "search for N cards and exile the rest" (Doomsday), and any qualifier
+#: after the noun phrase such as "with mana value X or less" (Green Sun's
+#: Zenith/Chord of Calling — X is a spell's own cast-time choice, not a
+#: static criterion this grammar can express).
+#:
+#: The type-word vocabulary intentionally also carries the five basic land
+#: names (a card can be searched for by name, "a Forest card"/"a Plains,
+#: Island, Swamp, or Mountain card" — Nature's Lore/Farseek), separate from
+#: "basic land" (Rampant Growth) which sets `criteria["basic"]` instead of a
+#: `type` filter — the two are mutually exclusive alternatives tried in that
+#: order (longest/most-specific first), never combined.
+_SEARCH_TYPE_WORD = (
+    r"artifact|creature|enchantment|instant|planeswalker|sorcery|land|"
+    r"plains|island|swamp|mountain|forest"
 )
-#: "for a basic land card, put it …" (singular, the fetch-land shape) / "for
-#: up to N basic land cards, put them …" (RULE 115.1a-adjacent count choice,
-#: Vastwood Surge-shaped — `SearchLibraryEffect.count` already offers a
-#: search "up to N" one card at a time; only recognition was missing).
-_SEARCH_BASIC_LAND_TAPPED_RE = _c(
-    r"search your library for (?:a|up to (?P<n>\d+)) basic land cards?,? "
-    r"put (?:it|them) onto the battlefield tapped,? then shuffle"
+#: An "or"/comma-separated list of 1+ type words, same shape as
+#: `subgrammars._SPELL_TYPE_LIST` (kept separate/local since this vocabulary
+#: — land + basic land names — is specific to a library search, not a spell
+#: target filter).
+_SEARCH_TYPE_LIST = (
+    rf"(?:{_SEARCH_TYPE_WORD})(?:,\s*(?:{_SEARCH_TYPE_WORD}))*"
+    rf"(?:,?\s+or\s+(?:{_SEARCH_TYPE_WORD}))?"
+)
+#: The noun phrase after "search your library for": a determiner ("a"/"an"/
+#: "up to N"), then either "basic land" (sets `basic`) or a `_SEARCH_TYPE_
+#: LIST` (sets `types`) or neither (a bare "a card"), then "card(s)".
+_SEARCH_CRITERIA = (
+    r"(?:up to (?P<count>\d+)|an?)\s+"
+    rf"(?:(?P<basic>basic land)|(?P<types>{_SEARCH_TYPE_LIST}))?\s*"
+    r"cards?"
+)
+#: Whichever pronoun/noun-phrase a card's "reveal ~"/"put ~ <dest>" clause
+#: uses for the found card — every variant found in the popular-tutor cache
+#: scan (Wishclaw Talisman's "it", most tutors' "that card", Buried Alive's
+#: plural "them", Worldly Tutor's "the card").
+_SEARCH_PRONOUN = r"(?:it|that card|them|those cards|the card)"
+#: An optional "reveal <pronoun>," clause between the criteria and the
+#: put/shuffle tail (Eladamri's Call/Mystical/Enlightened/Worldly Tutor) —
+#: purely descriptive text at this engine's fidelity (no separate game-state
+#: effect: the found card is already known to both players via the search
+#: choice), so it's consumed and dropped, not modeled as its own effect.
+_SEARCH_REVEAL = rf"(?:reveal {_SEARCH_PRONOUN},?\s*)?"
+#: Where the found card goes — order matters ("battlefield tapped" must be
+#: tried before the bare "battlefield" row so it isn't left partially
+#: unconsumed).
+_SEARCH_DESTINATION_ROWS: list[tuple[str, str]] = [
+    (r"onto the battlefield tapped", "battlefield_tapped"),
+    (r"onto the battlefield", "battlefield"),
+    (r"into your hand", "hand"),
+    (r"into your graveyard", "graveyard"),
+]
+_SEARCH_DESTINATION_ALT = "|".join(f"(?:{frag})" for frag, _ in _SEARCH_DESTINATION_ROWS)
+
+
+def _search_destination_kind(phrase: str) -> Optional[str]:
+    text = phrase.strip()
+    for frag, kind in _SEARCH_DESTINATION_ROWS:
+        if re.fullmatch(frag, text, re.IGNORECASE):
+            return kind
+    return None
+
+#: "search your library for <criteria>, [reveal <pronoun>,] put <pronoun>
+#: <destination>, then shuffle." — the common put-then-shuffle order.
+_SEARCH_PUT_THEN_SHUFFLE_RE = _c(
+    rf"search your library for {_SEARCH_CRITERIA},?\s*"
+    rf"{_SEARCH_REVEAL}"
+    rf"put {_SEARCH_PRONOUN} (?P<dest>{_SEARCH_DESTINATION_ALT}),?\s*"
+    r"then shuffle"
+)
+#: "search your library for <criteria>, [reveal <pronoun>,] then shuffle and
+#: put <pronoun> on top [of your library]." — the reordered shuffle-then-put
+#: order, always to the top of the library (Vampiric/Mystical/Enlightened/
+#: Worldly Tutor).
+_SEARCH_SHUFFLE_THEN_PUT_TOP_RE = _c(
+    rf"search your library for {_SEARCH_CRITERIA},?\s*"
+    rf"{_SEARCH_REVEAL}"
+    rf"then shuffle and put {_SEARCH_PRONOUN} on top(?: of your library)?"
 )
 
 
-def _search_to_hand(m: re.Match[str]) -> list[EffectSpec]:
-    return [EffectSpec("search", {"criteria": {}, "destination": "hand"})]
+def _search_criteria_from_match(m: re.Match[str]) -> dict:
+    if m.groupdict().get("basic"):
+        return {"basic": True}
+    types = m.groupdict().get("types")
+    if types:
+        words = [t.strip() for t in re.split(r",\s*or\s+|,\s*|\s+or\s+", types) if t.strip()]
+        return {"type": words if len(words) > 1 else words[0]}
+    return {}
 
 
-def _search_basic_land_tapped(m: re.Match[str]) -> list[EffectSpec]:
-    params: dict = {"criteria": {"basic": True}, "destination": "battlefield_tapped"}
-    n = m.groupdict().get("n")
-    if n is not None:
-        params["count"] = int(n)
+def _search_count_from_match(m: re.Match[str]) -> Optional[int]:
+    count = m.groupdict().get("count")
+    return int(count) if count is not None else None
+
+
+def _search_put_then_shuffle(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    destination = _search_destination_kind(m.group("dest"))
+    if destination is None:
+        return None
+    params: dict = {"criteria": _search_criteria_from_match(m), "destination": destination}
+    count = _search_count_from_match(m)
+    if count is not None:
+        params["count"] = count
+    return [EffectSpec("search", params)]
+
+
+def _search_shuffle_then_put_top(m: re.Match[str]) -> list[EffectSpec]:
+    params: dict = {"criteria": _search_criteria_from_match(m), "destination": "library_top"}
+    count = _search_count_from_match(m)
+    if count is not None:
+        params["count"] = count
     return [EffectSpec("search", params)]
 
 
@@ -580,6 +757,18 @@ HANDLERS: list[EffectHandler] = [
         _c(rf"(?:(?:~|it|this creature|this land|this permanent) )?deals? {NUMBER} damage to {TARGET}"),
         _damage,
     ),
+    # "~ deals 6 damage to each of up to two target creatures and/or
+    # planeswalkers" (RULE 115.1a generalized to N>=2) — the full amount
+    # applies to *every* chosen target, not divided among them.
+    EffectHandler(
+        "damage_each_multi_target",
+        _c(
+            rf"(?:(?:~|it|this creature|this land|this permanent) )?"
+            rf"deals? (?P<amount>\d+) damage to each of {_MULTI_TARGET_QUANTIFIER}"
+            rf"(?P<target>{_MULTI_TARGET_ALT})"
+        ),
+        _damage_each_multi_target,
+    ),
     # "~ deals 2 damage to each creature" / "… to each player" / "… to each
     # opponent" — a mass effect (RULE 601.2c), not RULE 115 targeting.
     EffectHandler(
@@ -627,6 +816,14 @@ HANDLERS: list[EffectHandler] = [
         _c(rf"destroy {TARGET}"),
         _destroy,
     ),
+    # "destroy two target creatures" / "destroy up to two target artifacts
+    # and/or enchantments" (RULE 115.1a generalized to N>=2 — Curtains'
+    # Call/Force of Vigor-shaped).
+    EffectHandler(
+        "destroy_multi_target",
+        _c(rf"destroy {_MULTI_TARGET_QUANTIFIER}(?P<target>{_MULTI_TARGET_ALT})"),
+        _destroy_multi_target,
+    ),
     # "regenerate target creature" (RULE 701.16, Ezuri, Renegade Leader's
     # "Regenerate another target Elf" is a genuinely different, subtype-
     # filtered target this grammar doesn't cover — fails closed, stays
@@ -672,6 +869,13 @@ HANDLERS: list[EffectHandler] = [
         "exile",
         _c(rf"exile {TARGET}"),
         _exile,
+    ),
+    # "exile two target creatures" / "exile up to two target artifacts"
+    # (RULE 115.1a generalized to N>=2).
+    EffectHandler(
+        "exile_multi_target",
+        _c(rf"exile {_MULTI_TARGET_QUANTIFIER}(?P<target>{_MULTI_TARGET_ALT})"),
+        _exile_multi_target,
     ),
     # "tap target creature" / "untap target permanent"
     EffectHandler(
@@ -724,19 +928,22 @@ HANDLERS: list[EffectHandler] = [
         _EXILE_FROM_GRAVEYARD_RE,
         _exile_from_graveyard,
     ),
-    # "search your library for a card, put that card into your hand, then
-    # shuffle." (RULE 701.19, an unrestricted tutor).
+    # "search your library for <criteria>, [reveal <pronoun>,] put <pronoun>
+    # <destination>, then shuffle." (RULE 701.19 — the general tutor/ramp/
+    # fetch family: unrestricted tutors, basic-land fetches, criteria-
+    # filtered tutors, "reveal" variants).
     EffectHandler(
-        "search_to_hand",
-        _SEARCH_TO_HAND_RE,
-        _search_to_hand,
+        "search_put_then_shuffle",
+        _SEARCH_PUT_THEN_SHUFFLE_RE,
+        _search_put_then_shuffle,
     ),
-    # "search your library for a basic land card, put it onto the
-    # battlefield tapped, then shuffle." (a fetch land's activated body).
+    # "search your library for <criteria>, [reveal <pronoun>,] then shuffle
+    # and put <pronoun> on top." (the reordered shuffle-then-put-on-top
+    # tutors — Vampiric/Mystical/Enlightened/Worldly Tutor).
     EffectHandler(
-        "search_basic_land_tapped",
-        _SEARCH_BASIC_LAND_TAPPED_RE,
-        _search_basic_land_tapped,
+        "search_shuffle_then_put_top",
+        _SEARCH_SHUFFLE_THEN_PUT_TOP_RE,
+        _search_shuffle_then_put_top,
     ),
     # "attach it to target creature you control" / "attach ~ to target
     # creature you control" (an Equipment's own ETB self-attach).

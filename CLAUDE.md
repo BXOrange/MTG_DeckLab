@@ -177,7 +177,9 @@ main ongoing effort: `normalize` → `segmenter` → `catalogue/handlers` →
 *fully* modeled — never half-resolved). It covers most one-shot effect
 families, ETB/dies/attacks/blocks/Saga-chapter triggers with RULE 603.1
 subject scoping, `<cost>: <effect>` activated abilities, modal spells (both
-spell-level and, since 2026-07-16, triggered-ability-level "choose one —"),
+spell-level and triggered-ability-level, "choose one —"/"choose one or
+both —" and, since 2026-07-16, "choose *N* —" for N>=2 — Kolaghan's/Austere
+Command-shaped, combining N modes' effects in printed order),
 additional cast costs, the counter family, RULE 614.1 enters-tapped clauses
 (all four conditional variants) and enters-with-N-counters clauses, static
 anthem/lord clauses, and graveyard-card recursion/exile (Regrowth/
@@ -189,8 +191,15 @@ intercept it; also closed a RULE 701.16c gap where sacrifice previously
 went through `destroy` too and could have wrongly been save-able by a
 shield — sacrifice now uses the new non-destructive
 `RulesEngine.put_into_graveyard`); RULE 115.1a "up to one target" (any
-`{TARGET}`-based handler, N=1 only — a real N>=2 multi-target choice is a
-separate, larger unshipped feature); RULE 702.33b's "if this spell was
+`{TARGET}`-based handler) generalized to N>=2 for `destroy`/`exile`/
+`damage` (since 2026-07-16 — "destroy two target creatures"/"up to two
+target artifacts and/or enchantments"; other targeting families stay
+N=1-only until a real card needs it); a "remove a counter from ~"
+activation cost (RULE 701.19/602.1); a generalized "search your library
+for X" tutor/ramp/fetch grammar (criteria filters, "reveal", destination/
+pronoun variants, reordered "shuffle...put on top" — 13 real popular
+tutors, onto the already-generic `SearchLibraryEffect`); RULE 702.33b's
+"if this spell was
 kicked, \<effect\>." as an *additional* effect (`EffectSpec.condition` +
 `game/effects.py`'s `ConditionalEffect`, not the "if kicked, ... instead"
 amount-override shape); oracle-text recognition of 3 of the 5
@@ -202,18 +211,22 @@ shape exactly). `parse_oracle` itself is now memoized (content-keyed on
 every field it reads, `parser/oracle/gate.py`) since it's called once per
 `GameObject` built — a popular card no longer gets re-parsed from scratch
 on every copy/every game. `parser/oracle/processing_list.py` tracks
-cache-wide coverage (21.4% of the 2,869-card cache fully `MODELED` as of
+cache-wide coverage (22.8% of the 2,909-card cache fully `MODELED` as of
 2026-07-16 — re-run `coverage_over_cards()` before trusting this number,
 the cache grows) and ranks the next handlers worth building.
 
 **Notable gaps** (see `backend/ToDo_Backend.md` for the full list with exact
-scope on each): a real N>=2 "up to N target(s)" multi-select; a "remove a
-counter from ~" activation-cost shape (`costs.py`); a kicked spell's "if
-kicked, ... instead" *override* conditional (as opposed to the additional-
-effect shape already shipped); the remaining RULE 616.1 replacement-clause
-formulations (`prevent_damage`'s one-shot-spell shape, differently-scoped/
-compound-filter variants); wiring the interactive priority primitive
-into the multiplayer session/WebSocket; and battles/dungeons. Narrower,
+scope on each): "choose *N* or more —" (Farewell's variable-N modal, a
+different grammar axis than the fixed-N case just shipped); several
+*different* targeting effects sharing one spell/ability still share one
+flat targets list (`docs/implementation-state/ToDo_EdgeCases.md`); a kicked
+spell's "if kicked, ... instead" *override* conditional (as opposed to the
+additional-effect shape already shipped); the remaining RULE 616.1
+replacement-clause formulations (`prevent_damage`'s one-shot-spell shape,
+differently-scoped/compound-filter variants); "search library and/or
+graveyard" (Doomsday/Finale of Devastation — needs a `request_search`
+engine extension, not just parsing); wiring the interactive priority
+primitive into the multiplayer session/WebSocket; and battles/dungeons. Narrower,
 already-shipped-feature rough edges
 (e.g. re-validating an *existing* attachment's legality every SBA pass, not
 just on the host leaving; combining interactive trigger-ordering with a
