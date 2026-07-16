@@ -10,9 +10,7 @@ A one-line "moved to Done_Backend.md, section name" pointer, or just
 deleting the line outright, is enough — the ToDo/Done split only pays off if
 it's kept up, see CLAUDE.md "Conventions & gotchas".
 See [../docs/implementation-state/10_COMPLETION_ROADMAP.md](../docs/implementation-state/10_COMPLETION_ROADMAP.md)
-for the dependency-ordered plan to finish the implementation. The original
-Weeks 1–4 roadmap is archived at
-[../docs/implementation-state/history/IMPLEMENTATION_STATUS.md](../docs/implementation-state/history/IMPLEMENTATION_STATUS.md).
+for the dependency-ordered plan to finish the implementation.
 
 ## Rules Engine (Phase 2) — remaining
 
@@ -180,4 +178,3 @@ eventually own. Roughly in decreasing commonness:
 - [ ] Greedy bot strategy (docs/02 UC5) — a start exists in
       `GameEngine.run_goldfish_turn`/`auto_play_step` (play a land, tap
       out, cast cheapest-first, swing); a real bot would weigh lines.
-      

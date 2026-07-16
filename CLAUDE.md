@@ -12,6 +12,7 @@ lands, tap mana, cast spells with the stack, attack, all validated server-side
 against the Comprehensive Rules (referenced as `RULE <n>` throughout the code).
 
 Two halves:
+
 - **`backend/`** — Python (FastAPI). The card model, rules engine, oracle
   effect IR, and the game-session API. This is where the depth is.
 - **`frontend/`** — a static, buildless ES-modules app (no bundler). Tabs for
@@ -81,7 +82,7 @@ backend changes with pytest (the suite is fast, ~500+ tests, keep it green).
 
 ## Architecture & data flow
 
-```
+```code
 Card (models/card.py)            immutable printed characteristics
   └─ GameObject (models/game_object.py)   one instance in a zone, mutable state
 GameState (models/game_state.py)  battlefield/stack/players/turn + event bus
@@ -107,11 +108,12 @@ fully `MODELED` (never half-resolving). The front-end has **no `game/` imports**
 (the security boundary); binding stays the binder's job.
 
 ### Key game/ modules
+
 - `effects.py` — effect hierarchy + `EffectRegistry` (whitelisted `type` →
   factory). One-shot effects, `TriggeredAbility`, `ActivatedAbility`,
   `StaticEffect` (phase-skip), `StaticAbility` (layer system), `ReplacementEffect`.
 - `combat.py` — combat/evasion **keyword recognition** (off Scryfall `keywords`
-  + oracle text) and the rules they impose (blocking legality, damage steps).
+  & oracle text) and the rules they impose (blocking legality, damage steps).
 - `continuous.py` — the **RULE 613 layer engine**. `recompute(state)` re-derives
   every battlefield permanent's characteristics in layer order and stamps
   derived P/T, types, granted keywords + a per-object `static_trace`.
@@ -242,9 +244,7 @@ system, oracle parser, plus [PlantUML architecture diagrams](docs/concepts/12_AR
 `Reference/` (how do I do X, or look something up — card-cache format,
 card-catalogue authoring, plus the Comprehensive Rules text + `rules_wiki/`),
 `implementation-state/` (what's built now — the roadmap above, both `Done_*`
-files, the original phased `IMPLEMENTATION_GUIDE.md`, and the archived
-Weeks 1–4 status log at `implementation-state/history/IMPLEMENTATION_STATUS.md`).
-See
+files, and the original phased `IMPLEMENTATION_GUIDE.md`). See
 [docs/README.md](docs/README.md) for the full map. End-user documentation
 (how to *use* the app — deck import, Goldfisch, Replay/Puzzle, settings —
 not how it's built) lives separately in [`user-docs/`](user-docs/), in

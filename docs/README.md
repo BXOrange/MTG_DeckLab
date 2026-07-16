@@ -11,7 +11,7 @@ players rather than contributors.
 | [`requirements/`](requirements/) | *What is this app supposed to do?* | Use cases, actors, functional/non-functional requirements, the MVP cut. |
 | [`concepts/`](concepts/) | *How is it designed, and why?* | Architecture, the server/client split, the game/effect system, the UI/UX design, card graphics & caching, the oracle-text→effect parser design, and the [PlantUML architecture diagrams](concepts/12_ARCHITECTURE_DIAGRAMS.md). |
 | [`Reference/`](Reference/) | *How do I do a specific recurring task, or look something up?* | The card-cache export/import format, the card-catalogue authoring guide (hand-wiring a card's abilities), the Comprehensive Rules text itself, and `rules_wiki/` (a generated index mapping every `RULE <n>`/glossary term to its line in the CR source — see its own `README.md`). |
-| [`implementation-state/`](implementation-state/) | *What's actually built, right now?* | The dependency-ordered completion roadmap, `Done_Backend.md`/`Done_Frontend.md` (shipped work, with the "why"), the original phased build guide, and the archived Weeks 1–4 status log. |
+| [`implementation-state/`](implementation-state/) | *What's actually built, right now?* | The dependency-ordered completion roadmap, `Done_Backend.md`/`Done_Frontend.md` (shipped work, with the "why"), and the original phased build guide. |
 
 ## Where "implementation state" actually lives
 

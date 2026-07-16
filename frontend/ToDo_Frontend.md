@@ -6,10 +6,11 @@ into the matching section of
 headers here mirror there) instead of leaving it checked off in place**; a
 one-line "moved to Done_Frontend.md, section name" pointer, or deleting the
 line outright, is enough — see CLAUDE.md "Conventions & gotchas". No
-Node/npm on this machine, so there's no JS linter/test runner
-and no way to drive a real browser — changes are verified by reading the
-code plus replaying the equivalent API calls against a running backend,
-**not** by an actual rendered page (see "Cleanup / polish").
+Node/npm on this machine, so there's no JS linter/formatter/typecheck, but
+real-browser verification *is* available: Playwright (Python) lives in
+`backend/venv`, driving a real Chromium against the static frontend server
+plus a running backend (`page.goto`/`.click`/`.screenshot`) — use it for any
+non-trivial UI change instead of reading code + replaying API calls.
 
 ## Import — follow-ups
 
@@ -110,11 +111,6 @@ analysis (UC2)". Still open, blocked on the backend LLM endpoint:
 
 ## Cleanup / polish
 
-- [ ] Tooling: no Node/npm on this machine, so no linter, formatter, or
-      automated JS test runner, and no way to drive a real browser for UI
-      verification (no Playwright/chromium-cli either). Logic was verified
-      ad hoc via `osascript -l JavaScript` (JavaScriptCore) in the past —
-      worth a real test + browser-automation setup once Node is available.
 - [ ] Keyboard shortcuts (docs/05 PART 9).
 - [ ] Accessibility: alt-text on cards, tab navigation, high-contrast
       mode (docs/05 PART 10).

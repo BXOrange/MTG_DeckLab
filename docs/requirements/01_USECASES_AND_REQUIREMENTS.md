@@ -5,6 +5,7 @@
 # PART 1: USE CASES (aus ursprünglicher Anfrage extrahiert)
 
 ## Original-Anfrage zusammengefasst:
+
 "AI-unterstütztes Analysewerkzeug für Magic Decks. Input: Deckliste (Commander-Format). Funktionen: Winconditions ableiten, Spielplan evaluieren, erste 10 Züge simulieren, Konsistenz bewerten (intern + Störeinflüsse). Output: Konsistenz-Score, Verbesserungsvorschläge, Upgrades."
 
 ---
@@ -12,17 +13,20 @@
 ## USE CASE 1: Deckliste Laden & Validieren
 
 ### Description
+
 System empfängt eine Commander-Deckliste und validiert sie gegen offizielle Commander-Regeln.
 
 ### Actor
 Benutzer (über CLI oder API)
 
 ### Preconditions
+
 - Deckliste liegt vor (Text, Datei oder String)
 - Format ist erkannt
 - Kartendatenbank verfügbar
 
 ### Main Flow
+
 1. Benutzer gibt Deckliste ein
 2. System parsed Format und extrahiert:
    - Commander Karte(n)
@@ -48,6 +52,7 @@ Benutzer (über CLI oder API)
    - Color Identity für Validierung
 
 ### Postconditions
+
 - Deckliste ist im System geladen
 - Commander ist identifiziert und validiert
 - Alle 100 Karten haben korrespondierende Card-Objekte
@@ -56,6 +61,7 @@ Benutzer (über CLI oder API)
 - Deck ist gegen Commander-Rules validiert (keine Fehler)
 
 ### Error Handling
+
 - Commander nicht legendär → Fehler
 - Duplicate Karten (>1 Kopie außer Lands) → Fehler
 - Card nicht in Color Identity → Fehler
@@ -64,6 +70,7 @@ Benutzer (über CLI oder API)
 - Nicht exakt 100 Karten → Fehler
 
 ### Requirements (Architektur-Implikationen)
+
 - **Data Layer**: Kartendatenbank mit:
   - Card Name, Mana Cost, Type, Abilities, Oracle Text
   - Legendary Status, Partner Status
@@ -88,16 +95,20 @@ Benutzer (über CLI oder API)
 ## USE CASE 2: Win Conditions Ableiten
 
 ### Description
+
 System analysiert die Deckliste und identifiziert die primären Gewinn-Bedingungen des Decks.
 
 ### Actor
+
 System (automatisch nach Deckliste-Load)
 
 ### Preconditions
+
 - Deckliste vollständig geladen
 - Alle Kartinformationen verfügbar
 
 ### Main Flow
+
 1. System durchsucht Deck nach "Win Condition" Karten
    - Defs Win Condition: Karte, die eine Spieler in einen gewinnenden Zustand bringt
    - Beispiele: "Creatures mit Power >= 3", "Burn-Spells", "Combo-Pieces"
@@ -111,11 +122,13 @@ System (automatisch nach Deckliste-Load)
 4. System identifiziert "Primary Win Condition" (am wahrscheinlich in frühem Spiel)
 
 ### Postconditions
+
 - Win Conditions sind kategorisiert
 - Jede Win Condition hat einen Score (Wahrscheinlichkeit, Effektivität)
 - System kennt "Plan A" des Decks
 
 ### Requirements (Architektur-Implikationen)
+
 - **Heuristic Layer**: Win Condition Detection basierend auf Kartenattributen
 - **Scoring System**: Wie "wichtig" ist jede Win Condition?
 - **Pattern Recognition**: Identifiziere Combo-Pieces
@@ -126,16 +139,20 @@ System (automatisch nach Deckliste-Load)
 ## USE CASE 3: Spielplan Evaluieren
 
 ### Description
+
 System bewertet den logischen Aufbau des Spielplans und dessen Kohärenz.
 
 ### Actor
+
 System (automatisch)
 
 ### Preconditions
+
 - Deckliste geladen
 - Win Conditions identifiziert
 
 ### Main Flow
+
 1. System identifiziert Deck-Archetype basierend auf Karten:
    - Aggro: Viele billige Creatures
    - Midrange: Mittelteure Creatures + Interaction
@@ -157,11 +174,13 @@ System (automatisch)
    - Interaction Quality (Ist Removal/Counterspells gut?)
 
 ### Postconditions
+
 - Spielplan ist bewertet
 - Mögliche Probleme sind identifiziert
 - System versteht Deck-Archetype
 
 ### Requirements (Architektur-Implikationen)
+
 - **Pattern Recognition**: Archetype Detection
 - **Scoring System**: Mehrere Dimensionen (Clarity, Synergy, Support, Interaction)
 - **Relationship Tracking**: Welche Karten interagieren miteinander?
@@ -172,17 +191,21 @@ System (automatisch)
 ## USE CASE 4: 10-Zug Simulation
 
 ### Description
+
 System simuliert die ersten 10 Züge des Spiels automatisch.
 
 ### Actor
+
 System (simuliert beide Spieler, aber fokussiert auf primären Spieler)
 
 ### Preconditions
+
 - Deckliste geladen
 - Regelwerk implementiert
 - Game State kann tracking werden
 
 ### Main Flow
+
 1. System shuffled Deck
 2. System führ Mulligan durch:
    - Zieht 7 Karten (Hand)
@@ -210,11 +233,13 @@ System (simuliert beide Spieler, aber fokussiert auf primären Spieler)
    - Life total
 
 ### Postconditions
+
 - 1000 vollständige Spiele simuliert
 - Statistiken für jeden Zug aggregiert
 - Durchschnitt/StdDev berechnet
 
 ### Requirements (Architektur-Implikationen)
+
 - **Game Engine**: Vollständiger Spielablauf
 - **Rule System**: Regel 601 (Casting), 608 (Stack), 607 (Triggers), 504 (Mana), etc.
 - **AI System**: Spell selection (greedy oder sophisticated?)
@@ -233,11 +258,13 @@ System bewertet wie "konsistent" das Deck in sich selbst ist.
 System (Analyzer)
 
 ### Preconditions
+
 - Deckliste geladen
 - Simulation durchgeführt (10-Zug Daten)
 - Win Conditions definiert
 
 ### Main Flow
+
 1. System analysiert "mana curve":
    - Wie ist Mana-Kosten verteilt?
    - Score: Ideal ist glockenförmig, z.B. für Aggro Low, für Control High
@@ -261,11 +288,13 @@ System (Analyzer)
    - **Total: 0-100 Score**
 
 ### Postconditions
+
 - Konsistenz-Score berechnet
 - Breakdown nach Kategorien verfügbar
 - Schwachstellen identifiziert
 
 ### Requirements (Architektur-Implikationen)
+
 - **Statistics Engine**: Hypergeometrische Wahrscheinlichkeit
 - **Scoring System**: Multi-dimensional scoring
 - **Win Condition Tracking**: Welche Karten sind Win Conditions?
@@ -276,16 +305,20 @@ System (Analyzer)
 ## USE CASE 6: Konsistenz Bewertung (Extern / Störeinflüsse)
 
 ### Description
+
 System bewertet wie "robust" das Deck gegen externe Störeinflüsse ist (gegnerische Interactions, schlechte Draws).
 
 ### Actor
+
 System (Analyzer)
 
 ### Preconditions
+
 - Simulation durchgeführt
 - Interne Konsistenz berechnet
 
 ### Main Flow
+
 1. System modelliert "Mulligan Impact":
    - Simuliert Spiele mit 0, 1, 2, 3 Mulligans
    - Berechnet wie sehr jeder Mulligan die Konsistenz reduziert
@@ -309,11 +342,13 @@ System (Analyzer)
    - **Total: 0-100 Score**
 
 ### Postconditions
+
 - Robustness Score berechnet
 - Deck-Schwächen gegen Störeinflüsse identifiziert
 - Empfehlungen für "weniger fragile" Cards generiert
 
 ### Requirements (Architektur-Implikationen)
+
 - **Sensitivity Analysis**: Welche Karten matter most?
 - **Scenario Modeling**: "Was wenn gegnerischer Player X macht?"
 - **Monte Carlo**: Variance berechnung
@@ -324,17 +359,21 @@ System (Analyzer)
 ## USE CASE 7: Verbesserungsvorschläge Generieren
 
 ### Description
+
 System schlägt konkrete Kartenwechsel vor um Konsistenz zu verbessern.
 
 ### Actor
+
 System (Analyzer)
 
 ### Preconditions
+
 - Alle vorherigen Analysen durchgeführt
 - Scores berechnet
 - Schwachstellen identifiziert
 
 ### Main Flow
+
 1. System identifiziert "low-impact cards":
    - Entfernung welcher Karte erhöht Score am meisten?
    - Score Impact pro Karte berechnen
@@ -353,11 +392,13 @@ System (Analyzer)
    - "Swap: Entferne X, füge Y hinzu → Score +3"
 
 ### Postconditions
+
 - Top 5-10 Verbesserungsvorschläge generiert
 - Jeder mit erwarteter Score-Verbesserung
 - Realistic (nur legal cards, richtige Mana-Kosten)
 
 ### Requirements (Architektur-Implikationen)
+
 - **Sensitivity Analysis Engine**: Impact pro Karte
 - **Card Search**: "Finde Karte mit diesen Eigenschaften"
 - **Legality Checker**: Ist Card legal?
@@ -368,16 +409,20 @@ System (Analyzer)
 ## USE CASE 8: Upgrade-Empfehlungen Generieren
 
 ### Description
+
 System schlägt konkrete Premium-Upgrades vor (bessere Versionen bestehender Karten).
 
 ### Actor
+
 System (Analyzer)
 
 ### Preconditions
+
 - Verbesserungsvorschläge generiert
 - Deck-Profile bekannt
 
 ### Main Flow
+
 1. System identifiziert "upgradeable cards":
    - Welche Karten haben bessere Versionen?
    - Z.B. "Lightning Bolt" → "Unholy Heat" (mit möglichem Bonus)
@@ -391,11 +436,13 @@ System (Analyzer)
    - "Upgrade: Swap Counterspell für Force of Will → Score +2"
 
 ### Postconditions
+
 - Top 5-10 Upgrade-Vorschläge
 - Jeder mit Score-Verbesserung
 - Budgetaware (billig → teuer, oder ganz gratis?)
 
 ### Requirements (Architektur-Implikationen)
+
 - **Card Relationship Graph**: "Welche Karten sind Upgrades voneinander?"
 - **Price Data** (optional): Für Budget-Aware Recommendations
 - **Upgrade Logic**: Wie beurteilt man "ist Y besser als X"?
@@ -407,6 +454,7 @@ System (Analyzer)
 ## Requirement Category 1: Data Layer
 
 ### R1.1: Card Database
+
 - Speichert alle MTG Karten (mindestens 2000 für MVP)
 - Attributes: 
   - Name, Mana-Kosten, Typ, Power/Toughness
@@ -419,6 +467,7 @@ System (Analyzer)
 - Updates: Commander Ban List tracking
 
 ### R1.2: Deck Storage (Commander-Format)
+
 - Speichert eine komplette Commander-Deckliste (100 Karten)
 - Struktur:
   - Commander (1 oder 2 mit Partner)
@@ -430,6 +479,7 @@ System (Analyzer)
 - Metadata: Deck Name, Format (Commander), Archetype (optional)
 
 ### R1.3: Game State
+
 - Speichert aktuellen Spielzustand während Simulation
 - Zones: Hand, Library, Graveyard, Battlefield, Stack, Exile
 - Player state: Life, Mana Pool, Priority
@@ -440,6 +490,7 @@ System (Analyzer)
 ## Requirement Category 2: Rules Engine
 
 ### R2.1: Casting Rules (RULE 601)
+
 - Instant: Any time player has priority
 - Sorcery: Main phase only
 - Creatures/Permanents: Like sorcery
@@ -447,25 +498,30 @@ System (Analyzer)
 - **Commander-Specific**: Casting Commander from Command Zone (can be cast any time you have priority after first summon)
 
 ### R2.2: Stack Resolution (RULE 608)
+
 - LIFO ordering
 - Spell resolution
 - Triggered ability resolution
 
 ### R2.3: Triggered Ability Ordering (RULE 607)
+
 - Multiple triggers at same time
 - Active player chooses order
 
 ### R2.4: Mana System (RULE 504)
+
 - Mana production (tapping lands)
 - Mana pool management
 - Color requirements
 - **Commander-Specific Color Identity**: Karte kann nur gecastet werden wenn Farben in Color Identity des Commanders sind
 
 ### R2.5: Card Effect Resolution
+
 - Damage, Draw, Discard, Removal, etc.
 - Generic enough for 100+ card effects
 
 ### R2.6: Commander-Specific Rules
+
 - **Color Identity Constraint**: Alle Karten müssen in Color Identity des Commanders sein
   - Color Identity = alle Mana-Symbole in Mana-Kosten + Oracle Text
   - Z.B. wenn Commander ist "Izzet" (U/R), kann kein schwarzer Mana (B) im Deck sein
@@ -478,17 +534,20 @@ System (Analyzer)
 ## Requirement Category 3: Game Engine
 
 ### R3.1: Game Loop
+
 - Turn progression (10 turns)
 - Phase progression (Begin → Main I → Combat → Main II → End)
 - Event triggering (draw, cast spell, creature ETB, etc.)
 
 ### R3.2: AI/Decision Making
+
 - Which spells to cast? (Greedy: highest impact)
 - Which target? (AI logic)
 - Mulligan decision? (Heuristic: hand quality)
 - **Performance**: Must be fast (<1000 games/sec)
 
 ### R3.3: Mulligan Logic
+
 - Evaluate hand quality
 - Decide keep/mulligan
 - Heuristic: lands, playables, win conditions
@@ -498,6 +557,7 @@ System (Analyzer)
 ## Requirement Category 4: Analysis Engine
 
 ### R4.1: Win Condition Detection
+
 - Identify primary win conditions
 - Categorize (combat, burn, combo, mill, etc.)
 - Score by likelihood
@@ -555,13 +615,17 @@ System (Analyzer)
 # PART 3: ARCHITECTURAL DECOMPOSITION
 
 ## Layer 1: Data Layer
+
 **Responsibility**: Store and retrieve card/deck information
+
 - Card Database (Scryfall cache or local DB)
 - Deck Parser (various input formats)
 - Card Validator
 
 ## Layer 2: Rules Layer
+
 **Responsibility**: Implement MTG rules as executable code
+
 - Casting Validator (RULE 601)
 - Stack Manager (RULE 608)
 - Triggered Ability Resolver (RULE 607)
@@ -569,7 +633,9 @@ System (Analyzer)
 - Card Effect Services (Damage, Draw, Discard, etc.)
 
 ## Layer 3: Game Engine Layer
+
 **Responsibility**: Run 10-turn simulations
+
 - Turn Loop
 - Phase Loop
 - Event Bus (coordinates rule events)
@@ -578,7 +644,9 @@ System (Analyzer)
 - Stats Recorder
 
 ## Layer 4: Analysis Layer
+
 **Responsibility**: Analyze deck and generate scores/recommendations
+
 - Win Condition Detector
 - Archetype Detector
 - Consistency Analyzer (R4.3)
@@ -588,6 +656,7 @@ System (Analyzer)
 
 ## Layer 5: Output Layer
 **Responsibility**: Format and deliver results
+
 - Report Generator (R5.1)
 - CLI Interface (R5.2)
 
@@ -597,32 +666,42 @@ System (Analyzer)
 
 Before implementing, these must be answered:
 
-### Q1: Card Effect Representation
+## Q1: Card Effect Representation
+
 How do we represent "Lightning Bolt deals 3 damage" and 100+ other effects in a unified way?
+
 - Option A: Hardcoded services per card
 - Option B: Generic effect engine + parameters
 - Option C: Hybrid (common patterns in engine, rare in services)
 
-### Q2: AI Decision Quality
+## Q2: AI Decision Quality
+
 "Greedy" AI (play highest impact spell) vs. more sophisticated?
+
 - Trade-off: Accuracy vs. Performance
 - For MVP: Greedy is probably OK (simple, fast)
 - For Production: Might need Monte Carlo or similar
 
-### Q3: Mulligan Heuristic
+## Q3: Mulligan Heuristic
+
 How do we evaluate "is this hand keepable"?
+
 - Factors: Mana curve, playables, win condition accessibility
 - Must match intuition of good player
 - This affects simulation quality significantly
 
-### Q4: Scope of Rules Implementation
+## Q4: Scope of Rules Implementation
+
 Do we implement EVERY rule or strategic subset?
+
 - Full Comprehensive Rules: Too much
 - Strategic subset: What's the minimum viable set?
 - Suggestion: Focus on rules that affect deck consistency analysis
 
-### Q5: Performance Budget
+## Q5: Performance Budget
+
 1000 games per second is aggressive. Is that realistic?
+
 - Python: Probably 100-500 games/sec
 - Pypy/Cython: Maybe 1000+
 - Trade-off: Speed vs. Dev velocity
@@ -633,7 +712,7 @@ Do we implement EVERY rule or strategic subset?
 
 Which Use Cases depend on which?
 
-```
+```code
 UC1 (Load Deck)
   ↓
   ├─ UC2 (Win Conditions) ──────┐
@@ -658,6 +737,7 @@ UC1 (Load Deck)
 # CONCLUSION
 
 Before writing code, we have:
+
 1. ✅ Extracted 8 Use Cases from original request
 2. ✅ Defined Requirements for each Use Case
 3. ✅ Decomposed into 5 Layers
@@ -668,11 +748,12 @@ Before writing code, we have:
 
 ---
 
-# APPENDIX: Commander Format Rules Reference
+# APPENDIX: Commander Format Rules Ref
 
 ## Official Commander Rules (Summary)
 
 ### Deck Construction
+
 - **Format**: 100 Card Singleton (Commander included)
 - **Commander**: 1-2 Legendary Creatures/Planeswalkers/etc. in Command Zone
   - Commander must be legendary creature, planeswalker, or have "can be your commander" ability
@@ -692,6 +773,7 @@ Before writing code, we have:
   - Ban list updated periodically
 
 ### Game Rules (Commander-Specific)
+
 - **Command Zone**: Each player's commander starts in Command Zone (not in hand/library)
 - **Casting Commander**: Commander can be cast from Command Zone like from hand
   - Can cast any time you have priority (like Instant for first cast, then subject to timing after)
@@ -703,6 +785,7 @@ Before writing code, we have:
   - Relevant for simulation if copied
 
 ### Implementation Implications
+
 - **Parser**: Must recognize Commander declaration (usually "Commander: CARDNAME" at end of list)
 - **Validator**: Color Identity calculation + checking
 - **Deck Model**: Separate storage for Commander vs. Main Deck
@@ -710,7 +793,8 @@ Before writing code, we have:
 - **Ban List**: External data source, must be maintained
 
 ### Commander-Specific Validation Checklist
-```
+
+```code
 ✓ Commander is legendary (or has "can be commander" text)
 ✓ Total cards = 100 (1 commander + 99 deck)
 ✓ Singleton rule: No duplicates except Basic Lands

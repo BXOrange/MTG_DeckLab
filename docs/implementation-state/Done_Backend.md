@@ -5,8 +5,6 @@ Completed backend work, split out of
 holds only open items). Section headers mirror the ToDo file so a
 `Done_Backend.md "<section>"` reference in the code lands here. Remaining
 work: [10_COMPLETION_ROADMAP.md](10_COMPLETION_ROADMAP.md).
-The original Weeks 1–4 roadmap is archived at
-[history/IMPLEMENTATION_STATUS.md](history/IMPLEMENTATION_STATUS.md).
 
 ## Configuration
 
