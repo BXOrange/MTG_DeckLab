@@ -96,6 +96,9 @@ class GameContext:
     def scry(self, player: "Player", count: int = 1) -> None:
         self.engine.scry(player, count)
 
+    def surveil(self, player: "Player", count: int = 1) -> None:
+        self.engine.surveil(player, count)
+
     def recompute(self) -> None:
         """Re-derive continuous characteristics now (RULE 613) — used by an
         effect that changes derived P/T mid-resolution (a pump)."""
@@ -1335,6 +1338,19 @@ class ScryEffect(GameEffect):
             context.scry(player, self.count)
 
 
+class SurveilEffect(GameEffect):
+    """Surveil ``count`` for the effect's controller (RULE 701.31)."""
+
+    def __init__(self, count: int = 1, source: Optional["GameObject"] = None) -> None:
+        super().__init__(source)
+        self.count = count
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        player = _controller_of(self.source, context)
+        if player is not None:
+            context.surveil(player, self.count)
+
+
 class CreateTokenEffect(GameEffect):
     """Create one or more token permanents (RULE 111.5 / 701.6).
 
@@ -1831,6 +1847,9 @@ EffectRegistry.register(
 )
 EffectRegistry.register(
     "scry", lambda p: ScryEffect(count=p.get("count", p.get("amount", 1)))
+)
+EffectRegistry.register(
+    "surveil", lambda p: SurveilEffect(count=p.get("count", p.get("amount", 1)))
 )
 EffectRegistry.register(
     "create_token",

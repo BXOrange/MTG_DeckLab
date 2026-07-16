@@ -300,8 +300,8 @@ def _class_card(name="Test Class"):
         id=name, name=name, type_line="Enchantment — Class",
         oracle_text=(
             "(Gain the next level as a sorcery to add its ability.)\n"
-            "Level 2: {1}{G}\nCreatures you control get +1/+1.\n"
-            "Level 3: {3}{G}\nCreatures you control have trample."
+            "{1}{G}: Level 2\nCreatures you control get +1/+1.\n"
+            "{3}{G}: Level 3\nCreatures you control have trample."
         ),
     )
 

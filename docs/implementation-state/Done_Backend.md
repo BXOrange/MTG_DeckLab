@@ -1776,6 +1776,104 @@ the Phase-1 models. Tests: `test_game_engine.py`.
       (11), plus one added to `tests/test_effect_families_wave3.py`
       (the search "up to N" recognition) — 37 new tests total.
 
+- [x] **Batch 12 (2026-07-16): parse-on-load memoization, a real Class
+      header-regex bug fix, and surveil (RULE 701.31).** Housekeeping +
+      one processing-list pickup, per the M1 backlog's A.6/A.8 items.
+
+      **Parse-on-load memoization** (`parser/oracle/gate.py`): `parse_oracle`
+      re-ran the full normalise → segment → match pipeline from scratch on
+      *every* call, but it's called once per `GameObject` built
+      (`ability_catalogue.specs_for`) — so a popular card (Sol Ring, Swords
+      to Plowshares, …) got re-parsed identically on every copy, every
+      game. The real work moved to a private `_parse_oracle_uncached`;
+      the public `parse_oracle` now memoizes its `ParseResult` in an
+      unbounded module-level dict keyed by every field the parse actually
+      reads (`_parse_cache_key`: name, oracle_text, keywords tuple,
+      is_instant/is_sorcery/is_saga/is_leveler/is_class) — **content**-keyed
+      rather than name- or object-identity-keyed on purpose, so a fixture
+      `Card` built fresh per test (or a real card refetched with updated
+      text) can't collide with a stale entry that merely shares a name.
+      `CardDatabase.get_card` deserializes a fresh `Card` object from JSON
+      on every call (verified by reading it — no existing instance reuse
+      to key off of), which is exactly why identity-keying wouldn't have
+      worked. Each call returns `copy.deepcopy(cached)`, so a caller can
+      still treat the specs as its own — matches `ability_catalogue.
+      register`'s pre-existing "factory returns fresh specs each call"
+      contract, even though the parse itself now runs at most once per
+      distinct input. (Verified, before adding the cache, that nothing
+      in the bind path — `build_effects`/`build_replacements`/
+      `attach_to_object`/`bind_ability` — mutates an `AbilitySpec`/
+      `EffectSpec` in place; `build_effects` already copies each
+      `EffectSpec.params` dict via `dict(spec.params)` before constructing
+      the `GameEffect`. The deepcopy is a deliberate belt-and-suspenders
+      match to the existing registry contract, not a fix for an observed
+      mutation bug.) Tests: `tests/test_oracle_pipeline.py` (cache-hit
+      counting via `monkeypatch`, independent-copy mutation isolation, and
+      two content-collision regression guards — same name/different text,
+      same name+text/different `is_instant`).
+
+      **Class (RULE 716.3) level-header regex bug, found while investigating
+      the processing-list's "\<cost\>: level \<n\>" entry (9 cards):**
+      `catalogue/levels.py`'s `CLASS_LEVEL_RE` assumed the header reads
+      "Level N: \<cost\>" (cost *after* the colon) — but every real Class
+      card (verified against 4 live cache rows: Advanced Reconstruction,
+      Caretaker's Talent, Cleric Class, Cool but Rude) prints the cost
+      *first*, e.g. `"{3}{W}: Level 2"`. The regex had never matched a
+      single real card — only the hand-written test fixtures in
+      `test_card_structures.py`/`test_oracle_pipeline.py`, which
+      (independently, since nothing exercised the real templating) used
+      the same backwards order and so passed anyway. Fixed the regex
+      direction (cost-first) and the two existing fixtures to match real
+      cards; `gate.py`'s class-block `raw_text` construction flipped to
+      match. This is a **correctness fix, not new coverage**: all 9 real
+      Class cards remain `UNMODELED` after the fix too (each has at least
+      one other, unrelated unclaimed clause — "whenever N or more cards
+      leave/enter", "this ability triggers only once each turn", "when
+      this Class becomes level N", cost-reduction scope variants), but the
+      level-header line itself is now correctly claimed (confirmed: the
+      "\<cost\>: level \<n\>" processing-list entry is gone), which is a
+      prerequisite for any of the 9 to ever reach `MODELED` once those
+      other gaps close. Added a direct regression test for the regex
+      direction (`test_class_level_header_is_cost_first_not_level_first`)
+      so a future revert shows up immediately rather than silently
+      resurrecting a regex that has never matched a real card.
+
+      **Surveil (RULE 701.31)**, mirroring the existing Scry (RULE 701.18)
+      shape exactly: a new `EventType.SURVEIL`, `RulesEngine.surveil`
+      (same non-interactive-session resolution as `scry` — no chooser, so
+      it performs the always-legal "keep everything on top" outcome and
+      fires the event for any "when you surveil" trigger/UI to observe),
+      `GameContext.surveil` facade delegate, a new `SurveilEffect`
+      (`game/effects.py`, registered as `"surveil"`), and a parser handler
+      (`catalogue/handlers.py`, `surveil {NUMBER}` — the same shape as the
+      pre-existing `scry {NUMBER}` handler, zero new grammar concepts).
+      Benefits every context the shared handler table already covers for
+      free: ETB triggers ("when this land enters, surveil 1."), activated
+      abilities ("{2}{R}{W}, {T}: Surveil 1."), and spell effects
+      ("Surveil 3.").
+
+      **Real-cache yield (honest, verified against the live 2,869-card
+      cache — unchanged in size since Batch 11, so directly comparable):
+      594 → 613 fully `MODELED` (+19 cards, 20.7% → 21.4%), zero
+      regressions.** Gained: 8 identical "tap-land + surveil 1 on enter"
+      cycle lands (Commercial District, Elegant Parlor, Hedge Maze, Lush
+      Portico, Meticulous Archive, Raucous Theater, Shadowy Backstreet,
+      Thundering Falls), 5 identical "tap-land + activated surveil" cycle
+      lands (Fields of Strife, Forum of Amity, Paradox Gardens, Spectacle
+      Summit, Titan's Grave), and 6 more varied surveil-shaped cards
+      (Larder Zombie, Otherworldly Gaze, Sinister Sabotage, Umbral Collar
+      Zealot, Undercity Sewers, Underground Mortuary) whose other clauses
+      were already covered by existing handlers. The parse-on-load
+      memoization and the Class regex fix are both correctness/performance
+      work with no direct `MODELED`-count effect of their own (the memo
+      cache is referentially transparent by construction; every real Class
+      card still has an unrelated gap, as noted above). Tests: 3 new
+      (`test_surveil_handler`, `test_surveil_land_etb_trigger_is_fully_
+      modeled` in `test_oracle_pipeline.py`,
+      `test_surveil_fires_an_event_for_the_controller` in
+      `test_effect_families.py`), plus the 4 memoization tests and 1
+      Class-regex regression test above — 8 new tests total (Batch 12).
+
 ## Game Engine (Phase 3)
 
 `mtg_analyzer/game/game_engine.py`, tests in `test_game_engine.py`.

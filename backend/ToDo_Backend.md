@@ -172,15 +172,26 @@ Weeks 1–4 roadmap is archived at
       — both fail closed today, deliberately not guessed; the full RULE
       616.1 "if X would Y, Z instead" grammar beyond those five fixed
       sentences (many more real formulations — target/duration variants);
-      parse-on-load memoization in `LazyCardLoader`; and the remaining
-      processing-list tail (run `parser/oracle/
+      and the remaining processing-list tail (run `parser/oracle/
       processing_list.coverage_over_cards` for the current ranking —
       top blockers now: "choose \<n\> —"/"choose \<n\> or more —" (a
       larger modal-header grammar than RULE 700.2's "choose one"/"choose
-      one or both"), "you may look at the top card of your library any
-      time", "when this land enters, surveil \<n\>.", "\<cost\>: level
-      \<n\>", monarch/initiative (deferred per M6), prohibition/cost-
-      modification statics, and emblems).
+      one or both" — a genuinely bigger feature than the N=1 "up to one
+      target" case shipped in Batch 11: an interactive multi-*mode*
+      selection, not a target choice), "you may look at the top card of
+      your library any time" (a standing *permission*, not a one-shot or
+      triggered effect — no existing family shape to reuse), monarch/
+      initiative (deferred per M6), prohibition/cost-modification
+      statics, and emblems).
+      Parse-on-load memoization (`parser/oracle/gate.py`) and surveil
+      (RULE 701.31) are **done** — moved to Done_Backend.md "M1 —
+      Oracle-effect parser" (2026-07-16 "Batch 12" entry), which also
+      fixed a real latent bug found along the way: Class's (RULE 716.3)
+      level-header regex assumed "Level N: \<cost\>", but every real
+      Class card prints the cost *first* ("\<cost\>: Level N") — the old
+      regex had never matched a single real card, only the (also
+      backwards) hand-written test fixtures that happened to agree with
+      it.
       **Mana-ability costs/production redone (RULE 605.1a/602.1)** — moved
       to [Done_Backend.md](../docs/implementation-state/Done_Backend.md)
       "Rules Engine (Phase 2)" (2026-07-15 entry). Verified against the Elf

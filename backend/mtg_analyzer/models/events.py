@@ -76,6 +76,10 @@ class EventType:
     #: A player scried (RULE 701.18): looked at the top N of their library and
     #: reordered / bottomed them.
     SCRY = "SCRY"
+    #: A player surveiled (RULE 701.31): looked at the top N of their library
+    #: and put any number of them into their graveyard, the rest staying on
+    #: top in any order (no bottoming option, unlike SCRY).
+    SURVEIL = "SURVEIL"
     #: A card was moved to exile (RULE 406) — e.g. cascade/discover reveal.
     EXILE = "EXILE"
     #: A player searched their library (RULE 701.19) / shuffled it (RULE 701.20).

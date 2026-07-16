@@ -82,7 +82,7 @@ Follows [`09_ORACLE_EFFECT_PARSER.md`](../concepts/09_ORACLE_EFFECT_PARSER.md). 
   → optional, chain effect clauses.
 - ✅ Deterministic effect-family handler table (`catalogue/handlers.py`) for
   damage/draw/discard/destroy/gain_life/counter/mill/exile/tap/±1/±1 counters/
-  **pump/scry**/token creation, with shared TARGET/NUMBER/COUNT sub-grammars
+  **pump/scry/surveil**/token creation, with shared TARGET/NUMBER/COUNT sub-grammars
   (`catalogue/subgrammars.py`). Tokens carry the full RULE 704.5d cease-to-exist
   lifecycle (`GameObject.is_token`, `RulesEngine.create_token`/
   `_remove_stranded_tokens`). *(search stays catalogue-authored — a later family.)*
@@ -390,9 +390,38 @@ Follows [`09_ORACLE_EFFECT_PARSER.md`](../concepts/09_ORACLE_EFFECT_PARSER.md). 
   Tests: `test_optional_targets.py` (10), `test_kicked_conditional.py`
   (15), `test_replacement_clause_recognition.py` (11), +1 in
   `test_effect_families_wave3.py` — 37 new tests.
+- ✅ **Batch 12 (2026-07-16): parse-on-load memoization, a Class
+  header-regex bug fix, and surveil (RULE 701.31).** `parser/oracle/
+  gate.py`'s `parse_oracle` now memoizes its `ParseResult` (unbounded
+  dict keyed by every field the parse reads — name/oracle_text/keywords/
+  is_instant/is_sorcery/is_saga/is_leveler/is_class — content-keyed, not
+  name- or identity-keyed, so it can't collide across two differently-
+  texted cards sharing a name; returns a `deepcopy` per call so the
+  existing "each object gets its own copies" contract still holds), since
+  it's called once per `GameObject` built and was re-running the full
+  pipeline from scratch on every copy of every popular card. Found and
+  fixed a real bug while investigating the "\<cost\>: level \<n\>"
+  processing-list entry: `catalogue/levels.py`'s `CLASS_LEVEL_RE` assumed
+  "Level N: \<cost\>", but every real Class card prints the cost *first*
+  ("\<cost\>: Level N", verified against 4 live cache rows) — the regex
+  had never matched a real card, only backwards test fixtures that
+  happened to agree with it. Fixed the direction (a correctness fix, not
+  new coverage — every real Class card still has a separate unrelated
+  gap). Shipped surveil (RULE 701.31) mirroring the existing Scry (RULE
+  701.18) shape exactly: `EventType.SURVEIL`, `RulesEngine.surveil`
+  (same non-interactive "keep everything on top" resolution as `scry`),
+  `SurveilEffect`, and a `surveil {NUMBER}` parser handler — zero new
+  grammar concepts, benefits every context (ETB trigger/activated/spell)
+  the shared handler table already covers. **Real-cache yield: 594 → 613
+  fully `MODELED` (+19, 20.7% → 21.4% of 2,869 cards, unchanged cache
+  size), zero regressions** — 8 identical tap-land ETB-surveil cycle
+  lands, 5 identical tap-land activated-surveil cycle lands, 6 more
+  varied surveil-shaped cards. Full writeup: Done_Backend.md "M1 —
+  Oracle-effect parser". Tests: 8 new (4 memoization, 1 Class-regex
+  regression, 3 surveil).
 - ⏳ **Remaining, priority-ordered by real cards-unlocked** (verified
   2026-07-16 by running `processing_list.coverage_over_cards()` over the
-  live cache — 20.7% of 2,869 cards fully `MODELED`; **re-run this before
+  live cache — 21.4% of 2,869 cards fully `MODELED`; **re-run this before
   trusting the counts below**, the cache keeps growing and the ranking
   shifts):
   1. A real "up to two/three/N"/"up to X" **multi**-target choice (N>=2,
@@ -409,15 +438,15 @@ Follows [`09_ORACLE_EFFECT_PARSER.md`](../concepts/09_ORACLE_EFFECT_PARSER.md). 
      (`prevent_damage`'s one-shot-spell shape, differently-scoped/
      compound-filter variants — see Batch 11), a kicked spell's "if
      kicked, ... instead" *override* shape (as opposed to the additional-
-     effect shape Batch 11 covers), parse-on-load memoization in
-     `LazyCardLoader`, and the processing-list tail — current top
-     blockers per the live ranking: "choose \<n\> —"/"choose \<n\> or
-     more —" (31+6 cards, a genuinely larger grammar than RULE 700.2's
-     "choose one"/"choose one or both", still unclaimed), "you may look
-     at the top card of your library any time" (13), "when this land
-     enters, surveil \<n\>." (10), "\<cost\>: level \<n\>" (9),
-     monarch/initiative (7-9 each, deferred per M6), cost-modification
-     statics, and emblems.
+     effect shape Batch 11 covers), and the processing-list tail —
+     current top blockers per the live ranking: "choose \<n\> —"/"choose
+     \<n\> or more —" (31+6 cards, a genuinely larger grammar than RULE
+     700.2's "choose one"/"choose one or both" — an interactive
+     multi-*mode* selection, still unclaimed), "you may look at the top
+     card of your library any time" (13, a standing *permission* rather
+     than a one-shot/triggered effect — no existing family shape to
+     reuse), monarch/initiative (7-9 each, deferred per M6),
+     cost-modification statics, and emblems.
   - **Related, same pipeline, separately tracked in `ToDo_Backend.md`**:
     the mana-ability follow-up list from the 2026-07-15 Elf-mana-dork pass
     is now fully done (spend restrictions, Leveler-gating, Deathrite

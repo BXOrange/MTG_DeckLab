@@ -181,3 +181,19 @@ def test_scry_fires_an_event_for_the_controller():
     scries = [e for e in state.event_log if e.type == EventType.SCRY]
     assert len(scries) == 1
     assert scries[0].get("count") == 2 and scries[0].get("player_id") == "p1"
+
+
+# -- surveil -------------------------------------------------------------
+
+
+def test_surveil_fires_an_event_for_the_controller():
+    engine, state, caster, bear = _rules_with_creature()
+    for i in range(3):
+        caster.library.append(GameObject(_bear(f"L{i}"), owner_id="p1", zone=Zone.LIBRARY))
+    otherworldly_gaze = _spell("Otherworldly Gaze", "Surveil 3.", [EffectSpec("surveil", {"count": 3})])
+    caster.hand.append(otherworldly_gaze)
+    engine.cast_spell(caster, otherworldly_gaze, targets=[])
+    engine.resolve_top_of_stack()
+    surveils = [e for e in state.event_log if e.type == EventType.SURVEIL]
+    assert len(surveils) == 1
+    assert surveils[0].get("count") == 3 and surveils[0].get("player_id") == "p1"

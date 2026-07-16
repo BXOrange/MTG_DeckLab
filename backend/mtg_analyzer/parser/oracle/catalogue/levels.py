@@ -11,7 +11,9 @@ still own parsing each *body* line; this only owns the block shape:
 
 * Leveler (RULE 711.4c): ``"LEVEL n-m"`` / ``"LEVEL n+"``, then a bare P/T
   line, then 0+ ability lines — tiers are mutually exclusive.
-* Class (RULE 716.3): ``"Level n: <cost>"``, then 0+ ability lines that stay
+* Class (RULE 716.3): ``"<cost>: Level n"`` (the cost precedes "Level n" on
+  the header line — confirmed against real Scryfall oracle text, e.g.
+  Cleric Class's ``"{3}{W}: Level 2"``), then 0+ ability lines that stay
   active for the rest of the game once that level is reached (cumulative).
 
 Text reaching the ``split_*`` functions has already been through
@@ -33,10 +35,14 @@ LEVEL_TIER_RE = re.compile(
 #: A bare P/T line inside a Leveler tier block: "2/2" or "*/*".
 PT_LINE_RE = re.compile(r"^(?P<power>\d+|\*)/(?P<toughness>\d+|\*)\s*$")
 
-#: A Class level header: "level 2: {1}{g}" — the cost, not an effect, follows
-#: the colon (checked before the generic activated-ability grammar since this
-#: shape has no effect body on the header line itself).
-CLASS_LEVEL_RE = re.compile(r"^level\s+(?P<n>\d+)\s*:\s*(?P<cost>.+)$")
+#: A Class level header: "{1}{g}: level 2" — the cost precedes "level n" on
+#: the header line (verified against real Scryfall oracle text; a Class
+#: level header is templated cost-first, the reverse of what an earlier
+#: version of this regex assumed — see the module docstring). Checked
+#: before the generic ``<cost>: <effect>`` activated-ability grammar since
+#: this shape's "effect" (becoming that level) isn't on the header line
+#: itself.
+CLASS_LEVEL_RE = re.compile(r"^(?P<cost>.+?)\s*:\s*level\s+(?P<n>\d+)\s*$")
 
 #: A Leveler's own "Level up {cost}" line (RULE 711.4a). "Level Up" is
 #: already a registered RULE 702.87 keyword (a COST shape, like Kicker), so
@@ -82,7 +88,7 @@ def split_leveler_blocks(
 
 
 def split_class_blocks(text: str) -> tuple[list[str], list[tuple[int, str, list[str]]]]:
-    """Split normalised Class text into a preamble + its ``Level N:`` blocks.
+    """Split normalised Class text into a preamble + its ``<cost>: Level N`` blocks.
 
     Returns ``(preamble_lines, blocks)`` where each block is
     ``(level, cost_text, body_lines)``.

@@ -1627,6 +1627,22 @@ class RulesEngine:
             GameEvent(EventType.SCRY, player_id=player.id, count=looked)
         )
 
+    def surveil(self, player: Player, count: int) -> None:
+        """Surveil ``count`` (RULE 701.31): look at the top ``count`` cards,
+        put any number into the graveyard, the rest staying on top in any
+        order (no bottoming option, unlike `scry`).
+
+        Same non-interactive-session shape as `scry`: a goldfish/solo session
+        has no chooser, so this performs the *legal* resolution that puts
+        nothing in the graveyard and keeps every looked-at card on top
+        (always a valid outcome). Fires `SURVEIL` so the UI and any "when
+        you surveil"/"whenever you surveil" trigger can observe it.
+        """
+        looked = min(count, len(player.library))
+        self.state.fire_event(
+            GameEvent(EventType.SURVEIL, player_id=player.id, count=looked)
+        )
+
     def create_token(
         self,
         controller_id: str,

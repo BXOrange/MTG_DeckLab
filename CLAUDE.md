@@ -187,14 +187,18 @@ shield — sacrifice now uses the new non-destructive
 separate, larger unshipped feature); RULE 702.33b's "if this spell was
 kicked, \<effect\>." as an *additional* effect (`EffectSpec.condition` +
 `game/effects.py`'s `ConditionalEffect`, not the "if kicked, ... instead"
-amount-override shape); and oracle-text recognition of 3 of the 5
+amount-override shape); oracle-text recognition of 3 of the 5
 already-bound replacement families (`double_tokens`/`double_counters`/
 `additional_damage` — standing-permanent clauses; `prevent_damage`'s
-two real cards are a different, still-unmodeled one-shot-spell shape).
-`parser/oracle/processing_list.py` tracks cache-wide coverage (20.7% of
-the 2,869-card cache fully `MODELED` as of 2026-07-16 — re-run
-`coverage_over_cards()` before trusting this number, the cache grows) and
-ranks the next handlers worth building.
+two real cards are a different, still-unmodeled one-shot-spell shape);
+and surveil (RULE 701.31, mirroring the existing scry handler/effect
+shape exactly). `parse_oracle` itself is now memoized (content-keyed on
+every field it reads, `parser/oracle/gate.py`) since it's called once per
+`GameObject` built — a popular card no longer gets re-parsed from scratch
+on every copy/every game. `parser/oracle/processing_list.py` tracks
+cache-wide coverage (21.4% of the 2,869-card cache fully `MODELED` as of
+2026-07-16 — re-run `coverage_over_cards()` before trusting this number,
+the cache grows) and ranks the next handlers worth building.
 
 **Notable gaps** (see `backend/ToDo_Backend.md` for the full list with exact
 scope on each): a real N>=2 "up to N target(s)" multi-select; a "remove a

@@ -178,6 +178,24 @@ def test_scry_handler():
     assert parse_effect_body("put a +1/+1 counter on target creature")[0].params["target_kind"] == "creature"
 
 
+def test_surveil_handler():
+    assert parse_effect_body("surveil 2")[0] == EffectSpec("surveil", {"count": 2})
+
+
+def test_surveil_land_etb_trigger_is_fully_modeled():
+    # The common real-card shape (Hedge Maze/Lush Portico/…, RULE 701.31):
+    # a tap-land whose only other ability is "surveil 1" on enter.
+    land = Card(
+        id="Hedge Maze", name="Hedge Maze", type_line="Land", is_land=True,
+        oracle_text="This land enters tapped.\nWhen this land enters, surveil 1.",
+    )
+    r = parse_oracle(land)
+    assert r.coverage == MODELED
+    (trig,) = [s for s in r.specs if s.ability_kind == "triggered"]
+    assert trig.trigger["event"] == "ENTERS_BATTLEFIELD"
+    assert trig.effects[0] == EffectSpec("surveil", {"count": 1})
+
+
 def test_handler_create_token():
     effects = parse_effect_body("create 2 1/1 white soldier creature tokens")
     (e,) = effects
@@ -466,8 +484,8 @@ def test_class_blocks_are_modeled_with_cumulative_level_gated_specs():
         id="Test Class", name="Test Class", type_line="Enchantment — Class",
         oracle_text=(
             "(Gain the next level as a sorcery to add its ability.)\n"
-            "Level 2: {1}{G}\nCreatures you control get +1/+1.\n"
-            "Level 3: {3}{G}\nCreatures you control have trample."
+            "{1}{G}: Level 2\nCreatures you control get +1/+1.\n"
+            "{3}{G}: Level 3\nCreatures you control have trample."
         ),
     ))
     assert r.coverage == MODELED
@@ -484,6 +502,29 @@ def test_class_blocks_are_modeled_with_cumulative_level_gated_specs():
     grant = next(s for s in statics if s.effects[0].type == "grant_keyword")
     assert grant.effects[0].params["min_level"] == 3
     assert grant.effects[0].params["level_counter"] == "class_level"
+
+
+def test_class_level_header_is_cost_first_not_level_first():
+    # Real Scryfall oracle text prints "<cost>: Level N" (cost precedes
+    # "Level N" on the header line, e.g. Cleric Class's "{3}{W}: Level 2") —
+    # not "Level N: <cost>". A card using the wrong (level-first) order
+    # must fail closed rather than silently match, so a future regression
+    # back to that assumption shows up as an unclaimed line, not a
+    # mis-parsed one.
+    from mtg_analyzer.parser.oracle.catalogue.levels import CLASS_LEVEL_RE
+
+    assert CLASS_LEVEL_RE.match("{1}{g}: level 2") is not None
+    assert CLASS_LEVEL_RE.match("level 2: {1}{g}") is None
+
+    r = parse_oracle(Card(
+        id="Cleric Class", name="Cleric Class", type_line="Enchantment — Class",
+        oracle_text=(
+            "(Gain the next level as a sorcery to add its ability.)\n"
+            "level 2: {1}{g}\nCreatures you control get +1/+1."
+        ),
+    ))
+    assert r.coverage == UNMODELED
+    assert any("level 2: {1}{g}" in u for u in r.unclaimed)
 
 
 # ---------------------------------------------------------------------------
@@ -636,3 +677,74 @@ def test_coverage_report_metric_and_ranking():
     top = report.processing_list[0]
     assert top.cards == 2 and "fateseal" in top.template
     assert report.to_dict()["modeled"] == 2
+
+
+# ---------------------------------------------------------------------------
+# PARSE-ON-LOAD MEMOIZATION
+# ---------------------------------------------------------------------------
+
+
+def test_parse_oracle_caches_identical_input(monkeypatch):
+    from mtg_analyzer.parser.oracle import gate as oracle_gate
+
+    calls = []
+    real = oracle_gate._parse_oracle_uncached
+
+    def counting(card):
+        calls.append(card)
+        return real(card)
+
+    monkeypatch.setattr(oracle_gate, "_parse_oracle_uncached", counting)
+    oracle_gate._PARSE_CACHE.clear()
+
+    # Two separate Card instances with identical relevant fields — the
+    # second call must be a cache hit, not a second full parse.
+    oracle_gate.parse_oracle(spell("Bolt", "Bolt deals 3 damage to any target."))
+    oracle_gate.parse_oracle(spell("Bolt", "Bolt deals 3 damage to any target."))
+    assert len(calls) == 1
+
+
+def test_parse_oracle_returns_independent_copies():
+    from mtg_analyzer.parser.oracle import gate as oracle_gate
+
+    oracle_gate._PARSE_CACHE.clear()
+    card = spell("Shock", "Shock deals 2 damage to any target.")
+
+    first = oracle_gate.parse_oracle(card)
+    first.specs.append("mutated")  # type: ignore[arg-type]
+    first.unclaimed.append("mutated")
+
+    second = oracle_gate.parse_oracle(card)
+    assert "mutated" not in second.specs
+    assert "mutated" not in second.unclaimed
+
+
+def test_parse_oracle_cache_key_distinguishes_oracle_text():
+    # Same name, different text must not collide (a content-keyed cache, not
+    # a name-keyed one) — this is what guards a per-test fixture card from a
+    # stale hit left behind by an earlier test using the same placeholder name.
+    from mtg_analyzer.parser.oracle import gate as oracle_gate
+
+    oracle_gate._PARSE_CACHE.clear()
+    r_damage = oracle_gate.parse_oracle(spell("Same Name", "Same Name deals 3 damage to any target."))
+    r_draw = oracle_gate.parse_oracle(spell("Same Name", "Draw a card."))
+
+    damage_types = {e.type for s in r_damage.specs for e in s.effects}
+    draw_types = {e.type for s in r_draw.specs for e in s.effects}
+    assert "damage" in damage_types
+    assert "draw" in draw_types
+
+
+def test_parse_oracle_cache_key_distinguishes_spell_vs_permanent():
+    # Same name/text, but `is_instant` differs — a bare imperative is a
+    # legal spell effect on an instant, and fail-closed unclaimed on a
+    # permanent (RULE 113.2). The cache key must not conflate the two.
+    from mtg_analyzer.parser.oracle import gate as oracle_gate
+
+    oracle_gate._PARSE_CACHE.clear()
+    text = "Draw a card."
+    r_spell = oracle_gate.parse_oracle(spell("Card Draw", text))
+    r_permanent = oracle_gate.parse_oracle(perm("Card Draw", text))
+
+    assert r_spell.modeled
+    assert not r_permanent.modeled

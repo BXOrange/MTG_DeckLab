@@ -546,6 +546,10 @@ def _scry(m: re.Match[str]) -> list[EffectSpec]:
     return [EffectSpec("scry", {"count": int(m.group("n"))})]
 
 
+def _surveil(m: re.Match[str]) -> list[EffectSpec]:
+    return [EffectSpec("surveil", {"count": int(m.group("n"))})]
+
+
 # A pump's subject: a targeted creature/permanent, the self-reference ``~``
 # (a creature's own activated "~ gets +1/+0 …"), or an untargeted *group*
 # ("creatures you control get +2/+1 …" — RULE 601.2c, not a target at all;
@@ -814,6 +818,12 @@ HANDLERS: list[EffectHandler] = [
         "scry",
         _c(rf"scry {NUMBER}"),
         _scry,
+    ),
+    # "surveil 2" (a self effect — the controller surveils; RULE 701.31).
+    EffectHandler(
+        "surveil",
+        _c(rf"surveil {NUMBER}"),
+        _surveil,
     ),
     # "create a 1/1 white Soldier creature token" / "create two 2/2 green Bear
     # creature tokens with trample" — inline creature tokens (fully modeled).

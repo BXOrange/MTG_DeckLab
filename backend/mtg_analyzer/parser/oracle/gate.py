@@ -19,6 +19,7 @@ Pure — **no `game/` imports** (front-end security boundary).
 
 from __future__ import annotations
 
+import copy
 from dataclasses import dataclass, field
 from typing import Any, Optional
 
@@ -153,7 +154,60 @@ def _parse_mode_options(
     return options, descriptions
 
 
+#: Parse-on-load memoization (docs/09 "parse-on-load / bind-per-game
+#: linking"): `parse_oracle` is a pure function of a handful of a card's
+#: fields (see `_parse_cache_key`), but re-runs the full normalise →
+#: segment → match pipeline from scratch on every call — and it's called
+#: once per `GameObject` built (`ability_catalogue.specs_for`), so the same
+#: popular card (Sol Ring, Swords to Plowshares, …) gets re-parsed on every
+#: copy, every game. Cache the `ParseResult` per distinct input; unbounded
+#: is fine here — the key space is the real card pool (tens of thousands),
+#: each entry a handful of small dataclasses, and a process's `CardDatabase`
+#: already holds every card it has ever loaded in memory anyway (docs/09
+#: versioning: bump `PARSER_VERSION` and clear this alongside a pipeline
+#: change if a stale entry from a previous version ever mattered — today
+#: nothing persists this cache across a process restart, so it never does).
+_PARSE_CACHE: dict[tuple[Any, ...], ParseResult] = {}
+
+
+def _parse_cache_key(card: Any) -> tuple[Any, ...]:
+    """Every field `_parse_oracle_uncached`/`parse_keywords` actually reads.
+
+    Content-keyed rather than identity- or name-keyed on purpose: a fixture
+    `Card` built fresh per test (or a real card whose row gets refetched
+    with updated text) must not collide with a stale cache entry that
+    merely shares a name.
+    """
+    return (
+        getattr(card, "name", "") or "",
+        getattr(card, "oracle_text", "") or "",
+        tuple(getattr(card, "keywords", None) or ()),
+        bool(getattr(card, "is_instant", False)),
+        bool(getattr(card, "is_sorcery", False)),
+        bool(getattr(card, "is_saga", False)),
+        bool(getattr(card, "is_leveler", False)),
+        bool(getattr(card, "is_class", False)),
+    )
+
+
 def parse_oracle(card: Any) -> ParseResult:
+    """Memoized entry point — see `_parse_oracle_uncached` for the real work.
+
+    Returns a deep copy of the cached `ParseResult` so a caller is always
+    free to treat its `AbilitySpec`s as its own (matches
+    `ability_catalogue.register`'s "factory returns fresh specs each call"
+    contract for the hand-authored registry) even though the parse itself
+    now runs at most once per distinct input.
+    """
+    key = _parse_cache_key(card)
+    cached = _PARSE_CACHE.get(key)
+    if cached is None:
+        cached = _parse_oracle_uncached(card)
+        _PARSE_CACHE[key] = cached
+    return copy.deepcopy(cached)
+
+
+def _parse_oracle_uncached(card: Any) -> ParseResult:
     """Parse a card's oracle text into `AbilitySpec`s with a coverage verdict.
 
     Keyword specs come from the keyword catalogue (anchored on Scryfall's
@@ -356,7 +410,7 @@ def parse_oracle(card: Any) -> ParseResult:
         for line in preamble:
             _process_line(line)
         for level, cost_text, body_lines in blocks:
-            # RULE 716.3/716.4c: "Level N: <cost>" is itself a sorcery-speed
+            # RULE 716.3/716.4c: "<cost>: Level N" is itself a sorcery-speed
             # activated ability, legal only from the level just below it
             # (`GameEngine._can_activate_class_level`) — the header carries
             # no effect body of its own to segment (the effect is "become
@@ -366,7 +420,7 @@ def parse_oracle(card: Any) -> ParseResult:
                 "activated",
                 effects=[EffectSpec("class_level", {"level": level})],
                 cost={"text": cost_text, "sorcery_speed_only": True, "class_level": level},
-                raw_text=f"level {level}: {cost_text}",
+                raw_text=f"{cost_text}: level {level}",
                 parser=provenance,
             ))
             for line in body_lines:
