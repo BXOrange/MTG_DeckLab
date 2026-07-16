@@ -340,6 +340,7 @@ class GameSession:
             # player can respond (cast an instant) or pass priority to let
             # it resolve — real stack interaction (RULE 608).
             targets = self._resolve_targets(action.get("targets"))
+            target_groups = self._resolve_target_groups(action.get("target_groups"))
             x = int(action.get("x", 0))
             face = action.get("face", "front")
             # RULE 700.2: a modal spell's chosen mode — an index into
@@ -347,17 +348,24 @@ class GameSession:
             # the `mode` field `GameEngine._cast_action` stamped on the
             # offered action; absent for a non-modal spell.
             mode = action.get("mode")
-            self.engine.cast_spell(active, self._object(action), targets, x, face=face, mode=mode)
+            self.engine.cast_spell(
+                active, self._object(action), targets, x, face=face, mode=mode,
+                target_groups=target_groups,
+            )
             return
 
         if kind == "activate_ability":
             # Pay the ability's cost and put it on the stack (RULE 602); like a
             # spell it then waits for priority to resolve.
             targets = self._resolve_targets(action.get("targets"))
+            target_groups = self._resolve_target_groups(action.get("target_groups"))
             x = int(action.get("x", 0))
             index = int(action.get("ability_index", 0))
             tap_choices = self._resolve_tap_choices(action.get("tap_choices"))
-            self.engine.activate_ability(active, self._object(action), index, targets, x, tap_choices)
+            self.engine.activate_ability(
+                active, self._object(action), index, targets, x, tap_choices,
+                target_groups=target_groups,
+            )
             return
 
         if kind in ("attack", "declare_attackers"):
@@ -780,6 +788,20 @@ class GameSession:
             else:
                 resolved.append(target)
         return resolved
+
+    def _resolve_target_groups(
+        self, target_groups: Optional[list[list[Any]]]
+    ) -> Optional[list[list[Any]]]:
+        """`_resolve_targets`, per group — RULE 115.1/601.2c's per-effect
+        target partitioning (`StackItem.target_groups`) for a spell/ability
+        with 2+ *different* targeting effects. Only meaningful when the
+        action payload explicitly groups its target picks by requirement
+        (``requirements_with_targets``' order); an ordinary single-
+        targeting-effect action never needs this (``target_groups`` absent,
+        the plain flat ``targets`` list is all that's ever used)."""
+        if not target_groups:
+            return None
+        return [self._resolve_targets(group) or [] for group in target_groups]
 
     @staticmethod
     def _describe(action: dict[str, Any]) -> str:

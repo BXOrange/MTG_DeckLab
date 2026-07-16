@@ -157,7 +157,14 @@ Reconfigure); Aura/Equipment/Fortify/Reconfigure attachment; activated
 abilities incl. loyalty `[±N]` costs; triggered abilities + RULE 616
 replacement effects, both with **interactive ordering** when 2+ apply to the
 same event/trigger batch, and a triggered ability's own target/"you may"
-chosen interactively too; the one-shot effect library (damage/draw/discard/
+chosen interactively too — including, since 2026-07-16, 2+ *different*
+targeting effects on one spell/ability each resolving against their own
+target instead of a shared list (`StackItem.target_groups`, gathered
+automatically one at a time for a triggered ability; a spell/activated
+ability's caller supplies it explicitly — no real card needs that yet); a
+ward cost's own `{X}` (RULE 702.21b, resolved fresh against the board at
+the ward ability's own resolution time, not when it triggers); the one-shot
+effect library (damage/draw/discard/
 destroy/counter/search/gain_life/mill/exile/tap/counters/pump/scry/
 create-token/copy_permanent/become_copy/cascade/discover/…); tokens (RULE
 704.5d lifecycle); planeswalkers; commander damage + tax; the full RULE 702
@@ -217,9 +224,7 @@ the cache grows) and ranks the next handlers worth building.
 
 **Notable gaps** (see `backend/ToDo_Backend.md` for the full list with exact
 scope on each): "choose *N* or more —" (Farewell's variable-N modal, a
-different grammar axis than the fixed-N case just shipped); several
-*different* targeting effects sharing one spell/ability still share one
-flat targets list (`docs/implementation-state/ToDo_EdgeCases.md`); a kicked
+different grammar axis than the fixed-N case just shipped); a kicked
 spell's "if kicked, ... instead" *override* conditional (as opposed to the
 additional-effect shape already shipped); the remaining RULE 616.1
 replacement-clause formulations (`prevent_damage`'s one-shot-spell shape,

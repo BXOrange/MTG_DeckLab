@@ -100,6 +100,13 @@ class RulesEngine:
         self._pending_trigger_ability: Optional[TriggeredAbility] = None
         self._pending_trigger_queue: list[tuple[TriggeredAbility, GameEvent]] = []
         self._pending_trigger_effects: Optional[list[Any]] = None
+        #: Populated only while a `trigger_target_multi` choice is pending
+        #: (2+ *different* targeting effects on one trigger, RULE 115.1) —
+        #: every spec (`_trigger_target_specs`) and the groups gathered for
+        #: it so far, one at a time; see `_continue_trigger_multi_target`/
+        #: `resolve_trigger_target_multi_choice`.
+        self._pending_trigger_specs: list[TargetSpec] = []
+        self._pending_trigger_groups: list[list[Any]] = []
         #: The shock land currently awaiting a `land_tapped` pay-life choice
         #: (RULE 614.1), and how much life it costs to keep it untapped —
         #: populated only while that choice is pending.
@@ -358,25 +365,26 @@ class RulesEngine:
         return count
 
     @staticmethod
-    def _trigger_target_spec(effects: list[Any]) -> Optional[TargetSpec]:
-        """The *first* targeting effect's requirement in ``effects``, if any
+    def _trigger_target_specs(effects: list[Any]) -> list[TargetSpec]:
+        """Every targeting effect's requirement in ``effects``, in order
         (RULE 115.1).
 
-        Mirrors the "one targeting effect resolves correctly per ability"
-        limit spells/activated abilities already have (docs/11 §5) — every
-        effect gets the same resolved targets list and reads `targets[0]`,
-        so only the first target_spec is meaningful. Takes a raw effects
-        list rather than an ability, since a modal trigger's *chosen mode*
-        — not the ability's own (possibly empty) ``effects`` — is what
-        actually needs a target; RULE 700.2's mode choice is made first
-        (see `_place_triggers`), before this ever runs on the mode's
+        One `TargetSpec` per targeting effect — `_place_or_pause_trigger`
+        gathers one target per spec (via `_continue_trigger_multi_target`
+        for the 2+ case, `StackItem.target_groups`-partitioned so each
+        effect resolves against its own target, not a shared list). Takes a
+        raw effects list rather than an ability, since a modal trigger's
+        *chosen mode* — not the ability's own (possibly empty) ``effects``
+        — is what actually needs a target; RULE 700.2's mode choice is made
+        first (see `_place_triggers`), before this ever runs on the mode's
         effects.
         """
-        for effect in effects:
-            spec = getattr(effect, "target_spec", None)
-            if spec is not None:
-                return spec
-        return None
+        return [
+            spec
+            for effect in effects
+            for spec in [getattr(effect, "target_spec", None)]
+            if spec is not None
+        ]
 
     def _place_triggers(self, queue: list[tuple["TriggeredAbility", GameEvent]]) -> None:
         """Place queued triggers (RULE 603.3), pausing on one that's modal
@@ -432,9 +440,9 @@ class RulesEngine:
         ``effects_override``), since the ability's own fixed ``effects``
         (empty for a modal trigger) is never what should resolve.
         """
-        spec = self._trigger_target_spec(effects)
+        specs = self._trigger_target_specs(effects)
         override = effects if effects is not ability.effects else None
-        if spec is None:
+        if not specs:
             if not ability.optional:
                 self._place_trigger(ability, effects_override=override)
                 return True
@@ -445,14 +453,67 @@ class RulesEngine:
             self._pending_trigger_queue = queue
             self.state.pending_choice = self._trigger_may_choice(ability)
             return False
+        if len(specs) == 1:
+            # The overwhelming common case — one targeting effect, unchanged
+            # from before `target_groups` existed (a flat ``targets`` list
+            # of exactly this one effect's picks).
+            spec = specs[0]
+            controller_id = ability.controller_id or self.state.active_player.id
+            options = legal_targets(self.state, controller_id, spec, source=ability.source)
+            if not options:
+                return True  # RULE 603.3c: no legal target — never placed
+            self._pending_trigger_ability = ability
+            self._pending_trigger_effects = override
+            self._pending_trigger_queue = queue
+            self.state.pending_choice = self._trigger_target_choice(ability, options)
+            return False
+        # RULE 115.1/603.3c generalized: 2+ *different* targeting effects —
+        # gather one target per effect, one choice at a time (mirrors
+        # `_trigger_mode_choice`'s "pick up to N, one at a time"), then place
+        # with `target_groups` so each effect resolves against its own pick.
+        return self._continue_trigger_multi_target(ability, override, queue, specs, [])
+
+    def _continue_trigger_multi_target(
+        self,
+        ability: "TriggeredAbility",
+        override: Optional[list[Any]],
+        queue: list[tuple["TriggeredAbility", GameEvent]],
+        specs: list[TargetSpec],
+        groups: list[list[Any]],
+    ) -> bool:
+        """Gather the next not-yet-filled spec's target (RULE 115.1), one at
+        a time, for a trigger with 2+ *different* targeting effects.
+
+        ``groups`` is what's been picked so far, in spec order; once every
+        spec has a group, the ability is placed with `target_groups=groups`
+        (`_place_trigger`). A spec with no legal option is skipped (empty
+        group) if it's "up to N" (``optional``), or drops the whole ability
+        (RULE 603.3c — a required target the board can't supply) otherwise.
+        """
+        idx = len(groups)
+        if idx >= len(specs):
+            self._place_trigger(ability, target_groups=groups, effects_override=override)
+            return True
+        spec = specs[idx]
         controller_id = ability.controller_id or self.state.active_player.id
         options = legal_targets(self.state, controller_id, spec, source=ability.source)
         if not options:
+            if spec.optional:
+                return self._continue_trigger_multi_target(
+                    ability, override, queue, specs, groups + [[]]
+                )
             return True  # RULE 603.3c: no legal target — never placed
         self._pending_trigger_ability = ability
         self._pending_trigger_effects = override
         self._pending_trigger_queue = queue
-        self.state.pending_choice = self._trigger_target_choice(ability, options)
+        self._pending_trigger_specs = specs
+        self._pending_trigger_groups = groups
+        # RULE 603.5: "you may" is asked once, on the *first* target — from
+        # then on the ability is already committed to, so later specs are
+        # never declinable on their own.
+        self.state.pending_choice = self._trigger_target_choice(
+            ability, options, kind="trigger_target_multi", allow_decline=(idx == 0 and ability.optional)
+        )
         return False
 
     def _trigger_mode_choice(
@@ -552,11 +613,26 @@ class RulesEngine:
         if self._place_or_pause_trigger(ability, effects, queue):
             self._place_triggers(queue)
 
-    def _trigger_target_choice(self, ability: "TriggeredAbility", options: list[dict[str, Any]]) -> dict[str, Any]:
+    def _trigger_target_choice(
+        self,
+        ability: "TriggeredAbility",
+        options: list[dict[str, Any]],
+        kind: str = "trigger_target",
+        allow_decline: Optional[bool] = None,
+    ) -> dict[str, Any]:
         """Build the `pending_choice` offering ``options`` as an ability's
         target — one button per legal permanent/player, matching the generic
         choice UI's `{"id", "label", "instance_id"?}` option shape (the same
-        one search/cascade/discover/order_triggers already use)."""
+        one search/cascade/discover/order_triggers already use).
+
+        ``kind``/``allow_decline`` are only overridden by
+        `_continue_trigger_multi_target` (2+ *different* targeting effects,
+        ``"trigger_target_multi"`` — its own resolver,
+        `resolve_trigger_target_multi_choice`, so the single-spec path below
+        stays byte-for-byte unchanged); ``allow_decline=None`` keeps this
+        method's original behaviour of following ``ability.optional``
+        (RULE 603.5 "you may").
+        """
         choice_options: list[dict[str, Any]] = []
         for opt in options:
             if "instance_id" in opt:
@@ -565,10 +641,11 @@ class RulesEngine:
                 )
             else:
                 choice_options.append({"id": opt["player_id"], "label": opt["name"]})
-        if ability.optional:  # RULE 603.5 "you may"
+        decline = ability.optional if allow_decline is None else allow_decline
+        if decline:
             choice_options.append({"id": "decline", "label": "Nichts wählen"})
         return {
-            "kind": "trigger_target",
+            "kind": kind,
             "player_id": ability.controller_id or self.state.active_player.id,
             "prompt": ability.description or "Ziel für ausgelöste Fähigkeit wählen",
             "options": choice_options,
@@ -622,6 +699,44 @@ class RulesEngine:
                 self._place_trigger(ability, targets=[target], effects_override=effects_override)
         self._place_triggers(queue)
 
+    def resolve_trigger_target_multi_choice(self, answer: Optional[str]) -> None:
+        """Answer a pending `trigger_target_multi` choice — one target for
+        the *next* not-yet-filled targeting effect of a trigger with 2+
+        *different* targeting effects (`_continue_trigger_multi_target`).
+
+        ``answer`` is the chosen option's ``id``, same shape as
+        `resolve_trigger_target_choice`. A decline (only ever offered on the
+        first spec, RULE 603.5 "you may") abandons the whole ability — every
+        spec after the first is already committed to. Once every spec has a
+        target (or an empty pick for one that's "up to N" with nothing
+        legal), the ability is placed with `target_groups` so each effect
+        resolves against its own pick, not a shared list.
+        """
+        choice = self.state.pending_choice
+        if not choice or choice.get("kind") != "trigger_target_multi":
+            raise ValueError("no pending multi-target trigger choice to resolve")
+        self.state.pending_choice = None
+        ability = self._pending_trigger_ability
+        queue = self._pending_trigger_queue
+        effects_override = self._pending_trigger_effects
+        specs = self._pending_trigger_specs
+        groups = self._pending_trigger_groups
+        self._pending_trigger_ability = None
+        self._pending_trigger_queue = []
+        self._pending_trigger_effects = None
+        self._pending_trigger_specs = []
+        self._pending_trigger_groups = []
+
+        if answer is not None and answer != "decline" and ability is not None:
+            target = self._resolve_choice_option(choice["options"], str(answer))
+            groups = groups + [[target] if target is not None else []]
+            if self._continue_trigger_multi_target(ability, effects_override, queue, specs, groups):
+                self._place_triggers(queue)
+            return
+        # Declined (or nothing left to resolve against) — the whole ability
+        # is abandoned, same as a single-spec "you may" decline.
+        self._place_triggers(queue)
+
     def _resolve_choice_option(self, options: list[dict[str, Any]], answer: str) -> Any:
         """The permanent/player a `trigger_target` option ``answer`` names."""
         match = next((o for o in options if o["id"] == answer), None)
@@ -641,6 +756,7 @@ class RulesEngine:
         ability: "TriggeredAbility",
         targets: Optional[list[Any]] = None,
         effects_override: Optional[list[Any]] = None,
+        target_groups: Optional[list[list[Any]]] = None,
     ) -> None:
         """Push ``ability`` onto the stack. ``effects_override``, when given,
         replaces the usual ``[ability]`` wrapper with a raw effects list — a
@@ -649,7 +765,18 @@ class RulesEngine:
         `TriggeredAbility.apply()` reading the ability's own (empty)
         ``effects``. `StackItem._derive_category` still classifies the item
         as ``"triggered_ability"`` either way (any non-spell ability item
-        defaults to that), so nothing downstream needs to know."""
+        defaults to that), so nothing downstream needs to know.
+
+        ``target_groups``, when given (2+ *different* targeting effects,
+        gathered one at a time by `_continue_trigger_multi_target`),
+        partitions ``targets`` per effect — see `StackItem.target_groups`.
+        ``targets`` itself is then derived as the flattened union (unless
+        explicitly given) so every existing flat-``targets`` consumer
+        (`check_ward` below, Aura attachment, the stack display) still sees
+        every chosen target, same as before ``target_groups`` existed.
+        """
+        if target_groups is not None and targets is None:
+            targets = [t for group in target_groups for t in group]
         controller_id = ability.controller_id or self.state.active_player.id
         item = StackItem(
             kind="ability",
@@ -657,6 +784,7 @@ class RulesEngine:
             effects=effects_override if effects_override is not None else [ability],
             description=ability.description or "triggered ability",
             targets=targets,
+            target_groups=target_groups,
             source=ability.source,
         )
         self.state.stack.append(item)
@@ -859,6 +987,7 @@ class RulesEngine:
         targets: Optional[list[Any]] = None,
         x: int = 0,
         cost: Optional[ManaCost] = None,
+        target_groups: Optional[list[list[Any]]] = None,
     ) -> StackItem:
         """Pay the cost, move the card to the stack (RULE 601).
 
@@ -868,7 +997,17 @@ class RulesEngine:
         omitted, the printed cost is used. Timing/priority legality is enforced
         by the caller; this performs the mechanical cast. Raises ValueError if
         the mana cost can't be paid.
+
+        ``target_groups``, when given, partitions ``targets`` per targeting
+        effect — see `StackItem.target_groups`. Needed only when ``obj``
+        carries 2+ *different* targeting effects; omitted (``None``), every
+        effect reads ``targets`` directly, unchanged from before this existed.
+        ``targets`` itself is derived as the flattened union when not given
+        explicitly, so `check_ward` below and every other flat-``targets``
+        consumer still sees every chosen target.
         """
+        if target_groups is not None and targets is None:
+            targets = [t for group in target_groups for t in group]
         if cost is None:
             cost = self.mana_cost_of(obj.card)
             if cost.has_variable:
@@ -907,6 +1046,7 @@ class RulesEngine:
             description=obj.name,
             targets=targets,
             x=x,
+            target_groups=target_groups,
         )
         self.state.stack.append(item)
         self.state.record_stat(
@@ -1050,8 +1190,30 @@ class RulesEngine:
             return None
         item = self.state.stack.pop()  # LIFO
 
-        for effect in item.effects:
-            effect.apply(self.context, item.targets)
+        if len(item.effects) == 1 and hasattr(item.effects[0], "effects"):
+            # A single `TriggeredAbility`/`ActivatedAbility` wrapper — it
+            # owns its *own* sub-effects list (`self.effects`, invisible to
+            # this loop), so the per-effect partitioning has to happen one
+            # level down, inside its own `apply()` (`_apply_effects_
+            # partitioned`). Pass `target_groups` straight through rather
+            # than treating the wrapper itself as "one targeting effect".
+            item.effects[0].apply(self.context, item.targets, item.target_groups)
+        else:
+            group_index = 0
+            for effect in item.effects:
+                if item.target_groups is not None and getattr(effect, "target_spec", None) is not None:
+                    # RULE 115.1/601.2c: this effect gets only *its own*
+                    # slice of the partitioned targets, not the whole shared
+                    # list — see `StackItem.target_groups`.
+                    group = (
+                        item.target_groups[group_index]
+                        if group_index < len(item.target_groups)
+                        else []
+                    )
+                    group_index += 1
+                    effect.apply(self.context, group)
+                else:
+                    effect.apply(self.context, item.targets)
 
         if item.kind == "spell" and item.obj is not None:
             obj = item.obj
@@ -2177,7 +2339,13 @@ class RulesEngine:
                 )
             )
 
-    def resolve_ward_effect(self, item: StackItem, caster_id: str, cost: ActivationCost) -> None:
+    def resolve_ward_effect(
+        self,
+        item: StackItem,
+        caster_id: str,
+        cost: ActivationCost,
+        ability_controller_id: Optional[str] = None,
+    ) -> None:
         """A ward ability's own resolution (RULE 702.21a) — the caster pays
         ``cost`` (any mix of mana/life/discard/sacrifice, the same
         vocabulary `costs.parse_activation_cost` gives an activated
@@ -2188,10 +2356,26 @@ class RulesEngine:
         countered it, RULE 702.21c) — this is also where "look back in
         time" naturally falls out: the caster and cost were fixed when
         `check_ward` triggered, so nothing about the warded permanent's
-        current state matters here.
+        current state matters here — *except* an unresolved ``{X}`` in
+        ``cost.mana`` (RULE 702.21b): "some ward abilities include an X in
+        their cost and state what X is equal to. This value is determined
+        at the time the ability resolves, not locked in as the ability
+        triggers" — resolved fresh right here, against the *current* board,
+        scoped to ``ability_controller_id`` (the warded permanent's
+        controller — RULE 603.3a, who controls this ability — not the
+        caster who pays it). ``cost.x_selector`` is `None` when the "where X
+        is …" clause wasn't recognized from the card's own text; X then
+        stays 0 (RULE 107.3c's safe default) rather than guessed.
         """
         if self._stack_item_for(item) is None:
             return
+        if cost.mana.has_variable:
+            x_value = (
+                continuous.count_selector(self.state, ability_controller_id, cost.x_selector)
+                if cost.x_selector
+                else 0
+            )
+            cost.mana = cost.mana.with_x(x_value)
         try:
             caster = self.state.player_by_id(caster_id)
         except KeyError:

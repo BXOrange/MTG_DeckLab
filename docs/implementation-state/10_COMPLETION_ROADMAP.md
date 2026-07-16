@@ -124,12 +124,14 @@ Follows [`09_ORACLE_EFFECT_PARSER.md`](../concepts/09_ORACLE_EFFECT_PARSER.md).
 - **Ward is done**
 - **Alternative/additional-cost keywords are done**
 - **Rampage is done**
-- Remaining narrow rough edges, not new features: a ward cost with `{X}` in
-  it (RULE 702.21b) isn't specially resolved (no known real card needs it);
-  protection *quality* (already fully working via a separate, older path —
+- Remaining narrow rough edges, not new features: protection *quality*
+  (already fully working via a separate, older path —
   `combat.is_protected_from` — not `parametric_keywords` at all); and
   hexproof-*from*'s quality (currently aliased onto plain hexproof, losing
-  the "from X" scope) — see `ToDo_EdgeCases.md`. Every parametric keyword
+  the "from X" scope) — see `ToDo_EdgeCases.md`. (A ward cost's own `{X}`,
+  RULE 702.21b, is now resolved at the ward ability's resolution time —
+  `costs.ActivationCost.x_selector`/`RulesEngine.resolve_ward_effect`.)
+  Every parametric keyword
   this engine models now binds onto `GameObject.parametric_keywords` *and*
   consumes it: landwalk/annihilator/afflict/bushido/ward/rampage/kicker/
   buyback/escape/flashback.

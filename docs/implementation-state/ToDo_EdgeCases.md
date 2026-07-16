@@ -25,28 +25,6 @@ instead of re-discovering it as a surprise bug.
 
 ## Targeting / protection / hexproof / ward
 
-- **A stack item's resolved targets list is shared by every effect on
-  it — several *different* targeting effects on one spell/ability don't
-  each get their own targets.** `RulesEngine.resolve_top_of_stack` calls
-  `effect.apply(context, item.targets)` for *every* effect in
-  `item.effects` with the same flat list; each effect's own `apply()`
-  reads off the front of it (`targets[0]`, or `targets[:count]` for a
-  RULE 115.1a N>=2 effect). This is fine — by construction — for a spell
-  with exactly one targeting effect (including one with `count > 1`, RULE
-  115.1a generalized), but a card with two *different* targeting
-  requirements in the same cast (e.g. a hypothetical "choose one or
-  both — target creature gets +1/+1 / target player discards" combined,
-  or two modes of a "choose N —" ability each naming a different target)
-  would have its second effect wrongly consume the first effect's target
-  too. Existing modal tests sidestep this deliberately (`test_modal_
-  spells.py`'s `_modal_etb_trigger_or_both` pairs two *untargeted* modes;
-  `test_or_both_mode_resolves_both_effects_in_printed_order` passes the
-  *same* target twice) — not yet a fix, a documented boundary. A real fix
-  needs per-effect target partitioning (e.g. tagging each requirement
-  with which effect it belongs to, not one shared list).
-  (`game/rules_engine.py`'s `resolve_top_of_stack`/`_trigger_target_spec`;
-  `game/game_engine.py`'s `_effects_for_mode` for a modal combination.)
-
 - **Hexproof-from-`<quality>` collapses to blanket hexproof.** RULE 702.11b's
   "Hexproof from red" is aliased onto the plain `hexproof` slug — a
   `FLAG`-shaped catalogue row, not `QUALITY`-shaped like `Protection` — so
@@ -55,12 +33,6 @@ instead of re-discovering it as a surprise bug.
   never rules-illegal, just not accurate. Fix: give `Hexproof` a `QUALITY`
   shape and regex like `Protection`'s.
   (`parser/oracle/catalogue/keywords.py`'s `_ALIASES`.)
-
-- **A ward cost containing `{X}` isn't specially resolved.** RULE 702.21b:
-  "This value is determined at the time the ability resolves, not locked in
-  as the ability triggers." No card in the cache is known to need this — a
-  documented, untested edge case rather than a live bug.
-  (`RulesEngine._can_pay_ward_cost`/`_pay_ward_cost`, `game/rules_engine.py`.)
 
 - **An existing attachment's legality isn't re-validated every SBA pass.**
   RULE 704.5m/n also cover a target that stays on the battlefield but

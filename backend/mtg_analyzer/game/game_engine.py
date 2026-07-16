@@ -614,6 +614,12 @@ class GameEngine:
             # RULE 115/603.3c: the option id is a permanent's instance id or a
             # player's id (not always int-castable, unlike the other kinds).
             self.rules.resolve_trigger_target_choice(None if declined else str(answer))
+        elif kind == "trigger_target_multi":
+            # RULE 115.1/603.3c generalized: a trigger with 2+ *different*
+            # targeting effects — one of these fires per effect, in turn
+            # (`_continue_trigger_multi_target`), same option shape as
+            # "trigger_target" above.
+            self.rules.resolve_trigger_target_multi_choice(None if declined else str(answer))
         elif kind == "trigger_mode":
             # RULE 700.2: the option id is a mode's index, or "both" (700.2e)
             # — a mandatory choice, so a decline still resolves the first mode
@@ -1051,6 +1057,7 @@ class GameEngine:
         mode: Optional[Any] = None,
         kicked: int = 0,
         buyback: bool = False,
+        target_groups: Optional[list[list[Any]]] = None,
     ):
         """Cast a spell after validating timing, payability and targets (RULE 601).
 
@@ -1076,6 +1083,11 @@ class GameEngine:
         additional cost (RULE 702.27) — recorded on ``obj.buyback_paid``,
         consulted by `RulesEngine.resolve_top_of_stack` to route the spell
         back to hand instead of the graveyard.
+
+        ``target_groups``, when given, partitions ``targets`` per targeting
+        effect (`StackItem.target_groups`) — needed only when ``obj`` carries
+        2+ *different* targeting effects; omitted (``None``), every effect
+        reads ``targets`` directly, unchanged from before this existed.
         """
         if face in ("back", "fuse"):
             if not self.can_cast(player, obj, x, face=face, kicked=kicked, buyback=buyback):
@@ -1090,7 +1102,8 @@ class GameEngine:
             self.rules.switch_to_face(obj, alt)
             try:
                 result = self._cast_current_face(
-                    player, obj, targets, x, mode=mode, kicked=kicked, buyback=buyback
+                    player, obj, targets, x, mode=mode, kicked=kicked, buyback=buyback,
+                    target_groups=target_groups,
                 )
             except Exception:
                 self.rules.restore_face(obj, snapshot)
@@ -1099,7 +1112,8 @@ class GameEngine:
                 obj.adventure_snapshot = snapshot
             return result
         return self._cast_current_face(
-            player, obj, targets, x, mode=mode, kicked=kicked, buyback=buyback
+            player, obj, targets, x, mode=mode, kicked=kicked, buyback=buyback,
+            target_groups=target_groups,
         )
 
     def _effects_for_mode(self, obj: GameObject, mode: Any) -> list[Any]:
@@ -1190,6 +1204,7 @@ class GameEngine:
         mode: Optional[Any] = None,
         kicked: int = 0,
         buyback: bool = False,
+        target_groups: Optional[list[list[Any]]] = None,
     ):
         """The common cast body, reading whatever `obj.card` currently is."""
         with self._mode_effects_applied(obj, mode):
@@ -1211,7 +1226,7 @@ class GameEngine:
             graveyard_keyword = (
                 self._graveyard_cast_keyword(obj) if obj in player.graveyard else None
             )
-            result = self.rules.cast_spell(player, obj, targets, x, cost=cost)
+            result = self.rules.cast_spell(player, obj, targets, x, cost=cost, target_groups=target_groups)
             # RULE 601.2b/601.2h: an additional cost is paid as part of
             # casting, not resolving — so it stays paid even if the spell is
             # later countered. Paid *after* the mana cost (just above) so a
@@ -2015,6 +2030,7 @@ class GameEngine:
         targets: Optional[list[Any]] = None,
         x: int = 0,
         tap_choices: Optional[list[Any]] = None,
+        target_groups: Optional[list[list[Any]]] = None,
     ) -> None:
         """Pay an activated ability's cost and put it on the stack (RULE 602.2).
 
@@ -2024,6 +2040,11 @@ class GameEngine:
         other object. ``tap_choices`` is the player's pick for a "tap N
         untapped <type>s you control" cost, if any (see `tap_for_mana`).
         Raises ValueError if the ability can't be paid for.
+
+        ``target_groups``, when given, partitions ``targets`` per targeting
+        effect (`StackItem.target_groups`) — needed only when the ability
+        carries 2+ *different* targeting effects; omitted (``None``), every
+        effect reads ``targets`` directly, unchanged from before this existed.
         """
         abilities = source.activated_abilities
         if not 0 <= ability_index < len(abilities):
@@ -2040,6 +2061,7 @@ class GameEngine:
             effects=[ability],
             description=ability.description or f"{source.name} ability",
             targets=targets,
+            target_groups=target_groups,
             x=x,
             source=source,
         )

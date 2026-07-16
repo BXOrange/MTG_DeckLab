@@ -18,47 +18,34 @@ for the dependency-ordered plan to finish the implementation.
       [../docs/concepts/09_ORACLE_EFFECT_PARSER.md](../docs/concepts/09_ORACLE_EFFECT_PARSER.md)
       (two-stage: front-end parses `oracle_text` → `AbilitySpec` IR;
       binder maps IR → `GameEffect`; fail-closed `MODELED`/`UNMODELED`
-      coverage gate). Everything shipped so far — the RULE 702 keyword
-      catalogue + flag-keyword binding, the effect-clause front-end
-      (`normalize`/`segmenter`/`catalogue/handlers`/`gate.py`), one-shot
-      families (damage/draw/discard/destroy/gain_life/counter/mill/
-      exile/tap/+1-1-1-counters/tokens/pump/scry/bounce/graveyard-
-      recursion/tutor/add_mana/mass-damage/ETB-self-attach), static/
-      anthem/lord clauses (subtype/token/colour/global scoping,
-      attached-permanent statics), landwalk + replacement-effect +
-      parametric-keyword binding, RULE 614.1 enters-tapped claiming (all
-      variants) + enters-with-N-counters, RULE 603.1 trigger-condition
-      scoping, the counter family (spell target filters/"unless pays"/
-      "can't be countered"), modal spells (spell- and triggered-ability-
-      level), additional cast costs, "up to one target" (N=1), the
-      kicked-spell additional-effect conditional, 3 of 5 replacement
-      families, regenerate, surveil, parse-on-load memoization, the
-      full mana-ability rewrite (spend restrictions RULE 605.3a, "any
-      combination of colours" RULE 605.1a, hand-zone mana abilities,
-      Leveler-gated mana, Deathrite Shaman), a real N>=2 multi-target
-      choice for destroy/exile/damage ("destroy two target creatures"/
-      "up to N target X", RULE 115.1a generalized), "choose *N* —" (RULE
-      700.2, N>=2 — Kolaghan's/Austere Command-shaped, spell and
-      triggered-ability modal alike), a "remove a counter from ~"
-      activation cost (RULE 701.19/602.1 — Walking Ballista/Triskelion-
-      shaped), and a generalized "search your library for X" tutor/ramp/
-      fetch grammar (criteria filters, "reveal", destination variants,
-      reordered "shuffle...put on top" — 13+ real popular tutors) — is in
+      coverage gate). Everything shipped so far is narrated in
       [Done_Backend.md](../docs/implementation-state/Done_Backend.md)
-      "Rules Engine (Phase 2)". `parser/oracle/processing_list.py`
+      "Rules Engine (Phase 2)" — search there for a mechanic's name rather
+      than duplicating its writeup here. `parser/oracle/processing_list.py`
       tracks cache-wide coverage; run `coverage_over_cards()` for the
-      current number before quoting one (21.4% as of 2026-07-16).
+      current number before quoting one (22.8% of 2,909 cards, i.e. 664
+      fully `MODELED`, as of 2026-07-16).
 
       **Still open:**
       - N>=2 multi-target is only wired up for `destroy`/`exile`/`damage`
         (the three effect classes/real cards driving it so far) — other
         targeting families (`return_to_hand`/`tap`/`add_counters`/
         `return_from_graveyard`) stay N=1-only until a real card needs it.
-        Also still out of scope: several *different* targeting effects on
-        one spell (a stack item's resolved targets list is shared by every
-        effect on it — see `docs/implementation-state/ToDo_EdgeCases.md`),
-        and cross-target constraints ("two target creatures controlled by
-        *different* players", Run Away Together).
+        Also still out of scope: cross-target constraints ("two target
+        creatures controlled by *different* players", Run Away Together).
+        (2+ *different* targeting effects on one spell/ability sharing a
+        target list *is* now fixed — `StackItem.target_groups`,
+        `game/rules_engine.py`'s `resolve_top_of_stack`/
+        `_continue_trigger_multi_target` — but a spell/activated-ability
+        caster still has to supply `target_groups` explicitly; nothing
+        auto-derives it from a plain flat `targets` list yet, since no
+        real card needs the combination today. A triggered ability's own
+        target choice already gathers one per effect automatically. When a
+        real card needs this for casting, `game_engine.py`'s
+        `requirements_with_targets`-driven cast-offer/frontend flow needs
+        extending to build `target_groups` per requirement, mirroring the
+        existing per-requirement "expand into N single-target rounds"
+        pattern `gameBoardView.js` already uses for one N>=2 effect.)
       - "Choose *N* or more —" (RULE 700.2, Farewell-shaped — a *variable*
         N from 1 to every mode, a different grammar axis than the fixed-N
         case shipped; combinatorially bigger for the spell-cast offer too,
@@ -169,19 +156,14 @@ eventually own. Roughly in decreasing commonness:
 ## Game Engine (Phase 3) — remaining
 
 - [~] Multiplayer game session + priority system (UC4): **priority
-      primitive built; session wiring remains**. `GameEngine.pass_priority`
-      now takes an optional `player`: called with one (RULE 117.3-4) it only
-      resolves the top of the stack once every living player has passed in
-      succession, hands priority to the next player (APNAP, `_advance_priority`)
-      otherwise, and any real action reclaims priority (`give_priority`, called
-      from `begin_turn`/`_run_step`/`play_land`/`cast_spell`/`activate_ability`).
-      `GameState.priority_passed` tracks who has passed and deep-copies for
-      rewind. Called with no `player` it keeps the old solo/goldfish
-      auto-resolve, so nothing regresses. Tests: `test_priority.py`. Still
-      **stubbed**: `GameSessionManager.create_multiplayer` raises
-      `MultiplayerNotImplementedError` and `POST /api/game/multiplayer` returns
-      501 — the session/route need to drive `pass_priority(player)` and expose
-      the priority holder, and interactive blocker declaration
+      primitive built** (`GameEngine.pass_priority(player)`, RULE 117.3-4/
+      APNAP) — see
+      [Done_Backend.md](../docs/implementation-state/Done_Backend.md)
+      "Game Engine (Phase 3)". Still **stubbed**:
+      `GameSessionManager.create_multiplayer` raises
+      `MultiplayerNotImplementedError` and `POST /api/game/multiplayer`
+      returns 501 — the session/route need to drive `pass_priority(player)`
+      and expose the priority holder, and interactive blocker declaration
       (`declare_blockers`, engine-ready) needs the opponent-side UI.
 
 ## LLM Deck Analysis (UC2)

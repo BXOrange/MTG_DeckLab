@@ -9,16 +9,17 @@ choice (`rules_engine.py`) that picks one mode per round until `choose` are
 picked, mirroring the library search's "pick up to N one at a time" pattern.
 
 Real "choose two" cards (Kolaghan's Command, Austere Command, Titan of
-Industry) almost always give each mode its own "target ..." clause — but
-every effect on one ability/spell still shares a single flat `targets` list
-today (`test_modal_spells.py`'s `_modal_etb_trigger_or_both` docstring
-already documents this for the choose-1-of-2 "or both" case), so a
-combination of two *differently*-targeted modes doesn't resolve correctly
-yet — a real, pre-existing, orthogonal engine gap, not something this batch
-fixes. Engine-level tests here use non-targeted (or same-target) modes to
-isolate the choose-N mechanism itself, exactly like `test_modal_spells.py`
-already does for "or both"; the parser-level tests use real card text to
-prove recognition, separately from full castability.
+Industry) almost always give each mode its own "target ..." clause. Combining
+two *differently*-targeted modes now resolves correctly via
+`StackItem.target_groups` (`test_multi_effect_targeting.py`'s
+`test_modal_two_modes_with_different_targets_combine_via_target_groups`,
+and — for a triggered ability's own mode — `_continue_trigger_multi_target`
+gathering one target per effect automatically); nothing here needed to
+change, since `target_groups` is orthogonal to the choose-N mechanism this
+file covers. Engine-level tests here still use non-targeted (or same-target)
+modes to isolate the choose-N mechanism itself, exactly like
+`test_modal_spells.py` already does for "or both"; the parser-level tests use
+real card text to prove recognition, separately from full castability.
 """
 
 import pytest

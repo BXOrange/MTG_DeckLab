@@ -79,6 +79,26 @@ _EXILE_GRAVEYARD_RE = re.compile(
 #: means add loyalty; "−"/"-" means remove it. Accepts the Unicode minus too.
 _LOYALTY_RE = re.compile(r"^\s*\[\s*([+\-−]?)\s*(\d+)\s*\]")
 
+#: RULE 702.21b: "Some ward abilities include an X in their cost and state
+#: what X is equal to." A ward cost's own "where X is …" clause — recognized
+#: only for the small "count of X you control"/"cards in your graveyard"
+#: vocabulary `game/continuous.py`'s `count_selector` already evaluates for
+#: a characteristic-defining P/T (RULE 613.7c/604.3), so both share one
+#: authored selector list rather than guessing a second one. No real card
+#: needs this yet (`docs/implementation-state/ToDo_EdgeCases.md`) — an
+#: unrecognized/absent clause leaves ``x_selector`` unset, so `{X}` stays 0
+#: (RULE 107.3c's safe default) rather than guessed.
+_WARD_X_SELECTOR_RE = re.compile(
+    r"where x is the number of (?P<phrase>[a-z ]+?)\s*(?=[.\n]|$)", re.IGNORECASE
+)
+_WARD_X_SELECTOR_PHRASES: dict[str, str] = {
+    "creatures you control": "creatures_you_control",
+    "lands you control": "lands_you_control",
+    "permanents you control": "permanents_you_control",
+    "artifacts you control": "artifacts_you_control",
+    "cards in your graveyard": "cards_in_your_graveyard",
+}
+
 #: Sentinel for "discard your hand" — count isn't known until pay time.
 DISCARD_HAND = -1
 
@@ -152,6 +172,13 @@ class ActivationCost:
     #: only when the Class's current `class_level` is exactly one less. A
     #: legality precondition riding along with the cost, not something paid.
     class_level: Optional[int] = None
+    #: RULE 702.21b: a ward cost's own "where X is …" definition for an
+    #: unresolved ``{X}`` in ``mana`` — one of `_WARD_X_SELECTOR_PHRASES`'
+    #: values, resolved at the *ward ability's* resolution time (not when it
+    #: triggers) by `RulesEngine._resolve_ward_x`. ``None`` when ``mana``
+    #: has no `{X}`, or the "where X is …" clause wasn't recognized (X stays
+    #: 0 — RULE 107.3c).
+    x_selector: Optional[str] = None
     raw: str = ""
 
     @property
@@ -225,6 +252,7 @@ class ActivationCost:
             "add_counters_cost": list(self.add_counters_cost) if self.add_counters_cost else None,
             "exile_self_from_hand": self.exile_self_from_hand,
             "loyalty": self.loyalty,
+            "x_selector": self.x_selector,
             "label": self.label(),
         }
 
@@ -276,6 +304,8 @@ def parse_activation_cost(
     if cost.get("remove_counters"):
         kind, count = cost["remove_counters"]
         parsed.remove_counters = (str(kind), int(count))
+    if cost.get("x_selector"):
+        parsed.x_selector = str(cost["x_selector"])
     if "exile_self_from_hand" in cost:
         parsed.exile_self_from_hand = bool(cost["exile_self_from_hand"])
     if "sorcery_speed_only" in cost:
@@ -316,6 +346,13 @@ def _parse_text(text: str) -> ActivationCost:
             mana_tokens.append(token.strip())
     if mana_tokens:
         cost.mana = ManaCost.parse("".join(f"{{{t}}}" for t in mana_tokens))
+    if cost.mana.has_variable:
+        # RULE 702.21b: a ward cost may define what its own {X} means.
+        selector_match = _WARD_X_SELECTOR_RE.search(cost_text)
+        if selector_match:
+            cost.x_selector = _WARD_X_SELECTOR_PHRASES.get(
+                selector_match.group("phrase").strip().lower()
+            )
 
     sac = _SACRIFICE_RE.search(cost_text)
     if sac:

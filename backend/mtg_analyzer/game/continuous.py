@@ -261,30 +261,39 @@ def _in_layer(abilities: list[StaticAbility], layer: str) -> list[StaticAbility]
     return sorted(picked, key=lambda a: getattr(a.source, "timestamp", 0))
 
 
-def _count_selector(state: "GameState", ability: StaticAbility, selector: str) -> int:
-    """Evaluate a layer-7a characteristic-defining count (RULE 613.7c / 604.3).
+def count_selector(state: "GameState", controller_id: Optional[str], selector: str) -> int:
+    """Evaluate a "number of X" count selector, scoped to ``controller_id``.
 
-    A small vocabulary of "number of X" selectors a ``*/*`` creature's power or
-    toughness can be defined by — enough for the common CDAs (Nightmare's
-    Swamps, a graveyard-count beater). "you control" is scoped to the source's
-    controller."""
+    The vocabulary a layer-7a characteristic-defining P/T (RULE 613.7c/604.3
+    — a ``*/*`` creature like Nightmare's Swamps, a graveyard-count beater)
+    is defined by; also reused by a ward cost's own "where X is …"
+    definition (RULE 702.21b, `costs.ActivationCost.x_selector`) — one
+    authored list rather than two. "you control"/"your graveyard" is scoped
+    to ``controller_id``; ``None`` (no controller context) matches nothing.
+    """
     bf = state.battlefield
-    controller = getattr(ability.source, "controller_id", None)
     if selector == "creatures_you_control":
-        return sum(1 for o in bf if o.is_creature and o.controller_id == controller)
+        return sum(1 for o in bf if o.is_creature and o.controller_id == controller_id)
     if selector == "lands_you_control":
-        return sum(1 for o in bf if o.is_land and o.controller_id == controller)
+        return sum(1 for o in bf if o.is_land and o.controller_id == controller_id)
     if selector == "permanents_you_control":
-        return sum(1 for o in bf if o.controller_id == controller)
+        return sum(1 for o in bf if o.controller_id == controller_id)
     if selector == "artifacts_you_control":
-        return sum(1 for o in bf if o.card.is_artifact and o.controller_id == controller)
+        return sum(1 for o in bf if o.card.is_artifact and o.controller_id == controller_id)
     if selector == "cards_in_your_graveyard":
         try:
-            player = state.player_by_id(controller) if controller else None
+            player = state.player_by_id(controller_id) if controller_id else None
         except KeyError:
             player = None
         return len(player.graveyard) if player is not None else 0
     return 0
+
+
+def _count_selector(state: "GameState", ability: StaticAbility, selector: str) -> int:
+    """`count_selector`, scoped to a `StaticAbility`'s own source's
+    controller (RULE 613.7c/604.3) — see `count_selector` for the
+    vocabulary."""
+    return count_selector(state, getattr(ability.source, "controller_id", None), selector)
 
 
 def _granted_trigger_condition(target: "GameObject", controllers_turn_only: bool):

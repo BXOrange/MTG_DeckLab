@@ -2247,6 +2247,116 @@ the Phase-1 models. Tests: `test_game_engine.py`.
         family (see this section, above) since a graveyard's contents
         are public.
 
+- [x] **Per-effect target partitioning, `StackItem.target_groups`
+      (2026-07-16)** — the "targeting / hexproof / ward" edge-case chapter's
+      biggest entry: `docs/implementation-state/ToDo_EdgeCases.md` had
+      documented, since the N>=2 multi-target batch above, that a stack
+      item's resolved `targets` list is shared by *every* effect on it —
+      2+ *different* targeting effects on one spell/ability (two modes of
+      a "choose N —" ability each naming a different target, or an
+      ordinary triggered ability with two differently-targeted effects)
+      would have the second effect wrongly consume the first's target.
+      Fixed properly rather than worked around:
+      - `StackItem` gained an optional `target_groups: list[list[Any]]`
+        field, index-aligned to the targeting effects *encountered in
+        order* among `item.effects` (group 0 = the first effect with a
+        `target_spec`, group 1 the second, …); `None` (the default) keeps
+        every effect reading the flat `targets` list directly, byte-for-
+        byte the pre-existing behaviour. `targets` itself is still always
+        the flattened union (derived automatically when a caller supplies
+        `target_groups` but no explicit `targets`), so every pre-existing
+        flat-`targets` consumer (`check_ward`, Aura attachment in
+        `_resolve_permanent_spell`, the stack display) is unaffected.
+      - `RulesEngine.resolve_top_of_stack` walks `item.effects` with a
+        running group cursor, handing each targeting effect only its own
+        slice — *except* when `item.effects` is a single `TriggeredAbility`/
+        `ActivatedAbility` wrapper (the ordinary, non-modal shape,
+        `effects=[ability]`): the partitioning then has to happen one level
+        down, inside the wrapper's own sub-effects list, invisible to the
+        outer loop. Both `TriggeredAbility.apply`/`ActivatedAbility.apply`
+        gained an optional `target_groups` parameter and now share a new
+        `game/effects.py` helper, `_apply_effects_partitioned`, doing the
+        identical per-effect dispatch against `self.effects` instead of
+        `item.effects`.
+      - **Casting/activating**: `RulesEngine.cast_spell`/`GameEngine.
+        cast_spell`/`GameEngine.activate_ability` all gained an optional
+        `target_groups` parameter, threaded all the way to
+        `services/game_session.py`'s `cast_spell`/`activate_ability`
+        action handlers (`_resolve_target_groups`, the `_resolve_targets`
+        per-target resolver applied to each sub-list) — so a caller
+        (engine-level code, a test, or a future frontend) can supply
+        grouped targets through the same JSON action payload shape
+        `requirements_with_targets` already offers per-requirement, in
+        order. No real card needs this for *casting* yet, so nothing
+        auto-derives `target_groups` from a plain flat `targets` list —
+        that's still a genuine follow-up (`backend/ToDo_Backend.md`)
+        once one does; a modal spell's own `mode=[i, j]` combination
+        already combines target_groups correctly too, as long as the
+        caller supplies them in the same printed order `_effects_for_mode`
+        combines effects in.
+      - **Triggered abilities**: this *is* fully automatic. `_trigger_
+        target_spec` (singular, "only the first spec is meaningful") became
+        `_trigger_target_specs` (every spec, in order). `_place_or_pause_
+        trigger` keeps the single-spec path byte-for-byte unchanged; for
+        2+ specs, a new `_continue_trigger_multi_target` gathers one
+        target per effect, one `pending_choice` at a time — the same
+        "accumulate across rounds" shape `_trigger_mode_choice`'s "choose
+        N" already used — via a new `trigger_target_multi` choice kind
+        (`resolve_trigger_target_multi_choice`, wired into `GameEngine.
+        resolve_pending_choice`) kept fully separate from the existing
+        `trigger_target` kind/resolver so the well-tested single-spec path
+        couldn't regress. RULE 603.5 "you may" is only offered as a
+        decline on the *first* spec (already committed to the ability
+        after that); a mandatory spec with zero legal options drops the
+        whole ability (RULE 603.3c), an *optional* ("up to one") spec with
+        none is silently skipped (empty group) instead.
+      - New `tests/test_multi_effect_targeting.py` (9 tests): direct
+        `target_groups` casting (engine call and the session/API JSON
+        payload), the single-spec backward-compat guard, the full
+        triggered-ability interactive multi-target flow (offer/decline/
+        drop/skip), and a modal-spell two-different-targets combination.
+        `test_modal_choose_n.py`/`test_modal_spells.py`'s docstrings that
+        previously called this an open gap were updated to point here.
+      - Deliberately still out of scope: cross-target *constraints* ("two
+        target creatures controlled by *different* players", Run Away
+        Together) — a different, unrelated axis (correlating *which*
+        legal choices are mutually valid, not just giving each effect its
+        own target).
+- [x] **Ward cost `{X}` resolution, RULE 702.21b (2026-07-16)**: "Some ward
+      abilities include an X in their cost and state what X is equal to.
+      This value is determined at the time the ability resolves, not
+      locked in as the ability triggers." No real card in the cache needs
+      this yet, but the previous behaviour was a silent correctness trap
+      waiting for one: an unresolved `{X}` mana pip defaults to amount 0
+      (`ManaSymbol`), so a hypothetical "Ward—Pay {X}, where X is the
+      number of creatures you control" would have always resolved as
+      free, regardless of the board. Fixed properly:
+      - `costs.ActivationCost` gained an `x_selector` field; `_parse_text`
+        recognizes a ward cost's own "where X is the number of `<phrase>`"
+        clause against a small, explicit vocabulary (creatures/lands/
+        permanents/artifacts you control, cards in your graveyard) —
+        reusing (not duplicating) `game/continuous.py`'s existing
+        layer-7a characteristic-defining-P/T count-selector vocabulary,
+        now factored into a public `count_selector(state, controller_id,
+        selector)` (`_count_selector` becomes a thin per-`StaticAbility`
+        wrapper over it). An unrecognized phrase leaves `x_selector` unset
+        — RULE 107.3c's safe "X stays 0" default, not guessed.
+      - `RulesEngine.resolve_ward_effect` (already the *ward ability's own
+        resolution*, correctly late per RULE 702.21b's timing — `check_ward`
+        merely triggers it) now resolves `cost.mana`'s `{X}` via
+        `count_selector`, scoped to the *warded permanent's controller*
+        (RULE 603.3a — who controls the ward ability, not the caster who
+        pays it; threaded through via `WardEffect.apply`'s new
+        `ability_controller_id` argument, derived from `WardEffect.source`)
+        — freshly computed against the *current* board, so a permanent
+        gained between the spell being cast and the ward ability resolving
+        correctly changes X.
+      - New tests in `test_game_engine.py`: selector recognition, an
+        unrecognized-phrase fallback, a resolution-time-not-trigger-time
+        proof (a second creature enters after the ward ability is placed
+        but before it resolves, changing X from 1 to 2), and the
+        uncastable-counters-without-a-choice case.
+
 ## Game Engine (Phase 3)
 
 `mtg_analyzer/game/game_engine.py`, tests in `test_game_engine.py`.
@@ -2302,6 +2412,20 @@ the Phase-1 models. Tests: `test_game_engine.py`.
       `replay` descriptor) and `GET /api/game/{id}/replay-export`
       (works for a goldfish session too, so a goldfish position can be
       exported and re-opened here). Tests: `test_replay.py`.
+- [x] Multiplayer priority primitive (RULE 117.3-4/APNAP, UC4 groundwork):
+      `GameEngine.pass_priority` now takes an optional `player` — called
+      with one, it only resolves the top of the stack once every living
+      player has passed in succession, otherwise hands priority to the
+      next player (APNAP, `_advance_priority`); any real action reclaims
+      priority (`give_priority`, called from `begin_turn`/`_run_step`/
+      `play_land`/`cast_spell`/`activate_ability`). `GameState.
+      priority_passed` tracks who has passed and deep-copies for rewind.
+      Called with no `player` it keeps the old solo/goldfish auto-resolve,
+      so nothing regresses. The session/route wiring to actually *drive*
+      this (`GameSessionManager.create_multiplayer`, `POST /api/game/
+      multiplayer`) and the opponent-side interactive blocker-declaration
+      UI remain — see `backend/ToDo_Backend.md` "Game Engine (Phase 3)".
+      Tests: `test_priority.py`.
 
 ## Card-type & structural coverage
 

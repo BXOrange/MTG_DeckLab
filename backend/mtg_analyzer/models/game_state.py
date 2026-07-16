@@ -45,6 +45,17 @@ class StackItem:
     granted ability is the object that has it, not whatever granted it).
     ``None`` for a spell (``obj`` already *is* the thing on the stack) or
     for the rare hand-built ability with no bound source.
+
+    ``target_groups``, when given, partitions ``targets`` by *which*
+    targeting effect in ``effects`` it belongs to (index-aligned: group 0
+    is the first effect with a ``target_spec``, group 1 the second, …;
+    an effect with no ``target_spec`` consumes no group). This is what lets
+    2+ *different* targeting effects on one spell/ability each resolve
+    against their own targets instead of all reading off the front of one
+    shared ``targets`` list (RULE 115.1/601.2c — see
+    `docs/implementation-state/ToDo_EdgeCases.md`). ``None`` (the common
+    case: at most one targeting effect) keeps the legacy behaviour of every
+    effect reading ``targets`` directly.
     """
 
     def __init__(
@@ -58,6 +69,7 @@ class StackItem:
         x: int = 0,
         category: Optional[str] = None,
         source: Optional[GameObject] = None,
+        target_groups: Optional[list[list[Any]]] = None,
     ) -> None:
         self.kind = kind
         self.controller_id = controller_id
@@ -65,6 +77,7 @@ class StackItem:
         self.obj = obj
         self.description = description
         self.targets = targets or []
+        self.target_groups = target_groups
         self.x = x
         self.category = category or self._derive_category()
         self.source = source

@@ -259,6 +259,36 @@ class GameEffect(ABC):
         return True
 
 
+def _apply_effects_partitioned(
+    effects: list["GameEffect"],
+    context: GameContext,
+    targets: Optional[list[Any]],
+    target_groups: Optional[list[list[Any]]],
+    source: Optional["GameObject"] = None,
+) -> None:
+    """Apply each of ``effects`` against its own share of ``targets``.
+
+    Mirrors `RulesEngine.resolve_top_of_stack`'s per-effect
+    `StackItem.target_groups` dispatch, for a *nested* effects list —
+    `TriggeredAbility`/`ActivatedAbility` wrap their own sub-effects, so the
+    outer stack-resolution loop only ever sees one effect (the wrapper) and
+    can't partition *their* targets itself; this is the same logic run one
+    level down. ``target_groups=None`` (the overwhelming common case: at
+    most one targeting effect) keeps every sub-effect reading ``targets``
+    directly, unchanged from before `target_groups` existed.
+    """
+    group_index = 0
+    for effect in effects:
+        if source is not None and effect.source is None:
+            effect.source = source
+        if target_groups is not None and effect.target_spec is not None:
+            group = target_groups[group_index] if group_index < len(target_groups) else []
+            group_index += 1
+            effect.apply(context, group)
+        else:
+            effect.apply(context, targets)
+
+
 # ---------------------------------------------------------------------------
 # TYPE 1: Static effects (RULE 611) + rule overrides (skip phase, etc.)
 # ---------------------------------------------------------------------------
@@ -434,12 +464,19 @@ class TriggeredAbility(GameEffect):
             self._last_triggered_turn = turn
         return True
 
-    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
-        """Resolve the triggered ability by applying each of its effects."""
-        for effect in self.effects:
-            if effect.source is None and self.source is not None:
-                effect.source = self.source
-            effect.apply(context, targets)
+    def apply(
+        self,
+        context: GameContext,
+        targets: Optional[list[Any]] = None,
+        target_groups: Optional[list[list[Any]]] = None,
+    ) -> None:
+        """Resolve the triggered ability by applying each of its effects.
+
+        ``target_groups``, when given (`StackItem.target_groups`, 2+
+        *different* targeting effects), partitions ``targets`` per effect —
+        see `_apply_effects_partitioned`.
+        """
+        _apply_effects_partitioned(self.effects, context, targets, target_groups, source=self.source)
 
 
 # ---------------------------------------------------------------------------
@@ -527,11 +564,16 @@ class ActivatedAbility(GameEffect):
     def taps_source(self) -> bool:
         return self.cost.taps_self
 
-    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
-        for effect in self.effects:
-            if effect.source is None and self.source is not None:
-                effect.source = self.source
-            effect.apply(context, targets)
+    def apply(
+        self,
+        context: GameContext,
+        targets: Optional[list[Any]] = None,
+        target_groups: Optional[list[list[Any]]] = None,
+    ) -> None:
+        """``target_groups``, when given (`StackItem.target_groups`, 2+
+        *different* targeting effects), partitions ``targets`` per effect —
+        see `_apply_effects_partitioned`."""
+        _apply_effects_partitioned(self.effects, context, targets, target_groups, source=self.source)
 
 
 # ---------------------------------------------------------------------------
@@ -984,7 +1026,10 @@ class WardEffect(GameEffect):
         self.cost = cost
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
-        context.engine.resolve_ward_effect(self.item, self.caster_id, self.cost)
+        ability_controller_id = self.source.controller_id if self.source is not None else None
+        context.engine.resolve_ward_effect(
+            self.item, self.caster_id, self.cost, ability_controller_id=ability_controller_id
+        )
 
 
 class CantBeCounteredEffect(GameEffect):

@@ -2629,6 +2629,76 @@ def test_ward_pay_life_cost():
     assert warded not in eng.state.battlefield  # the spell went on to resolve
 
 
+def test_ward_x_cost_selector_is_recognized_from_the_where_x_is_clause():
+    from mtg_analyzer.game.costs import parse_activation_cost
+
+    cost = parse_activation_cost("Pay {X}, where X is the number of creatures you control.")
+    assert cost.mana.has_variable
+    assert cost.x_selector == "creatures_you_control"
+
+
+def test_ward_x_cost_unrecognized_selector_leaves_x_unset():
+    # RULE 107.3c fallback: an unrecognized "where X is …" phrase (no real
+    # card uses this vocabulary word) leaves `x_selector` unset rather than
+    # guessed — X then stays 0 at resolution time.
+    from mtg_analyzer.game.costs import parse_activation_cost
+
+    cost = parse_activation_cost("Pay {X}, where X is the number of Zombies you control.")
+    assert cost.mana.has_variable
+    assert cost.x_selector is None
+
+
+def test_ward_x_cost_resolves_against_the_board_at_resolution_time_not_trigger_time():
+    # RULE 702.21b: "This value is determined at the time the ability
+    # resolves, not locked in as the ability triggers" — p2 gains a second
+    # creature *after* the ward ability is placed on the stack but *before*
+    # it resolves; X must reflect the board at resolution (2), not however
+    # many creatures p2 controlled when the spell was cast (1).
+    eng = make_engine([], [], hand=0)
+    eng.begin_turn()
+    eng.state.current_step = "main1"
+    p1 = eng.state.active_player
+    p1.mana_pool.add_many({"R": 1, "C": 2})
+    warded = obj_on_battlefield(eng.state, eng, creature(power=2, toughness=2), controller="p2")
+    warded.parametric_keywords = {
+        "ward": {"cost": "Pay {X}, where X is the number of creatures you control."}
+    }
+    spell = _shock_spell(p1)
+
+    eng.cast_spell(p1, spell, targets=[warded])
+    assert len(eng.state.stack) == 2  # the ward ability sits on top of the spell
+
+    obj_on_battlefield(eng.state, eng, creature(power=1, toughness=1), controller="p2")
+
+    eng.rules.resolve_top_of_stack()  # resolves the ward ability itself
+    choice = eng.state.pending_choice
+    assert choice["kind"] == "ward"
+
+    eng.resolve_pending_choice("pay")
+    assert p1.mana_pool.total() == 0  # {R} for Shock + {2} generic for X=2
+
+
+def test_ward_x_cost_uncastable_counters_the_spell_without_a_choice():
+    eng = make_engine([], [], hand=0)
+    eng.begin_turn()
+    eng.state.current_step = "main1"
+    p1 = eng.state.active_player
+    p1.mana_pool.add_many({"R": 1})  # nothing left over for ward's X
+    warded = obj_on_battlefield(eng.state, eng, creature(power=2, toughness=2), controller="p2")
+    warded.parametric_keywords = {
+        "ward": {"cost": "Pay {X}, where X is the number of creatures you control."}
+    }
+    obj_on_battlefield(eng.state, eng, creature(power=1, toughness=1), controller="p2")
+    spell = _shock_spell(p1)
+
+    eng.cast_spell(p1, spell, targets=[warded])
+    eng.resolve_until_stable()  # no real decision — X=1 isn't payable, auto-countered
+
+    assert eng.state.pending_choice is None
+    assert not eng.state.stack
+    assert warded in eng.state.battlefield
+
+
 def test_ward_discard_cost():
     eng = make_engine([], [], hand=0)
     eng.begin_turn()

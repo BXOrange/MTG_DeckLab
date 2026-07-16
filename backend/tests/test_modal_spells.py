@@ -543,11 +543,11 @@ def _modal_etb_trigger(source):
 def _modal_etb_trigger_or_both(source):
     """An "or both" (RULE 700.2e) variant with two *untargeted* modes (gain
     life / draw a card) — real "or both" templating always pairs same-shape
-    modes (see `modal_pump_instant`'s two same-target spell modes), so this
-    keeps the "both" test from exercising the unrelated, pre-existing
-    "every effect on one ability shares one targets list" limitation a
-    target+no-target combination would hit (`_trigger_target_spec`'s "only
-    the first target_spec is meaningful")."""
+    modes (see `modal_pump_instant`'s two same-target spell modes). A
+    target+no-target (or two differently-targeted) combination now resolves
+    correctly too via `StackItem.target_groups`
+    (`test_multi_effect_targeting.py`) — this fixture just isn't the test for
+    that; it isolates the "or both" combining mechanism itself."""
     from mtg_analyzer.game.effects import DrawCardEffect, GainLifeEffect
 
     return TriggeredAbility(

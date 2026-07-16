@@ -125,13 +125,20 @@ class TargetSpec:
     legal choice). ``count`` is how many targets this one targeting effect
     wants — ``1`` for an ordinary single target, ``N`` for "N target
     creatures"/"choose N target X" (mandatory, ``optional=False``) or "up to
-    N target X" (``optional=True``, 0..N). A single targeting effect
-    consuming its whole (flat, shared) resolved-targets list this way is
-    this engine's one multi-target shape today — see `game/effects.py`'s
-    affected `apply()` methods and `docs/implementation-state/
-    ToDo_EdgeCases.md` for what's deliberately still out of scope (several
-    *different* targeting effects on one spell, cross-target constraints).
-    ``description`` is a short UI label.
+    N target X" (``optional=True``, 0..N).
+
+    A single targeting effect consuming a flat resolved-targets list this
+    way is the common case; when a spell/ability carries 2+ *different*
+    targeting effects, each needing its own target, `StackItem.target_groups`
+    partitions the list per effect instead (`game/rules_engine.py`'s
+    `resolve_top_of_stack`/`_apply_effects_partitioned`) — a triggered
+    ability's own target choice already gathers one per effect
+    automatically (`_continue_trigger_multi_target`); a spell/activated
+    ability's caller must supply ``target_groups`` explicitly (no real card
+    needs this yet, so nothing auto-derives it from a plain flat list — see
+    `docs/implementation-state/ToDo_EdgeCases.md` for the remaining
+    cross-target-constraint gap, e.g. "two creatures controlled by
+    *different* players"). ``description`` is a short UI label.
     """
 
     kind: str = "any"
