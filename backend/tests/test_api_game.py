@@ -1,6 +1,6 @@
 """Tests for the game session HTTP API (goldfish, action, rewind, restart).
 
-Reference: mtg_analyzer/api/game.py, docs/02_MVP_USECASES_REVISED.md UC3/UC4.
+Reference: mtg_analyzer/api/game.py, docs/requirements/02_MVP_USECASES_REVISED.md UC3/UC4.
 """
 
 from fastapi.testclient import TestClient

@@ -1,6 +1,6 @@
 """Serialize a game to a portable "replay" descriptor and back (UC: Replay/Puzzle).
 
-Reference: docs/02_MVP_USECASES_REVISED.md UC3 (Goldfisch) — Replay mode is
+Reference: docs/requirements/02_MVP_USECASES_REVISED.md UC3 (Goldfisch) — Replay mode is
 its sibling: instead of playing a legal deck from turn 1, the user *builds an
 arbitrary board* (or loads one saved from a goldfish game) and plays from there.
 
@@ -188,9 +188,14 @@ def build_object(
     obj.damage_marked = int(inst.get("damage_marked", 0) or 0)
     obj.counters = {k: int(v) for k, v in (inst.get("counters") or {}).items()}
     obj.attached_to = inst.get("attached_to")
-    bind_from_catalogue(obj)  # card text → live abilities
+    # Transform *before* binding (not after) so catalogue-derived abilities/
+    # keywords are bound against whichever face is actually current — the
+    # same ordering `RulesEngine.transform_permanent` enforces for a live
+    # transform, just inlined here since this builds a bare `GameObject` with
+    # no `RulesEngine` yet to call it on.
     if inst.get("transformed"):
         obj.transform()
+    bind_from_catalogue(obj)  # card text → live abilities
     return obj
 
 

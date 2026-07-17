@@ -1,7 +1,9 @@
-// "Verbindung" tab: configure the player name and backend server
-// address, persisted in a cookie (settings.js/cookies.js) so they
-// survive a reload. Shows the same live connection status as the
-// header indicator (connectionStatus.js) plus a manual re-check button.
+// "Einstellungen" tab: configure the backend server address, persisted
+// in a cookie (settings.js/cookies.js) so it survives a reload. Shows the
+// same live connection status as the header indicator (connectionStatus.js)
+// plus a manual re-check button. The player name itself lives on the
+// "Profil" tab (profileView.js); the player-asset sections below still key
+// off it via getSettings().playerName.
 
 import { getSettings, saveSettings } from './settings.js';
 import {
@@ -44,11 +46,6 @@ export function renderConnectionSettingsView(container) {
     <div class="connection-settings-panel">
       <h2>Einstellungen</h2>
       <p class="server-status" id="connection-settings-status"></p>
-
-      <div class="deck-section">
-        <label for="player-name-input">Spielername</label>
-        <input id="player-name-input" type="text" placeholder="z.B. Alex" />
-      </div>
 
       <div class="deck-section">
         <label for="server-url-input">Server-Adresse</label>
@@ -97,7 +94,6 @@ export function renderConnectionSettingsView(container) {
   `;
 
   const statusEl = container.querySelector('#connection-settings-status');
-  const nameInput = container.querySelector('#player-name-input');
   const urlInput = container.querySelector('#server-url-input');
   const saveBtn = container.querySelector('#save-settings-btn');
   const testBtn = container.querySelector('#test-connection-btn');
@@ -107,7 +103,6 @@ export function renderConnectionSettingsView(container) {
   const sleeveForm = container.querySelector('#sleeve-form');
 
   const settings = getSettings();
-  nameInput.value = settings.playerName;
   urlInput.value = settings.serverUrl;
 
   function renderStatus() {
@@ -269,14 +264,19 @@ export function renderConnectionSettingsView(container) {
   loadSleeves();
 
   saveBtn.addEventListener('click', () => {
-    const saved = saveSettings({ playerName: nameInput.value, serverUrl: urlInput.value });
+    const saved = saveSettings({ serverUrl: urlInput.value });
     urlInput.value = saved.serverUrl; // reflect normalization (trimmed/no trailing slash)
     refreshConnectionStatus();
-    loadTokenImages();
-    loadSleeves();
   });
 
   testBtn.addEventListener('click', () => {
     refreshConnectionStatus();
+  });
+
+  // The player name is edited on the "Profil" tab, not here — refresh the
+  // asset lists on every reveal in case it changed since this view last drew.
+  container.addEventListener('view-shown', () => {
+    loadTokenImages();
+    loadSleeves();
   });
 }

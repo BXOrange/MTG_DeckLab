@@ -1,10 +1,11 @@
 """Card model representing a single Magic: The Gathering card.
 
-Reference: /docs/06_CARD_GRAPHICS_AND_LAZY_LOADING.md (PART 1)
+Reference: /docs/concepts/06_CARD_GRAPHICS_AND_LAZY_LOADING.md (PART 1)
 """
 
 from __future__ import annotations
 
+import re
 from typing import Any, Optional
 
 #: Colors that may legally appear in a card's color identity.
@@ -12,6 +13,16 @@ VALID_COLORS: frozenset[str] = frozenset({"W", "U", "B", "R", "G"})
 
 #: Default mana cost used when none is supplied.
 _DEFAULT_MANA_COST: dict[str, int] = {"W": 0, "U": 0, "B": 0, "R": 0, "G": 0, "C": 0}
+
+
+def _fold_bare_name(text: str, name: str) -> str:
+    """Replace whole-word occurrences of ``name`` in ``text`` with "~".
+
+    Used by `Card.fuse_face` to pre-fold each split half's own self-reference
+    before concatenating — see that method's docstring for why."""
+    if not name:
+        return text
+    return re.sub(r"\b" + re.escape(name) + r"\b", "~", text)
 
 
 class Card:
@@ -44,7 +55,7 @@ class Card:
         keywords: Machine-readable keyword abilities parsed out of the
             oracle text (e.g. ["Flying", "Trample"]), as reported by
             Scryfall. This is a lookup table for the Phase 2 effect
-            system (docs/07_GAME_LOOP_EFFECT_SYSTEM.md); it does not
+            system (docs/concepts/07_GAME_LOOP_EFFECT_SYSTEM.md); it does not
             itself execute anything.
         image_uri_small: URL of the small Scryfall image.
         image_uri_normal: URL of the normal Scryfall image.
@@ -52,6 +63,14 @@ class Card:
         image_uri_png: URL of the print-quality Scryfall image.
         set_code: The set this printing is from, e.g. "ltr".
         rarity: The printing's rarity, e.g. "common", "mythic".
+        flavor_name: An alternate name printed on some promo printings
+            instead of/alongside the real one — Secret Lair's "Godzilla"
+            series (e.g. "Godzilla, King of the Monsters" for Zilortha,
+            Strength Incarnate), several Universes Beyond crossovers
+            (Marvel, …). Scryfall metadata, not a distinct card or a rules
+            characteristic; empty for ordinary printings. Decklists built
+            from the physical card sometimes use this instead of the real
+            name — `CardDatabase`/`LazyCardLoader` resolve it too.
         is_legendary: Whether the card has the legendary supertype.
         has_partner: Whether the card has "Partner" or "Partner with X".
         partner_with: The named partner card if this card has
@@ -102,9 +121,11 @@ class Card:
         image_uri_png: str = "",
         set_code: str = "",
         rarity: str = "",
+        flavor_name: str = "",
         is_legendary: bool = False,
         has_partner: bool = False,
         partner_with: Optional[str] = None,
+        has_fuse: bool = False,
         layout: str = "",
         back_name: str = "",
         back_type_line: str = "",
@@ -163,9 +184,13 @@ class Card:
         self.image_uri_png = image_uri_png
         self.set_code = set_code
         self.rarity = rarity
+        self.flavor_name = flavor_name
         self.is_legendary = is_legendary
         self.has_partner = has_partner
         self.partner_with = partner_with
+        #: Whether this split card has Fuse (RULE 709.4 — cast both halves
+        #: as one spell for their combined cost). See `fuse_face`.
+        self.has_fuse = has_fuse
         self.layout = layout
         self.back_name = back_name
         self.back_type_line = back_type_line
@@ -200,6 +225,21 @@ class Card:
         return "saga" in self.type_line.lower()
 
     @property
+    def is_class(self) -> bool:
+        """Whether the card is a Class enchantment (RULE 716, subtype Class)."""
+        return "class" in self.type_line.lower()
+
+    @property
+    def is_leveler(self) -> bool:
+        """Whether the card is a Leveler (RULE 711 — a "Level up" ability).
+
+        Unlike Saga/Class, Leveler isn't a printed subtype — it's identified
+        by the "Level up {cost}" activated-ability line (RULE 711.4a), so
+        this reads the oracle text rather than the type line.
+        """
+        return bool(re.search(r"^level up\b", self.oracle_text or "", re.I | re.M))
+
+    @property
     def is_adventure(self) -> bool:
         """Whether the card has an Adventure half (RULE 715, layout)."""
         return self.layout == "adventure"
@@ -209,15 +249,30 @@ class Card:
         """Whether the card is a split card (RULE 709, layout)."""
         return self.layout == "split"
 
+    @property
+    def is_preparation(self) -> bool:
+        """Whether the card has an inset "prepare spell" (RULE 722, layout).
+
+        Unlike a modal DFC/Adventure/Split, the second face captured here
+        (via `back_face`) is never itself castable from hand (RULE 722.3) —
+        it only becomes reachable as a token copy created in exile once the
+        permanent "becomes prepared" (`GameObject.prepared`,
+        `RulesEngine.make_prepared`)."""
+        return self.layout == "prepare"
+
     def back_face(self) -> Optional["Card"]:
-        """The back face as its own `Card`, or None if this card has no back.
+        """The back/second face as its own `Card`, or None if there is none.
 
         Builds a printed-characteristics `Card` from the stored ``back_*``
-        fields (RULE 712 double-faced cards) so the back can be cast (a modal
-        DFC, RULE 712.10) or transformed into on the battlefield (RULE 712.8).
-        The two faces share the physical object's id; the back's derived type
-        flags come from its own ``back_type_line``. Returns None when no back
-        face was captured."""
+        fields so the back can be cast (a modal DFC, RULE 712.10, or a
+        split card's other half, RULE 709.3), transformed into on the
+        battlefield (RULE 712.8), cast as an Adventure's instant/sorcery
+        half (RULE 715.2b), or used as the template for a preparation
+        card's exiled copy once it becomes prepared (RULE 722.3c) —
+        whichever it is is distinguished by ``layout``. The two faces share
+        the physical object's id; the back's derived type flags come from
+        its own ``back_type_line``. Returns None when no back face was
+        captured."""
         if not self.back_name and not self.back_type_line:
             return None
         btl = self.back_type_line or self.type_line
@@ -242,6 +297,61 @@ class Card:
             image_uri_normal=self.back_image_uri_normal,
             image_uri_large=self.back_image_uri_large,
             image_uri_png=self.back_image_uri_png,
+        )
+
+    def fuse_face(self) -> Optional["Card"]:
+        """A synthetic merged `Card` for casting both split halves as one
+        spell (RULE 709.4 Fuse), or None if this card has no Fuse.
+
+        Not a printed face — Fuse casts *the whole card* for both halves'
+        combined cost, so this concatenates the two halves' raw
+        ``mana_cost_string``s and ``oracle_text``s onto one `Card` sharing
+        this card's own already-combined ``name``/``type_line`` (Scryfall
+        gives a split card's top-level name as "A // B" already) and
+        top-level ``converted_mana_cost`` (already the two halves' sum).
+        `ManaCost.parse` sums every generic symbol it finds regardless of
+        how many separate ``{N}`` groups they came from, so the
+        concatenated cost string prices correctly with no dedicated
+        cost-combining logic; likewise the oracle-text parser binds the
+        concatenated text as one card's (compound) rules text, so a fused
+        cast reuses the ordinary single-card cast/bind pipeline
+        (`RulesEngine.switch_to_face`) rather than needing two independent
+        effect sets on one stack item.
+
+        Each half's own oracle text refers to itself by its own bare name
+        (e.g. "Burn deals 2 damage..."), which the parser's self-reference
+        folding (``parser.oracle.normalize``) only recognises against
+        *this* `Card`'s own ``name`` — the combined "A // B" here, matching
+        neither half's bare text. So each half's own name is folded to the
+        ``~`` self-reference token *before* concatenating, the same
+        substitution the parser would do for a card whose name actually
+        matched — done locally (`_fold_bare_name`, mirroring
+        ``normalize._fold_self_name``'s word-boundary rule) rather than by
+        importing the parser front-end into this model."""
+        if not (self.is_split and self.has_fuse and self.back_name):
+            return None
+        back_type_line = self.back_type_line or ""
+        front_name = self.name.split("//")[0].strip()
+        front_text = _fold_bare_name(self.oracle_text, front_name)
+        back_text = _fold_bare_name(self.back_oracle_text, self.back_name)
+        return Card(
+            id=self.id,
+            name=self.name,
+            type_line=self.type_line,
+            mana_cost_string=self.mana_cost_string + self.back_mana_cost_string,
+            converted_mana_cost=self.converted_mana_cost,
+            color_identity=set(self.color_identity),
+            is_creature=False,
+            is_instant=self.is_instant and "instant" in back_type_line.lower(),
+            is_sorcery=self.is_sorcery or "sorcery" in back_type_line.lower(),
+            is_land=False,
+            oracle_text=f"{front_text}\n{back_text}",
+            is_legendary=self.is_legendary,
+            layout=self.layout,
+            image_uri_small=self.image_uri_small,
+            image_uri_normal=self.image_uri_normal,
+            image_uri_large=self.image_uri_large,
+            image_uri_png=self.image_uri_png,
         )
 
     @property
@@ -384,13 +494,28 @@ class Card:
         return bool(self.image_uri_normal or self.image_uri_small) or self.is_token
 
     @property
+    def has_clean_partner_with(self) -> bool:
+        """Whether `partner_with` (if set) is a bare card name.
+
+        A row cached before a `scryfall_client._partner_with` parsing fix
+        can have its RULE 207.2 reminder text still stuck on the end (e.g.
+        "Frodo, Adventurous Hobbit (When this creature enters, ...)"
+        instead of just "Frodo, Adventurous Hobbit") — no real card name
+        contains "(", so its presence means this row predates the fix.
+        `LazyCardLoader` uses this to refetch it instead of forever
+        wrongly rejecting a legal Partner-with pairing
+        (`services/commander_legality.py`).
+        """
+        return self.partner_with is None or "(" not in self.partner_with
+
+    @property
     def has_mana_cost_data(self) -> bool:
         """Whether `mana_cost_string` reflects a real Scryfall lookup.
 
         Scryfall gives every non-land an explicit cost string (even a
         genuinely free one is `"{0}"`, not blank) — so a non-land card with
         a blank `mana_cost_string` means this row predates that field
-        (`backend/Done_Backend.md` "Mana cost model"), not that the card
+        (`docs/implementation-state/Done_Backend.md` "Mana cost model"), not that the card
         is actually free. `ManaCost.from_card` can still *price* such a row
         from the legacy pip tally, just without hybrid/Phyrexian fidelity;
         `LazyCardLoader` uses this flag to refetch it instead of serving
@@ -423,9 +548,11 @@ class Card:
             "image_uri_png": self.image_uri_png,
             "set_code": self.set_code,
             "rarity": self.rarity,
+            "flavor_name": self.flavor_name,
             "is_legendary": self.is_legendary,
             "has_partner": self.has_partner,
             "partner_with": self.partner_with,
+            "has_fuse": self.has_fuse,
             "layout": self.layout,
             "has_back_face": self.has_back_face,
             "back_name": self.back_name,
@@ -466,9 +593,11 @@ class Card:
             image_uri_png=data.get("image_uri_png", ""),
             set_code=data.get("set_code", ""),
             rarity=data.get("rarity", ""),
+            flavor_name=data.get("flavor_name", ""),
             is_legendary=data.get("is_legendary", False),
             has_partner=data.get("has_partner", False),
             partner_with=data.get("partner_with"),
+            has_fuse=data.get("has_fuse", False),
             layout=data.get("layout", ""),
             back_name=data.get("back_name", ""),
             back_type_line=data.get("back_type_line", ""),

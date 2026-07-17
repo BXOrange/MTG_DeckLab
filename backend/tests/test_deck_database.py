@@ -1,6 +1,6 @@
 """Tests for the SQLite-backed DeckDatabase.
 
-Reference: backend/Done_Backend.md "Deck persistence".
+Reference: docs/implementation-state/Done_Backend.md "Deck persistence".
 """
 
 from mtg_analyzer.models.deck import Deck

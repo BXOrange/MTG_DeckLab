@@ -12,13 +12,18 @@ lands, tap mana, cast spells with the stack, attack, all validated server-side
 against the Comprehensive Rules (referenced as `RULE <n>` throughout the code).
 
 Two halves:
+
 - **`backend/`** — Python (FastAPI). The card model, rules engine, oracle
   effect IR, and the game-session API. This is where the depth is.
 - **`frontend/`** — a static, buildless ES-modules app (no bundler). Tabs for
   deck import/analysis, saved decks, the goldfish board, the **"Replay"**
-  board editor (a.k.a. puzzle mode), the card cache, and an **"Engine-Status"**
-  tab documenting engine coverage. UI language is **German**; MTG keyword names
-  stay English ("Flying", "Trample").
+  board editor (a.k.a. puzzle mode), the card cache, a Multiplayer stub, and
+  an **"Engine-Status"** tab documenting engine coverage, plus two header icon
+  buttons: **"Einstellungen"** (server address, player-uploaded token art,
+  card-back sleeves) and **"Profil"** (`profileView.js` — just the player
+  name, split out of Einstellungen so it reads as "who you are" rather than
+  a connection setting). UI language is **German**; MTG keyword names stay
+  English ("Flying", "Trample").
 
 The **Replay/Puzzle mode** is the goldfish's sibling: instead of playing a
 legal deck from turn 1 you *construct an arbitrary board* (1 player = puzzle, or
@@ -38,8 +43,9 @@ goldfish position can be exported and re-opened in Replay. Frontend:
 tokens that have no real Scryfall art (matched by token name) and a
 library of card-back "sleeve" designs, one of which can be picked per
 saved deck (`Deck.sleeve_id`). Stored server-side keyed by the free-text
-player name from Settings (this app has no auth) — `services/
-player_assets.py` / `api/player_assets.py` — rather than client-side,
+player name (this app has no auth) — set on the **Profil** tab
+(`profileView.js`), read via `getSettings().playerName` — via `services/
+player_assets.py` / `api/player_assets.py` rather than client-side,
 specifically so a shared backend can serve them to an opponent too, once
 multiplayer (`POST /api/game/multiplayer` is still a 501 stub) exists.
 The goldfish/Replay board (`gameBoardView.js` `resolveImageUrl`) renders
@@ -48,6 +54,15 @@ sleeve for a face-down/transformed token with none — real transformed
 DFCs keep their genuine Scryfall back-face art, so the sleeve fallback
 has no visible effect yet until a face-down permanent state
 (morph/manifest, not yet modeled) can reach that branch.
+
+A saved `Deck` also carries a free-text, optional `author` field (a
+descriptive credit, not an owner/auth concept — this app still has no user
+accounts) — set on the deck-import/edit tab and shown read-only in the
+saved-decks list, preserved-on-omission the same way `sleeve_id` is
+(`api/saved_decks.py`'s `save_deck`: a re-save that doesn't send `author`
+keeps the existing value). The saved-decks list also gained client-side
+color-identity/legality filters, the same checkbox-fieldset pattern the
+card cache view uses (`savedDecksView.js`/`cachedCardsView.js`).
 
 ## Run & test
 
@@ -67,7 +82,7 @@ backend changes with pytest (the suite is fast, ~500+ tests, keep it green).
 
 ## Architecture & data flow
 
-```
+```code
 Card (models/card.py)            immutable printed characteristics
   └─ GameObject (models/game_object.py)   one instance in a zone, mutable state
 GameState (models/game_state.py)  battlefield/stack/players/turn + event bus
@@ -93,11 +108,12 @@ fully `MODELED` (never half-resolving). The front-end has **no `game/` imports**
 (the security boundary); binding stays the binder's job.
 
 ### Key game/ modules
+
 - `effects.py` — effect hierarchy + `EffectRegistry` (whitelisted `type` →
   factory). One-shot effects, `TriggeredAbility`, `ActivatedAbility`,
   `StaticEffect` (phase-skip), `StaticAbility` (layer system), `ReplacementEffect`.
 - `combat.py` — combat/evasion **keyword recognition** (off Scryfall `keywords`
-  + oracle text) and the rules they impose (blocking legality, damage steps).
+  & oracle text) and the rules they impose (blocking legality, damage steps).
 - `continuous.py` — the **RULE 613 layer engine**. `recompute(state)` re-derives
   every battlefield permanent's characteristics in layer order and stamps
   derived P/T, types, granted keywords + a per-object `static_trace`.
@@ -112,133 +128,160 @@ fully `MODELED` (never half-resolving). The front-end has **no `game/` imports**
 
 The user-facing detail lives in the frontend **Engine-Status tab**
 (`frontend/src/js/implementationStatusView.js`) — keep that file in sync when
-the engine gains/loses coverage. In short, **implemented**: full turn/stack/SBA
-loop; London mulligan; targeting; mana (generic/color/colorless/hybrid/mono-
-hybrid/phyrexian/{X}); all common **combat keywords** (flying, reach, first/
-double strike, deathtouch, trample, vigilance, lifelink, menace, defender,
-haste, indestructible, protection-from, **landwalk**); **static abilities** via
-the layer system (layers 2 control / 4 type / 5 colour / 6 abilities / 7a CDA /
-7b–d P/T / 7e switch, **timestamp-ordered within a layer**, + cost adjustment;
-`EffectRegistry` bridges every layer for hand-authored/parsed `static` specs —
-`anthem`/`pt_set`/`grant_keyword`/`type_change`/`cost_reduction`/`color_change`/
-`control_change`/`pt_cda`/`pt_switch` — and `affects="attached_permanent"`
-resolves off a static ability's own source's `attached_to`, so an
-Aura/Equipment/Reconfigure's own buff/keyword-grant/colour-/control-change
-lands on whatever it's attached to, docs/11 §6); **layer 6 also grants a
-non-keyword ability** — `grant_mana_ability` (a mana ability, e.g. Tyvar
-Kell's "Elves you control have '{T}: Add {B}.'"; folded onto a permanent's
-printed mana options by `mana_abilities.mana_options_for`) and
-`grant_triggered_ability` (a full triggered ability, e.g. Dionus, Elvish
-Archdruid's granted "whenever this becomes tapped …", a new `TAPPED` event
-RULE 701.21b — each grantee gets its own scoped, cross-recompute-cached
-`TriggeredAbility` instance, `GameState._granted_ability_cache`, so
-`TriggeredAbility.once_per_turn` state survives passes and the grant vanishes
-the instant it stops applying); despite CR 612.1 mentioning text "granted …
-by other effects", this is layer 6 (RULE 613.1 ability-adding), not layer 3
-— see the "not yet" note below); **Aura/Equipment/Fortify/
-Reconfigure attachment** (RULE 303.4f/301.5/702.6/67/151: ETB attach on
-resolution, sorcery-speed equip/fortify/reconfigure activated abilities,
-RULE 704.5m/n on the host leaving — Aura to the graveyard, Equipment/
-Fortification/Reconfigure just unattached and left on the battlefield —
-and a Reconfigure permanent's creature-type toggling while (un)attached);
-**activated abilities** with full cost parsing incl. **loyalty `[±N]` costs**;
-**triggered abilities** (event-based) + replacement effects (bound via
-`ReplacementRegistry`, e.g. `prevent_damage`); **interactive trigger ordering**
-(RULE 603.3b, opt-in `state.interactive_ordering`); **a triggered ability's
-own target — and its "you may" — chosen interactively** (RULE 115/603.3c/
-603.5: `put_triggers_on_stack` opens a `trigger_target` `pending_choice` —
-the generic search/cascade/discover/order_triggers choice UI renders it for
-free — for a queued trigger whose first effect targets, *or* whose
-`optional` is set even with no target at all (a plain do/decline choice);
-`resolve_trigger_target_choice` places it with that target or drops it
-without ever hitting the stack, on decline or a required target with no
-legal option); one-shot effects
-(damage/draw/discard/destroy/counter/search/gain_life/mill/exile/tap/
-±1/±1-counters/**pump** ("+N/+N until end of turn" temp P/T + keyword grant,
-folded at layers 7d/6 and cleared at cleanup, RULE 613.4d/514.2)/**scry**/
-create-token/**copy_permanent**/**become_copy**/cascade/discover/…);
-`become_copy` (RULE 706/707.2) is a layer-1 "becomes a copy of target
-permanent" — unlike `copy_permanent` (a new token) it mutates the source
-object itself (`RulesEngine.become_copy`: swaps its `Card` for the target's
-copiable values via `Card.as_copy` and rebinds its abilities), registered
-for `Clever Impersonator`/`Phantasmal Image`/`Copy Artifact` — genuinely
-interactively playable end-to-end via the trigger-target choice above;
-modeled as an ordinary ENTERS_BATTLEFIELD trigger rather than true RULE
-614.1c/614.12 replacement timing; **tokens**
-with the RULE 704.5d cease-to-exist lifecycle (`GameObject.is_token`,
-`RulesEngine.create_token`); **planeswalkers** (loyalty abilities at
-sorcery-speed with a once-per-turn gate, damage removes loyalty, 0-loyalty SBA);
-commander damage plus **commander tax** (903.8); counters; **basic card
-structures** (DFC
-`GameObject.transform`, token copies, Saga lore counters + final-chapter
-sacrifice); **modal-DFC back-face casting/playing from hand** (RULE 712.10:
-`RulesEngine.snapshot_face`/`restore_face`/`switch_to_face` rebind an object
-onto its back face — same rebind treatment as `become_copy` — so
-`cast_spell`/`play_land` can commit to either face and `legal_actions` can
-preview/offer both independently, with rollback on a rejected back-face
-cast); a basic **interactive priority primitive** (`pass_priority(player)`,
-RULE 117). The **RULE 702 keyword catalogue**
-(`parser/oracle/catalogue/keywords.py`) parses all 194 keywords off a card into
-`keyword` `AbilitySpec`s (flag/number/cost/number+cost/quality shapes, each
-parametric one with its extractor regex); **flag keywords bind** — the binder
-docks them onto `GameObject.intrinsic_keywords`, which combat honours. The
-**oracle-effect front-end** (docs/09 Phase 1, `parser/oracle/`) turns oracle
-text into `AbilitySpec`s for the effect families (damage/draw/discard/destroy/
-gain_life/counter/mill/exile/tap/±1/±1-counters/pump/scry/create-token) as spell_effects,
-ETB/dies/attacks/blocks triggers, **`<cost>: <effect>` activated abilities**,
-and **`static` anthem/lord clauses** ("creatures you control get +N/+N", tribal
-"Other Goblins …", token anthems, colour-scoped/global "Black creatures …",
-compound "get +N/+N and have [kw]" via `catalogue/static_handlers.py` +
-subtype/tokens/color/exclude_self selectors in
-`continuous.affected_objects`) — all with a fail-closed coverage gate, so plain
-instants/sorceries/ETB-triggers/activated/static abilities resolve with no
-catalogue entry. `processing_list.py` reports cache-wide coverage + a ranked
-build order for the next handlers. **Not yet**: the remaining effect families
-(regenerate/modes "choose one"/"up to N" targets — each needs a one-shot effect
-first); oracle-text
-*recognition* of replacement clauses (the binder is ready — a front-end
-target/duration grammar is not); *behaviour* for the remaining parametric
-keywords (kicker/escape alt-costs, annihilator/afflict combat maths — the
-parameter binds onto `parametric_keywords` but nothing consumes it yet);
-replacement/prevention **ordering** by the affected player (RULE 616.1 — trigger
-ordering 603.3b *is* interactive); wiring the interactive priority primitive
-into the **multiplayer session/WebSocket** (`create_multiplayer` still stubbed);
-literal layer 3 (RULE 612 text-changing — rewriting a word in a card's own
-text, e.g. Artificial Evolution; *not* the same as granting another ability,
-which is layer 6 and covered above) and full RULE 613.8 dependency ordering
-— deliberately not built: nothing in the ~1000-card cache needs literal
-layer 3, and the current effect vocabulary can't construct a same-layer
-dependency case (every real interaction crosses layers, already sequenced by
-the fixed layer order), so a general implementation of either would be
-speculative and untestable (revisit if a card/effect ever needs one);
-combining the (opt-in) interactive
-trigger-ordering choice with a targeted trigger among the ordered set (a
-trigger placed via `resolve_trigger_order_choice` doesn't get a target-choice
-pause) — a narrow, unhandled edge case where both features individually work;
-re-validating an *existing* attachment's legality every SBA pass (today only
-"host left the battlefield" is checked, not e.g. a host gaining protection
-mid-game); and the remaining deeper card-type structures (Adventure/Split
-casting, Saga/Class/Leveler *chapter abilities*, battles/dungeons — MDFC
-back-face casting is done, see above; the basic Saga-lore/DFC-transform/
-token-copy scaffolding is in for the rest).
+the engine gains/loses coverage. This section is a short orientation only —
+for the actual mechanic-by-mechanic detail (what shipped, *why* it was built
+that way, which tests cover it), read
+[docs/implementation-state/Done_Backend.md](docs/implementation-state/Done_Backend.md);
+for open gaps and exactly what's left on a partial feature, read
+`backend/ToDo_Backend.md`. Both are organized under the same section headers
+(Rules Engine, Game Engine, Card-type & structural coverage, …) — search
+those files for a mechanic's name rather than re-deriving its state from the
+code or duplicating detail here.
+
+**Implemented**: the full turn/stack/priority/SBA loop; London mulligan;
+targeting; the whole mana model (generic/color/colorless/hybrid/mono-hybrid/
+Phyrexian/{X}), including RULE 605.3a **spend restrictions** ("Spend this
+mana only to cast a creature spell") as tagged lots in `models/mana_pool.py`
+gated by a caller-supplied predicate (`game/mana_abilities.py`'s
+`restriction_predicate_for_cast`/`_for_activation`), RULE 605.1a "any
+combination of colors" mana (`ManaAbility.any_combination`,
+`GameEngine.tap_for_mana`'s `color_split`), and RULE 605.1a hand-zone mana
+abilities ("Exile this card from your hand: Add …", Elvish/Simian Spirit
+Guide — `hand_mana_abilities_for`/`GameEngine.activate_hand_mana_ability`);
+all common combat keywords incl. landwalk; the RULE 613
+**layer system** (layers 1–7, timestamp-ordered within a layer + a bounded
+RULE 613.8 dependency pass, `EffectRegistry`-bridged for every hand-authored/
+parsed `static` spec shape, including layer-6 grants of a non-keyword mana
+or triggered ability and `affects="attached_permanent"` for Auras/Equipment/
+Reconfigure); Aura/Equipment/Fortify/Reconfigure attachment; activated
+abilities incl. loyalty `[±N]` costs; triggered abilities + RULE 616
+replacement effects, both with **interactive ordering** when 2+ apply to the
+same event/trigger batch, and a triggered ability's own target/"you may"
+chosen interactively too — including, since 2026-07-16, 2+ *different*
+targeting effects on one spell/ability each resolving against their own
+target instead of a shared list (`StackItem.target_groups`, gathered
+automatically one at a time for a triggered ability; a spell/activated
+ability's caller supplies it explicitly — no real card needs that yet); a
+ward cost's own `{X}` (RULE 702.21b, resolved fresh against the board at
+the ward ability's own resolution time, not when it triggers); the one-shot
+effect library (damage/draw/discard/
+destroy/counter/search/gain_life/mill/exile/tap/counters/pump/scry/
+create-token/copy_permanent/become_copy/cascade/discover/proliferate/…,
+including mass "destroy/exile all X [with a toughness/mana-value filter]"
+board wipes, RULE 601.2c's untargeted-selector shape `DestroyEffect`/
+`ExileEffect` share with `DealDamageEffect`); tokens (RULE
+704.5d lifecycle), Living Weapon's germ-token self-attach and Renown's
+counter-placement now real behaviour, not just keyword recognition;
+planeswalkers; commander damage + tax; the full RULE 702
+keyword catalogue (194 keywords, flag keywords bound to combat, RULE 702.8b
+Flash now gating cast timing); a trigger-subject family for "whenever
+equipped/enchanted creature `<verb>`" and "deals combat damage to a player"
+(`effect_binder`'s `"attached_permanent"`/`"self_or_attached_permanent"`
+subjects + a `EventType.DAMAGE` `"filter"` predicate); "play/cast
+from the top of your library" as a standing, battlefield-sourced permission
+(`game/top_library.py` — Oracle of Mul Daya/Glarb, Calamity's Augur
+hand-authored; the goldfish board's library zone shows the top card and its
+buttons whenever a player has this active); and the deeper card-type
+structures — DFC transform + day/night/daybound-nightbound, modal-DFC/
+Adventure/Split-Fuse/Prepared casting, Saga chapters, Class/Leveler
+level-ups.
+
+The **oracle-text → behaviour parser** (docs/09, `parser/oracle/`) is the
+main ongoing effort: `normalize` → `segmenter` → `catalogue/handlers` →
+`gate.parse_oracle` turns oracle text into `AbilitySpec`s with a fail-closed
+`MODELED`/`UNMODELED` coverage verdict (a card only gets parsed effects when
+*fully* modeled — never half-resolved). It covers most one-shot effect
+families, ETB/dies/attacks/blocks/Saga-chapter triggers with RULE 603.1
+subject scoping, `<cost>: <effect>` activated abilities, modal spells (both
+spell-level and triggered-ability-level, "choose one —"/"choose one or
+both —", "choose *N* —" for N>=2 — Kolaghan's/Austere Command-shaped,
+combining N modes' effects in printed order — and, since 2026-07-16,
+"choose *N* or more —" for a variable N, Farewell-shaped, combining
+whichever modes were picked, also in printed order),
+additional cast costs, the counter family, RULE 614.1 enters-tapped clauses
+(all four conditional variants) and enters-with-N-counters clauses, static
+anthem/lord clauses, and graveyard-card recursion/exile (Regrowth/
+Reanimate/Deathrite Shaman-shaped — own/any/an opponent's graveyard × any
+card type); regenerate (RULE 701.16 — a new pre-emptively-fired
+`EventType.DESTROY` `RulesEngine.destroy` runs through the existing
+replacement-effect machinery so `RulesEngine.regenerate`'s shield can
+intercept it; also closed a RULE 701.16c gap where sacrifice previously
+went through `destroy` too and could have wrongly been save-able by a
+shield — sacrifice now uses the new non-destructive
+`RulesEngine.put_into_graveyard`); RULE 115.1a "up to one target" (any
+`{TARGET}`-based handler) generalized to N>=2 for `destroy`/`exile`/
+`damage` (since 2026-07-16 — "destroy two target creatures"/"up to two
+target artifacts and/or enchantments"; other targeting families stay
+N=1-only until a real card needs it); a "remove a counter from ~"
+activation cost (RULE 701.19/602.1); a generalized "search your library
+for X" tutor/ramp/fetch grammar (criteria filters, "reveal", destination/
+pronoun variants, reordered "shuffle...put on top" — 13 real popular
+tutors, onto the already-generic `SearchLibraryEffect`); RULE 702.33b's
+"if this spell was
+kicked, \<effect\>." as an *additional* effect (`EffectSpec.condition` +
+`game/effects.py`'s `ConditionalEffect`, not the "if kicked, ... instead"
+amount-override shape); oracle-text recognition of 3 of the 5
+already-bound replacement families (`double_tokens`/`double_counters`/
+`additional_damage` — standing-permanent clauses; `prevent_damage`'s
+two real cards are a different, still-unmodeled one-shot-spell shape);
+and surveil (RULE 701.31, mirroring the existing scry handler/effect
+shape exactly). `parse_oracle` itself is now memoized (content-keyed on
+every field it reads, `parser/oracle/gate.py`) since it's called once per
+`GameObject` built — a popular card no longer gets re-parsed from scratch
+on every copy/every game. `parser/oracle/processing_list.py` tracks
+cache-wide coverage (22.8% of the 2,909-card cache fully `MODELED` as of
+2026-07-16 — re-run `coverage_over_cards()` before trusting this number,
+the cache grows) and ranks the next handlers worth building.
+
+**Notable gaps** (see `backend/ToDo_Backend.md` for the full list with exact
+scope on each): a kicked spell's "if kicked, ... instead" *override* conditional (as opposed to the
+additional-effect shape already shipped); the remaining RULE 616.1
+replacement-clause formulations (`prevent_damage`'s one-shot-spell shape,
+differently-scoped/compound-filter variants); "search library and/or
+graveyard" (Doomsday/Finale of Devastation — needs a `request_search`
+engine extension, not just parsing); wiring the interactive priority
+primitive into the multiplayer session/WebSocket; and battles/dungeons. Narrower,
+already-shipped-feature rough edges
+(e.g. re-validating an *existing* attachment's legality every SBA pass, not
+just on the host leaving; combining interactive trigger-ordering with a
+targeted trigger; bespoke *conditional* transform triggers like Delver of
+Secrets) are tracked separately in
+[docs/implementation-state/ToDo_EdgeCases.md](docs/implementation-state/ToDo_EdgeCases.md).
 
 Hand-authoring a card's abilities directly (rather than waiting on the
 oracle-effect front-end, or for a replacement-clause/conditional-trigger the
 front-end can't express yet) goes in `game/ability_catalogue.py` — see
-[docs/11_CARD_CATALOGUE_AUTHORING_GUIDE.md](docs/11_CARD_CATALOGUE_AUTHORING_GUIDE.md)
+[docs/Reference/11_CARD_CATALOGUE_AUTHORING_GUIDE.md](docs/Reference/11_CARD_CATALOGUE_AUTHORING_GUIDE.md)
 for the field-by-field how-to and the full `EffectSpec`/layer whitelist.
 
-Living backlogs: `backend/ToDo_Backend.md` (open) and `backend/Done_Backend.md`
-(shipped). The plan to finish is `docs/10_COMPLETION_ROADMAP.md` (dependency-
-ordered milestones). Design docs: `docs/01`–`10` + `docs/IMPLEMENTATION_GUIDE.md`
-(the original Weeks 1–4 status roadmap is archived at
-`docs/history/IMPLEMENTATION_STATUS.md`).
+Living backlogs: `backend/ToDo_Backend.md` (open, stays next to the backend
+code it tracks) and `docs/implementation-state/Done_Backend.md` (shipped —
+append-only history rather than something edited in lockstep with
+in-progress code, so it lives under `docs/`; same split for the frontend's
+`frontend/ToDo_Frontend.md` / `docs/implementation-state/Done_Frontend.md`).
+[`docs/implementation-state/ToDo_EdgeCases.md`](docs/implementation-state/ToDo_EdgeCases.md)
+is a narrower, cross-cutting sibling: specific, low-probability scenarios a
+shipped feature deliberately leaves unhandled (not a large open feature —
+those stay in the ToDo files above) — check it before treating one of these
+as a surprise bug. The plan to finish is `docs/implementation-state/10_COMPLETION_ROADMAP.md`
+(dependency-ordered milestones, reconciling the backlog files above into a
+coverage table). `docs/` is organized by *kind of question*: `requirements/`
+(what should it do), `concepts/` (how is it designed — architecture, effect
+system, oracle parser, plus [PlantUML architecture diagrams](docs/concepts/12_ARCHITECTURE_DIAGRAMS.md)),
+`Reference/` (how do I do X, or look something up — card-cache format,
+card-catalogue authoring, plus the Comprehensive Rules text + `rules_wiki/`),
+`implementation-state/` (what's built now — the roadmap above, both `Done_*`
+files, and the original phased `IMPLEMENTATION_GUIDE.md`). See
+[docs/README.md](docs/README.md) for the full map. End-user documentation
+(how to *use* the app — deck import, Goldfisch, Replay/Puzzle, settings —
+not how it's built) lives separately in [`user-docs/`](user-docs/), in
+English and German.
 
 ## Conventions & gotchas
 
 - **RULE references**: comment rules-relevant code with the CR number
   (`RULE 613.7`). Match the surrounding comment density and style. To read the
-  actual rule text, use the wiki in `Reference/rules_wiki/` — it maps every rule
+  actual rule text, use the wiki in `docs/Reference/rules_wiki/` — it maps every rule
   number and glossary term to its line in the CR source (too large to load whole);
   regenerate with `build_wiki.py` after a rules update.
 - **Model → game import boundary**: `models/` must not import `game/` at module
@@ -254,11 +297,41 @@ ordered milestones). Design docs: `docs/01`–`10` + `docs/IMPLEMENTATION_GUIDE.
 - **Security**: nothing derived from card text becomes code. Effects are a
   whitelisted `type` string + clamped params (`spec.py`); the binder is the only
   thing that turns specs into behaviour.
+- **Configuration**: on-disk paths and a few runtime constants (cache/data
+  dirs, Scryfall User-Agent/rate limit) live in `mtg_analyzer/config.py`,
+  overridable via `MTG_CACHE_DIR`/`MTG_DATA_DIR`/`MTG_USER_AGENT`/
+  `MTG_SCRYFALL_MIN_REQUEST_INTERVAL` env vars — point a one-off script or
+  test run elsewhere without colliding with a real dev server's cache/saved
+  decks. Service modules (`card_database.py`, `deck_database.py`, etc.) keep
+  their old constant names (`CACHE_ROOT`, `DEFAULT_DB_PATH`, …) as aliases
+  onto `config.py`'s values; `api/dependencies.py`'s singletons import
+  straight from `config.py`. `LazyCardLoader`'s loading *policy* is also
+  here: `SCRYFALL_PRIMARY` (`MTG_SCRYFALL_PRIMARY` env var, or
+  `./start.sh --scryfall-primary`) — default `False`, **cache-primary**:
+  an already-cached card is served as-is even if it looks `stale`
+  (missing mana-cost/image data, a pre-fix `Card.partner_with`
+  reminder-text tail — see `services/lazy_card_loader.py`'s `_is_fresh`),
+  never silently refetched, so an ordinary deck load can't make a
+  surprise Scryfall call (or hit its rate limit) just from browsing
+  already-known cards. `True` restores this project's original
+  **scryfall-primary** behavior of always refetching a stale row. A name
+  that's never been cached at all is *always* fetched once either way —
+  that part isn't a policy choice.
 - **Frontend**: no framework. Views are `render*(container)` functions setting
   `innerHTML` and wiring listeners; escape user/card text with `escapeHtml` /
   `escapeAttr`. Client-only prefs persist via cookies (`cookies.js`).
 - **Commits**: only when asked; branch first if on `main`. End commit messages
   with `Co-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>`.
+- **ToDo/Done split discipline**: `backend/ToDo_Backend.md` /
+  `frontend/ToDo_Frontend.md` are read in full often (by humans and Claude)
+  and, unlike `Done_*.md`, aren't append-only history — they're meant to
+  hold *only* open work. When you finish an item, move its narrative into
+  the matching section of `docs/implementation-state/Done_Backend.md` /
+  `Done_Frontend.md` (section headers mirror 1:1) instead of leaving it
+  checked off with its writeup still in place — a one-line "moved to
+  Done_*.md, section name" pointer, or just deleting the line, is enough.
+  Leaving finished work's full detail sitting in ToDo defeats the split and
+  makes every future read of that file more expensive for no reason.
 
 ## Where to look first
 
@@ -268,10 +341,15 @@ ordered milestones). Design docs: `docs/01`–`10` + `docs/IMPLEMENTATION_GUIDE.
 | Static abilities / P/T / anthems | `game/continuous.py`, `models/game_object.py` |
 | Activated abilities / costs | `game/costs.py`, `game/game_engine.py` (`activate_ability`) |
 | Card abilities / fetch lands / enters-tapped | `game/ability_catalogue.py`, `effect_binder.bind_from_catalogue` |
-| Hand-authoring a specific card's effects | [docs/11_CARD_CATALOGUE_AUTHORING_GUIDE.md](docs/11_CARD_CATALOGUE_AUTHORING_GUIDE.md) |
+| Hand-authoring a specific card's effects | [docs/Reference/11_CARD_CATALOGUE_AUTHORING_GUIDE.md](docs/Reference/11_CARD_CATALOGUE_AUTHORING_GUIDE.md) |
 | Effects / triggers | `game/effects.py`, `game/effect_binder.py` |
+| "Play/cast from top of library" permission | `game/top_library.py`, `game/game_engine.py` (`can_play_land`/`can_cast`/`legal_actions`), `gameBoardView.js` (`libraryTopHtml`) |
+| On-disk paths / env-var config | `backend/mtg_analyzer/config.py` |
 | Goldfish UI | `frontend/src/js/goldfishView.js` |
 | Replay/Puzzle mode (build+save/load a board) | `backend/mtg_analyzer/services/replay.py`, `game_session.py` (`edit_*` actions), `frontend/src/js/replayView.js` |
-| Player-uploaded token art / card-back sleeves | `backend/mtg_analyzer/services/player_assets.py`, `api/player_assets.py`, `frontend/src/js/connectionSettingsView.js`, `gameBoardView.js` (`resolveImageUrl`/`setAssets`) |
+| Archidekt deck import proxy | `backend/mtg_analyzer/services/archidekt_client.py`, `api/import_external.py` (Moxfield was tried and reverted twice — Cloudflare-blocked; don't re-add it without checking that's changed) |
+| Player-uploaded token art / card-back sleeves | `backend/mtg_analyzer/services/player_assets.py`, `api/player_assets.py`, `frontend/src/js/connectionSettingsView.js`, `frontend/src/js/profileView.js` (player name), `gameBoardView.js` (`resolveImageUrl`/`setAssets`) |
 | Engine coverage doc (user-facing) | `frontend/src/js/implementationStatusView.js` |
-| Looking up a `RULE <n>` in the CR text | `Reference/rules_wiki/` (rule#/term → source line; see its `README.md`) |
+| Looking up a `RULE <n>` in the CR text | `docs/Reference/rules_wiki/` (rule#/term → source line; see its `README.md`) |
+| Full docs/ map (requirements/concepts/Reference/implementation-state) | [docs/README.md](docs/README.md) |
+| How to *use* the app (not build it) | [user-docs/](user-docs/) (English + German) |

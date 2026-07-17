@@ -1,6 +1,6 @@
 """Static continuous-ability handlers — anthems and keyword grants (docs/09).
 
-Reference: docs/09_ORACLE_EFFECT_PARSER.md (effect-family handlers), RULE 613
+Reference: docs/concepts/09_ORACLE_EFFECT_PARSER.md (effect-family handlers), RULE 613
 (the layer system these feed). A *permanent's* standing sentence like "Other
 creatures you control get +1/+1" or "Goblins you control have haste" is a
 **static** ability, not a one-shot effect — it reshapes other permanents
@@ -16,6 +16,17 @@ mis-read as anthems (fail-closed). Anything with an "until end of turn" tail is
 a *temporary* effect an instant grants, not a static ability, and won't
 full-match here.
 
+A second, closed family recognises an Aura/Equipment/Fortification's own
+attached-permanent buff — "equipped creature gets +2/+2", "enchanted creature
+has trample" (RULE 303.4/301.5, docs/11 §6 "attached_permanent"). Unlike the
+"you control" scopes above, these five printed subject phrases
+(`_ATTACHED_SUBJECTS`) always resolve off the ability's own source's
+`attached_to`, so they emit `affects="attached_permanent"` rather than any
+controller-scoped selector; `game/continuous.py`'s `group_selector_objects`
+already honours that selector for both `anthem` and `grant_keyword` (it's the
+same code path the hand-authored Armadillo Cloak entry in
+`game/ability_catalogue.py` uses) — only the parser recognition was missing.
+
 Pure regex + data — **no `game/` imports** (front-end security boundary).
 """
 
@@ -26,6 +37,7 @@ from typing import NamedTuple, Optional
 
 from ..spec import EffectSpec
 from .keywords import KEYWORDS, KeywordShape, keyword_slug
+from .subgrammars import CANT_BE_COUNTERED_RE
 
 #: Type words that are *not* creature subtypes — a scope built on one of these
 #: isn't a creature anthem/grant, so we don't claim it.
@@ -49,6 +61,37 @@ _ANTHEM_RE = re.compile(
 _GRANT_RE = re.compile(
     r"(?:(?P<scope>other) )?(?P<body>[a-z][a-z ]*?)(?P<yours> you control)? "
     r"have (?P<kw>[a-z][a-z, ]*)",
+    re.IGNORECASE,
+)
+
+#: The subject phrases an Aura/Equipment/Fortification's own buff clause is
+#: printed with — a closed list (not a general noun-phrase parse like
+#: `_scope`, since only these five shapes actually appear on cards) rather
+#: than any combination of "equipped/enchanted/fortified" x
+#: "creature/land/permanent" ("equipped land"/"fortified creature" don't
+#: exist and stay unclaimed).
+_ATTACHED_SUBJECTS = (
+    "equipped creature",
+    "enchanted creature",
+    "fortified land",
+    "enchanted permanent",
+    "enchanted land",
+)
+_ATTACHED_SUBJECT_PATTERN = "|".join(re.escape(s) for s in _ATTACHED_SUBJECTS)
+
+# "<equipped/enchanted/fortified subject> gets +N/+N [and has <keywords>]"
+# (attached-permanent anthem, +grant) — singular "gets"/"has", unlike the
+# plural "get"/"have" of `_ANTHEM_RE`/`_GRANT_RE` above (those two families
+# never collide on the same clause text).
+_ATTACHED_ANTHEM_RE = re.compile(
+    rf"(?P<subject>{_ATTACHED_SUBJECT_PATTERN}) "
+    r"gets (?P<p>[+-]\d+)/(?P<t>[+-]\d+)"
+    r"(?: and has (?P<kw>[a-z][a-z, ]*))?",
+    re.IGNORECASE,
+)
+# "<equipped/enchanted/fortified subject> has <keywords>"  (keyword-only grant)
+_ATTACHED_GRANT_RE = re.compile(
+    rf"(?P<subject>{_ATTACHED_SUBJECT_PATTERN}) has (?P<kw>[a-z][a-z, ]*)",
     re.IGNORECASE,
 )
 
@@ -160,8 +203,47 @@ def static_effect_specs(clause: str) -> Optional[list[EffectSpec]]:
     "until end of turn" phrasing isn't claimed. A compound "get +N/+N and have
     <keywords>" emits both an ``anthem`` and a ``grant_keyword`` spec. The specs
     carry ``affects`` + optional ``subtype``/``tokens`` for the layer engine.
+    Also claims the attached-permanent shape ("equipped/enchanted creature
+    gets +N/+N [and has <keywords>]", "equipped/enchanted creature has
+    <keywords>") with ``affects="attached_permanent"`` — see
+    `_ATTACHED_SUBJECTS` above.
     """
     text = clause.strip().rstrip(".").strip()
+
+    # "This spell can't be countered." (RULE 118-area) — printed on a
+    # permanent as a standing line even though it only matters while the
+    # object is still a spell on the stack; `catalogue.handlers` claims the
+    # identical phrase for the instant/sorcery spell_effect path, see
+    # `CANT_BE_COUNTERED_RE`'s docstring for why both need it.
+    if CANT_BE_COUNTERED_RE.fullmatch(text):
+        return [EffectSpec("cant_be_countered", {})]
+
+    # Attached-permanent shape first ("equipped creature gets +2/+2 [and has
+    # <keywords>]") — a closed subject list, so this never competes with the
+    # "you control" scopes below (singular "gets"/"has" vs. their plural
+    # "get"/"have"). `affects="attached_permanent"` is honoured by both
+    # `anthem` (layer 7c) and `grant_keyword` (layer 6) in `game/continuous.py`.
+    m = _ATTACHED_ANTHEM_RE.fullmatch(text)
+    if m is not None:
+        specs = [
+            EffectSpec("anthem", {"power": int(m.group("p")), "toughness": int(m.group("t")),
+                                   "affects": "attached_permanent"})
+        ]
+        if m.group("kw"):  # "… and has <keywords>" tail
+            keywords = _flag_keywords(m.group("kw"))
+            if keywords is None:
+                return None  # e.g. a granted landwalk — fail-closed, whole clause
+            specs.append(EffectSpec("grant_keyword", {"keywords": keywords,
+                                                        "affects": "attached_permanent"}))
+        return specs
+
+    # Attached-permanent keyword-only grant ("equipped creature has trample").
+    m = _ATTACHED_GRANT_RE.fullmatch(text)
+    if m is not None:
+        keywords = _flag_keywords(m.group("kw"))
+        if keywords is None:
+            return None
+        return [EffectSpec("grant_keyword", {"keywords": keywords, "affects": "attached_permanent"})]
 
     m = _ANTHEM_RE.fullmatch(text)
     if m is not None:

@@ -1,6 +1,6 @@
 """The game engine: turn/phase/step loop, actions, goldfish (docs/02 R4.*).
 
-Reference: docs/02_MVP_USECASES_REVISED.md R4.1-R4.3 (Game Loop, Priority,
+Reference: docs/requirements/02_MVP_USECASES_REVISED.md R4.1-R4.3 (Game Loop, Priority,
 Action Validation), UC3 (Goldfisch), docs/07 PART 1/8.
 
 `RulesEngine` is the toolbox of rules primitives; `GameEngine` is the
@@ -15,6 +15,8 @@ today). `run_goldfish_turn` wires those together into a solo auto-turn
 
 from __future__ import annotations
 
+import itertools
+from contextlib import contextmanager
 from typing import Any, Optional
 
 from ..models.card import Card
@@ -24,9 +26,16 @@ from ..models.game_state import GameState, StackItem
 from ..models.mana_cost import ManaCost
 from ..models.player import Player
 from . import combat, continuous
-from .costs import DISCARD_HAND, ActivationCost
+from .costs import DISCARD_HAND, PAY_LIFE_X, ActivationCost, parse_activation_cost
 from .effects import ActivatedAbility
-from .mana_abilities import mana_options_for, option_label
+from .mana_abilities import (
+    hand_mana_abilities_for,
+    mana_abilities_for,
+    option_label,
+    restriction_predicate_for_activation,
+    restriction_predicate_for_cast,
+    validate_color_split,
+)
 from .phases import GamePhase, GameStep, default_turn_sequence
 from .rules_engine import RulesEngine
 from .targeting import (
@@ -34,6 +43,10 @@ from .targeting import (
     legal_targets,
     requirements_with_targets,
     spell_target_specs,
+)
+from .top_library import (
+    may_cast_spell_from_top_of_library,
+    may_play_land_from_top_of_library,
 )
 
 #: Maximum hand size enforced at cleanup (RULE 402.2 / 514.1).
@@ -119,12 +132,19 @@ class GameEngine:
             self.state.turn_number = 1
             self.state.active_player_index = 0
         else:
+            # Capture the outgoing player's final spell count before rotating
+            # — RULE 731.2's day/night check reads *last* turn's active
+            # player, from the untap step of the turn about to begin.
+            outgoing = self.state.active_player
+            self.state._last_turn_player_id = outgoing.id
+            self.state._last_turn_spell_count = self.state.spells_cast_this_turn.get(outgoing.id, 0)
             self.state.turn_number += 1
             # Rotate to the next player, skipping the passive goldfish dummy
             # (UC3) so a solo game keeps handing turns back to the human.
             self.state.active_player_index = self.state.next_active_index()
         active = self.state.active_player
         active.lands_played_this_turn = 0
+        self.state.spells_cast_this_turn[active.id] = 0
         self._clear_combat()
         # RULE 117.3a: the active player receives priority at the start of
         # their turn (harmless bookkeeping for solo play; the primitive an
@@ -256,6 +276,9 @@ class GameEngine:
             # RULE 606.3: a new loyalty ability may be activated this turn.
             obj.activated_loyalty_this_turn = False
         self.state.fire_event(GameEvent(EventType.UNTAP, player_id=active.id))
+        # RULE 731.2: "as the second part of the untap step", check whether
+        # day/night should flip based on last turn's spell count.
+        self.rules.apply_day_night_turn_check()
 
     def _step_draw(self) -> None:
         # RULE 103.7a: the starting player skips their first draw in a
@@ -447,7 +470,10 @@ class GameEngine:
         if excess > 0:
             self.rules.discard(active, excess)
         # RULE 514.2: remove marked damage and end "until end of turn" effects
-        # (pump P/T bonuses and temporary keyword grants).
+        # (pump P/T bonuses, temporary keyword grants, and a "becomes a copy
+        # of target creature until end of turn" activation — Cursed Mirror).
+        from . import copy_mechanics
+
         ended_effects = False
         for obj in self.state.permanents():
             obj.damage_marked = 0
@@ -456,6 +482,20 @@ class GameEngine:
                 obj.temp_toughness = 0
                 obj.temp_keywords.clear()
                 ended_effects = True
+            if obj.temp_unblockable:
+                obj.temp_unblockable = False
+                ended_effects = True
+            if obj._copy_until_eot_base is not None:
+                copy_mechanics.restore_face(obj, obj._copy_until_eot_base)
+                obj._copy_until_eot_base = None
+                ended_effects = True
+            # RULE 701.16a: an unused regeneration shield lasts only "that
+            # turn" — sweep it here rather than only on consumption
+            # (`RulesEngine.regenerate`'s own removal handles the used case).
+            if any(getattr(e, "regeneration_shield", False) for e in obj.replacement_effects):
+                obj.replacement_effects = [
+                    e for e in obj.replacement_effects if not getattr(e, "regeneration_shield", False)
+                ]
         if ended_effects:
             self.recompute_continuous_effects()  # re-derive P/T sans the pumps
         self._clear_combat()
@@ -577,9 +617,49 @@ class GameEngine:
             # RULE 115/603.3c: the option id is a permanent's instance id or a
             # player's id (not always int-castable, unlike the other kinds).
             self.rules.resolve_trigger_target_choice(None if declined else str(answer))
+        elif kind == "trigger_target_multi":
+            # RULE 115.1/603.3c generalized: a trigger with 2+ *different*
+            # targeting effects — one of these fires per effect, in turn
+            # (`_continue_trigger_multi_target`), same option shape as
+            # "trigger_target" above.
+            self.rules.resolve_trigger_target_multi_choice(None if declined else str(answer))
+        elif kind == "trigger_mode":
+            # RULE 700.2: the option id is a mode's index, or "both" (700.2e)
+            # — a mandatory choice, so a decline still resolves the first mode
+            # rather than dropping it (`resolve_trigger_mode_choice` defaults
+            # an unrecognized/missing answer the same way).
+            self.rules.resolve_trigger_mode_choice(None if declined else str(answer))
         elif kind == "land_tapped":
             # RULE 614.1: a shock land's "pay life to stay untapped" choice.
             self.rules.resolve_land_tapped_choice(None if declined else str(answer))
+        elif kind == "add_mana_any_color":
+            # RULE 106.4: which color to add — a mandatory choice, so a
+            # decline still resolves to a color rather than adding nothing
+            # (`resolve_add_mana_any_color_choice` defaults an
+            # unrecognized/missing answer the same way trigger_mode does).
+            self.rules.resolve_add_mana_any_color_choice(None if declined else str(answer))
+        elif kind == "replacement_order":
+            # RULE 616.1: the option id is the index of the replacement
+            # effect to apply next.
+            index = None if declined else int(answer)
+            self.rules.resolve_replacement_order_choice(index)
+        elif kind == "enter_as_copy":
+            # RULE 614.1c/614.12: the option id is a permanent's instance id,
+            # or decline to enter as itself.
+            self.rules.resolve_enter_as_copy_choice(None if declined else str(answer))
+        elif kind == "counter_unless_pays":
+            # RULE 601: "pay" saves the target spell, anything else counters it.
+            self.rules.resolve_counter_unless_pays_choice(None if declined else str(answer))
+        elif kind == "ward":
+            # RULE 702.21: "pay" saves the caster's spell/ability, anything
+            # else counters it — the caster decides, not the target's
+            # controller (unlike counter_unless_pays).
+            self.rules.resolve_ward_choice(None if declined else str(answer))
+        elif kind == "commander_zone":
+            # RULE 903.9a/9b: "command" moves the commander to the command
+            # zone instead of wherever it landed/was headed; anything else
+            # leaves it there.
+            self.rules.resolve_commander_zone_choice(None if declined else str(answer))
         else:  # search: a card's instance id, or decline
             instance_id = None if declined else int(answer)
             self.rules.resolve_search_choice(instance_id)
@@ -593,31 +673,41 @@ class GameEngine:
         return self.state.current_step in ("main1", "main2")
 
     def _face_card(self, obj: GameObject, face: str = "front") -> Optional[Card]:
-        """The `Card` ``face`` ("front"/"back") refers to for ``obj``.
+        """The `Card` ``face`` ("front"/"back"/"fuse") refers to for ``obj``.
 
         "front" is always ``obj.card`` as it currently stands — which also
-        makes this work after a modal DFC has already been switched (RULE
-        712.10), since at that point "the current face" *is* the back. "back"
-        requires ``obj.card`` to be a modal DFC with captured back data and
-        returns that face's printed `Card`, or None otherwise. Read-only: it
-        never mutates ``obj``, so callers can use it to preview the un-chosen
+        makes this work after a second face has already been switched to,
+        since at that point "the current face" *is* the back. "back" is
+        whatever `Card.back_face` captured — a modal DFC's back (RULE
+        712.10), a split card's other half (RULE 709.3), or an Adventure's
+        instant/sorcery half (RULE 715.2b) — or None if nothing was
+        captured for this card. "fuse" is a split card's synthetic combined
+        cast (RULE 709.4, `Card.fuse_face`), or None without Fuse. Read-only:
+        never mutates ``obj``, so callers can use it to preview an un-chosen
         face (e.g. for `legal_actions`) without committing to it.
         """
         if face == "back":
-            if not obj.card.is_modal_dfc:
-                return None
             return obj.card.back_face()
+        if face == "fuse":
+            return obj.card.fuse_face()
         return obj.card
 
     def can_play_land(self, player: Player, obj: GameObject, face: str = "front") -> bool:
         card = self._face_card(obj, face)
+        # RULE 505.5b: from hand, always — or from the top of the library
+        # (Oracle of Mul Daya-shaped) when some permanent grants that.
+        in_playable_zone = obj in player.hand or (
+            bool(player.library)
+            and obj is player.library[-1]
+            and may_play_land_from_top_of_library(player, self.state)
+        )
         return (
             card is not None
             and player is self.state.active_player
             and self._in_main_phase()
             and not self.state.stack
             and player.lands_played_this_turn < player.max_lands_per_turn
-            and obj in player.hand
+            and in_playable_zone
             and card.is_land
         )
 
@@ -634,7 +724,12 @@ class GameEngine:
             raise ValueError(f"{player.id} cannot play {obj.name} now")
         if face == "back":
             self.rules.switch_to_face(obj, obj.card.back_face())
-        player.remove_from_zone(obj, Zone.HAND)
+        # Zone-agnostic (not just hand) so a land can be played from the top
+        # of the library (Oracle of Mul Daya-shaped, `can_play_land` above) —
+        # ``obj.zone`` is always accurate (set on creation/every zone move),
+        # the same "read the object's own zone" idiom
+        # `RulesEngine._remove_from_current_zone` uses for casting.
+        player.remove_from_zone(obj, obj.zone)
         obj.summoning_sick = True
         # RULE 614.1: a tap-land enters the battlefield tapped — including a
         # shock/check/fast/slow land's conditional shape (payment choice or
@@ -647,43 +742,228 @@ class GameEngine:
             GameEvent(EventType.LAND_PLAYED, player_id=player.id, card_id=obj.card.id, land=obj.name)
         )
         self.state.fire_event(
-            GameEvent(EventType.ENTERS_BATTLEFIELD, controller_id=player.id, object=obj.name)
+            GameEvent(
+                EventType.ENTERS_BATTLEFIELD,
+                controller_id=player.id,
+                object=obj.name,
+                instance_id=obj.instance_id,
+                object_types=sorted(obj.type_words),
+            )
         )
         # RULE 117.3c: taking an action reclaims priority for its taker.
         self.give_priority(player)
         return obj
 
-    def can_cast(self, player: Player, obj: GameObject, x: int = 0, face: str = "front") -> bool:
+    @staticmethod
+    def _castable_from_exile(obj: GameObject) -> bool:
+        """Whether an object sitting in exile is castable from there.
+
+        Two independent cases: an Adventure creature exiled by its own
+        spell half (RULE 715.3d, flagged `adventure_castable`), or a
+        prepared copy (RULE 722.3c) — the copy's mere presence in exile
+        already proves it's still valid, since `RulesEngine.
+        _remove_stranded_tokens` reaps it the instant its source stops
+        being prepared/on the battlefield, so no extra freshness check is
+        needed here beyond the `prepared_source_id` link existing.
+        """
+        return obj.adventure_castable or obj.prepared_source_id is not None
+
+    @staticmethod
+    def _graveyard_cast_keyword(obj: GameObject) -> Optional[str]:
+        """Which alt-cost-from-graveyard keyword ``obj`` carries — ``"flashback"``
+        (RULE 702.34) or ``"escape"`` (RULE 702.138) — or ``None``. The two
+        share the same "cast from the graveyard for an alternative cost"
+        zone gate; only what that cost is (and whether the card is exiled
+        after resolving, Flashback only) differs.
+        """
+        params = getattr(obj, "parametric_keywords", None) or {}
+        if "flashback" in params:
+            return "flashback"
+        if "escape" in params:
+            return "escape"
+        return None
+
+    @classmethod
+    def _castable_from_graveyard(cls, obj: GameObject) -> bool:
+        """Whether an object sitting in a graveyard is castable from there
+        (RULE 702.34/702.138) — unlike `_castable_from_exile`, this needs no
+        extra per-object flag: the keyword's mere presence is enough, since
+        Flashback/Escape are always-available alternative costs, not a
+        one-shot grant from some other effect.
+        """
+        return cls._graveyard_cast_keyword(obj) is not None
+
+    def _castable_from_library(self, player: Player, obj: GameObject) -> bool:
+        """Whether the top-of-library card ``obj`` is castable from there
+        right now (Oracle of Mul Daya/Glarb, Calamity's Augur-shaped — see
+        `game/top_library.py`). Only ever called for ``player.library[-1]``
+        (the top); a card any deeper in the library is never castable."""
+        return may_cast_spell_from_top_of_library(player, self.state, obj.card)
+
+    @staticmethod
+    def _flashback_cost(obj: GameObject) -> Optional["ManaCost"]:
+        """RULE 702.34b: ``obj``'s Flashback cost as a `ManaCost`, or
+        ``None`` if it carries no Flashback keyword (or one with no parsed
+        cost)."""
+        param = (getattr(obj, "parametric_keywords", None) or {}).get("flashback")
+        if not param or not param.get("cost"):
+            return None
+        return ManaCost.parse(str(param["cost"]))
+
+    @staticmethod
+    def _escape_cost(obj: GameObject) -> Optional["ActivationCost"]:
+        """RULE 702.138b: ``obj``'s Escape cost — mana plus "exile N other
+        cards from your graveyard" — as a parsed `ActivationCost`, or
+        ``None`` if it carries no Escape keyword (or one with no parsed
+        cost). Uses the full activated-ability cost grammar (`game/costs.
+        parse_activation_cost`), not just `ManaCost`, since Escape's cost
+        has a non-mana component the mana model alone can't hold.
+        """
+        param = (getattr(obj, "parametric_keywords", None) or {}).get("escape")
+        if not param or not param.get("cost"):
+            return None
+        return parse_activation_cost(str(param["cost"]))
+
+    def can_cast(
+        self,
+        player: Player,
+        obj: GameObject,
+        x: int = 0,
+        face: str = "front",
+        kicked: int = 0,
+        buyback: bool = False,
+    ) -> bool:
         """RULE 601/602.5: is this spell castable by ``player`` right now?
 
         ``x`` is the value that would be announced for a cost containing
         ``{X}`` (ignored otherwise) — pass 0 (the default) to check bare
         castability, or a specific value to check whether *that* X is
-        affordable. ``face="back"`` checks a modal DFC's back face (RULE
-        712.10) instead, without mutating ``obj`` — a preview, used by
-        `legal_actions` to decide whether to offer casting it.
+        affordable. ``face="back"``/``"fuse"`` check a second castable face
+        (see `_face_card`) instead, without mutating ``obj`` — a preview,
+        used by `legal_actions` to decide whether to offer casting it.
+        ``kicked`` is how many times Kicker (RULE 702.33) would be paid — 0
+        (the default), or a value validated against the object's own
+        ``kicker`` parametric keyword (see `_kicker_cost`): any nonzero value
+        without one is illegal, and only Multikicker permits more than 1.
+        ``buyback`` is whether Buyback's own additional cost (RULE 702.27)
+        would also be paid — illegal (``False``) for an object with no
+        ``buyback`` parametric keyword.
         """
         # A commander may be cast from the command zone as well as the
         # hand (RULE 903.6, 903.8) — commander tax (RULE 903.8, +{2} per
-        # previous cast from there) isn't modeled yet.
-        if obj not in player.hand and obj not in player.command:
+        # previous cast from there) isn't modeled yet. An Adventure creature
+        # or a prepared copy sitting in exile may also be castable — see
+        # `_castable_from_exile`. A graveyard card with Flashback/Escape may
+        # be castable from there too — see `_castable_from_graveyard`. The
+        # top of the library may be castable too (Oracle of Mul Daya/Glarb,
+        # Calamity's Augur-shaped) — see `_castable_from_library`; only the
+        # top card itself ever qualifies, never anything deeper.
+        in_castable_zone = (
+            obj in player.hand
+            or obj in player.command
+            or (obj in player.exile and self._castable_from_exile(obj))
+            or (obj in player.graveyard and self._castable_from_graveyard(obj))
+            or (
+                bool(player.library)
+                and obj is player.library[-1]
+                and self._castable_from_library(player, obj)
+            )
+        )
+        if not in_castable_zone:
             return False
         card = self._face_card(obj, face)
         if card is None or card.is_land:
             return False
         # Timing (RULE 601.3a): sorcery-speed spells need an empty stack,
-        # the player's own main phase, and their priority.
-        sorcery_speed = not card.is_instant
+        # the player's own main phase, and their priority. RULE 702.8b:
+        # Flash lets an otherwise-sorcery-speed card (Embercleave, The
+        # Wandering Emperor) be cast any time its controller could cast an
+        # instant instead — checked off the *object* (`combat.has`, the same
+        # printed+intrinsic+granted keyword union combat reads elsewhere),
+        # not just the card, so a temporary flash grant works too.
+        sorcery_speed = not (card.is_instant or combat.has(obj, "flash"))
         if sorcery_speed:
             if player is not self.state.active_player:
                 return False
             if not self._in_main_phase() or self.state.stack:
                 return False
-        cost = self.effective_cast_cost(player, obj, x, face=face)
-        return player.mana_pool.can_pay(cost, life_available=player.life)
+        if kicked:
+            kicker_cost = self._kicker_cost(obj)
+            if kicker_cost is None:
+                return False
+            kicker_param = (getattr(obj, "parametric_keywords", None) or {}).get("kicker") or {}
+            if kicked > 1 and not kicker_param.get("multi"):
+                return False
+        if buyback and self._buyback_cost(obj) is None:
+            return False
+        if obj in player.graveyard and self._graveyard_cast_keyword(obj) == "escape":
+            # RULE 702.138b: "exile N *other* cards from your graveyard" —
+            # ``obj`` itself doesn't count toward that N.
+            escape_cost = self._escape_cost(obj)
+            if escape_cost is None:
+                return False
+            if len(player.graveyard) - 1 < escape_cost.exile_from_graveyard:
+                return False
+        cost = self.effective_cast_cost(player, obj, x, face=face, kicked=kicked, buyback=buyback)
+        allows_restriction = restriction_predicate_for_cast(obj, has_x=cost.has_variable)
+        if not player.mana_pool.can_pay(cost, life_available=player.life, allows_restriction=allows_restriction):
+            return False
+        # RULE 601.2b: an "as an additional cost to cast this spell, …"
+        # clause is a separate legality gate from the mana cost above — a
+        # sacrifice/discard/life payment that isn't payable makes the spell
+        # uncastable even with the mana in hand.
+        return self._can_pay_additional_cast_cost(
+            player, obj, getattr(obj, "additional_cast_cost", None), x
+        )
+
+    @staticmethod
+    def _buyback_cost(obj: GameObject) -> Optional["ManaCost"]:
+        """RULE 702.27: ``obj``'s Buyback cost as a `ManaCost`, or ``None``
+        if it carries no Buyback keyword (or one with no parsed cost)."""
+        param = (getattr(obj, "parametric_keywords", None) or {}).get("buyback")
+        if not param or not param.get("cost"):
+            return None
+        return ManaCost.parse(str(param["cost"]))
+
+    @staticmethod
+    def _kicker_cost(obj: GameObject) -> Optional["ManaCost"]:
+        """RULE 702.33: ``obj``'s Kicker cost as a `ManaCost`, or ``None`` if
+        it carries no Kicker/Multikicker keyword (or one with no parsed
+        cost). Multikicker shares this same ``kicker`` param shape — see
+        `effect_binder.attach_keyword` — distinguished only by its ``multi``
+        flag, which callers check separately.
+        """
+        param = (getattr(obj, "parametric_keywords", None) or {}).get("kicker")
+        if not param or not param.get("cost"):
+            return None
+        return ManaCost.parse(str(param["cost"]))
+
+    def max_affordable_kicker(self, player: Player, obj: GameObject) -> int:
+        """The highest number of times ``player`` could pay Kicker and still
+        cast ``obj`` (RULE 702.33) — 0 or 1 for a plain Kicker, 0..N for
+        Multikicker. Mirrors `max_affordable_x`'s "scan down from an upper
+        bound" shape; the interaction with an independently announced ``{X}``
+        isn't modeled (an MVP simplification — no card needs both solved
+        jointly today).
+        """
+        kicker_cost = self._kicker_cost(obj)
+        if kicker_cost is None:
+            return 0
+        kicker_param = (getattr(obj, "parametric_keywords", None) or {}).get("kicker") or {}
+        upper = player.mana_pool.total() if kicker_param.get("multi") else 1
+        for kicked in range(upper, -1, -1):
+            if self.can_cast(player, obj, kicked=kicked):
+                return kicked
+        return 0
 
     def effective_cast_cost(
-        self, player: Player, obj: GameObject, x: int = 0, face: str = "front"
+        self,
+        player: Player,
+        obj: GameObject,
+        x: int = 0,
+        face: str = "front",
+        kicked: int = 0,
+        buyback: bool = False,
     ) -> "ManaCost":
         """``obj``'s mana cost after static cost adjustments (RULE 601.2f/903.8).
 
@@ -692,17 +972,47 @@ class GameEngine:
         play, then adds commander tax ({2} per previous cast of this commander
         from the command zone, RULE 903.8) when it's being cast from there.
         Generic-only and floored at zero — the common, safe case. ``face``
-        previews a modal DFC's back face's own printed cost (RULE 712.10)
-        without mutating ``obj``.
+        previews a second castable face's own printed cost (see
+        `_face_card`) without mutating ``obj``. ``kicked`` adds Kicker's own
+        cost (RULE 702.33b) once per time paid, and ``buyback`` adds
+        Buyback's own cost once (RULE 702.27), both via `ManaCost.add` — not
+        subject to the generic-only reduction above, since each is a
+        distinct additional cost, not part of the printed one.
+
+        RULE 601.2b/702.34b: a card actually sitting in ``player``'s
+        graveyard (only reachable at all via `_castable_from_graveyard`) is
+        cast for its alternative Flashback/Escape cost *instead of* the
+        printed one — a substitution, not an addition, applied before the
+        reduction/tax below so those still apply on top of it as usual.
         """
         card = self._face_card(obj, face) or obj.card
-        cost = self.rules.mana_cost_of(card)
+        if obj in player.graveyard:
+            keyword = self._graveyard_cast_keyword(obj)
+            if keyword == "flashback":
+                alt_cost = self._flashback_cost(obj)
+            elif keyword == "escape":
+                escape_cost = self._escape_cost(obj)
+                alt_cost = escape_cost.mana if escape_cost is not None else None
+            else:
+                alt_cost = None
+            cost = alt_cost if alt_cost is not None else self.rules.mana_cost_of(card)
+        else:
+            cost = self.rules.mana_cost_of(card)
         if cost.has_variable:
             cost = cost.with_x(x)
         cost = self._adjust_cost(cost, player)
         tax = self.commander_tax(player, obj)
         if tax:
             cost = cost.increase_generic(tax)
+        if kicked:
+            kicker_cost = self._kicker_cost(obj)
+            if kicker_cost is not None:
+                for _ in range(kicked):
+                    cost = cost.add(kicker_cost)
+        if buyback:
+            buyback_cost = self._buyback_cost(obj)
+            if buyback_cost is not None:
+                cost = cost.add(buyback_cost)
         return cost
 
     @staticmethod
@@ -752,28 +1062,150 @@ class GameEngine:
         targets: Optional[list[Any]] = None,
         x: int = 0,
         face: str = "front",
+        mode: Optional[Any] = None,
+        kicked: int = 0,
+        buyback: bool = False,
+        target_groups: Optional[list[list[Any]]] = None,
     ):
         """Cast a spell after validating timing, payability and targets (RULE 601).
 
-        ``face="back"`` casts a modal DFC's back face instead (RULE 712.10):
-        ``obj`` is rebound onto that face (`RulesEngine.switch_to_face`, the
-        same "clear + rebind catalogue abilities" treatment `become_copy`
-        uses) before the ordinary cast validation/commit runs — so any
-        failure below leaves ``obj`` restored to its original face rather
-        than silently stuck on the back.
+        ``face="back"``/``"fuse"`` cast a second castable face instead (see
+        `_face_card`) — a modal DFC's back (RULE 712.10), a split card's
+        other half or fused combination (RULE 709.3/709.4), or an
+        Adventure's instant/sorcery half (RULE 715.2b): ``obj`` is rebound
+        onto that face (`RulesEngine.switch_to_face`, the same "clear +
+        rebind catalogue abilities" treatment `become_copy` uses) before the
+        ordinary cast validation/commit runs — so any failure below leaves
+        ``obj`` restored to its original face rather than silently stuck on
+        the second one.
+
+        ``mode`` chooses which of a modal spell's ("Choose one —", RULE
+        700.2) printed options resolves: an index into ``obj.spell_modes``,
+        or the literal ``"both"`` (RULE 700.2e, only when
+        ``obj.spell_modes_or_both``). Required — raises — for a spell that
+        carries ``spell_modes``; ignored otherwise. See `_mode_effects_applied`.
+
+        ``kicked`` is how many times to pay Kicker (RULE 702.33b) — see
+        `can_cast`/`effective_cast_cost`; recorded on ``obj.kicker_count``
+        once the cast succeeds. ``buyback`` is whether to pay Buyback's
+        additional cost (RULE 702.27) — recorded on ``obj.buyback_paid``,
+        consulted by `RulesEngine.resolve_top_of_stack` to route the spell
+        back to hand instead of the graveyard.
+
+        ``target_groups``, when given, partitions ``targets`` per targeting
+        effect (`StackItem.target_groups`) — needed only when ``obj`` carries
+        2+ *different* targeting effects; omitted (``None``), every effect
+        reads ``targets`` directly, unchanged from before this existed.
         """
-        if face == "back":
-            if not self.can_cast(player, obj, x, face="back"):
+        if face in ("back", "fuse"):
+            if not self.can_cast(player, obj, x, face=face, kicked=kicked, buyback=buyback):
                 raise ValueError(f"{player.id} cannot cast {obj.name} now")
-            back = obj.card.back_face()
+            # RULE 715.2b: an Adventure spell half must be recognized while
+            # ``obj.card`` is still the front (creature) face, before the
+            # switch below — resolution needs to know to exile-and-restore
+            # rather than send it to the graveyard.
+            is_adventure_cast = face == "back" and obj.card.is_adventure
+            alt = obj.card.back_face() if face == "back" else obj.card.fuse_face()
             snapshot = self.rules.snapshot_face(obj)
-            self.rules.switch_to_face(obj, back)
+            self.rules.switch_to_face(obj, alt)
             try:
-                return self._cast_current_face(player, obj, targets, x)
+                result = self._cast_current_face(
+                    player, obj, targets, x, mode=mode, kicked=kicked, buyback=buyback,
+                    target_groups=target_groups,
+                )
             except Exception:
                 self.rules.restore_face(obj, snapshot)
                 raise
-        return self._cast_current_face(player, obj, targets, x)
+            if is_adventure_cast:
+                obj.adventure_snapshot = snapshot
+            return result
+        return self._cast_current_face(
+            player, obj, targets, x, mode=mode, kicked=kicked, buyback=buyback,
+            target_groups=target_groups,
+        )
+
+    def _effects_for_mode(self, obj: GameObject, mode: Any) -> list[Any]:
+        """The `GameEffect`s a modal spell's chosen ``mode`` resolves with.
+
+        ``mode`` is an index into ``obj.spell_modes`` (only when
+        ``obj.spell_modes_choose == 1``), the literal ``"both"`` (RULE
+        700.2e — both modes' effects, in printed order), or a list/tuple of
+        distinct indices: exactly ``obj.spell_modes_choose`` of them (RULE
+        700.2 "choose *N*", ``N>=2``), or at least that many when
+        ``obj.spell_modes_at_least`` (RULE 700.2 "choose *N* or more —",
+        ``N>=1``) — `_modal_cast_actions` offers one action per legal
+        combination either way. Combined effects always run in *printed*
+        order, not the order given in ``mode``. Raises for an out-of-range/
+        wrong-length/duplicate index, or a "both" not actually offered
+        (`obj` has no ``spell_modes`` at all, or isn't
+        ``spell_modes_or_both``, or doesn't have exactly the two modes RULE
+        700.2e's "or both" implies).
+        """
+        modes = list(getattr(obj, "spell_modes", None) or [])
+        choose = getattr(obj, "spell_modes_choose", 1)
+        at_least = getattr(obj, "spell_modes_at_least", False)
+        if mode == "both":
+            if not getattr(obj, "spell_modes_or_both", False) or len(modes) != 2:
+                raise ValueError(f"{obj.name} has no 'choose both' mode")
+            effects: list[Any] = []
+            for entry in modes:
+                effects.extend(entry["effects"])
+            return effects
+        if isinstance(mode, (list, tuple)):
+            indices = list(mode)
+            count_ok = len(indices) >= choose if at_least else len(indices) == choose
+            valid = (
+                count_ok
+                and len(set(indices)) == len(indices)
+                and all(isinstance(i, int) and 0 <= i < len(modes) for i in indices)
+            )
+            if not valid:
+                raise ValueError(f"{obj.name}: invalid mode combination {mode!r}")
+            effects = []
+            for i in sorted(indices):
+                effects.extend(modes[i]["effects"])
+            return effects
+        if choose != 1 or not isinstance(mode, int) or not (0 <= mode < len(modes)):
+            raise ValueError(f"{obj.name}: invalid mode {mode!r}")
+        return list(modes[mode]["effects"])
+
+    def _mode_description(self, obj: GameObject, mode: Any) -> str:
+        """A modal spell's chosen ``mode`` as UI label text."""
+        modes = list(getattr(obj, "spell_modes", None) or [])
+        if mode == "both":
+            return " + ".join(entry.get("description", "") for entry in modes)
+        if isinstance(mode, (list, tuple)):
+            return " + ".join(
+                modes[i].get("description", "") for i in sorted(mode) if 0 <= i < len(modes)
+            )
+        if isinstance(mode, int) and 0 <= mode < len(modes):
+            return modes[mode].get("description", "")
+        return ""
+
+    @contextmanager
+    def _mode_effects_applied(self, obj: GameObject, mode: Optional[Any]):
+        """Temporarily point ``obj.spell_effects`` at a modal spell's chosen
+        mode(s) (RULE 601.2b: the mode is chosen before targets/costs).
+
+        `has_legal_targets`/`RulesEngine._effects_for_spell` both read
+        ``obj.spell_effects`` — swapping it here (and restoring it on exit,
+        success or failure) means neither needs to know modes exist at all,
+        the same "no top-level change needed" trick `switch_to_face` uses
+        for a second castable face. A no-op for a non-modal ``obj``
+        (``spell_modes`` unset/empty).
+        """
+        modes = getattr(obj, "spell_modes", None)
+        if not modes:
+            yield
+            return
+        if mode is None:
+            raise ValueError(f"{obj.name} requires a mode choice (RULE 601.2b)")
+        previous = list(getattr(obj, "spell_effects", None) or [])
+        obj.spell_effects = self._effects_for_mode(obj, mode)
+        try:
+            yield
+        finally:
+            obj.spell_effects = previous
 
     def _cast_current_face(
         self,
@@ -781,19 +1213,60 @@ class GameEngine:
         obj: GameObject,
         targets: Optional[list[Any]],
         x: int,
+        mode: Optional[Any] = None,
+        kicked: int = 0,
+        buyback: bool = False,
+        target_groups: Optional[list[list[Any]]] = None,
     ):
         """The common cast body, reading whatever `obj.card` currently is."""
-        if not self.can_cast(player, obj, x):
-            raise ValueError(f"{player.id} cannot cast {obj.name} now")
-        # RULE 601.2c: a spell that requires a target can't be cast unless a
-        # legal target is available — the same check that locks the offer.
-        if not self.has_legal_targets(player, obj):
-            raise ValueError(f"{obj.name} has no legal target")
-        cost = self.effective_cast_cost(player, obj, x)
-        # RULE 903.8: record this command-zone cast so the next one is taxed
-        # {2} more. Read *before* the cast moves the card off the command zone.
-        from_command = obj.is_commander and obj in player.command
-        result = self.rules.cast_spell(player, obj, targets, x, cost=cost)
+        with self._mode_effects_applied(obj, mode):
+            if not self.can_cast(player, obj, x, kicked=kicked, buyback=buyback):
+                raise ValueError(f"{player.id} cannot cast {obj.name} now")
+            # RULE 601.2c: a spell that requires a target can't be cast unless
+            # a legal target is available — the same check that locks the offer.
+            if not self.has_legal_targets(player, obj):
+                raise ValueError(f"{obj.name} has no legal target")
+            cost = self.effective_cast_cost(player, obj, x, kicked=kicked, buyback=buyback)
+            # RULE 903.8: record this command-zone cast so the next one is
+            # taxed {2} more. Read *before* the cast moves the card off the
+            # command zone.
+            from_command = obj.is_commander and obj in player.command
+            # RULE 702.34a: likewise read *before* the cast moves the card
+            # off the graveyard — only a Flashback cast is exiled instead of
+            # going to the graveyard on resolution (Escape has no such
+            # after-resolving clause).
+            graveyard_keyword = (
+                self._graveyard_cast_keyword(obj) if obj in player.graveyard else None
+            )
+            result = self.rules.cast_spell(player, obj, targets, x, cost=cost, target_groups=target_groups)
+            # RULE 601.2b/601.2h: an additional cost is paid as part of
+            # casting, not resolving — so it stays paid even if the spell is
+            # later countered. Paid *after* the mana cost (just above) so a
+            # Phyrexian-mana payment reads the player's life before any
+            # "pay N life" additional cost reduces it.
+            self._pay_additional_cast_cost(
+                player, obj, getattr(obj, "additional_cast_cost", None), x
+            )
+            # RULE 702.33b: record how many times Kicker was paid, so a
+            # resolve-time effect that reads "if this spell was kicked" (a
+            # follow-up, not yet parsed) has something to consult.
+            obj.kicker_count = kicked
+            # RULE 702.27a: record whether Buyback was paid — consulted by
+            # `RulesEngine.resolve_top_of_stack` to route the spell back to
+            # hand instead of the graveyard.
+            obj.buyback_paid = buyback
+            # RULE 702.34a: record a Flashback cast — consulted by
+            # `RulesEngine.resolve_top_of_stack` to exile the spell instead
+            # of returning it to the graveyard on resolution.
+            obj.cast_via_flashback = graveyard_keyword == "flashback"
+            # RULE 702.138b: Escape's own "exile N other cards from your
+            # graveyard" cost, paid as part of casting (like any other
+            # additional cost) now that ``obj`` itself has left the
+            # graveyard (so it can't accidentally exile itself).
+            if graveyard_keyword == "escape":
+                escape_cost = self._escape_cost(obj)
+                if escape_cost is not None and escape_cost.exile_from_graveyard:
+                    self._pay_escape_graveyard_cost(player, escape_cost.exile_from_graveyard)
         if from_command:
             player.commander_casts[obj.instance_id] = (
                 player.commander_casts.get(obj.instance_id, 0) + 1
@@ -870,7 +1343,13 @@ class GameEngine:
             obj.attacking = True
             obj.combat_defender = defender
             self.state.fire_event(
-                GameEvent(EventType.ATTACKS, attacker=obj.name, player_id=player.id)
+                GameEvent(
+                    EventType.ATTACKS,
+                    attacker=obj.name,
+                    player_id=player.id,  # RULE 508.1a: the attacker's controller
+                    instance_id=obj.instance_id,
+                    object_types=sorted(obj.type_words),
+                )
             )
 
     def _assign_defender(
@@ -989,13 +1468,46 @@ class GameEngine:
                     f"{attacker.name} has menace and must be blocked by two or more creatures"
                 )
 
+        # RULE 702.130/702.45/702.23 (afflict/bushido/rampage): capture, before
+        # any mutation, which attackers are transitioning from unblocked to
+        # blocked this call — BECOMES_BLOCKED fires once per such attacker,
+        # never once per blocker, only on that transition (RULE 509.5).
+        newly_blocked = [
+            attacker
+            for attacker in {attacker.instance_id: attacker for _, attacker in resolved}.values()
+            if not attacker.blocked_by
+        ]
+
         for blocker, attacker in resolved:
             blocker.blocking = attacker.instance_id
             if blocker.instance_id not in attacker.blocked_by:
                 attacker.blocked_by.append(blocker.instance_id)
             self.state.fire_event(
-                GameEvent(EventType.BLOCKS, blocker=blocker.name, player_id=player.id)
+                GameEvent(
+                    EventType.BLOCKS,
+                    blocker=blocker.name,
+                    player_id=player.id,  # RULE 509.1b: the blocker's controller
+                    instance_id=blocker.instance_id,
+                    object_types=sorted(blocker.type_words),
+                )
             )
+
+        for attacker in newly_blocked:
+            blocker_count = len(attacker.blocked_by)
+            self.state.fire_event(
+                GameEvent(
+                    EventType.BECOMES_BLOCKED,
+                    attacker=attacker.name,
+                    player_id=attacker.controller_id,  # the attacker's own controller
+                    instance_id=attacker.instance_id,
+                    object_types=sorted(attacker.type_words),
+                    blocker_count=blocker_count,
+                )
+            )
+            # RULE 702.23: Rampage's own per-firing dynamic pump — see
+            # `RulesEngine.check_rampage` for why this can't go through the
+            # ordinary annihilator/afflict/bushido `TriggeredAbility` path.
+            self.rules.check_rampage(attacker, blocker_count)
 
     def can_block(self, player: Player, blocker: GameObject, attacker: GameObject) -> bool:
         """RULE 509.1a: an untapped creature ``player`` controls may block an
@@ -1009,6 +1521,11 @@ class GameEngine:
         in `declare_blockers`, not here.
         """
         if combat.unblockable_by_landwalk(attacker, self._lands_controlled_by(player.id)):
+            return False
+        if getattr(attacker, "temp_unblockable", False):
+            # "Target creature can't be blocked this turn" (Rogue's Passage) —
+            # a resolve-time grant, unlike landwalk's static evasion above;
+            # cleared at cleanup (RULE 514.2) like every other temp_* flag.
             return False
         return (
             blocker.controller_id == player.id
@@ -1037,39 +1554,119 @@ class GameEngine:
         return pw is not None and pw.controller_id == player.id
 
     def tap_for_mana(
-        self, player: Player, source: GameObject, option_index: int = 0
+        self,
+        player: Player,
+        source: GameObject,
+        option_index: int = 0,
+        ability_index: int = 0,
+        tap_choices: Optional[list[Any]] = None,
+        color_split: Optional[dict[str, int]] = None,
     ) -> dict[str, int]:
-        """Tap a permanent for one of its mana options (RULE 605).
+        """Activate one of a permanent's mana abilities (RULE 605) — the
+        fast, no-stack path.
 
-        ``option_index`` picks which production to make — this is the
-        dual-land fix: a "{T}: Add {W} or {U}." land makes *one* colour,
-        the chosen option, not both. Returns the mana added.
+        ``ability_index`` picks *which* mana ability (most permanents print
+        just one; Devoted Druid's second line isn't a mana ability at all,
+        so it never counts here); ``option_index`` then picks one of *that*
+        ability's mutually-exclusive production options (the dual-land fix:
+        a "{T}: Add {W} or {U}." land makes *one* colour, not both). Charges
+        the ability's **full** cost (RULE 602.1) — not just {T} — so e.g.
+        Selvala's {G} or Gnarlroot Trapper's 1 life are actually paid.
+        ``tap_choices`` is the player's own pick of *which* permanents pay a
+        "tap N untapped Elves you control" cost (Birchlore Rangers, Heritage
+        Druid — a real cost choice, not an auto-pick, and the source itself
+        is eligible since the printed text doesn't say "other"); ``None``
+        falls back to an auto-pick (non-interactive callers). ``color_split``
+        is only consulted for an "any combination of colours" ability
+        (`ManaAbility.any_combination` — Flamebraider/Gwenna/Smokebraider/
+        Selvala): a ``{colour: count}`` distribution across WUBRG summing to
+        the ability's resolved total, validated by `validate_color_split`;
+        ``None`` (or a non-combination ability) falls back to
+        ``option_index``'s single-colour choice, same as before this
+        parameter existed. Returns the mana added.
         """
         if source not in self.state.battlefield or source.controller_id != player.id:
             raise ValueError("can only tap your own permanents in play")
-        if source.tapped:
-            raise ValueError(f"{source.name} is already tapped")
-        # RULE 302.6: a summoning-sick creature (Llanowar Elves, Birds of
-        # Paradise, …) can't tap for mana — its mana ability has the {T} symbol.
-        if self._summoning_sick_for_tap(source):
-            raise ValueError(f"{source.name} has summoning sickness and can't tap for mana")
-        options = mana_options_for(source)
-        if not options:
-            raise ValueError(f"{source.name} has no mana ability")
-        if not 0 <= option_index < len(options):
-            raise ValueError(f"invalid mana option {option_index} for {source.name}")
-        produced = options[option_index]
-        self.rules.set_tapped(source, True)
-        player.mana_pool.add_many(produced)
+        abilities = mana_abilities_for(source, state=self.state)
+        if not 0 <= ability_index < len(abilities):
+            raise ValueError(f"{source.name} has no mana ability #{ability_index}")
+        ability = abilities[ability_index]
+        cost = ability.cost
+        if not self._can_pay_activation_cost(player, source, cost, x=0, tap_choices=tap_choices):
+            raise ValueError(f"cannot pay {source.name}'s mana ability cost")
+        if not ability.options:
+            raise ValueError(f"{source.name}'s mana ability produces nothing")
+        if ability.any_combination and color_split is not None:
+            total = sum(ability.options[0].values())
+            produced = validate_color_split(color_split, total)
+        else:
+            if not 0 <= option_index < len(ability.options):
+                raise ValueError(f"invalid mana option {option_index} for {source.name}")
+            produced = dict(ability.options[option_index])
+        self._pay_activation_cost(player, source, cost, x=0, tap_choices=tap_choices)
+        player.mana_pool.add_many(produced, restriction=ability.restriction)
+        if ability.self_damage:
+            # RULE 605.1a: a mana ability may have effects besides producing
+            # mana (the painland/Elves-of-Deep-Shadow "deals N damage to
+            # you" rider) — applied right alongside it, no stack involved.
+            self.rules.deal_damage(player, ability.self_damage, source=source)
         self.state.record_stat(player.id, "mana", amount=sum(produced.values()))
-        return dict(produced)
+        return produced
+
+    def activate_hand_mana_ability(
+        self,
+        player: Player,
+        source: GameObject,
+        option_index: int = 0,
+        ability_index: int = 0,
+        color_split: Optional[dict[str, int]] = None,
+    ) -> dict[str, int]:
+        """RULE 605.1a "Exile this card from your hand: Add …" (Elvish
+        Spirit Guide, Simian Spirit Guide) — `tap_for_mana`'s hand-zone
+        counterpart: no battlefield permanent, no {T}/summoning-sickness
+        check; the cost is exiling the card itself straight out of hand
+        (`RulesEngine.exile` already handles the hand→exile zone move and
+        its event). Every real printed card's only cost component is the
+        exile itself; a future card pairing it with e.g. a life payment
+        would need this extended, same as `tap_for_mana`'s cost handling.
+        ``option_index``/``ability_index``/``color_split`` mirror
+        `tap_for_mana`'s parameters exactly (a hand-exile ability could in
+        principle be a dual-colour choice or an "any combination of
+        colours" one, same as a battlefield one). Returns the mana added.
+        """
+        if source not in player.hand:
+            raise ValueError("can only activate a hand mana ability from your own hand")
+        abilities = hand_mana_abilities_for(source, state=self.state)
+        if not 0 <= ability_index < len(abilities):
+            raise ValueError(f"{source.name} has no hand mana ability #{ability_index}")
+        ability = abilities[ability_index]
+        if not ability.options:
+            raise ValueError(f"{source.name}'s mana ability produces nothing")
+        if ability.any_combination and color_split is not None:
+            total = sum(ability.options[0].values())
+            produced = validate_color_split(color_split, total)
+        else:
+            if not 0 <= option_index < len(ability.options):
+                raise ValueError(f"invalid mana option {option_index} for {source.name}")
+            produced = dict(ability.options[option_index])
+        self.rules.exile(source)
+        player.mana_pool.add_many(produced, restriction=ability.restriction)
+        if ability.self_damage:
+            self.rules.deal_damage(player, ability.self_damage, source=source)
+        self.state.record_stat(player.id, "mana", amount=sum(produced.values()))
+        return produced
 
     # ------------------------------------------------------------------
     # Activated abilities (RULE 602)
     # ------------------------------------------------------------------
 
     def can_activate(
-        self, player: Player, source: GameObject, ability: ActivatedAbility, x: int = 0
+        self,
+        player: Player,
+        source: GameObject,
+        ability: ActivatedAbility,
+        x: int = 0,
+        tap_choices: Optional[list[Any]] = None,
     ) -> bool:
         """Whether ``player`` may activate ``ability`` of ``source`` right now.
 
@@ -1084,20 +1681,39 @@ class GameEngine:
             return False
         if ability.cost.is_loyalty and not self._can_activate_loyalty(player, source):
             return False
-        return self._can_pay_activation_cost(player, source, ability.cost, x)
+        if ability.cost.sorcery_speed_only and not self._sorcery_speed_ok(player):
+            return False
+        if ability.cost.class_level is not None and not self._can_activate_class_level(
+            source, ability.cost.class_level
+        ):
+            return False
+        return self._can_pay_activation_cost(player, source, ability.cost, x, tap_choices=tap_choices)
+
+    def _sorcery_speed_ok(self, player: Player) -> bool:
+        """RULE 117.1a-style sorcery-speed timing: the controller's main
+        phase, an empty stack, and it being that player's turn — the same
+        shape `can_play_land`/`can_cast`'s sorcery branch already check."""
+        return (
+            player is self.state.active_player
+            and self._in_main_phase()
+            and not self.state.stack
+        )
 
     def _can_activate_loyalty(self, player: Player, source: GameObject) -> bool:
         """Timing gate for a planeswalker loyalty ability (RULE 606.3).
 
-        Only at sorcery speed (the controller's main phase, empty stack, their
-        priority) and only once per turn per planeswalker."""
+        Only at sorcery speed and only once per turn per planeswalker."""
         return (
             source.is_planeswalker
-            and player is self.state.active_player
-            and self._in_main_phase()
-            and not self.state.stack
+            and self._sorcery_speed_ok(player)
             and not source.activated_loyalty_this_turn
         )
+
+    def _can_activate_class_level(self, source: GameObject, target_level: int) -> bool:
+        """RULE 716.4c: a Class's level-up ability may only be activated when
+        the Class's current level is exactly one less than the ability's
+        level — levels can't be skipped or repeated."""
+        return source.counters.get("class_level", 0) == target_level - 1
 
     def _ability_target_requirements(
         self, player: Player, ability: ActivatedAbility, source: GameObject
@@ -1135,7 +1751,7 @@ class GameEngine:
         mana = ability.cost.mana
         if mana.has_variable:
             action["has_x"] = True
-            action["max_x"] = self._max_x_for_mana(player, mana)
+            action["max_x"] = self._max_x_for_mana(player, source, mana)
         requirements = self._ability_target_requirements(player, ability, source)
         if requirements:
             action["requires_target"] = True
@@ -1143,17 +1759,27 @@ class GameEngine:
             if not all_requirements_satisfiable(requirements):
                 action["locked"] = True
                 action["lock_reason"] = "Kein gültiges Ziel im Spiel"
+        if ability.cost.tap_others:
+            action["tap_cost"] = self._tap_cost_choice(player, source, ability.cost)
         return action
 
-    def _max_x_for_mana(self, player: Player, mana: "ManaCost") -> int:
+    def _max_x_for_mana(self, player: Player, source: GameObject, mana: "ManaCost") -> int:
         bound = player.mana_pool.total()
+        allows_restriction = restriction_predicate_for_activation(source, has_x=True)
         for x in range(bound, -1, -1):
-            if player.mana_pool.can_pay(mana.with_x(x), life_available=player.life):
+            if player.mana_pool.can_pay(
+                mana.with_x(x), life_available=player.life, allows_restriction=allows_restriction
+            ):
                 return x
         return 0
 
     def _can_pay_activation_cost(
-        self, player: Player, source: GameObject, cost: "ActivationCost", x: int
+        self,
+        player: Player,
+        source: GameObject,
+        cost: "ActivationCost",
+        x: int,
+        tap_choices: Optional[list[Any]] = None,
     ) -> bool:
         # {T} needs an untapped source; {Q} a tapped one. Either symbol also
         # needs a non-summoning-sick source unless it has haste (RULE 302.6,
@@ -1163,23 +1789,174 @@ class GameEngine:
         if cost.untaps_self and (not source.tapped or self._summoning_sick_for_tap(source)):
             return False
         mana = cost.mana.with_x(x) if cost.mana.has_variable else cost.mana
-        if mana.symbols and not player.mana_pool.can_pay(mana, life_available=player.life):
-            return False
+        if mana.symbols:
+            allows_restriction = restriction_predicate_for_activation(source, has_x=cost.mana.has_variable)
+            if not player.mana_pool.can_pay(
+                mana, life_available=player.life, allows_restriction=allows_restriction
+            ):
+                return False
         if cost.pay_life and player.life < cost.pay_life:
             return False
         if cost.discard and cost.discard != DISCARD_HAND and len(player.hand) < cost.discard:
             return False
         if cost.sacrifice and self._sacrifice_candidate(player, source, cost.sacrifice) is None:
             return False
+        if cost.unattach_self and source.attached_to is None:
+            return False
         if cost.remove_counters:
             kind, count = cost.remove_counters
             if source.counters.get(kind, 0) < count:
                 return False
+        if cost.tap_others:
+            count, subtype = cost.tap_others
+            if self._resolve_tap_others(player, source, count, subtype, tap_choices) is None:
+                return False
+        if cost.exile_self_from_hand:
+            # This path is for a battlefield permanent's own ability cost
+            # (`can_activate`/`tap_for_mana`'s non-hand-exile branch) — an
+            # "Exile this card from your hand" cost is never payable here,
+            # whatever `source` is; see `activate_hand_mana_ability` for
+            # the actual hand-zone counterpart (Elvish/Simian Spirit Guide).
+            return False
         # A minus loyalty ability can't be activated for more loyalty than the
         # planeswalker has (RULE 606.5c / 118.5).
         if cost.loyalty is not None and cost.loyalty < 0 and source.loyalty < -cost.loyalty:
             return False
         return True
+
+    def _tap_others_pool(self, player: Player, source: GameObject, subtype: str) -> list[GameObject]:
+        """Every untapped permanent of type ``subtype`` ``player`` controls,
+        eligible to pay a "Tap N untapped <type>s you control" cost
+        (Birchlore Rangers, Heritage Druid) — **including the ability's own
+        source**, since the printed text doesn't say "other" (RULE 602.1;
+        the real card lets Birchlore Rangers tap itself as one of the two).
+        Not gated by summoning sickness: RULE 302.6 only restricts a
+        permanent's own {T}-cost ability, not being tapped to pay a
+        *different* ability's cost. This is the full candidate pool the
+        player picks from — see `_resolve_tap_others` for the actual choice.
+        """
+        return [
+            o for o in self.state.permanents_controlled_by(player.id)
+            if not o.tapped and continuous.has_subtype(o, subtype)
+        ]
+
+    def _tap_cost_choice(
+        self, player: Player, source: GameObject, cost: "ActivationCost"
+    ) -> dict[str, Any]:
+        """The offer-time UI shape for a `tap_others` cost: how many to pick
+        (``count``) and the full eligible pool (``options``) — the player
+        picks exactly ``count`` of them (RULE 602.1's cost *choice*, not an
+        engine auto-pick; see `_resolve_tap_others`)."""
+        count, subtype = cost.tap_others
+        pool = self._tap_others_pool(player, source, subtype)
+        return {
+            "count": count,
+            "options": [{"instance_id": o.instance_id, "name": o.name} for o in pool],
+        }
+
+    def _resolve_tap_others(
+        self,
+        player: Player,
+        source: GameObject,
+        count: int,
+        subtype: str,
+        chosen_ids: Optional[list[Any]],
+    ) -> Optional[list[GameObject]]:
+        """The permanents to actually tap for a `tap_others` cost.
+
+        ``chosen_ids`` is the player's own pick (instance ids) — this is a
+        real cost *choice*, not something the engine should auto-decide, so
+        an interactive caller always supplies it. ``None`` falls back to an
+        auto-pick of the first ``count`` eligible permanents, for
+        non-interactive callers (tests, the goldfish auto-player). Returns
+        ``None`` (not payable / not a valid choice) if fewer than ``count``
+        are eligible, or ``chosen_ids`` doesn't name exactly ``count``
+        distinct eligible permanents.
+        """
+        pool = self._tap_others_pool(player, source, subtype)
+        if chosen_ids is None:
+            return pool[:count] if len(pool) >= count else None
+        if len(chosen_ids) != count or len(set(chosen_ids)) != count:
+            return None
+        by_id = {o.instance_id: o for o in pool}
+        chosen = [by_id[i] for i in chosen_ids if i in by_id]
+        return chosen if len(chosen) == count else None
+
+    def _can_pay_additional_cast_cost(
+        self, player: Player, obj: GameObject, cost: Optional["ActivationCost"], x: int
+    ) -> bool:
+        """RULE 601.2b: whether ``player`` can pay a spell's "as an
+        additional cost to cast this spell, …" clause right now.
+
+        A narrow subset of `_can_pay_activation_cost` — only the three
+        shapes the oracle-text parser recognizes for it (sacrifice/discard/
+        pay life); there's no mana or {T}/{Q} portion to an additional cost.
+        A ``pay_life`` of `costs.PAY_LIFE_X` checks the spell's own
+        announced ``x`` rather than a fixed amount (RULE 601.2b: "pay X
+        life" is tied to *this* spell's X, chosen in the same announcement).
+        ``obj`` — the spell itself, still sitting in hand at legality-check
+        time — is excluded from its own "discard a card" count: it isn't a
+        legal discard candidate for its own cost.
+        """
+        if cost is None:
+            return True
+        if cost.sacrifice and self._sacrifice_candidate(player, obj, cost.sacrifice) is None:
+            return False
+        if cost.discard and cost.discard != DISCARD_HAND:
+            available = len(player.hand) - (1 if obj in player.hand else 0)
+            if available < cost.discard:
+                return False
+        if cost.pay_life:
+            amount = x if cost.pay_life == PAY_LIFE_X else cost.pay_life
+            if player.life < amount:
+                return False
+        return True
+
+    def _pay_additional_cast_cost(
+        self,
+        player: Player,
+        obj: GameObject,
+        cost: Optional["ActivationCost"],
+        x: int,
+    ) -> None:
+        """Pay a spell's additional cast cost (RULE 601.2b), assumed already
+        checked payable by `_can_pay_additional_cast_cost`/`can_cast`.
+
+        Sacrifice/discard use the same non-interactive auto-choice
+        `_can_pay_activation_cost`'s callers do for an activated ability's
+        cost (an MVP simplification, not this feature's own decision — see
+        `_sacrifice_candidate`'s docstring). ``obj`` — the spell itself — is
+        never a valid sacrifice candidate at this point (it's a spell on the
+        stack, not a permanent), so passing it as the sacrifice ability's
+        "self" source is only ever a no-op fallback.
+        """
+        if cost is None:
+            return
+        if cost.sacrifice:
+            victim = self._sacrifice_candidate(player, obj, cost.sacrifice)
+            if victim is not None:
+                # RULE 701.16c: sacrifice isn't destruction — regeneration
+                # can't save it — so this bypasses `destroy` and its
+                # regeneration-shield check.
+                self.rules.put_into_graveyard(victim)
+        if cost.discard:
+            self.rules.discard(
+                player, len(player.hand) if cost.discard == DISCARD_HAND else cost.discard
+            )
+        if cost.pay_life:
+            amount = x if cost.pay_life == PAY_LIFE_X else cost.pay_life
+            self.rules.lose_life(player, amount, cause="cost")
+
+    def _pay_escape_graveyard_cost(self, player: Player, count: int) -> None:
+        """RULE 702.138b: exile ``count`` other cards from ``player``'s
+        graveyard as part of casting via Escape — an auto-choice (the first
+        ``count`` remaining cards), the same non-interactive MVP
+        simplification `_sacrifice_candidate`'s callers already make for
+        other costs. Called after the escaping card itself has already left
+        the graveyard, so it can never be exiled as its own cost.
+        """
+        for victim in list(player.graveyard)[:count]:
+            self.rules.exile(victim)
 
     def _sacrifice_candidate(
         self, player: Player, source: GameObject, what: str
@@ -1211,6 +1988,62 @@ class GameEngine:
             return obj.is_land
         return True  # unknown type word → any permanent, so the cost is payable
 
+    def _pay_activation_cost(
+        self,
+        player: Player,
+        source: GameObject,
+        cost: "ActivationCost",
+        x: int,
+        tap_choices: Optional[list[Any]] = None,
+    ) -> None:
+        """Charge every component of ``cost`` (RULE 601.2h analogue for
+        abilities) — tap/untap the source, tap other permanents, pay mana,
+        pay life, sacrifice, discard, add/remove counters, loyalty. Shared by
+        `activate_ability` and `tap_for_mana` (a mana ability's cost is
+        charged exactly the same way, just without going on the stack).
+        Assumes `_can_pay_activation_cost` already passed (with the same
+        ``tap_choices``, if any).
+        """
+        if cost.taps_self:
+            self.rules.set_tapped(source, True)
+        if cost.untaps_self:
+            source.untap()
+        if cost.tap_others:
+            count, subtype = cost.tap_others
+            for obj in self._resolve_tap_others(player, source, count, subtype, tap_choices) or []:
+                self.rules.set_tapped(obj, True)
+        mana = cost.mana.with_x(x) if cost.mana.has_variable else cost.mana
+        if mana.symbols:
+            allows_restriction = restriction_predicate_for_activation(source, has_x=cost.mana.has_variable)
+            life_spent = player.mana_pool.pay(
+                mana, life_available=player.life, allows_restriction=allows_restriction
+            )
+            self.rules.lose_life(player, life_spent, cause="cost")
+        if cost.pay_life:
+            self.rules.lose_life(player, cost.pay_life, cause="cost")
+        if cost.sacrifice:
+            victim = self._sacrifice_candidate(player, source, cost.sacrifice)
+            if victim is not None:
+                # RULE 701.16c: sacrifice isn't destruction — see the
+                # matching comment in `_pay_additional_cast_cost`.
+                self.rules.put_into_graveyard(victim)
+        if cost.unattach_self:
+            source.last_unattached_from_id = source.attached_to
+            source.attached_to = None
+        if cost.discard:
+            self.rules.discard(player, len(player.hand) if cost.discard == DISCARD_HAND else cost.discard)
+        if cost.remove_counters:
+            kind, count = cost.remove_counters
+            source.add_counters(kind, -count)
+        if cost.add_counters_cost:
+            kind, count = cost.add_counters_cost
+            source.add_counters(kind, count)
+        if cost.loyalty is not None:
+            # RULE 606.5c: pay by changing loyalty; a loyalty ability is once
+            # per turn per planeswalker (RULE 606.3).
+            source.add_counters("loyalty", cost.loyalty)
+            source.activated_loyalty_this_turn = True
+
     def activate_ability(
         self,
         player: Player,
@@ -1218,57 +2051,44 @@ class GameEngine:
         ability_index: int = 0,
         targets: Optional[list[Any]] = None,
         x: int = 0,
+        tap_choices: Optional[list[Any]] = None,
+        target_groups: Optional[list[list[Any]]] = None,
     ) -> None:
         """Pay an activated ability's cost and put it on the stack (RULE 602.2).
 
         Costs are paid in one go (RULE 601.2h analogue for abilities): tap /
         untap the source, pay mana, pay life, sacrifice, discard, remove
         counters — then the ability goes on the stack to resolve later like any
-        other object. Raises ValueError if the ability can't be paid for.
+        other object. ``tap_choices`` is the player's pick for a "tap N
+        untapped <type>s you control" cost, if any (see `tap_for_mana`).
+        Raises ValueError if the ability can't be paid for.
+
+        ``target_groups``, when given, partitions ``targets`` per targeting
+        effect (`StackItem.target_groups`) — needed only when the ability
+        carries 2+ *different* targeting effects; omitted (``None``), every
+        effect reads ``targets`` directly, unchanged from before this existed.
         """
         abilities = source.activated_abilities
         if not 0 <= ability_index < len(abilities):
             raise ValueError(f"{source.name} has no activated ability #{ability_index}")
         ability = abilities[ability_index]
-        if not self.can_activate(player, source, ability, x):
+        if not self.can_activate(player, source, ability, x, tap_choices=tap_choices):
             raise ValueError(f"cannot activate {source.name}'s ability")
 
-        cost = ability.cost
-        if cost.taps_self:
-            self.rules.set_tapped(source, True)
-        if cost.untaps_self:
-            source.untap()
-        mana = cost.mana.with_x(x) if cost.mana.has_variable else cost.mana
-        if mana.symbols:
-            life_spent = player.mana_pool.pay(mana, life_available=player.life)
-            self.rules.lose_life(player, life_spent, cause="cost")
-        if cost.pay_life:
-            self.rules.lose_life(player, cost.pay_life, cause="cost")
-        if cost.sacrifice:
-            victim = self._sacrifice_candidate(player, source, cost.sacrifice)
-            if victim is not None:
-                self.rules.destroy(victim)
-        if cost.discard:
-            self.rules.discard(player, len(player.hand) if cost.discard == DISCARD_HAND else cost.discard)
-        if cost.remove_counters:
-            kind, count = cost.remove_counters
-            source.add_counters(kind, -count)
-        if cost.loyalty is not None:
-            # RULE 606.5c: pay by changing loyalty; a loyalty ability is once
-            # per turn per planeswalker (RULE 606.3).
-            source.add_counters("loyalty", cost.loyalty)
-            source.activated_loyalty_this_turn = True
+        self._pay_activation_cost(player, source, ability.cost, x, tap_choices=tap_choices)
 
-        self.state.stack.append(
-            StackItem(
-                kind="ability",
-                controller_id=player.id,
-                effects=[ability],
-                description=ability.description or f"{source.name} ability",
-                targets=targets,
-                x=x,
-            )
+        item = StackItem(
+            kind="ability",
+            controller_id=player.id,
+            effects=[ability],
+            description=ability.description or f"{source.name} ability",
+            targets=targets,
+            target_groups=target_groups,
+            x=x,
+            source=source,
         )
+        self.state.stack.append(item)
+        self.rules.check_ward(item, player)
         # RULE 117.3c: taking an action reclaims priority for its taker.
         self.give_priority(player)
 
@@ -1276,7 +2096,9 @@ class GameEngine:
     # Action validation query (docs/02 R4.3)
     # ------------------------------------------------------------------
 
-    def _cast_action(self, player: Player, obj: GameObject, face: str = "front") -> dict[str, Any]:
+    def _cast_action(
+        self, player: Player, obj: GameObject, face: str = "front", mode: Optional[Any] = None
+    ) -> dict[str, Any]:
         """A ``cast_spell`` legal-action entry, flagging ``{X}`` and targets.
 
         ``has_x`` tells the UI to prompt for a value; ``max_x`` is the
@@ -1289,34 +2111,71 @@ class GameEngine:
         with a reason — the UI renders it with a 🔒 and can't cast it, which
         is the offer-time face of RULE 601.2c.
 
-        ``face="back"`` builds this for a modal DFC's back face (RULE
-        712.10): ``obj`` is temporarily rebound onto the back face (so
-        targeting/cost read its *own* abilities, not the front's) then
+        ``face="back"``/``"fuse"`` build this for a second castable face
+        (see `_face_card`): ``obj`` is temporarily rebound onto that face
+        (so targeting/cost read its *own* abilities, not the front's) then
         restored before returning — a pure preview, unlike `cast_spell`'s
         real (and rollback-on-failure) switch.
+
+        ``mode`` (an index into ``obj.spell_modes``, or ``"both"``) tags the
+        entry with that mode (RULE 700.2 — see `_modal_cast_actions`, which
+        calls this once per mode instead of once per ``obj``) and computes
+        ``targets``/``locked`` under that mode's own effects only.
         """
-        if face == "back":
-            back = obj.card.back_face()
+        if face in ("back", "fuse"):
+            alt = obj.card.back_face() if face == "back" else obj.card.fuse_face()
             snapshot = self.rules.snapshot_face(obj)
-            self.rules.switch_to_face(obj, back)
+            self.rules.switch_to_face(obj, alt)
             try:
                 action = self._cast_action(player, obj)
             finally:
                 self.rules.restore_face(obj, snapshot)
-            action["face"] = "back"
+            action["face"] = face
             return action
         action = {"type": "cast_spell", "instance_id": obj.instance_id, "name": obj.name}
+        if mode is not None:
+            action["mode"] = mode
+            action["mode_description"] = self._mode_description(obj, mode)
         cost = self.rules.mana_cost_of(obj.card)
         if cost.has_variable:
             action["has_x"] = True
             action["max_x"] = self.max_affordable_x(player, obj)
+
+        # RULE 702.33: surface Kicker/Multikicker so the UI can prompt for
+        # how many times to pay it, the same "has_x/max_x" shape as {X}.
+        kicker_cost = self._kicker_cost(obj)
+        if kicker_cost is not None:
+            kicker_param = (getattr(obj, "parametric_keywords", None) or {}).get("kicker") or {}
+            action["has_kicker"] = True
+            action["kicker_cost"] = kicker_cost.raw
+            action["kicker_multi"] = bool(kicker_param.get("multi"))
+            action["max_kicker"] = self.max_affordable_kicker(player, obj)
+
+        # RULE 702.27: surface Buyback so the UI can offer a "pay to buy
+        # back" toggle, locked when its own cost isn't affordable.
+        buyback_cost = self._buyback_cost(obj)
+        if buyback_cost is not None:
+            action["has_buyback"] = True
+            action["buyback_cost"] = buyback_cost.raw
+            action["buyback_affordable"] = self.can_cast(player, obj, buyback=True)
+
+        # RULE 702.34/702.138: a graveyard cast is by definition via
+        # Flashback/Escape's own alternative cost, not the printed one — tag
+        # it so the UI can label the offer distinctly from a normal cast.
+        graveyard_keyword = self._graveyard_cast_keyword(obj) if obj in player.graveyard else None
+        if graveyard_keyword is not None:
+            action["cast_from_graveyard"] = graveyard_keyword
+            if graveyard_keyword == "escape":
+                escape_cost = self._escape_cost(obj)
+                if escape_cost is not None and escape_cost.exile_from_graveyard:
+                    action["escape_exile_count"] = escape_cost.exile_from_graveyard
 
         # Static cost adjustment (RULE 601.2f): surface base vs. reduced so the
         # UI can show "was {3}, now {1}" and the static-effects panel can
         # attribute it. Only attached when something actually changes the cost.
         reduction, contributors = continuous.cost_reduction_for(self.state, player)
         tax = self.commander_tax(player, obj)
-        if (reduction or tax) and cost.raw:
+        if (reduction or tax or graveyard_keyword) and cost.raw:
             action["base_cost"] = cost.raw
             action["effective_cost"] = self.effective_cast_cost(player, obj).raw
             if reduction:
@@ -1324,7 +2183,20 @@ class GameEngine:
             if tax:
                 action["commander_tax"] = tax
 
-        requirements = requirements_with_targets(self.state, player.id, obj)
+        # RULE 601.2b: surface the additional cast cost (if any) so the UI
+        # can show it alongside the mana cost, and lock the offer when its
+        # non-X portion (sacrifice/discard) isn't payable — the same
+        # "offer-time face" treatment missing targets get above. A pending
+        # "pay X life" isn't locked here since X isn't chosen until cast.
+        additional_cost = getattr(obj, "additional_cast_cost", None)
+        if additional_cost is not None and not additional_cost.is_free:
+            action["additional_cost_label"] = additional_cost.label()
+            if not self._can_pay_additional_cast_cost(player, obj, additional_cost, x=0):
+                action["locked"] = True
+                action["lock_reason"] = "Zusätzliche Kosten nicht bezahlbar"
+
+        with self._mode_effects_applied(obj, mode):
+            requirements = requirements_with_targets(self.state, player.id, obj)
         if requirements:
             action["requires_target"] = True
             action["targets"] = requirements
@@ -1332,6 +2204,35 @@ class GameEngine:
                 action["locked"] = True
                 action["lock_reason"] = "Kein gültiges Ziel im Spiel"
         return action
+
+    def _modal_cast_actions(self, player: Player, obj: GameObject) -> list[dict[str, Any]]:
+        """One ``cast_spell`` action per mode of a modal spell (RULE 700.2).
+
+        For the ordinary "choose one" case (``spell_modes_choose == 1``):
+        one action per single mode, plus a combined "both" action when
+        ``obj.spell_modes_or_both`` (RULE 700.2e) — the same "an offer per
+        option" treatment `legal_actions` already gives an MDFC's two faces.
+        For "choose *N*" (``N>=2`` — Kolaghan's Command/Austere Command
+        -shaped): one action per legal *combination* of ``N`` modes
+        (``itertools.combinations``), each tagged with a list of indices
+        instead of a bare int (see `_effects_for_mode`). For "choose *N* or
+        more" (``obj.spell_modes_at_least`` — Farewell-shaped): one action
+        per combination of *every* size from ``N`` to all modes.
+        """
+        modes = list(getattr(obj, "spell_modes", None) or [])
+        choose = getattr(obj, "spell_modes_choose", 1)
+        at_least = getattr(obj, "spell_modes_at_least", False)
+        if choose <= 1 and not at_least:
+            actions = [self._cast_action(player, obj, mode=i) for i in range(len(modes))]
+            if getattr(obj, "spell_modes_or_both", False) and len(modes) == 2:
+                actions.append(self._cast_action(player, obj, mode="both"))
+            return actions
+        sizes = range(choose, len(modes) + 1) if at_least else [choose]
+        return [
+            self._cast_action(player, obj, mode=list(combo))
+            for size in sizes
+            for combo in itertools.combinations(range(len(modes)), size)
+        ]
 
     def legal_actions(self, player: Player) -> list[dict[str, Any]]:
         """Every action ``player`` may legally take in the current state.
@@ -1349,10 +2250,15 @@ class GameEngine:
                     {"type": "play_land", "instance_id": obj.instance_id, "name": obj.name}
                 )
             if self.can_cast(player, obj):
-                actions.append(self._cast_action(player, obj))
-            # A modal DFC offers its back face too (RULE 712.10) — a second,
-            # independently-gated action for the same hand card.
-            if obj.card.is_modal_dfc and obj.card.back_face() is not None:
+                if getattr(obj, "spell_modes", None):
+                    actions.extend(self._modal_cast_actions(player, obj))
+                else:
+                    actions.append(self._cast_action(player, obj))
+            # A second castable face offers its own action(s) too — a modal
+            # DFC's back (RULE 712.10), a split card's other half (RULE
+            # 709.3), or an Adventure's instant/sorcery half (RULE 715.2b) —
+            # a second, independently-gated action for the same hand card.
+            if obj.card.back_face() is not None:
                 if self.can_play_land(player, obj, face="back"):
                     actions.append(
                         {
@@ -1364,10 +2270,51 @@ class GameEngine:
                     )
                 if self.can_cast(player, obj, face="back"):
                     actions.append(self._cast_action(player, obj, face="back"))
+            # A split card with Fuse offers casting both halves as one spell
+            # too (RULE 709.4), for their combined cost.
+            if obj.card.fuse_face() is not None and self.can_cast(player, obj, face="fuse"):
+                actions.append(self._cast_action(player, obj, face="fuse"))
 
         for obj in list(player.command):
             if self.can_cast(player, obj):
-                actions.append(self._cast_action(player, obj))
+                if getattr(obj, "spell_modes", None):
+                    actions.extend(self._modal_cast_actions(player, obj))
+                else:
+                    actions.append(self._cast_action(player, obj))
+
+        for obj in list(player.exile):
+            # RULE 715.3d / 722.3c: an Adventure creature exiled by its own
+            # spell half, or a prepared copy, may be cast from exile.
+            if self._castable_from_exile(obj) and self.can_cast(player, obj):
+                if getattr(obj, "spell_modes", None):
+                    actions.extend(self._modal_cast_actions(player, obj))
+                else:
+                    actions.append(self._cast_action(player, obj))
+
+        for obj in list(player.graveyard):
+            # RULE 702.34 / 702.138: Flashback/Escape let a card be cast
+            # from the graveyard for an alternative cost.
+            if self._castable_from_graveyard(obj) and self.can_cast(player, obj):
+                if getattr(obj, "spell_modes", None):
+                    actions.extend(self._modal_cast_actions(player, obj))
+                else:
+                    actions.append(self._cast_action(player, obj))
+
+        if player.library:
+            # Oracle of Mul Daya/Glarb, Calamity's Augur-shaped: a permanent
+            # may grant playing lands and/or casting spells straight off the
+            # top of the library — see `game/top_library.py`. Only the top
+            # card itself is ever offered.
+            top = player.library[-1]
+            if self.can_play_land(player, top):
+                actions.append(
+                    {"type": "play_land", "instance_id": top.instance_id, "name": top.name}
+                )
+            if self.can_cast(player, top):
+                if getattr(top, "spell_modes", None):
+                    actions.extend(self._modal_cast_actions(player, top))
+                else:
+                    actions.append(self._cast_action(player, top))
 
         if (
             player is self.state.active_player
@@ -1390,26 +2337,73 @@ class GameEngine:
                     )
 
         for source in self.state.permanents_controlled_by(player.id):
-            # A tapped source, or a summoning-sick creature (RULE 302.6), can't
-            # tap for mana — don't offer it as a legal action.
-            if source.tapped or self._summoning_sick_for_tap(source):
-                continue
-            options = mana_options_for(source)
-            if not options:
-                continue
-            # Each option is a distinct choice (dual-land "W or U"); the UI
-            # shows one button per option so the player picks the colour.
-            actions.append(
-                {
+            # One offer per mana ability the source has (almost always just
+            # one) — `_can_pay_activation_cost` covers tap/summoning-sickness
+            # *and* any extra cost component (Selvala's {G}, Gnarlroot
+            # Trapper's life payment, Birchlore Rangers' "tap two other
+            # Elves" — RULE 602.1), so a source that can't tap itself can
+            # still offer an ability that doesn't need to.
+            for ability_index, ability in enumerate(mana_abilities_for(source, state=self.state)):
+                if not ability.options:
+                    continue
+                # Existence-only check here (no chosen tap_others yet — the
+                # player picks those in the UI *after* choosing to activate,
+                # same as a target); `tap_for_mana` re-validates the actual
+                # choice at payment time.
+                if not self._can_pay_activation_cost(player, source, ability.cost, x=0):
+                    continue
+                action = {
                     "type": "tap_for_mana",
                     "instance_id": source.instance_id,
                     "name": source.name,
+                    "ability_index": ability_index,
+                    "cost_label": ability.cost.label(),
+                    # Each option is a distinct choice (dual-land "W or U");
+                    # the UI shows one button per option so the player picks
+                    # the colour.
                     "options": [
                         {"index": i, "mana": opt, "label": option_label(opt)}
-                        for i, opt in enumerate(options)
+                        for i, opt in enumerate(ability.options)
                     ],
                 }
-            )
+                if ability.any_combination:
+                    # RULE 605.1a "any combination of colours" (Flamebraider/
+                    # Gwenna/Smokebraider/Selvala) — the player may split
+                    # this total across colours (`color_split`) instead of
+                    # picking one of the single-colour ``options`` above;
+                    # no split UI exists yet (frontend/ToDo_Frontend.md), so
+                    # today's UI still offers the single-colour buttons as a
+                    # legal (if inflexible) fallback.
+                    action["any_combination"] = True
+                    action["combination_total"] = sum(ability.options[0].values())
+                if ability.cost.tap_others:
+                    action["tap_cost"] = self._tap_cost_choice(player, source, ability.cost)
+                actions.append(action)
+
+        for source in list(player.hand):
+            # RULE 605.1a "Exile this card from your hand: Add …" (Elvish/
+            # Simian Spirit Guide) — the hand-zone counterpart of the
+            # battlefield loop above; every real card's cost is just the
+            # exile itself, so (unlike `tap_for_mana`'s offer) there's no
+            # extra payability check here.
+            for ability_index, ability in enumerate(hand_mana_abilities_for(source, state=self.state)):
+                if not ability.options:
+                    continue
+                action = {
+                    "type": "activate_hand_mana",
+                    "instance_id": source.instance_id,
+                    "name": source.name,
+                    "ability_index": ability_index,
+                    "cost_label": ability.cost.label(),
+                    "options": [
+                        {"index": i, "mana": opt, "label": option_label(opt)}
+                        for i, opt in enumerate(ability.options)
+                    ],
+                }
+                if ability.any_combination:
+                    action["any_combination"] = True
+                    action["combination_total"] = sum(ability.options[0].values())
+                actions.append(action)
 
         # Activated abilities (RULE 602) bound onto permanents this player
         # controls — one offer per payable ability (a fetch land's
@@ -1464,18 +2458,40 @@ class GameEngine:
         if land is not None:
             self.play_land(active, land)
         for source in self.state.permanents_controlled_by(active.id):
-            if (
-                not source.tapped
-                and mana_options_for(source)
-                and not self._summoning_sick_for_tap(source)  # RULE 302.6
-            ):
-                self.tap_for_mana(active, source)  # option 0 (greedy)
+            for ability_index, ability in enumerate(mana_abilities_for(source, state=self.state)):
+                cost = ability.cost
+                # Keep the greedy auto-player conservative: only a plain
+                # {T}-only mana ability taps itself automatically — one that
+                # also costs mana/life/other-Elves (Selvala, Gnarlroot
+                # Trapper, Birchlore Rangers) needs a real choice the bot
+                # doesn't make.
+                simple = (
+                    cost.taps_self
+                    and not cost.mana.symbols
+                    and not cost.pay_life
+                    and not cost.tap_others
+                    and not cost.sacrifice
+                    and not cost.discard
+                    and not cost.add_counters_cost
+                )
+                if not simple or not ability.options:
+                    continue
+                if not self._can_pay_activation_cost(active, source, cost, x=0):
+                    continue
+                self.tap_for_mana(active, source, ability_index=ability_index)  # option 0 (greedy)
+                break
         # Cast affordable non-land spells cheapest first.
         castable = sorted(
             (o for o in active.hand if not o.card.is_land),
             key=lambda o: o.card.converted_mana_cost,
         )
         for obj in castable:
+            if getattr(obj, "spell_modes", None):
+                # RULE 700.2: a modal spell needs a mode choice (`mode=`)
+                # before `has_legal_targets` even means anything — the
+                # greedy auto-play heuristic doesn't pick modes, so it skips
+                # these rather than raise mid-autoplay.
+                continue
             # Skip a targeting spell with nothing legal to point at (RULE
             # 601.2c) rather than have `cast_spell` raise mid-autoplay.
             if self.can_cast(active, obj) and self.has_legal_targets(active, obj):

@@ -1,7 +1,7 @@
 """Rules & game engine (Phase 2/3).
 
-Reference: docs/07_GAME_LOOP_EFFECT_SYSTEM.md,
-docs/02_MVP_USECASES_REVISED.md R2.*/R4.*.
+Reference: docs/concepts/07_GAME_LOOP_EFFECT_SYSTEM.md,
+docs/requirements/02_MVP_USECASES_REVISED.md R2.*/R4.*.
 
 The model layer (mtg_analyzer/models/) holds game *state*; this package
 holds the *rules* that read and change it:

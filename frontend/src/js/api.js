@@ -2,8 +2,8 @@
 // GET/POST /api/cards/*). Card lookups (mana cost, oracle text, images) go
 // through the backend's CardDatabase/ImageCache now (see cardImages.js)
 // instead of calling Scryfall directly from the browser — see
-// docs/06_CARD_GRAPHICS_AND_LAZY_LOADING.md,
-// docs/08_CARD_CACHE_EXPORT_IMPORT.md.
+// docs/concepts/06_CARD_GRAPHICS_AND_LAZY_LOADING.md,
+// docs/Reference/08_CARD_CACHE_EXPORT_IMPORT.md.
 //
 // The backend address is user-configurable at runtime (see settings.js,
 // connectionSettingsView.js) rather than a fixed constant, so every call
@@ -51,6 +51,42 @@ export async function submitDeck(sections) {
     return { ok: true, deck: await response.json() };
   } catch {
     return { ok: false, error: 'Ungültige Server-Antwort – lokale Vorschau wird verwendet.' };
+  }
+}
+
+/**
+ * Server-side Archidekt import proxy (GET /api/import/archidekt/{deckId}).
+ * Unlike Moxfield (tried and reverted twice — genuinely Cloudflare-
+ * blocked, see backend/ToDo_Backend.md "Import — follow-up from the
+ * frontend"), Archidekt's API has no such protection.
+ * @param {string} deckIdOrUrl Bare Archidekt deck id, or a full
+ *   archidekt.com/decks/{id}/{slug} URL pasted from the browser — the
+ *   backend extracts the id either way.
+ * @returns {Promise<{ok: true, name: string, commanderText: string, mainboardText: string, sideboardText: string} | {ok: false, error: string}>}
+ */
+export async function importArchidektDeck(deckIdOrUrl) {
+  let response;
+  try {
+    response = await fetch(`${getServerUrl()}/api/import/archidekt/${encodeURIComponent(deckIdOrUrl)}`);
+  } catch {
+    return { ok: false, error: 'Server nicht erreichbar.' };
+  }
+
+  if (!response.ok) {
+    let detail = `Archidekt-Import fehlgeschlagen (HTTP ${response.status}).`;
+    try {
+      const body = await response.json();
+      if (body?.detail) detail = body.detail;
+    } catch {
+      /* non-JSON error body — keep the generic message */
+    }
+    return { ok: false, error: detail };
+  }
+
+  try {
+    return { ok: true, ...(await response.json()) };
+  } catch {
+    return { ok: false, error: 'Ungültige Server-Antwort.' };
   }
 }
 
@@ -120,7 +156,7 @@ export async function listCachedCards() {
 
 /**
  * Save a new deck, or update one already saved (pass its `id` back).
- * @param {{id?: string, name: string, commanderText: string, mainboardText: string, sideboardText: string}} deck
+ * @param {{id?: string, name: string, commanderText: string, mainboardText: string, sideboardText: string, sleeveId?: string | null, author?: string | null}} deck
  * @returns {Promise<object | null>} the saved deck (with its id), or null on failure
  */
 export async function saveDeck(deck) {

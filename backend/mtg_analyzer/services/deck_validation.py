@@ -1,6 +1,6 @@
 """Shared deck legality validation: resolve cards + Commander checks.
 
-Reference: backend/Done_Backend.md "Validator", docs/02 UC1.
+Reference: docs/implementation-state/Done_Backend.md "Validator", docs/02 UC1.
 
 `POST /api/decks`, `GET /api/decks/{id}/validation`, and starting a
 goldfish game all need the same thing: take a parsed decklist, resolve

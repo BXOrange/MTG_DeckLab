@@ -1,14 +1,15 @@
-"""SQLite-backed local cache of Card data, keyed by Scryfall id and name.
+"""SQLite-backed local cache of Card data, keyed by Scryfall id, name, and
+flavor name.
 
-Reference: docs/06_CARD_GRAPHICS_AND_LAZY_LOADING.md (PART 3),
-docs/IMPLEMENTATION_GUIDE.md (Week 2, Day 4-5, "CardDatabase").
+Reference: docs/concepts/06_CARD_GRAPHICS_AND_LAZY_LOADING.md (PART 3),
+docs/implementation-state/IMPLEMENTATION_GUIDE.md (Week 2, Day 4-5, "CardDatabase").
 
 Rather than one hand-maintained SQLite column per `Card` attribute, each
 row stores the card's `to_dict()` output as a JSON blob alongside
-indexed `id`/`name` columns for lookup. This keeps the schema in sync
-with `Card` for free as fields are added, at the cost of not being able
-to filter on individual card attributes in SQL (`search_cards` matches
-on name only, which is all that's needed today).
+indexed `id`/`name`/`flavor_name` columns for lookup. This keeps the
+schema in sync with `Card` for free as fields are added, at the cost of
+not being able to filter on individual card attributes in SQL
+(`search_cards` matches on name only, which is all that's needed today).
 """
 
 from __future__ import annotations
@@ -21,6 +22,7 @@ import threading
 from pathlib import Path
 from typing import Optional, Union
 
+from mtg_analyzer.config import CACHE_DIR, DB_PATH
 from mtg_analyzer.models.card import Card
 from mtg_analyzer.services.schema_version import reconcile_schema
 
@@ -36,19 +38,24 @@ _FACE_SEPARATOR_RE = re.compile(r"\s*/+\s*")
 #: disposable: deleting it just means the next lookup re-fetches from
 #: Scryfall. Gitignored via the repo-root .gitignore ("backend/cache/") —
 #: never commit it. Export/import instructions:
-#: docs/08_CARD_CACHE_EXPORT_IMPORT.md.
-CACHE_ROOT = Path(__file__).resolve().parent.parent.parent / "cache"
+#: docs/Reference/08_CARD_CACHE_EXPORT_IMPORT.md. Overridable via the
+#: MTG_CACHE_DIR env var — see mtg_analyzer/config.py.
+CACHE_ROOT = CACHE_DIR
 
 #: Default on-disk location for the lazily-populated card database.
-DEFAULT_DB_PATH = CACHE_ROOT / "db" / "cards.db"
+DEFAULT_DB_PATH = DB_PATH
 
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS cards (
     id TEXT PRIMARY KEY,
     name TEXT NOT NULL,
+    flavor_name TEXT NOT NULL DEFAULT '',
     data TEXT NOT NULL
 );
 CREATE UNIQUE INDEX IF NOT EXISTS idx_cards_name ON cards (name COLLATE NOCASE);
+-- Not unique: most rows have a blank flavor_name (only Secret Lair
+-- "Godzilla"/Universes Beyond promos carry one, see Card.flavor_name).
+CREATE INDEX IF NOT EXISTS idx_cards_flavor_name ON cards (flavor_name COLLATE NOCASE);
 """
 
 #: Source files that define the *stored format* of a cached card row: the
@@ -80,10 +87,31 @@ class CardDatabase:
         self._connection = sqlite3.connect(str(db_path), check_same_thread=False)
         self._lock = threading.Lock()
         with self._lock:
+            self._migrate_missing_columns()
             self._connection.executescript(_SCHEMA)
             self._connection.commit()
         #: Whether opening this DB cleared the cache due to a schema change.
         self.schema_reset = self._reconcile_schema()
+
+    def _migrate_missing_columns(self) -> None:
+        """Widen a pre-existing `cards` table with any columns added since.
+
+        `CREATE TABLE IF NOT EXISTS` (in `_SCHEMA`) only creates the table
+        on a brand-new database — it never alters an existing one, so a
+        column added later (like `flavor_name`) would otherwise make the
+        `CREATE INDEX` right after this fail against an on-disk DB from
+        before that column existed. `_reconcile_schema`'s wipe-on-mismatch
+        handles stale *values*; this handles the table *shape* itself,
+        which must be fixed first — `_reconcile_schema` doesn't even run
+        until after `_SCHEMA` has already touched the new column.
+        """
+        columns = {
+            row[1] for row in self._connection.execute("PRAGMA table_info(cards)").fetchall()
+        }
+        if not columns:
+            return  # brand-new database — _SCHEMA's CREATE TABLE handles it
+        if "flavor_name" not in columns:
+            self._connection.execute("ALTER TABLE cards ADD COLUMN flavor_name TEXT NOT NULL DEFAULT ''")
 
     def _reconcile_schema(self) -> bool:
         with self._lock:
@@ -96,7 +124,7 @@ class CardDatabase:
         conn: sqlite3.Connection, old: Optional[str], new: str
     ) -> None:
         # The card cache is disposable — always re-fetchable from Scryfall
-        # (docs/08_CARD_CACHE_EXPORT_IMPORT.md) — so on any format drift,
+        # (docs/Reference/08_CARD_CACHE_EXPORT_IMPORT.md) — so on any format drift,
         # drop cached rows and let them re-populate lazily in the current
         # format. This is what heals e.g. stale mana-cost data.
         conn.execute("DELETE FROM cards")
@@ -123,13 +151,18 @@ class CardDatabase:
         the Realms"). Both the exact name and the part before the first
         slash are tried as a front-face prefix. No MTG card name contains
         a literal `%`/`_`, so the LIKE prefix match needs no escaping.
+
+        Also matches a promo printing's `flavor_name` (e.g. "Godzilla,
+        King of the Monsters" hits the row stored under its real name
+        "Zilortha, Strength Incarnate") — see `Card.flavor_name`.
         """
         front = _FACE_SEPARATOR_RE.split(name, maxsplit=1)[0].strip()
         with self._lock:
             row = self._connection.execute(
                 "SELECT data FROM cards WHERE name = ? COLLATE NOCASE "
-                "OR name LIKE ? COLLATE NOCASE",
-                (name, f"{front} // %"),
+                "OR name LIKE ? COLLATE NOCASE "
+                "OR (flavor_name != '' AND flavor_name = ? COLLATE NOCASE)",
+                (name, f"{front} // %", name),
             ).fetchone()
         return Card.from_dict(json.loads(row[0])) if row else None
 
@@ -156,11 +189,25 @@ class CardDatabase:
         return [Card.from_dict(json.loads(row[0])) for row in rows]
 
     def save_card(self, card: Card) -> None:
-        """Insert or update a card, keyed by its Scryfall id."""
+        """Insert or update a card, keyed by its Scryfall id.
+
+        Two *different* printings can resolve to the same `name` — e.g. a
+        plain "Nyxbloom Ancient" alongside a Universes Beyond crossover
+        printing whose flavor name ("The Cloudsea Djinn") resolves back to
+        the same Oracle card via the `/cards/named` fallback
+        (`LazyCardLoader.load_cards`) — which would otherwise violate the
+        UNIQUE `name` index with a plain `ON CONFLICT(id)` upsert (a
+        *different* id doesn't trigger that clause, so the separate name
+        constraint raises `IntegrityError` instead). `OR REPLACE` deletes
+        *any* pre-existing row conflicting on either the `id` primary key
+        or the unique `name`/collation before inserting, so the two
+        printings correctly collapse onto one cache row by name — matching
+        the rest of the app's card-identity model (Card lookup is always
+        by name, never by printing).
+        """
         with self._lock:
             self._connection.execute(
-                "INSERT INTO cards (id, name, data) VALUES (?, ?, ?) "
-                "ON CONFLICT(id) DO UPDATE SET name = excluded.name, data = excluded.data",
-                (card.id, card.name, json.dumps(card.to_dict())),
+                "INSERT OR REPLACE INTO cards (id, name, flavor_name, data) VALUES (?, ?, ?, ?)",
+                (card.id, card.name, card.flavor_name, json.dumps(card.to_dict())),
             )
             self._connection.commit()

@@ -1,6 +1,6 @@
 """Card criteria: a pure predicate over a `Card` (RULE 700.4 "a card that…").
 
-Reference: docs/09_ORACLE_EFFECT_PARSER.md (pure, JSON-serializable data at
+Reference: docs/concepts/09_ORACLE_EFFECT_PARSER.md (pure, JSON-serializable data at
 the security boundary — nothing derived from card text becomes code).
 
 A library search (RULE 701.19) picks *some kind* of card: "a basic land",

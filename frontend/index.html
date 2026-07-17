@@ -16,7 +16,15 @@
       </button>
       <h1>MTG Deck Analyzer</h1>
     </div>
-    <div id="header-connection-status"></div>
+    <div class="app-header-right">
+      <div id="header-connection-status"></div>
+      <button class="tab-button icon-button settings-button" data-tab="connection" type="button" title="Einstellungen" aria-label="Einstellungen">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M19.14 12.94a7.14 7.14 0 0 0 .06-.94 7.14 7.14 0 0 0-.06-.94l2.03-1.58a.5.5 0 0 0 .12-.64l-1.92-3.32a.5.5 0 0 0-.6-.22l-2.39.96a7.03 7.03 0 0 0-1.63-.94l-.36-2.54a.5.5 0 0 0-.5-.42h-3.84a.5.5 0 0 0-.5.42l-.36 2.54c-.59.24-1.14.56-1.63.94l-2.39-.96a.5.5 0 0 0-.6.22L2.71 8.84a.5.5 0 0 0 .12.64l2.03 1.58c-.04.31-.06.62-.06.94s.02.63.06.94l-2.03 1.58a.5.5 0 0 0-.12.64l1.92 3.32c.14.24.42.32.6.22l2.39-.96c.49.38 1.04.7 1.63.94l.36 2.54c.05.24.26.42.5.42h3.84c.24 0 .45-.18.5-.42l.36-2.54c.59-.24 1.14-.56 1.63-.94l2.39.96c.24.1.46 0 .6-.22l1.92-3.32a.5.5 0 0 0-.12-.64zM12 15.5A3.5 3.5 0 1 1 12 8.5a3.5 3.5 0 0 1 0 7z"/></svg>
+      </button>
+      <button class="tab-button icon-button profile-button" data-tab="profile" type="button" title="Profil" aria-label="Profil">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="8" r="4"/><path d="M4 20c0-4.4 3.6-8 8-8s8 3.6 8 8"/></svg>
+      </button>
+    </div>
   </header>
 
   <div class="app-body">
@@ -26,6 +34,7 @@
           <button class="nav-group-toggle" type="button">Deck-Management</button>
           <div class="nav-group-items">
             <button class="tab-button" data-tab="import" type="button">Deck editieren</button>
+            <button class="tab-button" data-tab="importDeck" type="button">Import Deck</button>
             <button class="tab-button" data-tab="savedDecks" type="button">Decks verwalten</button>
             <button class="tab-button" data-tab="analyze" type="button">Deck analysieren</button>
           </div>
@@ -37,8 +46,12 @@
             <button class="tab-button" data-tab="replay" type="button">Puzzle/Replay</button>
           </div>
         </div>
-        <button class="tab-button" data-tab="multiplayer" type="button">Multiplayer</button>
-        <button class="tab-button" data-tab="connection" type="button">Einstellungen</button>
+        <div class="nav-group" data-group="multiplayer">
+          <button class="nav-group-toggle" type="button">Multiplayer</button>
+          <div class="nav-group-items">
+            <button class="tab-button" data-tab="multiplayer" type="button">Multiplayer</button>
+          </div>
+        </div>
         <div class="nav-group" data-group="information">
           <button class="nav-group-toggle" type="button">Information</button>
           <div class="nav-group-items">
@@ -51,6 +64,7 @@
 
     <main>
       <section id="view-import" class="view"></section>
+      <section id="view-import-deck" class="view"></section>
       <section id="view-saved-decks" class="view"></section>
       <section id="view-analyze" class="view"></section>
       <section id="view-goldfish" class="view"></section>
@@ -58,6 +72,7 @@
       <section id="view-multiplayer" class="view"></section>
       <section id="view-cache" class="view"></section>
       <section id="view-connection" class="view"></section>
+      <section id="view-profile" class="view"></section>
       <section id="view-status" class="view"></section>
     </main>
   </div>

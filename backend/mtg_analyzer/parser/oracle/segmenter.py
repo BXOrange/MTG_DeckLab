@@ -1,6 +1,6 @@
 """Step 2 of the front-end pipeline: segment abilities (docs/09).
 
-Reference: docs/09_ORACLE_EFFECT_PARSER.md ("THE FRONT-END PIPELINE", step 2
+Reference: docs/concepts/09_ORACLE_EFFECT_PARSER.md ("THE FRONT-END PIPELINE", step 2
 SEGMENT). Splits *normalised* card text into individual abilities and peels
 the wrapper off each one — the trigger phrase of a triggered ability, the
 "you may" optionality — leaving a bare **effect body** for the handler table
@@ -18,10 +18,12 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
-from typing import Optional
+from typing import Any, Optional
 
 from .catalogue.handlers import match_clause
 from .catalogue.keywords import KEYWORDS
+from .catalogue.replacements import replacement_clause_specs
+from .catalogue.saga import CHAPTER_LINE_RE, parse_chapter_token
 from .catalogue.static_handlers import static_effect_specs
 from .spec import AbilitySpec, EffectSpec, ParserProvenance
 
@@ -39,6 +41,38 @@ _TRIGGER_EVENTS: list[tuple[re.Pattern[str], str]] = [
 #: A triggered-ability wrapper: "When/Whenever/At <condition>, <body>".
 _TRIGGER_RE = re.compile(r"^(?:when|whenever|at)\b(?P<cond>[^,]*),\s*(?P<body>.+)$", re.S)
 
+#: RULE 603.1's condition *subject* — "self" ("~"/"this creature" itself) —
+#: scoped so e.g. "when ~ enters the battlefield, draw a card" only fires for
+#: its own source, never any other permanent entering (the over-firing bug
+#: this grammar exists to close). The verb itself is still resolved by
+#: `_trigger_event` above; this only decides *whose* enters/dies/attacks/
+#: blocks the ability cares about.
+_SELF_SUBJECT_RE = re.compile(
+    r"^(?:~|this (?:creature|artifact|enchantment|land|permanent|equipment))\s+"
+    r"(?:enters|dies|attacks|blocks)(?:\s+the\s+battlefield)?$"
+)
+
+#: The card-type words a "group" trigger condition can scope to (RULE 613.6-
+#: adjacent vocabulary shared with `catalogue.static_handlers`'s anthem
+#: selectors) — deliberately small: only what `models/game_object.py`'s
+#: `type_words` can check without a subtype grammar.
+_GROUP_TYPE_WORDS = ("creature", "artifact", "enchantment", "land", "permanent")
+
+#: RULE 603.1's condition subject — a *group* of objects, not just the
+#: source itself: "a"/"another" <type> [you control], then the trigger verb,
+#: optionally "the battlefield" (enters) and/or "under your control" (the
+#: older enters-battlefield templating). Examples this claims: "a creature
+#: enters the battlefield under your control", "another creature you control
+#: enters", "a creature dies", "another creature you control dies", "a
+#: creature you control attacks".
+_GROUP_SUBJECT_RE = re.compile(
+    r"^(?P<article>a|another)\s+(?P<type>" + "|".join(_GROUP_TYPE_WORDS) + r")"
+    r"(?P<you_a> you control)?"
+    r"\s+(?:enters|dies|attacks|blocks)"
+    r"(?:\s+the\s+battlefield)?"
+    r"(?P<you_b> under your control)?$"
+)
+
 #: An activated-ability wrapper: "<cost>: <effect>" (RULE 602.1). The cost is
 #: everything before the first colon.
 _ACTIVATED_RE = re.compile(r"^(?P<cost>[^:]+):\s*(?P<effect>.+)$", re.S)
@@ -46,8 +80,21 @@ _ACTIVATED_RE = re.compile(r"^(?P<cost>[^:]+):\s*(?P<effect>.+)$", re.S)
 #: A cost is only trusted as one if it actually *looks* like a cost — a mana/
 #: {T} symbol, or one of the non-mana cost words. This keeps a stray sentence
 #: colon (and loyalty "[+1]:" costs, not modeled yet — RULE 606) from being
-#: mis-read as an activation cost (fail-closed).
-_COST_LOOKS_REAL = re.compile(r"\{[^}]+\}|sacrifice|pay \d+ life|discard", re.I)
+#: mis-read as an activation cost (fail-closed). "put a counter on this/~"
+#: is Devoted Druid's "Put a -1/-1 counter on this creature: Untap this
+#: creature." cost; "tap ... untapped ... you control" is Birchlore Rangers'/
+#: Heritage Druid's bulk-tap cost (RULE 602.1, `costs.tap_others`); "remove a
+#: [+1/+1] counter from this creature" is Walking Ballista/Triskelion's
+#: counter-removal cost (RULE 701.19, `costs.remove_counters` — this module
+#: can't import `game/costs.py`'s `_REMOVE_COUNTERS_RE` directly, front-end
+#: security boundary, so the count/kind shape here is kept loose and just
+#: needs to sniff "is this a cost at all", not fully parse it — keep the verb
+#: fragment in sync if that regex's grammar ever changes).
+_COST_LOOKS_REAL = re.compile(
+    r"\{[^}]+\}|sacrifice|pay \d+ life|discard|put an? .+ counter on|"
+    r"tap .+ untapped .+ you control|remove .+ counters?",
+    re.I,
+)
 
 #: A planeswalker loyalty ability: "[+N]:", "[-N]:", "[0]:" then the effect
 #: (RULE 606.5c). The bracket is the whole cost; the sign says add/remove.
@@ -61,6 +108,53 @@ _MANA_EFFECT_RE = re.compile(r"^add\b", re.I)
 #: Connectors that chain two effect clauses in one ability body, tried in this
 #: order when the whole body isn't a single handled clause.
 _CONNECTORS: tuple[str, ...] = (r"\.\s+", r";\s+", r",?\s+then\s+", r"\s+and\s+")
+
+#: RULE 702.33b's "If this spell was kicked, <effect>." — a *second,
+#: additional* effect gated on the spell's own ``kicker_count`` (Vastwood
+#: Surge-shaped: a base effect, then this as its own sentence). Only this
+#: "additional effect" shape is recognised; "if kicked, it deals N damage
+#: instead" (overriding an *earlier* effect's own amount — Burst Lightning/
+#: Rite of Replication-shaped) is a different, unmodeled grammar — the
+#: wrapped ``rest`` there fails `match_clause` on its own (no target/full
+#: clause of its own), so it fails closed here too rather than needing a
+#: separate check.
+_KICKED_CONDITION_RE = re.compile(r"^if this spell was kicked,\s*(?P<rest>.+)$", re.IGNORECASE)
+
+#: RULE 601.2b/604.3's additional-cost line: "As an additional cost to cast
+#: this spell, <cost>." — instants/sorceries only (gated by
+#: ``allow_spell_effect`` at the call site below, same as a bare imperative).
+#: The wrapper is recognised here; the "<cost>" clause itself is a small
+#: closed vocabulary (`_additional_cost_dict`) — anything outside it leaves
+#: the whole line unclaimed (fail-closed), never a guessed/partial cost.
+_ADDITIONAL_COST_LINE_RE = re.compile(
+    r"^as an additional cost to cast this spell,\s*(?P<cost>.+?)\.?\s*$", re.IGNORECASE
+)
+_ADDITIONAL_COST_SACRIFICE_RE = re.compile(
+    r"^sacrifice an?\s+(creature|artifact|land)$", re.IGNORECASE
+)
+_ADDITIONAL_COST_DISCARD_RE = re.compile(r"^discard an?\s+card$", re.IGNORECASE)
+_ADDITIONAL_COST_PAY_LIFE_RE = re.compile(r"^pay\s+(x|\d+)\s+life$", re.IGNORECASE)
+
+
+def _additional_cost_dict(text: str) -> Optional[dict[str, Any]]:
+    """One additional-cost clause's closed vocabulary → its dict, or ``None``.
+
+    Matches `AbilitySpec.additional_cost`'s shape exactly: ``{"sacrifice":
+    "creature"|"artifact"|"land"}``, ``{"discard": 1}`` ("discard a card" is
+    the only printed count in the pool), or ``{"pay_life": N|"x"}``.
+    """
+    text = text.strip().lower()
+    sac = _ADDITIONAL_COST_SACRIFICE_RE.match(text)
+    if sac is not None:
+        return {"sacrifice": sac.group(1)}
+    if _ADDITIONAL_COST_DISCARD_RE.match(text):
+        return {"discard": 1}
+    life = _ADDITIONAL_COST_PAY_LIFE_RE.match(text)
+    if life is not None:
+        amount = life.group(1)
+        return {"pay_life": "x" if amount.lower() == "x" else int(amount)}
+    return None
+
 
 #: All keyword display names, lowercased, longest first — so a keyword-only
 #: line can be recognised for the coverage gate ("flying, vigilance").
@@ -92,6 +186,33 @@ def _trigger_event(condition: str) -> Optional[str]:
     return None
 
 
+def _trigger_condition(condition: str) -> Optional[dict[str, Any]]:
+    """RULE 603.1's condition *subject* → the `AbilitySpec.trigger["condition"]` dict.
+
+    Either ``{"subject": "self"}`` (this ability's own source only) or
+    ``{"subject": "group", "type": ..., "controller": "you"|"any", "other":
+    bool}`` (any matching battlefield object, e.g. a Soul-Warden-shaped
+    "another creature you control enters"). ``None`` — fail-closed — for a
+    condition phrase that isn't one of these two recognised shapes (e.g. "you
+    cast a spell", a multi-event "enters or attacks", or anything RULE 603.1
+    covers that this grammar doesn't yet model): the caller leaves the whole
+    trigger unclaimed rather than binding a wrongly-scoped (or unscoped, i.e.
+    over-firing) ability.
+    """
+    cond = condition.strip()
+    if _SELF_SUBJECT_RE.match(cond):
+        return {"subject": "self"}
+    m = _GROUP_SUBJECT_RE.match(cond)
+    if m is not None:
+        return {
+            "subject": "group",
+            "type": m.group("type"),
+            "controller": "you" if (m.group("you_a") or m.group("you_b")) else "any",
+            "other": m.group("article") == "another",
+        }
+    return None
+
+
 def parse_effect_body(body: str) -> Optional[list[EffectSpec]]:
     """A normalised effect ``body`` → its `EffectSpec`s, or ``None`` if unclaimed.
 
@@ -103,6 +224,13 @@ def parse_effect_body(body: str) -> Optional[list[EffectSpec]]:
     body = body.strip().rstrip(".").strip()
     if not body:
         return []
+
+    kicked = _KICKED_CONDITION_RE.match(body)
+    if kicked is not None:
+        inner = parse_effect_body(kicked.group("rest"))
+        if inner is None:
+            return None
+        return [EffectSpec(e.type, dict(e.params), condition={"kicked": True}) for e in inner]
 
     direct = match_clause(body)
     if direct is not None:
@@ -135,13 +263,21 @@ def is_keyword_line(line: str) -> bool:
     )
 
 
-def segment_line(line: str, *, allow_spell_effect: bool, provenance: ParserProvenance) -> Segment:
+def segment_line(
+    line: str,
+    *,
+    allow_spell_effect: bool,
+    provenance: ParserProvenance,
+    is_saga: bool = False,
+) -> Segment:
     """Parse one normalised ability ``line`` into a `Segment`.
 
     ``allow_spell_effect`` gates bare imperative clauses (no trigger wrapper)
     to instants/sorceries — a permanent's non-triggered imperative would be
     mis-modeled as a resolve-time effect, so for permanents it's left unclaimed
-    (fail-closed) rather than turned into a `spell_effect`.
+    (fail-closed) rather than turned into a `spell_effect`. ``is_saga`` gates
+    the RULE 714 chapter-line grammar ("i, ii — <effect>") to actual Sagas, so
+    the numeral-dash shape can't misfire on an unrelated card.
     """
     raw = line.strip()
     if not raw:
@@ -149,6 +285,46 @@ def segment_line(line: str, *, allow_spell_effect: bool, provenance: ParserProve
 
     if is_keyword_line(raw):
         return Segment(raw=raw, claimed=True, keyword_line=True)
+
+    # RULE 601.2b/604.3 additional cost — instants/sorceries only, and
+    # checked before every other wrapper since it has neither a trigger word
+    # nor a colon (so it can't be mistaken for one of those shapes below).
+    if allow_spell_effect:
+        add_cost = _ADDITIONAL_COST_LINE_RE.match(raw)
+        if add_cost is not None:
+            cost = _additional_cost_dict(add_cost.group("cost"))
+            if cost is None:
+                return Segment(raw=raw)  # unrecognised cost shape → unclaimed
+            spec = AbilitySpec(
+                "spell_effect",
+                effects=[],
+                additional_cost=cost,
+                raw_text=raw,
+                parser=provenance,
+            )
+            return Segment(raw=raw, spec=spec, claimed=True)
+
+    # Saga chapter ability "i, ii — <effect>" (RULE 714.2d) — checked before
+    # every other wrapper since it has neither a trigger word nor a colon.
+    if is_saga:
+        chap = CHAPTER_LINE_RE.match(raw)
+        if chap is not None:
+            chapters = parse_chapter_token(chap.group("chapters"))
+            if chapters is None:
+                return Segment(raw=raw)  # unrecognised numeral → unclaimed
+            body, optional = _peel_optional(chap.group("body"))
+            effects = parse_effect_body(body)
+            if effects is None:
+                return Segment(raw=raw)
+            spec = AbilitySpec(
+                "triggered",
+                effects=effects,
+                trigger={"event": "SAGA_CHAPTER", "chapter": chapters},
+                optional=optional,
+                raw_text=raw,
+                parser=provenance,
+            )
+            return Segment(raw=raw, spec=spec, claimed=True)
 
     # Planeswalker loyalty ability "[±N]: <effect>" (RULE 606.5c) — its cost is
     # the bracket, so it's recognised before the generic activated case (whose
@@ -196,9 +372,13 @@ def segment_line(line: str, *, allow_spell_effect: bool, provenance: ParserProve
 
     trig = _TRIGGER_RE.match(raw)
     if trig is not None:
-        event = _trigger_event(trig.group("cond"))
+        cond_text = trig.group("cond")
+        event = _trigger_event(cond_text)
         if event is None:
             return Segment(raw=raw)  # unrecognised trigger → unclaimed
+        condition = _trigger_condition(cond_text)
+        if condition is None:
+            return Segment(raw=raw)  # unrecognised subject scope → unclaimed (fail-closed)
         body, optional = _peel_optional(trig.group("body"))
         effects = parse_effect_body(body)
         if effects is None:
@@ -206,7 +386,7 @@ def segment_line(line: str, *, allow_spell_effect: bool, provenance: ParserProve
         spec = AbilitySpec(
             "triggered",
             effects=effects,
-            trigger={"event": event},
+            trigger={"event": event, "condition": condition},
             optional=optional,
             raw_text=raw,
             parser=provenance,
@@ -221,6 +401,16 @@ def segment_line(line: str, *, allow_spell_effect: bool, provenance: ParserProve
         if static is not None:
             spec = AbilitySpec(
                 "static", effects=static, raw_text=raw, parser=provenance
+            )
+            return Segment(raw=raw, spec=spec, claimed=True)
+        # A standing "if X would Y, Z instead" line (RULE 614/616) is a
+        # replacement effect, not a static continuous ability — tried after
+        # `static_effect_specs` (the two never overlap in shape) before
+        # giving up.
+        replacement = replacement_clause_specs(raw)
+        if replacement is not None:
+            spec = AbilitySpec(
+                "replacement", effects=replacement, raw_text=raw, parser=provenance
             )
             return Segment(raw=raw, spec=spec, claimed=True)
         return Segment(raw=raw)  # permanent bare imperative → unclaimed

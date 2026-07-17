@@ -49,7 +49,12 @@ function labelStep(name) {
 
 // Icon per choice kind — search, cascade and discover share the same
 // "answer one of these options" shape, so one renderer covers them.
-const CHOICE_ICONS = { search: '🔎', cascade: '🌊', discover: '🔮' };
+const CHOICE_ICONS = {
+  search: '🔎', cascade: '🌊', discover: '🔮', replacement_order: '⚖️',
+  land_tapped: '💧', order_triggers: '🔀', trigger_target: '🎯',
+  enter_as_copy: '🪞', counter_unless_pays: '🚫', ward: '🛡️',
+  commander_zone: '👑', trigger_mode: '🎭', add_mana_any_color: '💎',
+};
 
 /**
  * @param {object} [opts]
@@ -108,6 +113,29 @@ export function createGameBoardView(opts = {}) {
   // A targeting spell/ability (RULE 115) mid-cast: `{ instanceId, requirements,
   // reqIndex, targets: [], x, send }` or null. See `castTargetHtml`.
   let castTargeting = null;
+  // A single requirement with `count > 1` (RULE 115.1a generalized to N>=2 —
+  // "destroy two target creatures"/"up to two target artifacts") is expanded
+  // into `count` synthetic one-per-round requirements sharing the same
+  // options, reusing the exact same "pick N from one pool, one at a time"
+  // modal + `excludePicked` de-dup a "tap N untapped <type>s you control"
+  // cost choice already uses (`data-tap-choice-start` below) — an optional
+  // requirement's existing per-round "∅ Kein Ziel" decline button then
+  // doubles as "stop after fewer than N", giving "up to N" for free.
+  function expandMultiTargetRequirements(requirements) {
+    const expanded = [];
+    let excludePicked = false;
+    for (const req of requirements) {
+      const count = req.count || 1;
+      if (count > 1) excludePicked = true;
+      for (let i = 0; i < count; i += 1) expanded.push(req);
+    }
+    return { requirements: expanded, excludePicked };
+  }
+  // The user's current drag-and-drop arrangement of a pending `replacement_
+  // order` choice's options (RULE 616.1) — an array of option ids, reset
+  // whenever a fresh choice with a different option set appears. See
+  // `replacementOrderHtml`/`confirmReplacementOrder`.
+  let replacementOrderDraft = null;
 
   function mount(el) {
     root = el;
@@ -208,6 +236,7 @@ export function createGameBoardView(opts = {}) {
             <span class="gf-turn">Zug ${s.turn_number}</span>
             <span class="gf-step">${escapeHtml(labelPhase(s.current_phase))} · ${escapeHtml(labelStep(s.current_step))}</span>
             ${live.length > 1 ? `<span class="gf-active-player">Aktiv: ${escapeHtml(s.players.find((p) => p.id === s.active_player_id)?.name || '')}</span>` : ''}
+            ${s.day_night ? `<span class="gf-daynight gf-daynight-${s.day_night}">${s.day_night === 'night' ? '🌙 Nacht' : '☀️ Tag'}</span>` : ''}
           </div>
         </div>
 
@@ -268,6 +297,7 @@ export function createGameBoardView(opts = {}) {
             <div class="gf-zone gf-library">
               <h4>Bibliothek</h4>
               <p class="library-count">${p.library_count} Karten</p>
+              ${libraryTopHtml(p, byInstance, pending)}
             </div>
             <div class="gf-zone gf-graveyard">
               <h4>Friedhof (${p.graveyard.length})</h4>
@@ -275,7 +305,7 @@ export function createGameBoardView(opts = {}) {
             </div>
             <div class="gf-zone gf-exile">
               <h4>Exil (${p.exile.length})</h4>
-              ${objGrid(p.exile, 'leer', {}, pending)}
+              ${objGrid(p.exile, 'leer', byInstance, pending)}
             </div>
           </aside>
 
@@ -306,6 +336,26 @@ export function createGameBoardView(opts = {}) {
       </section>`;
   }
 
+  // The top card of a library is normally face-down (`library_count` is
+  // all the board shows). A permanent granting "play with the top card of
+  // your library revealed" (Oracle of Mul Daya/Glarb, Calamity's Augur-
+  // shaped) flips `top_library_visible[player_id]` server-side
+  // (`services/game_session.py`'s `view()`) — the card itself is already
+  // on the wire either way (`Player.to_dict()`'s `library` array), so this
+  // only decides whether to *render* it. Whether it's actually playable/
+  // castable from there is conveyed the ordinary way: `objGrid` attaches
+  // whatever `play_land`/`cast_spell` buttons `legal_actions` offered for
+  // that instance_id, same as any hand card — a look-only permission (no
+  // matching legal action) simply shows the card with no buttons.
+  function libraryTopHtml(p, byInstance, pending) {
+    if (!view.top_library_visible?.[p.id] || !p.library.length) return '';
+    const top = p.library[p.library.length - 1];
+    return `
+      <p class="library-top-hint">👁️ Oberste Karte sichtbar</p>
+      ${objGrid([top], '', byInstance, pending)}
+    `;
+  }
+
   function playerName(id) {
     const p = (view.state?.players || []).find((pl) => pl.id === id);
     return p ? p.name : id;
@@ -313,10 +363,33 @@ export function createGameBoardView(opts = {}) {
 
   // A pending choice is rendered as a modal popup for the deciding player:
   // the board behind it is dimmed/locked (`.goldfish.choosing`) so the only
-  // thing to do is answer. Each server-provided option becomes one button.
+  // thing to do is answer. Each server-provided option becomes one button —
+  // except `replacement_order` (RULE 616.1), which gets a drag-and-drop
+  // reorderable list instead (see `replacementOrderHtml`).
   function pendingChoiceHtml(pending) {
     const icon = CHOICE_ICONS[pending.kind] || '❔';
     const heading = pending.prompt || pending.description || 'Entscheidung nötig';
+    const body = pending.kind === 'replacement_order'
+      ? replacementOrderHtml(pending)
+      : simpleChoiceButtonsHtml(pending);
+
+    return `
+      <div class="gf-modal-overlay">
+        <div class="gf-modal" role="dialog" aria-modal="true">
+          <div class="gf-modal-head">
+            <span class="gf-modal-icon">${icon}</span>
+            <div>
+              <h4>${escapeHtml(heading)}</h4>
+              <p class="gf-modal-who">Entscheidung für ${escapeHtml(playerName(pending.player_id))}</p>
+            </div>
+          </div>
+          ${body}
+        </div>
+      </div>
+    `;
+  }
+
+  function simpleChoiceButtonsHtml(pending) {
     const options = pending.options
       || (pending.eligible || []).map((e) => ({ id: String(e.instance_id), label: e.name, instance_id: e.instance_id }));
 
@@ -332,20 +405,77 @@ export function createGameBoardView(opts = {}) {
       })
       .join('');
 
+    return `<div class="gf-choice-options">${buttons}</div>`;
+  }
+
+  // RULE 616.1: 2+ simultaneously-applicable replacement effects (e.g.
+  // Doubling Season + Parallel Lives, or Furnace of Rath + Torbran) are
+  // ordered by the affected player. The server only ever asks "which one
+  // applies *next*" (RULE 616.1f: applying one can expose new ones — the
+  // set the choice re-offers can genuinely change), so a full drag-and-drop
+  // arrangement is a client-side convenience: the player drags all
+  // currently-offered effects into their desired order, and confirming
+  // replays that order as a sequence of single picks (`confirmReplacementOrder`).
+  function replacementOrderHtml(pending) {
+    const options = pending.options || [];
+    const ids = options.map((o) => o.id);
+    // (Re)seed the draft whenever the offered option set doesn't match what
+    // was last dragged (a fresh choice, or the previous one was just
+    // answered and the remaining effects re-offered).
+    if (!replacementOrderDraft
+        || replacementOrderDraft.length !== ids.length
+        || !ids.every((id) => replacementOrderDraft.includes(id))) {
+      replacementOrderDraft = ids.slice();
+    }
+    const byId = Object.fromEntries(options.map((o) => [o.id, o]));
+    const items = replacementOrderDraft
+      .map((id, i) => {
+        const opt = byId[id];
+        if (!opt) return '';
+        return `<li class="gf-reorder-item" draggable="true" data-id="${escapeAttr(id)}">
+          <span class="gf-reorder-handle" aria-hidden="true">⠿</span>
+          <span class="gf-reorder-index">${i + 1}.</span>
+          <span class="gf-reorder-label">${escapeHtml(opt.label || opt.id)}</span>
+        </li>`;
+      })
+      .join('');
     return `
-      <div class="gf-modal-overlay">
-        <div class="gf-modal" role="dialog" aria-modal="true">
-          <div class="gf-modal-head">
-            <span class="gf-modal-icon">${icon}</span>
-            <div>
-              <h4>${escapeHtml(heading)}</h4>
-              <p class="gf-modal-who">Entscheidung für ${escapeHtml(playerName(pending.player_id))}</p>
-            </div>
-          </div>
-          <div class="gf-choice-options">${buttons}</div>
-        </div>
+      <p class="gf-reorder-hint">Per Drag &amp; Drop in die gewünschte Reihenfolge bringen — der oberste Effekt wird zuerst angewendet.</p>
+      <ul class="gf-reorder-list">${items}</ul>
+      <div class="gf-modal-foot">
+        <button type="button" class="primary" data-reorder-confirm>Bestätigen</button>
       </div>
     `;
+  }
+
+  // Replays the player's dragged order as a sequence of single `choose`
+  // picks, matching each step against the *server's own* freshly re-offered
+  // options (RULE 616.1f can change that set) rather than blindly trusting
+  // the draft — if a step's id is no longer offered, or a different pending
+  // choice shows up instead, the auto-play stops there and whatever the
+  // server returned is simply shown as-is (safe: it never submits a stale
+  // or mismatched pick, it just stops automating).
+  async function confirmReplacementOrder(order) {
+    if (!sessionId || !order || !order.length) return;
+    await withBusy(async () => {
+      let remaining = order.slice();
+      while (remaining.length) {
+        const pending = view.state?.pending_choice;
+        if (!pending || pending.kind !== 'replacement_order') break;
+        const opt = (pending.options || []).find((o) => o.id === remaining[0]);
+        if (!opt) break;
+        const res = await sendGameAction(sessionId, {
+          type: 'choose', option_id: opt.id, instance_id: opt.instance_id, name: opt.label,
+        });
+        if (!res.ok) {
+          setStatus(`Aktion nicht erlaubt: ${res.data?.detail ?? res.status}`, 'warning');
+          break;
+        }
+        applyView(res.data);
+        remaining = remaining.slice(1);
+      }
+    });
+    replacementOrderDraft = null;
   }
 
   function wire() {
@@ -363,6 +493,33 @@ export function createGameBoardView(opts = {}) {
         act(JSON.parse(el.dataset.action));
       });
     });
+
+    // RULE 616.1 replacement-order popup: drag & drop reordering. Dragging
+    // reorders the list purely client-side (`replacementOrderDraft` is only
+    // read again on the next render/confirm); "Bestätigen" replays the final
+    // order via `confirmReplacementOrder`.
+    const reorderList = root.querySelector('.gf-reorder-list');
+    if (reorderList) {
+      reorderList.querySelectorAll('.gf-reorder-item').forEach((el) => {
+        el.addEventListener('dragstart', () => {
+          el.classList.add('dragging');
+        });
+        el.addEventListener('dragend', () => el.classList.remove('dragging'));
+        el.addEventListener('dragover', (e) => {
+          e.preventDefault();
+          const dragging = reorderList.querySelector('.dragging');
+          if (!dragging || dragging === el) return;
+          const rect = el.getBoundingClientRect();
+          const before = (e.clientY - rect.top) < rect.height / 2;
+          reorderList.insertBefore(dragging, before ? el : el.nextSibling);
+        });
+        el.addEventListener('drop', (e) => e.preventDefault());
+      });
+      root.querySelector('[data-reorder-confirm]')?.addEventListener('click', () => {
+        const order = Array.from(reorderList.querySelectorAll('.gf-reorder-item')).map((li) => li.dataset.id);
+        confirmReplacementOrder(order);
+      });
+    }
 
     // Battlefield 2-/3-row layout toggle (persisted, one checkbox per board).
     root.querySelectorAll('.gf-rows-toggle').forEach((el) => {
@@ -436,7 +593,8 @@ export function createGameBoardView(opts = {}) {
         const send = info.type === 'activate_ability'
           ? { type: 'activate_ability', instance_id: iid, ability_index: info.ability_index, name: action.name }
           : { type: 'cast_spell', instance_id: iid, name: action.name, face: info.face };
-        castTargeting = { instanceId: iid, requirements: action.targets || [], reqIndex: 0, targets: [], x, send };
+        const { requirements, excludePicked } = expandMultiTargetRequirements(action.targets || []);
+        castTargeting = { instanceId: iid, requirements, reqIndex: 0, targets: [], x, send, excludePicked };
         finishCastIfReady();
       });
     });
@@ -455,6 +613,38 @@ export function createGameBoardView(opts = {}) {
       el.addEventListener('click', () => {
         castTargeting = null;
         render();
+      });
+    });
+
+    root.querySelectorAll('[data-tap-choice-start]').forEach((el) => {
+      el.addEventListener('click', () => {
+        const info = JSON.parse(el.dataset.tapChoiceStart);
+        const iid = Number(info.iid);
+        const action = (view?.legal_actions || []).find(
+          (a) => a.type === info.type && a.instance_id === iid && a.ability_index === info.ability_index,
+        );
+        if (!action || !action.tap_cost) return;
+        const { count, options } = action.tap_cost;
+        // One synthetic "requirement" per permanent to tap — reuses the
+        // same one-pick-at-a-time modal RULE 115 targets use, since it's
+        // the same UX (choose N from a pool); `excludePicked` stops the
+        // same permanent being picked twice. `isTapChoice` (not a RULE 115
+        // target at all — a cost) picks the "pay a cost" heading/glyph and
+        // the `tap_choices` dispatch in `finishCastIfReady`, distinct from a
+        // real multi-target requirement's own `excludePicked` (RULE 115.1a
+        // "N target X", `expandMultiTargetRequirements`) which still sends
+        // `targets`.
+        const requirements = Array.from({ length: count }, () => ({
+          label: 'zu tappende Kreatur', options, optional: false,
+        }));
+        const send = info.type === 'activate_ability'
+          ? { type: 'activate_ability', instance_id: iid, ability_index: info.ability_index }
+          : { type: 'tap_for_mana', instance_id: iid, ability_index: info.ability_index, option_index: info.option_index };
+        castTargeting = {
+          instanceId: iid, requirements, reqIndex: 0, targets: [], x: 0, send,
+          excludePicked: true, isTapChoice: true,
+        };
+        finishCastIfReady();
       });
     });
   }
@@ -480,9 +670,16 @@ export function createGameBoardView(opts = {}) {
   function finishCastIfReady() {
     if (!castTargeting) return;
     if (castTargeting.reqIndex >= castTargeting.requirements.length) {
-      const { send, targets, x } = castTargeting;
+      const { send, targets, x, isTapChoice } = castTargeting;
       castTargeting = null;
-      act({ ...send, targets, x });
+      if (isTapChoice) {
+        // A "tap N untapped <type>s you control" cost choice (RULE 602.1),
+        // not a RULE 115 target — send the picked instance ids as
+        // `tap_choices` instead of `targets`.
+        act({ ...send, tap_choices: targets.map((t) => t.instance_id) });
+      } else {
+        act({ ...send, targets, x });
+      }
     } else {
       render();
     }
@@ -514,14 +711,25 @@ export function createGameBoardView(opts = {}) {
     const lands = top.filter((o) => !o.is_creature && o.is_land);
     const other = top.filter((o) => !o.is_creature && !o.is_land);
 
+    // A Reconfigure permanent is itself a legal Aura/Equipment target while
+    // unattached, then becomes non-creature "equipment" once attached to a
+    // host (RULE 702.151b) — so its own attachments form a second chain link
+    // (Aura/Equipment -> Reconfigure permanent -> host). Render that nested,
+    // rather than dropping it: only `top`-level hosts were being walked here,
+    // so anything attached to an *attachment* never appeared at all.
+    const renderAttached = (o) => {
+      const card = objCard(o, imageCache, pending ? [] : byInstance[o.instance_id] || []);
+      const nested = attachments.get(o.instance_id);
+      if (!nested || !nested.length) return card;
+      return card + nested.map(renderAttached).join('');
+    };
+
     const renderObj = (o) => {
       const actions = pending ? [] : byInstance[o.instance_id] || [];
       const host = objCard(o, imageCache, actions);
       const atts = attachments.get(o.instance_id);
       if (!atts || !atts.length) return host;
-      const attached = atts
-        .map((a) => objCard(a, imageCache, pending ? [] : byInstance[a.instance_id] || []))
-        .join('');
+      const attached = atts.map(renderAttached).join('');
       return `<div class="gf-attach-group" title="Verbundene Karten (Aura/Ausrüstung)">${host}${attached}</div>`;
     };
 
@@ -552,14 +760,27 @@ export function createGameBoardView(opts = {}) {
       .join('')}</div>`;
   }
 
+  // A spell's tile shows the spell's own card. A triggered/activated
+  // ability has no card of its own on the stack (RULE 601 vs. 602/603) —
+  // its tile instead shows the *source permanent*'s card (`item.source`,
+  // `StackItem.source`) with the ability's text overlaid on top of the art,
+  // plus a small 🔗 link back to that source (both the overlay text and the
+  // link exist specifically so an ability waiting to resolve is never just
+  // an unlabeled text box — see ToDo/Done "Stack source display").
   function stackItemHtml(item, index, total) {
     const imageCache = getState().imageCache;
-    const obj = item.object;
-    const name = obj ? obj.name : item.description || item.kind;
-    const imageUrl = obj ? resolveImageUrl(obj, imageCache) : null;
+    const isAbility = item.kind === 'ability';
+    const visual = item.object || (isAbility ? item.source : null);
+    const abilityText = isAbility ? (item.description || item.kind) : null;
+    const displayName = visual ? visual.name : (abilityText || item.kind);
+    const imageUrl = visual ? resolveImageUrl(visual, imageCache) : null;
+    // With art to overlay onto, an ability shows its source's image with the
+    // ability text banner-ed on top; without art (no source, or unresolved
+    // art) it falls back to plain text — same as before this feature.
+    const showOverlay = isAbility && abilityText && imageUrl;
     const inner = imageUrl
-      ? `<img src="${imageUrl}" alt="${escapeHtml(name)}" loading="lazy" />`
-      : escapeHtml(name);
+      ? `<img src="${imageUrl}" alt="${escapeHtml(displayName)}" loading="lazy" />`
+      : escapeHtml(showOverlay ? displayName : (abilityText || displayName));
     const classes = ['card'];
     if (imageUrl) classes.push('has-image');
     const badge = stackKindBadge(item);
@@ -568,10 +789,20 @@ export function createGameBoardView(opts = {}) {
       total > 1
         ? `<span class="gf-stack-order">${isTop ? 'oben – löst zuerst auf' : `#${total - index}`}</span>`
         : '';
+    const overlay = showOverlay
+      ? `<div class="gf-stack-ability-overlay">${escapeHtml(abilityText)}</div>`
+      : '';
+    const link = showOverlay
+      ? `<button type="button" class="gf-stack-source-link" data-hover-card="${escapeHtml(visual.name)}" title="Quelle: ${escapeHtml(visual.name)}">🔗</button>`
+      : '';
     return `
       <div class="gf-card-slot gf-stack-item${isTop ? ' is-top' : ''}">
         <span class="gf-stack-badge gf-stack-badge--${badge.cls}">${badge.icon} ${escapeHtml(badge.label)}</span>
-        <div class="${classes.join(' ')}" data-hover-card="${escapeHtml(name)}" title="${escapeHtml(name)}">${inner}</div>
+        <div class="${classes.join(' ')}" data-hover-card="${escapeHtml(displayName)}" title="${escapeHtml(displayName)}">
+          ${inner}
+          ${overlay}
+          ${link}
+        </div>
         ${order}
       </div>`;
   }
@@ -667,16 +898,34 @@ export function createGameBoardView(opts = {}) {
     const attackBadge = o.attacking
       ? `<span class="gf-attacking-badge">⚔️${o.combat_defender ? ` ${escapeHtml(o.combat_defender.label || '')}` : ''}</span>`
       : '';
-    const counterEntries = Object.entries(o.counters || {});
+    // RULE 606: a planeswalker's loyalty gets its own badge (mirrors the
+    // ♦{loyalty} glyph on the Replay board editor) rather than being read
+    // off the generic counter badge, which would otherwise show it twice
+    // (`counters` also carries a "loyalty" key — GameObject.loyalty reads it).
+    const loyaltyBadge = o.is_planeswalker && o.loyalty != null
+      ? `<span class="gf-loyalty-badge">◆ ${o.loyalty}</span>`
+      : '';
+    const counterEntries = Object.entries(o.counters || {})
+      .filter(([k]) => !(o.is_planeswalker && k === 'loyalty'));
     const counterBadge = counterEntries.length
       ? `<span class="gf-counter-badge">${counterEntries.map(([k, v]) => `${escapeHtml(k)}×${v}`).join(' · ')}</span>`
       : '';
     const keywordBadge = (o.keywords && o.keywords.length)
       ? `<span class="gf-keyword-badge" title="${escapeAttr(o.keywords.join(', '))}">${o.keywords.map((k) => escapeHtml(keywordAbbrev(k))).join(' ')}</span>`
       : '';
+    // RULE 715.3d: an Adventure creature exiled by its own spell half,
+    // castable from here — flags it distinctly from an inert exiled card.
+    const adventureBadge = o.adventure_castable
+      ? `<span class="gf-adventure-badge" title="Abenteuer: aus dem Exil als Kreatur zauberbar">📖 Abenteuer</span>`
+      : '';
+    // RULE 722.3a: this permanent is prepared — its exiled prepare-spell
+    // copy is castable (shown on that copy's own tile in the exile zone).
+    const preparedBadge = o.prepared
+      ? `<span class="gf-prepared-badge" title="Vorbereitet: die Zauberspruch-Kopie im Exil ist zauberbar">🛡️ Vorbereitet</span>`
+      : '';
     return `
       <div class="gf-card-slot">
-        <div class="${classes.join(' ')}" data-hover-card="${escapeHtml(o.name)}" title="${escapeHtml(o.name)}${pt}${o.tapped ? ' — getappt' : ''}">${inner}${attackBadge}${counterBadge}${keywordBadge}</div>
+        <div class="${classes.join(' ')}" data-hover-card="${escapeHtml(o.name)}" title="${escapeHtml(o.name)}${pt}${o.tapped ? ' — getappt' : ''}">${inner}${attackBadge}${loyaltyBadge}${counterBadge}${keywordBadge}${adventureBadge}${preparedBadge}</div>
         ${buttons}
       </div>`;
   }
@@ -701,12 +950,31 @@ export function createGameBoardView(opts = {}) {
     return label;
   }
 
-  // A modal DFC (RULE 712.10) offers two independent actions for the same
-  // hand card, one per face — `faceHint` labels the back one with its name
-  // so the two buttons are distinguishable; the front face keeps today's
-  // plain label (no visible change for the common non-MDFC case).
+  // A card with a second castable face — a modal DFC's back (RULE 712.10),
+  // a split card's other half (RULE 709.3), or an Adventure's spell half
+  // (RULE 715.2b) — offers a second, independent action for the same hand
+  // card; `faceHint` labels it with its own name so the two buttons are
+  // distinguishable. Fuse (RULE 709.4) casts the same combined name shown
+  // on the plain button, so it gets a short suffix instead of a redundant
+  // repeated name. The front face keeps today's plain label (no visible
+  // change for the common single-face case).
   function faceHint(a) {
+    if (a.face === 'fuse') return ' (Fuse — beide Hälften)';
     return a.face ? ` — ${escapeHtml(a.name)}` : '';
+  }
+
+  // RULE 606: color-code a loyalty ability's button by its [+N]/[-N]/[0]
+  // sign, so it reads at a glance distinctly from an ordinary activated
+  // ability — the wire action only carries the pre-rendered cost_label
+  // string (e.g. "[+2]"), not a raw signed int.
+  const LOYALTY_COST_RE = /^\[([+-]?\d+)\]$/;
+  function loyaltyModifierClass(costLabel) {
+    const m = LOYALTY_COST_RE.exec(costLabel || '');
+    if (!m) return '';
+    const n = parseInt(m[1], 10);
+    if (n > 0) return ' gf-card-action--loyalty-plus';
+    if (n < 0) return ' gf-card-action--loyalty-minus';
+    return ' gf-card-action--loyalty-zero';
   }
 
   function cardActionButtons(cardActions) {
@@ -755,24 +1023,53 @@ export function createGameBoardView(opts = {}) {
         buttons.push(`
           <div class="gf-cast-x">
             <input type="number" min="0" max="${a.max_x}" value="${a.max_x}" data-x-input="${a.instance_id}" />
-            <button type="button" class="gf-card-action" data-activate-x='${escapeAttr(JSON.stringify({ iid: a.instance_id, ability_index: a.ability_index }))}'>⚡ ${escapeHtml(a.cost_label || 'Aktivieren')} (X)</button>
+            <button type="button" class="gf-card-action${loyaltyModifierClass(a.cost_label)}" data-activate-x='${escapeAttr(JSON.stringify({ iid: a.instance_id, ability_index: a.ability_index }))}'>⚡ ${escapeHtml(a.cost_label || 'Aktivieren')} (X)</button>
           </div>
         `);
+      } else if (a.type === 'activate_ability' && a.tap_cost) {
+        // Cost includes "tap N untapped <type>s you control" (RULE 602.1) —
+        // which ones is the player's own choice, not an engine auto-pick.
+        const startInfo = JSON.stringify({ iid: a.instance_id, type: 'activate_ability', ability_index: a.ability_index });
+        buttons.push(
+          `<button type="button" class="gf-card-action${loyaltyModifierClass(a.cost_label)}" data-tap-choice-start='${escapeAttr(startInfo)}'>⚡ ${escapeHtml(a.cost_label || 'Aktivieren')}</button>`
+        );
       } else if (a.type === 'activate_ability') {
         buttons.push(
           actionButton(
             { type: 'activate_ability', instance_id: a.instance_id, ability_index: a.ability_index, name: a.name },
-            `⚡ ${escapeHtml(a.cost_label || 'Aktivieren')}`
+            `⚡ ${escapeHtml(a.cost_label || 'Aktivieren')}`,
+            loyaltyModifierClass(a.cost_label)
           )
         );
       } else if (a.type === 'tap_for_mana') {
         const optsList = a.options || [{ index: 0, label: '⟳' }];
+        // A mana ability whose cost is more than tapping itself (Selvala's
+        // {G}, Gnarlroot Trapper's life payment, Birchlore Rangers' "tap two
+        // other Elves") shows its full cost instead of a bare "Tappen".
+        const extraCost = a.cost_label && a.cost_label !== '{T}';
         for (const opt of optsList) {
           const glyph = opt.label || '⟳';
-          const text = optsList.length > 1 ? `⟳ ${glyph}` : `⟳ Tappen`;
-          buttons.push(
-            actionButton({ type: 'tap_for_mana', instance_id: a.instance_id, option_index: opt.index }, text)
-          );
+          const text = extraCost
+            ? `⟳ ${escapeHtml(a.cost_label)} → ${glyph}`
+            : (optsList.length > 1 ? `⟳ ${glyph}` : `⟳ Tappen`);
+          if (a.tap_cost) {
+            // Which Elves pay the "tap N" part is the player's own choice
+            // (RULE 602.1) — open the picker instead of sending right away.
+            const startInfo = JSON.stringify({
+              iid: a.instance_id, type: 'tap_for_mana',
+              ability_index: a.ability_index, option_index: opt.index,
+            });
+            buttons.push(
+              `<button type="button" class="gf-card-action" data-tap-choice-start='${escapeAttr(startInfo)}'>${text}</button>`
+            );
+          } else {
+            buttons.push(
+              actionButton(
+                { type: 'tap_for_mana', instance_id: a.instance_id, option_index: opt.index, ability_index: a.ability_index },
+                text
+              )
+            );
+          }
         }
       } else if (a.type === 'attack') {
         buttons.push(attackControlHtml(a));
@@ -790,7 +1087,8 @@ export function createGameBoardView(opts = {}) {
     const label = a.type === 'activate_ability'
       ? `⚡ ${escapeHtml(a.cost_label || 'Aktivieren')} → Ziel ▾`
       : `✨ Zaubern → Ziel ▾${faceHint(a)}`;
-    return `<div class="gf-cast-targets">${xField}<button type="button" class="gf-card-action" data-cast-target-start='${escapeAttr(startInfo)}'>${label}</button></div>`;
+    const lc = a.type === 'activate_ability' ? loyaltyModifierClass(a.cost_label) : '';
+    return `<div class="gf-cast-targets">${xField}<button type="button" class="gf-card-action${lc}" data-cast-target-start='${escapeAttr(startInfo)}'>${label}</button></div>`;
   }
 
   function castTargetModalHtml() {
@@ -799,24 +1097,32 @@ export function createGameBoardView(opts = {}) {
     const total = castTargeting.requirements.length;
     const idx = castTargeting.reqIndex;
     const req = castTargeting.requirements[idx] || {};
-    const options = req.options || [];
+    let options = req.options || [];
+    if (castTargeting.excludePicked) {
+      // A "tap N untapped <type>s you control" cost (RULE 602.1): the same
+      // permanent can't pay two of the N picks.
+      const pickedIds = new Set(castTargeting.targets.map((t) => t.instance_id));
+      options = options.filter((o) => !pickedIds.has(o.instance_id));
+    }
     const buttons = options.map((o) => {
       const payload = JSON.stringify({ instance_id: iid, target: targetOptionPayload(o) });
       const hover = o.instance_id != null ? ` data-hover-card="${escapeHtml(o.name || '')}"` : '';
-      return `<button type="button"${hover} data-cast-target-pick='${escapeAttr(payload)}'>🎯 ${escapeHtml(o.name)}</button>`;
+      const glyph = castTargeting.isTapChoice ? '⟳' : '🎯';
+      return `<button type="button"${hover} data-cast-target-pick='${escapeAttr(payload)}'>${glyph} ${escapeHtml(o.name)}</button>`;
     });
     if (req.optional) {
       const skip = JSON.stringify({ instance_id: iid, target: null });
       buttons.push(`<button type="button" class="gf-decline" data-cast-target-pick='${escapeAttr(skip)}'>∅ Kein Ziel</button>`);
     }
-    const progress = total > 1 ? `Ziel ${idx + 1} von ${total}` : 'Ziel wählen';
+    const heading = castTargeting.isTapChoice ? 'Kosten bezahlen' : 'Ziel wählen';
+    const progress = total > 1 ? `${idx + 1} von ${total}` : (castTargeting.isTapChoice ? 'Auswählen' : 'Ziel wählen');
     return `
       <div class="gf-modal-overlay">
         <div class="gf-modal gf-target-modal" role="dialog" aria-modal="true">
           <div class="gf-modal-head">
-            <span class="gf-modal-icon">🎯</span>
+            <span class="gf-modal-icon">${castTargeting.isTapChoice ? '⟳' : '🎯'}</span>
             <div>
-              <h4>Ziel wählen: ${escapeHtml(req.label || '')}</h4>
+              <h4>${heading}: ${escapeHtml(req.label || '')}</h4>
               <p class="gf-modal-who">${escapeHtml(progress)}</p>
             </div>
           </div>
@@ -869,8 +1175,8 @@ export function createGameBoardView(opts = {}) {
       : { kind: 'player', id: d.id };
   }
 
-  function actionButton(action, label) {
-    return `<button type="button" class="gf-card-action" data-action='${escapeAttr(JSON.stringify(action))}'>${label}</button>`;
+  function actionButton(action, label, extraClass = '') {
+    return `<button type="button" class="gf-card-action${extraClass}" data-action='${escapeAttr(JSON.stringify(action))}'>${label}</button>`;
   }
 
   // The passive "goldfish" opponent: a compact strip with its life (the

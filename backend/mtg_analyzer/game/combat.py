@@ -31,6 +31,8 @@ from __future__ import annotations
 import re
 from typing import TYPE_CHECKING, Optional
 
+from ..parser.oracle.catalogue.levels import leveler_base_text
+
 if TYPE_CHECKING:  # pragma: no cover - typing only, avoids a model→game cycle
     from ..models.card import Card
     from ..models.game_object import GameObject
@@ -128,13 +130,29 @@ def keywords_of(card: "Card") -> frozenset[str]:
     scan is a clause-anchored fallback that also covers tokens built without a
     keyword list. "Protection" is included here as a bare flag; *what* it is
     from lives in `protections_of`.
+
+    A Leveler's (RULE 711.4c) ``keywords`` array and oracle text both cover
+    its *whole* printed text, tier or not — so a keyword printed only under a
+    ``LEVEL`` block (e.g. Kargan Dragonlord's "Flying, haste" under
+    "LEVEL 7+") would otherwise register here as always-on. Restrict both to
+    the pre-``LEVEL`` base text instead — the same cross-check
+    `catalogue.keywords.parse_keywords` applies to the intrinsic-keyword bind
+    — so a tier-only keyword only shows up via its level-gated
+    `granted_keywords` grant (`continuous.recompute`), not unconditionally.
     """
+    is_leveler = bool(getattr(card, "is_leveler", False))
+    raw_text = getattr(card, "oracle_text", "") or ""
+    scan_text = leveler_base_text(raw_text) if is_leveler else raw_text
+
     found: set[str] = set()
     for kw in getattr(card, "keywords", None) or []:
         slug = _normalize(str(kw))
-        if slug in COMBAT_KEYWORDS:
-            found.add(slug)
-    text = (getattr(card, "oracle_text", "") or "").lower()
+        if slug not in COMBAT_KEYWORDS:
+            continue
+        if is_leveler and not re.search(rf"\b{re.escape(str(kw))}\b", scan_text, re.I):
+            continue
+        found.add(slug)
+    text = scan_text.lower()
     if text:
         for slug, pattern in _ORACLE_PATTERNS.items():
             if pattern.search(text):
@@ -144,16 +162,20 @@ def keywords_of(card: "Card") -> frozenset[str]:
     return frozenset(found)
 
 
-def protections_of(card: "Card") -> frozenset[str]:
-    """The qualities `card` has protection from, as normalized tokens.
+def protections_of_text(text: str) -> frozenset[str]:
+    """The qualities a raw oracle-text string grants protection from, as
+    normalized tokens.
 
     Colours collapse to identity letters (``"red"`` → ``"R"``); the blanket
     forms map to sentinels (``"everything"``, ``"all_colors"``); object-type
     qualities are kept as words (``"creatures"``, ``"artifacts"``). Combat
     only consults colour, ``"creatures"``, ``"all_colors"`` and
     ``"everything"``; the rest are recognized so nothing is silently dropped.
+    Takes a plain string (rather than a `Card`) so a layer-3 "text_change"
+    static ability's rewritten text (`GameObject.effective_oracle_text`) can
+    be checked the same way as a card's printed text (`protections_of`).
     """
-    text = (getattr(card, "oracle_text", "") or "").lower()
+    text = (text or "").lower()
     quals: set[str] = set()
     for match in _PROTECTION_RE.finditer(text):
         clause = match.group(1)
@@ -172,6 +194,13 @@ def protections_of(card: "Card") -> frozenset[str]:
     return frozenset(quals)
 
 
+def protections_of(card: "Card") -> frozenset[str]:
+    """The qualities `card` has protection from — `protections_of_text`
+    over its printed ``oracle_text``. See `is_protected_from` for the
+    per-object variant that also honours a layer-3 text-changing effect."""
+    return protections_of_text(getattr(card, "oracle_text", "") or "")
+
+
 # --- Per-object predicates ---------------------------------------------------
 # Thin readers over an object's printed card so the engine reads intent, not
 # string sets. Each recomputes from the card (cheap; no per-object cache to
@@ -183,11 +212,15 @@ def _obj_keywords(obj: "GameObject") -> frozenset[str]:
     # the parser catalogue bound onto the object (`intrinsic_keywords`, RULE
     # 702), and any granted by a layer-6 static ability (RULE 613.7f) — so both
     # a card's own flying and an anthem that hands out flying flow into combat.
+    # A layer-6 "loses <keyword>" static ability (`removed_keywords`,
+    # Colossus Hammer) is subtracted last, after the union — RULE 613.7f
+    # ability-removal applies regardless of which of the three sources
+    # granted the keyword in the first place.
     return (
         keywords_of(obj.card)
         | frozenset(getattr(obj, "intrinsic_keywords", set()) or set())
         | frozenset(getattr(obj, "granted_keywords", set()) or set())
-    )
+    ) - frozenset(getattr(obj, "removed_keywords", set()) or set())
 
 
 def has(obj: "GameObject", keyword: str) -> bool:
@@ -242,6 +275,19 @@ def has_indestructible(obj: "GameObject") -> bool:
     return "indestructible" in _obj_keywords(obj)
 
 
+def has_hexproof(obj: "GameObject") -> bool:
+    """RULE 702.11b: can't be the target of a spell/ability an opponent
+    controls (an opponent's own permanents/self-targets are unaffected —
+    unlike protection, hexproof never stops its own controller). Not a
+    "combat" keyword in the RULE 702 evasion sense (it doesn't shape
+    blocking/damage), but lives here so it reads off the same
+    `_obj_keywords` union (card + `intrinsic_keywords` the parser catalogue
+    docks a flag keyword onto + `granted_keywords`) every other keyword
+    predicate in this module already does, instead of a second recognition
+    path. `targeting.py` is the sole consumer (`_targetable_by`)."""
+    return "hexproof" in _obj_keywords(obj)
+
+
 def min_blockers(obj: "GameObject") -> int:
     """How many creatures must block ``obj`` for the block to be legal.
 
@@ -280,9 +326,12 @@ def is_protected_from(obj: "GameObject", source: "GameObject") -> bool:
     colors" (any coloured source), and "everything". Colour is read from the
     source's colour identity — the model's available proxy for a permanent's
     colour (RULE 105); good enough for the common mono/gold creatures, and it
-    fails safe (no protection) when unknown.
+    fails safe (no protection) when unknown. Reads ``obj.effective_oracle_
+    text`` rather than ``obj.card.oracle_text`` directly, so a layer-3
+    "text_change" static ability (RULE 612, e.g. Artificial Evolution's
+    "protection from red" → "protection from blue") is honoured.
     """
-    quals = protections_of(obj.card)
+    quals = protections_of_text(obj.effective_oracle_text)
     if not quals:
         return False
     if "everything" in quals:
@@ -393,13 +442,15 @@ def lethal_damage(target: "GameObject", source: Optional["GameObject"]) -> int:
 
 
 def display_keywords(
-    card: "Card", granted: "Optional[set[str]]" = None
+    card: "Card", granted: "Optional[set[str]]" = None, removed: "Optional[set[str]]" = None
 ) -> list[str]:
     """Human-facing keyword labels for the UI, e.g. ``["Flying", "Trample"]``.
 
     Ordered for a stable badge row; ``granted`` adds keyword slugs handed to
-    the object by a layer-6 static ability (RULE 613.7f). "protection" is
-    expanded to what it is from ("Protection: red"). Reads the same
+    the object by a layer-6 static ability (RULE 613.7f); ``removed``
+    subtracts any a "loses <keyword>" static ability stripped (same layer,
+    Colossus Hammer-shaped), mirroring `_obj_keywords`' precedence. "protection"
+    is expanded to what it is from ("Protection: red"). Reads the same
     recognition the engine uses so the board shows exactly what combat honours.
     """
     labels = {
@@ -416,7 +467,7 @@ def display_keywords(
         "haste": "Haste",
         "indestructible": "Indestructible",
     }
-    kws = keywords_of(card) | frozenset(granted or set())
+    kws = (keywords_of(card) | frozenset(granted or set())) - frozenset(removed or set())
     out = [label for slug, label in labels.items() if slug in kws]
     if "protection" in kws:
         quals = sorted(protections_of(card))

@@ -1,6 +1,6 @@
 """`AbilitySpec` — the intermediate representation between parse and bind.
 
-Reference: docs/09_ORACLE_EFFECT_PARSER.md ("THE INTERMEDIATE
+Reference: docs/concepts/09_ORACLE_EFFECT_PARSER.md ("THE INTERMEDIATE
 REPRESENTATION").
 
 One parsed ability = one `AbilitySpec`: pure, JSON-serializable data that
@@ -26,13 +26,14 @@ from typing import Any, Optional
 #: The kinds of ability an `AbilitySpec` can describe (docs/09 IR).
 #: Mirrors the effect hierarchy in game/effects.py plus "keyword".
 ALLOWED_ABILITY_KINDS: frozenset[str] = frozenset(
-    {"spell_effect", "triggered", "activated", "static", "replacement", "keyword"}
+    {"spell_effect", "triggered", "activated", "static", "replacement",
+     "enter_replacement", "keyword"}
 )
 
 #: Ability kinds that resolve one or more one-shot effects (and therefore
 #: must carry at least one `EffectSpec`).
 _EFFECT_BEARING_KINDS: frozenset[str] = frozenset(
-    {"spell_effect", "triggered", "activated"}
+    {"spell_effect", "triggered", "activated", "enter_replacement"}
 )
 
 #: Hard cap on numeric effect parameters. A malformed/hostile spec must not
@@ -43,6 +44,17 @@ MAX_EFFECT_MAGNITUDE: int = 10_000
 
 #: Numeric effect params subject to clamping (includes a keyword's "n").
 _CLAMPED_PARAM_KEYS: tuple[str, ...] = ("amount", "count", "x", "n")
+
+#: `EffectSpec.condition`'s whitelisted keys — see that field's docstring.
+_ALLOWED_CONDITION_KEYS: frozenset[str] = frozenset({"kicked"})
+
+#: RULE 601.2b/604.3 "as an additional cost to cast this spell, <cost>." —
+#: the closed vocabulary an `AbilitySpec.additional_cost` may name. Kept this
+#: small (rather than reusing the free-text `ActivationCost` parser) because
+#: an additional cost is recognized off a fixed template, not open cost text;
+#: `game/costs.py`'s `parse_activation_cost` still does the actual charging,
+#: fed this dict the same way it already accepts an `AbilitySpec.cost` dict.
+_ADDITIONAL_COST_SACRIFICE_TYPES: frozenset[str] = frozenset({"creature", "artifact", "land"})
 
 
 class SpecValidationError(ValueError):
@@ -81,17 +93,35 @@ class EffectSpec:
 
     ``type``/``params`` match `EffectRegistry.create(type, params)` exactly,
     so binding is a direct lookup (e.g. ``EffectSpec("damage", {"amount": 3})``).
+
+    ``condition`` (parallel to `AbilitySpec.modes`) gates whether this
+    *specific* effect fires at resolve time, checked against runtime state
+    the binder wraps in a `game.effects.ConditionalEffect` — today just
+    RULE 702.33b's "if this spell was kicked, <effect>." (``{"kicked":
+    True}``, checked against ``obj.kicker_count``). A whitelisted shape
+    (`_ALLOWED_CONDITION_KEYS`), not an arbitrary predicate — it can only
+    gate whether an already-whitelisted effect applies, never choose *which*
+    effect runs, so it doesn't widen the security boundary docs/09 sets out.
     """
 
     type: str
     params: dict[str, Any] = field(default_factory=dict)
+    condition: Optional[dict[str, Any]] = None
 
     def to_dict(self) -> dict[str, Any]:
-        return {"type": self.type, "params": dict(self.params)}
+        d: dict[str, Any] = {"type": self.type, "params": dict(self.params)}
+        if self.condition is not None:
+            d["condition"] = dict(self.condition)
+        return d
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> "EffectSpec":
-        return cls(type=str(data["type"]), params=dict(data.get("params") or {}))
+        condition = data.get("condition")
+        return cls(
+            type=str(data["type"]),
+            params=dict(data.get("params") or {}),
+            condition=dict(condition) if condition else None,
+        )
 
 
 @dataclass
@@ -112,6 +142,45 @@ class AbilitySpec:
     #: "quality": "red"}`` (docs/09 "Keyword abilities: the privileged
     #: fast-path handler class"). ``name`` is a catalogue slug (RULE 702.x).
     keyword: Optional[dict[str, Any]] = None
+    #: A modal "Choose one —" block (RULE 700.2), ``spell_effect`` or
+    #: ``triggered``: ``{"or_both": bool, "at_least": bool, "choose": int,
+    #: "options": [[EffectSpec, ...], ...], "descriptions": [str, ...]}`` —
+    #: one entry per printed mode, in printed order. ``or_both`` is RULE
+    #: 700.2e ("Choose one or both —"): the engine also offers casting/
+    #: resolving both modes together. ``choose`` is RULE 700.2's "choose
+    #: *N* —" header (``N>=2`` — "Choose two —"/"Choose three —"; ``1`` for
+    #: the ordinary "choose one" case, the default when the key is absent so
+    #: old specs keep working). ``at_least`` is "Choose *N* or more —" (a
+    #: *variable* count, Farewell-shaped): ``choose`` becomes a minimum
+    #: rather than an exact count, and any number of modes up to every mode
+    #: may be chosen — mutually exclusive with ``or_both`` (Scryfall never
+    #: prints both suffixes on one header). When set, the ability carries no
+    #: top-level ``effects`` of its own — each mode's effects only apply
+    #: once chosen. A ``spell_effect`` offers one cast action per *legal
+    #: combination* of ``choose`` modes (`game/game_engine.py`, like an
+    #: MDFC's two faces — `itertools.combinations` for ``choose > 1``, every
+    #: size from ``choose`` to all modes when ``at_least``); a ``triggered``
+    #: ability's mode(s) are instead chosen as it's put on the stack (RULE
+    #: 603.3), via an iterative `trigger_mode` interactive choice
+    #: (`game/rules_engine.py`'s `_place_triggers`/`resolve_trigger_mode_
+    #: choice` — one mode picked per round, already-picked ones excluded
+    #: from the next offer, mirroring the existing library-search
+    #: `_search_choice`/`resolve_search_choice` "pick up to N one at a time"
+    #: pattern, plus a "done" option once ``choose`` are picked when
+    #: ``at_least``) — the same "choice made before the target/optional
+    #: choice" ordering RULE 601.2c already uses for a spell's own mode.
+    modes: Optional[dict[str, Any]] = None
+    #: RULE 601.2b/604.3: a spell's "as an additional cost to cast this
+    #: spell, <cost>." clause — ``spell_effect`` only, a single-key dict from
+    #: a small closed vocabulary: ``{"sacrifice": "creature"|"artifact"|
+    #: "land"}``, ``{"discard": <count>}``, or ``{"pay_life": <N>|"x"}`` (the
+    #: literal string ``"x"`` ties the payment to the spell's own announced
+    #: X, RULE 601.2b). May ride on a spec that otherwise carries no effects
+    #: at all — the additional-cost line is its own oracle-text line,
+    #: standalone from the spell's actual effect (see
+    #: `game/effect_binder.py`'s `attach_to_object`, which scans every spec
+    #: for this field regardless of which one carries the "real" effects).
+    additional_cost: Optional[dict[str, Any]] = None
     optional: bool = False  # "you may"
     raw_text: str = ""
     parser: ParserProvenance = field(default_factory=ParserProvenance)
@@ -133,11 +202,24 @@ class AbilitySpec:
             if not isinstance(effect, EffectSpec) or not effect.type:
                 raise SpecValidationError(f"malformed effect spec: {effect!r}")
             self._clamp_params(effect.params)
+            if effect.condition is not None:
+                self._validate_condition(effect.condition)
 
-        if self.ability_kind in _EFFECT_BEARING_KINDS and not self.effects:
+        if (
+            self.ability_kind in _EFFECT_BEARING_KINDS
+            and not self.effects
+            and not self.modes
+            and not self.additional_cost
+        ):
             raise SpecValidationError(
                 f"{self.ability_kind!r} ability must carry at least one effect"
             )
+
+        if self.modes is not None:
+            self._validate_modes()
+
+        if self.additional_cost is not None:
+            self._validate_additional_cost()
 
         if self.ability_kind == "triggered":
             if not self.trigger or "event" not in self.trigger:
@@ -149,6 +231,76 @@ class AbilitySpec:
             self._clamp_params(self.keyword)  # clamp an integer "n" the same way
 
         return self
+
+    def _validate_modes(self) -> None:
+        """Structural check for a modal ``modes`` block (RULE 700.2)."""
+        if self.ability_kind not in ("spell_effect", "triggered"):
+            raise SpecValidationError(
+                "'modes' is only supported on spell_effect/triggered abilities"
+            )
+        if not isinstance(self.modes, dict):
+            raise SpecValidationError("'modes' must be a dict")
+        options = self.modes.get("options")
+        if not isinstance(options, list) or len(options) < 2:
+            raise SpecValidationError("'modes' needs at least two options")
+        for option in options:
+            if not isinstance(option, list) or not option:
+                raise SpecValidationError("each mode needs at least one effect")
+            for effect in option:
+                if not isinstance(effect, EffectSpec) or not effect.type:
+                    raise SpecValidationError(f"malformed effect spec in mode: {effect!r}")
+                self._clamp_params(effect.params)
+        descriptions = self.modes.get("descriptions")
+        if descriptions is not None and (
+            not isinstance(descriptions, list) or len(descriptions) != len(options)
+        ):
+            raise SpecValidationError("'modes' descriptions must match its options 1:1")
+        choose = self.modes.get("choose", 1)
+        if isinstance(choose, bool) or not isinstance(choose, int) or not 1 <= choose <= len(options):
+            raise SpecValidationError(
+                f"'modes' choose count must be an int in [1, {len(options)}]"
+            )
+        if self.modes.get("or_both") and self.modes.get("at_least"):
+            raise SpecValidationError("'modes' or_both and at_least are mutually exclusive")
+
+    def _validate_additional_cost(self) -> None:
+        """Structural check for an ``additional_cost`` clause (RULE 601.2b/604.3)."""
+        if self.ability_kind != "spell_effect":
+            raise SpecValidationError(
+                "'additional_cost' is only supported on spell_effect abilities"
+            )
+        cost = self.additional_cost
+        if not isinstance(cost, dict) or len(cost) != 1:
+            raise SpecValidationError("'additional_cost' must be a single-key dict")
+        key, value = next(iter(cost.items()))
+        if key == "sacrifice":
+            if value not in _ADDITIONAL_COST_SACRIFICE_TYPES:
+                raise SpecValidationError(
+                    f"unsupported additional_cost sacrifice type {value!r}"
+                )
+        elif key == "discard":
+            if isinstance(value, bool) or not isinstance(value, int) or value <= 0:
+                raise SpecValidationError("'additional_cost' discard count must be a positive int")
+        elif key == "pay_life":
+            valid_int = isinstance(value, int) and not isinstance(value, bool) and value > 0
+            if value != "x" and not valid_int:
+                raise SpecValidationError(
+                    "'additional_cost' pay_life must be a positive int or 'x'"
+                )
+        else:
+            raise SpecValidationError(f"unknown additional_cost kind {key!r}")
+
+    @staticmethod
+    def _validate_condition(condition: dict[str, Any]) -> None:
+        """Structural check for an `EffectSpec.condition` (RULE 702.33b's
+        kicked-gate, so far the only member)."""
+        if not isinstance(condition, dict) or not condition:
+            raise SpecValidationError(f"malformed effect condition: {condition!r}")
+        for key, value in condition.items():
+            if key not in _ALLOWED_CONDITION_KEYS:
+                raise SpecValidationError(f"unknown effect condition key {key!r}")
+            if key == "kicked" and not isinstance(value, bool):
+                raise SpecValidationError("'kicked' condition must be a bool")
 
     @staticmethod
     def _clamp_params(params: dict[str, Any]) -> None:
@@ -167,9 +319,36 @@ class AbilitySpec:
             "cost": self.cost,
             "target": self.target,
             "keyword": self.keyword,
+            "modes": self._modes_to_dict(),
+            "additional_cost": self.additional_cost,
             "optional": self.optional,
             "raw_text": self.raw_text,
             "parser": self.parser.to_dict(),
+        }
+
+    def _modes_to_dict(self) -> Optional[dict[str, Any]]:
+        if self.modes is None:
+            return None
+        return {
+            "or_both": bool(self.modes.get("or_both", False)),
+            "at_least": bool(self.modes.get("at_least", False)),
+            "choose": int(self.modes.get("choose", 1)),
+            "options": [[e.to_dict() for e in opt] for opt in self.modes.get("options", [])],
+            "descriptions": list(self.modes.get("descriptions") or []),
+        }
+
+    @staticmethod
+    def _modes_from_dict(data: Optional[dict[str, Any]]) -> Optional[dict[str, Any]]:
+        if not data:
+            return None
+        return {
+            "or_both": bool(data.get("or_both", False)),
+            "at_least": bool(data.get("at_least", False)),
+            "choose": int(data.get("choose", 1)),
+            "options": [
+                [EffectSpec.from_dict(e) for e in opt] for opt in (data.get("options") or [])
+            ],
+            "descriptions": list(data.get("descriptions") or []),
         }
 
     @classmethod
@@ -181,6 +360,8 @@ class AbilitySpec:
             cost=data.get("cost"),
             target=data.get("target"),
             keyword=data.get("keyword"),
+            modes=cls._modes_from_dict(data.get("modes")),
+            additional_cost=data.get("additional_cost"),
             optional=bool(data.get("optional", False)),
             raw_text=str(data.get("raw_text", "")),
             parser=ParserProvenance.from_dict(data.get("parser") or {}),

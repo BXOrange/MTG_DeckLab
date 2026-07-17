@@ -11,33 +11,35 @@ from __future__ import annotations
 
 from functools import lru_cache
 
-from mtg_analyzer.services.card_database import DEFAULT_DB_PATH, CardDatabase
-from mtg_analyzer.services.deck_database import DEFAULT_DECKS_DB_PATH, DeckDatabase
+from mtg_analyzer.config import DB_PATH, DECKS_DB_PATH, IMAGE_CACHE_DIR, PLAYER_ASSETS_DB_PATH, SCRYFALL_PRIMARY
+from mtg_analyzer.services.archidekt_client import ArchidektClient
+from mtg_analyzer.services.card_database import CardDatabase
+from mtg_analyzer.services.deck_database import DeckDatabase
 from mtg_analyzer.services.game_session import GameSessionManager
 from mtg_analyzer.services.image_cache import ImageCache
 from mtg_analyzer.services.lazy_card_loader import LazyCardLoader
-from mtg_analyzer.services.player_assets import DEFAULT_PLAYER_ASSETS_DB_PATH, PlayerAssetStore
+from mtg_analyzer.services.player_assets import PlayerAssetStore
 from mtg_analyzer.services.scryfall_client import ScryfallIntegration
 
 
 @lru_cache(maxsize=1)
 def _database() -> CardDatabase:
-    return CardDatabase(DEFAULT_DB_PATH)
+    return CardDatabase(DB_PATH)
 
 
 @lru_cache(maxsize=1)
 def _lazy_card_loader() -> LazyCardLoader:
-    return LazyCardLoader(_database(), ScryfallIntegration())
+    return LazyCardLoader(_database(), ScryfallIntegration(), scryfall_primary=SCRYFALL_PRIMARY)
 
 
 @lru_cache(maxsize=1)
 def _image_cache() -> ImageCache:
-    return ImageCache()
+    return ImageCache(IMAGE_CACHE_DIR)
 
 
 @lru_cache(maxsize=1)
 def _deck_database() -> DeckDatabase:
-    return DeckDatabase(DEFAULT_DECKS_DB_PATH)
+    return DeckDatabase(DECKS_DB_PATH)
 
 
 @lru_cache(maxsize=1)
@@ -49,7 +51,12 @@ def _game_session_manager() -> GameSessionManager:
 
 @lru_cache(maxsize=1)
 def _player_asset_store() -> PlayerAssetStore:
-    return PlayerAssetStore(DEFAULT_PLAYER_ASSETS_DB_PATH)
+    return PlayerAssetStore(PLAYER_ASSETS_DB_PATH)
+
+
+@lru_cache(maxsize=1)
+def _archidekt_client() -> ArchidektClient:
+    return ArchidektClient()
 
 
 def get_card_database() -> CardDatabase:
@@ -74,3 +81,7 @@ def get_game_session_manager() -> GameSessionManager:
 
 def get_player_asset_store() -> PlayerAssetStore:
     return _player_asset_store()
+
+
+def get_archidekt_client() -> ArchidektClient:
+    return _archidekt_client()

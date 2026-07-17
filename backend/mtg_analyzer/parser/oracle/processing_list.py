@@ -1,6 +1,6 @@
 """The processing list + coverage metric (docs/09 "THE PROCESSING LIST").
 
-Reference: docs/09_ORACLE_EFFECT_PARSER.md ("THE PROCESSING LIST + ANALYZER
+Reference: docs/concepts/09_ORACLE_EFFECT_PARSER.md ("THE PROCESSING LIST + ANALYZER
 MODULE", "THE COVERAGE GATE" consequence 3: "Coverage is the roadmap").
 
 `parse_oracle` (the gate) tells us, per card, which ability lines it could not

@@ -1,7 +1,7 @@
 """Server-held game sessions: goldfish (with rewind/restart) + multiplayer stub.
 
-Reference: docs/02_MVP_USECASES_REVISED.md UC3 (Goldfisch) / UC4
-(Multiplayer), backend/Done_Backend.md "Game Engine".
+Reference: docs/requirements/02_MVP_USECASES_REVISED.md UC3 (Goldfisch) / UC4
+(Multiplayer), docs/implementation-state/Done_Backend.md "Game Engine".
 
 A `GameSession` wraps a `GameEngine` and adds what a *test-your-deck*
 session needs on top of the pure rules engine:
@@ -35,6 +35,7 @@ from mtg_analyzer.models.player import Player
 from mtg_analyzer.game.game_engine import GameEngine
 from mtg_analyzer.game import continuous
 from mtg_analyzer.game.effect_binder import bind_from_catalogue
+from mtg_analyzer.game.top_library import may_look_at_top_of_library
 from mtg_analyzer.services import replay
 
 #: How many undo snapshots to retain (older moves drop off the bottom).
@@ -313,7 +314,25 @@ class GameSession:
 
         if kind == "tap_for_mana":
             option_index = int(action.get("option_index", 0))
-            self.engine.tap_for_mana(active, self._object(action), option_index)
+            ability_index = int(action.get("ability_index", 0))
+            tap_choices = self._resolve_tap_choices(action.get("tap_choices"))
+            color_split = self._resolve_color_split(action.get("color_split"))
+            self.engine.tap_for_mana(
+                active, self._object(action), option_index, ability_index, tap_choices,
+                color_split=color_split,
+            )
+            return
+
+        if kind == "activate_hand_mana":
+            # RULE 605.1a "Exile this card from your hand: Add …" (Elvish/
+            # Simian Spirit Guide) — `tap_for_mana`'s hand-zone counterpart.
+            option_index = int(action.get("option_index", 0))
+            ability_index = int(action.get("ability_index", 0))
+            color_split = self._resolve_color_split(action.get("color_split"))
+            self.engine.activate_hand_mana_ability(
+                active, self._object(action), option_index, ability_index,
+                color_split=color_split,
+            )
             return
 
         if kind == "cast_spell":
@@ -321,18 +340,32 @@ class GameSession:
             # player can respond (cast an instant) or pass priority to let
             # it resolve — real stack interaction (RULE 608).
             targets = self._resolve_targets(action.get("targets"))
+            target_groups = self._resolve_target_groups(action.get("target_groups"))
             x = int(action.get("x", 0))
             face = action.get("face", "front")
-            self.engine.cast_spell(active, self._object(action), targets, x, face=face)
+            # RULE 700.2: a modal spell's chosen mode — an index into
+            # `obj.spell_modes`, or "both" (RULE 700.2e) — round-trips from
+            # the `mode` field `GameEngine._cast_action` stamped on the
+            # offered action; absent for a non-modal spell.
+            mode = action.get("mode")
+            self.engine.cast_spell(
+                active, self._object(action), targets, x, face=face, mode=mode,
+                target_groups=target_groups,
+            )
             return
 
         if kind == "activate_ability":
             # Pay the ability's cost and put it on the stack (RULE 602); like a
             # spell it then waits for priority to resolve.
             targets = self._resolve_targets(action.get("targets"))
+            target_groups = self._resolve_target_groups(action.get("target_groups"))
             x = int(action.get("x", 0))
             index = int(action.get("ability_index", 0))
-            self.engine.activate_ability(active, self._object(action), index, targets, x)
+            tap_choices = self._resolve_tap_choices(action.get("tap_choices"))
+            self.engine.activate_ability(
+                active, self._object(action), index, targets, x, tap_choices,
+                target_groups=target_groups,
+            )
             return
 
         if kind in ("attack", "declare_attackers"):
@@ -395,7 +428,7 @@ class GameSession:
         elif kind == "edit_set_flags":
             self._edit_set_flags(action)
         elif kind == "edit_transform":
-            self._object(action).transform()
+            self.engine.rules.transform_permanent(self._object(action))
         elif kind == "edit_set_counters":
             self._set_counter_map(self._object(action).counters, action)
         elif kind == "edit_set_life":
@@ -722,6 +755,27 @@ class GameSession:
             return {"kind": "planeswalker", "instance_id": obj.instance_id, "label": obj.name}
         raise GameActionError(f"unknown defender kind: {kind!r}")
 
+    @staticmethod
+    def _resolve_tap_choices(tap_choices: Optional[list[Any]]) -> Optional[list[Any]]:
+        """The player's pick of *which* permanents pay a "tap N untapped
+        <type>s you control" cost (RULE 602.1, Birchlore Rangers/Heritage
+        Druid) — just instance ids; `GameEngine` resolves and validates them
+        against the eligible pool itself. ``None`` (not an empty list) when
+        absent, so the engine falls back to its own auto-pick."""
+        if tap_choices is None:
+            return None
+        return [int(i) for i in tap_choices]
+
+    @staticmethod
+    def _resolve_color_split(color_split: Optional[dict[str, Any]]) -> Optional[dict[str, int]]:
+        """The player's chosen colour distribution for an "any combination
+        of colours" mana ability (`ManaAbility.any_combination`); ``None``
+        when absent, so `GameEngine.tap_for_mana` falls back to
+        ``option_index``'s single-colour choice."""
+        if color_split is None:
+            return None
+        return {str(color): int(count) for color, count in color_split.items()}
+
     def _resolve_targets(self, targets: Optional[list[Any]]) -> Optional[list[Any]]:
         if not targets:
             return None
@@ -734,6 +788,20 @@ class GameSession:
             else:
                 resolved.append(target)
         return resolved
+
+    def _resolve_target_groups(
+        self, target_groups: Optional[list[list[Any]]]
+    ) -> Optional[list[list[Any]]]:
+        """`_resolve_targets`, per group — RULE 115.1/601.2c's per-effect
+        target partitioning (`StackItem.target_groups`) for a spell/ability
+        with 2+ *different* targeting effects. Only meaningful when the
+        action payload explicitly groups its target picks by requirement
+        (``requirements_with_targets``' order); an ordinary single-
+        targeting-effect action never needs this (``target_groups`` absent,
+        the plain flat ``targets`` list is all that's ever used)."""
+        if not target_groups:
+            return None
+        return [self._resolve_targets(group) or [] for group in target_groups]
 
     @staticmethod
     def _describe(action: dict[str, Any]) -> str:
@@ -828,6 +896,17 @@ class GameSession:
             "move_log": list(self.move_log),
             # Every static ability in play, for the UI's optional layer panel.
             "static_effects": continuous.active_static_abilities(self.engine.state),
+            # Which players currently have a "play with the top card of your
+            # library revealed"-shaped permission active (Oracle of Mul
+            # Daya/Glarb, Calamity's Augur-shaped, `game/top_library.py`) —
+            # the board only renders a player's own top-of-library card when
+            # this is true for them; whether it's actually playable/castable
+            # from there is conveyed the ordinary way, through
+            # ``legal_actions``' per-instance offers.
+            "top_library_visible": {
+                p.id: may_look_at_top_of_library(p, self.engine.state)
+                for p in self.engine.state.players
+            },
             "setup": {
                 "complete": self._setup_complete,
                 "mulligan_count": self._mulligan_count,

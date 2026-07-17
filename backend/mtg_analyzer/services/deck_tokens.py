@@ -1,6 +1,6 @@
 """Enumerate the tokens a deck can *produce*, for up-front art preloading.
 
-Reference: docs/09_ORACLE_EFFECT_PARSER.md (the token catalogue), CLAUDE.md
+Reference: docs/concepts/09_ORACLE_EFFECT_PARSER.md (the token catalogue), CLAUDE.md
 ("Preload all tokens … available at the start of the match").
 
 Tokens are never named in a decklist — they are created by effects during

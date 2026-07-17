@@ -8,15 +8,15 @@ frontend static server. Pure standard library, works the same on
 macOS/Linux/Windows as long as a Python 3 interpreter is on PATH.
 
 Usage:
-  python3 setup/start.py  [--port 8765] [--backend-port 8000] [--backend-tests] [--no-browser]
-  python setup\start.py   [--port 8765] [--backend-port 8000] [--backend-tests] [--no-browser]
+  python3 setup/start.py  [--port 8765] [--backend-port 8000] [--backend-tests] [--no-browser] [--scryfall-primary]
+  python setup\start.py   [--port 8765] [--backend-port 8000] [--backend-tests] [--no-browser] [--scryfall-primary]
 """
 
 import argparse
+import os
 import signal
 import socket
 import subprocess
-import sys
 import time
 import webbrowser
 from contextlib import closing
@@ -43,11 +43,18 @@ def wait_for_port(host: str, port: int, timeout: float = 15.0) -> bool:
     return False
 
 
-def start_backend(python, port: int) -> subprocess.Popen:
+def start_backend(python, port: int, scryfall_primary: bool = False) -> subprocess.Popen:
     print(f"Starting backend API at http://localhost:{port} ...")
+    env = os.environ.copy()
+    if scryfall_primary:
+        # See mtg_analyzer/config.py's SCRYFALL_PRIMARY: switches
+        # LazyCardLoader from the default cache-primary loading policy to
+        # always refetching a stale cached card from Scryfall.
+        env["MTG_SCRYFALL_PRIMARY"] = "1"
     return subprocess.Popen(
         [str(python), "-m", "uvicorn", "mtg_analyzer.api.app:app", "--port", str(port)],
         cwd=str(BACKEND_DIR),
+        env=env,
     )
 
 
@@ -61,32 +68,45 @@ def _stop(proc: subprocess.Popen) -> None:
             proc.wait()
 
 
-def start_frontend(port: int, open_browser: bool) -> subprocess.Popen:
+def start_frontend(python, port: int, open_browser: bool) -> subprocess.Popen:
     url = f"http://localhost:{port}"
     print(f"Starting frontend at {url} (Ctrl+C to stop) ...")
     # A custom no-cache server, not the stdlib `http.server` module
     # directly: plain http.server sends no Cache-Control header, so
     # browsers can serve a stale cached copy on a normal reload after a
     # file changes (see setup/no_cache_server.py).
+    #
+    # Uses the same venv `python` as the backend rather than
+    # `sys.executable` (whatever launched this script): on macOS, a
+    # process's permission to accept incoming local connections is
+    # granted per binary identity, and the venv python is the one
+    # already proven trusted by the backend server above. Spawning the
+    # frontend under a different, unapproved python binary can leave it
+    # silently unreachable (socket bound, but the OS drops incoming
+    # connections) with no error from the child — which then looks like
+    # this server simply "never becomes ready".
     frontend_proc = subprocess.Popen(
-        [sys.executable, str(NO_CACHE_SERVER), str(port)], cwd=str(FRONTEND_DIR)
+        [str(python), str(NO_CACHE_SERVER), str(port)], cwd=str(FRONTEND_DIR)
     )
 
     if open_browser:
         if not wait_for_port("127.0.0.1", port):
+            # Don't leave the just-spawned server running as an orphan that
+            # blocks this same port on the next attempt.
+            _stop(frontend_proc)
             raise RuntimeError(f"Frontend server did not become ready on port {port}.")
         webbrowser.open(url)
 
     return frontend_proc
 
 
-def run_servers(python, port: int, backend_port: int, open_browser: bool) -> None:
-    backend_proc = start_backend(python, backend_port)
+def run_servers(python, port: int, backend_port: int, open_browser: bool, scryfall_primary: bool = False) -> None:
+    backend_proc = start_backend(python, backend_port, scryfall_primary=scryfall_primary)
     try:
         if not wait_for_port("127.0.0.1", backend_port):
             raise RuntimeError(f"Backend API did not become ready on port {backend_port}.")
 
-        frontend_proc = start_frontend(port, open_browser=open_browser)
+        frontend_proc = start_frontend(python, port, open_browser=open_browser)
 
         # A plain `except KeyboardInterrupt` only covers Ctrl+C (SIGINT).
         # Without this, SIGTERM (e.g. a process manager or IDE stop button)
@@ -118,6 +138,16 @@ def main() -> None:
     parser.add_argument("--no-browser", action="store_true", help="Don't auto-open a browser tab")
     parser.add_argument("--backend-only", action="store_true", help="Start the backend API without the frontend server")
     parser.add_argument("--frontend-only", action="store_true", help="Start the frontend server without the backend API")
+    parser.add_argument(
+        "--scryfall-primary",
+        action="store_true",
+        help=(
+            "Always refetch a stale cached card from Scryfall instead of serving it "
+            "as-is (this project's original behavior). Default is cache-primary: an "
+            "already-cached card is never auto-refetched, avoiding surprise Scryfall "
+            "calls (and rate limits) on an ordinary deck load."
+        ),
+    )
     args = parser.parse_args()
 
     if args.backend_only and args.frontend_only:
@@ -132,7 +162,7 @@ def main() -> None:
         print()
 
     if args.backend_only:
-        backend_proc = start_backend(python, args.backend_port)
+        backend_proc = start_backend(python, args.backend_port, scryfall_primary=args.scryfall_primary)
         try:
             backend_proc.wait()
         except KeyboardInterrupt:
@@ -142,7 +172,7 @@ def main() -> None:
         return
 
     if args.frontend_only:
-        frontend_proc = start_frontend(args.port, open_browser=not args.no_browser)
+        frontend_proc = start_frontend(python, args.port, open_browser=not args.no_browser)
         try:
             frontend_proc.wait()
         except KeyboardInterrupt:
@@ -151,7 +181,10 @@ def main() -> None:
             _stop(frontend_proc)
         return
 
-    run_servers(python, args.port, args.backend_port, open_browser=not args.no_browser)
+    run_servers(
+        python, args.port, args.backend_port,
+        open_browser=not args.no_browser, scryfall_primary=args.scryfall_primary,
+    )
 
 
 if __name__ == "__main__":

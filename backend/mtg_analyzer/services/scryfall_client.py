@@ -1,7 +1,7 @@
 """Scryfall API client: fetch card data and convert it into `Card` objects.
 
-Reference: docs/06_CARD_GRAPHICS_AND_LAZY_LOADING.md (PART 3),
-docs/IMPLEMENTATION_GUIDE.md (Week 2, Day 4-5, "ScryfallIntegration").
+Reference: docs/concepts/06_CARD_GRAPHICS_AND_LAZY_LOADING.md (PART 3),
+docs/implementation-state/IMPLEMENTATION_GUIDE.md (Week 2, Day 4-5, "ScryfallIntegration").
 """
 
 from __future__ import annotations
@@ -12,14 +12,18 @@ from typing import Any, Optional
 
 import httpx2 as httpx
 
+from mtg_analyzer.config import SCRYFALL_MIN_REQUEST_INTERVAL_SECONDS, USER_AGENT
 from mtg_analyzer.models.card import VALID_COLORS, Card
+from mtg_analyzer.parser.oracle.normalize import strip_reminder_text
 
 _BASE_URL = "https://api.scryfall.com"
 #: Scryfall asks integrations to identify themselves and to stay under
 #: ~10 requests/second; a small delay between requests is the simplest
-#: way to honor that without a background rate limiter.
-_USER_AGENT = "MTG-Deck-Analyzer/0.1"
-_MIN_REQUEST_INTERVAL_SECONDS = 0.1
+#: way to honor that without a background rate limiter. Overridable via
+#: MTG_USER_AGENT / MTG_SCRYFALL_MIN_REQUEST_INTERVAL — see
+#: mtg_analyzer/config.py.
+_USER_AGENT = USER_AGENT
+_MIN_REQUEST_INTERVAL_SECONDS = SCRYFALL_MIN_REQUEST_INTERVAL_SECONDS
 #: Batch size cap for POST /cards/collection (Scryfall's own limit).
 _COLLECTION_BATCH_SIZE = 75
 
@@ -104,6 +108,15 @@ _TWO_IMAGE_LAYOUTS = frozenset(
     {"transform", "modal_dfc", "double_faced_token", "reversible_card"}
 )
 
+#: Layouts whose `card_faces[1]` is a real, independently nameable/castable
+#: second face worth capturing into `back_*`, even when (unlike
+#: `_TWO_IMAGE_LAYOUTS`) it shares the front's single printed image — a
+#: split card's other half (RULE 709), an Adventure's instant/sorcery half
+#: (RULE 715), or a preparation card's inset "prepare spell" (RULE 722).
+#: `back_image_uri_*` stays empty for these since their face entries carry
+#: no `image_uris` of their own, so `Card.has_back_face` is unaffected.
+_SECOND_FACE_LAYOUTS = _TWO_IMAGE_LAYOUTS | {"split", "adventure", "prepare"}
+
 
 def card_from_scryfall_data(data: dict[str, Any]) -> Card:
     """Convert a Scryfall card object into a `Card` domain model.
@@ -138,7 +151,7 @@ def card_from_scryfall_data(data: dict[str, Any]) -> Card:
     toughness = _parse_int(front.get("toughness"))
     is_creature = "Creature" in type_line
 
-    back = faces[1] if layout in _TWO_IMAGE_LAYOUTS and len(faces) >= 2 else {}
+    back = faces[1] if layout in _SECOND_FACE_LAYOUTS and len(faces) >= 2 else {}
     back_image_uris = back.get("image_uris") or {}
     back_type_line = back.get("type_line", "")
     back_is_creature = "Creature" in back_type_line
@@ -166,10 +179,18 @@ def card_from_scryfall_data(data: dict[str, Any]) -> Card:
         image_uri_png=image_uris.get("png", ""),
         set_code=data.get("set", ""),
         rarity=data.get("rarity", ""),
+        # Some promo printings (Secret Lair "Godzilla" series, Universes
+        # Beyond crossovers) carry an alternate printed name here instead of
+        # on the (always-Oracle) top-level `name` — see Card.flavor_name.
+        # Rare double-faced cards put it per-face rather than top-level.
+        flavor_name=data.get("flavor_name") or front.get("flavor_name") or "",
         is_legendary="Legendary" in type_line,
         has_partner=_has_partner(front.get("oracle_text", "")),
         partner_with=_partner_with(front.get("oracle_text", "")),
         layout=layout,
+        # RULE 709.4: Fuse is a top-level keyword on a split card, not
+        # per-face oracle text.
+        has_fuse="Fuse" in (data.get("keywords") or []),
         back_name=back.get("name", ""),
         back_type_line=back_type_line,
         back_oracle_text=back.get("oracle_text", ""),
@@ -206,7 +227,7 @@ def _parse_mana_cost(mana_cost: str) -> dict[str, int]:
     as a single "W" pip, indistinguishable from a plain "{W}". That
     loses real information (a hybrid symbol can be paid in either
     color; a Phyrexian one can be paid with 2 life instead) — see
-    backend/Done_Backend.md "Mana cost model" for the backlog on representing
+    docs/implementation-state/Done_Backend.md "Mana cost model" for the backlog on representing
     these properly.
     """
     counts = {color: 0 for color in sorted(VALID_COLORS) + ["C"]}
@@ -222,5 +243,15 @@ def _has_partner(oracle_text: str) -> bool:
 
 
 def _partner_with(oracle_text: str) -> Optional[str]:
+    """The exact name after "Partner with " on a "Partner with X" card, or
+    None. Scryfall prints this line with its RULE 207.2 reminder text
+    inline ("Partner with Sam, Loyal Attendant (When this creature
+    enters, ...)"), so the raw regex capture must have that reminder text
+    stripped before use — otherwise it never exactly matches the named
+    card's `Card.name`, breaking the pairing check in
+    services/commander_legality.py for every "Partner with X" card.
+    """
     match = re.search(r"^Partner with (.+)$", oracle_text, re.MULTILINE)
-    return match.group(1).strip() if match else None
+    if match is None:
+        return None
+    return strip_reminder_text(match.group(1)).strip()

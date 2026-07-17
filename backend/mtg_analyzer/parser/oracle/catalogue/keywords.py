@@ -1,8 +1,8 @@
 """The keyword-ability catalogue — RULE 702, the privileged fast-path handler.
 
-Reference: docs/09_ORACLE_EFFECT_PARSER.md ("Keyword abilities: the
+Reference: docs/concepts/09_ORACLE_EFFECT_PARSER.md ("Keyword abilities: the
 privileged fast-path handler class"); the vocabulary itself is RULE 702
-(``Reference/rules_wiki/`` maps ``702.<n>`` → its line in the CR source).
+(``docs/Reference/rules_wiki/`` maps ``702.<n>`` → its line in the CR source).
 
 Keyword abilities are a **closed, named vocabulary** — the cheapest,
 highest-confidence, most frequent clauses in the game — so we treat them as
@@ -37,7 +37,7 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 from enum import Enum
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING, Any, Optional
 
 from ..spec import AbilitySpec, ParserProvenance
 
@@ -111,6 +111,31 @@ _SPECIAL_REGEX: dict[str, re.Pattern[str]] = {
     # RULE 702.174 — "Gift a/an <something>".
     "gift": re.compile(r"gift an? (?P<quality>[a-z][a-z ]*?)(?=[.\n(]|$)", re.I),
 }
+
+#: Ward's cost line may be a non-mana clause ("Ward—Discard a card.",
+#: "Ward—Pay 3 life.", "Ward—Sacrifice a creature.") that the mana-only
+#: ``_auto_regex`` COST pattern above can't see (RULE 702.21 puts no
+#: constraint on the cost's shape, unlike most other COST-shaped keywords in
+#: this table, which are mana-only on every real card). Captured as free
+#: text — not whitespace-collapsed like a mana run — so
+#: `game/costs.parse_activation_cost` (the same grammar a "<cost>: <effect>"
+#: activated ability's cost already goes through, RULE 602.1) can recognize
+#: it downstream. Only consulted as a fallback when the mana regex above
+#: finds nothing.
+_WARD_TEXT_COST_RE = re.compile(
+    r"\bward\b[\s—-]*(?P<cost>[a-zA-Z][^.\n(]*?)\s*(?=[.\n(]|$)", re.I
+)
+
+#: Escape's cost line is a comma-joined "{mana}, Exile N other cards from
+#: your graveyard" (RULE 702.138b) — the mana-only ``_auto_regex`` COST
+#: pattern above only ever sees the ``{...}`` pips, silently dropping the
+#: exile-count clause. Unlike Ward's fallback (only consulted when the mana
+#: regex finds nothing), this one always wins for Escape: the full clause is
+#: needed downstream, not just the mana portion, so `game/costs.
+#: parse_activation_cost` can recognize both components together.
+_ESCAPE_TEXT_COST_RE = re.compile(
+    r"\bescape\b[\s—-]*(?P<cost>[^.\n(]*?)\s*(?=[.\n(]|$)", re.I
+)
 
 
 def _auto_regex(display: str, shape: KeywordShape) -> Optional[re.Pattern[str]]:
@@ -421,9 +446,12 @@ def _clause_for(text: str, display: str) -> str:
 def _extract_param(kdef: KeywordDef, text: str, forced_quality: Optional[str]) -> dict:
     """Build the keyword's ``{name, param?}`` dict, extracting from oracle text.
 
-    Fail-safe: if a parametric keyword's regex finds nothing (e.g. ``Ward—Pay
-    3 life`` carries no mana cost), the parameter is simply omitted rather
-    than guessed — a bare, still-valid keyword spec (docs/09 "fail-closed").
+    Fail-safe: if a parametric keyword's regex finds nothing, the parameter
+    is simply omitted rather than guessed — a bare, still-valid keyword spec
+    (docs/09 "fail-closed"). Ward (RULE 702.21) and Escape (RULE 702.138)
+    are the two exceptions: their cost is genuinely modeled downstream
+    (`game/costs.parse_activation_cost`), not merely carried, so each falls
+    back to its own free-text regex instead of staying mana-only/bare.
     """
     param: dict = {"name": kdef.slug}
     if forced_quality:
@@ -439,6 +467,16 @@ def _extract_param(kdef: KeywordDef, text: str, forced_quality: Optional[str]) -
                 param["cost"] = re.sub(r"\s+", "", groups["cost"])
             if groups.get("quality"):
                 param["quality"] = groups["quality"].strip()
+    if kdef.slug == "ward" and "cost" not in param:
+        fallback = _WARD_TEXT_COST_RE.search(text)
+        if fallback:
+            param["cost"] = fallback.group("cost").strip()
+    if kdef.slug == "escape":
+        # Always prefer the full clause over the mana-only match above (if
+        # any) — Escape's exile-count component only lives in this capture.
+        fallback = _ESCAPE_TEXT_COST_RE.search(text)
+        if fallback:
+            param["cost"] = fallback.group("cost").strip()
     return param
 
 
@@ -460,6 +498,40 @@ def parse_keywords(card: "Card") -> list[AbilitySpec]:
         # has other keywords (e.g. an Aura with Flash) — oracle text is the
         # ground truth for attachment, so always cross-check it independently.
         names.append("Enchant")
+    # Daybound/Nightbound (RULE 702.145) live on opposite faces of a DFC, but
+    # Scryfall's top-level ``keywords`` array isn't reliably face-scoped —
+    # this card's own ``oracle_text`` (already correctly isolated per face by
+    # `Card.back_face`) is the ground truth for *which* of the two applies to
+    # whichever face is currently bound, so cross-check it the same way as
+    # "Enchant" above rather than trusting the shared array either way.
+    for kw_name in ("Daybound", "Nightbound"):
+        slug = keyword_slug(kw_name)
+        if not any(keyword_slug(str(n)) == slug for n in names) and re.search(
+            rf"^{slug}\b", text, re.I | re.M
+        ):
+            names.append(kw_name)
+    # A Leveler's ``LEVEL`` blocks (RULE 711.4c) print keywords that only
+    # apply at that tier (e.g. Kargan Dragonlord's "Flying, haste" under
+    # "LEVEL 7+"), but Scryfall's ``keywords`` array is position-blind — it
+    # lists any keyword word found anywhere in the text, tier or not. Trusting
+    # it unconditionally here would bind Flying/Haste as *always-on*
+    # intrinsic keywords, which is wrong (RULE 613.6 — they should apply only
+    # while `level` is in that tier's range). Cross-check against the base
+    # text instead (the same "oracle text is ground truth" pattern as Enchant/
+    # Daybound above); a tier-only keyword is dropped here and re-granted,
+    # correctly level-gated, by the level-block parser (`gate.py`) instead.
+    if getattr(card, "is_leveler", False):
+        from .levels import leveler_base_text
+
+        base_text = leveler_base_text(text)
+
+        def _in_base_text(raw_name: Any) -> bool:
+            kdef = _resolve(keyword_slug(str(raw_name)))
+            if kdef is None:  # unknown keyword — let the main loop skip it
+                return True
+            return bool(re.search(rf"\b{re.escape(kdef.display)}\b", base_text, re.I))
+
+        names = [n for n in names if _in_base_text(n)]
     specs: list[AbilitySpec] = []
     seen: set[str] = set()
 
@@ -482,6 +554,13 @@ def parse_keywords(card: "Card") -> list[AbilitySpec]:
         seen.add(dedupe_key)
 
         param = _extract_param(kdef, text, forced_quality)
+        if _slug(str(raw_name)) == "multikicker":
+            # RULE 702.34a: Multikicker is Kicker's repeatable variant — both
+            # alias onto the same "kicker" slug/behaviour, but the "may pay
+            # this cost any number of times" identity must survive the alias
+            # collapse or a Multikicker card is indistinguishable from plain
+            # Kicker post-parse.
+            param["multi"] = True
         spec = AbilitySpec(
             ability_kind="keyword",
             keyword=param,

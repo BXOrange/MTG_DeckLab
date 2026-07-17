@@ -1,6 +1,6 @@
 """Tests for the AbilitySpec IR + its validation (parser front-end).
 
-Reference: docs/09_ORACLE_EFFECT_PARSER.md ("THE INTERMEDIATE
+Reference: docs/concepts/09_ORACLE_EFFECT_PARSER.md ("THE INTERMEDIATE
 REPRESENTATION", "SECURITY MODEL": clamp params).
 """
 

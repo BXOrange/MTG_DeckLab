@@ -1,10 +1,10 @@
 """SQLite-backed persistence for saved decklists, keyed by UUID.
 
-Reference: docs/04_SERVER_CLIENT_ARCHITECTURE.md (PART 4, REST
-endpoints), backend/Done_Backend.md "Deck persistence".
+Reference: docs/concepts/04_SERVER_CLIENT_ARCHITECTURE.md (PART 4, REST
+endpoints), docs/implementation-state/Done_Backend.md "Deck persistence".
 
 Unlike `mtg_analyzer.services.card_database.CACHE_ROOT` (Scryfall data,
-entirely disposable — see docs/08_CARD_CACHE_EXPORT_IMPORT.md), saved
+entirely disposable — see docs/Reference/08_CARD_CACHE_EXPORT_IMPORT.md), saved
 decks are real user data with no upstream source to re-fetch from. They
 live under `DATA_ROOT` instead, a sibling directory that is NOT safe to
 delete: there is nothing to regenerate it from.
@@ -23,6 +23,7 @@ import threading
 from pathlib import Path
 from typing import Optional, Union
 
+from mtg_analyzer.config import DATA_DIR, DECKS_DB_PATH
 from mtg_analyzer.models.deck import Deck
 from mtg_analyzer.services.schema_version import reconcile_schema
 
@@ -32,11 +33,12 @@ _log = logging.getLogger(__name__)
 #: disposable cache. Gitignored (see repo-root .gitignore,
 #: "backend/data/") for the same reason .env files are: it's local
 #: state, not something to commit — but unlike backend/cache/, back
-#: this up if you care about the decks in it.
-DATA_ROOT = Path(__file__).resolve().parent.parent.parent / "data"
+#: this up if you care about the decks in it. Overridable via the
+#: MTG_DATA_DIR env var — see mtg_analyzer/config.py.
+DATA_ROOT = DATA_DIR
 
 #: Default on-disk location for saved decks.
-DEFAULT_DECKS_DB_PATH = DATA_ROOT / "decks.db"
+DEFAULT_DECKS_DB_PATH = DECKS_DB_PATH
 
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS decks (

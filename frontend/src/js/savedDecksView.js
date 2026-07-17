@@ -1,10 +1,66 @@
 // "Gespeicherte Decks" tab: browse, load, and delete decks saved via
 // POST /api/decks/save (mtg_analyzer DeckDatabase). Lazy by design, same
 // as cachedCardsView.js: nothing is fetched until the tab is opened.
+//
+// The deck's author is edited only in the "Deck editieren" tab
+// (deckImportView.js) — this view only displays it, matching the
+// read-only treatment of colorIdentity/commanders here (both computed
+// elsewhere too). Filtering (color/legality) is client-side over the
+// already-fetched list, same pattern as cachedCardsView.js's filters.
 
 import { listSavedDecks, getSavedDeck, deleteSavedDeck, getDeckValidation, listSleeves, saveDeck } from './api.js';
 import { getPlayerName } from './settings.js';
 import { escapeHtml } from './cardTile.js';
+
+const COLOR_FILTER_OPTIONS = [
+  { key: 'W', label: '⚪ Weiß' },
+  { key: 'U', label: '🔵 Blau' },
+  { key: 'B', label: '⚫ Schwarz' },
+  { key: 'R', label: '🔴 Rot' },
+  { key: 'G', label: '🟢 Grün' },
+  { key: 'C', label: '🔘 Farblos' },
+];
+
+const LEGALITY_FILTER_OPTIONS = [
+  { key: 'legal', label: '✅ Legal' },
+  { key: 'illegal', label: '🛑 Nicht legal' },
+  { key: 'unknown', label: '❔ Unbekannt / wird geprüft' },
+];
+
+function filterGroupHtml(legend, filterName, options) {
+  return `
+    <fieldset class="cache-filter-group">
+      <legend>${legend}</legend>
+      ${options
+        .map(
+          (o) =>
+            `<label><input type="checkbox" data-filter="${filterName}" value="${o.key}" checked /> ${o.label}</label>`
+        )
+        .join('')}
+    </fieldset>`;
+}
+
+function checkedValues(root, filterName) {
+  return Array.from(root.querySelectorAll(`input[data-filter="${filterName}"]:checked`)).map((el) => el.value);
+}
+
+function readFilterState(filtersEl) {
+  return {
+    colors: checkedValues(filtersEl, 'color'),
+    legality: checkedValues(filtersEl, 'legality'),
+  };
+}
+
+function deckMatchesColorFilter(colorIdentity, colors) {
+  if (!colorIdentity) return true; // identity not computed yet — don't hide
+  if (!colorIdentity.length) return colors.includes('C');
+  return colorIdentity.some((c) => colors.includes(c));
+}
+
+function deckMatchesLegalityFilter(validation, legality) {
+  if (validation === undefined || validation === null) return legality.includes('unknown');
+  return legality.includes(validation.isLegal ? 'legal' : 'illegal');
+}
 
 /**
  * @param {{onLoadDeck?: (deck: object) => void, onAnalyzeDeck?: (deck: object) => void}} [options]
@@ -20,6 +76,11 @@ export function renderSavedDecksView(container, { onLoadDeck, onAnalyzeDeck } = 
         <button id="refresh-saved-decks-btn" type="button">Aktualisieren</button>
         <span class="cache-count"></span>
       </div>
+      <div class="cache-filters" id="saved-decks-filters">
+        ${filterGroupHtml('Farbe', 'color', COLOR_FILTER_OPTIONS)}
+        ${filterGroupHtml('Legalität', 'legality', LEGALITY_FILTER_OPTIONS)}
+        <button type="button" id="saved-decks-filter-reset">Filter zurücksetzen</button>
+      </div>
       <div id="saved-decks-result"><p class="empty-state">Lade gespeicherte Decks …</p></div>
     </div>
   `;
@@ -27,6 +88,32 @@ export function renderSavedDecksView(container, { onLoadDeck, onAnalyzeDeck } = 
   const resultEl = container.querySelector('#saved-decks-result');
   const countEl = container.querySelector('.cache-count');
   const refreshBtn = container.querySelector('#refresh-saved-decks-btn');
+  const filtersEl = container.querySelector('#saved-decks-filters');
+  const resetBtn = container.querySelector('#saved-decks-filter-reset');
+
+  // Kept across renders so applyFilters() (triggered by a filter checkbox,
+  // not a reload) can look up each visible row's data without re-fetching.
+  let currentDecks = [];
+  // deckId -> validation result, or undefined while still checking. Reset
+  // on every load() since a refresh may add/remove/change decks.
+  const validationById = new Map();
+
+  function applyFilters() {
+    const filters = readFilterState(filtersEl);
+    let visibleCount = 0;
+    resultEl.querySelectorAll('.saved-deck-row').forEach((row) => {
+      const deck = currentDecks.find((d) => d.id === row.dataset.deckId);
+      const visible =
+        deckMatchesColorFilter(deck?.colorIdentity, filters.colors) &&
+        deckMatchesLegalityFilter(validationById.get(row.dataset.deckId), filters.legality);
+      row.classList.toggle('saved-deck-row--hidden', !visible);
+      if (visible) visibleCount += 1;
+    });
+    countEl.textContent =
+      visibleCount === currentDecks.length
+        ? `${currentDecks.length} gespeichertes Deck(s)`
+        : `${visibleCount} von ${currentDecks.length} gespeichertes Deck(s)`;
+  }
 
   let latestRequestId = 0;
 
@@ -47,6 +134,8 @@ export function renderSavedDecksView(container, { onLoadDeck, onAnalyzeDeck } = 
       return;
     }
 
+    currentDecks = decks;
+    validationById.clear();
     countEl.textContent = `${decks.length} gespeichertes Deck(s)`;
 
     if (!decks.length) {
@@ -56,6 +145,7 @@ export function renderSavedDecksView(container, { onLoadDeck, onAnalyzeDeck } = 
     }
 
     resultEl.innerHTML = decks.map((deck) => renderDeckRow(deck, sleeves || [])).join('');
+    applyFilters();
 
     resultEl.querySelectorAll('.saved-deck-sleeve-select').forEach((select) => {
       select.addEventListener('change', async () => {
@@ -73,7 +163,9 @@ export function renderSavedDecksView(container, { onLoadDeck, onAnalyzeDeck } = 
     for (const deck of decks) {
       getDeckValidation(deck.id).then((validation) => {
         if (requestId !== latestRequestId) return; // list refreshed meanwhile
+        validationById.set(deck.id, validation);
         updateLegalityBadge(deck.id, validation);
+        applyFilters();
       });
     }
 
@@ -141,6 +233,11 @@ export function renderSavedDecksView(container, { onLoadDeck, onAnalyzeDeck } = 
   }
 
   refreshBtn.addEventListener('click', load);
+  filtersEl.addEventListener('change', applyFilters);
+  resetBtn.addEventListener('click', () => {
+    filtersEl.querySelectorAll('input[type="checkbox"]').forEach((el) => { el.checked = true; });
+    applyFilters();
+  });
 
   // Only load the first time this view is shown, not eagerly at startup.
   let loaded = false;
@@ -156,10 +253,11 @@ function renderDeckRow(deck, sleeves) {
   const name = deck.name?.trim() || 'Unbenanntes Deck';
 
   return `
-    <div class="saved-deck-row">
+    <div class="saved-deck-row" data-deck-id="${escapeHtml(deck.id)}">
       <div class="saved-deck-info">
         <strong>${escapeHtml(name)}</strong>
         ${commanderHtml(deck.commanders)}
+        ${authorHtml(deck.author)}
         <span class="saved-deck-meta">Gespeichert: ${escapeHtml(created)}${colorIdentityHtml(deck.colorIdentity)}</span>
         <span class="saved-deck-legality checking" data-deck-id="${escapeHtml(deck.id)}">Prüfe Legalität …</span>
       </div>
@@ -191,6 +289,13 @@ const COLOR_PIPS = [
 function commanderHtml(commanders) {
   if (!commanders || !commanders.length) return '';
   return `<span class="saved-deck-commander">👑 ${escapeHtml(commanders.join(' & '))}</span>`;
+}
+
+// The author, shown read-only here — editable only in "Deck editieren"
+// (deckImportView.js). Renders nothing when unset (may be empty/None).
+function authorHtml(author) {
+  if (!author) return '';
+  return `<span class="saved-deck-author">✍️ ${escapeHtml(author)}</span>`;
 }
 
 // Color-identity pips (WUBRG order), or a colorless "C" pip for an empty

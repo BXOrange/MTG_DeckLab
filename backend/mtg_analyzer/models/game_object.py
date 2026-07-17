@@ -1,7 +1,7 @@
 """Zones and in-game card instances (RULE 400 zones, RULE 110 permanents).
 
-Reference: docs/02_MVP_USECASES_REVISED.md R1.3 (Game State — Zones,
-Stack, permanents), docs/07_GAME_LOOP_EFFECT_SYSTEM.md.
+Reference: docs/requirements/02_MVP_USECASES_REVISED.md R1.3 (Game State — Zones,
+Stack, permanents), docs/concepts/07_GAME_LOOP_EFFECT_SYSTEM.md.
 
 A `Card` (models/card.py) is the immutable *definition* of a card — its
 printed characteristics. A `GameObject` is one *instance* of that card
@@ -15,6 +15,7 @@ distinction between a card and the object it becomes in play.
 from __future__ import annotations
 
 import itertools
+import re
 from enum import Enum
 from typing import Any, Optional
 
@@ -38,17 +39,18 @@ _instance_counter = itertools.count(1)
 
 
 def _combat_display_keywords(
-    card: Card, granted: Optional[set[str]] = None
+    card: Card, granted: Optional[set[str]] = None, removed: Optional[set[str]] = None
 ) -> list[str]:
     """Combat/evasion keyword labels for a card's board badges, including any
-    granted by a layer-6 static ability (RULE 613.7f).
+    granted by a layer-6 static ability (RULE 613.7f) and excluding any it
+    stripped ("loses <keyword>").
 
     Local (function-scoped) import of the pure `game.combat` recognition so
     the model layer gains no import-time dependency on `game/` (RULE-keyword
     recognition lives with the combat rules that consume it)."""
     from ..game.combat import display_keywords
 
-    return display_keywords(card, granted)
+    return display_keywords(card, granted, removed)
 
 
 class GameObject:
@@ -73,6 +75,43 @@ class GameObject:
         #: (RULE 712.8). Combat/continuous read `card`, so a transform is just
         #: this swap — everything downstream sees the active face.
         self.transformed: bool = False
+        #: RULE 715.2b: while this object's Adventure instant/sorcery half is
+        #: on the stack, the creature's pre-cast face snapshot (`snapshot_face`)
+        #: is stashed here so resolution can restore it before exiling —
+        #: distinct from a rejected-cast rollback, which restores immediately
+        #: and never reaches this field. None otherwise.
+        self.adventure_snapshot: Optional[dict[str, Any]] = None
+        #: RULE 715.3d: set when this object's Adventure half resolves and it
+        #: is exiled instead of going to the graveyard — the card may be cast
+        #: as the creature from exile any time thereafter. Cleared once cast.
+        self.adventure_castable: bool = False
+        #: RULE 722.3a: the "prepared" designation on a permanent with a
+        #: prepare spell — set by `RulesEngine.make_prepared` (some other
+        #: ability's "~ becomes prepared" effect), which also creates an
+        #: exiled token copy of the prepare spell. Cleared the instant that
+        #: copy is actually cast (RULE 722.3c), or by any other "becomes
+        #: unprepared" effect (RULE 722.3b) — either way the copy then loses
+        #: its RULE 704.5d token-cleanup exemption on the very next SBA pass.
+        self.prepared: bool = False
+        #: RULE 722.3c: on a prepared *copy* (a token sitting in exile, never
+        #: on a normal permanent), the `instance_id` of the source permanent
+        #: it's linked to — the copy is exempt from the RULE 704.5d token
+        #: cleanup only for as long as that source stays on the battlefield
+        #: with `prepared` still set. None on every other object.
+        self.prepared_source_id: Optional[int] = None
+        #: RULE 702.33b: how many times Kicker was paid when this spell was
+        #: cast — 0 (not kicked), 1 for a plain Kicker, or 0..N for
+        #: Multikicker. Set once at cast time by `GameEngine._cast_current_face`
+        #: and left on the object afterward as a record of what was paid.
+        self.kicker_count: int = 0
+        #: RULE 702.27a: whether Buyback's additional cost was paid when this
+        #: spell was cast — if so, `RulesEngine.resolve_top_of_stack` returns
+        #: it to hand instead of the graveyard, then clears this flag.
+        self.buyback_paid: bool = False
+        #: RULE 702.34a: whether this spell was cast from the graveyard via
+        #: Flashback — if so, `RulesEngine.resolve_top_of_stack` exiles it
+        #: instead of sending it to the graveyard, then clears this flag.
+        self.cast_via_flashback: bool = False
         self.owner_id = owner_id
         #: Who currently controls the object; defaults to its owner
         #: (RULE 108.4). Control can change but ownership can't.
@@ -85,11 +124,17 @@ class GameObject:
         #: action once it leaves the battlefield, RULE 704.5d) hangs off this
         #: flag, not the printed definition. Defaults to the card's own token-ness.
         self.is_token: bool = card.is_token if is_token is None else is_token
-        #: Whether this object is a commander (RULE 903.6) — governs
-        #: whether it returns to the command zone instead of the
-        #: graveyard/etc. when it would otherwise leave play (RULE 903.9,
-        #: see `RulesEngine._move_to_graveyard`/`counter_spell`).
+        #: Whether this object is a commander (RULE 903.6) — governs whether
+        #: its owner may move it into the command zone instead of wherever
+        #: it would otherwise go when it would leave play (RULE 903.9, see
+        #: `RulesEngine._commander_zone_choice`/`resolve_commander_zone_choice`).
         self.is_commander = is_commander
+        #: RULE 903.9a: set the instant this commander lands in a graveyard
+        #: or exile zone, offering its owner a one-time SBA choice to move it
+        #: to the command zone instead; cleared the moment that choice opens
+        #: (`RulesEngine._sba_pass`), so it's a transient "just arrived, not
+        #: yet offered" marker, not a persistent commander-ness fact.
+        self.commander_zone_choice_pending: bool = False
 
         # Permanent state (meaningful on the battlefield).
         self.tapped: bool = False
@@ -137,12 +182,25 @@ class GameObject:
         #: attached. Drives the "attached cards grouped around their host"
         #: display; set by the (future) equip/enchant resolution.
         self.attached_to: Optional[int] = None
+        #: The host this object was just detached from, stamped by
+        #: `GameEngine._pay_activation_cost`'s ``unattach_self`` cost
+        #: component (Sunforger/Akiri, Fearless Voyager) the instant before
+        #: it clears `attached_to` — the ability's own effect (resolving
+        #: *after* the cost is already paid) has no other way to reach "that
+        #: creature" the unattach cost named.
+        self.last_unattached_from_id: Optional[int] = None
 
         #: Effects this object contributes while in play, consulted by the
         #: rules engine (mtg_analyzer/game/). Typed loosely to avoid a
         #: model→game import; they hold `GameEffect` subclasses.
         self.triggered_abilities: list[Any] = []
         self.replacement_effects: list[Any] = []
+        #: "You may have this enter the battlefield as a copy of target X"
+        #: (RULE 614.1c/614.12, `EnterAsCopyReplacement`) — consulted by
+        #: `RulesEngine._offer_enter_as_copy` *before* this object is added
+        #: to the battlefield, unlike `replacement_effects`'s event-transform
+        #: `ReplacementEffect`s.
+        self.enter_as_copy_effects: list[Any] = []
         #: Static abilities (`StaticAbility`) this object grants through the
         #: layer system (RULE 613) — anthems, keyword grants, type changes,
         #: cost reductions. Read by `game/continuous.py`.
@@ -169,6 +227,17 @@ class GameObject:
         self._derived_power: Optional[int] = None
         self._derived_toughness: Optional[int] = None
         self._granted_keywords: set[str] = set()
+        #: Flag keywords a layer-6 "loses <keyword>" static ability strips
+        #: this pass (RULE 613.7f — Colossus Hammer's "Equipped creature …
+        #: loses flying"), unioned out of `_obj_keywords` by
+        #: `game/combat.py`. Reset every recompute exactly like
+        #: `_granted_keywords`.
+        self._removed_keywords: set[str] = set()
+        #: RULE 702.112b: whether Renown's own "it becomes renowned" has
+        #: already happened — never reset (a one-time-ever flag per object,
+        #: unlike every ``_derived_*``/``_granted_*`` field above), so the
+        #: keyword's "if it isn't renowned" guard only fires once.
+        self.renowned: bool = False
         #: Mana-production options granted by a layer-6 "X have '{T}: Add
         #: …'" static ability (Tyvar Kell) — folded onto the printed ones by
         #: `mana_abilities.mana_options_for`. Reset each recompute.
@@ -190,6 +259,12 @@ class GameObject:
         #: means no colour-changing effect applies, so `colors` falls back to
         #: the printed card's ``color_identity``.
         self._derived_colors: Optional[set[str]] = None
+        #: Oracle text rewritten by a layer-3 "text_change" static ability
+        #: (RULE 612), or ``None`` if none applies. Consulted today only by
+        #: `combat.protections_of_text` via `effective_oracle_text` below —
+        #: bound abilities are still derived from the *printed* text once at
+        #: bind time, unaffected (a live full re-parse is out of scope).
+        self._derived_oracle_text: Optional[str] = None
         #: Timestamp for within-a-layer ordering (RULE 613.7b), stamped when the
         #: object enters the battlefield. Later timestamp = applied later.
         self.timestamp: int = 0
@@ -213,17 +288,50 @@ class GameObject:
         self.temp_power: int = 0
         self.temp_toughness: int = 0
         self.temp_keywords: set[str] = set()
+        #: "Target creature can't be blocked this turn" (Rogue's Passage) —
+        #: a resolve-time grant read directly by `GameEngine.can_block`
+        #: (not a layer-6 keyword; RULE 509.1a's blocking legality isn't
+        #: part of the continuous-characteristics system). Cleared at
+        #: cleanup (RULE 514.2) alongside `temp_power`/`temp_keywords`.
+        self.temp_unblockable: bool = False
+
+        #: "Another target creature" a layer-1 conditional-copy static
+        #: ability (Vesuvan Shapeshifter) should copy — read fresh every
+        #: `continuous.recompute` pass, the same idiom `attached_to` uses.
+        #: Set by `RulesEngine.set_copy_target`.
+        self.copy_target_id: Optional[int] = None
+        #: Stashed pre-copy face+ability bundle (`copy_mechanics.
+        #: snapshot_face`'s shape) — set the first time a layer-1 copy
+        #: ability transitions into applying, so the condition going false
+        #: can restore it. `None` whenever no layer-1 copy is currently
+        #: applied. Persists across a recompute (not cleared by
+        #: `reset_derived`).
+        self._copy_base: Optional[dict[str, Any]] = None
+        #: Which `copy_target_id` is *currently* applied (distinct from the
+        #: condition itself) — lets `continuous.recompute` tell "already
+        #: copying this exact target, no-op" from "target changed, re-copy"
+        #: without re-running the mutate/rebind (and destroying granted-
+        #: ability bookkeeping) on every single pass. `None` whenever
+        #: nothing is currently applied.
+        self._copy_applied_target_id: Optional[int] = None
+        #: Stashed pre-copy snapshot for a "becomes a copy … until end of
+        #: turn" effect (Cursed Mirror-style, `RulesEngine.
+        #: become_copy_until_end_of_turn`) — taken only the first time this
+        #: turn, restored by `GameEngine._step_cleanup` (RULE 514.2).
+        self._copy_until_eot_base: Optional[dict[str, Any]] = None
 
     def reset_derived(self) -> None:
         """Clear layer-engine output before a fresh `continuous.recompute`."""
         self._derived_power = None
         self._derived_toughness = None
         self._granted_keywords = set()
+        self._removed_keywords = set()
         self._granted_mana = []
         self._granted_triggered_abilities = []
         self._added_types = set()
         self._removed_types = set()
         self._derived_colors = None
+        self._derived_oracle_text = None
         self.static_trace = []
 
     @property
@@ -236,6 +344,17 @@ class GameObject:
         if self._derived_colors is not None:
             return set(self._derived_colors)
         return set(self.card.color_identity or set())
+
+    @property
+    def effective_oracle_text(self) -> str:
+        """Effective oracle text (RULE 612 / layer 3), or the printed text.
+
+        Prefers text a layer-3 "text_change" static ability rewrote
+        (`_derived_oracle_text`); otherwise the printed card's own
+        ``oracle_text``."""
+        if self._derived_oracle_text is not None:
+            return self._derived_oracle_text
+        return self.card.oracle_text or ""
 
     # -- Delegated characteristics (read from the printed card) ---------
 
@@ -264,6 +383,27 @@ class GameObject:
         return self.card.is_planeswalker
 
     @property
+    def type_words(self) -> set[str]:
+        """Lowercase current card-type words (RULE 613 layer 4 aware).
+
+        Used by `game/effect_binder.py`'s trigger-condition "group" subject
+        scoping (RULE 603.1, e.g. "whenever a creature dies") to check *what
+        kind* of object an event was about. Starts from the printed type
+        line's main (pre-em-dash) words — so a supertype like "legendary"
+        rides along harmlessly, only the recognised type words matter to a
+        caller — folds in any layer-4 `_added_types`/removes `_removed_types`
+        the same way `is_creature` does, and always includes "permanent"
+        (everything on the battlefield is one, RULE 110.1) so a bare
+        "whenever a permanent enters…" scope needs no special case.
+        """
+        main = self.card.type_line.partition("—")[0]
+        words = {w for w in re.split(r"\s+", main.strip().lower()) if w}
+        words |= self._added_types
+        words -= self._removed_types
+        words.add("permanent")
+        return words
+
+    @property
     def loyalty(self) -> int:
         """Current loyalty (RULE 606.5b) — the count of loyalty counters."""
         return self.counters.get("loyalty", 0)
@@ -272,6 +412,16 @@ class GameObject:
     def lore(self) -> int:
         """Current chapter of a Saga (RULE 714) — its lore-counter count."""
         return self.counters.get("lore", 0)
+
+    @property
+    def level(self) -> int:
+        """Level counters on a Leveler creature (RULE 711.4a)."""
+        return self.counters.get("level", 0)
+
+    @property
+    def class_level(self) -> int:
+        """Current class level of a Class enchantment (RULE 716.2c)."""
+        return self.counters.get("class_level", 0)
 
     @property
     def plus_one_counters(self) -> int:
@@ -334,6 +484,12 @@ class GameObject:
     def granted_keywords(self) -> set[str]:
         """Keyword slugs granted by layer-6 static abilities (RULE 613.7f)."""
         return set(self._granted_keywords)
+
+    @property
+    def removed_keywords(self) -> set[str]:
+        """Keyword slugs stripped by a layer-6 "loses <keyword>" static
+        ability (RULE 613.7f, e.g. Colossus Hammer)."""
+        return set(self._removed_keywords)
 
     @property
     def granted_mana_options(self) -> list[dict[str, int]]:
@@ -406,6 +562,17 @@ class GameObject:
             # A token badge for the board (RULE 111); it also disappears from
             # non-battlefield zones by RULE 704.5d, so it only shows in play.
             "is_token": self.is_token,
+            # RULE 715.3d: an exiled Adventure creature the player may cast.
+            "adventure_castable": self.adventure_castable,
+            # RULE 722.3a: this permanent has become prepared (its exiled
+            # copy is castable — see the "adventure_castable"-style scan of
+            # the exile zone for that copy's own board tile/actions).
+            "prepared": self.prepared,
+            # RULE 702.33b/27a/34a: alt-cost casting state, for the board to
+            # show a kicked/bought-back/flashed-back spell's own badge.
+            "kicker_count": self.kicker_count,
+            "buyback_paid": self.buyback_paid,
+            "cast_via_flashback": self.cast_via_flashback,
             # Types added by a layer-4 effect (e.g. "creature"), for the board.
             "added_types": sorted(self._added_types),
             "attacking": self.attacking,
@@ -420,7 +587,7 @@ class GameObject:
             # reads keywords without turning the model→game boundary into an
             # import cycle.
             "keywords": _combat_display_keywords(
-                self.card, self._granted_keywords | self.intrinsic_keywords
+                self.card, self._granted_keywords | self.intrinsic_keywords, self._removed_keywords
             ),
             "counters": dict(self.counters),
             "attached_to": self.attached_to,

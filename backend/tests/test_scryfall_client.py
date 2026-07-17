@@ -1,6 +1,6 @@
 """Tests for Scryfall response parsing and the ScryfallIntegration client.
 
-Reference: docs/06_CARD_GRAPHICS_AND_LAZY_LOADING.md (PART 3).
+Reference: docs/concepts/06_CARD_GRAPHICS_AND_LAZY_LOADING.md (PART 3).
 """
 
 import httpx2 as httpx
@@ -208,6 +208,32 @@ INSTANT_LAND_MDFC = {
 }
 
 
+#: Secret Lair's "Godzilla" series (Ikoria) prints an alternate name
+#: alongside the real one — Scryfall's `flavor_name`, distinct from the
+#: Oracle `name` used for rules purposes. Real data (trimmed):
+#: https://api.scryfall.com/cards/named?exact=Zilortha,+Strength+Incarnate
+ZILORTHA = {
+    "id": "9a0639a0-c898-4a07-975c-a02bdd53175b",
+    "name": "Zilortha, Strength Incarnate",
+    "flavor_name": "Godzilla, King of the Monsters",
+    "mana_cost": "{3}{R}{G}",
+    "cmc": 5.0,
+    "type_line": "Legendary Creature — Dinosaur",
+    "oracle_text": (
+        "Trample\nLethal damage dealt to creatures you control is "
+        "determined by their power rather than their toughness."
+    ),
+    "colors": ["G", "R"],
+    "color_identity": ["G", "R"],
+    "keywords": ["Trample"],
+    "power": "7",
+    "toughness": "3",
+    "set": "iko",
+    "rarity": "mythic",
+    "image_uris": {"small": "", "normal": "https://img.example/zilortha.jpg", "large": "", "png": ""},
+}
+
+
 class TestCardFromScryfallData:
     def test_instant(self):
         card = card_from_scryfall_data(LIGHTNING_BOLT)
@@ -219,6 +245,15 @@ class TestCardFromScryfallData:
         assert card.image_uri_normal == LIGHTNING_BOLT["image_uris"]["normal"]
         assert card.set_code == "clu"
         assert card.rarity == "common"
+
+    def test_card_with_no_flavor_name_has_blank_flavor_name(self):
+        card = card_from_scryfall_data(LIGHTNING_BOLT)
+        assert card.flavor_name == ""
+
+    def test_flavor_name_is_captured(self):
+        card = card_from_scryfall_data(ZILORTHA)
+        assert card.name == "Zilortha, Strength Incarnate"
+        assert card.flavor_name == "Godzilla, King of the Monsters"
 
     def test_creature_power_toughness_parsed_as_int(self):
         card = card_from_scryfall_data(GRIZZLY_BEARS)
@@ -250,6 +285,29 @@ class TestCardFromScryfallData:
         assert card.has_partner is True
         assert card.partner_with == "Silas Renn, Seeker Adept"
 
+    def test_partner_with_named_card_strips_inline_reminder_text(self):
+        # Real Scryfall data prints "Partner with X" with its RULE 207.2
+        # reminder text inline on the same line (verified live for Frodo,
+        # Adventurous Hobbit // Sam, Loyal Attendant and others) — a naive
+        # capture of "everything after 'Partner with '" would include it,
+        # so partner_with would never exactly equal the named card's real
+        # name and the pairing check in commander_legality.py would wrongly
+        # reject every "Partner with X" pair.
+        data = {
+            **THRASIOS,
+            "id": "44444444-4444-4444-4444-444444444444",
+            "name": "Sam, Loyal Attendant",
+            "oracle_text": (
+                "Partner with Frodo, Adventurous Hobbit (When this creature "
+                "enters, target player may put Frodo into their hand from "
+                "their library, then shuffle.)\n"
+                "At the beginning of combat on your turn, create a Food token."
+            ),
+        }
+        card = card_from_scryfall_data(data)
+        assert card.has_partner is True
+        assert card.partner_with == "Frodo, Adventurous Hobbit"
+
     def test_variable_power_toughness_is_none(self):
         data = {**GRIZZLY_BEARS, "power": "*", "toughness": "*"}
         card = card_from_scryfall_data(data)
@@ -273,7 +331,7 @@ class TestCardFromScryfallData:
         card = card_from_scryfall_data(DISMEMBER)
         assert card.color_identity == {"B"}
         # The flattened mana_cost dict can't represent "or 2 life" either
-        # way (see backend/Done_Backend.md "Mana cost model"),
+        # way (see docs/implementation-state/Done_Backend.md "Mana cost model"),
         # but that's a separate, already-documented limitation from
         # color identity, which is unaffected by it.
         assert card.mana_cost["B"] == 2
@@ -373,20 +431,24 @@ class TestCardFromScryfallData:
         assert card.back_toughness == 2
         assert card.back_image_uri_normal == "https://img.example/aberration.jpg"
 
-    def test_split_card_shares_one_image_and_has_no_separate_back(self):
+    def test_split_card_shares_one_image_and_captures_both_halves(self):
         # "Wear // Tear" (layout "split") has two faces in the data but a
-        # single printed image, so no back image is captured.
+        # single printed image, so no *back image* is captured — but each
+        # half's own name/cost/text now is (RULE 709.3, so either half can
+        # be cast independently). Shaped after the real Scryfall object for
+        # a split card: no top-level "oracle_text" (each face has its own),
+        # and "mana_cost"/"type_line" are the combined "A // B" strings.
         wear_tear = {
             "id": "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb",
             "name": "Wear // Tear",
             "layout": "split",
             "cmc": 2.0,
+            "mana_cost": "{1}{R} // {W}",
             "type_line": "Instant // Instant",
             "color_identity": ["R", "W"],
             "keywords": [],
             "set": "dgm",
             "rarity": "uncommon",
-            "oracle_text": "Destroy target artifact.\n----\nDestroy target enchantment.",
             "image_uris": {"small": "", "normal": "https://img.example/weartear.jpg", "large": "", "png": ""},
             "card_faces": [
                 {"name": "Wear", "mana_cost": "{1}{R}", "type_line": "Instant", "oracle_text": "Destroy target artifact."},
@@ -395,10 +457,166 @@ class TestCardFromScryfallData:
         }
         card = card_from_scryfall_data(wear_tear)
         assert card.layout == "split"
+        assert card.is_split is True
         assert card.has_back_face is False
         assert card.back_image_uri_normal == ""
         # The single shared image is still served as the front.
         assert card.image_uri_normal == "https://img.example/weartear.jpg"
+        # The front face is captured as its own half, not the combined line.
+        assert card.name == "Wear // Tear"
+        assert card.mana_cost_string == "{1}{R}"
+        assert card.oracle_text == "Destroy target artifact."
+        # The second half is now captured too (previously dropped entirely).
+        assert card.back_name == "Tear"
+        assert card.back_mana_cost_string == "{W}"
+        assert card.back_oracle_text == "Destroy target enchantment."
+        assert card.has_fuse is False
+
+    def test_adventure_card_captures_both_the_creature_and_its_spell_half(self):
+        # "Brazen Borrower // Petty Theft" (layout "adventure"): front is
+        # the creature (RULE 715.2a), back is its instant/sorcery Adventure
+        # half (RULE 715.2b) — same "no top-level oracle_text" shape as
+        # split, but with per-face power/toughness on the creature half.
+        brazen_borrower = {
+            "id": "cccccccc-cccc-cccc-cccc-cccccccccccc",
+            "name": "Brazen Borrower // Petty Theft",
+            "layout": "adventure",
+            "cmc": 3.0,
+            "mana_cost": "{1}{U}{U} // {1}{U}",
+            "type_line": "Creature — Faerie Rogue // Instant — Adventure",
+            "power": "3",
+            "toughness": "1",
+            "color_identity": ["U"],
+            "keywords": ["Flash", "Flying"],
+            "set": "eld",
+            "rarity": "rare",
+            "image_uris": {"small": "", "normal": "https://img.example/borrower.jpg", "large": "", "png": ""},
+            "card_faces": [
+                {
+                    "name": "Brazen Borrower",
+                    "mana_cost": "{1}{U}{U}",
+                    "type_line": "Creature — Faerie Rogue",
+                    "oracle_text": "Flash\nFlying\nThis creature can block only creatures with flying.",
+                    "power": "3",
+                    "toughness": "1",
+                },
+                {
+                    "name": "Petty Theft",
+                    "mana_cost": "{1}{U}",
+                    "type_line": "Instant — Adventure",
+                    "oracle_text": "Return target nonland permanent an opponent controls to its owner's hand.",
+                },
+            ],
+        }
+        card = card_from_scryfall_data(brazen_borrower)
+        assert card.is_adventure is True
+        assert card.has_back_face is False
+        # The front face is the creature, captured as its own half.
+        assert card.name == "Brazen Borrower // Petty Theft"
+        assert card.is_creature is True
+        assert card.mana_cost_string == "{1}{U}{U}"
+        assert (card.power, card.toughness) == (3, 1)
+        # The Adventure spell half is now captured on the back_* fields.
+        assert card.back_name == "Petty Theft"
+        assert card.back_type_line == "Instant — Adventure"
+        assert card.back_mana_cost_string == "{1}{U}"
+        assert "Return target nonland permanent" in card.back_oracle_text
+        back = card.back_face()
+        assert back is not None
+        assert back.is_instant is True
+        assert back.is_creature is False
+
+    def test_fuse_keyword_is_captured_from_top_level_keywords(self):
+        # "Turn // Burn" (layout "split", Fuse RULE 709.4): the "Fuse"
+        # keyword is only on the top-level `keywords` list, not per-face.
+        turn_burn = {
+            "id": "dddddddd-dddd-dddd-dddd-dddddddddddd",
+            "name": "Turn // Burn",
+            "layout": "split",
+            "cmc": 5.0,
+            "mana_cost": "{2}{U} // {1}{R}",
+            "type_line": "Instant // Instant",
+            "color_identity": ["R", "U"],
+            "keywords": ["Fuse"],
+            "set": "dgm",
+            "rarity": "uncommon",
+            "image_uris": {"small": "", "normal": "https://img.example/turnburn.jpg", "large": "", "png": ""},
+            "card_faces": [
+                {
+                    "name": "Turn",
+                    "mana_cost": "{2}{U}",
+                    "type_line": "Instant",
+                    "oracle_text": "Until end of turn, target creature loses all abilities.",
+                },
+                {
+                    "name": "Burn",
+                    "mana_cost": "{1}{R}",
+                    "type_line": "Instant",
+                    "oracle_text": "Burn deals 2 damage to any target.",
+                },
+            ],
+        }
+        card = card_from_scryfall_data(turn_burn)
+        assert card.has_fuse is True
+        fused = card.fuse_face()
+        assert fused is not None
+        assert fused.mana_cost_string == "{2}{U}{1}{R}"
+        assert "Until end of turn" in fused.oracle_text
+        # Each half's own bare-name self-reference is folded to "~" so the
+        # oracle-effect parser can bind it (see Card.fuse_face).
+        assert "~ deals 2 damage" in fused.oracle_text
+
+    def test_preparation_card_captures_its_prepare_spell(self):
+        # "Abigale, Poet Laureate // Heroic Stanza" (layout "prepare", RULE
+        # 722): front is the permanent, back is the inset "prepare spell" —
+        # same "no top-level oracle_text" shape as split/adventure.
+        abigale = {
+            "id": "eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee",
+            "name": "Abigale, Poet Laureate // Heroic Stanza",
+            "layout": "prepare",
+            "cmc": 3.0,
+            "mana_cost": "{1}{W}{B} // {1}{W/B}",
+            "type_line": "Legendary Creature — Bird Bard // Sorcery",
+            "power": "2",
+            "toughness": "3",
+            "color_identity": ["B", "W"],
+            "keywords": ["Flying", "Prepared"],
+            "set": "sos",
+            "rarity": "rare",
+            "image_uris": {"small": "", "normal": "https://img.example/abigale.jpg", "large": "", "png": ""},
+            "card_faces": [
+                {
+                    "name": "Abigale, Poet Laureate",
+                    "mana_cost": "{1}{W}{B}",
+                    "type_line": "Legendary Creature — Bird Bard",
+                    "oracle_text": "Flying\nWhenever you cast a creature spell, Abigale becomes prepared.",
+                    "power": "2",
+                    "toughness": "3",
+                },
+                {
+                    "name": "Heroic Stanza",
+                    "mana_cost": "{1}{W/B}",
+                    "type_line": "Sorcery",
+                    "oracle_text": "Put a +1/+1 counter on target creature.",
+                },
+            ],
+        }
+        card = card_from_scryfall_data(abigale)
+        assert card.is_preparation is True
+        assert card.has_back_face is False
+        # The front face is the permanent, captured as its own half.
+        assert card.is_creature is True
+        assert card.mana_cost_string == "{1}{W}{B}"
+        assert (card.power, card.toughness) == (2, 3)
+        # The prepare spell is captured on the back_* fields.
+        assert card.back_name == "Heroic Stanza"
+        assert card.back_type_line == "Sorcery"
+        assert card.back_mana_cost_string == "{1}{W/B}"
+        assert "Put a +1/+1 counter" in card.back_oracle_text
+        prepare_spell = card.back_face()
+        assert prepare_spell is not None
+        assert prepare_spell.is_creature is False
+        assert prepare_spell.name == "Heroic Stanza"
 
 
 class TestScryfallIntegration:

@@ -1,4 +1,5 @@
 import { renderDeckImportView } from './deckImportView.js';
+import { renderImportDeckView } from './importDeckView.js';
 import { createGoldfishView } from './goldfishView.js';
 import { createReplayView } from './replayView.js';
 import { renderMultiplayerView } from './multiplayerView.js';
@@ -6,6 +7,7 @@ import { renderCachedCardsView } from './cachedCardsView.js';
 import { renderSavedDecksView } from './savedDecksView.js';
 import { renderAnalyzeView } from './analyzeView.js';
 import { renderConnectionSettingsView } from './connectionSettingsView.js';
+import { renderProfileView } from './profileView.js';
 import { renderImplementationStatusView } from './implementationStatusView.js';
 import { renderConnectionIndicator } from './connectionStatus.js';
 import { initCardHoverDetail } from './cardHoverDetail.js';
@@ -24,6 +26,7 @@ const tabButtons = document.querySelectorAll('.tab-button');
 const navGroups = document.querySelectorAll('.nav-group');
 const views = {
   import: document.getElementById('view-import'),
+  importDeck: document.getElementById('view-import-deck'),
   savedDecks: document.getElementById('view-saved-decks'),
   analyze: document.getElementById('view-analyze'),
   goldfish: document.getElementById('view-goldfish'),
@@ -31,6 +34,7 @@ const views = {
   multiplayer: document.getElementById('view-multiplayer'),
   cache: document.getElementById('view-cache'),
   connection: document.getElementById('view-connection'),
+  profile: document.getElementById('view-profile'),
   status: document.getElementById('view-status'),
 };
 
@@ -62,6 +66,12 @@ navGroups.forEach((group) => {
 });
 
 const importView = renderDeckImportView(views.import, { onDeckLoaded: () => showTab('goldfish') });
+renderImportDeckView(views.importDeck, {
+  onImported: (deck) => {
+    importView.loadDeck(deck);
+    showTab('import');
+  },
+});
 
 // The goldfish controller persists across tab switches (its session lives
 // inside), so it's created once here rather than per view-shown.
@@ -89,6 +99,7 @@ renderSavedDecksView(views.savedDecks, {
   },
 });
 renderConnectionSettingsView(views.connection);
+renderProfileView(views.profile);
 renderImplementationStatusView(views.status);
 
 showTab('import');

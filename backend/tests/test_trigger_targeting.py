@@ -192,29 +192,35 @@ def test_optional_targetless_trigger_decline_skips_it():
 
 
 def test_become_copy_end_to_end_through_the_session_choice_api():
-    # The real payoff: Clever Impersonator's ETB trigger is now genuinely
-    # interactively playable — answered through the same generic
-    # choose/decline session path as search/cascade/discover.
+    # The real payoff: Clever Impersonator's "enter as a copy" choice is
+    # genuinely interactively playable, through real RULE 614.1c/614.12
+    # replacement timing (not the old ENTERS_BATTLEFIELD-trigger modeling) —
+    # answered through the same generic choose/decline session path as
+    # search/cascade/discover.
+    impersonator_card = Card(id="CI", name="Clever Impersonator",
+                              type_line="Creature — Illusion",
+                              mana_cost_string="{5}{U}{U}", converted_mana_cost=7,
+                              is_creature=True, power=3, toughness=3)  # real printed stats
     mgr = GameSessionManager()
-    session = mgr.create_goldfish(library=[], starting_hand=0)
+    session = mgr.create_goldfish(library=[impersonator_card], starting_hand=1)
     session.apply_action({"type": "keep_hand", "bottom_instance_ids": []})
     state = session.engine.state
     state.current_step = "main1"
 
     target = put(state, creature("Grave Titan", power=6, toughness=6))
-    impersonator_card = Card(id="CI", name="Clever Impersonator",
-                              type_line="Creature — Illusion",
-                              is_creature=True, power=3, toughness=3)  # real printed stats
-    impersonator = put(state, impersonator_card)
-    bind_from_catalogue(impersonator)
+    p1 = state.active_player
+    p1.mana_pool.add_many({"U": 2, "C": 5})
+    impersonator = p1.hand[0]
 
-    state.fire_event(GameEvent(EventType.ENTERS_BATTLEFIELD, controller_id="p1", object=impersonator.name))
-    session.engine.resolve_until_stable()
+    session.apply_action({"type": "cast_spell", "instance_id": impersonator.instance_id})
+    session.apply_action({"type": "pass_priority"})
 
     choice = state.pending_choice
-    assert choice and choice["kind"] == "trigger_target"
+    assert choice and choice["kind"] == "enter_as_copy"
+    assert impersonator not in state.battlefield  # paused before entering as itself
     opt = next(o for o in choice["options"] if o.get("instance_id") == target.instance_id)
     session.apply_action({"type": "choose", "option_id": opt["id"]})
 
+    assert impersonator in state.battlefield
     assert impersonator.card.name == "Grave Titan"
     assert (impersonator.power, impersonator.toughness) == (6, 6)

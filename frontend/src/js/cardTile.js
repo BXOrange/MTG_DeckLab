@@ -108,6 +108,49 @@ const ILLEGAL_REASON_LABELS = {
 };
 
 /**
+ * `card.coverage` (only present on `GET /api/cards` — the Karten-Cache
+ * listing, see `api/cards.py`'s `_coverage_for`) tells whether the rules
+ * engine actually binds this card's abilities: a hand-authored
+ * `ability_catalogue` entry or a fully `MODELED` oracle-parser verdict, vs.
+ * a card where only its keywords are recognized and everything else (its
+ * spell/trigger/static effects) is inert. See CLAUDE.md's oracle-text
+ * pipeline section and `parser/oracle/gate.py`.
+ */
+function renderCoverageBadge(coverage) {
+  if (!coverage) return '';
+  if (coverage.modeled) {
+    const catalogue = coverage.source === 'catalogue';
+    const title = catalogue
+      ? 'Von Hand katalogisiert (game/ability_catalogue.py) — vollständig umgesetzt.'
+      : 'Vom Oracle-Parser vollständig erkannt (MODELED) — die Engine setzt alle Fähigkeiten um.';
+    return `<span class="card-tile-coverage card-tile-coverage-modeled" title="${escapeAttr(title)}">${catalogue ? '📖' : '✅'} ${catalogue ? 'Katalogisiert' : 'Modelliert'}</span>`;
+  }
+  const unclaimed = coverage.unclaimed || [];
+  const title = unclaimed.length
+    ? `Nicht modelliert — nicht erkannter Text:\n${unclaimed.join('\n')}`
+    : 'Nicht modelliert — die Engine setzt (noch) nicht alle Fähigkeiten dieser Karte um.';
+  return `<span class="card-tile-coverage card-tile-coverage-unmodeled" title="${escapeAttr(title)}">✖ Nicht modelliert</span>`;
+}
+
+/** Footnote row pinned to the bottom of a tile: coverage badge (if any) + the
+ * Scryfall link, always together so the tile's last line of text is a
+ * consistent "meta" row regardless of how much oracle text/keywords sit above it. */
+function renderTileFooter(coverageBadge, scryfallHref, scryfallTitle) {
+  return `
+    <div class="card-tile-footer">
+      ${coverageBadge}
+      <a
+        class="card-tile-scryfall-link"
+        href="${scryfallHref}"
+        target="_blank"
+        rel="noopener noreferrer"
+        title="${scryfallTitle}"
+        aria-label="${scryfallTitle}"
+      >🔗</a>
+    </div>`;
+}
+
+/**
  * @param {object} card A resolved card dict (Card.to_dict() shape).
  * @param {{qty?: number, illegalReason?: 'banned'|'colorIdentity'|null}} [options]
  *   `qty`: optional quantity badge (deck-import context only).
@@ -149,14 +192,7 @@ export function renderCardTile(card, { qty, illegalReason } = {}) {
         ${card.oracle_text ? `<p class="card-tile-text">${escapeHtml(card.oracle_text)}</p>` : ''}
         ${card.keywords?.length ? `<p class="card-tile-keywords">${escapeHtml(card.keywords.join(', '))}</p>` : ''}
         ${metaParts.length ? `<p class="card-tile-meta">${escapeHtml(metaParts.join(' · '))}</p>` : ''}
-        <a
-          class="card-tile-scryfall-link"
-          href="${scryfallUrl(card.name)}"
-          target="_blank"
-          rel="noopener noreferrer"
-          title="Auf Scryfall ansehen"
-          aria-label="Auf Scryfall ansehen"
-        >🔗</a>
+        ${renderTileFooter(renderCoverageBadge(card.coverage), scryfallUrl(card.name), 'Auf Scryfall ansehen')}
       </div>
     </div>
   `;
@@ -173,14 +209,7 @@ export function renderCardTilePlaceholder(name, { qty } = {}) {
       <div class="card-tile-info">
         <h4>${escapeHtml(name)}</h4>
         <p class="card-tile-type empty-state">Lädt …</p>
-        <a
-          class="card-tile-scryfall-link"
-          href="${scryfallUrl(name)}"
-          target="_blank"
-          rel="noopener noreferrer"
-          title="Auf Scryfall ansehen"
-          aria-label="Auf Scryfall ansehen"
-        >🔗</a>
+        ${renderTileFooter('', scryfallUrl(name), 'Auf Scryfall ansehen')}
       </div>
     </div>
   `;
@@ -188,7 +217,7 @@ export function renderCardTilePlaceholder(name, { qty } = {}) {
 
 /** Tile for a card name the backend confirmed no match for (typo, or a
  * card that genuinely doesn't exist under that exact name — see
- * backend/Done_Backend.md "Validator" on exact- vs. fuzzy-name matching). */
+ * docs/implementation-state/Done_Backend.md "Validator" on exact- vs. fuzzy-name matching). */
 export function renderCardTileNotFound(name, { qty } = {}) {
   const qtyBadge = qty != null ? `<span class="card-tile-qty">${qty}×</span>` : '';
   return `
@@ -199,14 +228,7 @@ export function renderCardTileNotFound(name, { qty } = {}) {
       <div class="card-tile-info">
         <h4>🛑 ${escapeHtml(name)}</h4>
         <p class="card-tile-type not-found">Nicht gefunden – Name prüfen</p>
-        <a
-          class="card-tile-scryfall-link"
-          href="${scryfallSearchUrl(name)}"
-          target="_blank"
-          rel="noopener noreferrer"
-          title="Auf Scryfall suchen"
-          aria-label="Auf Scryfall suchen"
-        >🔗</a>
+        ${renderTileFooter('', scryfallSearchUrl(name), 'Auf Scryfall suchen')}
       </div>
     </div>
   `;
@@ -216,6 +238,10 @@ export function escapeHtml(str) {
   const div = document.createElement('div');
   div.textContent = str;
   return div.innerHTML;
+}
+
+function escapeAttr(str) {
+  return String(str).replace(/'/g, '&#39;').replace(/"/g, '&quot;');
 }
 
 // The card tiles are rendered as HTML strings and injected via innerHTML,

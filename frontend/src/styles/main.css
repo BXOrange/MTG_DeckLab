@@ -168,8 +168,67 @@ body {
   display: flex;
 }
 
+.app-header-right {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  flex: 0 0 auto;
+}
+
 #header-connection-status {
   flex: 0 0 auto;
+}
+
+.icon-button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  padding: 0;
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: 50%;
+  cursor: pointer;
+}
+
+.icon-button svg {
+  width: 18px;
+  height: 18px;
+  fill: none;
+  stroke: var(--text-dim);
+  stroke-width: 1.6;
+}
+
+.settings-button svg {
+  fill: var(--text-dim);
+  stroke: none;
+}
+
+.settings-button.active {
+  border-color: var(--accent);
+}
+
+.settings-button.active svg {
+  fill: var(--accent);
+}
+
+.profile-button svg {
+  fill: var(--text-dim);
+  stroke: none;
+}
+
+.profile-button.active {
+  border-color: var(--accent);
+}
+
+.profile-button.active svg {
+  fill: var(--accent);
+}
+
+.profile-button:hover,
+.settings-button:hover {
+  border-color: var(--text-dim);
 }
 
 .connection-indicator {
@@ -208,6 +267,15 @@ body {
   color: #1b1e24;
   border-color: var(--accent);
   font-weight: 600;
+}
+
+.tab-button.icon-button {
+  padding: 0;
+  border-radius: 50%;
+}
+
+.tab-button.icon-button.active {
+  background: transparent;
 }
 
 main {
@@ -380,11 +448,12 @@ textarea {
 
 .save-deck-controls {
   display: flex;
+  flex-wrap: wrap;
   gap: 0.5rem;
 }
 
 .save-deck-controls input {
-  flex: 1;
+  flex: 1 1 140px;
   background: var(--bg);
   color: var(--text);
   border: 1px solid var(--border);
@@ -536,6 +605,12 @@ textarea {
   margin: 0;
 }
 
+.library-top-hint {
+  font-size: 0.85rem;
+  margin: 0.3rem 0 0;
+  opacity: 0.8;
+}
+
 .card-grid {
   display: flex;
   flex-wrap: wrap;
@@ -622,6 +697,59 @@ textarea {
   font-size: 0.85rem;
 }
 
+.cache-coverage-legend {
+  margin: 0 0 1rem;
+}
+
+.cache-filters {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: 0.75rem;
+  margin: 0 0 1.25rem;
+  padding: 0.75rem;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--panel);
+}
+
+.cache-filter-group {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.15rem 0.7rem;
+  border: none;
+  margin: 0;
+  padding: 0;
+}
+
+.cache-filter-group legend {
+  width: 100%;
+  margin-bottom: 0.2rem;
+  font-size: 0.72rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  color: var(--text-dim);
+}
+
+.cache-filter-group label {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  font-size: 0.82rem;
+  white-space: nowrap;
+}
+
+.cache-filter-group input[type='number'] {
+  width: 4rem;
+}
+
+#cache-filter-reset,
+#saved-decks-filter-reset {
+  align-self: flex-end;
+}
+
 /* --- Shared card tile (Karten-Cache + deck-import detail view) --- */
 
 .card-tile-grid {
@@ -703,9 +831,9 @@ textarea {
   display: flex;
   align-items: center;
   justify-content: center;
+  flex-shrink: 0;
   width: 1.6rem;
   height: 1.6rem;
-  margin-top: 0.2rem;
   background: var(--panel-alt);
   border: 1px solid var(--border);
   border-radius: 999px;
@@ -718,6 +846,9 @@ textarea {
 }
 
 .card-tile-info {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
   min-width: 0;
   padding: 0.75rem;
 }
@@ -777,6 +908,29 @@ textarea {
   color: var(--text-dim);
   text-transform: uppercase;
   letter-spacing: 0.03em;
+}
+
+.card-tile-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  margin-top: auto;
+  padding-top: 0.5rem;
+}
+
+.card-tile-coverage {
+  font-size: 0.7rem;
+  font-weight: 600;
+}
+
+.card-tile-coverage-modeled {
+  color: var(--ok);
+}
+
+.card-tile-coverage-unmodeled {
+  color: var(--text-dim);
+  cursor: help;
 }
 
 /* --- Einstellungen --- */
@@ -1245,6 +1399,15 @@ textarea {
   font-size: 0.82rem;
 }
 
+.saved-deck-author {
+  color: var(--text-dim);
+  font-size: 0.82rem;
+}
+
+.saved-deck-row--hidden {
+  display: none;
+}
+
 .saved-deck-meta {
   color: var(--text-dim);
   font-size: 0.78rem;
@@ -1414,6 +1577,26 @@ textarea {
 .gf-active-player {
   font-size: 0.8rem;
   color: var(--text-dim);
+}
+
+.gf-daynight {
+  display: inline-block;
+  margin-top: 0.15rem;
+  padding: 0.05rem 0.4rem;
+  border-radius: 999px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  width: fit-content;
+}
+
+.gf-daynight-day {
+  background: #fff4c2;
+  color: #6b5300;
+}
+
+.gf-daynight-night {
+  background: #2a2f52;
+  color: #d7dcff;
 }
 
 /* One player's board (mana/life header + play area) — gameBoardView.js.
@@ -1830,6 +2013,52 @@ textarea {
   outline-offset: 1px;
 }
 
+/* A triggered/activated ability's tile: the source permanent's art with the
+   ability text overlaid at the bottom and a small link icon back to that
+   source in the top corner (RULE 603/602 abilities have no card of their
+   own on the stack, so without this they'd otherwise just be a bare text
+   box — see stackItemHtml). */
+.gf-stack-item .card {
+  position: relative;
+}
+
+.gf-stack-ability-overlay {
+  position: absolute;
+  inset: auto 0 0 0;
+  max-height: 70%;
+  overflow-y: auto;
+  background: linear-gradient(to top, rgba(0, 0, 0, 0.85), rgba(0, 0, 0, 0.55) 70%, transparent);
+  color: #fff;
+  font-size: 0.62rem;
+  line-height: 1.25;
+  padding: 0.6rem 0.35rem 0.3rem;
+  white-space: normal;
+}
+
+.gf-stack-source-link {
+  position: absolute;
+  top: 0.25rem;
+  right: 0.25rem;
+  width: 1.4rem;
+  height: 1.4rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.6);
+  border: 1px solid rgba(255, 255, 255, 0.4);
+  border-radius: 999px;
+  color: #fff;
+  font-size: 0.7rem;
+  line-height: 1;
+  cursor: pointer;
+  padding: 0;
+}
+
+.gf-stack-source-link:hover {
+  background: var(--accent);
+  border-color: var(--accent);
+}
+
 .gf-stack-badge {
   display: inline-flex;
   align-items: center;
@@ -1911,6 +2140,23 @@ textarea {
   color: var(--text);
 }
 
+/* Loyalty-ability buttons ([+N]/[-N]/[0], RULE 606) — color-coded by sign
+   so a planeswalker's plus/minus/zero abilities read apart at a glance. */
+.gf-card-action--loyalty-plus {
+  border-color: var(--ok);
+  color: var(--ok);
+}
+
+.gf-card-action--loyalty-minus {
+  border-color: var(--error);
+  color: var(--error);
+}
+
+.gf-card-action--loyalty-zero {
+  border-color: var(--text-dim);
+  color: var(--text-dim);
+}
+
 /* --- Battlefield: type rows, attachments, combat --- */
 
 .gf-bf-head {
@@ -1989,6 +2235,24 @@ textarea {
   pointer-events: none;
 }
 
+/* RULE 606: a planeswalker's current loyalty, top-right corner (shares the
+   spot with .gf-attacking-badge, but planeswalkers don't attack in this
+   engine, so the two never co-occur in practice). */
+.gf-loyalty-badge {
+  position: absolute;
+  top: -0.4rem;
+  right: -0.4rem;
+  background: var(--accent);
+  color: #10151c;
+  font-size: 0.62rem;
+  font-weight: 700;
+  line-height: 1.2;
+  padding: 0.1rem 0.32rem;
+  border-radius: 999px;
+  white-space: nowrap;
+  pointer-events: none;
+}
+
 .gf-attacking-badge {
   position: absolute;
   top: -0.4rem;
@@ -2003,6 +2267,45 @@ textarea {
   max-width: 90px;
   overflow: hidden;
   text-overflow: ellipsis;
+  white-space: nowrap;
+  pointer-events: none;
+}
+
+/* RULE 715.3d: badge on an exiled Adventure creature that may be cast from
+   there, along a card's top edge (mirrors .gf-attacking-badge's corner). */
+.gf-adventure-badge {
+  position: absolute;
+  top: -0.4rem;
+  left: -0.3rem;
+  background: color-mix(in srgb, var(--accent) 30%, var(--panel));
+  color: var(--text);
+  border: 1px solid var(--accent);
+  font-size: 0.55rem;
+  font-weight: 700;
+  line-height: 1.2;
+  padding: 0.05rem 0.3rem;
+  border-radius: 999px;
+  white-space: nowrap;
+  pointer-events: none;
+}
+
+/* RULE 722.3a: badge on a prepared permanent. Top-center (not a corner) so
+   it doesn't collide with .gf-attacking-badge/.gf-adventure-badge — a
+   creature can be attacking *and* prepared at once (e.g. "whenever ~
+   attacks, it becomes prepared"). */
+.gf-prepared-badge {
+  position: absolute;
+  top: -0.4rem;
+  left: 50%;
+  transform: translateX(-50%);
+  background: color-mix(in srgb, var(--accent) 30%, var(--panel));
+  color: var(--text);
+  border: 1px solid var(--accent);
+  font-size: 0.55rem;
+  font-weight: 700;
+  line-height: 1.2;
+  padding: 0.05rem 0.3rem;
+  border-radius: 999px;
   white-space: nowrap;
   pointer-events: none;
 }
@@ -2363,6 +2666,62 @@ textarea {
   border-color: var(--accent);
 }
 
+/* RULE 616.1 replacement-order popup: drag & drop to arrange the order
+   simultaneously-applicable replacement effects (Doubling Season + Parallel
+   Lives, Furnace of Rath + Torbran, …) are applied in. */
+.gf-reorder-hint {
+  margin: 0 0 0.6rem;
+  font-size: 0.8rem;
+  color: var(--text-dim);
+}
+
+.gf-reorder-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+
+.gf-reorder-item {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  background: var(--panel-alt);
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  padding: 0.4rem 0.6rem;
+  cursor: grab;
+  user-select: none;
+}
+
+.gf-reorder-item:hover {
+  border-color: var(--accent);
+}
+
+.gf-reorder-item.dragging {
+  opacity: 0.4;
+  border-color: var(--accent);
+  cursor: grabbing;
+}
+
+.gf-reorder-handle {
+  color: var(--text-dim);
+  font-size: 1rem;
+  line-height: 1;
+}
+
+.gf-reorder-index {
+  color: var(--text-dim);
+  font-size: 0.8rem;
+  min-width: 1.2em;
+}
+
+.gf-reorder-label {
+  font-size: 0.85rem;
+}
+
 /* --- Goldfisch: Ladebildschirm (Kartenbilder vorladen) --- */
 
 .goldfish-loading {
@@ -2662,10 +3021,12 @@ textarea {
   border-radius: 5px;
   background: var(--bg);
   overflow: hidden;
+  cursor: grab;
 }
 .replay-card img { display: block; width: 100%; height: auto; }
 .replay-card.tapped { transform: rotate(8deg); }
 .replay-card.is-token { border-style: dashed; }
+.replay-card.dragging { opacity: 0.4; cursor: grabbing; }
 .replay-card-name { display: block; padding: 0.3rem; font-size: 0.72rem; min-height: 3.4rem; }
 .replay-card-badges {
   position: absolute;
@@ -2684,6 +3045,7 @@ textarea {
   font-size: 0.66rem;
 }
 .replay-badge--counter { background: rgba(201, 165, 59, 0.85); color: #000; }
+.replay-badge--sick { background: rgba(59, 130, 201, 0.85); }
 .replay-card-tools {
   display: flex;
   flex-wrap: wrap;
@@ -2692,7 +3054,16 @@ textarea {
   background: var(--panel);
 }
 .replay-card-tools button { padding: 0 3px; font-size: 0.72rem; line-height: 1.4; }
+.replay-card-tools button.active { background: var(--accent); color: #000; }
 .replay-card-tools .replay-move { font-size: 0.62rem; max-width: 100%; flex: 1 1 100%; }
+
+/* Drag&drop move target — a card dropped here moves to this zone
+   (`edit_move_object`), replacing the old per-card "→ Zone…" dropdown. */
+.replay-zone--drop-target {
+  outline: 2px dashed var(--accent);
+  outline-offset: 2px;
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+}
 
 .replay-modal-overlay {
   position: fixed;

@@ -12,6 +12,7 @@ import {
   rewindGame,
   endGame,
   resolveCards,
+  listCachedCards,
   cardImageUrl,
   listTokenImages,
   tokenImageUrl,
@@ -116,6 +117,17 @@ export function createReplayView() {
   // A modal overlay for adding a card (search) or a token (form). Shape:
   // { kind: 'card'|'token', playerId, zone, query, results } | null.
   let modal = null;
+
+  // instance_id of the card currently being drag&dropped between zones, or
+  // null — see `wireZoneDropTarget`.
+  let draggedIid = null;
+
+  // The locally cached card pool (GET /api/cards, all previously-resolved
+  // cards) for the add-card modal's live substring search — loaded once per
+  // modal open, then filtered client-side on every keystroke (no server
+  // round trip per keystroke), same pattern as the card-cache tab
+  // (cachedCardsView.js's `allCards`). null until loaded.
+  let cardPool = null;
 
   // Board layout — mirrors the Goldfisch board (goldfishView.js) so the two
   // modes read as the same game board: creatures/lands split across battlefield
@@ -300,6 +312,63 @@ export function createReplayView() {
 
   // --- Add-card / add-token modal ----------------------------------------
 
+  // Loads the local card pool once (if not already cached) for the modal's
+  // live substring search, then re-renders so results appear as soon as it
+  // arrives.
+  async function ensureCardPool() {
+    if (cardPool != null) return;
+    const cards = await listCachedCards();
+    cardPool = cards || [];
+    if (modal?.kind === 'card') {
+      updateLiveResults();
+      render();
+    }
+  }
+
+  // Substring match on name (case-insensitive, e.g. "Elv" -> "Llanowar
+  // Elves"/"Elvish Mystic") against the already-cached pool — instant,
+  // no server round trip. Matches at the start of the name sort first.
+  function filterCardPool(query) {
+    const q = query.trim().toLowerCase();
+    if (!q || !cardPool) return [];
+    return cardPool
+      .filter((c) => (c.name || '').toLowerCase().includes(q))
+      .sort((a, b) => {
+        const an = a.name.toLowerCase().startsWith(q) ? 0 : 1;
+        const bn = b.name.toLowerCase().startsWith(q) ? 0 : 1;
+        return an - bn || a.name.localeCompare(b.name);
+      })
+      .slice(0, 40);
+  }
+
+  // Gate: no live search until there's enough of a name to narrow down —
+  // below this, every card matches "e" or "a" and the list is just noise.
+  const MIN_SEARCH_CHARS = 3;
+
+  function updateLiveResults() {
+    if (!modal) return;
+    const query = (modal.query || '').trim();
+    if (!query) {
+      modal.results = [];
+      modal.searched = false;
+      modal.tooShort = false;
+      return;
+    }
+    if (query.length < MIN_SEARCH_CHARS) {
+      modal.results = [];
+      modal.searched = true;
+      modal.tooShort = true;
+      return;
+    }
+    modal.results = filterCardPool(query);
+    modal.searched = true;
+    modal.tooShort = false;
+  }
+
+  // Fallback for a card not yet in the local pool: resolves (and fetches
+  // from Scryfall on first use) by exact name via the backend's lazy cache,
+  // same as before — the live substring search above only ever matches
+  // what's already cached.
   async function searchCard() {
     if (!modal) return;
     const query = (modal.query || '').trim();
@@ -607,11 +676,24 @@ export function createReplayView() {
     const lands = top.filter((o) => !o.is_creature && o.is_land);
     const other = top.filter((o) => !o.is_creature && !o.is_land);
 
+    // A Reconfigure permanent is itself a legal Aura/Equipment target while
+    // unattached, then becomes non-creature "equipment" once attached to a
+    // host (RULE 702.151b) — so its own attachments form a second chain link
+    // (Aura/Equipment -> Reconfigure permanent -> host). Render that nested,
+    // rather than dropping it: only `top`-level hosts were being walked here,
+    // so anything attached to an *attachment* never appeared at all.
+    const renderAttached = (o) => {
+      const card = renderCard(o, p, s);
+      const nested = attachments.get(o.instance_id);
+      if (!nested || !nested.length) return card;
+      return card + nested.map(renderAttached).join('');
+    };
+
     const renderObj = (o) => {
       const host = renderCard(o, p, s);
       const atts = attachments.get(o.instance_id);
       if (!atts || !atts.length) return host;
-      const attached = atts.map((a) => renderCard(a, p, s)).join('');
+      const attached = atts.map(renderAttached).join('');
       return `<div class="gf-attach-group" title="Verbundene Karten (Aura/Ausrüstung)">${host}${attached}</div>`;
     };
 
@@ -660,14 +742,18 @@ export function createReplayView() {
     if (isToken) classes.push('is-token');
     const pt = o.power != null && o.toughness != null ? `${o.power}/${o.toughness}` : '';
     const counters = Object.entries(o.counters || {});
+    const sick = o.is_creature && o.summoning_sick;
     const badges = [
       pt ? `<span class="replay-badge">${escapeHtml(pt)}</span>` : '',
       o.loyalty != null ? `<span class="replay-badge">♦${o.loyalty}</span>` : '',
       counters.length ? `<span class="replay-badge replay-badge--counter">${counters.map(([k, v]) => `${escapeHtml(k)}×${v}`).join(' ')}</span>` : '',
+      sick ? `<span class="replay-badge replay-badge--sick" title="Beschwörungskrankheit (RULE 302.6)">💤</span>` : '',
     ].join('');
-    const moveOptions = moveOptionsHtml(s, isToken);
+    // Draggable onto any `.replay-zone` drop target (see `wireEditor`) — the
+    // "→ Zone…" dropdown this replaced also let a 2-player board reassign
+    // owner/controller by dropping onto the other player's zone.
     return `
-      <div class="${classes.join(' ')}" data-iid="${o.instance_id}" data-hover-card="${escapeHtml(o.name)}" title="${escapeHtml(o.name)}${pt ? ` (${pt})` : ''}">
+      <div class="${classes.join(' ')}" data-iid="${o.instance_id}" data-hover-card="${escapeHtml(o.name)}" title="${escapeHtml(o.name)}${pt ? ` (${pt})` : ''}" draggable="true">
         ${inner}
         ${badges ? `<div class="replay-card-badges">${badges}</div>` : ''}
         <div class="replay-card-tools">
@@ -676,7 +762,7 @@ export function createReplayView() {
           <button type="button" data-card-act="plus" title="+1/+1 Marke">＋</button>
           <button type="button" data-card-act="minus" title="−1/−1 Marke">−</button>
           <button type="button" data-card-act="counter" title="Beliebige Marke">✦</button>
-          <select class="replay-move" title="Verschieben"><option value="">→ Zone…</option>${moveOptions}</select>
+          ${o.is_creature ? `<button type="button" data-card-act="sick" class="${sick ? 'active' : ''}" title="Beschwörungskrankheit umschalten (RULE 302.6): kann noch nicht angreifen oder {T}/{Q}-Kosten zahlen">💤</button>` : ''}
           <button type="button" data-card-act="remove" title="Entfernen">✕</button>
         </div>
       </div>`;
@@ -728,12 +814,21 @@ export function createReplayView() {
       });
     } else {
       const input = overlay.querySelector('#replay-card-query');
-      input?.addEventListener('input', (e) => { modal.query = e.target.value; });
+      // Live substring search against the already-loaded pool: only patches
+      // the result `<ul>` in place (not a full `render()`) so the input
+      // never loses focus/cursor position mid-keystroke.
+      input?.addEventListener('input', (e) => {
+        modal.query = e.target.value;
+        updateLiveResults();
+        const list = overlay.querySelector('.replay-search-results');
+        if (list) {
+          list.innerHTML = cardResultListHtml();
+          wireCardResultButtons(list);
+        }
+      });
       input?.addEventListener('keydown', (e) => { if (e.key === 'Enter') searchCard(); });
       overlay.querySelector('#replay-card-search')?.addEventListener('click', searchCard);
-      overlay.querySelectorAll('[data-add-card]').forEach((el) =>
-        el.addEventListener('click', () => addResolvedCard(JSON.parse(el.dataset.addCard))),
-      );
+      wireCardResultButtons(overlay);
     }
     overlay.querySelector('[data-modal-close]')?.addEventListener('click', () => {
       modal = null;
@@ -741,22 +836,35 @@ export function createReplayView() {
     });
   }
 
-  function renderCardSearch() {
+  // The add-card modal's result `<ul>` contents — shared by the initial
+  // render and the live-search partial update (`input` handler above), so
+  // the two stay in sync.
+  function cardResultListHtml() {
+    if (!modal.searched) return '';
+    if (modal.tooShort) return `<li class="empty-state">Mindestens ${MIN_SEARCH_CHARS} Zeichen eingeben…</li>`;
+    if (cardPool == null) return '<li class="empty-state">Lade Kartenpool …</li>';
     const results = modal.results || [];
-    const list = modal.searched
-      ? (results.length
-          ? results.map((c) => `<li><button type="button" data-add-card='${escapeAttr(JSON.stringify({ id: c.id, name: c.name }))}'>${escapeHtml(c.name)} <small>${escapeHtml(c.type_line || '')}</small></button></li>`).join('')
-          : '<li class="empty-state">Nichts gefunden.</li>')
-      : '';
+    return results.length
+      ? results.map((c) => `<li><button type="button" data-add-card='${escapeAttr(JSON.stringify({ id: c.id, name: c.name }))}'>${escapeHtml(c.name)} <small>${escapeHtml(c.type_line || '')}</small></button></li>`).join('')
+      : '<li class="empty-state">Nichts gefunden – ggf. „Suchen“ für eine neue Karte aus dem Scryfall-Fundus.</li>';
+  }
+
+  function wireCardResultButtons(container) {
+    container.querySelectorAll('[data-add-card]').forEach((el) =>
+      el.addEventListener('click', () => addResolvedCard(JSON.parse(el.dataset.addCard))),
+    );
+  }
+
+  function renderCardSearch() {
     return `
       <div class="replay-modal">
         <div class="replay-modal-head"><h3>Karte hinzufügen</h3><button type="button" data-modal-close>✕</button></div>
         <div class="replay-modal-body">
           <div class="replay-search-row">
-            <input type="text" id="replay-card-query" placeholder="Kartenname…" value="${escapeAttr(modal.query || '')}" />
+            <input type="text" id="replay-card-query" placeholder="Kartenname (Teilstring, z. B. „Elv“)…" value="${escapeAttr(modal.query || '')}" />
             <button type="button" id="replay-card-search" class="primary">Suchen</button>
           </div>
-          <ul class="replay-search-results">${list}</ul>
+          <ul class="replay-search-results">${cardResultListHtml()}</ul>
         </div>
       </div>`;
   }
@@ -855,8 +963,9 @@ export function createReplayView() {
       const playerId = zoneEl.dataset.player;
       const zone = zoneEl.dataset.zone;
       zoneEl.querySelector('.replay-add-card')?.addEventListener('click', () => {
-        modal = { kind: 'card', playerId, zone, query: '' };
+        modal = { kind: 'card', playerId, zone, query: '', results: [], searched: false, tooShort: false };
         render();
+        ensureCardPool();
       });
       zoneEl.querySelector('.replay-add-token')?.addEventListener('click', () => {
         modal = { kind: 'token', playerId, zone };
@@ -866,17 +975,55 @@ export function createReplayView() {
         modal = { kind: 'library', playerId };
         render();
       });
+      wireZoneDropTarget(zoneEl, playerId, zone);
     });
 
     root.querySelectorAll('.replay-card').forEach((cardEl) => {
       const iid = Number(cardEl.dataset.iid);
       cardEl.querySelectorAll('[data-card-act]').forEach((btn) =>
         btn.addEventListener('click', () => cardAction(iid, btn.dataset.cardAct, cardEl)));
-      cardEl.querySelector('.replay-move')?.addEventListener('change', (e) => {
-        if (!e.target.value) return;
-        const { zone, owner_id } = JSON.parse(e.target.value);
-        act({ type: 'edit_move_object', instance_id: iid, zone, owner_id, controller_id: owner_id });
+      cardEl.addEventListener('dragstart', (e) => {
+        draggedIid = iid;
+        cardEl.classList.add('dragging');
+        e.dataTransfer.effectAllowed = 'move';
+        e.dataTransfer.setData('text/plain', String(iid));
       });
+      cardEl.addEventListener('dragend', () => {
+        draggedIid = null;
+        cardEl.classList.remove('dragging');
+      });
+    });
+  }
+
+  // Drag&drop move: a card dropped onto a `.replay-zone` box moves there
+  // (`edit_move_object`), replacing the old per-card "→ Zone…" dropdown. A
+  // token may only land on a battlefield (RULE 111.7 — it ceases to exist
+  // elsewhere), enforced here by simply not accepting the drop (no
+  // `preventDefault` in `dragover` → the browser shows a "no-drop" cursor
+  // and never fires `drop`); the server would reject it anyway.
+  function wireZoneDropTarget(zoneEl, playerId, zone) {
+    zoneEl.addEventListener('dragover', (e) => {
+      if (draggedIid == null) return;
+      const obj = findObject(draggedIid);
+      if (!obj || (obj.is_token && zone !== 'battlefield')) return;
+      e.preventDefault();
+      e.dataTransfer.dropEffect = 'move';
+      zoneEl.classList.add('replay-zone--drop-target');
+    });
+    zoneEl.addEventListener('dragleave', (e) => {
+      if (!zoneEl.contains(e.relatedTarget)) zoneEl.classList.remove('replay-zone--drop-target');
+    });
+    zoneEl.addEventListener('drop', (e) => {
+      e.preventDefault();
+      zoneEl.classList.remove('replay-zone--drop-target');
+      const iid = draggedIid;
+      draggedIid = null;
+      if (iid == null) return;
+      const obj = findObject(iid);
+      const alreadyThere = obj && obj.zone === zone
+        && (zone === 'battlefield' ? obj.controller_id === playerId : obj.owner_id === playerId);
+      if (alreadyThere) return;
+      act({ type: 'edit_move_object', instance_id: iid, zone, owner_id: playerId, controller_id: playerId });
     });
   }
 
@@ -909,6 +1056,9 @@ export function createReplayView() {
       act({ type: 'edit_set_flags', instance_id: iid, tapped: !tapped });
     } else if (action === 'flip') {
       act({ type: 'edit_transform', instance_id: iid });
+    } else if (action === 'sick') {
+      const obj = findObject(iid);
+      act({ type: 'edit_set_flags', instance_id: iid, summoning_sick: !(obj?.summoning_sick) });
     } else if (action === 'plus' || action === 'minus') {
       const obj = findObject(iid);
       const current = (obj?.counters || {})['+1/+1'] || 0;

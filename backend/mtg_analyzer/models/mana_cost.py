@@ -1,7 +1,7 @@
 """Structured mana cost model (RULE 202, RULE 601.2f).
 
-Reference: docs/07_GAME_LOOP_EFFECT_SYSTEM.md (PART 2, `ManaCost` used by
-`ActivatedAbility`/casting), backend/Done_Backend.md "Mana cost model".
+Reference: docs/concepts/07_GAME_LOOP_EFFECT_SYSTEM.md (PART 2, `ManaCost` used by
+`ActivatedAbility`/casting), docs/implementation-state/Done_Backend.md "Mana cost model".
 
 The `Card.mana_cost` dict (`models/card.py`) flattens a cost to a plain
 per-color pip tally and loses *how* a pip can be paid — a hybrid `{W/U}`
@@ -268,6 +268,19 @@ class ManaCost:
         ]
         if not any(s.kind == GENERIC for s in self.symbols):
             symbols.insert(0, ManaSymbol(GENERIC, amount=amount))
+        return ManaCost(symbols, raw=ManaCost(symbols).render())
+
+    def add(self, other: "ManaCost") -> "ManaCost":
+        """A copy with ``other``'s symbols appended (RULE 601.2f-style stacking).
+
+        Unlike `increase_generic`, this concatenates the full symbol list —
+        including colored/hybrid/Phyrexian pips, not just generic ones — so
+        it composes a printed cost with an independent additional cost (e.g.
+        Kicker, Buyback) that may carry its own colors. `ManaPool.can_pay`/
+        `pay` iterate every symbol regardless of which cost it came from, so
+        no merging beyond concatenation is needed.
+        """
+        symbols = list(self.symbols) + list(other.symbols)
         return ManaCost(symbols, raw=ManaCost(symbols).render())
 
     def render(self) -> str:

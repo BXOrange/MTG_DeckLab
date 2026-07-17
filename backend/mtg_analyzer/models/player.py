@@ -1,7 +1,7 @@
 """Player state: life, mana pool, zones (RULE 102, RULE 103, RULE 400).
 
-Reference: docs/02_MVP_USECASES_REVISED.md R1.3 (Player State — Life,
-Mana Pool, Priority, "is Active Player?"), docs/07_GAME_LOOP_EFFECT_SYSTEM.md.
+Reference: docs/requirements/02_MVP_USECASES_REVISED.md R1.3 (Player State — Life,
+Mana Pool, Priority, "is Active Player?"), docs/concepts/07_GAME_LOOP_EFFECT_SYSTEM.md.
 
 A player owns the private/personal zones (library, hand, graveyard,
 exile, command zone) plus the objects they control on the shared

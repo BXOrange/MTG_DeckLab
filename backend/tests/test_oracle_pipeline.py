@@ -178,6 +178,24 @@ def test_scry_handler():
     assert parse_effect_body("put a +1/+1 counter on target creature")[0].params["target_kind"] == "creature"
 
 
+def test_surveil_handler():
+    assert parse_effect_body("surveil 2")[0] == EffectSpec("surveil", {"count": 2})
+
+
+def test_surveil_land_etb_trigger_is_fully_modeled():
+    # The common real-card shape (Hedge Maze/Lush Portico/…, RULE 701.31):
+    # a tap-land whose only other ability is "surveil 1" on enter.
+    land = Card(
+        id="Hedge Maze", name="Hedge Maze", type_line="Land", is_land=True,
+        oracle_text="This land enters tapped.\nWhen this land enters, surveil 1.",
+    )
+    r = parse_oracle(land)
+    assert r.coverage == MODELED
+    (trig,) = [s for s in r.specs if s.ability_kind == "triggered"]
+    assert trig.trigger["event"] == "ENTERS_BATTLEFIELD"
+    assert trig.effects[0] == EffectSpec("surveil", {"count": 1})
+
+
 def test_handler_create_token():
     effects = parse_effect_body("create 2 1/1 white soldier creature tokens")
     (e,) = effects
@@ -292,9 +310,9 @@ def test_create_token_with_nonflag_ability_is_unclaimed():
 
 
 def test_unhandled_clause_is_unclaimed():
-    # "proliferate" / "regenerate" have no one-shot effect yet — fail-closed.
+    # "proliferate" / "fateseal" have no one-shot effect yet — fail-closed.
     assert parse_effect_body("proliferate") is None
-    assert parse_effect_body("regenerate target creature") is None
+    assert parse_effect_body("fateseal 2") is None
     # A half-known chain fails whole (fail-closed), not partially.
     assert parse_effect_body("draw a card and mill your opponent") is None
 
@@ -353,8 +371,8 @@ def test_unknown_clause_makes_card_unmodeled():
 
 
 def test_partial_card_is_unmodeled_all_or_nothing():
-    # One line handled (draw), one not (regenerate) → the whole card is UNMODELED.
-    r = parse_oracle(spell("Half", "Draw a card.\nRegenerate target creature."))
+    # One line handled (draw), one not (fateseal) → the whole card is UNMODELED.
+    r = parse_oracle(spell("Half", "Draw a card.\nFateseal 2."))
     assert r.coverage == UNMODELED
 
 
@@ -373,6 +391,143 @@ def test_keyword_line_alone_is_modeled():
 
 
 # ---------------------------------------------------------------------------
+# TRANSFORM + GROUP PUMP handlers (RULE 712.8)
+# ---------------------------------------------------------------------------
+
+
+def test_transform_handler_matches_self_forms():
+    for clause in ("transform ~", "transform it", "transform this permanent", "transform this creature"):
+        (e,) = parse_effect_body(clause)
+        assert e.type == "transform" and e.params == {}
+
+
+def test_group_pump_handler_creatures_you_control():
+    e = parse_effect_body("creatures you control get +2/+1 until end of turn")[0]
+    assert e.type == "pump"
+    assert e.params == {"power": 2, "toughness": 1, "selector": "creatures_you_control"}
+    other = parse_effect_body("other creatures you control get +1/+1 until end of turn")[0]
+    assert other.params["selector"] == "other_creatures_you_control"
+    kw = parse_effect_body("creatures you control gain flying until end of turn")[0]
+    assert kw.params == {"keywords": ["flying"], "selector": "creatures_you_control"}
+
+
+# ---------------------------------------------------------------------------
+# SAGA chapter grammar (RULE 714.2d)
+# ---------------------------------------------------------------------------
+
+
+def saga_card(name, text):
+    return Card(id=name, name=name, type_line="Enchantment — Saga", oracle_text=text)
+
+
+def test_saga_chapter_lines_are_modeled_as_saga_chapter_triggers():
+    r = parse_oracle(saga_card(
+        "History of Benalia",
+        "I, II — Create a 2/2 white Knight creature token with vigilance.\n"
+        "III — Creatures you control get +2/+1 until end of turn.",
+    ))
+    assert r.coverage == MODELED
+    triggers = [s for s in r.specs if s.ability_kind == "triggered"]
+    assert len(triggers) == 2
+    first, second = triggers
+    assert first.trigger == {"event": "SAGA_CHAPTER", "chapter": [1, 2]}
+    assert first.effects[0].type == "create_token"
+    assert second.trigger == {"event": "SAGA_CHAPTER", "chapter": [3]}
+    assert second.effects[0].type == "pump"
+    assert second.effects[0].params["selector"] == "creatures_you_control"
+
+
+def test_saga_chapter_grammar_does_not_misfire_on_a_non_saga_card():
+    # A non-Saga permanent whose text happens to start with a roman-numeral-
+    # dash shape must NOT be parsed as a chapter line (the `is_saga` gate).
+    r = parse_oracle(perm("Weird", "I — Draw a card."))
+    assert r.coverage == UNMODELED
+
+
+# ---------------------------------------------------------------------------
+# Leveler (RULE 711) / Class (RULE 716) block grammar
+# ---------------------------------------------------------------------------
+
+
+def test_leveler_blocks_are_modeled_with_level_gated_specs():
+    r = parse_oracle(Card(
+        id="Test Dragon", name="Test Dragon", type_line="Creature — Dragon",
+        is_creature=True, power=1, toughness=1, keywords=["Level Up", "Flying", "Haste"],
+        oracle_text=(
+            "Level up {1}{R} (Level up only as a sorcery.)\n"
+            "LEVEL 2-6\n2/2\n"
+            "Whenever Test Dragon attacks, Test Dragon gets +1/+0 until end of turn.\n"
+            "LEVEL 7+\n6/6\nFlying, haste"
+        ),
+    ))
+    assert r.coverage == MODELED
+    activated = [s for s in r.specs if s.ability_kind == "activated"]
+    assert len(activated) == 1
+    assert activated[0].effects[0].type == "add_counters"
+    assert activated[0].cost == {"text": "{1}{r}", "sorcery_speed_only": True}
+
+    statics = [s for s in r.specs if s.ability_kind == "static"]
+    pt_sets = [s for s in statics if s.effects[0].type == "pt_set"]
+    assert {(s.effects[0].params["min_level"], s.effects[0].params["max_level"]) for s in pt_sets} == {
+        (2, 6), (7, None),
+    }
+    grant = next(s for s in statics if s.effects[0].type == "grant_keyword")
+    assert grant.effects[0].params["min_level"] == 7 and grant.effects[0].params["max_level"] is None
+
+    trigger = next(s for s in r.specs if s.ability_kind == "triggered")
+    assert trigger.trigger["event"] == "ATTACKS"
+    assert (trigger.trigger["min_level"], trigger.trigger["max_level"]) == (2, 6)
+
+
+def test_class_blocks_are_modeled_with_cumulative_level_gated_specs():
+    r = parse_oracle(Card(
+        id="Test Class", name="Test Class", type_line="Enchantment — Class",
+        oracle_text=(
+            "(Gain the next level as a sorcery to add its ability.)\n"
+            "{1}{G}: Level 2\nCreatures you control get +1/+1.\n"
+            "{3}{G}: Level 3\nCreatures you control have trample."
+        ),
+    ))
+    assert r.coverage == MODELED
+    activated = [s for s in r.specs if s.ability_kind == "activated"]
+    assert len(activated) == 2
+    assert [a.cost["class_level"] for a in activated] == [2, 3]
+    assert all(a.cost["sorcery_speed_only"] for a in activated)
+    assert [a.effects[0].type for a in activated] == ["class_level", "class_level"]
+
+    statics = [s for s in r.specs if s.ability_kind == "static"]
+    anthem = next(s for s in statics if s.effects[0].type == "anthem")
+    assert anthem.effects[0].params["min_level"] == 2
+    assert anthem.effects[0].params["level_counter"] == "class_level"
+    grant = next(s for s in statics if s.effects[0].type == "grant_keyword")
+    assert grant.effects[0].params["min_level"] == 3
+    assert grant.effects[0].params["level_counter"] == "class_level"
+
+
+def test_class_level_header_is_cost_first_not_level_first():
+    # Real Scryfall oracle text prints "<cost>: Level N" (cost precedes
+    # "Level N" on the header line, e.g. Cleric Class's "{3}{W}: Level 2") —
+    # not "Level N: <cost>". A card using the wrong (level-first) order
+    # must fail closed rather than silently match, so a future regression
+    # back to that assumption shows up as an unclaimed line, not a
+    # mis-parsed one.
+    from mtg_analyzer.parser.oracle.catalogue.levels import CLASS_LEVEL_RE
+
+    assert CLASS_LEVEL_RE.match("{1}{g}: level 2") is not None
+    assert CLASS_LEVEL_RE.match("level 2: {1}{g}") is None
+
+    r = parse_oracle(Card(
+        id="Cleric Class", name="Cleric Class", type_line="Enchantment — Class",
+        oracle_text=(
+            "(Gain the next level as a sorcery to add its ability.)\n"
+            "level 2: {1}{g}\nCreatures you control get +1/+1."
+        ),
+    ))
+    assert r.coverage == UNMODELED
+    assert any("level 2: {1}{g}" in u for u in r.unclaimed)
+
+
+# ---------------------------------------------------------------------------
 # INTEGRATION: specs_for fallback + binding
 # ---------------------------------------------------------------------------
 
@@ -383,7 +538,7 @@ def test_specs_for_uses_parser_for_unregistered_modeled_card():
 
 
 def test_specs_for_omits_effects_from_unmodeled_card():
-    specs = ability_catalogue.specs_for(spell("Weird", "Regenerate target creature."))
+    specs = ability_catalogue.specs_for(spell("Weird", "Fateseal 2."))
     assert not any(s.ability_kind in ("spell_effect", "triggered") for s in specs)
 
 
@@ -409,6 +564,45 @@ def test_activated_ability_chains_effects():
     r = parse_oracle(perm("Looter", "{T}: Draw a card, then discard a card."))
     act = next(s for s in r.specs if s.ability_kind == "activated")
     assert [e.type for e in act.effects] == ["draw", "discard"]
+
+
+def test_remove_counter_cost_line_is_modeled():
+    # RULE 701.19/602.1: a "Remove a <kind> counter from ~:" cost with no
+    # mana/{T} alongside it used to fail `segmenter._COST_LOOKS_REAL`'s sniff
+    # (only "{...}"/sacrifice/pay life/discard/put-a-counter-on/tap-others
+    # were trusted), so the whole line stayed unclaimed. Triskelion's real
+    # oracle text is exactly this shape end to end.
+    r = parse_oracle(perm(
+        "Triskelion",
+        "Triskelion enters the battlefield with three +1/+1 counters on it.\n"
+        "Remove a +1/+1 counter from Triskelion: It deals 1 damage to any target.",
+    ))
+    assert r.coverage == MODELED
+    (act,) = [s for s in r.specs if s.ability_kind == "activated"]
+    assert act.cost == {"text": "remove a +1/+1 counter from ~"}
+    assert act.effects[0].type == "damage" and act.effects[0].params["amount"] == 1
+
+
+def test_remove_counter_cost_binds_and_pays_end_to_end():
+    obj = GameObject(perm(
+        "Triskelion",
+        "Remove a +1/+1 counter from Triskelion: It deals 1 damage to any target.",
+    ), owner_id="p1", zone=Zone.BATTLEFIELD)
+    bind_from_catalogue(obj)
+    (ability,) = obj.activated_abilities
+    assert ability.cost.remove_counters == ("+1/+1", 1)
+
+    eng = GameEngine.new_game([("p1", "Alice", [land_card()] * 10)], starting_hand=0)
+    eng.begin_turn()
+    eng.state.current_step = "main1"
+    p1 = eng.state.active_player
+    obj.controller_id = p1.id
+    eng.state.battlefield.append(obj)
+    assert not eng.can_activate(p1, obj, ability)  # no counters yet
+    obj.add_counters("+1/+1", 1)
+    assert eng.can_activate(p1, obj, ability)
+    eng.activate_ability(p1, obj, targets=[p1])
+    assert obj.counters.get("+1/+1") is None  # the one counter was removed to pay
 
 
 def test_mana_ability_line_is_covered_without_a_spec():
@@ -511,14 +705,85 @@ def test_coverage_report_metric_and_ranking():
     cards = [
         spell("Bolt", "Bolt deals 3 damage to any target."),         # MODELED
         spell("Divi", "Draw two cards.", instant=False, sorcery=True),  # MODELED
-        spell("RegenA", "Regenerate target creature."),              # unclaimed: regen
-        spell("RegenB", "Regenerate target creature."),              # same template
+        spell("FateA", "Fateseal 2."),                                # unclaimed: fateseal
+        spell("FateB", "Fateseal 2."),                                # same template
         spell("Scry", "Scry 2."),                                    # unclaimed: scry
     ]
     report = coverage_over_cards(cards)
     assert report.total == 5 and report.modeled == 2
     assert report.modeled_fraction == 0.4
-    # The regenerate template blocks 2 cards, scry 1 → regenerate ranks first.
+    # The fateseal template blocks 2 cards, scry 1 → fateseal ranks first.
     top = report.processing_list[0]
-    assert top.cards == 2 and "regenerate" in top.template
+    assert top.cards == 2 and "fateseal" in top.template
     assert report.to_dict()["modeled"] == 2
+
+
+# ---------------------------------------------------------------------------
+# PARSE-ON-LOAD MEMOIZATION
+# ---------------------------------------------------------------------------
+
+
+def test_parse_oracle_caches_identical_input(monkeypatch):
+    from mtg_analyzer.parser.oracle import gate as oracle_gate
+
+    calls = []
+    real = oracle_gate._parse_oracle_uncached
+
+    def counting(card):
+        calls.append(card)
+        return real(card)
+
+    monkeypatch.setattr(oracle_gate, "_parse_oracle_uncached", counting)
+    oracle_gate._PARSE_CACHE.clear()
+
+    # Two separate Card instances with identical relevant fields — the
+    # second call must be a cache hit, not a second full parse.
+    oracle_gate.parse_oracle(spell("Bolt", "Bolt deals 3 damage to any target."))
+    oracle_gate.parse_oracle(spell("Bolt", "Bolt deals 3 damage to any target."))
+    assert len(calls) == 1
+
+
+def test_parse_oracle_returns_independent_copies():
+    from mtg_analyzer.parser.oracle import gate as oracle_gate
+
+    oracle_gate._PARSE_CACHE.clear()
+    card = spell("Shock", "Shock deals 2 damage to any target.")
+
+    first = oracle_gate.parse_oracle(card)
+    first.specs.append("mutated")  # type: ignore[arg-type]
+    first.unclaimed.append("mutated")
+
+    second = oracle_gate.parse_oracle(card)
+    assert "mutated" not in second.specs
+    assert "mutated" not in second.unclaimed
+
+
+def test_parse_oracle_cache_key_distinguishes_oracle_text():
+    # Same name, different text must not collide (a content-keyed cache, not
+    # a name-keyed one) — this is what guards a per-test fixture card from a
+    # stale hit left behind by an earlier test using the same placeholder name.
+    from mtg_analyzer.parser.oracle import gate as oracle_gate
+
+    oracle_gate._PARSE_CACHE.clear()
+    r_damage = oracle_gate.parse_oracle(spell("Same Name", "Same Name deals 3 damage to any target."))
+    r_draw = oracle_gate.parse_oracle(spell("Same Name", "Draw a card."))
+
+    damage_types = {e.type for s in r_damage.specs for e in s.effects}
+    draw_types = {e.type for s in r_draw.specs for e in s.effects}
+    assert "damage" in damage_types
+    assert "draw" in draw_types
+
+
+def test_parse_oracle_cache_key_distinguishes_spell_vs_permanent():
+    # Same name/text, but `is_instant` differs — a bare imperative is a
+    # legal spell effect on an instant, and fail-closed unclaimed on a
+    # permanent (RULE 113.2). The cache key must not conflate the two.
+    from mtg_analyzer.parser.oracle import gate as oracle_gate
+
+    oracle_gate._PARSE_CACHE.clear()
+    text = "Draw a card."
+    r_spell = oracle_gate.parse_oracle(spell("Card Draw", text))
+    r_permanent = oracle_gate.parse_oracle(perm("Card Draw", text))
+
+    assert r_spell.modeled
+    assert not r_permanent.modeled

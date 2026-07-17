@@ -1,6 +1,6 @@
 """Tests for the effect binder + the Phase 0 end-to-end seam.
 
-Reference: docs/09_ORACLE_EFFECT_PARSER.md ("RUNTIME LINKING", the two-stage
+Reference: docs/concepts/09_ORACLE_EFFECT_PARSER.md ("RUNTIME LINKING", the two-stage
 compiler). Phase 0 proves IR -> binder -> engine with a hand-authored spec
 and NO parsing: a Lightning Bolt whose `AbilitySpec` is written by hand
 resolves as real damage through the existing rules engine.
@@ -73,6 +73,18 @@ class TestStaticEffectRegistryBridges:
         [effect] = build_effects([EffectSpec("pt_switch", {})])
         assert effect.layer == "pt_switch"
         assert effect.affects == "self"
+
+    def test_conditional_copy_defaults_to_self_and_carries_its_condition(self):
+        [effect] = build_effects([EffectSpec("conditional_copy", {"requires_untapped": True})])
+        assert effect.layer == "copy"
+        assert effect.affects == "self"
+        assert effect.params["requires_untapped"] is True
+
+    def test_text_change_carries_its_replacements(self):
+        [effect] = build_effects([EffectSpec("text_change", {"replace": {"red": "blue"}})])
+        assert effect.layer == "text"
+        assert effect.affects == "self"
+        assert effect.params["replace"] == {"red": "blue"}
 
 
 class TestBindAbility:

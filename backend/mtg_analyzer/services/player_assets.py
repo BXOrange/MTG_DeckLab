@@ -34,11 +34,14 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional, Union
 
+from mtg_analyzer.config import DATA_DIR, PLAYER_ASSETS_DB_PATH
+
 #: Real user data with no upstream source — lives beside decks.db, not
 #: the disposable Scryfall cache (see services/deck_database.py DATA_ROOT).
-DATA_ROOT = Path(__file__).resolve().parent.parent.parent / "data"
+#: Overridable via the MTG_DATA_DIR env var — see mtg_analyzer/config.py.
+DATA_ROOT = DATA_DIR
 
-DEFAULT_PLAYER_ASSETS_DB_PATH = DATA_ROOT / "player_assets.db"
+DEFAULT_PLAYER_ASSETS_DB_PATH = PLAYER_ASSETS_DB_PATH
 
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS token_images (

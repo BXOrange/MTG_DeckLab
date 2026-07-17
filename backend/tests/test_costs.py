@@ -57,6 +57,27 @@ class TestParseText:
         assert parse_activation_cost(None).is_free
         assert parse_activation_cost("").is_free
 
+    def test_tap_others(self):
+        # Birchlore Rangers — no {T} of its own, taps two *other* Elves.
+        cost = parse_activation_cost("Tap two untapped Elves you control: Add one mana of any color.")
+        assert cost.tap_others == (2, "elf")
+        assert cost.taps_self is False
+        # Heritage Druid.
+        cost3 = parse_activation_cost("Tap three untapped Elves you control: Add {G}{G}{G}.")
+        assert cost3.tap_others == (3, "elf")
+
+    def test_add_counter_cost(self):
+        # Devoted Druid's untap ability.
+        cost = parse_activation_cost("Put a -1/-1 counter on this creature: Untap this creature.")
+        assert cost.add_counters_cost == ("-1/-1", 1)
+        assert not cost.is_free
+
+    def test_exile_self_from_hand(self):
+        # Elvish Spirit Guide.
+        cost = parse_activation_cost("Exile this creature from your hand: Add {G}.")
+        assert cost.exile_self_from_hand is True
+        assert not cost.is_free
+
 
 class TestParseDict:
     def test_explicit_fields_win_over_text(self):

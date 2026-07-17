@@ -1,7 +1,7 @@
 """Tests for the rules engine + game engine.
 
-Reference: docs/02_MVP_USECASES_REVISED.md R2.*/R4.*,
-docs/07_GAME_LOOP_EFFECT_SYSTEM.md, mtg_analyzer/game/.
+Reference: docs/requirements/02_MVP_USECASES_REVISED.md R2.*/R4.*,
+docs/concepts/07_GAME_LOOP_EFFECT_SYSTEM.md, mtg_analyzer/game/.
 """
 
 import pytest
@@ -382,33 +382,119 @@ def test_become_copy_applies_except_clause_overrides():
 
 
 def test_become_copy_end_to_end_via_registered_catalogue_entry():
-    # Clever Impersonator's ENTERS_BATTLEFIELD trigger, fully bound from the
-    # catalogue, resolved with an explicit target (the interactive "choose a
-    # target for a triggered ability" flow isn't wired yet — see
-    # ToDo_Backend.md — so the target is supplied directly, the same way
-    # other targeted-effect tests bypass that gap).
+    # RULE 614.1c/614.12: casting Clever Impersonator opens a real `enter_
+    # as_copy` replacement choice *before* it's added to the battlefield —
+    # it's never observably "itself" first, unlike the old ENTERS_
+    # BATTLEFIELD-trigger modeling this replaces.
+    impersonator_card = Card(id="CI", name="Clever Impersonator",
+                              type_line="Creature — Illusion",
+                              mana_cost_string="{5}{U}{U}", converted_mana_cost=7,
+                              is_creature=True, power=3, toughness=3)  # real printed stats
+    eng = make_engine([impersonator_card], hand=1)
+    eng.begin_turn()
+    eng.state.current_step = "main1"
+    p1 = eng.state.active_player
+    p1.mana_pool.add_many({"U": 2, "C": 5})
+
+    target = obj_on_battlefield(eng.state, eng, creature(
+        name="Grave Titan", cost="{4}{B}{B}", power=6, toughness=6,
+        keywords=["Deathtouch"], oracle_text="Deathtouch",
+    ))
+    impersonator = p1.hand[0]
+    bind_from_catalogue(impersonator)  # bind-on-load, done here as in production
+    eng.cast_spell(p1, impersonator)
+    eng.resolve_until_stable()
+
+    pending = eng.state.pending_choice
+    assert pending and pending["kind"] == "enter_as_copy"
+    assert impersonator not in eng.state.battlefield  # paused before entering as itself
+    opt = next(o for o in pending["options"] if o["id"] != "decline")
+    eng.resolve_pending_choice(opt["id"])
+
+    assert impersonator in eng.state.battlefield
+    assert impersonator.card.name == "Grave Titan"
+    assert (impersonator.power, impersonator.toughness) == (6, 6)
+    assert "deathtouch" in impersonator.intrinsic_keywords
+
+
+def test_become_copy_declining_enters_as_itself():
+    impersonator_card = Card(id="CI", name="Clever Impersonator",
+                              type_line="Creature — Illusion",
+                              mana_cost_string="{5}{U}{U}", converted_mana_cost=7,
+                              is_creature=True, power=3, toughness=3)
+    eng = make_engine([impersonator_card], hand=1)
+    eng.begin_turn()
+    eng.state.current_step = "main1"
+    p1 = eng.state.active_player
+    p1.mana_pool.add_many({"U": 2, "C": 5})
+
+    obj_on_battlefield(eng.state, eng, creature(name="Grave Titan", power=6, toughness=6))
+    impersonator = p1.hand[0]
+    bind_from_catalogue(impersonator)
+    eng.cast_spell(p1, impersonator)
+    eng.resolve_until_stable()
+
+    assert eng.state.pending_choice["kind"] == "enter_as_copy"
+    eng.resolve_pending_choice("decline")
+
+    assert impersonator in eng.state.battlefield
+    assert impersonator.card.name == "Clever Impersonator"
+    assert (impersonator.power, impersonator.toughness) == (3, 3)
+
+
+def test_become_copy_with_no_legal_target_enters_as_itself_without_pausing():
+    # RULE 603.3c-style: nothing to offer, so it never opens a pending
+    # choice at all — it just enters as itself, same turn, no pause.
+    impersonator_card = Card(id="CI", name="Clever Impersonator",
+                              type_line="Creature — Illusion",
+                              mana_cost_string="{5}{U}{U}", converted_mana_cost=7,
+                              is_creature=True, power=3, toughness=3)
+    eng = make_engine([impersonator_card], hand=1)
+    eng.begin_turn()
+    eng.state.current_step = "main1"
+    p1 = eng.state.active_player
+    p1.mana_pool.add_many({"U": 2, "C": 5})
+
+    impersonator = p1.hand[0]
+    bind_from_catalogue(impersonator)
+    eng.cast_spell(p1, impersonator)
+    eng.resolve_until_stable()
+
+    assert eng.state.pending_choice is None
+    assert impersonator in eng.state.battlefield
+    assert impersonator.card.name == "Clever Impersonator"
+
+
+def test_cursed_mirror_end_to_end_via_registered_catalogue_entry():
+    # Cursed Mirror's "{T}: ~ becomes a copy of target creature until end of
+    # turn", fully bound from the catalogue — a third copy mechanism (see
+    # `test_become_copy_*` for the permanent ETB one, and
+    # `test_continuous.py`'s conditional-copy tests for the continuous one),
+    # reverted automatically at cleanup (RULE 514.2).
     eng = make_engine([], hand=0)
     eng.begin_turn()
     eng.state.current_step = "main1"
 
     target = obj_on_battlefield(eng.state, eng, creature(
         name="Grave Titan", cost="{4}{B}{B}", power=6, toughness=6,
-        keywords=["Deathtouch"], oracle_text="Deathtouch",
     ))
-    impersonator_card = Card(id="CI", name="Clever Impersonator",
-                              type_line="Creature — Illusion",
-                              mana_cost_string="{5}{U}{U}", converted_mana_cost=7,
-                              is_creature=True, power=3, toughness=3)  # real printed stats
-    impersonator = obj_on_battlefield(eng.state, eng, impersonator_card)
-    bind_from_catalogue(impersonator)
+    mirror = obj_on_battlefield(eng.state, eng, Card(
+        id="CM", name="Cursed Mirror", type_line="Artifact"))
+    bind_from_catalogue(mirror)
 
-    [trigger] = impersonator.triggered_abilities
-    trigger.apply(eng.rules.context, targets=[target])
+    [ability] = mirror.activated_abilities
+    ability.apply(eng.rules.context, targets=[target])
     eng.recompute_continuous_effects()
+    assert mirror.card.name == "Grave Titan"
+    assert (mirror.power, mirror.toughness) == (6, 6)
 
-    assert impersonator.card.name == "Grave Titan"
-    assert (impersonator.power, impersonator.toughness) == (6, 6)
-    assert "deathtouch" in impersonator.intrinsic_keywords
+    eng._step_cleanup()
+    assert mirror.card.name == "Cursed Mirror"
+
+    # Activating again next turn copies again (a fresh snapshot each time).
+    ability.apply(eng.rules.context, targets=[target])
+    eng.recompute_continuous_effects()
+    assert mirror.card.name == "Grave Titan"
 
 
 def test_enchant_creature_oracle_text_follows_aura_logic():
@@ -612,6 +698,44 @@ def test_reconfigure_ability_only_offers_creature_attachment_targets():
     assert illegal_host.instance_id not in option_ids
 
 
+def test_fortify_ability_only_offers_land_attachment_targets():
+    # RULE 702.151b/301.5c: Fortify attaches to a land, not a creature —
+    # unlike Equip/Reconfigure above, offering (and resolving) it against
+    # any permanent was a real gap until targeting.py/_attachment_legal
+    # gained an explicit "fortify" case.
+    eng = make_engine([land()], hand=0)
+    eng.begin_turn()
+    p1 = eng.state.active_player
+
+    legal_host = obj_on_battlefield(eng.state, eng, land(name="Mountain", produces="Mountain"))
+    illegal_host = obj_on_battlefield(eng.state, eng, creature(name="Host", cost="{1}"))
+
+    card = Card(
+        id="Fortification",
+        name="Fortification",
+        type_line="Artifact — Fortification",
+        mana_cost_string="{1}",
+        converted_mana_cost=1,
+    )
+    card.keywords = ["Fortify"]
+    card.oracle_text = "Fortify {2}"
+    source = GameObject(card, owner_id="p1", zone=Zone.BATTLEFIELD)
+    source.summoning_sick = False
+    eng.state.add_to_battlefield(source)
+    bind_from_catalogue(source)
+
+    requirements = eng._ability_target_requirements(p1, source.activated_abilities[0], source)
+    option_ids = {opt["instance_id"] for opt in requirements[0]["options"]}
+
+    assert legal_host.instance_id in option_ids
+    assert illegal_host.instance_id not in option_ids
+
+    assert eng.rules.attach_to_target(source, legal_host)
+    assert source.attached_to == legal_host.instance_id
+    source.attached_to = None
+    assert not eng.rules._attachment_legal(source, illegal_host)
+
+
 def test_reconfigure_permanent_stops_being_a_creature_while_attached():
     # RULE 702.151b: attaching a Reconfigure permanent to another creature
     # turns it into a (non-creature) Equipment until it becomes unattached —
@@ -675,7 +799,10 @@ def test_commander_tax_adds_two_per_previous_cast():
     assert eng.commander_tax(p1, commander) == 4
 
 
-def test_commander_returns_to_command_zone_when_it_dies():
+def test_commander_dying_offers_command_zone_choice_and_can_move_there():
+    # RULE 903.9a: a commander that dies actually reaches the graveyard —
+    # unlike a non-commander, its owner is then offered a one-time SBA
+    # choice to move it to the command zone instead of leaving it there.
     eng = make_engine([], hand=0)
     p1 = eng.state.active_player
     commander = GameObject(
@@ -688,11 +815,38 @@ def test_commander_returns_to_command_zone_when_it_dies():
     eng.rules.check_state_based_actions()
 
     assert commander not in eng.state.battlefield
+    assert commander in p1.graveyard
+    assert commander not in p1.command
+    choice = eng.state.pending_choice
+    assert choice is not None and choice["kind"] == "commander_zone"
+    assert choice["instance_id"] == commander.instance_id
+
+    eng.rules.resolve_commander_zone_choice("command")
+
     assert commander in p1.command
     assert commander not in p1.graveyard
+    assert eng.state.pending_choice is None
 
 
-def test_countered_commander_spell_returns_to_command_zone_not_graveyard():
+def test_commander_dying_choice_declined_stays_in_graveyard():
+    eng = make_engine([], hand=0)
+    p1 = eng.state.active_player
+    commander = GameObject(
+        creature(name="Commander Bear", toughness=1), owner_id="p1", is_commander=True
+    )
+    commander.summoning_sick = False
+    eng.state.add_to_battlefield(commander)
+
+    eng.rules.deal_damage(commander, 1)
+    eng.rules.check_state_based_actions()
+    eng.rules.resolve_commander_zone_choice("decline")
+
+    assert commander in p1.graveyard
+    assert commander not in p1.command
+    assert eng.state.pending_choice is None
+
+
+def test_countered_commander_spell_offers_command_zone_choice():
     eng = make_engine([], hand=0)
     p1 = eng.state.active_player
     commander = GameObject(creature(name="Commander Bear"), owner_id="p1", is_commander=True)
@@ -703,8 +857,89 @@ def test_countered_commander_spell_returns_to_command_zone_not_graveyard():
 
     eng.rules.counter_spell(commander)
 
+    assert commander in p1.graveyard
+    assert commander not in p1.command
+    choice = eng.state.pending_choice
+    assert choice is None  # counter_spell doesn't itself check SBAs
+
+    eng.rules.check_state_based_actions()
+    choice = eng.state.pending_choice
+    assert choice is not None and choice["kind"] == "commander_zone"
+    eng.rules.resolve_commander_zone_choice("command")
+
     assert commander in p1.command
     assert commander not in p1.graveyard
+
+
+def test_exiled_commander_offers_command_zone_choice():
+    # RULE 903.9a covers exile identically to graveyard.
+    eng = make_engine([], hand=0)
+    p1 = eng.state.active_player
+    commander = GameObject(creature(name="Commander Bear"), owner_id="p1", is_commander=True)
+    commander.summoning_sick = False
+    eng.state.add_to_battlefield(commander)
+
+    eng.rules.exile(commander)
+    eng.rules.check_state_based_actions()
+
+    assert commander in p1.exile
+    choice = eng.state.pending_choice
+    assert choice is not None and choice["kind"] == "commander_zone"
+
+    eng.rules.resolve_commander_zone_choice("command")
+
+    assert commander in p1.command
+    assert commander not in p1.exile
+
+
+def test_bounced_commander_offers_command_zone_choice():
+    # RULE 903.9b: hand (unlike graveyard/exile) is a replacement effect —
+    # the choice opens immediately, not on the next SBA check.
+    eng = make_engine([], hand=0)
+    p1 = eng.state.active_player
+    commander = GameObject(creature(name="Commander Bear"), owner_id="p1", is_commander=True)
+    commander.summoning_sick = False
+    eng.state.add_to_battlefield(commander)
+
+    eng.rules.return_to_hand(commander)
+
+    assert commander in p1.hand
+    choice = eng.state.pending_choice
+    assert choice is not None and choice["kind"] == "commander_zone"
+    assert choice["instance_id"] == commander.instance_id
+
+    eng.rules.resolve_commander_zone_choice("command")
+
+    assert commander in p1.command
+    assert commander not in p1.hand
+
+
+def test_bounced_commander_choice_declined_stays_in_hand():
+    eng = make_engine([], hand=0)
+    p1 = eng.state.active_player
+    commander = GameObject(creature(name="Commander Bear"), owner_id="p1", is_commander=True)
+    commander.summoning_sick = False
+    eng.state.add_to_battlefield(commander)
+
+    eng.rules.return_to_hand(commander)
+    eng.rules.resolve_commander_zone_choice("decline")
+
+    assert commander in p1.hand
+    assert commander not in p1.command
+
+
+def test_non_commander_permanent_never_offers_command_zone_choice():
+    eng = make_engine([], hand=0)
+    p1 = eng.state.active_player
+    bear = GameObject(creature(name="Plain Bear", toughness=1), owner_id="p1")
+    bear.summoning_sick = False
+    eng.state.add_to_battlefield(bear)
+
+    eng.rules.deal_damage(bear, 1)
+    eng.rules.check_state_based_actions()
+
+    assert bear in p1.graveyard
+    assert eng.state.pending_choice is None
 
 
 def test_instant_can_be_cast_at_instant_speed():
@@ -1045,6 +1280,29 @@ def test_triggered_ability_goes_on_stack_and_resolves():
     eng.resolve_until_stable()
     assert len(p1.hand) == before + 1
     assert not eng.rules.pending_triggers
+
+
+def test_triggered_ability_stack_item_carries_its_source():
+    """A stack item for a triggered ability exposes the permanent it belongs
+    to (`StackItem.source`), so the UI can show that card's image/link."""
+    eng = make_engine([land("Forest"), land("Forest")], hand=0)
+    p1 = eng.state.player_by_id("p1")
+    trigger = TriggeredAbility(
+        trigger_event=EventType.SPELL_CAST,
+        effects=[DrawCardEffect(count=1, player=p1)],
+        controller_id="p1",
+        description="draw on cast",
+        source=None,  # set below, mirroring how the binder sets it
+    )
+    watcher = obj_on_battlefield(eng.state, eng, creature("Watcher"))
+    trigger.source = watcher
+    watcher.triggered_abilities.append(trigger)
+
+    eng.state.fire_event(GameEvent(EventType.SPELL_CAST, player_id="p1"))
+    eng.rules.put_triggers_on_stack()
+    assert len(eng.state.stack) == 1
+    assert eng.state.stack[0].source is watcher
+    assert eng.state.stack[0].to_dict()["source"]["instance_id"] == watcher.instance_id
 
 
 # ---------------------------------------------------------------------------
@@ -2023,6 +2281,562 @@ def test_deathtouch_flag_cleared_at_end_of_combat():
     assert survivor.dealt_deathtouch_damage is False  # cleared when combat ends
 
 
+# -- Combat-math keywords (RULE 702.86/702.130/702.45) + hexproof (702.11) --
+
+from mtg_analyzer.game.targeting import TargetSpec, legal_targets
+
+
+def test_annihilator_makes_defending_player_sacrifice_permanents():
+    eng = make_engine([land()], [land()], hand=0)
+    _to_declare_attackers(eng)
+    attacker = obj_on_battlefield(
+        eng.state,
+        eng,
+        creature(
+            power=2,
+            toughness=2,
+            keywords=["Annihilator"],
+            oracle_text="Annihilator 2 (Whenever this creature attacks, "
+            "defending player sacrifices two permanents.)",
+        ),
+    )
+    bind_from_catalogue(attacker)
+    for _ in range(3):
+        obj_on_battlefield(eng.state, eng, creature(), controller="p2")
+
+    eng.declare_attackers(eng.state.active_player, [attacker])
+    eng.resolve_until_stable()
+
+    remaining = [o for o in eng.state.battlefield if o.controller_id == "p2"]
+    assert len(remaining) == 1
+
+
+def test_afflict_causes_defending_player_to_lose_life_on_block():
+    eng = make_engine([land()], [land()], hand=0)
+    _to_declare_attackers(eng)
+    attacker = obj_on_battlefield(
+        eng.state,
+        eng,
+        creature(
+            power=2,
+            toughness=2,
+            keywords=["Afflict"],
+            oracle_text="Afflict 3 (Whenever this creature becomes blocked, "
+            "defending player loses 3 life.)",
+        ),
+    )
+    bind_from_catalogue(attacker)
+    blocker = obj_on_battlefield(eng.state, eng, creature(), controller="p2")
+    p2 = _attack_then_blockers_step(eng, attacker)
+    eng.declare_blockers(p2, [{"blocker": blocker, "attacker": attacker}])
+    eng.resolve_until_stable()
+
+    assert eng.state.player_by_id("p2").life == 17
+
+
+def test_bushido_pumps_the_blocker_when_it_blocks():
+    eng = make_engine([land()], [land()], hand=0)
+    _to_declare_attackers(eng)
+    attacker = obj_on_battlefield(eng.state, eng, creature(power=3, toughness=3))
+    blocker = obj_on_battlefield(
+        eng.state,
+        eng,
+        creature(
+            power=1,
+            toughness=1,
+            keywords=["Bushido"],
+            oracle_text="Bushido 1 (Whenever this creature blocks or becomes "
+            "blocked, it gets +1/+1 until end of turn.)",
+        ),
+        controller="p2",
+    )
+    bind_from_catalogue(blocker)
+    p2 = _attack_then_blockers_step(eng, attacker)
+    eng.declare_blockers(p2, [{"blocker": blocker, "attacker": attacker}])
+    eng.resolve_until_stable()
+
+    assert blocker.power == 2
+    assert blocker.toughness == 2
+
+
+def _rampage_attacker(eng, n=2):
+    return obj_on_battlefield(
+        eng.state,
+        eng,
+        creature(
+            power=2,
+            toughness=2,
+            keywords=["Rampage"],
+            oracle_text=f"Rampage {n} (Whenever this creature becomes blocked, it gets "
+            f"+{n}/+{n} until end of turn for each creature blocking it beyond the first.)",
+        ),
+    )
+
+
+def test_rampage_does_not_trigger_with_only_one_blocker():
+    eng = make_engine([land()], [land()], hand=0)
+    _to_declare_attackers(eng)
+    attacker = _rampage_attacker(eng)
+    bind_from_catalogue(attacker)
+    blocker = obj_on_battlefield(eng.state, eng, creature(), controller="p2")
+    p2 = _attack_then_blockers_step(eng, attacker)
+    eng.declare_blockers(p2, [{"blocker": blocker, "attacker": attacker}])
+    eng.resolve_until_stable()
+
+    assert attacker.power == 2  # "beyond the first" — a single blocker adds nothing
+    assert attacker.toughness == 2
+
+
+def test_rampage_pumps_once_per_blocker_beyond_the_first():
+    eng = make_engine([land()], [land()], hand=0)
+    _to_declare_attackers(eng)
+    attacker = _rampage_attacker(eng, n=2)
+    bind_from_catalogue(attacker)
+    blocker1 = obj_on_battlefield(eng.state, eng, creature(), controller="p2")
+    blocker2 = obj_on_battlefield(eng.state, eng, creature(), controller="p2")
+    blocker3 = obj_on_battlefield(eng.state, eng, creature(), controller="p2")
+    p2 = _attack_then_blockers_step(eng, attacker)
+    eng.declare_blockers(
+        p2,
+        [
+            {"blocker": blocker1, "attacker": attacker},
+            {"blocker": blocker2, "attacker": attacker},
+            {"blocker": blocker3, "attacker": attacker},
+        ],
+    )
+    eng.resolve_until_stable()
+
+    # Three blockers, two "beyond the first" — +2/+2 twice.
+    assert attacker.power == 6
+    assert attacker.toughness == 6
+
+
+def test_rampage_goes_on_the_stack_as_a_real_triggered_ability():
+    eng = make_engine([land()], [land()], hand=0)
+    _to_declare_attackers(eng)
+    attacker = _rampage_attacker(eng)
+    bind_from_catalogue(attacker)
+    blocker1 = obj_on_battlefield(eng.state, eng, creature(), controller="p2")
+    blocker2 = obj_on_battlefield(eng.state, eng, creature(), controller="p2")
+    p2 = _attack_then_blockers_step(eng, attacker)
+    eng.declare_blockers(
+        p2,
+        [
+            {"blocker": blocker1, "attacker": attacker},
+            {"blocker": blocker2, "attacker": attacker},
+        ],
+    )
+
+    assert len(eng.state.stack) == 1  # a real stack object, not an inline effect
+    top = eng.state.stack[-1]
+    assert top.controller_id == "p1"  # RULE 603.3a: the attacker's own controller
+    assert attacker.power == 2  # not yet resolved
+
+    eng.resolve_until_stable()
+    assert attacker.power == 4
+
+
+def test_hexproof_creature_cannot_be_targeted_by_an_opponent():
+    eng = make_engine([land()], [land()], hand=0)
+    hex_creature = obj_on_battlefield(
+        eng.state, eng, creature(keywords=["Hexproof"]), controller="p2"
+    )
+    bind_from_catalogue(hex_creature)
+    plain = obj_on_battlefield(eng.state, eng, creature(), controller="p2")
+    opponent_source = obj_on_battlefield(eng.state, eng, creature(), controller="p1")
+
+    spec = TargetSpec(kind="creature")
+    options = legal_targets(eng.state, "p1", spec, source=opponent_source)
+    ids = {o["instance_id"] for o in options}
+    assert hex_creature.instance_id not in ids
+    assert plain.instance_id in ids
+
+    # Hexproof doesn't stop the controller's own spells/abilities.
+    own_source = obj_on_battlefield(eng.state, eng, creature(), controller="p2")
+    own_options = legal_targets(eng.state, "p2", spec, source=own_source)
+    assert hex_creature.instance_id in {o["instance_id"] for o in own_options}
+
+
+# -- Ward (RULE 702.21) ------------------------------------------------------
+
+
+def _shock_spell(p1):
+    """A hand `GameObject` for a bare "deal 3 damage to target creature" instant."""
+    from mtg_analyzer.game.effects import DealDamageEffect
+
+    card = Card(
+        id="Shock",
+        name="Shock",
+        type_line="Instant",
+        mana_cost_string="{R}",
+        converted_mana_cost=1,
+        is_instant=True,
+    )
+    spell = GameObject(card, owner_id="p1", zone=Zone.HAND)
+    p1.add_to_zone(spell, Zone.HAND)
+    spell.spell_effects = [DealDamageEffect(amount=3, target_kind="creature")]
+    return spell
+
+
+def test_ward_pushes_a_real_stack_item_above_the_spell():
+    # RULE 603.3: ward is a triggered ability that becomes its own object on
+    # the stack — not an inline choice — so both players get a normal
+    # priority window to respond to it before it resolves.
+    eng = make_engine([], [], hand=0)
+    eng.begin_turn()
+    eng.state.current_step = "main1"
+    p1 = eng.state.active_player
+    p1.mana_pool.add_many({"R": 1, "C": 2})
+    warded = obj_on_battlefield(eng.state, eng, creature(power=2, toughness=2), controller="p2")
+    warded.parametric_keywords = {"ward": {"cost": "{2}"}}
+    spell = _shock_spell(p1)
+
+    eng.cast_spell(p1, spell, targets=[warded])
+
+    assert eng.state.pending_choice is None  # nothing resolved yet
+    assert len(eng.state.stack) == 2
+    assert eng.state.stack[0].obj is spell  # the spell sits underneath
+    top = eng.state.stack[1]
+    assert top.category == "triggered_ability"
+    assert top.controller_id == "p2"  # RULE 603.3a: the warded permanent's controller
+    assert "Ward" in top.description
+
+
+def test_ward_paid_lets_the_spell_resolve():
+    eng = make_engine([], [], hand=0)
+    eng.begin_turn()
+    eng.state.current_step = "main1"
+    p1 = eng.state.active_player
+    p1.mana_pool.add_many({"R": 1, "C": 2})
+    warded = obj_on_battlefield(eng.state, eng, creature(power=2, toughness=2), controller="p2")
+    warded.parametric_keywords = {"ward": {"cost": "{2}"}}
+    spell = _shock_spell(p1)
+
+    eng.cast_spell(p1, spell, targets=[warded])
+    eng.resolve_until_stable()  # resolves the ward ability, opening its choice
+    choice = eng.state.pending_choice
+    assert choice["kind"] == "ward"
+    assert choice["player_id"] == "p1"  # the caster decides, not p2
+
+    eng.resolve_pending_choice("pay")
+    assert warded not in eng.state.battlefield  # 3 damage killed the 2/2
+    assert p1.mana_pool.total() == 0  # the {2} ward cost was paid too
+
+
+def test_ward_declined_counters_the_spell():
+    eng = make_engine([], [], hand=0)
+    eng.begin_turn()
+    eng.state.current_step = "main1"
+    p1 = eng.state.active_player
+    p1.mana_pool.add_many({"R": 1, "C": 2})
+    warded = obj_on_battlefield(eng.state, eng, creature(power=2, toughness=2), controller="p2")
+    warded.parametric_keywords = {"ward": {"cost": "{2}"}}
+    spell = _shock_spell(p1)
+
+    eng.cast_spell(p1, spell, targets=[warded])
+    eng.resolve_until_stable()
+    eng.resolve_pending_choice("decline")
+
+    assert warded in eng.state.battlefield  # never took the damage
+    assert warded.damage_marked == 0
+    assert not eng.state.stack  # the spell was countered, not resolved
+    assert spell in p1.graveyard
+
+
+def test_ward_uncastable_cost_counters_the_spell_without_a_choice():
+    eng = make_engine([], [], hand=0)
+    eng.begin_turn()
+    eng.state.current_step = "main1"
+    p1 = eng.state.active_player
+    p1.mana_pool.add_many({"R": 1})  # nothing left over for ward's {2}
+    warded = obj_on_battlefield(eng.state, eng, creature(power=2, toughness=2), controller="p2")
+    warded.parametric_keywords = {"ward": {"cost": "{2}"}}
+    spell = _shock_spell(p1)
+
+    eng.cast_spell(p1, spell, targets=[warded])
+    eng.resolve_until_stable()  # no real decision — the ward ability auto-counters
+
+    assert eng.state.pending_choice is None
+    assert not eng.state.stack
+    assert warded in eng.state.battlefield
+
+
+def test_ward_does_not_trigger_against_its_own_controller():
+    eng = make_engine([], hand=0)
+    eng.begin_turn()
+    eng.state.current_step = "main1"
+    p1 = eng.state.active_player
+    p1.mana_pool.add_many({"R": 1})
+    warded = obj_on_battlefield(eng.state, eng, creature(power=2, toughness=2), controller="p1")
+    warded.parametric_keywords = {"ward": {"cost": "{2}"}}
+    spell = _shock_spell(p1)
+
+    eng.cast_spell(p1, spell, targets=[warded])
+
+    assert len(eng.state.stack) == 1  # no ward ability was pushed at all
+    eng.resolve_until_stable()
+    assert warded not in eng.state.battlefield  # the spell resolved normally
+
+
+def test_ward_triggers_on_a_targeted_activated_ability():
+    from mtg_analyzer.game.costs import parse_activation_cost
+    from mtg_analyzer.game.effects import ActivatedAbility, DealDamageEffect
+
+    eng = make_engine([land()], [], hand=0)
+    eng.begin_turn()
+    p1 = eng.state.active_player
+    warded = obj_on_battlefield(eng.state, eng, creature(power=2, toughness=2), controller="p2")
+    warded.parametric_keywords = {"ward": {"cost": "{1}"}}
+    source = obj_on_battlefield(eng.state, eng, creature(name="Zapper", cost="{1}"))
+    source.summoning_sick = False
+    source.activated_abilities.append(
+        ActivatedAbility(
+            effects=[DealDamageEffect(amount=3, target_kind="creature")],
+            cost=parse_activation_cost("{T}:"),
+            source=source,
+        )
+    )
+    p1.mana_pool.add_many({"C": 1})
+
+    eng.activate_ability(p1, source, 0, targets=[warded])
+    eng.resolve_until_stable()
+    choice = eng.state.pending_choice
+    assert choice["kind"] == "ward"
+
+    eng.resolve_pending_choice("decline")
+    assert warded in eng.state.battlefield
+    assert not eng.state.stack
+
+
+def test_ward_pay_life_cost():
+    eng = make_engine([], [], hand=0)
+    eng.begin_turn()
+    eng.state.current_step = "main1"
+    p1 = eng.state.active_player
+    p1.mana_pool.add_many({"R": 1})
+    start_life = p1.life
+    warded = obj_on_battlefield(eng.state, eng, creature(power=2, toughness=2), controller="p2")
+    warded.parametric_keywords = {"ward": {"cost": "Pay 3 life"}}
+    spell = _shock_spell(p1)
+
+    eng.cast_spell(p1, spell, targets=[warded])
+    eng.resolve_until_stable()
+    choice = eng.state.pending_choice
+    assert choice["kind"] == "ward"
+
+    eng.resolve_pending_choice("pay")
+    assert p1.life == start_life - 3
+    assert warded not in eng.state.battlefield  # the spell went on to resolve
+
+
+def test_ward_x_cost_selector_is_recognized_from_the_where_x_is_clause():
+    from mtg_analyzer.game.costs import parse_activation_cost
+
+    cost = parse_activation_cost("Pay {X}, where X is the number of creatures you control.")
+    assert cost.mana.has_variable
+    assert cost.x_selector == "creatures_you_control"
+
+
+def test_ward_x_cost_unrecognized_selector_leaves_x_unset():
+    # RULE 107.3c fallback: an unrecognized "where X is …" phrase (no real
+    # card uses this vocabulary word) leaves `x_selector` unset rather than
+    # guessed — X then stays 0 at resolution time.
+    from mtg_analyzer.game.costs import parse_activation_cost
+
+    cost = parse_activation_cost("Pay {X}, where X is the number of Zombies you control.")
+    assert cost.mana.has_variable
+    assert cost.x_selector is None
+
+
+def test_ward_x_cost_resolves_against_the_board_at_resolution_time_not_trigger_time():
+    # RULE 702.21b: "This value is determined at the time the ability
+    # resolves, not locked in as the ability triggers" — p2 gains a second
+    # creature *after* the ward ability is placed on the stack but *before*
+    # it resolves; X must reflect the board at resolution (2), not however
+    # many creatures p2 controlled when the spell was cast (1).
+    eng = make_engine([], [], hand=0)
+    eng.begin_turn()
+    eng.state.current_step = "main1"
+    p1 = eng.state.active_player
+    p1.mana_pool.add_many({"R": 1, "C": 2})
+    warded = obj_on_battlefield(eng.state, eng, creature(power=2, toughness=2), controller="p2")
+    warded.parametric_keywords = {
+        "ward": {"cost": "Pay {X}, where X is the number of creatures you control."}
+    }
+    spell = _shock_spell(p1)
+
+    eng.cast_spell(p1, spell, targets=[warded])
+    assert len(eng.state.stack) == 2  # the ward ability sits on top of the spell
+
+    obj_on_battlefield(eng.state, eng, creature(power=1, toughness=1), controller="p2")
+
+    eng.rules.resolve_top_of_stack()  # resolves the ward ability itself
+    choice = eng.state.pending_choice
+    assert choice["kind"] == "ward"
+
+    eng.resolve_pending_choice("pay")
+    assert p1.mana_pool.total() == 0  # {R} for Shock + {2} generic for X=2
+
+
+def test_ward_x_cost_uncastable_counters_the_spell_without_a_choice():
+    eng = make_engine([], [], hand=0)
+    eng.begin_turn()
+    eng.state.current_step = "main1"
+    p1 = eng.state.active_player
+    p1.mana_pool.add_many({"R": 1})  # nothing left over for ward's X
+    warded = obj_on_battlefield(eng.state, eng, creature(power=2, toughness=2), controller="p2")
+    warded.parametric_keywords = {
+        "ward": {"cost": "Pay {X}, where X is the number of creatures you control."}
+    }
+    obj_on_battlefield(eng.state, eng, creature(power=1, toughness=1), controller="p2")
+    spell = _shock_spell(p1)
+
+    eng.cast_spell(p1, spell, targets=[warded])
+    eng.resolve_until_stable()  # no real decision — X=1 isn't payable, auto-countered
+
+    assert eng.state.pending_choice is None
+    assert not eng.state.stack
+    assert warded in eng.state.battlefield
+
+
+def test_ward_discard_cost():
+    eng = make_engine([], [], hand=0)
+    eng.begin_turn()
+    eng.state.current_step = "main1"
+    p1 = eng.state.active_player
+    p1.mana_pool.add_many({"R": 1})
+    filler = GameObject(creature(name="Filler"), owner_id="p1", zone=Zone.HAND)
+    p1.add_to_zone(filler, Zone.HAND)
+    warded = obj_on_battlefield(eng.state, eng, creature(power=2, toughness=2), controller="p2")
+    warded.parametric_keywords = {"ward": {"cost": "Discard a card"}}
+    spell = _shock_spell(p1)
+
+    eng.cast_spell(p1, spell, targets=[warded])
+    hand_before_discard = len(p1.hand)  # the spell itself already left the hand
+    eng.resolve_until_stable()
+    eng.resolve_pending_choice("pay")
+
+    assert len(p1.hand) == hand_before_discard - 1
+    assert filler in p1.graveyard
+    assert warded not in eng.state.battlefield
+
+
+def test_ward_sacrifice_cost():
+    eng = make_engine([], [], hand=0)
+    eng.begin_turn()
+    eng.state.current_step = "main1"
+    p1 = eng.state.active_player
+    p1.mana_pool.add_many({"R": 1})
+    fodder = obj_on_battlefield(eng.state, eng, creature(name="Fodder"))
+    warded = obj_on_battlefield(eng.state, eng, creature(power=2, toughness=2), controller="p2")
+    warded.parametric_keywords = {"ward": {"cost": "Sacrifice a creature"}}
+    spell = _shock_spell(p1)
+
+    eng.cast_spell(p1, spell, targets=[warded])
+    eng.resolve_until_stable()
+    eng.resolve_pending_choice("pay")
+
+    assert fodder not in eng.state.battlefield
+    assert warded not in eng.state.battlefield
+
+
+def test_ward_sacrifice_cost_unpayable_counters_without_a_choice():
+    # p1 controls no creature at all, so "Sacrifice a creature" can't be paid.
+    eng = make_engine([], [], hand=0)
+    eng.begin_turn()
+    eng.state.current_step = "main1"
+    p1 = eng.state.active_player
+    p1.mana_pool.add_many({"R": 1})
+    warded = obj_on_battlefield(eng.state, eng, creature(power=2, toughness=2), controller="p2")
+    warded.parametric_keywords = {"ward": {"cost": "Sacrifice a creature"}}
+    spell = _shock_spell(p1)
+
+    eng.cast_spell(p1, spell, targets=[warded])
+    eng.resolve_until_stable()
+
+    assert eng.state.pending_choice is None
+    assert not eng.state.stack
+    assert warded in eng.state.battlefield
+
+
+def test_ward_two_simultaneous_wards_each_ask_in_turn():
+    # RULE 702.21c: an item targeting two warded permanents triggers two
+    # independent ward abilities, each its own stack object, asked one at a
+    # time as the stack resolves. Built via `RulesEngine.cast_spell` directly
+    # with two targets so `check_ward` sees both, independent of whether the
+    # spell's own one-shot effect happens to read more than `targets[0]`.
+    from mtg_analyzer.game.effects import DealDamageEffect
+
+    eng = make_engine([], [], hand=0)
+    eng.begin_turn()
+    eng.state.current_step = "main1"
+    p1 = eng.state.active_player
+    p1.mana_pool.add_many({"R": 1, "C": 3})
+    a = obj_on_battlefield(eng.state, eng, creature(name="A", power=2, toughness=2), controller="p2")
+    a.parametric_keywords = {"ward": {"cost": "{1}"}}
+    b = obj_on_battlefield(eng.state, eng, creature(name="B", power=2, toughness=2), controller="p2")
+    b.parametric_keywords = {"ward": {"cost": "{2}"}}
+    card = Card(
+        id="Fake Bolt", name="Fake Bolt", type_line="Sorcery",
+        mana_cost_string="{R}", converted_mana_cost=1, is_sorcery=True,
+    )
+    spell = GameObject(card, owner_id="p1", zone=Zone.HAND)
+    p1.add_to_zone(spell, Zone.HAND)
+    spell.spell_effects = [DealDamageEffect(amount=3, target_kind="creature")]
+
+    eng.rules.cast_spell(p1, spell, targets=[a, b])
+    assert len(eng.state.stack) == 3  # the spell + a's ward + b's ward
+
+    eng.resolve_until_stable()
+    first = eng.state.pending_choice
+    assert first["kind"] == "ward"
+    eng.resolve_pending_choice("pay")
+
+    second = eng.state.pending_choice
+    assert second["kind"] == "ward"
+    assert second is not first
+    eng.resolve_pending_choice("pay")
+
+    assert not eng.state.stack  # both wards paid — the spell resolved
+    assert a not in eng.state.battlefield  # took the 3 damage (targets[0])
+    assert b in eng.state.battlefield  # ward paid, but never actually damaged
+
+
+def test_ward_one_of_two_simultaneous_wards_declined_counters_the_spell():
+    # RULE 702.21c/608.2b: once the spell is countered by the first ward,
+    # the second ward's own resolution finds nothing left to counter and
+    # simply does nothing — it never asks the caster to pay again.
+    from mtg_analyzer.game.effects import DealDamageEffect
+
+    eng = make_engine([], [], hand=0)
+    eng.begin_turn()
+    eng.state.current_step = "main1"
+    p1 = eng.state.active_player
+    p1.mana_pool.add_many({"R": 1, "C": 3})
+    a = obj_on_battlefield(eng.state, eng, creature(name="A", power=2, toughness=2), controller="p2")
+    a.parametric_keywords = {"ward": {"cost": "{1}"}}
+    b = obj_on_battlefield(eng.state, eng, creature(name="B", power=2, toughness=2), controller="p2")
+    b.parametric_keywords = {"ward": {"cost": "{2}"}}
+    card = Card(
+        id="Fake Bolt", name="Fake Bolt", type_line="Sorcery",
+        mana_cost_string="{R}", converted_mana_cost=1, is_sorcery=True,
+    )
+    spell = GameObject(card, owner_id="p1", zone=Zone.HAND)
+    p1.add_to_zone(spell, Zone.HAND)
+    spell.spell_effects = [DealDamageEffect(amount=3, target_kind="creature")]
+
+    eng.rules.cast_spell(p1, spell, targets=[a, b])
+    eng.resolve_until_stable()
+    assert eng.state.pending_choice["kind"] == "ward"
+    eng.resolve_pending_choice("decline")  # counters the spell right away
+
+    assert not eng.state.stack  # the second ward found nothing to counter
+    assert eng.state.pending_choice is None
+    assert a in eng.state.battlefield
+    assert b in eng.state.battlefield
+    assert spell in p1.graveyard
+
+
 # ---------------------------------------------------------------------------
 # Activated abilities & costs (RULE 602)
 # ---------------------------------------------------------------------------
@@ -2054,6 +2868,7 @@ def test_activate_pays_mana_and_taps_source_then_stacks():
     assert obj.tapped
     assert p1.mana_pool.total() == 0  # the {1} was paid
     assert len(eng.state.stack) == 1  # ability waits on the stack
+    assert eng.state.stack[0].source is obj
     eng.resolve_until_stable()
     assert len(p1.hand) == 1  # it resolved and drew
 
@@ -2175,6 +2990,396 @@ def test_activated_attach_ability_attaches_to_target_on_resolution():
     eng.resolve_until_stable()
 
     assert source.attached_to == host.instance_id
+
+
+# -- Kicker / Multikicker (RULE 702.33) --------------------------------------
+
+
+def test_kicker_can_be_declined_and_pays_only_the_printed_cost():
+    eng = make_engine([instant(name="Kicked One", cost="{R}")], hand=1)
+    eng.begin_turn()
+    eng.state.current_step = "main1"
+    p1 = eng.state.active_player
+    spell = p1.hand[0]
+    spell.parametric_keywords = {"kicker": {"cost": "{1}{R}"}}
+    p1.mana_pool.add_many({"R": 1})
+
+    assert eng.can_cast(p1, spell)  # unkicked is always legal if affordable
+    eng.cast_spell(p1, spell)
+
+    assert p1.mana_pool.total() == 0
+    assert eng.state.stack[-1].obj.kicker_count == 0
+
+
+def test_kicker_paid_adds_its_own_cost_and_is_recorded():
+    eng = make_engine([instant(name="Kicked One", cost="{R}")], hand=1)
+    eng.begin_turn()
+    eng.state.current_step = "main1"
+    p1 = eng.state.active_player
+    spell = p1.hand[0]
+    spell.parametric_keywords = {"kicker": {"cost": "{1}{R}"}}
+    p1.mana_pool.add_many({"R": 2, "C": 1})
+
+    assert eng.can_cast(p1, spell, kicked=1)
+    eng.cast_spell(p1, spell, kicked=1)
+
+    assert p1.mana_pool.total() == 0  # {R} printed + {1}{R} kicker == RR + 1 generic
+    assert eng.state.stack[-1].obj.kicker_count == 1
+
+
+def test_kicker_cannot_be_paid_without_enough_mana():
+    eng = make_engine([instant(name="Kicked One", cost="{R}")], hand=1)
+    eng.begin_turn()
+    eng.state.current_step = "main1"
+    p1 = eng.state.active_player
+    spell = p1.hand[0]
+    spell.parametric_keywords = {"kicker": {"cost": "{1}{R}"}}
+    p1.mana_pool.add_many({"R": 1})  # only enough for the printed cost
+
+    assert not eng.can_cast(p1, spell, kicked=1)
+    with pytest.raises(ValueError):
+        eng.cast_spell(p1, spell, kicked=1)
+
+
+def test_plain_kicker_rejects_paying_it_twice():
+    eng = make_engine([instant(name="Kicked One", cost="{R}")], hand=1)
+    eng.begin_turn()
+    eng.state.current_step = "main1"
+    p1 = eng.state.active_player
+    spell = p1.hand[0]
+    spell.parametric_keywords = {"kicker": {"cost": "{R}"}}  # no "multi" flag
+    p1.mana_pool.add_many({"R": 3})
+
+    assert not eng.can_cast(p1, spell, kicked=2)
+
+
+def test_multikicker_allows_paying_it_repeatedly():
+    eng = make_engine([instant(name="Kicked Many", cost="{R}")], hand=1)
+    eng.begin_turn()
+    eng.state.current_step = "main1"
+    p1 = eng.state.active_player
+    spell = p1.hand[0]
+    spell.parametric_keywords = {"kicker": {"cost": "{R}", "multi": True}}
+    p1.mana_pool.add_many({"R": 4})  # {R} printed + 3x{R} multikicker
+
+    assert eng.can_cast(p1, spell, kicked=3)
+    eng.cast_spell(p1, spell, kicked=3)
+
+    assert p1.mana_pool.total() == 0
+    assert eng.state.stack[-1].obj.kicker_count == 3
+
+
+def test_multikicker_keyword_parsing_marks_the_repeatable_flag():
+    from mtg_analyzer.parser.oracle.catalogue.keywords import parse_keywords
+
+    card = Card(
+        id="Rousing Read",
+        name="Rousing Read",
+        type_line="Sorcery",
+        mana_cost_string="{2}{U}",
+        converted_mana_cost=3,
+        is_sorcery=True,
+        keywords=["Multikicker"],
+        oracle_text="Multikicker {1}\nDraw a card.",
+    )
+    specs = parse_keywords(card)
+    assert len(specs) == 1
+    assert specs[0].keyword == {"name": "kicker", "cost": "{1}", "multi": True}
+
+
+def test_legal_actions_surfaces_kicker_offer():
+    eng = make_engine([instant(name="Kicked One", cost="{R}")], hand=1)
+    eng.begin_turn()
+    eng.state.current_step = "main1"
+    p1 = eng.state.active_player
+    spell = p1.hand[0]
+    spell.parametric_keywords = {"kicker": {"cost": "{1}{R}", "multi": True}}
+    p1.mana_pool.add_many({"R": 3, "C": 2})
+
+    actions = eng.legal_actions(p1)
+    cast_action = next(a for a in actions if a.get("type") == "cast_spell")
+    assert cast_action["has_kicker"] is True
+    assert cast_action["kicker_cost"] == "{1}{R}"
+    assert cast_action["kicker_multi"] is True
+    assert cast_action["max_kicker"] >= 1
+
+
+# -- Buyback (RULE 702.27) ----------------------------------------------------
+
+
+def test_buyback_declined_resolves_to_the_graveyard_as_normal():
+    eng = make_engine([instant(name="Bought Back", cost="{R}")], hand=1)
+    eng.begin_turn()
+    eng.state.current_step = "main1"
+    p1 = eng.state.active_player
+    spell = p1.hand[0]
+    spell.parametric_keywords = {"buyback": {"cost": "{2}{U}"}}
+    p1.mana_pool.add_many({"R": 1})
+
+    eng.cast_spell(p1, spell)
+    eng.resolve_until_stable()
+
+    assert spell in p1.graveyard
+    assert spell not in p1.hand
+    assert spell.buyback_paid is False
+
+
+def test_buyback_paid_returns_the_spell_to_hand_instead_of_the_graveyard():
+    eng = make_engine([instant(name="Bought Back", cost="{R}")], hand=1)
+    eng.begin_turn()
+    eng.state.current_step = "main1"
+    p1 = eng.state.active_player
+    spell = p1.hand[0]
+    spell.parametric_keywords = {"buyback": {"cost": "{2}{U}"}}
+    p1.mana_pool.add_many({"R": 1, "U": 1, "C": 2})
+
+    assert eng.can_cast(p1, spell, buyback=True)
+    eng.cast_spell(p1, spell, buyback=True)
+    assert p1.mana_pool.total() == 0  # {R} printed + {2}{U} buyback all spent
+
+    eng.resolve_until_stable()
+
+    assert spell in p1.hand
+    assert spell not in p1.graveyard
+    assert spell.buyback_paid is False  # cleared once consumed
+
+
+def test_buyback_cannot_be_paid_without_enough_mana():
+    eng = make_engine([instant(name="Bought Back", cost="{R}")], hand=1)
+    eng.begin_turn()
+    eng.state.current_step = "main1"
+    p1 = eng.state.active_player
+    spell = p1.hand[0]
+    spell.parametric_keywords = {"buyback": {"cost": "{2}{U}"}}
+    p1.mana_pool.add_many({"R": 1})  # nothing left over for buyback
+
+    assert not eng.can_cast(p1, spell, buyback=True)
+    with pytest.raises(ValueError):
+        eng.cast_spell(p1, spell, buyback=True)
+
+
+def test_buyback_rejected_on_a_spell_without_the_keyword():
+    eng = make_engine([instant(name="Plain Spell", cost="{R}")], hand=1)
+    eng.begin_turn()
+    eng.state.current_step = "main1"
+    p1 = eng.state.active_player
+    spell = p1.hand[0]
+    p1.mana_pool.add_many({"R": 5, "U": 5, "C": 5})
+
+    assert not eng.can_cast(p1, spell, buyback=True)
+
+
+def test_legal_actions_surfaces_buyback_offer():
+    eng = make_engine([instant(name="Bought Back", cost="{R}")], hand=1)
+    eng.begin_turn()
+    eng.state.current_step = "main1"
+    p1 = eng.state.active_player
+    spell = p1.hand[0]
+    spell.parametric_keywords = {"buyback": {"cost": "{2}{U}"}}
+    p1.mana_pool.add_many({"R": 1, "U": 1, "C": 2})
+
+    actions = eng.legal_actions(p1)
+    cast_action = next(a for a in actions if a.get("type") == "cast_spell")
+    assert cast_action["has_buyback"] is True
+    assert cast_action["buyback_cost"] == "{2}{U}"
+    assert cast_action["buyback_affordable"] is True
+
+
+# -- Flashback (RULE 702.34) --------------------------------------------------
+
+
+def _in_graveyard(player, card):
+    """A `GameObject` for ``card`` sitting directly in ``player``'s graveyard,
+    as if it had already been cast and resolved there some previous turn."""
+    obj = GameObject(card, owner_id=player.id, zone=Zone.GRAVEYARD)
+    player.add_to_zone(obj, Zone.GRAVEYARD)
+    return obj
+
+
+def test_flashback_not_castable_from_hand_or_without_the_keyword():
+    eng = make_engine([instant(name="Plain Spell", cost="{R}")], hand=1)
+    eng.begin_turn()
+    eng.state.current_step = "main1"
+    p1 = eng.state.active_player
+    spell = p1.hand[0]
+    p1.mana_pool.add_many({"R": 5, "U": 5, "C": 5})
+    p1.hand.remove(spell)
+    grave_spell = _in_graveyard(p1, spell.card)
+
+    assert not eng.can_cast(p1, grave_spell)  # no flashback keyword at all
+
+
+def test_flashback_castable_from_the_graveyard_for_its_own_cost():
+    eng = make_engine([], hand=0)
+    eng.begin_turn()
+    eng.state.current_step = "main1"
+    p1 = eng.state.active_player
+    card = instant(name="Flashed Back", cost="{3}{R}")
+    grave_spell = _in_graveyard(p1, card)
+    grave_spell.parametric_keywords = {"flashback": {"cost": "{U}"}}
+    p1.mana_pool.add_many({"U": 1})  # not enough for the printed {3}{R}
+
+    assert eng.can_cast(p1, grave_spell)  # affordable via the flashback cost
+    eng.cast_spell(p1, grave_spell)
+
+    assert p1.mana_pool.total() == 0
+    assert grave_spell not in p1.graveyard
+    assert eng.state.stack[-1].obj is grave_spell
+
+
+def test_flashback_cast_spell_is_exiled_instead_of_returning_to_the_graveyard():
+    eng = make_engine([], hand=0)
+    eng.begin_turn()
+    eng.state.current_step = "main1"
+    p1 = eng.state.active_player
+    card = instant(name="Flashed Back", cost="{3}{R}")
+    grave_spell = _in_graveyard(p1, card)
+    grave_spell.parametric_keywords = {"flashback": {"cost": "{U}"}}
+    p1.mana_pool.add_many({"U": 1})
+
+    eng.cast_spell(p1, grave_spell)
+    eng.resolve_until_stable()
+
+    assert grave_spell in p1.exile
+    assert grave_spell not in p1.graveyard
+    assert grave_spell.cast_via_flashback is False  # cleared once consumed
+
+
+def test_flashback_cannot_be_paid_without_enough_mana():
+    eng = make_engine([], hand=0)
+    eng.begin_turn()
+    eng.state.current_step = "main1"
+    p1 = eng.state.active_player
+    card = instant(name="Flashed Back", cost="{3}{R}")
+    grave_spell = _in_graveyard(p1, card)
+    grave_spell.parametric_keywords = {"flashback": {"cost": "{2}{U}"}}
+    p1.mana_pool.add_many({"U": 1})  # not enough for {2}{U}
+
+    assert not eng.can_cast(p1, grave_spell)
+    with pytest.raises(ValueError):
+        eng.cast_spell(p1, grave_spell)
+
+
+def test_legal_actions_surfaces_flashback_cast_from_graveyard():
+    eng = make_engine([], hand=0)
+    eng.begin_turn()
+    eng.state.current_step = "main1"
+    p1 = eng.state.active_player
+    card = instant(name="Flashed Back", cost="{3}{R}")
+    grave_spell = _in_graveyard(p1, card)
+    grave_spell.parametric_keywords = {"flashback": {"cost": "{U}"}}
+    p1.mana_pool.add_many({"U": 1})
+
+    actions = eng.legal_actions(p1)
+    cast_action = next(
+        a for a in actions
+        if a.get("type") == "cast_spell" and a.get("instance_id") == grave_spell.instance_id
+    )
+    assert cast_action["cast_from_graveyard"] == "flashback"
+    assert cast_action["base_cost"] == "{3}{R}"
+    assert cast_action["effective_cost"] == "{U}"
+
+
+# -- Escape (RULE 702.138) ----------------------------------------------------
+
+
+def test_escape_not_castable_without_enough_other_graveyard_cards():
+    eng = make_engine([], hand=0)
+    eng.begin_turn()
+    eng.state.current_step = "main1"
+    p1 = eng.state.active_player
+    card = creature(name="Escaped Thing", cost="{2}{B}")
+    grave_spell = _in_graveyard(p1, card)
+    grave_spell.parametric_keywords = {
+        "escape": {"cost": "{1}{B}, Exile two other cards from your graveyard"}
+    }
+    p1.mana_pool.add_many({"B": 2, "C": 1})
+    # No other cards in the graveyard yet — only the escaping card itself.
+
+    assert not eng.can_cast(p1, grave_spell)
+
+
+def test_escape_castable_once_enough_other_cards_are_present():
+    eng = make_engine([], hand=0)
+    eng.begin_turn()
+    eng.state.current_step = "main1"
+    p1 = eng.state.active_player
+    card = creature(name="Escaped Thing", cost="{2}{B}")
+    grave_spell = _in_graveyard(p1, card)
+    grave_spell.parametric_keywords = {
+        "escape": {"cost": "{1}{B}, Exile two other cards from your graveyard"}
+    }
+    _in_graveyard(p1, instant(name="Filler 1"))
+    _in_graveyard(p1, instant(name="Filler 2"))
+    p1.mana_pool.add_many({"B": 2, "C": 1})  # not enough for the printed {2}{B}
+
+    assert eng.can_cast(p1, grave_spell)  # affordable via the escape cost
+
+
+def test_escape_exiles_the_announced_other_cards_and_pays_its_own_cost():
+    eng = make_engine([], hand=0)
+    eng.begin_turn()
+    eng.state.current_step = "main1"
+    p1 = eng.state.active_player
+    card = creature(name="Escaped Thing", cost="{2}{B}")
+    grave_spell = _in_graveyard(p1, card)
+    grave_spell.parametric_keywords = {
+        "escape": {"cost": "{1}{B}, Exile two other cards from your graveyard"}
+    }
+    filler1 = _in_graveyard(p1, instant(name="Filler 1"))
+    filler2 = _in_graveyard(p1, instant(name="Filler 2"))
+    p1.mana_pool.add_many({"B": 2, "C": 1})
+
+    eng.cast_spell(p1, grave_spell)
+
+    assert p1.mana_pool.total() == 1  # {1}{B} escape cost spent, {B}{C} pool - 2 leaves 1
+    assert grave_spell not in p1.graveyard
+    assert filler1 in p1.exile
+    assert filler2 in p1.exile
+    assert filler1 not in p1.graveyard
+    assert filler2 not in p1.graveyard
+
+
+def test_escape_cast_creature_resolves_onto_the_battlefield():
+    eng = make_engine([], hand=0)
+    eng.begin_turn()
+    eng.state.current_step = "main1"
+    p1 = eng.state.active_player
+    card = creature(name="Escaped Thing", cost="{2}{B}")
+    grave_spell = _in_graveyard(p1, card)
+    grave_spell.parametric_keywords = {"escape": {"cost": "{1}{B}"}}  # no exile component
+    p1.mana_pool.add_many({"B": 2, "C": 1})
+
+    eng.cast_spell(p1, grave_spell)
+    eng.resolve_until_stable()
+
+    assert grave_spell in eng.state.battlefield
+    assert grave_spell not in p1.graveyard
+    assert grave_spell not in p1.exile  # unlike Flashback, Escape doesn't exile after resolving
+
+
+def test_legal_actions_surfaces_escape_offer():
+    eng = make_engine([], hand=0)
+    eng.begin_turn()
+    eng.state.current_step = "main1"
+    p1 = eng.state.active_player
+    card = creature(name="Escaped Thing", cost="{2}{B}")
+    grave_spell = _in_graveyard(p1, card)
+    grave_spell.parametric_keywords = {
+        "escape": {"cost": "{1}{B}, Exile two other cards from your graveyard"}
+    }
+    _in_graveyard(p1, instant(name="Filler 1"))
+    _in_graveyard(p1, instant(name="Filler 2"))
+    p1.mana_pool.add_many({"B": 2, "C": 1})
+
+    actions = eng.legal_actions(p1)
+    cast_action = next(
+        a for a in actions
+        if a.get("type") == "cast_spell" and a.get("instance_id") == grave_spell.instance_id
+    )
+    assert cast_action["cast_from_graveyard"] == "escape"
+    assert cast_action["escape_exile_count"] == 2
+    assert cast_action["effective_cost"] == "{1}{B}"
 
 
 def test_bind_from_catalogue_creates_equipment_ability_from_keyword():

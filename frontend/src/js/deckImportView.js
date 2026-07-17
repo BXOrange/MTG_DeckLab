@@ -46,6 +46,7 @@ export function renderDeckImportView(container, { onDeckLoaded } = {}) {
           <label for="deck-name-input">Deckname (zum Speichern)</label>
           <div class="save-deck-controls">
             <input id="deck-name-input" type="text" placeholder="z.B. Krenko Goblins" />
+            <input id="deck-author-input" type="text" placeholder="Autor (optional)" />
             <button id="update-deck-btn" type="button">Aktualisieren</button>
             <button id="save-new-deck-btn" type="button">Als neues speichern</button>
           </div>
@@ -62,6 +63,7 @@ export function renderDeckImportView(container, { onDeckLoaded } = {}) {
   const mainboardTextarea = container.querySelector('#mainboard-textarea');
   const sideboardTextarea = container.querySelector('#sideboard-textarea');
   const nameInput = container.querySelector('#deck-name-input');
+  const authorInput = container.querySelector('#deck-author-input');
   const saveStatusEl = container.querySelector('#save-status');
   const resultEl = container.querySelector('#import-result');
 
@@ -147,6 +149,7 @@ export function renderDeckImportView(container, { onDeckLoaded } = {}) {
     savedDeckId = null;
     updateSaveButtons();
     nameInput.value = '';
+    authorInput.value = '';
     saveStatusEl.textContent = '';
     saveStatusEl.className = 'server-status';
   });
@@ -196,7 +199,12 @@ export function renderDeckImportView(container, { onDeckLoaded } = {}) {
     saveStatusEl.className = 'server-status pending';
 
     const id = update ? savedDeckId ?? undefined : undefined;
-    const saved = await saveDeck({ id, name: nameInput.value, ...currentSections() });
+    const saved = await saveDeck({
+      id,
+      name: nameInput.value,
+      author: authorInput.value.trim() || null,
+      ...currentSections(),
+    });
 
     if (!saved) {
       saveStatusEl.textContent = 'Speichern fehlgeschlagen – Server nicht erreichbar.';
@@ -217,6 +225,7 @@ export function renderDeckImportView(container, { onDeckLoaded } = {}) {
     savedDeckId = savedDeck.id;
     updateSaveButtons();
     nameInput.value = savedDeck.name || '';
+    authorInput.value = savedDeck.author || '';
     commanderTextarea.value = savedDeck.commanderText || '';
     mainboardTextarea.value = savedDeck.mainboardText || '';
     sideboardTextarea.value = savedDeck.sideboardText || '';

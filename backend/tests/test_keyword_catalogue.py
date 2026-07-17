@@ -108,14 +108,32 @@ class TestCostKeywords:
         assert specs[0].keyword == {"name": "equip", "cost": "{2}"}
 
     def test_escape_reads_cost_after_the_dash(self):
+        # The full clause is captured (not just the mana pips) — the
+        # "Exile N other cards from your graveyard" component is genuinely
+        # modeled downstream (`game/costs.parse_activation_cost`), not
+        # merely carried, so dropping it here would silently lose it.
         specs = parse_keywords(
             _card(["Escape"], "Escape—{2}{B}{B}, Exile four other cards from your graveyard.")
         )
-        assert specs[0].keyword == {"name": "escape", "cost": "{2}{B}{B}"}
+        assert specs[0].keyword == {
+            "name": "escape",
+            "cost": "{2}{B}{B}, Exile four other cards from your graveyard",
+        }
 
-    def test_ward_without_a_mana_cost_stays_bare(self):
+    def test_ward_without_a_mana_cost_falls_back_to_free_text(self):
+        # A non-mana ward cost isn't dropped (unlike other COST-shaped
+        # keywords with no mana-cost match) — it's genuinely modeled
+        # downstream via `game/costs.parse_activation_cost`.
         specs = parse_keywords(_card(["Ward"], "Ward—Pay 3 life."))
-        assert specs[0].keyword == {"name": "ward"}
+        assert specs[0].keyword == {"name": "ward", "cost": "Pay 3 life"}
+
+    def test_ward_discard_cost_falls_back_to_free_text(self):
+        specs = parse_keywords(_card(["Ward"], "Ward—Discard a card."))
+        assert specs[0].keyword == {"name": "ward", "cost": "Discard a card"}
+
+    def test_ward_sacrifice_cost_falls_back_to_free_text(self):
+        specs = parse_keywords(_card(["Ward"], "Ward—Sacrifice a creature."))
+        assert specs[0].keyword == {"name": "ward", "cost": "Sacrifice a creature"}
 
 
 # --- Parametric: NUMBER_COST ------------------------------------------------
@@ -150,6 +168,29 @@ class TestQualityKeywords:
     def test_two_landwalks_both_survive(self):
         specs = parse_keywords(_card(["Islandwalk", "Forestwalk"]))
         assert [s.keyword["quality"] for s in specs] == ["island", "forest"]
+
+
+# --- Daybound/Nightbound face scoping (RULE 702.145) -------------------------
+
+
+class TestDayboundNightbound:
+    def test_recognised_from_the_keywords_array(self):
+        specs = parse_keywords(_card(["Daybound"], "Daybound"))
+        assert {s.keyword["name"] for s in specs} == {"daybound"}
+
+    def test_recovered_from_oracle_text_when_missing_from_the_array(self):
+        # Mirrors the "Enchant" cross-check above: `Card.back_face` never
+        # carries a separate keywords list for the back face, so a
+        # daybound/nightbound DFC's *current* face is only ever named in its
+        # own oracle_text — the ground truth here, same as Enchant.
+        specs = parse_keywords(_card([], "Nightbound"))
+        assert {s.keyword["name"] for s in specs} == {"nightbound"}
+
+    def test_a_face_never_claims_the_opposite_faces_keyword(self):
+        # The front face's own text never mentions "Nightbound" (RULE 702.145a:
+        # they live on opposite faces), so only "daybound" is recognised here.
+        specs = parse_keywords(_card([], "Daybound"))
+        assert {s.keyword["name"] for s in specs} == {"daybound"}
 
 
 # --- Security / validation --------------------------------------------------

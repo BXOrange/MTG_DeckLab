@@ -1,13 +1,16 @@
-// WebSocket client for the backend's /ws/game/{game_id} — connection
-// plumbing only (see backend/Done_Backend.md "HTTP API foundation",
-// docs/04_SERVER_CLIENT_ARCHITECTURE.md PART 4 "WebSocket Messages").
+// WebSocket client for the backend's /ws/game/{game_id} (see
+// docs/implementation-state/Done_Backend.md "HTTP API foundation",
+// docs/concepts/04_SERVER_CLIENT_ARCHITECTURE.md PART 4 "WebSocket Messages").
 //
-// This relay predates the real engine: the server just echoes a sent
-// player_action back to every connection on the same game_id as a
-// game_state_update, without validating or executing anything. Solo play
-// now goes through the REST game-session API instead (see goldfishView.js
-// / api/game.py); this WebSocket is kept for the eventual multiplayer
-// push channel (an opponent's moves), not yet wired into the UI.
+// A sent player_action is run server-side through the GameSession
+// registered under game_id (the same session a REST
+// POST /api/game/goldfish|replay call started) and the resulting session
+// view is broadcast to every connection on that game_id as a
+// game_state_update (message.view); an illegal action or unknown game_id
+// comes back as an error to the sender alone. Solo play still goes through
+// the REST game-session API directly (see goldfishView.js / api/game.py);
+// this socket is for the eventual interactive multiplayer session
+// (pushing an opponent's moves) and isn't wired into any view yet.
 //
 // Uses the same user-configurable backend address as api.js (see
 // settings.js), translated to a ws(s):// URL.

@@ -1,6 +1,6 @@
 """FastAPI application factory and instance for the MTG Deck Analyzer backend.
 
-Reference: docs/04_SERVER_CLIENT_ARCHITECTURE.md (PART 7, Phase 1).
+Reference: docs/concepts/04_SERVER_CLIENT_ARCHITECTURE.md (PART 7, Phase 1).
 """
 
 from __future__ import annotations
@@ -13,6 +13,7 @@ from mtg_analyzer.api.decks import router as decks_router
 from mtg_analyzer.api.game import router as game_router
 from mtg_analyzer.api.game_ws import router as game_ws_router
 from mtg_analyzer.api.images import router as images_router
+from mtg_analyzer.api.import_external import router as import_external_router
 from mtg_analyzer.api.player_assets import router as player_assets_router
 from mtg_analyzer.api.saved_decks import router as saved_decks_router
 
@@ -37,6 +38,7 @@ def create_app() -> FastAPI:
     app.include_router(game_router)
     app.include_router(game_ws_router)
     app.include_router(player_assets_router)
+    app.include_router(import_external_router)
 
     @app.get("/api/health")
     def health() -> dict[str, str]:

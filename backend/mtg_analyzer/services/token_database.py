@@ -1,6 +1,6 @@
 """Read-only catalogue of token definitions, committed to the repository.
 
-Reference: docs/09_ORACLE_EFFECT_PARSER.md (the three-tier durability
+Reference: docs/concepts/09_ORACLE_EFFECT_PARSER.md (the three-tier durability
 model — a curated catalogue lives in the repo, in contrast with the
 volatile, lazily-populated card cache).
 

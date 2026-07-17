@@ -191,6 +191,241 @@ def test_control_change_reassigns_and_is_idempotent():
     assert stolen.controller_id == "p2"
 
 
+# -- RULE 613.8 same-layer dependency ordering (layer 2 only) ----------------
+
+
+def test_control_change_ordering_unaffected_when_all_same_bucket():
+    # Regression guard: every existing control_change use is self/attached_
+    # permanent-scoped, so `_order_control_effects` must be a no-op (plain
+    # timestamp order) whenever nothing is controller-scoped.
+    eng = make_engine()
+    bear = put(eng.state, creature("Bear", power=2, toughness=2), controller="p2")
+    first = put(eng.state, creature("First"), controller="p1")
+    second = put(eng.state, creature("Second"), controller="p1")
+    static("control", "self", {"controller": "p1"}, first)  # unrelated source
+    static("control", "self", {"controller": "p2"}, bear)
+    static("control", "self", {"controller": "p1"}, second)
+    continuous.recompute(eng.state)
+    assert bear.controller_id == "p2"  # only the ability sourced on `bear` applies to it
+
+
+def test_control_change_dependency_overrides_timestamp_order():
+    # The textbook CR 613.8 example: a direct control-change ("gain control
+    # of target creature") and a controller-scoped one ("you control
+    # creatures you control" — i.e. everything the ability's controller now
+    # controls gets reassigned again) where the scoped one's *result*
+    # depends on whether the direct one already ran. Direct-scoped abilities
+    # must always apply first regardless of timestamp (here the scoped
+    # ability is given the earlier timestamp, to prove it's not coincidental
+    # ordering).
+    eng = make_engine()
+    stolen = put(eng.state, creature("Beast"), controller="p2")  # p2's creature
+    stolen.timestamp = 2  # later — the direct ability's sort key
+
+    scoped_source = put(eng.state, creature("Scoped Source"), controller="p1")
+    scoped_source.timestamp = 1  # earlier — the scoped ability's sort key
+
+    # "You control creatures you control" (a no-op on its own, just re-stamps
+    # p1's own creatures) reassigns to p2 — but only what's already p1's *at
+    # the time it applies*.
+    static("control", "creatures_you_control", {"controller": "p2"}, scoped_source)
+    # "Gain control of target creature" — steals `stolen` from p2 to p1.
+    static("control", "self", {"controller": "p1"}, stolen)
+
+    continuous.recompute(eng.state)
+    # If the scoped ability incorrectly ran first (pure timestamp order), it
+    # would see `stolen` still under p2 and leave it alone, and `stolen`
+    # would end up under p1 (the direct ability applying after). Correct
+    # RULE 613.8 order (direct first) instead lets the scoped ability see
+    # `stolen` already under p1 and hand it straight to p2.
+    assert stolen.controller_id == "p2"
+
+
+# -- Layer 1: conditional/continuous copy effects (RULE 707) ----------------
+#
+# `become_copy` wipes and rebinds an object's whole ability set from the
+# copied card (RULE 706.2), so a plain copy target (e.g. a bare "Grave
+# Titan") *consumes* the very "copy" ability that caused the copy — the real
+# Vesuvan Shapeshifter ruling ("won't be able to change again unless
+# something else allows it"). Testing revert/re-target/no-op behavior across
+# more than one recompute therefore needs a copy target whose *own* card
+# grants an equivalent `conditional_copy` ability, so it survives the wipe —
+# a "Test Vesuvan Clone" registered here, mirroring `test_tokens.py`'s
+# register-then-pop pattern for a test-only catalogue entry.
+
+
+@pytest.fixture
+def vesuvan_clone_target(request):
+    from mtg_analyzer.game import ability_catalogue
+    from mtg_analyzer.parser.oracle.spec import AbilitySpec, EffectSpec
+
+    ability_catalogue.register(
+        "Test Vesuvan Clone",
+        lambda: [AbilitySpec(
+            "static",
+            [EffectSpec("conditional_copy", {"requires_untapped": True})],
+        )],
+    )
+    request.addfinalizer(lambda: ability_catalogue._REGISTRY.pop("test vesuvan clone", None))
+    return creature("Test Vesuvan Clone", power=6, toughness=6, oracle_text="")
+
+
+def test_conditional_copy_applies_while_condition_holds(vesuvan_clone_target):
+    eng = make_engine()
+    src = put(eng.state, creature("Shifter", power=1, toughness=1))
+    target = put(eng.state, vesuvan_clone_target)
+    static("copy", "self", {"requires_untapped": True}, src)
+    src.copy_target_id = target.instance_id
+    continuous.recompute(eng.state)
+    assert src.card.name == "Test Vesuvan Clone"
+    assert (src.power, src.toughness) == (6, 6)
+
+
+def test_conditional_copy_reverts_when_condition_stops_holding(vesuvan_clone_target):
+    eng = make_engine()
+    src = put(eng.state, creature("Shifter", power=1, toughness=1))
+    target = put(eng.state, vesuvan_clone_target)
+    static("copy", "self", {"requires_untapped": True}, src)
+    src.copy_target_id = target.instance_id
+    continuous.recompute(eng.state)
+    assert src.card.name == "Test Vesuvan Clone"
+
+    src.tapped = True  # condition ("as long as untapped") stops holding
+    continuous.recompute(eng.state)
+    assert src.card.name == "Shifter"
+    assert (src.power, src.toughness) == (1, 1)
+
+
+def test_conditional_copy_reapplies_when_condition_holds_again(vesuvan_clone_target):
+    eng = make_engine()
+    src = put(eng.state, creature("Shifter", power=1, toughness=1))
+    target = put(eng.state, vesuvan_clone_target)
+    static("copy", "self", {"requires_untapped": True}, src)
+    src.copy_target_id = target.instance_id
+    continuous.recompute(eng.state)
+    src.tapped = True
+    continuous.recompute(eng.state)
+    assert src.card.name == "Shifter"
+
+    src.tapped = False
+    continuous.recompute(eng.state)
+    assert src.card.name == "Test Vesuvan Clone"
+
+
+def test_conditional_copy_switches_to_a_new_target(vesuvan_clone_target):
+    eng = make_engine()
+    src = put(eng.state, creature("Shifter", power=1, toughness=1))
+    target_a = put(eng.state, vesuvan_clone_target)
+    target_b = put(eng.state, creature("Bear", power=2, toughness=2))
+    static("copy", "self", {"requires_untapped": True}, src)
+    src.copy_target_id = target_a.instance_id
+    continuous.recompute(eng.state)
+    assert src.card.name == "Test Vesuvan Clone"
+
+    src.copy_target_id = target_b.instance_id
+    continuous.recompute(eng.state)
+    assert src.card.name == "Bear"
+    assert (src.power, src.toughness) == (2, 2)
+
+
+def test_conditional_copy_is_transition_only_and_preserves_bookkeeping(vesuvan_clone_target):
+    # Once already applied to the same target, a second recompute must NOT
+    # re-run the mutate/rebind — otherwise per-turn bookkeeping on the
+    # copy's own abilities (e.g. a granted TriggeredAbility's "once per
+    # turn" state) would be silently destroyed every single pass.
+    eng = make_engine()
+    src = put(eng.state, creature("Shifter", power=1, toughness=1))
+    target = put(eng.state, vesuvan_clone_target)
+    static("copy", "self", {"requires_untapped": True}, src)
+    src.copy_target_id = target.instance_id
+    continuous.recompute(eng.state)
+    assert src.card.name == "Test Vesuvan Clone"
+    # The copied card grants an equivalent "copy" ability, so it survives
+    # the wipe-and-rebind — the transition-only guard is what's actually
+    # under test on the next pass, not "the ability disappeared".
+    assert any(isinstance(ab, StaticAbility) and ab.layer == "copy" for ab in src.static_effects)
+
+    sentinel = object()
+    src.activated_abilities = [sentinel]
+    continuous.recompute(eng.state)  # same target, condition still holds
+    assert src.activated_abilities == [sentinel]  # untouched: no re-copy
+
+
+def test_conditional_copy_locks_in_once_the_copied_card_grants_no_similar_ability():
+    # Real Vesuvan Shapeshifter ruling: copying a creature without a similar
+    # ability consumes the very ability that caused it — it won't change (or
+    # revert) again on its own.
+    eng = make_engine()
+    src = put(eng.state, creature("Shifter", power=1, toughness=1))
+    target = put(eng.state, creature("Grave Titan", power=6, toughness=6))
+    static("copy", "self", {"requires_untapped": True}, src)
+    src.copy_target_id = target.instance_id
+    continuous.recompute(eng.state)
+    assert src.card.name == "Grave Titan"
+    assert not any(isinstance(ab, StaticAbility) and ab.layer == "copy" for ab in src.static_effects)
+
+    src.tapped = True
+    continuous.recompute(eng.state)
+    assert src.card.name == "Grave Titan"  # no revert: the "copy" ability is gone
+    src.tapped = False
+    continuous.recompute(eng.state)
+    assert src.card.name == "Grave Titan"  # and no needless re-copy either
+
+
+def test_conditional_copy_survives_target_leaving_the_battlefield():
+    eng = make_engine()
+    src = put(eng.state, creature("Shifter", power=1, toughness=1))
+    target = put(eng.state, creature("Grave Titan", power=6, toughness=6))
+    static("copy", "self", {"requires_untapped": True}, src)
+    src.copy_target_id = target.instance_id
+    continuous.recompute(eng.state)
+    assert src.card.name == "Grave Titan"
+
+    eng.state.remove_from_battlefield(target)
+    continuous.recompute(eng.state)
+    assert src.card.name == "Grave Titan"  # only the condition reverts a copy, not target liveness
+
+
+# -- Layer 3: text-changing effects (RULE 612), scoped -----------------------
+# The canonical Artificial-Evolution case: "protection from red" -> "protection
+# from blue" — the one real, already-live-re-derived consumer this engine has
+# (`combat.protections_of_text`, via `GameObject.effective_oracle_text`).
+
+
+def test_text_change_rewrites_a_colour_word_and_flips_protection():
+    eng = make_engine()
+    src = put(eng.state, creature("Wall", oracle_text="Protection from red."))
+    attacker = put(eng.state, creature("Red Ogre", oracle_text=""), controller="p2")
+    attacker.card.color_identity = {"R"}
+    assert combat.is_protected_from(src, attacker)  # baseline: protected from red
+
+    static("text", "self", {"replace": {"red": "blue"}}, src)
+    continuous.recompute(eng.state)
+    assert src.effective_oracle_text == "Protection from blue."
+    assert not combat.is_protected_from(src, attacker)  # no longer protected from red…
+    attacker.card.color_identity = {"U"}
+    assert combat.is_protected_from(src, attacker)  # …but now protected from blue
+
+
+def test_text_change_does_not_affect_bound_abilities():
+    # Scoped deliberately: layer 3 here only feeds `effective_oracle_text`
+    # (consulted by `protections_of_text`); it does not re-derive
+    # abilities/keywords, which stay bound once from the printed text.
+    eng = make_engine()
+    src = put(eng.state, creature("Wall", oracle_text="Protection from red.",
+                                  keywords=["Flying"]))
+    static("text", "self", {"replace": {"red": "blue"}}, src)
+    continuous.recompute(eng.state)
+    assert combat.has_flying(src)  # unaffected — bound once at bind time
+
+
+def test_text_change_absent_leaves_effective_text_as_printed():
+    eng = make_engine()
+    src = put(eng.state, creature("Wall", oracle_text="Protection from red."))
+    continuous.recompute(eng.state)
+    assert src.effective_oracle_text == "Protection from red."
+
+
 # -- "attached_permanent": Aura/Equipment/Fortify/Reconfigure buffs ----------
 
 

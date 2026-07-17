@@ -1,21 +1,26 @@
 # Frontend TODO
 
-Open frontend items. Completed work has moved to
-[Done_Frontend.md](Done_Frontend.md) (section headers there mirror
-these). No Node/npm on this machine, so there's no JS linter/test runner
-and no way to drive a real browser — changes are verified by reading the
-code plus replaying the equivalent API calls against a running backend,
-**not** by an actual rendered page (see "Cleanup / polish").
+Open frontend items only — **when an item is finished, move its narrative
+into the matching section of
+[Done_Frontend.md](../docs/implementation-state/Done_Frontend.md) (section
+headers here mirror there) instead of leaving it checked off in place**; a
+one-line "moved to Done_Frontend.md, section name" pointer, or deleting the
+line outright, is enough — see CLAUDE.md "Conventions & gotchas". No
+Node/npm on this machine, so there's no JS linter/formatter/typecheck, but
+real-browser verification *is* available: Playwright (Python) lives in
+`backend/venv`, driving a real Chromium against the static frontend server
+plus a running backend (`page.goto`/`.click`/`.screenshot`) — use it for any
+non-trivial UI change instead of reading code + replaying API calls.
 
 ## Import — follow-ups
 
-- [ ] Direct import from external deck builders (Moxfield, Archidekt,
-      …) was tried and reverted: fetching `api.moxfield.com` directly
-      from the browser hit Cloudflare bot protection (HTTP 403 on the
-      deck page, `/download`, and both v2/v3 API endpoints). Revisit once
-      the backend can proxy it server-side
-      (`GET /api/import/moxfield/{id}`) — still no guarantee it gets past
-      bot protection, but removes the browser-CORS obstacle.
+- [ ] Moxfield import: tried twice (client-side fetch, then a
+      server-side proxy) and reverted both times — Cloudflare blocks it
+      genuinely (not just a CORS/header issue; confirmed via a live test
+      against a real deck id, see `../backend/ToDo_Backend.md` "Import —
+      follow-up from the frontend"), so it's parked pending a
+      headless-browser fallback or similar, not a quick fix. Archidekt
+      import shipped instead (`Done_Frontend.md` "Import").
 
 ## Backend integration
 
@@ -29,29 +34,45 @@ code plus replaying the equivalent API calls against a running backend,
 
 ## Game engine hookup
 
-- [ ] Targeting UI: select target(s) when a spell/ability requires it
-      (docs/05 PART 5). Search-your-library *choices* are handled (the
-      "🔎 Suche …" panel), but a spell that needs a chosen target on cast
-      still can't pick one from the UI.
+Targeting UI, activated abilities beyond tap-for-mana, planeswalker loyalty
+(abilities + display), Aura/Equipment attachment UX, and the conditional-land
+prompt all shipped — moved to
+[Done_Frontend.md](../docs/implementation-state/Done_Frontend.md) "Game
+engine hookup".
+
 - [ ] Subset attacker selection: attacking currently swings with **every**
       able creature (one "⚔️ Angreifen (N)" control). Per-creature select
       needs the backend to accumulate declared attackers rather than
       replace them.
-- [ ] Activated abilities beyond tap-for-mana — arbitrary costed
-      abilities on permanents (docs/05 PART 6). Tap-for-mana (incl. the
-      dual-land colour choice) is done.
-- [ ] Planeswalker loyalty abilities: render the `[+N]`/`[-N]`/`[0]`
-      abilities as clickable controls (sorcery-speed, once per turn) and
-      show the loyalty counter — blocked on the backend loyalty-ability
-      engine (backend/ToDo_Backend.md "Loyalty / planeswalker abilities").
-- [ ] Aura/Equipment attachment UX: pick a target when casting an Aura and
-      an "Ausrüsten" (equip) control on equipment, then show the buff on
-      the host — blocked on backend attachment resolution
-      (backend/ToDo_Backend.md "Aura / Equipment attachment"). The current
-      board only groups attachments visually.
-- [ ] Conditional-land prompt: when a shock/check land enters, ask whether
-      to pay 2 life / show the untapped-vs-tapped outcome, once the backend
-      models the choice (backend/ToDo_Backend.md "Conditional enters-tapped").
+- [ ] Restricted-mana display: a mana ability's RULE 605.3a "Spend this
+      mana only to cast a creature spell" restriction is now tracked
+      server-side (`models/mana_pool.py`'s tagged `restricted` lots,
+      `Player.to_dict`'s additive `mana_pool.restricted` key) but the
+      board's mana-pool readout doesn't distinguish it from ordinary mana
+      yet — a player can't currently see *which* floating mana is
+      restricted, or to what.
+- [ ] "Any combination of colors" split UI: a `tap_for_mana` action for
+      such an ability (RULE 605.1a — Flamebraider/Gwenna/Smokebraider/
+      Selvala) now carries `any_combination: true` and `combination_total`
+      (`GameEngine.legal_actions`), and the action accepts a `color_split`
+      dict (`{colour: count}` summing to the total,
+      `services/game_session.py`), but there's no UI to build one yet —
+      the board still only offers the existing per-colour buttons (a
+      legal but inflexible single-colour tap).
+- [ ] Hand-zone mana abilities ("Exile this card from your hand: Add …",
+      RULE 605.1a — Elvish/Simian Spirit Guide) have a working backend
+      path now (`GameEngine.activate_hand_mana_ability`, a new
+      `activate_hand_mana` legal-action kind alongside `tap_for_mana`),
+      but the board has no UI trigger for it — a card in hand can only be
+      played/cast today, not exiled for mana.
+- [ ] "Up to one target" (RULE 115.1a — `destroy up to one target
+      creature`-shaped clauses, `TargetSpec.optional`) is now recognized
+      and never locks a cast/legal-actions offer server-side, but the
+      target-selection UI has no way to actually *decline* an optional
+      target — a player can pick one of the offered options, but not
+      submit "none". Casting with no `targets` (or an empty list) is
+      already a legal request (`services/game_session.py`'s
+      `_resolve_targets` treats an empty list the same as omitted).
 
 ## Multiplayer
 
@@ -71,10 +92,17 @@ code plus replaying the equivalent API calls against a running backend,
 
 ## Deck analysis (UC2)
 
-- [ ] "Analyze deck" button + results view (win conditions, archetype,
+Static/numeric analysis (mana curve, land archetypes, Command Zone
+categories, Bracket-Analyse) is done — see `Done_Frontend.md` "Deck
+analysis (UC2)". Still open, blocked on the backend LLM endpoint:
+
+- [ ] Narrative "Analyze deck" results (win conditions, archetype,
       synergies, cohesion score, issues) once
       `POST /api/decks/{id}/analyze` exists (docs/02 UC2, docs/04 Phase 6).
-- [ ] Cache indicator ("Analysis from X ago").
+      Would sit alongside the existing static/Bracket sub-tabs, not
+      replace them.
+- [ ] Cache indicator ("Analysis from X ago") for that LLM result once it
+      exists.
 
 ## Bot mode (UC5)
 
@@ -83,11 +111,6 @@ code plus replaying the equivalent API calls against a running backend,
 
 ## Cleanup / polish
 
-- [ ] Tooling: no Node/npm on this machine, so no linter, formatter, or
-      automated JS test runner, and no way to drive a real browser for UI
-      verification (no Playwright/chromium-cli either). Logic was verified
-      ad hoc via `osascript -l JavaScript` (JavaScriptCore) in the past —
-      worth a real test + browser-automation setup once Node is available.
 - [ ] Keyboard shortcuts (docs/05 PART 9).
 - [ ] Accessibility: alt-text on cards, tab navigation, high-contrast
       mode (docs/05 PART 10).

@@ -1,7 +1,7 @@
 """Deck model: a saved decklist, identified by a UUID rather than its name.
 
-Reference: docs/04_SERVER_CLIENT_ARCHITECTURE.md (PART 4, REST
-endpoints), backend/Done_Backend.md "Deck persistence".
+Reference: docs/concepts/04_SERVER_CLIENT_ARCHITECTURE.md (PART 4, REST
+endpoints), docs/implementation-state/Done_Backend.md "Deck persistence".
 """
 
 from __future__ import annotations
@@ -34,6 +34,11 @@ class Deck:
     the goldfish board as the fallback "back of card" art for a face-down
     object with no real art of its own.
 
+    `author` is a free-text, optional credit for who built the deck (may be
+    empty/`None`) — purely descriptive, shown in the saved-decks list, set
+    the same way `sleeve_id` is (edited from the saved-decks list, or at
+    creation time).
+
     `color_identity`/`commanders` are derived from the decklist text (RULE
     903.4 for the color-identity definition) but, unlike everything else on
     this model, cached rather than re-derived on every read: computing them
@@ -57,6 +62,7 @@ class Deck:
         created_at: Optional[str] = None,
         analysis_id: Optional[str] = None,
         sleeve_id: Optional[str] = None,
+        author: Optional[str] = None,
         color_identity: Optional[list[str]] = None,
         commanders: Optional[list[str]] = None,
     ) -> None:
@@ -68,6 +74,7 @@ class Deck:
         self.created_at = created_at or datetime.now(timezone.utc).isoformat()
         self.analysis_id = analysis_id
         self.sleeve_id = sleeve_id
+        self.author = author
         self.color_identity = color_identity
         self.commanders = commanders
 
@@ -82,6 +89,7 @@ class Deck:
             "createdAt": self.created_at,
             "analysisId": self.analysis_id,
             "sleeveId": self.sleeve_id,
+            "author": self.author,
             "colorIdentity": self.color_identity,
             "commanders": self.commanders,
         }
@@ -98,6 +106,7 @@ class Deck:
             created_at=data.get("createdAt"),
             analysis_id=data.get("analysisId"),
             sleeve_id=data.get("sleeveId"),
+            author=data.get("author"),
             color_identity=data.get("colorIdentity"),
             commanders=data.get("commanders"),
         )

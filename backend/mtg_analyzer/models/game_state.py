@@ -1,7 +1,7 @@
 """GameState: the whole shared game (RULE 100, RULE 400 shared zones).
 
-Reference: docs/02_MVP_USECASES_REVISED.md R1.3 (Game State), R4.1 (Game
-Loop), docs/07_GAME_LOOP_EFFECT_SYSTEM.md.
+Reference: docs/requirements/02_MVP_USECASES_REVISED.md R1.3 (Game State), R4.1 (Game
+Loop), docs/concepts/07_GAME_LOOP_EFFECT_SYSTEM.md.
 
 This is the single source of truth for a game in progress: the players,
 the shared battlefield/stack, whose turn it is, which phase/step we're
@@ -18,7 +18,7 @@ import copy
 import uuid
 from typing import Any, Callable, Optional
 
-from .events import GameEvent
+from .events import EventType, GameEvent
 from .game_object import GameObject, Zone
 from .player import Player
 
@@ -38,6 +38,24 @@ class StackItem:
     ``"triggered_ability"``, or ``"activated_ability"`` (RULE 601 / 602 /
     603). When not given it is derived from the effect on the stack by
     class name, which keeps this model free of a `game/` import.
+
+    ``source`` is the permanent an *ability* item's stack image/overlay is
+    shown for — a triggered ability's `TriggeredAbility.source` or an
+    activated ability's own permanent (RULE 113.7a: the source of a
+    granted ability is the object that has it, not whatever granted it).
+    ``None`` for a spell (``obj`` already *is* the thing on the stack) or
+    for the rare hand-built ability with no bound source.
+
+    ``target_groups``, when given, partitions ``targets`` by *which*
+    targeting effect in ``effects`` it belongs to (index-aligned: group 0
+    is the first effect with a ``target_spec``, group 1 the second, …;
+    an effect with no ``target_spec`` consumes no group). This is what lets
+    2+ *different* targeting effects on one spell/ability each resolve
+    against their own targets instead of all reading off the front of one
+    shared ``targets`` list (RULE 115.1/601.2c — see
+    `docs/implementation-state/ToDo_EdgeCases.md`). ``None`` (the common
+    case: at most one targeting effect) keeps the legacy behaviour of every
+    effect reading ``targets`` directly.
     """
 
     def __init__(
@@ -50,6 +68,8 @@ class StackItem:
         targets: Optional[list[Any]] = None,
         x: int = 0,
         category: Optional[str] = None,
+        source: Optional[GameObject] = None,
+        target_groups: Optional[list[list[Any]]] = None,
     ) -> None:
         self.kind = kind
         self.controller_id = controller_id
@@ -57,8 +77,10 @@ class StackItem:
         self.obj = obj
         self.description = description
         self.targets = targets or []
+        self.target_groups = target_groups
         self.x = x
         self.category = category or self._derive_category()
+        self.source = source
 
     def _derive_category(self) -> str:
         """Classify the item for display without importing `game/` types.
@@ -87,6 +109,10 @@ class StackItem:
             "object": self.obj.to_dict() if self.obj else None,
             "type_line": self.obj.card.type_line if self.obj else "",
             "x": self.x,
+            # An ability item's source permanent (None for a spell — `object`
+            # above already covers it) — the UI shows this card's image with
+            # the ability text overlaid, and a link back to it.
+            "source": self.source.to_dict() if self.source else None,
         }
 
     def __repr__(self) -> str:
@@ -177,6 +203,22 @@ class GameState:
             },
             "timeline": [],
         }
+
+        #: The game's day/night designation (RULE 731) — ``None`` until a
+        #: daybound/nightbound permanent (RULE 702.145) establishes it, then
+        #: exactly one of ``"day"``/``"night"`` for the rest of the game.
+        self.day_night: Optional[str] = None
+        #: Spells cast by each player *this turn* (RULE 731.2's "did the
+        #: active player cast any/2+ spells last turn" check) — reset for the
+        #: new active player in `GameEngine.begin_turn`, incremented off the
+        #: `SPELL_CAST` event by `RulesEngine._track_spell_cast`.
+        self.spells_cast_this_turn: dict[str, int] = {p.id: 0 for p in players}
+        #: The previous turn's active player id + their final spell count,
+        #: captured by `begin_turn` right before rotating so the *next*
+        #: turn's untap step can apply RULE 731.2a/2b. ``None`` on turn 1
+        #: (no previous turn to check).
+        self._last_turn_player_id: Optional[str] = None
+        self._last_turn_spell_count: int = 0
 
         #: Chronological log of everything fired; also the record the
         #: WebSocket layer can diff to build ``game_state_update``s.
@@ -306,9 +348,41 @@ class GameState:
         if obj.is_planeswalker and obj.card.loyalty and "loyalty" not in obj.counters:
             obj.counters["loyalty"] = obj.card.loyalty
         # RULE 714.2b: a Saga enters with a lore counter (its first chapter).
-        if obj.card.is_saga and not obj.is_token and "lore" not in obj.counters:
+        is_entering_saga = obj.card.is_saga and not obj.is_token and "lore" not in obj.counters
+        if is_entering_saga:
             obj.counters["lore"] = 1
+        # RULE 716.2b: a Class enters the battlefield at class level 1.
+        is_entering_class = (
+            obj.card.is_class and not obj.is_token and "class_level" not in obj.counters
+        )
+        if is_entering_class:
+            obj.counters["class_level"] = 1
         self.battlefield.append(obj)
+        # Fired here (rather than left to the caller, unlike ENTERS_BATTLEFIELD)
+        # so chapter I's ability triggers regardless of *how* the Saga reached
+        # the battlefield (cast normally, or put there some other way) — after
+        # appending, since a trigger's condition scopes by `instance_id` and
+        # `_collect_triggers` only scans currently-on-battlefield objects.
+        if is_entering_saga:
+            self.fire_event(
+                GameEvent(
+                    EventType.SAGA_CHAPTER,
+                    object=obj.name,
+                    instance_id=obj.instance_id,
+                    controller_id=obj.controller_id,
+                    chapter=1,
+                )
+            )
+        if is_entering_class:
+            self.fire_event(
+                GameEvent(
+                    EventType.CLASS_LEVEL,
+                    object=obj.name,
+                    instance_id=obj.instance_id,
+                    controller_id=obj.controller_id,
+                    chapter=1,
+                )
+            )
 
     def remove_from_battlefield(self, obj: GameObject) -> None:
         if obj in self.battlefield:
@@ -361,6 +435,7 @@ class GameState:
             "priority_player_id": self.priority_player.id if self.priority_player else None,
             "current_phase": self.current_phase,
             "current_step": self.current_step,
+            "day_night": self.day_night,
             "game_over": self.game_over,
             "winner_id": self.winner_id,
             "pending_choice": self.pending_choice,

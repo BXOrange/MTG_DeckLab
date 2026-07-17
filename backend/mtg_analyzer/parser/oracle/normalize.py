@@ -1,6 +1,6 @@
 """Step 1 of the front-end pipeline: normalize oracle text (docs/09).
 
-Reference: docs/09_ORACLE_EFFECT_PARSER.md ("THE FRONT-END PIPELINE",
+Reference: docs/concepts/09_ORACLE_EFFECT_PARSER.md ("THE FRONT-END PIPELINE",
 step 1 NORMALIZE). Turns a card's printed rules text into a canonical form
 the segmenter and handler regexes can match against without each pattern
 having to re-handle reminder text, capitalisation, spelled-out numbers, or
