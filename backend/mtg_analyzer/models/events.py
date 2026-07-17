@@ -110,6 +110,12 @@ class EventType:
     #: afflict/bushido/rampage (RULE 702.130/702.45/702.23) all trigger off
     #: the *attacker* becoming blocked, which `BLOCKS` alone can't express.
     BECOMES_BLOCKED = "BECOMES_BLOCKED"
+    #: RULE 702.112b: a creature just became renowned (its Renown N ability
+    #: fired for the first, only time) — carries ``instance_id``, so a
+    #: card's own separate "when this creature becomes renowned, …" trigger
+    #: (Relic Seeker) can key off it distinctly from Renown's own counter-
+    #: placing effect (`game/effects.py`'s `RenownEffect`, which fires this).
+    RENOWNED = "RENOWNED"
 
     # Win/loss (RULE 104, RULE 704).
     PLAYER_WOULD_LOSE = "PLAYER_WOULD_LOSE"

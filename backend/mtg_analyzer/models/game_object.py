@@ -39,17 +39,18 @@ _instance_counter = itertools.count(1)
 
 
 def _combat_display_keywords(
-    card: Card, granted: Optional[set[str]] = None
+    card: Card, granted: Optional[set[str]] = None, removed: Optional[set[str]] = None
 ) -> list[str]:
     """Combat/evasion keyword labels for a card's board badges, including any
-    granted by a layer-6 static ability (RULE 613.7f).
+    granted by a layer-6 static ability (RULE 613.7f) and excluding any it
+    stripped ("loses <keyword>").
 
     Local (function-scoped) import of the pure `game.combat` recognition so
     the model layer gains no import-time dependency on `game/` (RULE-keyword
     recognition lives with the combat rules that consume it)."""
     from ..game.combat import display_keywords
 
-    return display_keywords(card, granted)
+    return display_keywords(card, granted, removed)
 
 
 class GameObject:
@@ -181,6 +182,13 @@ class GameObject:
         #: attached. Drives the "attached cards grouped around their host"
         #: display; set by the (future) equip/enchant resolution.
         self.attached_to: Optional[int] = None
+        #: The host this object was just detached from, stamped by
+        #: `GameEngine._pay_activation_cost`'s ``unattach_self`` cost
+        #: component (Sunforger/Akiri, Fearless Voyager) the instant before
+        #: it clears `attached_to` — the ability's own effect (resolving
+        #: *after* the cost is already paid) has no other way to reach "that
+        #: creature" the unattach cost named.
+        self.last_unattached_from_id: Optional[int] = None
 
         #: Effects this object contributes while in play, consulted by the
         #: rules engine (mtg_analyzer/game/). Typed loosely to avoid a
@@ -219,6 +227,17 @@ class GameObject:
         self._derived_power: Optional[int] = None
         self._derived_toughness: Optional[int] = None
         self._granted_keywords: set[str] = set()
+        #: Flag keywords a layer-6 "loses <keyword>" static ability strips
+        #: this pass (RULE 613.7f — Colossus Hammer's "Equipped creature …
+        #: loses flying"), unioned out of `_obj_keywords` by
+        #: `game/combat.py`. Reset every recompute exactly like
+        #: `_granted_keywords`.
+        self._removed_keywords: set[str] = set()
+        #: RULE 702.112b: whether Renown's own "it becomes renowned" has
+        #: already happened — never reset (a one-time-ever flag per object,
+        #: unlike every ``_derived_*``/``_granted_*`` field above), so the
+        #: keyword's "if it isn't renowned" guard only fires once.
+        self.renowned: bool = False
         #: Mana-production options granted by a layer-6 "X have '{T}: Add
         #: …'" static ability (Tyvar Kell) — folded onto the printed ones by
         #: `mana_abilities.mana_options_for`. Reset each recompute.
@@ -269,6 +288,12 @@ class GameObject:
         self.temp_power: int = 0
         self.temp_toughness: int = 0
         self.temp_keywords: set[str] = set()
+        #: "Target creature can't be blocked this turn" (Rogue's Passage) —
+        #: a resolve-time grant read directly by `GameEngine.can_block`
+        #: (not a layer-6 keyword; RULE 509.1a's blocking legality isn't
+        #: part of the continuous-characteristics system). Cleared at
+        #: cleanup (RULE 514.2) alongside `temp_power`/`temp_keywords`.
+        self.temp_unblockable: bool = False
 
         #: "Another target creature" a layer-1 conditional-copy static
         #: ability (Vesuvan Shapeshifter) should copy — read fresh every
@@ -300,6 +325,7 @@ class GameObject:
         self._derived_power = None
         self._derived_toughness = None
         self._granted_keywords = set()
+        self._removed_keywords = set()
         self._granted_mana = []
         self._granted_triggered_abilities = []
         self._added_types = set()
@@ -460,6 +486,12 @@ class GameObject:
         return set(self._granted_keywords)
 
     @property
+    def removed_keywords(self) -> set[str]:
+        """Keyword slugs stripped by a layer-6 "loses <keyword>" static
+        ability (RULE 613.7f, e.g. Colossus Hammer)."""
+        return set(self._removed_keywords)
+
+    @property
     def granted_mana_options(self) -> list[dict[str, int]]:
         """Mana-production options a layer-6 "X have '{T}: Add …'" static
         ability grants this object (Tyvar Kell) — folded onto the printed
@@ -555,7 +587,7 @@ class GameObject:
             # reads keywords without turning the model→game boundary into an
             # import cycle.
             "keywords": _combat_display_keywords(
-                self.card, self._granted_keywords | self.intrinsic_keywords
+                self.card, self._granted_keywords | self.intrinsic_keywords, self._removed_keywords
             ),
             "counters": dict(self.counters),
             "attached_to": self.attached_to,

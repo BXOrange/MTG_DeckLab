@@ -172,6 +172,13 @@ class ActivationCost:
     #: only when the Class's current `class_level` is exactly one less. A
     #: legality precondition riding along with the cost, not something paid.
     class_level: Optional[int] = None
+    #: "Unattach this Equipment" as its own cost component (Sunforger/Akiri,
+    #: Fearless Voyager's second ability) — RULE 301.5c-adjacent: legal only
+    #: while the source is actually attached to something (`GameEngine.
+    #: _pay_activation_cost` checks/clears `attached_to`), distinct from
+    #: Reconfigure's own "or unattach" *effect* (an alternative the Equip-
+    #: like activated ability itself offers, not a cost paid to reach it).
+    unattach_self: bool = False
     #: RULE 702.21b: a ward cost's own "where X is …" definition for an
     #: unresolved ``{X}`` in ``mana`` — one of `_WARD_X_SELECTOR_PHRASES`'
     #: values, resolved at the *ward ability's* resolution time (not when it
@@ -312,6 +319,8 @@ def parse_activation_cost(
         parsed.sorcery_speed_only = bool(cost["sorcery_speed_only"])
     if cost.get("class_level") is not None:
         parsed.class_level = int(cost["class_level"])
+    if "unattach_self" in cost:
+        parsed.unattach_self = bool(cost["unattach_self"])
     parsed.raw = parsed.raw or text
     return parsed
 

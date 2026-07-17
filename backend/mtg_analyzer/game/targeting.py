@@ -80,6 +80,18 @@ ALLOWED_TARGET_KINDS: frozenset[str] = frozenset(
     {
         "any", "creature", "permanent", "player", "spell",
         "creature_you_control", "land_you_control",
+        # An Equipment you control that's *currently attached* to something
+        # (Akiri, Fearless Voyager's "unattach an Equipment from a creature
+        # you control") — narrower than a bare "Equipment you control", since
+        # an unattached one has nothing to unattach *from*.
+        "attached_equipment_you_control",
+        # An Equipment you control, attached or not (Nahiri, Heir of the
+        # Ancients' +1: "you may attach an Equipment you control to it") —
+        # broader than `attached_equipment_you_control` above.
+        "equipment_you_control",
+        # "Target nonbasic land" (Encroaching Wastes) — any player's, unlike
+        # the controller-restricted kinds above.
+        "nonbasic_land",
     }
 ) | _GRAVEYARD_TARGET_KINDS
 
@@ -162,6 +174,9 @@ class TargetSpec:
             "spell": "Zauberspruch",
             "creature_you_control": "Kreatur unter deiner Kontrolle",
             "land_you_control": "Land unter deiner Kontrolle",
+            "attached_equipment_you_control": "befestigte Ausrüstung unter deiner Kontrolle",
+            "equipment_you_control": "Ausrüstung unter deiner Kontrolle",
+            "nonbasic_land": "nichtgrundlegendes Land",
         }.get(self.kind, self.kind)
 
 
@@ -355,6 +370,30 @@ def legal_targets(
             if (o.is_land if wants_land else o.is_creature)
             and o.controller_id == controller_id
             and o is not source
+            and _targetable_by(o, source)
+        ]
+    if kind == "nonbasic_land":
+        return [
+            {"instance_id": o.instance_id, "name": o.name}
+            for o in state.battlefield
+            if o.is_land and "basic" not in o.card.type_line.lower()
+            and o is not source and _targetable_by(o, source)
+        ]
+    if kind == "attached_equipment_you_control":
+        return [
+            {"instance_id": o.instance_id, "name": o.name}
+            for o in state.battlefield
+            if "equipment" in o.card.type_line.lower()
+            and o.controller_id == controller_id
+            and o.attached_to is not None
+            and _targetable_by(o, source)
+        ]
+    if kind == "equipment_you_control":
+        return [
+            {"instance_id": o.instance_id, "name": o.name}
+            for o in state.battlefield
+            if "equipment" in o.card.type_line.lower()
+            and o.controller_id == controller_id
             and _targetable_by(o, source)
         ]
     if kind in _GRAVEYARD_TARGET_KINDS:

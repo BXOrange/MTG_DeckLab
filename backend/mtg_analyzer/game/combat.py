@@ -212,11 +212,15 @@ def _obj_keywords(obj: "GameObject") -> frozenset[str]:
     # the parser catalogue bound onto the object (`intrinsic_keywords`, RULE
     # 702), and any granted by a layer-6 static ability (RULE 613.7f) — so both
     # a card's own flying and an anthem that hands out flying flow into combat.
+    # A layer-6 "loses <keyword>" static ability (`removed_keywords`,
+    # Colossus Hammer) is subtracted last, after the union — RULE 613.7f
+    # ability-removal applies regardless of which of the three sources
+    # granted the keyword in the first place.
     return (
         keywords_of(obj.card)
         | frozenset(getattr(obj, "intrinsic_keywords", set()) or set())
         | frozenset(getattr(obj, "granted_keywords", set()) or set())
-    )
+    ) - frozenset(getattr(obj, "removed_keywords", set()) or set())
 
 
 def has(obj: "GameObject", keyword: str) -> bool:
@@ -438,13 +442,15 @@ def lethal_damage(target: "GameObject", source: Optional["GameObject"]) -> int:
 
 
 def display_keywords(
-    card: "Card", granted: "Optional[set[str]]" = None
+    card: "Card", granted: "Optional[set[str]]" = None, removed: "Optional[set[str]]" = None
 ) -> list[str]:
     """Human-facing keyword labels for the UI, e.g. ``["Flying", "Trample"]``.
 
     Ordered for a stable badge row; ``granted`` adds keyword slugs handed to
-    the object by a layer-6 static ability (RULE 613.7f). "protection" is
-    expanded to what it is from ("Protection: red"). Reads the same
+    the object by a layer-6 static ability (RULE 613.7f); ``removed``
+    subtracts any a "loses <keyword>" static ability stripped (same layer,
+    Colossus Hammer-shaped), mirroring `_obj_keywords`' precedence. "protection"
+    is expanded to what it is from ("Protection: red"). Reads the same
     recognition the engine uses so the board shows exactly what combat honours.
     """
     labels = {
@@ -461,7 +467,7 @@ def display_keywords(
         "haste": "Haste",
         "indestructible": "Indestructible",
     }
-    kws = keywords_of(card) | frozenset(granted or set())
+    kws = (keywords_of(card) | frozenset(granted or set())) - frozenset(removed or set())
     out = [label for slug, label in labels.items() if slug in kws]
     if "protection" in kws:
         quals = sorted(protections_of(card))

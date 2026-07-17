@@ -526,11 +526,12 @@ class RulesEngine:
         trigger` for that).
 
         ``chosen`` is the indices already picked in an earlier round of a
-        "choose *N*" (``N>=2``) ability — excluded from this round's offer
-        so the same mode can't be picked twice, mirroring the library
-        search's "pick up to N, one at a time" pattern (`_search_choice`).
-        Absent/empty for the first round and for the ordinary "choose one"
-        case (``modes_choose == 1``).
+        "choose *N*" (``N>=2``) or "choose *N* or more" ability — excluded
+        from this round's offer so the same mode can't be picked twice,
+        mirroring the library search's "pick up to N, one at a time"
+        pattern (`_search_choice`). Absent/empty for the first round and for
+        the ordinary "choose one" case (``modes_choose == 1`` and not
+        ``modes_at_least``).
         """
         options = ability.modes or []
         picked = set(chosen or [])
@@ -542,6 +543,10 @@ class RulesEngine:
         if ability.modes_or_both and ability.modes_choose == 1 and len(options) == 2 and not picked:
             # RULE 700.2e — only offered for the fixed choose-1-of-2 case.
             choice_options.append({"id": "both", "label": "Beides"})
+        if ability.modes_at_least and len(picked) >= ability.modes_choose and len(picked) < len(options):
+            # RULE 700.2 "choose N or more" — the minimum is met, so the
+            # player may stop here instead of picking every remaining mode.
+            choice_options.append({"id": "done", "label": "Fertig"})
         return {
             "kind": "trigger_mode",
             "player_id": ability.controller_id or self.state.active_player.id,
@@ -556,7 +561,8 @@ class RulesEngine:
         trigger via `_place_or_pause_trigger` — the chosen mode's own
         effects may still need their own target/"you may" choice next, so
         this doesn't necessarily place anything itself. ``answer`` is a
-        mode's index (as a string) or ``"both"`` (RULE 700.2e); an
+        mode's index (as a string), ``"both"`` (RULE 700.2e), or ``"done"``
+        (RULE 700.2 "choose N or more", only once the minimum is met); an
         unrecognized/missing answer defaults to the first not-yet-chosen
         mode rather than dropping a mandatory choice.
 
@@ -564,10 +570,13 @@ class RulesEngine:
         picks one mode per call — once fewer than ``modes_choose`` are
         picked, the choice re-opens (excluding what's already picked)
         instead of placing anything, exactly like `resolve_search_choice`
-        offering a library search "one card at a time". Once enough are
-        picked, every chosen mode's effects combine **in printed order**
-        (not pick order) — RULE 700.2's modes resolve in the order the
-        ability's text lists them, same as RULE 700.2e "both" already did.
+        offering a library search "one card at a time". For "choose *N* or
+        more" (``modes_at_least``) the choice keeps re-opening past the
+        minimum too, until either every mode is picked or the player answers
+        "done". Once enough are picked, every chosen mode's effects combine
+        **in printed order** (not pick order) — RULE 700.2's modes resolve
+        in the order the ability's text lists them, same as RULE 700.2e
+        "both" already did.
         """
         choice = self.state.pending_choice
         if not choice or choice.get("kind") != "trigger_mode":
@@ -589,6 +598,14 @@ class RulesEngine:
             effects: list[Any] = []
             for opt in options:
                 effects.extend(opt["effects"])
+        elif (
+            answer == "done"
+            and ability.modes_at_least
+            and len(already_chosen) >= ability.modes_choose
+        ):
+            effects = []
+            for i in sorted(already_chosen):
+                effects.extend(options[i]["effects"])
         else:
             available = [i for i in range(len(options)) if i not in already_chosen]
             try:
@@ -598,8 +615,11 @@ class RulesEngine:
             if idx not in available:
                 idx = available[0]
             picked = already_chosen + [idx]
-            if len(picked) < ability.modes_choose:
-                # RULE 700.2 "choose N": re-open, excluding what's picked.
+            more_needed = len(picked) < ability.modes_choose or (
+                ability.modes_at_least and len(picked) < len(options)
+            )
+            if more_needed:
+                # RULE 700.2 "choose N"/"choose N or more": re-open, excluding what's picked.
                 self.state.pending_choice = self._trigger_mode_choice(ability, chosen=picked)
                 return
             # Enough modes picked — combine in printed order, not pick order.
@@ -1053,7 +1073,10 @@ class RulesEngine:
             player.id, "spell", cmc=obj.card.converted_mana_cost, name=obj.name
         )
         self.state.fire_event(
-            GameEvent(EventType.SPELL_CAST, player_id=player.id, card_id=obj.card.id, spell=obj.name)
+            GameEvent(
+                EventType.SPELL_CAST, player_id=player.id, card_id=obj.card.id, spell=obj.name,
+                instance_id=obj.instance_id, object_types=sorted(obj.type_words),
+            )
         )
         self.check_ward(item, player)
         return item
@@ -1478,9 +1501,13 @@ class RulesEngine:
                 target.add_counters("loyalty", -final)
             else:
                 target.damage_marked += final
-            self.state.fire_event(
-                GameEvent(EventType.DAMAGE, amount=final, is_player=is_player, target_id=target_id)
-            )
+            # `copy_with` (not a fresh `GameEvent`) so `source_id`/`combat`/
+            # `source_controller_id` survive onto the broadcast event — a
+            # "whenever equipped creature deals combat damage to a player"
+            # trigger (`effect_binder._trigger_condition`'s ``filter``) reads
+            # exactly these fields, and they'd otherwise be silently dropped
+            # here even though the pre-replacement ``event`` above carried them.
+            self.state.fire_event(resolved.copy_with(amount=final))
 
         self.apply_replacements(event, on_resolved=_finish)
 
@@ -1502,7 +1529,7 @@ class RulesEngine:
             GameEvent(EventType.LIFE_LOST, player_id=player.id, amount=amount, cause=cause)
         )
 
-    def destroy(self, obj: GameObject) -> None:
+    def destroy(self, obj: GameObject, can_be_regenerated: bool = True) -> None:
         """RULE 701.6: destroy ``obj`` — replaceable (RULE 616), chiefly by a
         regeneration shield (RULE 701.16, `regenerate`) consuming the event
         instead of letting the permanent reach the graveyard. Not the entry
@@ -1510,7 +1537,16 @@ class RulesEngine:
         toughness, …) — those go through `put_into_graveyard`/
         `_move_to_graveyard` directly, since RULE 701.16c says regeneration
         never applies to them.
+
+        ``can_be_regenerated=False`` (Wrath of God's "They can't be
+        regenerated.") skips the replacement pass entirely — a card-specific
+        override of RULE 701.16, not RULE 701.16c (which is about sacrifice/
+        0-toughness, unrelated to this) — so an existing shield simply
+        doesn't get a chance to intercept this particular destroy.
         """
+        if not can_be_regenerated:
+            self._move_to_graveyard(obj)
+            return
         event = GameEvent(EventType.DESTROY, target_id=obj.instance_id, object=obj.name)
 
         def _finish(resolved: Optional[GameEvent]) -> None:
@@ -2673,6 +2709,12 @@ class RulesEngine:
             self.state.fire_event(
                 GameEvent(EventType.EXILE, player_id=player.id, object=obj.name, from_zone="library")
             )
+        elif destination == "cast_free":
+            # Sunforger-shaped: "search your library for X and cast that
+            # card without paying its mana cost" (RULE 118.9/601.3b) — the
+            # same free-cast primitive cascade/discover use, just reached
+            # from a genuine library search instead of an exile-until-hit.
+            self.cast_without_paying(player, obj)
         else:  # hand (default) — most tutors
             player.add_to_zone(obj, Zone.HAND)
 

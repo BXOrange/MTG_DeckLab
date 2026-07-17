@@ -167,8 +167,29 @@ def group_selector_objects(
         result = [o for o in battlefield if o.controller_id == controller_id]
     elif affects == "lands_you_control":
         result = [o for o in battlefield if o.is_land and o.controller_id == controller_id]
+    elif affects == "artifacts_you_control":
+        result = [o for o in battlefield if o.card.is_artifact and o.controller_id == controller_id]
+    elif affects == "enchanted_or_equipped_creatures_you_control":
+        # Halvar, God of Battle's "creatures you control that are enchanted
+        # or equipped" — a creature you control with *anything* (Aura or
+        # Equipment) currently attached to it.
+        attached_hosts = {o.attached_to for o in battlefield if o.attached_to is not None}
+        result = [
+            o for o in battlefield
+            if o.is_creature and o.controller_id == controller_id and o.instance_id in attached_hosts
+        ]
     else:
         result = []
+
+    if params.get("active_player_only") and (
+        state.active_player is None or state.active_player.id != controller_id
+    ):
+        # "During your turn, creatures you control have first strike"
+        # (Nahiri, Storm of Stone) — RULE 613.6-style conditional static,
+        # gated on whose turn it currently is rather than any counter/board
+        # count; checked before the subtype/color/tokens narrowing below
+        # (an inactive gate means nothing here matches at all).
+        return []
 
     subtype = params.get("subtype")
     if subtype:
@@ -195,6 +216,16 @@ def group_selector_objects(
         counter_kind = params.get("level_counter") or "level"
         n = src.counters.get(counter_kind, 0) if src is not None else 0
         if (min_level is not None and n < min_level) or (max_level is not None and n > max_level):
+            return []
+
+    # A Metalcraft/Threshold-style board-count condition ("as long as you
+    # control three or more artifacts") — unlike `min_level`/`max_level`
+    # above (the source's own *counter*), this reads a `count_selector`
+    # over the whole board (Indomitable Archangel's Metalcraft).
+    min_count_selector = params.get("min_count_selector")
+    min_count = params.get("min_count")
+    if min_count_selector is not None and min_count is not None:
+        if count_selector(state, controller_id, str(min_count_selector)) < min_count:
             return []
     return result
 
@@ -280,6 +311,11 @@ def count_selector(state: "GameState", controller_id: Optional[str], selector: s
         return sum(1 for o in bf if o.controller_id == controller_id)
     if selector == "artifacts_you_control":
         return sum(1 for o in bf if o.card.is_artifact and o.controller_id == controller_id)
+    if selector == "artifacts_and_or_enchantments_you_control":
+        return sum(
+            1 for o in bf
+            if (o.card.is_artifact or o.card.is_enchantment) and o.controller_id == controller_id
+        )
     if selector == "cards_in_your_graveyard":
         try:
             player = state.player_by_id(controller_id) if controller_id else None
@@ -294,6 +330,31 @@ def _count_selector(state: "GameState", ability: StaticAbility, selector: str) -
     controller (RULE 613.7c/604.3) — see `count_selector` for the
     vocabulary."""
     return count_selector(state, getattr(ability.source, "controller_id", None), selector)
+
+
+def _equipment_attached_count(state: "GameState", obj: "GameObject") -> int:
+    """How many Equipment are currently attached to ``obj`` itself — a
+    *per-object* count (Bruenor Battlehammer's "for each Equipment attached
+    to it"), unlike every `count_selector` entry above (one number shared by
+    every object a static ability affects)."""
+    return sum(
+        1 for o in state.battlefield
+        if o.attached_to == obj.instance_id and "equipment" in o.card.type_line.lower()
+    )
+
+
+def _pt_mod_count(state: "GameState", ability: StaticAbility, obj: "GameObject", selector: str) -> int:
+    """A layer-7d anthem's per-unit multiplier — either a per-object count
+    (``"equipment_attached_to_self"``), the ability's own source's counters
+    (``"plus_one_counters_on_self"`` — Lion Sash's "for each +1/+1 counter
+    on this Equipment"), or the ordinary controller-scoped `count_selector`
+    vocabulary (Blackblade Reforged's "for each land you control",
+    Nettlecyst's "for each artifact and/or enchantment you control")."""
+    if selector == "equipment_attached_to_self":
+        return _equipment_attached_count(state, obj)
+    if selector == "plus_one_counters_on_self":
+        return getattr(ability.source, "plus_one_counters", 0)
+    return _count_selector(state, ability, selector)
 
 
 def _granted_trigger_condition(target: "GameObject", controllers_turn_only: bool):
@@ -465,12 +526,16 @@ def recompute(state: "GameState") -> None:
     live_grant_keys: set[tuple[int, int]] = set()
     for ability in _in_layer(abilities, "ability"):
         keywords = ability.params.get("keywords", [])
+        remove_keywords = ability.params.get("remove_keywords", [])
         mana = ability.params.get("mana", [])
         trigger_event = ability.params.get("trigger_event")
         for obj in affected_objects(state, ability):
             if keywords:
                 obj._granted_keywords.update(keywords)
                 _trace(obj, 6, _source_name(ability), "gains " + ", ".join(keywords))
+            if remove_keywords:
+                obj._removed_keywords.update(remove_keywords)
+                _trace(obj, 6, _source_name(ability), "loses " + ", ".join(remove_keywords))
             if mana:
                 obj._granted_mana.extend(mana)
                 _trace(obj, 6, _source_name(ability), "gains a mana ability")
@@ -564,16 +629,27 @@ def recompute(state: "GameState") -> None:
                 p, t = base[obj.instance_id]
                 _trace(obj, 7, "Counters", f"{_signed(counters)}/{_signed(counters)}", p, t)
 
-    # 7d: modify (but don't set) power/toughness — anthems.
+    # 7d: modify (but don't set) power/toughness — anthems, including a
+    # per-count anthem ("+1/+1 for each land you control", Blackblade
+    # Reforged/Nettlecyst; "+2/+0 for each Equipment attached to it", Bruenor
+    # Battlehammer) — `power`/`toughness` become the *per-unit* amount when
+    # `power_count`/`toughness_count` is set, multiplied by that count
+    # instead of added as a flat delta.
     for ability in _in_layer(abilities, "pt_mod"):
         d_power = ability.params.get("power", 0)
         d_toughness = ability.params.get("toughness", 0)
+        p_sel = ability.params.get("power_count")
+        t_sel = ability.params.get("toughness_count")
         for obj in affected_objects(state, ability):
             if obj.instance_id in base:
-                base[obj.instance_id][0] += d_power
-                base[obj.instance_id][1] += d_toughness
+                power = d_power * _pt_mod_count(state, ability, obj, str(p_sel)) if p_sel else d_power
+                toughness = (
+                    d_toughness * _pt_mod_count(state, ability, obj, str(t_sel)) if t_sel else d_toughness
+                )
+                base[obj.instance_id][0] += power
+                base[obj.instance_id][1] += toughness
                 p, t = base[obj.instance_id]
-                _trace(obj, 7, _source_name(ability), f"{_signed(d_power)}/{_signed(d_toughness)}", p, t)
+                _trace(obj, 7, _source_name(ability), f"{_signed(power)}/{_signed(toughness)}", p, t)
 
     # 7d (cont.): temporary "until end of turn" P/T bonuses from a resolved
     # pump effect (Giant Growth) — same sublayer as anthems (RULE 613.4d);

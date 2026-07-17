@@ -104,6 +104,68 @@ instead of re-discovering it as a surprise bug.
   currently grants a trigger off such an event.
   (`continuous._granted_trigger_condition`.)
 
+## Equipment / Auras / "combat damage to a player" triggers
+
+The "Wyleth Equip" Boros voltron commander deck (`game/ability_catalogue.py`'s
+Wyleth/Akiri/Bruenor/Sword-cycle/Sunforger/etc. block) motivated a new
+`"attached_permanent"`/`"self_or_attached_permanent"` trigger-subject family
+and a `EventType.DAMAGE` `"filter"` predicate (`effect_binder.
+_trigger_condition`) for "whenever equipped creature deals combat damage to
+a player" — both generic and reusable, but several individual cards in that
+same batch hit older, still-open engine limits instead of new ones:
+
+- **Two independent targets on one ability aren't supported** (docs/
+  Reference/11_CARD_CATALOGUE_AUTHORING_GUIDE.md §5) — Brass Squire's
+  "attach target Equipment to target creature" and Halvar, God of Battle's
+  "attach target Aura/Equipment attached to a creature you control to target
+  creature you control" are both left unregistered/unmodeled rather than
+  guessed at for this reason (`ability_catalogue.py`'s Halvar entry notes
+  it; Brass Squire isn't registered at all, so it plays as a vanilla
+  creature with whatever the RULE 702 keyword catalogue gives it).
+- **Simian Sling's "defending player" resolves off its own combat-defender
+  stamp**, which is only set when Simian Sling *itself* is the attacker —
+  reconfigured onto a different attacking creature, the trigger still
+  fires but finds no defending player to hit (`effects.
+  _defending_player_of`, `ability_catalogue._simian_sling`).
+- **No phasing subsystem (RULE 702.26) exists** — Robe of Stars' Astral
+  Projection and Teferi's Protection are both left off the registry
+  entirely for this reason (only Robe of Stars' static pump is authored).
+- **No per-cast, board-state-dependent cost reduction exists for a card
+  still in hand** — Embercleave's "costs {1} less for each attacking
+  creature you control" isn't modeled; it always costs full price.
+- **No mechanism scales a one-shot effect's amount/count by a spell's
+  announced `{X}`** (`StackItem.x` is stored but never read by
+  `resolve_top_of_stack`'s effect-apply loop) — Martial Coup is left
+  unregistered entirely for this reason (X token count + a conditional mass
+  destroy both depend on it); Nahiri, Storm of Stone's `−X` loyalty ability
+  is skipped for the same reason plus a variable-loyalty-cost gap.
+- **No "look at top N, take one matching X, bottom the rest" mechanic**
+  (distinct from a whole-library `search`) — Nahiri, Heir of the Ancients'
+  −2 and Armored Skyhunter's attack trigger are both left unmodeled for
+  this reason.
+- **No "exile and may play until end of turn" (impulsive draw) mechanic** —
+  Sword of Forge and Frontier's and Sword of Hearth and Home's own combat-
+  damage triggers are simplified/dropped for this reason (see their
+  catalogue docstrings for exactly what's kept vs. cut).
+- **No hand-zone, non-mana "discard this card: effect" (Channel) activated
+  ability, and no cycling** — Eiganjo/Sokenzan's Channel abilities and
+  Dismantling Wave's Cycling are all left unmodeled; the affected lands
+  still work as plain mana sources, and Dismantling Wave's main mode is
+  simplified to a single target (see its catalogue docstring).
+- **No "flash if `<condition>`" conditional casting-permission** — Timely
+  Ward's "cast as though it had flash if it targets a commander" and The
+  Wandering Emperor's "activate loyalty abilities at instant speed" are both
+  dropped; Flash itself (RULE 702.8b, an unconditional grant) *is* now wired
+  into `GameEngine.can_cast`'s timing check.
+- **A per-object dynamic reference to "that creature"/"the token this
+  effect just created" has no channel into a bind-on-load `TriggeredAbility`
+  (one fixed `effects` list, reused every firing)** — Kaldra Compleat's
+  granted "exile that creature" (whatever it just combat-damaged) is left
+  unmodeled for this reason; Sigarda's Aid's "whenever an Equipment you
+  control enters, you may attach *it*" hits the same wall from the other
+  direction (the trigger's own source isn't the entering Equipment) and is
+  left unregistered entirely.
+
 ## Card-type structures (DFC / Saga / Class / Leveler / Adventure / Prepared)
 
 - **MDFC commanders cast from the command zone don't offer both faces.**

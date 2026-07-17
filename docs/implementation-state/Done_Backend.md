@@ -2205,9 +2205,31 @@ the Phase-1 models. Tests: `test_game_engine.py`.
         `game_session.py`'s generic choose/decline dispatch nor the
         frontend needed any change (`gameBoardView.js` already renders
         any `pending.options` array generically). Real Kolaghan's
-        Command text parses fully `MODELED`. Scope: fixed N only —
-        "choose one or more —" (Farewell, a variable N) is a different
-        grammar axis, not attempted.
+        Command text parses fully `MODELED`.
+      - **"Choose *N* or more —" modality** (RULE 700.2, Farewell-shaped —
+        a *variable* N from a minimum up to every mode, the other grammar
+        axis "Choose *N* —" left unattempted): `MODAL_HEADER_RE`
+        (`catalogue/modal.py`) gained an `or_more` suffix group alongside
+        the existing `or_both` one (mutually exclusive — Scryfall never
+        prints both on one header); `AbilitySpec.modes` gained an
+        `at_least` bool (`spec.py`, rejecting `or_both`+`at_least`
+        together), threaded through the binder as `obj.spell_modes_
+        at_least`/`TriggeredAbility.modes_at_least`. For a *spell*,
+        `game_engine.py`'s `_modal_cast_actions` offers one action per
+        combination of *every* size from `choose` to all modes
+        (`itertools.combinations` per size, chained) instead of one fixed
+        size; `_effects_for_mode`'s validity check becomes `>= choose`
+        rather than `== choose`. For a *triggered* ability, the existing
+        iterative one-mode-per-round `trigger_mode` choice
+        (`rules_engine.py`) needed the one piece of genuinely new logic:
+        once the minimum is met it offers a `"done"` option (alongside the
+        remaining modes) so the player can stop early instead of being
+        forced through every mode; picking "done" combines whatever was
+        picked so far, in printed order. Real Farewell's own header/mode
+        count parses fully `MODELED` (its actual "exile all `<type>`"
+        mode bodies are a separate, still-unclaimed mass-effect shape, not
+        this feature's concern). No frontend change — same generic
+        `pending.options`/`legal_actions` rendering as the fixed-N case.
       - **Generalized "search your library for X" grammar** (RULE
         701.19): the engine mechanism (`SearchLibraryEffect`/
         `RulesEngine.request_search`) was already fully generic —
@@ -2356,6 +2378,126 @@ the Phase-1 models. Tests: `test_game_engine.py`.
         proof (a second creature enters after the ward ability is placed
         but before it resolves, changing X from 1 to 2), and the
         uncastable-counters-without-a-choice case.
+
+- **Equipment/Aura payoff primitives + the "Wyleth Equip" commander deck**
+  (2026-07-17): hand-authored the whole "Wyleth Equip" Boros voltron
+  commander deck (`game/ability_catalogue.py`, ~50 cards) and, along the
+  way, shipped a batch of generic, reusable engine primitives none of the
+  deck's individual cards fully accounted for on their own:
+  - **Mass "destroy/exile all X [with a filter]" board wipes** (RULE
+    601.2c) — `DestroyEffect`/`ExileEffect` gained a `selector`
+    (`all_creatures`/`all_artifacts`/`all_enchantments`/`all_permanents`/
+    `all_planeswalkers`) + an optional `filter` dict
+    (`min_toughness`/`max_mana_value`/`min_mana_value`), mirroring
+    `DealDamageEffect.selector`'s existing untargeted-group shape
+    (`effects._mass_selector_objects`). `DestroyEffect` also gained
+    `can_be_regenerated=False` (Wrath of God's "They can't be
+    regenerated.") — `RulesEngine.destroy` skips the replacement pass
+    (and so any regeneration shield) entirely rather than going through
+    `apply_replacements`. Wired into modal spells (`AbilitySpec.modes`)
+    for Austere Command (choose two of four) and Farewell (choose one or
+    more, `at_least`); a combined `each_creature_and_player` damage
+    selector for Volcanic Fallout.
+  - **A new trigger-subject family**: `{"subject": "attached_permanent"}`/
+    `{"subject": "self_or_attached_permanent"}` in `effect_binder.
+    _subject_condition` — "whenever equipped/enchanted creature `<verb>`"
+    (RULE 303.4/301.5), resolved live off the ability's own source's
+    `attached_to` every check (naturally stops firing the instant it's
+    unattached). Which event-data key identifies "the acting object" is
+    now itself selector-driven (`_SUBJECT_EVENT_KEYS`, default
+    `"instance_id"`, `"source_id"` for `DAMAGE`) rather than hardcoded.
+  - **"Deals combat damage to a player" as its own trigger family**: a new
+    `trigger["filter"]` dict (`effect_binder._trigger_condition`), an
+    exact-match AND over the firing event's payload — `EventType.DAMAGE`
+    filtered to `{"combat": True, "is_player": True}` covers the whole
+    Sword-cycle/Bloodforged Battle-Axe/Rogue's Gloves family; `{"is_player":
+    False}` would cover "combat damage to a creature" the same way. This
+    needed a real bug fix first: `RulesEngine.deal_damage`'s *broadcast*
+    event (after replacements resolve) was rebuilt from scratch with only
+    `amount`/`is_player`/`target_id`, silently dropping `combat`/`source_id`/
+    `source_controller_id`/`source_colors` that the pre-replacement event
+    carried — switched to `resolved.copy_with(amount=final)` so those
+    survive onto the event every trigger actually observes.
+  - **A `requires_equipped` trigger gate** (Akiri, Fearless Voyager) — "an
+    equipped creature you control attacks" scoped to the source's own
+    `attached_to` relationships, live-checked the same way.
+  - **A `subtype_any`-style gate keyed `spell_subtype_any`** (Sram, Senior
+    Edificer) — "whenever you cast an Aura/Equipment/Vehicle spell" needs a
+    card *subtype* check a `"group"` condition's `object_types` (main types
+    only) can't express; reads the live object's `type_line` instead. Also
+    added `"SPELL_CAST": "player_id"` to `_GROUP_CONTROLLER_EVENT_KEYS` (a
+    "you control" scope on a cast trigger) and stamped `instance_id`/
+    `object_types` onto both `SPELL_CAST` firing sites.
+  - **Living Weapon (RULE 702.92) and Renown (RULE 702.112) got real
+    behaviour**, not just keyword recognition: `effect_binder.
+    _keyword_triggered_abilities` now also synthesizes a Living Weapon's
+    ETB germ-token creation + self-attach (`LivingWeaponEffect`, a single
+    atomic effect since "attach to the token this same effect just
+    created" has no other channel) and Renown's counter-placement + a new
+    `EventType.RENOWNED` firing (`RenownEffect`, gated by a new
+    `GameObject.renowned` one-time flag) — letting a card's own *separate*
+    "when this creature becomes renowned, …" trigger (Relic Seeker) key off
+    it independently of Renown's own effect.
+  - **A per-count static anthem multiplier**: layer 7d `pt_mod` gained
+    optional `power_count`/`toughness_count` params (`continuous.
+    _pt_mod_count`) — "+1/+1 for each land you control" (Blackblade
+    Reforged) reuses the existing controller-scoped `count_selector`
+    vocabulary (plus a new `artifacts_and_or_enchantments_you_control`
+    entry for Nettlecyst); "+2/+0 for each Equipment attached to *it*"
+    (Bruenor Battlehammer) needed a genuinely different *per-object* count
+    (`_equipment_attached_count`, evaluated per affected creature rather
+    than once for the whole ability) and a `plus_one_counters_on_self`
+    selector reading the source's own counters (Lion Sash).
+  - **Layer-6 keyword *removal***: a new `remove_keyword` static type
+    (mirrors `grant_keyword`) populating a new `GameObject._removed_keywords`
+    set, subtracted last in `combat._obj_keywords`/`display_keywords` —
+    Colossus Hammer's "loses flying".
+  - **RULE 702.8b Flash now actually gates `GameEngine.can_cast`'s timing
+    check** (`sorcery_speed = not (card.is_instant or combat.has(obj,
+    "flash"))`) — previously Flash was recognized as a keyword but never
+    consulted for casting timing at all, so a Flash permanent could only
+    ever be cast at sorcery speed; a real pre-existing gap this batch hit
+    directly (Embercleave, The Wandering Emperor).
+  - **New target kinds** (`game/targeting.py`): `nonbasic_land`
+    (Encroaching Wastes), `attached_equipment_you_control`/
+    `equipment_you_control` (Akiri's unattach ability / Nahiri, Heir of the
+    Ancients' +1).
+  - **New one-shot effects**, each backing one clause shape rather than a
+    single card: `ExileGainLifeToControllerEffect` (Swords to Plowshares —
+    exile + the *same* target's controller gaining life equal to its power,
+    a single atomic effect since `GainLifeEffect` deliberately never reads a
+    shared `targets` list); `TargetPlayerDrawLoseLifeEffect` (Sign in Blood)
+    and `CounterAndFirstStrikeEffect` (The Wandering Emperor's +1) — both
+    exist specifically to avoid the "two targeting effects on one ability"
+    double-prompt bug (docs/11 §5) that composing two separate `EffectSpec`s
+    sharing one target would hit; `ProliferateEffect` (RULE 701.30, auto-
+    applies to every permanent already carrying a counter — no
+    proliferation picker exists yet); `UnattachTapIndestructibleEffect`
+    (Akiri's second ability); `ExileAllGraveyardsEffect`/
+    `ExileGraveyardCardCounterIfPermanentEffect` (Farewell / Lion Sash);
+    `ExileGraveyardCreaturesGainLifeEffect` (Crypt Incursion);
+    `PeekTopLandBattlefieldTappedEffect` (Explorer's Scope);
+    `CreateTokenMayAttachEquipmentEffect` (Nahiri, Heir of the Ancients'
+    +1); `UnblockableEffect` (Rogue's Passage, a new `GameObject.
+    temp_unblockable` flag `GameEngine.can_block` consults, cleared at
+    cleanup like every other `temp_*` field); `DrawCardEffect`/
+    `LoseLifeEffect` both gained an opt-in `target_kind` (a real RULE 115
+    target, previously only reachable untargeted); a new `"cast_free"`
+    search destination (`RulesEngine._put_searched_card`) reusing cascade/
+    discover's `cast_without_paying` primitive for Sunforger's "search your
+    library … and cast that card without paying its mana cost"; a new
+    `unattach_self` activation-cost component (`costs.ActivationCost`,
+    `GameEngine._pay_activation_cost` clears `attached_to` and stamps
+    `GameObject.last_unattached_from_id` so the ability's own effect can
+    still reach "that creature" after the cost already detached it).
+  - Tests: `tests/test_wyleth_equip_deck.py` (11 end-to-end cases through a
+    real `GameEngine`/`RulesEngine`, one per mechanic family above, using
+    real cached cards). Deliberately not exhaustive per-card — see
+    `ToDo_EdgeCases.md` "Equipment / Auras / 'combat damage to a player'
+    triggers" for the real feature gaps this batch hit and left open
+    (phasing, X-spell effect scaling, Channel/Cycling, impulsive draw,
+    two-independent-target abilities, a per-firing dynamic "that
+    creature"/"the token just created" reference) rather than guessed at.
 
 ## Game Engine (Phase 3)
 

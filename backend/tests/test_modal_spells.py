@@ -121,16 +121,6 @@ def test_choose_one_or_both_sets_or_both_flag():
     assert modal_specs[0].modes["or_both"] is True
 
 
-def test_choose_one_or_more_is_not_this_grammar_and_stays_unclaimed():
-    # RULE 700.2's "or more"/"choose X" shapes aren't modeled by this block
-    # grouper — a different template, left unclaimed (fail-closed).
-    card = modal_instant(
-        oracle="Choose one or more —\n• Deal 3 damage to any target.\n• Draw 2 cards."
-    )
-    result = parse_oracle(card)
-    assert not result.modeled
-
-
 def test_modal_triggered_ability_on_a_permanent_is_claimed():
     # A permanent's modal ETB trigger ("When ~ enters, choose one — …") is a
     # trigger-wrapped sibling of the bare modal-spell header — claimed as a

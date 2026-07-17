@@ -94,10 +94,10 @@ def _split_triggered_modal_block(
     header's "effect" is the whole bullet block, not `trig.group("body")`
     itself.
 
-    Returns ``(event, condition, or_both, choose, mode_bodies, next_index)``,
-    or ``None`` if ``lines[start]`` isn't this shape at all, or ``choose``
-    exceeds the number of mode lines actually printed — fail-closed, the
-    caller falls back to ordinary per-line segmentation.
+    Returns ``(event, condition, or_both, or_more, choose, mode_bodies,
+    next_index)``, or ``None`` if ``lines[start]`` isn't this shape at all,
+    or ``choose`` exceeds the number of mode lines actually printed —
+    fail-closed, the caller falls back to ordinary per-line segmentation.
     """
     trig = _TRIGGER_RE.match(lines[start].strip())
     if trig is None:
@@ -118,7 +118,15 @@ def _split_triggered_modal_block(
     choose = int(header.group("n"))
     if choose < 1 or choose > len(mode_bodies):
         return None
-    return event, condition, bool(header.group("or_both")), choose, mode_bodies, next_i
+    return (
+        event,
+        condition,
+        bool(header.group("or_both")),
+        bool(header.group("or_more")),
+        choose,
+        mode_bodies,
+        next_i,
+    )
 
 
 def _parse_mode_body(body: str) -> Optional[list[EffectSpec]]:
@@ -328,7 +336,9 @@ def _parse_oracle_uncached(card: Any) -> ParseResult:
         if seg.spec is not None:
             _tag_level_gate(seg.spec, gate, default_affects="self")
 
-    def _process_modal_block(header: str, or_both: bool, choose: int, mode_bodies: list[str]) -> None:
+    def _process_modal_block(
+        header: str, or_both: bool, or_more: bool, choose: int, mode_bodies: list[str]
+    ) -> None:
         nonlocal all_claimed
         # RULE 700.2: a modal spell's own bare header. A permanent's modal
         # *triggered* ability ("When ~ enters, choose one —") is a different
@@ -344,7 +354,13 @@ def _parse_oracle_uncached(card: Any) -> ParseResult:
         effect_specs.append(AbilitySpec(
             "spell_effect",
             effects=[],
-            modes={"or_both": or_both, "choose": choose, "options": options, "descriptions": descriptions},
+            modes={
+                "or_both": or_both,
+                "at_least": or_more,
+                "choose": choose,
+                "options": options,
+                "descriptions": descriptions,
+            },
             raw_text=header,
             parser=provenance,
         ))
@@ -354,6 +370,7 @@ def _parse_oracle_uncached(card: Any) -> ParseResult:
         event: str,
         condition: dict[str, Any],
         or_both: bool,
+        or_more: bool,
         choose: int,
         mode_bodies: list[str],
     ) -> None:
@@ -374,7 +391,13 @@ def _parse_oracle_uncached(card: Any) -> ParseResult:
             "triggered",
             effects=[],
             trigger={"event": event, "condition": condition},
-            modes={"or_both": or_both, "choose": choose, "options": options, "descriptions": descriptions},
+            modes={
+                "or_both": or_both,
+                "at_least": or_more,
+                "choose": choose,
+                "options": options,
+                "descriptions": descriptions,
+            },
             raw_text=header,
             parser=provenance,
         ))
@@ -436,14 +459,16 @@ def _parse_oracle_uncached(card: Any) -> ParseResult:
         while i < len(lines):
             block = split_modal_block(lines, i) if allow_spell_effect else None
             if block is not None:
-                or_both, choose, mode_bodies, next_i = block
-                _process_modal_block(lines[i], or_both, choose, mode_bodies)
+                or_both, or_more, choose, mode_bodies, next_i = block
+                _process_modal_block(lines[i], or_both, or_more, choose, mode_bodies)
                 i = next_i
                 continue
             trig_block = _split_triggered_modal_block(lines, i)
             if trig_block is not None:
-                event, condition, or_both, choose, mode_bodies, next_i = trig_block
-                _process_triggered_modal_block(lines[i], event, condition, or_both, choose, mode_bodies)
+                event, condition, or_both, or_more, choose, mode_bodies, next_i = trig_block
+                _process_triggered_modal_block(
+                    lines[i], event, condition, or_both, or_more, choose, mode_bodies
+                )
                 i = next_i
                 continue
             _process_line(lines[i])

@@ -27,8 +27,10 @@ from .effects import (
     ConditionalEffect,
     EffectRegistry,
     GameEffect,
+    LivingWeaponEffect,
     LoseLifeEffect,
     PumpEffect,
+    RenownEffect,
     ReplacementEffect,
     ReplacementRegistry,
     SacrificeEffect,
@@ -103,7 +105,21 @@ def build_replacements(
 _GROUP_CONTROLLER_EVENT_KEYS: dict[str, str] = {
     "ATTACKS": "player_id",
     "BLOCKS": "player_id",
+    "SPELL_CAST": "player_id",
 }
+
+#: Which event-data key identifies *which object* an event is about — RULE
+#: 603.1's "self"/"attached_permanent" subject scoping (below) matches this
+#: key against an instance id. Every event `ENTERS_BATTLEFIELD`/`DIES`/
+#: `ATTACKS`/`BLOCKS` fires carries ``instance_id`` (the default); `DAMAGE`
+#: is the one exception — its subject (who *dealt* the damage) is
+#: ``source_id`` (`RulesEngine.deal_damage`), since ``instance_id`` isn't
+#: even a key that event carries.
+_SUBJECT_EVENT_KEYS: dict[str, str] = {"DAMAGE": "source_id"}
+
+
+def _subject_event_key(trigger: dict[str, Any]) -> str:
+    return _SUBJECT_EVENT_KEYS.get(trigger.get("event"), "instance_id")
 
 
 def _subject_condition(
@@ -131,20 +147,59 @@ def _subject_condition(
     the event's controller against the source's; ``other`` excludes the
     source's own instance (fail-closed ``False`` if the event carries no
     ``instance_id`` to check against).
+
+    ``{"subject": "attached_permanent"}`` — RULE 303.4/301.5's "equipped/
+    enchanted creature" trigger subject (Argentum Armor's "whenever
+    equipped creature attacks", a Sword's "whenever equipped creature deals
+    combat damage to a player"): the event must be about whatever the
+    ability's own source (the Aura/Equipment) is *currently* `attached_to`
+    — re-read live every check (an Equipment can move), so this naturally
+    stops firing the instant it's unattached, no separate teardown needed.
+    ``{"subject": "self_or_attached_permanent"}`` is the same, but also
+    matches the source's own instance (Simian Sling's "whenever this
+    creature or equipped creature becomes blocked" — Simian Sling is both a
+    creature and, via Reconfigure, sometimes an Equipment attached to
+    something else). Both read `_subject_event_key` for *which* event key
+    identifies the acting object (``instance_id`` by default, ``source_id``
+    for `DAMAGE`).
     """
     condition = trigger.get("condition")
     if not condition:
         return None
     subject = condition.get("subject")
     instance_id = getattr(source, "instance_id", None)
+    event_key = _subject_event_key(trigger)
 
     if subject == "self":
 
-        def _self_ok(event: Any, context: Any, iid=instance_id) -> bool:
-            event_instance = event.get("instance_id")
+        def _self_ok(event: Any, context: Any, iid=instance_id, key=event_key) -> bool:
+            event_instance = event.get(key)
             return event_instance is not None and event_instance == iid
 
         return _self_ok
+
+    if subject == "attached_permanent":
+
+        def _attached_ok(event: Any, context: Any, src=source, key=event_key) -> bool:
+            host_id = getattr(src, "attached_to", None)
+            if host_id is None:
+                return False
+            event_instance = event.get(key)
+            return event_instance is not None and event_instance == host_id
+
+        return _attached_ok
+
+    if subject == "self_or_attached_permanent":
+
+        def _self_or_attached_ok(event: Any, context: Any, src=source, iid=instance_id, key=event_key) -> bool:
+            event_instance = event.get(key)
+            if event_instance is None:
+                return False
+            if event_instance == iid:
+                return True
+            return event_instance == getattr(src, "attached_to", None)
+
+        return _self_or_attached_ok
 
     if subject == "group":
         controller_id = getattr(source, "controller_id", None)
@@ -206,12 +261,73 @@ def _trigger_condition(
       own counter (``level`` by default) is currently in that tier's range —
       unlike ``chapter``, this checks the source's *current* state, not the
       triggering event's payload.
+    * ``"filter"`` — a small exact-match dict AND-ed onto the event's own
+      payload (``{k: v}`` means ``event.get(k) == v``). Exists so a single
+      broad `EventType` can drive several genuinely different triggers: RULE
+      120.3's "deals combat damage to a player" (Sword-cycle/Bloodforged
+      Battle-Axe/Rogue's Gloves-shaped) is just `EventType.DAMAGE` filtered
+      to ``{"combat": True, "is_player": True}`` — Kaldra Compleat's "deals
+      combat damage to a *creature*" is the same event with ``{"combat":
+      True, "is_player": False}`` instead. Both fields are only reliably
+      present on the event `RulesEngine.deal_damage` broadcasts (see its
+      ``copy_with`` comment) — a hand-built/older event missing a filtered
+      key fails closed (``None != True``), never over-fires.
     """
     predicates: list[Callable[[Any, Any], bool]] = []
 
     subject_ok = _subject_condition(trigger, source)
     if subject_ok is not None:
         predicates.append(subject_ok)
+
+    filt = trigger.get("filter")
+    if filt:
+        def _filter_ok(event: Any, context: Any, f=dict(filt)) -> bool:
+            return all(event.get(k) == v for k, v in f.items())
+
+        predicates.append(_filter_ok)
+
+    # "Whenever an equipped creature you control attacks …" (Akiri, Fearless
+    # Voyager, simplified — see its catalogue entry) — the ability's own
+    # source must itself have an Equipment currently attached to it. Reads
+    # the board fresh every check (like `attached_permanent` does the other
+    # direction), so it naturally stops applying the instant nothing's
+    # attached anymore.
+    if trigger.get("requires_equipped"):
+        instance_id = getattr(source, "instance_id", None)
+
+        def _equipped_ok(event: Any, context: Any, iid=instance_id) -> bool:
+            state = getattr(context, "state", None)
+            if state is None or iid is None:
+                return False
+            return any(
+                o.attached_to == iid and "equipment" in o.card.type_line.lower()
+                for o in state.battlefield
+            )
+
+        predicates.append(_equipped_ok)
+
+    # "Whenever you cast an Aura, Equipment, or Vehicle spell, …" (Sram,
+    # Senior Edificer) — a card-*subtype* filter, unlike `"filter"`'s exact
+    # key/value match: subtypes ("Equipment"/"Aura"/"Vehicle") live after the
+    # type line's em dash, so they're never in a `"group"` condition's
+    # `object_types` (main types only) — this reads the live object's
+    # printed type line directly instead.
+    subtype_any = trigger.get("spell_subtype_any")
+    if subtype_any:
+        wanted = tuple(str(s).lower() for s in subtype_any)
+
+        def _subtype_ok(event: Any, context: Any, words=wanted) -> bool:
+            state = getattr(context, "state", None)
+            instance_id = event.get("instance_id")
+            if state is None or instance_id is None:
+                return False
+            obj = state.find_object(instance_id)
+            if obj is None:
+                return False
+            type_line = (obj.card.type_line or "").lower()
+            return any(w in type_line for w in words)
+
+        predicates.append(_subtype_ok)
 
     chapters = trigger.get("chapter")
     if chapters:
@@ -303,6 +419,7 @@ def bind_ability(
             modes=modes,
             modes_or_both=bool(spec.modes.get("or_both", False)) if spec.modes else False,
             modes_choose=int(spec.modes.get("choose", 1)) if spec.modes else 1,
+            modes_at_least=bool(spec.modes.get("at_least", False)) if spec.modes else False,
             condition=_trigger_condition(spec.trigger, source),
             optional=spec.optional,
             controller_id=getattr(source, "controller_id", None),
@@ -422,10 +539,50 @@ def _keyword_triggered_abilities(obj: Any, spec: AbilitySpec) -> list[TriggeredA
     `RulesEngine.check_rampage`, called from `GameEngine.declare_blockers`
     right where `BECOMES_BLOCKED` fires (which already carries a
     `blocker_count` payload for exactly this).
+
+    Living Weapon (702.92, a flag keyword — no ``n``) and Renown (702.112,
+    parametric) are also synthesized here rather than left to the oracle-text
+    front-end: both need real behaviour beyond what a plain `AbilitySpec`
+    trigger can express (Living Weapon's "attach to the token *this same
+    ability* just created"; Renown's "if it isn't renowned" one-time guard),
+    the same category of "needs an actual Python condition/atomic effect"
+    case docs/11 §8 calls out.
     """
     keyword = spec.keyword or {}
     name = str(keyword.get("name") or "")
+
+    if name == "living_weapon":
+        return [
+            TriggeredAbility(
+                trigger_event=EventType.ENTERS_BATTLEFIELD,
+                effects=[LivingWeaponEffect(source=obj)],
+                condition=_self_only_condition(getattr(obj, "instance_id", None)),
+                source=obj,
+                description=spec.raw_text or "Living weapon",
+            )
+        ]
+
     n = keyword.get("n")
+    if name == "renown" and n is not None:
+        instance_id = getattr(obj, "instance_id", None)
+
+        def _renown_ok(event: Any, context: Any, obj=obj, iid=instance_id) -> bool:
+            if event.get("source_id") != iid:
+                return False
+            if not event.get("combat") or not event.get("is_player"):
+                return False
+            return not getattr(obj, "renowned", False)
+
+        return [
+            TriggeredAbility(
+                trigger_event=EventType.DAMAGE,
+                effects=[RenownEffect(amount=int(n), source=obj)],
+                condition=_renown_ok,
+                source=obj,
+                description=spec.raw_text or f"Renown {n}",
+            )
+        ]
+
     if n is None:
         return []
     n = int(n)
@@ -496,19 +653,24 @@ def _attach_modes(obj: Any, modes: dict[str, Any]) -> None:
     of ``{"effects": [GameEffect, ...], "description": str}`` dicts, one
     per printed mode — plus ``obj.spell_modes_or_both`` (RULE 700.2e) and
     ``obj.spell_modes_choose`` (RULE 700.2's "choose *N* —", ``1`` for the
-    ordinary case). The engine (`game/game_engine.py`) offers one cast
-    action per *legal combination* of ``spell_modes_choose`` modes (plus a
-    combined "both" action when ``or_both`` is set, for the ``choose == 1``
-    binary case) — the same per-face-offer treatment MDFC/Adventure casting
-    already uses; casting temporarily swaps `obj.spell_effects` to the
-    chosen mode(s) so the existing targeting/resolution machinery (which
-    reads that attribute) needs no change to be modal-aware.
+    ordinary case). ``obj.spell_modes_at_least`` (RULE 700.2's "choose *N*
+    or more —", Farewell-shaped) makes ``spell_modes_choose`` a minimum
+    rather than an exact count. The engine (`game/game_engine.py`) offers
+    one cast action per *legal combination* of ``spell_modes_choose`` modes
+    (every size from ``spell_modes_choose`` to all modes when
+    ``spell_modes_at_least``; plus a combined "both" action when ``or_both``
+    is set, for the ``choose == 1`` binary case) — the same per-face-offer
+    treatment MDFC/Adventure casting already uses; casting temporarily swaps
+    `obj.spell_effects` to the chosen mode(s) so the existing targeting/
+    resolution machinery (which reads that attribute) needs no change to be
+    modal-aware.
     """
     entries = _build_mode_entries(modes, obj)
     existing = list(getattr(obj, "spell_modes", None) or [])
     obj.spell_modes = existing + entries
     obj.spell_modes_or_both = bool(modes.get("or_both", False))
     obj.spell_modes_choose = int(modes.get("choose", 1))
+    obj.spell_modes_at_least = bool(modes.get("at_least", False))
 
 
 def attach_to_object(obj: Any, specs: list[AbilitySpec]) -> None:

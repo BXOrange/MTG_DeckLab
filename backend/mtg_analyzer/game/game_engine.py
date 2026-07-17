@@ -482,6 +482,9 @@ class GameEngine:
                 obj.temp_toughness = 0
                 obj.temp_keywords.clear()
                 ended_effects = True
+            if obj.temp_unblockable:
+                obj.temp_unblockable = False
+                ended_effects = True
             if obj._copy_until_eot_base is not None:
                 copy_mechanics.restore_face(obj, obj._copy_until_eot_base)
                 obj._copy_until_eot_base = None
@@ -872,8 +875,13 @@ class GameEngine:
         if card is None or card.is_land:
             return False
         # Timing (RULE 601.3a): sorcery-speed spells need an empty stack,
-        # the player's own main phase, and their priority.
-        sorcery_speed = not card.is_instant
+        # the player's own main phase, and their priority. RULE 702.8b:
+        # Flash lets an otherwise-sorcery-speed card (Embercleave, The
+        # Wandering Emperor) be cast any time its controller could cast an
+        # instant instead — checked off the *object* (`combat.has`, the same
+        # printed+intrinsic+granted keyword union combat reads elsewhere),
+        # not just the card, so a temporary flash grant works too.
+        sorcery_speed = not (card.is_instant or combat.has(obj, "flash"))
         if sorcery_speed:
             if player is not self.state.active_player:
                 return False
@@ -1122,10 +1130,12 @@ class GameEngine:
         ``mode`` is an index into ``obj.spell_modes`` (only when
         ``obj.spell_modes_choose == 1``), the literal ``"both"`` (RULE
         700.2e — both modes' effects, in printed order), or a list/tuple of
-        exactly ``obj.spell_modes_choose`` distinct indices (RULE 700.2
-        "choose *N*", ``N>=2`` — `_modal_cast_actions` offers one action per
-        legal combination). Combined effects always run in *printed* order,
-        not the order given in ``mode``. Raises for an out-of-range/
+        distinct indices: exactly ``obj.spell_modes_choose`` of them (RULE
+        700.2 "choose *N*", ``N>=2``), or at least that many when
+        ``obj.spell_modes_at_least`` (RULE 700.2 "choose *N* or more —",
+        ``N>=1``) — `_modal_cast_actions` offers one action per legal
+        combination either way. Combined effects always run in *printed*
+        order, not the order given in ``mode``. Raises for an out-of-range/
         wrong-length/duplicate index, or a "both" not actually offered
         (`obj` has no ``spell_modes`` at all, or isn't
         ``spell_modes_or_both``, or doesn't have exactly the two modes RULE
@@ -1133,6 +1143,7 @@ class GameEngine:
         """
         modes = list(getattr(obj, "spell_modes", None) or [])
         choose = getattr(obj, "spell_modes_choose", 1)
+        at_least = getattr(obj, "spell_modes_at_least", False)
         if mode == "both":
             if not getattr(obj, "spell_modes_or_both", False) or len(modes) != 2:
                 raise ValueError(f"{obj.name} has no 'choose both' mode")
@@ -1142,8 +1153,9 @@ class GameEngine:
             return effects
         if isinstance(mode, (list, tuple)):
             indices = list(mode)
+            count_ok = len(indices) >= choose if at_least else len(indices) == choose
             valid = (
-                len(indices) == choose
+                count_ok
                 and len(set(indices)) == len(indices)
                 and all(isinstance(i, int) and 0 <= i < len(modes) for i in indices)
             )
@@ -1510,6 +1522,11 @@ class GameEngine:
         """
         if combat.unblockable_by_landwalk(attacker, self._lands_controlled_by(player.id)):
             return False
+        if getattr(attacker, "temp_unblockable", False):
+            # "Target creature can't be blocked this turn" (Rogue's Passage) —
+            # a resolve-time grant, unlike landwalk's static evasion above;
+            # cleared at cleanup (RULE 514.2) like every other temp_* flag.
+            return False
         return (
             blocker.controller_id == player.id
             and blocker.is_creature
@@ -1784,6 +1801,8 @@ class GameEngine:
             return False
         if cost.sacrifice and self._sacrifice_candidate(player, source, cost.sacrifice) is None:
             return False
+        if cost.unattach_self and source.attached_to is None:
+            return False
         if cost.remove_counters:
             kind, count = cost.remove_counters
             if source.counters.get(kind, 0) < count:
@@ -2008,6 +2027,9 @@ class GameEngine:
                 # RULE 701.16c: sacrifice isn't destruction — see the
                 # matching comment in `_pay_additional_cast_cost`.
                 self.rules.put_into_graveyard(victim)
+        if cost.unattach_self:
+            source.last_unattached_from_id = source.attached_to
+            source.attached_to = None
         if cost.discard:
             self.rules.discard(player, len(player.hand) if cost.discard == DISCARD_HAND else cost.discard)
         if cost.remove_counters:
@@ -2193,18 +2215,23 @@ class GameEngine:
         For "choose *N*" (``N>=2`` — Kolaghan's Command/Austere Command
         -shaped): one action per legal *combination* of ``N`` modes
         (``itertools.combinations``), each tagged with a list of indices
-        instead of a bare int (see `_effects_for_mode`).
+        instead of a bare int (see `_effects_for_mode`). For "choose *N* or
+        more" (``obj.spell_modes_at_least`` — Farewell-shaped): one action
+        per combination of *every* size from ``N`` to all modes.
         """
         modes = list(getattr(obj, "spell_modes", None) or [])
         choose = getattr(obj, "spell_modes_choose", 1)
-        if choose <= 1:
+        at_least = getattr(obj, "spell_modes_at_least", False)
+        if choose <= 1 and not at_least:
             actions = [self._cast_action(player, obj, mode=i) for i in range(len(modes))]
             if getattr(obj, "spell_modes_or_both", False) and len(modes) == 2:
                 actions.append(self._cast_action(player, obj, mode="both"))
             return actions
+        sizes = range(choose, len(modes) + 1) if at_least else [choose]
         return [
             self._cast_action(player, obj, mode=list(combo))
-            for combo in itertools.combinations(range(len(modes)), choose)
+            for size in sizes
+            for combo in itertools.combinations(range(len(modes)), size)
         ]
 
     def legal_actions(self, player: Player) -> list[dict[str, Any]]:

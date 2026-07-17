@@ -17,7 +17,6 @@ import os
 import signal
 import socket
 import subprocess
-import sys
 import time
 import webbrowser
 from contextlib import closing
@@ -69,15 +68,25 @@ def _stop(proc: subprocess.Popen) -> None:
             proc.wait()
 
 
-def start_frontend(port: int, open_browser: bool) -> subprocess.Popen:
+def start_frontend(python, port: int, open_browser: bool) -> subprocess.Popen:
     url = f"http://localhost:{port}"
     print(f"Starting frontend at {url} (Ctrl+C to stop) ...")
     # A custom no-cache server, not the stdlib `http.server` module
     # directly: plain http.server sends no Cache-Control header, so
     # browsers can serve a stale cached copy on a normal reload after a
     # file changes (see setup/no_cache_server.py).
+    #
+    # Uses the same venv `python` as the backend rather than
+    # `sys.executable` (whatever launched this script): on macOS, a
+    # process's permission to accept incoming local connections is
+    # granted per binary identity, and the venv python is the one
+    # already proven trusted by the backend server above. Spawning the
+    # frontend under a different, unapproved python binary can leave it
+    # silently unreachable (socket bound, but the OS drops incoming
+    # connections) with no error from the child — which then looks like
+    # this server simply "never becomes ready".
     frontend_proc = subprocess.Popen(
-        [sys.executable, str(NO_CACHE_SERVER), str(port)], cwd=str(FRONTEND_DIR)
+        [str(python), str(NO_CACHE_SERVER), str(port)], cwd=str(FRONTEND_DIR)
     )
 
     if open_browser:
@@ -97,7 +106,7 @@ def run_servers(python, port: int, backend_port: int, open_browser: bool, scryfa
         if not wait_for_port("127.0.0.1", backend_port):
             raise RuntimeError(f"Backend API did not become ready on port {backend_port}.")
 
-        frontend_proc = start_frontend(port, open_browser=open_browser)
+        frontend_proc = start_frontend(python, port, open_browser=open_browser)
 
         # A plain `except KeyboardInterrupt` only covers Ctrl+C (SIGINT).
         # Without this, SIGTERM (e.g. a process manager or IDE stop button)
@@ -163,7 +172,7 @@ def main() -> None:
         return
 
     if args.frontend_only:
-        frontend_proc = start_frontend(args.port, open_browser=not args.no_browser)
+        frontend_proc = start_frontend(python, args.port, open_browser=not args.no_browser)
         try:
             frontend_proc.wait()
         except KeyboardInterrupt:

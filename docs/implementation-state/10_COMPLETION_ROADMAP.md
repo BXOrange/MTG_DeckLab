@@ -96,15 +96,14 @@ Follows [`09_ORACLE_EFFECT_PARSER.md`](../concepts/09_ORACLE_EFFECT_PARSER.md).
      (`prevent_damage`'s one-shot-spell shape, differently-scoped/
      compound-filter variants — see Batch 11), a kicked spell's "if
      kicked, ... instead" *override* shape (as opposed to the additional-
-     effect shape Batch 11 covers), and the processing-list tail —
-     current top blockers per the live ranking: "choose \<n\> —"/"choose
-     \<n\> or more —" (31+6 cards, a genuinely larger grammar than RULE
-     700.2's "choose one"/"choose one or both" — an interactive
-     multi-*mode* selection, still unclaimed), "you may look at the top
-     card of your library any time" (13, a standing *permission* rather
-     than a one-shot/triggered effect — no existing family shape to
-     reuse), monarch/initiative (7-9 each, deferred per M6),
-     cost-modification statics, and emblems.
+     effect shape Batch 11 covers), and the processing-list tail — "choose
+     \<n\> —"/"choose \<n\> or more —" (fixed and variable multi-*mode*
+     selection, RULE 700.2) is now done; remaining top blockers per the
+     (stale) live ranking: "you may look at the top card of your library
+     any time" (13, a standing *permission* rather than a one-shot/
+     triggered effect — no existing family shape to reuse),
+     monarch/initiative (7-9 each, deferred per M6), cost-modification
+     statics, and emblems.
   2. **Related, same pipeline, separately tracked in `ToDo_Backend.md`**:
     the mana-ability follow-up list from the 2026-07-15 Elf-mana-dork pass
     is now fully done (spend restrictions, Leveler-gating, Deathrite

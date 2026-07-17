@@ -28,7 +28,16 @@ class NoCacheHandler(SimpleHTTPRequestHandler):
 
 def main() -> None:
     port = int(sys.argv[1]) if len(sys.argv) > 1 else DEFAULT_PORT
-    ThreadingHTTPServer(("", port), NoCacheHandler).serve_forever()
+    # Loopback-only, not "" (all interfaces): binding every interface makes
+    # macOS treat this as wanting LAN-wide incoming connections, which
+    # requires the "Local Network" privacy permission. That prompt is
+    # unreliable for a bare CLI script (no signed app bundle) — it can fail
+    # to surface at all, leaving the port silently unreachable until
+    # something resets the permission broker's pending state (a reboot).
+    # This is a local dev server; it only needs to answer 127.0.0.1 anyway,
+    # same as the backend's uvicorn (host-less --port also defaults to
+    # loopback), which is why the backend never hit this.
+    ThreadingHTTPServer(("127.0.0.1", port), NoCacheHandler).serve_forever()
 
 
 if __name__ == "__main__":

@@ -46,10 +46,6 @@ for the dependency-ordered plan to finish the implementation.
         extending to build `target_groups` per requirement, mirroring the
         existing per-requirement "expand into N single-target rounds"
         pattern `gameBoardView.js` already uses for one N>=2 effect.)
-      - "Choose *N* or more —" (RULE 700.2, Farewell-shaped — a *variable*
-        N from 1 to every mode, a different grammar axis than the fixed-N
-        case shipped; combinatorially bigger for the spell-cast offer too,
-        2^N-1 combinations).
       - "Remove a counter" cost: only the fixed count shape
         (`costs._REMOVE_COUNTERS_RE`, already existed) is reachable from
         oracle text now — variable-count phrasings ("remove X counters",
@@ -99,6 +95,43 @@ for the dependency-ordered plan to finish the implementation.
       "Rules Engine (Phase 2)". Remaining: an *interactive*
       blocker-declaration UI (opponent-side, needs the multiplayer
       priority loop).
+- [ ] Feature gaps surfaced by hand-authoring the "Wyleth Equip" Boros
+      voltron commander deck (`game/ability_catalogue.py`) — see
+      [docs/implementation-state/ToDo_EdgeCases.md](../docs/implementation-state/ToDo_EdgeCases.md)
+      "Equipment / Auras / 'combat damage to a player' triggers" for the
+      full list of affected cards. The reusable primitives that *did* ship
+      from that work (mass "destroy/exile all X [with a toughness/mana-
+      value filter]" board wipes, the `"attached_permanent"`/
+      `"self_or_attached_permanent"` trigger-subject family + a
+      `EventType.DAMAGE` `"filter"` predicate for "deals combat damage to a
+      player", Living Weapon/Renown behavior, a per-count static-anthem
+      multiplier, RULE 702.8b Flash now gating `GameEngine.can_cast`'s
+      timing check) are narrated in
+      [Done_Backend.md](../docs/implementation-state/Done_Backend.md)
+      "Rules Engine (Phase 2)". Still open, each a real feature rather than
+      a narrow edge case:
+      - No phasing subsystem (RULE 702.26) at all.
+      - No mechanism threads a spell's announced `{X}` (`StackItem.x`,
+        stored but never read by `resolve_top_of_stack`) into a one-shot
+        effect's amount/count.
+      - No hand-zone, non-mana "discard this card: `<effect>`" (Channel)
+        activated ability, and no Cycling (RULE 702.29/28.2h).
+      - No "look at top N cards, take one matching a filter, bottom the
+        rest" mechanic, distinct from a whole-library `search`.
+      - No "exile cards and you may play them until end of turn" (impulsive
+        draw) mechanic.
+      - No per-cast, board-state-dependent cost reduction for a card still
+        in hand (only a battlefield permanent's static "spells cost {N}
+        less" exists, `continuous.cost_reduction_for`).
+      - No "flash if `<condition>`"/"activate loyalty at instant speed if
+        `<condition>`" conditional casting/activation permission (plain,
+        unconditional Flash *is* now wired into `can_cast`).
+      - A per-firing dynamic reference to "that creature"/"the object this
+        same effect just created" has no channel into a bind-on-load
+        `TriggeredAbility` (one fixed `effects` list reused every firing) —
+        the same class of gap `RulesEngine.check_rampage` routes around by
+        not using `TriggeredAbility` at all; nothing this batch needed has
+        gotten that bespoke treatment yet.
 - [~] Static abilities / continuous-effects layer system (RULE 613):
       **engine done** — full layer coverage (1-7, timestamp ordering,
       bounded RULE 613.8 dependency ordering) — see

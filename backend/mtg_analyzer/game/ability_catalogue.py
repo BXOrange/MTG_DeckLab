@@ -626,3 +626,1261 @@ def _glarb_calamitys_augur() -> list[AbilitySpec]:
 
 
 register("Glarb, Calamity's Augur", _glarb_calamitys_augur)
+
+
+# ---------------------------------------------------------------------------
+# "Wyleth Equip" — Boros equipment/voltron commander deck. Every entry below
+# hand-authors the *whole* card (not just its unclaimed clause): registering
+# a name skips the oracle-text parser fallback entirely (`specs_for`'s
+# precedence order), so any already-parser-claimable clause (e.g. a plain
+# attached-permanent anthem) has to be repeated here too, not just the part
+# the parser couldn't reach. Several clauses are deliberately simplified or
+# dropped — each says so inline — where the engine has no primitive for the
+# real shape yet (X-spells scaling an effect, phasing, per-object dynamic
+# "that creature" references, a genuine two-independent-target activated
+# ability); see `backend/ToDo_Backend.md` for the running list.
+# ---------------------------------------------------------------------------
+
+
+def _wyleth_soul_of_steel() -> list[AbilitySpec]:
+    """Trample
+    Whenever Wyleth attacks, draw a card for each Aura and Equipment
+    attached to it.
+
+    — Trample comes from the RULE 702 keyword catalogue automatically. The
+    draw uses `DrawCardEffect.count_selector` (a per-object dynamic count).
+    """
+    return [
+        AbilitySpec(
+            "triggered",
+            [EffectSpec("draw", {"count_selector": "auras_and_equipment_attached_to_self"})],
+            trigger={"event": EventType.ATTACKS, "condition": {"subject": "self"}},
+            raw_text="Wenn Wyleth angreift, ziehe eine Karte für jede Aura und "
+                     "jede Ausrüstung, die an ihm befestigt ist.",
+        )
+    ]
+
+
+register("Wyleth, Soul of Steel", _wyleth_soul_of_steel)
+
+
+def _akiri_fearless_voyager() -> list[AbilitySpec]:
+    """Whenever you attack a player with one or more equipped creatures,
+    draw a card.
+    {W}: You may unattach an Equipment from a creature you control. If you
+    do, tap that creature and it gains indestructible until end of turn.
+
+    — Akiri, Fearless Voyager. Simplified: the engine fires RULE 508.1a's
+    ATTACKS event once *per attacking creature*, not once per combat, so
+    this is authored as "whenever an equipped creature you control attacks
+    a player, draw a card" — a per-attacker trigger rather than a true
+    once-per-combat one (attacking with 2+ equipped creatures in the same
+    combat draws more than the printed one card; see `effect_binder.
+    _trigger_condition`'s ``requires_equipped`` for the equipped check).
+    The second ability is `UnattachTapIndestructibleEffect`
+    (`targeting.py`'s ``attached_equipment_you_control`` only offers an
+    Equipment that's actually attached, so there's always a host to act on).
+    """
+    return [
+        AbilitySpec(
+            "triggered",
+            [EffectSpec("draw", {"count": 1})],
+            trigger={"event": EventType.ATTACKS, "condition": {"subject": "self"},
+                     "requires_equipped": True},
+            raw_text="Wenn eine ausgerüstete Kreatur, die du kontrollierst, einen "
+                     "Spieler angreift, ziehe eine Karte.",
+        ),
+        AbilitySpec(
+            "activated",
+            [EffectSpec("unattach_tap_indestructible", {})],
+            cost={"mana": "{W}"},
+            raw_text="{W}: Du kannst eine Ausrüstung von einer Kreatur, die du "
+                     "kontrollierst, lösen. Wenn du dies tust, tappe die Kreatur "
+                     "und sie erhält Unzerstörbarkeit bis zum Ende des Zuges.",
+        ),
+    ]
+
+
+register("Akiri, Fearless Voyager", _akiri_fearless_voyager)
+
+
+def _argentum_armor() -> list[AbilitySpec]:
+    """Equipped creature gets +6/+6.
+    Whenever equipped creature attacks, destroy target permanent.
+    Equip {6}
+
+    — Argentum Armor. Equip is synthesized by the keyword catalogue.
+    """
+    return [
+        AbilitySpec(
+            "static",
+            [EffectSpec("anthem", {"affects": "attached_permanent", "power": 6, "toughness": 6})],
+            raw_text="Ausgerüstete Kreatur erhält +6/+6.",
+        ),
+        AbilitySpec(
+            "triggered",
+            [EffectSpec("destroy", {"target_kind": "permanent"})],
+            trigger={"event": EventType.ATTACKS, "condition": {"subject": "attached_permanent"}},
+            raw_text="Wenn die ausgerüstete Kreatur angreift, zerstöre eine Zielspielsteinkarte.",
+        ),
+    ]
+
+
+register("Argentum Armor", _argentum_armor)
+
+
+def _blackblade_reforged() -> list[AbilitySpec]:
+    """Equipped creature gets +1/+1 for each land you control.
+    Equip legendary creature {3}
+    Equip {7}
+
+    — Blackblade Reforged. Both Equip costs collapse to the keyword
+    catalogue's single synthesized Equip ability (the cheaper "equip
+    legendary creature" alternative cost isn't modeled separately — a
+    documented simplification, always the {7} cost here).
+    """
+    return [
+        AbilitySpec(
+            "static",
+            [EffectSpec("anthem", {
+                "affects": "attached_permanent", "power": 1, "toughness": 1,
+                "power_count": "lands_you_control", "toughness_count": "lands_you_control",
+            })],
+            raw_text="Ausgerüstete Kreatur erhält +1/+1 für jedes Land, das du kontrollierst.",
+        )
+    ]
+
+
+register("Blackblade Reforged", _blackblade_reforged)
+
+
+def _bloodforged_battle_axe() -> list[AbilitySpec]:
+    """Equipped creature gets +2/+0.
+    Whenever equipped creature deals combat damage to a player, create a
+    token that's a copy of this Equipment.
+    Equip {2}
+    """
+    return [
+        AbilitySpec(
+            "static",
+            [EffectSpec("anthem", {"affects": "attached_permanent", "power": 2, "toughness": 0})],
+            raw_text="Ausgerüstete Kreatur erhält +2/+0.",
+        ),
+        AbilitySpec(
+            "triggered",
+            [EffectSpec("copy_permanent", {"target_kind": None})],
+            trigger={
+                "event": EventType.DAMAGE, "condition": {"subject": "attached_permanent"},
+                "filter": {"combat": True, "is_player": True},
+            },
+            raw_text="Wenn die ausgerüstete Kreatur einem Spieler Kampfschaden zufügt, "
+                     "erzeuge einen Spielstein, der eine Kopie dieser Ausrüstung ist.",
+        ),
+    ]
+
+
+register("Bloodforged Battle-Axe", _bloodforged_battle_axe)
+
+
+def _bruenor_battlehammer() -> list[AbilitySpec]:
+    """Each creature you control gets +2/+0 for each Equipment attached to it.
+    You may pay {0} rather than pay the equip cost of the first equip
+    ability you activate each turn.
+
+    — Bruenor Battlehammer. The cost-reduction clause isn't modeled (the
+    engine's cost-reduction static only scopes to spells being cast, not
+    activated-ability costs) — a documented gap.
+    """
+    return [
+        AbilitySpec(
+            "static",
+            [EffectSpec("anthem", {
+                "affects": "creatures_you_control", "power": 2, "toughness": 0,
+                "power_count": "equipment_attached_to_self",
+            })],
+            raw_text="Jede Kreatur, die du kontrollierst, erhält +2/+0 für jede "
+                     "Ausrüstung, die an ihr befestigt ist.",
+        )
+    ]
+
+
+register("Bruenor Battlehammer", _bruenor_battlehammer)
+
+
+def _colossus_hammer() -> list[AbilitySpec]:
+    """Equipped creature gets +10/+10 and loses flying.
+    Equip {8}
+    """
+    return [
+        AbilitySpec(
+            "static",
+            [
+                EffectSpec("anthem", {"affects": "attached_permanent", "power": 10, "toughness": 10}),
+                EffectSpec("remove_keyword", {"affects": "attached_permanent", "keywords": ["flying"]}),
+            ],
+            raw_text="Ausgerüstete Kreatur erhält +10/+10 und verliert Flugfähigkeit.",
+        )
+    ]
+
+
+register("Colossus Hammer", _colossus_hammer)
+
+
+def _austere_command() -> list[AbilitySpec]:
+    """Choose two —
+    • Destroy all artifacts.
+    • Destroy all enchantments.
+    • Destroy all creatures with mana value 3 or less.
+    • Destroy all creatures with mana value 4 or greater.
+    """
+    return [
+        AbilitySpec(
+            "spell_effect",
+            [],
+            modes={
+                "choose": 2,
+                "options": [
+                    [EffectSpec("destroy", {"selector": "all_artifacts"})],
+                    [EffectSpec("destroy", {"selector": "all_enchantments"})],
+                    [EffectSpec("destroy", {"selector": "all_creatures", "filter": {"max_mana_value": 3}})],
+                    [EffectSpec("destroy", {"selector": "all_creatures", "filter": {"min_mana_value": 4}})],
+                ],
+                "descriptions": [
+                    "Zerstöre alle Artefakte.",
+                    "Zerstöre alle Verzauberungen.",
+                    "Zerstöre alle Kreaturen mit Manawert 3 oder weniger.",
+                    "Zerstöre alle Kreaturen mit Manawert 4 oder mehr.",
+                ],
+            },
+            raw_text="Wähle zwei —",
+        )
+    ]
+
+
+register("Austere Command", _austere_command)
+
+
+def _boros_charm() -> list[AbilitySpec]:
+    """Choose one —
+    • Boros Charm deals 4 damage to target player or planeswalker.
+    • Permanents you control gain indestructible until end of turn.
+    • Target creature gains double strike until end of turn.
+
+    — Boros Charm. The first mode drops "or planeswalker" (the project's
+    existing convention for this exact phrase, see `parser/oracle/catalogue/
+    subgrammars.py`'s ``"target player or planeswalker"`` row, which maps to
+    plain ``"player"`` too).
+    """
+    return [
+        AbilitySpec(
+            "spell_effect",
+            [],
+            modes={
+                "choose": 1,
+                "options": [
+                    [EffectSpec("damage", {"amount": 4, "target_kind": "player"})],
+                    [EffectSpec("pump", {"selector": "permanents_you_control", "keywords": ["indestructible"]})],
+                    [EffectSpec("pump", {"target_kind": "creature", "keywords": ["double_strike"]})],
+                ],
+                "descriptions": [
+                    "Fügt einem Zielspieler 4 Schaden zu.",
+                    "Bleibende Karten, die du kontrollierst, erhalten Unzerstörbarkeit bis zum Ende des Zuges.",
+                    "Eine Zielkreatur erhält Doppelschlag bis zum Ende des Zuges.",
+                ],
+            },
+            raw_text="Wähle eins —",
+        )
+    ]
+
+
+register("Boros Charm", _boros_charm)
+
+
+def _citywide_bust() -> list[AbilitySpec]:
+    """Destroy all creatures with toughness 4 or greater."""
+    return [
+        AbilitySpec(
+            "spell_effect",
+            [EffectSpec("destroy", {"selector": "all_creatures", "filter": {"min_toughness": 4}})],
+            raw_text="Zerstöre alle Kreaturen mit Widerstandskraft 4 oder mehr.",
+        )
+    ]
+
+
+register("Citywide Bust", _citywide_bust)
+
+
+def _embercleave() -> list[AbilitySpec]:
+    """Flash
+    This spell costs {1} less to cast for each attacking creature you control.
+    When Embercleave enters, attach it to target creature you control.
+    Equipped creature gets +1/+1 and has double strike and trample.
+    Equip {3}
+
+    — Embercleave. Flash comes from the RULE 702 keyword catalogue (and is
+    now honoured for casting timing, `GameEngine.can_cast`). The attacker-
+    count cost reduction isn't modeled (no per-cast, board-state-dependent
+    discount mechanism exists yet for a card still in hand) — a documented
+    gap; it always costs its full {3}{R}{W}.
+    """
+    return [
+        AbilitySpec(
+            "triggered",
+            [EffectSpec("attach", {"target_kind": "creature_you_control"})],
+            trigger={"event": EventType.ENTERS_BATTLEFIELD, "condition": {"subject": "self"}},
+            raw_text="Wenn Sturmpanzerklinge ins Spiel kommt, befestige sie an einer "
+                     "Zielkreatur, die du kontrollierst.",
+        ),
+        AbilitySpec(
+            "static",
+            [
+                EffectSpec("anthem", {"affects": "attached_permanent", "power": 1, "toughness": 1}),
+                EffectSpec("grant_keyword", {"affects": "attached_permanent",
+                                              "keywords": ["double_strike", "trample"]}),
+            ],
+            raw_text="Ausgerüstete Kreatur erhält +1/+1 und hat Doppelschlag und Trampelschaden.",
+        ),
+    ]
+
+
+register("Embercleave", _embercleave)
+
+
+def _encroaching_wastes() -> list[AbilitySpec]:
+    """{T}: Add {C}.
+    {4}, {T}, Sacrifice this land: Destroy target nonbasic land.
+    """
+    return [
+        AbilitySpec(
+            "activated",
+            [EffectSpec("destroy", {"target_kind": "nonbasic_land"})],
+            cost={"mana": "{4}", "taps_self": True, "sacrifice": "self"},
+            raw_text="{4}, {T}, Opfere dieses Land: Zerstöre ein nichtgrundlegendes Zielland.",
+        )
+    ]
+
+
+register("Encroaching Wastes", _encroaching_wastes)
+
+
+def _explorers_scope() -> list[AbilitySpec]:
+    """Whenever equipped creature attacks, look at the top card of your
+    library. If it's a land card, you may put it onto the battlefield tapped.
+    Equip {1}
+    """
+    return [
+        AbilitySpec(
+            "triggered",
+            [EffectSpec("peek_top_land_battlefield_tapped", {})],
+            trigger={"event": EventType.ATTACKS, "condition": {"subject": "attached_permanent"}},
+            raw_text="Wenn die ausgerüstete Kreatur angreift, sieh dir die oberste "
+                     "Karte deiner Bibliothek an. Falls es eine Landkarte ist, "
+                     "kannst du sie getappt ins Spiel legen.",
+        )
+    ]
+
+
+register("Explorer's Scope", _explorers_scope)
+
+
+def _farewell() -> list[AbilitySpec]:
+    """Choose one or more —
+    • Exile all artifacts.
+    • Exile all creatures.
+    • Exile all enchantments.
+    • Exile all graveyards.
+    """
+    return [
+        AbilitySpec(
+            "spell_effect",
+            [],
+            modes={
+                "choose": 1,
+                "at_least": True,
+                "options": [
+                    [EffectSpec("exile", {"selector": "all_artifacts"})],
+                    [EffectSpec("exile", {"selector": "all_creatures"})],
+                    [EffectSpec("exile", {"selector": "all_enchantments"})],
+                    [EffectSpec("exile_all_graveyards", {})],
+                ],
+                "descriptions": [
+                    "Exiliere alle Artefakte.",
+                    "Exiliere alle Kreaturen.",
+                    "Exiliere alle Verzauberungen.",
+                    "Exiliere alle Friedhöfe.",
+                ],
+            },
+            raw_text="Wähle eins oder mehr —",
+        )
+    ]
+
+
+register("Farewell", _farewell)
+
+
+def _fighter_class() -> list[AbilitySpec]:
+    """(Gain the next level as a sorcery to add its ability.)
+    When this Class enters, search your library for an Equipment card,
+    reveal it, put it into your hand, then shuffle.
+    {1}{R}{W}: Level 2
+    Equip abilities you activate cost {2} less to activate.
+    {3}{R}{W}: Level 3
+    Whenever a creature you control attacks, up to one target creature
+    blocks it this combat if able.
+
+    — Fighter Class. Only the level-1 ETB tutor is modeled; the level 2/3
+    upgrades (an equip-cost reduction and a forced-block effect) aren't —
+    the Class simply never gains a "level up" button, a documented gap
+    rather than a wrongly-behaving one.
+    """
+    return [
+        AbilitySpec(
+            "triggered",
+            [EffectSpec("search", {"criteria": {"type": "Equipment"}, "destination": "hand"})],
+            trigger={"event": EventType.ENTERS_BATTLEFIELD, "condition": {"subject": "self"}},
+            raw_text="Wenn diese Klasse ins Spiel kommt, suche in deiner Bibliothek "
+                     "nach einer Ausrüstungskarte, zeige sie offen, nimm sie auf "
+                     "deine Hand, dann mische.",
+        )
+    ]
+
+
+register("Fighter Class", _fighter_class)
+
+
+def _forging_the_tyrite_sword() -> list[AbilitySpec]:
+    """(As this Saga enters and after your draw step, add a lore counter.
+    Sacrifice after III.)
+    I, II — Create a Treasure token.
+    III — Search your library for a card named Halvar, God of Battle or an
+    Equipment card, reveal it, put it into your hand, then shuffle.
+
+    — Forging the Tyrite Sword. Chapter III drops the "named Halvar, God of
+    Battle" alternative (a name-*or*-type search the ``search`` effect's
+    criteria can't express — it can only AND conditions, not OR two
+    different shapes) and always searches for an Equipment card instead.
+    """
+    return [
+        AbilitySpec(
+            "triggered",
+            [EffectSpec("create_token", {"token_name": "Treasure", "count": 1})],
+            trigger={"event": "SAGA_CHAPTER", "chapter": [1, 2]},
+            raw_text="I, II — Erzeuge einen Schatz-Spielstein.",
+        ),
+        AbilitySpec(
+            "triggered",
+            [EffectSpec("search", {"criteria": {"type": "Equipment"}, "destination": "hand"})],
+            trigger={"event": "SAGA_CHAPTER", "chapter": [3]},
+            raw_text="III — Suche in deiner Bibliothek nach einer Ausrüstungskarte, "
+                     "zeige sie offen, nimm sie auf deine Hand, dann mische.",
+        ),
+    ]
+
+
+register("Forging the Tyrite Sword", _forging_the_tyrite_sword)
+
+
+def _halvar_god_of_battle() -> list[AbilitySpec]:
+    """Creatures you control that are enchanted or equipped have double strike.
+    At the beginning of each combat, you may attach target Aura or Equipment
+    attached to a creature you control to target creature you control.
+
+    — Halvar, God of Battle. The move-attachment trigger needs two
+    independent targets on one ability (the Aura/Equipment *and* its new
+    host), which isn't supported yet (`docs/Reference/11_CARD_CATALOGUE_
+    AUTHORING_GUIDE.md` §5's "at most one targeting effect per ability") —
+    a documented gap; only the static double-strike grant is modeled.
+    """
+    return [
+        AbilitySpec(
+            "static",
+            [EffectSpec("grant_keyword", {
+                "affects": "enchanted_or_equipped_creatures_you_control", "keywords": ["double_strike"],
+            })],
+            raw_text="Kreaturen, die du kontrollierst und die verzaubert oder "
+                     "ausgerüstet sind, haben Doppelschlag.",
+        )
+    ]
+
+
+register("Halvar, God of Battle", _halvar_god_of_battle)
+
+
+def _indomitable_archangel() -> list[AbilitySpec]:
+    """Flying
+    Metalcraft — Artifacts you control have shroud as long as you control
+    three or more artifacts.
+
+    — Flying comes from the RULE 702 keyword catalogue.
+    """
+    return [
+        AbilitySpec(
+            "static",
+            [EffectSpec("grant_keyword", {
+                "affects": "artifacts_you_control", "keywords": ["shroud"],
+                "min_count_selector": "artifacts_you_control", "min_count": 3,
+            })],
+            raw_text="Metallgespür — Artefakte, die du kontrollierst, haben Schutzhülle, "
+                     "solange du drei oder mehr Artefakte kontrollierst.",
+        )
+    ]
+
+
+register("Indomitable Archangel", _indomitable_archangel)
+
+
+def _kaldra_compleat() -> list[AbilitySpec]:
+    """Living weapon
+    Indestructible
+    Equipped creature gets +5/+5 and has first strike, trample,
+    indestructible, haste, and "Whenever this creature deals combat damage
+    to a creature, exile that creature."
+    Equip {7}
+
+    — Kaldra Compleat. Living weapon and Indestructible come from the RULE
+    702 keyword catalogue (Living Weapon's germ-token creation is now
+    synthesized behaviourally too, see `effect_binder._keyword_triggered_
+    abilities`). The granted "exile that creature" ability isn't modeled —
+    it needs a per-firing dynamic reference to *whichever* creature was
+    just damaged, which no generic `TriggeredAbility` (one fixed `effects`
+    list) can carry (the same class of gap `RulesEngine.check_rampage`
+    solves by going around `TriggeredAbility` entirely) — a documented gap.
+    """
+    return [
+        AbilitySpec(
+            "static",
+            [
+                EffectSpec("anthem", {"affects": "attached_permanent", "power": 5, "toughness": 5}),
+                EffectSpec("grant_keyword", {
+                    "affects": "attached_permanent",
+                    "keywords": ["first_strike", "trample", "indestructible", "haste"],
+                }),
+            ],
+            raw_text="Ausgerüstete Kreatur erhält +5/+5 und hat Erstschlag, "
+                     "Trampelschaden, Unzerstörbarkeit und Eile.",
+        )
+    ]
+
+
+register("Kaldra Compleat", _kaldra_compleat)
+
+
+def _lion_sash() -> list[AbilitySpec]:
+    """{W}: Exile target card from a graveyard. If it was a permanent card,
+    put a +1/+1 counter on this permanent.
+    Equipped creature gets +1/+1 for each +1/+1 counter on this Equipment.
+    Reconfigure {2}
+
+    — Reconfigure's attach/unattach activated ability is synthesized by the
+    keyword catalogue.
+    """
+    return [
+        AbilitySpec(
+            "activated",
+            [EffectSpec("exile_graveyard_card_counter_if_permanent", {})],
+            cost={"mana": "{W}"},
+            raw_text="{W}: Exiliere eine Zielkarte aus einem Friedhof. Falls es "
+                     "eine Karte eines bleibenden Kartentyps war, lege einen "
+                     "+1/+1-Marker auf diese bleibende Karte.",
+        ),
+        AbilitySpec(
+            "static",
+            [EffectSpec("anthem", {
+                "affects": "attached_permanent", "power": 1, "toughness": 1,
+                "power_count": "plus_one_counters_on_self", "toughness_count": "plus_one_counters_on_self",
+            })],
+            raw_text="Ausgerüstete Kreatur erhält +1/+1 für jeden +1/+1-Marker auf "
+                     "dieser Ausrüstung.",
+        ),
+    ]
+
+
+register("Lion Sash", _lion_sash)
+
+
+def _nahiri_heir_of_the_ancients() -> list[AbilitySpec]:
+    """+1: Create a 1/1 white Kor Warrior creature token. You may attach an
+    Equipment you control to it.
+    −2: Look at the top six cards of your library. You may reveal a Warrior
+    or Equipment card from among them and put it into your hand. Put the
+    rest on the bottom of your library in a random order.
+    −3: Nahiri deals damage to target creature or planeswalker equal to
+    twice the number of Equipment you control.
+
+    — Nahiri, Heir of the Ancients. Only +1 is modeled: −2 needs a "look at
+    top N, take a matching one, bottom the rest" mechanic distinct from a
+    whole-library `search` (not implemented); −3 needs a dynamic damage
+    amount computed at resolution (no `DealDamageEffect` "amount equals a
+    count" mode exists yet). Both are documented gaps rather than guessed
+    approximations.
+    """
+    return [
+        AbilitySpec(
+            "activated",
+            [EffectSpec("create_token_may_attach_equipment", {
+                "token_name": "Kor Warrior", "power": 1, "toughness": 1,
+                "colors": ["W"], "subtypes": ["Kor", "Warrior"],
+            })],
+            cost={"loyalty": 1},
+            raw_text="+1: Erzeuge einen weißen 1/1 Kor-Krieger-Kreaturenspielstein. "
+                     "Du kannst eine Ausrüstung, die du kontrollierst, an ihm befestigen.",
+        )
+    ]
+
+
+register("Nahiri, Heir of the Ancients", _nahiri_heir_of_the_ancients)
+
+
+def _nahiri_storm_of_stone() -> list[AbilitySpec]:
+    """During your turn, creatures you control have first strike and equip
+    abilities you activate cost {1} less to activate.
+    −X: Nahiri deals X damage to target tapped creature.
+
+    — Nahiri, Storm of Stone. Only the first-strike half of the static is
+    modeled (the equip-cost reduction isn't — same gap as Bruenor
+    Battlehammer/Nahiri, Heir); the −X ability needs a variable-loyalty-cost
+    + dynamic-damage-amount mechanism this engine doesn't have, so it's
+    left off entirely rather than guessed at.
+    """
+    return [
+        AbilitySpec(
+            "static",
+            [EffectSpec("grant_keyword", {
+                "affects": "creatures_you_control", "keywords": ["first_strike"],
+                "active_player_only": True,
+            })],
+            raw_text="Während deines Zuges haben Kreaturen, die du kontrollierst, Erstschlag.",
+        )
+    ]
+
+
+register("Nahiri, Storm of Stone", _nahiri_storm_of_stone)
+
+
+def _nettlecyst() -> list[AbilitySpec]:
+    """Living weapon
+    Equipped creature gets +1/+1 for each artifact and/or enchantment you
+    control.
+    Equip {2}
+
+    — Living Weapon's germ-token creation is synthesized behaviourally by
+    `effect_binder._keyword_triggered_abilities`.
+    """
+    return [
+        AbilitySpec(
+            "static",
+            [EffectSpec("anthem", {
+                "affects": "attached_permanent", "power": 1, "toughness": 1,
+                "power_count": "artifacts_and_or_enchantments_you_control",
+                "toughness_count": "artifacts_and_or_enchantments_you_control",
+            })],
+            raw_text="Ausgerüstete Kreatur erhält +1/+1 für jedes Artefakt und/oder "
+                     "jede Verzauberung, die du kontrollierst.",
+        )
+    ]
+
+
+register("Nettlecyst", _nettlecyst)
+
+
+def _open_the_armory() -> list[AbilitySpec]:
+    """Search your library for an Aura or Equipment card, reveal it, put it
+    into your hand, then shuffle.
+    """
+    return [
+        AbilitySpec(
+            "spell_effect",
+            [EffectSpec("search", {"criteria": {"type": ["Aura", "Equipment"]}, "destination": "hand"})],
+            raw_text="Suche in deiner Bibliothek nach einer Aura- oder Ausrüstungskarte, "
+                     "zeige sie offen, nimm sie auf deine Hand, dann mische.",
+        )
+    ]
+
+
+register("Open the Armory", _open_the_armory)
+
+
+def _relic_seeker() -> list[AbilitySpec]:
+    """Renown 1
+    When this creature becomes renowned, you may search your library for
+    an Equipment card, reveal it, put it into your hand, then shuffle.
+
+    — Renown 1 comes from the RULE 702 keyword catalogue, whose counter-
+    placing behaviour is now synthesized (`effect_binder._keyword_
+    triggered_abilities`, firing `EventType.RENOWNED`); this entry only
+    adds Relic Seeker's own *separate* "becomes renowned" search trigger.
+    """
+    return [
+        AbilitySpec(
+            "triggered",
+            [EffectSpec("search", {"criteria": {"type": "Equipment"}, "destination": "hand"})],
+            trigger={"event": "RENOWNED", "condition": {"subject": "self"}},
+            optional=True,
+            raw_text="Wenn diese Kreatur berühmt wird, kannst du in deiner Bibliothek "
+                     "nach einer Ausrüstungskarte suchen, sie offen zeigen, auf deine "
+                     "Hand nehmen, dann mische.",
+        )
+    ]
+
+
+register("Relic Seeker", _relic_seeker)
+
+
+def _robe_of_stars() -> list[AbilitySpec]:
+    """Equipped creature gets +0/+3.
+    Astral Projection — {1}{W}: Equipped creature phases out.
+    Equip {1}
+
+    — Robe of Stars. Astral Projection isn't modeled (this engine has no
+    phasing subsystem, RULE 702.26) — a documented gap; only the static
+    pump is modeled.
+    """
+    return [
+        AbilitySpec(
+            "static",
+            [EffectSpec("anthem", {"affects": "attached_permanent", "power": 0, "toughness": 3})],
+            raw_text="Ausgerüstete Kreatur erhält +0/+3.",
+        )
+    ]
+
+
+register("Robe of Stars", _robe_of_stars)
+
+
+def _rogues_gloves() -> list[AbilitySpec]:
+    """Whenever equipped creature deals combat damage to a player, you may
+    draw a card.
+    Equip {2}
+    """
+    return [
+        AbilitySpec(
+            "triggered",
+            [EffectSpec("draw", {"count": 1})],
+            trigger={
+                "event": EventType.DAMAGE, "condition": {"subject": "attached_permanent"},
+                "filter": {"combat": True, "is_player": True},
+            },
+            optional=True,
+            raw_text="Wenn die ausgerüstete Kreatur einem Spieler Kampfschaden "
+                     "zufügt, kannst du eine Karte ziehen.",
+        )
+    ]
+
+
+register("Rogue's Gloves", _rogues_gloves)
+
+
+def _rogues_passage() -> list[AbilitySpec]:
+    """{T}: Add {C}.
+    {4}, {T}: Target creature can't be blocked this turn.
+    """
+    return [
+        AbilitySpec(
+            "activated",
+            [EffectSpec("unblockable", {"target_kind": "creature"})],
+            cost={"mana": "{4}", "taps_self": True},
+            raw_text="{4}, {T}: Eine Zielkreatur kann in diesem Zug nicht geblockt werden.",
+        )
+    ]
+
+
+register("Rogue's Passage", _rogues_passage)
+
+
+def _simian_sling() -> list[AbilitySpec]:
+    """Equipped creature gets +1/+1.
+    Whenever this creature or equipped creature becomes blocked, it deals
+    1 damage to defending player.
+    Reconfigure {2}
+
+    — Simian Sling. The trigger's "defending player" resolves off the
+    ability's own source (Simian Sling) via `_defending_player_of`, which
+    reads *its own* combat-defender stamp — correct when Simian Sling
+    itself is the attacking creature, but it won't have one when it's
+    reconfigured onto a *different* attacking creature instead (a documented
+    simplification: the trigger still fires, but finds no defending player
+    to hit in that case).
+    """
+    return [
+        AbilitySpec(
+            "static",
+            [EffectSpec("anthem", {"affects": "attached_permanent", "power": 1, "toughness": 1})],
+            raw_text="Ausgerüstete Kreatur erhält +1/+1.",
+        ),
+        AbilitySpec(
+            "triggered",
+            [EffectSpec("damage", {"amount": 1, "selector": "defending_player"})],
+            trigger={"event": EventType.BECOMES_BLOCKED, "condition": {"subject": "self_or_attached_permanent"}},
+            raw_text="Wenn diese Kreatur oder die ausgerüstete Kreatur geblockt "
+                     "wird, fügt sie dem verteidigenden Spieler 1 Schaden zu.",
+        ),
+    ]
+
+
+register("Simian Sling", _simian_sling)
+
+
+def _spirit_mantle() -> list[AbilitySpec]:
+    """Enchant creature
+    Enchanted creature gets +1/+1 and has protection from creatures.
+
+    — Spirit Mantle. Protection reads the printed oracle text directly
+    (`game/combat.py`'s `protections_of`, independent of this registry), so
+    only the +1/+1 anthem needs authoring here.
+    """
+    return [
+        AbilitySpec(
+            "static",
+            [EffectSpec("anthem", {"affects": "attached_permanent", "power": 1, "toughness": 1})],
+            raw_text="Verzauberte Kreatur erhält +1/+1.",
+        )
+    ]
+
+
+register("Spirit Mantle", _spirit_mantle)
+
+
+def _sram_senior_edificer() -> list[AbilitySpec]:
+    """Whenever you cast an Aura, Equipment, or Vehicle spell, draw a card."""
+    return [
+        AbilitySpec(
+            "triggered",
+            [EffectSpec("draw", {"count": 1})],
+            trigger={
+                "event": EventType.SPELL_CAST, "condition": {"subject": "group", "controller": "you"},
+                "spell_subtype_any": ["Aura", "Equipment", "Vehicle"],
+            },
+            raw_text="Wenn du einen Aura-, Ausrüstungs- oder Fahrzeugzauber wirkst, ziehe eine Karte.",
+        )
+    ]
+
+
+register("Sram, Senior Edificer", _sram_senior_edificer)
+
+
+def _sun_titan() -> list[AbilitySpec]:
+    """Vigilance
+    Whenever this creature enters or attacks, you may return target
+    permanent card with mana value 3 or less from your graveyard to the
+    battlefield.
+
+    — Vigilance comes from the RULE 702 keyword catalogue. The "mana value
+    3 or less" restriction on the graveyard target isn't modeled (no
+    graveyard target kind carries a mana-value filter yet) — any permanent
+    card in the graveyard is a legal target, a documented simplification.
+    """
+    effect = EffectSpec(
+        "return_from_graveyard",
+        {"target_kind": "graveyard_permanent", "destination": "battlefield", "optional": True},
+    )
+    return [
+        AbilitySpec(
+            "triggered",
+            [EffectSpec(effect.type, dict(effect.params))],
+            trigger={"event": EventType.ENTERS_BATTLEFIELD, "condition": {"subject": "self"}},
+            raw_text="Wenn diese Kreatur ins Spiel kommt, kannst du eine "
+                     "Zielkarte eines bleibenden Kartentyps aus deinem Friedhof "
+                     "ins Spiel zurückbringen.",
+        ),
+        AbilitySpec(
+            "triggered",
+            [EffectSpec(effect.type, dict(effect.params))],
+            trigger={"event": EventType.ATTACKS, "condition": {"subject": "self"}},
+            raw_text="Wenn diese Kreatur angreift, kannst du eine Zielkarte "
+                     "eines bleibenden Kartentyps aus deinem Friedhof ins Spiel "
+                     "zurückbringen.",
+        ),
+    ]
+
+
+register("Sun Titan", _sun_titan)
+
+
+def _sunforger() -> list[AbilitySpec]:
+    """Equipped creature gets +4/+0.
+    {R}{W}, Unattach this Equipment: Search your library for a red or
+    white instant card with mana value 4 or less and cast that card
+    without paying its mana cost. Then shuffle.
+    Equip {3}
+    """
+    return [
+        AbilitySpec(
+            "static",
+            [EffectSpec("anthem", {"affects": "attached_permanent", "power": 4, "toughness": 0})],
+            raw_text="Ausgerüstete Kreatur erhält +4/+0.",
+        ),
+        AbilitySpec(
+            "activated",
+            [EffectSpec("search", {
+                "criteria": {"type": "Instant", "color": ["R", "W"], "max_mana_value": 4},
+                "destination": "cast_free",
+            })],
+            cost={"mana": "{R}{W}", "unattach_self": True},
+            raw_text="{R}{W}, Löse diese Ausrüstung: Suche in deiner Bibliothek nach "
+                     "einer roten oder weißen Spontanzauberkarte mit Manawert 4 oder "
+                     "weniger und wirke diese Karte, ohne ihre Manakosten zu bezahlen. "
+                     "Mische danach.",
+        ),
+    ]
+
+
+register("Sunforger", _sunforger)
+
+
+def _sword_of_forge_and_frontier() -> list[AbilitySpec]:
+    """Equipped creature gets +2/+2 and has protection from red and from green.
+    Whenever equipped creature deals combat damage to a player, exile the
+    top two cards of your library. You may play those cards this turn. You
+    may play an additional land this turn.
+    Equip {2}
+
+    — Sword of Forge and Frontier. Protection reads the printed oracle text
+    directly (independent of this registry); the "impulsive draw + extra
+    land drop" trigger isn't modeled (no "exile and may play until end of
+    turn" mechanism exists yet) — a documented gap, only the static pump
+    is modeled.
+    """
+    return [
+        AbilitySpec(
+            "static",
+            [EffectSpec("anthem", {"affects": "attached_permanent", "power": 2, "toughness": 2})],
+            raw_text="Ausgerüstete Kreatur erhält +2/+2.",
+        )
+    ]
+
+
+register("Sword of Forge and Frontier", _sword_of_forge_and_frontier)
+
+
+def _sword_of_hearth_and_home() -> list[AbilitySpec]:
+    """Equipped creature gets +2/+2 and has protection from green and from white.
+    Whenever equipped creature deals combat damage to a player, exile up to
+    one target creature you own, then search your library for a basic land
+    card. Put both cards onto the battlefield under your control, then
+    shuffle.
+    Equip {2}
+
+    — Sword of Hearth and Home. Simplified: only the ramp half ("search
+    your library for a basic land card, put it onto the battlefield") is
+    modeled — the "exile up to one target creature you own, then reunite it
+    with the land" blink half needs a two-part simultaneous re-entry this
+    engine's `search` effect can't express, so it's dropped rather than
+    guessed at.
+    """
+    return [
+        AbilitySpec(
+            "static",
+            [EffectSpec("anthem", {"affects": "attached_permanent", "power": 2, "toughness": 2})],
+            raw_text="Ausgerüstete Kreatur erhält +2/+2.",
+        ),
+        AbilitySpec(
+            "triggered",
+            [EffectSpec("search", {"criteria": {"basic": True}, "destination": "battlefield"})],
+            trigger={
+                "event": EventType.DAMAGE, "condition": {"subject": "attached_permanent"},
+                "filter": {"combat": True, "is_player": True},
+            },
+            raw_text="Wenn die ausgerüstete Kreatur einem Spieler Kampfschaden "
+                     "zufügt, suche in deiner Bibliothek nach einer Standardlandkarte "
+                     "und lege sie ins Spiel, dann mische.",
+        ),
+    ]
+
+
+register("Sword of Hearth and Home", _sword_of_hearth_and_home)
+
+
+def _sword_of_light_and_shadow() -> list[AbilitySpec]:
+    """Equipped creature gets +2/+2 and has protection from white and from black.
+    Whenever equipped creature deals combat damage to a player, you gain 3
+    life and you may return up to one target creature card from your
+    graveyard to your hand.
+    Equip {2}
+    """
+    return [
+        AbilitySpec(
+            "static",
+            [EffectSpec("anthem", {"affects": "attached_permanent", "power": 2, "toughness": 2})],
+            raw_text="Ausgerüstete Kreatur erhält +2/+2.",
+        ),
+        AbilitySpec(
+            "triggered",
+            [
+                EffectSpec("gain_life", {"amount": 3}),
+                EffectSpec("return_from_graveyard", {
+                    "target_kind": "graveyard_creature", "destination": "hand", "optional": True,
+                }),
+            ],
+            trigger={
+                "event": EventType.DAMAGE, "condition": {"subject": "attached_permanent"},
+                "filter": {"combat": True, "is_player": True},
+            },
+            raw_text="Wenn die ausgerüstete Kreatur einem Spieler Kampfschaden "
+                     "zufügt, gewinnst du 3 Lebenspunkte hinzu und kannst eine "
+                     "Zielkreaturenkarte aus deinem Friedhof auf deine Hand "
+                     "zurückbringen.",
+        ),
+    ]
+
+
+register("Sword of Light and Shadow", _sword_of_light_and_shadow)
+
+
+def _sword_of_the_animist() -> list[AbilitySpec]:
+    """Equipped creature gets +1/+1.
+    Whenever equipped creature attacks, you may search your library for a
+    basic land card, put it onto the battlefield tapped, then shuffle.
+    Equip {2}
+    """
+    return [
+        AbilitySpec(
+            "static",
+            [EffectSpec("anthem", {"affects": "attached_permanent", "power": 1, "toughness": 1})],
+            raw_text="Ausgerüstete Kreatur erhält +1/+1.",
+        ),
+        AbilitySpec(
+            "triggered",
+            [EffectSpec("search", {"criteria": {"basic": True}, "destination": "battlefield_tapped"})],
+            trigger={"event": EventType.ATTACKS, "condition": {"subject": "attached_permanent"}},
+            raw_text="Wenn die ausgerüstete Kreatur angreift, kannst du in deiner "
+                     "Bibliothek nach einer Standardlandkarte suchen, sie getappt "
+                     "ins Spiel legen, dann mische.",
+        ),
+    ]
+
+
+register("Sword of the Animist", _sword_of_the_animist)
+
+
+def _sword_of_truth_and_justice() -> list[AbilitySpec]:
+    """Equipped creature gets +2/+2 and has protection from white and from blue.
+    Whenever equipped creature deals combat damage to a player, put a
+    +1/+1 counter on a creature you control, then proliferate.
+    Equip {2}
+
+    — Sword of Truth and Justice. "put a +1/+1 counter on a creature you
+    control" is authored as a real target (``creature_you_control``) rather
+    than RULE 701.19's untargeted choice — a small, deliberate simplification
+    (functionally equivalent at this engine's fidelity).
+    """
+    return [
+        AbilitySpec(
+            "static",
+            [EffectSpec("anthem", {"affects": "attached_permanent", "power": 2, "toughness": 2})],
+            raw_text="Ausgerüstete Kreatur erhält +2/+2.",
+        ),
+        AbilitySpec(
+            "triggered",
+            [
+                EffectSpec("add_counters", {"kind": "+1/+1", "target_kind": "creature_you_control"}),
+                EffectSpec("proliferate", {}),
+            ],
+            trigger={
+                "event": EventType.DAMAGE, "condition": {"subject": "attached_permanent"},
+                "filter": {"combat": True, "is_player": True},
+            },
+            raw_text="Wenn die ausgerüstete Kreatur einem Spieler Kampfschaden "
+                     "zufügt, lege einen +1/+1-Marker auf eine Kreatur, die du "
+                     "kontrollierst, und proliferiere dann.",
+        ),
+    ]
+
+
+register("Sword of Truth and Justice", _sword_of_truth_and_justice)
+
+
+def _swords_to_plowshares() -> list[AbilitySpec]:
+    """Exile target creature. Its controller gains life equal to its power."""
+    return [
+        AbilitySpec(
+            "spell_effect",
+            [EffectSpec("exile_gain_life_equal_power", {"target_kind": "creature"})],
+            raw_text="Exiliere eine Zielkreatur. Ihr Beherrscher gewinnt Lebenspunkte "
+                     "in Höhe ihrer Stärke hinzu.",
+        )
+    ]
+
+
+register("Swords to Plowshares", _swords_to_plowshares)
+
+
+def _timely_ward() -> list[AbilitySpec]:
+    """You may cast this spell as though it had flash if it targets a commander.
+    Enchant creature
+    Enchanted creature has indestructible.
+
+    — Timely Ward. The conditional-flash clause isn't modeled (no
+    "flash if X" casting-permission mechanism exists) — a documented gap;
+    only the static indestructible grant is modeled.
+    """
+    return [
+        AbilitySpec(
+            "static",
+            [EffectSpec("grant_keyword", {"affects": "attached_permanent", "keywords": ["indestructible"]})],
+            raw_text="Verzauberte Kreatur hat Unzerstörbarkeit.",
+        )
+    ]
+
+
+register("Timely Ward", _timely_ward)
+
+
+def _unquestioned_authority() -> list[AbilitySpec]:
+    """Enchant creature
+    When this Aura enters, draw a card.
+    Enchanted creature has protection from creatures.
+
+    — Unquestioned Authority. Protection reads the printed oracle text
+    directly (independent of this registry), so only the ETB draw needs
+    authoring here.
+    """
+    return [
+        AbilitySpec(
+            "triggered",
+            [EffectSpec("draw", {"count": 1})],
+            trigger={"event": EventType.ENTERS_BATTLEFIELD, "condition": {"subject": "self"}},
+            raw_text="Wenn diese Aura ins Spiel kommt, ziehe eine Karte.",
+        )
+    ]
+
+
+register("Unquestioned Authority", _unquestioned_authority)
+
+
+def _volcanic_fallout() -> list[AbilitySpec]:
+    """This spell can't be countered.
+    Volcanic Fallout deals 2 damage to each creature and each player.
+    """
+    return [
+        AbilitySpec(
+            "spell_effect",
+            [
+                EffectSpec("cant_be_countered", {}),
+                EffectSpec("damage", {"amount": 2, "selector": "each_creature_and_player"}),
+            ],
+            raw_text="Dieser Zauberspruch kann nicht annulliert werden. Vulkanischer "
+                     "Niederschlag fügt jeder Kreatur und jedem Spieler 2 Schaden zu.",
+        )
+    ]
+
+
+register("Volcanic Fallout", _volcanic_fallout)
+
+
+def _wrath_of_god() -> list[AbilitySpec]:
+    """Destroy all creatures. They can't be regenerated."""
+    return [
+        AbilitySpec(
+            "spell_effect",
+            [EffectSpec("destroy", {"selector": "all_creatures", "can_be_regenerated": False})],
+            raw_text="Zerstöre alle Kreaturen. Sie können nicht regenerieren.",
+        )
+    ]
+
+
+register("Wrath of God", _wrath_of_god)
+
+
+def _crypt_incursion() -> list[AbilitySpec]:
+    """Exile all creature cards from target player's graveyard. You gain 3
+    life for each card exiled this way.
+    """
+    return [
+        AbilitySpec(
+            "spell_effect",
+            [EffectSpec("exile_graveyard_creatures_gain_life", {"target_kind": "player", "life_per_card": 3})],
+            raw_text="Exiliere alle Kreaturenkarten aus dem Friedhof eines Zielspielers. "
+                     "Du gewinnst 3 Lebenspunkte für jede auf diese Weise exilierte Karte.",
+        )
+    ]
+
+
+register("Crypt Incursion", _crypt_incursion)
+
+
+def _sign_in_blood() -> list[AbilitySpec]:
+    """Target player draws two cards and loses 2 life."""
+    return [
+        AbilitySpec(
+            "spell_effect",
+            [EffectSpec("target_player_draw_lose_life", {"draw_count": 2, "life_loss": 2})],
+            raw_text="Zielspieler zieht zwei Karten und verliert 2 Lebenspunkte.",
+        )
+    ]
+
+
+register("Sign in Blood", _sign_in_blood)
+
+
+def _dismantling_wave() -> list[AbilitySpec]:
+    """For each opponent, destroy up to one target artifact or enchantment
+    that player controls.
+    Cycling {6}{W}{W}
+    When you cycle this card, destroy all artifacts and enchantments.
+
+    — Dismantling Wave. Simplified to a single "destroy up to one target
+    artifact or enchantment" (dropping the "for each opponent" multiplayer
+    scaling — no card in this pool needs per-opponent multi-target
+    scaling yet). Cycling isn't modeled (no hand-zone discard-cost cycling
+    mechanism exists) — a documented gap.
+    """
+    return [
+        AbilitySpec(
+            "spell_effect",
+            [EffectSpec("destroy", {"target_kind": "permanent", "optional": True})],
+            raw_text="Zerstöre bis zu eine Zielartefakt- oder -verzauberungskarte, "
+                     "die ein Gegner kontrolliert.",
+        )
+    ]
+
+
+register("Dismantling Wave", _dismantling_wave)
+
+
+def _the_wandering_emperor() -> list[AbilitySpec]:
+    """Flash
+    As long as The Wandering Emperor entered this turn, you may activate
+    her loyalty abilities any time you could cast an instant.
+    +1: Put a +1/+1 counter on up to one target creature. It gains first
+    strike until end of turn.
+    −1: Create a 2/2 white Samurai creature token with vigilance.
+    −2: Exile target tapped creature. You gain 2 life.
+
+    — The Wandering Emperor. Flash comes from the RULE 702 keyword
+    catalogue (and is now honoured for casting timing). The "activate
+    loyalty abilities at instant speed" clause isn't modeled — every
+    loyalty ability in this engine is sorcery-speed-only
+    (`GameEngine._can_activate_loyalty`), same as any other planeswalker —
+    a documented gap. −2 drops the "tapped" restriction on its target
+    (no such target filter exists yet).
+    """
+    return [
+        AbilitySpec(
+            "activated",
+            [EffectSpec("add_counter_first_strike", {"target_kind": "creature", "optional": True})],
+            cost={"loyalty": 1},
+            raw_text="+1: Lege einen +1/+1-Marker auf bis zu eine Zielkreatur. Sie "
+                     "erhält Erstschlag bis zum Ende des Zuges.",
+        ),
+        AbilitySpec(
+            "activated",
+            [EffectSpec("create_token", {
+                "token_name": "Samurai", "power": 2, "toughness": 2, "count": 1,
+                "colors": ["W"], "subtypes": ["Samurai"], "keywords": ["vigilance"],
+            })],
+            cost={"loyalty": -1},
+            raw_text="−1: Erzeuge einen weißen 2/2 Samurai-Kreaturenspielstein mit Wachsamkeit.",
+        ),
+        AbilitySpec(
+            "activated",
+            [
+                EffectSpec("exile", {"target_kind": "creature"}),
+                EffectSpec("gain_life", {"amount": 2}),
+            ],
+            cost={"loyalty": -2},
+            raw_text="−2: Exiliere eine Zielkreatur. Du gewinnst 2 Lebenspunkte hinzu.",
+        ),
+    ]
+
+
+register("The Wandering Emperor", _the_wandering_emperor)

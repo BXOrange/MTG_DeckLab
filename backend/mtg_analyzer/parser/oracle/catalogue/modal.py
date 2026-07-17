@@ -15,14 +15,17 @@ permanent (`collect_mode_bodies`, called from `gate.py` after it peels the
 trigger wrapper itself — this module doesn't know about trigger phrasing).
 
 Scryfall's number-word "Choose one —"/"Choose two —"/"Choose one or
-both —" folds to "choose 1 —"/"choose 2 —"/"choose 1 or both —" via
-`normalize.py`'s spelled-number folding, so the header regex only needs
-digits — ``choose`` (the "modal.py" ``AbilitySpec.modes["choose"]`` field)
-is that captured number, ``1`` for the ordinary case. "Choose one or more —"
-(e.g. Farewell — a *variable* N from 1 to every mode, a different grammar
-axis than a fixed N) and non-bullet modal shapes ("Choose one. If you
-control a commander …") aren't this grammar — left unclaimed (fail-closed),
-a separate template for later work.
+both —"/"Choose one or more —" folds to "choose 1 —"/"choose 2 —"/
+"choose 1 or both —"/"choose 1 or more —" via `normalize.py`'s spelled-number
+folding, so the header regex only needs digits — ``choose`` (the
+"modal.py" ``AbilitySpec.modes["choose"]`` field) is that captured number,
+``1`` for the ordinary case. RULE 700.2's "or more" (e.g. Farewell — a
+*variable* N from ``choose`` to every mode, a different grammar axis than a
+fixed N) is ``or_more``; it's mutually exclusive with ``or_both`` (RULE
+700.2e's fixed exactly-2-modes "or both" pseudo-choice) — Scryfall never
+prints both suffixes on the same header. Non-bullet modal shapes ("Choose
+one. If you control a commander …") aren't this grammar — left unclaimed
+(fail-closed), a separate template for later work.
 
 Pure text splitting — **no `game/` imports** (front-end security boundary).
 """
@@ -34,11 +37,14 @@ from typing import Optional
 
 #: A modal header line (RULE 700.2), bare — a spell's own first line, or the
 #: part after a trigger wrapper's comma has been peeled off by the caller.
-#: ``choose`` is the fixed mode count ("Choose two —" → ``2``); ``or_both``
-#: captures RULE 700.2e's "Choose one or both —" specifically (``choose``
-#: is always ``1`` when ``or_both`` is set — "choose 2 or both" isn't a real
-#: template).
-MODAL_HEADER_RE = re.compile(r"^choose (?P<n>\d+)(?P<or_both> or both)?\s*—\s*$")
+#: ``choose`` is the mode count ("Choose two —" → ``2``, or the *minimum*
+#: when ``or_more``); ``or_both`` captures RULE 700.2e's "Choose one or
+#: both —" specifically (``choose`` is always ``1`` when ``or_both`` is set —
+#: "choose 2 or both" isn't a real template); ``or_more`` captures "Choose
+#: *N* or more —" (a variable N from ``choose`` to every mode).
+MODAL_HEADER_RE = re.compile(
+    r"^choose (?P<n>\d+)(?P<or_both> or both)?(?P<or_more> or more)?\s*—\s*$"
+)
 
 #: One mode line: "• <effect body>." (Scryfall's modal bullet).
 MODE_LINE_RE = re.compile(r"^•\s*(?P<body>.+)$")
@@ -69,15 +75,15 @@ def collect_mode_bodies(lines: list[str], start: int) -> Optional[tuple[list[str
 
 def split_modal_block(
     lines: list[str], start: int
-) -> Optional[tuple[bool, int, list[str], int]]:
+) -> Optional[tuple[bool, bool, int, list[str], int]]:
     """If ``lines[start]`` is a bare modal header, collect its mode lines.
 
-    Returns ``(or_both, choose, mode_bodies, next_index)`` where
+    Returns ``(or_both, or_more, choose, mode_bodies, next_index)`` where
     ``next_index`` is the index of the first line after the block, and
-    ``choose`` is the header's mode count ("Choose two —" → ``2``), or
-    ``None`` when ``lines[start]`` isn't a modal header, its ``choose``
-    exceeds the number of mode lines actually printed, or it has fewer than
-    two mode lines following it.
+    ``choose`` is the header's mode count ("Choose two —" → ``2``, or the
+    minimum when ``or_more``), or ``None`` when ``lines[start]`` isn't a
+    modal header, its ``choose`` exceeds the number of mode lines actually
+    printed, or it has fewer than two mode lines following it.
     """
     header = MODAL_HEADER_RE.match(lines[start].strip())
     if header is None:
@@ -89,4 +95,4 @@ def split_modal_block(
     choose = int(header.group("n"))
     if choose < 1 or choose > len(bodies):
         return None
-    return bool(header.group("or_both")), choose, bodies, next_i
+    return bool(header.group("or_both")), bool(header.group("or_more")), choose, bodies, next_i

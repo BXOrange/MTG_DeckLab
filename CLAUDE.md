@@ -166,9 +166,18 @@ ward cost's own `{X}` (RULE 702.21b, resolved fresh against the board at
 the ward ability's own resolution time, not when it triggers); the one-shot
 effect library (damage/draw/discard/
 destroy/counter/search/gain_life/mill/exile/tap/counters/pump/scry/
-create-token/copy_permanent/become_copy/cascade/discover/…); tokens (RULE
-704.5d lifecycle); planeswalkers; commander damage + tax; the full RULE 702
-keyword catalogue (194 keywords, flag keywords bound to combat); "play/cast
+create-token/copy_permanent/become_copy/cascade/discover/proliferate/…,
+including mass "destroy/exile all X [with a toughness/mana-value filter]"
+board wipes, RULE 601.2c's untargeted-selector shape `DestroyEffect`/
+`ExileEffect` share with `DealDamageEffect`); tokens (RULE
+704.5d lifecycle), Living Weapon's germ-token self-attach and Renown's
+counter-placement now real behaviour, not just keyword recognition;
+planeswalkers; commander damage + tax; the full RULE 702
+keyword catalogue (194 keywords, flag keywords bound to combat, RULE 702.8b
+Flash now gating cast timing); a trigger-subject family for "whenever
+equipped/enchanted creature `<verb>`" and "deals combat damage to a player"
+(`effect_binder`'s `"attached_permanent"`/`"self_or_attached_permanent"`
+subjects + a `EventType.DAMAGE` `"filter"` predicate); "play/cast
 from the top of your library" as a standing, battlefield-sourced permission
 (`game/top_library.py` — Oracle of Mul Daya/Glarb, Calamity's Augur
 hand-authored; the goldfish board's library zone shows the top card and its
@@ -185,8 +194,10 @@ main ongoing effort: `normalize` → `segmenter` → `catalogue/handlers` →
 families, ETB/dies/attacks/blocks/Saga-chapter triggers with RULE 603.1
 subject scoping, `<cost>: <effect>` activated abilities, modal spells (both
 spell-level and triggered-ability-level, "choose one —"/"choose one or
-both —" and, since 2026-07-16, "choose *N* —" for N>=2 — Kolaghan's/Austere
-Command-shaped, combining N modes' effects in printed order),
+both —", "choose *N* —" for N>=2 — Kolaghan's/Austere Command-shaped,
+combining N modes' effects in printed order — and, since 2026-07-16,
+"choose *N* or more —" for a variable N, Farewell-shaped, combining
+whichever modes were picked, also in printed order),
 additional cast costs, the counter family, RULE 614.1 enters-tapped clauses
 (all four conditional variants) and enters-with-N-counters clauses, static
 anthem/lord clauses, and graveyard-card recursion/exile (Regrowth/
@@ -223,9 +234,7 @@ cache-wide coverage (22.8% of the 2,909-card cache fully `MODELED` as of
 the cache grows) and ranks the next handlers worth building.
 
 **Notable gaps** (see `backend/ToDo_Backend.md` for the full list with exact
-scope on each): "choose *N* or more —" (Farewell's variable-N modal, a
-different grammar axis than the fixed-N case just shipped); a kicked
-spell's "if kicked, ... instead" *override* conditional (as opposed to the
+scope on each): a kicked spell's "if kicked, ... instead" *override* conditional (as opposed to the
 additional-effect shape already shipped); the remaining RULE 616.1
 replacement-clause formulations (`prevent_damage`'s one-shot-spell shape,
 differently-scoped/compound-filter variants); "search library and/or
