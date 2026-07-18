@@ -104,3 +104,26 @@ class TestStructuralValidation:
     def test_basic_land_duplicates_allowed(self):
         result = legal_deck()
         assert not any("Mountain" in e for e in result.validation.errors)
+
+
+class TestCubeSkipsStructuralValidation:
+    """is_cube (models/deck.py) marks a decklist as a card pool rather than
+    a real Commander deck — the 100-card/singleton/commander-count checks
+    above shouldn't apply to it at all.
+    """
+
+    def test_wrong_card_count_and_duplicates_are_not_illegal(self):
+        result = parse_deck_sections(
+            commander_text="1 Ashling, the Limitless\n",
+            mainboard_text="4 Sol Ring\n1 Lightning Bolt\n",
+            is_cube=True,
+        )
+        assert result.validation.is_legal is True
+        assert result.validation.errors == []
+
+    def test_too_many_commanders_not_illegal(self):
+        result = parse_deck_sections(
+            commander_text="1 A\n1 B\n1 C\n", mainboard_text="1 Sol Ring\n", is_cube=True
+        )
+        assert result.validation.is_legal is True
+        assert result.validation.errors == []

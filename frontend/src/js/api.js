@@ -29,15 +29,17 @@ export async function checkHealth() {
 
 /**
  * @param {{commanderText: string, mainboardText: string, sideboardText: string}} sections
+ * @param {boolean} [isCube] Skip Commander structural/legality checks (a card
+ *   pool, not a real deck) — see `models/deck.py`'s `is_cube`.
  * @returns {Promise<{ok: true, deck: object} | {ok: false, error: string}>}
  */
-export async function submitDeck(sections) {
+export async function submitDeck(sections, isCube = false) {
   let response;
   try {
     response = await fetch(`${getServerUrl()}/api/decks`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(sections),
+      body: JSON.stringify({ ...sections, isCube }),
     });
   } catch {
     return { ok: false, error: 'Server nicht erreichbar – lokale Vorschau wird verwendet.' };
@@ -156,7 +158,7 @@ export async function listCachedCards() {
 
 /**
  * Save a new deck, or update one already saved (pass its `id` back).
- * @param {{id?: string, name: string, commanderText: string, mainboardText: string, sideboardText: string, sleeveId?: string | null, author?: string | null}} deck
+ * @param {{id?: string, name: string, commanderText: string, mainboardText: string, sideboardText: string, sleeveId?: string | null, author?: string | null, isCube?: boolean}} deck
  * @returns {Promise<object | null>} the saved deck (with its id), or null on failure
  */
 export async function saveDeck(deck) {

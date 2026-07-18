@@ -559,6 +559,60 @@ def test_cost_increase_raises_generic():
     assert eng.effective_cast_cost(p1, obj).converted_mana_cost == 3  # {1}{R} → {2}{R}
 
 
+# -- Self cost reduction (Delve/Affinity-shaped, printed on the spell itself) -
+
+
+def test_self_cost_reduction_scales_with_a_graveyard_count_selector():
+    # Delve-shaped: "This spell costs {1} less to cast for each card in
+    # your graveyard." — printed on the card itself, so it must apply while
+    # the card is still in hand, not off a battlefield scan.
+    eng = make_engine()
+    p1 = eng.state.active_player
+    for i in range(3):
+        p1.graveyard.append(Card(id=f"G{i}", name=f"G{i}", type_line="Instant", is_instant=True))
+    spell = Card(id="Cruise", name="Treasure Cruise", type_line="Sorcery",
+                 mana_cost_string="{7}{U}", converted_mana_cost=8, is_sorcery=True)
+    obj = GameObject(spell, owner_id="p1", zone=Zone.HAND)
+    p1.hand.append(obj)
+    static("cost", "self", {"generic": 1, "per": "cards_in_your_graveyard"}, obj)
+    cost = eng.effective_cast_cost(p1, obj)
+    assert cost.converted_mana_cost == 5  # {7}{U} - {3} → {4}{U}
+    assert cost.color_identity == {"U"}
+
+
+def test_self_cost_reduction_scales_with_an_artifact_count_selector():
+    # Affinity-shaped: "This spell costs {1} less to cast for each artifact
+    # you control."
+    eng = make_engine()
+    p1 = eng.state.active_player
+    for i in range(4):
+        put(eng.state, Card(id=f"Art{i}", name=f"Art{i}", type_line="Artifact"))
+    spell = Card(id="Myr", name="Myr Enforcer", type_line="Artifact Creature — Myr",
+                 mana_cost_string="{7}", converted_mana_cost=7, is_creature=True)
+    obj = GameObject(spell, owner_id="p1", zone=Zone.HAND)
+    p1.hand.append(obj)
+    static("cost", "self", {"generic": 1, "per": "artifacts_you_control"}, obj)
+    cost = eng.effective_cast_cost(p1, obj)
+    assert cost.converted_mana_cost == 3  # {7} - {4} → {3}
+
+
+def test_self_cost_reduction_does_not_apply_to_other_players_spells():
+    eng = make_engine()
+    p1 = eng.state.active_player
+    p2 = next(p for p in eng.state.players if p is not p1)
+    for i in range(3):
+        p2.graveyard.append(Card(id=f"G{i}", name=f"G{i}", type_line="Instant", is_instant=True))
+    spell = Card(id="Cruise", name="Treasure Cruise", type_line="Sorcery",
+                 mana_cost_string="{7}{U}", converted_mana_cost=8, is_sorcery=True)
+    obj = GameObject(spell, owner_id="p2", zone=Zone.HAND)
+    p2.hand.append(obj)
+    static("cost", "self", {"generic": 1, "per": "cards_in_your_graveyard"}, obj)
+    # p1's own (empty) graveyard is irrelevant — the reduction is scoped to
+    # the spell's own controller (p2), read straight off the object.
+    cost = eng.effective_cast_cost(p2, obj)
+    assert cost.converted_mana_cost == 5  # {7}{U} - {3} → {4}{U}
+
+
 # -- Binding a static ability from a spec ------------------------------------
 
 

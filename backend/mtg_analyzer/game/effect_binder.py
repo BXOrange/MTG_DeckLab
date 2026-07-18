@@ -19,6 +19,7 @@ from __future__ import annotations
 from typing import Any, Callable, Optional, Union
 
 from ..models.events import EventType
+from ..parser.oracle.catalogue.handlers import ONCE_PER_TURN_MARKER
 from ..parser.oracle.spec import AbilitySpec, EffectSpec
 from .costs import parse_activation_cost
 from .effects import (
@@ -106,6 +107,15 @@ _GROUP_CONTROLLER_EVENT_KEYS: dict[str, str] = {
     "ATTACKS": "player_id",
     "BLOCKS": "player_id",
     "SPELL_CAST": "player_id",
+    # "When you play another land, …" (City of Traitors) / "Untap all
+    # permanents you control during each other player's untap step."
+    # (Seedborn Muse) — both fire per-player events keyed by ``player_id``
+    # rather than ``controller_id``.
+    "LAND_PLAYED": "player_id",
+    "UNTAP": "player_id",
+    # "Whenever an opponent searches their library, …" (Archivist of Oghma)
+    # — `RulesEngine.request_search` fires this keyed by ``player_id`` too.
+    "LIBRARY_SEARCHED": "player_id",
 }
 
 #: Which event-data key identifies *which object* an event is about — RULE
@@ -205,6 +215,10 @@ def _subject_condition(
         controller_id = getattr(source, "controller_id", None)
         type_word = condition.get("type")
         wants_you = condition.get("controller") == "you"
+        # "during each OTHER player's untap step" (Seedborn Muse) — the
+        # mirror image of ``"you"``: the event's player must be someone
+        # *besides* this ability's own controller.
+        wants_not_you = condition.get("controller") == "not_you"
         other_only = bool(condition.get("other"))
         controller_key = _GROUP_CONTROLLER_EVENT_KEYS.get(trigger.get("event"), "controller_id")
 
@@ -215,6 +229,7 @@ def _subject_condition(
             cid=controller_id,
             tword=type_word,
             you=wants_you,
+            not_you=wants_not_you,
             other=other_only,
             ckey=controller_key,
         ) -> bool:
@@ -222,6 +237,8 @@ def _subject_condition(
             if other and (event_instance is None or event_instance == iid):
                 return False
             if you and event.get(ckey) != cid:
+                return False
+            if not_you and event.get(ckey) == cid:
                 return False
             if tword and tword != "permanent":
                 types = event.get("object_types")
@@ -405,7 +422,21 @@ def bind_ability(
                 effect.description = spec.raw_text
         return effects
 
-    effects = build_effects(spec.effects, source)
+    # "Activate only once each turn." (Quirion Ranger/Scryb Ranger-shaped) —
+    # `catalogue.handlers`'s once-per-turn handler claims the clause as a
+    # marker `EffectSpec` (`ONCE_PER_TURN_MARKER`) rather than a real
+    # one-shot effect, since it isn't one; strip it here before building real
+    # effects and fold it into `ActivatedAbility.once_per_turn` instead
+    # (mirroring `TriggeredAbility.once_per_turn`'s RULE 603.2 stamp).
+    once_per_turn = False
+    effect_specs = spec.effects
+    if spec.ability_kind == "activated" and any(
+        e.type == ONCE_PER_TURN_MARKER for e in effect_specs
+    ):
+        once_per_turn = True
+        effect_specs = [e for e in effect_specs if e.type != ONCE_PER_TURN_MARKER]
+
+    effects = build_effects(effect_specs, source)
 
     if spec.ability_kind == "spell_effect":
         return effects
@@ -443,6 +474,7 @@ def bind_ability(
         cost=parse_activation_cost(spec.cost),
         source=source,
         description=spec.raw_text,
+        once_per_turn=once_per_turn,
     )
 
 
@@ -695,6 +727,12 @@ def attach_to_object(obj: Any, specs: list[AbilitySpec]) -> None:
         if spec.additional_cost:
             spec.validate()
             obj.additional_cast_cost = parse_activation_cost(spec.additional_cost)
+        if spec.conditional_flash:
+            spec.validate()
+            obj.conditional_flash = spec.conditional_flash
+        if spec.free_cast_condition:
+            spec.validate()
+            obj.free_cast_condition = spec.free_cast_condition
         if spec.ability_kind == "keyword":
             attach_keyword(obj, spec)
             keyword_ability = _keyword_activated_ability(obj, spec)

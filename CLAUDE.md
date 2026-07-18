@@ -64,6 +64,19 @@ keeps the existing value). The saved-decks list also gained client-side
 color-identity/legality filters, the same checkbox-fieldset pattern the
 card cache view uses (`savedDecksView.js`/`cachedCardsView.js`).
 
+A saved `Deck` can also be flagged `is_cube` (`models/deck.py`) — a card
+pool (e.g. a curated "cEDH staples" reference list) rather than a real,
+legal Commander deck. When set, `services/deck_validation.py` skips both
+the structural Commander checks (100-card total, singleton,
+`parser/deckliste_parser.py`) and the semantic ones (ban list, color
+identity, Partner — `services/commander_legality.py`) entirely, rather
+than reporting the pool's inherent "violations" as errors — same
+preserved-on-omission save semantics as `author`/`sleeve_id`. Set via a
+"Als Cube behandeln" checkbox on the deck-import/edit tab
+(`deckImportView.js`); the saved-decks list shows a 🧊 badge instead of
+the usual legality check (`savedDecksView.js`) and gained a matching
+"Art" (Deck/Cube) filter, same checkbox-fieldset pattern as color/legality.
+
 ## Run & test
 
 ```bash
@@ -229,8 +242,8 @@ shape exactly). `parse_oracle` itself is now memoized (content-keyed on
 every field it reads, `parser/oracle/gate.py`) since it's called once per
 `GameObject` built — a popular card no longer gets re-parsed from scratch
 on every copy/every game. `parser/oracle/processing_list.py` tracks
-cache-wide coverage (22.8% of the 2,909-card cache fully `MODELED` as of
-2026-07-16 — re-run `coverage_over_cards()` before trusting this number,
+cache-wide coverage (24.3% of the 2,909-card cache fully `MODELED` as of
+2026-07-18 — re-run `coverage_over_cards()` before trusting this number,
 the cache grows) and ranks the next handlers worth building.
 
 **Notable gaps** (see `backend/ToDo_Backend.md` for the full list with exact

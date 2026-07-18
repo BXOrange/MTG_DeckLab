@@ -47,6 +47,9 @@ export function renderDeckImportView(container, { onDeckLoaded } = {}) {
           <div class="save-deck-controls">
             <input id="deck-name-input" type="text" placeholder="z.B. Krenko Goblins" />
             <input id="deck-author-input" type="text" placeholder="Autor (optional)" />
+            <label class="deck-cube-toggle" title="Kartensammlung statt echtes Deck: 100-Karten-/Singleton-Regel und Commander-Legalität (Bannliste, Farbidentität) werden nicht geprüft.">
+              <input id="deck-cube-checkbox" type="checkbox" /> Als Cube behandeln
+            </label>
             <button id="update-deck-btn" type="button">Aktualisieren</button>
             <button id="save-new-deck-btn" type="button">Als neues speichern</button>
           </div>
@@ -64,6 +67,7 @@ export function renderDeckImportView(container, { onDeckLoaded } = {}) {
   const sideboardTextarea = container.querySelector('#sideboard-textarea');
   const nameInput = container.querySelector('#deck-name-input');
   const authorInput = container.querySelector('#deck-author-input');
+  const cubeCheckbox = container.querySelector('#deck-cube-checkbox');
   const saveStatusEl = container.querySelector('#save-status');
   const resultEl = container.querySelector('#import-result');
 
@@ -150,6 +154,7 @@ export function renderDeckImportView(container, { onDeckLoaded } = {}) {
     updateSaveButtons();
     nameInput.value = '';
     authorInput.value = '';
+    cubeCheckbox.checked = false;
     saveStatusEl.textContent = '';
     saveStatusEl.className = 'server-status';
   });
@@ -160,12 +165,13 @@ export function renderDeckImportView(container, { onDeckLoaded } = {}) {
     const requestId = ++latestRequestId;
     sanitizeInputs(); // strip foil stars from the textareas before parsing
     const sections = currentSections();
+    const isCube = cubeCheckbox.checked;
 
     // Optimistic local parse: instant feedback while the authoritative
     // server response (below) is in flight.
-    const localDeck = parseDeckSections(sections);
+    const localDeck = parseDeckSections({ ...sections, isCube });
     setState({ deck: localDeck });
-    showResult(localDeck, { pending: true });
+    showResult(localDeck, { pending: true, isCube });
 
     // Fire and forget: images (and, for the detail view, full card
     // data) arrive later and re-render via the shared state
@@ -178,15 +184,15 @@ export function renderDeckImportView(container, { onDeckLoaded } = {}) {
       if (requestId === latestRequestId) refreshResult();
     });
 
-    submitDeck(sections).then((result) => {
+    submitDeck(sections, isCube).then((result) => {
       if (requestId !== latestRequestId) return; // superseded by a later parse click
 
       if (!result.ok) {
-        showResult(localDeck, { warning: result.error });
+        showResult(localDeck, { warning: result.error, isCube });
         return;
       }
       setState({ deck: result.deck });
-      showResult(result.deck, { serverConfirmed: true });
+      showResult(result.deck, { serverConfirmed: true, isCube });
     });
   }
 
@@ -203,6 +209,7 @@ export function renderDeckImportView(container, { onDeckLoaded } = {}) {
       id,
       name: nameInput.value,
       author: authorInput.value.trim() || null,
+      isCube: cubeCheckbox.checked,
       ...currentSections(),
     });
 
@@ -226,6 +233,7 @@ export function renderDeckImportView(container, { onDeckLoaded } = {}) {
     updateSaveButtons();
     nameInput.value = savedDeck.name || '';
     authorInput.value = savedDeck.author || '';
+    cubeCheckbox.checked = !!savedDeck.isCube;
     commanderTextarea.value = savedDeck.commanderText || '';
     mainboardTextarea.value = savedDeck.mainboardText || '';
     sideboardTextarea.value = savedDeck.sideboardText || '';
@@ -240,8 +248,8 @@ export function renderDeckImportView(container, { onDeckLoaded } = {}) {
 function renderResult(resultEl, deck, { onDeckLoaded, meta = {}, detailMode, onToggleDetailMode }) {
   const { commanders, mainDeck, sideboard, totalCount, parseErrors, validation } = deck;
 
-  const statusClass = validation.isLegal ? 'status-ok' : 'status-error';
-  const statusText = validation.isLegal ? 'Legal (strukturell)' : 'Nicht legal';
+  const statusClass = meta.isCube ? 'status-ok' : validation.isLegal ? 'status-ok' : 'status-error';
+  const statusText = meta.isCube ? '🧊 Cube (keine Legalitätsprüfung)' : validation.isLegal ? 'Legal (strukturell)' : 'Nicht legal';
 
   const serverStatusHtml = meta.pending
     ? '<p class="server-status pending">Wird serverseitig geprüft …</p>'

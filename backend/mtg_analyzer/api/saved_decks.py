@@ -73,6 +73,8 @@ def save_deck(
         # the cached values otherwise (e.g. a sleeve-only re-save).
         color_identity=None if text_changed else existing.color_identity,
         commanders=None if text_changed else existing.commanders,
+        # Same preserve-on-omission treatment as sleeve_id/author above.
+        is_cube=request.is_cube if request.is_cube is not None else (existing.is_cube if existing else False),
     )
     database.save_deck(deck)
     return deck.to_dict()
@@ -116,7 +118,7 @@ def get_deck_validation(
     if deck is None:
         raise HTTPException(status_code=404, detail=f'No saved deck with id "{deck_id}"')
     parsed = validate_deck_sections(
-        deck.commander_text, deck.mainboard_text, deck.sideboard_text, loader
+        deck.commander_text, deck.mainboard_text, deck.sideboard_text, loader, deck.is_cube
     )
     return parsed.validation.to_dict()
 

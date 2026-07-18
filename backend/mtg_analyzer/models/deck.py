@@ -39,6 +39,16 @@ class Deck:
     the same way `sleeve_id` is (edited from the saved-decks list, or at
     creation time).
 
+    `is_cube` marks this decklist as a card pool ("cube") rather than a
+    real, legal Commander deck — e.g. a curated "staples" reference list
+    with hundreds of cards. When set, `services/deck_validation.py` skips
+    both the structural Commander checks (100-card total, singleton,
+    commander count — `parser/deckliste_parser.py`) and the semantic ones
+    (ban list, color identity, Partner — `services/commander_legality.py`)
+    entirely, rather than reporting a cube's inherent "violations" as
+    errors. Defaults to `False` so every existing/ordinary deck keeps full
+    validation.
+
     `color_identity`/`commanders` are derived from the decklist text (RULE
     903.4 for the color-identity definition) but, unlike everything else on
     this model, cached rather than re-derived on every read: computing them
@@ -65,6 +75,7 @@ class Deck:
         author: Optional[str] = None,
         color_identity: Optional[list[str]] = None,
         commanders: Optional[list[str]] = None,
+        is_cube: bool = False,
     ) -> None:
         self.id = id or str(uuid.uuid4())
         self.name = name
@@ -77,6 +88,7 @@ class Deck:
         self.author = author
         self.color_identity = color_identity
         self.commanders = commanders
+        self.is_cube = is_cube
 
     def to_dict(self) -> dict[str, Any]:
         """Serialize this deck to a JSON-compatible dict (camelCase, like ParsedDeck)."""
@@ -92,6 +104,7 @@ class Deck:
             "author": self.author,
             "colorIdentity": self.color_identity,
             "commanders": self.commanders,
+            "isCube": self.is_cube,
         }
 
     @classmethod
@@ -109,6 +122,7 @@ class Deck:
             author=data.get("author"),
             color_identity=data.get("colorIdentity"),
             commanders=data.get("commanders"),
+            is_cube=data.get("isCube", False),
         )
 
     def __repr__(self) -> str:

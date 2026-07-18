@@ -25,7 +25,7 @@ from ..models.game_object import GameObject, Zone
 from ..models.game_state import GameState, StackItem
 from ..models.mana_cost import ManaCost
 from ..models.player import Player
-from . import combat, continuous
+from . import combat, condition_query, continuous
 from .costs import DISCARD_HAND, PAY_LIFE_X, ActivationCost, parse_activation_cost
 from .effects import ActivatedAbility
 from .mana_abilities import (
@@ -145,6 +145,7 @@ class GameEngine:
         active = self.state.active_player
         active.lands_played_this_turn = 0
         self.state.spells_cast_this_turn[active.id] = 0
+        self.state.cards_drawn_this_turn[active.id] = 0
         self._clear_combat()
         # RULE 117.3a: the active player receives priority at the start of
         # their turn (harmless bookkeeping for solo play; the primitive an
@@ -268,9 +269,42 @@ class GameEngine:
 
     def _step_untap(self) -> None:
         active = self.state.active_player
+        # RULE 702.26a: "at the beginning of the untap step, before
+        # performing any other turn-based actions", every phased-out
+        # permanent this player controls phases back in. (No card in this
+        # engine yet auto-phases an already-phased-in permanent *out* at
+        # this point, so that half of 702.26a is deliberately not modeled —
+        # every phase-out here comes from an explicit activated ability,
+        # e.g. Robe of Stars' Astral Projection.) Reads `state.battlefield`
+        # directly, not `permanents_controlled_by`, since that filters
+        # phased-out objects out — exactly the ones this loop needs to find.
+        for obj in self.state.battlefield:
+            if obj.controller_id == active.id and obj.phased_out:
+                obj.phased_out = False
+        # RULE 502.3-adjacent (Winter Orb): "players can't untap more than
+        # N lands during their untap steps" — a flat, unscoped cap that
+        # applies to every player's untap step identically, including the
+        # static's own controller. ``None`` means unrestricted (the
+        # overwhelmingly common case), so this never changes anything for
+        # a board without one; an auto-pick (first N lands found) untaps up
+        # to the cap, the same non-interactive MVP simplification
+        # `_sacrifice_candidate`'s callers already make elsewhere.
+        land_cap = continuous.untap_cap_for_lands(self.state)
+        lands_untapped = 0
         for obj in self.state.permanents_controlled_by(active.id):
-            if not self.rules.should_skip_step(active, "untap_permanents"):
+            if (
+                not self.rules.should_skip_step(active, "untap_permanents")
+                and not continuous.has_no_untap_static(obj)
+                and not (obj.is_land and land_cap is not None and lands_untapped >= land_cap)
+            ):
+                # RULE 502.3-adjacent: "This artifact doesn't untap during
+                # your untap step." (Basalt Monolith/Grim Monolith/Mana
+                # Vault) — a separate "{N}: Untap this artifact." activated
+                # ability (or Mana Vault's upkeep trigger) is unaffected,
+                # it's a different code path (an ordinary `untap` effect).
                 obj.untap()
+                if obj.is_land:
+                    lands_untapped += 1
             # Controlled since the turn began → no longer summoning sick.
             obj.summoning_sick = False
             # RULE 606.3: a new loyalty ability may be activated this turn.
@@ -489,6 +523,15 @@ class GameEngine:
                 copy_mechanics.restore_face(obj, obj._copy_until_eot_base)
                 obj._copy_until_eot_base = None
                 ended_effects = True
+            # RULE 108.4-adjacent "gain control ... until end of turn"
+            # (Zealous Conscripts/Coercive Recruiter, `GainControlUntilEnd
+            # OfTurnEffect`) — hand control back to the original controller
+            # at the next cleanup, regardless of whose turn it is (matching
+            # "until end of turn", not "until your next turn").
+            if obj.control_change_until_eot is not None:
+                obj.controller_id = obj.control_change_until_eot
+                obj.control_change_until_eot = None
+                ended_effects = True
             # RULE 701.16a: an unused regeneration shield lasts only "that
             # turn" — sweep it here rather than only on consumption
             # (`RulesEngine.regenerate`'s own removal handles the used case).
@@ -499,6 +542,15 @@ class GameEngine:
         if ended_effects:
             self.recompute_continuous_effects()  # re-derive P/T sans the pumps
         self._clear_combat()
+        # RULE 601.3b analogue: a temporary "play until end of your next
+        # turn" permission (Light Up the Stage-shaped impulsive draw) lapses
+        # exactly at this cleanup once its granting turn is no longer
+        # "this turn or your next" — i.e. once a turn has already passed
+        # since it was granted.
+        self.state.temp_play_permissions = {
+            iid: turn for iid, turn in self.state.temp_play_permissions.items()
+            if turn >= self.state.turn_number
+        }
 
     # ------------------------------------------------------------------
     # Stack / priority resolution (RULE 117 / 608)
@@ -520,6 +572,19 @@ class GameEngine:
             if self.state.pending_choice:
                 return  # await a player decision before resolving further
             self.rules.put_triggers_on_stack()
+            if self.state.pending_choice:
+                # `put_triggers_on_stack` itself just opened one (RULE
+                # 603.3c's own target/mode/"you may" choice for a trigger
+                # it's still placing) — stop *now*, before falling into the
+                # stack-resolution branch below. Otherwise a still-unresolved
+                # spell already sitting on the stack (Nether Void-shaped:
+                # "whenever a player casts a spell, counter it unless…",
+                # where the counter trigger's own target is that same spell)
+                # would resolve for real while the player is still supposed
+                # to be choosing the trigger's target — the triggered
+                # ability that's *supposed* to counter it hasn't even been
+                # placed above it yet.
+                return
             if self.state.stack:
                 self.rules.resolve_top_of_stack()
                 continue
@@ -660,6 +725,11 @@ class GameEngine:
             # zone instead of wherever it landed/was headed; anything else
             # leaves it there.
             self.rules.resolve_commander_zone_choice(None if declined else str(answer))
+        elif kind == "impulsive_look":
+            # Grisly Salvage/Commune with the Gods-shaped: the option id is
+            # one of the *peeled* cards' instance ids, or decline.
+            instance_id = None if declined else int(answer)
+            self.rules.resolve_impulsive_look_choice(instance_id)
         else:  # search: a card's instance id, or decline
             instance_id = None if declined else int(answer)
             self.rules.resolve_search_choice(instance_id)
@@ -696,10 +766,14 @@ class GameEngine:
         card = self._face_card(obj, face)
         # RULE 505.5b: from hand, always — or from the top of the library
         # (Oracle of Mul Daya-shaped) when some permanent grants that.
-        in_playable_zone = obj in player.hand or (
-            bool(player.library)
-            and obj is player.library[-1]
-            and may_play_land_from_top_of_library(player, self.state)
+        in_playable_zone = (
+            obj in player.hand
+            or (
+                bool(player.library)
+                and obj is player.library[-1]
+                and may_play_land_from_top_of_library(player, self.state)
+            )
+            or (obj in player.exile and self._has_temp_play_permission(obj))
         )
         return (
             card is not None
@@ -739,7 +813,16 @@ class GameEngine:
         player.lands_played_this_turn += 1
         self.state.record_stat(player.id, "land", name=obj.name)
         self.state.fire_event(
-            GameEvent(EventType.LAND_PLAYED, player_id=player.id, card_id=obj.card.id, land=obj.name)
+            GameEvent(
+                EventType.LAND_PLAYED,
+                player_id=player.id,
+                card_id=obj.card.id,
+                land=obj.name,
+                # A "whenever you play another land" trigger (City of
+                # Traitors) needs to exclude its own play event via
+                # `effect_binder`'s "group"/"other" subject condition.
+                instance_id=obj.instance_id,
+            )
         )
         self.state.fire_event(
             GameEvent(
@@ -767,6 +850,17 @@ class GameEngine:
         needed here beyond the `prepared_source_id` link existing.
         """
         return obj.adventure_castable or obj.prepared_source_id is not None
+
+    def _has_temp_play_permission(self, obj: GameObject) -> bool:
+        """RULE 601.3b analogue: a temporary "you may play this card"
+        permission (Light Up the Stage-shaped impulsive draw,
+        `RulesEngine.exile_with_play_permission`,
+        `GameState.temp_play_permissions`) — swept once its "until the end
+        of your next turn" window lapses (`_step_cleanup`), so mere
+        presence here means "still valid" without re-checking the turn
+        number.
+        """
+        return obj.instance_id in self.state.temp_play_permissions
 
     @staticmethod
     def _graveyard_cast_keyword(obj: GameObject) -> Optional[str]:
@@ -832,6 +926,7 @@ class GameEngine:
         face: str = "front",
         kicked: int = 0,
         buyback: bool = False,
+        free: bool = False,
     ) -> bool:
         """RULE 601/602.5: is this spell castable by ``player`` right now?
 
@@ -847,7 +942,15 @@ class GameEngine:
         without one is illegal, and only Multikicker permits more than 1.
         ``buyback`` is whether Buyback's own additional cost (RULE 702.27)
         would also be paid — illegal (``False``) for an object with no
-        ``buyback`` parametric keyword.
+        ``buyback`` parametric keyword. ``free=True`` checks the RULE
+        601.2f-adjacent condition-gated free-cast alternative cost instead
+        of paying the mana cost at all ("If you control a commander, you may
+        cast this spell without paying its mana cost." — Deadly Rollick/
+        Deflecting Swat/Fierce Guardianship-shaped): legal only when ``obj``
+        carries a `free_cast_condition` (`game/effect_binder.py`) whose
+        condition currently holds (`condition_query.
+        free_cast_condition_holds`); illegal for an object with no such
+        condition at all.
         """
         # A commander may be cast from the command zone as well as the
         # hand (RULE 903.6, 903.8) — commander tax (RULE 903.8, +{2} per
@@ -862,6 +965,7 @@ class GameEngine:
             obj in player.hand
             or obj in player.command
             or (obj in player.exile and self._castable_from_exile(obj))
+            or (obj in player.exile and self._has_temp_play_permission(obj))
             or (obj in player.graveyard and self._castable_from_graveyard(obj))
             or (
                 bool(player.library)
@@ -874,14 +978,37 @@ class GameEngine:
         card = self._face_card(obj, face)
         if card is None or card.is_land:
             return False
+        # RULE 601-area: "Each player can't cast more than N spells each
+        # turn." (Eidolon of Rhetoric/Rule of Law/Archon of Emeria) — a flat
+        # cap tracked per player, reset each turn (`state.spells_cast_this_
+        # turn`, already maintained by `RulesEngine._track_spell_cast`).
+        max_spells = continuous.max_spells_per_turn(self.state)
+        if max_spells is not None and self.state.spells_cast_this_turn.get(player.id, 0) >= max_spells:
+            return False
         # Timing (RULE 601.3a): sorcery-speed spells need an empty stack,
         # the player's own main phase, and their priority. RULE 702.8b:
         # Flash lets an otherwise-sorcery-speed card (Embercleave, The
         # Wandering Emperor) be cast any time its controller could cast an
         # instant instead — checked off the *object* (`combat.has`, the same
         # printed+intrinsic+granted keyword union combat reads elsewhere),
-        # not just the card, so a temporary flash grant works too.
-        sorcery_speed = not (card.is_instant or combat.has(obj, "flash"))
+        # not just the card, so a temporary flash grant works too. A
+        # `conditional_flash` (RULE 702.8b's "as though it had flash if
+        # <condition>") grants the same permission only while its condition
+        # holds, checked live (`condition_query`).
+        conditional_flash = getattr(obj, "conditional_flash", None)
+        has_conditional_flash = (
+            conditional_flash is not None
+            and condition_query.conditional_flash_holds(conditional_flash, obj, self.state)
+        )
+        # "You may cast spells this turn as though they had flash." (Borne
+        # Upon a Wind-shaped) — a temporary, player-scoped blanket flash
+        # grant (`GameState.temp_flash_until_turn`, `GrantFlashUntilEndOf
+        # TurnEffect`), independent of any keyword/condition on the object
+        # itself.
+        has_temp_flash = self.state.temp_flash_until_turn.get(player.id) == self.state.turn_number
+        sorcery_speed = not (
+            card.is_instant or combat.has(obj, "flash") or has_conditional_flash or has_temp_flash
+        )
         if sorcery_speed:
             if player is not self.state.active_player:
                 return False
@@ -904,10 +1031,17 @@ class GameEngine:
                 return False
             if len(player.graveyard) - 1 < escape_cost.exile_from_graveyard:
                 return False
-        cost = self.effective_cast_cost(player, obj, x, face=face, kicked=kicked, buyback=buyback)
-        allows_restriction = restriction_predicate_for_cast(obj, has_x=cost.has_variable)
-        if not player.mana_pool.can_pay(cost, life_available=player.life, allows_restriction=allows_restriction):
-            return False
+        if free:
+            free_cast_condition = getattr(obj, "free_cast_condition", None)
+            if free_cast_condition is None:
+                return False
+            if not condition_query.free_cast_condition_holds(free_cast_condition, obj, self.state):
+                return False
+        else:
+            cost = self.effective_cast_cost(player, obj, x, face=face, kicked=kicked, buyback=buyback)
+            allows_restriction = restriction_predicate_for_cast(obj, has_x=cost.has_variable)
+            if not player.mana_pool.can_pay(cost, life_available=player.life, allows_restriction=allows_restriction):
+                return False
         # RULE 601.2b: an "as an additional cost to cast this spell, …"
         # clause is a separate legality gate from the mana cost above — a
         # sacrifice/discard/life payment that isn't payable makes the spell
@@ -1000,7 +1134,7 @@ class GameEngine:
             cost = self.rules.mana_cost_of(card)
         if cost.has_variable:
             cost = cost.with_x(x)
-        cost = self._adjust_cost(cost, player)
+        cost = self._adjust_cost(cost, player, obj)
         tax = self.commander_tax(player, obj)
         if tax:
             cost = cost.increase_generic(tax)
@@ -1025,9 +1159,17 @@ class GameEngine:
             return 2 * player.commander_casts.get(obj.instance_id, 0)
         return 0
 
-    def _adjust_cost(self, cost: "ManaCost", player: Player) -> "ManaCost":
-        """Apply the net static generic adjustment (reduce or increase)."""
-        reduction, _ = continuous.cost_reduction_for(self.state, player)
+    def _adjust_cost(self, cost: "ManaCost", player: Player, obj: Optional[GameObject] = None) -> "ManaCost":
+        """Apply the net static generic adjustment (reduce or increase).
+
+        ``obj``, when given, also folds in a Delve/Affinity-shaped reduction
+        printed on the card itself (`continuous.self_cost_reduction_for`) —
+        distinct from a battlefield permanent's "your spells cost less".
+        """
+        reduction, _ = continuous.cost_reduction_for(self.state, player, obj)
+        if obj is not None:
+            self_reduction, _ = continuous.self_cost_reduction_for(obj, self.state)
+            reduction += self_reduction
         if reduction > 0:
             return cost.reduce_generic(reduction)
         if reduction < 0:
@@ -1066,6 +1208,7 @@ class GameEngine:
         kicked: int = 0,
         buyback: bool = False,
         target_groups: Optional[list[list[Any]]] = None,
+        free: bool = False,
     ):
         """Cast a spell after validating timing, payability and targets (RULE 601).
 
@@ -1098,7 +1241,7 @@ class GameEngine:
         reads ``targets`` directly, unchanged from before this existed.
         """
         if face in ("back", "fuse"):
-            if not self.can_cast(player, obj, x, face=face, kicked=kicked, buyback=buyback):
+            if not self.can_cast(player, obj, x, face=face, kicked=kicked, buyback=buyback, free=free):
                 raise ValueError(f"{player.id} cannot cast {obj.name} now")
             # RULE 715.2b: an Adventure spell half must be recognized while
             # ``obj.card`` is still the front (creature) face, before the
@@ -1111,7 +1254,7 @@ class GameEngine:
             try:
                 result = self._cast_current_face(
                     player, obj, targets, x, mode=mode, kicked=kicked, buyback=buyback,
-                    target_groups=target_groups,
+                    target_groups=target_groups, free=free,
                 )
             except Exception:
                 self.rules.restore_face(obj, snapshot)
@@ -1121,7 +1264,7 @@ class GameEngine:
             return result
         return self._cast_current_face(
             player, obj, targets, x, mode=mode, kicked=kicked, buyback=buyback,
-            target_groups=target_groups,
+            target_groups=target_groups, free=free,
         )
 
     def _effects_for_mode(self, obj: GameObject, mode: Any) -> list[Any]:
@@ -1217,16 +1360,22 @@ class GameEngine:
         kicked: int = 0,
         buyback: bool = False,
         target_groups: Optional[list[list[Any]]] = None,
+        free: bool = False,
     ):
-        """The common cast body, reading whatever `obj.card` currently is."""
+        """The common cast body, reading whatever `obj.card` currently is.
+
+        ``free=True`` (RULE 601.2f-adjacent condition-gated free-cast
+        alternative cost — see `can_cast`) skips mana payment entirely via
+        `RulesEngine.cast_without_paying`, instead of the ordinary
+        `RulesEngine.cast_spell` mana-cost path.
+        """
         with self._mode_effects_applied(obj, mode):
-            if not self.can_cast(player, obj, x, kicked=kicked, buyback=buyback):
+            if not self.can_cast(player, obj, x, kicked=kicked, buyback=buyback, free=free):
                 raise ValueError(f"{player.id} cannot cast {obj.name} now")
             # RULE 601.2c: a spell that requires a target can't be cast unless
             # a legal target is available — the same check that locks the offer.
             if not self.has_legal_targets(player, obj):
                 raise ValueError(f"{obj.name} has no legal target")
-            cost = self.effective_cast_cost(player, obj, x, kicked=kicked, buyback=buyback)
             # RULE 903.8: record this command-zone cast so the next one is
             # taxed {2} more. Read *before* the cast moves the card off the
             # command zone.
@@ -1238,7 +1387,11 @@ class GameEngine:
             graveyard_keyword = (
                 self._graveyard_cast_keyword(obj) if obj in player.graveyard else None
             )
-            result = self.rules.cast_spell(player, obj, targets, x, cost=cost, target_groups=target_groups)
+            if free:
+                result = self.rules.cast_without_paying(player, obj, targets)
+            else:
+                cost = self.effective_cast_cost(player, obj, x, kicked=kicked, buyback=buyback)
+                result = self.rules.cast_spell(player, obj, targets, x, cost=cost, target_groups=target_groups)
             # RULE 601.2b/601.2h: an additional cost is paid as part of
             # casting, not resolving — so it stays paid even if the spell is
             # later countered. Paid *after* the mana cost (just above) so a
@@ -1400,7 +1553,7 @@ class GameEngine:
         return (
             obj.controller_id == player.id
             and obj.is_creature
-            and obj in self.state.battlefield
+            and obj in self.state.permanents()  # RULE 702.26c: excludes a phased-out creature
             and not obj.tapped
             # Haste (RULE 702.10b) lets a creature attack the turn it arrives.
             and (not obj.summoning_sick or combat.has_haste(obj))
@@ -1530,7 +1683,7 @@ class GameEngine:
         return (
             blocker.controller_id == player.id
             and blocker.is_creature
-            and blocker in self.state.battlefield
+            and blocker in self.state.permanents()  # RULE 702.26c: excludes a phased-out creature
             and not blocker.tapped
             and blocker.blocking is None
             and attacker.attacking
@@ -1540,7 +1693,7 @@ class GameEngine:
 
     def _lands_controlled_by(self, player_id: str) -> list[GameObject]:
         return [
-            o for o in self.state.battlefield
+            o for o in self.state.permanents()
             if o.is_land and o.controller_id == player_id
         ]
 
@@ -1674,10 +1827,27 @@ class GameEngine:
         ability, and every part of its cost to be payable (RULE 602.2a):
         mana, tapping/untapping the source, a life/discard/counter payment,
         and a legal thing to sacrifice.
+
+        A ``discard_self`` cost (Channel/Cycling, RULE 702.29/28.2h) is the
+        one shape activated from *hand* instead of the battlefield — the
+        ability still uses the stack like any other (unlike the mana-ability
+        shortcut `activate_hand_mana_ability` uses), so it goes through this
+        same path with a hand-zone legality check instead.
         """
-        if source not in self.state.battlefield or source.controller_id != player.id:
-            return False
+        if ability.cost.discard_self:
+            if source not in player.hand or source.owner_id != player.id:
+                return False
+        elif source not in self.state.permanents() or source.controller_id != player.id:
+            return False  # RULE 702.26c: a phased-out permanent's abilities can't be activated
         if ability not in source.activated_abilities:
+            return False
+        if continuous.activation_prohibited(self.state, source):
+            # RULE 602: "Activated abilities of artifacts can't be
+            # activated." (Collector Ouphe/Stony Silence/Null Rod) — the
+            # single choke point both this validation and `legal_actions`'s
+            # offer list already go through.
+            return False
+        if ability.once_per_turn and ability._last_activated_turn == self.state.turn_number:
             return False
         if ability.cost.is_loyalty and not self._can_activate_loyalty(player, source):
             return False
@@ -1702,10 +1872,20 @@ class GameEngine:
     def _can_activate_loyalty(self, player: Player, source: GameObject) -> bool:
         """Timing gate for a planeswalker loyalty ability (RULE 606.3).
 
-        Only at sorcery speed and only once per turn per planeswalker."""
+        Ordinarily only at sorcery speed; a `conditional_flash` (The
+        Wandering Emperor's "you may activate loyalty abilities any time
+        you could cast an instant" while it entered this turn) grants
+        instant-speed activation instead, while its condition holds. Only
+        once per turn per planeswalker either way.
+        """
+        conditional_flash = getattr(source, "conditional_flash", None)
+        has_conditional_flash = (
+            conditional_flash is not None
+            and condition_query.conditional_flash_holds(conditional_flash, source, self.state)
+        )
         return (
             source.is_planeswalker
-            and self._sorcery_speed_ok(player)
+            and (self._sorcery_speed_ok(player) or has_conditional_flash)
             and not source.activated_loyalty_this_turn
         )
 
@@ -1773,6 +1953,23 @@ class GameEngine:
                 return x
         return 0
 
+    def _reduced_activation_mana(self, source: GameObject, mana: "ManaCost") -> "ManaCost":
+        """Apply any "activated abilities cost {N} less to activate" static
+        scoped to ``source`` (Power Artifact-shaped, RULE 601.2f-adjacent) —
+        nothing in the ordinary activation-cost path consulted a reduction
+        before this (unlike a spell's cast cost, `continuous.
+        cost_reduction_for`). See `continuous.activation_cost_reduction_for`
+        for the static's own "can't reduce below N mana" floor, honoured
+        here by capping the reduction rather than trusting `reduce_generic`'s
+        own floor-at-zero.
+        """
+        reduction, floor = continuous.activation_cost_reduction_for(self.state, source)
+        if reduction <= 0:
+            return mana
+        if floor and mana.converted_mana_cost - reduction < floor:
+            reduction = max(0, mana.converted_mana_cost - floor)
+        return mana.reduce_generic(reduction)
+
     def _can_pay_activation_cost(
         self,
         player: Player,
@@ -1789,6 +1986,7 @@ class GameEngine:
         if cost.untaps_self and (not source.tapped or self._summoning_sick_for_tap(source)):
             return False
         mana = cost.mana.with_x(x) if cost.mana.has_variable else cost.mana
+        mana = self._reduced_activation_mana(source, mana)
         if mana.symbols:
             allows_restriction = restriction_predicate_for_activation(source, has_x=cost.mana.has_variable)
             if not player.mana_pool.can_pay(
@@ -1799,7 +1997,11 @@ class GameEngine:
             return False
         if cost.discard and cost.discard != DISCARD_HAND and len(player.hand) < cost.discard:
             return False
+        if cost.discard_self and source not in player.hand:
+            return False
         if cost.sacrifice and self._sacrifice_candidate(player, source, cost.sacrifice) is None:
+            return False
+        if cost.return_to_hand and self._return_to_hand_candidate(player, cost.return_to_hand) is None:
             return False
         if cost.unattach_self and source.attached_to is None:
             return False
@@ -1968,7 +2170,7 @@ class GameEngine:
         the MVP's non-interactive discard/search picks.
         """
         if what == "self":
-            return source if source in self.state.battlefield else None
+            return source if source in self.state.permanents() else None
         for obj in self.state.permanents_controlled_by(player.id):
             if self._matches_sacrifice_type(obj, what):
                 return obj
@@ -1987,6 +2189,19 @@ class GameEngine:
         if what == "land":
             return obj.is_land
         return True  # unknown type word → any permanent, so the cost is payable
+
+    def _return_to_hand_candidate(
+        self, player: Player, subtype: str
+    ) -> Optional[GameObject]:
+        """A permanent of ``subtype`` ``player`` controls, to pay a "Return a
+        <Type> you control to its owner's hand" cost (Quirion Ranger/Scryb
+        Ranger, RULE 602.1) — an auto-choice, the same non-interactive
+        first-match convention `_sacrifice_candidate` uses.
+        """
+        for obj in self.state.permanents_controlled_by(player.id):
+            if continuous.has_subtype(obj, subtype):
+                return obj
+        return None
 
     def _pay_activation_cost(
         self,
@@ -2013,6 +2228,7 @@ class GameEngine:
             for obj in self._resolve_tap_others(player, source, count, subtype, tap_choices) or []:
                 self.rules.set_tapped(obj, True)
         mana = cost.mana.with_x(x) if cost.mana.has_variable else cost.mana
+        mana = self._reduced_activation_mana(source, mana)
         if mana.symbols:
             allows_restriction = restriction_predicate_for_activation(source, has_x=cost.mana.has_variable)
             life_spent = player.mana_pool.pay(
@@ -2027,11 +2243,17 @@ class GameEngine:
                 # RULE 701.16c: sacrifice isn't destruction — see the
                 # matching comment in `_pay_additional_cast_cost`.
                 self.rules.put_into_graveyard(victim)
+        if cost.return_to_hand:
+            bounced = self._return_to_hand_candidate(player, cost.return_to_hand)
+            if bounced is not None:
+                self.rules.return_to_hand(bounced)
         if cost.unattach_self:
             source.last_unattached_from_id = source.attached_to
             source.attached_to = None
         if cost.discard:
             self.rules.discard(player, len(player.hand) if cost.discard == DISCARD_HAND else cost.discard)
+        if cost.discard_self:
+            self.rules.discard_specific(source)
         if cost.remove_counters:
             kind, count = cost.remove_counters
             source.add_counters(kind, -count)
@@ -2076,6 +2298,8 @@ class GameEngine:
             raise ValueError(f"cannot activate {source.name}'s ability")
 
         self._pay_activation_cost(player, source, ability.cost, x, tap_choices=tap_choices)
+        if ability.once_per_turn:
+            ability._last_activated_turn = self.state.turn_number
 
         item = StackItem(
             kind="ability",
@@ -2173,7 +2397,10 @@ class GameEngine:
         # Static cost adjustment (RULE 601.2f): surface base vs. reduced so the
         # UI can show "was {3}, now {1}" and the static-effects panel can
         # attribute it. Only attached when something actually changes the cost.
-        reduction, contributors = continuous.cost_reduction_for(self.state, player)
+        reduction, contributors = continuous.cost_reduction_for(self.state, player, obj)
+        self_reduction, self_contributors = continuous.self_cost_reduction_for(obj, self.state)
+        reduction += self_reduction
+        contributors = contributors + self_contributors
         tax = self.commander_tax(player, obj)
         if (reduction or tax or graveyard_keyword) and cost.raw:
             action["base_cost"] = cost.raw
@@ -2411,6 +2638,15 @@ class GameEngine:
         for source in self.state.permanents_controlled_by(player.id):
             for index, ability in enumerate(source.activated_abilities):
                 if self.can_activate(player, source, ability):
+                    actions.append(self._activate_action(player, source, index, ability))
+
+        # Channel (RULE 702.29)/Cycling (RULE 702.28): a hand-zone card's own
+        # "Discard this card: <effect>" activated ability — unlike the
+        # battlefield loop above, discovered off `player.hand`, since the
+        # card itself (not a permanent) is the ability's source.
+        for source in list(player.hand):
+            for index, ability in enumerate(source.activated_abilities):
+                if ability.cost.discard_self and self.can_activate(player, source, ability):
                     actions.append(self._activate_action(player, source, index, ability))
         return actions
 

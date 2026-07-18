@@ -33,10 +33,17 @@ _TARGET_ROWS: list[tuple[str, str]] = [
     # control") — must sit above the bare "target creature" row below.
     (r"target creature you control", "creature_you_control"),
     (r"target creature", "creature"),
+    # "target legendary permanent" (Minamo, School at Water's Edge) — a
+    # supertype-filtered pick (RULE 205.4a), above the bare "target
+    # permanent" row below so the longer phrase wins.
+    (r"target legendary permanent", "legendary_permanent"),
     (r"target permanent", "permanent"),
     (r"target artifact or enchantment", "permanent"),
     (r"target artifact", "permanent"),
     (r"target enchantment", "permanent"),
+    # "target Forest" (Arbor Elf) — a specific basic land subtype, above
+    # the bare "target land" row so the longer/more specific phrase wins.
+    (r"target forest", "forest"),
     (r"target land", "permanent"),
     # "a land you control" (a bounce-land's "return a land you control to
     # its owner's hand") isn't RULE 115 targeting at all — no "target" word —
@@ -125,6 +132,38 @@ def count_of(token: str) -> int:
     return int(token)
 
 
+#: WUBRG colour words → letters, for the old-templating "target blue
+#: permanent"/"counter target spell if it's blue" color-hoser family (Red
+#: Elemental Blast/Pyroblast-shaped, RULE 105) — a card either bakes the
+#: adjective into the target noun phrase or tacks a trailing "if it's
+#: <color>" clause onto the whole ability; both are the same restriction,
+#: just templated differently across Magic's history. Shared by the counter
+#: family's `SPELL_TARGET` (an inline adjective) and any handler that wants
+#: the trailing-clause form via `IF_COLOR_SUFFIX`/`split_target_color`.
+#: Public alias — a handler that needs to build its own "target [color]
+#: <noun>" alternation (the `TARGET` macro's fixed rows have no color slot)
+#: can reuse this word list rather than re-declaring it.
+COLOR_WORD_ALT = r"white|blue|black|red|green"
+_COLOR_ALT = COLOR_WORD_ALT
+_COLOR_LETTERS: dict[str, str] = {
+    "white": "W", "blue": "U", "black": "B", "red": "R", "green": "G",
+}
+
+
+def resolve_color_word(word: Optional[str]) -> Optional[str]:
+    """A colour word ("blue") → its WUBRG letter, or ``None`` for anything else."""
+    if not word:
+        return None
+    return _COLOR_LETTERS.get(word.strip().lower())
+
+
+#: An optional trailing "if it's <color>" clause (the Pyroblast/Red
+#: Elemental Blast old-templating variant of a colour restriction) — embed
+#: at the end of a handler's own regex; the match exposes it as the
+#: ``cond_color`` group.
+IF_COLOR_SUFFIX = rf"(?: if it'?s (?P<cond_color>{_COLOR_ALT}))?"
+
+
 # --- "counter target <filter> spell" (RULE 601.2c/115) ----------------------
 # The counter family's own target grammar: unlike the generic `TARGET` rows
 # above (one fixed `target_kind` per row), a countered *spell* can carry a
@@ -149,6 +188,7 @@ _SPELL_TYPE_LIST = (
 #: both), so a handler only needs to check whichever group is set.
 _SPELL_TARGET_BODY = (
     r"target "
+    rf"(?:(?P<color>{_COLOR_ALT})\s+)?"
     r"(?:(?P<noncreature>noncreature)\s+)?"
     rf"(?:(?P<types>{_SPELL_TYPE_LIST})\s+)?"
     r"spell"
@@ -172,6 +212,8 @@ def resolve_spell_filter(phrase: str) -> Optional[dict[str, Any]]:
     if m is None:
         return None
     filt: dict[str, Any] = {}
+    if m.group("color"):
+        filt["color"] = resolve_color_word(m.group("color"))
     if m.group("noncreature"):
         filt["noncreature"] = True
     if m.group("types"):

@@ -164,6 +164,19 @@ class GameState:
         #: engine (mtg_analyzer/game/rules_engine.py).
         self.pending_choice: Optional[dict[str, Any]] = None
 
+        #: A temporary "you may play this card" permission granted to a
+        #: card sitting outside hand/command/graveyard/library-top (Light
+        #: Up the Stage-shaped "exile, play until the end of your next
+        #: turn" impulsive draw — RULE 601.3b analogue) — ``instance_id ->
+        #: turn granted``. Distinct from the standing, battlefield-sourced
+        #: permission `game/top_library.py` tracks: this one is turn-scoped
+        #: and survives independently of any permanent, so it can't be
+        #: continuously re-derived the way that one is. Set by
+        #: `RulesEngine.exile_with_play_permission`, checked by
+        #: `GameEngine.can_cast`/`can_play_land`, swept at cleanup
+        #: (`GameEngine._step_cleanup`).
+        self.temp_play_permissions: dict[int, int] = {}
+
         #: When True, the active player is asked to order their simultaneous
         #: triggered abilities (RULE 603.3b) via a `pending_choice` instead of
         #: the engine placing them in a deterministic order. Off by default so
@@ -219,6 +232,20 @@ class GameState:
         #: (no previous turn to check).
         self._last_turn_player_id: Optional[str] = None
         self._last_turn_spell_count: int = 0
+        #: Cards drawn by each player *this turn* (RULE 121.5-adjacent "each
+        #: player can't draw more than N cards each turn" cap, Spirit of the
+        #: Labyrinth-shaped) — reset for the new active player in
+        #: `GameEngine.begin_turn`, incremented by `RulesEngine._single_draw`
+        #: on every successful draw, the same shape `spells_cast_this_turn`
+        #: uses for `cast_limit`.
+        self.cards_drawn_this_turn: dict[str, int] = {p.id: 0 for p in players}
+        #: RULE 702.8b-adjacent "you may cast spells as though they had
+        #: flash this turn" (Borne Upon a Wind-shaped) — ``{player_id: turn_
+        #: number}``; a player may cast at flash speed while their entry
+        #: equals the *current* `turn_number`, so this needs no cleanup-step
+        #: bookkeeping (it simply stops matching once the turn advances,
+        #: unlike the `temp_*` `GameObject` fields `_step_cleanup` clears).
+        self.temp_flash_until_turn: dict[str, int] = {}
 
         #: Chronological log of everything fired; also the record the
         #: WebSocket layer can diff to build ``game_state_update``s.
@@ -332,11 +359,23 @@ class GameState:
     # -- Battlefield -----------------------------------------------------
 
     def permanents(self) -> list[GameObject]:
-        """Every object on the shared battlefield."""
-        return list(self.battlefield)
+        """Every *live* object on the shared battlefield.
+
+        Excludes a phased-out permanent (RULE 702.26c: "treated as though
+        it doesn't exist") — still structurally in `Zone.BATTLEFIELD`
+        (phasing isn't a zone change), so this is the choke point that
+        makes it invisible everywhere else instead of a raw `.battlefield`
+        scan. The one caller that must see a phased-out object anyway is
+        `GameEngine._step_untap`'s own RULE 702.26a phase-in sweep, which
+        reads `self.battlefield` directly for exactly that reason.
+        """
+        return [obj for obj in self.battlefield if not obj.phased_out]
 
     def permanents_controlled_by(self, player_id: str) -> list[GameObject]:
-        return [obj for obj in self.battlefield if obj.controller_id == player_id]
+        return [
+            obj for obj in self.battlefield
+            if obj.controller_id == player_id and not obj.phased_out
+        ]
 
     def add_to_battlefield(self, obj: GameObject) -> None:
         obj.zone = Zone.BATTLEFIELD
@@ -344,6 +383,9 @@ class GameState:
         # multiple effects within the same layer (newest applies last).
         self._timestamp_counter = getattr(self, "_timestamp_counter", 0) + 1
         obj.timestamp = self._timestamp_counter
+        # "As long as ~ entered the battlefield this turn" conditions (The
+        # Wandering Emperor-shaped, `game/condition_query.py`).
+        obj.turn_entered = self.turn_number
         # RULE 606.5b: a planeswalker enters with its printed starting loyalty.
         if obj.is_planeswalker and obj.card.loyalty and "loyalty" not in obj.counters:
             obj.counters["loyalty"] = obj.card.loyalty
@@ -439,6 +481,7 @@ class GameState:
             "game_over": self.game_over,
             "winner_id": self.winner_id,
             "pending_choice": self.pending_choice,
+            "temp_play_permissions": dict(self.temp_play_permissions),
             "players": [p.to_dict() for p in self.players],
             "battlefield": [obj.to_dict() for obj in self.battlefield],
             "stack": [item.to_dict() for item in self.stack],

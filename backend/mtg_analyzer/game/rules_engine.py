@@ -325,6 +325,13 @@ class RulesEngine:
     # ------------------------------------------------------------------
 
     def _collect_triggers(self, event: GameEvent) -> None:
+        if continuous.trigger_suppressed(self.state, event):
+            # RULE 603: "Creatures entering don't cause abilities to
+            # trigger." (Tocatli Honor Guard/Hushwing Gryff/Torpor Orb) —
+            # silences every triggered ability that would otherwise fire off
+            # this event, including the entering creature's own, for as long
+            # as the static is in play.
+            return
         for obj in self.state.permanents():
             # `granted_triggered_abilities` (RULE 613.7f — a layer-6 "X have
             # '<triggered ability>'" static grant, e.g. Dionus, Elvish
@@ -758,14 +765,21 @@ class RulesEngine:
         self._place_triggers(queue)
 
     def _resolve_choice_option(self, options: list[dict[str, Any]], answer: str) -> Any:
-        """The permanent/player a `trigger_target` option ``answer`` names."""
+        """The permanent/spell/player a `trigger_target` option ``answer``
+        names.
+
+        ``instance_id`` options aren't always a *battlefield* permanent —
+        ``kind="spell"`` (`targeting.legal_targets`, Nether Void-shaped
+        "whenever a player casts a spell, counter it unless…") offers a
+        `StackItem`'s own object, which `state.permanents()` alone would
+        never find (RULE 111.7: a spell isn't a permanent). `state.
+        find_object` already searches every zone, stack included.
+        """
         match = next((o for o in options if o["id"] == answer), None)
         if match is None:
             return None
         if "instance_id" in match:
-            return next(
-                (o for o in self.state.permanents() if o.instance_id == match["instance_id"]), None
-            )
+            return self.state.find_object(match["instance_id"])
         try:
             return self.state.player_by_id(match["id"])
         except KeyError:
@@ -959,6 +973,14 @@ class RulesEngine:
             self.state.pending_choice = self._land_tapped_choice(obj, condition["amount"])
         else:
             obj.tapped = kind == "always"
+        if not obj.tapped:
+            # RULE 614.1, board-wide: a *different* permanent's standing
+            # effect ("Nonbasic lands your opponents control enter tapped."
+            # — Archon of Emeria) can still force this land tapped even when
+            # its own printed clause (if any) would have left it untapped —
+            # a shock land's pending pay-life choice already defaults tapped
+            # above, so this only ever adds a tap, never removes the choice.
+            obj.tapped = continuous.enters_tapped_from_static(self.state, obj)
 
     def _land_tapped_choice(self, obj: GameObject, amount: int) -> dict[str, Any]:
         """Build the `pending_choice` for a shock land's pay-life decision."""
@@ -1144,8 +1166,8 @@ class RulesEngine:
 
     def _attachment_legal(self, obj: GameObject, target: GameObject) -> bool:
         """Whether ``obj`` can legally attach to ``target`` (basic MVP rules)."""
-        if target not in self.state.battlefield:
-            return False
+        if target not in self.state.permanents():
+            return False  # RULE 702.26c: can't attach to a phased-out permanent
         kind = self._attachment_kind(obj)
         if kind is None:
             return False
@@ -1207,6 +1229,30 @@ class RulesEngine:
         """
         return list(getattr(obj, "spell_effects", []))
 
+    @staticmethod
+    def _substitute_x(effects: list[Any], x: int) -> None:
+        """Replace the ``"x"``/``"-x"`` sentinel amount/count/power/
+        toughness on any of ``effects`` with the spell/ability's actually-
+        announced {X} (RULE 107.3c/601.2b) — ``"-x"`` is its negation, for
+        an X-scaled *debuff* whose X isn't itself negative (Toxic Deluge's
+        "All creatures get -X/-X", where X comes from an ``additional_cost``
+        life payment, not a mana ``{X}``, but is threaded through the exact
+        same ``obj.x_paid``/`StackItem.x` mechanism regardless).
+
+        Mirrors `_apply_entry_counters`'s ``is_x``-flag idiom, just generic
+        over every one-shot effect's magnitude field instead of one
+        hand-authored counter clause — a real int param never equals the
+        literal string ``"x"``/``"-x"``, so this can't misfire on an
+        unrelated ``amount``/``count``/``power``/``toughness`` value.
+        """
+        for effect in effects:
+            for attr in ("amount", "count", "power", "toughness"):
+                value = getattr(effect, attr, None)
+                if value == "x":
+                    setattr(effect, attr, x)
+                elif value == "-x":
+                    setattr(effect, attr, -x)
+
     def resolve_top_of_stack(self) -> Optional[StackItem]:
         """Resolve the topmost stack object (RULE 608). Returns it, or None."""
         if not self.state.stack:
@@ -1220,8 +1266,10 @@ class RulesEngine:
             # level down, inside its own `apply()` (`_apply_effects_
             # partitioned`). Pass `target_groups` straight through rather
             # than treating the wrapper itself as "one targeting effect".
+            self._substitute_x(item.effects[0].effects, item.x)
             item.effects[0].apply(self.context, item.targets, item.target_groups)
         else:
+            self._substitute_x(item.effects, item.x)
             group_index = 0
             for effect in item.effects:
                 if item.target_groups is not None and getattr(effect, "target_spec", None) is not None:
@@ -1290,7 +1338,13 @@ class RulesEngine:
         """
         def _finish() -> None:
             obj.summoning_sick = True
-            obj.tapped = ability_catalogue.enters_tapped(obj.card)  # RULE 614.1
+            # RULE 614.1: either the object's own printed tapped-entry
+            # clause, or a *different* permanent's board-wide standing
+            # effect ("Artifacts your opponents control enter tapped." —
+            # Manglehorn/Dauntless Dismantler/Archon of Emeria-shaped).
+            obj.tapped = ability_catalogue.enters_tapped(obj.card) or continuous.enters_tapped_from_static(
+                self.state, obj
+            )
             self._apply_entry_counters(obj, x_paid=getattr(obj, "x_paid", 0) or 0)
             self.state.add_to_battlefield(obj)
             if self._attachment_kind(obj) == "enchant":
@@ -1394,6 +1448,16 @@ class RulesEngine:
             self._single_draw(player)
 
     def _single_draw(self, player: Player) -> None:
+        # RULE 121.5-adjacent "each player can't draw more than N cards each
+        # turn." (Spirit of the Labyrinth) — a cap checked *before* this draw
+        # even starts (the extra draw simply doesn't happen, no replacement
+        # rewrite involved), the draw-side mirror of `GameEngine.can_cast`'s
+        # `cast_limit` gate. `draw(player, count>1)` calls this once per
+        # card, so the cap is naturally enforced cumulatively across a
+        # single "draw two cards" effect too.
+        draw_limit = continuous.max_draws_per_turn(self.state)
+        if draw_limit is not None and self.state.cards_drawn_this_turn.get(player.id, 0) >= draw_limit:
+            return
         event = GameEvent(EventType.DRAW, player_id=player.id, count=1)
 
         def _finish(resolved: Optional[GameEvent]) -> None:
@@ -1411,6 +1475,9 @@ class RulesEngine:
                 player.attempted_draw_from_empty = True  # type: ignore[attr-defined]
             drawn = player.draw(n)
             if drawn:
+                self.state.cards_drawn_this_turn[player.id] = (
+                    self.state.cards_drawn_this_turn.get(player.id, 0) + len(drawn)
+                )
                 self.state.record_stat(player.id, "draw", amount=len(drawn))
                 self.state.fire_event(
                     GameEvent(EventType.DRAW, player_id=player.id, count=len(drawn))
@@ -1442,6 +1509,35 @@ class RulesEngine:
             self.state.fire_event(
                 GameEvent(EventType.DISCARD, player_id=player.id, count=discarded)
             )
+
+    def put_hand_cards_on_top(self, player: Player, count: int) -> None:
+        """Put up to ``count`` cards from ``player``'s hand on top of their
+        library, "in any order" (RULE 701 — Brainstorm's "then put two cards
+        from your hand on top of your library"). Auto-picks off the back of
+        hand — no chooser in this MVP, the same idiom `discard` above uses;
+        the actual *order* among the returned cards isn't anything this
+        engine's library model exposes a distinction for, so the missing
+        choice is inert either way.
+        """
+        for _ in range(count):
+            if not player.hand:
+                break
+            obj = player.hand.pop()
+            obj.zone = Zone.LIBRARY
+            player.library.append(obj)  # top of deck is the list end
+
+    def discard_specific(self, obj: GameObject) -> None:
+        """Discard ``obj`` itself out of its owner's hand — Channel (RULE
+        702.29)/Cycling (RULE 702.28)'s own "Discard this card" cost, unlike
+        `discard` (a player-scoped count with no chooser, RULE 701.8's
+        general form)."""
+        player = self.state.player_by_id(obj.owner_id)
+        player.remove_from_zone(obj, Zone.HAND)
+        player.add_to_zone(obj, Zone.GRAVEYARD)
+        self._flag_commander_zone_choice(obj)  # RULE 903.9a
+        self.state.fire_event(
+            GameEvent(EventType.DISCARD, player_id=player.id, count=1)
+        )
 
     def deal_damage(
         self,
@@ -1704,6 +1800,33 @@ class RulesEngine:
         if obj.is_commander:
             self.state.pending_choice = self._commander_zone_choice(obj, Zone.HAND)
 
+    def blink(self, obj: GameObject) -> None:
+        """Exile ``obj``, then immediately return it to the battlefield under
+        its owner's control (RULE 400.7's "leaves and re-enters" — Ephemerate/
+        Momentary Blink-shaped "exile target permanent, then return it").
+
+        Reuses `exile` (a real zone visit, so `LEAVES_BATTLEFIELD`/`EXILE`
+        fire like any other exile) then `_put_searched_card`'s battlefield-
+        entry handling — the same choke point `return_from_graveyard` uses —
+        so the object re-enters as a fresh `ENTERS_BATTLEFIELD` occurrence
+        (RULE 400.7: a new object, ETB triggers refire, summoning sickness
+        resets, attachments/counters don't carry over since `exile`/
+        `remove_from_battlefield` already dropped them) rather than a no-op
+        move. Always under the owner's own control — no real blink spell
+        lets the caster keep an opponent's creature.
+        """
+        owner = self.state.player_by_id(obj.owner_id)
+        # RULE 400.7: a new object remembers nothing of the old one — unlike
+        # `exile` on its own (which leaves counters/attachments alone, e.g.
+        # for a card that's merely *staying* in exile), drop both before
+        # re-entry. `exile` doesn't call `_detach_attachments_from` itself
+        # (only `_move_to_graveyard` does today), so any Aura/Equipment that
+        # was on ``obj`` falls off here.
+        self._detach_attachments_from(obj)
+        self.exile(obj)
+        obj.counters = {}
+        self._put_searched_card(owner, obj, "battlefield")
+
     def return_from_graveyard(
         self, obj: GameObject, destination: str = "battlefield", controller_id: Optional[str] = None
     ) -> None:
@@ -1935,7 +2058,11 @@ class RulesEngine:
                 bind_from_catalogue(token)  # token abilities are live like any card's
                 if zone == Zone.BATTLEFIELD:
                     token.summoning_sick = True  # RULE 302.6 applies to tokens too
-                    token.tapped = ability_catalogue.enters_tapped(token_card)  # RULE 614.1
+                    # RULE 614.1 — see the matching comment in
+                    # `_resolve_permanent_spell` above.
+                    token.tapped = ability_catalogue.enters_tapped(
+                        token_card
+                    ) or continuous.enters_tapped_from_static(self.state, token)
                     self._apply_entry_counters(token)  # a token was never cast, so X is 0
                     self.state.add_to_battlefield(token)
                     self.state.fire_event(
@@ -2718,10 +2845,128 @@ class RulesEngine:
         else:  # hand (default) — most tutors
             player.add_to_zone(obj, Zone.HAND)
 
+    def request_impulsive_look(
+        self,
+        player: Player,
+        count: int,
+        criteria: Any = "",
+        hit_destination: str = "hand",
+        miss_destination: str = "graveyard",
+        optional: bool = True,
+    ) -> None:
+        """"Look at the top N cards, take one matching ``criteria``, put the
+        rest into ``miss_destination``" (Grisly Salvage/Commune with the
+        Gods-shaped, RULE 701-adjacent — not RULE 701.19's "search", which
+        looks through the *whole* library and always shuffles afterwards).
+
+        Peels exactly ``count`` cards off the top into exile (a temporary
+        holding area, the same shape `_exile_top_until` uses for cascade/
+        discover) and opens a choice among only the ones matching
+        ``criteria``. With nothing eligible, every peeled card goes straight
+        to ``miss_destination`` — no choice needed.
+        """
+        peeled: list[GameObject] = []
+        for _ in range(max(0, count)):
+            if not player.library:
+                break
+            obj = player.library.pop()
+            obj.zone = Zone.EXILE
+            player.exile.append(obj)
+            peeled.append(obj)
+            self.state.fire_event(
+                GameEvent(EventType.EXILE, player_id=player.id, object=obj.name, from_zone="library")
+            )
+        eligible = [obj for obj in peeled if card_query.matches(obj.card, criteria)]
+        if not eligible:
+            for obj in peeled:
+                player.remove_from_zone(obj, Zone.EXILE)
+                self._put_searched_card(player, obj, miss_destination)
+            return
+        self.state.pending_choice = {
+            "kind": "impulsive_look",
+            "player_id": player.id,
+            "optional": optional,
+            "hit_destination": hit_destination,
+            "miss_destination": miss_destination,
+            "description": f"Von den obersten {len(peeled)} Karten: {card_query.describe(criteria)}",
+            "prompt": f"Eine passende Karte ({card_query.describe(criteria)}) auf die Hand nehmen?",
+            "eligible": [{"instance_id": o.instance_id, "name": o.name} for o in eligible],
+            "peeled": [o.instance_id for o in peeled],
+            "options": (
+                [
+                    {"id": str(o.instance_id), "label": o.name, "instance_id": o.instance_id}
+                    for o in eligible
+                ]
+                + ([{"id": "decline", "label": "Nichts wählen"}] if optional else [])
+            ),
+        }
+
+    def resolve_impulsive_look_choice(self, instance_id: Optional[int]) -> None:
+        """Answer a pending `request_impulsive_look` choice: take the chosen
+        card (or none, if optional), then route every other peeled card to
+        ``miss_destination``."""
+        choice = self.state.pending_choice
+        if not choice or choice.get("kind") != "impulsive_look":
+            raise ValueError("no pending impulsive-look choice to resolve")
+        player = self.state.player_by_id(choice["player_id"])
+        self.state.pending_choice = None
+
+        chosen_id: Optional[int] = None
+        if instance_id is not None:
+            eligible_ids = {e["instance_id"] for e in choice["eligible"]}
+            if instance_id not in eligible_ids:
+                raise ValueError(f"{instance_id} is not a valid impulsive-look target")
+            chosen_id = instance_id
+
+        peeled_ids = set(choice["peeled"])
+        for obj in [o for o in list(player.exile) if o.instance_id in peeled_ids]:
+            destination = choice["hit_destination"] if obj.instance_id == chosen_id else choice["miss_destination"]
+            player.remove_from_zone(obj, Zone.EXILE)
+            self._put_searched_card(player, obj, destination)
+
+    def exile_with_play_permission(self, player: Player, count: int) -> list[GameObject]:
+        """Exile the top ``count`` cards of ``player``'s library; every one
+        of them becomes playable through the end of ``player``'s *next*
+        turn (RULE 601.3b analogue — Light Up the Stage-shaped "impulsive
+        draw"), tracked in `GameState.temp_play_permissions`.
+
+        Distinct from `request_impulsive_look`: no filter, no choice, and
+        nothing is routed to a miss destination — every card exiled here
+        stays in exile, playable, until its window lapses (swept by
+        `GameEngine._step_cleanup`) or it's actually cast/played.
+        """
+        exiled: list[GameObject] = []
+        for _ in range(max(0, count)):
+            if not player.library:
+                break
+            obj = player.library.pop()
+            obj.zone = Zone.EXILE
+            player.exile.append(obj)
+            self.state.temp_play_permissions[obj.instance_id] = self.state.turn_number
+            exiled.append(obj)
+            self.state.fire_event(
+                GameEvent(EventType.EXILE, player_id=player.id, object=obj.name, from_zone="library")
+            )
+        return exiled
+
     def shuffle_library(self, player: Player) -> None:
         """Shuffle a player's library and announce it (RULE 701.20)."""
         player.shuffle_library()
         self.state.fire_event(GameEvent(EventType.SHUFFLE, player_id=player.id))
+
+    def shuffle_hand_and_graveyard_into_library(self, player: Player) -> None:
+        """"Shuffle your hand and graveyard into your library." (RULE 701.20,
+        Timetwister/Time Reversal/Echo of Eons's "wheel" template — all three
+        print the identical line). Every hand/graveyard card leaves its zone,
+        goes to the library, then the whole thing is shuffled and announced
+        the ordinary way (`shuffle_library`)."""
+        for obj in list(player.hand):
+            player.remove_from_zone(obj, Zone.HAND)
+            player.add_to_zone(obj, Zone.LIBRARY)
+        for obj in list(player.graveyard):
+            player.remove_from_zone(obj, Zone.GRAVEYARD)
+            player.add_to_zone(obj, Zone.LIBRARY)
+        self.shuffle_library(player)
 
     # ------------------------------------------------------------------
     # Cascade / Discover: reveal from the top, free-cast a hit (RULE 702.85 / .164)
@@ -3155,6 +3400,26 @@ class RulesEngine:
             GameEvent(EventType.PLAYER_LOST, player_id=player.id, reason=reason)
         )
         self._check_game_over()
+
+    def player_wins(self, player: Player) -> None:
+        """RULE 104.2: ``player`` wins the game outright (Jace, Wielder of
+        Mysteries/Laboratory Maniac-shaped alternative win condition) —
+        every other living player loses, the same "someone wins" case a
+        solo/2-player match already reduces to via `_player_loses`. Fires
+        no separate "won" event of its own today (no card needs one); the
+        derived `GameState.game_over`/`winner_id` `_check_game_over` sets
+        is the externally-visible signal, same as any other win/loss path.
+        A solo (1-player) match has no "other player" to lose, so the
+        win/game-over state is set directly instead.
+        """
+        for other in list(self.state.living_players()):
+            if other is not player:
+                self._player_loses(other, "opponent_won")
+        if len(self.state.players) == 1:
+            self.state.game_over = True
+            self.state.winner_id = player.id
+        else:
+            self._check_game_over()
 
     def _check_game_over(self) -> None:
         living = self.state.living_players()

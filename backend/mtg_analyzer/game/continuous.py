@@ -90,7 +90,15 @@ def _has_subtype(obj: "GameObject", subtype: str) -> bool:
     the same substring approach the tutor's `card_query` uses ("Goblin" matches
     "Creature — Goblin Warrior"). Changeling (RULE 702.73) is every creature
     type, so it matches any subtype.
+
+    A layer-4 "type overwrite" static (RULE 613.5 — `_derived_subtypes`,
+    e.g. Blood Moon's "Nonbasic lands are Mountains") takes priority when
+    set: the object's *printed* subtypes (and Changeling) no longer apply at
+    all once its subtype set has been wholesale replaced.
     """
+    override = getattr(obj, "_derived_subtypes", None)
+    if override is not None:
+        return subtype.lower() in {s.lower() for s in override}
     type_line = obj.card.type_line.lower()
     if "changeling" in type_line or "changeling" in obj.intrinsic_keywords:
         return True
@@ -103,6 +111,39 @@ def has_subtype(obj: "GameObject", subtype: str) -> bool:
     (e.g. `game_engine`'s "tap N untapped Elves you control" cost, RULE
     602.1 — `game/costs.py`'s ``tap_others``)."""
     return _has_subtype(obj, subtype)
+
+
+#: Printed card-type word → the `Card` boolean flag it reads (RULE 300-ish
+#: type vocabulary) — the small, closed set the "opponent-scoped enters-
+#: tapped"/"activation prohibition"/"type overwrite" static families narrow
+#: their `affects` selector by (`card_type` param, `parser.oracle.catalogue.
+#: static_handlers._CARD_TYPE_WORDS`).
+_CARD_TYPE_ATTRS: dict[str, str] = {
+    "artifact": "is_artifact",
+    "creature": "is_creature",
+    "enchantment": "is_enchantment",
+    "land": "is_land",
+    "planeswalker": "is_planeswalker",
+}
+
+
+def _has_card_type(obj: "GameObject", card_type: str) -> bool:
+    """Whether ``obj``'s *printed* card is of ``card_type`` — reads the
+    `Card` flags directly (not layer-4 `_added_types`), since every static
+    family that uses this filters on the entering/affected object's own
+    printed identity (an artifact staying an artifact regardless of any
+    other layer effect in play). ``"permanent"`` (RULE 110.1) always
+    matches — everything on the battlefield is one."""
+    if card_type == "permanent":
+        return True
+    attr = _CARD_TYPE_ATTRS.get(card_type)
+    return bool(attr and getattr(obj.card, attr, False))
+
+
+def _is_nonbasic(obj: "GameObject") -> bool:
+    """RULE 205.4a: a land with no "Basic" supertype (the same substring
+    check `game/targeting.py`'s "nonbasic land" filter already uses)."""
+    return "basic" not in obj.card.type_line.lower()
 
 
 def _has_color(obj: "GameObject", colors: list) -> bool:
@@ -143,7 +184,9 @@ def group_selector_objects(
     permanent"``/``"other_creatures_you_control"``/``exclude_self``.
     """
     params = params or {}
-    battlefield = state.battlefield
+    # RULE 702.26c: a phased-out permanent is treated as though it doesn't
+    # exist — invisible to every static-ability selector below.
+    battlefield = state.permanents()
 
     if affects == "self":
         result = [src] if src is not None and src in battlefield else []
@@ -154,6 +197,18 @@ def group_selector_objects(
     elif affects == "attached_permanent":
         host_id = getattr(src, "attached_to", None)
         result = [o for o in battlefield if host_id is not None and o.instance_id == host_id]
+    elif affects == "all_lands":
+        result = [o for o in battlefield if o.is_land]
+    elif affects == "opponents_permanents":
+        # "Artifacts your opponents control enter tapped." (Manglehorn) —
+        # the mirror image of every "you control" selector below: everyone
+        # *except* the ability's own source's controller. Unlike those,
+        # ``controller_id`` here is the reference point ("you"), not a
+        # membership filter, so it still needs its own None-guard rather
+        # than falling into the shared ``elif controller_id is None`` below.
+        result = [] if controller_id is None else [
+            o for o in battlefield if o.controller_id not in (None, controller_id)
+        ]
     elif controller_id is None:
         result = []
     elif affects == "creatures_you_control":
@@ -201,6 +256,11 @@ def group_selector_objects(
         result = [o for o in result if getattr(o, "is_token", False)]
     if params.get("exclude_self"):  # a global "Other creatures …" anthem
         result = [o for o in result if o is not src]
+    card_type = params.get("card_type")
+    if card_type:  # "Artifacts your opponents control…", "Nonbasic lands are…"
+        result = [o for o in result if _has_card_type(o, str(card_type))]
+    if params.get("nonbasic"):  # "Nonbasic lands …" (RULE 205.4a)
+        result = [o for o in result if _is_nonbasic(o)]
 
     # RULE 613.6-style conditional static: "as long as this [permanent]'s own
     # <counter> is in range" — Leveler's mutually-exclusive P/T/keyword tiers
@@ -272,9 +332,11 @@ def _trace(
 
 
 def _battlefield_static_abilities(state: "GameState") -> list[StaticAbility]:
+    # RULE 702.26c: a phased-out permanent's static abilities don't apply —
+    # `state.permanents()` already excludes it from being a source.
     return [
         ab
-        for src in state.battlefield
+        for src in state.permanents()
         for ab in getattr(src, "static_effects", [])
         if isinstance(ab, StaticAbility)
     ]
@@ -315,6 +377,17 @@ def count_selector(state: "GameState", controller_id: Optional[str], selector: s
         return sum(
             1 for o in bf
             if (o.card.is_artifact or o.card.is_enchantment) and o.controller_id == controller_id
+        )
+    if selector == "artifacts_and_or_enchantments_opponents_control":
+        # "the number of artifacts and enchantments your opponents control"
+        # (Dockside Extortionist) — the mirror image of the "you control"
+        # entry above: everyone *except* the reference controller, same
+        # "opponents" idiom `group_selector_objects`'s own
+        # ``"opponents_permanents"`` uses.
+        return sum(
+            1 for o in bf
+            if (o.card.is_artifact or o.card.is_enchantment)
+            and o.controller_id not in (None, controller_id)
         )
     if selector == "cards_in_your_graveyard":
         try:
@@ -501,13 +574,21 @@ def recompute(state: "GameState") -> None:
 
     for ability in _in_layer(abilities, "type"):
         added = ability.params.get("add_types", [])
+        set_subtypes = ability.params.get("set_subtypes")
         power, toughness = ability.params.get("power"), ability.params.get("toughness")
         for obj in affected_objects(state, ability):
             for type_name in added:
                 obj._added_types.add(type_name)
+            if set_subtypes is not None:
+                # RULE 613.5 full overwrite ("Nonbasic lands are Mountains.")
+                # — replaces the subtype set outright, unlike `add_types`
+                # above (which only adds "creature" alongside whatever the
+                # object already was).
+                obj._derived_subtypes = set(set_subtypes)
             if power is not None and toughness is not None:
                 animation_pt[obj.instance_id] = (power, toughness)
-            _trace(obj, 4, _source_name(ability), "becomes " + ", ".join(added))
+            label = ", ".join(added) if added else ", ".join(set_subtypes or [])
+            _trace(obj, 4, _source_name(ability), f"becomes {label}")
 
     # -- Layer 5: colour-changing effects (RULE 613.4b).
     for ability in _in_layer(abilities, "color"):
@@ -677,32 +758,309 @@ def recompute(state: "GameState") -> None:
             obj._derived_power, obj._derived_toughness = base[obj.instance_id]
 
 
-def cost_reduction_for(state: "GameState", player: "Player") -> tuple[int, list[dict[str, Any]]]:
+def _cost_static_amount(ability: StaticAbility, state: "GameState", controller_id: Optional[str]) -> int:
+    """Signed generic-mana delta for one "cost" static (positive = reduction).
+
+    ``params.get("per")`` is an optional `count_selector` name for a
+    per-count scaling reduction (Delve's "for each card in your graveyard",
+    Affinity's "for each artifact you control") — the same "multiply a base
+    amount by a board count" shape a layer-7d anthem's ``_pt_mod_count``
+    already uses, reused here rather than reinvented.
+    """
+    amount = ability.params.get("generic", 0)
+    per = ability.params.get("per")
+    if per:
+        amount *= count_selector(state, controller_id, per)
+    return -amount if ability.params.get("increase") else amount
+
+
+def _spell_type_matches(obj: "GameObject", spell_type: str) -> bool:
+    """Whether the spell ``obj`` matches a `cost_reduction` static's
+    ``spell_type`` filter ("noncreature spells cost {1} more…", Thalia,
+    Guardian of Thraben/Thorn of Amethyst/Vryn Wingmare) — ``"noncreature"``
+    is its own case (no ``Card.is_noncreature`` flag to read), everything
+    else is a plain `_has_card_type` lookup on the object being cast."""
+    if spell_type == "noncreature":
+        return not obj.card.is_creature
+    return _has_card_type(obj, spell_type)
+
+
+def cost_reduction_for(
+    state: "GameState", player: "Player", obj: Optional["GameObject"] = None
+) -> tuple[int, list[dict[str, Any]]]:
     """Net generic-mana reduction for a spell ``player`` casts (RULE 601.2f).
 
     Sums "cost {N} less" statics and subtracts "cost {N} more" ones that apply
     to the player's spells, returning ``(net_reduction, contributors)`` where a
     positive reduction lowers the generic cost (never below zero, applied by
-    the caller) and ``contributors`` describes each for the UI.
+    the caller) and ``contributors`` describes each for the UI. Only reads
+    *battlefield* statics ("permanents you control cost less") — a reduction
+    printed on the spell card itself (Delve/Affinity) is `self_cost_reduction_for`.
+
+    ``obj`` is the spell actually being cast/previewed — required to evaluate
+    a ``spell_type``-filtered static ("noncreature spells cost {1} more to
+    cast", RULE 601.2f — Thalia/Thorn of Amethyst/Vryn Wingmare-shaped); a
+    caller that omits it (``None``, the pre-existing default) simply never
+    matches such a static, unaffected by this parameter's addition.
     """
     net = 0
     contributors: list[dict[str, Any]] = []
     for ability in _battlefield_static_abilities(state):
         if ability.layer != "cost":
             continue
+        if ability.params.get("scope") == "activation":
+            # Power Artifact-shaped — an *activated ability's* own cost, not
+            # a spell's cast cost; see `activation_cost_reduction_for`.
+            continue
         if ability.affects == "your_spells" and getattr(ability.source, "controller_id", None) != player.id:
             continue
-        amount = ability.params.get("generic", 0)
-        signed = -amount if ability.params.get("increase") else amount
+        spell_type = ability.params.get("spell_type")
+        if spell_type and (obj is None or not _spell_type_matches(obj, spell_type)):
+            continue
+        signed = _cost_static_amount(ability, state, player.id)
         net += signed
         contributors.append(
             {
                 "source": _source_name(ability),
                 "amount": signed,
-                "description": f"Spells cost {{{amount}}} {'more' if ability.params.get('increase') else 'less'}",
+                "description": f"Spells cost {{{abs(signed)}}} {'more' if signed < 0 else 'less'}",
             }
         )
     return net, contributors
+
+
+def self_cost_reduction_for(obj: "GameObject", state: "GameState") -> tuple[int, list[dict[str, Any]]]:
+    """Net generic-mana reduction from a "cost" static printed on ``obj``
+    itself (Delve/Affinity-shaped: "This spell costs {1} less to cast for
+    each ...") while ``obj`` is still in hand/graveyard/etc.
+
+    `_battlefield_static_abilities` only scans `state.battlefield`, so a
+    card that hasn't been cast yet needs its own static read straight off
+    ``obj.static_effects`` — the binder attaches a spell's own statics there
+    regardless of zone, same as any other static.
+    """
+    net = 0
+    contributors: list[dict[str, Any]] = []
+    controller_id = getattr(obj, "controller_id", None)
+    for ability in getattr(obj, "static_effects", []):
+        if not isinstance(ability, StaticAbility) or ability.layer != "cost" or ability.affects != "self":
+            continue
+        signed = _cost_static_amount(ability, state, controller_id)
+        net += signed
+        contributors.append(
+            {
+                "source": _source_name(ability),
+                "amount": signed,
+                "description": f"Costs {{{abs(signed)}}} {'more' if signed < 0 else 'less'} to cast",
+            }
+        )
+    return net, contributors
+
+
+def activation_cost_reduction_for(state: "GameState", source: "GameObject") -> tuple[int, int]:
+    """Net generic-mana reduction for *activating* ``source``'s own
+    activated ability (Power Artifact-shaped "Enchanted artifact's
+    activated abilities cost {2} less to activate.") — the activation-cost
+    analogue of `cost_reduction_for` (a *spell's* cast cost); consulted by
+    `GameEngine._reduced_activation_mana`.
+
+    Only a ``"cost"``-layer static with ``params["scope"] == "activation"``
+    counts (`cost_reduction_for` explicitly skips these, so a static never
+    double-applies to both a spell's cast cost and an ability's activation
+    cost). Only the ``affects="attached_permanent"`` scope is implemented
+    today — the one shape the pool needs; an unscoped "activated abilities
+    you control cost less" variant would need its own `affects` branch here,
+    not yet built since nothing needs it.
+
+    Returns ``(net_reduction, floor)`` where ``floor`` is the highest
+    "can't reduce the mana in that cost to less than N mana" clause among
+    the contributing statics (0 — no floor — if none set one).
+    """
+    net = 0
+    floor = 0
+    for ability in _battlefield_static_abilities(state):
+        if ability.layer != "cost" or ability.params.get("scope") != "activation":
+            continue
+        if ability.affects == "attached_permanent":
+            if getattr(ability.source, "attached_to", None) != source.instance_id:
+                continue
+        else:
+            continue
+        net += int(ability.params.get("generic", 0))
+        floor = max(floor, int(ability.params.get("min_total", 0)))
+    return net, floor
+
+
+def activation_prohibited(state: "GameState", source: "GameObject") -> bool:
+    """Whether a board-wide static ("Activated abilities of artifacts can't
+    be activated." — RULE 602, Collector Ouphe/Stony Silence/Null Rod)
+    silences ``source``'s activated abilities right now.
+
+    Consulted by `GameEngine.can_activate` — the single choke point both
+    `activate_ability`'s validation and `legal_actions`'s offer list already
+    go through, so one check here covers both. Reuses the ordinary
+    ``affects``/``card_type`` selector vocabulary (`affected_objects`) rather
+    than a bespoke predicate: the default ``affects="all_permanents"`` is
+    global (not scoped to the prohibiting permanent's own controller) and
+    carries no self-exemption, matching these three cards' plain wording —
+    Null Rod is itself an artifact and silences its own (non-existent here,
+    but any future artifact-with-abilities') activated abilities too.
+    """
+    for ability in _battlefield_static_abilities(state):
+        if ability.layer == "activation_prohibition" and source in affected_objects(state, ability):
+            return True
+    return False
+
+
+def max_spells_per_turn(state: "GameState") -> Optional[int]:
+    """The most restrictive "Each player can't cast more than N spells each
+    turn." cap in play (RULE 601-area — Eidolon of Rhetoric/Rule of Law/
+    Archon of Emeria), or ``None`` if no such static applies.
+
+    Global and player-agnostic by construction (all three seed cards say
+    "each player", not "each opponent"/"you") — every player is held to the
+    same, most-restrictive cap; `GameEngine.can_cast` compares it against
+    `GameState.spells_cast_this_turn`.
+    """
+    limits = [
+        ab.params.get("max_per_turn")
+        for ab in _battlefield_static_abilities(state)
+        if ab.layer == "cast_limit" and ab.params.get("max_per_turn") is not None
+    ]
+    return min(limits) if limits else None
+
+
+def max_draws_per_turn(state: "GameState") -> Optional[int]:
+    """The most restrictive "Each player can't draw more than N cards each
+    turn." cap in play (RULE 121.5-adjacent — Spirit of the Labyrinth), or
+    ``None`` if no such static applies. The draw-side mirror of
+    `max_spells_per_turn`; `RulesEngine._single_draw` compares it against
+    `GameState.cards_drawn_this_turn`.
+    """
+    limits = [
+        ab.params.get("max_per_turn")
+        for ab in _battlefield_static_abilities(state)
+        if ab.layer == "draw_limit" and ab.params.get("max_per_turn") is not None
+    ]
+    return min(limits) if limits else None
+
+
+def has_no_untap_static(obj: "GameObject") -> bool:
+    """Whether ``obj`` carries a "doesn't untap during your untap step"
+    static (RULE 502.3-adjacent — Basalt Monolith/Grim Monolith/Mana Vault).
+
+    Always self-scoped (no card in the pool says this about a *different*
+    permanent), so this reads ``obj.static_effects`` directly rather than
+    going through the ``affects``/selector machinery every other static
+    family here uses. Consulted by `GameEngine._step_untap` — a separate
+    "{N}: Untap this artifact." activated ability (Basalt/Grim Monolith) or
+    an "you may pay {4}. If you do, untap" trigger (Mana Vault) is an
+    unrelated code path (an ordinary ``untap`` one-shot effect) and isn't
+    affected by this restriction at all.
+    """
+    return any(
+        isinstance(ab, StaticAbility) and ab.layer == "no_untap"
+        for ab in getattr(obj, "static_effects", [])
+    )
+
+
+def untap_cap_for_lands(state: "GameState") -> Optional[int]:
+    """The global cap on how many lands *any* player may untap during their
+    untap step this turn (RULE 502.3-adjacent, Winter Orb-shaped: "As long
+    as this artifact is untapped, players can't untap more than one land
+    during their untap steps.") — ``None`` when no such static is currently
+    active.
+
+    Unlike `has_no_untap_static` (a single permanent's own restriction) or
+    `enters_tapped_from_static` (a board-wide but ownership-scoped effect),
+    this is a flat, unscoped cap that applies to *every* player's untap
+    step identically, gated on the static's own source currently being
+    untapped ("as long as ~ is untapped" — checked live, not the source's
+    controller/affected-set machinery every other static family here
+    uses). Two+ simultaneous instances don't stack (RULE 613's "the most
+    restrictive" isn't quite right either — real Magic just has each
+    Orb apply its own 1-land cap independently, so the effective cap is
+    whichever is *smallest*), hence ``min()`` rather than summing.
+    """
+    caps = [
+        ability.params.get("count", 1)
+        for ability in _battlefield_static_abilities(state)
+        if ability.layer == "untap_cap" and ability.source is not None and not ability.source.tapped
+    ]
+    return min(caps) if caps else None
+
+
+def trigger_suppressed(state: "GameState", event: Any) -> bool:
+    """Whether a global static ("Creatures entering don't cause abilities to
+    trigger." — RULE 603, Tocatli Honor Guard/Hushwing Gryff/Torpor Orb)
+    blocks every triggered ability from firing off ``event`` right now.
+
+    Checked once per event (`RulesEngine._collect_triggers`, the single
+    choke point both a permanent's own `triggered_abilities` and a layer-6
+    `granted_triggered_abilities` go through) rather than per-ability —
+    cheaper, and it naturally covers *both* the entering creature's own ETB
+    trigger and any other permanent's "whenever a creature enters" trigger
+    reacting to the same event, matching the real card's scope. Global: unlike
+    every ``affects`` selector above, this isn't scoped to the static's own
+    controller — Torpor Orb silences ETB triggers for *every* player's
+    creatures, not just its controller's.
+    """
+    for ability in _battlefield_static_abilities(state):
+        if ability.layer != "trigger_prohibition":
+            continue
+        if ability.params.get("event") != event.type:
+            continue
+        subject_type = ability.params.get("subject_type")
+        if subject_type and subject_type not in (event.get("object_types") or []):
+            continue
+        return True
+    return False
+
+
+def enters_tapped_from_static(state: "GameState", obj: "GameObject") -> bool:
+    """Whether a board-wide static ("Artifacts your opponents control enter
+    tapped." — RULE 614.1, Manglehorn/Dauntless Dismantler/Archon of
+    Emeria-shaped; or an unscoped "Artifacts and lands enter tapped." — Root
+    Maze-shaped, ``affects="all_permanents"``, no ownership restriction at
+    all) forces ``obj`` to enter tapped right now.
+
+    Distinct from `ability_catalogue.enters_tapped` (a card's own printed
+    tapped-entry clause about *itself*) — this is a *different* permanent's
+    standing effect. Checked at the moment ``obj`` is about to join the
+    battlefield (`RulesEngine._resolve_permanent_spell`/token creation),
+    before it's actually added to `state.battlefield` — so unlike every
+    other consult in this module, it can't go through `affected_objects`
+    (which only ever scans *existing* battlefield membership); the
+    ``opponents_permanents``/``all_permanents``/``card_type``/``nonbasic``
+    filters are applied to ``obj`` directly instead, duplicating that small
+    slice of `group_selector_objects`'s narrowing logic rather than the
+    whole battlefield-scanning shape.
+    """
+    for ability in _battlefield_static_abilities(state):
+        if ability.layer != "enters_tapped":
+            continue
+        if ability.affects != "all_permanents":
+            controller = getattr(ability.source, "controller_id", None)
+            if controller is None or obj.controller_id in (None, controller):
+                continue  # not "your opponents" from the static's own perspective
+        card_type = ability.params.get("card_type")
+        if card_type and not _has_card_type(obj, str(card_type)):
+            continue
+        if ability.params.get("nonbasic") and not _is_nonbasic(obj):
+            continue
+        return True
+    return False
+
+
+#: Static "layer" buckets that aren't a real RULE 613 layer at all (each
+#: `StaticAbility.LAYER_NUMBERS.get(..., 99)` defaults to the same numeric
+#: bucket "cost" already used) — shown as their own named ``kind`` in the
+#: UI's layer-trace panel rather than a bare "99", same treatment "cost"
+#: already got before any of these existed.
+_NON_RULE_613_LAYERS: frozenset[str] = frozenset(
+    {"cost", "no_untap", "enters_tapped", "activation_prohibition", "cast_limit", "draw_limit",
+     "trigger_prohibition", "untap_cap"}
+)
 
 
 def active_static_abilities(state: "GameState") -> list[dict[str, Any]]:
@@ -712,7 +1070,7 @@ def active_static_abilities(state: "GameState") -> list[dict[str, Any]]:
         summary.append(
             {
                 "source": _source_name(ability),
-                "layer": ability.layer_number if ability.layer != "cost" else "cost",
+                "layer": ability.layer if ability.layer in _NON_RULE_613_LAYERS else ability.layer_number,
                 "kind": ability.layer,
                 "affects": ability.affects,
                 "description": ability.description or _describe_ability(ability),
@@ -740,6 +1098,8 @@ def _describe_ability(ability: StaticAbility) -> str:
             return "grants a triggered ability"
         return "grants an ability"
     if ability.layer == "type":
+        if p.get("set_subtypes"):
+            return "becomes " + "/".join(p["set_subtypes"])
         return "makes " + ", ".join(p.get("add_types", []))
     if ability.layer == "color":
         return "colours " + ", ".join(p.get("colors", []))
@@ -750,5 +1110,24 @@ def _describe_ability(ability: StaticAbility) -> str:
     if ability.layer == "text":
         return "rewrites text: " + ", ".join(f"{k}→{v}" for k, v in (p.get("replace") or {}).items())
     if ability.layer == "cost":
-        return f"spells cost {{{p.get('generic', 0)}}} {'more' if p.get('increase') else 'less'}"
+        prefix = f"{p['spell_type']} spells" if p.get("spell_type") else "spells"
+        return f"{prefix} cost {{{p.get('generic', 0)}}} {'more' if p.get('increase') else 'less'}"
+    if ability.layer == "activation_prohibition":
+        scope = f"{p['card_type']}s'" if p.get("card_type") else ""
+        return f"{scope} activated abilities can't be activated".strip()
+    if ability.layer == "cast_limit":
+        return f"each player can't cast more than {p.get('max_per_turn', 1)} spell(s) each turn"
+    if ability.layer == "draw_limit":
+        return f"each player can't draw more than {p.get('max_per_turn', 1)} card(s) each turn"
+    if ability.layer == "no_untap":
+        return "doesn't untap during its controller's untap step"
+    if ability.layer == "trigger_prohibition":
+        subject = f"{p['subject_type']}s" if p.get("subject_type") else "objects"
+        return f"{subject} entering don't cause abilities to trigger"
+    if ability.layer == "enters_tapped":
+        scope = f"nonbasic {p['card_type']}" if p.get("nonbasic") and p.get("card_type") else p.get("card_type", "permanents")
+        who = "" if ability.affects == "all_permanents" else "your opponents control "
+        return f"{scope}s {who}enter tapped"
+    if ability.layer == "untap_cap":
+        return f"players can't untap more than {p.get('count', 1)} land(s) during their untap steps"
     return ability.affects

@@ -64,6 +64,129 @@ _GRANT_RE = re.compile(
     re.IGNORECASE,
 )
 
+#: Card-type words the "opponent-scoped"/"prohibition"/"type-overwrite"
+#: families below recognise as a `card_type` selector (`continuous.
+#: _has_card_type` reads the matching `Card.is_<word>` flag) — deliberately
+#: small: only the categories that actually appear in this shape on real
+#: cards (a spell-only type like "instant" never does, since none of these
+#: clauses talk about spells).
+_CARD_TYPE_WORDS: frozenset[str] = frozenset(
+    {"artifact", "creature", "enchantment", "land", "planeswalker", "permanent"}
+)
+
+# "Activated abilities of <type>[s] can't be activated."  (RULE 602 prohibition,
+# Collector Ouphe/Stony Silence/Null Rod) — global, not "you control"-scoped:
+# it silences *every* qualifying permanent's activated abilities, including
+# the prohibiting permanent's own if it itself qualifies (Null Rod is an
+# Artifact and its printed text carries no self-exemption).
+_ACTIVATION_PROHIBITION_RE = re.compile(
+    r"activated abilities of (?P<word>[a-z]+) can'?t be activated", re.IGNORECASE
+)
+
+# "<Type> spells cost {N} more/less to cast."  (RULE 601.2f tax/discount,
+# Thalia/Thorn of Amethyst/Vryn Wingmare-shaped) — unlike "Spells you cast
+# cost {N} less" (self-scoped, already covered by the hand-authored
+# `cost_reduction` shape), the bare "<type> spells cost …" phrasing with no
+# "you cast"/"your opponents cast" qualifier taxes *everyone*, the caster's
+# own controller included.
+_SPELL_TYPE_WORDS: frozenset[str] = frozenset(
+    {"noncreature", "creature", "artifact", "instant", "sorcery", "enchantment", "planeswalker"}
+)
+_SPELL_COST_TAX_RE = re.compile(
+    r"(?P<word>[a-z]+) spells cost \{(?P<n>\d+)\} (?P<dir>more|less) to cast", re.IGNORECASE
+)
+
+# "Each player can't cast more than N spell(s) each turn."  (RULE 601-area
+# prohibition, Eidolon of Rhetoric/Rule of Law/Archon of Emeria) — a flat,
+# unscoped per-player-per-turn cast cap; ``normalize`` already folds a
+# spelled-out "one" to "1" before this ever runs.
+_CAST_LIMIT_RE = re.compile(
+    r"each player can'?t cast more than (?P<n>\d+) spells? each turn", re.IGNORECASE
+)
+
+# "This <type> doesn't untap during your untap step."  (RULE 502.3-adjacent
+# self-restriction, Basalt Monolith/Grim Monolith/Mana Vault) — always
+# self-scoped (no card in the pool needs this said about a *different*
+# permanent), so the spec carries no selector at all.
+_NO_UNTAP_RE = re.compile(
+    r"this (?:artifact|creature|permanent|land|enchantment) doesn'?t untap during your untap step",
+    re.IGNORECASE,
+)
+
+# "Creatures entering don't cause abilities to trigger."  (RULE 603
+# prohibition, Tocatli Honor Guard/Hushwing Gryff/Torpor Orb) — global: it
+# silences *every* triggered ability (including the entering creature's own)
+# that would otherwise fire off a matching battlefield-entry event, for as
+# long as this static is in play, regardless of whose creature it is.
+_TRIGGER_PROHIBITION_RE = re.compile(
+    r"(?P<word>[a-z]+) entering don'?t cause abilities to trigger", re.IGNORECASE
+)
+
+# "[Nonbasic] <type>[s] [and <type>[s]] your opponents control enter
+# tapped."  (RULE 614.1, board-wide — Manglehorn/Dauntless Dismantler's
+# "artifacts", Archon of Emeria's "nonbasic lands", Blind Obedience's
+# "artifacts and creatures") — distinct from `ability_catalogue.
+# enters_tapped` (a card's own printed tapped-entry clause about *itself*):
+# this is a standing effect from a *different* permanent, scoped to "your
+# opponents" and optionally narrowed to nonbasic. ``words`` may name two
+# card types joined by "and" (Blind Obedience), emitting one spec per type.
+_OPPONENTS_ENTER_TAPPED_RE = re.compile(
+    r"(?:(?P<nonbasic>nonbasic) )?(?P<words>[a-z]+(?: and [a-z]+)?) your opponents control enter tapped",
+    re.IGNORECASE,
+)
+
+# "[Nonbasic] <type>[s] [and <type>[s]] enter tapped."  (RULE 614.1,
+# board-wide, Root Maze-shaped) — the *unscoped* sibling of
+# `_OPPONENTS_ENTER_TAPPED_RE`: no "your opponents control" qualifier at
+# all, so it applies to every player's matching permanents, including the
+# static's own controller's.
+_ALL_ENTER_TAPPED_RE = re.compile(
+    r"(?:(?P<nonbasic>nonbasic) )?(?P<words>[a-z]+(?: and [a-z]+)?) enter tapped",
+    re.IGNORECASE,
+)
+
+#: WUBRG basic-land-type word → the mana colour it taps for (RULE 305.6) —
+#: a small local copy of `game/mana_abilities.BASIC_LAND_MANA`'s data (the
+#: front-end can't import `game/`, and it's five literal pairs, not worth a
+#: shared-data indirection).
+_BASIC_LAND_COLOR: dict[str, str] = {
+    "plains": "W", "island": "U", "swamp": "B", "mountain": "R", "forest": "G",
+}
+#: Singular/plural basic-land-type word → its canonical (capitalised) name.
+_BASIC_LAND_WORDS: dict[str, str] = {}
+for _name in _BASIC_LAND_COLOR:
+    _BASIC_LAND_WORDS[_name] = _name.capitalize()
+    _BASIC_LAND_WORDS[_name + "s"] = _name.capitalize()
+del _name
+
+# "Nonbasic lands are <BasicType>."  (RULE 613.5 full layer-4 type overwrite,
+# board-wide — Magus of the Moon/Blood Moon) — unlike `type_change`'s ordinary
+# "are also creatures" shape (which only *adds* a type), this *replaces* the
+# land's subtypes outright (RULE 613.5's "loses all other types") and grants
+# the corresponding basic land's mana ability (RULE 305.6), so the clause
+# emits two specs together: a `type_change` carrying `set_subtypes`, and a
+# `grant_mana_ability` for the matching colour.
+_TYPE_OVERWRITE_RE = re.compile(r"nonbasic lands are (?P<word>[a-z]+)", re.IGNORECASE)
+
+# "~ can be your commander."  (RULE 903.3 deck-legality permission,
+# Jeska/Tevesh Szat-shaped) — a plain-text line with **no in-game behavioral
+# effect** (nothing about the battlefield/stack/turn structure changes), so
+# unlike every family above this claims the line and emits *nothing* at all —
+# the same "claim it, contribute no spec" treatment RULE 614.1 tapped-entry/
+# entry-counter clauses get in `gate._process_line`. A generic self-reference
+# match (``~``, folded from the card's own name by `normalize`), not
+# hardcoded to any one card name.
+_COMMANDER_ELIGIBLE_RE = re.compile(r"~ can be your commander", re.IGNORECASE)
+
+
+def commander_eligibility_line(line: str) -> bool:
+    """Whether ``line`` is a RULE 903.3 "~ can be your commander." sentence —
+    see `_COMMANDER_ELIGIBLE_RE`. Claimed at the `gate._process_line` level
+    (before this module's `static_effect_specs` even runs), not through an
+    `EffectSpec`, since it carries no behaviour to bind."""
+    return bool(_COMMANDER_ELIGIBLE_RE.fullmatch(line.strip().rstrip(".").strip()))
+
+
 #: The subject phrases an Aura/Equipment/Fortification's own buff clause is
 #: printed with — a closed list (not a general noun-phrase parse like
 #: `_scope`, since only these five shapes actually appear on cards) rather
@@ -217,6 +340,87 @@ def static_effect_specs(clause: str) -> Optional[list[EffectSpec]]:
     # `CANT_BE_COUNTERED_RE`'s docstring for why both need it.
     if CANT_BE_COUNTERED_RE.fullmatch(text):
         return [EffectSpec("cant_be_countered", {})]
+
+    m = _ACTIVATION_PROHIBITION_RE.fullmatch(text)
+    if m is not None:
+        card_type = _singularize(m.group("word"))
+        if card_type not in _CARD_TYPE_WORDS:
+            return None  # fail-closed — an unrecognised type-scope
+        return [EffectSpec("activation_prohibition", {"card_type": card_type})]
+
+    m = _SPELL_COST_TAX_RE.fullmatch(text)
+    if m is not None:
+        word = m.group("word").lower()
+        if word not in _SPELL_TYPE_WORDS:
+            return None
+        return [
+            EffectSpec(
+                "cost_reduction",
+                {
+                    "affects": "all_spells",
+                    "generic": int(m.group("n")),
+                    "increase": m.group("dir") == "more",
+                    "spell_type": word,
+                },
+            )
+        ]
+
+    m = _CAST_LIMIT_RE.fullmatch(text)
+    if m is not None:
+        return [EffectSpec("cast_limit", {"max_per_turn": int(m.group("n"))})]
+
+    if _NO_UNTAP_RE.fullmatch(text):
+        return [EffectSpec("no_untap", {})]
+
+    m = _TRIGGER_PROHIBITION_RE.fullmatch(text)
+    if m is not None:
+        subject_type = _singularize(m.group("word"))
+        if subject_type not in _CARD_TYPE_WORDS:
+            return None
+        return [
+            EffectSpec(
+                "trigger_prohibition",
+                {"event": "ENTERS_BATTLEFIELD", "subject_type": subject_type},
+            )
+        ]
+
+    m = _OPPONENTS_ENTER_TAPPED_RE.fullmatch(text)
+    if m is not None:
+        card_types = [_singularize(w) for w in m.group("words").split(" and ")]
+        if any(t not in _CARD_TYPE_WORDS for t in card_types):
+            return None
+        specs = []
+        for card_type in card_types:
+            params: dict = {"affects": "opponents_permanents", "card_type": card_type}
+            if m.group("nonbasic"):
+                params["nonbasic"] = True
+            specs.append(EffectSpec("enters_tapped_static", params))
+        return specs
+
+    m = _ALL_ENTER_TAPPED_RE.fullmatch(text)
+    if m is not None:
+        card_types = [_singularize(w) for w in m.group("words").split(" and ")]
+        if any(t not in _CARD_TYPE_WORDS for t in card_types):
+            return None
+        specs = []
+        for card_type in card_types:
+            params = {"affects": "all_permanents", "card_type": card_type}
+            if m.group("nonbasic"):
+                params["nonbasic"] = True
+            specs.append(EffectSpec("enters_tapped_static", params))
+        return specs
+
+    m = _TYPE_OVERWRITE_RE.fullmatch(text)
+    if m is not None:
+        basic_type = _BASIC_LAND_WORDS.get(m.group("word").lower())
+        if basic_type is None:
+            return None  # fail-closed — an unrecognised "are <X>" overwrite
+        color = _BASIC_LAND_COLOR[basic_type.lower()]
+        shared = {"affects": "all_lands", "nonbasic": True}
+        return [
+            EffectSpec("type_change", {**shared, "set_subtypes": [basic_type]}),
+            EffectSpec("grant_mana_ability", {**shared, "mana": [{color: 1}]}),
+        ]
 
     # Attached-permanent shape first ("equipped creature gets +2/+2 [and has
     # <keywords>]") — a closed subject list, so this never competes with the

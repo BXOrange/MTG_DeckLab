@@ -41,6 +41,13 @@ _PAY_LIFE_RE = re.compile(r"pay\s+(\d+)\s+life", re.IGNORECASE)
 _DISCARD_RE = re.compile(
     r"discard\s+(your\s+hand|a\s+card|\d+\s+cards?|[a-z]+\s+cards?)", re.IGNORECASE
 )
+#: Channel (RULE 702.29)/Cycling (RULE 702.28)'s own cost component:
+#: "Discard this card: <effect>." / "{cost}, Discard this card: Draw a
+#: card." — discarding the *specific* card bearing the ability, not a
+#: player's choice of any card from hand (`_DISCARD_RE`'s generic shape).
+#: Checked first so "this card" never falls through to `_DISCARD_RE` and
+#: gets misread as "discard a card".
+_DISCARD_SELF_RE = re.compile(r"discard this card", re.IGNORECASE)
 _REMOVE_COUNTERS_RE = re.compile(
     r"remove\s+(\d+|[a-z]+)\s+([+\-]?\d+/[+\-]?\d+|[a-z]+)\s+counters?", re.IGNORECASE
 )
@@ -73,6 +80,15 @@ _EXILE_FROM_HAND_RE = re.compile(
 #: your graveyard". ``N`` may be a digit or a spelled-out number word.
 _EXILE_GRAVEYARD_RE = re.compile(
     r"exile\s+(\d+|[a-z]+)\s+other\s+cards?\s+from\s+your\s+graveyard", re.IGNORECASE
+)
+#: "Return a Forest you control to its owner's hand" (Quirion Ranger/Scryb
+#: Ranger) — a non-mana additional cost that returns a permanent of a given
+#: type the payer controls to hand, the same shape `_SACRIFICE_RE` uses for
+#: "sacrifice a/an <type>" but for bounce instead of sacrifice. The type word
+#: is kept as printed (singular on real cards — "Forest", not "Forests") and
+#: lowercased for `continuous.has_subtype`'s case-insensitive match.
+_RETURN_TO_HAND_RE = re.compile(
+    r"return an?\s+([a-z]+)\s+you control to (?:its|your) owner'?s?\s*hand", re.IGNORECASE
 )
 #: A planeswalker loyalty ability's cost — the ``[+2]`` / ``[-3]`` / ``[0]``
 #: bracket at the start of the ability (RULE 606.5c). A leading "+" or no sign
@@ -141,6 +157,11 @@ class ActivationCost:
     sacrifice: Optional[str] = None
     pay_life: int = 0
     discard: int = 0
+    #: Channel (RULE 702.29)/Cycling (RULE 702.28): the cost is discarding
+    #: *this specific card* from hand, not a player's choice of any card —
+    #: distinct from ``discard`` (a battlefield ability's "discard N cards"),
+    #: and paid from hand rather than off a battlefield permanent.
+    discard_self: bool = False
     remove_counters: Optional[tuple[str, int]] = None
     #: RULE 702.138b (Escape): how many *other* cards must be exiled from the
     #: payer's own graveyard — "Exile four other cards from your graveyard".
@@ -155,6 +176,11 @@ class ActivationCost:
     #: untap ability) — ``(kind, count)``; always payable (no minimum to
     #: check), unlike `remove_counters`.
     add_counters_cost: Optional[tuple[str, int]] = None
+    #: "Return a Forest you control to its owner's hand" (Quirion Ranger/
+    #: Scryb Ranger) — a non-mana additional cost; the lowercased subtype
+    #: word (`continuous.has_subtype`-compatible) of the permanent to
+    #: return, or ``None`` when this isn't such a cost.
+    return_to_hand: Optional[str] = None
     #: "Exile this card from your hand" (Elvish Spirit Guide) — an
     #: alternative-zone cost the engine doesn't charge yet (no hand-zone
     #: activation path); recognised so the ability is never treated as a
@@ -203,12 +229,14 @@ class ActivationCost:
             or self.sacrifice
             or self.pay_life
             or self.discard
+            or self.discard_self
             or self.remove_counters
             or self.loyalty is not None
             or self.exile_from_graveyard
             or self.tap_others
             or self.add_counters_cost
             or self.exile_self_from_hand
+            or self.return_to_hand
         )
 
     def label(self) -> str:
@@ -228,6 +256,8 @@ class ActivationCost:
         if self.discard:
             parts.append("Discard your hand" if self.discard == DISCARD_HAND
                          else f"Discard {self.discard} card(s)")
+        if self.discard_self:
+            parts.append("Discard this card")
         if self.remove_counters:
             kind, count = self.remove_counters
             parts.append(f"Remove {count} {kind} counter(s)")
@@ -241,6 +271,8 @@ class ActivationCost:
             parts.append(f"Put {count} {kind} counter(s) on this")
         if self.exile_self_from_hand:
             parts.append("Exile this card from your hand")
+        if self.return_to_hand:
+            parts.append(f"Return a {self.return_to_hand.capitalize()} you control to its owner's hand")
         if self.loyalty is not None:
             parts.append(f"[{'+' if self.loyalty >= 0 else ''}{self.loyalty}]")
         return ", ".join(parts)
@@ -253,11 +285,13 @@ class ActivationCost:
             "sacrifice": self.sacrifice,
             "pay_life": self.pay_life,
             "discard": self.discard,
+            "discard_self": self.discard_self,
             "remove_counters": list(self.remove_counters) if self.remove_counters else None,
             "exile_from_graveyard": self.exile_from_graveyard,
             "tap_others": list(self.tap_others) if self.tap_others else None,
             "add_counters_cost": list(self.add_counters_cost) if self.add_counters_cost else None,
             "exile_self_from_hand": self.exile_self_from_hand,
+            "return_to_hand": self.return_to_hand,
             "loyalty": self.loyalty,
             "x_selector": self.x_selector,
             "label": self.label(),
@@ -298,6 +332,8 @@ def parse_activation_cost(
         parsed.pay_life = PAY_LIFE_X if value == "x" else int(value)
     if "discard" in cost:
         parsed.discard = int(cost["discard"])
+    if "discard_self" in cost:
+        parsed.discard_self = bool(cost["discard_self"])
     if cost.get("loyalty") is not None:
         parsed.loyalty = int(cost["loyalty"])
     if "exile_from_graveyard" in cost:
@@ -315,6 +351,8 @@ def parse_activation_cost(
         parsed.x_selector = str(cost["x_selector"])
     if "exile_self_from_hand" in cost:
         parsed.exile_self_from_hand = bool(cost["exile_self_from_hand"])
+    if cost.get("return_to_hand"):
+        parsed.return_to_hand = str(cost["return_to_hand"])
     if "sorcery_speed_only" in cost:
         parsed.sorcery_speed_only = bool(cost["sorcery_speed_only"])
     if cost.get("class_level") is not None:
@@ -375,13 +413,16 @@ def _parse_text(text: str) -> ActivationCost:
     if life:
         cost.pay_life = int(life.group(1))
 
-    discard = _DISCARD_RE.search(cost_text)
-    if discard:
-        phrase = discard.group(1).lower()
-        if "hand" in phrase:
-            cost.discard = DISCARD_HAND
-        else:
-            cost.discard = _word_to_int(phrase.split()[0])
+    if _DISCARD_SELF_RE.search(cost_text):
+        cost.discard_self = True
+    else:
+        discard = _DISCARD_RE.search(cost_text)
+        if discard:
+            phrase = discard.group(1).lower()
+            if "hand" in phrase:
+                cost.discard = DISCARD_HAND
+            else:
+                cost.discard = _word_to_int(phrase.split()[0])
 
     counters = _REMOVE_COUNTERS_RE.search(cost_text)
     if counters:
@@ -403,5 +444,9 @@ def _parse_text(text: str) -> ActivationCost:
 
     if _EXILE_FROM_HAND_RE.search(cost_text):
         cost.exile_self_from_hand = True
+
+    return_to_hand = _RETURN_TO_HAND_RE.search(cost_text)
+    if return_to_hand:
+        cost.return_to_hand = return_to_hand.group(1).lower()
 
     return cost

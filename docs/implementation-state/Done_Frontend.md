@@ -80,6 +80,15 @@ now holds only open items). Section headers mirror that file.
       **legality badge** from `GET /api/decks/{id}/validation` (per deck,
       lazily, in parallel): 🛑 + reasons (tooltip) for illegal, ✅ for
       legal.
+- [x] "Als Cube behandeln" checkbox (2026-07-17, `deckImportView.js`, next
+      to the author field) flags a saved deck as a card pool (`isCube` —
+      `backend/mtg_analyzer/models/deck.py`'s `is_cube`) rather than a
+      real Commander deck, so the 100-card/singleton/legality checks don't
+      apply — e.g. a curated "cEDH staples" reference list. `savedDecksView.js`
+      shows a 🧊 badge and skips the legality-badge fetch for a cube row
+      (there's nothing meaningful to check), and gained a matching "Art"
+      (Deck/Cube) checkbox-fieldset filter alongside the existing
+      color/legality ones.
 
 ## Card display
 

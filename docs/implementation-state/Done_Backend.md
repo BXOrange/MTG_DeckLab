@@ -1872,6 +1872,90 @@ the Phase-1 models. Tests: `test_game_engine.py`.
       `test_effect_families.py`), plus the 4 memoization tests and 1
       Class-regex regression test above — 8 new tests total (Batch 12).
 
+- [x] **Batch 13 (2026-07-17/18): "cEDH staples" cube playability push —
+      five subagent waves (2 generic-parser, 3 hand-authored) raising the
+      611-card cube pool from 185 to 271 playable.** A large, multi-wave
+      effort driven by the two `is_cube` decks ("cEDH staples" /
+      "cEDH staples 2", `models/deck.py`), whose 611 distinct real cards
+      are all cached but were mostly `UNMODELED`. "Playable" here means
+      either fully `MODELED` by the oracle parser *or* hand-authored in
+      `game/ability_catalogue.py` — either path gives real board behavior.
+
+      **Phase A (2 waves, generic parser/engine extensions)** targeted the
+      reusable clause templates that block 2+ cards each. Wave A1
+      (`catalogue/handlers.py` + effect/cost families): colour-restricted
+      destroy/counter, the Magecraft trigger family, "win instead of
+      drawing from an empty library," an end-step self-sacrifice trigger,
+      self-exile/sacrifice, `AbilitySpec.free_cast_condition`,
+      `ActivatedAbility.once_per_turn`, non-mana activation costs. Wave A2
+      (`catalogue/static_handlers.py` + layer wiring): the "activated
+      abilities of artifacts can't be activated" / cast-limit / draw-tax /
+      "doesn't untap" / opponents'-permanents-enter-tapped / Blood-Moon
+      land-type-overwrite prohibition-and-static families, plus a
+      "\<name\> can be your commander" flag. Along the way Wave A2 also
+      built several primitives that had been documented as absolute engine
+      limits — **phasing** (RULE 702.26, `GameObject.phased_out`, scoped to
+      Robe of Stars' single-permanent case), **`{X}` cost threading**
+      (`StackItem.x` → `RulesEngine._substitute_x`), **Channel/Cycling**
+      (`ActivationCost.discard_self`), **conditional Flash / instant-speed
+      loyalty** (`AbilitySpec.conditional_flash`, `game/condition_query.py`),
+      **impulsive look** and **impulsive draw**
+      (`ImpulsiveLookEffect`/`ImpulsiveDrawEffect`,
+      `GameState.temp_play_permissions`), and **board-count cost reduction
+      for a card in hand** (`continuous.self_cost_reduction_for`) — each
+      narrated in the "Rules Engine (Phase 2)" section and covered by its
+      own test file (`test_phasing.py`, `test_x_cost.py`,
+      `test_channel_cycling.py`, `test_conditional_flash.py`,
+      `test_impulsive_look.py`, `test_impulsive_draw.py`,
+      `test_cube_batch_a1.py`, `test_cube_batch_a2.py`).
+
+      **Phase B (3 waves, hand-authored singles + cheap generic pickups)**
+      worked the one-of-a-kind backlog. B1 (18/30 cards): 6 via reusable
+      parser/engine fixes (Walking Ballista's self-reference regex, a
+      mass-untap `TapEffect` selector, the two-card-type enters-tapped
+      family, `TargetSpec.max_mana_value`, a `forest` target kind) + 12
+      hand-authored (Mana Drain, Corpse Dance, Feed the Swarm, Resculpt,
+      Mirage Mirror, Phyrexian Metamorph, Steal Enchantment, Grinding
+      Station, Goblin Engineer, Winds of Abandon, Eiganjo's Channel ability,
+      Winter Orb's global untap-cap static). B2 (12/30): Temur Sabertooth,
+      Helm of Awakening, Brainstorm, a generic `wheel` effect (Timetwister),
+      Damn, an activation-cost-reduction primitive (Power Artifact), a
+      `"not_you"` group-trigger scope + mass-untap (Seedborn Muse), Nether
+      Void, Spellseeker, Windfall, a `blink` primitive (Ephemerate), City of
+      Traitors — and fixed **two latent engine bugs** the Nether Void test
+      surfaced (stack-item resolution racing a just-opened trigger-target
+      `pending_choice`; `_resolve_choice_option` never searching the stack
+      for a `kind="spell"` trigger target). B3 (18/29): Elesh Norn's
+      two-sided anthem, Paradigm Shift, Spirit of the Labyrinth's `draw_limit`
+      static, Beast Within, Toxic Deluge, Goblin Recruiter, Zealous
+      Conscripts / Coercive Recruiter's `GainControlUntilEndOfTurnEffect`,
+      Endurance, Archivist of Oghma, Leonin Relic-Warder's linked
+      exile/return, Borne Upon a Wind, Ponder, Snap, Mirrormade, Geistwave,
+      Dockside Extortionist, Nature's Claim. The B3 subagent hit a session
+      limit after writing all 18 catalogue entries but before its test
+      file; that file (`test_cube_batch_b3.py`, 37 tests) was written
+      afterward and surfaced **two more real bugs in the just-shipped B3
+      code**: three new effects (`ReturnLinkedExileEffect`,
+      `ExileLibraryEffect`, `GraveyardToLibraryBottomRandomEffect`)
+      referenced `Zone` without a runtime import (`game/effects.py` only had
+      it under `TYPE_CHECKING`), and `game/targeting.py`'s `legal_targets`
+      had no `nonland_permanent` branch at all (Geistwave — and any
+      `nonland_permanent`-targeting spell — could never find a legal target,
+      falling through to `return []`). Both fixed.
+
+      **Cube yield: 185 → 271 / 611 playable (30% → 44%)** — 223
+      parser-`MODELED` + 48 hand-catalogued. **Cache-wide MODELED moved
+      21.4% → 24.3%** (708 / 2,909) as the generic-parser fixes land in the
+      shared front-end. Cards left `UNMODELED` for a genuine, documented
+      engine gap (impulsive-draw-from-another-player's-library for Ragavan,
+      control-*exchange* for Gilded Drake, coin-flip/random-number for
+      Tibalt's Trickery/Wheel of Misfortune, Soulbond/Mutate/Evoke/Bargain
+      alt-cost mechanics, board-wide ability-strip for Humility, extra-turn
+      for Final Fortune, and more) are each logged one line per card under
+      `docs/implementation-state/ToDo_EdgeCases.md`'s "cEDH staples cube"
+      section rather than half-modeled. Full suite: 1457 → 1641 passed,
+      zero regressions across all five waves.
+
 - [x] **(2026-07-16) "Play/cast from the top of your library" permission**
       (Oracle of Mul Daya/Glarb, Calamity's Augur-shaped — the frontend's
       library-zone visualization, `frontend/ToDo_Frontend.md`/
@@ -2494,10 +2578,121 @@ the Phase-1 models. Tests: `test_game_engine.py`.
     real `GameEngine`/`RulesEngine`, one per mechanic family above, using
     real cached cards). Deliberately not exhaustive per-card — see
     `ToDo_EdgeCases.md` "Equipment / Auras / 'combat damage to a player'
-    triggers" for the real feature gaps this batch hit and left open
-    (phasing, X-spell effect scaling, Channel/Cycling, impulsive draw,
-    two-independent-target abilities, a per-firing dynamic "that
-    creature"/"the token just created" reference) rather than guessed at.
+    triggers" for narrower per-card edge cases left open, and the entry
+    just below for the 8 real architecture gaps that batch surfaced,
+    since closed.
+
+- **The 8 real feature gaps the Wyleth Equip batch surfaced** (2026-07-17,
+  `backend/ToDo_Backend.md`'s former "Feature gaps surfaced by hand-
+  authoring the 'Wyleth Equip'..." entry) are now closed:
+  - **{X} cost threading**: `StackItem.x` (set at cast/activate time) is
+    now substituted into a resolving effect's `"x"`-sentinel `amount`/
+    `count` by `RulesEngine._substitute_x`, called from
+    `resolve_top_of_stack` right before dispatch (both the flat spell-
+    effect case and the wrapped `TriggeredAbility`/`ActivatedAbility` case).
+    `EffectSpec`'s `"amount"`/`"count"` params may now be the literal
+    string `"x"` — the same idiom `additional_cost`'s `pay_life: "x"`
+    already used — validated no differently since `_clamp_params` only
+    touches `int` values. Tests: `test_x_cost.py` (Banefire/Stroke of
+    Genius-shaped fixtures, direct-stack-resolution unit cases, and the
+    full cast pipeline).
+  - **Board-count cost reduction**: `continuous.cost_reduction_for`
+    (battlefield statics) gained an optional `per: <count_selector>` param
+    scaling its `generic` reduction by a board count (Delve/Affinity-
+    shaped), reusing the existing `count_selector` vocabulary rather than
+    inventing a second one. A *second*, new function,
+    `continuous.self_cost_reduction_for(obj, state)`, reads a `layer=
+    "cost", affects="self"` static straight off `obj.static_effects` for a
+    reduction printed **on the spell card itself** (Delve/Affinity's real
+    shape) — since that's never on the battlefield, the existing
+    battlefield-only scan can't see it; both `GameEngine._adjust_cost` and
+    the `legal_actions` cost preview now sum both sources. Tests added to
+    `test_continuous.py` (Treasure Cruise/Dig Through Time-shaped Delve,
+    Frogmite/Myr Enforcer-shaped Affinity — no in-deck card needs this yet,
+    so it's validated off-deck).
+  - **Impulsive-look** ("look at the top N cards, take one matching a
+    filter, put the rest into Y" — Grisly Salvage/Commune with the Gods-
+    shaped): a new `ImpulsiveLookEffect` + `RulesEngine.
+    request_impulsive_look`/`resolve_impulsive_look_choice` (a new
+    `pending_choice` kind, `"impulsive_look"`, wired into `GameEngine.
+    resolve_pending_choice`), modeled on `CascadeEffect`'s peel/route shape
+    but generalized like `SearchLibraryEffect`'s criteria/destination
+    params — distinct from both (peels exactly N, not "until a match" or
+    "the whole library"). Tests: `test_impulsive_look.py`.
+  - **Channel (RULE 702.29) / Cycling (RULE 702.28)**: a hand-zone,
+    non-mana "Discard this card: `<effect>`" activated ability — distinct
+    from `mana_abilities.py`'s hand-exile mana-ability shortcut since
+    Channel/Cycling *do* use the stack. `costs.py` gained a
+    `_DISCARD_SELF_RE` (checked before the generic `_DISCARD_RE` so "this
+    card" is never misread as "a card") and `ActivationCost.discard_self`;
+    `RulesEngine.discard_specific(obj)` discards a specific hand object
+    (unlike `discard`'s auto-choice); `GameEngine.can_activate`/
+    `_can_pay_activation_cost`/`_pay_activation_cost` all gained a
+    hand-zone branch, and `legal_actions` gained a matching discovery loop
+    over `player.hand`. Dismantling Wave's own Cycling clause ("destroy all
+    artifacts and enchantments") and Renewed Faith's ("draw a card") are
+    both real now (`ability_catalogue.py`). Tests: `test_channel_cycling.py`.
+  - **Conditional Flash / conditional instant-speed loyalty activation**
+    (RULE 702.8b/606.3, The Wandering Emperor-shaped): a new
+    `AbilitySpec.conditional_flash` field (a separate whitelist,
+    `ALLOWED_CAST_CONDITION_KEYS` in `parser/oracle/spec.py`, from
+    `EffectSpec.condition`'s — this one gates cast/activation *legality*,
+    not whether a resolving effect applies), bound onto `obj.
+    conditional_flash` by `effect_binder.attach_to_object` the same way
+    `additional_cost` rides on any spec regardless of which one carries
+    the "real" effects. A new `game/condition_query.py` module evaluates
+    it live (today just `"entered_this_turn"`, checked against a new
+    `GameObject.turn_entered` stamp set by `GameState.
+    add_to_battlefield`); `GameEngine.can_cast` and `_can_activate_loyalty`
+    both consult it. The Wandering Emperor's "activate loyalty abilities
+    any time you could cast an instant" clause is real now. Tests:
+    `test_conditional_flash.py`.
+  - **Impulsive draw** ("exile, you may play until the end of your next
+    turn" — Light Up the Stage-shaped): a new `GameState.
+    temp_play_permissions` dict (`instance_id -> turn granted`, since the
+    card sits in exile rather than on a battlefield permanent — the
+    standing, continuously-re-derived pattern `top_library.py` uses
+    doesn't apply), populated by a new `RulesEngine.
+    exile_with_play_permission`/`ImpulsiveDrawEffect`; `GameEngine.can_cast`/
+    `can_play_land` both gained a branch reading it, and `_step_cleanup`
+    sweeps expired entries (kept as long as `turn_granted >= turn_number`,
+    so presence alone means "still valid" — no separate window check
+    needed at the read sites). Tests: `test_impulsive_draw.py`.
+  - **A per-firing dynamic trigger reference** ("that creature"/"the token
+    this ability just created"): deliberately **not** new IR — no card in
+    this catalogue needs one yet, and inventing a `"triggering_object"`
+    target-spec kind without a driving card would be exactly the
+    speculative-abstraction anti-pattern this project avoids. Instead,
+    `TriggeredAbility`'s docstring now documents the sanctioned answer:
+    build a fresh `TriggeredAbility` (or, when even the controller/shape
+    varies per firing, a raw `StackItem`) at the call site with the
+    per-firing data baked directly into its effects, exactly as
+    `RulesEngine.check_rampage`/`check_ward` already do — a named pattern
+    to follow rather than re-derive, not a code change.
+  - **Phasing (RULE 702.26)**, scoped to what Robe of Stars actually needs
+    (a single permanent, no "phase out together" attachment-chain family):
+    a new `GameObject.phased_out` flag; `GameState.permanents`/
+    `permanents_controlled_by` (already the sanctioned battlefield-reading
+    choke point for ~28 existing call sites) now filter it out, so the SBA
+    pass, combat attacker/blocker eligibility, activated-ability
+    discovery, and `continuous.py`'s `group_selector_objects`/
+    `_battlefield_static_abilities` (both switched from raw
+    `state.battlefield` to `state.permanents()`) all treat a phased-out
+    permanent as though it doesn't exist for free. `targeting.py`'s
+    `legal_targets` (15 sites) and a handful of `game_engine.py`/
+    `rules_engine.py` raw-`.battlefield` reads that needed it explicitly
+    (`_can_attack`, `can_block`, `_lands_controlled_by`,
+    `_attachment_legal`, `_sacrifice_candidate`) were migrated too. A new
+    `GameEffect`, `PhaseOutEffect` (untargeted, defaulting to its own
+    source's `attached_to` host — the same "no RULE 115 target, defaults
+    to a computed subject" shape `TransformEffect` already uses — detaches
+    any Equipment/Aura on phase-out rather than modeling the full
+    "phases out together" family). `GameEngine._step_untap` gained the
+    RULE 702.26a phase-in sweep (reading raw `state.battlefield`, the one
+    caller that must still see a phased-out object) — no card yet phases
+    an already-phased-in permanent out automatically, so that half of
+    702.26a is deliberately not modeled. Robe of Stars' Astral Projection
+    is real now (`ability_catalogue.py`). Tests: `test_phasing.py`.
 
 ## Game Engine (Phase 3)
 
@@ -2858,6 +3053,22 @@ the Phase-1 models. Tests: `test_game_engine.py`.
       computed yet". Feeds the frontend's client-side deck-analysis
       heuristics (`Done_Frontend.md` "Deck analysis (UC2)") rather than a
       new endpoint. Tests: `test_api_saved_decks.py`, `test_deck_model.py`.
+- [x] `Deck.is_cube` flag (2026-07-17) — marks a saved decklist as a card
+      pool (e.g. a curated "cEDH staples" reference list with hundreds of
+      cards, no fixed size) rather than a real, legal Commander deck.
+      `parser/deckliste_parser.py`'s `_validate_commander_deck`/
+      `parse_deck_sections` and `services/deck_validation.py`'s
+      `apply_legality`/`validate_deck_sections` all gained an `is_cube`
+      param that skips their checks entirely (structural: 100-card total,
+      singleton, commander count; semantic: ban list, color identity,
+      Partner) rather than reporting a cube's inherent "violations" as
+      errors — mirrored client-side in `parser.js`. Same
+      preserved-on-omission save semantics as `author`/`sleeve_id`
+      (`api/saved_decks.py`'s `save_deck`, `api/schemas.py`'s
+      `SaveDeckRequest.is_cube: Optional[bool]`). Tests:
+      `test_deckliste_parser.py::TestCubeSkipsStructuralValidation`,
+      `test_api_decks.py::test_is_cube_skips_structural_and_legality_checks`,
+      `test_api_saved_decks.py` (save/preserve/validation-skip cases).
 
 ## Import — follow-up from the frontend
 

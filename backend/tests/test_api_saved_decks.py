@@ -128,6 +128,35 @@ class TestSaveDeck:
 
         assert updated["author"] == ""
 
+    def test_save_with_is_cube_persists_it(self):
+        _override_database()
+        client = TestClient(app)
+
+        created = client.post("/api/decks/save", json={"name": "Staples", "isCube": True}).json()
+
+        assert created["isCube"] is True
+
+    def test_new_deck_defaults_is_cube_to_false(self):
+        _override_database()
+        client = TestClient(app)
+
+        created = client.post("/api/decks/save", json={"name": "Goblins"}).json()
+
+        assert created["isCube"] is False
+
+    def test_update_preserves_is_cube_when_omitted(self):
+        _override_database()
+        client = TestClient(app)
+
+        created = client.post("/api/decks/save", json={"name": "Staples", "isCube": True}).json()
+
+        updated = client.post(
+            "/api/decks/save",
+            json={"id": created["id"], "name": "Staples v2", "mainboardText": "1 Sol Ring\n"},
+        ).json()
+
+        assert updated["isCube"] is True
+
 
 class TestListDecks:
     def teardown_method(self):
@@ -304,6 +333,23 @@ class TestDeckValidation:
         body = response.json()
         assert body["isLegal"] is False
         assert body["errors"]
+
+    def test_cube_deck_skips_validation_and_reports_legal(self):
+        _override_database()
+        _override_loader({"Forest": Card(id="Forest", name="Forest", type_line="Basic Land — Forest", is_land=True)})
+        client = TestClient(app)
+        # Same structurally-illegal shape as test_illegal_deck_reports_not_legal
+        # (40 cards, no commander) — but isCube should make that a non-issue.
+        created = client.post(
+            "/api/decks/save", json={"name": "Staples", "mainboardText": "40 Forest\n", "isCube": True}
+        ).json()
+
+        response = client.get(f"/api/decks/{created['id']}/validation")
+
+        assert response.status_code == 200
+        body = response.json()
+        assert body["isLegal"] is True
+        assert body["errors"] == []
 
     def test_legal_deck_reports_legal(self):
         _override_database()

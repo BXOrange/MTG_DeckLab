@@ -92,6 +92,14 @@ ALLOWED_TARGET_KINDS: frozenset[str] = frozenset(
         # "Target nonbasic land" (Encroaching Wastes) — any player's, unlike
         # the controller-restricted kinds above.
         "nonbasic_land",
+        # "Target legendary permanent" (Minamo, School at Water's Edge,
+        # RULE 205.4a) — any player's, supertype-filtered.
+        "legendary_permanent",
+        # "Target Forest" (Arbor Elf) — any player's, subtype-filtered to
+        # one specific basic land type. Only Forest exists so far (the one
+        # real card in this codebase needing it); add its WUBRG siblings
+        # here the same way once a card needs "target Island"/etc.
+        "forest",
     }
 ) | _GRAVEYARD_TARGET_KINDS
 
@@ -164,6 +172,21 @@ class TargetSpec:
     #: "target instant or sorcery spell" / "target spell with mana value N"
     #: beyond the bare "target spell". ``None``/``{}`` means unfiltered.
     spell_filter: Optional[dict[str, Any]] = None
+    #: A WUBRG colour letter (``"W"``/``"U"``/``"B"``/``"R"``/``"G"``)
+    #: narrowing a ``"creature"``/``"permanent"``/``"any"`` target to that
+    #: colour (RULE 105) — the old-templating "target blue permanent"/
+    #: "target permanent if it's blue" color-hoser shape (Red Elemental
+    #: Blast/Pyroblast), a battlefield-object sibling of ``spell_filter``'s
+    #: own ``"color"`` key (the ``"spell"`` kind's equivalent — kept as a
+    #: separate field since spells and permanents resolve through different
+    #: `legal_targets` branches). ``None`` means unfiltered.
+    color: Optional[str] = None
+    #: A mana-value cap on a ``"creature"``/``"permanent"`` target (RULE
+    #: 115/601.2c, Abrupt Decay-shaped "target nonland permanent with mana
+    #: value 3 or less") — checked at *offer* time (an over-cost permanent
+    #: is never a legal target to begin with, not merely a no-op if chosen),
+    #: mirroring ``color``'s narrowing. ``None`` means unfiltered.
+    max_mana_value: Optional[int] = None
 
     def label(self) -> str:
         return self.description or _graveyard_label(self.kind) or {
@@ -177,6 +200,7 @@ class TargetSpec:
             "attached_equipment_you_control": "befestigte Ausrüstung unter deiner Kontrolle",
             "equipment_you_control": "Ausrüstung unter deiner Kontrolle",
             "nonbasic_land": "nichtgrundlegendes Land",
+            "legendary_permanent": "legendäre bleibende Karte",
         }.get(self.kind, self.kind)
 
 
@@ -232,6 +256,9 @@ def _spell_matches_filter(obj: GameObject, spell_filter: dict[str, Any]) -> bool
     """
     if spell_filter.get("noncreature") and obj.is_creature:
         return False
+    color = spell_filter.get("color")
+    if color and color not in obj.colors:
+        return False
     card_types = spell_filter.get("card_types")
     if card_types:
         type_checks = {
@@ -282,7 +309,7 @@ def legal_targets(
         if attachment_kind == "equip":
             return [
                 {"instance_id": o.instance_id, "name": o.name}
-                for o in state.battlefield
+                for o in state.permanents()
                 if (o.is_creature or o.card.is_artifact)
                 and o is not source
                 and _targetable_by(o, source)
@@ -290,13 +317,13 @@ def legal_targets(
         if attachment_kind == "reconfigure":
             return [
                 {"instance_id": o.instance_id, "name": o.name}
-                for o in state.battlefield
+                for o in state.permanents()
                 if o.is_creature and o is not source and _targetable_by(o, source)
             ]
         if attachment_kind == "fortify":
             return [
                 {"instance_id": o.instance_id, "name": o.name}
-                for o in state.battlefield
+                for o in state.permanents()
                 if o.is_land and o is not source and _targetable_by(o, source)
             ]
         if attachment_kind == "enchant":
@@ -305,37 +332,37 @@ def legal_targets(
             if not quality or quality in {"permanent", "anything"}:
                 return [
                     {"instance_id": o.instance_id, "name": o.name}
-                    for o in state.battlefield
+                    for o in state.permanents()
                     if o is not source and _targetable_by(o, source)
                 ]
             if quality == "creature":
                 return [
                     {"instance_id": o.instance_id, "name": o.name}
-                    for o in state.battlefield
+                    for o in state.permanents()
                     if o.is_creature and o is not source and _targetable_by(o, source)
                 ]
             if quality == "artifact":
                 return [
                     {"instance_id": o.instance_id, "name": o.name}
-                    for o in state.battlefield
+                    for o in state.permanents()
                     if o.card.is_artifact and o is not source and _targetable_by(o, source)
                 ]
             if quality == "enchantment":
                 return [
                     {"instance_id": o.instance_id, "name": o.name}
-                    for o in state.battlefield
+                    for o in state.permanents()
                     if o.card.is_enchantment and o is not source and _targetable_by(o, source)
                 ]
             if quality == "land":
                 return [
                     {"instance_id": o.instance_id, "name": o.name}
-                    for o in state.battlefield
+                    for o in state.permanents()
                     if o.is_land and o is not source and _targetable_by(o, source)
                 ]
             if quality == "planeswalker":
                 return [
                     {"instance_id": o.instance_id, "name": o.name}
-                    for o in state.battlefield
+                    for o in state.permanents()
                     if o.is_planeswalker and o is not source and _targetable_by(o, source)
                 ]
     if kind == "player":
@@ -346,18 +373,34 @@ def legal_targets(
     if kind == "any":
         objs = [
             {"instance_id": o.instance_id, "name": o.name}
-            for o in state.battlefield
+            for o in state.permanents()
             if o.is_creature and o is not source and _targetable_by(o, source)
+            and (not spec.color or spec.color in o.colors)
         ]
         players = [{"player_id": p.id, "name": p.name} for p in state.living_players()]
-        return objs + players
+        return objs + (players if not spec.color else [])
     if kind in ("creature", "permanent"):
         return [
             {"instance_id": o.instance_id, "name": o.name}
-            for o in state.battlefield
+            for o in state.permanents()
             if (kind == "permanent" or o.is_creature)
             and o is not source
             and _targetable_by(o, source)
+            and (not spec.color or spec.color in o.colors)
+            and (spec.max_mana_value is None or o.card.converted_mana_cost <= spec.max_mana_value)
+        ]
+    if kind == "nonland_permanent":
+        # RULE 115: every permanent that isn't a land (Geistwave/Beast
+        # Within-adjacent). Mirrors the "permanent" branch above, minus lands.
+        return [
+            {"instance_id": o.instance_id, "name": o.name}
+            for o in state.permanents()
+            if (o.is_creature or o.is_planeswalker
+                or o.card.is_artifact or o.card.is_enchantment)
+            and o is not source
+            and _targetable_by(o, source)
+            and (not spec.color or spec.color in o.colors)
+            and (spec.max_mana_value is None or o.card.converted_mana_cost <= spec.max_mana_value)
         ]
     if kind in ("creature_you_control", "land_you_control"):
         # RULE 115/603.3c controller-restricted pick — and the same shape for
@@ -366,7 +409,7 @@ def legal_targets(
         wants_land = kind == "land_you_control"
         return [
             {"instance_id": o.instance_id, "name": o.name}
-            for o in state.battlefield
+            for o in state.permanents()
             if (o.is_land if wants_land else o.is_creature)
             and o.controller_id == controller_id
             and o is not source
@@ -375,14 +418,28 @@ def legal_targets(
     if kind == "nonbasic_land":
         return [
             {"instance_id": o.instance_id, "name": o.name}
-            for o in state.battlefield
+            for o in state.permanents()
             if o.is_land and "basic" not in o.card.type_line.lower()
             and o is not source and _targetable_by(o, source)
+        ]
+    if kind == "forest":
+        return [
+            {"instance_id": o.instance_id, "name": o.name}
+            for o in state.permanents()
+            if o.is_land and "forest" in o.card.type_line.lower()
+            and o is not source and _targetable_by(o, source)
+        ]
+    if kind == "legendary_permanent":
+        return [
+            {"instance_id": o.instance_id, "name": o.name}
+            for o in state.permanents()
+            if o.card.is_legendary and o is not source and _targetable_by(o, source)
+            and (not spec.color or spec.color in o.colors)
         ]
     if kind == "attached_equipment_you_control":
         return [
             {"instance_id": o.instance_id, "name": o.name}
-            for o in state.battlefield
+            for o in state.permanents()
             if "equipment" in o.card.type_line.lower()
             and o.controller_id == controller_id
             and o.attached_to is not None
@@ -391,7 +448,7 @@ def legal_targets(
     if kind == "equipment_you_control":
         return [
             {"instance_id": o.instance_id, "name": o.name}
-            for o in state.battlefield
+            for o in state.permanents()
             if "equipment" in o.card.type_line.lower()
             and o.controller_id == controller_id
             and _targetable_by(o, source)

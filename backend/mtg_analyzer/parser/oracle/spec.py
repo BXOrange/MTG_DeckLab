@@ -43,10 +43,27 @@ _EFFECT_BEARING_KINDS: frozenset[str] = frozenset(
 MAX_EFFECT_MAGNITUDE: int = 10_000
 
 #: Numeric effect params subject to clamping (includes a keyword's "n").
-_CLAMPED_PARAM_KEYS: tuple[str, ...] = ("amount", "count", "x", "n")
+_CLAMPED_PARAM_KEYS: tuple[str, ...] = ("amount", "count", "x", "n", "generic")
 
 #: `EffectSpec.condition`'s whitelisted keys — see that field's docstring.
 _ALLOWED_CONDITION_KEYS: frozenset[str] = frozenset({"kicked"})
+
+#: `AbilitySpec.conditional_flash`'s whitelisted keys — see that field's
+#: docstring. A deliberately separate whitelist from `_ALLOWED_CONDITION_KEYS`
+#: above: that one gates whether an already-resolving *effect* applies;
+#: this one gates a *cast/activation legality* check instead (RULE 601.3a's
+#: sorcery-speed timing / RULE 606.3's loyalty timing), so the two security
+#: boundaries stay distinct per docs/09.
+ALLOWED_CAST_CONDITION_KEYS: frozenset[str] = frozenset({"entered_this_turn"})
+
+#: RULE 601.2f/117.3a-adjacent: "If you control a commander, you may cast
+#: this spell without paying its mana cost." (Deadly Rollick/Deflecting
+#: Swat/Fierce Guardianship-shaped) — a condition-gated *alternative* cost
+#: (free, not just reduced), whitelisted the same way `conditional_flash`
+#: gates a cast-*timing* permission; this one instead gates a cast-*cost*
+#: permission, so it's its own field/whitelist (`AbilitySpec.
+#: free_cast_condition`) rather than reusing that one.
+ALLOWED_FREE_CAST_CONDITION_KEYS: frozenset[str] = frozenset({"control_commander"})
 
 #: RULE 601.2b/604.3 "as an additional cost to cast this spell, <cost>." —
 #: the closed vocabulary an `AbilitySpec.additional_cost` may name. Kept this
@@ -102,6 +119,14 @@ class EffectSpec:
     (`_ALLOWED_CONDITION_KEYS`), not an arbitrary predicate — it can only
     gate whether an already-whitelisted effect applies, never choose *which*
     effect runs, so it doesn't widen the security boundary docs/09 sets out.
+
+    A magnitude param (``"amount"``/``"count"``) may also be the literal
+    string ``"x"`` instead of an int — the same "tie this to the spell/
+    ability's own announced {X}" idiom `additional_cost`'s ``pay_life: "x"``
+    uses (RULE 601.2b/107.3c). ``_clamp_params`` only touches ``int``
+    values, so the sentinel string passes validation untouched;
+    `RulesEngine.resolve_top_of_stack`'s ``_substitute_x`` swaps it for
+    `StackItem.x` immediately before the effect applies.
     """
 
     type: str
@@ -181,6 +206,29 @@ class AbilitySpec:
     #: `game/effect_binder.py`'s `attach_to_object`, which scans every spec
     #: for this field regardless of which one carries the "real" effects).
     additional_cost: Optional[dict[str, Any]] = None
+    #: RULE 702.8b/606.3: "you may cast this spell as though it had flash if
+    #: <condition>" / "you may activate this permanent's loyalty abilities
+    #: any time you could cast an instant if <condition>" (The Wandering
+    #: Emperor-shaped) — a single-key dict from `ALLOWED_CAST_CONDITION_KEYS`
+    #: (today just ``{"entered_this_turn": True}``, RULE 606.3's "as long as
+    #: ~ entered the battlefield this turn"). A deliberately separate
+    #: whitelist from `EffectSpec.condition`'s (see that constant's
+    #: docstring) — this one gates *cast/activation timing*
+    #: (`game/condition_query.py`, checked live off the object each time),
+    #: not whether a resolving effect applies. May ride on any spec
+    #: regardless of ``ability_kind``, same "scan every spec, attach to the
+    #: object regardless of which one carries the real effects" idiom
+    #: `additional_cost` uses (`game/effect_binder.py`'s `attach_to_object`).
+    conditional_flash: Optional[dict[str, Any]] = None
+    #: RULE 601.2f-adjacent: "If you control a commander, you may cast this
+    #: spell without paying its mana cost." — a single-key dict from
+    #: `ALLOWED_FREE_CAST_CONDITION_KEYS` (today just ``{"control_commander":
+    #: True}``). Checked live off the game state at cast time
+    #: (`game/condition_query.py`'s `free_cast_condition_holds`), mirroring
+    #: `conditional_flash`'s "may ride on any spec regardless of
+    #: ``ability_kind``" idiom — the clause is its own oracle-text line,
+    #: standalone from the spell's actual effect.
+    free_cast_condition: Optional[dict[str, Any]] = None
     optional: bool = False  # "you may"
     raw_text: str = ""
     parser: ParserProvenance = field(default_factory=ParserProvenance)
@@ -210,6 +258,7 @@ class AbilitySpec:
             and not self.effects
             and not self.modes
             and not self.additional_cost
+            and not self.free_cast_condition
         ):
             raise SpecValidationError(
                 f"{self.ability_kind!r} ability must carry at least one effect"
@@ -220,6 +269,12 @@ class AbilitySpec:
 
         if self.additional_cost is not None:
             self._validate_additional_cost()
+
+        if self.conditional_flash is not None:
+            self._validate_conditional_flash()
+
+        if self.free_cast_condition is not None:
+            self._validate_free_cast_condition()
 
         if self.ability_kind == "triggered":
             if not self.trigger or "event" not in self.trigger:
@@ -290,6 +345,28 @@ class AbilitySpec:
         else:
             raise SpecValidationError(f"unknown additional_cost kind {key!r}")
 
+    def _validate_conditional_flash(self) -> None:
+        """Structural check for a ``conditional_flash`` clause."""
+        cond = self.conditional_flash
+        if not isinstance(cond, dict) or len(cond) != 1:
+            raise SpecValidationError("'conditional_flash' must be a single-key dict")
+        key, value = next(iter(cond.items()))
+        if key not in ALLOWED_CAST_CONDITION_KEYS:
+            raise SpecValidationError(f"unknown conditional_flash key {key!r}")
+        if key == "entered_this_turn" and not isinstance(value, bool):
+            raise SpecValidationError("'entered_this_turn' condition must be a bool")
+
+    def _validate_free_cast_condition(self) -> None:
+        """Structural check for a ``free_cast_condition`` clause."""
+        cond = self.free_cast_condition
+        if not isinstance(cond, dict) or len(cond) != 1:
+            raise SpecValidationError("'free_cast_condition' must be a single-key dict")
+        key, value = next(iter(cond.items()))
+        if key not in ALLOWED_FREE_CAST_CONDITION_KEYS:
+            raise SpecValidationError(f"unknown free_cast_condition key {key!r}")
+        if key == "control_commander" and not isinstance(value, bool):
+            raise SpecValidationError("'control_commander' condition must be a bool")
+
     @staticmethod
     def _validate_condition(condition: dict[str, Any]) -> None:
         """Structural check for an `EffectSpec.condition` (RULE 702.33b's
@@ -321,6 +398,8 @@ class AbilitySpec:
             "keyword": self.keyword,
             "modes": self._modes_to_dict(),
             "additional_cost": self.additional_cost,
+            "conditional_flash": self.conditional_flash,
+            "free_cast_condition": self.free_cast_condition,
             "optional": self.optional,
             "raw_text": self.raw_text,
             "parser": self.parser.to_dict(),
@@ -362,6 +441,8 @@ class AbilitySpec:
             keyword=data.get("keyword"),
             modes=cls._modes_from_dict(data.get("modes")),
             additional_cost=data.get("additional_cost"),
+            conditional_flash=data.get("conditional_flash"),
+            free_cast_condition=data.get("free_cast_condition"),
             optional=bool(data.get("optional", False)),
             raw_text=str(data.get("raw_text", "")),
             parser=ParserProvenance.from_dict(data.get("parser") or {}),

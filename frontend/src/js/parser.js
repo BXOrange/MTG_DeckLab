@@ -75,7 +75,10 @@ function mergeCards(cards) {
 }
 
 /**
- * @param {{commanderText?: string, mainboardText?: string, sideboardText?: string}} sections
+ * @param {{commanderText?: string, mainboardText?: string, sideboardText?: string, isCube?: boolean}} sections
+ *   `isCube` marks this as a card pool (e.g. a curated "staples" list) rather
+ *   than a real Commander deck, skipping the structural checks below —
+ *   mirrors `models/deck.py`'s `is_cube` / `parser/deckliste_parser.py`.
  * @returns {{
  *   commanders: {name: string, qty: number}[],
  *   mainDeck: {name: string, qty: number}[],
@@ -86,7 +89,7 @@ function mergeCards(cards) {
  *   validation: {isLegal: boolean, errors: string[], warnings: string[]},
  * }}
  */
-export function parseDeckSections({ commanderText = '', mainboardText = '', sideboardText = '' } = {}) {
+export function parseDeckSections({ commanderText = '', mainboardText = '', sideboardText = '', isCube = false } = {}) {
   const commanderParsed = parseCardLines(commanderText);
   const mainboardParsed = parseCardLines(mainboardText);
   const sideboardParsed = parseCardLines(sideboardText);
@@ -110,11 +113,13 @@ export function parseDeckSections({ commanderText = '', mainboardText = '', side
     sideboard,
     totalCount,
     parseErrors,
-    validation: validateCommanderDeck(allCards, commanders, totalCount),
+    validation: validateCommanderDeck(allCards, commanders, totalCount, isCube),
   };
 }
 
-function validateCommanderDeck(allCards, commanders, totalCount) {
+function validateCommanderDeck(allCards, commanders, totalCount, isCube) {
+  if (isCube) return { isLegal: true, errors: [], warnings: [] };
+
   const errors = [];
   const warnings = [];
 

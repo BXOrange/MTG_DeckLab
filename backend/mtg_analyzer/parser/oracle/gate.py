@@ -33,6 +33,7 @@ from .catalogue.levels import (
     split_leveler_blocks,
 )
 from .catalogue.modal import MODAL_HEADER_RE, collect_mode_bodies, split_modal_block
+from .catalogue.static_handlers import commander_eligibility_line
 from .normalize import normalize
 from .segmenter import (
     Segment,
@@ -267,6 +268,12 @@ def _parse_oracle_uncached(card: Any) -> ParseResult:
         # entry_counters` (`RulesEngine`'s battlefield-entry resolution),
         # not an effect spec.
         if entry_counters_condition(line) is not None:
+            return
+        # RULE 903.3 "~ can be your commander." — a deck-legality permission
+        # with no in-game behavioral effect (see `commander_eligibility_line`'s
+        # docstring): claim the line, contribute nothing, same split as the
+        # two tapped-entry/counter checks above.
+        if commander_eligibility_line(line):
             return
         seg: Segment = segment_line(
             line, allow_spell_effect=allow_spell_effect, provenance=provenance, is_saga=is_saga

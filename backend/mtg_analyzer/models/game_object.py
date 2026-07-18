@@ -142,6 +142,25 @@ class GameObject:
         #: until its controller has controlled it since their last turn
         #: began. Set when it enters, cleared at that controller's untap.
         self.summoning_sick: bool = True
+        #: The turn number this permanent entered the battlefield (RULE
+        #: 606.3-adjacent "as long as ~ entered the battlefield this turn"
+        #: conditions, The Wandering Emperor-shaped) — stamped once by
+        #: `GameState.add_to_battlefield`, read live by
+        #: `game/condition_query.py`'s ``entered_this_turn`` check. ``None``
+        #: for an object that has never been on the battlefield.
+        self.turn_entered: Optional[int] = None
+        #: RULE 702.26 (phasing): while ``True``, this permanent is treated
+        #: as though it doesn't exist — untargetable, can't attack/block,
+        #: ignored by static/continuous effects and SBAs. Still structurally
+        #: in `Zone.BATTLEFIELD` (phasing out is not a zone change, RULE
+        #: 702.26b), so every "live battlefield" reader must go through
+        #: `GameState.permanents`/`permanents_controlled_by` (which filter
+        #: this out) rather than the raw `battlefield` list — the one place
+        #: that still needs the raw list is `GameEngine._step_untap`'s own
+        #: RULE 702.26a phase-in sweep, which must see phased-out objects to
+        #: flip them back. Set/cleared by `game/ability_catalogue.py`'s
+        #: phase-out effects and that same untap-step sweep.
+        self.phased_out: bool = False
         #: Damage marked this turn (RULE 120); cleared during cleanup.
         self.damage_marked: int = 0
         #: Counters on the permanent, keyed by kind (RULE 122): e.g.
@@ -189,6 +208,22 @@ class GameObject:
         #: *after* the cost is already paid) has no other way to reach "that
         #: creature" the unattach cost named.
         self.last_unattached_from_id: Optional[int] = None
+
+        #: RULE 108.4-adjacent "gain control of target permanent until end
+        #: of turn" (Zealous Conscripts/Coercive Recruiter-shaped,
+        #: `game/effects.py`'s `GainControlUntilEndOfTurnEffect`) — the
+        #: *original* controller, stamped the moment control changes so
+        #: `GameEngine._step_cleanup` can hand it back at the next cleanup;
+        #: ``None`` means this object isn't under a temporary control change.
+        self.control_change_until_eot: Optional[str] = None
+
+        #: An O-Ring-shaped "exile target X; when this leaves the
+        #: battlefield, return the exiled card" pair (Leonin Relic-Warder-
+        #: shaped) — the exiled card's own ``instance_id``, stamped by
+        #: `ExileEffect`'s ``remember=True`` mode and consumed by
+        #: `ReturnLinkedExileEffect` on this object's own leaves-battlefield
+        #: trigger. ``None`` when nothing is currently linked.
+        self.linked_exile_id: Optional[int] = None
 
         #: Effects this object contributes while in play, consulted by the
         #: rules engine (mtg_analyzer/game/). Typed loosely to avoid a
@@ -255,6 +290,16 @@ class GameObject:
         #: Reconfigure (RULE 702.151b): the permanent stops being a creature
         #: for as long as it's attached to another creature.
         self._removed_types: set[str] = set()
+        #: A layer-4 "type overwrite" static's replacement subtype set (RULE
+        #: 613.5 — "the object loses all other types/subtypes", e.g. Blood
+        #: Moon's "Nonbasic lands are Mountains"), or ``None`` when no such
+        #: override applies, in which case `continuous._has_subtype` falls
+        #: back to the printed type line's own subtypes as before. Distinct
+        #: from `_added_types` (which only *adds*, the ordinary "are also
+        #: creatures" shape) — a full overwrite must also stop matching the
+        #: permanent's original subtypes (a Blood-Moon'd Underground Sea is
+        #: no longer an Island or a Swamp).
+        self._derived_subtypes: Optional[set[str]] = None
         #: Colours set/added by a layer-5 static ability (RULE 613.4b). ``None``
         #: means no colour-changing effect applies, so `colors` falls back to
         #: the printed card's ``color_identity``.
@@ -330,6 +375,7 @@ class GameObject:
         self._granted_triggered_abilities = []
         self._added_types = set()
         self._removed_types = set()
+        self._derived_subtypes = None
         self._derived_colors = None
         self._derived_oracle_text = None
         self.static_trace = []
@@ -543,6 +589,7 @@ class GameObject:
             # Whether a double-faced permanent is on its back face (RULE 712.8).
             "transformed": self.transformed,
             "summoning_sick": self.summoning_sick,
+            "phased_out": self.phased_out,
             "damage_marked": self.damage_marked,
             "power": self.power,
             "toughness": self.toughness,

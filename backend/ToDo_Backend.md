@@ -60,19 +60,48 @@ for the dependency-ordered plan to finish the implementation.
         Kodama's Reach — a different effect shape, one search always has
         one destination); "search for N cards and exile the rest"
         (Doomsday).
-      - "You may look at the top card of your library any time" (a
-        standing permission) — the engine capability exists
-        (`game/top_library.py`, Done_Backend.md "Rules Engine
-        (Phase 2)") but only via hand-authoring (Oracle of Mul Daya,
-        Glarb); the parser's own front-end recognition of the clause is
-        a separate follow-up (`coverage_over_cards()` only sees the
-        parser, not the hand-authored registry, so the processing-list
-        template still shows all 13 cards unclaimed).
+      - "You may look at the top card of your library any time" itself is
+        now claimed by the parser (a documented no-op — purely
+        informational, `parser/oracle/segmenter.py`'s
+        `_LOOK_AT_TOP_ANY_TIME_RE`) — but the *actual* play/cast-from-top
+        permission clause it always sits next to ("You may play lands
+        and/or cast spells [with mana value N or greater] from the top of
+        your library") still has **no parser-front-end recognition at
+        all** — the engine capability exists (`game/top_library.py`,
+        `top_library_permission` `EffectSpec`, Done_Backend.md "Rules
+        Engine (Phase 2)") but only via hand-authoring (Oracle of Mul
+        Daya, Glarb, Calamity's Augur); a card whose only unclaimed line
+        is this one (Elsha of the Infinite, Bolas's Citadel) still fails
+        the coverage gate. Teaching a handler to recognize the permission
+        clause generically (mirroring `top_library_permission`'s existing
+        `look`/`play_lands`/`cast_spells`/`min_mana_value` params) would
+        unblock it and any future card with this wording — plus each
+        card's own conditional tail is a *further*, separate gap (Elsha's
+        "if you cast a spell this way, you may cast it as though it had
+        flash" needs a new `conditional_flash`-condition key scoped to
+        "cast from the top of your library" rather than the existing
+        `entered_this_turn`; Bolas's Citadel's "pay life equal to its mana
+        value rather than pay its mana cost" is a different alternative-
+        cost shape from the flat/free ones modeled so far).
       - `prevent_damage`'s two real cards (Riot Control/Thought Lash) — a
         one-shot *spell effect* granting a temporary shield
         (Regenerate-shaped: new effect class + `RulesEngine` method), not
         the standing-permanent replacement-clause shape the other three
         families used.
+      - "Impulsive draw" (exile a card and grant *temporary* permission to
+        cast/play just that card) now has a generic mechanism —
+        `ImpulsiveDrawEffect`/`RulesEngine.exile_with_play_permission`/
+        `GameState.temp_play_permissions` (Light Up the Stage-shaped:
+        exile from own library-top, playable until end of your next
+        turn) — see Done_Backend.md "Rules Engine (Phase 2)". Ragavan,
+        Nimble Pilferer and Mnemonic Betrayal still stay `UNMODELED`
+        though: Ragavan exiles from *the damaged player's* library (not
+        its own controller's) and additionally grants "spend mana as
+        though it were mana of any color," and Mnemonic Betrayal exiles
+        from a graveyard rather than a library-top — both need a small
+        extension to the mechanism, not a new one from scratch
+        (see `docs/implementation-state/ToDo_EdgeCases.md` "cEDH staples
+        cube").
       - A differently-scoped counter-doubling clause (Innkeeper's
         Talent's "on a permanent or player") and a compound colour/type
         filter (Mechanized Warfare's "a red or artifact source") — both
@@ -95,43 +124,6 @@ for the dependency-ordered plan to finish the implementation.
       "Rules Engine (Phase 2)". Remaining: an *interactive*
       blocker-declaration UI (opponent-side, needs the multiplayer
       priority loop).
-- [ ] Feature gaps surfaced by hand-authoring the "Wyleth Equip" Boros
-      voltron commander deck (`game/ability_catalogue.py`) — see
-      [docs/implementation-state/ToDo_EdgeCases.md](../docs/implementation-state/ToDo_EdgeCases.md)
-      "Equipment / Auras / 'combat damage to a player' triggers" for the
-      full list of affected cards. The reusable primitives that *did* ship
-      from that work (mass "destroy/exile all X [with a toughness/mana-
-      value filter]" board wipes, the `"attached_permanent"`/
-      `"self_or_attached_permanent"` trigger-subject family + a
-      `EventType.DAMAGE` `"filter"` predicate for "deals combat damage to a
-      player", Living Weapon/Renown behavior, a per-count static-anthem
-      multiplier, RULE 702.8b Flash now gating `GameEngine.can_cast`'s
-      timing check) are narrated in
-      [Done_Backend.md](../docs/implementation-state/Done_Backend.md)
-      "Rules Engine (Phase 2)". Still open, each a real feature rather than
-      a narrow edge case:
-      - No phasing subsystem (RULE 702.26) at all.
-      - No mechanism threads a spell's announced `{X}` (`StackItem.x`,
-        stored but never read by `resolve_top_of_stack`) into a one-shot
-        effect's amount/count.
-      - No hand-zone, non-mana "discard this card: `<effect>`" (Channel)
-        activated ability, and no Cycling (RULE 702.29/28.2h).
-      - No "look at top N cards, take one matching a filter, bottom the
-        rest" mechanic, distinct from a whole-library `search`.
-      - No "exile cards and you may play them until end of turn" (impulsive
-        draw) mechanic.
-      - No per-cast, board-state-dependent cost reduction for a card still
-        in hand (only a battlefield permanent's static "spells cost {N}
-        less" exists, `continuous.cost_reduction_for`).
-      - No "flash if `<condition>`"/"activate loyalty at instant speed if
-        `<condition>`" conditional casting/activation permission (plain,
-        unconditional Flash *is* now wired into `can_cast`).
-      - A per-firing dynamic reference to "that creature"/"the object this
-        same effect just created" has no channel into a bind-on-load
-        `TriggeredAbility` (one fixed `effects` list reused every firing) —
-        the same class of gap `RulesEngine.check_rampage` routes around by
-        not using `TriggeredAbility` at all; nothing this batch needed has
-        gotten that bespoke treatment yet.
 - [~] Static abilities / continuous-effects layer system (RULE 613):
       **engine done** — full layer coverage (1-7, timestamp ordering,
       bounded RULE 613.8 dependency ordering) — see

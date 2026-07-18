@@ -28,12 +28,15 @@ from ..spec import EffectSpec
 from .keywords import KEYWORDS, KeywordShape, keyword_slug
 from .subgrammars import (
     CANT_BE_COUNTERED_RE,
+    COLOR_WORD_ALT,
     COUNT,
+    IF_COLOR_SUFFIX,
     NUMBER,
     SPELL_TARGET,
     TARGET,
     UP_TO_ONE,
     count_of,
+    resolve_color_word,
     resolve_spell_filter,
     resolve_target_kind,
     target_is_optional,
@@ -208,7 +211,51 @@ def _destroy(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     kind = resolve_target_kind(m.group("target"))
     if kind is None or kind not in ("creature", "permanent"):
         return None
-    return [EffectSpec("destroy", {"target_kind": kind, **_optional_param(m)})]
+    color = resolve_color_word(m.groupdict().get("cond_color"))
+    params: dict = {"target_kind": kind, **_optional_param(m)}
+    if color:
+        params["color"] = color
+    return [EffectSpec("destroy", params)]
+
+
+def _destroy_mv(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    # "destroy target nonland permanent with mana value 3 or less"
+    # (Abrupt Decay-shaped) — a target-offer-time mana-value cap
+    # (`targeting.TargetSpec.max_mana_value`), tried before the plain
+    # `_destroy` handler since it's a strict superset of that shape (the
+    # trailing "with mana value N or less" clause `_destroy`'s own grammar
+    # doesn't recognise).
+    kind = resolve_target_kind(m.group("target"))
+    if kind is None or kind not in ("creature", "permanent"):
+        return None
+    return [EffectSpec("destroy", {"target_kind": kind, "max_mana_value": int(m.group("mv"))})]
+
+
+#: "destroy target [color] creature/permanent/artifact/enchantment/land"
+#: (RULE 105's colour-hoser adjective form, Red Elemental Blast-shaped) — a
+#: small dedicated noun list rather than a color slot spliced into the
+#: shared `TARGET` macro's fixed rows (which many other handlers reuse
+#: as-is); covers the same nouns `_destroy`'s plain `TARGET`-based match
+#: already accepts. Tried before the plain `destroy` handler below — with
+#: no colour word present it matches identically (same `target_kind`
+#: mapping), so it never changes behaviour for an uncoloured clause.
+_DESTROY_COLOR_NOUN_KINDS: dict[str, str] = {
+    "creature": "creature", "permanent": "permanent", "artifact": "permanent",
+    "enchantment": "permanent", "land": "permanent",
+}
+_DESTROY_COLOR_ADJ_RE = _c(
+    rf"destroy target (?:(?P<color>{COLOR_WORD_ALT}) )?"
+    rf"(?P<noun>{'|'.join(_DESTROY_COLOR_NOUN_KINDS)})"
+    + IF_COLOR_SUFFIX
+)
+
+
+def _destroy_color_adj(m: re.Match[str]) -> list[EffectSpec]:
+    color = resolve_color_word(m.groupdict().get("color")) or resolve_color_word(m.groupdict().get("cond_color"))
+    params: dict = {"target_kind": _DESTROY_COLOR_NOUN_KINDS[m.group("noun")]}
+    if color:
+        params["color"] = color
+    return [EffectSpec("destroy", params)]
 
 
 def _destroy_multi_target(m: re.Match[str]) -> Optional[list[EffectSpec]]:
@@ -243,6 +290,9 @@ def _counter(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     params: dict = dict(filt)
     if m.groupdict().get("cost"):
         params["unless_pays"] = m.group("cost")
+    cond_color = resolve_color_word(m.groupdict().get("cond_color"))
+    if cond_color:
+        params["color"] = cond_color
     return [EffectSpec("counter", params)]
 
 
@@ -275,22 +325,61 @@ def _exile_multi_target(m: re.Match[str]) -> Optional[list[EffectSpec]]:
 
 def _tap(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     kind = resolve_target_kind(m.group("target"))
-    if kind is None or kind not in ("creature", "permanent"):
+    if kind is None or kind not in ("creature", "permanent", "legendary_permanent", "forest"):
         return None
     untap = m.group("verb").lower() == "untap"
     return [EffectSpec("tap", {"target_kind": kind, "untap": untap, **_optional_param(m)})]
+
+
+def _tap_selector(m: re.Match[str]) -> list[EffectSpec]:
+    # "untap all creatures you control" (Village Bell-Ringer's ETB) — an
+    # untargeted mass effect, `game/effects.py`'s `TapEffect.selector`, the
+    # same shape `_add_counters_selector` uses for a mass counter effect.
+    untap = m.group("verb").lower() == "untap"
+    return [EffectSpec("tap", {"selector": "creatures_you_control", "untap": untap})]
 
 
 #: "Untap this creature" (Devoted Druid's counter-cost untap ability) / "tap
 #: ~" — the *self* form, no RULE 115 target at all (`target_kind=None` makes
 #: `TapEffect` act on its own source, mirroring `AttachEffect`'s ``~``/"it"
 #: self-reference).
-_SELF_SUBJECT = r"(?:~|it|this permanent|this creature|this artifact|this land)"
+_SELF_SUBJECT = (
+    r"(?:~|it|this permanent|this creature|this artifact|this land|this enchantment)"
+)
 
 
 def _tap_self(m: re.Match[str]) -> list[EffectSpec]:
     untap = m.group("verb").lower() == "untap"
     return [EffectSpec("tap", {"target_kind": None, "untap": untap})]
+
+
+#: "enchanted creature"/"equipped creature"/"fortified land" — an Aura/
+#: Equipment/Fortify's own activated-ability body implicitly acting on
+#: whatever it's attached to (RULE 303.4/301.5), no player choice at all
+#: (`TapEffect`/`PumpEffect`'s ``"attached_permanent"`` mode) — the
+#: activated-ability sibling of `effect_binder._subject_condition`'s
+#: ``"attached_permanent"`` *trigger*-subject concept.
+_ATTACHED_SUBJECT = r"(?:enchanted creature|equipped creature|fortified land)"
+
+
+#: "{U}: Tap enchanted creature."/"{U}: Untap enchanted creature." (Freed
+#: from the Real/Pemmin's Aura-shaped Aura activated abilities).
+def _tap_attached(m: re.Match[str]) -> list[EffectSpec]:
+    untap = m.group("verb").lower() == "untap"
+    return [EffectSpec("tap", {"target_kind": "attached_permanent", "untap": untap})]
+
+
+#: "Sacrifice ~."/"Sacrifice this enchantment." (Dress Down/Underworld
+#: Breach-shaped standing end-step self-sac) — the self form, no player
+#: choice or RULE 115 target (RULE 701.17).
+def _sacrifice_self(m: re.Match[str]) -> list[EffectSpec]:
+    return [EffectSpec("sacrifice_self", {})]
+
+
+#: "Exile ~."/"Exile this card." (Teferi's Protection/Mnemonic Betrayal's
+#: trailing self-exile) — the self form, `ExileEffect`'s `target_kind=None`.
+def _exile_self(m: re.Match[str]) -> list[EffectSpec]:
+    return [EffectSpec("exile", {"target_kind": None})]
 
 
 #: "return target creature to its owner's hand" / "return a land you control
@@ -578,6 +667,34 @@ def _become_prepared(m: re.Match[str]) -> list[EffectSpec]:
     return [EffectSpec("become_prepared", {})]
 
 
+#: "if your library has no cards in it, you win the game" (Jace, Wielder of
+#: Mysteries' "-8: Draw seven cards. Then if your library has no cards in
+#: it, you win the game." tail, RULE 104.2) — a plain conditional one-shot,
+#: not the standing replacement `catalogue.replacements`' sibling clause
+#: covers (that one gates a *draw*, this one gates an already-resolved
+#: loyalty ability's own follow-up sentence).
+def _win_if_empty_library(m: re.Match[str]) -> list[EffectSpec]:
+    return [EffectSpec("win_game", {"if_empty_library": True})]
+
+
+#: RULE 602.1-adjacent per-instance activation cap: "Activate only once each
+#: turn." (Quirion Ranger/Scryb Ranger-shaped) — a plain trailing sentence in
+#: an activated ability's own body (after the cost's colon), sitting
+#: alongside its real effect ("Untap target creature. Activate only once
+#: each turn." — two sentences `parse_effect_body`'s connector-splitting
+#: already tries independently). Not a real one-shot effect: this handler
+#: claims the clause but emits a *marker* `EffectSpec` `effect_binder.
+#: bind_ability`'s "activated" branch recognizes and strips before binding,
+#: turning it into `ActivatedAbility.once_per_turn` instead of a `GameEffect`
+#: (mirroring `TriggeredAbility.once_per_turn`'s own RULE 603.2 stamp).
+ONCE_PER_TURN_MARKER = "once_per_turn_marker"
+_ONCE_PER_TURN_RE = _c(r"activate (?:this ability )?only once each turn")
+
+
+def _once_per_turn(m: re.Match[str]) -> list[EffectSpec]:
+    return [EffectSpec(ONCE_PER_TURN_MARKER, {})]
+
+
 def _token_keywords(text: str) -> Optional[list[str]]:
     """Validate a token's "with <keywords>" clause → flag-keyword slugs, or None.
 
@@ -641,9 +758,10 @@ def _add_counters(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     kind = resolve_target_kind(m.group("target"))
     # +1/+1 counters can sit on *any* permanent (RULE 122.1a) — a land that
     # enters with counters and later becomes a creature uses them. So we honour
-    # whatever the text targets (creature or permanent); only the target phrase
-    # constrains it, not the counter itself.
-    if kind not in ("creature", "permanent"):
+    # whatever the text targets (creature or permanent, incl. the
+    # controller-restricted "target creature you control" pick, Archdruid's
+    # Charm-shaped); only the target phrase constrains it, not the counter itself.
+    if kind not in ("creature", "permanent", "creature_you_control"):
         return None
     params["target_kind"] = kind
     params.update(_optional_param(m))
@@ -676,6 +794,8 @@ def _pump_target(m: re.Match[str]) -> Optional[tuple[Optional[str], Optional[str
         return (None, None)  # untargeted self-pump (an activated "~ gets +1/+0 …")
     if groupdict.get("group"):
         return (None, _GROUP_SELECTORS[groupdict["group"]])
+    if groupdict.get("attached"):
+        return ("attached_permanent", None)  # "enchanted creature gains …" (Aura activated ability)
     kind = resolve_target_kind(m.group("target"))
     if kind not in ("creature", "permanent"):
         return None
@@ -732,7 +852,9 @@ def _surveil(m: re.Match[str]) -> list[EffectSpec]:
 # ("creatures you control get +2/+1 …" — RULE 601.2c, not a target at all;
 # the common Saga-chapter/anthem-spell shape). Shared by the pump handlers.
 _GROUP = r"(?P<group>other creatures you control|creatures you control)"
-_SUBJECT = rf"(?:{TARGET}|(?P<selfref>{re.escape(SELF)})|{_GROUP})"
+_SUBJECT = (
+    rf"(?:{TARGET}|(?P<selfref>{re.escape(SELF)})|{_GROUP}|(?P<attached>{_ATTACHED_SUBJECT}))"
+)
 #: A matched ``group`` phrase → its `continuous.group_selector_objects` selector.
 _GROUP_SELECTORS: dict[str, str] = {
     "creatures you control": "creatures_you_control",
@@ -740,6 +862,27 @@ _GROUP_SELECTORS: dict[str, str] = {
 }
 #: A signed P/T delta, "+3/+3" / "-2/-2" / "+0/-1" (ASCII or unicode minus).
 _PT_DELTA = r"(?P<p>[+\-−]\d+)/(?P<t>[+\-−]\d+)"
+
+#: "target creature gets +1/+0 until end of turn and can't be blocked this
+#: turn" (You Come to a River-shaped) — the P/T-then-unblockable ordering
+#: (unlike `_pump`'s "and gains <kw> until end of turn", the keyword clause
+#: sits *before* "until end of turn"; here "can't be blocked this turn"
+#: trails it instead) — a targeted-only shape (real cards always name a
+#: single "target creature", never a self/group subject for this combo), so
+#: it uses `TARGET` directly rather than the broader `_SUBJECT`.
+_PUMP_UNBLOCKABLE_RE = _c(
+    rf"{TARGET} gets? {_PT_DELTA} until end of turn and can'?t be blocked this turn"
+)
+
+
+def _pump_unblockable(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    kind = resolve_target_kind(m.group("target"))
+    if kind not in ("creature", "permanent"):
+        return None
+    return [EffectSpec("pump", {
+        "power": _signed_int(m.group("p")), "toughness": _signed_int(m.group("t")),
+        "target_kind": kind, "unblockable": True,
+    })]
 
 
 # --- The table --------------------------------------------------------------
@@ -810,10 +953,29 @@ HANDLERS: list[EffectHandler] = [
         _c(rf"(?P<selector>each player|each opponent) loses? {NUMBER} life"),
         _lose_life_selector,
     ),
-    # "destroy target creature" / "destroy target artifact"
+    # "destroy target [color] creature/permanent/artifact/enchantment/land"
+    # (RULE 105 colour-hoser adjective, Red Elemental Blast-shaped) — tried
+    # before the plain `destroy` handler below (see `_DESTROY_COLOR_ADJ_RE`'s
+    # docstring for why it's safe to try first).
+    EffectHandler(
+        "destroy_color_adj",
+        _DESTROY_COLOR_ADJ_RE,
+        _destroy_color_adj,
+    ),
+    # "destroy target nonland permanent with mana value 3 or less"
+    # (Abrupt Decay-shaped) — tried before the plain `destroy` handler
+    # below (see `_destroy_mv`'s docstring for why it's safe to try first).
+    EffectHandler(
+        "destroy_mv",
+        _c(rf"destroy {TARGET} with mana value (?P<mv>\d+) or less"),
+        _destroy_mv,
+    ),
+    # "destroy target creature" / "destroy target artifact" / "destroy
+    # target permanent if it's blue" (the trailing-clause old-templating
+    # colour variant, Pyroblast-shaped — see `IF_COLOR_SUFFIX`).
     EffectHandler(
         "destroy",
-        _c(rf"destroy {TARGET}"),
+        _c(rf"destroy {TARGET}" + IF_COLOR_SUFFIX),
         _destroy,
     ),
     # "destroy two target creatures" / "destroy up to two target artifacts
@@ -843,11 +1005,18 @@ HANDLERS: list[EffectHandler] = [
     ),
     # "counter target spell" / "counter target noncreature spell" / "counter
     # target instant or sorcery spell" / "counter target spell with mana
-    # value N" / any of those "… unless its controller pays {N}" (RULE 601.2c
-    # target filter + the "Mana Leak" unless-pay template).
+    # value N" / "counter target blue spell" (RULE 105 colour-hoser
+    # adjective, inline via `SPELL_TARGET`'s own ``color`` group) / any of
+    # those "… unless its controller pays {N}" (the "Mana Leak" unless-pay
+    # template) and/or "… if it's blue" (the trailing-clause old-templating
+    # colour variant, Red Elemental Blast/Pyroblast-shaped).
     EffectHandler(
         "counter",
-        _c(rf"counter {SPELL_TARGET}" + r"(?: unless its controller pays (?P<cost>\{[^}]+\}))?"),
+        _c(
+            rf"counter {SPELL_TARGET}"
+            + r"(?: unless its controller pays (?P<cost>\{[^}]+\}))?"
+            + IF_COLOR_SUFFIX
+        ),
         _counter,
     ),
     # "this spell can't be countered." / "~ can't be countered." (RULE
@@ -877,11 +1046,33 @@ HANDLERS: list[EffectHandler] = [
         _c(rf"exile {_MULTI_TARGET_QUANTIFIER}(?P<target>{_MULTI_TARGET_ALT})"),
         _exile_multi_target,
     ),
+    # "exile ~" / "exile this card" — the self form (Teferi's Protection/
+    # Mnemonic Betrayal's trailing self-exile).
+    EffectHandler(
+        "exile_self",
+        _c(rf"exile {_SELF_SUBJECT}"),
+        _exile_self,
+    ),
+    # "sacrifice ~" / "sacrifice this enchantment" — the self form (Dress
+    # Down/Underworld Breach's standing end-step self-sac).
+    EffectHandler(
+        "sacrifice_self",
+        _c(rf"sacrifice {_SELF_SUBJECT}"),
+        _sacrifice_self,
+    ),
     # "tap target creature" / "untap target permanent"
     EffectHandler(
         "tap",
         _c(rf"(?P<verb>tap|untap) {TARGET}"),
         _tap,
+    ),
+    # "untap all creatures you control" (Village Bell-Ringer) — must sit
+    # above `tap_self`/the bare `_SELF_SUBJECT` row so "all creatures you
+    # control" (not a self-reference) is recognised on its own.
+    EffectHandler(
+        "tap_selector",
+        _c(r"(?P<verb>tap|untap) all creatures you control"),
+        _tap_selector,
     ),
     # "untap this creature" / "untap ~" / "tap it" — the self form (Devoted
     # Druid's "Put a -1/-1 counter on this creature: Untap this creature.").
@@ -889,6 +1080,13 @@ HANDLERS: list[EffectHandler] = [
         "tap_self",
         _c(rf"(?P<verb>tap|untap) {_SELF_SUBJECT}"),
         _tap_self,
+    ),
+    # "tap enchanted creature" / "untap enchanted creature" (Freed from the
+    # Real/Pemmin's Aura-shaped Aura activated abilities).
+    EffectHandler(
+        "tap_attached",
+        _c(rf"(?P<verb>tap|untap) {_ATTACHED_SUBJECT}"),
+        _tap_attached,
     ),
     # "return target creature to its owner's hand" / "return a land you
     # control to its owner's hand" (RULE 701.3 — the bounce family).
@@ -983,12 +1181,31 @@ HANDLERS: list[EffectHandler] = [
         _c(rf"(?:{re.escape(SELF)}|it|this permanent|this creature) becomes prepared"),
         _become_prepared,
     ),
-    # "put a +1/+1 counter on target creature" / "put a -1/-1 counter on …" / "… on ~"
+    # "Activate only once each turn." (Quirion Ranger/Scryb Ranger-shaped) —
+    # a per-instance activation cap, not a real effect; see
+    # `ONCE_PER_TURN_MARKER`'s docstring for how the binder strips it.
+    EffectHandler(
+        "once_per_turn",
+        _ONCE_PER_TURN_RE,
+        _once_per_turn,
+    ),
+    # "if your library has no cards in it, you win the game" (Jace, Wielder
+    # of Mysteries' -8 tail).
+    EffectHandler(
+        "win_if_empty_library",
+        _c(r"(?:then )?if your library has no cards? in it, you win the game"),
+        _win_if_empty_library,
+    ),
+    # "put a +1/+1 counter on target creature" / "put a -1/-1 counter on …" /
+    # "… on ~"/"this creature" (Walking Ballista's "{4}: Put a +1/+1 counter
+    # on this creature." — `_SELF_SUBJECT`, the same self-reference
+    # vocabulary `_tap_self` already uses, not just the literal ``~`` a
+    # card's own name folds to).
     EffectHandler(
         "add_counters",
         _c(
             rf"put {COUNT} (?P<ckind>[+\-−]1/[+\-−]1) counters? on "
-            rf"(?:{TARGET}|(?P<selfref>{re.escape(SELF)}))"
+            rf"(?:{TARGET}|(?P<selfref>{_SELF_SUBJECT}))"
         ),
         _add_counters,
     ),
@@ -1001,6 +1218,15 @@ HANDLERS: list[EffectHandler] = [
             r"each creature you control"
         ),
         _add_counters_selector,
+    ),
+    # "target creature gets +1/+0 until end of turn and can't be blocked
+    # this turn" (You Come to a River-shaped) — tried before the plain
+    # `pump` handler below since it's a strict superset of that shape (a
+    # trailing unblockable clause `_pump`'s own grammar doesn't recognise).
+    EffectHandler(
+        "pump_unblockable",
+        _PUMP_UNBLOCKABLE_RE,
+        _pump_unblockable,
     ),
     # "target creature gets +3/+3 until end of turn" / "gets -2/-2 …" /
     # "gets +1/+1 and gains trample until end of turn" / "~ gets +1/+0 …" /

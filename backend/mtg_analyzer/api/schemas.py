@@ -30,6 +30,9 @@ class SaveDeckRequest(BaseModel):
     sideboard_text: str = Field(default="", alias="sideboardText")
     sleeve_id: Optional[str] = Field(default=None, alias="sleeveId")
     author: Optional[str] = None
+    # Same preserve-on-omission treatment as sleeve_id/author: None means
+    # "leave whatever this deck already had" rather than "set to False".
+    is_cube: Optional[bool] = Field(default=None, alias="isCube")
 
 
 class DeckSubmission(BaseModel):
@@ -45,6 +48,7 @@ class DeckSubmission(BaseModel):
     commander_text: str = Field(default="", alias="commanderText")
     mainboard_text: str = Field(default="", alias="mainboardText")
     sideboard_text: str = Field(default="", alias="sideboardText")
+    is_cube: bool = Field(default=False, alias="isCube")
 
 
 class StartGoldfishRequest(BaseModel):

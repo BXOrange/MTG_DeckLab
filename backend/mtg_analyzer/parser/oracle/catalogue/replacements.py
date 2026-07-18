@@ -61,6 +61,18 @@ _ADDITIONAL_DAMAGE_RE = re.compile(
 )
 
 
+#: The alternative-win-condition family (Jace, Wielder of Mysteries/
+#: Laboratory Maniac-shaped, RULE 104.3a/120-adjacent) — "If you would draw
+#: a card while your library has no cards in it, you win the game instead."
+#: A recurring exact phrasing across several real cards (Elixir of
+#: Immortality-adjacent effects use a different shape, not this one).
+_WIN_INSTEAD_OF_EMPTY_DRAW_RE = re.compile(
+    r"if you would draw a card while your library has no cards? in it, "
+    r"you win the game instead",
+    re.IGNORECASE,
+)
+
+
 def replacement_clause_specs(clause: str) -> Optional[list[EffectSpec]]:
     """`EffectSpec`s for a standing replacement-effect ``clause``, or ``None``.
 
@@ -84,5 +96,8 @@ def replacement_clause_specs(clause: str) -> Optional[list[EffectSpec]]:
             "to_opponent_only": True,
             "color": _COLOR_WORDS[m.group("color").lower()],
         })]
+
+    if _WIN_INSTEAD_OF_EMPTY_DRAW_RE.fullmatch(text):
+        return [EffectSpec("win_instead_of_empty_draw", {})]
 
     return None

@@ -147,8 +147,17 @@ def _merge_cards(cards: list[CardEntry]) -> list[CardEntry]:
 
 
 def _validate_commander_deck(
-    all_cards: list[CardEntry], commanders: list[CardEntry], total_count: int
+    all_cards: list[CardEntry], commanders: list[CardEntry], total_count: int, is_cube: bool = False
 ) -> DeckValidationResult:
+    """Structural Commander checks (card count, singleton, commander count).
+
+    Skipped entirely for a cube (`is_cube=True`, `models/deck.py`) — a
+    curated card pool has neither a fixed size nor a singleton rule, so
+    these checks would just report its normal shape as violations.
+    """
+    if is_cube:
+        return DeckValidationResult(is_legal=True, errors=[], warnings=[])
+
     errors: list[str] = []
     warnings: list[str] = []
 
@@ -172,13 +181,15 @@ def _validate_commander_deck(
 
 
 def parse_deck_sections(
-    commander_text: str = "", mainboard_text: str = "", sideboard_text: str = ""
+    commander_text: str = "", mainboard_text: str = "", sideboard_text: str = "", is_cube: bool = False
 ) -> ParsedDeck:
     """Parse and structurally validate a decklist split into three sections.
 
     Card lines look like "4x Lightning Bolt" or "1 Sol Ring", with optional
     "*TAG*" markers and trailing set/collector info like "(LTR) 123"
     stripped. Blank lines and lines starting with "#" or "//" are ignored.
+    `is_cube` skips the structural Commander checks (see
+    `_validate_commander_deck`).
     """
     commander_parsed = _parse_card_lines(commander_text)
     mainboard_parsed = _parse_card_lines(mainboard_text)
@@ -196,7 +207,7 @@ def parse_deck_sections(
     all_cards = _merge_cards([*commander_parsed.cards, *mainboard_parsed.cards])
     total_count = sum(c.qty for c in all_cards)
 
-    validation = _validate_commander_deck(all_cards, commanders, total_count)
+    validation = _validate_commander_deck(all_cards, commanders, total_count, is_cube)
 
     return ParsedDeck(
         commanders=commanders,

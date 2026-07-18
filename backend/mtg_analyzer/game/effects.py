@@ -29,6 +29,7 @@ from abc import ABC, abstractmethod
 from typing import TYPE_CHECKING, Any, Callable, Optional
 
 from ..models.events import EventType, GameEvent
+from ..models.game_object import Zone
 from ..models.mana_cost import ManaCost
 from .targeting import TargetSpec
 
@@ -71,6 +72,9 @@ class GameContext:
 
     def discard(self, player: "Player", count: int = 1) -> None:
         self.engine.discard(player, count)
+
+    def put_hand_cards_on_top(self, player: "Player", count: int = 1) -> None:
+        self.engine.put_hand_cards_on_top(player, count)
 
     def destroy(self, target: "GameObject", can_be_regenerated: bool = True) -> None:
         self.engine.destroy(target, can_be_regenerated=can_be_regenerated)
@@ -115,6 +119,11 @@ class GameContext:
     def make_prepared(self, obj: "GameObject") -> None:
         self.engine.make_prepared(obj)
 
+    def put_into_graveyard(self, obj: "GameObject") -> None:
+        """RULE 701.16c: sacrifice isn't destruction — a permanent goes
+        straight to the graveyard, never through a regeneration shield."""
+        self.engine.put_into_graveyard(obj)
+
     def become_copy(
         self,
         obj: "GameObject",
@@ -155,8 +164,27 @@ class GameContext:
     ) -> None:
         self.engine.request_search(player, criteria, destination, count, optional)
 
+    def impulsive_look(
+        self,
+        player: "Player",
+        count: int,
+        criteria: Any = "",
+        hit_destination: str = "hand",
+        miss_destination: str = "graveyard",
+        optional: bool = True,
+    ) -> None:
+        self.engine.request_impulsive_look(
+            player, count, criteria, hit_destination, miss_destination, optional
+        )
+
+    def exile_with_play_permission(self, player: "Player", count: int) -> None:
+        self.engine.exile_with_play_permission(player, count)
+
     def shuffle_library(self, player: "Player") -> None:
         self.engine.shuffle_library(player)
+
+    def shuffle_hand_and_graveyard_into_library(self, player: "Player") -> None:
+        self.engine.shuffle_hand_and_graveyard_into_library(player)
 
     def cascade(self, player: "Player", max_mana_value: int) -> None:
         self.engine.request_cascade(player, max_mana_value)
@@ -179,6 +207,9 @@ class GameContext:
         self, target: "GameObject", destination: str = "battlefield", controller_id: Optional[str] = None
     ) -> None:
         self.engine.return_from_graveyard(target, destination, controller_id=controller_id)
+
+    def blink(self, target: "GameObject") -> None:
+        self.engine.blink(target)
 
     def add_mana(self, player: "Player", color: str, amount: int = 1) -> None:
         self.engine.add_mana(player, color, amount)
@@ -400,6 +431,24 @@ class StaticAbility(GameEffect):
 class TriggeredAbility(GameEffect):
     """Fires on an event and goes on the stack (docs/07 PART 2, RULE 603).
 
+    ``effects`` is one fixed list bound once, at bind-on-load, and reused
+    for *every* firing — fine for the overwhelming majority of triggered
+    abilities, whose effects don't depend on data specific to a given
+    firing. A trigger whose magnitude genuinely depends on *that firing*
+    (Rampage's per-block blocker count, RULE 702.23; a ward ability's own
+    caster/target pair, RULE 702.21) can't be expressed this way. The
+    sanctioned answer, rather than new IR here, is to build a fresh
+    `TriggeredAbility` (or, when even the controller/shape varies per
+    firing, a raw `StackItem`) right at the call site with the per-firing
+    data baked directly into its effects, then place it exactly like any
+    other trigger — see `RulesEngine.check_rampage` (rebuilds a
+    `TriggeredAbility` and calls `_place_trigger`) and `check_ward` (skips
+    `TriggeredAbility` entirely and pushes a `StackItem` straight on the
+    stack, since ward's controller is the *target's*, not the source's).
+    Follow that pattern for a new card needing "that creature"/"the object
+    this ability just created" rather than adding a dynamic-reference
+    target-spec kind — no card in this catalogue has needed one yet.
+
     ``trigger_event`` is the `EventType` to watch. ``condition`` is an
     optional extra predicate ``(event, context) -> bool``. ``effects`` are
     the one-shot effects placed on the stack when it triggers — or, for a
@@ -541,6 +590,13 @@ class ActivatedAbility(GameEffect):
     + life + discard + counter removal, see `game/costs.py`); ``effects`` go on
     the stack when the cost is paid. ``mana_cost``/``taps_source`` remain as
     read-only views over the cost for callers that only care about those two.
+
+    ``once_per_turn=True`` (Quirion Ranger/Scryb Ranger's "Activate only
+    once each turn.") mirrors `TriggeredAbility.once_per_turn`'s own
+    RULE 603.2-style stamp: `game/game_engine.py`'s `can_activate`/
+    `activate_ability` check/stamp `_last_activated_turn` against the
+    current turn number, the same "stamped on the *ability instance* itself,
+    not a GameObject field reset every turn" shape.
     """
 
     def __init__(
@@ -551,6 +607,7 @@ class ActivatedAbility(GameEffect):
         taps_source: bool = False,
         source: Optional["GameObject"] = None,
         description: str = "",
+        once_per_turn: bool = False,
     ) -> None:
         super().__init__(source)
         self.effects = effects
@@ -561,6 +618,8 @@ class ActivatedAbility(GameEffect):
             cost = ActivationCost(mana=mana_cost or ManaCost(), taps_self=taps_source)
         self.cost = cost
         self.description = description
+        self.once_per_turn = once_per_turn
+        self._last_activated_turn: Optional[int] = None
 
     @property
     def mana_cost(self) -> ManaCost:
@@ -585,6 +644,32 @@ class ActivatedAbility(GameEffect):
 # ---------------------------------------------------------------------------
 # SPECIAL: Win/loss overrides (docs/07 PART 9)
 # ---------------------------------------------------------------------------
+
+
+class WinGameEffect(GameEffect):
+    """"You win the game." (RULE 104.2) — Jace, Wielder of Mysteries' "-8:
+    Draw seven cards. Then if your library has no cards in it, you win the
+    game." tail (``if_empty_library=True`` gates it on the caster's current
+    library being empty; unconditional win-the-game clauses would pass
+    ``False``, though no card in the pool needs that shape yet). Calls
+    `RulesEngine.player_wins` — the ability's own controller wins outright.
+    """
+
+    def __init__(self, if_empty_library: bool = False, source: Optional["GameObject"] = None) -> None:
+        super().__init__(source)
+        self.if_empty_library = if_empty_library
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        controller_id = getattr(self.source, "controller_id", None)
+        if controller_id is None:
+            return
+        try:
+            player = context.state.player_by_id(controller_id)
+        except Exception:
+            return
+        if self.if_empty_library and player.library:
+            return
+        context.engine.player_wins(player)
 
 
 class WinConditionEffect(GameEffect):
@@ -843,6 +928,24 @@ class DiscardEffect(GameEffect):
         context.discard(player, self.count)
 
 
+class PutHandCardsOnTopEffect(GameEffect):
+    """"Put N cards from your hand on top of your library in any order"
+    (Brainstorm's back half — the same loot-shaped template other
+    draw-then-filter cards this pool doesn't need yet would share). See
+    `RulesEngine.put_hand_cards_on_top` for why the missing "any order"
+    choice is inert at this engine's fidelity.
+    """
+
+    def __init__(self, count: int = 1, player: Any = None, source: Optional["GameObject"] = None) -> None:
+        super().__init__(source)
+        self.count = count
+        self.player = player
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        player = self.player or context.active_player
+        context.put_hand_cards_on_top(player, self.count)
+
+
 #: RULE 601.2c mass "destroy/exile all X" selectors (Wrath of God/Citywide
 #: Bust/Farewell-shaped board wipes) — untargeted, unlike every RULE 115
 #: target form above, so `DestroyEffect`/`ExileEffect` skip `target_spec`
@@ -862,7 +965,9 @@ def _mass_selector_objects(
     numeric conditions, all AND-combined: ``min_toughness``/``max_mana_
     value``/``min_mana_value`` (Citywide Bust/Austere Command-shaped).
     """
-    battlefield = context.state.battlefield
+    # RULE 702.26c: a phased-out permanent is treated as though it doesn't
+    # exist — a board wipe leaves it untouched.
+    battlefield = context.state.permanents()
     if selector == "all_creatures":
         result = [o for o in battlefield if o.is_creature]
     elif selector == "all_artifacts":
@@ -895,7 +1000,10 @@ class DestroyEffect(GameEffect):
     target artifacts and/or enchantments") — or, with ``selector`` set, a
     mass "destroy all X [with condition]" board wipe (RULE 601.2c, untargeted,
     same shape as `DealDamageEffect.selector`). ``can_be_regenerated=False``
-    is Wrath of God's "They can't be regenerated." tail.
+    is Wrath of God's "They can't be regenerated." tail. ``max_mana_value``
+    is Abrupt Decay-shaped "target nonland permanent with mana value 3 or
+    less" — a target-offer-time cap (`targeting.TargetSpec.max_mana_value`),
+    not a resolve-time check.
     """
 
     def __init__(
@@ -908,6 +1016,8 @@ class DestroyEffect(GameEffect):
         selector: Optional[str] = None,
         filter: Optional[dict[str, Any]] = None,
         can_be_regenerated: bool = True,
+        color: Optional[str] = None,
+        max_mana_value: Optional[int] = None,
     ) -> None:
         super().__init__(source)
         self.target = target
@@ -915,7 +1025,10 @@ class DestroyEffect(GameEffect):
         self.filter = filter
         self.can_be_regenerated = can_be_regenerated
         if self.selector is None:
-            self.target_spec = TargetSpec(kind=target_kind, optional=optional, count=count)
+            self.target_spec = TargetSpec(
+                kind=target_kind, optional=optional, count=count, color=color,
+                max_mana_value=max_mana_value,
+            )
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
         if self.selector is not None:
@@ -1079,6 +1192,21 @@ class SacrificeEffect(GameEffect):
         context.sacrifice(player, self.what, self.count)
 
 
+class SacrificeSelfEffect(GameEffect):
+    """"Sacrifice ~."/"Sacrifice this enchantment." (Dress Down/Underworld
+    Breach-shaped standing end-step self-sac) — the effect's own source
+    sacrifices itself, no player choice or RULE 115 target involved (RULE
+    701.17). Uses `RulesEngine.put_into_graveyard` rather than `destroy`
+    (RULE 701.16c: sacrifice isn't destruction, so it can't be regenerated),
+    the same distinction `GameEngine._pay_activation_cost`'s own sacrifice
+    cost-payment already makes.
+    """
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        if self.source is not None:
+            context.put_into_graveyard(self.source)
+
+
 class CounterSpellEffect(GameEffect):
     """Counter a target spell on the stack (RULE 701.5).
 
@@ -1099,6 +1227,7 @@ class CounterSpellEffect(GameEffect):
         noncreature: bool = False,
         card_types: Optional[list[str]] = None,
         mana_value: Optional[int] = None,
+        color: Optional[str] = None,
         source: Optional["GameObject"] = None,
     ) -> None:
         super().__init__(source)
@@ -1111,6 +1240,8 @@ class CounterSpellEffect(GameEffect):
             spell_filter["card_types"] = list(card_types)
         if mana_value is not None:
             spell_filter["mana_value"] = mana_value
+        if color:
+            spell_filter["color"] = color
         self.target_spec = TargetSpec(kind="spell", spell_filter=spell_filter or None)
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
@@ -1210,29 +1341,51 @@ class ExileEffect(GameEffect):
     generalized to N>=2 — "exile up to two target creatures you control") —
     or, with ``selector`` set, a mass "exile all X" board wipe (RULE
     601.2c, untargeted — Farewell-shaped), the same shape
-    `DestroyEffect.selector` uses."""
+    `DestroyEffect.selector` uses.
+
+    ``target_kind=None`` (unlike the default ``"permanent"``) is the *self*
+    form — "Exile ~."/"Exile this spell/card." (Teferi's Protection/
+    Mnemonic Betrayal-shaped trailing self-exile) — no RULE 115 target at
+    all, mirroring `TapEffect`/`RegenerateEffect`'s own self mode.
+
+    ``remember=True`` additionally stamps the exiled target's own
+    ``instance_id`` onto this ability's own source (`GameObject.
+    linked_exile_id`) — the O-Ring-shaped "when this leaves the
+    battlefield, return the exiled card" half (`ReturnLinkedExileEffect`)
+    reads it back later, arbitrarily many turns on. Only meaningful with a
+    single (``count=1``) real target — a mass/selector exile has nothing
+    single to remember.
+    """
 
     def __init__(
         self,
         target: Any = None,
         source: Optional["GameObject"] = None,
-        target_kind: str = "permanent",
+        target_kind: Optional[str] = "permanent",
         optional: bool = False,
         count: int = 1,
         selector: Optional[str] = None,
         filter: Optional[dict[str, Any]] = None,
+        remember: bool = False,
     ) -> None:
         super().__init__(source)
         self.target = target
         self.selector = selector if selector in _MASS_DESTROY_SELECTORS else None
         self.filter = filter
-        if self.selector is None:
+        self.remember = remember
+        self.target_spec: Optional[TargetSpec] = None
+        if self.selector is None and target_kind is not None:
             self.target_spec = TargetSpec(kind=target_kind, optional=optional, count=count)
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
         if self.selector is not None:
             for obj in _mass_selector_objects(context, self.selector, self.filter):
                 context.exile(obj)
+            return
+        if self.target_spec is None:
+            target = (targets[0] if targets else None) or self.target or self.source
+            if target is not None:
+                context.exile(target)
             return
         # See `DealDamageEffect.apply`'s comment: only this effect's own
         # ``count`` targets, off the front of a possibly-shared list.
@@ -1241,6 +1394,8 @@ class ExileEffect(GameEffect):
             else ([self.target] if self.target is not None else [])
         )
         for target in chosen:
+            if self.remember and self.source is not None:
+                self.source.linked_exile_id = target.instance_id
             context.exile(target)
 
 
@@ -1353,6 +1508,438 @@ class ExileGraveyardCreaturesGainLifeEffect(GameEffect):
             controller = _controller_of(self.source, context)
             if controller is not None:
                 context.gain_life(controller, self.life_per_card * len(creatures))
+
+
+class DestroyLoseLifeEqualManaValueEffect(GameEffect):
+    """"Destroy target creature or enchantment an opponent controls. You
+    lose life equal to that permanent's mana value." (Feed the Swarm) — a
+    single atomic effect since the life total depends on the target's own
+    mana value, read before it leaves the battlefield, mirroring
+    `ExileGainLifeToControllerEffect`'s "read the target's own
+    characteristic, then move it" shape. ``target_kind="permanent"``
+    (broader than "creature or enchantment an opponent controls" — no
+    target kind unions two card types *and* restricts to opponents at
+    once) is the same documented simplification `_TARGET_ROWS`'s "target
+    artifact or enchantment" → ``"permanent"`` row already uses elsewhere;
+    the life-loss always hits the *caster*, not the target's controller,
+    unlike `ExileGainLifeToControllerEffect`.
+    """
+
+    def __init__(
+        self,
+        target: Any = None,
+        source: Optional["GameObject"] = None,
+        target_kind: str = "permanent",
+    ) -> None:
+        super().__init__(source)
+        self.target = target
+        self.target_spec = TargetSpec(kind=target_kind)
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        target = (targets[0] if targets else None) or self.target
+        if target is None:
+            return
+        mana_value = target.card.converted_mana_cost
+        context.destroy(target)
+        controller = _controller_of(self.source, context)
+        if controller is not None and mana_value:
+            context.lose_life(controller, mana_value)
+
+
+class ExileCreateTokenEffect(GameEffect):
+    """"Exile target artifact or creature. Its controller creates a 4/4
+    blue and red Elemental creature token." (Resculpt) — a single atomic
+    effect: the token goes to the *exiled permanent's own controller*
+    (unlike `CreateTokenEffect`, which always creates under the effect's
+    own source's controller), so the target's controller must be read
+    before/alongside exiling it, the same "read something off the target,
+    then act" shape `ExileGainLifeToControllerEffect` uses for life gain
+    instead of a token.
+    """
+
+    def __init__(
+        self,
+        target: Any = None,
+        source: Optional["GameObject"] = None,
+        target_kind: str = "permanent",
+        power: Optional[int] = None,
+        toughness: Optional[int] = None,
+        colors: Optional[list[str]] = None,
+        subtypes: Optional[list[str]] = None,
+        token_name: Optional[str] = None,
+    ) -> None:
+        super().__init__(source)
+        self.target = target
+        self.target_spec = TargetSpec(kind=target_kind)
+        self.power = power
+        self.toughness = toughness
+        self.colors = colors or []
+        self.subtypes = subtypes or []
+        self.token_name = token_name or (subtypes[0] if subtypes else "Token")
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        from ..services.token_database import synthesize_token_card
+
+        target = (targets[0] if targets else None) or self.target
+        if target is None:
+            return
+        controller_id = getattr(target, "controller_id", None)
+        context.exile(target)
+        if controller_id is None:
+            return
+        card = synthesize_token_card(
+            self.token_name, power=self.power, toughness=self.toughness,
+            colors=self.colors, subtypes=self.subtypes,
+        )
+        context.create_token(controller_id, card, 1)
+
+
+class DestroyCreateTokenEffect(GameEffect):
+    """"Destroy target permanent. Its controller creates a 3/3 green Beast
+    creature token." (Beast Within) — `ExileCreateTokenEffect`'s destroy-
+    instead-of-exile sibling: the token still goes to the *destroyed
+    permanent's own controller*, read before it leaves the battlefield,
+    same "read something off the target, then act" shape.
+    """
+
+    def __init__(
+        self,
+        target: Any = None,
+        source: Optional["GameObject"] = None,
+        target_kind: str = "permanent",
+        power: Optional[int] = None,
+        toughness: Optional[int] = None,
+        colors: Optional[list[str]] = None,
+        subtypes: Optional[list[str]] = None,
+        token_name: Optional[str] = None,
+        can_be_regenerated: bool = True,
+    ) -> None:
+        super().__init__(source)
+        self.target = target
+        self.target_spec = TargetSpec(kind=target_kind)
+        self.power = power
+        self.toughness = toughness
+        self.colors = colors or []
+        self.subtypes = subtypes or []
+        self.token_name = token_name or (subtypes[0] if subtypes else "Token")
+        self.can_be_regenerated = can_be_regenerated
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        from ..services.token_database import synthesize_token_card
+
+        target = (targets[0] if targets else None) or self.target
+        if target is None:
+            return
+        controller_id = getattr(target, "controller_id", None)
+        context.destroy(target, can_be_regenerated=self.can_be_regenerated)
+        if controller_id is None:
+            return
+        card = synthesize_token_card(
+            self.token_name, power=self.power, toughness=self.toughness,
+            colors=self.colors, subtypes=self.subtypes,
+        )
+        context.create_token(controller_id, card, 1)
+
+
+class DestroyGainLifeToControllerEffect(GameEffect):
+    """"Destroy target artifact or enchantment. Its controller gains 4
+    life." (Nature's Claim-shaped) — a fixed life amount, unlike
+    `ExileGainLifeToControllerEffect`'s "equal to its power"; still a single
+    atomic effect since the life goes to the *target's own controller*
+    (read before it leaves the battlefield), not the caster.
+    ``target_kind="permanent"`` (broader than "artifact or enchantment" — no
+    target kind unions two card types) is the same documented `_TARGET_
+    ROWS` simplification `DestroyLoseLifeEqualManaValueEffect` already uses.
+    """
+
+    def __init__(
+        self,
+        target: Any = None,
+        source: Optional["GameObject"] = None,
+        target_kind: str = "permanent",
+        amount: int = 0,
+        can_be_regenerated: bool = True,
+    ) -> None:
+        super().__init__(source)
+        self.target = target
+        self.target_spec = TargetSpec(kind=target_kind)
+        self.amount = amount
+        self.can_be_regenerated = can_be_regenerated
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        target = (targets[0] if targets else None) or self.target
+        if target is None:
+            return
+        controller_id = getattr(target, "controller_id", None)
+        context.destroy(target, can_be_regenerated=self.can_be_regenerated)
+        if controller_id is None or not self.amount:
+            return
+        try:
+            player = context.state.player_by_id(controller_id)
+        except (KeyError, ValueError):
+            return
+        context.gain_life(player, self.amount)
+
+
+class GainControlUntilEndOfTurnEffect(GameEffect):
+    """"Gain control of target permanent until end of turn. Untap that
+    permanent. It gains haste until end of turn." (RULE 108.4-adjacent —
+    Zealous Conscripts/Coercive Recruiter-shaped) — a single atomic effect
+    bundling the control change, the untap, and the haste grant (every real
+    printed instance of this exact clause pairs all three on the *same*
+    target), rather than composing 3 separate targeting effects that would
+    each need their own copy of the shared target (the "two targeting
+    effects double-prompt" reason `TargetPlayerDrawLoseLifeEffect`'s
+    docstring gives — no plain `pump`/keyword-grant effect can reach the
+    exact object this one just changed control of without `target_groups`
+    machinery no real card here needs). Reverts control automatically at
+    the next cleanup (`GameEngine._step_cleanup`, `GameObject.control_
+    change_until_eot` remembers the original controller) — the haste grant
+    is a `temp_keywords` entry, cleared at that same cleanup, matching
+    "until end of turn" exactly. RULE 302.6's own "summoning sickness
+    resets under a new controller" isn't separately modeled, since the
+    haste grant makes the distinction unobservable either way. Doesn't move
+    the object zones at all (unlike `blink`), so counters/attachments/
+    damage marked all carry over exactly as the permanent itself would
+    expect.
+    """
+
+    def __init__(
+        self,
+        target: Any = None,
+        source: Optional["GameObject"] = None,
+        target_kind: str = "permanent",
+        haste: bool = True,
+    ) -> None:
+        super().__init__(source)
+        self.target = target
+        self.target_spec = TargetSpec(kind=target_kind)
+        self.haste = haste
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        target = (targets[0] if targets else None) or self.target
+        if target is None:
+            return
+        controller = _controller_of(self.source, context)
+        if controller is None or target.controller_id == controller.id:
+            return
+        if target.control_change_until_eot is None:
+            target.control_change_until_eot = target.controller_id
+        target.controller_id = controller.id
+        context.set_tapped(target, tapped=False)
+        if self.haste:
+            target.temp_keywords.add("haste")
+        context.recompute()
+
+
+class ReturnLinkedExileEffect(GameEffect):
+    """"When this leaves the battlefield, return the exiled card to the
+    battlefield under its owner's control." (Leonin Relic-Warder/O-Ring-
+    shaped) — the return half of an `ExileEffect(remember=True)` pair:
+    reads the linked card's ``instance_id`` off this ability's own source
+    (stamped by the earlier ETB exile, survives however long the card
+    stays exiled) rather than a RULE 115 target — nothing was ever chosen
+    here, "the exiled card" is a fixed reference. A no-op if nothing is
+    currently linked (the "may exile" ETB was declined) or the linked card
+    already left exile some other way (bounced back by a third effect,
+    etc.).
+    """
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        if self.source is None:
+            return
+        linked_id = getattr(self.source, "linked_exile_id", None)
+        self.source.linked_exile_id = None
+        if linked_id is None:
+            return
+        card_obj = context.state.find_object(linked_id)
+        if card_obj is None or card_obj.zone != Zone.EXILE:
+            return
+        context.return_from_graveyard(card_obj, "battlefield")
+
+
+class ExileLibraryEffect(GameEffect):
+    """"Exile all cards from your library." (Paradigm Shift-shaped) — an
+    untargeted, hidden-zone-to-exile mass move: a library's contents are
+    never legal RULE 115 targets, and `ExileEffect.selector`'s mass-board-
+    wipe vocabulary only ever reads the *battlefield*, so this is its own
+    effect rather than a reused selector.
+    """
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        player = _controller_of(self.source, context)
+        if player is None:
+            return
+        for obj in list(player.library):
+            context.exile(obj)
+
+
+class ShuffleGraveyardIntoLibraryEffect(GameEffect):
+    """"Shuffle your graveyard into your library." (RULE 701.20) — the
+    graveyard-only sibling of `RulesEngine.shuffle_hand_and_graveyard_
+    into_library`'s "hand AND graveyard" wheel template; reused wherever
+    only the graveyard moves (Paradigm Shift).
+    """
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        player = _controller_of(self.source, context)
+        if player is None:
+            return
+        for obj in list(player.graveyard):
+            player.remove_from_zone(obj, Zone.GRAVEYARD)
+            player.add_to_zone(obj, Zone.LIBRARY)
+        context.shuffle_library(player)
+
+
+class GraveyardToLibraryBottomRandomEffect(GameEffect):
+    """"Up to one target player puts all the cards from their graveyard on
+    the bottom of their library in a random order." (Endurance-shaped) —
+    RULE 701.20-adjacent; unlike a plain `shuffle_library` call (which
+    randomizes the *whole* library), this only randomizes the moved batch's
+    own relative order among themselves before appending it to the bottom,
+    leaving the existing library order above them untouched.
+    """
+
+    def __init__(
+        self,
+        target: Any = None,
+        source: Optional["GameObject"] = None,
+        target_kind: str = "player",
+        optional: bool = True,
+    ) -> None:
+        super().__init__(source)
+        self.target = target
+        self.target_spec = TargetSpec(kind=target_kind, optional=optional)
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        import random
+
+        player = (targets[0] if targets else None) or self.target
+        if player is None:
+            return
+        moved = list(player.graveyard)
+        if not moved:
+            return
+        random.shuffle(moved)
+        for obj in moved:
+            player.remove_from_zone(obj, Zone.GRAVEYARD)
+        for obj in moved:
+            player.library.insert(0, obj)
+            obj.zone = Zone.LIBRARY
+
+
+class ReturnToHandDrawIfControlledEffect(GameEffect):
+    """"Return target nonland permanent to its owner's hand. If you
+    controlled that permanent, draw a card." (Geistwave-shaped) — a single
+    atomic effect: the draw is conditioned on the target's own controller,
+    read *before* it leaves the battlefield, mirroring
+    `ExileGainLifeToControllerEffect`'s "read something off the target,
+    then act" shape (composing two separate `EffectSpec`s here couldn't
+    check the target's controller after `ReturnToHandEffect` already moved
+    it, the same reason that effect's docstring gives for not splitting its
+    own life-gain out).
+    """
+
+    def __init__(
+        self,
+        target: Any = None,
+        source: Optional["GameObject"] = None,
+        target_kind: str = "nonland_permanent",
+    ) -> None:
+        super().__init__(source)
+        self.target = target
+        self.target_spec = TargetSpec(kind=target_kind)
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        target = (targets[0] if targets else None) or self.target
+        if target is None:
+            return
+        controller = _controller_of(self.source, context)
+        you_controlled_it = controller is not None and target.controller_id == controller.id
+        context.return_to_hand(target)
+        if you_controlled_it and controller is not None:
+            context.draw(controller, 1)
+
+
+class GrantFlashUntilEndOfTurnEffect(GameEffect):
+    """"You may cast spells this turn as though they had flash." (Borne
+    Upon a Wind-shaped) — stamps `GameState.temp_flash_until_turn` for the
+    effect's controller, consulted by `GameEngine.can_cast`'s sorcery-speed
+    timing gate; naturally expires once the turn number advances, no
+    cleanup-step bookkeeping needed (unlike the `temp_*` `GameObject`
+    fields `_step_cleanup` clears).
+    """
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        player = _controller_of(self.source, context)
+        if player is not None:
+            context.state.temp_flash_until_turn[player.id] = context.state.turn_number
+
+
+class ExileControllerSearchesBasicLandEffect(GameEffect):
+    """"Exile target creature you don't control. For each creature exiled
+    this way, its controller searches their library for a basic land
+    card. Those players put those cards onto the battlefield tapped, then
+    shuffle." (Winds of Abandon, single-target cast — Overload's "each
+    opponent" rewrite isn't modeled, see the catalogue entry) — the search
+    is offered to the *exiled creature's own controller*, not the caster,
+    the same target-controller resolution `ExileCreateTokenEffect` uses.
+    ``target_kind="creature"`` (broader than "you don't control" — no
+    target kind carries an ownership exclusion yet) is a documented
+    simplification, mirroring `ExileControllerSearchesBasicLandEffect`'s
+    siblings elsewhere in this file.
+    """
+
+    def __init__(
+        self,
+        target: Any = None,
+        source: Optional["GameObject"] = None,
+        target_kind: str = "creature",
+    ) -> None:
+        super().__init__(source)
+        self.target = target
+        self.target_spec = TargetSpec(kind=target_kind)
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        target = (targets[0] if targets else None) or self.target
+        if target is None:
+            return
+        controller_id = getattr(target, "controller_id", None)
+        context.exile(target)
+        if controller_id is None:
+            return
+        try:
+            player = context.state.player_by_id(controller_id)
+        except (KeyError, ValueError):
+            return
+        context.request_search(player, {"basic": True}, "battlefield_tapped", 1, False)
+
+
+class ReturnTopGraveyardCreatureWithHasteEffect(GameEffect):
+    """Return the top creature card of your graveyard to the battlefield;
+    that creature gains haste until end of turn (Corpse Dance, minus its
+    delayed "exile it at the beginning of the next end step" tail — no
+    dynamically-created delayed-trigger primitive exists yet for a one-shot
+    future event, see docs/implementation-state/ToDo_EdgeCases.md). A
+    single atomic effect, not `ReturnFromGraveyardEffect` (a RULE 115
+    *target*) plus a separate haste grant: the "top card" pick is
+    untargeted/positional (the graveyard's own insertion order — the most
+    recently added card is "on top"), and "that creature" refers to the
+    exact object this same effect just returned — no shared targets-list
+    slot for a second effect to reach it, the same "read/act on what I just
+    did" shape `LivingWeaponEffect` uses for its own token-then-attach.
+    """
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        player = _controller_of(self.source, context)
+        if player is None:
+            return
+        creature = next((o for o in reversed(player.graveyard) if o.card.is_creature), None)
+        if creature is None:
+            return
+        context.return_from_graveyard(creature, "battlefield")
+        creature.temp_keywords.add("haste")
+        context.recompute()
 
 
 class TargetPlayerDrawLoseLifeEffect(GameEffect):
@@ -1544,6 +2131,33 @@ class ReturnFromGraveyardEffect(GameEffect):
         context.return_from_graveyard(target, self.destination, controller_id=controller_id)
 
 
+class BlinkEffect(GameEffect):
+    """"Exile target permanent, then return it to the battlefield under its
+    owner's control" (RULE 400.7 — Ephemerate/Momentary Blink-shaped).
+
+    Distinct from `ReturnFromGraveyardEffect` (a graveyard-only recursion
+    family): this targets a *battlefield* permanent and always returns it to
+    its owner's control. See `RulesEngine.blink`'s docstring for why exiling
+    then re-entering is a genuine RULE 400.7 "new object" rather than a
+    single no-op move.
+    """
+
+    def __init__(
+        self,
+        target: Any = None,
+        source: Optional["GameObject"] = None,
+        target_kind: str = "creature_you_control",
+    ) -> None:
+        super().__init__(source)
+        self.target = target
+        self.target_spec = TargetSpec(kind=target_kind)
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        target = (targets[0] if targets else None) or self.target
+        if target is not None:
+            context.blink(target)
+
+
 class AddManaEffect(GameEffect):
     """Add mana straight to the effect's controller's pool (RULE 106.4) — a
     spell's own bare "Add {B}{B}{B}." resolve-time body (Dark Ritual-shaped),
@@ -1578,6 +2192,14 @@ class AddManaEffect(GameEffect):
                 context.add_mana(player, color)
 
 
+#: `TapEffect.selector`'s whitelist — a mass "tap/untap all X" effect (RULE
+#: 601.2c-style, untargeted, the same shape `DealDamageEffect.selector`/
+#: `DestroyEffect.selector` use), not a RULE 115 target at all. Only the one
+#: shape a real card needs so far: "untap all creatures you control"
+#: (Village Bell-Ringer).
+_TAP_SELECTORS: frozenset[str] = frozenset({"creatures_you_control", "permanents_you_control"})
+
+
 class TapEffect(GameEffect):
     """Tap (or untap) a target permanent — or the source itself (RULE 701.21/22).
 
@@ -1585,6 +2207,24 @@ class TapEffect(GameEffect):
     the effect's own source with no player choice involved — "untap it" in a
     "whenever this creature becomes tapped, untap it" trigger (Dionus, Elvish
     Archdruid), mirroring `AddCountersEffect`'s untargeted mode.
+
+    ``target_kind="attached_permanent"`` is a third, similarly targetless
+    mode — "{U}: Tap enchanted creature."/"{U}: Untap enchanted creature."
+    (Freed from the Real/Pemmin's Aura-shaped Aura activated abilities):
+    acts on whatever the effect's own source (the Aura) is *currently*
+    `attached_to`, re-read live at resolution (an Aura can move via
+    Reconfigure-adjacent effects), mirroring `effect_binder._subject_
+    condition`'s `"attached_permanent"` *trigger*-subject concept — this is
+    the same idea applied to an effect's *target* instead.
+
+    ``selector`` (see `_TAP_SELECTORS`) is a fourth mode — "untap all
+    creatures you control" (Village Bell-Ringer's ETB) — untargeted, acting
+    on every object `continuous.group_selector_objects` picks out for the
+    effect's own controller, rather than a single target/self/attached host.
+
+    ``count`` > 1 targets several independent objects (RULE 115.1a
+    generalized to N>=2, the same shape `DestroyEffect.count` uses) — "untap
+    up to two target lands" (Snap-shaped).
     """
 
     def __init__(
@@ -1594,13 +2234,44 @@ class TapEffect(GameEffect):
         target_kind: Optional[str] = "permanent",
         untap: bool = False,
         optional: bool = False,
+        selector: Optional[str] = None,
+        count: int = 1,
     ) -> None:
         super().__init__(source)
         self.target = target
         self.untap = untap
-        self.target_spec = TargetSpec(kind=target_kind, optional=optional) if target_kind is not None else None
+        self.selector = selector if selector in _TAP_SELECTORS else None
+        self._attached_mode = target_kind == "attached_permanent"
+        self.target_spec = (
+            TargetSpec(kind=target_kind, optional=optional, count=count)
+            if target_kind is not None and not self._attached_mode and self.selector is None
+            else None
+        )
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        if self.selector is not None:
+            from .continuous import group_selector_objects  # avoid the continuous↔effects cycle
+
+            controller_id = getattr(self.source, "controller_id", None)
+            for obj in group_selector_objects(context.state, controller_id, self.selector):
+                context.set_tapped(obj, tapped=not self.untap)
+            return
+        if self._attached_mode:
+            host_id = getattr(self.source, "attached_to", None)
+            target = context.state.find_object(host_id) if host_id is not None else None
+            if target is not None:
+                context.set_tapped(target, tapped=not self.untap)
+            return
+        if self.target_spec is not None and self.target_spec.count != 1:
+            # See `DestroyEffect.apply`'s comment: only this effect's own
+            # ``count`` targets, off the front of a possibly-shared list.
+            chosen = (
+                targets[: self.target_spec.count] if targets
+                else ([self.target] if self.target is not None else [])
+            )
+            for one in chosen:
+                context.set_tapped(one, tapped=not self.untap)
+            return
         target = (targets[0] if targets else None) or self.target
         if target is None and self.target_spec is None:
             target = self.source
@@ -1683,6 +2354,35 @@ class UnattachTapIndestructibleEffect(GameEffect):
             host.temp_keywords.add("indestructible")
 
 
+class ReturnCreatureGrantIndestructibleEffect(GameEffect):
+    """Temur Sabertooth's own "{1}{G}: You may return another creature you
+    control to its owner's hand. If you do, this creature gains
+    indestructible until end of turn." — the same "if you do" shape
+    `UnattachTapIndestructibleEffect` (Akiri) uses, just returning a target
+    to hand instead of unattaching one, and granting indestructible to the
+    effect's own *source* instead of the targeted object's host.
+    """
+
+    def __init__(
+        self,
+        target: Any = None,
+        source: Optional["GameObject"] = None,
+        target_kind: str = "creature_you_control",
+        optional: bool = True,
+    ) -> None:
+        super().__init__(source)
+        self.target = target
+        self.target_spec = TargetSpec(kind=target_kind, optional=optional)
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        target = (targets[0] if targets else None) or self.target
+        if target is None:
+            return
+        context.return_to_hand(target)
+        if self.source is not None:
+            self.source.temp_keywords.add("indestructible")
+
+
 class TransformEffect(GameEffect):
     """Flip a double-faced permanent to its other face (RULE 712.8/712.9).
 
@@ -1710,6 +2410,53 @@ class TransformEffect(GameEffect):
             target = self.source
         if target is not None:
             context.engine.transform_permanent(target)
+
+
+class PhaseOutEffect(GameEffect):
+    """Phase a permanent out (RULE 702.26) — treated as though it doesn't
+    exist until it phases back in at its controller's next untap step
+    (`GameEngine._step_untap`'s RULE 702.26a sweep).
+
+    Untargeted with ``target_kind=None`` (the default): phases out whatever
+    is currently attached to this effect's own source ("Equipped creature
+    phases out" — Robe of Stars' Astral Projection — no RULE 115 target,
+    the same "defaults to its own source/host, no targeting" shape
+    `TransformEffect`'s "transform ~" uses). ``target_kind="creature"``
+    (etc.) targets some other permanent instead, same alternative
+    `TransformEffect` offers.
+
+    Any Aura/Equipment attached to the phasing-out permanent becomes
+    unattached rather than phasing out together with it (RULE 702.26e-
+    family simplification — no card needing a multi-permanent phase chain
+    yet, see docs/implementation-state/ToDo_EdgeCases.md).
+    """
+
+    def __init__(
+        self,
+        target: Any = None,
+        source: Optional["GameObject"] = None,
+        target_kind: Optional[str] = None,
+        optional: bool = False,
+    ) -> None:
+        super().__init__(source)
+        self.target = target
+        if target_kind is not None:
+            self.target_spec = TargetSpec(kind=target_kind, optional=optional)
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        if self.target_spec is not None:
+            target = (targets[0] if targets else None) or self.target
+        elif self.source is not None:
+            host_id = getattr(self.source, "attached_to", None)
+            target = context.state.find_object(host_id) if host_id is not None else None
+        else:
+            target = None
+        if target is None:
+            return
+        target.phased_out = True
+        for obj in context.state.battlefield:
+            if obj.attached_to == target.instance_id:
+                obj.attached_to = None
 
 
 class BecomePreparedEffect(GameEffect):
@@ -1887,6 +2634,21 @@ class PumpEffect(GameEffect):
     untargeted resolve-time selection (RULE 601.2c — not a target at all), the
     common Saga-chapter/anthem-spell shape "Creatures you control get +N/+N
     until end of turn" (e.g. History of Benalia's chapter III).
+
+    ``unblockable=True`` additionally sets the target's ``temp_unblockable``
+    flag (the same one `UnblockableEffect` sets) — "target creature gets
+    +1/+0 until end of turn and can't be blocked this turn" (You Come to a
+    River-shaped) is one *ability* with one target, not two independent
+    targeting effects, so it's folded into this single effect (mirroring how
+    a granted keyword already rides along in ``keywords``) rather than paired
+    with a second `UnblockableEffect` that would ask for its own target.
+
+    ``target_kind="attached_permanent"`` is a fourth mode — "{U}: Enchanted
+    creature gains flying until end of turn." (Pemmin's Aura-shaped Aura
+    activated ability): acts on whatever the effect's own source is
+    currently `attached_to`, re-read live at resolution, no RULE 115 target
+    at all — the same concept `TapEffect`'s own ``"attached_permanent"``
+    mode uses, see its docstring.
     """
 
     def __init__(
@@ -1896,6 +2658,7 @@ class PumpEffect(GameEffect):
         keywords: Optional[list[str]] = None,
         target_kind: Optional[str] = None,
         selector: Optional[str] = None,
+        unblockable: bool = False,
         source: Optional["GameObject"] = None,
     ) -> None:
         super().__init__(source)
@@ -1903,13 +2666,17 @@ class PumpEffect(GameEffect):
         self.toughness = toughness
         self.keywords = list(keywords or [])
         self.selector = selector
-        if target_kind is not None:
+        self.unblockable = unblockable
+        self._attached_mode = target_kind == "attached_permanent"
+        if target_kind is not None and not self._attached_mode:
             self.target_spec = TargetSpec(kind=target_kind)
 
     def _pump_one(self, obj: "GameObject") -> None:
         obj.temp_power += self.power
         obj.temp_toughness += self.toughness
         obj.temp_keywords.update(self.keywords)
+        if self.unblockable:
+            obj.temp_unblockable = True
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
         if self.selector is not None:
@@ -1921,7 +2688,10 @@ class PumpEffect(GameEffect):
                 self._pump_one(obj)
             context.recompute()
             return
-        if self.target_spec is not None:
+        if self._attached_mode:
+            host_id = getattr(self.source, "attached_to", None)
+            target = context.state.find_object(host_id) if host_id is not None else None
+        elif self.target_spec is not None:
             target = targets[0] if targets else None
         else:
             target = self.source
@@ -1969,6 +2739,13 @@ class CreateTokenEffect(GameEffect):
     created objects are flagged tokens, so RULE 704.5d removes them the instant
     they leave the battlefield. The tokens are created under the effect's
     controller (its source's controller, else the active player).
+
+    ``count_selector``, when given, overrides ``count`` with a live
+    `continuous.count_selector` evaluation at resolve time — "create X
+    Treasure tokens, where X is the number of artifacts and enchantments
+    your opponents control" (Dockside Extortionist-shaped), scoped to the
+    effect's own controller the same way a per-count anthem's ``power_
+    count`` is.
     """
 
     def __init__(
@@ -1981,6 +2758,7 @@ class CreateTokenEffect(GameEffect):
         subtypes: Optional[list[str]] = None,
         keywords: Optional[list[str]] = None,
         source: Optional["GameObject"] = None,
+        count_selector: Optional[str] = None,
     ) -> None:
         super().__init__(source)
         self.count = count
@@ -1990,6 +2768,7 @@ class CreateTokenEffect(GameEffect):
         self.colors = colors or []
         self.subtypes = subtypes or []
         self.keywords = keywords or []
+        self.count_selector = count_selector
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
         from ..services.token_database import default_token_database, synthesize_token_card
@@ -2012,7 +2791,12 @@ class CreateTokenEffect(GameEffect):
             self.source.controller_id if self.source is not None
             else context.active_player.id
         )
-        context.create_token(controller_id, card, self.count)
+        count = self.count
+        if self.count_selector:
+            from . import continuous  # avoid the continuous↔effects import cycle
+
+            count = continuous.count_selector(context.state, controller_id, self.count_selector)
+        context.create_token(controller_id, card, count)
 
 
 class CopyPermanentEffect(GameEffect):
@@ -2201,6 +2985,66 @@ class SearchLibraryEffect(GameEffect):
 # ---------------------------------------------------------------------------
 
 
+class ImpulsiveLookEffect(GameEffect):
+    """"Look at the top N cards, take one matching a filter, rest to Y"
+    (Grisly Salvage/Commune with the Gods-shaped) — distinct from
+    `SearchLibraryEffect` (searches the *whole* library, always shuffles
+    afterwards) and `top_library.py`'s standing "look at/play from the top"
+    permission (never moves a card). Peels exactly ``count`` cards, offers a
+    choice among only the ones matching ``criteria``, routes the pick to
+    ``hit_destination`` and the rest to ``miss_destination`` (see
+    `GameContext.impulsive_look`/`RulesEngine.request_impulsive_look`).
+    """
+
+    def __init__(
+        self,
+        count: int = 1,
+        criteria: Any = "",
+        hit_destination: str = "hand",
+        miss_destination: str = "graveyard",
+        optional: bool = True,
+        player: Any = None,
+        source: Optional["GameObject"] = None,
+    ) -> None:
+        super().__init__(source)
+        self.count = count
+        self.criteria = criteria
+        self.hit_destination = hit_destination
+        self.miss_destination = miss_destination
+        self.optional = optional
+        self.player = player
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        player = self.player or context.active_player
+        context.impulsive_look(
+            player, self.count, self.criteria,
+            self.hit_destination, self.miss_destination, self.optional,
+        )
+
+
+class ImpulsiveDrawEffect(GameEffect):
+    """Exile the top ``count`` cards of the library; their controller may
+    play any of them through the end of their next turn (RULE 601.3b
+    analogue, Light Up the Stage-shaped "impulsive draw") — every card
+    exiled becomes playable, unlike `ImpulsiveLookEffect`'s filtered
+    choice-and-route shape (see `GameContext.exile_with_play_permission`/
+    `RulesEngine.exile_with_play_permission`)."""
+
+    def __init__(
+        self,
+        count: int = 1,
+        player: Any = None,
+        source: Optional["GameObject"] = None,
+    ) -> None:
+        super().__init__(source)
+        self.count = count
+        self.player = player
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        player = self.player or context.active_player
+        context.exile_with_play_permission(player, self.count)
+
+
 class ShuffleLibraryEffect(GameEffect):
     """Shuffle the controller's (or a target player's) library (RULE 701.20)."""
 
@@ -2211,6 +3055,47 @@ class ShuffleLibraryEffect(GameEffect):
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
         player = self.player or (targets[0] if targets else None) or context.active_player
         context.shuffle_library(player)
+
+
+class WheelEffect(GameEffect):
+    """"Each player shuffles their hand and graveyard into their library,
+    then draws seven cards." (Timetwister/Time Reversal/Echo of Eons — the
+    identical printed line across all three, so this is a shared, not
+    Timetwister-specific, effect.) An RULE 601.2c untargeted "each player"
+    effect, unlike `DrawCardEffect`'s single-player default — resolved in
+    an arbitrary player order (APNAP order has no observable effect here:
+    every player's own shuffle only touches their own zones).
+    """
+
+    def __init__(self, draw_count: int = 7, source: Optional["GameObject"] = None) -> None:
+        super().__init__(source)
+        self.draw_count = draw_count
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        for player in list(context.state.living_players()):
+            context.shuffle_hand_and_graveyard_into_library(player)
+            context.draw(player, self.draw_count)
+
+
+class WindfallEffect(GameEffect):
+    """"Each player discards their hand, then draws cards equal to the
+    greatest number of cards a player discarded this way." (Windfall) —
+    every player discards first (RULE 101.4's simultaneous-turn-based-action
+    idiom this engine approximates with a plain sequential loop, same as
+    `WheelEffect`), *then* every player draws the shared maximum, so a
+    player who discards zero still draws if anyone else discarded more.
+    """
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        players = list(context.state.living_players())
+        discarded: dict[str, int] = {}
+        for player in players:
+            discarded[player.id] = len(player.hand)
+            context.discard(player, discarded[player.id])
+        greatest = max(discarded.values(), default=0)
+        if greatest:
+            for player in players:
+                context.draw(player, greatest)
 
 
 class CascadeEffect(GameEffect):
@@ -2313,6 +3198,10 @@ EffectRegistry.register(
     "discard", lambda p: DiscardEffect(count=p.get("count", 1), player=p.get("player"))
 )
 EffectRegistry.register(
+    "put_hand_cards_on_top",  # "put N cards from your hand on top of your library" (Brainstorm)
+    lambda p: PutHandCardsOnTopEffect(count=p.get("count", 1), player=p.get("player")),
+)
+EffectRegistry.register(
     "destroy",
     lambda p: DestroyEffect(
         target=p.get("target"),
@@ -2322,6 +3211,8 @@ EffectRegistry.register(
         selector=p.get("selector"),
         filter=p.get("filter"),
         can_be_regenerated=bool(p.get("can_be_regenerated", True)),
+        color=p.get("color"),
+        max_mana_value=p.get("max_mana_value"),
     ),
 )
 EffectRegistry.register(
@@ -2348,11 +3239,16 @@ EffectRegistry.register(
         noncreature=bool(p.get("noncreature", False)),
         card_types=p.get("card_types"),
         mana_value=p.get("mana_value"),
+        color=p.get("color"),
     ),
 )
 EffectRegistry.register("cant_be_countered", lambda p: CantBeCounteredEffect())
 EffectRegistry.register(
     "mill", lambda p: MillEffect(count=p.get("count", 1), target_kind=p.get("target_kind"))
+)
+EffectRegistry.register(
+    "sacrifice_self",  # "Sacrifice ~." (Dress Down/Underworld Breach-shaped)
+    lambda p: SacrificeSelfEffect(),
 )
 EffectRegistry.register(
     "exile",
@@ -2363,6 +3259,7 @@ EffectRegistry.register(
         count=p.get("count", 1),
         selector=p.get("selector"),
         filter=p.get("filter"),
+        remember=bool(p.get("remember", False)),
     ),
 )
 EffectRegistry.register(
@@ -2386,6 +3283,77 @@ EffectRegistry.register(
         target=p.get("target"), target_kind=p.get("target_kind", "player"),
         life_per_card=p.get("life_per_card", 3),
     ),
+)
+EffectRegistry.register(
+    "destroy_lose_life_equal_mana_value",  # Feed the Swarm
+    lambda p: DestroyLoseLifeEqualManaValueEffect(
+        target=p.get("target"), target_kind=p.get("target_kind", "permanent"),
+    ),
+)
+EffectRegistry.register(
+    "exile_create_token",  # Resculpt
+    lambda p: ExileCreateTokenEffect(
+        target=p.get("target"), target_kind=p.get("target_kind", "permanent"),
+        power=p.get("power"), toughness=p.get("toughness"),
+        colors=list(p.get("colors", [])), subtypes=list(p.get("subtypes", [])),
+        token_name=p.get("token_name"),
+    ),
+)
+EffectRegistry.register(
+    "destroy_create_token",  # Beast Within
+    lambda p: DestroyCreateTokenEffect(
+        target=p.get("target"), target_kind=p.get("target_kind", "permanent"),
+        power=p.get("power"), toughness=p.get("toughness"),
+        colors=list(p.get("colors", [])), subtypes=list(p.get("subtypes", [])),
+        token_name=p.get("token_name"),
+        can_be_regenerated=bool(p.get("can_be_regenerated", True)),
+    ),
+)
+EffectRegistry.register(
+    "destroy_gain_life_to_controller",  # Nature's Claim
+    lambda p: DestroyGainLifeToControllerEffect(
+        target=p.get("target"), target_kind=p.get("target_kind", "permanent"),
+        amount=int(p.get("amount", 0)),
+        can_be_regenerated=bool(p.get("can_be_regenerated", True)),
+    ),
+)
+EffectRegistry.register(
+    "gain_control_until_eot",  # Zealous Conscripts / Coercive Recruiter
+    lambda p: GainControlUntilEndOfTurnEffect(
+        target=p.get("target"), target_kind=p.get("target_kind", "permanent"),
+        haste=bool(p.get("haste", True)),
+    ),
+)
+EffectRegistry.register("return_linked_exile", lambda p: ReturnLinkedExileEffect())
+EffectRegistry.register("exile_library", lambda p: ExileLibraryEffect())
+EffectRegistry.register(
+    "shuffle_graveyard_into_library", lambda p: ShuffleGraveyardIntoLibraryEffect()
+)
+EffectRegistry.register(
+    "graveyard_to_library_bottom_random",  # Endurance
+    lambda p: GraveyardToLibraryBottomRandomEffect(
+        target=p.get("target"), target_kind=p.get("target_kind", "player"),
+        optional=bool(p.get("optional", True)),
+    ),
+)
+EffectRegistry.register(
+    "return_to_hand_draw_if_controlled",  # Geistwave
+    lambda p: ReturnToHandDrawIfControlledEffect(
+        target=p.get("target"), target_kind=p.get("target_kind", "nonland_permanent"),
+    ),
+)
+EffectRegistry.register(
+    "grant_flash_until_eot", lambda p: GrantFlashUntilEndOfTurnEffect()  # Borne Upon a Wind
+)
+EffectRegistry.register(
+    "exile_controller_searches_basic_land",  # Winds of Abandon
+    lambda p: ExileControllerSearchesBasicLandEffect(
+        target=p.get("target"), target_kind=p.get("target_kind", "creature"),
+    ),
+)
+EffectRegistry.register(
+    "return_top_graveyard_creature_with_haste",  # Corpse Dance
+    lambda p: ReturnTopGraveyardCreatureWithHasteEffect(),
 )
 EffectRegistry.register("peek_top_land_battlefield_tapped", lambda p: PeekTopLandBattlefieldTappedEffect())
 EffectRegistry.register(
@@ -2440,12 +3408,18 @@ EffectRegistry.register(
     lambda p: AddManaEffect(colors=list(p.get("colors", []))),
 )
 EffectRegistry.register(
+    "blink",  # "Exile target permanent, then return it to the battlefield" (Ephemerate)
+    lambda p: BlinkEffect(target_kind=p.get("target_kind", "creature_you_control")),
+)
+EffectRegistry.register(
     "tap",
     lambda p: TapEffect(
         target=p.get("target"),
         target_kind=p.get("target_kind", "permanent"),
         untap=bool(p.get("untap", False)),
         optional=bool(p.get("optional", False)),
+        selector=p.get("selector"),
+        count=int(p.get("count", 1)),
     ),
 )
 EffectRegistry.register(
@@ -2464,6 +3438,14 @@ EffectRegistry.register(
     lambda p: UnattachTapIndestructibleEffect(
         target=p.get("target"),
         target_kind=p.get("target_kind", "attached_equipment_you_control"),
+        optional=bool(p.get("optional", True)),
+    ),
+)
+EffectRegistry.register(
+    "return_creature_grant_indestructible",  # Temur Sabertooth
+    lambda p: ReturnCreatureGrantIndestructibleEffect(
+        target=p.get("target"),
+        target_kind=p.get("target_kind", "creature_you_control"),
         optional=bool(p.get("optional", True)),
     ),
 )
@@ -2532,6 +3514,7 @@ EffectRegistry.register(
         keywords=list(p.get("keywords", [])),
         target_kind=p.get("target_kind"),
         selector=p.get("selector"),
+        unblockable=bool(p.get("unblockable", False)),
     ),
 )
 EffectRegistry.register(
@@ -2560,6 +3543,7 @@ EffectRegistry.register(
         colors=list(p.get("colors", [])),
         subtypes=list(p.get("subtypes", [])),
         keywords=list(p.get("keywords", [])),
+        count_selector=p.get("count_selector"),
     ),
 )
 EffectRegistry.register(
@@ -2581,11 +3565,37 @@ EffectRegistry.register(
         optional=p.get("optional", True),
     ),
 )
+EffectRegistry.register(
+    "impulsive_look",
+    lambda p: ImpulsiveLookEffect(
+        count=p.get("count", 1),
+        criteria=p.get("criteria", ""),
+        hit_destination=p.get("hit_destination", "hand"),
+        miss_destination=p.get("miss_destination", "graveyard"),
+        optional=p.get("optional", True),
+    ),
+)
+EffectRegistry.register(
+    "impulsive_draw",
+    lambda p: ImpulsiveDrawEffect(count=p.get("count", 1)),
+)
 EffectRegistry.register("shuffle", lambda p: ShuffleLibraryEffect())
+EffectRegistry.register(
+    "wheel",  # "Each player shuffles their hand and graveyard into their library, then draws seven cards." (Timetwister)
+    lambda p: WheelEffect(draw_count=p.get("draw_count", p.get("count", 7))),
+)
+EffectRegistry.register(
+    "windfall",  # "Each player discards their hand, then draws cards equal to the greatest number discarded." (Windfall)
+    lambda p: WindfallEffect(),
+)
 EffectRegistry.register(
     "transform", lambda p: TransformEffect(target_kind=p.get("target_kind"))
 )
 EffectRegistry.register("become_prepared", lambda p: BecomePreparedEffect())
+EffectRegistry.register(
+    "phase_out",
+    lambda p: PhaseOutEffect(target_kind=p.get("target_kind"), optional=bool(p.get("optional", False))),
+)
 EffectRegistry.register("cascade", lambda p: CascadeEffect(mana_value=p.get("mana_value")))
 EffectRegistry.register("proliferate", lambda p: ProliferateEffect())
 EffectRegistry.register(
@@ -2611,6 +3621,10 @@ _SELECTOR_KEYS: tuple[str, ...] = (
     # Metalcraft-style "as long as you control N or more <count_selector>"
     # (Indomitable Archangel).
     "min_count_selector", "min_count",
+    # A printed-card-type filter ("Artifacts your opponents control enter
+    # tapped.", "Nonbasic lands are Mountains.") and its "nonbasic" qualifier
+    # — `continuous._has_card_type`/the "basic" substring check.
+    "card_type", "nonbasic",
 )
 
 
@@ -2709,6 +3723,14 @@ EffectRegistry.register(
             "add_types": list(p.get("add_types", [])),
             "power": p.get("power"),
             "toughness": p.get("toughness"),
+            # RULE 613.5 full subtype overwrite ("Nonbasic lands are
+            # Mountains.", Magus of the Moon/Blood Moon) — unlike
+            # `add_types` (only *adds*), this *replaces* the affected
+            # object's subtype set (`continuous._has_subtype`), only
+            # included when the spec actually sets it so an ordinary
+            # "are also creatures" clause is unaffected.
+            **({"set_subtypes": list(p["set_subtypes"])} if p.get("set_subtypes") else {}),
+            **_selectors(p),
         },
     ),
 )
@@ -2716,8 +3738,121 @@ EffectRegistry.register(
     "cost_reduction",  # "Spells you cast cost {N} less" (RULE 601.2f)
     lambda p: StaticAbility(
         "cost",
+        # ``affects="your_spells"`` (default) is self-scoped — see
+        # `continuous.cost_reduction_for`'s ownership check. ``"all_spells"``
+        # (Thalia, Guardian of Thraben/Thorn of Amethyst/Vryn Wingmare-shaped:
+        # an unqualified "<type> spells cost {N} more to cast") isn't scoped
+        # by that check at all, so it taxes/discounts *every* player's
+        # matching spells, its own controller's included.
         affects=p.get("affects", "your_spells"),
-        params={"generic": p.get("generic", 1), "increase": bool(p.get("increase", False))},
+        params={
+            "generic": p.get("generic", 1),
+            "increase": bool(p.get("increase", False)),
+            # Delve/Affinity-shaped "{N} less for each <count_selector>"
+            # (`affects="self"`, printed on the spell itself) — see
+            # `continuous._cost_static_amount`/`self_cost_reduction_for`.
+            **({"per": p["per"]} if p.get("per") else {}),
+            # A card-type filter on the spell *being cast* ("noncreature
+            # spells…") — `continuous._spell_type_matches`; distinct from
+            # `card_type` (a *permanent*-selector filter the other static
+            # families above use) since this checks the object on the stack,
+            # not a battlefield selector.
+            **({"spell_type": p["spell_type"]} if p.get("spell_type") else {}),
+            # ``scope="activation"`` (Power Artifact-shaped "Enchanted
+            # artifact's activated abilities cost {2} less to activate.") —
+            # a *different* cost this same "cost" layer/StaticAbility shape
+            # adjusts: an activated ability's own activation cost (RULE
+            # 601.2f-adjacent) rather than a spell's cast cost, consulted by
+            # `continuous.activation_cost_reduction_for`/`GameEngine.
+            # _reduced_activation_mana` instead of `cost_reduction_for` (which
+            # explicitly skips these). ``min_total`` is the "can't reduce the
+            # mana in that cost to less than N mana" floor.
+            **({"scope": p["scope"]} if p.get("scope") else {}),
+            **({"min_total": p["min_total"]} if p.get("min_total") else {}),
+        },
+    ),
+)
+EffectRegistry.register(
+    # "Activated abilities of artifacts can't be activated." (RULE 602,
+    # Collector Ouphe/Stony Silence/Null Rod) — reuses the ordinary
+    # `affects`/selector vocabulary (default "all_permanents", global) purely
+    # to pick out *which* permanents' activated abilities are silenced;
+    # `game/continuous.activation_prohibited` is the actual consult point
+    # (`GameEngine.can_activate`), there's no P/T/type/ability layer effect
+    # to fold into `continuous.recompute` here.
+    "activation_prohibition",
+    lambda p: StaticAbility(
+        "activation_prohibition",
+        affects=p.get("affects", "all_permanents"),
+        params={**_selectors(p)},
+    ),
+)
+EffectRegistry.register(
+    # "Each player can't cast more than N spells each turn." (RULE 601-area,
+    # Eidolon of Rhetoric/Rule of Law/Archon of Emeria) — a flat, global cap,
+    # not scoped to any particular player's spells; consulted by
+    # `continuous.max_spells_per_turn` (`GameEngine.can_cast`).
+    "cast_limit",
+    lambda p: StaticAbility(
+        "cast_limit",
+        affects="all",
+        params={"max_per_turn": p.get("max_per_turn", 1)},
+    ),
+)
+EffectRegistry.register(
+    # "Each player can't draw more than N cards each turn." (RULE 121.5-
+    # adjacent, Spirit of the Labyrinth-shaped) — the draw-side mirror of
+    # `cast_limit`, a flat global cap consulted by `continuous.
+    # max_draws_per_turn` (`RulesEngine._single_draw`).
+    "draw_limit",
+    lambda p: StaticAbility(
+        "draw_limit",
+        affects="all",
+        params={"max_per_turn": p.get("max_per_turn", 1)},
+    ),
+)
+EffectRegistry.register(
+    # "This artifact doesn't untap during your untap step." (RULE 502.3-
+    # adjacent, Basalt Monolith/Grim Monolith/Mana Vault) — always self-
+    # scoped; consulted by `continuous.has_no_untap_static`
+    # (`GameEngine._step_untap`).
+    "no_untap",
+    lambda p: StaticAbility("no_untap", affects="self", params={}),
+)
+EffectRegistry.register(
+    # "As long as this artifact is untapped, players can't untap more than
+    # one land during their untap steps." (Winter Orb) — a flat, unscoped
+    # cap consulted by `continuous.untap_cap_for_lands`/`GameEngine.
+    # _step_untap`, gated live on the source's own tapped state.
+    "untap_cap",
+    lambda p: StaticAbility("untap_cap", affects="all_players", params={"count": p.get("count", 1)}),
+)
+EffectRegistry.register(
+    # "Creatures entering don't cause abilities to trigger." (RULE 603,
+    # Tocatli Honor Guard/Hushwing Gryff/Torpor Orb) — global: silences every
+    # triggered ability (including the entering object's own) that would fire
+    # off a matching event; consulted by `continuous.trigger_suppressed`
+    # (`RulesEngine._collect_triggers`), not a `continuous.recompute` layer.
+    "trigger_prohibition",
+    lambda p: StaticAbility(
+        "trigger_prohibition",
+        affects="all",
+        params={"event": p.get("event"), "subject_type": p.get("subject_type")},
+    ),
+)
+EffectRegistry.register(
+    # "Artifacts your opponents control enter tapped." (RULE 614.1, board-
+    # wide — Manglehorn/Dauntless Dismantler; Archon of Emeria's "Nonbasic
+    # lands…" narrows further with ``nonbasic``) — distinct from
+    # `ability_catalogue.enters_tapped` (a card's own printed clause about
+    # itself): this is a *different* permanent's standing effect, consulted
+    # by `continuous.enters_tapped_from_static`
+    # (`RulesEngine._resolve_permanent_spell`/token creation).
+    "enters_tapped_static",
+    lambda p: StaticAbility(
+        "enters_tapped",
+        affects=p.get("affects", "opponents_permanents"),
+        params={**_selectors(p)},
     ),
 )
 EffectRegistry.register(
@@ -2762,6 +3897,10 @@ EffectRegistry.register(
         affects=p.get("affects", "self"),
         params={**_selectors(p)},
     ),
+)
+EffectRegistry.register(
+    "win_game",  # "you win the game" (Jace, Wielder of Mysteries' -8 tail)
+    lambda p: WinGameEffect(if_empty_library=bool(p.get("if_empty_library", False))),
 )
 
 
@@ -2957,6 +4096,41 @@ def _double_tokens_replacement(params: dict[str, Any]) -> ReplacementEffect:
     return effect
 
 
+def _win_instead_of_empty_draw_replacement(params: dict[str, Any]) -> ReplacementEffect:
+    """"If you would draw a card while your library has no cards in it, you
+    win the game instead." (Jace, Wielder of Mysteries/Laboratory Maniac,
+    RULE 104.3a-adjacent alternative win condition) — intercepts the DRAW
+    event for this effect's own source's controller: if their library is
+    already empty, the draw is replaced with an outright win (`RulesEngine.
+    player_wins`) and cancelled (returns ``None`` — RULE 614.5, the draw
+    itself never happens, so the ordinary "drew from an empty library ⇒
+    loses" state-based action never gets a chance to fire either). A draw
+    with cards still in the library passes through unchanged.
+    """
+    effect = ReplacementEffect(
+        event_type=EventType.DRAW,
+        replacement_fn=lambda e, c: e,
+        description=str(params.get("description", "")),
+    )
+
+    def replace(event: GameEvent, context: GameContext) -> Optional[GameEvent]:
+        src = effect.source
+        controller_id = getattr(src, "controller_id", None)
+        if controller_id is None or event.get("player_id") != controller_id:
+            return event
+        try:
+            player = context.state.player_by_id(controller_id)
+        except Exception:
+            return event
+        if player.library:
+            return event
+        context.engine.player_wins(player)
+        return None
+
+    effect.replacement_fn = replace
+    return effect
+
+
 class ReplacementRegistry:
     """Maps a whitelisted replacement-type name to a `ReplacementEffect` factory.
 
@@ -2987,3 +4161,4 @@ ReplacementRegistry.register("double_damage", _double_damage_replacement)
 ReplacementRegistry.register("additional_damage", _additional_damage_replacement)
 ReplacementRegistry.register("double_counters", _double_counters_replacement)
 ReplacementRegistry.register("double_tokens", _double_tokens_replacement)
+ReplacementRegistry.register("win_instead_of_empty_draw", _win_instead_of_empty_draw_replacement)

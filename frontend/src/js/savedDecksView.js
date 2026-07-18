@@ -27,6 +27,14 @@ const LEGALITY_FILTER_OPTIONS = [
   { key: 'unknown', label: '❔ Unbekannt / wird geprüft' },
 ];
 
+//: `isCube` (models/deck.py) marks a saved decklist as a card pool (e.g. a
+//: curated "staples" reference list) rather than a real Commander deck —
+//: no legality check runs for it (see the skipped fetch below).
+const DECK_TYPE_FILTER_OPTIONS = [
+  { key: 'deck', label: '📋 Deck' },
+  { key: 'cube', label: '🧊 Cube' },
+];
+
 function filterGroupHtml(legend, filterName, options) {
   return `
     <fieldset class="cache-filter-group">
@@ -48,6 +56,7 @@ function readFilterState(filtersEl) {
   return {
     colors: checkedValues(filtersEl, 'color'),
     legality: checkedValues(filtersEl, 'legality'),
+    deckType: checkedValues(filtersEl, 'deckType'),
   };
 }
 
@@ -60,6 +69,10 @@ function deckMatchesColorFilter(colorIdentity, colors) {
 function deckMatchesLegalityFilter(validation, legality) {
   if (validation === undefined || validation === null) return legality.includes('unknown');
   return legality.includes(validation.isLegal ? 'legal' : 'illegal');
+}
+
+function deckMatchesTypeFilter(isCube, deckType) {
+  return deckType.includes(isCube ? 'cube' : 'deck');
 }
 
 /**
@@ -79,6 +92,7 @@ export function renderSavedDecksView(container, { onLoadDeck, onAnalyzeDeck } = 
       <div class="cache-filters" id="saved-decks-filters">
         ${filterGroupHtml('Farbe', 'color', COLOR_FILTER_OPTIONS)}
         ${filterGroupHtml('Legalität', 'legality', LEGALITY_FILTER_OPTIONS)}
+        ${filterGroupHtml('Art', 'deckType', DECK_TYPE_FILTER_OPTIONS)}
         <button type="button" id="saved-decks-filter-reset">Filter zurücksetzen</button>
       </div>
       <div id="saved-decks-result"><p class="empty-state">Lade gespeicherte Decks …</p></div>
@@ -105,7 +119,8 @@ export function renderSavedDecksView(container, { onLoadDeck, onAnalyzeDeck } = 
       const deck = currentDecks.find((d) => d.id === row.dataset.deckId);
       const visible =
         deckMatchesColorFilter(deck?.colorIdentity, filters.colors) &&
-        deckMatchesLegalityFilter(validationById.get(row.dataset.deckId), filters.legality);
+        deckMatchesLegalityFilter(validationById.get(row.dataset.deckId), filters.legality) &&
+        deckMatchesTypeFilter(deck?.isCube, filters.deckType);
       row.classList.toggle('saved-deck-row--hidden', !visible);
       if (visible) visibleCount += 1;
     });
@@ -159,8 +174,11 @@ export function renderSavedDecksView(container, { onLoadDeck, onAnalyzeDeck } = 
 
     // Legality is computed server-side (resolves cards), so fetch it per
     // deck and fill each row's badge as answers arrive. Illegal decks get
-    // a 🛑 + the reasons; legal ones a subtle ✅.
+    // a 🛑 + the reasons; legal ones a subtle ✅. Skipped for cube decks —
+    // no Commander legality applies to a card pool (renderDeckRow shows a
+    // 🧊 badge instead), so there's nothing meaningful to fetch/display.
     for (const deck of decks) {
+      if (deck.isCube) continue;
       getDeckValidation(deck.id).then((validation) => {
         if (requestId !== latestRequestId) return; // list refreshed meanwhile
         validationById.set(deck.id, validation);
@@ -256,10 +274,13 @@ function renderDeckRow(deck, sleeves) {
     <div class="saved-deck-row" data-deck-id="${escapeHtml(deck.id)}">
       <div class="saved-deck-info">
         <strong>${escapeHtml(name)}</strong>
+        ${cubeHtml(deck.isCube)}
         ${commanderHtml(deck.commanders)}
         ${authorHtml(deck.author)}
         <span class="saved-deck-meta">Gespeichert: ${escapeHtml(created)}${colorIdentityHtml(deck.colorIdentity)}</span>
-        <span class="saved-deck-legality checking" data-deck-id="${escapeHtml(deck.id)}">Prüfe Legalität …</span>
+        ${deck.isCube
+          ? '<span class="saved-deck-legality cube">🧊 Cube – keine Legalitätsprüfung</span>'
+          : `<span class="saved-deck-legality checking" data-deck-id="${escapeHtml(deck.id)}">Prüfe Legalität …</span>`}
       </div>
       <div class="saved-deck-actions">
         <select class="saved-deck-sleeve-select" data-deck-id="${escapeHtml(deck.id)}" title="Karten-Sleeve für dieses Deck">
@@ -289,6 +310,13 @@ const COLOR_PIPS = [
 function commanderHtml(commanders) {
   if (!commanders || !commanders.length) return '';
   return `<span class="saved-deck-commander">👑 ${escapeHtml(commanders.join(' & '))}</span>`;
+}
+
+// Cube badge, shown read-only here — editable only in "Deck editieren"
+// (deckImportView.js), same treatment as author/sleeve.
+function cubeHtml(isCube) {
+  if (!isCube) return '';
+  return '<span class="saved-deck-cube-badge" title="Kartensammlung: keine 100-Karten-/Singleton-Regel, keine Commander-Legalität">🧊 Cube</span>';
 }
 
 // The author, shown read-only here — editable only in "Deck editieren"

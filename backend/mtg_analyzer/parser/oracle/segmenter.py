@@ -41,6 +41,52 @@ _TRIGGER_EVENTS: list[tuple[re.Pattern[str], str]] = [
 #: A triggered-ability wrapper: "When/Whenever/At <condition>, <body>".
 _TRIGGER_RE = re.compile(r"^(?:when|whenever|at)\b(?P<cond>[^,]*),\s*(?P<body>.+)$", re.S)
 
+#: RULE ~702.156-ish "ability word" Magecraft — "Magecraft — Whenever you
+#: cast or copy an instant or sorcery spell, <effect>." (Professor Onyx/
+#: Witherbloom Apprentice-shaped). A dedicated whole-line recognizer rather
+#: than the generic `_TRIGGER_RE`/`_trigger_event`/`_trigger_condition`
+#: grammar, since: (1) the "Magecraft — " label (an ability word, RULE
+#: 207.2c — no rules meaning of its own) needs peeling before the sentence
+#: even looks like an ordinary "whenever ..." trigger; (2) "cast or copy" is
+#: two alternate firing conditions the single-event `AbilitySpec.
+#: trigger["event"]` shape can't express directly — this binds only the
+#: "cast" half (`EventType.SPELL_CAST`). The engine has no general
+#: spell-copy event bus at all yet (a real, separate, cross-cutting gap —
+#: nothing in the engine can currently produce a spell copy in the first
+#: place — tracked in ToDo_EdgeCases.md), so the missing "copy" branch is
+#: unreachable by any game state the engine can currently produce, not a
+#: silently wrong one. ``spell_subtype_any`` (an existing `effect_binder`
+#: trigger predicate, built for "cast an Aura/Equipment/Vehicle spell"
+#: triggers but equally valid here since it just substring-matches the
+#: printed type line) narrows the cast spell to instant/sorcery.
+_MAGECRAFT_RE = re.compile(
+    r"^magecraft\s*—\s*whenever you cast or copy an instant or sorcery spell,\s*(?P<body>.+)$",
+    re.IGNORECASE,
+)
+
+#: RULE 500.7's "at the beginning of the [upkeep/draw/end/…] step" turn-
+#: structure trigger family — a genuinely common template distinct from
+#: RULE 603.1's object-subject "when/whenever X enters/dies/attacks/blocks"
+#: shape `_trigger_condition` handles above, so it's a separate, dedicated
+#: recognizer (checked before the generic `_TRIGGER_RE` dispatch, which
+#: would otherwise also match "at ..." but then fail to classify the
+#: condition text) rather than another `_trigger_condition` subject shape.
+#: Scoped to the step-name vocabulary `game/phases.py`'s
+#: `default_turn_sequence` actually names, mapped onto the
+#: `EventType.STEP_BEGIN` event's own ``step`` payload
+#: (`game/game_engine.py` fires it once per step, every turn). Only the
+#: un-scoped "the end step"/"the upkeep"/... form is recognized (fires
+#: every such step, any player's turn) — "your upkeep"/"each opponent's
+#: upkeep" is a further controller-scoped variant not attempted here
+#: (fail-closed, left for a real card that needs it).
+_PHASE_STEP_WORDS: dict[str, str] = {
+    "upkeep": "upkeep", "draw": "draw", "end": "end", "cleanup": "cleanup",
+}
+_PHASE_TRIGGER_RE = re.compile(
+    r"^at the beginning of the (?P<step>upkeep|draw|end|cleanup) step,\s*(?P<body>.+)$",
+    re.IGNORECASE,
+)
+
 #: RULE 603.1's condition *subject* — "self" ("~"/"this creature" itself) —
 #: scoped so e.g. "when ~ enters the battlefield, draw a card" only fires for
 #: its own source, never any other permanent entering (the over-firing bug
@@ -92,18 +138,42 @@ _ACTIVATED_RE = re.compile(r"^(?P<cost>[^:]+):\s*(?P<effect>.+)$", re.S)
 #: fragment in sync if that regex's grammar ever changes).
 _COST_LOOKS_REAL = re.compile(
     r"\{[^}]+\}|sacrifice|pay \d+ life|discard|put an? .+ counter on|"
-    r"tap .+ untapped .+ you control|remove .+ counters?",
+    r"tap .+ untapped .+ you control|remove .+ counters?|"
+    r"return an? [a-z]+ you control to (?:its|your) owner'?s?\s*hand",
     re.I,
 )
 
-#: A planeswalker loyalty ability: "[+N]:", "[-N]:", "[0]:" then the effect
-#: (RULE 606.5c). The bracket is the whole cost; the sign says add/remove.
-_LOYALTY_LINE_RE = re.compile(r"^\s*\[\s*([+\-−]?)\s*(\d+)\s*\]\s*:\s*(?P<effect>.+)$", re.S)
+#: A planeswalker loyalty ability: "+N:", "-N:", "0:" then the effect (RULE
+#: 606.5c) — real Scryfall oracle text prints the sign/digit bare, with no
+#: surrounding brackets ("+1: Target player mills two cards. Draw a card.",
+#: not "[+1]: ..."); an optional bracket pair is still accepted too (some
+#: older fixtures/UI conventions use it), so either form matches. Bare
+#: sign+digit+colon is unambiguous as a loyalty cost — no mana-cost/
+#: sacrifice/pay-life/discard activated-ability cost is ever templated this
+#: way — so this is checked before the generic activated case whose cost
+#: sniff (`_COST_LOOKS_REAL`) wouldn't accept a bare "+1" anyway.
+_LOYALTY_LINE_RE = re.compile(
+    r"^\s*\[?\s*([+\-−]?)\s*(\d+)\s*\]?\s*:\s*(?P<effect>.+)$", re.S
+)
 
 #: A mana ability's effect ("add {g}", "add 1 mana of any color"): the engine
 #: models these in `game/mana_abilities.py`, not through effect specs, so such a
 #: line is *claimed* here (covered) but contributes no spec.
 _MANA_EFFECT_RE = re.compile(r"^add\b", re.I)
+
+#: "You may look at the top card of your library any time." (Elsha of the
+#: Infinite/Bolas's Citadel) — purely informational, no separate game-state
+#: effect at this engine's fidelity: the *actual* play/cast-from-top
+#: permission is a different clause (`game/top_library.py`, already
+#: standing/battlefield-sourced), and this one only lets a player see what's
+#: already implied by having that permission. Claimed as a documented no-op
+#: (mirroring how a mana-ability's own effect line is "covered but no spec"
+#: above) rather than wired into new behaviour — the goldfish UI has no
+#: hidden-information model where "may look any time" would change anything
+#: observable.
+_LOOK_AT_TOP_ANY_TIME_RE = re.compile(
+    r"^you may look at the top card of your library any time\.?$", re.IGNORECASE
+)
 
 #: Connectors that chain two effect clauses in one ability body, tried in this
 #: order when the whole body isn't a single handled clause.
@@ -134,6 +204,19 @@ _ADDITIONAL_COST_SACRIFICE_RE = re.compile(
 )
 _ADDITIONAL_COST_DISCARD_RE = re.compile(r"^discard an?\s+card$", re.IGNORECASE)
 _ADDITIONAL_COST_PAY_LIFE_RE = re.compile(r"^pay\s+(x|\d+)\s+life$", re.IGNORECASE)
+
+#: RULE 601.2f-adjacent: "If you control a commander, you may cast this
+#: spell without paying its mana cost." (Deadly Rollick/Deflecting Swat/
+#: Fierce Guardianship-shaped) — a standalone line, own oracle-text sentence
+#: from the spell's actual effect, mirroring the additional-cost line's
+#: wrapper shape above (recognized whole, produces its own spec carrying no
+#: effects). Only "control a commander" is recognized today — any other
+#: condition on this exact template leaves the whole line unclaimed
+#: (fail-closed), matching `AbilitySpec.free_cast_condition`'s whitelist.
+_FREE_CAST_IF_COMMANDER_RE = re.compile(
+    r"^if you control a commander,\s*you may cast this spell without paying its mana cost\.?\s*$",
+    re.IGNORECASE,
+)
 
 
 def _additional_cost_dict(text: str) -> Optional[dict[str, Any]]:
@@ -286,6 +369,27 @@ def segment_line(
     if is_keyword_line(raw):
         return Segment(raw=raw, claimed=True, keyword_line=True)
 
+    if _LOOK_AT_TOP_ANY_TIME_RE.match(raw):
+        return Segment(raw=raw, claimed=True)  # informational-only, no spec (see docstring)
+
+    magecraft = _MAGECRAFT_RE.match(raw)
+    if magecraft is not None:
+        effects = parse_effect_body(magecraft.group("body"))
+        if effects is None:
+            return Segment(raw=raw)
+        spec = AbilitySpec(
+            "triggered",
+            effects=effects,
+            trigger={
+                "event": "SPELL_CAST",
+                "condition": {"subject": "group", "type": "permanent", "controller": "you", "other": False},
+                "spell_subtype_any": ["instant", "sorcery"],
+            },
+            raw_text=raw,
+            parser=provenance,
+        )
+        return Segment(raw=raw, spec=spec, claimed=True)
+
     # RULE 601.2b/604.3 additional cost — instants/sorceries only, and
     # checked before every other wrapper since it has neither a trigger word
     # nor a colon (so it can't be mistaken for one of those shapes below).
@@ -299,6 +403,19 @@ def segment_line(
                 "spell_effect",
                 effects=[],
                 additional_cost=cost,
+                raw_text=raw,
+                parser=provenance,
+            )
+            return Segment(raw=raw, spec=spec, claimed=True)
+
+        # RULE 601.2f-adjacent condition-gated free-cast alternative cost —
+        # "If you control a commander, you may cast this spell without
+        # paying its mana cost." — its own standalone line, same treatment.
+        if _FREE_CAST_IF_COMMANDER_RE.match(raw):
+            spec = AbilitySpec(
+                "spell_effect",
+                effects=[],
+                free_cast_condition={"control_commander": True},
                 raw_text=raw,
                 parser=provenance,
             )
@@ -364,6 +481,25 @@ def segment_line(
             "activated",
             effects=effects,
             cost={"text": act.group("cost").strip()},
+            optional=optional,
+            raw_text=raw,
+            parser=provenance,
+        )
+        return Segment(raw=raw, spec=spec, claimed=True)
+
+    phase_trig = _PHASE_TRIGGER_RE.match(raw)
+    if phase_trig is not None:
+        step = _PHASE_STEP_WORDS.get(phase_trig.group("step"))
+        if step is None:
+            return Segment(raw=raw)
+        body, optional = _peel_optional(phase_trig.group("body"))
+        effects = parse_effect_body(body)
+        if effects is None:
+            return Segment(raw=raw)
+        spec = AbilitySpec(
+            "triggered",
+            effects=effects,
+            trigger={"event": "STEP_BEGIN", "filter": {"step": step}},
             optional=optional,
             raw_text=raw,
             parser=provenance,

@@ -452,7 +452,7 @@ textarea {
   gap: 0.5rem;
 }
 
-.save-deck-controls input {
+.save-deck-controls input[type="text"] {
   flex: 1 1 140px;
   background: var(--bg);
   color: var(--text);
@@ -460,6 +460,15 @@ textarea {
   border-radius: 6px;
   padding: 0.5rem 0.75rem;
   font-size: 0.85rem;
+}
+
+.deck-cube-toggle {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.85rem;
+  color: var(--text-dim);
+  cursor: pointer;
 }
 
 .deck-summary-header {
@@ -1989,6 +1998,16 @@ textarea {
   color: var(--warn);
   cursor: help;
   font-weight: 600;
+}
+
+.saved-deck-legality.cube {
+  color: var(--text-dim);
+  font-style: italic;
+}
+
+.saved-deck-cube-badge {
+  color: var(--text-dim);
+  font-size: 0.82rem;
 }
 
 /* --- Goldfisch: Aktionen direkt unter den Karten --- */
