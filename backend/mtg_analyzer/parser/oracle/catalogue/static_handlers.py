@@ -93,7 +93,7 @@ _SPELL_TYPE_WORDS: frozenset[str] = frozenset(
     {"noncreature", "creature", "artifact", "instant", "sorcery", "enchantment", "planeswalker"}
 )
 _SPELL_COST_TAX_RE = re.compile(
-    r"(?P<word>[a-z]+) spells cost \{(?P<n>\d+)\} (?P<dir>more|less) to cast", re.IGNORECASE
+    r"(?:(?P<word>[a-z]+) )?spells cost \{(?P<n>\d+)\} (?P<dir>more|less) to cast", re.IGNORECASE
 )
 
 # "Each player can't cast more than N spell(s) each turn."  (RULE 601-area
@@ -350,20 +350,21 @@ def static_effect_specs(clause: str) -> Optional[list[EffectSpec]]:
 
     m = _SPELL_COST_TAX_RE.fullmatch(text)
     if m is not None:
-        word = m.group("word").lower()
-        if word not in _SPELL_TYPE_WORDS:
+        word = (m.group("word") or "").lower()
+        # A bare "spells cost {N} more/less to cast" (no type word — Sphere of
+        # Resistance) taxes *every* spell: a falsy ``spell_type`` means "no
+        # type filter" in `continuous.cost_reduction_for`. A typed variant
+        # must name a recognised card type (fail-closed).
+        if word and word not in _SPELL_TYPE_WORDS:
             return None
-        return [
-            EffectSpec(
-                "cost_reduction",
-                {
-                    "affects": "all_spells",
-                    "generic": int(m.group("n")),
-                    "increase": m.group("dir") == "more",
-                    "spell_type": word,
-                },
-            )
-        ]
+        params: dict = {
+            "affects": "all_spells",
+            "generic": int(m.group("n")),
+            "increase": m.group("dir") == "more",
+        }
+        if word:
+            params["spell_type"] = word
+        return [EffectSpec("cost_reduction", params)]
 
     m = _CAST_LIMIT_RE.fullmatch(text)
     if m is not None:

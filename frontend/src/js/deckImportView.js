@@ -47,11 +47,11 @@ export function renderDeckImportView(container, { onDeckLoaded } = {}) {
           <div class="save-deck-controls">
             <input id="deck-name-input" type="text" placeholder="z.B. Krenko Goblins" />
             <input id="deck-author-input" type="text" placeholder="Autor (optional)" />
-            <label class="deck-cube-toggle" title="Kartensammlung statt echtes Deck: 100-Karten-/Singleton-Regel und Commander-Legalität (Bannliste, Farbidentität) werden nicht geprüft.">
-              <input id="deck-cube-checkbox" type="checkbox" /> Als Cube behandeln
-            </label>
             <button id="update-deck-btn" type="button">Aktualisieren</button>
             <button id="save-new-deck-btn" type="button">Als neues speichern</button>
+            <label class="deck-cube-toggle" title="Kartensammlung statt echtes Deck: 100-Karten-/Singleton-Regel und Commander-Legalität (Bannliste, Farbidentität) werden nicht geprüft.">
+              <input id="deck-cube-checkbox" type="checkbox" /> Als Collection behandeln
+            </label>
           </div>
           <p class="server-status" id="save-status"></p>
         </div>
@@ -249,7 +249,7 @@ function renderResult(resultEl, deck, { onDeckLoaded, meta = {}, detailMode, onT
   const { commanders, mainDeck, sideboard, totalCount, parseErrors, validation } = deck;
 
   const statusClass = meta.isCube ? 'status-ok' : validation.isLegal ? 'status-ok' : 'status-error';
-  const statusText = meta.isCube ? '🧊 Cube (keine Legalitätsprüfung)' : validation.isLegal ? 'Legal (strukturell)' : 'Nicht legal';
+  const statusText = meta.isCube ? '🧊 Collection (keine Legalitätsprüfung)' : validation.isLegal ? 'Legal (strukturell)' : 'Nicht legal';
 
   const serverStatusHtml = meta.pending
     ? '<p class="server-status pending">Wird serverseitig geprüft …</p>'

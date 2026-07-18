@@ -242,7 +242,7 @@ shape exactly). `parse_oracle` itself is now memoized (content-keyed on
 every field it reads, `parser/oracle/gate.py`) since it's called once per
 `GameObject` built — a popular card no longer gets re-parsed from scratch
 on every copy/every game. `parser/oracle/processing_list.py` tracks
-cache-wide coverage (24.3% of the 2,909-card cache fully `MODELED` as of
+cache-wide coverage (24.4% of the 2,909-card cache fully `MODELED` as of
 2026-07-18 — re-run `coverage_over_cards()` before trusting this number,
 the cache grows) and ranks the next handlers worth building.
 

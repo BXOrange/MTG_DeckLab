@@ -268,6 +268,13 @@ class GameObject:
         #: `game/combat.py`. Reset every recompute exactly like
         #: `_granted_keywords`.
         self._removed_keywords: set[str] = set()
+        #: Whether a layer-6 "loses all abilities" static ability (RULE 613.7f
+        #: — Humility, Dress Down) is stripping *every* ability off this object
+        #: this pass: all keywords (`game/combat.py`'s `_obj_keywords` returns
+        #: empty), and its triggered/activated abilities stop functioning
+        #: (checked at fire/activate time). Reset every recompute like the
+        #: `_granted_*`/`_removed_*` fields.
+        self._loses_all_abilities: bool = False
         #: RULE 702.112b: whether Renown's own "it becomes renowned" has
         #: already happened — never reset (a one-time-ever flag per object,
         #: unlike every ``_derived_*``/``_granted_*`` field above), so the
@@ -339,6 +346,13 @@ class GameObject:
         #: part of the continuous-characteristics system). Cleared at
         #: cleanup (RULE 514.2) alongside `temp_power`/`temp_keywords`.
         self.temp_unblockable: bool = False
+        #: "Gains protection from <quality> until end of turn" (Mother/Giver of
+        #: Runes) — a set of protection qualities (a WUBRG colour letter, or
+        #: ``"colorless"``) read by `combat.is_protected_from`. Cleared at
+        #: cleanup (RULE 514.2) alongside `temp_keywords`/`temp_power`. Not a
+        #: printed-text protection, so it's kept off the card and unioned in at
+        #: check time instead.
+        self.temp_protections: set[str] = set()
 
         #: "Another target creature" a layer-1 conditional-copy static
         #: ability (Vesuvan Shapeshifter) should copy — read fresh every
@@ -371,6 +385,7 @@ class GameObject:
         self._derived_toughness = None
         self._granted_keywords = set()
         self._removed_keywords = set()
+        self._loses_all_abilities = False
         self._granted_mana = []
         self._granted_triggered_abilities = []
         self._added_types = set()
@@ -536,6 +551,12 @@ class GameObject:
         """Keyword slugs stripped by a layer-6 "loses <keyword>" static
         ability (RULE 613.7f, e.g. Colossus Hammer)."""
         return set(self._removed_keywords)
+
+    @property
+    def loses_all_abilities(self) -> bool:
+        """Whether a layer-6 "loses all abilities" static ability (Humility,
+        Dress Down) is stripping every ability off this object (RULE 613.7f)."""
+        return self._loses_all_abilities
 
     @property
     def granted_mana_options(self) -> list[dict[str, int]]:

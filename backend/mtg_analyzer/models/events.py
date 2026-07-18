@@ -36,6 +36,18 @@ class EventType:
     #: ruling for e.g. Kambal-style triggers, and Dionus, Elvish Archdruid's
     #: "whenever this creature becomes tapped").
     TAPPED = "TAPPED"
+    #: A permanent was tapped *to produce mana* (RULE 605.1) — fired by
+    #: `GameEngine.tap_for_mana` after the mana lands in the pool, in addition
+    #: to (and distinct from) the plain `TAPPED` transition. Carries
+    #: ``instance_id`` + ``object_types`` (so a "taps a land"/"taps a nonland
+    #: permanent" filter works via the ordinary `"group"` subject machinery),
+    #: ``controller_id`` = the player who tapped it (RULE 605.1's "you"/"a
+    #: player"), and ``produced`` (the ``{colour: n}`` mana it made, for a
+    #: future "add one mana of any type that permanent produced" — Kinnan).
+    #: Only genuine mana-ability taps fire this, never a plain tap-cost or an
+    #: attack, which is what a "tapped for mana" trigger (Price of Glory, Wild
+    #: Growth, Mana Web) needs to tell the two apart.
+    TAPPED_FOR_MANA = "TAPPED_FOR_MANA"
 
     # Object/zone movement.
     DRAW = "DRAW"
@@ -52,6 +64,16 @@ class EventType:
     #: replace them.
     DESTROY = "DESTROY"
     MILL = "MILL"
+    #: A permanent was sacrificed (RULE 701.17) — fired *in addition to*
+    #: DIES/LEAVES_BATTLEFIELD by `RulesEngine._move_to_graveyard` when the
+    #: move's ``cause`` is a sacrifice (every `put_into_graveyard` caller: a
+    #: cost-payment sacrifice, `sacrifice`/`SacrificeSelfEffect`). Carries the
+    #: same ``object``/``owner_id``/``controller_id``/``instance_id``/
+    #: ``object_types`` payload as DIES, so "whenever a player sacrifices a
+    #: permanent" (Mayhem Devil) can be told apart from a plain death — a
+    #: sacrificed creature fires both DIES and SACRIFICE, a sacrificed
+    #: noncreature only SACRIFICE.
+    SACRIFICE = "SACRIFICE"
     #: A Saga (RULE 714) reached a new lore-counter count — carries
     #: ``instance_id`` (which Saga) and ``chapter`` (the new count), so a
     #: chapter ability's triggered condition can scope to both itself and

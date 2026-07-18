@@ -32,7 +32,7 @@ const LEGALITY_FILTER_OPTIONS = [
 //: no legality check runs for it (see the skipped fetch below).
 const DECK_TYPE_FILTER_OPTIONS = [
   { key: 'deck', label: '📋 Deck' },
-  { key: 'cube', label: '🧊 Cube' },
+  { key: 'cube', label: '🧊 Collection' },
 ];
 
 function filterGroupHtml(legend, filterName, options) {
@@ -279,7 +279,7 @@ function renderDeckRow(deck, sleeves) {
         ${authorHtml(deck.author)}
         <span class="saved-deck-meta">Gespeichert: ${escapeHtml(created)}${colorIdentityHtml(deck.colorIdentity)}</span>
         ${deck.isCube
-          ? '<span class="saved-deck-legality cube">🧊 Cube – keine Legalitätsprüfung</span>'
+          ? '<span class="saved-deck-legality cube">🧊 Collection – keine Legalitätsprüfung</span>'
           : `<span class="saved-deck-legality checking" data-deck-id="${escapeHtml(deck.id)}">Prüfe Legalität …</span>`}
       </div>
       <div class="saved-deck-actions">
@@ -316,7 +316,7 @@ function commanderHtml(commanders) {
 // (deckImportView.js), same treatment as author/sleeve.
 function cubeHtml(isCube) {
   if (!isCube) return '';
-  return '<span class="saved-deck-cube-badge" title="Kartensammlung: keine 100-Karten-/Singleton-Regel, keine Commander-Legalität">🧊 Cube</span>';
+  return '<span class="saved-deck-cube-badge" title="Kartensammlung: keine 100-Karten-/Singleton-Regel, keine Commander-Legalität">🧊 Collection</span>';
 }
 
 // The author, shown read-only here — editable only in "Deck editieren"

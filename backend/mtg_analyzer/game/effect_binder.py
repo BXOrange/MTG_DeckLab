@@ -346,6 +346,24 @@ def _trigger_condition(
 
         predicates.append(_subtype_ok)
 
+    # "… if it's not that player's turn, …" (Price of Glory) — the player the
+    # event is about (its ``controller_id``, the one who tapped the land) must
+    # not be the active player. A RULE 603.4 intervening-if scoped to the
+    # triggering player rather than the ability's own controller, so it reads
+    # the event's controller key (the same one `"group"` scoping uses) against
+    # the live active player each check.
+    if trigger.get("not_controllers_turn"):
+        controller_key = _GROUP_CONTROLLER_EVENT_KEYS.get(trigger.get("event"), "controller_id")
+
+        def _not_their_turn(event: Any, context: Any, ckey=controller_key) -> bool:
+            state = getattr(context, "state", None)
+            if state is None:
+                return False
+            actor = event.get(ckey)
+            return actor is not None and actor != state.active_player.id
+
+        predicates.append(_not_their_turn)
+
     chapters = trigger.get("chapter")
     if chapters:
         chapter_set = frozenset(chapters)
@@ -456,6 +474,7 @@ def bind_ability(
             controller_id=getattr(source, "controller_id", None),
             source=source,
             description=spec.raw_text,
+            reflexive=bool(spec.trigger.get("reflexive", False)),
         )
 
     if spec.ability_kind == "static":

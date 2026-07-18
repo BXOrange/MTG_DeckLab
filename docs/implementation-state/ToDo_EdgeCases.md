@@ -127,65 +127,21 @@ same batch hit older, still-open engine limits instead of new ones:
   reconfigured onto a different attacking creature, the trigger still
   fires but finds no defending player to hit (`effects.
   _defending_player_of`, `ability_catalogue._simian_sling`).
-- **Phasing (RULE 702.26)** now exists (`GameObject.phased_out`,
-  `GameState.permanents`/`permanents_controlled_by` filtering it out,
-  `game/effects.py`'s `PhaseOutEffect`), scoped to Robe of Stars' single-
-  permanent case — see `Done_Backend.md` "Rules Engine (Phase 2)". Robe of
-  Stars' Astral Projection is registered now; Teferi's Protection (a
-  whole-board phase-out) isn't in the catalogue yet and would need the
-  "phase out together"/multi-permanent family this batch deliberately
-  didn't build.
-- **Board-count cost reduction for a card still in hand** now exists
-  (`continuous.self_cost_reduction_for`, a `per: <count_selector>` param on
-  the `"cost_reduction"` `EffectSpec`) — see `Done_Backend.md` "Rules
-  Engine (Phase 2)". Embercleave's own "costs {1} less for each attacking
-  creature you control" isn't wired up yet (a board-count *during
-  declare-attackers specifically*, not a plain controller-scoped selector —
-  would need a new `count_selector` entry) but the mechanism it needs
-  now exists.
-- **{X} cost threading** now exists (`StackItem.x` → `RulesEngine.
-  _substitute_x` → a resolving effect's `"x"`-sentinel `amount`/`count`) —
-  see `Done_Backend.md` "Rules Engine (Phase 2)". Martial Coup and Nahiri,
-  Storm of Stone's `−X` loyalty ability aren't registered yet (not part of
-  that batch), but the substitution mechanism they'd need is real now.
-- **"Look at top N, take one matching X, put the rest into Y"** now exists
-  (`ImpulsiveLookEffect`/`RulesEngine.request_impulsive_look`, Grisly
-  Salvage/Commune with the Gods-shaped) — see `Done_Backend.md` "Rules
-  Engine (Phase 2)". Nahiri, Heir of the Ancients' −2 and Armored
-  Skyhunter's attack trigger aren't registered yet (not part of that
-  batch).
-- **"Exile and you may play until end of turn" (impulsive draw)** now
-  exists (`ImpulsiveDrawEffect`/`RulesEngine.exile_with_play_permission`,
-  `GameState.temp_play_permissions`, Light Up the Stage-shaped) — see
-  `Done_Backend.md` "Rules Engine (Phase 2)". Sword of Forge and Frontier's
-  and Sword of Hearth and Home's own combat-damage triggers stay
-  simplified/dropped for now (not part of that batch; see their catalogue
-  docstrings for exactly what's kept vs. cut).
-- **Hand-zone, non-mana "discard this card: effect" (Channel), and
-  Cycling** now exist (`costs.ActivationCost.discard_self`, `RulesEngine.
-  discard_specific`) — see `Done_Backend.md` "Rules Engine (Phase 2)".
-  Dismantling Wave's Cycling is registered now (its main mode is still
-  simplified to a single target, see its catalogue docstring); Eiganjo/
-  Sokenzan's Channel abilities aren't registered yet (not part of that
-  batch) — the affected lands still work as plain mana sources.
-- **"Flash if `<condition>`"/"activate loyalty at instant speed if
-  `<condition>`"** now exists (`AbilitySpec.conditional_flash`,
-  `game/condition_query.py`, today's whitelist just `entered_this_turn`) —
-  see `Done_Backend.md` "Rules Engine (Phase 2)". The Wandering Emperor's
-  own "activate loyalty abilities at instant speed" clause is registered
-  now; Timely Ward's "cast as though it had flash if it targets a
-  commander" isn't (a `"targets_a_commander"` condition key isn't
-  whitelisted yet — no card needed it in that batch).
 - **A per-firing dynamic reference to "that creature"/"the token this
-  effect just created"** is deliberately still not a `TriggeredAbility`
-  IR extension — `RulesEngine.check_rampage`/`check_ward`'s bespoke
-  "construct a fresh `TriggeredAbility` per firing" pattern is the
-  documented, sanctioned answer (`TriggeredAbility`'s own docstring now
-  spells this out) for whenever a real card needs it. Kaldra Compleat's
+  effect just created" has no generic `TriggeredAbility` IR support.**
+  `RulesEngine.check_rampage`/`check_ward` do this via a bespoke "construct
+  a fresh `TriggeredAbility` per firing" pattern (`TriggeredAbility`'s own
+  docstring spells it out); nothing generic exists. Kaldra Compleat's
   granted "exile that creature" and Sigarda's Aid's "whenever an Equipment
-  you control enters, you may attach *it*" both still hit this wall and
-  remain unmodeled — no card has driven building the pattern out for a
-  bind-on-load `TriggeredAbility` yet.
+  you control enters, you may attach *it*" both hit this wall. (The same
+  reflexive-trigger gap blocks several cube cards — see "cEDH staples
+  cube".)
+- **A few small, still-open extensions of shipped mechanics:** Embercleave's
+  "costs {1} less for each attacking creature you control" needs a
+  board-count-*during-declare-attackers* `count_selector` on the (existing)
+  `self_cost_reduction_for`; Timely Ward's "cast as though it had flash if
+  it targets a commander" needs a `"targets_a_commander"` key added to
+  `conditional_flash`'s condition whitelist (`game/condition_query.py`).
 
 ## Card-type structures (DFC / Saga / Class / Leveler / Adventure / Prepared)
 
@@ -280,459 +236,161 @@ same batch hit older, still-open engine limits instead of new ones:
 
 ## cEDH staples cube
 
-Real cards from a cEDH cube list, investigated batch-A1 (2026-07-17) while
-extending the oracle-text parser. Each stays `UNMODELED` for the stated
-reason; not a vague "too hard" — see the cited file for the exact blocker.
+Cards from a cEDH cube pool left `UNMODELED`/unregistered, grouped by the one
+engine primitive each is blocked on (a card appears once, under its blocker).
+Each is a specific gap, not a vague "too hard".
 
-- **`Archdruid's Charm`'s third mode needs two independent targeting effects
-  in one ability** ("Put a +1/+1 counter on target creature you control. It
-  deals damage equal to its power to target creature you don't control.") —
-  a real, current engine ceiling (`docs/Reference/
-  11_CARD_CATALOGUE_AUTHORING_GUIDE.md` §5's "at most one targeting effect
-  per `AbilitySpec`"), compounded by a *dynamic* damage amount ("equal to
-  its power", tied to the *other* effect's own target) neither the parser
-  nor `game/effects.py` has a shape for. Its first mode also needs a
-  conditional search destination ("onto the battlefield tapped if it's a
-  land card, otherwise into your hand") — `SearchLibraryEffect` only
-  supports one fixed destination per search.
-- **`Tooth and Nail`'s second mode ("Put up to two creature cards from your
-  hand onto the battlefield.") has no matching engine effect at all** — every
-  existing "put onto the battlefield" shape moves a card from a *graveyard*
-  or the *top of library*, never an open choice from hand. Its Entwine
-  keyword (RULE 700.2's "choose all modes for an extra cost") also has no
-  parser recognition yet, but that's the smaller of the two gaps.
-- **`Deflecting Swat`'s "You may choose new targets for target spell or
-  ability." has no engine mechanism.** Redirecting an *existing* stack
-  item's targets (RULE 115.6) needs a target kind spanning both spells and
-  abilities on the stack, plus an interactive re-target choice; binding it
-  as a no-op would silently do nothing observable for what the card
-  actually does, which the fail-closed philosophy treats as worse than
-  leaving it unclaimed. `Reiterate`/`Flare of Duplication`'s "you may choose
-  new targets for the copy" is the same missing interactive re-target
-  primitive, one level removed (copy semantics haven't been built either).
-- **`Lavinia, Azorius Renegade`/`Boromir, Warden of the Tower`'s "Whenever an
-  opponent casts a spell, if no mana was spent to cast it, counter that
-  spell." needs a *reflexive* trigger** — an effect that acts on the exact
-  object that fired the triggering event, not a player-chosen target or the
-  ability's own source. `RulesEngine.check_ward` needed the identical shape
-  for ward's "counter that spell or ability" and had to be built as a fully
-  bespoke path outside the generic `AbilitySpec`/`TriggeredAbility` pipeline
-  (`game/effects.py`'s `WardEffect` docstring) — no generic version of that
-  exists yet. The underlying condition data *is* tracked already
-  (`EventType.SPELL_CAST`'s `free` flag, set by `RulesEngine.
-  cast_without_paying` — reused for item 2's alternative-cost family this
-  same batch), only the reflexive-target wiring is missing. Both example
-  cards also carry a second, independently-unmodeled clause regardless
-  (Lavinia's cost-prohibition static; Boromir's "the Ring tempts you"), so
-  neither reaches `MODELED` even once this is built.
-- **`Summoner's Pact`/`Pact of Negation`'s "At the beginning of your next
-  upkeep, pay `<cost>`. If you don't, you lose the game." needs a
-  *dynamically-created* delayed trigger** (RULE 603.7) — every triggered
-  ability today is bound once at `GameObject` creation (bind-on-load) and
-  reused for the object's whole lifetime; nothing creates a new, one-shot
-  trigger tied to a *specific future event* ("your next upkeep, and only
-  that one") at resolution time. Also needs an interactive "pay or lose"
-  choice, a new primitive on top.
-- **`Kinnan, Bonder Prodigy`'s mana-doubling trigger has no event to key
-  off.** "Whenever you tap a nonland permanent for mana" would need a
-  distinguishable per-tap mana-production event; `GameEngine.tap_for_mana`
-  doesn't fire one today (mana is added straight to the pool). Its `{5}{G}
-  {U}` ability ("look at the top five cards... put a non-Human creature card
-  from among them onto the battlefield, the rest to the bottom in random
-  order") is a related but different shape from the generic library-search
-  family (`SearchLibraryEffect` searches the *whole* library toward one
-  fixed destination, not "look at exactly N, place the rest on the bottom
-  in a fresh random order").
-- **`Pemmin's Aura`'s "{1}: Enchanted creature gets +1/-1 or -1/+1 until end
-  of turn." is an inline two-way modal choice with no bulleted "Choose
-  one —" header** — the modal grammar (`parser/oracle/catalogue/modal.py`)
-  only recognizes the bulleted RULE 700.2 block shape; this compact
-  same-sentence "A or B" form is a different, unhandled template. (Its other
-  three activated abilities — tap/untap/gain flying/gain shroud on enchanted
-  creature — are modeled; only this fourth line blocks the card.)
-- **`Dress Down`'s "Creatures lose all abilities." and `Underworld Breach`'s
-  "Each nonland card in your graveyard has escape..." are both standing
-  static-ability clauses** outside this batch's scope
-  (`parser/oracle/catalogue/static_handlers.py`, owned by a separate wave).
-  Both cards' *other* clauses — the standing end-step self-sacrifice
-  trigger — are modeled this batch (`parser/oracle/segmenter.py`'s
-  `_PHASE_TRIGGER_RE`, `game/effects.py`'s `SacrificeSelfEffect`).
-- **`Teferi's Protection`'s phasing clause is still unregistered** — a
-  phasing *mechanism* now exists (`GameObject.phased_out`, see the entry
-  above), but only scoped to Robe of Stars' single-permanent case; Teferi's
-  Protection needs the "phase out every permanent you control, plus
-  yourself" whole-board family, which this batch deliberately didn't
-  build. Its trailing "Exile ~." *is* modeled this batch (`ExileEffect`'s
-  `target_kind=None` self mode), so the card is blocked purely by the
-  missing whole-board phasing variant.
-- **`Ragavan, Nimble Pilferer`/`Mnemonic Betrayal`'s exile-and-grant-
-  temporary-cast-permission effect ("impulsive draw") is still
-  unregistered** — the generic mechanism now exists (see the entry above,
-  `ImpulsiveDrawEffect`/`RulesEngine.exile_with_play_permission`), but both
-  cards combine it with clauses the mechanism doesn't cover on its own:
-  Ragavan exiles from *the damaged player's* library (not its own
-  controller's) and grants "spend mana as though it were mana of any
-  color" alongside the temporary cast permission; Mnemonic Betrayal's
-  exile-from-graveyard-and-cast is a different zone than the mechanism's
-  library-top source. Neither is registered yet.
-- **`Elsha of the Infinite`/`Bolas's Citadel`'s actual play/cast-from-top-of-
-  library permission clause has no parser-front-end recognition** (only
-  hand-authored per-card today) — see `backend/ToDo_Backend.md` "Rules
-  Engine (Phase 2)" for the full writeup. Their "You may look at the top
-  card of your library any time." sibling clause *is* now claimed (a
-  documented no-op, `parser/oracle/segmenter.py`'s
-  `_LOOK_AT_TOP_ANY_TIME_RE`), so it no longer blocks a card on its own.
-- **`Professor Onyx`'s `+1`/`−3`/`−8` loyalty abilities are each their own
-  unmodeled mechanic** (a "look at top 3, one to hand + rest to graveyard"
-  choice; "sacrifice a creature with the greatest power" selector; a
-  6-times-repeated conditional discard-or-lose-life loop) — unrelated to,
-  and independent of, its Magecraft line (which *is* modeled this batch,
-  along with a general Magecraft trigger-family handler,
-  `parser/oracle/segmenter.py`'s `_MAGECRAFT_RE` — `Witherbloom Apprentice`,
-  which has no other abilities, reaches `MODELED` from it). Magecraft's own
-  "or copy" firing condition (as opposed to "cast") is also unreachable
-  today since nothing in the engine can produce a spell copy in the first
-  place — see the `Reiterate`/`Flare of Duplication` entry above.
-
-Batch A2 (2026-07-17), extending `static_handlers.py`/`continuous.py` with
-six new reusable static-clause families (activated-ability prohibition,
-type-filtered spell-cost tax, per-turn cast-count cap, self "doesn't untap",
-global ETB-trigger suppression, opponent-scoped board-wide "enter tapped")
-plus a RULE 613.5 layer-4 subtype-overwrite family and the RULE 903.3
-"can be your commander." no-op claim:
-
-- **`Mana Vault`'s "At the beginning of your upkeep, you may pay {4}. If you
-  do, untap this artifact." and "At the beginning of your draw step, if
-  this artifact is tapped, it deals 1 damage to you." are each their own
-  unmodeled conditional trigger** — an optional-cost upkeep trigger and a
-  state-conditioned ("if this artifact is tapped") draw-step trigger,
-  neither a shape the generic trigger-clause handlers cover yet. Its "This
-  artifact doesn't untap during your untap step." sibling line *is* modeled
-  this batch (`static_handlers._NO_UNTAP_RE`, `continuous.
-  has_no_untap_static`) — Basalt Monolith/Grim Monolith, which have no
-  other unmodeled lines, reach `MODELED` from it.
-- **`Dauntless Dismantler`'s "{X}{X}{W}, Sacrifice this creature: Destroy
-  each artifact with mana value X." is an unmodeled mass-destroy-by-X
-  activated ability** — the generic "destroy each X" one-shot family
-  (`handlers.py`) doesn't yet accept an `{X}{X}{W}`-costed activation
-  wrapper with the ability's own announced X flowing into the filter
-  (`mana value X`). Its "Artifacts your opponents control enter tapped."
-  sibling line *is* modeled this batch (`static_handlers.
-  _OPPONENTS_ENTER_TAPPED_RE`, `continuous.enters_tapped_from_static`) —
-  Manglehorn, which has no other unmodeled lines (its ETB destroy-artifact
-  trigger was already covered), reaches `MODELED` from it.
-- **`Jeska, Thrice Reborn`'s "~ enters with a loyalty counter on her for
-  each time you've cast a commander from the command zone this game."
-  (a game-history-counted variable starting loyalty), "0: Choose target
-  creature. Until your next turn, if that creature would deal combat
-  damage to one of your opponents, it deals triple that damage to that
-  player instead." (a delayed, conditional damage-replacement effect tied
-  to a chosen target), and `Tevesh Szat, Doom of Fools`'s "+1: You may
-  sacrifice another creature or planeswalker. If you do, draw two cards,
-  then draw another card if the sacrificed permanent was a commander."
-  (a conditional draw-amount keyed to the sacrificed object's own
-  commander-ness) and "−10: Gain control of all commanders. Put all
-  commanders from the command zone onto the battlefield under your
-  control." (mass commander reanimation + control-change) are each
-  independently unmodeled, unrelated to this batch's scope** — genuinely
-  complex bespoke mechanics, not a static/continuous-effect shape. Both
-  cards' own "~ can be your commander." line *is* now claimed (a
-  documented no-op, `static_handlers.commander_eligibility_line`, wired
-  into `gate._process_line`) and no longer appears in either card's
-  `unclaimed` list, but neither reaches `MODELED` overall because of the
-  clauses above.
-- **`Blood Moon`/`Magus of the Moon`'s "Nonbasic lands are Mountains." only
-  overwrites the affected land's subtype and grants it a red mana ability
-  (RULE 613.5's layer-4 half) — it does not strip the land's own *printed*
-  mana ability** (`type_change`'s new `set_subtypes` param +
-  `grant_mana_ability`, `game_object._derived_subtypes`,
-  `continuous._has_subtype`). A real dual land with an explicit "{T}: Add
-  {U} or {B}." text keeps producing its original colours *in addition to*
-  the newly granted {R} — the layer-6 ability-removal half of Blood Moon's
-  real-world function (which, per official rulings, only actually shuts off
-  a land whose colour production is inherent to a basic land type it no
-  longer has, not a land with independently-printed mana text) isn't
-  modeled. No card in the pool needs the removal half distinguished from
-  the addition half yet, so this is a known, deliberate scope limit rather
-  than a bug.
-
-Batch B1 (2026-07-17), hand-authored `ability_catalogue.py` entries (18 of
-30 assigned cards reached `MODELED`/registered — 6 via generic parser/engine
-extensions: Walking Ballista's self-reference vocabulary, Village
-Bell-Ringer's mass-untap selector, Root Maze/Blind Obedience's enters-tapped
-family, Abrupt Decay's target-offer-time mana-value cap, Arbor Elf's new
-"forest" target kind; 12 via direct catalogue registration, several
-deliberately partial). The remaining 12 stay unclaimed/unregistered:
-
-- **`Mana Drain`'s "At the beginning of your next main phase, add an amount
-  of {C} equal to that spell's mana value." and `Corpse Dance`'s "Exile it
-  at the beginning of the next end step." both need a dynamically-created,
-  one-shot delayed trigger tied to a specific future event** (RULE 603.7) —
-  the same missing primitive `Summoner's Pact`/`Pact of Negation` hit above;
-  every triggered ability today is bound once at `GameObject` creation and
-  reused for the object's whole lifetime, nothing creates a fresh trigger
-  tied to one specific upcoming step. Both cards are registered anyway with
-  just their modelable half (Mana Drain's counter; Corpse Dance's return-top-
-  creature-with-haste, `ReturnTopGraveyardCreatureWithHasteEffect`), the
-  delayed tail dropped per the Sword of Forge and Frontier precedent.
-- **`Combat Celebrant`'s exert ("you may exert it as it attacks") and
-  "after this phase, there is an additional combat phase." are both
-  unmodeled mechanics with no engine primitive at all** — exert isn't a
-  one-shot/triggered/static effect shape, it's an optional choice offered
-  as part of *declaring an attacker* (RULE 508.1g), and an extra combat
-  phase needs the turn-structure step-sequencer to re-run the whole combat
-  phase, neither of which this engine's `AbilitySpec`/`GameEffect` pipeline
-  can express yet.
-- **`Wild Growth`'s "Whenever enchanted land is tapped for mana, its
-  controller adds an additional {G}." and `Price of Glory`'s "Whenever a
-  player taps a land for mana, if it's not that player's turn, destroy
-  that land." both need a distinguishable per-tap mana-production event**
-  — `GameEngine.tap_for_mana` doesn't fire one today (mana goes straight to
-  the pool), the same gap `Kinnan, Bonder Prodigy`'s entry above already
-  documents. Price of Glory additionally needs a *reflexive* trigger
-  ("destroy **that land**", the exact object that fired the triggering
-  event, not a chosen target) — the same bespoke-primitive gap `Lavinia,
-  Azorius Renegade`'s entry above documents; `Mana Web`'s "tap all lands
-  that player controls that could produce any type of mana that land could
-  produce" compounds the same missing mana-tap event with a mana-type-
-  matching mass-tap effect that also doesn't exist.
-- **`Dualcaster Mage`'s "copy target instant or sorcery spell" has no
-  engine mechanism** — nothing in this engine can produce a spell copy in
-  the first place, the same gap the `Reiterate`/`Flare of Duplication`
-  entry above documents (Wandering Archaic, elsewhere in the cube, needs
-  the identical shape).
-- **`Helm of Obedience`'s "mills a card, then repeats this process until a
-  creature card or X cards have been put into their graveyard, whichever
-  comes first" is an unmodeled repeat-until-condition loop** — every
-  existing mill effect mills a fixed count, none has a "keep going until a
-  predicate over what's been milled so far is met" shape.
-- **`Eldritch Evolution`'s "Search your library for a creature card with
-  mana value X or less, where X is 2 plus the sacrificed creature's mana
-  value." needs a second dynamic-value source beyond {X} cost threading**
-  — `StackItem.x`/`RulesEngine._substitute_x` only threads a spell's own
-  *announced* {X}; nothing stashes an additional cost's sacrificed
-  permanent (or its mana value) anywhere a resolving effect can read it
-  back (contrast Sunforger's `unattach_self`, which does get such a stamp,
-  `GameObject.last_unattached_from_id` — sacrifice has no equivalent).
-- **`Tangle Wire`'s Fading is not modeled at all** — no "enters with N fade
-  counters, remove one each upkeep or sacrifice" mechanic exists (RULE
-  702.32), a bigger gap than its own "tap N permanents per fade counter"
-  upkeep trigger, which would otherwise be a plausible one-off effect.
-- **`Thassa's Oracle`'s "your devotion to blue" has no count-selector
-  source** — `continuous.count_selector`'s vocabulary has no devotion
-  entry; per this session's ground rules, not faked with a wrong count
-  source (creature count, mana value, etc. would all be incorrect).
-- **`Fire Covenant`'s "deals X damage divided as you choose among any
-  number of target creatures" has no divided-damage primitive** —
-  `DealDamageEffect`'s existing `count` > 1 shape applies the *full*
-  amount to *every* chosen target (Volcanic Salvo-shaped), not a shared
-  pool split across them; the `pay X life` additional cost side is
-  otherwise trivial (`additional_cost`'s existing `pay_life: "x"` idiom).
-- **`Hope of Ghirapur`'s "target player who was dealt combat damage by ~
-  this turn" is a per-firing dynamic reference this engine has no generic
-  primitive for** — the same `RulesEngine.check_rampage`/`check_ward`
-  bespoke-per-firing-construction pattern (`TriggeredAbility`'s own
-  docstring) would be needed, and no card in this cube's earlier batches
-  has driven building a reusable version of it yet.
-- **`Umbral Mantle`'s "Equipped creature has '{3}, {Q}: This creature gets
-  +2/+2 until end of turn.'" needs a layer-6 grant of an *activated*
-  ability** — only `grant_triggered_ability`/`grant_mana_ability`/
-  `grant_keyword` exist; nothing synthesizes a cost-bearing `ActivatedAbility`
-  onto another permanent the way those synthesize a `TriggeredAbility`/mana
-  option/keyword. A hollow registration (Equip {0} alone, already covered
-  by the keyword catalogue regardless) would deliver none of the card's
-  actual function, so it's left unregistered rather than forced.
-- **`Eiganjo, Seat of the Empire`'s "This ability costs {1} less to
-  activate for each legendary creature you control." still has no matching
-  primitive** — batch B2 (below) built `continuous.
-  activation_cost_reduction_for`/`GameEngine._reduced_activation_mana` for
-  Power Artifact's flat "{2} less" activation-cost reduction, but Eiganjo
-  needs a *per-count* formula ("{1} less for each legendary creature you
-  control", mirroring `cost_reduction`'s spell-cost `per` param) that
-  primitive doesn't support yet; the card is still registered with the
-  Channel ability at its full, undiscounted cost, the reduction dropped per
-  the Sword of Forge and Frontier precedent. Extending `activation_cost_
-  reduction_for` with a `per`/count-selector param would close this cheaply
-  now that the flat-amount half exists.
-
-Batch B2 (2026-07-17), hand-authored `ability_catalogue.py` entries (12 of
-30 assigned cards reached `MODELED`/registered — 2 deliberately partial,
-Damn/Ephemerate — plus several new reusable primitives along the way:
-activation-cost reduction, `effect_binder`'s "not_you" group-trigger scope
-and a `LAND_PLAYED`/`UNTAP` `_GROUP_CONTROLLER_EVENT_KEYS` mapping, a new
-`blink` primitive, `put_hand_cards_on_top`, and a shared `wheel` "each
-player shuffles hand+graveyard, draws seven" effect. Also fixed two
-previously-latent bugs surfaced by actually exercising a triggered ability
-that targets a spell still on the stack, which nothing in the suite had
-done before: `GameEngine.resolve_until_stable` fell through and resolved
-the stack's top item even when `put_triggers_on_stack` had just opened a
-`pending_choice` for the trigger's own target/mode/"you may" choice (a
-still-unresolved spell would silently resolve for real while the player
-was nominally still choosing whether/what to counter it with); and
-`RulesEngine._resolve_choice_option` only ever searched `state.
-permanents()` for a `trigger_target` choice's `instance_id`, so a
-``kind="spell"`` target (an object sitting on the stack, not the
-battlefield) could never actually resolve — both fixed by Nether Void's
-"whenever a player casts a spell, counter it unless…" test, which is
-exactly this shape.) The remaining 18 stay unclaimed/unregistered:
-
-- **`Neoform`'s "Search your library for a creature card with mana value
-  equal to 1 plus the sacrificed creature's mana value" is the same
-  `Eldritch Evolution` gap already logged above** — nothing stashes an
-  additional cost's sacrificed permanent (or its mana value) anywhere a
-  resolving effect can read it back; confirmed the same blocker rather than
-  re-investigated from scratch.
-- **`Demonic Consultation`'s "Choose a card name." has no matching input
-  primitive** — every existing choice (search, modal, trigger-target) offers
-  a list of *already-visible* options; nothing lets a player name an
-  arbitrary card *before* any zone is examined, which is what RULE 601.2c
-  naming requires here (as opposed to `SearchLibraryEffect`'s "look and
-  then pick" shape, which would show information the real card doesn't
-  reveal). `Possibility Storm` needs the same missing "exile from the top
-  until a card matches a filter, non-matches to the bottom in random order"
-  loop shape as this card's own reveal-until-named-card half, *plus* a
-  much bigger architectural change — intercepting *every* player's *every*
-  spell cast from hand, not a single card's own trigger — so it's logged
-  separately below rather than treated as "just" the same gap.
-- **`Lim-Dûl's Vault`'s "As many times as you choose, you may pay 1 life…"
-  is an unmodeled open-ended repeat-as-many-times-as-you-choose loop** — no
-  effect in `game/effects.py` re-offers the same choice an unbounded number
-  of times gated only by "may pay 1 life again"; every existing loop
-  (search "up to N", modal "choose N or more") has a fixed or player-capped
-  count, not an open-ended one.
-- **`Tibalt's Trickery`'s "Choose 1, 2, or 3 at random." needs a
-  random-number primitive that doesn't exist anywhere in this engine** —
-  confirmed via a repo-wide search: no `random.choice`/`randint`/`randrange`
-  call appears in `game/*.py` or `models/*.py` (library shuffling is the
-  only randomness in the whole engine, and it doesn't produce a usable
-  number). Its own "exile from the top until a nonland card with a
-  different name" clause also needs the same missing dig-until-match loop
-  `Demonic Consultation`'s entry above documents.
-- **`Gilded Drake`'s "exchange control of this creature and up to one
-  target creature an opponent controls" has no control-*exchange*
-  primitive** — `game/effects.py`'s `control_change` static (`StaticAbility`
-  layer 2, Mind Control-shaped) and `CopyPermanentEffect` are the only
-  control/copy-adjacent shapes that exist, and neither is a mutual swap of
-  two permanents' controllers; the "sacrifice if you don't/can't exchange"
-  and "still resolves if its target becomes illegal" riders compound it
-  further.
-- **`Squirrel Nest`'s "Enchanted land has '{T}: Create a 1/1 green Squirrel
-  creature token.'" is the same `Umbral Mantle` gap already logged above**
-  — no layer-6 grant-of-an-*activated*-ability primitive exists yet (only
-  `grant_triggered_ability`/`grant_mana_ability`/`grant_keyword` do);
-  confirmed the same blocker rather than re-investigated from scratch.
-- **`Shatterskull Smashing`'s "deals X damage divided as you choose among up
-  to two target creatures and/or planeswalkers" is the same `Fire Covenant`
-  divided-damage gap already logged above** — `DealDamageEffect`'s `count`
-  > 1 shape still applies the *full* amount to every chosen target, not a
-  shared pool split across them; confirmed still true rather than
-  re-investigated from scratch.
-- **`Power Artifact` reached `MODELED`** via a new activation-cost-reduction
-  primitive (`continuous.activation_cost_reduction_for`) — see the batch
-  summary above; not a gap, listed here only so a future reader doesn't
-  wonder why it's absent from this skip list.
-- **`Lurrus of the Dream-Den`'s "Once during each of your turns, you may
-  cast a permanent spell with mana value 2 or less from your graveyard."
-  needs a new standing graveyard-cast-permission mechanism** — the existing
-  graveyard-cast family (`GameEngine._graveyard_cast_keyword`/
-  `_castable_from_graveyard`) is a closed vocabulary keyed to a printed
-  keyword (Flashback/Escape), not a card-granted standing permission with
-  its own MV filter — unlike `top_library_permission`'s architecture (which
-  this would need to mirror: a marker effect + a `can_cast`-consulted
-  helper), nothing analogous exists for the graveyard zone, and it would
-  also need its own once-per-turn use-tracking distinct from
-  `ActivatedAbility.once_per_turn` (this isn't an activated ability at
-  all). A good blueprint for a focused future wave, not attempted here
-  given the size of this one.
-- **`Cloudstone Curio`'s "return another permanent you control that shares
-  a permanent type with it" is a per-firing dynamic reference this engine
-  has no generic primitive for** — the same `Hope of Ghirapur`-shaped gap
-  already logged above (`RulesEngine.check_rampage`/`check_ward`'s bespoke-
-  per-firing-construction pattern would be needed): the bounce target has
-  to be compared against whatever object *just entered* to fire the
-  trigger, not a fixed `target_kind` filter `ReturnToHandEffect` can express.
-- **`Seedborn Muse` reached `MODELED`** via a new `effect_binder._group_ok`
-  ``"not_you"`` controller scope + a `TapEffect` `"permanents_you_control"`
-  selector — see the batch summary above; not a gap, listed here only so a
-  future reader doesn't wonder why it's absent from this skip list.
-- **`Final Fortune`'s "Take an extra turn after this one." has no matching
-  primitive at all** — confirmed via a repo-wide search: no "extra turn"/
-  "additional turn" concept exists anywhere in `game/phases.py`/
-  `game_engine.py` (turn order is a fixed round-robin,
-  `GameState.next_active_index`). RULE 500.7's whole extra-turn family
-  (Time Warp, Karn's Temporal Sundering, Nexus of Fate, …) is blocked on
-  this same absolute gap, not just this card's own "lose the game at that
-  turn's end step" rider.
-- **`Deadeye Navigator`'s Soulbond has zero engine behavior** — confirmed
-  via a repo-wide search: `Soulbond` appears only as a bare `FLAG` keyword
-  in `parser/oracle/catalogue/keywords.py`, with no pairing/unpairing logic
-  anywhere in `game/`. No other Soulbond card in this pool is modeled
-  either, so this is a whole-mechanic gap, not specific to this card's own
-  "exile then return" granted ability (which would also need a new
-  activated-ability-*grant* primitive, the same `Umbral Mantle`/`Squirrel
-  Nest` gap, on top of Soulbond itself).
-- **`Nether Void` reached `MODELED`** via a straightforward reuse of the
-  existing `counter`/`unless_pays` effect and an unscoped "group" trigger
-  subject (already matches any player, not just "you") — see the batch
-  summary above for the two latent bugs its test surfaced; not a gap,
-  listed here only so a future reader doesn't wonder why it's absent from
-  this skip list.
-- **`Beseech the Mirror`'s Bargain has zero engine support** — confirmed via
-  a repo-wide search: `Bargain` appears only as a bare `FLAG` keyword in
-  `parser/oracle/catalogue/keywords.py`, with no additional-cost handling
-  (unlike Kicker/Buyback/Escape, which each have a real `costs.py`/
-  `AbilitySpec` shape) and no "was this spell's additional cost paid" flag
-  analogous to `kicker_count` for the "if bargained, you may cast the
-  exiled card free if its mana value is 4 or less" conditional half to key
-  off of, even setting aside the compound "then put it into your hand if it
-  wasn't cast this way" destination logic.
-- **`Mayhem Devil`'s "Whenever a player sacrifices a permanent" needs a
-  cause tag this engine's death/graveyard events don't carry** —
-  `RulesEngine._move_to_graveyard` fires the same `LEAVES_BATTLEFIELD`/
-  `DIES` pair regardless of *why* a permanent left (destroyed, sacrificed,
-  or a specific effect-driven sacrifice, RULE 701.17) — there's no
-  `EventType.SACRIFICE` and no "cause" field on the fired event a trigger
-  condition could filter on, so a "whenever a player sacrifices" trigger
-  can't be distinguished from "whenever a permanent dies" without a real
-  (and fairly invasive, since every `sacrifice`/`put_into_graveyard` call
-  site would need to thread a cause through) engine change.
-- **`Lore Drakkis`'s "Whenever this creature mutates" needs a trigger event
-  Mutate itself doesn't fire** — confirmed Mutate (RULE 702.140) has no
-  actual casting-mechanic implementation in this engine (no "cast it by
-  putting it over/under target non-Human creature" merge logic, no
-  `EventType.MUTATE`), only a bare `FLAG` keyword recognition in
-  `parser/oracle/catalogue/keywords.py`; the trigger this card needs can't
-  exist before the mechanic it fires off of does.
-- **`Giver of Runes`'s "gains protection from colorless or from the color of
-  your choice" can't be granted by any effect** — confirmed
-  `combat.is_protected_from` reads only `obj.effective_oracle_text`
-  (printed text, plus a layer-3 word-substitution `text_change` static) —
-  unlike every other keyword (`combat._obj_keywords`, unioning printed +
-  intrinsic + layer-6-granted + temp-until-eot sources), protection has no
-  granted-keyword-set path at all, so neither a layer-6 `grant_keyword` nor
-  `PumpEffect`'s `keywords` list actually confers real protection even
-  though nothing stops a spec from naming "protection from X" in one. A
-  real gap affecting *any* future "grants protection" card (Mother of
-  Runes and siblings), not just this one — worth a dedicated primitive
-  before hand-authoring another one of these.
-- **`Humility`'s "All creatures lose all abilities" is a board-wide
-  ability-*strip*, which this engine's layer-6 removal only does per
-  named keyword** — `remove_keyword` (RULE 613.7f) subtracts specific,
-  listed keywords from `_obj_keywords`; it has no "remove everything"
-  mode, and even a maximal keyword list wouldn't touch a creature's
-  triggered/activated/static abilities (`obj.triggered_abilities`/
-  `activated_abilities`/`static_effects`), which the layer system's
-  keyword-removal path was never wired to at all. The "base power and
-  toughness 1/1" half is trivially expressible (`pt_set`), but a partial
-  model dropping the ability-strip half would misrepresent the card's
-  entire point (making creatures with removal-relevant triggered/activated
-  abilities keep them), so the whole card stays unclaimed.
-- **`Rite of Flame`'s "add {R} for each card named Rite of Flame in each
-  graveyard" needs two independent gaps closed** — `AddManaEffect` only
-  ever adds a fixed list of colour symbols (no dynamic/count-driven amount
-  shape at all, unlike `DrawCardEffect.count_selector`), and
-  `continuous.count_selector`'s vocabulary has no "cards named X" entry, let
-  alone one scanning *every* player's graveyard rather than just the
-  controller's own (`count_selector`'s existing "cards_in_your_graveyard"
-  is controller-scoped only). Both would need building for this one card;
-  neither is attempted here.
+- **Two independent targeting effects on one ability** (docs/Reference/
+  11_CARD_CATALOGUE_AUTHORING_GUIDE.md §5, "at most one targeting effect per
+  `AbilitySpec`"): Archdruid's Charm's third mode (also a *dynamic* damage
+  amount tied to the other effect's target), Brass Squire, Halvar God of
+  Battle.
+- **Dynamically-created one-shot delayed trigger (RULE 603.7)** — DONE
+  (Batch 22, `GameState.delayed_triggers` + `create_delayed_trigger` effect,
+  fired at STEP_BEGIN by `GameEngine._fire_delayed_triggers`; ``scope``
+  controller/any, ``capture="target_mana_value"``, ``min_turn_offset``).
+  **Mana Drain** now fully modeled (was counter-only). Still blocked on a
+  *second* gap: Summoner's Pact / Pact of Negation need an interactive
+  "pay {cost} or lose the game" choice at the delayed step; Corpse Dance needs
+  Buyback + reanimation + a baked delayed-exile target.
+- **Reflexive / per-firing dynamic-object trigger** — DONE (Batch 16,
+  `TriggeredAbility.reflexive`): a trigger whose single targeting effect acts
+  on the exact object that fired the event (found by the event's
+  ``instance_id`` at placement time, no target choice), the generic form of
+  the `check_ward`/`check_rampage` per-firing reference. The cards that need
+  it each still carry a *second* blocker, so none is registered yet: Lavinia
+  Azorius Renegade / Boromir Warden of the Tower need "if no mana was spent to
+  cast it" mana-spent tracking (plus Lavinia's dynamic cast-prohibition,
+  Boromir's Ring); Price of Glory is now DONE (Batch 20 added the per-tap mana
+  event below, so it plays); Hope of Ghirapur needs "who was dealt combat
+  damage by ~ this turn" history; Cloudstone
+  Curio needs a "return another permanent you control that shares a type" choice.
+- **Spell-copy mechanism** — DONE (Batch 17, `RulesEngine.copy_spell` +
+  `copy_spell` effect, RULE 707.10): copies a stack spell as a copier-controlled
+  token above the original, keeping its targets/{X}. Dualcaster Mage and Flare
+  of Duplication (alt-cast dropped) now play. Still blocked on *other* gaps:
+  Reiterate (Buyback alt-cost), Wandering Archaic (interactive per-opponent
+  "may pay {2}" + reflexive copy), Narset's Reversal (needs a bounce-spell-to-hand
+  effect alongside the copy). Magecraft's "or copy" firing condition unblocked.
+- **Distinguishable per-tap mana-production event** — DONE (Batch 20,
+  `EventType.TAPPED_FOR_MANA`): `GameEngine.tap_for_mana` fires a per-tap
+  event after the mana lands in the pool (carrying the source's
+  ``instance_id``/``object_types``/``controller_id``/``produced``), off a
+  genuine mana-ability tap only. **Price of Glory** now plays — it composes
+  this with the new `not_controllers_turn` intervening-if
+  (`effect_binder._trigger_condition`, "if it's not that player's turn")
+  and the batch-16 reflexive "destroy that land". Still blocked on a *second*
+  gap each: Kinnan Bonder Prodigy needs "add one mana of any type that
+  permanent produced" (a dynamic produced-mana amount); Wild Growth is a
+  *triggered mana ability* (RULE 605.1b/605.4 — must resolve immediately into
+  the pool, not via the stack, so its extra {G} is spendable in the same
+  payment); Mana Web taps *all* the player's lands that could make matching
+  mana.
+- **Layer-6 grant of an *activated* ability** — only `grant_triggered_
+  ability`/`grant_mana_ability`/`grant_keyword` exist: Umbral Mantle,
+  Squirrel Nest.
+- **Divided-damage primitive** — DONE (Batch 19, `DealDamageEffect(divided=
+  True)`, RULE 601.2d): the total pool (typically {X}) is split across the
+  chosen targets, ``double_at`` doubling it at a threshold (Shatterskull's
+  X>=6). Fire Covenant (with the Toxic-Deluge `pay_life: "x"` cost) and
+  Shatterskull Smashing (the sorcery front of the MDFC) now play. The "as you
+  choose" split defaults to an even distribution (a UI-less simplification —
+  total dealt and which permanents take it are exact).
+- **Second dynamic-value source from a sacrificed permanent** — `StackItem.x`
+  only threads a spell's announced `{X}`; nothing stashes an additional
+  cost's sacrificed permanent (or its MV) for a resolving effect to read:
+  Eldritch Evolution, Neoform.
+- **"Choose a card name" input + dig-until-match loop** — no primitive lets a
+  player name an arbitrary card before a zone is examined, nor exiles from
+  the top until a filter matches: Demonic Consultation, Possibility Storm
+  (also needs to intercept every player's every hand-cast), Tibalt's Trickery.
+- **Random-number primitive** — DONE (Batch 21, `RulesEngine.random_int`/
+  `random_choice`/`coin_flip`, RULE 705/706): reproducible from
+  `GameState`'s ``(rng_seed, rng_counter)`` so it survives clone/undo. No cube
+  card registered on it — Tibalt's Trickery pairs the random 1/2/3 with a
+  dig-until-a-differently-named-nonland-card-then-cast-it-free mechanic, and
+  Wheel of Misfortune needs a *secret simultaneous* number choice from every
+  player (hidden multiplayer info) — both far beyond a random draw. Primitive
+  proven directly, ready for a future coin-flip/Krark-style card.
+- **Control-*exchange* primitive** — `control_change` (layer-2 static) and
+  `CopyPermanentEffect` are the only control/copy shapes; neither swaps two
+  permanents' controllers: Gilded Drake.
+- **Repeat-until-condition loop** — no effect keeps going until a predicate
+  over what's happened so far is met: Helm of Obedience.
+- **Open-ended "as many times as you choose" loop** — every existing loop has
+  a fixed or player-capped count: Lim-Dûl's Vault.
+- **Fading (RULE 702.32)** — no "enters with N fade counters, remove one each
+  upkeep or sacrifice" mechanic: Tangle Wire.
+- **Devotion count-selector** — `continuous.count_selector` has no devotion
+  entry: Thassa's Oracle.
+- **Whole-board phasing** — the phasing mechanism (`GameObject.phased_out`)
+  is scoped to a single permanent; nothing phases out every permanent a
+  player controls plus the player: Teferi's Protection.
+- **Impulsive draw from a non-own / non-library zone** — `ImpulsiveDrawEffect`
+  exiles from the caster's own library top only: Ragavan Nimble Pilferer (the
+  damaged player's library, plus "spend mana as any color"), Mnemonic
+  Betrayal (an opponent's graveyard).
+- **Parser recognition of a play/cast-from-top-of-library clause** — the
+  engine capability exists (`top_library_permission`, hand-authored) but the
+  oracle front-end doesn't recognize the clause: Elsha of the Infinite,
+  Bolas's Citadel (also needs a pay-life alternative cost).
+- **Standing graveyard-cast permission** — the graveyard-cast family is a
+  closed keyword vocabulary (Flashback/Escape), not a card-granted standing
+  permission with its own MV filter + once-per-turn tracking (mirroring
+  `top_library_permission` for the graveyard zone): Lurrus of the Dream-Den.
+- **Extra-turn primitive (RULE 500.7)** — DONE (Batch 18, `GameState.
+  extra_turns` FIFO consumed by `GameEngine.begin_turn` + `take_extra_turn`
+  effect): an inserted turn is taken right after the current one. **Final
+  Fortune** now plays — its "at that turn's end step, you lose the game"
+  downside reuses the batch-22 delayed trigger with ``min_turn_offset=1`` so
+  it lands on the extra turn's end step, not the casting turn's. Time Warp /
+  Last Chance share the primitive (not in this cache).
+- **Soulbond (RULE 702.94)** — bare `FLAG` keyword only, no pairing logic:
+  Deadeye Navigator.
+- **Mutate (RULE 702.140)** — no merge/casting implementation, no
+  `EventType.MUTATE`: Lore Drakkis.
+- **Bargain additional cost** — bare `FLAG` keyword only, no additional-cost
+  handling or "was it bargained" flag: Beseech the Mirror.
+- **Sacrifice cause tag / `EventType.SACRIFICE`** — DONE (Batch 15):
+  `RulesEngine._move_to_graveyard` fires a distinct `SACRIFICE` occurrence
+  (in addition to DIES/LEAVES) for every `put_into_graveyard` sacrifice, so
+  "whenever a player sacrifices" is now distinguishable from a plain death.
+  Mayhem Devil registered.
+- **Grant-protection path** — DONE (Batch 23, `GameObject.temp_protections`
+  read by `combat.is_protected_from`, granted via the interactive
+  `grant_protection` effect / `RulesEngine.grant_protection_choice`, cleared
+  at cleanup). **Mother of Runes** and **Giver of Runes** (its "colorless"
+  option supported; "another" restriction a documented drop — no "other
+  creature you control" target kind yet) now play.
+- **Board-wide ability strip** — DONE (Batch 24, `remove_all_abilities`
+  static → `GameObject.loses_all_abilities`, layer 6 RULE 613.7f): strips
+  every keyword (`combat._obj_keywords` → empty) and gates triggered/activated
+  abilities at fire/activate time. **Humility** now plays (ability strip +
+  layer-7b `pt_set` to base 1/1). Dress Down reuses the same static but adds
+  an ETB draw + an end-step self-sacrifice and stays deferred; Underworld
+  Breach's "escape" grant is a separate gap.
+- **Dynamic/count-driven mana amount + cross-graveyard "cards named X"
+  selector** — `AddManaEffect` adds a fixed symbol list, and `count_selector`
+  has no "cards named X across every graveyard" entry: Rite of Flame.
+- **Per-count activation-cost reduction** — `activation_cost_reduction_for`
+  supports a flat amount but no per-count formula (mirroring `cost_reduction`'s
+  `per` param): Eiganjo Seat of the Empire ("{1} less per legendary creature";
+  registered with the Channel ability at full cost, the reduction dropped).
+- **Blood Moon's layer-6 ability-removal half** — "Nonbasic lands are
+  Mountains" overwrites subtype + grants `{R}` (layer 4) but doesn't strip a
+  land's independently-printed mana ability; no pool card needs the
+  distinction yet.
+- **Inline two-way modal with no bulleted header** — the modal grammar only
+  recognizes the bulleted RULE 700.2 block, not a compact "A or B" sentence:
+  Pemmin's Aura ("{1}: enchanted creature gets +1/-1 or -1/+1").
+- **Conditional search destination** — `SearchLibraryEffect` allows one fixed
+  destination per search, not "onto the battlefield tapped if a land, else to
+  hand": Archdruid's Charm's first mode.
+- **"Put cards from hand onto the battlefield" + Entwine** — every "put onto
+  the battlefield" shape moves from a graveyard or library, never an open
+  choice from hand; Entwine also has no parser recognition: Tooth and Nail.
+- **Assorted bespoke multi-ability cards** each combining several gaps above
+  or their own one-off mechanic, left fully unmodeled: Professor Onyx, Jeska
+  Thrice Reborn, Tevesh Szat Doom of Fools, Mana Vault (optional-cost /
+  state-conditioned upkeep + draw-step triggers), Dauntless Dismantler
+  (`{X}{X}{W}`-costed mass-destroy-by-X).

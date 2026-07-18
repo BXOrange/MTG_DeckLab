@@ -216,6 +216,13 @@ def _obj_keywords(obj: "GameObject") -> frozenset[str]:
     # Colossus Hammer) is subtracted last, after the union — RULE 613.7f
     # ability-removal applies regardless of which of the three sources
     # granted the keyword in the first place.
+    # RULE 613.7f: a "loses all abilities" static ability (Humility, Dress
+    # Down) strips every keyword — including the object's own printed ones —
+    # regardless of source. Granted keywords from a *lower-timestamp* effect
+    # would layer back on in real rules, but no cube card stacks a grant over
+    # Humility, so the simple "all gone" answer is correct here.
+    if getattr(obj, "loses_all_abilities", False):
+        return frozenset()
     return (
         keywords_of(obj.card)
         | frozenset(getattr(obj, "intrinsic_keywords", set()) or set())
@@ -331,7 +338,12 @@ def is_protected_from(obj: "GameObject", source: "GameObject") -> bool:
     "text_change" static ability (RULE 612, e.g. Artificial Evolution's
     "protection from red" → "protection from blue") is honoured.
     """
-    quals = protections_of_text(obj.effective_oracle_text)
+    # Printed (+ layer-3-substituted) protections, plus any granted "until end
+    # of turn" (Mother/Giver of Runes — `temp_protections`, RULE 702.16 as a
+    # resolve-time grant rather than printed text).
+    quals = protections_of_text(obj.effective_oracle_text) | frozenset(
+        getattr(obj, "temp_protections", None) or set()
+    )
     if not quals:
         return False
     if "everything" in quals:
@@ -342,6 +354,9 @@ def is_protected_from(obj: "GameObject", source: "GameObject") -> bool:
     if "creatures" in quals and source.is_creature:
         return True
     if "all_colors" in quals and source_colors:
+        return True
+    # "Protection from colorless" (Giver of Runes) — a source with no colours.
+    if "colorless" in quals and not source_colors:
         return True
     if quals & source_colors:
         return True

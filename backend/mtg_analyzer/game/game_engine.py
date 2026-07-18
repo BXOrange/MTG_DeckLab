@@ -139,9 +139,19 @@ class GameEngine:
             self.state._last_turn_player_id = outgoing.id
             self.state._last_turn_spell_count = self.state.spells_cast_this_turn.get(outgoing.id, 0)
             self.state.turn_number += 1
-            # Rotate to the next player, skipping the passive goldfish dummy
-            # (UC3) so a solo game keeps handing turns back to the human.
-            self.state.active_player_index = self.state.next_active_index()
+            # RULE 500.7: a queued extra turn is taken right after this one,
+            # before the normal next player — pop the front of the queue and
+            # hand that player the turn instead of rotating the round-robin.
+            if self.state.extra_turns:
+                taker_id = self.state.extra_turns.pop(0)
+                self.state.active_player_index = next(
+                    (i for i, p in enumerate(self.state.players) if p.id == taker_id),
+                    self.state.next_active_index(),
+                )
+            else:
+                # Rotate to the next player, skipping the passive goldfish dummy
+                # (UC3) so a solo game keeps handing turns back to the human.
+                self.state.active_player_index = self.state.next_active_index()
         active = self.state.active_player
         active.lands_played_this_turn = 0
         self.state.spells_cast_this_turn[active.id] = 0
@@ -242,6 +252,7 @@ class GameEngine:
             return
 
         self.state.fire_event(GameEvent(EventType.STEP_BEGIN, step=step.name, phase=phase.name))
+        self._fire_delayed_triggers(step.name)
         self._execute_step_body(step)
 
         if step.gives_priority:
@@ -264,6 +275,51 @@ class GameEngine:
         handler = getattr(self, f"_step_{step.name}", None)
         if handler is not None:
             handler()
+
+    def _fire_delayed_triggers(self, step_name: str) -> None:
+        """Place any delayed triggered abilities (RULE 603.7) due this step on
+        the stack, and drop them (they fire exactly once).
+
+        A `DelayedTrigger` is due when its ``step`` matches this step and its
+        ``scope`` is satisfied: ``"controller"`` needs the active player to be
+        the trigger's controller ("your next upkeep"), ``"any"`` fires at the
+        very next such step regardless of whose turn it is ("the next end
+        step"). Placed as ordinary ``ability`` stack items — resolved by the
+        normal stack/priority drain that follows the step's `give_priority`.
+        """
+        if not self.state.delayed_triggers:
+            return
+        active_id = self.state.active_player.id
+
+        def _step_matches(dt_step: str) -> bool:
+            # "your next main phase" (Mana Drain) fires at whichever main step
+            # comes first — precombat (main1) or postcombat (main2).
+            if dt_step == "main":
+                return step_name in ("main1", "main2")
+            return dt_step == step_name
+
+        due, remaining = [], []
+        for dt in self.state.delayed_triggers:
+            if (
+                _step_matches(dt.step)
+                and self.state.turn_number >= getattr(dt, "min_turn", 0)
+                and (dt.scope != "controller" or dt.controller_id == active_id)
+            ):
+                due.append(dt)
+            else:
+                remaining.append(dt)
+        self.state.delayed_triggers = remaining
+        for dt in due:
+            self.state.stack.append(
+                StackItem(
+                    kind="ability",
+                    controller_id=dt.controller_id,
+                    effects=dt.effects,
+                    targets=dt.targets,
+                    description=dt.description,
+                    category="triggered_ability",
+                )
+            )
 
     # -- Individual step bodies -----------------------------------------
 
@@ -519,6 +575,9 @@ class GameEngine:
             if obj.temp_unblockable:
                 obj.temp_unblockable = False
                 ended_effects = True
+            if obj.temp_protections:
+                obj.temp_protections.clear()
+                ended_effects = True
             if obj._copy_until_eot_base is not None:
                 copy_mechanics.restore_face(obj, obj._copy_until_eot_base)
                 obj._copy_until_eot_base = None
@@ -703,6 +762,10 @@ class GameEngine:
             # (`resolve_add_mana_any_color_choice` defaults an
             # unrecognized/missing answer the same way trigger_mode does).
             self.rules.resolve_add_mana_any_color_choice(None if declined else str(answer))
+        elif kind == "grant_protection_color":
+            # RULE 702.16: which colour (or colorless) to gain protection from
+            # — a mandatory choice, defaulted like add_mana_any_color.
+            self.rules.resolve_grant_protection_choice(None if declined else str(answer))
         elif kind == "replacement_order":
             # RULE 616.1: the option id is the index of the replacement
             # effect to apply next.
@@ -1764,6 +1827,21 @@ class GameEngine:
             # you" rider) — applied right alongside it, no stack involved.
             self.rules.deal_damage(player, ability.self_damage, source=source)
         self.state.record_stat(player.id, "mana", amount=sum(produced.values()))
+        # RULE 605.1: a "whenever ~ is tapped for mana" trigger (Price of
+        # Glory, Wild Growth, Mana Web) fires here — after the mana is in the
+        # pool — off the genuine mana-ability tap, never a plain tap-cost or
+        # an attack. Collected like any other event; the caller places pending
+        # triggers on the stack as usual.
+        self.state.fire_event(
+            GameEvent(
+                EventType.TAPPED_FOR_MANA,
+                object=source.name,
+                controller_id=player.id,
+                instance_id=source.instance_id,
+                object_types=sorted(source.type_words),
+                produced=dict(produced),
+            )
+        )
         return produced
 
     def activate_hand_mana_ability(
@@ -1841,6 +1919,8 @@ class GameEngine:
             return False  # RULE 702.26c: a phased-out permanent's abilities can't be activated
         if ability not in source.activated_abilities:
             return False
+        if getattr(source, "loses_all_abilities", False):
+            return False  # RULE 613.7f: Humility/Dress Down stripped its abilities
         if continuous.activation_prohibited(self.state, source):
             # RULE 602: "Activated abilities of artifacts can't be
             # activated." (Collector Ouphe/Stony Silence/Null Rod) — the

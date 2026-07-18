@@ -333,6 +333,11 @@ class RulesEngine:
             # as the static is in play.
             return
         for obj in self.state.permanents():
+            # RULE 613.7f: a permanent stripped of all abilities (Humility,
+            # Dress Down) has no triggered abilities to fire — not even a
+            # layer-6-granted one, which is itself an ability it no longer has.
+            if getattr(obj, "loses_all_abilities", False):
+                continue
             # `granted_triggered_abilities` (RULE 613.7f — a layer-6 "X have
             # '<triggered ability>'" static grant, e.g. Dionus, Elvish
             # Archdruid) sits alongside the object's own intrinsic abilities;
@@ -416,7 +421,17 @@ class RulesEngine:
         handled here.
         """
         while queue:
-            ability, _event = queue.pop(0)
+            ability, event = queue.pop(0)
+            if getattr(ability, "reflexive", False):
+                # RULE 603.3d "that permanent/spell": the target is the object
+                # that fired ``event``, not a chosen one — bake it in and
+                # place directly (no `trigger_target` choice). A vanished
+                # object (spell already off the stack) drops the trigger
+                # (RULE 603.3c), same as a required target with no legal pick.
+                obj = self.state.find_object(event.get("instance_id"))
+                if obj is not None:
+                    self._place_trigger(ability, targets=[obj])
+                continue
             if ability.modes:
                 self._pending_trigger_ability = ability
                 self._pending_trigger_queue = queue
@@ -1701,7 +1716,7 @@ class RulesEngine:
         sacrifice path). `sacrifice`'s own auto-picked effect-driven
         sacrifice (RULE 701.17) uses this too, for the same reason.
         """
-        self._move_to_graveyard(obj)
+        self._move_to_graveyard(obj, cause="sacrifice")
 
     def sacrifice(self, player: Player, what: str = "permanent", count: int = 1) -> None:
         """``player`` sacrifices up to ``count`` permanents matching ``what``
@@ -1907,6 +1922,74 @@ class RulesEngine:
         player = self.state.player_by_id(choice["player_id"])
         color = answer if answer in self._ANY_COLOR_LABELS else "W"
         self.add_mana(player, color)
+
+    def grant_protection_choice(
+        self, target: GameObject, player: Player, allow_colorless: bool = False
+    ) -> None:
+        """Open the interactive "protection from the colour of your choice"
+        pick (RULE 702.16, Mother/Giver of Runes) for ``target``.
+
+        Opens a `grant_protection_color` `pending_choice` carrying the target's
+        instance id; `resolve_grant_protection_choice` finishes it by adding
+        the chosen quality to ``target.temp_protections`` (cleared at cleanup).
+        ``allow_colorless`` adds Giver of Runes' extra "colorless" option.
+        """
+        options = [{"id": color, "label": label} for color, label in self._ANY_COLOR_LABELS.items()]
+        if allow_colorless:
+            options.append({"id": "colorless", "label": "Farblos"})
+        self.state.pending_choice = {
+            "kind": "grant_protection_color",
+            "player_id": player.id,
+            "target_id": target.instance_id,
+            "prompt": "Farbe für den Schutz wählen",
+            "options": options,
+        }
+
+    def resolve_grant_protection_choice(self, answer: Optional[str]) -> None:
+        """Answer a pending `grant_protection_color` choice — a mandatory pick
+        (an unrecognized/missing answer defaults to the first colour "W",
+        the same treatment `resolve_add_mana_any_color_choice` gives)."""
+        choice = self.state.pending_choice
+        if not choice or choice.get("kind") != "grant_protection_color":
+            raise ValueError("no pending grant-protection choice to resolve")
+        self.state.pending_choice = None
+        target = self.state.find_object(choice["target_id"])
+        if target is None:
+            return  # RULE 608.2b: target left — the grant simply does nothing
+        quality = answer if answer in self._ANY_COLOR_LABELS or answer == "colorless" else "W"
+        target.temp_protections.add(quality)
+
+    def random_int(self, n: int) -> int:
+        """A uniform random integer in ``[0, n)`` (RULE 706 randomization —
+        "choose … at random", coin flips), reproducible from the game state.
+
+        Derives the value from ``(rng_seed, rng_counter)`` and advances the
+        counter, so a given seed produces a fixed sequence that survives a
+        `GameState.clone()`/undo unchanged (a live `random.Random` on the
+        engine wouldn't travel with the cloned state). ``n <= 0`` returns 0.
+        """
+        import random  # stdlib, function-scoped: only the rare random effect needs it
+
+        if n <= 0:
+            return 0
+        # Combine seed + counter into a single int seed (a tuple isn't a valid
+        # `random.Random` seed) — a large odd multiplier keeps successive
+        # counters well-separated in the sequence.
+        combined = self.state.rng_seed * 6364136223846793005 + self.state.rng_counter
+        value = random.Random(combined).randrange(n)
+        self.state.rng_counter += 1
+        return value
+
+    def random_choice(self, options: list[Any]) -> Any:
+        """One uniformly-random element of ``options`` (RULE 706), reproducibly
+        — the list form of `random_int`. Returns ``None`` for an empty list."""
+        if not options:
+            return None
+        return options[self.random_int(len(options))]
+
+    def coin_flip(self) -> bool:
+        """A reproducible coin flip (RULE 705) — ``True`` for "heads"."""
+        return self.random_int(2) == 0
 
     def set_tapped(self, obj: GameObject, tapped: bool = True) -> None:
         """Tap or untap a permanent (RULE 701.21 / 701.22) — the choke point
@@ -2197,6 +2280,63 @@ class RulesEngine:
         token cease-to-exist lifecycle (RULE 704.5d)."""
         copiable = getattr(source, "_front_card", source.card)
         return self.create_token(controller_id, copiable, count)
+
+    def copy_spell(
+        self,
+        target: Any,
+        controller_id: str,
+        count: int = 1,
+        new_targets: Optional[list[Any]] = None,
+    ) -> list[StackItem]:
+        """Put ``count`` copies of the spell ``target`` onto the stack (RULE
+        707.10 — Dualcaster Mage/Reiterate/Flare of Duplication "copy target
+        instant or sorcery spell").
+
+        ``target`` is the spell's `StackItem` or its underlying `GameObject`
+        (whatever `CopySpellEffect` was handed). A copy is a brand-new
+        `StackItem` controlled by ``controller_id`` (RULE 707.10c — the
+        copier, who may differ from the original's controller), carrying a
+        fresh token `GameObject` of the spell's copiable card so its own
+        resolve-time effects rebind cleanly (`_effects_for_spell`) rather
+        than sharing the original's effect instances. The copy keeps the
+        original's targets by default (RULE 707.10c "the copy has the same
+        targets") and its announced {X} (RULE 707.10e) — ``new_targets``
+        overrides the former for the "you may choose new targets" clause.
+        Copies are pushed **above** the original so they resolve first
+        (RULE 608.2 — LIFO). A copy of a permanent spell resolves into a
+        token permanent; a copy of an instant/sorcery applies its effects
+        then ceases to exist (its token `GameObject` is reaped by the RULE
+        704.5d stranded-token SBA the moment the resolve path routes it off
+        the stack).
+        """
+        from .effect_binder import bind_from_catalogue  # function-scoped: avoid cycle
+
+        item = self._stack_item_for(target)
+        if item is None or item.obj is None:
+            return []
+        copiable = getattr(item.obj, "_front_card", item.obj.card)
+        copies: list[StackItem] = []
+        for _ in range(count):
+            copy_obj = GameObject(
+                copiable.as_copy(), owner_id=controller_id, zone=Zone.STACK
+            )
+            copy_obj.is_token = True
+            copy_obj.is_copy = True
+            copy_obj.x_paid = item.x
+            bind_from_catalogue(copy_obj)
+            copy_item = StackItem(
+                kind="spell",
+                controller_id=controller_id,
+                effects=self._effects_for_spell(copy_obj),
+                obj=copy_obj,
+                description=f"{item.obj.name} (Kopie)",
+                targets=list(item.targets) if new_targets is None else list(new_targets),
+                x=item.x,
+                target_groups=item.target_groups if new_targets is None else None,
+            )
+            self.state.stack.append(copy_item)
+            copies.append(copy_item)
+        return copies
 
     def make_prepared(self, obj: GameObject) -> None:
         """``obj`` becomes prepared (RULE 722.3a — a preparation card's
@@ -3116,7 +3256,11 @@ class RulesEngine:
             obj.zone = Zone.LIBRARY
             player.library.insert(0, obj)  # bottom (index 0 — see Player.library)
 
-    def _move_to_graveyard(self, obj: GameObject) -> None:
+    def _move_to_graveyard(self, obj: GameObject, cause: Optional[str] = None) -> None:
+        """Put ``obj`` into its owner's graveyard (RULE 704.5), firing the
+        leave/dies triggers. ``cause="sacrifice"`` additionally fires
+        `EventType.SACRIFICE` (RULE 701.17) — set only by `put_into_graveyard`,
+        the single choke point every genuine sacrifice funnels through."""
         was_on_battlefield = obj in self.state.battlefield
         was_creature = obj.is_creature
         owner = self.state.player_by_id(obj.owner_id)
@@ -3141,6 +3285,20 @@ class RulesEngine:
                 self.state.fire_event(
                     GameEvent(
                         EventType.DIES,
+                        object=obj.name,
+                        owner_id=obj.owner_id,
+                        controller_id=obj.controller_id,
+                        instance_id=obj.instance_id,
+                        object_types=sorted(obj.type_words),
+                    )
+                )
+            if cause == "sacrifice":
+                # RULE 701.17: a sacrifice both leaves/dies *and* is a
+                # distinct "was sacrificed" occurrence — fire it last so a
+                # dies-trigger and a sacrifice-trigger batch in that order.
+                self.state.fire_event(
+                    GameEvent(
+                        EventType.SACRIFICE,
                         object=obj.name,
                         owner_id=obj.owner_id,
                         controller_id=obj.controller_id,

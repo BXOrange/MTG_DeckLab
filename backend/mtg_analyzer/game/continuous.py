@@ -220,6 +220,12 @@ def group_selector_objects(
         ]
     elif affects == "permanents_you_control":
         result = [o for o in battlefield if o.controller_id == controller_id]
+    elif affects == "nonland_permanents_you_control":
+        # "Untap all nonland permanents you control." (Dramatic Reversal)
+        result = [
+            o for o in battlefield
+            if not o.is_land and o.controller_id == controller_id
+        ]
     elif affects == "lands_you_control":
         result = [o for o in battlefield if o.is_land and o.controller_id == controller_id]
     elif affects == "artifacts_you_control":
@@ -608,9 +614,16 @@ def recompute(state: "GameState") -> None:
     for ability in _in_layer(abilities, "ability"):
         keywords = ability.params.get("keywords", [])
         remove_keywords = ability.params.get("remove_keywords", [])
+        lose_all = bool(ability.params.get("lose_all_abilities", False))
         mana = ability.params.get("mana", [])
         trigger_event = ability.params.get("trigger_event")
         for obj in affected_objects(state, ability):
+            if lose_all:
+                # RULE 613.7f (Humility, Dress Down): strip *every* ability —
+                # keywords go via `_obj_keywords`, triggered/activated abilities
+                # are gated at fire/activate time on this flag.
+                obj._loses_all_abilities = True
+                _trace(obj, 6, _source_name(ability), "loses all abilities")
             if keywords:
                 obj._granted_keywords.update(keywords)
                 _trace(obj, 6, _source_name(ability), "gains " + ", ".join(keywords))

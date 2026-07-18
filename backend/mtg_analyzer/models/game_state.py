@@ -120,6 +120,48 @@ class StackItem:
         return f"StackItem({self.kind} {label!r})"
 
 
+class DelayedTrigger:
+    """A delayed triggered ability (RULE 603.7) waiting for a future step.
+
+    Created by a resolving spell/ability ("at the beginning of your next
+    upkeep, …"). ``controller_id`` is who set it up (and, for ``scope ==
+    "controller"``, whose step it waits for); ``step`` is the step-name it
+    fires at (``"upkeep"``/``"main1"``/``"end"``/…); ``scope`` is
+    ``"controller"`` (the controller's next such step) or ``"any"`` (the very
+    next such step, regardless of whose turn — Corpse Dance's "the next end
+    step"). ``effects`` are the already-built one-shot `GameEffect`s to place
+    on the stack when it fires, ``targets`` any baked-in objects they act on.
+    It fires exactly once — `GameEngine._fire_delayed_triggers` removes it
+    after placing it. Plain data (built effects hold no engine reference), so
+    it deep-copies with `GameState.clone`.
+    """
+
+    def __init__(
+        self,
+        controller_id: str,
+        step: str,
+        effects: list[Any],
+        scope: str = "controller",
+        targets: Optional[list[Any]] = None,
+        description: str = "",
+        min_turn: int = 0,
+    ) -> None:
+        self.controller_id = controller_id
+        self.step = step
+        self.effects = effects
+        self.scope = scope
+        self.targets = targets or []
+        self.description = description
+        #: The earliest ``turn_number`` this may fire at — 0 means "the very
+        #: next matching step". Lets "at the beginning of *that* (extra) turn's
+        #: end step" (Final Fortune) skip the *current* turn's end step by
+        #: arming with ``min_turn = turn_number + 1``.
+        self.min_turn = min_turn
+
+    def __repr__(self) -> str:
+        return f"DelayedTrigger({self.controller_id} @ {self.scope} {self.step!r})"
+
+
 class GameState:
     """The full state of one game and a light event bus over it."""
 
@@ -151,6 +193,16 @@ class GameState:
         self.game_over = False
         self.winner_id: Optional[str] = None
 
+        #: Reproducible-randomness state (RULE 706 — "choose … at random", coin
+        #: flips): a seed plus a monotonically-advancing counter. `RulesEngine.
+        #: random_int` derives each draw from ``(rng_seed, rng_counter)`` and
+        #: bumps the counter, so results are deterministic given the seed and
+        #: survive `clone()`/undo exactly (a live `random.Random` instance
+        #: wouldn't travel with the state). Plain ints — deep-copy with the
+        #: state. A test can pin ``rng_seed`` for a fixed sequence.
+        self.rng_seed: int = uuid.uuid4().int & 0xFFFFFFFF
+        self.rng_counter: int = 0
+
         #: Whether the starting player skips their turn-1 draw (RULE 103.7a).
         #: True by default ("on the play"); the goldfish setup screen can turn
         #: it off so the human draws on turn 1 instead ("on the draw").
@@ -176,6 +228,25 @@ class GameState:
         #: `GameEngine.can_cast`/`can_play_land`, swept at cleanup
         #: (`GameEngine._step_cleanup`).
         self.temp_play_permissions: dict[int, int] = {}
+
+        #: Delayed triggered abilities (RULE 603.7) a resolving spell/ability
+        #: has set up to fire at a *future* step ("at the beginning of your
+        #: next upkeep/main phase/end step, …" — Pacts, Mana Drain, Final
+        #: Fortune, Corpse Dance). Each is a `DelayedTrigger`: its own
+        #: controller, which step name fires it, whether it's scoped to that
+        #: controller's step or the very next one, the live effects to put on
+        #: the stack, and any baked-in targets. `GameEngine._fire_delayed_
+        #: triggers` places matches on the stack at STEP_BEGIN and drops them
+        #: (they fire once). Plain board state — deep-copies with `clone`.
+        self.delayed_triggers: list["DelayedTrigger"] = []
+
+        #: Extra turns to take (RULE 500.7), as a FIFO of player ids —
+        #: "take an extra turn after this one" (Final Fortune, the Time Warp
+        #: family) appends here; `GameEngine.begin_turn` pops the front instead
+        #: of rotating the normal round-robin, so an inserted turn is taken
+        #: right after the current one (and before the next player's) — RULE
+        #: 500.7. Plain board state — deep-copies with `clone`.
+        self.extra_turns: list[str] = []
 
         #: When True, the active player is asked to order their simultaneous
         #: triggered abilities (RULE 603.3b) via a `pending_choice` instead of

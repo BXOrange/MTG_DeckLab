@@ -88,6 +88,14 @@ class GameContext:
     def mill(self, player: "Player", count: int = 1) -> None:
         self.engine.mill(player, count)
 
+    def lose_game(self, player: "Player", reason: str = "effect") -> None:
+        self.engine._player_loses(player, reason)
+
+    def take_extra_turn(self, player: "Player") -> None:
+        # RULE 500.7: queue an extra turn for ``player``, taken after the
+        # current one (`GameEngine.begin_turn` consumes `state.extra_turns`).
+        self.state.extra_turns.append(player.id)
+
     def set_tapped(self, target: "GameObject", tapped: bool = True) -> None:
         self.engine.set_tapped(target, tapped)
 
@@ -115,6 +123,15 @@ class GameContext:
 
     def copy_permanent(self, controller_id: str, source: "GameObject", count: int = 1) -> None:
         self.engine.copy_permanent(controller_id, source, count)
+
+    def copy_spell(
+        self,
+        target: Any,
+        controller_id: str,
+        count: int = 1,
+        new_targets: Optional[list] = None,
+    ) -> None:
+        self.engine.copy_spell(target, controller_id, count, new_targets)
 
     def make_prepared(self, obj: "GameObject") -> None:
         self.engine.make_prepared(obj)
@@ -484,6 +501,7 @@ class TriggeredAbility(GameEffect):
         modes_or_both: bool = False,
         modes_choose: int = 1,
         modes_at_least: bool = False,
+        reflexive: bool = False,
     ) -> None:
         super().__init__(source)
         self.trigger_event = trigger_event
@@ -496,6 +514,17 @@ class TriggeredAbility(GameEffect):
         self.modes_or_both = modes_or_both
         self.modes_choose = modes_choose
         self.modes_at_least = modes_at_least
+        #: RULE 603.3d "that permanent/spell": the ability's single targeting
+        #: effect acts on *the exact object that fired the triggering event*
+        #: (Lavinia/Boromir "counter that spell", Price of Glory "destroy
+        #: that land") — not a freely chosen target. When set, `RulesEngine.
+        #: _place_triggers` resolves the target from the event's
+        #: ``instance_id`` at placement time and bakes it in, opening no
+        #: `trigger_target` choice; if the object is already gone (e.g. the
+        #: spell left the stack), the trigger is dropped (RULE 603.3c). This
+        #: is the generic form of the per-firing "that object" reference the
+        #: bespoke `check_ward`/`check_rampage` paths hand-build.
+        self.reflexive = reflexive
         #: "This ability triggers only once each turn" (RULE 603.2, e.g.
         #: Dionus, Elvish Archdruid's granted ability). Stamped by
         #: `check_trigger` the moment it fires — regardless of whether the
@@ -811,11 +840,28 @@ class DealDamageEffect(GameEffect):
         selector: Optional[str] = None,
         optional: bool = False,
         count: int = 1,
+        divided: bool = False,
+        double_at: Optional[int] = None,
     ) -> None:
         super().__init__(source)
         self.amount = amount
         self.target = target
         self.selector = selector if selector in _DAMAGE_SELECTORS else None
+        # RULE 601.2d: a *divided* damage spell splits its total ``amount``
+        # (typically {X}) among the chosen targets — "N damage divided as you
+        # choose among …" (Fire Covenant, Shatterskull Smashing) — rather than
+        # dealing the full amount to each (``count`` > 1's default). The "as
+        # you choose" split is UI-less here: the total is distributed as
+        # evenly as possible across whatever targets were chosen (an explicit
+        # ``division`` list, if a caller sets one, wins) — a documented
+        # simplification (the total dealt, and which permanents take damage,
+        # are exactly right; only the player's freedom to lump it unevenly is
+        # auto-made). ``double_at`` is Shatterskull's "if X is 6 or more,
+        # deals twice X … instead" (RULE 107.3) — the pool doubles once the
+        # resolved amount reaches that threshold.
+        self.divided = divided
+        self.double_at = double_at
+        self.division: Optional[list[int]] = None
         if self.selector is None:
             # Damage targets "any target" by default (RULE 115.4); a card
             # that only hits creatures can narrow this to "creature".
@@ -839,8 +885,27 @@ class DealDamageEffect(GameEffect):
             targets[: self.target_spec.count] if targets
             else ([self.target] if self.target is not None else [])
         )
+        if self.divided:
+            self._apply_divided(context, chosen)
+            return
         for target in chosen:
             context.deal_damage(target, self.amount, self.source)
+
+    def _apply_divided(self, context: GameContext, targets: list[Any]) -> None:
+        """Split the pool across ``targets`` (RULE 601.2d) — see ``divided``."""
+        if not targets:
+            return
+        total = self.amount if isinstance(self.amount, int) else 0
+        if self.double_at is not None and total >= self.double_at:
+            total *= 2  # RULE 107.3: "deals twice X … instead"
+        if self.division is not None and len(self.division) == len(targets):
+            amounts = [int(a) for a in self.division]
+        else:
+            base, extra = divmod(total, len(targets))
+            amounts = [base + (1 if i < extra else 0) for i in range(len(targets))]
+        for target, amount in zip(targets, amounts):
+            if amount > 0:
+                context.deal_damage(target, amount, self.source)
 
     def _apply_selector(self, context: GameContext) -> None:
         if self.selector == "defending_player":
@@ -1248,6 +1313,105 @@ class CounterSpellEffect(GameEffect):
         target = (targets[0] if targets else None) or self.target
         if target is not None:
             context.counter(target, unless_pays=self.unless_pays, source=self.source)
+
+
+class CopySpellEffect(GameEffect):
+    """Copy a target spell on the stack (RULE 707.10 — Dualcaster Mage/Flare
+    of Duplication/Reiterate "copy target instant or sorcery spell").
+
+    ``card_types`` narrows which spells are legal targets (default instant/
+    sorcery), folded into ``target_spec.spell_filter`` exactly as
+    `CounterSpellEffect` does. ``count`` copies are made (Flare of
+    Duplication makes one; a hypothetical "copy it twice" would set 2). The
+    copy is controlled by *this effect's source's controller* (RULE 707.10c
+    — the copier), created by `RulesEngine.copy_spell`. "You may choose new
+    targets for the copy" is a legal-but-optional refinement (RULE 707.10c);
+    this MVP keeps the original's targets (the default outcome), which every
+    real card in scope allows — a genuine new-target choice would open a
+    `pending_choice`, deferred until a card needs it.
+    """
+
+    def __init__(
+        self,
+        card_types: Optional[list[str]] = None,
+        count: int = 1,
+        source: Optional["GameObject"] = None,
+    ) -> None:
+        super().__init__(source)
+        self.count = count
+        spell_filter: dict[str, Any] = {}
+        if card_types:
+            spell_filter["card_types"] = list(card_types)
+        self.target_spec = TargetSpec(kind="spell", spell_filter=spell_filter or None)
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        target = targets[0] if targets else None
+        if target is None:
+            return
+        controller_id = getattr(self.source, "controller_id", None)
+        if controller_id is None:
+            return
+        context.copy_spell(target, controller_id, self.count)
+
+
+class CounterCreateTokenEffect(GameEffect):
+    """"Counter target spell. Its controller creates a token." (Swan Song,
+    Strix Serenade, An Offer You Can't Refuse) — the stack-side sibling of
+    `DestroyCreateTokenEffect`: the token goes to the *countered spell's own
+    controller* (the player being answered), read off the stack item before
+    it's countered, the same "read something off the target, then act" shape.
+
+    ``noncreature``/``card_types`` narrow which spells are legal targets,
+    folded into ``target_spec.spell_filter`` exactly as `CounterSpellEffect`
+    does; ``power``/``toughness``/``colors``/``subtypes``/``token_name``
+    describe the token exactly as `DestroyCreateTokenEffect`'s do.
+    """
+
+    def __init__(
+        self,
+        target: Any = None,
+        source: Optional["GameObject"] = None,
+        noncreature: bool = False,
+        card_types: Optional[list[str]] = None,
+        power: Optional[int] = None,
+        toughness: Optional[int] = None,
+        colors: Optional[list[str]] = None,
+        subtypes: Optional[list[str]] = None,
+        token_name: Optional[str] = None,
+        count: int = 1,
+        keywords: Optional[list[str]] = None,
+    ) -> None:
+        super().__init__(source)
+        self.target = target
+        spell_filter: dict[str, Any] = {}
+        if noncreature:
+            spell_filter["noncreature"] = True
+        if card_types:
+            spell_filter["card_types"] = list(card_types)
+        self.target_spec = TargetSpec(kind="spell", spell_filter=spell_filter or None)
+        self.power = power
+        self.toughness = toughness
+        self.colors = colors or []
+        self.subtypes = subtypes or []
+        self.token_name = token_name or (subtypes[0] if subtypes else "Token")
+        self.count = count
+        self.keywords = keywords or []
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        from ..services.token_database import synthesize_token_card
+
+        target = (targets[0] if targets else None) or self.target
+        if target is None:
+            return
+        controller_id = getattr(target, "controller_id", None)
+        context.counter(target, source=self.source)
+        if controller_id is None:
+            return
+        card = synthesize_token_card(
+            self.token_name, power=self.power, toughness=self.toughness,
+            colors=self.colors, subtypes=self.subtypes, keywords=self.keywords,
+        )
+        context.create_token(controller_id, card, self.count)
 
 
 class WardEffect(GameEffect):
@@ -2105,6 +2269,14 @@ class ReturnFromGraveyardEffect(GameEffect):
     "your hand" when it isn't yours; real cards never combine the two.
     """
 
+    #: Destinations this effect will route to (all handled by the engine's
+    #: `_put_searched_card`): battlefield/hand (the recursion default pair)
+    #: plus ``library_top`` (Noxious Revival "put … on top of its owner's
+    #: library") / ``library_bottom``.
+    _DESTINATIONS: frozenset[str] = frozenset(
+        {"battlefield", "hand", "library_top", "library_bottom"}
+    )
+
     def __init__(
         self,
         target: Any = None,
@@ -2113,11 +2285,16 @@ class ReturnFromGraveyardEffect(GameEffect):
         destination: str = "battlefield",
         under_your_control: bool = False,
         optional: bool = False,
+        lose_life_equal_mv: bool = False,
     ) -> None:
         super().__init__(source)
         self.target = target
-        self.destination = destination if destination in ("battlefield", "hand") else "battlefield"
+        self.destination = destination if destination in self._DESTINATIONS else "battlefield"
         self.under_your_control = under_your_control
+        # RULE 701.3 rider: "You lose life equal to that creature's mana
+        # value." (Reanimate) — read off the returned card, paid by the
+        # effect's own controller, after the return resolves.
+        self.lose_life_equal_mv = lose_life_equal_mv
         self.target_spec = TargetSpec(kind=target_kind, optional=optional)
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
@@ -2128,7 +2305,12 @@ class ReturnFromGraveyardEffect(GameEffect):
         if self.under_your_control and self.destination == "battlefield":
             player = _controller_of(self.source, context)
             controller_id = player.id if player is not None else None
+        mv = getattr(getattr(target, "card", None), "converted_mana_cost", 0) or 0
         context.return_from_graveyard(target, self.destination, controller_id=controller_id)
+        if self.lose_life_equal_mv and mv:
+            player = _controller_of(self.source, context)
+            if player is not None:
+                context.lose_life(player, int(mv))
 
 
 class BlinkEffect(GameEffect):
@@ -2177,9 +2359,23 @@ class AddManaEffect(GameEffect):
     ability/spell producing it might target).
     """
 
-    def __init__(self, colors: Optional[list[str]] = None, source: Optional["GameObject"] = None) -> None:
+    def __init__(
+        self,
+        colors: Optional[list[str]] = None,
+        source: Optional["GameObject"] = None,
+        amount: Optional[int] = None,
+        color: str = "C",
+    ) -> None:
         super().__init__(source)
         self.colors = [str(c).upper() for c in (colors or [])]
+        # ``amount``/``color`` are the *variable-count* form ("add an amount of
+        # {C} equal to that spell's mana value" — Mana Drain): a resolved count
+        # of one colour, threaded through the same ``"x"`` sentinel
+        # `RulesEngine._substitute_x` rewrites, instead of one letter per
+        # printed symbol. Kept separate from ``colors`` so the fixed-symbol
+        # form (Dark Ritual's "{B}{B}{B}") is unchanged.
+        self.amount = amount
+        self.color = str(color).upper()
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
         player = _controller_of(self.source, context)
@@ -2190,6 +2386,145 @@ class AddManaEffect(GameEffect):
                 context.add_mana_any_color(player)
             else:
                 context.add_mana(player, color)
+        if isinstance(self.amount, int) and self.amount > 0:
+            context.add_mana(player, self.color, self.amount)
+
+
+def _mana_value_of(target: Any) -> int:
+    """The mana value of a targeted spell (a `StackItem` or its `GameObject`
+    or a `Card`) — for a delayed trigger capturing "that spell's mana value"
+    (Mana Drain) at setup, before the spell leaves the game."""
+    obj = getattr(target, "obj", None) or target
+    card = getattr(obj, "card", None) or obj
+    return int(getattr(card, "converted_mana_cost", 0) or 0)
+
+
+class CreateDelayedTriggerEffect(GameEffect):
+    """Arm a delayed triggered ability (RULE 603.7) at resolution — "at the
+    beginning of your next <step>, <effect>." (Mana Drain, the Pacts, Final
+    Fortune, Corpse Dance).
+
+    ``step`` is the step-name it waits for (``"upkeep"``/``"main1"``/
+    ``"end"``/…); ``scope`` is ``"controller"`` (that controller's next such
+    step) or ``"any"`` (the very next one). ``effects`` is a list of
+    whitelisted ``{"type", "params"}`` effect descriptors built into live
+    one-shot effects here (through the same `effect_binder.build_effects`
+    whitelist as any other effect — nothing from card text escapes it) and
+    stashed on `GameState.delayed_triggers`; `GameEngine._fire_delayed_
+    triggers` places them on the stack when the step arrives.
+
+    ``capture`` reads a dynamic value from this effect's own resolution and
+    bakes it into the delayed effects: ``"target_mana_value"`` substitutes the
+    ``"x"`` amount/count sentinel with the targeted spell's mana value (Mana
+    Drain's "add an amount of {C} equal to that spell's mana value") — captured
+    now, since the spell is gone by the time the delayed ability fires.
+    """
+
+    def __init__(
+        self,
+        step: str,
+        effects: Optional[list[dict[str, Any]]] = None,
+        scope: str = "controller",
+        capture: Optional[str] = None,
+        min_turn_offset: int = 0,
+        source: Optional["GameObject"] = None,
+    ) -> None:
+        super().__init__(source)
+        self.step = str(step)
+        self.inner_specs = list(effects or [])
+        self.scope = str(scope)
+        self.capture = capture
+        # ``min_turn_offset`` arms the trigger to fire no earlier than
+        # ``turn_number + offset`` — 1 makes "at the beginning of *that*
+        # (extra) turn's end step" (Final Fortune) skip the *current* turn's
+        # end step, which would otherwise be the very next one.
+        self.min_turn_offset = int(min_turn_offset)
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        from .effect_binder import build_effects  # function-scoped: effects↔binder cycle
+        from ..parser.oracle.spec import EffectSpec
+        from ..models.game_state import DelayedTrigger
+
+        inner = build_effects(
+            [EffectSpec(type=d["type"], params=dict(d.get("params") or {})) for d in self.inner_specs],
+            self.source,
+        )
+        if self.capture == "target_mana_value" and targets:
+            captured = _mana_value_of(targets[0])
+            for effect in inner:
+                for attr in ("amount", "count"):
+                    if getattr(effect, attr, None) == "x":
+                        setattr(effect, attr, captured)
+        controller_id = getattr(self.source, "controller_id", None) or context.active_player.id
+        context.state.delayed_triggers.append(
+            DelayedTrigger(
+                controller_id=controller_id,
+                step=self.step,
+                effects=inner,
+                scope=self.scope,
+                targets=list(targets or []),
+                description=getattr(self, "description", "") or "",
+                min_turn=context.state.turn_number + self.min_turn_offset,
+            )
+        )
+
+
+class TakeExtraTurnEffect(GameEffect):
+    """Take an extra turn after this one (RULE 500.7) — Final Fortune, the
+    Time Warp family. Queues the effect's controller onto
+    `GameState.extra_turns`; `GameEngine.begin_turn` takes it right after the
+    current turn."""
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        player = _controller_of(self.source, context)
+        if player is not None:
+            context.take_extra_turn(player)
+
+
+class GrantProtectionEffect(GameEffect):
+    """"Target creature gains protection from the color of your choice until
+    end of turn" (RULE 702.16 — Mother of Runes; Giver of Runes adds a
+    "colorless" option and targets *another* creature).
+
+    Opens an interactive `grant_protection_color` choice (`RulesEngine.
+    grant_protection_choice`) for the effect's controller; the chosen quality
+    lands in ``target.temp_protections`` (cleared at cleanup, RULE 514.2).
+    ``allow_colorless`` is Giver of Runes' extra option.
+    """
+
+    def __init__(
+        self,
+        target_kind: str = "creature_you_control",
+        allow_colorless: bool = False,
+        source: Optional["GameObject"] = None,
+    ) -> None:
+        super().__init__(source)
+        self.allow_colorless = allow_colorless
+        self.target_spec = TargetSpec(kind=target_kind)
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        target = targets[0] if targets else None
+        if target is None:
+            return
+        controller = _controller_of(self.source, context)
+        if controller is None:
+            return
+        context.engine.grant_protection_choice(target, controller, self.allow_colorless)
+
+
+class LoseGameEffect(GameEffect):
+    """The effect's controller loses the game (RULE 104.3a) — Final Fortune's
+    "you lose the game" downside, resolved via the same `_player_loses` path
+    an SBA loss uses."""
+
+    def __init__(self, reason: str = "effect", source: Optional["GameObject"] = None) -> None:
+        super().__init__(source)
+        self.reason = reason
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        player = _controller_of(self.source, context)
+        if player is not None:
+            context.lose_game(player, self.reason)
 
 
 #: `TapEffect.selector`'s whitelist — a mass "tap/untap all X" effect (RULE
@@ -2197,7 +2532,9 @@ class AddManaEffect(GameEffect):
 #: `DestroyEffect.selector` use), not a RULE 115 target at all. Only the one
 #: shape a real card needs so far: "untap all creatures you control"
 #: (Village Bell-Ringer).
-_TAP_SELECTORS: frozenset[str] = frozenset({"creatures_you_control", "permanents_you_control"})
+_TAP_SELECTORS: frozenset[str] = frozenset(
+    {"creatures_you_control", "permanents_you_control", "nonland_permanents_you_control"}
+)
 
 
 class TapEffect(GameEffect):
@@ -3185,6 +3522,8 @@ EffectRegistry.register(
         selector=p.get("selector"),
         optional=bool(p.get("optional", False)),
         count=p.get("count", 1),
+        divided=bool(p.get("divided", False)),
+        double_at=p.get("double_at"),
     ),
 )
 EffectRegistry.register(
@@ -3240,6 +3579,13 @@ EffectRegistry.register(
         card_types=p.get("card_types"),
         mana_value=p.get("mana_value"),
         color=p.get("color"),
+    ),
+)
+EffectRegistry.register(
+    "copy_spell",
+    lambda p: CopySpellEffect(
+        card_types=p.get("card_types"),
+        count=p.get("count", 1),
     ),
 )
 EffectRegistry.register("cant_be_countered", lambda p: CantBeCounteredEffect())
@@ -3307,6 +3653,19 @@ EffectRegistry.register(
         colors=list(p.get("colors", [])), subtypes=list(p.get("subtypes", [])),
         token_name=p.get("token_name"),
         can_be_regenerated=bool(p.get("can_be_regenerated", True)),
+    ),
+)
+EffectRegistry.register(
+    "counter_create_token",  # Swan Song, Strix Serenade, An Offer You Can't Refuse
+    lambda p: CounterCreateTokenEffect(
+        target=p.get("target"),
+        noncreature=bool(p.get("noncreature", False)),
+        card_types=list(p.get("card_types", [])) or None,
+        power=p.get("power"), toughness=p.get("toughness"),
+        colors=list(p.get("colors", [])), subtypes=list(p.get("subtypes", [])),
+        token_name=p.get("token_name"),
+        count=int(p.get("count", 1)),
+        keywords=list(p.get("keywords", [])),
     ),
 )
 EffectRegistry.register(
@@ -3401,11 +3760,37 @@ EffectRegistry.register(
         destination=p.get("destination", "battlefield"),
         under_your_control=bool(p.get("under_your_control", False)),
         optional=bool(p.get("optional", False)),
+        lose_life_equal_mv=bool(p.get("lose_life_equal_mv", False)),
     ),
 )
 EffectRegistry.register(
     "add_mana",  # a spell's own bare "Add {B}{B}{B}." body (RULE 106.4, Dark Ritual)
-    lambda p: AddManaEffect(colors=list(p.get("colors", []))),
+    lambda p: AddManaEffect(
+        colors=list(p.get("colors", [])),
+        amount=p.get("amount"),
+        color=p.get("color", "C"),
+    ),
+)
+EffectRegistry.register(
+    "create_delayed_trigger",  # RULE 603.7 "at the beginning of your next … , …"
+    lambda p: CreateDelayedTriggerEffect(
+        step=p.get("step", "upkeep"),
+        effects=list(p.get("effects", [])),
+        scope=p.get("scope", "controller"),
+        capture=p.get("capture"),
+        min_turn_offset=p.get("min_turn_offset", 0),
+    ),
+)
+EffectRegistry.register("take_extra_turn", lambda p: TakeExtraTurnEffect())
+EffectRegistry.register(
+    "grant_protection",
+    lambda p: GrantProtectionEffect(
+        target_kind=p.get("target_kind", "creature_you_control"),
+        allow_colorless=bool(p.get("allow_colorless", False)),
+    ),
+)
+EffectRegistry.register(
+    "lose_game", lambda p: LoseGameEffect(reason=p.get("reason", "effect"))
 )
 EffectRegistry.register(
     "blink",  # "Exile target permanent, then return it to the battlefield" (Ephemerate)
@@ -3676,6 +4061,18 @@ EffectRegistry.register(
         "ability",
         affects=p.get("affects", "attached_permanent"),
         params={"remove_keywords": list(p.get("keywords", [])), **_selectors(p)},
+    ),
+)
+EffectRegistry.register(
+    # "All creatures lose all abilities" (Humility, Dress Down) — layer 6,
+    # RULE 613.7f, stripping *every* ability (keywords via `_obj_keywords`,
+    # triggered/activated abilities gated at fire/activate time on
+    # `GameObject.loses_all_abilities`), not just a named keyword.
+    "remove_all_abilities",
+    lambda p: StaticAbility(
+        "ability",
+        affects=p.get("affects", "all_creatures"),
+        params={"lose_all_abilities": True, **_selectors(p)},
     ),
 )
 EffectRegistry.register(

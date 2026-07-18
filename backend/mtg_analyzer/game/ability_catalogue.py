@@ -64,6 +64,12 @@ def specs_for(card: Any) -> list[AbilitySpec]:
     """
     name = (getattr(card, "name", "") or "").strip().lower()
     factory = _REGISTRY.get(name)
+    # A DFC/MDFC/split card's ``name`` is the combined "Front // Back"; a
+    # registration keyed on the (castable) front face's own name should still
+    # match (e.g. Shatterskull Smashing, whose back is a land). Fall back to
+    # the pre-"//" front name — the same slice `Card.fuse_face` reads.
+    if factory is None and "//" in name:
+        factory = _REGISTRY.get(name.split("//")[0].strip())
     registered = factory is not None
     specs: list[AbilitySpec] = list(factory()) if registered else []
 
@@ -1939,19 +1945,32 @@ def _mana_drain() -> list[AbilitySpec]:
     """Counter target spell. At the beginning of your next main phase, add
     an amount of {C} equal to that spell's mana value.
 
-    — Mana Drain. Only the counter half is modeled; the delayed "at the
-    beginning of your next main phase, add {C} equal to that spell's mana
-    value" tail needs a dynamically-created, one-shot delayed trigger tied
-    to a specific future event (RULE 603.7) — no such primitive exists yet
-    (the same gap Summoner's Pact/Pact of Negation hit, see
-    docs/implementation-state/ToDo_EdgeCases.md's "cEDH staples cube"
-    section) — dropped rather than guessed at.
+    — Mana Drain. Now fully modeled (batch 22 built the delayed-trigger
+    primitive): `counter` the target spell, then `create_delayed_trigger`
+    arms an "at the beginning of your next main phase" ability (``step``
+    ``"main"`` matches whichever of main1/main2 begins first, ``scope``
+    ``"controller"``). The countered spell is gone by the time the delayed
+    ability fires, so its mana value is captured *now* via
+    ``capture="target_mana_value"`` and substituted into the delayed
+    `add_mana`'s ``"x"`` amount (RULE 603.7's "that spell's mana value").
     """
     return [
         AbilitySpec(
             "spell_effect",
-            [EffectSpec("counter", {})],
-            raw_text="Annulliere einen Zielzauberspruch.",
+            [
+                EffectSpec("counter", {}),
+                EffectSpec("create_delayed_trigger", {
+                    "step": "main",
+                    "scope": "controller",
+                    "capture": "target_mana_value",
+                    "effects": [
+                        {"type": "add_mana", "params": {"color": "C", "amount": "x"}},
+                    ],
+                }),
+            ],
+            raw_text="Annulliere einen Zielzauberspruch. Zu Beginn deiner nächsten "
+                     "Hauptphase erzeuge eine Menge {C} in Höhe der Manakosten "
+                     "jenes Zauberspruchs.",
         )
     ]
 
@@ -3099,3 +3118,657 @@ def _borne_upon_a_wind() -> list[AbilitySpec]:
 
 
 register("Borne Upon a Wind", _borne_upon_a_wind)
+
+
+# ---------------------------------------------------------------------------
+# Batch 14 — "destroy/counter target X; its controller creates a token"
+# cluster and further cube singles whose effect primitives already exist.
+# ---------------------------------------------------------------------------
+
+
+def _pongify() -> list[AbilitySpec]:
+    """Destroy target creature. It can't be regenerated. Its controller
+    creates a 3/3 green Ape creature token.
+
+    — Pongify. Reuses `destroy_create_token` (Beast Within), with
+    ``can_be_regenerated=False`` for the "can't be regenerated" clause.
+    """
+    return [
+        AbilitySpec(
+            "spell_effect",
+            [EffectSpec("destroy_create_token", {
+                "target_kind": "creature",
+                "power": 3, "toughness": 3, "colors": ["G"], "subtypes": ["Ape"],
+                "can_be_regenerated": False,
+            })],
+            raw_text="Zerstöre eine Zielkreatur. Sie kann nicht regeneriert "
+                     "werden. Ihr Beherrscher erschafft einen grünen 3/3-Affen-"
+                     "Kreaturenspielstein.",
+        )
+    ]
+
+
+register("Pongify", _pongify)
+
+
+def _rapid_hybridization() -> list[AbilitySpec]:
+    """Destroy target creature. It can't be regenerated. That creature's
+    controller creates a 3/3 green Frog Lizard creature token.
+
+    — Rapid Hybridization. Pongify's blue sibling (`destroy_create_token`).
+    """
+    return [
+        AbilitySpec(
+            "spell_effect",
+            [EffectSpec("destroy_create_token", {
+                "target_kind": "creature",
+                "power": 3, "toughness": 3, "colors": ["G"],
+                "subtypes": ["Frog", "Lizard"], "token_name": "Frog Lizard",
+                "can_be_regenerated": False,
+            })],
+            raw_text="Zerstöre eine Zielkreatur. Sie kann nicht regeneriert "
+                     "werden. Der Beherrscher jener Kreatur erschafft einen "
+                     "grünen 3/3-Frosch-Echsen-Kreaturenspielstein.",
+        )
+    ]
+
+
+register("Rapid Hybridization", _rapid_hybridization)
+
+
+def _swan_song() -> list[AbilitySpec]:
+    """Counter target enchantment, instant, or sorcery spell. Its controller
+    creates a 2/2 blue Bird creature token with flying.
+
+    — Swan Song. A new `counter_create_token` effect this batch — the
+    stack-side sibling of `destroy_create_token`: the token goes to the
+    countered spell's own controller.
+    """
+    return [
+        AbilitySpec(
+            "spell_effect",
+            [EffectSpec("counter_create_token", {
+                "card_types": ["enchantment", "instant", "sorcery"],
+                "power": 2, "toughness": 2, "colors": ["U"],
+                "subtypes": ["Bird"], "keywords": ["flying"],
+            })],
+            raw_text="Neutralisiere eine Zielverzauberung, einen Zielspontan- "
+                     "oder Zielhexereizauber. Ihr Beherrscher erschafft einen "
+                     "blauen 2/2-Vogel-Kreaturenspielstein mit Fliegend.",
+        )
+    ]
+
+
+register("Swan Song", _swan_song)
+
+
+def _strix_serenade() -> list[AbilitySpec]:
+    """Counter target artifact, creature, or planeswalker spell. Its
+    controller creates a 2/2 blue Bird creature token with flying.
+
+    — Strix Serenade. Swan Song's mirror over the other card-type triplet
+    (`counter_create_token`).
+    """
+    return [
+        AbilitySpec(
+            "spell_effect",
+            [EffectSpec("counter_create_token", {
+                "card_types": ["artifact", "creature", "planeswalker"],
+                "power": 2, "toughness": 2, "colors": ["U"],
+                "subtypes": ["Bird"], "keywords": ["flying"],
+            })],
+            raw_text="Neutralisiere einen Zielartefakt-, Zielkreatur- oder "
+                     "Zielplaneswalker-Zauber. Sein Beherrscher erschafft einen "
+                     "blauen 2/2-Vogel-Kreaturenspielstein mit Fliegend.",
+        )
+    ]
+
+
+register("Strix Serenade", _strix_serenade)
+
+
+def _an_offer_you_cant_refuse() -> list[AbilitySpec]:
+    """Counter target noncreature spell. Its controller creates two Treasure
+    tokens.
+
+    — An Offer You Can't Refuse (`counter_create_token`, ``noncreature`` +
+    ``count=2``). The Treasure tokens are created as artifact tokens named
+    "Treasure"; their own "sacrifice for mana" ability isn't bound (no
+    generic Treasure-behaviour primitive yet) — the token exists on the
+    board but can't yet be cracked for mana.
+    """
+    return [
+        AbilitySpec(
+            "spell_effect",
+            [EffectSpec("counter_create_token", {
+                "noncreature": True, "count": 2,
+                "subtypes": ["Treasure"], "token_name": "Treasure",
+            })],
+            raw_text="Neutralisiere einen Ziel-Nichtkreaturenzauber. Sein "
+                     "Beherrscher erschafft zwei Schatz-Spielsteine.",
+        )
+    ]
+
+
+register("An Offer You Can't Refuse", _an_offer_you_cant_refuse)
+
+
+def _path_to_exile() -> list[AbilitySpec]:
+    """Exile target creature. Its controller may search their library for a
+    basic land card, put that card onto the battlefield tapped, then shuffle.
+
+    — Path to Exile. Reuses `exile_controller_searches_basic_land` (the same
+    "exile + the target's controller ramps a tapped basic" primitive Swords
+    to Plowshares' sibling family established).
+    """
+    return [
+        AbilitySpec(
+            "spell_effect",
+            [EffectSpec("exile_controller_searches_basic_land", {
+                "target_kind": "creature",
+            })],
+            raw_text="Schicke eine Zielkreatur ins Exil. Ihr Beherrscher kann "
+                     "seine Bibliothek nach einer Standardlandkarte durchsuchen, "
+                     "sie getappt ins Spiel bringen und dann mischen.",
+        )
+    ]
+
+
+register("Path to Exile", _path_to_exile)
+
+
+def _cyclonic_rift() -> list[AbilitySpec]:
+    """Return target nonland permanent you don't control to its owner's hand.
+    (Overload {6}{U} — not modeled.)
+
+    — Cyclonic Rift. The base (non-overload) mode via `return_to_hand` with
+    the new ``nonland_permanent_you_dont_control`` target kind. Overload
+    (RULE 702.96 — an alternative cost that rewrites "target" to "each") has
+    no parser/engine support yet, so only the single-target mode is offered;
+    documented drop per the Sword-of-Forge-and-Frontier partial precedent.
+    """
+    return [
+        AbilitySpec(
+            "spell_effect",
+            [EffectSpec("return_to_hand", {
+                "target_kind": "nonland_permanent_you_dont_control",
+            })],
+            raw_text="Bringe eine bleibende Nichtland-Zielkarte, die du nicht "
+                     "kontrollierst, auf die Hand ihres Besitzers zurück.",
+        )
+    ]
+
+
+register("Cyclonic Rift", _cyclonic_rift)
+
+
+def _alchemists_retrieval() -> list[AbilitySpec]:
+    """Return target nonland permanent [you control] to its owner's hand.
+    (Cleave {1}{U} — not modeled.)
+
+    — Alchemist's Retrieval. The base (non-cleave) mode via `return_to_hand`
+    with ``nonland_permanent_you_control``. Cleave (RULE 702.150 — an
+    alternative cost that removes the bracketed words, here broadening the
+    target to any nonland permanent) has no parser/engine support yet;
+    documented drop.
+    """
+    return [
+        AbilitySpec(
+            "spell_effect",
+            [EffectSpec("return_to_hand", {
+                "target_kind": "nonland_permanent_you_control",
+            })],
+            raw_text="Bringe eine bleibende Nichtland-Zielkarte, die du "
+                     "kontrollierst, auf die Hand ihres Besitzers zurück.",
+        )
+    ]
+
+
+register("Alchemist's Retrieval", _alchemists_retrieval)
+
+
+def _copy_enchantment() -> list[AbilitySpec]:
+    """You may have this enchantment enter as a copy of any enchantment on the
+    battlefield.
+
+    — Copy Enchantment. Same `enter_as_copy` mechanism as Clever Impersonator
+    (see its docstring), narrowed to ``target_kind="enchantment"`` (the new
+    single-type target kind).
+    """
+    return [
+        AbilitySpec(
+            "enter_replacement",
+            [EffectSpec("enter_as_copy", {"target_kind": "enchantment"})],
+            raw_text="Du kannst diese Verzauberung als Kopie einer beliebigen "
+                     "Verzauberung im Spiel ins Spiel kommen lassen.",
+        )
+    ]
+
+
+register("Copy Enchantment", _copy_enchantment)
+
+
+def _gitaxian_probe() -> list[AbilitySpec]:
+    """Look at target player's hand. Draw a card.
+
+    — Gitaxian Probe. The "look at target player's hand" clause is pure
+    information (no game-state change) and, in a full-information goldfish/
+    replay session, a no-op — so only the "draw a card" cantrip half is
+    bound; documented drop of the reveal clause.
+    """
+    return [
+        AbilitySpec(
+            "spell_effect",
+            [EffectSpec("draw", {"count": 1})],
+            raw_text="Sieh dir die Hand eines Zielspielers an. Ziehe eine Karte.",
+        )
+    ]
+
+
+register("Gitaxian Probe", _gitaxian_probe)
+
+
+def _reanimate() -> list[AbilitySpec]:
+    """Put target creature card from a graveyard onto the battlefield under
+    your control. You lose life equal to that creature's mana value.
+
+    — Reanimate. `return_from_graveyard` with ``under_your_control`` (the
+    Reanimate shape) plus the new ``lose_life_equal_mv`` rider, which reads
+    the returned creature's mana value and makes the caster lose that much
+    life.
+    """
+    return [
+        AbilitySpec(
+            "spell_effect",
+            [EffectSpec("return_from_graveyard", {
+                "target_kind": "any_graveyard_creature",
+                "destination": "battlefield",
+                "under_your_control": True,
+                "lose_life_equal_mv": True,
+            })],
+            raw_text="Bringe eine Zielkreaturenkarte aus einem Friedhof unter "
+                     "deiner Kontrolle ins Spiel. Du verlierst so viele "
+                     "Lebenspunkte, wie ihr Manawert beträgt.",
+        )
+    ]
+
+
+register("Reanimate", _reanimate)
+
+
+def _noxious_revival() -> list[AbilitySpec]:
+    """Put target card from a graveyard on top of its owner's library.
+
+    — Noxious Revival. `return_from_graveyard` with the new ``library_top``
+    destination (the card goes to its *owner's* library top, the engine
+    default when no controller override is given).
+    """
+    return [
+        AbilitySpec(
+            "spell_effect",
+            [EffectSpec("return_from_graveyard", {
+                "target_kind": "any_graveyard_card",
+                "destination": "library_top",
+            })],
+            raw_text="Lege eine Zielkarte aus einem Friedhof oben auf die "
+                     "Bibliothek ihres Besitzers.",
+        )
+    ]
+
+
+register("Noxious Revival", _noxious_revival)
+
+
+def _dramatic_reversal() -> list[AbilitySpec]:
+    """Untap all nonland permanents you control.
+
+    — Dramatic Reversal. `TapEffect` in its untargeted mass-untap mode via
+    the new ``nonland_permanents_you_control`` group selector.
+    """
+    return [
+        AbilitySpec(
+            "spell_effect",
+            [EffectSpec("tap", {
+                "untap": True, "selector": "nonland_permanents_you_control",
+            })],
+            raw_text="Enttappe alle bleibenden Nichtland-Karten, die du "
+                     "kontrollierst.",
+        )
+    ]
+
+
+register("Dramatic Reversal", _dramatic_reversal)
+
+
+# ---------------------------------------------------------------------------
+# cEDH staples cube — batch 15 (new core primitive: EventType.SACRIFICE)
+# ---------------------------------------------------------------------------
+
+
+def _mayhem_devil() -> list[AbilitySpec]:
+    """Whenever a player sacrifices a permanent, Mayhem Devil deals 1 damage
+    to any target.
+
+    — Mayhem Devil. First consumer of the new `EventType.SACRIFICE`
+    occurrence (RULE 701.17), fired by `RulesEngine._move_to_graveyard` for
+    every `put_into_graveyard` sacrifice in addition to DIES/LEAVES. The
+    trigger carries no subject condition — "a player" means *any* player's
+    sacrifice, and SACRIFICE only ever fires for a permanent being
+    sacrificed, so a bare trigger matches exactly the intended events. The
+    1-damage effect targets "any target" (RULE 115.4), gathered
+    interactively at resolution like any other targeted trigger.
+    """
+    return [
+        AbilitySpec(
+            "triggered",
+            [EffectSpec("damage", {"amount": 1, "target_kind": "any"})],
+            trigger={"event": EventType.SACRIFICE},
+            raw_text="Immer wenn ein Spieler eine bleibende Karte opfert, fügt "
+                     "Mayhem Devil einem beliebigen Ziel 1 Schadenspunkt zu.",
+        )
+    ]
+
+
+register("Mayhem Devil", _mayhem_devil)
+
+
+# ---------------------------------------------------------------------------
+# cEDH staples cube — batch 17 (new core primitive: spell-copy, RULE 707.10)
+# ---------------------------------------------------------------------------
+
+
+def _dualcaster_mage() -> list[AbilitySpec]:
+    """Flash. When Dualcaster Mage enters, copy target instant or sorcery
+    spell. You may choose new targets for the copy.
+
+    — Dualcaster Mage. Flash is a keyword (folded in by `specs_for`'s RULE
+    702 keyword catalogue, so it isn't authored here). The ETB trigger is
+    the first consumer of the new `copy_spell` effect (`RulesEngine.
+    copy_spell`, RULE 707.10): it targets an instant/sorcery spell on the
+    stack and puts a copy above it. "You may choose new targets" is the
+    effect's documented MVP simplification (keeps the original's targets —
+    always legal, RULE 707.10c).
+    """
+    return [
+        AbilitySpec(
+            "triggered",
+            [EffectSpec("copy_spell", {"card_types": ["instant", "sorcery"]})],
+            trigger={"event": EventType.ENTERS_BATTLEFIELD, "condition": {"subject": "self"}},
+            raw_text="Wenn Dualcaster Mage ins Spiel kommt, kopiere einen "
+                     "Ziel-Spontanzauber oder eine Ziel-Hexerei.",
+        )
+    ]
+
+
+register("Dualcaster Mage", _dualcaster_mage)
+
+
+def _flare_of_duplication() -> list[AbilitySpec]:
+    """You may sacrifice a nontoken red creature rather than pay this spell's
+    mana cost. Copy target instant or sorcery spell. You may choose new
+    targets for the copy.
+
+    — Flare of Duplication. The copy effect is the `copy_spell` primitive.
+    **Deliberately dropped**: the optional "sacrifice a nontoken red creature
+    rather than pay this spell's mana cost" *alternative* casting cost (RULE
+    118.9 — an alt-cost, the Force-of-Will/pitch family the engine doesn't
+    model yet). Dropping it leaves the card fully playable at its normal mana
+    cost, only without the optional discount — the same
+    partial-model-with-explicit-drop precedent as Batch 14's Cyclonic Rift
+    (Overload) and Gitaxian Probe (reveal).
+    """
+    return [
+        AbilitySpec(
+            "spell_effect",
+            [EffectSpec("copy_spell", {"card_types": ["instant", "sorcery"]})],
+            raw_text="Kopiere einen Ziel-Spontanzauber oder eine Ziel-Hexerei.",
+        )
+    ]
+
+
+register("Flare of Duplication", _flare_of_duplication)
+
+
+# ---------------------------------------------------------------------------
+# cEDH staples cube — batch 20 (new core primitive: the "tapped for mana"
+# event, RULE 605.1 — `EventType.TAPPED_FOR_MANA`)
+# ---------------------------------------------------------------------------
+
+
+def _price_of_glory() -> list[AbilitySpec]:
+    """Whenever a player taps a land for mana, if it's not that player's
+    turn, destroy that land.
+
+    — Price of Glory. First consumer of the new `EventType.TAPPED_FOR_MANA`
+    occurrence (`GameEngine.tap_for_mana`, RULE 605.1). Three primitives
+    compose here, no bespoke code: the ``"group"`` subject scopes it to a
+    *land* being tapped (`condition.type == "land"`, any player — no
+    ``controller`` scoping); ``not_controllers_turn`` is the RULE 603.4
+    intervening-if ("if it's not that player's turn", checked against the
+    live active player, `effect_binder._trigger_condition`); and
+    ``reflexive`` bakes in *that* land as the destroy target from the
+    event's ``instance_id`` (RULE 603.3d, batch 16) — no target choice, and
+    the trigger drops if the land somehow already left. Destroying a land is
+    an ordinary stack trigger (not a mana ability), so normal resolution is
+    correct.
+    """
+    return [
+        AbilitySpec(
+            "triggered",
+            [EffectSpec("destroy", {"target_kind": "land"})],
+            trigger={
+                "event": EventType.TAPPED_FOR_MANA,
+                "condition": {"subject": "group", "type": "land"},
+                "not_controllers_turn": True,
+                "reflexive": True,
+            },
+            raw_text="Immer wenn ein Spieler ein Land für Mana tappt und es nicht "
+                     "der Zug dieses Spielers ist, zerstöre jenes Land.",
+        )
+    ]
+
+
+register("Price of Glory", _price_of_glory)
+
+
+# ---------------------------------------------------------------------------
+# cEDH staples cube — batch 19 (new core primitive: divided damage,
+# RULE 601.2d — `DealDamageEffect(divided=True)`)
+# ---------------------------------------------------------------------------
+
+
+def _shatterskull_smashing() -> list[AbilitySpec]:
+    """Shatterskull Smashing deals X damage divided as you choose among up to
+    two target creatures and/or planeswalkers. If X is 6 or more, it deals
+    twice X divided among them instead.
+
+    — Shatterskull Smashing (the sorcery *front* face of the MDFC; its back is
+    the land Shatterskull, the Hammer Pass, so the spell casts as an ordinary
+    {X}{R}{R} sorcery — no modal-DFC machinery needed for this face). First
+    consumer of the `divided` damage primitive: the announced {X} pool is
+    split across the chosen targets (``divided`` + ``count`` 2 ``optional``),
+    doubling at ``double_at=6`` (RULE 107.3). **Documented simplifications**:
+    the "and/or planeswalkers" half of the target set is dropped (``creature``
+    only — planeswalker damage targeting), and the "as you choose" split
+    defaults to an even distribution (`DealDamageEffect._apply_divided`) — the
+    total dealt and which creatures take it are exact; only the freedom to
+    lump it unevenly is auto-made.
+    """
+    return [
+        AbilitySpec(
+            "spell_effect",
+            [EffectSpec("damage", {
+                "amount": "x", "target_kind": "creature", "count": 2,
+                "optional": True, "divided": True, "double_at": 6,
+            })],
+            raw_text="Shatterskull Smashing fügt X Schadenspunkte zu, nach Wahl "
+                     "des Spielers aufgeteilt auf bis zu zwei Ziel-Kreaturen. Ist "
+                     "X gleich 6 oder mehr, fügt es stattdessen zweimal X zu.",
+        )
+    ]
+
+
+register("Shatterskull Smashing", _shatterskull_smashing)
+
+
+def _fire_covenant() -> list[AbilitySpec]:
+    """As an additional cost to cast this spell, pay X life. Fire Covenant
+    deals X damage divided as you choose among any number of target creatures.
+
+    — Fire Covenant. Combines the `divided` damage primitive with the same
+    ``additional_cost={"pay_life": "x"}`` X-from-life shape as Toxic Deluge
+    (RULE 601.2b — X is defined by the announced life payment, not a mana
+    {X}, and threaded into the ``"x"`` amount by `RulesEngine._substitute_x`).
+    "Any number of target creatures" is capped at ``count`` 10 for target
+    offering (a UI cap — a real board never has X-1's worth of relevant
+    creatures beyond that); the even-split "as you choose" simplification is
+    the same as Shatterskull's.
+    """
+    return [
+        AbilitySpec(
+            "spell_effect",
+            [EffectSpec("damage", {
+                "amount": "x", "target_kind": "creature", "count": 10,
+                "optional": True, "divided": True,
+            })],
+            additional_cost={"pay_life": "x"},
+            raw_text="Bezahle als zusätzliche Kosten für diesen Zauberspruch X "
+                     "Lebenspunkte. Fire Covenant fügt X Schadenspunkte zu, nach "
+                     "Wahl aufgeteilt auf eine beliebige Anzahl Ziel-Kreaturen.",
+        )
+    ]
+
+
+register("Fire Covenant", _fire_covenant)
+
+
+# ---------------------------------------------------------------------------
+# cEDH staples cube — batch 18 (new core primitive: extra turns,
+# RULE 500.7 — `GameState.extra_turns` + `take_extra_turn` effect,
+# consumed by `GameEngine.begin_turn`)
+# ---------------------------------------------------------------------------
+
+
+def _final_fortune() -> list[AbilitySpec]:
+    """Take an extra turn after this one. At the beginning of that turn's end
+    step, you lose the game.
+
+    — Final Fortune. First consumer of the extra-turn primitive (`take_extra_
+    turn` → `GameState.extra_turns`, RULE 500.7). The downside reuses the
+    batch-22 delayed-trigger primitive: a `lose_game` armed for the
+    controller's *end* step, with ``min_turn_offset`` 1 so it fires at *that*
+    (extra) turn's end step — not the current turn's, which would otherwise be
+    the very next end step to begin. The extra turn is queued first, then the
+    delayed loss armed.
+    """
+    return [
+        AbilitySpec(
+            "spell_effect",
+            [
+                EffectSpec("take_extra_turn", {}),
+                EffectSpec("create_delayed_trigger", {
+                    "step": "end",
+                    "scope": "controller",
+                    "min_turn_offset": 1,
+                    "effects": [{"type": "lose_game", "params": {"reason": "final_fortune"}}],
+                }),
+            ],
+            raw_text="Mache einen zusätzlichen Zug nach diesem. Zu Beginn des "
+                     "Endsegments jenes Zuges verlierst du das Spiel.",
+        )
+    ]
+
+
+register("Final Fortune", _final_fortune)
+
+
+# ---------------------------------------------------------------------------
+# cEDH staples cube — batch 23 (new core primitive: granted protection,
+# RULE 702.16 — `GameObject.temp_protections` read by `combat.is_protected_
+# from`, granted via the interactive `grant_protection` effect)
+# ---------------------------------------------------------------------------
+
+
+def _mother_of_runes() -> list[AbilitySpec]:
+    """{T}: Target creature you control gains protection from the color of
+    your choice until end of turn.
+
+    — Mother of Runes. First consumer of the granted-protection primitive: the
+    `grant_protection` effect opens an interactive colour pick
+    (`RulesEngine.grant_protection_choice`) and stashes the chosen quality in
+    the target's ``temp_protections``, which `combat.is_protected_from` now
+    reads alongside printed text (cleared at cleanup, RULE 514.2).
+    """
+    return [
+        AbilitySpec(
+            "activated",
+            [EffectSpec("grant_protection", {"target_kind": "creature_you_control"})],
+            cost={"taps_self": True},
+            raw_text="{T}: Eine Zielkreatur, die du kontrollierst, erhält bis zum "
+                     "Ende des Zuges Schutz vor der Farbe deiner Wahl.",
+        )
+    ]
+
+
+register("Mother of Runes", _mother_of_runes)
+
+
+def _giver_of_runes() -> list[AbilitySpec]:
+    """{T}: Another target creature you control gains protection from
+    colorless or from the color of your choice until end of turn.
+
+    — Giver of Runes. Same primitive as Mother of Runes, with Giver's extra
+    "colorless" option (``allow_colorless``). **Documented simplification**:
+    the "*another*" restriction (Giver can't target itself) is dropped — no
+    "other creature you control" target kind exists yet, so it's modeled as
+    the plain "creature you control" Mother uses; the only lost fidelity is
+    that Giver could illegally target itself, which a real player never wants.
+    """
+    return [
+        AbilitySpec(
+            "activated",
+            [EffectSpec("grant_protection", {
+                "target_kind": "creature_you_control", "allow_colorless": True,
+            })],
+            cost={"taps_self": True},
+            raw_text="{T}: Eine andere Zielkreatur, die du kontrollierst, erhält "
+                     "bis zum Ende des Zuges Schutz vor Farblos oder vor der Farbe "
+                     "deiner Wahl.",
+        )
+    ]
+
+
+register("Giver of Runes", _giver_of_runes)
+
+
+# ---------------------------------------------------------------------------
+# cEDH staples cube — batch 24 (new core primitive: board-wide ability strip,
+# layer 6 — `remove_all_abilities` static → `GameObject.loses_all_abilities`)
+# ---------------------------------------------------------------------------
+
+
+def _humility() -> list[AbilitySpec]:
+    """All creatures lose all abilities and have base power and toughness 1/1.
+
+    — Humility. First consumer of the ability-strip primitive: a layer-6
+    `remove_all_abilities` static (RULE 613.7f — every creature's keywords via
+    `combat._obj_keywords`, its triggered/activated abilities gated at
+    fire/activate time) plus a layer-7b `pt_set` to base 1/1. Two static
+    abilities on one card, both scoped to ``all_creatures`` (Humility is itself
+    a non-creature enchantment, so it isn't self-affected).
+    """
+    return [
+        AbilitySpec(
+            "static",
+            [EffectSpec("remove_all_abilities", {"affects": "all_creatures"})],
+            raw_text="Alle Kreaturen verlieren alle Fähigkeiten.",
+        ),
+        AbilitySpec(
+            "static",
+            [EffectSpec("pt_set", {"power": 1, "toughness": 1, "affects": "all_creatures"})],
+            raw_text="Alle Kreaturen haben Grundstärke und -widerstandskraft 1/1.",
+        ),
+    ]
+
+
+register("Humility", _humility)

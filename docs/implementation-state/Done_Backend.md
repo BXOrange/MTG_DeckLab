@@ -1956,6 +1956,189 @@ the Phase-1 models. Tests: `test_game_engine.py`.
       section rather than half-modeled. Full suite: 1457 → 1641 passed,
       zero regressions across all five waves.
 
+- [x] **Batch 14 (2026-07-18): cube playability continuation —
+      "destroy/counter target X; its controller creates a token" cluster +
+      further singles whose primitives already existed, 271 → 285 playable.**
+      A direct-authored (no subagents) continuation of Batch 13, working the
+      single-unclaimed-clause tail of the 611-card cube pool. Fourteen cards
+      shipped, each with a behavioral test in `tests/test_cube_batch_b4.py`
+      (28 tests). The reusable pieces:
+      - **`counter_create_token` effect** (`CounterCreateTokenEffect`) — the
+        stack-side sibling of Batch 13's `destroy_create_token`: counter a
+        target spell, then hand a token to the *countered spell's own
+        controller*. Swan Song, Strix Serenade, An Offer You Can't Refuse
+        (the last with `count=2` Treasures). Its `card_types`/`noncreature`
+        target filter reuses `CounterSpellEffect`'s exactly.
+      - **Controller-scoped `nonland_permanent` target kinds**
+        (`nonland_permanent_you_control` / `_you_dont_control`,
+        `game/targeting.py`) — Cyclonic Rift's base (non-overload) mode and
+        Alchemist's Retrieval's base (non-cleave) mode, both via the
+        existing `return_to_hand`. Overload/Cleave (alternative costs that
+        rewrite the target clause) stay unmodeled — documented drops.
+      - **Single-type `artifact`/`enchantment` target kinds** — the
+        enter-as-copy candidate pool for Copy Enchantment (reuses the
+        `enter_as_copy` mechanism, narrowed from Clever Impersonator's
+        over-broad "permanent").
+      - **Bare "spells cost {N} more/less to cast" parser** — `_SPELL_COST_
+        TAX_RE` (`catalogue/static_handlers.py`) now also matches the
+        type-word-less phrasing (Sphere of Resistance), taxing every spell;
+        a falsy `spell_type` already meant "all spells" in
+        `continuous.cost_reduction_for`. Fully `MODELED` by the parser, not
+        hand-authored — the one cache-wide pickup (24.3% → 24.4%).
+      - **`ReturnFromGraveyardEffect` extensions** — a `library_top`/
+        `library_bottom` destination (Noxious Revival, "put target card from
+        a graveyard on top of its owner's library"; `_put_searched_card`
+        already handled the zone) and a `lose_life_equal_mv` rider that
+        reads the returned card's mana value and charges the caster that much
+        life (Reanimate).
+      - **`nonland_permanents_you_control` group selector**
+        (`continuous.group_selector_objects` + `TapEffect._TAP_SELECTORS`) —
+        Dramatic Reversal's mass untap, excluding lands.
+
+      Also authored with pre-existing primitives: Pongify / Rapid
+      Hybridization (`destroy_create_token` with `can_be_regenerated=False`),
+      Path to Exile (`exile_controller_searches_basic_land`), Gitaxian Probe
+      (cantrip — the "look at target player's hand" reveal is a no-op in a
+      full-information session, documented drop). Full suite: 1641 → 1669
+      passed, zero regressions. The remaining ~326 unplayable cube cards are
+      dominated by genuinely-new core primitives (spell-copy-on-stack,
+      extra-turn insertion, control-exchange, random numbers, reflexive
+      per-firing triggers, alt-casting-costs, devotion, fading, mutate/
+      soulbond) — each a real feature, tracked in `ToDo_EdgeCases.md`'s
+      "cEDH staples cube" section.
+
+- [x] **Batches 15–17 (2026-07-18): three new core engine primitives from
+      the "cEDH staples cube" gap list, each built generically + tested,
+      285 → 288 playable.** A shift from the single-clause-tail grind of
+      Batches 13–14 to the *engine primitives* that block whole families of
+      cube cards. Direct-authored (no subagents), each batch its own test
+      file.
+      - **Batch 15 — `EventType.SACRIFICE` (RULE 701.17)** (`models/events.py`,
+        `RulesEngine._move_to_graveyard`/`put_into_graveyard`;
+        `tests/test_cube_batch_15.py`, 7 tests). A move to the graveyard whose
+        cause is a sacrifice now fires a distinct `SACRIFICE` occurrence *in
+        addition to* DIES/LEAVES — a sacrificed creature fires both, a
+        sacrificed noncreature only SACRIFICE, and a *destroyed* creature
+        never fires it. `put_into_graveyard` (the single choke point every
+        genuine sacrifice — cost payment, `sacrifice`, `SacrificeSelfEffect`
+        — funnels through) passes `cause="sacrifice"`. Mayhem Devil registered
+        ("whenever a player sacrifices a permanent, deal 1 to any target");
+        unblocks the whole "whenever you sacrifice" family.
+      - **Batch 16 — reflexive per-firing "that object" trigger (RULE
+        603.3d)** (`TriggeredAbility.reflexive`, `effect_binder`,
+        `RulesEngine._place_triggers`; `tests/test_cube_batch_16.py`, 4 tests).
+        A `reflexive` triggered ability's single targeting effect acts on the
+        exact object that fired the event (resolved from the event's
+        ``instance_id`` at placement time and baked in — no `trigger_target`
+        choice; a vanished object drops the trigger, RULE 603.3c). The generic
+        form of the per-firing "that permanent/spell" reference the bespoke
+        `check_ward`/`check_rampage` paths hand-build — "counter that spell",
+        "destroy that land". No cube card is registered on it yet (each also
+        needs a second gap — see `ToDo_EdgeCases.md`), but it's proven
+        end-to-end through the binder + engine and is reused conceptually by
+        Batch 17's copy targeting.
+      - **Batch 17 — spell-copy on the stack (RULE 707.10)**
+        (`RulesEngine.copy_spell`, `CopySpellEffect`/`copy_spell` effect,
+        `GameContext.copy_spell`; `tests/test_cube_batch_17.py`, 7 tests). A
+        copy is a fresh token `GameObject` of the spell's copiable card (so
+        its resolve-time effects rebind cleanly rather than sharing the
+        original's instances), controlled by the copier (RULE 707.10c), keeping
+        the original's targets + {X}, pushed above the original so it resolves
+        first. A copy of an instant/sorcery applies its effects then is reaped
+        by the RULE 704.5d stranded-token SBA; a copy of a permanent spell
+        resolves into a token permanent. Dualcaster Mage (Flash from the
+        keyword catalogue + ETB "copy target instant or sorcery spell") and
+        Flare of Duplication (copy, with its optional sacrifice *alt-cast* cost
+        a documented drop) now play. "You may choose new targets for the copy"
+        is a documented MVP simplification (keeps the original's targets —
+        always legal). Narset's Reversal (needs a bounce-spell-to-hand effect),
+        Wandering Archaic (interactive per-opponent "may pay {2}") and
+        Reiterate (Buyback) stay deferred.
+
+      Full suite 1669 → 1687 passed, zero regressions; cube pool 285 → 288
+      playable. Ten primitive batches were scoped for this effort (see
+      `ToDo_EdgeCases.md`); the remaining seven are being worked through
+      one at a time (Batch 20 below).
+
+- [x] **Batch 20 (2026-07-18): the "tapped for mana" event primitive
+      (`EventType.TAPPED_FOR_MANA`, RULE 605.1), 288 → 289 playable.**
+      (`models/events.py`, `GameEngine.tap_for_mana`,
+      `effect_binder._trigger_condition`, `ability_catalogue._price_of_glory`;
+      `tests/test_cube_batch_20.py`, 6 tests.) `tap_for_mana` now fires a
+      `TAPPED_FOR_MANA` event *after* the mana lands in the pool — off a
+      genuine mana-ability tap only, never a plain tap-cost (which fires only
+      `TAPPED`) or an attack — carrying the source's ``instance_id``,
+      ``object_types`` (so "taps a land"/"taps a nonland permanent" filters via
+      the ordinary `"group"` subject machinery), the ``controller_id`` that
+      tapped it, and the ``produced`` `{colour: n}` mana. **Price of Glory**
+      now plays: it composes three primitives with no bespoke code — the
+      `"group"` subject (type `land`, any player), a new `not_controllers_turn`
+      trigger predicate (RULE 603.4 intervening-if "if it's not that player's
+      turn", the event's controller vs. the live active player), and the
+      batch-16 reflexive "destroy *that* land". Deferred on a *second* gap
+      each: Kinnan Bonder Prodigy ("add one mana of any type that permanent
+      produced" — a dynamic produced-mana amount), Wild Growth (a *triggered
+      mana ability*, RULE 605.1b/605.4 — must resolve immediately into the pool,
+      not via the stack), Mana Web (tap *all* the player's matching lands).
+      Full suite 1687 → 1693 passed, zero regressions.
+
+- [x] **Batches 18–24 (2026-07-18): the remaining six core-engine primitives
+      from the "cEDH staples cube" gap list, 289 → 295 playable, suite 1693 →
+      1734.** Each built generically, tested in its own file, suite green
+      throughout. Also a reusable fix: `ability_catalogue.specs_for` now
+      matches a registration keyed on a DFC/MDFC/split card's *front-face*
+      name (the card's ``name`` is the combined "Front // Back"), which
+      Shatterskull Smashing needs.
+      - **Batch 19 — divided damage (RULE 601.2d)** (`DealDamageEffect(divided=
+        True)`, ``double_at``; `tests/test_cube_batch_19.py`, 9 tests). The
+        total {X} pool splits across the chosen targets (even split — a
+        UI-less simplification; total + which permanents take it are exact),
+        doubling at a threshold (Shatterskull's X>=6). **Shatterskull Smashing**
+        (the sorcery front of the MDFC — casts normally) and **Fire Covenant**
+        (with the Toxic-Deluge `pay_life: "x"` cost) now play.
+      - **Batch 22 — delayed triggered abilities (RULE 603.7)** (`GameState.
+        delayed_triggers` + `DelayedTrigger` + `create_delayed_trigger` effect,
+        fired at STEP_BEGIN by `GameEngine._fire_delayed_triggers`;
+        `tests/test_cube_batch_22.py`, 8 tests). A resolving spell arms a
+        trigger for a future step (``scope`` controller/any, ``step`` ``main``
+        matching either main phase, ``capture="target_mana_value"`` for a
+        value that must be read before the target leaves, ``min_turn`` to skip
+        the current turn). **Mana Drain** upgraded from counter-only to fully
+        modeled. The Pacts (interactive pay-or-lose) and Corpse Dance
+        (Buyback + reanimation) reuse it but stay deferred.
+      - **Batch 18 — extra turns (RULE 500.7)** (`GameState.extra_turns` FIFO
+        consumed by `GameEngine.begin_turn` + `take_extra_turn`/`lose_game`
+        effects; `tests/test_cube_batch_18.py`, 5 tests). An inserted turn is
+        taken right after the current one. **Final Fortune** plays — its "lose
+        at that turn's end step" downside is a batch-22 delayed trigger with
+        ``min_turn_offset=1`` so it lands on the *extra* turn's end, not the
+        casting turn's.
+      - **Batch 23 — granted protection (RULE 702.16)** (`GameObject.
+        temp_protections` read by `combat.is_protected_from`, granted via the
+        interactive `grant_protection` effect / `RulesEngine.grant_protection_
+        choice`, cleared at cleanup; `tests/test_cube_batch_23.py`, 9 tests).
+        **Mother of Runes** and **Giver of Runes** (its "colorless" option; the
+        "another" restriction a documented drop) now play.
+      - **Batch 24 — board-wide ability strip (layer 6, RULE 613.7f)**
+        (`remove_all_abilities` static → `GameObject.loses_all_abilities`;
+        `tests/test_cube_batch_24.py`, 5 tests). Strips every keyword
+        (`combat._obj_keywords` → empty) and gates triggered (`_collect_
+        triggers`) and activated (`can_activate`) abilities. **Humility** plays
+        (strip + layer-7b `pt_set` to base 1/1). Dress Down deferred (adds an
+        ETB draw + end-step self-sacrifice).
+      - **Batch 21 — reproducible random numbers (RULE 705/706)** (`RulesEngine.
+        random_int`/`random_choice`/`coin_flip` off `GameState`'s
+        ``(rng_seed, rng_counter)``, survives clone/undo; `tests/test_cube_
+        batch_21.py`, 5 tests). No cube card registered — Tibalt's Trickery
+        (dig-and-cast-free) and Wheel of Misfortune (secret simultaneous
+        multiplayer choice) carry far heavier secondary gaps; the primitive is
+        proven directly, ready for a future coin-flip card.
+
+      Full suite 1693 → 1734 passed, zero regressions; cube pool 289 → 295
+      playable (+7: Shatterskull, Fire Covenant, Final Fortune, Mother of
+      Runes, Giver of Runes, Humility, plus Mana Drain upgraded from partial).
+      All ten planned primitive batches (15–24) are now done.
+
 - [x] **(2026-07-16) "Play/cast from the top of your library" permission**
       (Oracle of Mul Daya/Glarb, Calamity's Augur-shaped — the frontend's
       library-zone visualization, `frontend/ToDo_Frontend.md`/

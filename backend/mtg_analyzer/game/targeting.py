@@ -402,6 +402,23 @@ def legal_targets(
             and (not spec.color or spec.color in o.colors)
             and (spec.max_mana_value is None or o.card.converted_mana_cost <= spec.max_mana_value)
         ]
+    if kind in ("nonland_permanent_you_control", "nonland_permanent_you_dont_control"):
+        # RULE 115 controller-scoped nonland-permanent bounce: Cyclonic Rift
+        # ("… you don't control"), Alchemist's Retrieval / Chain of Vapor
+        # ("… you control"). The `nonland_permanent` branch above, narrowed
+        # by whose permanent it is.
+        wants_own = kind == "nonland_permanent_you_control"
+        return [
+            {"instance_id": o.instance_id, "name": o.name}
+            for o in state.permanents()
+            if (o.is_creature or o.is_planeswalker
+                or o.card.is_artifact or o.card.is_enchantment)
+            and ((o.controller_id == controller_id) == wants_own)
+            and o is not source
+            and _targetable_by(o, source)
+            and (not spec.color or spec.color in o.colors)
+            and (spec.max_mana_value is None or o.card.converted_mana_cost <= spec.max_mana_value)
+        ]
     if kind in ("creature_you_control", "land_you_control"):
         # RULE 115/603.3c controller-restricted pick — and the same shape for
         # a non-"target" resolve-time choice among the controller's own
@@ -414,6 +431,19 @@ def legal_targets(
             and o.controller_id == controller_id
             and o is not source
             and _targetable_by(o, source)
+        ]
+    if kind in ("artifact", "enchantment"):
+        # RULE 115 single-type permanent target (also the enter-as-copy
+        # candidate pool for Copy Artifact / Copy Enchantment).
+        want_artifact = kind == "artifact"
+        return [
+            {"instance_id": o.instance_id, "name": o.name}
+            for o in state.permanents()
+            if (o.card.is_artifact if want_artifact else o.card.is_enchantment)
+            and o is not source
+            and _targetable_by(o, source)
+            and (not spec.color or spec.color in o.colors)
+            and (spec.max_mana_value is None or o.card.converted_mana_cost <= spec.max_mana_value)
         ]
     if kind == "nonbasic_land":
         return [
