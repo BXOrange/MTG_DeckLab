@@ -62,7 +62,14 @@ UNMODELED = "UNMODELED"
 #: parsed via `segmenter.segment_line` and wrapped as `grant_triggered_
 #: ability`. Deliberately excludes activated-ability grants and DAMAGE/
 #: phase-scoped triggers (see `static_handlers._GRANTABLE_TRIGGER_EVENTS`).
-PARSER_VERSION = "5"
+#: "6": Batch 4 — RULE 207.2c ability-word stripping (Landfall/Constellation/
+#: Battalion, `normalize._strip_ability_words`); controller-scoped phase
+#: triggers ("at the beginning of your/each opponent's <step>",
+#: `AbilitySpec.trigger["phase_relation"]`); self-subject "deals (combat)
+#: damage to a player/creature" (`EventType.DAMAGE` + filter); and extending
+#: `grant_triggered_ability`/`continuous._granted_trigger_condition` to
+#: DAMAGE events, closing Batch 3's deferred quoted-DAMAGE-grant gap.
+PARSER_VERSION = "6"
 
 
 @dataclass

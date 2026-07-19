@@ -59,6 +59,28 @@ def _fold_self_reference(text: str) -> str:
     return _SELF_REFERENCE_RE.sub(SELF, text)
 
 
+#: RULE 207.2c "ability words" — italicized labels with no rules meaning of
+#: their own, printed as "<Word> — <ability text>" purely for flavor/cross-
+#: referencing (unlike a keyword ability, whose label *does* carry meaning).
+#: Stripping the label here lets the ordinary trigger/static grammar that
+#: follows it recognize the body the same as an unlabeled card would — no
+#: bespoke whole-line handler needed per label, the way `segmenter._MAGECRAFT_RE`
+#: needs one (its body has a two-verb "cast or copy" shape no ordinary
+#: trigger expresses, so stripping alone wouldn't be enough there). A small,
+#: deliberately conservative list — only ability words confirmed to precede
+#: an otherwise-already-modeled body; safe to extend as more are checked
+#: (RULE 207.2c guarantees the label itself never changes what follows).
+#: Runs after lowercasing, per-line (``^`` anchored with MULTILINE) since the
+#: label only ever opens a line, never appears mid-sentence.
+_ABILITY_WORD_RE = re.compile(
+    r"^(?:landfall|constellation|battalion)\s*—\s*", re.MULTILINE
+)
+
+
+def _strip_ability_words(text: str) -> str:
+    return _ABILITY_WORD_RE.sub("", text)
+
+
 def strip_reminder_text(text: str) -> str:
     """Remove all parenthesised reminder text (RULE 207.2), innermost-first."""
     prev = None
@@ -99,6 +121,7 @@ def normalize(text: str, name: Optional[str] = None) -> str:
     text = _fold_self_name(text, name)
     text = text.lower()
     text = _fold_self_reference(text)
+    text = _strip_ability_words(text)
     text = _NUMBER_WORD_RE.sub(lambda m: _NUMBER_WORDS[m.group(1).lower()], text)
     # Collapse horizontal whitespace only; keep '\n' as the ability separator.
     text = re.sub(r"[ \t]+", " ", text)

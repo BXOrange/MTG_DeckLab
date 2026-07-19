@@ -64,6 +64,28 @@ _MAGECRAFT_RE = re.compile(
     re.IGNORECASE,
 )
 
+#: RULE 120.3's "deals combat damage to a player" (Sword-cycle/Bloodforged
+#: Battle-Axe-shaped self-subject trigger) and its "deals combat damage to a
+#: creature" (Kaldra Compleat-shaped) sibling — `EventType.DAMAGE` filtered to
+#: ``{"combat": bool, "is_player": bool}``, mirroring exactly what
+#: `effect_binder._trigger_condition`'s ``"filter"`` docstring already
+#: documents for the hand-authored Sword-cycle entries; only the parser
+#: recognition was missing. A dedicated bypass (checked before the generic
+#: `_TRIGGER_RE` dispatch, like `_MAGECRAFT_RE` above) since neither the
+#: verb phrase nor its filter fit the single-word `_TRIGGER_EVENTS`/
+#: `_trigger_condition` vocabulary. ``~``-subject only today (folded from the
+#: card's own name/"this creature" by `normalize`) — "a creature you control
+#: deals combat damage to a player" (a `group` subject) is a real but rarer
+#: phrasing, left unclaimed (fail-closed) for a future extension of this
+#: same regex. DAMAGE's subject key is ``source_id`` (`_subject_event_key`),
+#: already correctly handled by the ordinary ``{"subject": "self"}``
+#: condition — no new binder plumbing needed beyond the `filter`.
+_SELF_DAMAGE_TRIGGER_RE = re.compile(
+    r"^whenever ~ deals (?P<combat>combat )?damage to a (?P<recipient>player|creature),"
+    r"\s*(?P<body>.+)$",
+    re.IGNORECASE,
+)
+
 #: RULE 500.7's "at the beginning of the [upkeep/draw/end/…] step" turn-
 #: structure trigger family — a genuinely common template distinct from
 #: RULE 603.1's object-subject "when/whenever X enters/dies/attacks/blocks"
@@ -74,16 +96,29 @@ _MAGECRAFT_RE = re.compile(
 #: Scoped to the step-name vocabulary `game/phases.py`'s
 #: `default_turn_sequence` actually names, mapped onto the
 #: `EventType.STEP_BEGIN` event's own ``step`` payload
-#: (`game/game_engine.py` fires it once per step, every turn). Only the
-#: un-scoped "the end step"/"the upkeep"/... form is recognized (fires
-#: every such step, any player's turn) — "your upkeep"/"each opponent's
-#: upkeep" is a further controller-scoped variant not attempted here
-#: (fail-closed, left for a real card that needs it).
+#: (`game/game_engine.py` fires it once per step, every turn).
+#:
+#: Four printed scope words, each its own named group so the shared step
+#: vocabulary doesn't have to be repeated per scope: "the"/"each" (unscoped —
+#: fires every such step, any player's turn — real templating uses "each"
+#: for the modern un-scoped form, "the ... step" for an older/rarer one),
+#: "your" (only the ability's own controller's step), "each opponent's"
+#: (any step that *isn't* the controller's own — RULE 603.4-style). The
+#: scoped forms carry no rules meaning the un-scoped one doesn't already
+#: have other than *whose* turn it is, so `AbilitySpec.trigger` gets a
+#: ``phase_relation`` of ``"you"``/``"not_you"``/absent, consumed by
+#: `effect_binder._trigger_condition` (STEP_BEGIN events carry no controller
+#: of their own to key off, unlike RULE 603.1's object-subject events, so
+#: this checks `context.state.active_player` instead of an event field).
 _PHASE_STEP_WORDS: dict[str, str] = {
     "upkeep": "upkeep", "draw": "draw", "end": "end", "cleanup": "cleanup",
 }
 _PHASE_TRIGGER_RE = re.compile(
-    r"^at the beginning of the (?P<step>upkeep|draw|end|cleanup) step,\s*(?P<body>.+)$",
+    r"^at the beginning of (?:"
+    r"(?:the|each) (?P<step_any>upkeep|draw|end|cleanup)(?:\s+step)?"
+    r"|your (?P<step_you>upkeep|draw|end|cleanup)(?:\s+step)?"
+    r"|each opponent'?s (?P<step_opp>upkeep|draw|end|cleanup)(?:\s+step)?"
+    r"),\s*(?P<body>.+)$",
     re.IGNORECASE,
 )
 
@@ -390,6 +425,34 @@ def segment_line(
         )
         return Segment(raw=raw, spec=spec, claimed=True)
 
+    damage_trig = _SELF_DAMAGE_TRIGGER_RE.match(raw)
+    if damage_trig is not None:
+        body, optional = _peel_optional(damage_trig.group("body"))
+        effects = parse_effect_body(body)
+        if effects is None:
+            return Segment(raw=raw)
+        # "deals combat damage" requires the ``combat`` flag; a bare "deals
+        # damage" (no "combat") is unqualified — it must match *any* damage
+        # instance, combat or not, so the filter omits the key entirely
+        # rather than pinning it to ``False`` (which would wrongly exclude
+        # real combat damage from an unqualified trigger).
+        damage_filter: dict[str, Any] = {"is_player": damage_trig.group("recipient") == "player"}
+        if damage_trig.group("combat"):
+            damage_filter["combat"] = True
+        spec = AbilitySpec(
+            "triggered",
+            effects=effects,
+            trigger={
+                "event": "DAMAGE",
+                "condition": {"subject": "self"},
+                "filter": damage_filter,
+            },
+            optional=optional,
+            raw_text=raw,
+            parser=provenance,
+        )
+        return Segment(raw=raw, spec=spec, claimed=True)
+
     # RULE 601.2b/604.3 additional cost — instants/sorceries only, and
     # checked before every other wrapper since it has neither a trigger word
     # nor a colon (so it can't be mistaken for one of those shapes below).
@@ -489,17 +552,31 @@ def segment_line(
 
     phase_trig = _PHASE_TRIGGER_RE.match(raw)
     if phase_trig is not None:
-        step = _PHASE_STEP_WORDS.get(phase_trig.group("step"))
+        step_word = (
+            phase_trig.group("step_any")
+            or phase_trig.group("step_you")
+            or phase_trig.group("step_opp")
+        )
+        step = _PHASE_STEP_WORDS.get(step_word)
         if step is None:
             return Segment(raw=raw)
+        if phase_trig.group("step_you"):
+            relation = "you"
+        elif phase_trig.group("step_opp"):
+            relation = "not_you"
+        else:
+            relation = None
         body, optional = _peel_optional(phase_trig.group("body"))
         effects = parse_effect_body(body)
         if effects is None:
             return Segment(raw=raw)
+        trigger: dict[str, Any] = {"event": "STEP_BEGIN", "filter": {"step": step}}
+        if relation is not None:
+            trigger["phase_relation"] = relation
         spec = AbilitySpec(
             "triggered",
             effects=effects,
-            trigger={"event": "STEP_BEGIN", "filter": {"step": step}},
+            trigger=trigger,
             optional=optional,
             raw_text=raw,
             parser=provenance,

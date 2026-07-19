@@ -2351,6 +2351,76 @@ the Phase-1 models. Tests: `test_game_engine.py`.
         token"), "return this aura to hand" triggers, and the qualified
         combat-restriction variants already left over from Batch 2.
 
+- [x] **Card-pool Batch 4 (2026-07-19): self-referential-trigger family —
+      two foundational primitives.** Rather than one recognition sweep, this
+      batch closed two gaps flagged (twice) as deferred in Batches 2/3, since
+      Batch 4's own backlog needed both:
+      - **RULE 207.2c ability-word stripping**
+        (`normalize._strip_ability_words`) — "Landfall"/"Constellation"/
+        "Battalion" are italicized labels with no rules meaning of their own
+        (unlike a keyword ability, whose label *does* carry meaning); a small,
+        deliberately conservative list, stripped per-line right after
+        lowercasing. Landfall pumps ("Landfall — Whenever a land you control
+        enters, ~ gets +N/+N until end of turn.") now fall out of the
+        *already-existing* `_GROUP_SUBJECT_RE`/pump handler entirely — zero
+        new parsing code, the label alone was blocking them.
+      - **Controller-scoped phase triggers** (RULE 500.7) — "at the
+        beginning of your `<step>`"/"at the beginning of each opponent's
+        `<step>`" alongside the pre-existing unscoped "each `<step>`"/"the
+        `<step>` step" forms, all through one extended
+        `segmenter._PHASE_TRIGGER_RE`. Since a `STEP_BEGIN` event carries no
+        controller of its own to key off (unlike RULE 603.1's object-subject
+        events), the new `AbilitySpec.trigger["phase_relation"]`
+        (`"you"`/`"not_you"`) is consumed by a new predicate in
+        `effect_binder._trigger_condition` that checks
+        `context.state.active_player` against the ability's own source's
+        controller — the same shape `not_controllers_turn`/
+        `controllers_turn_only` already use elsewhere in the codebase, just
+        for this specific "whose turn is it" question.
+      - **Self-subject "deals (combat) damage to a player/creature"** (RULE
+        120.3) — `segmenter._SELF_DAMAGE_TRIGGER_RE`, a dedicated bypass (like
+        `_MAGECRAFT_RE`) emitting `EventType.DAMAGE` + a `{"combat": bool,
+        "is_player": bool}` filter — exactly the shape
+        `effect_binder._trigger_condition`'s `"filter"` docstring already
+        documented for the hand-authored Sword-cycle equipment, just never
+        reachable from oracle text before. DAMAGE's subject key is
+        `source_id` (`_subject_event_key`), already correctly handled by the
+        ordinary `{"subject": "self"}` condition — no new binder plumbing
+        needed for the direct (non-granted) case. "`~` deals damage" (no
+        "combat") omits the `combat` filter key entirely rather than pinning
+        it `False`, so an unqualified damage trigger still matches real
+        combat damage instead of wrongly excluding it.
+      - **Bonus, closing a Batch-3 deferral**: extended
+        `grant_triggered_ability`/`continuous._granted_trigger_condition` to
+        DAMAGE events too — `_granted_trigger_condition` gained a
+        `trigger_event`/`event_filter` parameter and an event-subject-key
+        table (`_GRANTED_EVENT_KEYS`, mirroring `effect_binder.
+        _subject_event_key`) instead of always assuming `instance_id`, and
+        `grant_triggered_ability`'s `EffectSpec`/factory now threads a
+        `filter` param through. Combat Research ("Enchanted creature has
+        'whenever ~ deals combat damage to a player, draw a card.'") now
+        models fully, where Batch 3 explicitly left it unclaimed.
+      - `PARSER_VERSION` bumped "5" → "6". Tests:
+        `backend/tests/test_phase_and_damage_triggers.py` (18 tests, parse
+        **and** execute — incl. a your-upkeep trigger firing only on the
+        controller's own upkeep vs. an opponent's-upkeep trigger firing only
+        on an opponent's, a damage-counter trigger not firing for a
+        different creature, and the Combat Research quoted-DAMAGE-grant
+        firing only for its own host); one existing Batch-3 test
+        (`test_quoted_damage_trigger_grant_stays_unclaimed`) flipped to
+        `_is_modeled` now that the gap it documented is closed. Full suite
+        1561 → 1579 passed, zero regressions.
+      - **Coverage: 7,516 → 7,672 / 34,209 (22.0% → 22.4%, +156 cards).**
+      - **Deferred**: "sacrifice `<name>` unless you pay `<cost>`" — the
+        single biggest remaining upkeep-trigger template (45 cards), now
+        blocked *only* by this effect body (a real new primitive needing an
+        interactive pay-or-lose-it choice), not by phase-scoping anymore;
+        "draw a card at the beginning of the next turn's upkeep" (a
+        delayed-trigger phrasing, distinct from a standing phase trigger);
+        conditional-transform upkeep triggers (Delver-shaped,
+        `ToDo_EdgeCases.md` #16); group-subject damage triggers ("a creature
+        you control deals combat damage to a player").
+
 - [x] **(2026-07-16) "Play/cast from the top of your library" permission**
       (Oracle of Mul Daya/Glarb, Calamity's Augur-shaped — the frontend's
       library-zone visualization, `frontend/ToDo_Frontend.md`/

@@ -352,6 +352,25 @@ def _trigger_condition(
     # triggering player rather than the ability's own controller, so it reads
     # the event's controller key (the same one `"group"` scoping uses) against
     # the live active player each check.
+    # "At the beginning of your/each opponent's <step>, …" (RULE 500.7,
+    # `segmenter._PHASE_TRIGGER_RE`) — unlike RULE 603.1's object-subject
+    # events, a `STEP_BEGIN` event carries no controller of its own to key
+    # off, so this checks whose turn it currently is against the ability's
+    # own source's controller instead of an event field.
+    phase_relation = trigger.get("phase_relation")
+    if phase_relation in ("you", "not_you"):
+        controller_id = getattr(source, "controller_id", None)
+
+        def _phase_relation_ok(event: Any, context: Any, cid=controller_id, rel=phase_relation) -> bool:
+            state = getattr(context, "state", None)
+            active = getattr(state, "active_player", None) if state is not None else None
+            if active is None:
+                return False
+            is_yours = active.id == cid
+            return is_yours if rel == "you" else not is_yours
+
+        predicates.append(_phase_relation_ok)
+
     if trigger.get("not_controllers_turn"):
         controller_key = _GROUP_CONTROLLER_EVENT_KEYS.get(trigger.get("event"), "controller_id")
 

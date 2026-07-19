@@ -444,23 +444,45 @@ def _pt_mod_count(state: "GameState", ability: StaticAbility, obj: "GameObject",
     return _count_selector(state, ability, selector)
 
 
-def _granted_trigger_condition(target: "GameObject", controllers_turn_only: bool):
+#: Mirrors `effect_binder._SUBJECT_EVENT_KEYS` — which event-data key
+#: identifies *which object* a grantable event is about. Kept as a local
+#: copy rather than imported (`continuous.py` stays free of `effect_binder`
+#: imports; it's one entry, not worth a shared-module indirection).
+_GRANTED_EVENT_KEYS: dict[str, str] = {"DAMAGE": "source_id"}
+
+
+def _granted_trigger_condition(
+    target: "GameObject",
+    controllers_turn_only: bool,
+    trigger_event: Optional[str] = None,
+    event_filter: Optional[dict[str, Any]] = None,
+):
     """The `TriggeredAbility.condition` for one object's granted ability.
 
     Each object under a "X have '<triggered ability>'" grant (Dionus, Elvish
-    Archdruid) gets its *own* `TriggeredAbility` instance (see `recompute`'s
-    layer-6 pass) — without this, every one of them would react to the
-    triggering event regardless of which specific object it was about (e.g.
-    one Elf being tapped would also untap every *other* Elf under the same
-    anthem). Scoped by the event's own ``instance_id`` when it carries one
-    (RULE 603.2's "this creature" is about *this* object specifically); an
-    event shape with no ``instance_id`` isn't filtered by identity at all —
-    there's no card in the pool granting a trigger off such an event today.
+    Archdruid; a quoted Aura/Equipment grant, `static_handlers.
+    _quoted_ability_grant_effects`) gets its *own* `TriggeredAbility`
+    instance (see `recompute`'s layer-6 pass) — without this, every one of
+    them would react to the triggering event regardless of which specific
+    object it was about (e.g. one Elf being tapped would also untap every
+    *other* Elf under the same anthem). Scoped by the event's own subject key
+    (``source_id`` for ``DAMAGE``, ``instance_id`` for everything else — see
+    `_GRANTED_EVENT_KEYS`, the same convention `effect_binder.
+    _subject_event_key` uses for an ordinary printed trigger) when the event
+    carries one; a shape with no such key isn't filtered by identity at all.
+    ``event_filter`` is the same small exact-match dict
+    `effect_binder._trigger_condition`'s ``"filter"`` ANDs on — needed for
+    DAMAGE's ``{"combat": ..., "is_player": ...}`` (RULE 120.3 "deals combat
+    damage to a player/creature").
     """
+    key = _GRANTED_EVENT_KEYS.get(trigger_event or "", "instance_id")
+    filt = dict(event_filter) if event_filter else None
 
     def condition(event: Any, context: Any) -> bool:
-        event_instance = event.get("instance_id")
-        if event_instance is not None and event_instance != target.instance_id:
+        event_subject = event.get(key)
+        if event_subject is not None and event_subject != target.instance_id:
+            return False
+        if filt and not all(event.get(k) == v for k, v in filt.items()):
             return False
         if controllers_turn_only and context.state.active_player.id != target.controller_id:
             return False
@@ -653,7 +675,8 @@ def recompute(state: "GameState") -> None:
                             for spec in ability.params.get("grant_effects", [])
                         ],
                         condition=_granted_trigger_condition(
-                            obj, bool(ability.params.get("controllers_turn_only", False))
+                            obj, bool(ability.params.get("controllers_turn_only", False)),
+                            trigger_event, ability.params.get("filter")
                         ),
                         optional=bool(ability.params.get("optional", False)),
                         once_per_turn=bool(ability.params.get("once_per_turn", False)),

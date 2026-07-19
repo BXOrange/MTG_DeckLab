@@ -122,17 +122,21 @@ def test_quoted_activated_ability_grant_stays_unclaimed():
     assert parse_oracle(card).coverage == UNMODELED
 
 
-def test_quoted_damage_trigger_grant_stays_unclaimed():
-    # Fail-closed: "deals combat damage to a player" isn't in the oracle
-    # parser's trigger-event vocabulary at all yet (a pre-existing gap, not
-    # special to grants).
+def test_quoted_damage_trigger_grant_is_modeled():
+    # Was fail-closed as of Batch 3 ("deals combat damage to a player" wasn't
+    # in the oracle parser's trigger-event vocabulary at all); Batch 4 added
+    # that recognition *and* extended `grant_triggered_ability`/`continuous.
+    # _granted_trigger_condition` to DAMAGE events, so this now models fully
+    # (see `test_phase_and_damage_triggers.py`, which owns this family).
     card = _aura(
         "Assassin Gauntlet",
         'Equipped creature gets +1/+1 and has "whenever ~ deals combat '
         'damage to a player, draw a card, then discard a card."\nEquip {2}',
         type_line="Artifact — Equipment",
     )
-    assert parse_oracle(card).coverage == UNMODELED
+    result = parse_oracle(card)
+    assert result.coverage != UNMODELED
+    assert result.unclaimed == []
 
 
 def test_quoted_upkeep_trigger_grant_stays_unclaimed():

@@ -41,14 +41,14 @@ from .subgrammars import CANT_BE_COUNTERED_RE
 
 #: Trigger events a granted triggered ability can be safely re-scoped to a
 #: *different* object each time it's granted (`continuous.
-#: _granted_trigger_condition` matches by the event's own ``instance_id`` —
-#: every one of these four carries it; RULE 603.1's object-subject family).
-#: Deliberately excludes ``DAMAGE`` (scoped by ``source_id``, a different
-#: key `_granted_trigger_condition` doesn't check yet) and any phase/upkeep
-#: event (``STEP_BEGIN`` — "at the beginning of your upkeep" is a
-#: pre-existing controller-scoping gap for even a top-level card's own
-#: printed ability, `segmenter.py`'s ``_PHASE_TRIGGER_RE`` docstring).
-_GRANTABLE_TRIGGER_EVENTS = frozenset({"ENTERS_BATTLEFIELD", "DIES", "ATTACKS", "BLOCKS"})
+#: _granted_trigger_condition` matches by the event's own subject key —
+#: ``instance_id`` for the RULE 603.1 object-subject four, ``source_id`` for
+#: ``DAMAGE`` — see `continuous._GRANTED_EVENT_KEYS`). Deliberately excludes
+#: any phase/upkeep event (``STEP_BEGIN`` — "at the beginning of your
+#: upkeep" is a pre-existing controller-scoping gap for even a top-level
+#: card's own printed ability, `segmenter.py`'s ``_PHASE_TRIGGER_RE``
+#: docstring).
+_GRANTABLE_TRIGGER_EVENTS = frozenset({"ENTERS_BATTLEFIELD", "DIES", "ATTACKS", "BLOCKS", "DAMAGE"})
 
 #: Type words that are *not* creature subtypes — a scope built on one of these
 #: isn't a creature anthem/grant, so we don't claim it.
@@ -338,15 +338,15 @@ def _quoted_ability_grant_effects(inner: str) -> Optional[EffectSpec]:
         return None
     if trigger.get("condition") != {"subject": "self"}:
         return None  # a "group"/other subject wouldn't mean the same thing once regranted
-    return EffectSpec(
-        "grant_triggered_ability",
-        {
-            "trigger_event": trigger["event"],
-            "grant_effects": [{"type": e.type, "params": e.params} for e in spec.effects],
-            "optional": spec.optional,
-            "affects": "attached_permanent",
-        },
-    )
+    params: dict = {
+        "trigger_event": trigger["event"],
+        "grant_effects": [{"type": e.type, "params": e.params} for e in spec.effects],
+        "optional": spec.optional,
+        "affects": "attached_permanent",
+    }
+    if trigger.get("filter"):  # RULE 120.3 DAMAGE combat/is_player filter
+        params["filter"] = dict(trigger["filter"])
+    return EffectSpec("grant_triggered_ability", params)
 
 
 # "<equipped/enchanted/fortified subject> gets +N/+N [and has <keywords>]"

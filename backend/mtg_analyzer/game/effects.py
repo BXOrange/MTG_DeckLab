@@ -4118,6 +4118,13 @@ EffectRegistry.register(
             "once_per_turn": bool(p.get("once_per_turn", False)),
             "optional": bool(p.get("optional", False)),
             "controllers_turn_only": bool(p.get("controllers_turn_only", False)),
+            # RULE 120.3 "deals combat damage to a player/creature" — the
+            # DAMAGE event's exact-match filter (`{"combat": ..., "is_player":
+            # ...}`), threaded through by `static_handlers.
+            # _quoted_ability_grant_effects`; `continuous._granted_trigger_
+            # condition` ANDs it the same way `effect_binder._trigger_
+            # condition`'s ``"filter"`` does for an ordinary printed trigger.
+            **({"filter": dict(p["filter"])} if p.get("filter") else {}),
             **_selectors(p),
         },
     ),
