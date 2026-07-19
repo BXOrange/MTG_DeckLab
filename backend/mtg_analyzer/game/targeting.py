@@ -187,6 +187,14 @@ class TargetSpec:
     #: is never a legal target to begin with, not merely a no-op if chosen),
     #: mirroring ``color``'s narrowing. ``None`` means unfiltered.
     max_mana_value: Optional[int] = None
+    #: A power/toughness/keyword quality filter on a ``"creature"``/
+    #: ``"permanent"`` target (RULE 115/601.2c, "destroy target creature
+    #: with power 4 or greater"/"…with flying"-shaped) — checked at offer
+    #: time, mirroring ``color``/``max_mana_value``. Keys (all optional,
+    #: AND-combined): ``min_power``/``max_power``/``min_toughness``/
+    #: ``max_toughness`` (int) and ``keyword`` (a single `combat.has`
+    #: keyword string). ``None`` means unfiltered.
+    creature_filter: Optional[dict[str, Any]] = None
 
     def label(self) -> str:
         return self.description or _graveyard_label(self.kind) or {
@@ -240,6 +248,27 @@ def _targetable_by(obj: GameObject, source: Optional[GameObject]) -> bool:
     if combat.is_protected_from(obj, source):
         return False
     if combat.has_hexproof(obj) and obj.controller_id != source.controller_id:
+        return False
+    return True
+
+
+def _creature_matches_filter(obj: GameObject, filt: dict[str, Any]) -> bool:
+    """Whether ``obj`` satisfies a `TargetSpec.creature_filter` (see its
+    docstring for the key vocabulary)."""
+    min_power = filt.get("min_power")
+    if min_power is not None and (obj.power or 0) < min_power:
+        return False
+    max_power = filt.get("max_power")
+    if max_power is not None and (obj.power or 0) > max_power:
+        return False
+    min_toughness = filt.get("min_toughness")
+    if min_toughness is not None and (obj.toughness or 0) < min_toughness:
+        return False
+    max_toughness = filt.get("max_toughness")
+    if max_toughness is not None and (obj.toughness or 0) > max_toughness:
+        return False
+    keyword = filt.get("keyword")
+    if keyword is not None and not combat.has(obj, keyword):
         return False
     return True
 
@@ -388,6 +417,7 @@ def legal_targets(
             and _targetable_by(o, source)
             and (not spec.color or spec.color in o.colors)
             and (spec.max_mana_value is None or o.card.converted_mana_cost <= spec.max_mana_value)
+            and (not spec.creature_filter or _creature_matches_filter(o, spec.creature_filter))
         ]
     if kind == "nonland_permanent":
         # RULE 115: every permanent that isn't a land (Geistwave/Beast

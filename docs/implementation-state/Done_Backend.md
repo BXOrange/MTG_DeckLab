@@ -2421,6 +2421,87 @@ the Phase-1 models. Tests: `test_game_engine.py`.
         `ToDo_EdgeCases.md` #16); group-subject damage triggers ("a creature
         you control deals combat damage to a player").
 
+- [x] **Card-pool Batch 5 (2026-07-19): modal-block cleanup — investigation
+      overturned the plan's own premise.** The ranked "choose `<n>` —"
+      backlog entry (306 cards) looked like a header-recognition gap, but
+      `catalogue/modal.py` already splits and parses every real modal block
+      correctly. The real cause: `gate.py`'s `_process_modal_block`/
+      `_process_triggered_modal_block` fail-close a modal block as a
+      *whole* — when even one "• " mode body doesn't parse, every mode body
+      (including ones that parse perfectly fine standalone) gets appended to
+      `unclaimed` alongside the header, so the header shows up in the
+      template ranking as a proxy for "some mode in this block still has a
+      gap", not a template fixable by touching the header at all. Re-running
+      `_parse_mode_body` per bullet (rather than trusting the aggregated
+      `unclaimed` list) isolated the *actually*-failing bodies, surfacing
+      three real, cross-cutting gaps — none specific to modal blocks, so
+      each also unlocks ordinary non-modal cards that happened not to show
+      up under the "choose" ranking at all:
+      - **Bare "proliferate."** (RULE 701.30) — `ProliferateEffect`
+        (`game/effects.py`) already existed and was already wired into
+        `EffectRegistry`; it simply had no oracle-text `EffectHandler` at
+        all. One handler (`_proliferate`, matching bare `proliferate`) fixed
+        it, and — since `parse_effect_body`'s connector-splitting already
+        composes independently-parsed sentences — this alone flips every
+        multi-sentence body whose only other gap was already closed by an
+        earlier batch (e.g. "Draw a card. Proliferate."). "proliferate
+        twice"/"proliferate X times" stay unclaimed (fail-closed):
+        `ProliferateEffect` has no repeat-count parameter to carry that to.
+      - **Targeted "target player gains/loses N life."** — `GainLifeEffect`
+        gained an opt-in `target_kind` (`targeting.TargetSpec`), mirroring
+        `LoseLifeEffect`'s pre-existing one exactly (same "declares no
+        `target_spec` unless opted in, so a shared `targets` list on a
+        multi-effect ability isn't misread" reasoning). Investigating this
+        surfaced a **real latent bug**, not just a missing feature:
+        `_lose_life`'s regex already *matched* the "target player loses N
+        life" phrasing (`(?:you |target player )?loses?...`), but the
+        builder never inspected *which* alternative matched — so a
+        genuinely targeted life-loss clause was silently being bound as an
+        untargeted "you lose N life" all along. Fixed by naming the
+        alternation group `who` (matching `_mill`'s existing convention) and
+        threading `target_kind="player"` through when it reads "target
+        player" — `_gain_life` built the same way from scratch.
+      - **"target creature with power/toughness/keyword quality"**
+        (`targeting.TargetSpec.creature_filter`, genuinely new — the
+        `TargetSpec` dataclass only had `color`/`max_mana_value` as
+        offer-time narrowings before) for `DestroyEffect`/`ExileEffect`'s
+        new `creature_filter=` param — "destroy/exile target creature with
+        power N or greater/less", "…with toughness N or greater", or a
+        closed keyword list (flying/defender/first strike/double
+        strike/trample/vigilance/deathtouch/lifelink/menace/haste/
+        indestructible/hexproof/reach, checked via the existing
+        `combat.has`). Deliberately narrow — a compound filter ("power 4 or
+        greater and flying") or a non-creature noun ("target artifact or
+        enchantment with...") stays unclaimed rather than guessing.
+      - `PARSER_VERSION` bumped "6" → "7". Tests:
+        `backend/tests/test_modal_creature_filter_family.py` (17 tests,
+        parse **and** execute — incl. a direct `targeting.legal_targets`
+        check that `creature_filter` actually narrows the offered target
+        pool, and that an untargeted `GainLifeEffect` still falls back to
+        the source's controller). Two pre-existing tests updated to match
+        the now-correct behavior:
+        `test_effect_families_wave3.py::test_lose_life_recognizes_plain_and_selector_forms`
+        (the "target player loses 3 life" assertion now expects
+        `target_kind: "player"` instead of the old silently-untargeted
+        params) and `test_oracle_pipeline.py::test_unhandled_clause_is_unclaimed`
+        (dropped "proliferate" from its "still has no handler" example set).
+        Full suite 1579 → 1596 passed, zero regressions.
+      - **Coverage: 7,672 → 7,774 / 34,209 (22.4% → 22.7%, +102 cards).**
+        The "choose `<n>` —" backlog entry itself only dropped 306 → 292 —
+        expected, since most of that count was always collateral from
+        *other*, still-unclaimed sibling modes (compound filters, "fight",
+        "exile a player's graveyard", Un-set joke cards, …), not this
+        batch's three fixes.
+      - **Deferred**: "proliferate twice"/"…x times" (repeat-count support);
+        a compound creature filter; "exile target player's graveyard" (a
+        new "whole graveyard" effect, not just recognition); **fight**
+        ("target creature you control fights target creature you
+        don't control/an opponent controls") — no `FightEffect` exists at
+        all yet, a genuinely new primitive worth ~40 cards across its
+        templates, a strong Batch 6/7 candidate; "manifest dread"/"open an
+        attraction"/monarch-adjacent modal options (new subsystems, already
+        tracked as Batch 10).
+
 - [x] **(2026-07-16) "Play/cast from the top of your library" permission**
       (Oracle of Mul Daya/Glarb, Calamity's Augur-shaped — the frontend's
       library-zone visualization, `frontend/ToDo_Frontend.md`/

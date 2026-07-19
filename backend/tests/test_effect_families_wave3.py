@@ -214,8 +214,11 @@ def test_lose_life_recognizes_plain_and_selector_forms():
     assert plain.type == "lose_life"
     assert plain.params == {"amount": 2}
 
+    # Batch 5: "target player loses N life" now carries a real RULE 115
+    # target instead of silently dropping it (see test_modal_and_creature_
+    # filter_family.py for the targeting behavior itself).
     targeted = parse_effect_body("target player loses 3 life")[0]
-    assert targeted.params == {"amount": 3}
+    assert targeted.params == {"amount": 3, "target_kind": "player"}
 
     each_opponent = parse_effect_body("each opponent loses 2 life")[0]
     assert each_opponent.params == {"amount": 2, "selector": "each_opponent"}

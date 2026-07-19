@@ -186,11 +186,21 @@ def _discard(m: re.Match[str]) -> list[EffectSpec]:
 
 
 def _gain_life(m: re.Match[str]) -> list[EffectSpec]:
-    return [EffectSpec("gain_life", {"amount": int(m.group("n"))})]
+    # "you gain N life" / "target player gains N life" (Abuna's Chant-shaped)
+    # — a real RULE 115 target only for the latter phrasing.
+    params: dict = {"amount": int(m.group("n"))}
+    if (m.groupdict().get("who") or "").strip() == "target player":
+        params["target_kind"] = "player"
+    return [EffectSpec("gain_life", params)]
 
 
 def _lose_life(m: re.Match[str]) -> list[EffectSpec]:
-    return [EffectSpec("lose_life", {"amount": int(m.group("n"))})]
+    # "you lose N life" / "target player loses N life" — same targeting
+    # split as `_gain_life`.
+    params: dict = {"amount": int(m.group("n"))}
+    if (m.groupdict().get("who") or "").strip() == "target player":
+        params["target_kind"] = "player"
+    return [EffectSpec("lose_life", params)]
 
 
 #: "each opponent loses N life" / "each player loses N life" — the same
@@ -229,6 +239,56 @@ def _destroy_mv(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     if kind is None or kind not in ("creature", "permanent"):
         return None
     return [EffectSpec("destroy", {"target_kind": kind, "max_mana_value": int(m.group("mv"))})]
+
+
+#: A creature's power/toughness/keyword *quality* filter (RULE 115/601.2c —
+#: "destroy target creature with power 4 or greater"/"…with flying"-shaped,
+#: `targeting.TargetSpec.creature_filter`). English keyword word → the
+#: internal snake_case token `combat.has` checks; only single-word-in-text
+#: keywords a "with <keyword>" clause plausibly names are listed (extend as
+#: a real card needs one — fail-closed for anything else via the ``kw``
+#: alternation below).
+_CREATURE_FILTER_KEYWORD_WORDS: dict[str, str] = {
+    "flying": "flying", "defender": "defender", "first strike": "first_strike",
+    "double strike": "double_strike", "trample": "trample", "vigilance": "vigilance",
+    "deathtouch": "deathtouch", "lifelink": "lifelink", "menace": "menace",
+    "haste": "haste", "indestructible": "indestructible", "hexproof": "hexproof",
+    "reach": "reach",
+}
+#: The qualifier suffix shared by `_DESTROY_CREATURE_FILTER_RE`/
+#: `_EXILE_CREATURE_FILTER_RE` — appended right after "target creature".
+_CREATURE_FILTER_SUFFIX = (
+    r"with (?:power (?P<pwr>\d+) or (?P<pwr_cmp>greater|less)"
+    r"|toughness (?P<tough>\d+) or (?P<tough_cmp>greater|less)"
+    rf"|(?P<kw>{'|'.join(_CREATURE_FILTER_KEYWORD_WORDS)}))"
+)
+
+
+def _creature_quality_filter(m: re.Match[str]) -> Optional[dict]:
+    groups = m.groupdict()
+    if groups.get("pwr"):
+        n = int(m.group("pwr"))
+        return {"min_power": n} if m.group("pwr_cmp") == "greater" else {"max_power": n}
+    if groups.get("tough"):
+        n = int(m.group("tough"))
+        return {"min_toughness": n} if m.group("tough_cmp") == "greater" else {"max_toughness": n}
+    if groups.get("kw"):
+        return {"keyword": _CREATURE_FILTER_KEYWORD_WORDS[m.group("kw")]}
+    return None
+
+
+def _destroy_creature_filter(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    filt = _creature_quality_filter(m)
+    if filt is None:
+        return None
+    return [EffectSpec("destroy", {"target_kind": "creature", "creature_filter": filt})]
+
+
+def _exile_creature_filter(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    filt = _creature_quality_filter(m)
+    if filt is None:
+        return None
+    return [EffectSpec("exile", {"target_kind": "creature", "creature_filter": filt})]
 
 
 #: "destroy target [color] creature/permanent/artifact/enchantment/land"
@@ -868,6 +928,10 @@ def _scry(m: re.Match[str]) -> list[EffectSpec]:
     return [EffectSpec("scry", {"count": int(m.group("n"))})]
 
 
+def _proliferate(m: re.Match[str]) -> list[EffectSpec]:
+    return [EffectSpec("proliferate", {})]
+
+
 def _surveil(m: re.Match[str]) -> list[EffectSpec]:
     return [EffectSpec("surveil", {"count": int(m.group("n"))})]
 
@@ -959,16 +1023,16 @@ HANDLERS: list[EffectHandler] = [
         _c(rf"(?:you |target player |each player )?discards? {COUNT} cards?"),
         _discard,
     ),
-    # "you gain 3 life" / "gain 5 life"
+    # "you gain 3 life" / "gain 5 life" / "target player gains 3 life"
     EffectHandler(
         "gain_life",
-        _c(rf"(?:you )?gains? {NUMBER} life"),
+        _c(rf"(?P<who>you |target player )?gains? {NUMBER} life"),
         _gain_life,
     ),
     # "you lose 2 life" / "target player loses 2 life"
     EffectHandler(
         "lose_life",
-        _c(rf"(?:you |target player )?loses? {NUMBER} life"),
+        _c(rf"(?P<who>you |target player )?loses? {NUMBER} life"),
         _lose_life,
     ),
     # "each opponent loses 2 life" / "each player loses 2 life" (RULE
@@ -994,6 +1058,15 @@ HANDLERS: list[EffectHandler] = [
         "destroy_mv",
         _c(rf"destroy {TARGET} with mana value (?P<mv>\d+) or less"),
         _destroy_mv,
+    ),
+    # "destroy target creature with power 4 or greater" / "…with flying"
+    # (RULE 115/601.2c power/toughness/keyword quality filter) — tried
+    # before the plain `destroy` handler below for the same reason as
+    # `destroy_mv` (a strict superset of the bare "target creature" shape).
+    EffectHandler(
+        "destroy_creature_filter",
+        _c(rf"destroy target creature {_CREATURE_FILTER_SUFFIX}"),
+        _destroy_creature_filter,
     ),
     # "destroy target creature" / "destroy target artifact" / "destroy
     # target permanent if it's blue" (the trailing-clause old-templating
@@ -1057,6 +1130,14 @@ HANDLERS: list[EffectHandler] = [
         "mill",
         _c(rf"(?:(?P<who>you|target player|target opponent) )?mills? {NUMBER} cards?"),
         _mill,
+    ),
+    # "exile target creature with power 4 or greater" / "…with flying" —
+    # tried before the plain `exile` handler below, same reasoning as
+    # `destroy_creature_filter`.
+    EffectHandler(
+        "exile_creature_filter",
+        _c(rf"exile target creature {_CREATURE_FILTER_SUFFIX}"),
+        _exile_creature_filter,
     ),
     # "exile target creature" / "exile target artifact"
     EffectHandler(
@@ -1291,6 +1372,14 @@ HANDLERS: list[EffectHandler] = [
         "surveil",
         _c(rf"surveil {NUMBER}"),
         _surveil,
+    ),
+    # "proliferate" (RULE 701.30) — bare only; "proliferate twice"/"…x
+    # times" need a repeat-count `ProliferateEffect` doesn't support yet,
+    # left unclaimed (fail-closed) rather than silently proliferating once.
+    EffectHandler(
+        "proliferate",
+        _c(r"proliferate"),
+        _proliferate,
     ),
     # "create a 1/1 white Soldier creature token" / "create two 2/2 green Bear
     # creature tokens with trample" — inline creature tokens (fully modeled).

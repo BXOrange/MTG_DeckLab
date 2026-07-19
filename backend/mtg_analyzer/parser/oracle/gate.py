@@ -69,7 +69,13 @@ UNMODELED = "UNMODELED"
 #: damage to a player/creature" (`EventType.DAMAGE` + filter); and extending
 #: `grant_triggered_ability`/`continuous._granted_trigger_condition` to
 #: DAMAGE events, closing Batch 3's deferred quoted-DAMAGE-grant gap.
-PARSER_VERSION = "6"
+#: "7": Batch 5 — modal-block cleanup: bare "proliferate" (RULE 701.30, the
+#: effect already existed, just had no oracle-text handler); targeted
+#: "target player gains/loses N life" (`GainLifeEffect`/`LoseLifeEffect`
+#: `target_kind="player"`); and a new "target creature with power/
+#: toughness/keyword quality" filter (`targeting.TargetSpec.creature_filter`)
+#: for `destroy`/`exile`.
+PARSER_VERSION = "7"
 
 
 @dataclass

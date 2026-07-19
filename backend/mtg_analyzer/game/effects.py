@@ -1068,7 +1068,11 @@ class DestroyEffect(GameEffect):
     is Wrath of God's "They can't be regenerated." tail. ``max_mana_value``
     is Abrupt Decay-shaped "target nonland permanent with mana value 3 or
     less" — a target-offer-time cap (`targeting.TargetSpec.max_mana_value`),
-    not a resolve-time check.
+    not a resolve-time check. ``creature_filter`` is the power/toughness/
+    keyword quality filter (`targeting.TargetSpec.creature_filter`,
+    "destroy target creature with power 4 or greater"/"…with flying"-shaped)
+    — a different, orthogonal narrowing from ``filter`` above (which only
+    ever applies to the untargeted ``selector`` mass-wipe path).
     """
 
     def __init__(
@@ -1083,6 +1087,7 @@ class DestroyEffect(GameEffect):
         can_be_regenerated: bool = True,
         color: Optional[str] = None,
         max_mana_value: Optional[int] = None,
+        creature_filter: Optional[dict[str, Any]] = None,
     ) -> None:
         super().__init__(source)
         self.target = target
@@ -1092,7 +1097,7 @@ class DestroyEffect(GameEffect):
         if self.selector is None:
             self.target_spec = TargetSpec(
                 kind=target_kind, optional=optional, count=count, color=color,
-                max_mana_value=max_mana_value,
+                max_mana_value=max_mana_value, creature_filter=creature_filter,
             )
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
@@ -1138,27 +1143,36 @@ class RegenerateEffect(GameEffect):
 
 class GainLifeEffect(GameEffect):
     """The effect's controller (or an explicitly given ``player``) gains
-    ``amount`` life — untargeted (no parser handler currently emits a
-    genuinely-targeted "target player gains N life"; ``player`` is for a
-    hand-authored/direct construction only).
+    ``amount`` life — untargeted by default.
 
-    Deliberately does **not** fall back to a shared ``targets`` list the
-    way `DealDamageEffect`/`DestroyEffect` do: this effect never declares
-    its own `target_spec`, so any ``targets`` passed to `apply` belong to
-    a *different* effect on the same ability/spell (e.g. Deathrite
-    Shaman's "Exile target creature card from a graveyard. You gain 2
-    life." — the exiled card, not a player) — reading `targets[0]` here
-    would silently hand `RulesEngine.gain_life` a `GameObject` instead of
-    a `Player`.
+    ``target_kind="player"`` (Abuna's Chant-shaped "target player gains N
+    life") opts into a real RULE 115 target, mirroring `LoseLifeEffect`'s
+    own ``target_kind``. Without it, this effect declares no `target_spec`
+    of its own, so any ``targets`` passed to `apply` belong to a *different*
+    effect on the same ability/spell (e.g. Deathrite Shaman's "Exile target
+    creature card from a graveyard. You gain 2 life." — the exiled card,
+    not a player) — reading `targets[0]` unconditionally would silently hand
+    `RulesEngine.gain_life` a `GameObject` instead of a `Player`.
     """
 
-    def __init__(self, amount: int = 0, player: Any = None, source: Optional["GameObject"] = None) -> None:
+    def __init__(
+        self,
+        amount: int = 0,
+        player: Any = None,
+        source: Optional["GameObject"] = None,
+        target_kind: Optional[str] = None,
+    ) -> None:
         super().__init__(source)
         self.amount = amount
         self.player = player
+        self.target_spec = TargetSpec(kind=target_kind) if target_kind is not None else None
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
-        player = self.player or _controller_of(self.source, context)
+        player = self.player
+        if player is None and self.target_spec is not None:
+            player = targets[0] if targets else None
+        if player is None:
+            player = _controller_of(self.source, context)
         context.gain_life(player, self.amount)
 
 
@@ -1531,6 +1545,7 @@ class ExileEffect(GameEffect):
         selector: Optional[str] = None,
         filter: Optional[dict[str, Any]] = None,
         remember: bool = False,
+        creature_filter: Optional[dict[str, Any]] = None,
     ) -> None:
         super().__init__(source)
         self.target = target
@@ -1539,7 +1554,9 @@ class ExileEffect(GameEffect):
         self.remember = remember
         self.target_spec: Optional[TargetSpec] = None
         if self.selector is None and target_kind is not None:
-            self.target_spec = TargetSpec(kind=target_kind, optional=optional, count=count)
+            self.target_spec = TargetSpec(
+                kind=target_kind, optional=optional, count=count, creature_filter=creature_filter,
+            )
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
         if self.selector is not None:
@@ -3563,6 +3580,7 @@ EffectRegistry.register(
         can_be_regenerated=bool(p.get("can_be_regenerated", True)),
         color=p.get("color"),
         max_mana_value=p.get("max_mana_value"),
+        creature_filter=p.get("creature_filter"),
     ),
 )
 EffectRegistry.register(
@@ -3572,7 +3590,10 @@ EffectRegistry.register(
     ),
 )
 EffectRegistry.register(
-    "gain_life", lambda p: GainLifeEffect(amount=p.get("amount", 0), player=p.get("player"))
+    "gain_life",
+    lambda p: GainLifeEffect(
+        amount=p.get("amount", 0), player=p.get("player"), target_kind=p.get("target_kind"),
+    ),
 )
 EffectRegistry.register(
     "lose_life",
@@ -3617,6 +3638,7 @@ EffectRegistry.register(
         selector=p.get("selector"),
         filter=p.get("filter"),
         remember=bool(p.get("remember", False)),
+        creature_filter=p.get("creature_filter"),
     ),
 )
 EffectRegistry.register(

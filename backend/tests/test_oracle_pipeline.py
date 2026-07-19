@@ -310,8 +310,9 @@ def test_create_token_with_nonflag_ability_is_unclaimed():
 
 
 def test_unhandled_clause_is_unclaimed():
-    # "proliferate" / "fateseal" have no one-shot effect yet — fail-closed.
-    assert parse_effect_body("proliferate") is None
+    # "fateseal" has no one-shot effect yet — fail-closed. ("proliferate" was
+    # this family's other example pre-Batch-5; it's modeled now — see
+    # test_modal_and_creature_filter_family.py.)
     assert parse_effect_body("fateseal 2") is None
     # A half-known chain fails whole (fail-closed), not partially.
     assert parse_effect_body("draw a card and mill your opponent") is None
