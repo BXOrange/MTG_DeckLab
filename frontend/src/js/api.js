@@ -136,13 +136,14 @@ export async function resolveCards(names) {
 }
 
 /**
- * Every card currently in the backend's local cache.
+ * Cards currently in the backend's local cache.
+ * @param {'all'|'decks'} [scope] 'decks' narrows to cards referenced by a saved deck.
  * @returns {Promise<object[] | null>} null on network/server failure
  */
-export async function listCachedCards() {
+export async function listCachedCards(scope = 'all') {
   let response;
   try {
-    response = await fetch(`${getServerUrl()}/api/cards`);
+    response = await fetch(`${getServerUrl()}/api/cards?scope=${scope}`);
   } catch {
     return null;
   }

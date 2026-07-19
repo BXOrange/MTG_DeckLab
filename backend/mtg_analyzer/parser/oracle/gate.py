@@ -75,7 +75,20 @@ UNMODELED = "UNMODELED"
 #: `target_kind="player"`); and a new "target creature with power/
 #: toughness/keyword quality" filter (`targeting.TargetSpec.creature_filter`)
 #: for `destroy`/`exile`.
-PARSER_VERSION = "7"
+#: "8": Batch 6 — cost-keyword mechanics recognition bugs: `keywords._resolve`
+#: generalized to the ``<type>cycling`` family (Plainscycling/Basic
+#: landcycling/Wizardcycling/…), mirroring the existing ``<type>walk``
+#: generalization; `segmenter`'s keyword-line check gained the alias
+#: spellings (`ALIAS_DISPLAYS` — Multikicker/Megamorph/Basic landcycling/
+#: Partner with/…) `KEYWORDS` alone never carried, plus a comma-split that
+#: only splits before a *new* recognised keyword instead of blindly on every
+#: comma (fixes Escape/Ward/Kicker's own compound cost clauses and Partner
+#: with's comma-containing name being wrongly read as a second, unrecognized
+#: token). Also a new kicked-conditional "enters with N counters" shape
+#: (`counters.py`'s ``kicked_gate``/``kicked_scale``, `GameObject.
+#: kicker_count`-driven) for "if ~ was kicked, it enters with N counters on
+#: it."/"~ enters with N counters on it for each time it was kicked."
+PARSER_VERSION = "8"
 
 
 @dataclass

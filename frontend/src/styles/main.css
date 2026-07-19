@@ -706,6 +706,19 @@ textarea {
   font-size: 0.85rem;
 }
 
+.cache-scope-toggle {
+  display: inline-flex;
+  gap: 0.9rem;
+  font-size: 0.85rem;
+}
+
+.cache-scope-toggle label {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  white-space: nowrap;
+}
+
 .cache-coverage-legend {
   margin: 0 0 1rem;
 }

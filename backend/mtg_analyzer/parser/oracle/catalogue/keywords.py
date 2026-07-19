@@ -408,6 +408,16 @@ _ALIASES: dict[str, str] = {
     "friends_forever": "partner",
 }
 
+#: The alias slugs' own display spellings (lowercase, matching how they
+#: appear in real oracle text — ``"multikicker"`` -> ``"multikicker"``,
+#: ``"partner_with"`` -> ``"partner with"``), longest first. Consumed by
+#: `segmenter.is_keyword_line` for the coverage gate's keyword-line
+#: recognition, which needs every spelling a keyword can appear under, not
+#: just the canonical `_TABLE` row names `KEYWORDS` is built from.
+ALIAS_DISPLAYS: tuple[str, ...] = tuple(
+    sorted((alias.replace("_", " ") for alias in _ALIASES), key=len, reverse=True)
+)
+
 
 def keyword_slug(name: str) -> str:
     """A Scryfall/display keyword name → its canonical catalogue slug.
@@ -420,17 +430,25 @@ def keyword_slug(name: str) -> str:
 
 
 def _resolve(slug: str) -> Optional[KeywordDef]:
-    """Look a slug up in the catalogue, honouring the ``<type>walk`` family.
+    """Look a slug up in the catalogue, honouring the ``<type>walk`` and
+    ``<type>cycling`` families.
 
     Scryfall names landwalk by its specific variant (``"Islandwalk"``), so a
     slug ending in ``walk`` that isn't a catalogue row resolves to the generic
-    ``landwalk`` row (the land-type prefix becomes its ``quality``).
+    ``landwalk`` row (the land-type prefix becomes its ``quality``). Cycling's
+    type-restricted variants are named the same way (``"Plainscycling"``,
+    ``"Basic landcycling"``, ``"Wizardcycling"``, ``"Slivercycling"``, …) —
+    Scryfall mints one keyword name per land/creature type rather than a
+    single generic entry, so any such suffix resolves onto the base
+    ``Cycling`` row the same way, rather than hand-listing every type.
     """
     kdef = KEYWORDS.get(slug)
     if kdef is not None:
         return kdef
     if slug.endswith("walk") and len(slug) > 4:
         return KEYWORDS["landwalk"]
+    if slug.endswith("cycling") and slug != "cycling":
+        return KEYWORDS["cycling"]
     return None
 
 

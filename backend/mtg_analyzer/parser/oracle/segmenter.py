@@ -21,7 +21,7 @@ from dataclasses import dataclass
 from typing import Any, Optional
 
 from .catalogue.handlers import match_clause
-from .catalogue.keywords import KEYWORDS
+from .catalogue.keywords import ALIAS_DISPLAYS, KEYWORDS
 from .catalogue.replacements import replacement_clause_specs
 from .catalogue.saga import CHAPTER_LINE_RE, parse_chapter_token
 from .catalogue.static_handlers import static_effect_specs
@@ -275,13 +275,41 @@ def _additional_cost_dict(text: str) -> Optional[dict[str, Any]]:
 
 
 #: All keyword display names, lowercased, longest first — so a keyword-only
-#: line can be recognised for the coverage gate ("flying, vigilance").
+#: line can be recognised for the coverage gate ("flying, vigilance"). Also
+#: includes alias spellings (`ALIAS_DISPLAYS` — "Multikicker", "Megamorph",
+#: "Basic landcycling", "Partner with", …): `KEYWORDS` only holds the
+#: canonical `_TABLE` row names, but a real oracle line may print the alias
+#: spelling instead, and this check is a raw-text scan, not the
+#: alias-resolving `keyword_slug`/`_resolve` lookup `parse_keywords` uses.
 _KEYWORD_DISPLAYS: list[str] = sorted(
-    (kdef.display.lower() for kdef in KEYWORDS.values()), key=len, reverse=True
+    [kdef.display.lower() for kdef in KEYWORDS.values()] + list(ALIAS_DISPLAYS),
+    key=len,
+    reverse=True,
 )
 _KEYWORD_TOKEN_RE = re.compile(
     r"^(?:" + "|".join(re.escape(d) for d in _KEYWORD_DISPLAYS) + r")\b.*$"
 )
+#: Cycling's type-restricted variants ("Plainscycling", "Wizardcycling",
+#: "Slivercycling", an unbounded land/creature-type family Scryfall mints one
+#: name per type for) can't be listed exhaustively like `ALIAS_DISPLAYS`
+#: above — matched the same way ``<type>walk`` is below instead.
+_CYCLING_TOKEN_RE = re.compile(r"^(?:[a-z]+\s+)?[a-z]*cycling\b")
+
+#: The closed set of keywords whose own parameter is itself comma-shaped —
+#: Escape's "{cost}, Exile N other cards from your graveyard", Ward/Kicker's
+#: non-mana fallback cost ("Pay 2 life", "Discard a creature card"), Partner
+#: with's "<Name>, <Epithet>". Deliberately narrow (unlike the general
+#: `_KEYWORD_TOKEN_RE`/`_CYCLING_TOKEN_RE` checks): a comma after *any*
+#: keyword can't be assumed to continue that keyword's own clause (a
+#: two-keyword line like "Flying, then draw a card" must still fail), so
+#: only these known compound-parameter keywords get to swallow past a comma.
+_COMPOUND_PARAM_START_RE = re.compile(
+    r"^(?:escape|ward|kicker|multikicker|partner with|friends forever)\b", re.IGNORECASE
+)
+
+
+def _is_keyword_token(tok: str) -> bool:
+    return bool(_KEYWORD_TOKEN_RE.match(tok) or _CYCLING_TOKEN_RE.match(tok) or re.match(r"^[a-z]+walk\b", tok))
 
 
 @dataclass
@@ -371,14 +399,28 @@ def parse_effect_body(body: str) -> Optional[list[EffectSpec]]:
 
 
 def is_keyword_line(line: str) -> bool:
-    """Whether ``line`` is only keyword abilities (comma-separated), for the gate."""
-    tokens = [t.strip() for t in line.split(",") if t.strip()]
-    if not tokens:
+    """Whether ``line`` is only keyword abilities, for the gate.
+
+    Two or more keywords can share one line, comma-separated ("Flying,
+    vigilance"). A comma-separated continuation only rejoins the token before
+    it when that token starts one of the closed `_COMPOUND_PARAM_START_RE`
+    keywords *and* doesn't already stand as a keyword token on its own — so
+    an unrelated trailing clause ("Flying, then draw a card") still fails
+    instead of being swallowed by a keyword's own greedy `.*$` match.
+    """
+    stripped = line.strip()
+    if not stripped:
         return False
-    return all(
-        _KEYWORD_TOKEN_RE.match(tok) or re.match(r"^[a-z]+walk\b", tok)
-        for tok in tokens
-    )
+    raw_tokens = [t.strip() for t in stripped.split(",") if t.strip()]
+    if not raw_tokens:
+        return False
+    tokens: list[str] = []
+    for tok in raw_tokens:
+        if tokens and not _is_keyword_token(tok) and _COMPOUND_PARAM_START_RE.match(tokens[-1]):
+            tokens[-1] = f"{tokens[-1]}, {tok}"
+        else:
+            tokens.append(tok)
+    return all(_is_keyword_token(t) for t in tokens)
 
 
 def segment_line(

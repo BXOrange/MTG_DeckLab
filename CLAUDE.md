@@ -238,14 +238,19 @@ already-bound replacement families (`double_tokens`/`double_counters`/
 `additional_damage` — standing-permanent clauses; `prevent_damage`'s
 two real cards are a different, still-unmodeled one-shot-spell shape);
 and surveil (RULE 701.31, mirroring the existing scry handler/effect
-shape exactly). `parse_oracle` itself is now memoized (content-keyed on
+shape exactly); and RULE 702.33b's kicked-conditional RULE 614.1 entry
+counters — "if ~ was kicked, it enters with N counters on it" and its
+Multikicker-scaled "…for each time it was kicked" sibling
+(`counters.py`'s `kicked_gate`/`kicked_scale`, resolved against
+`GameObject.kicker_count` in `RulesEngine._apply_entry_counters`).
+`parse_oracle` itself is now memoized (content-keyed on
 every field it reads, `parser/oracle/gate.py`) since it's called once per
 `GameObject` built — a popular card no longer gets re-parsed from scratch
 on every copy/every game. `parser/oracle/processing_list.py` tracks
 cache-wide coverage and ranks the next handlers worth building. The cache is
 now bulk-loaded with the **full ~34k-card Oracle universe**
-(`scripts/import_bulk.py`), so coverage is measured against that: **22.7%
-covered (7,774 / 34,209) as of 2026-07-19, Batch 5** (parser-`MODELED` **or**
+(`scripts/import_bulk.py`), so coverage is measured against that: **23.0%
+covered (7,872 / 34,209) as of 2026-07-19, Batch 6** (parser-`MODELED` **or**
 hand-`AUTHORED`; the old 24.4% was over only the ~2,900-card curated cache).
 Re-measure with `scripts/coverage_report.py` (ledger-backed — see
 `services/coverage_db.py`) before trusting this number; the batch plan and

@@ -907,7 +907,18 @@ class RulesEngine:
         condition = ability_catalogue.entry_counters(obj.card)
         if condition is None:
             return
-        amount = x_paid if condition["is_x"] else condition["count"]
+        if condition.get("kicked_gate") or condition.get("kicked_scale"):
+            # RULE 702.33b: gated/scaled on how many times Kicker was paid
+            # (`GameObject.kicker_count`, stamped at cast time) — 0 for
+            # anything that didn't just resolve off a kicked cast (a token,
+            # a card reanimated/searched onto the battlefield, …).
+            kicker_count = getattr(obj, "kicker_count", 0) or 0
+            if condition.get("kicked_gate"):
+                amount = condition["count"] if kicker_count > 0 else 0
+            else:
+                amount = condition["count"] * kicker_count
+        else:
+            amount = x_paid if condition["is_x"] else condition["count"]
         if amount > 0:
             obj.add_counters(condition["counter_type"], amount)
 

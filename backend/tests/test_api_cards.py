@@ -8,10 +8,27 @@ from fastapi.testclient import TestClient
 
 from mtg_analyzer.api.app import app
 from mtg_analyzer.api.cards import get_lazy_card_loader
-from mtg_analyzer.api.dependencies import get_card_database
+from mtg_analyzer.api.dependencies import get_card_database, get_deck_database
+from mtg_analyzer.models.deck import Deck
 from mtg_analyzer.services.card_database import CardDatabase
+from mtg_analyzer.services.deck_database import DeckDatabase
 from mtg_analyzer.services.lazy_card_loader import LazyCardLoader
 from mtg_analyzer.services.scryfall_client import ScryfallIntegration
+
+FIRE_BOLT = {
+    "id": "5f6b0b5f-0000-4000-8000-000000000000",
+    "name": "Firebolt",
+    "mana_cost": "{1}{R}",
+    "cmc": 2.0,
+    "type_line": "Sorcery",
+    "oracle_text": "Firebolt deals 2 damage to any target. Flashback {4}{R}",
+    "colors": ["R"],
+    "color_identity": ["R"],
+    "keywords": ["Flashback"],
+    "set": "clu",
+    "rarity": "common",
+    "image_uris": {"small": "", "normal": "", "large": "", "png": ""},
+}
 
 LIGHTNING_BOLT = {
     "id": "77c17415-56c9-4677-b6d5-e18641640e6f",
@@ -85,6 +102,7 @@ class TestListCards:
     def teardown_method(self):
         app.dependency_overrides.pop(get_lazy_card_loader, None)
         app.dependency_overrides.pop(get_card_database, None)
+        app.dependency_overrides.pop(get_deck_database, None)
 
     def test_empty_cache_returns_empty_list(self):
         def handler(request: httpx.Request) -> httpx.Response:
@@ -112,6 +130,44 @@ class TestListCards:
         body = response.json()
         assert len(body) == 1
         assert body[0]["name"] == "Lightning Bolt"
+
+    def test_scope_decks_only_returns_cards_referenced_by_a_saved_deck(self):
+        def handler(request: httpx.Request) -> httpx.Response:
+            return httpx.Response(200, json={"data": [LIGHTNING_BOLT, FIRE_BOLT], "not_found": []})
+
+        loader, database = _override_loader(handler)
+        # Both cards are cached, but only Firebolt is referenced by a saved deck.
+        loader.load_cards(["Lightning Bolt", "Firebolt"])
+
+        deck_database = DeckDatabase()
+        deck_database.save_deck(Deck(name="Mono Red", mainboard_text="1 Firebolt"))
+        app.dependency_overrides[get_deck_database] = lambda: deck_database
+
+        client = TestClient(app)
+        response = client.get("/api/cards", params={"scope": "decks"})
+
+        assert response.status_code == 200
+        body = response.json()
+        assert [c["name"] for c in body] == ["Firebolt"]
+
+    def test_scope_decks_with_no_saved_decks_returns_empty_list(self):
+        def handler(request: httpx.Request) -> httpx.Response:
+            return httpx.Response(200, json={"data": [LIGHTNING_BOLT], "not_found": []})
+
+        loader, _ = _override_loader(handler)
+        loader.load_cards(["Lightning Bolt"])
+        app.dependency_overrides[get_deck_database] = lambda: DeckDatabase()
+
+        client = TestClient(app)
+        response = client.get("/api/cards", params={"scope": "decks"})
+
+        assert response.status_code == 200
+        assert response.json() == []
+
+    def test_invalid_scope_is_422(self):
+        client = TestClient(app)
+        response = client.get("/api/cards", params={"scope": "bogus"})
+        assert response.status_code == 422
 
 
 class TestResolveCards:

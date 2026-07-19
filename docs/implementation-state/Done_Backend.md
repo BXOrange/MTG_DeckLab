@@ -2502,6 +2502,103 @@ the Phase-1 models. Tests: `test_game_engine.py`.
         attraction"/monarch-adjacent modal options (new subsystems, already
         tracked as Batch 10).
 
+- [x] **Card-pool Batch 6 (2026-07-19): cost-keyword mechanics — investigation
+      again overturned the plan's own premise.** The plan row framed this as
+      "some new keyword mechanics" (landcycling/megamorph/escape/multikicker/
+      strive/kicker-counter variants), but Escape/Kicker/Multikicker were
+      already fully *behaviourally* modeled — real cast machinery in
+      `game_engine.py` (`_kicker_cost`/`_escape_cost`, `can_cast`'s
+      `kicked`/graveyard-Escape branches), unrelated to this batch. The real
+      blockers were two **recognition bugs**, neither touching behavioral
+      code at all:
+      - **`keywords._resolve` only special-cased the `<type>walk` family**
+        (Islandwalk → the generic `landwalk` row). Cycling has the identical
+        "Scryfall mints one keyword name per type" shape — Plainscycling/
+        Mountaincycling/Forestcycling/Swampcycling/Islandcycling/
+        Wizardcycling/Slivercycling/**Basic landcycling** — but wasn't
+        generalized the same way. "Basic landcycling" in particular wasn't
+        even in the hand-written `_ALIASES` map at all, so `parse_keywords`
+        silently skipped it as an unrecognized keyword name (fail-closed
+        skip), never reaching cost extraction — not a coverage-gate quirk,
+        a real gap in the keyword-spec *builder* itself. Fixed with the same
+        suffix generalization `_resolve` already had for `walk`
+        (`slug.endswith("cycling")` → the base `cycling` row), covering
+        every present and future `<type>cycling` name in one change.
+      - **`segmenter.is_keyword_line`** (the coverage gate's "this line is
+        just a keyword, don't try to parse it as a clause" check) had two
+        compounding bugs:
+        1. It only recognized `KEYWORDS`' canonical `_TABLE` display names
+           ("Kicker", "Morph", "Cycling"), never the alias spellings a real
+           card actually prints ("Multikicker", "Megamorph", "Landcycling",
+           "Partner with", …) — `KEYWORDS` only holds the canonical rows;
+           `_ALIASES` maps slug→slug, not display→slug, so this raw-text
+           scan never saw them. Fixed with a new `keywords.ALIAS_DISPLAYS`
+           export (the alias keys' own lowercase spellings) folded into the
+           same `_KEYWORD_DISPLAYS`/`_KEYWORD_TOKEN_RE` construction.
+        2. It blindly `line.split(",")`ed every line, so any keyword whose
+           own parameter contains a comma — Escape's "{cost}, Exile N other
+           cards from your graveyard", Ward/Kicker's non-mana fallback costs
+           ("Pay 2 life", "Discard a creature card"), Partner with's
+           "\<Name\>, \<Epithet\>" — had its own continuation misread as a
+           second, unrecognized token, failing the "every token must be a
+           keyword" check for the *whole* line. A first attempt (split only
+           before a comma that's immediately followed by a *new* recognized
+           keyword) proved too permissive: a manufactured regression test,
+           `"flying, then draw a card"`, was wrongly accepted, because not
+           splitting there let the trailing prose ride along inside
+           `_KEYWORD_TOKEN_RE`'s own greedy `.*$`. Replaced with a narrower,
+           closed-list design instead: a comma-split token only rejoins its
+           predecessor when the predecessor starts one of six known
+           compound-parameter keywords (`_COMPOUND_PARAM_START_RE` —
+           escape/ward/kicker/multikicker/partner with/friends forever) —
+           the regression test now correctly fails.
+      - Separately, one real **new capability** (not a recognition fix):
+        RULE 702.33b's kicked-conditional flavor of the RULE 614.1
+        entry-counters clause — "if ~ was kicked, it enters with N counters
+        on it." (Academy Drake/Baloth Gorger/Cragplate Baloth/Grunn-shaped)
+        and its Multikicker-scaled sibling "~ enters with N counters on it
+        for each time it was kicked." (Apex Hawks-shaped, where the printed
+        N is a *per-kick* amount, not the total). Both reuse the existing
+        `counters.py`/`RulesEngine._apply_entry_counters` machinery — two
+        new regexes plus new `kicked_gate`/`kicked_scale` condition-dict
+        keys, resolved against `GameObject.kicker_count` (already stamped
+        at cast time by `_cast_current_face` for the pre-existing "if this
+        spell was kicked, \<effect\>" additional-effect shape). Since
+        `entry_counters_condition` is the single source of truth both the
+        coverage gate and the engine consult, this one change is
+        simultaneously the recognition fix and the real behavior.
+      - `PARSER_VERSION` bumped "7" → "8". Tests:
+        `backend/tests/test_batch6_cost_keyword_family.py` (23 tests,
+        parse **and** execute) — including the fail-closed regression guard
+        above, an end-to-end `GameEngine` cast proving the kicked-gated and
+        Multikicker-scaled counters actually land (or don't) on the
+        battlefield object, and a `Comet Storm`-shaped card confirming the
+        batch didn't accidentally claim the separate, still-unmodeled
+        "X damage divided among any number of targets" clause riding on the
+        same card. Full suite 1596 → 1622 passed, zero regressions.
+      - **Coverage: 7,774 → 7,872 / 34,209 (22.7% → 23.0%, +98 cards).**
+      - **Deferred** (fail-closed): the "…and with \<keyword\>" compound
+        form of kicked-gated entry counters (conditionally granting a
+        keyword too — a different, bigger mechanism than counters alone);
+        Kicker `{X}`'s own paid-X variant (Emblazoned Golem, 1 card — its
+        "X" is the kicker's own paid amount, a different value than a plain
+        cast-for-X's `x_paid` the unconditional shape resolves against, so
+        deliberately not conflated); granting cycling *to other cards*
+        ("each card in your hand has cycling {2}" — a static-grant shape,
+        not a keyword-recognition one); **Strive** — not actually a RULE
+        702 keyword ability in this codebase's catalogue at all (confirmed
+        absent from `docs/Reference/rules_wiki/`), a per-extra-target cost
+        escalation needing its own new grammar, not a `keywords.py` fix;
+        true face-down Morph/Megamorph *execution* (casting face-down as a
+        2/2, turning face up — a real new permanent-state subsystem,
+        `ToDo_EdgeCases.md`-tracked, unrelated to this batch's
+        recognition-only scope); generic Cycling *execution* for an
+        unregistered card (the `discard_self` hand-zone activated-ability
+        primitive already exists from earlier Channel/Cycling work, but
+        binding a bare oracle-recognized "cycling" keyword spec into a real
+        activatable ability for *any* card, not just the two hand-authored
+        ones, is still unbuilt).
+
 - [x] **(2026-07-16) "Play/cast from the top of your library" permission**
       (Oracle of Mul Daya/Glarb, Calamity's Augur-shaped — the frontend's
       library-zone visualization, `frontend/ToDo_Frontend.md`/

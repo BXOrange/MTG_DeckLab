@@ -45,6 +45,38 @@ _ENTRY_COUNTERS_RE = re.compile(
     re.IGNORECASE,
 )
 
+#: A fixed amount only — unlike `_AMOUNT` above, excludes "x": a kicked-gated
+#: clause's own "X" (Emblazoned Golem's Kicker {X}) would mean the kicker's
+#: own paid X, a different value than a plain cast-for-X's `x_paid` the
+#: unconditional shape above resolves against — deliberately left unclaimed
+#: (fail-closed) rather than conflating the two.
+_FIXED_AMOUNT = r"(a|an|\d+)"
+
+#: RULE 702.33b: "If ~ was kicked, it enters with N counters on it." — the
+#: same RULE 614.1 entry-counters replacement, gated on whether Kicker
+#: (RULE 702.33) was paid at all (`GameObject.kicker_count`, stamped at cast
+#: time by `GameEngine._cast_current_face`) — Academy Drake/Baloth Gorger/
+#: Cragplate Baloth/Grunn-shaped. Kept as its own regex (not folded into
+#: `_ENTRY_COUNTERS_RE`) since resolution needs a different rule (0 unless
+#: kicked) instead of the plain unconditional count.
+_KICKED_ENTRY_COUNTERS_RE = re.compile(
+    rf"^if {_SUBJECT} was kicked, it {_ENTERS} with {_FIXED_AMOUNT} {_COUNTER_TYPE} counters? on it\.?$",
+    re.IGNORECASE,
+)
+
+#: "~ enters with N counters on it for each time it was kicked." — the
+#: Multikicker-scaled sibling (RULE 702.34a): the total isn't fixed, it's
+#: ``N`` (the per-kick amount printed) times however many times Kicker was
+#: actually paid — Apex Hawks-shaped.
+_KICKED_SCALED_ENTRY_COUNTERS_RE = re.compile(
+    rf"^{_SUBJECT} {_ENTERS} with {_FIXED_AMOUNT} {_COUNTER_TYPE} counters? on it for each time it was kicked\.?$",
+    re.IGNORECASE,
+)
+
+
+def _fixed_count(amount_raw: str) -> int:
+    return 1 if amount_raw.lower() in ("a", "an") else int(amount_raw)
+
 
 def entry_counters_condition(line: str) -> Optional[dict[str, Any]]:
     """Classify one **already-normalized** oracle line as a RULE 614.1-style
@@ -58,7 +90,23 @@ def entry_counters_condition(line: str) -> Optional[dict[str, Any]]:
       object's actual paid X (RULE 107.3c; 0 outside a cast-for-X).
     - ``{"is_x": False, "count": N, "counter_type": "ice"}`` — a fixed
       amount ("a"/"an" folds to 1).
+    - ``{"is_x": False, "count": N, "counter_type": T, "kicked_gate": True}``
+      — apply only if Kicker was paid at all (any number of times); ``N`` is
+      the fixed total, not a per-kick amount.
+    - ``{"is_x": False, "count": N, "counter_type": T, "kicked_scale": True}``
+      — ``N`` is a *per-kick* amount; the real total is ``N`` times
+      however many times Kicker was actually paid (0 if never kicked).
     """
+    match = _KICKED_ENTRY_COUNTERS_RE.match(line)
+    if match is not None:
+        count = _fixed_count(match.group(1))
+        counter_type = match.group(2).lower()
+        return {"is_x": False, "count": count, "counter_type": counter_type, "kicked_gate": True}
+    match = _KICKED_SCALED_ENTRY_COUNTERS_RE.match(line)
+    if match is not None:
+        count = _fixed_count(match.group(1))
+        counter_type = match.group(2).lower()
+        return {"is_x": False, "count": count, "counter_type": counter_type, "kicked_scale": True}
     match = _ENTRY_COUNTERS_RE.match(line)
     if not match:
         return None
