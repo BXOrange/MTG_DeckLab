@@ -19,7 +19,7 @@ from __future__ import annotations
 from typing import Any, Callable, Optional, Union
 
 from ..models.events import EventType
-from ..parser.oracle.catalogue.handlers import ONCE_PER_TURN_MARKER
+from ..parser.oracle.catalogue.handlers import ONCE_PER_TURN_MARKER, SORCERY_SPEED_MARKER
 from ..parser.oracle.spec import AbilitySpec, EffectSpec
 from .costs import parse_activation_cost
 from .effects import (
@@ -447,12 +447,20 @@ def bind_ability(
     # effects and fold it into `ActivatedAbility.once_per_turn` instead
     # (mirroring `TriggeredAbility.once_per_turn`'s RULE 603.2 stamp).
     once_per_turn = False
+    sorcery_speed_only = False
     effect_specs = spec.effects
-    if spec.ability_kind == "activated" and any(
-        e.type == ONCE_PER_TURN_MARKER for e in effect_specs
-    ):
-        once_per_turn = True
-        effect_specs = [e for e in effect_specs if e.type != ONCE_PER_TURN_MARKER]
+    if spec.ability_kind == "activated":
+        if any(e.type == ONCE_PER_TURN_MARKER for e in effect_specs):
+            once_per_turn = True
+        if any(e.type == SORCERY_SPEED_MARKER for e in effect_specs):
+            sorcery_speed_only = True
+        # Strip both timing/cap markers before building real effects (RULE
+        # 602.5d / 603.2) — each is folded into the ActivatedAbility/cost, not
+        # a GameEffect.
+        effect_specs = [
+            e for e in effect_specs
+            if e.type not in (ONCE_PER_TURN_MARKER, SORCERY_SPEED_MARKER)
+        ]
 
     effects = build_effects(effect_specs, source)
 
@@ -488,9 +496,14 @@ def bind_ability(
 
     # activated: recognize the full cost (mana, {T}/{Q}, sacrifice, pay life,
     # discard, remove counters) from the spec's cost dict / text.
+    cost = parse_activation_cost(spec.cost)
+    if sorcery_speed_only:
+        # RULE 602.5d — the "Activate only as a sorcery" body marker folds into
+        # the cost's timing flag (`can_activate` already enforces it).
+        cost.sorcery_speed_only = True
     return ActivatedAbility(
         effects=effects,
-        cost=parse_activation_cost(spec.cost),
+        cost=cost,
         source=source,
         description=spec.raw_text,
         once_per_turn=once_per_turn,

@@ -1825,21 +1825,21 @@ class RulesEngine:
         entry handling — the same choke point `return_from_graveyard` uses —
         so the object re-enters as a fresh `ENTERS_BATTLEFIELD` occurrence
         (RULE 400.7: a new object, ETB triggers refire, summoning sickness
-        resets, attachments/counters don't carry over since `exile`/
-        `remove_from_battlefield` already dropped them) rather than a no-op
-        move. Always under the owner's own control — no real blink spell
-        lets the caster keep an opponent's creature.
+        resets) rather than a no-op move. Always under the owner's own
+        control — no real blink spell lets the caster keep an opponent's
+        creature.
         """
         owner = self.state.player_by_id(obj.owner_id)
         # RULE 400.7: a new object remembers nothing of the old one — unlike
         # `exile` on its own (which leaves counters/attachments alone, e.g.
-        # for a card that's merely *staying* in exile), drop both before
-        # re-entry. `exile` doesn't call `_detach_attachments_from` itself
-        # (only `_move_to_graveyard` does today), so any Aura/Equipment that
-        # was on ``obj`` falls off here.
+        # for a card that's merely *staying* in exile), drop everything
+        # before re-entry. `exile` doesn't call `_detach_attachments_from`
+        # itself (only `_move_to_graveyard` does today), so any Aura/
+        # Equipment that was on ``obj`` falls off here.
         self._detach_attachments_from(obj)
         self.exile(obj)
-        obj.counters = {}
+        obj.reset_as_new_object()
+        obj.controller_id = owner.id
         self._put_searched_card(owner, obj, "battlefield")
 
     def return_from_graveyard(
@@ -1861,13 +1861,27 @@ class RulesEngine:
         effects see it too) instead of its owner's — real Magic only ever
         pairs this with ``destination="battlefield"``, never "hand" (a card
         can't go to a hand that isn't its owner's).
+
+        RULE 400.7: leaving the graveyard makes this a new object regardless
+        of destination — `GameObject.reset_as_new_object` drops whatever it
+        died with (most visibly counters: a creature that died with +1/+1
+        counters must not bring them back via Reanimate/Regrowth) before it
+        lands anywhere.
         """
         owner = self.state.player_by_id(obj.owner_id)
         self._remove_from_current_zone(owner, obj)
+        obj.reset_as_new_object()
         if controller_id is not None and destination in ("battlefield", "battlefield_tapped"):
             obj.controller_id = controller_id
             self._put_searched_card(self.state.player_by_id(controller_id), obj, destination)
         else:
+            # RULE 108.4: absent an explicit new controller, a new object
+            # defaults to its owner's control — ``obj.controller_id`` could
+            # otherwise still read a stale prior controller (e.g. it died
+            # while under a "gain control" effect; `_move_to_graveyard`
+            # never resets this field, since most graveyard visits aren't
+            # followed by a return at all).
+            obj.controller_id = owner.id
             self._put_searched_card(owner, obj, destination)
 
     def add_mana(self, player: Player, color: str, amount: int = 1) -> None:

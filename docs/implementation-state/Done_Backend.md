@@ -2139,6 +2139,218 @@ the Phase-1 models. Tests: `test_game_engine.py`.
       Runes, Giver of Runes, Humility, plus Mana Drain upgraded from partial).
       All ten planned primitive batches (15–24) are now done.
 
+- [x] **Card-pool Batch 1 (2026-07-18): full-universe import + firebreathing /
+      until-EOT activated pumps.** First batch of the whole-card-pool modeling
+      program (`docs/implementation-state/CARDPOOL_MODELING_BATCHES.md`), run
+      against the **full ~34k Oracle universe** now bulk-loaded into the cache
+      (`scripts/import_bulk.py` → persistent `RawCardStore`,
+      `services/raw_card_store.py`; coverage measured/ranked by
+      `scripts/coverage_report.py` over the persistent engineering ledger
+      `services/coverage_db.py`, which only re-parses changed cards).
+      - **Self-reference fold** (`parser/oracle/normalize._fold_self_reference`):
+        modern templating writes an ability's own source as "this creature"/
+        "this permanent"/"this artifact"/… rather than repeating the printed
+        name. These now fold to the same `~` the card-name fold already emits,
+        so every handler that already accepted `~` covers the `this <type>`
+        phrasing uniformly (many handlers previously re-listed a subset of
+        those nouns as literal alternatives — now redundant but harmless).
+        Deliberately excludes "this spell"/"this card"/"this ability" and the
+        structured "this Saga"/"this Class" (their own parsing). Bonus: the
+        fold *merges* the "this creature"/named-self template variants in the
+        ranked backlog, so a later combat-static handler claims both at once.
+      - **Firebreathing / until-EOT pumps** — `{cost}: this creature gets
+        ±N/±N until end of turn.` and `{cost}: this creature gains <kw> until
+        end of turn.` now MODELED with no new effect type (the existing `pump`
+        handler + `<cost>: <effect>` activated grammar already handled the
+        shape once the subject folded).
+      - **Sorcery-speed-only activation marker** (RULE 602.5d) — "Activate only
+        as a sorcery." / "… only any time you could cast a sorcery." claimed as
+        a `SORCERY_SPEED_MARKER` (`catalogue/handlers.py`), stripped by
+        `effect_binder` and folded into `ActivationCost.sorcery_speed_only`
+        (already enforced by `GameEngine.can_activate`/`_sorcery_speed_ok`).
+        Fail-closed: the subtly-different "only during your turn"/"before
+        attackers are declared" windows are left unclaimed, not conflated.
+      - `PARSER_VERSION` bumped "2" → "3" (invalidates the ledger's affected
+        rows). Tests: `backend/tests/test_firebreathing_family.py` (8 tests,
+        parse **and** execute); full suite 1514 → 1522 passed, zero regressions.
+      - **Coverage: 6,720 → 7,358 / 34,209 (19.6% → 21.5%, +638 cards).**
+      - **Deferred:** monstrosity/adapt (RULE 701.32/701.44) — need a new
+        `is_monstrous` flag, a "becomes monstrous" trigger event, and new
+        effect types; a clean separate mechanic (~63 cards), not rushed in here.
+
+- [x] **Card-pool Batch 2 (2026-07-19): combat/evasion static-restriction
+      family.** `~`/attached-permanent "can't attack"/"can't block"/"can't be
+      blocked" and their combinations (RULE 508.1a/509.1a), modeled as
+      synthetic layer-6 "keyword" flags — not real RULE 702 keywords, just
+      internal markers — reusing the existing `grant_keyword`/
+      `activation_prohibition` `StaticAbility` machinery with essentially no
+      new engine plumbing:
+      - **`cant_attack`/`cant_block`/`cant_be_blocked`** — granted via the
+        ordinary `grant_keyword` `EffectSpec` (its factory never validated
+        keyword *content*, only `static_handlers._flag_keywords` did at parse
+        time — bypassed here since these aren't real keywords), so
+        `game/continuous.py`'s layer-6 fold-into-`_granted_keywords` needed
+        zero changes. `combat.has(obj, "cant_attack")` etc. read them off the
+        same union every real keyword uses. Checked by
+        `GameEngine._can_attack` (attack declaration) and `can_block` (both
+        the blocker's own "can't block" and the attacker's "can't be
+        blocked", the latter alongside the existing `temp_unblockable`/
+        landwalk unblockable checks).
+      - **`attacks_if_able`** — RULE 508.1a's "must attack" is a
+        *requirement*, not a restriction, so it can't reuse a `can_attack`
+        gate. `declare_attackers` is additive (the UI declares one creature
+        at a time) with no "I'm done" signal, so enforcement lives in a new
+        `GameEngine._enforce_attacks_if_able`, called from `advance_step`
+        exactly when the step about to be left is `"declare_attackers"` —
+        raises if any controlled creature carrying the flag could have
+        attacked (`_can_attack`, checked before anything about the
+        now-declared combat has changed the board) but wasn't declared.
+      - **Activated-ability lock** ("…and its activated abilities can't be
+        activated.") — reuses the existing board-wide `activation_prohibition`
+        family (RULE 602, Collector Ouphe-shaped) unchanged, just scoped to
+        `affects="self"`/`"attached_permanent"` instead of a card-type filter
+        — its selector vocabulary already supported that. The "…unless
+        they're mana abilities" exemption variant (2 cards) was left
+        unclaimed (fail-closed): `activation_prohibited` gates a whole
+        *source*, not per-ability, and threading a mana-ability exemption
+        through it wasn't worth it for 2 cards.
+      - **Regression fix**: Batch 1's self-reference fold folds "this
+        creature"/"this artifact"/… to `~`, but `_NO_UNTAP_RE` still matched
+        the old literal `"this <type>"` wording — dead ever since, quietly
+        dropping 37 cards back to unclaimed. Fixed to match `~`.
+      - **`no_untap` generalized** to `affects="attached_permanent"`
+        (Paralyzing Grasp-shaped "enchanted creature doesn't untap during its
+        controller's untap step") — the factory took a hardcoded
+        `affects="self"`, and `continuous.has_no_untap_static` read
+        `obj.static_effects` directly rather than the shared
+        `affected_objects` selector machinery every other static family
+        uses; both changed to the generic form (call site:
+        `GameEngine._step_untap`).
+      - `PARSER_VERSION` bumped "3" → "4". Tests:
+        `backend/tests/test_combat_restriction_family.py` (16 tests, parse
+        **and** execute, incl. a real `advance_step`-driven "must attack"
+        enforcement test and an Aura-attached grant test); full suite
+        1522 → 1538 passed, zero regressions.
+      - **Coverage: 7,358 → 7,500 / 34,209 (21.5% → 21.9%, +142 cards)** — well
+        under the ~1,326-card upper bound from the batch plan, expected: the
+        all-or-nothing coverage gate means most of those cards have other
+        unclaimed clauses too (the per-template count is cards *blocked*, not
+        cards *unlocked*).
+      - **Deliberately deferred** (fail-closed, stay unclaimed): every
+        qualified/conditional variant ("can't be blocked by/except
+        `<filter>`", "can't attack unless …", "…alone", the mana-ability
+        activation exemption) and the large, separate family of *targeted,
+        resolve-time* "target creature can't block this turn"
+        activated/triggered effects (a genuinely different shape — a one-shot
+        effect on another object, not a printed static — its own future batch).
+
+- [x] **(2026-07-19) RULE 400.7 "new object" identity fix — `RulesEngine.
+      blink`/`return_from_graveyard`.** Live diagnostic (prompted by a
+      question about whether a self-reference correctly stops applying to a
+      flickered permanent's *old* board instance) found `blink()` reused the
+      same `GameObject` without resetting `temp_power`/`temp_toughness`/
+      `temp_keywords` — an "until end of turn" pump survived a flicker — and
+      `return_from_graveyard()` never cleared counters at all, so a creature
+      that died with +1/+1 counters would bring them back via Reanimate/
+      Regrowth; neither reset a stale `controller_id` left over from a
+      control-change effect that applied before the object left play.
+      - **New `GameObject.reset_as_new_object()`** (`models/game_object.py`)
+        is the single shared fix point: clears counters, attachment linkage
+        (`attached_to`/`last_unattached_from_id`), control/copy state
+        (`control_change_until_eot`/`copy_target_id`/`_copy_base`/
+        `_copy_applied_target_id`/`_copy_until_eot_base`/`_control_base`),
+        cast-time flags (`kicker_count`/`buyback_paid`/`cast_via_flashback`/
+        `adventure_snapshot`/`adventure_castable`/`prepared`/
+        `prepared_source_id`), combat state (`attacking`/`combat_defender`/
+        `blocking`/`blocked_by`/`dealt_deathtouch_damage`/
+        `activated_loyalty_this_turn`), every "until end of turn" grant
+        (`temp_power`/`temp_toughness`/`temp_keywords`/`temp_effects`/
+        `temp_unblockable`/`temp_protections`), the one-time `renowned` flag
+        (RULE 702.112b — a new object hasn't become renowned either),
+        `linked_exile_id`, transform state (reverts to the front face, RULE
+        711.8), and `summoning_sick`/`tapped`/`turn_entered`/`phased_out`/
+        `damage_marked`/`static_trace`. Both `blink()` and
+        `return_from_graveyard()` now call it, and both now also reset
+        `controller_id` to the object's owner by default (RULE 108.4) rather
+        than leaving a stale prior controller in place.
+      - **Deliberately does *not* change `instance_id`**: it's this engine's
+        bookkeeping handle, not literally RULE 400.7's abstract "object", and
+        `effect_binder._subject_condition`'s `"self"` trigger closures
+        snapshot it at bind time — churning it would silently break
+        "whenever ~ attacks" on the very card the method runs for without a
+        full re-bind. RULE 400.7's *observable* consequences (ETB triggers
+        refiring, summoning sickness resetting, every buff/counter/
+        attachment gone) are fully achieved by the field resets above plus
+        the caller's fresh `ENTERS_BATTLEFIELD` event and
+        `GameState.add_to_battlefield`'s new timestamp. Also leaves
+        `triggered_abilities`/`activated_abilities`/`static_effects`/
+        `intrinsic_keywords`/`parametric_keywords` untouched — bound once
+        from the card's own printed text, they'd come back byte-identical
+        from a re-bind, so there's nothing to "forget" there.
+      - Tests: `backend/tests/test_new_object_identity.py` (10 tests,
+        incl. a positive check that a self-referential "whenever ~ attacks"
+        trigger still fires correctly after blink, proving the
+        stable-`instance_id` decision doesn't regress self-scoping); full
+        suite 1538 → 1548 passed, zero regressions.
+
+- [x] **Card-pool Batch 3 (2026-07-19): Aura/Equipment attached-permanent
+      grants.** Two families:
+      - **"You control enchanted creature/permanent."** (Control Magic/Mind
+        Control-shaped, RULE 613.2) — the existing `control_change`
+        `StaticAbility` (`game/effects.py`) already defaults to
+        `affects="attached_permanent"` and a controller of "the source's own
+        controller" (exactly "you"), so this needed zero new engine code,
+        only the parser row.
+      - **Quoted full-ability grants** — `<subject> has "<ability text>"` /
+        `<subject> gets +N/+N and has "<ability text>"` (Sword-cycle/
+        Assassin Gauntlet/Candlestick-shaped): the quoted body is
+        **recursively parsed as an ordinary ability line**
+        (`segmenter.segment_line`, imported lazily inside
+        `static_handlers._quoted_ability_grant_effects` to avoid a module
+        cycle — `segmenter` imports `static_handlers` at module level) and
+        wrapped as a `grant_triggered_ability` `EffectSpec` **only** when
+        that recursive parse comes back a plain ``{"subject": "self"}``
+        trigger on one of `_GRANTABLE_TRIGGER_EVENTS` (ENTERS_BATTLEFIELD/
+        DIES/ATTACKS/BLOCKS — the only events whose triggering event carries
+        an `instance_id` key, which is what `continuous.
+        _granted_trigger_condition` scopes a per-object grant by). Anything
+        else about the quoted text is left unclaimed (fail-closed), for real
+        gaps this batch deliberately doesn't try to close:
+        - An **activated**-ability grant (`"{T}: ~ deals 1 damage…"`) needs a
+          real "grant an activated ability" layer-6 engine primitive that
+          doesn't exist yet (already tracked: `ToDo_EdgeCases.md` #35,
+          Umbral Mantle).
+        - A **DAMAGE**-event grant ("deals combat damage to a player") can't
+          even be recursively parsed: "deals combat damage to a player" was
+          never added to `segmenter.py`'s own `_TRIGGER_EVENTS` map at all —
+          a pre-existing gap in the oracle parser's vocabulary, unrelated to
+          grants (the existing hand-authored Sword-cycle equipment in
+          `ability_catalogue.py` uses `effect_binder`'s DAMAGE/`source_id`
+          trigger-subject support directly, bypassing the parser).
+        - A **phase/upkeep**-scoped grant ("at the beginning of your
+          upkeep…") is blocked by the *same* pre-existing gap
+          `segmenter.py`'s `_PHASE_TRIGGER_RE` docstring already documents:
+          only the un-scoped "at the beginning of the upkeep step" form is
+          recognized; "your"/"each opponent's" controller-scoping was never
+          built, for any card, grant or not.
+      - `PARSER_VERSION` bumped "4" → "5". Tests:
+        `backend/tests/test_aura_equipment_grant_family.py` (13 tests, parse
+        **and** execute — incl. control flipping back when the Aura leaves,
+        a granted trigger firing only for its own host and disappearing the
+        instant it's unattached, and three explicit fail-closed checks for
+        the deferred activated/DAMAGE/phase shapes above); full suite
+        1548 → 1561 passed, zero regressions.
+      - **Coverage: 7,500 → 7,516 / 34,209 (21.9% → 22.0%, +16 cards)** — a
+        small net gain despite ~130 raw template hits across the two "has
+        `<name>`" templates, because most real cards in that backlog grant an
+        activated ability or a phase-scoped trigger (both deferred above),
+        and the all-or-nothing gate means a newly-claimed clause often isn't
+        a card's *only* unclaimed one.
+      - **Deferred** (beyond the three fail-closed shapes above): Aura ETB
+        effects ("when ~ enters, tap enchanted permanent", "create a food
+        token"), "return this aura to hand" triggers, and the qualified
+        combat-restriction variants already left over from Batch 2.
+
 - [x] **(2026-07-16) "Play/cast from the top of your library" permission**
       (Oracle of Mul Daya/Glarb, Calamity's Augur-shaped — the frontend's
       library-zone visualization, `frontend/ToDo_Frontend.md`/

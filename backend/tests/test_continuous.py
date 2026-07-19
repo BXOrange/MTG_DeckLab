@@ -530,6 +530,40 @@ def test_static_trace_records_each_layer():
     assert (bear.power, bear.toughness) == (5, 3)
 
 
+def test_static_trace_tags_duration_and_source():
+    """The per-card effect summary (board info popover) needs every trace
+    entry tagged with its source and how long it lasts."""
+    eng = make_engine()
+    bear = put(eng.state, creature("Bear", power=2, toughness=2))
+    bear.add_counters("+1/+1", 2)
+    # A resolved "until end of turn" pump (Monstrous Rage-shaped): records the
+    # aggregate ints *and* a per-source breakdown, exactly like PumpEffect.
+    bear.temp_power += 3
+    bear.temp_toughness += 1
+    bear.temp_keywords.add("trample")
+    bear.temp_effects.append(
+        {"source": "Monstrous Rage", "power": 3, "toughness": 1, "keywords": ["trample"]}
+    )
+    continuous.recompute(eng.state)
+    # 2/2 + two +1/+1 counters + Monstrous Rage's +3/+1 = 7/5.
+    assert (bear.power, bear.toughness) == (7, 5)
+    by_duration = {(e["source"], e["duration"]) for e in bear.static_trace}
+    assert ("+1/+1-Marken", "permanent") in by_duration
+    assert ("Monstrous Rage", "end_of_turn") in by_duration
+    # Its keyword grant is attributed to the same source and duration.
+    kw = next(e for e in bear.static_trace if e["layer"] == 6)
+    assert kw["source"] == "Monstrous Rage" and kw["duration"] == "end_of_turn"
+
+
+def test_temp_effects_cleared_at_cleanup():
+    eng = make_engine()
+    bear = put(eng.state, creature("Bear"))
+    bear.temp_power += 2
+    bear.temp_effects.append({"source": "Giant Growth", "power": 2, "toughness": 2, "keywords": []})
+    eng._step_cleanup()
+    assert bear.temp_effects == [] and bear.temp_power == 0
+
+
 # -- Cost reduction (RULE 601.2f) --------------------------------------------
 
 

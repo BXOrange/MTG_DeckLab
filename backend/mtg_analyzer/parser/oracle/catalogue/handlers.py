@@ -695,6 +695,31 @@ def _once_per_turn(m: re.Match[str]) -> list[EffectSpec]:
     return [EffectSpec(ONCE_PER_TURN_MARKER, {})]
 
 
+#: RULE 602.5d timing restriction: "Activate only as a sorcery." (older
+#: template) / "Activate this ability only any time you could cast a sorcery."
+#: (current) — like `ONCE_PER_TURN_MARKER`, a trailing sentence in the
+#: activated ability's own body, not a real one-shot effect. Claimed as a
+#: marker `EffectSpec` that `effect_binder.bind_ability`'s "activated" branch
+#: strips and folds into `ActivationCost.sorcery_speed_only` (already enforced
+#: by `game_engine.can_activate` via `_sorcery_speed_ok`), the same lever the
+#: engine already uses for level-up / Class-level sorcery-speed abilities.
+#: Only the two canonical *sorcery-speed* phrasings (RULE 605.3b / "any time
+#: you could cast a sorcery"). Deliberately not "only during your turn" /
+#: "before attackers are declared" — those are subtly different timing
+#: windows (a non-empty stack / instant-speed-within-your-turn is still
+#: allowed), so folding them to sorcery-speed would be *wrong*; left unclaimed
+#: (fail-closed) until modeled precisely.
+SORCERY_SPEED_MARKER = "sorcery_speed_marker"
+_SORCERY_SPEED_RE = _c(
+    r"activate (?:this ability )?only "
+    r"(?:as a sorcery|any time you could cast a sorcery)"
+)
+
+
+def _sorcery_speed(m: re.Match[str]) -> list[EffectSpec]:
+    return [EffectSpec(SORCERY_SPEED_MARKER, {})]
+
+
 def _token_keywords(text: str) -> Optional[list[str]]:
     """Validate a token's "with <keywords>" clause → flag-keyword slugs, or None.
 
@@ -1188,6 +1213,15 @@ HANDLERS: list[EffectHandler] = [
         "once_per_turn",
         _ONCE_PER_TURN_RE,
         _once_per_turn,
+    ),
+    # "Activate only as a sorcery." / "… only any time you could cast a
+    # sorcery." — a RULE 602.5d timing restriction, not a real effect; see
+    # `SORCERY_SPEED_MARKER`'s docstring for how the binder folds it into the
+    # cost's `sorcery_speed_only` flag.
+    EffectHandler(
+        "sorcery_speed",
+        _SORCERY_SPEED_RE,
+        _sorcery_speed,
     ),
     # "if your library has no cards in it, you win the game" (Jace, Wielder
     # of Mysteries' -8 tail).

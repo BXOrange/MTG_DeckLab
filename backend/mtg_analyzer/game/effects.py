@@ -3014,6 +3014,17 @@ class PumpEffect(GameEffect):
         obj.temp_keywords.update(self.keywords)
         if self.unblockable:
             obj.temp_unblockable = True
+        # Record a per-source breakdown for the board's per-card effect
+        # summary (display-only — the aggregate ints above drive the math).
+        if self.power or self.toughness or self.keywords:
+            obj.temp_effects.append(
+                {
+                    "source": self.source.name if self.source is not None else "Effekt",
+                    "power": self.power,
+                    "toughness": self.toughness,
+                    "keywords": list(self.keywords),
+                }
+            )
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
         if self.selector is not None:
@@ -4209,12 +4220,13 @@ EffectRegistry.register(
     ),
 )
 EffectRegistry.register(
-    # "This artifact doesn't untap during your untap step." (RULE 502.3-
-    # adjacent, Basalt Monolith/Grim Monolith/Mana Vault) — always self-
-    # scoped; consulted by `continuous.has_no_untap_static`
-    # (`GameEngine._step_untap`).
+    # "~ doesn't untap during your untap step." (RULE 502.3-adjacent, Basalt
+    # Monolith/Grim Monolith/Mana Vault — self-scoped) or "Enchanted creature
+    # doesn't untap during its controller's untap step." (Paralyzing Grasp —
+    # ``affects="attached_permanent"``); consulted by
+    # `continuous.has_no_untap_static` (`GameEngine._step_untap`).
     "no_untap",
-    lambda p: StaticAbility("no_untap", affects="self", params={}),
+    lambda p: StaticAbility("no_untap", affects=p.get("affects", "self"), params={}),
 )
 EffectRegistry.register(
     # "As long as this artifact is untapped, players can't untap more than

@@ -50,7 +50,19 @@ UNMODELED = "UNMODELED"
 
 #: Bumped when the catalogue/pipeline changes shape; stamped on every spec's
 #: provenance so a cached parse can be invalidated (docs/09 "Versioning").
-PARSER_VERSION = "2"
+#: "3": Batch 1 — self-reference fold ("this creature"→~) + firebreathing /
+#: until-EOT activated pumps + sorcery-speed-only activation marker.
+#: "4": Batch 2 — combat-restriction family (can't attack/block/be blocked,
+#: attacks each combat if able, activated-ability lock), no_untap generalized
+#: to attached_permanent, and a self-reference fix in `_NO_UNTAP_RE` (the
+#: Batch 1 fold left its old "this <type>" wording dead).
+#: "5": Batch 3 — "you control enchanted creature/permanent" (control_change)
+#: + Aura/Equipment quoted ability grants ("has \"<ability>\"") for
+#: self-scoped ENTERS_BATTLEFIELD/DIES/ATTACKS/BLOCKS triggers, recursively
+#: parsed via `segmenter.segment_line` and wrapped as `grant_triggered_
+#: ability`. Deliberately excludes activated-ability grants and DAMAGE/
+#: phase-scoped triggers (see `static_handlers._GRANTABLE_TRIGGER_EVENTS`).
+PARSER_VERSION = "5"
 
 
 @dataclass

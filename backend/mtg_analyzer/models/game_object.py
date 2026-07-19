@@ -276,9 +276,12 @@ class GameObject:
         #: `_granted_*`/`_removed_*` fields.
         self._loses_all_abilities: bool = False
         #: RULE 702.112b: whether Renown's own "it becomes renowned" has
-        #: already happened — never reset (a one-time-ever flag per object,
-        #: unlike every ``_derived_*``/``_granted_*`` field above), so the
-        #: keyword's "if it isn't renowned" guard only fires once.
+        #: already happened — never reset by an ordinary recompute (a
+        #: one-time-ever flag per object, unlike every ``_derived_*``/
+        #: ``_granted_*`` field above), so the keyword's "if it isn't
+        #: renowned" guard only fires once per object. `reset_as_new_object`
+        #: *does* clear it — RULE 400.7's new object hasn't become renowned
+        #: either.
         self.renowned: bool = False
         #: Mana-production options granted by a layer-6 "X have '{T}: Add
         #: …'" static ability (Tyvar Kell) — folded onto the printed ones by
@@ -333,13 +336,23 @@ class GameObject:
         #: a pump ("target creature gets +3/+3 until end of turn", RULE 613.4d)
         #: and a temporary keyword grant ("gains flying until end of turn",
         #: layer 6). Unlike counters (RULE 122) these are *effects*: they don't
-        #: survive the object leaving and re-entering, and the cleanup step
-        #: (RULE 514.2) clears them each turn. `continuous.recompute` folds
-        #: them into derived P/T and `_granted_keywords`, so they are *not*
+        #: survive the object leaving and re-entering (`reset_as_new_object`),
+        #: and the cleanup step (RULE 514.2) clears them each turn.
+        #: `continuous.recompute` folds them into derived P/T and
+        #: `_granted_keywords`, so they are *not*
         #: cleared by `reset_derived` (they must outlive a mid-turn recompute).
         self.temp_power: int = 0
         self.temp_toughness: int = 0
         self.temp_keywords: set[str] = set()
+        #: Per-source breakdown of the "until end of turn" buffs above, for the
+        #: board's per-card effect summary (source attribution the aggregate
+        #: ints can't carry) — a list of
+        #: ``{"source": name, "power": int, "toughness": int, "keywords": [..]}``
+        #: entries, one per resolved pump/keyword-grant effect (Giant Growth,
+        #: Monstrous Rage). Display-only: the aggregate ints above stay the
+        #: source of truth for the layer-7 math. Cleared at cleanup (RULE 514.2)
+        #: alongside `temp_power`; survives a mid-turn recompute like them.
+        self.temp_effects: list[dict[str, Any]] = []
         #: "Target creature can't be blocked this turn" (Rogue's Passage) —
         #: a resolve-time grant read directly by `GameEngine.can_block`
         #: (not a layer-6 keyword; RULE 509.1a's blocking legality isn't
@@ -393,6 +406,90 @@ class GameObject:
         self._derived_subtypes = None
         self._derived_colors = None
         self._derived_oracle_text = None
+        self.static_trace = []
+
+    def reset_as_new_object(self) -> None:
+        """Wipe every field RULE 400.7 says a "new object" remembers nothing
+        of — called by `RulesEngine.blink`/`return_from_graveyard` right
+        before an object re-enters the battlefield from exile/graveyard (a
+        library→battlefield arrival, e.g. a tutor or cascade hit, never
+        needs this: a fresh `GameObject` already starts with every field
+        below at its zero value).
+
+        RULE 400.7: "An object that moves from one zone to another becomes a
+        new object, even if it returns to a zone it was in before... Counters
+        that were on it are not retained... effects that changed its
+        characteristics or its controller are not retained... 'until end of
+        turn' or 'for as long as' effects that applied to it are not
+        retained." Concretely: counters, attachment linkage, control-change/
+        copy state, cast-time flags (kicked/buyback/flashback/adventure/
+        prepared), the one-time renown flag, every "until end of turn" pump/
+        keyword/protection/unblockable grant, and all combat/summoning-
+        sickness state.
+
+        Deliberately does **not** touch `instance_id`: it is this engine's
+        bookkeeping handle, not literally RULE 400.7's abstract "object"
+        concept, and every self-referential trigger closure
+        (`effect_binder._subject_condition`'s ``"self"`` scoping) captures it
+        as a fixed snapshot at bind time — changing it here would silently
+        break "whenever ~ attacks" on the very card this method runs for,
+        without a full re-bind. RULE 400.7's *observable* consequences (ETB
+        triggers refiring, summoning sickness resetting, every buff/counter/
+        attachment gone) are all achieved by the field resets below plus the
+        caller's fresh `ENTERS_BATTLEFIELD` event and `GameState.
+        add_to_battlefield`'s new timestamp — instance-id churn adds risk
+        without adding correctness. Likewise leaves `triggered_abilities`/
+        `activated_abilities`/`static_effects`/`intrinsic_keywords`/
+        `parametric_keywords` alone: they're bound once from the card's own
+        printed text and would come back byte-identical from a re-bind, so
+        there's nothing to "forget" there — same reasoning `reset_derived`'s
+        `_granted_*`/`_derived_*` fields already get via the next
+        `continuous.recompute` pass rather than an explicit clear here.
+        """
+        if self.transformed:
+            self.card = self._front_card  # RULE 711.8: a new object presents its front face
+        self._front_card = self.card
+        self.transformed = False
+        self.adventure_snapshot = None
+        self.adventure_castable = False
+        self.prepared = False
+        self.prepared_source_id = None
+        self.kicker_count = 0
+        self.buyback_paid = False
+        self.cast_via_flashback = False
+        self.commander_zone_choice_pending = False
+        self.tapped = False
+        self.summoning_sick = True
+        self.turn_entered = None
+        self.phased_out = False
+        self.damage_marked = 0
+        self.counters = {}
+        self.attacking = False
+        self.combat_defender = None
+        self.activated_loyalty_this_turn = False
+        self.blocking = None
+        self.blocked_by = []
+        self.dealt_deathtouch_damage = False
+        self.attached_to = None
+        self.last_unattached_from_id = None
+        self.control_change_until_eot = None
+        self.linked_exile_id = None
+        #: RULE 702.112b: a new object hasn't become renowned yet either —
+        #: the "never reset" rule on this flag only ever meant "not reset by
+        #: an ordinary recompute", not "not reset ever" (no code implemented
+        #: a genuine RULE 400.7 transition until this method existed).
+        self.renowned = False
+        self.temp_power = 0
+        self.temp_toughness = 0
+        self.temp_keywords = set()
+        self.temp_effects = []
+        self.temp_unblockable = False
+        self.temp_protections = set()
+        self.copy_target_id = None
+        self._copy_base = None
+        self._copy_applied_target_id = None
+        self._copy_until_eot_base = None
+        self._control_base = None
         self.static_trace = []
 
     @property

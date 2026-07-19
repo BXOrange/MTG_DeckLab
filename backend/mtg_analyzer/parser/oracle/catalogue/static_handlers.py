@@ -35,9 +35,20 @@ from __future__ import annotations
 import re
 from typing import NamedTuple, Optional
 
-from ..spec import EffectSpec
+from ..spec import EffectSpec, ParserProvenance
 from .keywords import KEYWORDS, KeywordShape, keyword_slug
 from .subgrammars import CANT_BE_COUNTERED_RE
+
+#: Trigger events a granted triggered ability can be safely re-scoped to a
+#: *different* object each time it's granted (`continuous.
+#: _granted_trigger_condition` matches by the event's own ``instance_id`` —
+#: every one of these four carries it; RULE 603.1's object-subject family).
+#: Deliberately excludes ``DAMAGE`` (scoped by ``source_id``, a different
+#: key `_granted_trigger_condition` doesn't check yet) and any phase/upkeep
+#: event (``STEP_BEGIN`` — "at the beginning of your upkeep" is a
+#: pre-existing controller-scoping gap for even a top-level card's own
+#: printed ability, `segmenter.py`'s ``_PHASE_TRIGGER_RE`` docstring).
+_GRANTABLE_TRIGGER_EVENTS = frozenset({"ENTERS_BATTLEFIELD", "DIES", "ATTACKS", "BLOCKS"})
 
 #: Type words that are *not* creature subtypes — a scope built on one of these
 #: isn't a creature anthem/grant, so we don't claim it.
@@ -104,13 +115,14 @@ _CAST_LIMIT_RE = re.compile(
     r"each player can'?t cast more than (?P<n>\d+) spells? each turn", re.IGNORECASE
 )
 
-# "This <type> doesn't untap during your untap step."  (RULE 502.3-adjacent
-# self-restriction, Basalt Monolith/Grim Monolith/Mana Vault) — always
-# self-scoped (no card in the pool needs this said about a *different*
-# permanent), so the spec carries no selector at all.
+# "~ doesn't untap during your untap step."  (RULE 502.3-adjacent
+# self-restriction, Basalt Monolith/Grim Monolith/Mana Vault) — `~` is the
+# self-reference token `normalize._fold_self_reference`/`_fold_self_name`
+# folds "this artifact"/the card's own printed name to (Card-pool Batch 1),
+# so this must match the folded form, not the literal "this <type>" text
+# that normalize never leaves in place.
 _NO_UNTAP_RE = re.compile(
-    r"this (?:artifact|creature|permanent|land|enchantment) doesn'?t untap during your untap step",
-    re.IGNORECASE,
+    r"~ doesn'?t untap during your untap step", re.IGNORECASE
 )
 
 # "Creatures entering don't cause abilities to trigger."  (RULE 603
@@ -201,6 +213,141 @@ _ATTACHED_SUBJECTS = (
     "enchanted land",
 )
 _ATTACHED_SUBJECT_PATTERN = "|".join(re.escape(s) for s in _ATTACHED_SUBJECTS)
+
+# "Enchanted/equipped <subject> doesn't untap during its controller's untap
+# step."  (RULE 502.3-adjacent, attached-permanent form — e.g. Paralyzing
+# Grasp) — the Aura/Equipment-grant sibling of `_NO_UNTAP_RE` above.
+_NO_UNTAP_ATTACHED_RE = re.compile(
+    rf"(?P<subject>{_ATTACHED_SUBJECT_PATTERN}) doesn'?t untap during its "
+    r"controller'?s untap step",
+    re.IGNORECASE,
+)
+
+# "~"/an attached-permanent subject can't attack, can't block, can't be
+# blocked, or must attack each combat (RULE 508.1a/509.1a self-restrictions)
+# — modeled as synthetic layer-6 "keyword" flags (`"cant_attack"`/
+# `"cant_block"`/`"cant_be_blocked"`/`"attacks_if_able"`; *not* real RULE 702
+# keywords, just internal markers `game/combat.py`'s `has()` and the engine's
+# `_can_attack`/`can_block`/attack-declaration enforcement check alongside
+# the real keyword union) reusing the exact same `grant_keyword` StaticAbility
+# / layer-6 plumbing — zero new engine code for the restriction half. The
+# "…and its activated abilities can't be activated" tail reuses the existing
+# board-wide `activation_prohibition` family (RULE 602) scoped to just this
+# one object instead of a card-type filter — the selector vocabulary
+# (``affects="self"``/``"attached_permanent"``) already supports that.
+# Deliberately excludes every qualified/conditional variant ("except by…",
+# "unless…", "…alone", "…unless they're mana abilities") — `fullmatch` leaves
+# the trailing clause unconsumed so those stay unclaimed (fail-closed) rather
+# than guess at a different rule.
+_COMBAT_RESTRICTION_SUBJECT_PATTERN = rf"~|{_ATTACHED_SUBJECT_PATTERN}"
+_CANT_ATTACK_OR_BLOCK_LOCK_RE = re.compile(
+    rf"(?P<subject>{_COMBAT_RESTRICTION_SUBJECT_PATTERN}) can'?t attack or "
+    r"block, and its activated abilities can'?t be activated",
+    re.IGNORECASE,
+)
+_CANT_ATTACK_OR_BLOCK_RE = re.compile(
+    rf"(?P<subject>{_COMBAT_RESTRICTION_SUBJECT_PATTERN}) can'?t attack or block",
+    re.IGNORECASE,
+)
+_CANT_BLOCK_AND_CANT_BE_BLOCKED_RE = re.compile(
+    rf"(?P<subject>{_COMBAT_RESTRICTION_SUBJECT_PATTERN}) can'?t block and "
+    r"can'?t be blocked",
+    re.IGNORECASE,
+)
+_CANT_ATTACK_RE = re.compile(
+    rf"(?P<subject>{_COMBAT_RESTRICTION_SUBJECT_PATTERN}) can'?t attack", re.IGNORECASE
+)
+_CANT_BLOCK_RE = re.compile(
+    rf"(?P<subject>{_COMBAT_RESTRICTION_SUBJECT_PATTERN}) can'?t block", re.IGNORECASE
+)
+_CANT_BE_BLOCKED_RE = re.compile(
+    rf"(?P<subject>{_COMBAT_RESTRICTION_SUBJECT_PATTERN}) can'?t be blocked",
+    re.IGNORECASE,
+)
+_ATTACKS_IF_ABLE_RE = re.compile(
+    rf"(?P<subject>{_COMBAT_RESTRICTION_SUBJECT_PATTERN}) attacks each combat if able",
+    re.IGNORECASE,
+)
+
+
+def _combat_restriction_affects(subject: str) -> str:
+    return "self" if subject == "~" else "attached_permanent"
+
+
+def _combat_restriction_specs(
+    subject: str, flags: list[str], lock: bool = False
+) -> list[EffectSpec]:
+    affects = _combat_restriction_affects(subject)
+    specs = [EffectSpec("grant_keyword", {"keywords": flags, "affects": affects})]
+    if lock:
+        specs.append(EffectSpec("activation_prohibition", {"affects": affects}))
+    return specs
+
+
+# "You control enchanted creature/permanent." (Mind Control/Control Magic-
+# shaped, RULE 613.2 layer-2 control-grant) — the existing `control_change`
+# `StaticAbility` already defaults to ``affects="attached_permanent"`` and a
+# controller of "the source's own controller" (exactly "you"), so this needed
+# no new engine code, only the parser recognition.
+_CONTROL_GRANT_RE = re.compile(
+    r"you control (?:enchanted creature|enchanted permanent)", re.IGNORECASE
+)
+
+# "<equipped/enchanted/fortified subject> [gets +N/+N and] has \"<ability>\""
+# (Sword-of-X-and-Y/Assassin Gauntlet/Caustic Tar-shaped) — an Aura/Equipment
+# granting its host a *full* ability rather than a flag keyword. The quoted
+# text is itself an ordinary ability line, so it's parsed the same way any
+# top-level card's own line would be (`segmenter.segment_line`, imported
+# lazily in `_quoted_ability_grant_specs` below — `segmenter` imports *this*
+# module, so a module-level import would cycle) and only wrapped as a
+# `grant_triggered_ability` when that recursive parse comes back a plain,
+# unconditional, self-scoped trigger on one of `_GRANTABLE_TRIGGER_EVENTS`
+# (fail-closed on everything else: an activated-ability grant needs a real
+# "grant an activated ability" engine primitive that doesn't exist yet —
+# ToDo_EdgeCases #35/Umbral Mantle — and a controller-scoped phase trigger
+# like "at the beginning of your upkeep" is a pre-existing gap, not special
+# to grants; see `_GRANTABLE_TRIGGER_EVENTS`).
+_ATTACHED_QUOTED_ANTHEM_GRANT_RE = re.compile(
+    rf'(?P<subject>{_ATTACHED_SUBJECT_PATTERN}) gets (?P<p>[+-]\d+)/(?P<t>[+-]\d+) '
+    r'and has "(?P<inner>.+)"',
+    re.IGNORECASE | re.DOTALL,
+)
+_ATTACHED_QUOTED_GRANT_RE = re.compile(
+    rf'(?P<subject>{_ATTACHED_SUBJECT_PATTERN}) has "(?P<inner>.+)"',
+    re.IGNORECASE | re.DOTALL,
+)
+
+
+def _quoted_ability_grant_effects(inner: str) -> Optional[EffectSpec]:
+    """Recursively parse a quoted granted-ability body into a
+    `grant_triggered_ability` `EffectSpec`, or ``None`` if it isn't a plain
+    self-scoped trigger on a `_GRANTABLE_TRIGGER_EVENTS` event (see the
+    module comment above `_ATTACHED_QUOTED_GRANT_RE`)."""
+    from ..segmenter import segment_line  # lazy: segmenter imports this module
+
+    segment = segment_line(
+        inner.strip(),
+        allow_spell_effect=False,
+        provenance=ParserProvenance(version="nested", source="rule:oracle"),
+    )
+    spec = segment.spec
+    if spec is None or spec.ability_kind != "triggered" or spec.modes:
+        return None
+    trigger = spec.trigger or {}
+    if trigger.get("event") not in _GRANTABLE_TRIGGER_EVENTS:
+        return None
+    if trigger.get("condition") != {"subject": "self"}:
+        return None  # a "group"/other subject wouldn't mean the same thing once regranted
+    return EffectSpec(
+        "grant_triggered_ability",
+        {
+            "trigger_event": trigger["event"],
+            "grant_effects": [{"type": e.type, "params": e.params} for e in spec.effects],
+            "optional": spec.optional,
+            "affects": "attached_permanent",
+        },
+    )
+
 
 # "<equipped/enchanted/fortified subject> gets +N/+N [and has <keywords>]"
 # (attached-permanent anthem, +grant) — singular "gets"/"has", unlike the
@@ -371,7 +518,11 @@ def static_effect_specs(clause: str) -> Optional[list[EffectSpec]]:
         return [EffectSpec("cast_limit", {"max_per_turn": int(m.group("n"))})]
 
     if _NO_UNTAP_RE.fullmatch(text):
-        return [EffectSpec("no_untap", {})]
+        return [EffectSpec("no_untap", {"affects": "self"})]
+
+    m = _NO_UNTAP_ATTACHED_RE.fullmatch(text)
+    if m is not None:
+        return [EffectSpec("no_untap", {"affects": "attached_permanent"})]
 
     m = _TRIGGER_PROHIBITION_RE.fullmatch(text)
     if m is not None:
@@ -449,6 +600,62 @@ def static_effect_specs(clause: str) -> Optional[list[EffectSpec]]:
         if keywords is None:
             return None
         return [EffectSpec("grant_keyword", {"keywords": keywords, "affects": "attached_permanent"})]
+
+    # Combat-restriction family ("~ can't attack.", "enchanted creature can't
+    # be blocked.", "~ attacks each combat if able.", …) — see
+    # `_combat_restriction_specs` above. Ordered most-specific-first so a
+    # combined clause matches its own row rather than a shorter prefix; since
+    # every branch uses `fullmatch`, a shorter regex simply fails on any
+    # unconsumed trailing text (fail-closed), so the ordering is for clarity
+    # rather than correctness.
+    m = _CANT_ATTACK_OR_BLOCK_LOCK_RE.fullmatch(text)
+    if m is not None:
+        return _combat_restriction_specs(m.group("subject"), ["cant_attack", "cant_block"], lock=True)
+
+    m = _CANT_ATTACK_OR_BLOCK_RE.fullmatch(text)
+    if m is not None:
+        return _combat_restriction_specs(m.group("subject"), ["cant_attack", "cant_block"])
+
+    m = _CANT_BLOCK_AND_CANT_BE_BLOCKED_RE.fullmatch(text)
+    if m is not None:
+        return _combat_restriction_specs(m.group("subject"), ["cant_block", "cant_be_blocked"])
+
+    m = _CANT_ATTACK_RE.fullmatch(text)
+    if m is not None:
+        return _combat_restriction_specs(m.group("subject"), ["cant_attack"])
+
+    m = _CANT_BLOCK_RE.fullmatch(text)
+    if m is not None:
+        return _combat_restriction_specs(m.group("subject"), ["cant_block"])
+
+    m = _CANT_BE_BLOCKED_RE.fullmatch(text)
+    if m is not None:
+        return _combat_restriction_specs(m.group("subject"), ["cant_be_blocked"])
+
+    m = _ATTACKS_IF_ABLE_RE.fullmatch(text)
+    if m is not None:
+        return _combat_restriction_specs(m.group("subject"), ["attacks_if_able"])
+
+    if _CONTROL_GRANT_RE.fullmatch(text):
+        return [EffectSpec("control_change", {})]
+
+    m = _ATTACHED_QUOTED_ANTHEM_GRANT_RE.fullmatch(text)
+    if m is not None:
+        grant = _quoted_ability_grant_effects(m.group("inner"))
+        if grant is None:
+            return None
+        return [
+            EffectSpec("anthem", {"power": int(m.group("p")), "toughness": int(m.group("t")),
+                                   "affects": "attached_permanent"}),
+            grant,
+        ]
+
+    m = _ATTACHED_QUOTED_GRANT_RE.fullmatch(text)
+    if m is not None:
+        grant = _quoted_ability_grant_effects(m.group("inner"))
+        if grant is None:
+            return None
+        return [grant]
 
     m = _ANTHEM_RE.fullmatch(text)
     if m is not None:

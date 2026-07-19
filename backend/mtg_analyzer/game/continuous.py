@@ -325,7 +325,14 @@ def _trace(
     description: str,
     power: Any = None,
     toughness: Any = None,
+    duration: str = "static",
 ) -> None:
+    # ``duration`` classifies how long the effect lasts, for the board's
+    # per-card effect summary: ``"static"`` (a static ability / Aura /
+    # Equipment / anthem — lasts while its source stays in play),
+    # ``"permanent"`` (counters — RULE 122, they don't wear off on their own),
+    # or ``"end_of_turn"`` (a resolved "until end of turn" pump/keyword grant,
+    # cleared at cleanup — RULE 514.2).
     obj.static_trace.append(
         {
             "layer": layer,
@@ -333,6 +340,7 @@ def _trace(
             "description": description,
             "power": power,
             "toughness": toughness,
+            "duration": duration,
         }
     )
 
@@ -677,7 +685,21 @@ def recompute(state: "GameState") -> None:
     for obj in state.battlefield:
         if obj.temp_keywords:
             obj._granted_keywords.update(obj.temp_keywords)
-            _trace(obj, 6, "Until-EOT", "gains " + ", ".join(sorted(obj.temp_keywords)))
+            # Attribute each keyword to its source spell/ability where the
+            # resolved effect recorded one (`temp_effects`); keywords granted
+            # by paths that don't (haste/first-strike/indestructible helpers)
+            # fall through to a single generic "Until-EOT" line.
+            attributed: set[str] = set()
+            for entry in obj.temp_effects:
+                kws = entry.get("keywords") or []
+                if kws:
+                    attributed.update(kws)
+                    _trace(obj, 6, entry.get("source") or "Until-EOT",
+                           "gains " + ", ".join(sorted(kws)), duration="end_of_turn")
+            residual = obj.temp_keywords - attributed
+            if residual:
+                _trace(obj, 6, "Until-EOT", "gains " + ", ".join(sorted(residual)),
+                       duration="end_of_turn")
 
     # -- Layer 7: power/toughness, on working base values so the sublayers
     # apply in order (7a CDA → 7b set → 7c counters → 7d modify → 7e switch).
@@ -721,7 +743,8 @@ def recompute(state: "GameState") -> None:
                 base[obj.instance_id][0] += counters
                 base[obj.instance_id][1] += counters
                 p, t = base[obj.instance_id]
-                _trace(obj, 7, "Counters", f"{_signed(counters)}/{_signed(counters)}", p, t)
+                _trace(obj, 7, "+1/+1-Marken", f"{_signed(counters)}/{_signed(counters)}",
+                       p, t, duration="permanent")
 
     # 7d: modify (but don't set) power/toughness — anthems, including a
     # per-count anthem ("+1/+1 for each land you control", Blackblade
@@ -750,12 +773,29 @@ def recompute(state: "GameState") -> None:
     # addition commutes so within-layer order doesn't change the result.
     # Sourced off the object; cleared at cleanup (RULE 514.2).
     for obj in state.battlefield:
-        if obj.instance_id in base and (obj.temp_power or obj.temp_toughness):
-            base[obj.instance_id][0] += obj.temp_power
-            base[obj.instance_id][1] += obj.temp_toughness
+        if obj.instance_id not in base or not (obj.temp_power or obj.temp_toughness):
+            continue
+        # Attribute the bonus to each source that recorded one; addition
+        # commutes, so applying them one at a time gives the same total while
+        # the trace can name Giant Growth / Monstrous Rage individually.
+        pt_entries = [e for e in obj.temp_effects if e.get("power") or e.get("toughness")]
+        for entry in pt_entries:
+            ep, et = entry.get("power", 0), entry.get("toughness", 0)
+            base[obj.instance_id][0] += ep
+            base[obj.instance_id][1] += et
+            p, t = base[obj.instance_id]
+            _trace(obj, 7, entry.get("source") or "Until-EOT",
+                   f"{_signed(ep)}/{_signed(et)}", p, t, duration="end_of_turn")
+        # Any bonus from a path that didn't record a source (older effects)
+        # still shows, as one generic residual line.
+        residual_p = obj.temp_power - sum(e.get("power", 0) for e in pt_entries)
+        residual_t = obj.temp_toughness - sum(e.get("toughness", 0) for e in pt_entries)
+        if residual_p or residual_t:
+            base[obj.instance_id][0] += residual_p
+            base[obj.instance_id][1] += residual_t
             p, t = base[obj.instance_id]
             _trace(obj, 7, "Until-EOT",
-                   f"{_signed(obj.temp_power)}/{_signed(obj.temp_toughness)}", p, t)
+                   f"{_signed(residual_p)}/{_signed(residual_t)}", p, t, duration="end_of_turn")
 
     # 7e: switch power and toughness (RULE 613.7e / 701.28). Applied last, so it
     # swaps the fully-computed values.
@@ -958,22 +998,25 @@ def max_draws_per_turn(state: "GameState") -> Optional[int]:
     return min(limits) if limits else None
 
 
-def has_no_untap_static(obj: "GameObject") -> bool:
-    """Whether ``obj`` carries a "doesn't untap during your untap step"
-    static (RULE 502.3-adjacent — Basalt Monolith/Grim Monolith/Mana Vault).
+def has_no_untap_static(state: "GameState", obj: "GameObject") -> bool:
+    """Whether ``obj`` is under a "doesn't untap during your untap step"
+    static (RULE 502.3-adjacent — Basalt Monolith/Grim Monolith/Mana Vault's
+    own self-restriction, or an Aura/Equipment's grant onto its host —
+    Paralyzing Grasp's "enchanted creature doesn't untap during its
+    controller's untap step").
 
-    Always self-scoped (no card in the pool says this about a *different*
-    permanent), so this reads ``obj.static_effects`` directly rather than
-    going through the ``affects``/selector machinery every other static
-    family here uses. Consulted by `GameEngine._step_untap` — a separate
-    "{N}: Untap this artifact." activated ability (Basalt/Grim Monolith) or
-    an "you may pay {4}. If you do, untap" trigger (Mana Vault) is an
-    unrelated code path (an ordinary ``untap`` one-shot effect) and isn't
-    affected by this restriction at all.
+    Goes through the ordinary ``affects``/selector machinery
+    (`affected_objects`) like every other static family here, so both the
+    self-scoped and ``"attached_permanent"``-scoped printings resolve the
+    same way. Consulted by `GameEngine._step_untap` — a separate "{N}: Untap
+    this artifact." activated ability (Basalt/Grim Monolith) or an "you may
+    pay {4}. If you do, untap" trigger (Mana Vault) is an unrelated code path
+    (an ordinary ``untap`` one-shot effect) and isn't affected by this
+    restriction at all.
     """
     return any(
-        isinstance(ab, StaticAbility) and ab.layer == "no_untap"
-        for ab in getattr(obj, "static_effects", [])
+        ab.layer == "no_untap" and obj in affected_objects(state, ab)
+        for ab in _battlefield_static_abilities(state)
     )
 
 

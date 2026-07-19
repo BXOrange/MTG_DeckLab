@@ -268,6 +268,23 @@ now holds only open items). Section headers mirror that file.
       already on the wire (`Player.to_dict()`'s `library` array), and
       `objGrid` already builds a card tile with its actions from any
       object list.
+- [x] **Per-card effect summary ("Info-Punkt", RULE 613)** — a Σ-badge in
+      each battlefield card's top-left corner (`gameBoardView.js`'s
+      `effectSummaryHtml`) that opens a native **Popover API** panel (rendered
+      in the browser's top layer, so it's never clipped by a card's/row's
+      `overflow` nor painted under a later card; positioned at the badge by
+      `wireEffectPopovers`) listing every effect currently reshaping that
+      permanent — Auren,
+      Ausrüstung, statische Anthems, +1/+1-Marken, "bis Zugende"-Buffs — each
+      with its **source** and a **duration** chip (`statisch` / `dauerhaft` /
+      `bis Zugende`), plus the resulting P/T & keywords as the "Ergebnis"
+      (Summe). Built from the object's existing `static_trace`, now enriched
+      backend-side: `continuous._trace` tags each entry with a `duration`, and
+      a resolved pump/keyword grant records a per-source breakdown
+      (`GameObject.temp_effects`, `effects.PumpEffect._pump_one`) so a
+      Monstrous Rage / Giant Growth line names its own spell instead of a
+      generic "Until-EOT" aggregate. Complements the existing global
+      "Statische Effekte"-Panel (`staticEffectsPanelHtml`), which stays.
 
 ## Multiplayer
 

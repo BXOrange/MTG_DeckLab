@@ -478,7 +478,35 @@ export function createGameBoardView(opts = {}) {
     replacementOrderDraft = null;
   }
 
+  // Anchor each per-card effect popover (top layer) at its Σ-badge when it
+  // opens — the top layer otherwise centres it — flipping above / clamping to
+  // the viewport so it never spills off-screen.
+  function positionEffectPopover(pop, badge) {
+    const r = badge.getBoundingClientRect();
+    const pw = pop.offsetWidth;
+    const ph = pop.offsetHeight;
+    const margin = 8;
+    let left = Math.min(r.left, window.innerWidth - pw - margin);
+    left = Math.max(margin, left);
+    let top = r.bottom + 4;
+    if (top + ph > window.innerHeight - margin) top = r.top - ph - 4; // flip above
+    top = Math.max(margin, top);
+    pop.style.left = `${left}px`;
+    pop.style.top = `${top}px`;
+  }
+
+  function wireEffectPopovers() {
+    root.querySelectorAll('.gf-effects-pop').forEach((pop) => {
+      const badge = root.querySelector(`[popovertarget="${CSS.escape(pop.id)}"]`);
+      if (!badge) return;
+      pop.addEventListener('toggle', (e) => {
+        if (e.newState === 'open') positionEffectPopover(pop, badge);
+      });
+    });
+  }
+
   function wire() {
+    wireEffectPopovers();
     root.querySelector('#gf-advance')?.addEventListener('click', () => act({ type: 'advance_step' }));
     root.querySelector('#gf-next-decision')?.addEventListener('click', () => act({ type: 'advance_to_decision' }));
     root.querySelector('#gf-rewind')?.addEventListener('click', rewind);
@@ -923,11 +951,67 @@ export function createGameBoardView(opts = {}) {
     const preparedBadge = o.prepared
       ? `<span class="gf-prepared-badge" title="Vorbereitet: die Zauberspruch-Kopie im Exil ist zauberbar">🛡️ Vorbereitet</span>`
       : '';
+    const effectsSummary = effectSummaryHtml(o);
     return `
       <div class="gf-card-slot">
-        <div class="${classes.join(' ')}" data-hover-card="${escapeHtml(o.name)}" title="${escapeHtml(o.name)}${pt}${o.tapped ? ' — getappt' : ''}">${inner}${attackBadge}${loyaltyBadge}${counterBadge}${keywordBadge}${adventureBadge}${preparedBadge}</div>
+        <div class="${classes.join(' ')}" data-hover-card="${escapeHtml(o.name)}" title="${escapeHtml(o.name)}${pt}${o.tapped ? ' — getappt' : ''}">${inner}${attackBadge}${loyaltyBadge}${counterBadge}${keywordBadge}${adventureBadge}${preparedBadge}${effectsSummary}</div>
         ${buttons}
       </div>`;
+  }
+
+  // The German label for a trace entry's `duration` (game/continuous.py):
+  // how long the effect lasts, shown as a chip in the per-card summary.
+  function durationLabel(d) {
+    if (d === 'end_of_turn') return 'bis Zugende';
+    if (d === 'permanent') return 'dauerhaft';
+    return 'statisch'; // "static": lasts while its source stays in play
+  }
+
+  function durationTitle(d) {
+    if (d === 'end_of_turn') return 'Bis zum Ende des Zuges (Regel 514.2)';
+    if (d === 'permanent') return 'Dauerhaft (z. B. +1/+1-Marken, Regel 122)';
+    return 'Solange die Quelle im Spiel bleibt (statischer Effekt, Regel 613)';
+  }
+
+  // Per-card "info point" (RULE 613): a Σ-badge that opens a breakdown of
+  // every effect reshaping this permanent — Auren, Ausrüstung, Marken,
+  // Anthem-/Bis-Zugende-Buffs — each with its source and duration, plus the
+  // resulting characteristics (the "Summe"). Built from the object's
+  // `static_trace`, so it only appears once something actually changed it.
+  //
+  // Uses the native Popover API (`popover` + `popovertarget`) so the panel
+  // renders in the browser's top layer — never clipped by a card's/row's
+  // `overflow` nor painted under a later card — and light-dismisses. It's
+  // positioned at the badge by `wire()`'s `toggle` handler (the top layer
+  // otherwise centres it).
+  function effectSummaryHtml(o) {
+    const trace = o.static_trace || [];
+    if (!trace.length || o.instance_id == null) return '';
+    const popId = `gf-eff-pop-${o.instance_id}`;
+    const ptResult = o.power != null && o.toughness != null ? `${o.power}/${o.toughness}` : null;
+    const keywords = (o.keywords || []).join(', ');
+    const resultParts = [];
+    if (ptResult) resultParts.push(`<strong>${escapeHtml(ptResult)}</strong>`);
+    if (keywords) resultParts.push(escapeHtml(keywords));
+    const rows = trace
+      .map((t) => {
+        const pt = t.power != null && t.toughness != null
+          ? `<span class="gf-eff-pt">→ ${escapeHtml(`${t.power}/${t.toughness}`)}</span>`
+          : '';
+        return `<li>
+          <span class="gf-eff-src">${escapeHtml(t.source)}</span>
+          <span class="gf-eff-desc">${escapeHtml(t.description)}</span>${pt}
+          <span class="gf-eff-dur gf-eff-dur--${escapeAttr(t.duration || 'static')}" title="${escapeAttr(durationTitle(t.duration))}">${escapeHtml(durationLabel(t.duration))}</span>
+        </li>`;
+      })
+      .join('');
+    return `<span class="gf-effects">
+      <button type="button" class="gf-effects-badge" popovertarget="${escapeAttr(popId)}" title="Aktive Effekte &amp; Ergebnis anzeigen">Σ</button>
+      <div id="${escapeAttr(popId)}" popover class="gf-effects-pop">
+        <div class="gf-eff-result">Ergebnis: ${resultParts.join(' · ') || '—'}</div>
+        <ul class="gf-eff-list">${rows}</ul>
+      </div>
+    </span>`;
   }
 
   function keywordAbbrev(label) {

@@ -233,6 +233,8 @@ class GameEngine:
         """
         if self.state.game_over:
             return None
+        if self.state.current_step == "declare_attackers":
+            self._enforce_attacks_if_able()
         if not self._turn_steps or self._cursor >= len(self._turn_steps):
             self.state.fire_event(
                 GameEvent(EventType.TURN_END, player_id=self.state.active_player.id)
@@ -242,6 +244,27 @@ class GameEngine:
         self._cursor += 1
         self._run_step(phase, step)
         return (phase.name, step.name)
+
+    def _enforce_attacks_if_able(self) -> None:
+        """RULE 508.1a: a creature under an "attacks each combat if able"
+        static must be declared as an attacker if it's able to.
+
+        `declare_attackers` is additive (the UI declares one creature at a
+        time) and has no "I'm done" signal of its own, so the natural gate is
+        here — the moment the caller tries to leave the declare-attackers
+        step. Checked against `_can_attack` before anything about this combat
+        (blocks, damage) has changed the board, so a creature this flag
+        applies to is still evaluated on the same terms `declare_attackers`
+        itself would have accepted.
+        """
+        active = self.state.active_player
+        for obj in self.state.permanents_controlled_by(active.id):
+            if (
+                combat.has(obj, "attacks_if_able")
+                and not obj.attacking
+                and self._can_attack(active, obj)
+            ):
+                raise ValueError(f"{obj.name} attacks each combat if able")
 
     def _run_step(self, phase: GamePhase, step: GameStep) -> None:
         self.state.current_phase = phase.name
@@ -350,7 +373,7 @@ class GameEngine:
         for obj in self.state.permanents_controlled_by(active.id):
             if (
                 not self.rules.should_skip_step(active, "untap_permanents")
-                and not continuous.has_no_untap_static(obj)
+                and not continuous.has_no_untap_static(self.state, obj)
                 and not (obj.is_land and land_cap is not None and lands_untapped >= land_cap)
             ):
                 # RULE 502.3-adjacent: "This artifact doesn't untap during
@@ -571,6 +594,7 @@ class GameEngine:
                 obj.temp_power = 0
                 obj.temp_toughness = 0
                 obj.temp_keywords.clear()
+                obj.temp_effects.clear()
                 ended_effects = True
             if obj.temp_unblockable:
                 obj.temp_unblockable = False
@@ -1622,6 +1646,11 @@ class GameEngine:
             and (not obj.summoning_sick or combat.has_haste(obj))
             # Defender (RULE 702.3b) can never attack.
             and not combat.has_defender(obj)
+            # "~ can't attack." / "enchanted creature can't attack [or
+            # block]." — a synthetic layer-6 flag, not a real keyword; see
+            # `parser/oracle/catalogue/static_handlers.py`'s combat-
+            # restriction family.
+            and not combat.has(obj, "cant_attack")
         )
 
     @staticmethod
@@ -1743,12 +1772,21 @@ class GameEngine:
             # a resolve-time grant, unlike landwalk's static evasion above;
             # cleared at cleanup (RULE 514.2) like every other temp_* flag.
             return False
+        if combat.has(attacker, "cant_be_blocked"):
+            # "~ can't be blocked." / "equipped creature can't be blocked."
+            # — the printed-static sibling of `temp_unblockable` above; see
+            # `parser/oracle/catalogue/static_handlers.py`'s combat-
+            # restriction family.
+            return False
         return (
             blocker.controller_id == player.id
             and blocker.is_creature
             and blocker in self.state.permanents()  # RULE 702.26c: excludes a phased-out creature
             and not blocker.tapped
             and blocker.blocking is None
+            # "~ can't block." / "enchanted creature can't block [or
+            # attack]." — a synthetic layer-6 flag, same family as above.
+            and not combat.has(blocker, "cant_block")
             and attacker.attacking
             and self._attacker_attacks_player(attacker, player)
             and combat.can_block(attacker, blocker)

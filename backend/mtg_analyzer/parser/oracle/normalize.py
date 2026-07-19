@@ -38,6 +38,26 @@ _NUMBER_WORD_RE = re.compile(
 #: matches every card ("~ deals 3 damage" regardless of the printed name).
 SELF = "~"
 
+#: Type-worded self-references — modern templating writes an ability's own
+#: source as "this creature"/"this permanent"/… rather than repeating the
+#: printed name (RULE 602/604). Folding them to ``~`` too lets the same
+#: handlers that already accept ``~`` cover the "this <type>" phrasing without
+#: each regex re-listing every noun (many already list a subset as literal
+#: alternatives — this makes the canonicalisation uniform). Deliberately
+#: **excludes** references that are *not* the resolving source-permanent:
+#: "this spell" (the object on the stack), "this card" (often a zone-scoped
+#: reference), "this ability", and the structured card types with their own
+#: dedicated parsing ("this Saga"/"this Class"). Runs after lowercasing.
+_SELF_REFERENCE_RE = re.compile(
+    r"\bthis (?:creature|permanent|artifact|enchantment|land|planeswalker"
+    r"|vehicle|equipment|aura|token)\b"
+)
+
+
+def _fold_self_reference(text: str) -> str:
+    """Fold type-worded self-references ("this creature", …) to ``~``."""
+    return _SELF_REFERENCE_RE.sub(SELF, text)
+
 
 def strip_reminder_text(text: str) -> str:
     """Remove all parenthesised reminder text (RULE 207.2), innermost-first."""
@@ -78,6 +98,7 @@ def normalize(text: str, name: Optional[str] = None) -> str:
     text = strip_reminder_text(text or "")
     text = _fold_self_name(text, name)
     text = text.lower()
+    text = _fold_self_reference(text)
     text = _NUMBER_WORD_RE.sub(lambda m: _NUMBER_WORDS[m.group(1).lower()], text)
     # Collapse horizontal whitespace only; keep '\n' as the ability separator.
     text = re.sub(r"[ \t]+", " ", text)

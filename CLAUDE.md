@@ -242,9 +242,15 @@ shape exactly). `parse_oracle` itself is now memoized (content-keyed on
 every field it reads, `parser/oracle/gate.py`) since it's called once per
 `GameObject` built — a popular card no longer gets re-parsed from scratch
 on every copy/every game. `parser/oracle/processing_list.py` tracks
-cache-wide coverage (24.4% of the 2,909-card cache fully `MODELED` as of
-2026-07-18 — re-run `coverage_over_cards()` before trusting this number,
-the cache grows) and ranks the next handlers worth building.
+cache-wide coverage and ranks the next handlers worth building. The cache is
+now bulk-loaded with the **full ~34k-card Oracle universe**
+(`scripts/import_bulk.py`), so coverage is measured against that: **22.0%
+covered (7,516 / 34,209) as of 2026-07-19, Batch 3** (parser-`MODELED` **or**
+hand-`AUTHORED`; the old 24.4% was over only the ~2,900-card curated cache).
+Re-measure with `scripts/coverage_report.py` (ledger-backed — see
+`services/coverage_db.py`) before trusting this number; the batch plan and
+long-tail strategy live in
+[docs/implementation-state/CARDPOOL_MODELING_BATCHES.md](docs/implementation-state/CARDPOOL_MODELING_BATCHES.md).
 
 **Notable gaps** (see `backend/ToDo_Backend.md` for the full list with exact
 scope on each): a kicked spell's "if kicked, ... instead" *override* conditional (as opposed to the
