@@ -304,9 +304,9 @@ now bulk-loaded with the **full ~34k-card Oracle universe**
 covered (7,969 / 34,209) as of 2026-07-20, Batch 10** (parser-`MODELED` **or**
 hand-`AUTHORED`; the old 24.4% was over only the ~2,900-card curated cache).
 Re-measure with `scripts/coverage_report.py` (ledger-backed — see
-`services/coverage_db.py`) before trusting this number; the batch plan and
-long-tail strategy live in
-[docs/implementation-state/CARDPOOL_MODELING_BATCHES.md](docs/implementation-state/CARDPOOL_MODELING_BATCHES.md).
+`services/coverage_db.py`) before trusting this number; Batches 1–10 are all
+shipped, and the deferred backlog + long-tail strategy are merged into
+`backend/ToDo_Backend.md` (see below).
 
 **Notable gaps** (see `backend/ToDo_Backend.md` for the full list with exact
 scope on each): a kicked spell's "if kicked, ... instead" *override* conditional (as opposed to the
@@ -315,13 +315,12 @@ replacement-clause formulations (`prevent_damage`'s one-shot-spell shape,
 differently-scoped/compound-filter variants); "search library and/or
 graveyard" (Doomsday/Finale of Devastation — needs a `request_search`
 engine extension, not just parsing); wiring the interactive priority
-primitive into the multiplayer session/WebSocket; and battles/dungeons. Narrower,
-already-shipped-feature rough edges
-(e.g. re-validating an *existing* attachment's legality every SBA pass, not
-just on the host leaving; combining interactive trigger-ordering with a
-targeted trigger; bespoke *conditional* transform triggers like Delver of
-Secrets) are tracked separately in
-[docs/implementation-state/ToDo_EdgeCases.md](docs/implementation-state/ToDo_EdgeCases.md).
+primitive into the multiplayer session/WebSocket; battles/dungeons; and the
+narrower already-shipped-feature rough edges (e.g. re-validating an
+*existing* attachment's legality every SBA pass, not just on the host
+leaving; combining interactive trigger-ordering with a targeted trigger;
+bespoke *conditional* transform triggers like Delver of Secrets) — all now
+tracked in that same file rather than split across siblings.
 
 Hand-authoring a card's abilities directly (rather than waiting on the
 oracle-effect front-end, or for a replacement-clause/conditional-trigger the
@@ -329,16 +328,14 @@ front-end can't express yet) goes in `game/ability_catalogue.py` — see
 [docs/Reference/11_CARD_CATALOGUE_AUTHORING_GUIDE.md](docs/Reference/11_CARD_CATALOGUE_AUTHORING_GUIDE.md)
 for the field-by-field how-to and the full `EffectSpec`/layer whitelist.
 
-Living backlogs: `backend/ToDo_Backend.md` (open, stays next to the backend
-code it tracks) and `docs/implementation-state/Done_Backend.md` (shipped —
-append-only history rather than something edited in lockstep with
-in-progress code, so it lives under `docs/`; same split for the frontend's
-`frontend/ToDo_Frontend.md` / `docs/implementation-state/Done_Frontend.md`).
-[`docs/implementation-state/ToDo_EdgeCases.md`](docs/implementation-state/ToDo_EdgeCases.md)
-is a narrower, cross-cutting sibling: specific, low-probability scenarios a
-shipped feature deliberately leaves unhandled (not a large open feature —
-those stay in the ToDo files above) — check it before treating one of these
-as a surprise bug. The plan to finish is `docs/implementation-state/10_COMPLETION_ROADMAP.md`
+Living backlogs: `backend/ToDo_Backend.md` (open — every open backend item,
+including narrow edge cases and the oracle-parser long-tail backlog, now
+merged into this one file; stays next to the backend code it tracks) and
+`docs/implementation-state/Done_Backend.md` (shipped — append-only history
+rather than something edited in lockstep with in-progress code, so it lives
+under `docs/`; same split for the frontend's `frontend/ToDo_Frontend.md` /
+`docs/implementation-state/Done_Frontend.md`). The plan to finish is
+`docs/implementation-state/10_COMPLETION_ROADMAP.md`
 (dependency-ordered milestones, reconciling the backlog files above into a
 coverage table). `docs/` is organized by *kind of question*: `requirements/`
 (what should it do), `concepts/` (how is it designed — architecture, effect

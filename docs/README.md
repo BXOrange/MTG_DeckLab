@@ -24,16 +24,15 @@ finest-grained/most current detail:
   [`../frontend/ToDo_Frontend.md`](../frontend/ToDo_Frontend.md) — these two
   stay next to the code they track (not under `docs/`) since they're living
   backlogs edited alongside nearly every change; moving them would make
-  them easy to forget mid-change.
+  them easy to forget mid-change. `ToDo_Backend.md` is now the single
+  merged backend backlog — narrow, deliberately-unhandled edge cases of an
+  already-shipped feature and the oracle-parser long-tail/deferred backlog
+  live there too (formerly split across `ToDo_EdgeCases.md` and
+  `CARDPOOL_MODELING_BATCHES.md`, both now thin pointers).
 - **Shipped** work, with the "why": [`implementation-state/Done_Backend.md`](implementation-state/Done_Backend.md),
   [`implementation-state/Done_Frontend.md`](implementation-state/Done_Frontend.md)
   — these *do* live under `docs/`, since they're append-only history rather
   than something edited in lockstep with in-progress code.
-- Narrow, deliberately-unhandled **edge cases** of an already-shipped
-  feature (as opposed to a large open feature, which stays in the ToDo files
-  above): [`implementation-state/ToDo_EdgeCases.md`](implementation-state/ToDo_EdgeCases.md)
-  — a cross-cutting index, not a replacement for the ToDo/Done files' own
-  in-situ mentions.
 - User-facing engine coverage: the in-app **Engine-Status** tab
   (`../frontend/src/js/implementationStatusView.js`)
 

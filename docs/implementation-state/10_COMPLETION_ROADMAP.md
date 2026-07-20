@@ -127,7 +127,7 @@ Follows [`09_ORACLE_EFFECT_PARSER.md`](../concepts/09_ORACLE_EFFECT_PARSER.md).
   (already fully working via a separate, older path —
   `combat.is_protected_from` — not `parametric_keywords` at all); and
   hexproof-*from*'s quality (currently aliased onto plain hexproof, losing
-  the "from X" scope) — see `ToDo_EdgeCases.md`. (A ward cost's own `{X}`,
+  the "from X" scope) — see `backend/ToDo_Backend.md`. (A ward cost's own `{X}`,
   RULE 702.21b, is now resolved at the ward ability's resolution time —
   `costs.ActivationCost.x_selector`/`RulesEngine.resolve_ward_effect`.)
   Every parametric keyword
