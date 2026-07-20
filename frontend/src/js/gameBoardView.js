@@ -122,15 +122,25 @@ export function createGameBoardView(opts = {}) {
   // cost choice already uses (`data-tap-choice-start` below) — an optional
   // requirement's existing per-round "∅ Kein Ziel" decline button then
   // doubles as "stop after fewer than N", giving "up to N" for free.
+  //
+  // `distinct_controllers` (Run Away Together/Protector of the Wastes-
+  // shaped "N target creatures controlled by different players") is the one
+  // cross-target constraint modeled so far (`targeting.TargetSpec.
+  // distinct_controllers`) — `excludeControllers` mirrors `excludePicked`
+  // exactly, just keyed on an already-picked round's `controller_id`
+  // instead of its `instance_id`, so a later round's pool drops every
+  // permanent sharing a controller with anything already chosen.
   function expandMultiTargetRequirements(requirements) {
     const expanded = [];
     let excludePicked = false;
+    let excludeControllers = false;
     for (const req of requirements) {
       const count = req.count || 1;
       if (count > 1) excludePicked = true;
+      if (req.distinct_controllers) excludeControllers = true;
       for (let i = 0; i < count; i += 1) expanded.push(req);
     }
-    return { requirements: expanded, excludePicked };
+    return { requirements: expanded, excludePicked, excludeControllers };
   }
   // The user's current drag-and-drop arrangement of a pending `replacement_
   // order` choice's options (RULE 616.1) — an array of option ids, reset
@@ -327,6 +337,8 @@ export function createGameBoardView(opts = {}) {
             </div>
 
             ${showStatics ? staticEffectsPanelHtml(view, s) : ''}
+
+            ${exileCastableHtml(p, s, byInstance, pending)}
 
             <div class="gf-zone gf-hand">
               <h4>Hand (${p.hand.length})</h4>
@@ -598,7 +610,8 @@ export function createGameBoardView(opts = {}) {
         const { iid, face } = JSON.parse(el.dataset.castX);
         const input = root.querySelector(`[data-x-input="${xKey(iid, face)}"]`);
         const x = Math.max(0, Math.floor(Number(input?.value) || 0));
-        act({ type: 'cast_spell', instance_id: iid, x, face });
+        const kicked = readKicker(iid, face);
+        act({ type: 'cast_spell', instance_id: iid, x, face, kicked });
       });
     });
 
@@ -619,20 +632,30 @@ export function createGameBoardView(opts = {}) {
         if (!action) return;
         const input = root.querySelector(`[data-x-input="${xKey(iid, info.face)}"]`);
         const x = action.has_x ? Math.max(0, Math.floor(Number(input?.value) || 0)) : 0;
+        const kicked = action.has_kicker ? readKicker(iid, info.face) : 0;
         const send = info.type === 'activate_ability'
           ? { type: 'activate_ability', instance_id: iid, ability_index: info.ability_index, name: action.name }
-          : { type: 'cast_spell', instance_id: iid, name: action.name, face: info.face };
-        const { requirements, excludePicked } = expandMultiTargetRequirements(action.targets || []);
-        castTargeting = { instanceId: iid, requirements, reqIndex: 0, targets: [], x, send, excludePicked };
+          : { type: 'cast_spell', instance_id: iid, name: action.name, face: info.face, kicked };
+        const { requirements, excludePicked, excludeControllers } = expandMultiTargetRequirements(action.targets || []);
+        castTargeting = {
+          instanceId: iid, requirements, reqIndex: 0, targets: [], x, send,
+          excludePicked, excludeControllers,
+        };
         finishCastIfReady();
       });
     });
 
     root.querySelectorAll('[data-cast-target-pick]').forEach((el) => {
       el.addEventListener('click', () => {
-        const { instance_id: iid, target } = JSON.parse(el.dataset.castTargetPick);
+        const { instance_id: iid, target, controller_id: controllerId } = JSON.parse(el.dataset.castTargetPick);
         if (!castTargeting || castTargeting.instanceId !== iid) return;
-        if (target !== null) castTargeting.targets.push(target);
+        if (target !== null) {
+          castTargeting.targets.push(target);
+          // Tracked separately from `target` (the wire-format pick sent to
+          // the server) purely for `excludeControllers`'s client-side
+          // per-round filtering — see `castTargetModalHtml`.
+          (castTargeting.pickedControllers ||= []).push(controllerId ?? null);
+        }
         castTargeting.reqIndex += 1;
         finishCastIfReady();
       });
@@ -684,6 +707,17 @@ export function createGameBoardView(opts = {}) {
   // on a bare instance_id.
   function xKey(instanceId, face) {
     return face ? `${instanceId}:${face}` : String(instanceId);
+  }
+
+  // Kicker/Multikicker (RULE 702.33): same face-scoped keying as `xKey`, and
+  // the same "read the adjacent input at click time" idiom as `x`.
+  function kickerKey(instanceId, face) {
+    return face ? `${instanceId}:${face}` : String(instanceId);
+  }
+
+  function readKicker(instanceId, face) {
+    const input = root.querySelector(`[data-kicker-input="${kickerKey(instanceId, face)}"]`);
+    return Math.max(0, Math.floor(Number(input?.value) || 0));
   }
 
   function findTargetableAction(iid, type, abilityIndex, face) {
@@ -948,15 +982,69 @@ export function createGameBoardView(opts = {}) {
       ? `<span class="gf-adventure-badge" title="Abenteuer: aus dem Exil als Kreatur zauberbar">📖 Abenteuer</span>`
       : '';
     // RULE 722.3a: this permanent is prepared — its exiled prepare-spell
-    // copy is castable (shown on that copy's own tile in the exile zone).
+    // copy is castable (badged on that copy's own tile via `prepared_copy`
+    // below, since that's a property of the copy, not of this permanent).
     const preparedBadge = o.prepared
       ? `<span class="gf-prepared-badge" title="Vorbereitet: die Zauberspruch-Kopie im Exil ist zauberbar">🛡️ Vorbereitet</span>`
+      : '';
+    // RULE 722.3c: this *is* that exiled prepare-spell copy.
+    const preparedCopyBadge = o.prepared_copy
+      ? `<span class="gf-prepared-badge" title="Vorbereitete Kopie: aus dem Exil zauberbar, solange die Quelle vorbereitet bleibt">🛡️ Kopie</span>`
       : '';
     const effectsSummary = effectSummaryHtml(o);
     return `
       <div class="gf-card-slot">
-        <div class="${classes.join(' ')}" data-hover-card="${escapeHtml(o.name)}" title="${escapeHtml(o.name)}${pt}${o.tapped ? ' — getappt' : ''}">${inner}${attackBadge}${loyaltyBadge}${counterBadge}${keywordBadge}${adventureBadge}${preparedBadge}${effectsSummary}</div>
+        <div class="${classes.join(' ')}" data-hover-card="${escapeHtml(o.name)}" title="${escapeHtml(o.name)}${pt}${o.tapped ? ' — getappt' : ''}">${inner}${attackBadge}${loyaltyBadge}${counterBadge}${keywordBadge}${adventureBadge}${preparedBadge}${preparedCopyBadge}${effectsSummary}</div>
         ${buttons}
+      </div>`;
+  }
+
+  // Which exiled cards are castable from there right now, and why (RULE
+  // 601.3b analogue / 715.3d / 722.3c) — the three independent mechanisms
+  // `GameEngine._castable_from_exile`/`_has_temp_play_permission` check.
+  // Returns ``null`` for an ordinary, inert exiled card.
+  function exileCastableInfo(o, s) {
+    if (o.adventure_castable) {
+      return { reason: 'Adventure — eigene Zauberspruch-Hälfte bereits gecastet', duration: 'kein Zeitlimit (bis gezaubert)' };
+    }
+    if (o.prepared_copy) {
+      return { reason: 'Vorbereitete Kopie (Regel 722.3c)', duration: 'solange die Quelle vorbereitet bleibt' };
+    }
+    const grantedTurn = s.temp_play_permissions ? s.temp_play_permissions[o.instance_id] : null;
+    if (grantedTurn != null) {
+      const source = s.temp_play_permission_source ? s.temp_play_permission_source[o.instance_id] : null;
+      return {
+        reason: source ? `Impulsiv gezogen von „${source}“` : 'Temporäre Spielerlaubnis',
+        duration: `spielbar bis Ende von Zug ${grantedTurn + 1}`,
+      };
+    }
+    return null;
+  }
+
+  // A "popup"-style zone next to the hand listing every exiled card that's
+  // actually castable/playable right now (impulsive draw, Adventure,
+  // Prepared) — the ordinary Exile zone still lists them too (this is a
+  // prominent, additive callout, mirroring `libraryTopHtml`'s treatment of
+  // a visible top-of-library card), each with why it's castable and how
+  // long the permission lasts, since that's easy to lose track of buried in
+  // a card's own oracle text once it's sitting in exile.
+  function exileCastableHtml(p, s, byInstance, pending) {
+    const entries = (p.exile || [])
+      .map((o) => ({ o, info: exileCastableInfo(o, s) }))
+      .filter(({ info }) => info !== null);
+    if (!entries.length) return '';
+    const imageCache = getState().imageCache;
+    const cards = entries
+      .map(({ o, info }) => `
+        <div class="gf-exile-castable-entry">
+          ${objCard(o, imageCache, pending ? [] : byInstance[o.instance_id] || [])}
+          <p class="gf-exile-castable-caption">${escapeHtml(info.reason)}<br />${escapeHtml(info.duration)}</p>
+        </div>`)
+      .join('');
+    return `
+      <div class="gf-zone gf-exile-castable">
+        <h4>🎇 Spielbar aus dem Exil (${entries.length})</h4>
+        <div class="card-grid gf-exile-castable-list">${cards}</div>
       </div>`;
   }
 
@@ -1062,6 +1150,17 @@ export function createGameBoardView(opts = {}) {
     return ' gf-card-action--loyalty-zero';
   }
 
+  // Kicker/Multikicker (RULE 702.33): a value input the same shape as an
+  // {X} spell's `has_x`/`max_x` field — 0/1 for a plain Kicker, 0..N for
+  // Multikicker (`a.max_kicker`); defaults to 0 (unkicked) rather than the
+  // max, unlike X, since paying it is an optional cost increase the player
+  // should opt into rather than pay by default.
+  function kickerFieldHtml(a) {
+    if (!a.has_kicker) return '';
+    const title = a.kicker_cost ? `Kicker ${a.kicker_cost}` : 'Kicker';
+    return `<input type="number" min="0" max="${a.max_kicker}" value="0" title="${escapeAttr(title)}" data-kicker-input="${kickerKey(a.instance_id, a.face)}" />`;
+  }
+
   function cardActionButtons(cardActions) {
     if (!cardActions || !cardActions.length) return '';
     const buttons = [];
@@ -1080,11 +1179,15 @@ export function createGameBoardView(opts = {}) {
         );
       } else if (a.type === 'cast_spell' && a.requires_target) {
         buttons.push(castTargetHtml(a));
-      } else if (a.type === 'cast_spell' && a.has_x) {
+      } else if (a.type === 'cast_spell' && (a.has_x || a.has_kicker)) {
+        const xField = a.has_x
+          ? `<input type="number" min="0" max="${a.max_x}" value="${a.max_x}" data-x-input="${xKey(a.instance_id, a.face)}" />`
+          : '';
+        const suffix = [a.has_x ? 'X' : null, a.has_kicker ? 'Kicker' : null].filter(Boolean).join(', ');
         buttons.push(`
           <div class="gf-cast-x">
-            <input type="number" min="0" max="${a.max_x}" value="${a.max_x}" data-x-input="${xKey(a.instance_id, a.face)}" />
-            <button type="button" class="gf-card-action" data-cast-x='${escapeAttr(JSON.stringify({ iid: a.instance_id, face: a.face }))}'>✨ Zaubern (X)${faceHint(a)}</button>
+            ${xField}${kickerFieldHtml(a)}
+            <button type="button" class="gf-card-action" data-cast-x='${escapeAttr(JSON.stringify({ iid: a.instance_id, face: a.face }))}'>✨ Zaubern (${suffix})${faceHint(a)}</button>
           </div>
         `);
       } else if (a.type === 'cast_spell') {
@@ -1173,7 +1276,7 @@ export function createGameBoardView(opts = {}) {
       ? `⚡ ${escapeHtml(a.cost_label || 'Aktivieren')} → Ziel ▾`
       : `✨ Zaubern → Ziel ▾${faceHint(a)}`;
     const lc = a.type === 'activate_ability' ? loyaltyModifierClass(a.cost_label) : '';
-    return `<div class="gf-cast-targets">${xField}<button type="button" class="gf-card-action${lc}" data-cast-target-start='${escapeAttr(startInfo)}'>${label}</button></div>`;
+    return `<div class="gf-cast-targets">${xField}${kickerFieldHtml(a)}<button type="button" class="gf-card-action${lc}" data-cast-target-start='${escapeAttr(startInfo)}'>${label}</button></div>`;
   }
 
   function castTargetModalHtml() {
@@ -1189,8 +1292,17 @@ export function createGameBoardView(opts = {}) {
       const pickedIds = new Set(castTargeting.targets.map((t) => t.instance_id));
       options = options.filter((o) => !pickedIds.has(o.instance_id));
     }
+    if (castTargeting.excludeControllers) {
+      // Run Away Together/Protector of the Wastes-shaped "controlled by
+      // different players": once one round has picked a permanent, no
+      // later round may pick another one sharing that controller.
+      const pickedControllers = new Set((castTargeting.pickedControllers || []).filter((c) => c != null));
+      options = options.filter((o) => !pickedControllers.has(o.controller_id));
+    }
     const buttons = options.map((o) => {
-      const payload = JSON.stringify({ instance_id: iid, target: targetOptionPayload(o) });
+      const payload = JSON.stringify({
+        instance_id: iid, target: targetOptionPayload(o), controller_id: o.controller_id ?? null,
+      });
       const hover = o.instance_id != null ? ` data-hover-card="${escapeHtml(o.name || '')}"` : '';
       const glyph = castTargeting.isTapChoice ? '⟳' : '🎯';
       return `<button type="button"${hover} data-cast-target-pick='${escapeAttr(payload)}'>${glyph} ${escapeHtml(o.name)}</button>`;

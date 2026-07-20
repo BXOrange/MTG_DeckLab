@@ -195,6 +195,22 @@ class TargetSpec:
     #: ``max_toughness`` (int) and ``keyword`` (a single `combat.has`
     #: keyword string). ``None`` means unfiltered.
     creature_filter: Optional[dict[str, Any]] = None
+    #: RULE 115.1a's fixed/"up to N" ``count`` generalizes to N independent
+    #: targets, but says nothing about how those N targets relate to each
+    #: other — this is the one such cross-target constraint modeled so far
+    #: (Run Away Together/Protector of the Wastes-shaped "N target
+    #: creatures/permanents controlled by **different players**"): every
+    #: chosen target must have a different controller from every other one
+    #: chosen for this same requirement. Unlike every other field above
+    #: (checked per-candidate, independent of what else was picked), this is
+    #: enforced at *offer* time across rounds, not per-candidate — see
+    #: `legal_targets`'s docstring and `gameBoardView.js`'s
+    #: `expandMultiTargetRequirements`, which excludes an already-picked
+    #: round's controller from later rounds' options the same way it
+    #: already excludes an already-picked *object* (`excludePicked`).
+    #: ``False`` means unrestricted (independent picks, the overwhelming
+    #: common case). Only meaningful with ``count >= 2``.
+    distinct_controllers: bool = False
 
     def label(self) -> str:
         return self.description or _graveyard_label(self.kind) or {
@@ -410,7 +426,10 @@ def legal_targets(
         return objs + (players if not spec.color else [])
     if kind in ("creature", "permanent"):
         return [
-            {"instance_id": o.instance_id, "name": o.name}
+            # ``controller_id`` is only ever consumed client-side when
+            # `spec.distinct_controllers` is set (`gameBoardView.js`'s
+            # per-round exclusion) — harmless to always include otherwise.
+            {"instance_id": o.instance_id, "name": o.name, "controller_id": o.controller_id}
             for o in state.permanents()
             if (kind == "permanent" or o.is_creature)
             and o is not source
@@ -569,6 +588,7 @@ def requirements_with_targets(
                 "count": spec.count,
                 "label": spec.label(),
                 "options": legal_targets(state, controller_id, spec, source=obj),
+                "distinct_controllers": spec.distinct_controllers,
             }
         )
     return out

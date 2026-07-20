@@ -626,6 +626,30 @@ textarea {
   gap: 0.4rem;
 }
 
+/* RULE 601.3b/715.3d/722.3c: the "castable from exile" callout next to the
+   hand — each entry pairs the ordinary card tile with a caption explaining
+   why it's castable and how long that lasts (an impulsive-draw permission
+   expires; Adventure/Prepared don't). */
+.gf-exile-castable {
+  border-color: var(--accent);
+}
+
+.gf-exile-castable-entry {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.15rem;
+  max-width: 130px;
+}
+
+.gf-exile-castable-caption {
+  margin: 0;
+  font-size: 0.62rem;
+  line-height: 1.25;
+  text-align: center;
+  color: var(--text-dim);
+}
+
 .card {
   background: var(--panel-alt);
   border: 1px solid var(--border);

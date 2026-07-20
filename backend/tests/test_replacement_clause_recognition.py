@@ -78,24 +78,34 @@ def test_additional_damage_clause_is_recognized_with_color_and_amount():
     }
 
 
-def test_mechanized_warfares_compound_color_filter_stays_unclaimed():
-    # "a red or artifact source" is a compound OR filter this grammar
-    # doesn't attempt — fails closed rather than dropping half the clause.
-    assert replacement_clause_specs(
+def test_mechanized_warfares_compound_color_filter_is_recognized():
+    # "a red or artifact source" — the OR-combined compound source filter.
+    specs = replacement_clause_specs(
         "If a red or artifact source you control would deal damage to an "
         "opponent or a permanent an opponent controls, it deals that much "
         "damage plus 1 instead."
-    ) is None
+    )
+    assert specs is not None
+    (spec,) = specs
+    assert spec.type == "additional_damage"
+    assert spec.params == {
+        "amount": 1, "your_sources_only": True, "to_opponent_only": True,
+        "colors": ["R"], "types": ["artifact"],
+    }
 
 
-def test_innkeepers_talent_differently_scoped_counter_clause_stays_unclaimed():
-    # "you would put ... on a permanent or player" — a different subject/
-    # target shape from the Doubling Season sentence this module claims.
-    assert replacement_clause_specs(
+def test_innkeepers_talents_causer_scoped_counter_clause_is_recognized():
+    # "you would put ... on a permanent or player" — a *causer*-scoped
+    # sentence (who's putting the counters), unlike Doubling Season's own
+    # *recipient*-scoped "on a permanent you control".
+    specs = replacement_clause_specs(
         "If you would put 1 or more counters on a permanent or player, "
         "put twice that many of each of those kinds of counters on that "
         "permanent or player instead."
-    ) is None
+    )
+    assert specs is not None
+    (spec,) = specs
+    assert spec.type == "double_counters" and spec.params == {"your_effects_only": True}
 
 
 def test_prevent_damage_one_shot_shape_stays_unclaimed_here():
@@ -171,6 +181,73 @@ def test_torbran_increases_damage_to_an_opponent_permanent():
 
     eng.rules.deal_damage(target, 3, source=torbran)
     assert target.damage_marked == 5  # 3 + Torbran's +2
+
+
+def test_innkeepers_talent_doubles_counters_it_causes():
+    # Causer-scoped, unlike Doubling Season: doubles a permanent's counters
+    # *and* a player's (poison), since it's the same unscoped COUNTER event
+    # either way — as long as Innkeeper's Talent's own controller is the
+    # one whose effect placed them.
+    eng = _make_engine()
+    card = perm(
+        "Innkeeper's Talent",
+        "If you would put 1 or more counters on a permanent or player, "
+        "put twice that many of each of those kinds of counters on that "
+        "permanent or player instead.",
+    )
+    talent = _bound(eng.state, card)
+    bear = GameObject(
+        Card(id="Bear", name="Bear", type_line="Creature — Bear", is_creature=True,
+             power=2, toughness=2),
+        owner_id="p2", zone=Zone.BATTLEFIELD,
+    )
+    eng.state.add_to_battlefield(bear)
+
+    eng.rules.add_counters(bear, 1, "+1/+1", source=talent)
+    assert bear.counters.get("+1/+1") == 2
+
+    p2 = eng.state.player_by_id("p2")
+    eng.rules.add_player_counters(p2, 1, "poison", source=talent)
+    assert p2.poison == 2
+
+
+def test_innkeepers_talent_does_not_double_counters_it_did_not_cause():
+    eng = _make_engine()
+    card = perm(
+        "Innkeeper's Talent",
+        "If you would put 1 or more counters on a permanent or player, "
+        "put twice that many of each of those kinds of counters on that "
+        "permanent or player instead.",
+    )
+    _bound(eng.state, card)
+    bear = GameObject(
+        Card(id="Bear", name="Bear", type_line="Creature — Bear", is_creature=True,
+             power=2, toughness=2),
+        owner_id="p2", zone=Zone.BATTLEFIELD,
+    )
+    eng.state.add_to_battlefield(bear)
+    eng.rules.add_counters(bear, 1, "+1/+1")  # no source — not "you" causing it
+    assert bear.counters.get("+1/+1") == 1
+
+
+def test_mechanized_warfare_boosts_red_or_artifact_source_damage():
+    eng = _make_engine()
+    card = perm(
+        "Mechanized Warfare",
+        "If a red or artifact source you control would deal damage to an "
+        "opponent or a permanent an opponent controls, it deals that much "
+        "damage plus 1 instead.",
+    )
+    _bound(eng.state, card)
+    artifact_creature = GameObject(
+        Card(id="Golem", name="Golem", type_line="Artifact Creature", is_creature=True,
+             power=2, toughness=2),
+        owner_id="p1", zone=Zone.BATTLEFIELD,
+    )
+    eng.state.add_to_battlefield(artifact_creature)
+    p2 = eng.state.player_by_id("p2")
+    eng.rules.deal_damage(p2, 3, source=artifact_creature)
+    assert p2.life == 20 - 4  # 3 + Mechanized Warfare's +1 (artifact source)
 
 
 def test_torbran_does_not_boost_damage_to_its_own_controller():

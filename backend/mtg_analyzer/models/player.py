@@ -168,6 +168,22 @@ class Player:
         entry = self.commander_damage.setdefault(commander_id, {"name": name, "amount": 0})
         entry["amount"] += amount
 
+    def add_counters(self, kind: str, amount: int = 1) -> None:
+        """Mutate this player's counters (RULE 122): ``kind="poison"`` maps
+        onto the dedicated `poison` attribute (RULE 704.5c's loss condition
+        reads it directly); any other kind (energy/experience/…) is a
+        generic `counters` entry — the player-level mirror of
+        `GameObject.add_counters`'s "+1/+1" special-case.
+        """
+        if kind == "poison":
+            self.poison = max(0, self.poison + amount)
+            return
+        total = self.counters.get(kind, 0) + amount
+        if total > 0:
+            self.counters[kind] = total
+        else:
+            self.counters.pop(kind, None)
+
     def lose_life(self, amount: int) -> None:
         self.life -= amount
 

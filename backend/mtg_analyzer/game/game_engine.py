@@ -26,7 +26,14 @@ from ..models.game_state import GameState, StackItem
 from ..models.mana_cost import ManaCost
 from ..models.player import Player
 from . import combat, condition_query, continuous
-from .costs import DISCARD_HAND, PAY_LIFE_X, ActivationCost, parse_activation_cost
+from .costs import (
+    DISCARD_HAND,
+    PAY_LIFE_X,
+    REMOVE_COUNTERS_ANY,
+    REMOVE_COUNTERS_X,
+    ActivationCost,
+    parse_activation_cost,
+)
 from .effects import ActivatedAbility
 from .mana_abilities import (
     hand_mana_abilities_for,
@@ -638,6 +645,10 @@ class GameEngine:
             iid: turn for iid, turn in self.state.temp_play_permissions.items()
             if turn >= self.state.turn_number
         }
+        self.state.temp_play_permission_source = {
+            iid: name for iid, name in self.state.temp_play_permission_source.items()
+            if iid in self.state.temp_play_permissions
+        }
 
     # ------------------------------------------------------------------
     # Stack / priority resolution (RULE 117 / 608)
@@ -827,6 +838,17 @@ class GameEngine:
             # one of the *peeled* cards' instance ids, or decline.
             instance_id = None if declined else int(answer)
             self.rules.resolve_impulsive_look_choice(instance_id)
+        elif kind == "remove_counters_amount":
+            # RULE 122: "remove up to N counters from target permanent" —
+            # the option id is the chosen amount (a string digit); a
+            # decline/missing answer defaults to 0 (remove nothing), unlike
+            # a mandatory pick, since 0 is itself always a legal answer here.
+            self.rules.resolve_remove_counters_amount_choice(None if declined else str(answer))
+        elif kind == "remove_counters_kind":
+            # The follow-up "which counter kind" choice, only opened when
+            # the target carries 2+ kinds — a mandatory pick (no "decline"
+            # option is ever offered), defaulted like choose_creature_type.
+            self.rules.resolve_remove_counters_kind_choice(None if declined else str(answer))
         else:  # search: a card's instance id, or decline
             instance_id = None if declined else int(answer)
             self.rules.resolve_search_choice(instance_id)
@@ -2079,9 +2101,12 @@ class GameEngine:
             "description": ability.description or "",
         }
         mana = ability.cost.mana
-        if mana.has_variable:
+        remove_counters_x = ability.cost.remove_counters is not None and ability.cost.remove_counters[1] in (
+            REMOVE_COUNTERS_X, REMOVE_COUNTERS_ANY,
+        )
+        if mana.has_variable or remove_counters_x:
             action["has_x"] = True
-            action["max_x"] = self._max_x_for_mana(player, source, mana)
+            action["max_x"] = self._max_x_for_activation_cost(player, source, ability.cost)
         requirements = self._ability_target_requirements(player, ability, source)
         if requirements:
             action["requires_target"] = True
@@ -2092,6 +2117,26 @@ class GameEngine:
         if ability.cost.tap_others:
             action["tap_cost"] = self._tap_cost_choice(player, source, ability.cost)
         return action
+
+    def _max_x_for_activation_cost(
+        self, player: Player, source: GameObject, cost: "ActivationCost"
+    ) -> int:
+        """The highest legal ``x`` for an ability whose cost announces X via
+        mana (``{X}``), a "Remove X counters"/"Remove any number of
+        counters" clause, or both at once (Chamber Sentry/Marath-shaped,
+        where the *same* announced X pays both) — the merged bound is the
+        stricter of whichever components are actually variable.
+        """
+        bound: Optional[int] = None
+        if cost.mana.has_variable:
+            bound = self._max_x_for_mana(player, source, cost.mana)
+        if cost.remove_counters is not None and cost.remove_counters[1] in (
+            REMOVE_COUNTERS_X, REMOVE_COUNTERS_ANY,
+        ):
+            kind = cost.remove_counters[0]
+            counters_bound = source.counters.get(kind, 0)
+            bound = counters_bound if bound is None else min(bound, counters_bound)
+        return bound if bound is not None else 0
 
     def _max_x_for_mana(self, player: Player, source: GameObject, mana: "ManaCost") -> int:
         bound = player.mana_pool.total()
@@ -2157,7 +2202,13 @@ class GameEngine:
             return False
         if cost.remove_counters:
             kind, count = cost.remove_counters
-            if source.counters.get(kind, 0) < count:
+            if count in (REMOVE_COUNTERS_X, REMOVE_COUNTERS_ANY):
+                # RULE 601.2b analogue: the amount is announced via ``x`` at
+                # activation time, not printed — payable as long as that
+                # many of the counter actually sit on the source.
+                if x < 0 or source.counters.get(kind, 0) < x:
+                    return False
+            elif source.counters.get(kind, 0) < count:
                 return False
         if cost.tap_others:
             count, subtype = cost.tap_others
@@ -2406,7 +2457,8 @@ class GameEngine:
             self.rules.discard_specific(source)
         if cost.remove_counters:
             kind, count = cost.remove_counters
-            source.add_counters(kind, -count)
+            amount = x if count in (REMOVE_COUNTERS_X, REMOVE_COUNTERS_ANY) else count
+            source.add_counters(kind, -amount)
         if cost.add_counters_cost:
             kind, count = cost.add_counters_cost
             source.add_counters(kind, count)

@@ -33,14 +33,18 @@ for the dependency-ordered plan to finish the implementation.
       CLAUDE.md.
 
       **Targeting / multi-target / counters:**
-      - N>=2 multi-target is only wired up for `destroy`/`exile`/`damage`
-        (the three effect classes/real cards driving it so far) — other
-        targeting families (`return_to_hand`/`tap`/`add_counters`/
-        `return_from_graveyard`) stay N=1-only until a real card needs it.
-        Also still out of scope: cross-target constraints ("two target
-        creatures controlled by *different* players", Run Away Together).
-        (2+ *different* targeting effects on one spell/ability sharing a
-        target list *is* now fixed — `StackItem.target_groups`,
+      - Cross-target constraints: Run Away Together's own two-sentence
+        "Choose two target creatures controlled by different players.
+        Return those creatures to their owners' hands." stays unclaimed —
+        a different, indirect-referent grammar shape ("choose target(s)
+        [+ constraint]. Verb those [referent]s.") the parser front-end has
+        no recognition for at all, even though `ReturnToHandEffect` itself
+        already accepts `distinct_controllers` (`targeting.TargetSpec.
+        distinct_controllers`, the single-sentence "N target X controlled
+        by different players" shape *is* claimed for `destroy`/`exile` —
+        Protector of the Wastes-shaped). Also unrelated and still open: 2+
+        *different* targeting effects on one spell/ability sharing a
+        target list *is* fixed — `StackItem.target_groups`,
         `game/rules_engine.py`'s `resolve_top_of_stack`/
         `_continue_trigger_multi_target` — but a spell/activated-ability
         caster still has to supply `target_groups` explicitly; nothing
@@ -51,34 +55,15 @@ for the dependency-ordered plan to finish the implementation.
         `requirements_with_targets`-driven cast-offer/frontend flow needs
         extending to build `target_groups` per requirement, mirroring the
         existing per-requirement "expand into N single-target rounds"
-        pattern `gameBoardView.js` already uses for one N>=2 effect.)
-      - Compound creature-target filter (e.g. "power 4 or greater and
-        flying") — only a single filter clause is supported
-        (`targeting.TargetSpec.creature_filter`).
-      - "Remove a counter" cost: only the fixed count shape
-        (`costs._REMOVE_COUNTERS_RE`, already existed) is reachable from
-        oracle text now — variable-count phrasings ("remove X counters",
-        "remove up to 3 counters", "remove any number of counters",
-        "remove all counters from all permanents", ~38 real cards found)
-        still fail closed.
-      - "Proliferate twice" / "…X times" — `ProliferateEffect` has no
-        repeat-count param.
-      - A differently-scoped counter-doubling clause (Innkeeper's Talent's
-        "on a permanent or player") and a compound colour/type filter
-        (Mechanized Warfare's "a red or artifact source") — both fail
-        closed today, deliberately not guessed.
-      - Kicked-gated entry counters + a granted keyword together (the
-        "…and with `<keyword>`" compound form of the shipped kicked-counters
-        shape) isn't modeled.
+        pattern `gameBoardView.js` already uses.
+      - Price of Betrayal's "remove up to five counters from target
+        artifact, creature, planeswalker, **or opponent**" compound target
+        (a player alongside three permanent types) stays unclaimed — a
+        different, wider target-kind-union gap than the shipped
+        `RemoveCountersEffect.max_count` chosen-amount shape itself (which
+        already covers plain "target permanent"/"target creature").
 
       **Search/tutor & graveyard:**
-      - Search/tutor: "search your library **and/or graveyard**"
-        (Doomsday/Finale of Devastation — `request_search` only reads
-        `player.library`, a real engine gap, not just unparsed); a split
-        destination per found card ("put one onto the battlefield tapped
-        and the other into your hand", Cultivate/Kodama's Reach — a
-        different effect shape, one search always has one destination);
-        "search for N cards and exile the rest" (Doomsday).
       - "Exile target player's graveyard" — needs a new whole-graveyard
         effect, not just recognition.
       - Standing graveyard-cast permission (mirroring `top_library_

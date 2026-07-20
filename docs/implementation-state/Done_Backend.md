@@ -2996,6 +2996,69 @@ the Phase-1 models. Tests: `test_game_engine.py`.
         family (see this section, above) since a graveyard's contents
         are public.
 
+- [x] **Search/tutor: "library and/or graveyard", split destination, and
+      "exile the rest" (2026-07-20)** — closes three of the scope gaps the
+      generalized search grammar entry above left open (the fourth, a
+      mana-value/colour-qualified criterion tied to a spell's own X, stays
+      unattempted). `RulesEngine.request_search`/`_search_choice`/
+      `resolve_search_choice`/`_finish_search` gained three new params,
+      additive and default-preserving (existing callers untouched):
+      `zones` (default `["library"]`; `["library", "graveyard"]` combines
+      both, eligibility pooled library-then-graveyard and a chosen card
+      removed from whichever zone actually holds it —
+      `_search_zone_objects`/`_remove_search_hit`), `destinations` (a
+      per-found-card override list, zipped positionally against the picks,
+      falling back to the shared `destination` past its end — Cultivate/
+      Kodama's Reach's "put one onto the battlefield tapped and the other
+      into your hand"), and `exile_rest` (once the search finishes, every
+      remaining criteria-matching card still in `zones` is moved to exile
+      and the shuffle is suppressed entirely — Doomsday's own text puts the
+      chosen cards "on top of your library in any order" with no shuffle
+      instruction at all, unlike an ordinary RULE 701.19e search). The
+      general (non-`exile_rest`) case shuffles whenever `"library" in
+      zones`, a documented simplification that doesn't track which
+      specific zone the chosen card(s) actually came from.
+      `EventType.LIBRARY_SEARCHED` (Archivist of Oghma's trigger) now only
+      fires when `"library"` is among the searched zones, matching its own
+      "whenever … searches **their library**" wording. `game/effects.py`'s
+      `SearchLibraryEffect`/`GameContext.request_search`/the `"search"`
+      `EffectRegistry` factory all forward the three new params unchanged.
+      Parser side (`catalogue/handlers.py`), three new handler siblings to
+      the existing put-then-shuffle/shuffle-then-put-top pair:
+      `_search_zone_put` (the real ~50-card backgrounds/planeswalker-tutor
+      family's "search your library and/or graveyard for `<criteria>`,
+      [reveal `<pronoun>`,] put `<pronoun>` `<destination>`. If you
+      search[ed] your library this way, shuffle." — its criteria grammar
+      adds a `name` alternative, `card_query`'s existing but
+      previously-unused-by-this-grammar `{"name": …}` key, restricted to a
+      name with no internal comma since a comma-bearing subtitle like "a
+      card named Angrath, Minotaur Pirate" is indistinguishable from the
+      following put-clause's own comma without a name dictionary — left
+      unclaimed rather than guessed); `_search_split_destination`
+      (Cultivate/Kodama's Reach's "put one `<destA>` and the other
+      `<destB>`, then shuffle" — the printed "one" is folded to `1` by
+      `normalize`'s spelled-number pass same as any other count word, so
+      the regex matches the folded form, not the English word);
+      `_search_exile_rest` (Doomsday's "search your library and graveyard
+      for `<N>` cards and exile the rest. Put the chosen cards on top of
+      your library in any order" — no "then shuffle" tail at all, matching
+      the engine's own suppression). Doomsday's own card is *not* fully
+      hand-authored/parsed end-to-end here — its remaining "you lose half
+      your life, rounded up" clause needs a new dynamic-amount life-loss
+      primitive this batch didn't build, so the card stays `UNMODELED`
+      overall (fail-closed: never resolving half of what a card says);
+      the exile-rest primitive itself is proven directly against
+      `RulesEngine`/parser recognition instead. Cultivate and Kodama's
+      Reach *do* now parse fully `MODELED` end-to-end (identical oracle
+      text, both proven). Tests: `test_search_effects.py` (zone/split/
+      exile-rest recognition axes, the comma-bearing-name fail-closed
+      boundary, a real Tower Winder library+graveyard end-to-end resolve
+      proving a graveyard-only hit works, a real Cultivate split-
+      destination end-to-end resolve, a direct `RulesEngine` exile-rest
+      proof); `test_search_popular_tutors.py`'s prior "known limitation"
+      two-search Cultivate workaround test replaced with a real
+      single-search split-destination assertion.
+
 - [x] **Per-effect target partitioning, `StackItem.target_groups`
       (2026-07-16)** — the "targeting / hexproof / ward" edge-case chapter's
       biggest entry: `docs/implementation-state/ToDo_Backend.md` had
@@ -3336,6 +3399,169 @@ the Phase-1 models. Tests: `test_game_engine.py`.
     an already-phased-in permanent out automatically, so that half of
     702.26a is deliberately not modeled. Robe of Stars' Astral Projection
     is real now (`ability_catalogue.py`). Tests: `test_phasing.py`.
+  - **Targeting / multi-target / counters batch** (2026-07-20): the
+    remaining N=1-only targeting families extended to RULE 115.1a's N>=2,
+    plus four smaller, independent counter-family gaps closed alongside it.
+    - **N>=2 multi-target for `return_to_hand`/`tap`/`add_counters`/
+      `return_from_graveyard`**: the `count`-slicing idiom `DestroyEffect`/
+      `ExileEffect`/`DealDamageEffect` already used (`game/effects.py`)
+      extended to the other four families (`TapEffect` already had it —
+      only its parser grammar was missing). `add_counters` needed a new,
+      distinct `EffectSpec` key (`target_count`) since `count`/`amount`
+      were already the *counter* amount. Parser grammar mirrors
+      `_MULTI_TARGET_ROWS`/`_MULTI_TARGET_QUANTIFIER`
+      (`parser/oracle/catalogue/handlers.py`) — `add_counters` is the
+      highest-value one (100+ real cards spelling out "put a +1/+1 counter
+      on each of up to two target creatures", independent of the
+      still-unbuilt "Support N" keyword shorthand); `return_from_graveyard`
+      got its own plural graveyard-clause regex
+      (`_RETURN_FROM_GRAVEYARD_MULTI_RE`). Confirmed `o is not source` is
+      already baked into every `legal_targets` "creature"/"permanent"/"any"
+      branch (`game/targeting.py`), so "up to two *other* target creatures"
+      needed no new engine work, just an optional "other" in the regex.
+      Tests: `test_multi_target_extended.py`.
+    - **Compound creature-target filter** ("power 4 or greater and
+      flying"): `targeting.TargetSpec.creature_filter`/
+      `_creature_matches_filter` already AND every key in the dict — the
+      entire gap was the parser only ever emitting one key. Extended
+      `_CREATURE_FILTER_SUFFIX`/`_creature_quality_filter` to an optional
+      second `" and [with] <clause>"`, no `game/` changes needed. Tests:
+      `test_modal_creature_filter_family.py`.
+    - **Variable-count "remove a counter" activation cost**: a live query
+      against the cached Oracle DB showed the ToDo's four phrasings weren't
+      all costs — "remove up to N"/"remove all counters from all
+      permanents" are resolution *effects* on every real card found (see
+      below), while "remove X counters" (32 real cards: Arcbound
+      Javelineer/Chamber Sentry/Marath/the storage-land and Baku cycles)
+      and "remove any number of counters" (23 real cards: the Mana Battery
+      cycle, more storage lands, Geistflame Reservoir) genuinely are
+      costs. `ActivationCost.remove_counters` gained two sentinels
+      (`REMOVE_COUNTERS_X`/`REMOVE_COUNTERS_ANY`, mirroring `PAY_LIFE_X`'s
+      existing idiom), paid/validated against the same `x` parameter
+      `activate_ability` already threads for mana `{X}`; a new
+      `_max_x_for_activation_cost` (`game/game_engine.py`) merges the
+      mana-`{X}` bound with the counters-available bound so `has_x`/`max_x`
+      are offered correctly even when the ability has no `{X}` mana symbol
+      at all (Blademane Baku-shaped). Also fixed a latent bug where
+      `_REMOVE_COUNTERS_RE`'s count group already structurally matched the
+      literal word "x" but silently resolved it to `1`. Deliberately
+      doesn't model the bespoke effect text on each of these ~30 unique
+      cards ("It deals X damage…"/"Scry X…") — reading an *activated
+      ability's* own announced X into a generic effect amount isn't wired
+      anywhere yet, a separate, larger feature. Tests:
+      `test_remove_counters_cost.py`.
+    - **"Remove all counters from target/all permanents"** (Vampire
+      Hexmage/Oblivion Stone/Aether Snap/Thief of Blood-shaped): a new
+      `RemoveCountersEffect` (`game/effects.py`), untargeted (board-wide)
+      or `target_kind="permanent"`, stripping every counter of every kind
+      via `context.add_counters` with a negative amount per kind (not a
+      raw dict mutation, so a counter-removed trigger still fires
+      correctly). Tests: `test_remove_counters_effect.py`. "Remove up to N
+      counters" (a genuinely different, chosen-quantity effect) is covered
+      separately, below.
+    - **"Proliferate twice" / "proliferate N times"**: `ProliferateEffect`
+      gained a `times` param (mirroring `ScryEffect.count`'s existing
+      shape) and a parser handler for the literal word "twice" or a
+      digit-folded "N times" (normalize.py doesn't fold "twice" itself,
+      unlike spelled-out numbers). A bare "proliferate x times"
+      (Expansion Algorithm's announced-X, Tromell's dynamic count-selector)
+      stays unclaimed — a different shape. Tests:
+      `test_modal_creature_filter_family.py`.
+    - **Kicked-gated entry counters + a granted keyword together** (RULE
+      702.33b's "…and with `<keyword>`" compound form): both
+      `_KICKED_ENTRY_COUNTERS_RE`/`_KICKED_SCALED_ENTRY_COUNTERS_RE`
+      (`parser/oracle/catalogue/counters.py`) gained an optional trailing
+      keyword clause off a small closed vocabulary;
+      `RulesEngine._apply_entry_counters` grants the keyword onto
+      `GameObject.intrinsic_keywords` under the same kicked gate as the
+      counters — a one-time additive mutation is exact here (not an
+      approximation needing the RULE 613 conditional-static-gate
+      machinery), since `kicker_count` never changes after cast, and
+      `intrinsic_keywords` is already read as a stable baseline every
+      layer-engine pass, the same mechanism a card's own printed flag
+      keywords use. Tests: `test_batch6_cost_keyword_family.py`.
+    - **"Remove up to N counters from target permanent/creature"** (Glissa
+      Sunslayer/Heartless Act/Render Inert-shaped) — a genuinely different,
+      interactive chosen-*amount* shape from the "all" shape above.
+      `RemoveCountersEffect` gained a `max_count` param that switches
+      `apply()` to open a `pending_choice` (`RulesEngine.
+      request_remove_counters_choice`) asking how many (0..
+      min(max_count, counters present)) instead of resolving synchronously;
+      answering it (`resolve_remove_counters_amount_choice`) either
+      resolves directly (0 chosen, or only one counter kind present) or
+      opens a second, mandatory `pending_choice` asking *which* kind, one
+      at a time (`_continue_remove_counters`/
+      `resolve_remove_counters_kind_choice`, mirroring `_search_choice`'s
+      "re-ask for the next" shape) — modeled on `_offer_enter_choices`/
+      `resolve_enter_choice`'s "pause mid-resolution" idiom, since no
+      existing chooser combines an amount pick with a kind pick. Price of
+      Betrayal's "target artifact, creature, planeswalker, **or opponent**"
+      compound target (a player alongside three permanent types) stays
+      unclaimed. Tests: `test_remove_counters_choice.py`.
+    - **Player-counter primitive** (`RulesEngine.add_player_counters`,
+      `Player.add_counters`): the engine's first effect-driven way to add
+      poison/energy/experience counters to a *player* — previously only the
+      Replay/Puzzle editor could set `Player.poison` directly
+      (`services/game_session.py`'s `edit_player` action), and no gameplay
+      effect routed through it at all. Mirrors `add_counters` exactly (a
+      positive amount goes through `apply_replacements` via the same
+      `EventType.COUNTER` event shape, `is_player=True`/`target_id` the
+      player's id — mirroring `deal_damage`'s own player/permanent split —
+      so a doubling replacement needs no special-casing for "or player").
+      Built to land Innkeeper's Talent (below); nothing else creates player
+      counters through it yet (Infect and proliferate-on-players are both
+      still unmodeled).
+    - **Innkeeper's Talent's causer-scoped counter-doubling** ("if **you**
+      would put one or more counters on a permanent or player, put twice
+      that many… instead") — a different scoping axis from Doubling
+      Season's already-shipped "on a permanent **you control**": Doubling
+      Season reads the *recipient*'s controller (already handled, no
+      `game/` change needed), Innkeeper's Talent reads who's *causing* the
+      placement. `add_counters`/`add_player_counters` gained an optional
+      `source` param, carried onto the `COUNTER` event as
+      `source_controller_id` (mirroring `deal_damage`'s own field of the
+      same name); `_double_counters_replacement` gained a
+      `your_effects_only` flag checking it against the replacement's own
+      source. The "or player" half needed no extra code at all beyond the
+      player-counter primitive above — the replacement's `COUNTER`-event
+      handling was already recipient-agnostic. Threaded `source=self.source`
+      through every real (non-removal) `add_counters` call site
+      (`AddCountersEffect`/`RenownEffect`/`ProliferateEffect`/the two
+      "gains a +1/+1 counter" one-shots) so the scoping actually has
+      something to check. Tests: `test_replacement_clause_recognition.py`.
+    - **Mechanized Warfare's compound "a red or artifact source" filter**:
+      `additional_damage`'s single `color` param generalized to OR-combined
+      `colors`/`types` lists (`color` kept standalone for the existing
+      single-colour Torbran shape) — a source qualifies if it matches *any*
+      listed colour (`event`'s own `source_colors`) or *any* listed type
+      word (currently only `"artifact"`, looked up fresh off the source's
+      printed card via the `DAMAGE` event's existing `source_id`, no new
+      event field needed). Parser: `_ADDITIONAL_DAMAGE_RE` gained a second
+      optional qualifier joined by "or", each a colour word or a type word.
+      Tests: `test_replacement_clause_recognition.py`.
+    - **Cross-target "controlled by different players/controllers"**
+      (Protector of the Wastes/Cloud's Limit Break-shaped — one targeting
+      effect's own N>=2 targets, RULE 115.1a further generalized): a new
+      `targeting.TargetSpec.distinct_controllers` flag, wired into
+      `DestroyEffect`/`ExileEffect`/`ReturnToHandEffect`. Unlike every other
+      `TargetSpec` filter (checked per-candidate, independent of what else
+      was picked), this constrains the *relationship* between the targets
+      chosen for one requirement, so it's enforced at offer/pick time
+      across rounds rather than inside the resolving effect: `legal_targets`
+      now includes `controller_id` on every "creature"/"permanent"
+      descriptor, `requirements_with_targets` surfaces the flag, and
+      `gameBoardView.js`'s `expandMultiTargetRequirements` gained a second
+      per-round exclusion (`excludeControllers`, alongside the existing
+      `excludePicked`) that drops any option sharing a controller with an
+      already-picked round. Parser: `_MULTI_TARGET_DISTINCT_CONTROLLERS`, an
+      optional trailing clause on `destroy`/`exile`'s existing multi-target
+      grammar. Run Away Together's own two-sentence "Choose two target
+      creatures controlled by different players. Return those creatures to
+      their owners' hands." stays unclaimed — a different, indirect-
+      referent grammar shape ("choose target(s) [+ constraint]. Verb those
+      [referent]s.") no handler recognizes yet, even though
+      `ReturnToHandEffect` itself already accepts `distinct_controllers`.
+      Tests: `test_distinct_controllers.py`.
 
 ## Game Engine (Phase 3)
 

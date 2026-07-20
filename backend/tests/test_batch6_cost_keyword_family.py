@@ -52,6 +52,7 @@ mtg_analyzer/parser/oracle/segmenter.py, mtg_analyzer/game/rules_engine.py.
 
 from __future__ import annotations
 
+from mtg_analyzer.game import combat
 from mtg_analyzer.game.effect_binder import attach_to_object
 from mtg_analyzer.game.game_engine import GameEngine
 from mtg_analyzer.models.card import Card
@@ -230,8 +231,25 @@ def test_kicked_gated_x_amount_stays_unclaimed():
     assert entry_counters_condition(line) is None
 
 
-def test_kicked_gated_compound_and_with_keyword_stays_unclaimed():
+def test_kicked_gated_compound_and_with_keyword_is_recognized():
     line = "if ~ was kicked, it enters with 2 +1/+1 counters on it and with flying."
+    assert entry_counters_condition(line) == {
+        "is_x": False, "count": 2, "counter_type": "+1/+1", "kicked_gate": True,
+        "grant_keyword": "flying",
+    }
+
+
+def test_kicked_scaled_compound_and_with_keyword_is_recognized():
+    line = "~ enters with a +1/+1 counter on it for each time it was kicked and with vigilance."
+    assert entry_counters_condition(line) == {
+        "is_x": False, "count": 1, "counter_type": "+1/+1", "kicked_scale": True,
+        "grant_keyword": "vigilance",
+    }
+
+
+def test_unrecognized_keyword_in_compound_clause_stays_unclaimed():
+    # Fail-closed: not in the closed keyword vocabulary.
+    line = "if ~ was kicked, it enters with 2 +1/+1 counters on it and with banding."
     assert entry_counters_condition(line) is None
 
 
@@ -311,3 +329,23 @@ def test_multikicker_scaled_counters_zero_when_never_kicked():
     )
     bf = _cast(card, kicked=0)
     assert bf.counters.get("+1/+1", 0) == 0
+
+
+def test_kicked_compound_clause_grants_both_counters_and_the_keyword():
+    card = _kicker_creature(
+        "Academy Drake", "{1}{U}",
+        "If ~ was kicked, it enters with 2 +1/+1 counters on it and with vigilance.",
+    )
+    bf = _cast(card, kicked=1)
+    assert bf.counters.get("+1/+1", 0) == 2
+    assert combat.has(bf, "vigilance") is True
+
+
+def test_unkicked_compound_clause_grants_neither_counters_nor_the_keyword():
+    card = _kicker_creature(
+        "Academy Drake", "{1}{U}",
+        "If ~ was kicked, it enters with 2 +1/+1 counters on it and with vigilance.",
+    )
+    bf = _cast(card, kicked=0)
+    assert bf.counters.get("+1/+1", 0) == 0
+    assert combat.has(bf, "vigilance") is False

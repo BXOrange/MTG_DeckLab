@@ -99,9 +99,23 @@ def test_proliferate_composes_with_a_sibling_clause():
     assert [e.type for e in effects] == ["draw", "proliferate"]
 
 
-def test_proliferate_twice_stays_unclaimed():
-    # Fail-closed: ProliferateEffect has no repeat-count parameter yet.
-    assert parse_effect_body("proliferate twice.") is None
+def test_proliferate_twice_is_recognized():
+    # Contagion Engine/Agent Frank Horrigan/Ezuri, Stalker of Spheres-shaped.
+    (spec,) = parse_effect_body("proliferate twice.")
+    assert spec == EffectSpec("proliferate", {"times": 2})
+
+
+def test_proliferate_n_times_is_recognized():
+    # War of the Spark Saga chapter-shaped ("proliferate three times.",
+    # already digit-folded by normalize.py before reaching this grammar).
+    (spec,) = parse_effect_body("proliferate 3 times.")
+    assert spec == EffectSpec("proliferate", {"times": 3})
+
+
+def test_proliferate_x_times_stays_unclaimed():
+    # A different shape (Expansion Algorithm's spell-announced-X, Tromell's
+    # dynamic count-selector) — `ProliferateEffect` has no "x"/count-selector
+    # support yet, so this stays fail-closed rather than guessing.
     assert parse_effect_body("proliferate x times.") is None
 
 
@@ -125,6 +139,28 @@ def test_proliferate_effect_adds_a_counter_of_each_existing_kind():
 
     assert creature.counters["+1/+1"] == 3
     assert creature.counters["stun"] == 2
+
+
+def test_proliferate_twice_effect_adds_two_counters_of_each_existing_kind():
+    engine, state, p1, p2 = _rules()
+    creature = _bf(state, _creature("Poison Toad"))
+    creature.counters["+1/+1"] = 2
+    creature.counters["stun"] = 1
+    ctx = GameContext(state, engine)
+
+    from mtg_analyzer.game.effects import EffectRegistry
+
+    EffectRegistry.create("proliferate", {"times": 2}).apply(ctx)
+
+    assert creature.counters["+1/+1"] == 4
+    assert creature.counters["stun"] == 3
+
+
+def test_contagion_engine_shaped_proliferate_twice_end_to_end():
+    card = _card("Twin Charge Vessel", "{4}, {T}: Proliferate twice.", type_line="Artifact")
+    result = parse_oracle(card)
+    assert result.coverage != UNMODELED
+    assert result.unclaimed == []
 
 
 # -- targeted gain/lose life ---------------------------------------------------
@@ -204,10 +240,34 @@ def test_exile_with_toughness_filter_is_modeled():
     assert result.unclaimed == []
 
 
-def test_compound_filter_stays_unclaimed():
-    # Fail-closed: "power 4 or greater and flying" isn't in the recognized
-    # single-condition grammar.
-    assert parse_effect_body("destroy target creature with power 4 or greater and flying") is None
+def test_compound_filter_power_and_flying_is_recognized():
+    (spec,) = parse_effect_body("destroy target creature with power 4 or greater and flying")
+    assert spec.type == "destroy"
+    assert spec.params == {
+        "target_kind": "creature",
+        "creature_filter": {"min_power": 4, "keyword": "flying"},
+    }
+
+
+def test_compound_filter_toughness_and_keyword_is_recognized_for_exile():
+    (spec,) = parse_effect_body(
+        "exile target creature with toughness 2 or less and with vigilance"
+    )
+    assert spec.type == "exile"
+    assert spec.params == {
+        "target_kind": "creature",
+        "creature_filter": {"max_toughness": 2, "keyword": "vigilance"},
+    }
+
+
+def test_compound_filter_end_to_end_is_modeled():
+    card = _card(
+        "Skybreak Judgment",
+        "Destroy target creature with power 4 or greater and flying.",
+    )
+    result = parse_oracle(card)
+    assert result.coverage != UNMODELED
+    assert result.unclaimed == []
 
 
 def test_creature_filter_offers_only_matching_targets():
@@ -223,6 +283,21 @@ def test_creature_filter_offers_only_matching_targets():
     spec2 = targeting.TargetSpec(kind="creature", creature_filter={"min_power": 4})
     legal2 = targeting.legal_targets(state, "p1", spec2)
     assert {t["instance_id"] for t in legal2} == {ground.instance_id}
+
+
+def test_compound_creature_filter_offers_only_targets_matching_both_clauses():
+    engine, state, p1, p2 = _rules()
+    big_flyer = _bf(state, _creature("Griffin", power=4, toughness=4))
+    big_flyer.intrinsic_keywords = {"flying"}
+    big_ground = _bf(state, _creature("Ox", power=4, toughness=4))
+    small_flyer = _bf(state, _creature("Sparrow", power=1, toughness=1))
+    small_flyer.intrinsic_keywords = {"flying"}
+
+    spec = targeting.TargetSpec(
+        kind="creature", creature_filter={"min_power": 4, "keyword": "flying"}
+    )
+    legal = targeting.legal_targets(state, "p1", spec)
+    assert {t["instance_id"] for t in legal} == {big_flyer.instance_id}
 
 
 def test_destroy_effect_with_creature_filter_only_destroys_the_chosen_target():

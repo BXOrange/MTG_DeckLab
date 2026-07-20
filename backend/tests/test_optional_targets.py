@@ -2,9 +2,10 @@
 "up to N" targets backlog entry, scoped to N=1 for the families covered
 here). A real N>=2 multi-target choice (an interactive multi-select and
 per-effect application over a list) has since shipped for `destroy`/
-`exile`/`damage` — see `tests/test_multi_target.py` — but not yet for
-`return_from_graveyard`/`return_to_hand`/`tap`/`add_counters`, which remain
-N=1-only until a real card drives extending them too.
+`exile`/`damage` — see `tests/test_multi_target.py` — and for
+`return_from_graveyard`/`return_to_hand`/`tap`/`add_counters` too — see
+`tests/test_multi_target_extended.py`. This file keeps the N=1 coverage for
+all of them.
 
 Mirrors `test_targeting.py`'s fixture pattern (locked/unlocked cast offers,
 server-side `has_legal_targets` enforcement) plus
@@ -118,10 +119,14 @@ def test_up_to_2_targets_for_destroy_now_recognized():
     assert spec.params == {"target_kind": "creature", "count": 2, "optional": True}
 
 
-def test_up_to_2_targets_still_unclaimed_for_a_family_not_yet_generalized():
-    # return_to_hand hasn't been extended to N>=2 yet (no real card drove
-    # it in this batch) — still fails closed rather than guessing.
-    assert parse_effect_body("return up to 2 target creatures to their owner's hand") is None
+def test_up_to_2_targets_now_recognized_for_return_to_hand():
+    # N>=2 has since shipped for return_to_hand too — see
+    # tests/test_multi_target_extended.py for the full coverage. Note the
+    # plural possessive ("their owners' hands") — the singular "its owner's
+    # hand" phrasing above stays N=1-only, as it should.
+    (spec,) = parse_effect_body("return up to 2 target creatures to their owners' hands")
+    assert spec.type == "return_to_hand"
+    assert spec.params == {"target_kind": "creature", "count": 2, "optional": True}
 
 
 # ---------------------------------------------------------------------------

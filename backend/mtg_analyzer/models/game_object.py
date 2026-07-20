@@ -772,6 +772,10 @@ class GameObject:
             "is_token": self.is_token,
             # RULE 715.3d: an exiled Adventure creature the player may cast.
             "adventure_castable": self.adventure_castable,
+            # RULE 722.3c: this object *is* a prepared copy sitting in exile,
+            # castable as long as its source stays prepared — the mirror
+            # image of `prepared` below (which flags the source permanent).
+            "prepared_copy": self.prepared_source_id is not None,
             # RULE 722.3a: this permanent has become prepared (its exiled
             # copy is castable — see the "adventure_castable"-style scan of
             # the exile zone for that copy's own board tile/actions).

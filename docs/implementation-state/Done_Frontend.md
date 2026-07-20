@@ -285,6 +285,72 @@ now holds only open items). Section headers mirror that file.
       Monstrous Rage / Giant Growth line names its own spell instead of a
       generic "Until-EOT" aggregate. Complements the existing global
       "Statische Effekte"-Panel (`staticEffectsPanelHtml`), which stays.
+- [x] **Kicker/Multikicker payment UI (2026-07-20)** — `legal_actions`
+      has surfaced `has_kicker`/`kicker_cost`/`kicker_multi`/`max_kicker`
+      on a `cast_spell` action since the M2 alt-cost-keywords batch
+      (2026-07-15, `Done_Backend.md`), but nothing consumed it: the board
+      had no control to pay Kicker, and `services/game_session.py`'s
+      `cast_spell` action handler never even read a `kicked` field off the
+      wire action, so it couldn't have worked end-to-end regardless. Fixed
+      both: `game_session.py` now forwards `kicked = int(action.get(
+      "kicked", 0))` to `GameEngine.cast_spell` (mirroring how `x` already
+      round-trips); `gameBoardView.js` gained a `kickerFieldHtml`/
+      `kickerKey`/`readKicker` trio mirroring the existing `{X}`-cost
+      `has_x`/`max_x` treatment exactly (a number input, 0..`max_kicker`,
+      defaulting to **0** — unlike X's default-to-max, since paying Kicker
+      is an opt-in extra cost) — wired into all three `cast_spell` render
+      shapes (plain, `has_x`, `requires_target`) so a kickable+targeted or
+      kickable+X spell offers both fields together. Verified with a real
+      Playwright run against a live backend (Replay/Puzzle mode, Kavu
+      Titan — Kicker `{2}{G}`, "if kicked, enters with three +1/+1
+      counters and with trample"): the input rendered, paying it sent
+      `kicked: 1`, and the resolved permanent showed a "+1/+1 x3" counter
+      badge and a "TR" keyword badge, exercising the new engine-side
+      kicked-counters-plus-granted-keyword grammar
+      (`parser/oracle/catalogue/counters.py`'s `_GRANT_KEYWORD_SUFFIX`,
+      `backend/ToDo_Backend.md`'s former "Targeting / multi-target /
+      counters" chapter, Item F) through the real UI, not just unit
+      tests. Buyback (`has_buyback`/`buyback_cost`) is a separate,
+      still-open gap — `backend/ToDo_Backend.md` "Buyback alt-cost". Tests:
+      `test_game_session.py::TestStackAndChoices::
+      test_cast_spell_forwards_kicked_to_the_engine`.
+- [x] **"Castable from exile" zone (2026-07-20)** — the engine already
+      tracked three distinct persistent "you may cast this from exile"
+      states (impulsive draw's turn-scoped `GameState.
+      temp_play_permissions`; Adventure's `GameObject.adventure_castable`;
+      Prepared's `prepared_source_id`) but nothing on the board surfaced
+      them together, so a castable exiled card was invisible unless the
+      player already knew to look. Added a prominent "🎇 Spielbar aus dem
+      Exil" panel (`gameBoardView.js`'s `exileCastableInfo`/
+      `exileCastableHtml`), inserted between the static-effects panel and
+      the Hand zone — mirroring `libraryTopHtml`'s "additive, not replacing
+      the ordinary zone" precedent — listing every exile object any of the
+      three mechanisms currently allows, each rendered with the existing
+      `objCard`/action-button machinery (so its cast button is the same
+      live one Hand/Battlefield use) plus a caption naming the **source**
+      and **duration**: Adventure → "Adventure — eigene Zauberspruch-Hälfte
+      bereits gecastet" / "kein Zeitlimit (bis gezaubert)"; Prepared →
+      names the linked permanent / "solange die Quelle 'gewappnet' ist";
+      impulsive draw → the spell name that exiled it (new backend-side
+      `GameState.temp_play_permission_source: dict[instance_id, str]`, a
+      parallel dict to `temp_play_permissions` rather than widening its
+      value type, populated by `RulesEngine.exile_with_play_permission`'s
+      new `source_name` param and pruned in lockstep by `_step_cleanup`) /
+      "bis Ende des nächsten eigenen Zugs" (this turn) or "bis Ende dieses
+      Zugs" (granted last turn). Cascade/Discover deliberately excluded —
+      those resolve synchronously via `pending_choice`, never sitting in
+      exile waiting to be cast. Also added a `prepared_copy` bool to
+      `GameObject.to_dict()` (was missing — only the source-side `prepared`
+      flag existed) and a matching `preparedCopyBadge` overlay
+      (`objCard`), plus `.gf-exile-castable`/`-entry`/`-caption` CSS.
+      Verified with a real Playwright run against a live backend
+      (Replay/Puzzle mode, Bonecrusher Giant // Stomp): cast Stomp from
+      hand → the creature half appeared in the new zone with the Adventure
+      caption → cast it from there → the zone emptied and Bonecrusher
+      Giant landed on the battlefield, all with zero page errors. Tests:
+      `test_impulsive_draw.py`'s new "temp_play_permission_source" section
+      (4 tests) and `test_card_structures.py::
+      test_prepared_copy_is_serialized_for_the_board_but_an_ordinary_object_is_not`.
 
 ## Multiplayer
 

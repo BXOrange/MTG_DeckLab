@@ -87,6 +87,26 @@ class TestStackAndChoices:
         assert len(view["state"]["stack"]) == 0
         assert bear_obj.instance_id in {o["instance_id"] for o in view["state"]["battlefield"]}
 
+    def test_cast_spell_forwards_kicked_to_the_engine(self):
+        # RULE 702.33: `kicked` must round-trip from the wire action to
+        # `GameEngine.cast_spell` the same way `x` already does — the
+        # session's `cast_spell` handler used to silently drop the field, so
+        # a kicked cast could never be requested through the API at all even
+        # though `legal_actions` already offers `has_kicker`/`max_kicker`.
+        session = make_session(library=[land()] * 10 + [bear(), land()], hand=7)
+        self._advance_to_main1(session)
+        state = session.engine.state
+        state.active_player.mana_pool.add_many({"G": 1, "C": 1, "R": 1})
+        bear_obj = next(o for o in state.active_player.hand if o.card.is_creature)
+        bear_obj.parametric_keywords = {"kicker": {"cost": "{R}"}}
+
+        session.apply_action(
+            {"type": "cast_spell", "instance_id": bear_obj.instance_id, "kicked": 1}
+        )
+
+        assert state.stack[-1].obj.kicker_count == 1
+        assert state.active_player.mana_pool.total() == 0
+
     def test_tap_for_mana_with_option_index(self):
         session = make_session(library=[land()] * 10, hand=7)
         self._advance_to_main1(session)

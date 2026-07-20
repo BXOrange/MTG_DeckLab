@@ -647,6 +647,20 @@ def test_attacking_becomes_prepared_and_creates_a_castable_exiled_copy():
     assert copy.card.mana_cost_string == "{1}{W}"
 
 
+def test_prepared_copy_is_serialized_for_the_board_but_an_ordinary_object_is_not():
+    # The board's "castable from exile" callout (gameBoardView.js) tells a
+    # prepared copy apart from an inert exiled card via this flag.
+    eng = make_engine()
+    p1 = _ready_main_phase(eng)
+    bard = _put(eng, _preparation_creature())
+    bind_from_catalogue(bard)
+    eng.rules.make_prepared(bard)
+    copy = next(o for o in p1.exile if o.prepared_source_id == bard.instance_id)
+
+    assert copy.to_dict()["prepared_copy"] is True
+    assert bard.to_dict()["prepared_copy"] is False
+
+
 def test_the_exiled_copy_is_castable_and_clears_prepared_on_cast():
     eng = make_engine()
     p1 = _ready_main_phase(eng)

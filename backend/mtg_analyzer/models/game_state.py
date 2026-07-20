@@ -238,6 +238,18 @@ class GameState:
         #: (`GameEngine._step_cleanup`).
         self.temp_play_permissions: dict[int, int] = {}
 
+        #: The name of whatever granted each `temp_play_permissions` entry
+        #: (e.g. "Light Up the Stage"), so the board can explain *why* an
+        #: exiled card is castable — a sibling dict rather than widening
+        #: `temp_play_permissions`' own `int` values, to leave every existing
+        #: turn-keyed reader of that dict alone. Set by `RulesEngine.
+        #: exile_with_play_permission`; pruned in lockstep with
+        #: `temp_play_permissions` at cleanup (`GameEngine._step_cleanup`).
+        #: Absent key (not just falsy) means "unknown source" — an older
+        #: save/replay snapshot predating this field, or a caller that
+        #: didn't pass one.
+        self.temp_play_permission_source: dict[int, str] = {}
+
         #: Delayed triggered abilities (RULE 603.7) a resolving spell/ability
         #: has set up to fire at a *future* step ("at the beginning of your
         #: next upkeep/main phase/end step, …" — Pacts, Mana Drain, Final
@@ -564,6 +576,7 @@ class GameState:
             "initiative_id": self.initiative_id,
             "pending_choice": self.pending_choice,
             "temp_play_permissions": dict(self.temp_play_permissions),
+            "temp_play_permission_source": dict(self.temp_play_permission_source),
             "players": [p.to_dict() for p in self.players],
             "battlefield": [obj.to_dict() for obj in self.battlefield],
             "stack": [item.to_dict() for item in self.stack],

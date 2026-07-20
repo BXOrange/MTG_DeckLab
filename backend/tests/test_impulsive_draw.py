@@ -146,6 +146,77 @@ def test_permission_lapses_after_the_next_turns_cleanup():
 
 
 # ---------------------------------------------------------------------------
+# temp_play_permission_source — "why is this castable" for the board
+# ---------------------------------------------------------------------------
+
+
+def test_exile_with_play_permission_records_the_source_name():
+    eng = make_engine()
+    eng.begin_turn()
+    p1 = eng.state.active_player
+    _stock_library(p1, [_card("Bolt", "Instant", is_instant=True)])
+
+    [bolt] = eng.rules.exile_with_play_permission(p1, 1, source_name="Light Up the Stage")
+
+    assert eng.state.temp_play_permission_source[bolt.instance_id] == "Light Up the Stage"
+
+
+def test_source_name_is_absent_when_not_given():
+    eng = make_engine()
+    eng.begin_turn()
+    p1 = eng.state.active_player
+    _stock_library(p1, [_card("Bolt", "Instant", is_instant=True)])
+
+    [bolt] = eng.rules.exile_with_play_permission(p1, 1)
+
+    assert bolt.instance_id not in eng.state.temp_play_permission_source
+
+
+def test_source_name_is_pruned_in_lockstep_with_the_permission():
+    eng = make_engine()
+    eng.begin_turn()
+    p1 = eng.state.active_player
+    _stock_library(p1, [_card("Bolt", "Instant", is_instant=True)])
+    [bolt] = eng.rules.exile_with_play_permission(p1, 1, source_name="Light Up the Stage")
+
+    eng.state.current_step = "cleanup"
+    eng._step_cleanup()  # end of the granting turn: still valid
+    eng.begin_turn()
+    eng.state.current_step = "cleanup"
+    eng._step_cleanup()  # end of "your next turn": permission lapses here
+
+    assert bolt.instance_id not in eng.state.temp_play_permissions
+    assert bolt.instance_id not in eng.state.temp_play_permission_source
+
+
+def test_impulsive_draw_effect_records_the_spells_own_name_as_source():
+    eng = make_engine()
+    eng.begin_turn()
+    eng.state.current_step = "main1"
+    p1 = eng.state.active_player
+    _stock_library(p1, [_card("Bolt", "Instant", is_instant=True)])
+
+    spell = GameObject(
+        Card(id="Light Up the Stage", name="Light Up the Stage", type_line="Sorcery",
+             mana_cost_string="{1}{R}", converted_mana_cost=2, is_sorcery=True),
+        owner_id="p1", zone=Zone.HAND,
+    )
+    # A hand-built fixture mirrors what the real oracle-text binder does
+    # (`effect_binder.build_effects` sets `effect.source = source` after
+    # constructing it via the registry) rather than going through the
+    # binder itself.
+    spell.spell_effects = [ImpulsiveDrawEffect(count=1, source=spell)]
+    p1.add_to_zone(spell, Zone.HAND)
+    p1.mana_pool.add_many({"R": 2})
+
+    eng.cast_spell(p1, spell)
+    eng.resolve_until_stable()
+
+    bolt = next(o for o in p1.exile if o.name == "Bolt")
+    assert eng.state.temp_play_permission_source[bolt.instance_id] == "Light Up the Stage"
+
+
+# ---------------------------------------------------------------------------
 # Full cast pipeline via the `impulsive_draw` EffectRegistry entry
 # ---------------------------------------------------------------------------
 

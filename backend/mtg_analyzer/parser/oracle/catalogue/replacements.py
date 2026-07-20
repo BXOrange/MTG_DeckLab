@@ -39,22 +39,38 @@ _DOUBLE_TOKENS_RE = re.compile(
     r"it creates twice that many of those tokens instead",
     re.IGNORECASE,
 )
-#: Doubling Season's counter-doubling line (deliberately *not* scoped to
-#: "a permanent you control" — matches `_double_counters_replacement`'s own
-#: engine-side note that the real card doubles even an opponent's counters
-#: … except this specific sentence *is* "on a permanent you control"; a
-#: differently-scoped variant like Innkeeper's Talent's "on a permanent or
-#: player" stays unclaimed, fail-closed).
+#: Doubling Season's counter-doubling line ("a permanent you control" —
+#: the real card's own wording; engine-side unscoped by ``kind``, but this
+#: specific sentence is target-controller-scoped in its own text).
 _DOUBLE_COUNTERS_RE = re.compile(
     r"if an effect would put 1 or more counters on a permanent you control, "
     r"it puts twice that many of those counters on that permanent instead",
     re.IGNORECASE,
 )
-#: Torbran, Thane of Red Fell's "plus N damage" line — a single printed
-#: colour only ("a red source you control …"); Mechanized Warfare's "a red
-#: or artifact source" compound filter isn't this shape and stays unclaimed.
+#: Innkeeper's Talent's differently-scoped counter-doubling line: "if
+#: **you** would put counters on a permanent or player" — a *causer*-scoped
+#: sentence (whoever's effect places the counters), not Doubling Season's
+#: *recipient*-scoped "on a permanent you control" — see
+#: `_double_counters_replacement`'s ``your_effects_only`` docstring for the
+#: distinction. Its "or player" half needs no special-casing here: the
+#: engine's `EventType.COUNTER` handling is already recipient-agnostic
+#: (`RulesEngine.add_player_counters` fires the same event shape for a
+#: player recipient as `add_counters` does for a permanent).
+_DOUBLE_COUNTERS_YOUR_EFFECTS_RE = re.compile(
+    r"if you would put 1 or more counters on a permanent or player, "
+    r"put twice that many of each of those kinds of counters on that "
+    r"permanent or player instead",
+    re.IGNORECASE,
+)
+#: Torbran, Thane of Red Fell's "plus N damage" line — one or two source
+#: qualifiers joined by "or", each either a WUBRG colour word or a type word
+#: (currently only "artifact" — Mechanized Warfare's "a red or artifact
+#: source"; extend the word list as a real card needs another, mirroring
+#: `_additional_damage_replacement`'s own "extend as needed" note).
+_SOURCE_QUALIFIER_WORD = r"white|blue|black|red|green|artifact"
 _ADDITIONAL_DAMAGE_RE = re.compile(
-    r"if a (?P<color>white|blue|black|red|green) source you control would deal damage to "
+    rf"if a (?P<q1>{_SOURCE_QUALIFIER_WORD})(?: or (?P<q2>{_SOURCE_QUALIFIER_WORD}))? "
+    r"source you control would deal damage to "
     r"an opponent or a permanent an opponent controls, it deals that much damage plus "
     r"(?P<n>\d+) instead",
     re.IGNORECASE,
@@ -88,14 +104,27 @@ def replacement_clause_specs(clause: str) -> Optional[list[EffectSpec]]:
     if _DOUBLE_COUNTERS_RE.fullmatch(text):
         return [EffectSpec("double_counters", {})]
 
+    if _DOUBLE_COUNTERS_YOUR_EFFECTS_RE.fullmatch(text):
+        return [EffectSpec("double_counters", {"your_effects_only": True})]
+
     m = _ADDITIONAL_DAMAGE_RE.fullmatch(text)
     if m is not None:
-        return [EffectSpec("additional_damage", {
-            "amount": int(m.group("n")),
-            "your_sources_only": True,
-            "to_opponent_only": True,
-            "color": _COLOR_WORDS[m.group("color").lower()],
-        })]
+        quals = [m.group("q1")] + ([m.group("q2")] if m.group("q2") else [])
+        colors = sorted({_COLOR_WORDS[q.lower()] for q in quals if q.lower() in _COLOR_WORDS})
+        types = sorted({q.lower() for q in quals if q.lower() not in _COLOR_WORDS})
+        params: dict = {
+            "amount": int(m.group("n")), "your_sources_only": True, "to_opponent_only": True,
+        }
+        if len(colors) == 1 and not types:
+            # The single-colour shape (Torbran) — kept as the pre-existing
+            # ``color`` singular param for backward compatibility.
+            params["color"] = colors[0]
+        else:
+            if colors:
+                params["colors"] = colors
+            if types:
+                params["types"] = types
+        return [EffectSpec("additional_damage", params)]
 
     if _WIN_INSTEAD_OF_EMPTY_DRAW_RE.fullmatch(text):
         return [EffectSpec("win_instead_of_empty_draw", {})]

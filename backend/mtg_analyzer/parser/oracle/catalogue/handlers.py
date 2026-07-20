@@ -95,10 +95,12 @@ def _optional_param(m: re.Match[str]) -> dict:
 #: handler families — return_to_hand/tap/attach/… — that this feature
 #: doesn't touch): a plural noun phrase never collides with `TARGET`'s bare
 #: "target X"/"up to one target X" shapes, so there's no dispatch ambiguity
-#: registering both. Only wired up for `destroy`/`exile`/`damage` — the
-#: three effect classes `game/effects.py` actually loops a `count` over
-#: (`DestroyEffect`/`ExileEffect`/`DealDamageEffect`); every other targeting
-#: effect stays N=1-only until a real card drives extending it too.
+#: registering both. Wired up for `destroy`/`exile`/`damage`/`tap`/
+#: `return_to_hand`/`add_counters`/`return_from_graveyard` — every effect
+#: class `game/effects.py` loops a `count` over. `return_from_graveyard`
+#: doesn't reuse this alternation directly (graveyard clauses have their own
+#: scope/type-word grammar, `_RETURN_FROM_GRAVEYARD_MULTI_RE`) but shares
+#: `_MULTI_TARGET_QUANTIFIER`.
 _MULTI_TARGET_ROWS: list[tuple[str, str]] = [
     (r"target creatures and/or planeswalkers", "any"),
     (r"target artifacts and/or enchantments", "permanent"),
@@ -128,13 +130,21 @@ def _multi_target_kind(phrase: str) -> Optional[str]:
 _MULTI_TARGET_QUANTIFIER = r"(?P<up_to>up to )?(?P<count>\d+) "
 
 
+#: An optional trailing "controlled by different players/controllers"
+#: clause (Run Away Together/Protector of the Wastes-shaped, RULE 115.1a's
+#: N>=2 generalized with a cross-target constraint — `targeting.TargetSpec.
+#: distinct_controllers`) — appended right after `_MULTI_TARGET_ALT`'s
+#: target phrase in whichever multi-target handler regex opts in.
+_MULTI_TARGET_DISTINCT_CONTROLLERS = r"(?P<dc> controlled by different (?:players|controllers))?"
+
+
 def _multi_target_params(m: re.Match[str]) -> Optional[dict]:
-    """The shared ``{target_kind, count, optional?}`` params for a
-    `_MULTI_TARGET_QUANTIFIER` + `_MULTI_TARGET_ALT` match, or ``None`` if
-    the target phrase isn't recognized or the count is < 2 (the N=1 "up to
-    one"/bare-target case is the existing singular handler's job, not this
-    one's — a count of exactly 1 here would just be a confusing duplicate
-    route to the same effect)."""
+    """The shared ``{target_kind, count, optional?, distinct_controllers?}``
+    params for a `_MULTI_TARGET_QUANTIFIER` + `_MULTI_TARGET_ALT` match, or
+    ``None`` if the target phrase isn't recognized or the count is < 2 (the
+    N=1 "up to one"/bare-target case is the existing singular handler's
+    job, not this one's — a count of exactly 1 here would just be a
+    confusing duplicate route to the same effect)."""
     kind = _multi_target_kind(m.group("target"))
     if kind is None:
         return None
@@ -144,6 +154,8 @@ def _multi_target_params(m: re.Match[str]) -> Optional[dict]:
     params: dict = {"target_kind": kind, "count": count}
     if m.groupdict().get("up_to"):
         params["optional"] = True
+    if m.groupdict().get("dc"):
+        params["distinct_controllers"] = True
     return params
 
 
@@ -255,26 +267,50 @@ _CREATURE_FILTER_KEYWORD_WORDS: dict[str, str] = {
     "haste": "haste", "indestructible": "indestructible", "hexproof": "hexproof",
     "reach": "reach",
 }
+#: One power/toughness/keyword clause, with named groups suffixed by
+#: ``suffix`` so the same fragment can appear twice in one regex (a compound
+#: "with power 4 or greater and flying" filter — two independent clauses
+#: joined by "and", RULE 115/601.2c) without a group-name collision.
+def _creature_filter_clause(suffix: str) -> str:
+    return (
+        rf"power (?P<pwr{suffix}>\d+) or (?P<pwr_cmp{suffix}>greater|less)"
+        rf"|toughness (?P<tough{suffix}>\d+) or (?P<tough_cmp{suffix}>greater|less)"
+        rf"|(?P<kw{suffix}>{'|'.join(_CREATURE_FILTER_KEYWORD_WORDS)})"
+    )
+
+
 #: The qualifier suffix shared by `_DESTROY_CREATURE_FILTER_RE`/
-#: `_EXILE_CREATURE_FILTER_RE` — appended right after "target creature".
+#: `_EXILE_CREATURE_FILTER_RE` — appended right after "target creature". The
+#: trailing group is an optional second " and [with] <clause>" — only two
+#: clauses (the real-card ceiling found so far); a third would need a third
+#: suffixed group set.
 _CREATURE_FILTER_SUFFIX = (
-    r"with (?:power (?P<pwr>\d+) or (?P<pwr_cmp>greater|less)"
-    r"|toughness (?P<tough>\d+) or (?P<tough_cmp>greater|less)"
-    rf"|(?P<kw>{'|'.join(_CREATURE_FILTER_KEYWORD_WORDS)}))"
+    rf"with (?:{_creature_filter_clause('')})"
+    rf"(?: and (?:with )?(?:{_creature_filter_clause('2')}))?"
 )
+
+
+def _creature_quality_filter_clause(groups: dict, suffix: str) -> Optional[dict]:
+    if groups.get(f"pwr{suffix}"):
+        n = int(groups[f"pwr{suffix}"])
+        return {"min_power": n} if groups[f"pwr_cmp{suffix}"] == "greater" else {"max_power": n}
+    if groups.get(f"tough{suffix}"):
+        n = int(groups[f"tough{suffix}"])
+        return {"min_toughness": n} if groups[f"tough_cmp{suffix}"] == "greater" else {"max_toughness": n}
+    if groups.get(f"kw{suffix}"):
+        return {"keyword": _CREATURE_FILTER_KEYWORD_WORDS[groups[f"kw{suffix}"]]}
+    return None
 
 
 def _creature_quality_filter(m: re.Match[str]) -> Optional[dict]:
     groups = m.groupdict()
-    if groups.get("pwr"):
-        n = int(m.group("pwr"))
-        return {"min_power": n} if m.group("pwr_cmp") == "greater" else {"max_power": n}
-    if groups.get("tough"):
-        n = int(m.group("tough"))
-        return {"min_toughness": n} if m.group("tough_cmp") == "greater" else {"max_toughness": n}
-    if groups.get("kw"):
-        return {"keyword": _CREATURE_FILTER_KEYWORD_WORDS[m.group("kw")]}
-    return None
+    first = _creature_quality_filter_clause(groups, "")
+    if first is None:
+        return None
+    second = _creature_quality_filter_clause(groups, "2")
+    if second is None:
+        return first
+    return {**first, **second}
 
 
 def _destroy_creature_filter(m: re.Match[str]) -> Optional[list[EffectSpec]]:
@@ -391,6 +427,19 @@ def _tap(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     return [EffectSpec("tap", {"target_kind": kind, "untap": untap, **_optional_param(m)})]
 
 
+#: "tap N target creatures" / "untap up to two target lands" (RULE 115.1a
+#: generalized to N>=2, Snap-shaped — `TapEffect.count` already supported
+#: this; only the grammar was missing). Restricted to the same
+#: creature/permanent kinds the singular `_tap` handler allows.
+def _tap_multi_target(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    params = _multi_target_params(m)
+    if params is None or params["target_kind"] not in ("creature", "permanent"):
+        return None
+    untap = m.group("verb").lower() == "untap"
+    params["untap"] = untap
+    return [EffectSpec("tap", params)]
+
+
 def _tap_selector(m: re.Match[str]) -> list[EffectSpec]:
     # "untap all creatures you control" (Village Bell-Ringer's ETB) — an
     # untargeted mass effect, `game/effects.py`'s `TapEffect.selector`, the
@@ -459,6 +508,15 @@ def _return_to_hand(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     return [EffectSpec("return_to_hand", {"target_kind": kind, **_optional_param(m)})]
 
 
+#: "return two target creatures to their owners' hands" (RULE 115.1a
+#: generalized to N>=2) — the plural sibling of `_return_to_hand`.
+def _return_to_hand_multi_target(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    params = _multi_target_params(m)
+    if params is None or params["target_kind"] not in _RETURN_TO_HAND_KINDS:
+        return None
+    return [EffectSpec("return_to_hand", params)]
+
+
 #: A graveyard clause's card-*type* word, right before "card" — "target
 #: [instant or sorcery/nonland permanent/creature/artifact/enchantment/
 #: land/permanent] card", or no word at all for a bare "target card"
@@ -520,6 +578,33 @@ def _return_from_graveyard(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     return [EffectSpec("return_from_graveyard", params)]
 
 
+#: "return up to two target creature cards from your graveyard to your
+#: hand"/"...to the battlefield" (RULE 115.1a generalized to N>=2 — Back for
+#: Seconds/Dead Revels/Death's Duet/Entreat the Dead-shaped, a large real
+#: family) — the plural sibling of `_RETURN_FROM_GRAVEYARD_RE`. The type
+#: word itself doesn't inflect ("creature cards", not "creatures cards").
+_RETURN_FROM_GRAVEYARD_MULTI_RE = _c(
+    rf"return {_MULTI_TARGET_QUANTIFIER}target (?:(?P<type>{_GRAVEYARD_TYPE_WORD}) )?cards from "
+    rf"(?P<scope>{_GRAVEYARD_SCOPE_WORD}) graveyards? to "
+    r"(?P<dest>the battlefield|your hand|their owners'? hands)"
+)
+
+
+def _return_from_graveyard_multi_target(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    kind = _graveyard_target_kind(m.groupdict().get("type"), m.group("scope"))
+    if kind is None:
+        return None
+    count = int(m.group("count"))
+    if count < 2:
+        return None
+    dest = m.groupdict().get("dest")
+    destination = "battlefield" if dest is None or dest == "the battlefield" else "hand"
+    params: dict = {"target_kind": kind, "destination": destination, "count": count}
+    if m.groupdict().get("up_to"):
+        params["optional"] = True
+    return [EffectSpec("return_from_graveyard", params)]
+
+
 #: "put target [type] card from [scope] graveyard onto the battlefield
 #: under your control" (Reanimate/Rise from the Grave/Virtue of Persistence)
 #: — unlike the two shapes above, this one *steals* the card for the
@@ -566,15 +651,22 @@ def _exile_from_graveyard(m: re.Match[str]) -> Optional[list[EffectSpec]]:
 #: `EffectSpec` (`game/effects.py`'s `SearchLibraryEffect`, already
 #: parameterized on criteria/destination/count — `tests/
 #: test_search_popular_tutors.py` proves it against 15 real popular tutors)
-#: — no new effect type needed, just recognition. Deliberately NOT attempted
-#: here (fail-closed, real cards found but left unclaimed): "library and/or
-#: graveyard" combined search (Doomsday/Finale of Devastation — `request_
-#: search` only reads `player.library`), a split destination per found card
-#: (Cultivate/Kodama's Reach — a single search always has one destination),
-#: "search for N cards and exile the rest" (Doomsday), and any qualifier
-#: after the noun phrase such as "with mana value X or less" (Green Sun's
-#: Zenith/Chord of Calling — X is a spell's own cast-time choice, not a
-#: static criterion this grammar can express).
+#: — no new effect type needed, just recognition. Three siblings below
+#: extend the same `"search"` `EffectSpec` onto its ``zones``/
+#: ``destinations``/``exile_rest`` params (`RulesEngine.request_search`):
+#: "library and/or graveyard" combined search (`_search_zone_put`, ~50 real
+#: cards — the backgrounds/planeswalker-tutor family), a split destination
+#: per found card (`_search_split_destination` — Cultivate/Kodama's Reach),
+#: and "search for N cards and exile the rest" (`_search_exile_rest` —
+#: Doomsday). Deliberately still NOT attempted here (fail-closed, real cards
+#: found but left unclaimed): any qualifier after the noun phrase such as
+#: "with mana value X or less" (Green Sun's Zenith/Chord of Calling/Finale
+#: of Devastation — X is a spell's own cast-time choice, not a static
+#: criterion this grammar can express), a name criterion whose own name
+#: contains a comma ("a card named Angrath, Minotaur Pirate" —
+#: indistinguishable from the following put-clause's own comma without a
+#: name dictionary), and a searched-for subtype not in `_SEARCH_TYPE_WORD`'s
+#: vocabulary ("a Shrine card"/"an Ally creature card").
 #:
 #: The type-word vocabulary intentionally also carries the five basic land
 #: names (a card can be searched for by name, "a Forest card"/"a Plains,
@@ -683,6 +775,127 @@ def _search_shuffle_then_put_top(m: re.Match[str]) -> list[EffectSpec]:
     if count is not None:
         params["count"] = count
     return [EffectSpec("search", params)]
+
+
+#: "search your library for up to N basic land cards, reveal those cards,
+#: put one <destA> and the other <destB>, then shuffle." (Cultivate/Kodama's
+#: Reach-shaped split destination — RULE 701.19 same as the plain family
+#: above, just two different destinations for the two picks instead of one
+#: shared `destination`; maps onto `"search"`'s `destinations` param,
+#: positional against the picks).
+_SEARCH_SPLIT_DESTINATION_RE = _c(
+    rf"search your library for {_SEARCH_CRITERIA},?\s*"
+    rf"{_SEARCH_REVEAL}"
+    # "one" is folded to "1" by `normalize`'s spelled-number pass (it can't
+    # tell this "one" is a pronoun, not a count) — match the folded form.
+    rf"put 1 (?P<dest1>{_SEARCH_DESTINATION_ALT}) and the other "
+    rf"(?P<dest2>{_SEARCH_DESTINATION_ALT}),?\s*"
+    r"then shuffle"
+)
+
+
+def _search_split_destination(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    dest1 = _search_destination_kind(m.group("dest1"))
+    dest2 = _search_destination_kind(m.group("dest2"))
+    if dest1 is None or dest2 is None:
+        return None
+    params: dict = {
+        "criteria": _search_criteria_from_match(m),
+        "destination": dest1,
+        "destinations": [dest1, dest2],
+    }
+    count = _search_count_from_match(m)
+    if count is not None:
+        params["count"] = count
+    return [EffectSpec("search", params)]
+
+
+#: The criteria noun phrase for a "library and/or graveyard" search — same
+#: basic-land/type-list alternatives as `_SEARCH_CRITERIA`, plus a bare-name
+#: alternative ("a card named <Name>") this family's real cards lean on
+#: heavily (planeswalker/background tutors); restricted to a name with no
+#: internal comma (see the module docstring above for why).
+_SEARCH_ZONE_CRITERIA = (
+    r"(?:up to (?P<count>\d+)|an?)\s+"
+    r"(?:"
+    r"(?P<basic>basic land) cards?"
+    rf"|card named (?P<name>[a-z][a-z' -]*?)"
+    rf"|(?P<types>{_SEARCH_TYPE_LIST}) cards?"
+    r"|cards?"
+    r")"
+)
+#: "search your library and/or graveyard for <criteria>, [reveal <pronoun>,]
+#: [and] put <pronoun> <destination>. If you search[ed] your library this
+#: way, shuffle." (RULE 701.19 "and/or" combined-zone search — the
+#: backgrounds/planeswalker-tutor family: Delivery Moogle/Tale of Momo/
+#: Elspeth Undaunted Hero/Tower Winder/…). Unlike the library-only family's
+#: "then shuffle" tail, the shuffle here is conditional on *which* zone hit
+#: — engine-side this maps onto `RulesEngine._finish_search` always
+#: shuffling whenever ``"library"`` is among ``zones`` (a documented
+#: simplification: it doesn't track which specific zone the chosen card(s)
+#: actually came from).
+_SEARCH_ZONE_PUT_RE = _c(
+    rf"search your library and/or graveyard for {_SEARCH_ZONE_CRITERIA},?\s*"
+    rf"{_SEARCH_REVEAL}"
+    rf"(?:and\s+)?put {_SEARCH_PRONOUN} (?P<dest>{_SEARCH_DESTINATION_ALT})\.\s*"
+    r"if you search(?:ed)? your library this way,?\s*shuffle"
+)
+
+
+def _search_zone_criteria_from_match(m: re.Match[str]) -> dict:
+    if m.groupdict().get("basic"):
+        return {"basic": True}
+    name = m.groupdict().get("name")
+    if name:
+        return {"name": name.strip()}
+    types = m.groupdict().get("types")
+    if types:
+        words = [t.strip() for t in re.split(r",\s*or\s+|,\s*|\s+or\s+", types) if t.strip()]
+        return {"type": words if len(words) > 1 else words[0]}
+    return {}
+
+
+def _search_zone_put(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    destination = _search_destination_kind(m.group("dest"))
+    if destination is None:
+        return None
+    params: dict = {
+        "criteria": _search_zone_criteria_from_match(m),
+        "destination": destination,
+        "zones": ["library", "graveyard"],
+    }
+    count = _search_count_from_match(m)
+    if count is not None:
+        params["count"] = count
+    return [EffectSpec("search", params)]
+
+
+#: "search your library [and graveyard] for N cards and exile the rest. Put
+#: the chosen cards on top of your library in any order." (Doomsday-shaped —
+#: no "then shuffle" at all: RULE 701.19e's shuffle is for an *ordinary*
+#: search, and this one's own text never calls for one). Maps onto
+#: `"search"`'s ``exile_rest``/``count``/``destination="library_top"``.
+_SEARCH_EXILE_REST_RE = _c(
+    r"search your library(?P<gy> and (?:your )?graveyard)? for "
+    r"(?P<count>\d+) cards? and exile the rest\.\s*"
+    r"put the chosen cards? on top of your library in any order"
+)
+
+
+def _search_exile_rest(m: re.Match[str]) -> list[EffectSpec]:
+    zones = ["library", "graveyard"] if m.group("gy") else ["library"]
+    return [
+        EffectSpec(
+            "search",
+            {
+                "criteria": {},
+                "destination": "library_top",
+                "count": int(m.group("count")),
+                "exile_rest": True,
+                "zones": zones,
+            },
+        )
+    ]
 
 
 #: "attach it to target creature you control" / "attach ~ to target creature
@@ -874,6 +1087,30 @@ def _add_counters(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     return [EffectSpec("add_counters", params)]
 
 
+#: "put a +1/+1 counter on each of up to two target creatures" (RULE 115.1a
+#: generalized to N>=2 — the Support-keyword-shaped family; a live query
+#: against the cached Oracle DB found 100+ real cards spelling this out,
+#: e.g. Ajani, Adversary of Tyrants/Arcade Cabinet/Basri's Aegis/Bretagard
+#: Stronghold). Two numbers in one clause (counter amount vs. target count,
+#: the same shape `_damage_each_multi_target` already handles for damage) —
+#: ``target_count`` is a deliberately distinct `EffectSpec` key from
+#: ``count``/``amount`` (both already mean the *counter* amount here).
+def _add_counters_multi_target(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    mt = _multi_target_params(m)
+    if mt is None or mt["target_kind"] not in ("creature", "permanent"):
+        return None
+    ckind = "-1/-1" if m.group("ckind").lstrip()[0] in "-−" else "+1/+1"
+    params: dict = {
+        "count": count_of(m.group("n")),
+        "kind": ckind,
+        "target_kind": mt["target_kind"],
+        "target_count": mt["count"],
+    }
+    if mt.get("optional"):
+        params["optional"] = True
+    return [EffectSpec("add_counters", params)]
+
+
 #: "put N +1/+1 counters on each creature you control" (RULE 601.2c mass
 #: effect, Vastwood Surge-shaped) — a genuinely different shape from
 #: `_add_counters`'s RULE 115 target/self forms, so its own handler row
@@ -951,6 +1188,48 @@ def _scry(m: re.Match[str]) -> list[EffectSpec]:
 
 def _proliferate(m: re.Match[str]) -> list[EffectSpec]:
     return [EffectSpec("proliferate", {})]
+
+
+#: "proliferate twice" (Contagion Engine/Agent Frank Horrigan/Ezuri, Stalker
+#: of Spheres) / "proliferate N times" (War of the Spark's Saga chapter —
+#: normalize.py folds spelled-out numbers to digits, but not "twice", so
+#: that's matched as its own literal word). A bare "proliferate x times"
+#: (Expansion Algorithm's spell-announced-X, Tromell's dynamic
+#: count-selector) stays unclaimed — a different shape (`ProliferateEffect`
+#: has no "x"/count-selector support), not this literal-count one.
+def _proliferate_n_times(m: re.Match[str]) -> list[EffectSpec]:
+    times = 2 if m.group("n") is None else int(m.group("n"))
+    return [EffectSpec("proliferate", {"times": times})]
+
+
+#: "remove all counters from all permanents" (RULE 122 — Oblivion Stone/
+#: Aether Snap/Thief of Blood-shaped, untargeted board wipe of counters).
+def _remove_counters_all_permanents(m: re.Match[str]) -> list[EffectSpec]:
+    return [EffectSpec("remove_counters", {})]
+
+
+#: "remove all counters from target permanent" (Vampire Hexmage-shaped).
+def _remove_counters_target(m: re.Match[str]) -> list[EffectSpec]:
+    return [EffectSpec("remove_counters", {"target_kind": "permanent"})]
+
+
+#: "remove up to N counters from target permanent/creature" (Glissa
+#: Sunslayer/Heartless Act/Render Inert-shaped) — a genuinely different,
+#: interactive chosen-*amount* shape from the bare "remove all counters"
+#: above (`RemoveCountersEffect`'s ``max_count``). Digits only —
+#: `normalize.py` already folds spelled-out numbers ("up to three" → "up to
+#: 3"). Restricted to "permanent"/"creature" (the two real shapes found);
+#: Price of Betrayal's "target artifact, creature, planeswalker, or
+#: opponent" compound target (including a player) stays unclaimed.
+_REMOVE_COUNTERS_CHOICE_RE = _c(
+    r"remove up to (?P<n>\d+) counters? from target (?P<kind>permanent|creature)"
+)
+
+
+def _remove_counters_choice(m: re.Match[str]) -> list[EffectSpec]:
+    return [EffectSpec(
+        "remove_counters", {"target_kind": m.group("kind"), "max_count": int(m.group("n"))},
+    )]
 
 
 # "You may play [up to] N additional land(s) this turn."  (RULE 305.2
@@ -1206,10 +1485,15 @@ HANDLERS: list[EffectHandler] = [
     ),
     # "destroy two target creatures" / "destroy up to two target artifacts
     # and/or enchantments" (RULE 115.1a generalized to N>=2 — Curtains'
-    # Call/Force of Vigor-shaped).
+    # Call/Force of Vigor-shaped), optionally "… controlled by different
+    # players" (Cloud's Limit Break-adjacent cross-target constraint —
+    # `_MULTI_TARGET_DISTINCT_CONTROLLERS`).
     EffectHandler(
         "destroy_multi_target",
-        _c(rf"destroy {_MULTI_TARGET_QUANTIFIER}(?P<target>{_MULTI_TARGET_ALT})"),
+        _c(
+            rf"destroy {_MULTI_TARGET_QUANTIFIER}(?P<target>{_MULTI_TARGET_ALT})"
+            rf"{_MULTI_TARGET_DISTINCT_CONTROLLERS}"
+        ),
         _destroy_multi_target,
     ),
     # "regenerate target creature" (RULE 701.16, Ezuri, Renegade Leader's
@@ -1274,10 +1558,15 @@ HANDLERS: list[EffectHandler] = [
         _exile,
     ),
     # "exile two target creatures" / "exile up to two target artifacts"
-    # (RULE 115.1a generalized to N>=2).
+    # (RULE 115.1a generalized to N>=2), optionally "… controlled by
+    # different players" (Protector of the Wastes-shaped cross-target
+    # constraint — `_MULTI_TARGET_DISTINCT_CONTROLLERS`).
     EffectHandler(
         "exile_multi_target",
-        _c(rf"exile {_MULTI_TARGET_QUANTIFIER}(?P<target>{_MULTI_TARGET_ALT})"),
+        _c(
+            rf"exile {_MULTI_TARGET_QUANTIFIER}(?P<target>{_MULTI_TARGET_ALT})"
+            rf"{_MULTI_TARGET_DISTINCT_CONTROLLERS}"
+        ),
         _exile_multi_target,
     ),
     # "exile ~" / "exile this card" — the self form (Teferi's Protection/
@@ -1299,6 +1588,13 @@ HANDLERS: list[EffectHandler] = [
         "tap",
         _c(rf"(?P<verb>tap|untap) {TARGET}"),
         _tap,
+    ),
+    # "tap two target creatures" / "untap up to two target lands" (RULE
+    # 115.1a generalized to N>=2, Snap-shaped).
+    EffectHandler(
+        "tap_multi_target",
+        _c(rf"(?P<verb>tap|untap) {_MULTI_TARGET_QUANTIFIER}(?:other )?(?P<target>{_MULTI_TARGET_ALT})"),
+        _tap_multi_target,
     ),
     # "untap all creatures you control" (Village Bell-Ringer) — must sit
     # above `tap_self`/the bare `_SELF_SUBJECT` row so "all creatures you
@@ -1329,6 +1625,13 @@ HANDLERS: list[EffectHandler] = [
         _c(rf"return {TARGET} to its owner's hand"),
         _return_to_hand,
     ),
+    # "return two target creatures to their owners' hands" (RULE 115.1a
+    # generalized to N>=2) — the plural sibling of `return_to_hand`.
+    EffectHandler(
+        "return_to_hand_multi_target",
+        _c(rf"return {_MULTI_TARGET_QUANTIFIER}(?:other )?(?P<target>{_MULTI_TARGET_ALT}) to their owners'? hands?"),
+        _return_to_hand_multi_target,
+    ),
     # "return target [type] card from [scope] graveyard to the
     # battlefield/your hand/its owner's hand" / "put target [type] card
     # from [scope] graveyard onto the battlefield under its owner's
@@ -1343,6 +1646,14 @@ HANDLERS: list[EffectHandler] = [
         "return_from_graveyard_owner_control",
         _PUT_FROM_GRAVEYARD_OWNER_CONTROL_RE,
         _return_from_graveyard,
+    ),
+    # "return up to two target creature cards from your graveyard to your
+    # hand"/"...to the battlefield" (RULE 115.1a generalized to N>=2) — the
+    # plural sibling of `return_from_graveyard`.
+    EffectHandler(
+        "return_from_graveyard_multi_target",
+        _RETURN_FROM_GRAVEYARD_MULTI_RE,
+        _return_from_graveyard_multi_target,
     ),
     # "put target [type] card from [scope] graveyard onto the battlefield
     # under your control" (Reanimate/Rise from the Grave/Virtue of
@@ -1376,6 +1687,31 @@ HANDLERS: list[EffectHandler] = [
         "search_shuffle_then_put_top",
         _SEARCH_SHUFFLE_THEN_PUT_TOP_RE,
         _search_shuffle_then_put_top,
+    ),
+    # "search your library for up to N basic land cards, reveal those cards,
+    # put one <destA> and the other <destB>, then shuffle." (Cultivate/
+    # Kodama's Reach-shaped split destination).
+    EffectHandler(
+        "search_split_destination",
+        _SEARCH_SPLIT_DESTINATION_RE,
+        _search_split_destination,
+    ),
+    # "search your library and/or graveyard for <criteria>, [reveal
+    # <pronoun>,] put <pronoun> <destination>. If you search[ed] your
+    # library this way, shuffle." (the backgrounds/planeswalker-tutor
+    # combined-zone family).
+    EffectHandler(
+        "search_zone_put",
+        _SEARCH_ZONE_PUT_RE,
+        _search_zone_put,
+    ),
+    # "search your library [and graveyard] for N cards and exile the rest.
+    # Put the chosen cards on top of your library in any order."
+    # (Doomsday-shaped).
+    EffectHandler(
+        "search_exile_rest",
+        _SEARCH_EXILE_REST_RE,
+        _search_exile_rest,
     ),
     # "attach it to target creature you control" / "attach ~ to target
     # creature you control" (an Equipment's own ETB self-attach).
@@ -1461,6 +1797,16 @@ HANDLERS: list[EffectHandler] = [
         ),
         _add_counters,
     ),
+    # "put a +1/+1 counter on each of up to two target creatures" (RULE
+    # 115.1a generalized to N>=2 — the Support-keyword-shaped family).
+    EffectHandler(
+        "add_counters_multi_target",
+        _c(
+            rf"put {COUNT} (?P<ckind>[+\-−]1/[+\-−]1) counters? on each of "
+            rf"{_MULTI_TARGET_QUANTIFIER}(?:other )?(?P<target>{_MULTI_TARGET_ALT})"
+        ),
+        _add_counters_multi_target,
+    ),
     # "put N +1/+1 counters on each creature you control" (RULE 601.2c mass
     # effect, Vastwood Surge-shaped).
     EffectHandler(
@@ -1510,13 +1856,39 @@ HANDLERS: list[EffectHandler] = [
         _c(rf"surveil {NUMBER}"),
         _surveil,
     ),
-    # "proliferate" (RULE 701.30) — bare only; "proliferate twice"/"…x
-    # times" need a repeat-count `ProliferateEffect` doesn't support yet,
-    # left unclaimed (fail-closed) rather than silently proliferating once.
+    # "proliferate twice" / "proliferate N times" (RULE 701.30) — tried
+    # before the bare `proliferate` row below since it's a strict superset.
+    EffectHandler(
+        "proliferate_n_times",
+        _c(r"proliferate (?:(?P<twice>twice)|(?P<n>\d+) times)"),
+        _proliferate_n_times,
+    ),
+    # "proliferate" (RULE 701.30) — bare.
     EffectHandler(
         "proliferate",
         _c(r"proliferate"),
         _proliferate,
+    ),
+    # "remove all counters from all permanents" (RULE 122 — Oblivion Stone/
+    # Aether Snap/Thief of Blood-shaped).
+    EffectHandler(
+        "remove_counters_all_permanents",
+        _c(r"remove all counters from all permanents"),
+        _remove_counters_all_permanents,
+    ),
+    # "remove all counters from target permanent" (Vampire Hexmage-shaped).
+    EffectHandler(
+        "remove_counters_target",
+        _c(r"remove all counters from target permanent"),
+        _remove_counters_target,
+    ),
+    # "remove up to N counters from target permanent/creature" (Glissa
+    # Sunslayer/Heartless Act/Render Inert-shaped) — see
+    # `_REMOVE_COUNTERS_CHOICE_RE`.
+    EffectHandler(
+        "remove_counters_choice",
+        _REMOVE_COUNTERS_CHOICE_RE,
+        _remove_counters_choice,
     ),
     # "You may play an additional land this turn." / "You may play up to
     # two additional lands this turn." (RULE 305.2 one-turn permission) —

@@ -129,7 +129,15 @@ UNMODELED = "UNMODELED"
 #: a synthetic `Emblem` source — `models/emblem.py`). "12" was consumed by a
 #: concurrent Batch 9 coverage re-measure before this batch's own code
 #: landed, so it's skipped here rather than reused for a different card set.
-PARSER_VERSION = "13"
+#: "14": the cross-target-constraints/counters backlog item — "remove up to
+#: N counters from target permanent/creature" (Glissa Sunslayer/Heartless
+#: Act/Render Inert-shaped chosen-amount `remove_counters`), Innkeeper's
+#: Talent's causer-scoped `double_counters` ("if you would put … on a
+#: permanent or player"), Mechanized Warfare's compound "a red or artifact
+#: source" `additional_damage` filter, and the "N target X controlled by
+#: different players/controllers" cross-target constraint on
+#: `destroy`/`exile` (Protector of the Wastes-shaped).
+PARSER_VERSION = "14"
 
 
 @dataclass

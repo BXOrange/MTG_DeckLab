@@ -355,9 +355,13 @@ class GameSession:
             # the `mode` field `GameEngine._cast_action` stamped on the
             # offered action; absent for a non-modal spell.
             mode = action.get("mode")
+            # RULE 702.33: how many times Kicker was paid — round-trips from
+            # `legal_actions`' `has_kicker`/`kicker_multi`/`max_kicker` the
+            # same way `x` round-trips from `has_x`/`max_x`.
+            kicked = int(action.get("kicked", 0))
             self.engine.cast_spell(
                 active, self._object(action), targets, x, face=face, mode=mode,
-                target_groups=target_groups,
+                kicked=kicked, target_groups=target_groups,
             )
             return
 

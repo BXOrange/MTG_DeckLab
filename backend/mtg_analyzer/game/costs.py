@@ -51,6 +51,13 @@ _DISCARD_SELF_RE = re.compile(r"discard this card", re.IGNORECASE)
 _REMOVE_COUNTERS_RE = re.compile(
     r"remove\s+(\d+|[a-z]+)\s+([+\-]?\d+/[+\-]?\d+|[a-z]+)\s+counters?", re.IGNORECASE
 )
+#: "Remove any number of <kind> counters from ~" (the Mana Battery cycle/
+#: storage lands/Geistflame Reservoir/Rhys the Evermore/The Astonishing
+#: Ant-Man) — checked before `_REMOVE_COUNTERS_RE` since "any number of"
+#: doesn't fit that regex's single-token count group at all.
+_REMOVE_ANY_COUNTERS_RE = re.compile(
+    r"remove\s+any number of\s+([+\-]?\d+/[+\-]?\d+|[a-z]+)\s+counters?", re.IGNORECASE
+)
 #: RULE 702.x-adjacent bulk-tap cost: "Tap two untapped Elves you control"
 #: (Birchlore Rangers, Heritage Druid) — taps *other* permanents of a
 #: creature type instead of the source itself. The type word is kept as
@@ -122,6 +129,21 @@ DISCARD_HAND = -1
 #: amount isn't known until pay time, since it's tied to the spell's own
 #: announced X, not a printed number.
 PAY_LIFE_X = -1
+
+#: Sentinels for `ActivationCost.remove_counters`'s ``count`` half, mirroring
+#: `PAY_LIFE_X`'s idiom — the actual amount isn't a printed number, it's
+#: announced at activation time (RULE 601.2b's template, applied to a
+#: non-mana cost component): "Remove X counters" (`REMOVE_COUNTERS_X` — the
+#: activation's own announced X, the same `x` a co-occurring `{X}` mana
+#: symbol would also use, e.g. Chamber Sentry/Marath; several real cards
+#: have no `{X}` mana at all, e.g. Blademane Baku, so X is announced purely
+#: by this cost clause) and "Remove any number of counters"
+#: (`REMOVE_COUNTERS_ANY` — a freely chosen amount, 0..however many are on
+#: the permanent, not tied to any other X — the Mana Battery cycle/storage
+#: lands). Both are paid/validated against the same `x` parameter
+#: `activate_ability` already threads through for mana `{X}`.
+REMOVE_COUNTERS_X = -1
+REMOVE_COUNTERS_ANY = -2
 
 
 def _word_to_int(word: str) -> int:
@@ -260,7 +282,12 @@ class ActivationCost:
             parts.append("Discard this card")
         if self.remove_counters:
             kind, count = self.remove_counters
-            parts.append(f"Remove {count} {kind} counter(s)")
+            if count == REMOVE_COUNTERS_X:
+                parts.append(f"Remove X {kind} counter(s)")
+            elif count == REMOVE_COUNTERS_ANY:
+                parts.append(f"Remove any number of {kind} counters")
+            else:
+                parts.append(f"Remove {count} {kind} counter(s)")
         if self.exile_from_graveyard:
             parts.append(f"Exile {self.exile_from_graveyard} other card(s) from your graveyard")
         if self.tap_others:
@@ -424,10 +451,15 @@ def _parse_text(text: str) -> ActivationCost:
             else:
                 cost.discard = _word_to_int(phrase.split()[0])
 
-    counters = _REMOVE_COUNTERS_RE.search(cost_text)
-    if counters:
-        count = _word_to_int(counters.group(1))
-        cost.remove_counters = (counters.group(2).lower(), count)
+    any_counters = _REMOVE_ANY_COUNTERS_RE.search(cost_text)
+    if any_counters:
+        cost.remove_counters = (any_counters.group(1).lower(), REMOVE_COUNTERS_ANY)
+    else:
+        counters = _REMOVE_COUNTERS_RE.search(cost_text)
+        if counters:
+            amount_word = counters.group(1).strip().lower()
+            count = REMOVE_COUNTERS_X if amount_word == "x" else _word_to_int(amount_word)
+            cost.remove_counters = (counters.group(2).lower(), count)
 
     exile_graveyard = _EXILE_GRAVEYARD_RE.search(cost_text)
     if exile_graveyard:

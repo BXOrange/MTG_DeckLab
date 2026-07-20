@@ -111,8 +111,15 @@ class GameContext:
     def attach_to_target(self, source: "GameObject", target: "GameObject") -> None:
         self.engine.attach_to_target(source, target)
 
-    def add_counters(self, target: "GameObject", amount: int, kind: str = "+1/+1") -> None:
-        self.engine.add_counters(target, amount, kind)
+    def add_counters(
+        self, target: "GameObject", amount: int, kind: str = "+1/+1", source: Optional["GameObject"] = None
+    ) -> None:
+        self.engine.add_counters(target, amount, kind, source=source)
+
+    def add_player_counters(
+        self, player: "Player", amount: int, kind: str = "poison", source: Optional["GameObject"] = None
+    ) -> None:
+        self.engine.add_player_counters(player, amount, kind, source=source)
 
     def scry(self, player: "Player", count: int = 1) -> None:
         self.engine.scry(player, count)
@@ -187,8 +194,14 @@ class GameContext:
         destination: str = "hand",
         count: int = 1,
         optional: bool = True,
+        zones: Optional[list[str]] = None,
+        destinations: Optional[list[str]] = None,
+        exile_rest: bool = False,
     ) -> None:
-        self.engine.request_search(player, criteria, destination, count, optional)
+        self.engine.request_search(
+            player, criteria, destination, count, optional,
+            zones=zones, destinations=destinations, exile_rest=exile_rest,
+        )
 
     def impulsive_look(
         self,
@@ -203,8 +216,10 @@ class GameContext:
             player, count, criteria, hit_destination, miss_destination, optional
         )
 
-    def exile_with_play_permission(self, player: "Player", count: int) -> None:
-        self.engine.exile_with_play_permission(player, count)
+    def exile_with_play_permission(
+        self, player: "Player", count: int, source_name: Optional[str] = None
+    ) -> None:
+        self.engine.exile_with_play_permission(player, count, source_name=source_name)
 
     def shuffle_library(self, player: "Player") -> None:
         self.engine.shuffle_library(player)
@@ -1183,6 +1198,11 @@ class DestroyEffect(GameEffect):
     "destroy target creature with power 4 or greater"/"…with flying"-shaped)
     — a different, orthogonal narrowing from ``filter`` above (which only
     ever applies to the untargeted ``selector`` mass-wipe path).
+
+    ``distinct_controllers`` (Run Away Together/Protector of the Wastes-
+    shaped "N target creatures/permanents controlled by **different
+    players**") is `targeting.TargetSpec.distinct_controllers` — see its
+    docstring; only meaningful with ``count >= 2``.
     """
 
     def __init__(
@@ -1198,6 +1218,7 @@ class DestroyEffect(GameEffect):
         color: Optional[str] = None,
         max_mana_value: Optional[int] = None,
         creature_filter: Optional[dict[str, Any]] = None,
+        distinct_controllers: bool = False,
     ) -> None:
         super().__init__(source)
         self.target = target
@@ -1208,6 +1229,7 @@ class DestroyEffect(GameEffect):
             self.target_spec = TargetSpec(
                 kind=target_kind, optional=optional, count=count, color=color,
                 max_mana_value=max_mana_value, creature_filter=creature_filter,
+                distinct_controllers=distinct_controllers,
             )
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
@@ -1666,6 +1688,11 @@ class ExileEffect(GameEffect):
     reads it back later, arbitrarily many turns on. Only meaningful with a
     single (``count=1``) real target — a mass/selector exile has nothing
     single to remember.
+
+    ``distinct_controllers`` (Protector of the Wastes-shaped "up to two
+    target artifacts and/or enchantments controlled by **different
+    players**") is `targeting.TargetSpec.distinct_controllers` — see its
+    docstring; only meaningful with ``count >= 2``.
     """
 
     def __init__(
@@ -1679,6 +1706,7 @@ class ExileEffect(GameEffect):
         filter: Optional[dict[str, Any]] = None,
         remember: bool = False,
         creature_filter: Optional[dict[str, Any]] = None,
+        distinct_controllers: bool = False,
     ) -> None:
         super().__init__(source)
         self.target = target
@@ -1689,6 +1717,7 @@ class ExileEffect(GameEffect):
         if self.selector is None and target_kind is not None:
             self.target_spec = TargetSpec(
                 kind=target_kind, optional=optional, count=count, creature_filter=creature_filter,
+                distinct_controllers=distinct_controllers,
             )
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
@@ -1792,7 +1821,7 @@ class ExileGraveyardCardCounterIfPermanentEffect(GameEffect):
         )
         context.exile(target)
         if is_permanent and self.source is not None:
-            context.add_counters(self.source, 1, "+1/+1")
+            context.add_counters(self.source, 1, "+1/+1", source=self.source)
 
 
 class ExileGraveyardCreaturesGainLifeEffect(GameEffect):
@@ -2306,7 +2335,7 @@ class CounterAndFirstStrikeEffect(GameEffect):
         target = (targets[0] if targets else None) or self.target
         if target is None:
             return
-        context.add_counters(target, 1, "+1/+1")
+        context.add_counters(target, 1, "+1/+1", source=self.source)
         target.temp_keywords.add("first_strike")
         context.recompute()
 
@@ -2381,7 +2410,22 @@ class ReturnToHandEffect(GameEffect):
     kind (``"land_you_control"``/``"creature_you_control"``) for a
     non-"target" resolve-time choice among the controller's own permanents —
     a bounce land's "return a land you control to its owner's hand" — see
-    `targeting.legal_targets`.
+    `targeting.legal_targets`. ``count`` > 1 targets several independent
+    objects (RULE 115.1a generalized to N>=2, the same shape
+    `DestroyEffect.count` uses) — "return two target creatures to their
+    owners' hands".
+
+    ``distinct_controllers`` (Run Away Together's "choose two target
+    creatures controlled by **different players**. Return those creatures
+    to their owners' hands.") is `targeting.TargetSpec.distinct_controllers`
+    — see its docstring; only meaningful with ``count >= 2``. No parser
+    front-end recognizes Run Away Together's own two-sentence "choose N
+    target X [constraint]. Verb those [referent]s." phrasing yet (a
+    different, indirect-referent grammar shape from the single-sentence
+    "destroy/exile N target X controlled by different players" `handlers.
+    _MULTI_TARGET_DISTINCT_CONTROLLERS` claims) — this param exists so the
+    engine primitive itself is complete and directly testable/hand-
+    authorable in the meantime.
     """
 
     def __init__(
@@ -2390,12 +2434,27 @@ class ReturnToHandEffect(GameEffect):
         source: Optional["GameObject"] = None,
         target_kind: str = "permanent",
         optional: bool = False,
+        count: int = 1,
+        distinct_controllers: bool = False,
     ) -> None:
         super().__init__(source)
         self.target = target
-        self.target_spec = TargetSpec(kind=target_kind, optional=optional)
+        self.target_spec = TargetSpec(
+            kind=target_kind, optional=optional, count=count,
+            distinct_controllers=distinct_controllers,
+        )
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        if self.target_spec.count != 1:
+            # See `DestroyEffect.apply`'s comment: only this effect's own
+            # ``count`` targets, off the front of a possibly-shared list.
+            chosen = (
+                targets[: self.target_spec.count] if targets
+                else ([self.target] if self.target is not None else [])
+            )
+            for target in chosen:
+                context.return_to_hand(target)
+            return
         target = (targets[0] if targets else None) or self.target
         if target is not None:
             context.return_to_hand(target)
@@ -2436,6 +2495,7 @@ class ReturnFromGraveyardEffect(GameEffect):
         under_your_control: bool = False,
         optional: bool = False,
         lose_life_equal_mv: bool = False,
+        count: int = 1,
     ) -> None:
         super().__init__(source)
         self.target = target
@@ -2445,12 +2505,9 @@ class ReturnFromGraveyardEffect(GameEffect):
         # value." (Reanimate) — read off the returned card, paid by the
         # effect's own controller, after the return resolves.
         self.lose_life_equal_mv = lose_life_equal_mv
-        self.target_spec = TargetSpec(kind=target_kind, optional=optional)
+        self.target_spec = TargetSpec(kind=target_kind, optional=optional, count=count)
 
-    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
-        target = (targets[0] if targets else None) or self.target
-        if target is None:
-            return
+    def _apply_one(self, context: GameContext, target: Any) -> None:
         controller_id = None
         if self.under_your_control and self.destination == "battlefield":
             player = _controller_of(self.source, context)
@@ -2461,6 +2518,22 @@ class ReturnFromGraveyardEffect(GameEffect):
             player = _controller_of(self.source, context)
             if player is not None:
                 context.lose_life(player, int(mv))
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        if self.target_spec.count != 1:
+            # See `DestroyEffect.apply`'s comment: only this effect's own
+            # ``count`` targets, off the front of a possibly-shared list.
+            chosen = (
+                targets[: self.target_spec.count] if targets
+                else ([self.target] if self.target is not None else [])
+            )
+            for target in chosen:
+                self._apply_one(context, target)
+            return
+        target = (targets[0] if targets else None) or self.target
+        if target is None:
+            return
+        self._apply_one(context, target)
 
 
 class BlinkEffect(GameEffect):
@@ -2982,12 +3055,16 @@ class AddCountersEffect(GameEffect):
 
     Untargeted, it buffs the effect's own source (an activated "put a +1/+1
     counter on this creature"); with a ``target_kind`` it targets (RULE 122),
-    optionally as an RULE 115.1a "up to one" pick. ``selector=
-    "each_creature_you_control"`` (RULE 601.2c, Vastwood Surge's "put two
-    +1/+1 counters on each creature you control") is instead a mass,
-    untargeted effect over the group `continuous.group_selector_objects`
-    already resolves for pump/anthem clauses — mirrors `DealDamageEffect.
-    selector`'s "no `target_spec` at all" shape.
+    optionally as an RULE 115.1a "up to one" pick, or ``count`` > 1 several
+    independent targets at once (the same shape `DestroyEffect.count` uses —
+    "put a +1/+1 counter on each of up to two target creatures", the
+    Support-keyword-shaped family; note ``count`` here is the *target*
+    count, distinct from ``amount``, the number of counters placed on each).
+    ``selector="each_creature_you_control"`` (RULE 601.2c, Vastwood Surge's
+    "put two +1/+1 counters on each creature you control") is instead a
+    mass, untargeted effect over the group `continuous.
+    group_selector_objects` already resolves for pump/anthem clauses —
+    mirrors `DealDamageEffect.selector`'s "no `target_spec` at all" shape.
     """
 
     def __init__(
@@ -2998,6 +3075,7 @@ class AddCountersEffect(GameEffect):
         kind: str = "+1/+1",
         optional: bool = False,
         selector: Optional[str] = None,
+        count: int = 1,
     ) -> None:
         super().__init__(source)
         self.amount = amount
@@ -3006,7 +3084,7 @@ class AddCountersEffect(GameEffect):
         self.kind = kind
         self.selector = selector if selector == "each_creature_you_control" else None
         if self.selector is None and target_kind is not None:
-            self.target_spec = TargetSpec(kind=target_kind, optional=optional)
+            self.target_spec = TargetSpec(kind=target_kind, optional=optional, count=count)
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
         if self.selector == "each_creature_you_control":
@@ -3014,14 +3092,21 @@ class AddCountersEffect(GameEffect):
 
             controller_id = getattr(self.source, "controller_id", None)
             for obj in group_selector_objects(context.state, controller_id, "creatures_you_control"):
-                context.add_counters(obj, self.amount, self.kind)
+                context.add_counters(obj, self.amount, self.kind, source=self.source)
+            return
+        if self.target_spec is not None and self.target_spec.count != 1:
+            # See `DestroyEffect.apply`'s comment: only this effect's own
+            # ``count`` targets, off the front of a possibly-shared list.
+            chosen = targets[: self.target_spec.count] if targets else []
+            for target in chosen:
+                context.add_counters(target, self.amount, self.kind, source=self.source)
             return
         if self.target_spec is not None:
             target = targets[0] if targets else None
         else:
             target = self.source
         if target is not None:
-            context.add_counters(target, self.amount, self.kind)
+            context.add_counters(target, self.amount, self.kind, source=self.source)
 
 
 class RenownEffect(GameEffect):
@@ -3040,7 +3125,7 @@ class RenownEffect(GameEffect):
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
         if self.source is None:
             return
-        context.add_counters(self.source, self.amount, "+1/+1")
+        context.add_counters(self.source, self.amount, "+1/+1", source=self.source)
         self.source.renowned = True
         context.fire_event(GameEvent(EventType.RENOWNED, instance_id=self.source.instance_id))
 
@@ -3112,16 +3197,83 @@ class ProliferateEffect(GameEffect):
     carries at least one counter, the same "auto-choose, no chooser in MVP"
     simplification `SacrificeEffect`/`GameEngine._sacrifice_candidate` use
     elsewhere. Player-level counters (poison/energy/experience) aren't
-    proliferated: `RulesEngine.add_counters` only operates on a `GameObject`
-    today (`Player` has no matching primitive) — a documented gap, not
-    silently wrong (no card in this pool needs it yet).
+    proliferated either, even though `RulesEngine.add_player_counters` now
+    exists (added for Innkeeper's Talent's doubling replacement) — this
+    effect just never loops over `context.players`/`Player.counters` to use
+    it, a documented gap rather than an engine limitation (no card in this
+    pool needs it yet).
+
+    ``times`` > 1 repeats the whole pass that many times (Contagion Engine's
+    "Proliferate twice."/War of the Spark's "Proliferate three times.") —
+    mirrors `ScryEffect.count`'s param shape.
     """
 
+    def __init__(self, times: int = 1, source: Optional["GameObject"] = None) -> None:
+        super().__init__(source)
+        self.times = times
+
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        for _ in range(self.times):
+            for obj in list(context.state.battlefield):
+                for kind in list(obj.counters.keys()):
+                    if obj.counters.get(kind, 0) > 0:
+                        context.add_counters(obj, 1, kind, source=self.source)
+
+
+class RemoveCountersEffect(GameEffect):
+    """Strip counters from a target permanent (Vampire Hexmage-shaped:
+    "Remove all counters from target permanent") or from every permanent on
+    the battlefield (Oblivion Stone/Aether Snap/Thief of Blood-shaped:
+    "Remove all counters from all permanents") — the unconditional "all"
+    shape, ``max_count=None``. Goes through `context.add_counters` with a
+    negative amount per kind (not a raw dict mutation), the same idiom
+    `ProliferateEffect` uses, so a counter-removed trigger still fires
+    correctly (RULE 122's `add_counters` already treats a non-positive
+    amount as removal, bypassing replacement effects, which only ever apply
+    to counters being *added*).
+
+    ``max_count`` (Glissa Sunslayer/Heartless Act/Render Inert-shaped
+    "remove up to N counters from target permanent/creature") switches to a
+    genuinely different, interactive **chosen**-quantity shape instead:
+    resolution opens a `pending_choice` (`RulesEngine.
+    request_remove_counters_choice`) asking how many (0..min(max_count,
+    counters present)), then — only if the target carries 2+ counter kinds —
+    which kind to remove one at a time, mirroring `request_search`'s
+    "open a choice, the engine's `resolve_*_choice` finishes it" shape
+    rather than doing anything synchronously here.
+    """
+
+    def __init__(
+        self,
+        target_kind: Optional[str] = None,
+        source: Optional["GameObject"] = None,
+        max_count: Optional[int] = None,
+    ) -> None:
+        super().__init__(source)
+        self.max_count = max_count
+        self.target_spec = TargetSpec(kind=target_kind) if target_kind is not None else None
+
+    def _strip(self, context: GameContext, obj: "GameObject") -> None:
+        for kind in list(obj.counters.keys()):
+            amount = obj.counters.get(kind, 0)
+            if amount:
+                context.add_counters(obj, -amount, kind)
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        if self.max_count is not None:
+            target = targets[0] if targets else None
+            if target is not None:
+                context.engine.request_remove_counters_choice(
+                    target, self.max_count, _controller_of(self.source, context)
+                )
+            return
+        if self.target_spec is not None:
+            target = targets[0] if targets else None
+            if target is not None:
+                self._strip(context, target)
+            return
         for obj in list(context.state.battlefield):
-            for kind in list(obj.counters.keys()):
-                if obj.counters.get(kind, 0) > 0:
-                    context.add_counters(obj, 1, kind)
+            self._strip(context, obj)
 
 
 class PumpEffect(GameEffect):
@@ -3499,11 +3651,21 @@ class SearchLibraryEffect(GameEffect):
       ``"library_bottom"``, ``"graveyard"``, or ``"exile"``.
     * ``count`` — how many cards (search for "up to N"); the choice is
       offered one card at a time.
+    * ``zones`` — *where* to look: ``["library"]`` (default, RULE 701.19)
+      or ``["library", "graveyard"]``/``["graveyard"]`` for "search your
+      library and/or graveyard" (backgrounds/Lurrus-shaped).
+    * ``destinations`` — an optional per-found-card override list,
+      positional against the picks, for a split destination ("put one onto
+      the battlefield tapped and the other into your hand" —
+      Cultivate/Kodama's Reach); ``destination`` remains the fallback.
+    * ``exile_rest`` — once the search finishes, exile every remaining
+      criteria-matching card still in ``zones`` and skip the shuffle
+      entirely (Doomsday-shaped).
 
     Because *which* card is a player choice, this doesn't move a card itself
     — it asks the engine to open a choice (`GameContext.request_search`); the
-    chosen card(s) are moved to ``destination`` and the library shuffled when
-    the player answers.
+    chosen card(s) are moved to their destination(s) and the library
+    shuffled (unless ``exile_rest``) when the player answers.
 
     ``type_restriction`` is accepted as a deprecated alias for a string
     ``criteria`` so older fixtures keep working.
@@ -3518,6 +3680,9 @@ class SearchLibraryEffect(GameEffect):
         player: Any = None,
         source: Optional["GameObject"] = None,
         type_restriction: Optional[str] = None,
+        zones: Optional[list[str]] = None,
+        destinations: Optional[list[str]] = None,
+        exile_rest: bool = False,
     ) -> None:
         super().__init__(source)
         self.criteria = type_restriction if type_restriction is not None else criteria
@@ -3525,11 +3690,15 @@ class SearchLibraryEffect(GameEffect):
         self.count = count
         self.optional = optional
         self.player = player
+        self.zones = zones
+        self.destinations = destinations
+        self.exile_rest = exile_rest
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
         player = self.player or context.active_player
         context.request_search(
-            player, self.criteria, self.destination, self.count, self.optional
+            player, self.criteria, self.destination, self.count, self.optional,
+            zones=self.zones, destinations=self.destinations, exile_rest=self.exile_rest,
         )
 
 
@@ -3595,7 +3764,8 @@ class ImpulsiveDrawEffect(GameEffect):
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
         player = self.player or context.active_player
-        context.exile_with_play_permission(player, self.count)
+        source_name = self.source.name if self.source is not None else None
+        context.exile_with_play_permission(player, self.count, source_name=source_name)
 
 
 class ShuffleLibraryEffect(GameEffect):
@@ -3769,6 +3939,7 @@ EffectRegistry.register(
         color=p.get("color"),
         max_mana_value=p.get("max_mana_value"),
         creature_filter=p.get("creature_filter"),
+        distinct_controllers=bool(p.get("distinct_controllers", False)),
     ),
 )
 EffectRegistry.register(
@@ -3831,6 +4002,7 @@ EffectRegistry.register(
         filter=p.get("filter"),
         remember=bool(p.get("remember", False)),
         creature_filter=p.get("creature_filter"),
+        distinct_controllers=bool(p.get("distinct_controllers", False)),
     ),
 )
 EffectRegistry.register(
@@ -3973,6 +4145,8 @@ EffectRegistry.register(
         target=p.get("target"),
         target_kind=p.get("target_kind", "permanent"),
         optional=bool(p.get("optional", False)),
+        count=p.get("count", 1),
+        distinct_controllers=bool(p.get("distinct_controllers", False)),
     ),
 )
 EffectRegistry.register(
@@ -3986,6 +4160,7 @@ EffectRegistry.register(
         under_your_control=bool(p.get("under_your_control", False)),
         optional=bool(p.get("optional", False)),
         lose_life_equal_mv=bool(p.get("lose_life_equal_mv", False)),
+        count=p.get("count", 1),
     ),
 )
 EffectRegistry.register(
@@ -4118,6 +4293,10 @@ EffectRegistry.register(
         kind=p.get("kind", "+1/+1"),
         optional=bool(p.get("optional", False)),
         selector=p.get("selector"),
+        # A distinct key from "count"/"amount" (both already the *counter*
+        # amount per card) — this is the *target* count (RULE 115.1a N>=2,
+        # "put a counter on each of up to two target creatures").
+        count=p.get("target_count", 1),
     ),
 )
 EffectRegistry.register(
@@ -4181,6 +4360,9 @@ EffectRegistry.register(
         destination=p.get("destination", "hand"),
         count=p.get("count", 1),
         optional=p.get("optional", True),
+        zones=p.get("zones"),
+        destinations=p.get("destinations"),
+        exile_rest=p.get("exile_rest", False),
     ),
 )
 EffectRegistry.register(
@@ -4218,7 +4400,17 @@ EffectRegistry.register(
     lambda p: PhaseOutEffect(target_kind=p.get("target_kind"), optional=bool(p.get("optional", False))),
 )
 EffectRegistry.register("cascade", lambda p: CascadeEffect(mana_value=p.get("mana_value")))
-EffectRegistry.register("proliferate", lambda p: ProliferateEffect())
+EffectRegistry.register("proliferate", lambda p: ProliferateEffect(times=p.get("times", 1)))
+EffectRegistry.register(
+    # "remove all counters from target permanent" / "remove all counters
+    # from all permanents" (RULE 122 — Vampire Hexmage/Oblivion Stone/
+    # Aether Snap/Thief of Blood-shaped); no ``target_kind`` = untargeted,
+    # board-wide. ``max_count`` (Glissa Sunslayer/Heartless Act/Render
+    # Inert-shaped "remove up to N counters") switches to the interactive
+    # chosen-amount shape instead — see `RemoveCountersEffect`.
+    "remove_counters",
+    lambda p: RemoveCountersEffect(target_kind=p.get("target_kind"), max_count=p.get("max_count")),
+)
 EffectRegistry.register(
     "discover",
     lambda p: DiscoverEffect(mana_value=p.get("mana_value", p.get("amount", 0))),
@@ -4704,16 +4896,43 @@ def _additional_damage_replacement(params: dict[str, Any]) -> ReplacementEffect:
     permanent an opponent controls") to whoever isn't this effect's own
     source's controller — the only notion of "opponent" a 2-player
     goldfish/Replay board has.
+
+    ``colors``/``types`` (Mechanized Warfare's "a red **or** artifact
+    source") generalize ``color`` to an OR-combined compound source filter:
+    a source qualifies if it matches *any* listed colour (``event``'s own
+    ``source_colors``, same as plain ``color``) or *any* listed type word
+    (currently only ``"artifact"`` — looked up fresh off the source object's
+    printed card via ``event``'s ``source_id``, since `GameEvent.DAMAGE`
+    carries no type flag of its own the way it carries ``source_colors``;
+    extend the word list here as a real card needs one, mirroring
+    `targeting`'s own "extend as needed" precedent). A single legacy
+    ``color`` is still accepted standalone (kept for existing callers/tests);
+    when either ``colors`` or ``types`` is given, ``color`` is ignored.
     """
     bonus = int(params.get("amount", 0))
     your_sources_only = bool(params.get("your_sources_only", False))
-    color = params.get("color")
     to_opponent_only = bool(params.get("to_opponent_only", False))
+    colors = list(params.get("colors") or ([params["color"]] if params.get("color") else []))
+    types = list(params.get("types") or [])
     effect = ReplacementEffect(
         event_type=EventType.DAMAGE,
         replacement_fn=lambda e, c: e,
         description=str(params.get("description", "")),
     )
+
+    def _source_matches(event: GameEvent, context: GameContext) -> bool:
+        if not colors and not types:
+            return True
+        if colors and any(c in (event.get("source_colors") or ()) for c in colors):
+            return True
+        if types:
+            source_id = event.get("source_id")
+            src_obj = context.state.find_object(source_id) if source_id is not None else None
+            if src_obj is not None:
+                for type_word in types:
+                    if type_word == "artifact" and bool(src_obj.card.is_artifact):
+                        return True
+        return False
 
     def replace(event: GameEvent, context: GameContext) -> Optional[GameEvent]:
         src = effect.source
@@ -4730,7 +4949,7 @@ def _additional_damage_replacement(params: dict[str, Any]) -> ReplacementEffect:
                 target_obj = context.state.find_object(event.get("target_id"))
                 if target_obj is not None and target_obj.controller_id == src.controller_id:
                     return event
-        if color and color not in (event.get("source_colors") or ()):
+        if not _source_matches(event, context):
             return event
         dealt = int(event.get("amount", 0) or 0)
         if dealt <= 0:
@@ -4744,14 +4963,27 @@ def _additional_damage_replacement(params: dict[str, Any]) -> ReplacementEffect:
 def _double_counters_replacement(params: dict[str, Any]) -> ReplacementEffect:
     """Counters that would be placed are doubled instead (RULE 122/614/616),
     e.g. Doubling Season's counter clause: "if an effect would put one or
-    more counters on a permanent or player, it puts twice that many
-    instead" — deliberately *not* scoped to permanents/players its
-    controller controls (that's the real card's own text: it also doubles
-    an opponent's poison counters). ``kind`` optionally restricts to one
-    counter kind (``"+1/+1"``, ``"loyalty"``, …); omitted, every kind is
-    doubled.
+    more counters on a permanent you control, it puts twice that many
+    instead" — deliberately *not* scoped by ``kind`` (omitted, every kind is
+    doubled) unless ``kind`` narrows it to one (``"+1/+1"``, ``"loyalty"``, …).
+
+    ``your_effects_only`` (Innkeeper's Talent's "if **you** would put one or
+    more counters on a permanent or player, put twice that many… instead")
+    is a *different* scoping axis from Doubling Season's own real wording —
+    Doubling Season reads the counters' **recipient**'s controller (handled
+    by whatever `condition`/binder scoping wraps this replacement, not this
+    function), while this flag reads who's **causing** the placement: it
+    only doubles a `RulesEngine.add_counters`/`add_player_counters` call
+    that named this effect's own source as its ``source`` (via the event's
+    ``source_controller_id``, mirroring `_additional_damage_replacement`'s
+    ``your_sources_only``) — irrespective of whose permanent or player ends
+    up with the counters, which is exactly why the same unscoped
+    `EventType.COUNTER` handling below already covers "or player" for free
+    once a caller (`RulesEngine.add_player_counters`) fires that event for a
+    player recipient too.
     """
     kind_filter = params.get("kind")
+    your_effects_only = bool(params.get("your_effects_only", False))
     effect = ReplacementEffect(
         event_type=EventType.COUNTER,
         replacement_fn=lambda e, c: e,
@@ -4761,6 +4993,10 @@ def _double_counters_replacement(params: dict[str, Any]) -> ReplacementEffect:
     def replace(event: GameEvent, _context: GameContext) -> Optional[GameEvent]:
         if kind_filter and event.get("kind") != kind_filter:
             return event
+        if your_effects_only:
+            src = effect.source
+            if src is None or event.get("source_controller_id") != src.controller_id:
+                return event
         amount = int(event.get("amount", 0) or 0)
         if amount <= 0:
             return event

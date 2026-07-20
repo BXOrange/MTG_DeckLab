@@ -203,6 +203,14 @@ class RulesEngine:
         self._pending_ward_item: Optional[StackItem] = None
         self._pending_ward_caster_id: Optional[str] = None
         self._pending_ward_cost: Optional[ActivationCost] = None
+        #: The permanent/player awaiting a `remove_counters_amount`/
+        #: `remove_counters_kind` choice (RULE 122 — "remove up to N
+        #: counters from target permanent"), and how many are still left to
+        #: remove once the amount is settled and a per-kind choice is
+        #: underway — populated only while one of those choices is pending;
+        #: see `request_remove_counters_choice`/`_continue_remove_counters`.
+        self._pending_remove_counters_target: Optional[GameObject] = None
+        self._pending_remove_counters_remaining: int = 0
         # Collect triggers for every event the game fires.
         state.subscribe(self._collect_triggers)
         # Tally spells cast this turn for the RULE 731.2 day/night check.
@@ -1053,6 +1061,17 @@ class RulesEngine:
                 amount = condition["count"] if kicker_count > 0 else 0
             else:
                 amount = condition["count"] * kicker_count
+            grant_keyword = condition.get("grant_keyword")
+            if grant_keyword and kicker_count > 0:
+                # The same kicked gate as the counters, applied to a granted
+                # keyword instead (RULE 702.33b's "...and with <keyword>."
+                # tail) — a one-time additive mutation onto `intrinsic_
+                # keywords`, not a continuous static: `kicker_count` never
+                # changes after cast, so this is exact, not an
+                # approximation, and it's read fresh every layer-engine
+                # pass the same way a card's own printed flag keywords are
+                # (`effect_binder.attach_to_object`'s flag-keyword handling).
+                obj.intrinsic_keywords.add(grant_keyword)
         else:
             amount = x_paid if condition["is_x"] else condition["count"]
         if amount > 0:
@@ -2272,7 +2291,9 @@ class RulesEngine:
                 )
             )
 
-    def add_counters(self, obj: GameObject, amount: int, kind: str = "+1/+1") -> None:
+    def add_counters(
+        self, obj: GameObject, amount: int, kind: str = "+1/+1", source: Optional[GameObject] = None
+    ) -> None:
         """Put ``amount`` counters of ``kind`` on ``obj`` (RULE 122).
 
         Works on any permanent, not just creatures (RULE 122.1a) — a land can
@@ -2293,6 +2314,16 @@ class RulesEngine:
         it — a non-positive ``amount`` (removal, or the +1/-1 annihilation
         SBA's own direct calls) bypasses that entirely, since replacement
         effects only ever apply to counters being added, never removed.
+
+        ``source``, when given, is the permanent/spell/ability *whose effect*
+        is putting these counters — carried on the event as
+        ``source_controller_id`` (mirroring `deal_damage`'s own
+        ``source_controller_id``) so a "if **you** would put counters…"
+        replacement (Innkeeper's Talent-shaped, scoped by who's causing the
+        placement — a different axis from Doubling Season's "on a permanent
+        **you control**", which reads the *target*'s controller instead and
+        needs no ``source`` at all) can tell whose effect this is. Omitted by
+        most callers, same as `deal_damage`'s optional ``source``.
         """
 
         def _place(final_amount: int) -> None:
@@ -2305,7 +2336,13 @@ class RulesEngine:
             _place(amount)
             return
 
-        event = GameEvent(EventType.COUNTER, target_id=obj.instance_id, kind=kind, amount=amount)
+        event = GameEvent(
+            EventType.COUNTER,
+            target_id=obj.instance_id,
+            kind=kind,
+            amount=amount,
+            source_controller_id=source.controller_id if source is not None else None,
+        )
 
         def _finish(resolved: Optional[GameEvent]) -> None:
             if resolved is None:
@@ -2313,6 +2350,148 @@ class RulesEngine:
             _place(resolved.get("amount", amount))
 
         self.apply_replacements(event, on_resolved=_finish)
+
+    def add_player_counters(
+        self, player: Player, amount: int, kind: str = "poison", source: Optional[GameObject] = None
+    ) -> None:
+        """Put ``amount`` counters of ``kind`` on ``player`` (RULE 122.1) —
+        poison/energy/experience/etc., the player-level sibling of
+        `add_counters`. ``kind`` defaults to "poison" (`Player.poison`);
+        anything else lands in `Player.counters` (`Player.add_counters`).
+
+        Mirrors `add_counters` exactly: a positive ``amount`` is routed
+        through `apply_replacements` first (RULE 616.1) via the same
+        `EventType.COUNTER` shape, ``is_player=True`` and ``target_id`` the
+        player's id (mirroring `deal_damage`'s own player/permanent split) so
+        a doubling replacement (Innkeeper's Talent's "…on a permanent or
+        player") applies here too, without that replacement needing to know
+        or care whether the recipient is an object or a player; a
+        non-positive ``amount`` (removal) bypasses replacements entirely,
+        same as `add_counters`.
+        """
+
+        def _place(final_amount: int) -> None:
+            player.add_counters(kind, final_amount)
+
+        if amount <= 0:
+            _place(amount)
+            return
+
+        event = GameEvent(
+            EventType.COUNTER,
+            target_id=player.id,
+            kind=kind,
+            amount=amount,
+            is_player=True,
+            source_controller_id=source.controller_id if source is not None else None,
+        )
+
+        def _finish(resolved: Optional[GameEvent]) -> None:
+            if resolved is None:
+                return
+            _place(resolved.get("amount", amount))
+
+        self.apply_replacements(event, on_resolved=_finish)
+
+    # ------------------------------------------------------------------
+    # "Remove up to N counters from target permanent/creature" (RULE 122,
+    # Glissa Sunslayer/Heartless Act/Render Inert-shaped) — an interactive
+    # chosen amount, unlike `RemoveCountersEffect`'s unconditional "all"
+    # shape. Two sequential `pending_choice`s: how many (0..max), then —
+    # only if 2+ counter kinds are present — which kind, one at a time
+    # (mirroring `_search_choice`'s "re-ask for the next" pattern).
+    # ------------------------------------------------------------------
+
+    def request_remove_counters_choice(
+        self, target: GameObject, max_count: int, chooser: Player
+    ) -> None:
+        """Open the "how many counters to remove" choice for ``target``.
+
+        A no-op if ``target`` carries no counters at all — nothing to
+        choose, same as an empty-eligible `request_search`.
+        """
+        total = sum(v for v in target.counters.values() if v > 0)
+        if total <= 0:
+            return
+        upper = min(max_count, total)
+        self._pending_remove_counters_target = target
+        self.state.pending_choice = {
+            "kind": "remove_counters_amount",
+            "player_id": chooser.id,
+            "prompt": f"Wie viele Marker entfernen (bis zu {upper})?",
+            "max": upper,
+            "options": [{"id": str(n), "label": str(n)} for n in range(upper, -1, -1)],
+        }
+
+    def resolve_remove_counters_amount_choice(self, answer: Optional[str]) -> None:
+        """Answer the "how many" choice, then either finish (0 chosen, or
+        only one counter kind present — no further choice needed) or open
+        the "which kind" choice for the first of the chosen counters.
+
+        An unrecognized/missing answer defaults to 0 (remove nothing) —
+        unlike a mandatory pick (`resolve_enter_choice`'s default-to-first),
+        0 is always itself a legal answer here (RULE 115.1a's "up to N"),
+        so the safe default is the no-op rather than a guessed nonzero
+        amount.
+        """
+        choice = self.state.pending_choice
+        if not choice or choice.get("kind") != "remove_counters_amount":
+            raise ValueError("no pending remove-counters-amount choice to resolve")
+        self.state.pending_choice = None
+        target = self._pending_remove_counters_target
+        self._pending_remove_counters_target = None
+
+        upper = choice["max"]
+        try:
+            amount = int(answer) if answer is not None else 0
+        except (TypeError, ValueError):
+            amount = 0
+        amount = max(0, min(amount, upper))
+        if amount <= 0 or target is None:
+            return
+        self._continue_remove_counters(target, amount)
+
+    def _continue_remove_counters(self, target: GameObject, remaining: int) -> None:
+        kinds = sorted(k for k, v in target.counters.items() if v > 0)
+        if not kinds or remaining <= 0:
+            return
+        if len(kinds) == 1:
+            take = min(remaining, target.counters.get(kinds[0], 0))
+            self.add_counters(target, -take, kinds[0])
+            return
+        self._pending_remove_counters_target = target
+        self._pending_remove_counters_remaining = remaining
+        self.state.pending_choice = {
+            "kind": "remove_counters_kind",
+            "player_id": target.controller_id,
+            "prompt": f"Von welcher Markerart einen entfernen? (noch {remaining})",
+            "options": [{"id": kind, "label": kind} for kind in kinds],
+        }
+
+    def resolve_remove_counters_kind_choice(self, answer: Optional[str]) -> None:
+        """Answer a pending "which kind" choice: remove one counter of the
+        chosen kind, then re-open the choice for the next one if any remain
+        (a mandatory pick — an unrecognized/missing answer defaults to the
+        first offered kind, same treatment `resolve_enter_choice` gives)."""
+        choice = self.state.pending_choice
+        if not choice or choice.get("kind") != "remove_counters_kind":
+            raise ValueError("no pending remove-counters-kind choice to resolve")
+        self.state.pending_choice = None
+        target = self._pending_remove_counters_target
+        remaining = self._pending_remove_counters_remaining
+        self._pending_remove_counters_target = None
+        self._pending_remove_counters_remaining = None
+
+        options = choice["options"]
+        valid_ids = {str(o["id"]) for o in options}
+        kind = str(answer) if answer is not None and str(answer) in valid_ids else (
+            str(options[0]["id"]) if options else None
+        )
+        if target is None or kind is None:
+            return
+        self.add_counters(target, -1, kind)
+        if remaining > 1:
+            self._continue_remove_counters(target, remaining - 1)
 
     def scry(self, player: Player, count: int) -> None:
         """Scry ``count`` (RULE 701.18): look at the top ``count`` cards and
@@ -3156,6 +3335,9 @@ class RulesEngine:
         destination: str = "hand",
         count: int = 1,
         optional: bool = True,
+        zones: Optional[list[str]] = None,
+        destinations: Optional[list[str]] = None,
+        exile_rest: bool = False,
     ) -> None:
         """Open a "search your library" choice on the game state (a tutor).
 
@@ -3166,22 +3348,55 @@ class RulesEngine:
         "library_bottom"/"graveyard"/"exile"); ``count`` is how many cards
         ("up to N"), offered one at a time.
 
-        Records the eligible library cards as a `state.pending_choice` — the
-        engine's resolve loop stops on it and the session surfaces it, and
-        `resolve_search_choice` finishes the search once the player picks (or
-        declines). Searching (RULE 701.19) always shuffles afterwards (RULE
-        701.19e); with nothing eligible it just shuffles, no choice needed.
+        ``zones`` says *where* to look — ``["library"]`` (default, RULE
+        701.19) or ``["library", "graveyard"]``/``["graveyard"]`` for
+        "search your library and/or graveyard" (the ~50-card family
+        including backgrounds/Lurrus-shaped effects). ``destinations``, if
+        given, is a per-found-card override list, positional against the
+        picks ("put one onto the battlefield tapped and the other into your
+        hand" — Cultivate/Kodama's Reach); any pick past its end falls back
+        to ``destination``. ``exile_rest``, once the search finishes, exiles
+        every remaining criteria-matching card still in ``zones`` and
+        suppresses the shuffle entirely (Doomsday-shaped: its own text puts
+        the chosen cards "on top of your library in any order" with no
+        shuffle — RULE 701.19e's shuffle is for an *ordinary* search).
+
+        Records the eligible cards (across ``zones``) as a `state.
+        pending_choice` — the engine's resolve loop stops on it and the
+        session surfaces it, and `resolve_search_choice` finishes the search
+        once the player picks (or declines). An ordinary search (RULE
+        701.19) always shuffles the library afterwards (RULE 701.19e) as
+        long as ``"library"`` is among ``zones``; with nothing eligible it
+        just shuffles (if applicable), no choice needed.
         """
-        self.state.fire_event(
-            GameEvent(EventType.LIBRARY_SEARCHED, player_id=player.id)
-        )
-        eligible = [obj for obj in player.library if card_query.matches(obj.card, criteria)]
+        zones = list(zones) if zones else ["library"]
+        if "library" in zones:
+            self.state.fire_event(
+                GameEvent(EventType.LIBRARY_SEARCHED, player_id=player.id)
+            )
+        eligible = [
+            obj
+            for obj in self._search_zone_objects(player, zones)
+            if card_query.matches(obj.card, criteria)
+        ]
         if not eligible or count <= 0:
-            self.shuffle_library(player)
+            if "library" in zones and not exile_rest:
+                self.shuffle_library(player)
             return
         self.state.pending_choice = self._search_choice(
-            player, criteria, destination, count, optional, found=[]
+            player, criteria, destination, count, optional, found=[],
+            zones=zones, destinations=destinations, exile_rest=exile_rest,
         )
+
+    def _search_zone_objects(self, player: Player, zones: list[str]) -> list[GameObject]:
+        """The combined pool of cards a (possibly multi-zone) search draws
+        from, library before graveyard when both are searched."""
+        objs: list[GameObject] = []
+        if "library" in zones:
+            objs.extend(player.library)
+        if "graveyard" in zones:
+            objs.extend(player.graveyard)
+        return objs
 
     def resolve_search_choice(self, instance_id: Optional[int]) -> None:
         """Answer a pending search: pick a card, re-ask for the next, or finish.
@@ -3197,6 +3412,7 @@ class RulesEngine:
             raise ValueError("no pending search to resolve")
         player = self.state.player_by_id(choice["player_id"])
         found: list[int] = list(choice["found"])
+        zones = choice.get("zones") or ["library"]
 
         declined = instance_id is None
         if not declined:
@@ -3208,7 +3424,7 @@ class RulesEngine:
         remaining = choice["count"] - len(found)
         still_eligible = [
             obj
-            for obj in player.library
+            for obj in self._search_zone_objects(player, zones)
             if obj.instance_id not in found
             and card_query.matches(obj.card, choice["criteria"])
         ]
@@ -3216,11 +3432,18 @@ class RulesEngine:
             self.state.pending_choice = self._search_choice(
                 player, choice["criteria"], choice["destination"],
                 choice["count"], choice["optional"], found=found,
+                zones=zones, destinations=choice.get("destinations"),
+                exile_rest=choice.get("exile_rest", False),
             )
             return
 
         self.state.pending_choice = None
-        self._finish_search(player, found, choice["destination"])
+        self._finish_search(
+            player, found, choice["destination"],
+            zones=zones, destinations=choice.get("destinations"),
+            exile_rest=choice.get("exile_rest", False),
+            criteria=choice["criteria"],
+        )
 
     def _search_choice(
         self,
@@ -3230,11 +3453,15 @@ class RulesEngine:
         count: int,
         optional: bool,
         found: list[int],
+        zones: Optional[list[str]] = None,
+        destinations: Optional[list[str]] = None,
+        exile_rest: bool = False,
     ) -> dict[str, Any]:
         """Build the serializable `pending_choice` for a search in progress."""
+        zones = list(zones) if zones else ["library"]
         eligible = [
             {"instance_id": obj.instance_id, "name": obj.name}
-            for obj in player.library
+            for obj in self._search_zone_objects(player, zones)
             if obj.instance_id not in found and card_query.matches(obj.card, criteria)
         ]
         # Each eligible card is one option; declining an optional search is a
@@ -3247,13 +3474,19 @@ class RulesEngine:
         if optional:
             options.append({"id": "decline", "label": "Nichts wählen"})
         description = card_query.describe(criteria)
-        prompt = f"Suche in der Bibliothek nach: {description}"
+        zone_label = " oder ".join(
+            {"library": "Bibliothek", "graveyard": "Friedhof"}[z] for z in zones
+        )
+        prompt = f"Suche in {zone_label} nach: {description}"
         if count > 1:
             prompt += f" (noch {count - len(found)})"
         return {
             "kind": "search",
             "player_id": player.id,
             "destination": destination,
+            "destinations": list(destinations) if destinations else None,
+            "zones": zones,
+            "exile_rest": exile_rest,
             "criteria": card_query.normalize(criteria),
             "description": description,
             "prompt": prompt,
@@ -3268,26 +3501,67 @@ class RulesEngine:
         }
 
     def _finish_search(
-        self, player: Player, found: list[int], destination: str
+        self,
+        player: Player,
+        found: list[int],
+        destination: str,
+        zones: Optional[list[str]] = None,
+        destinations: Optional[list[str]] = None,
+        exile_rest: bool = False,
+        criteria: Any = "",
     ) -> None:
-        """Move every chosen card to ``destination``, then shuffle (RULE 701.19e)."""
+        """Move every chosen card to its destination, then shuffle the
+        library (RULE 701.19e) — unless ``exile_rest`` suppresses it
+        entirely (Doomsday-shaped, see `request_search`). ``destinations``,
+        if given, overrides ``destination`` per chosen card, positionally
+        (Cultivate/Kodama's Reach-shaped split destinations)."""
+        zones = list(zones) if zones else ["library"]
         chosen: list[GameObject] = []
         for instance_id in found:
-            obj = next((o for o in player.library if o.instance_id == instance_id), None)
+            obj = self._remove_search_hit(player, instance_id, zones)
             if obj is not None:
-                player.library.remove(obj)
                 chosen.append(obj)
 
+        dest_list = list(destinations) if destinations else []
+        effective_destinations = [
+            dest_list[i] if i < len(dest_list) else destination
+            for i in range(len(chosen))
+        ]
+
+        shuffle = "library" in zones and not exile_rest
         # "Shuffle, then put on top/bottom" (RULE 701.19e for a library
         # destination): the found card must land *after* the shuffle, so its
         # position is known — otherwise the shuffle would move it.
-        to_library = destination in ("library_top", "library_bottom")
-        if to_library:
+        to_library = any(d in ("library_top", "library_bottom") for d in effective_destinations)
+        if shuffle and to_library:
             self.shuffle_library(player)
-        for obj in chosen:
-            self._put_searched_card(player, obj, destination)
-        if not to_library:
+        for obj, dest in zip(chosen, effective_destinations):
+            self._put_searched_card(player, obj, dest)
+        if shuffle and not to_library:
             self.shuffle_library(player)
+
+        if exile_rest:
+            rest = [
+                obj
+                for obj in self._search_zone_objects(player, zones)
+                if card_query.matches(obj.card, criteria)
+            ]
+            for obj in rest:
+                player.remove_from_zone(obj, obj.zone)
+                self._put_searched_card(player, obj, "exile")
+
+    def _remove_search_hit(
+        self, player: Player, instance_id: int, zones: list[str]
+    ) -> Optional[GameObject]:
+        """Locate a chosen card's `GameObject` by instance id and remove it
+        from whichever searched ``zones`` actually holds it."""
+        obj = next(
+            (o for o in self._search_zone_objects(player, zones) if o.instance_id == instance_id),
+            None,
+        )
+        if obj is not None:
+            player.remove_from_zone(obj, obj.zone)
+        return obj
 
     def _put_searched_card(self, player: Player, obj: GameObject, destination: str) -> None:
         if destination in ("battlefield", "battlefield_tapped"):
@@ -3403,7 +3677,9 @@ class RulesEngine:
             player.remove_from_zone(obj, Zone.EXILE)
             self._put_searched_card(player, obj, destination)
 
-    def exile_with_play_permission(self, player: Player, count: int) -> list[GameObject]:
+    def exile_with_play_permission(
+        self, player: Player, count: int, source_name: Optional[str] = None
+    ) -> list[GameObject]:
         """Exile the top ``count`` cards of ``player``'s library; every one
         of them becomes playable through the end of ``player``'s *next*
         turn (RULE 601.3b analogue — Light Up the Stage-shaped "impulsive
@@ -3413,6 +3689,11 @@ class RulesEngine:
         nothing is routed to a miss destination — every card exiled here
         stays in exile, playable, until its window lapses (swept by
         `GameEngine._step_cleanup`) or it's actually cast/played.
+
+        ``source_name`` (the granting spell/ability's name, e.g. "Light Up
+        the Stage") is recorded in the sibling `GameState.
+        temp_play_permission_source` so the board can explain *why* the
+        card is castable — purely cosmetic, no effect on legality.
         """
         exiled: list[GameObject] = []
         for _ in range(max(0, count)):
@@ -3422,6 +3703,8 @@ class RulesEngine:
             obj.zone = Zone.EXILE
             player.exile.append(obj)
             self.state.temp_play_permissions[obj.instance_id] = self.state.turn_number
+            if source_name:
+                self.state.temp_play_permission_source[obj.instance_id] = source_name
             exiled.append(obj)
             self.state.fire_event(
                 GameEvent(EventType.EXILE, player_id=player.id, object=obj.name, from_zone="library")

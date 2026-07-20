@@ -52,15 +52,35 @@ _ENTRY_COUNTERS_RE = re.compile(
 #: (fail-closed) rather than conflating the two.
 _FIXED_AMOUNT = r"(a|an|\d+)"
 
+#: A small closed keyword vocabulary a "...and with <keyword>" compound
+#: kicked-counters clause plausibly names (RULE 702.33b's "...and with
+#: `<keyword>`." tail) — mirrors `catalogue.handlers.
+#: _CREATURE_FILTER_KEYWORD_WORDS`'s "closed list, extend as needed" style;
+#: kept local rather than imported from there since this module is
+#: deliberately import-independent of the general effect-handler table.
+_GRANT_KEYWORD_WORDS: dict[str, str] = {
+    "flying": "flying", "vigilance": "vigilance", "trample": "trample",
+    "haste": "haste", "deathtouch": "deathtouch", "lifelink": "lifelink",
+    "menace": "menace", "first strike": "first_strike",
+    "double strike": "double_strike", "reach": "reach",
+    "indestructible": "indestructible", "hexproof": "hexproof",
+}
+#: The optional trailing "...and with <keyword>." clause shared by both
+#: kicked-counters regexes below.
+_GRANT_KEYWORD_SUFFIX = rf"(?: and with (?P<kw>{'|'.join(_GRANT_KEYWORD_WORDS)}))?"
+
 #: RULE 702.33b: "If ~ was kicked, it enters with N counters on it." — the
 #: same RULE 614.1 entry-counters replacement, gated on whether Kicker
 #: (RULE 702.33) was paid at all (`GameObject.kicker_count`, stamped at cast
 #: time by `GameEngine._cast_current_face`) — Academy Drake/Baloth Gorger/
 #: Cragplate Baloth/Grunn-shaped. Kept as its own regex (not folded into
 #: `_ENTRY_COUNTERS_RE`) since resolution needs a different rule (0 unless
-#: kicked) instead of the plain unconditional count.
+#: kicked) instead of the plain unconditional count. The optional trailing
+#: "...and with <keyword>." (`_GRANT_KEYWORD_SUFFIX`) is the same kicked
+#: gate applied to a granted keyword instead of/alongside the counters.
 _KICKED_ENTRY_COUNTERS_RE = re.compile(
-    rf"^if {_SUBJECT} was kicked, it {_ENTERS} with {_FIXED_AMOUNT} {_COUNTER_TYPE} counters? on it\.?$",
+    rf"^if {_SUBJECT} was kicked, it {_ENTERS} with {_FIXED_AMOUNT} {_COUNTER_TYPE} counters? on it"
+    rf"{_GRANT_KEYWORD_SUFFIX}\.?$",
     re.IGNORECASE,
 )
 
@@ -69,7 +89,8 @@ _KICKED_ENTRY_COUNTERS_RE = re.compile(
 #: ``N`` (the per-kick amount printed) times however many times Kicker was
 #: actually paid — Apex Hawks-shaped.
 _KICKED_SCALED_ENTRY_COUNTERS_RE = re.compile(
-    rf"^{_SUBJECT} {_ENTERS} with {_FIXED_AMOUNT} {_COUNTER_TYPE} counters? on it for each time it was kicked\.?$",
+    rf"^{_SUBJECT} {_ENTERS} with {_FIXED_AMOUNT} {_COUNTER_TYPE} counters? on it for each time it was kicked"
+    rf"{_GRANT_KEYWORD_SUFFIX}\.?$",
     re.IGNORECASE,
 )
 
@@ -96,17 +117,33 @@ def entry_counters_condition(line: str) -> Optional[dict[str, Any]]:
     - ``{"is_x": False, "count": N, "counter_type": T, "kicked_scale": True}``
       — ``N`` is a *per-kick* amount; the real total is ``N`` times
       however many times Kicker was actually paid (0 if never kicked).
+
+    Either kicked shape may also carry ``"grant_keyword": "vigilance"`` (RULE
+    702.33b's "...and with `<keyword>`." tail) — a keyword granted under the
+    exact same kicked gate as the counters (present at all once kicked, for
+    either shape; the per-kick scaling only ever applies to the counter
+    count, never to "how many times" a keyword is granted).
     """
     match = _KICKED_ENTRY_COUNTERS_RE.match(line)
     if match is not None:
         count = _fixed_count(match.group(1))
         counter_type = match.group(2).lower()
-        return {"is_x": False, "count": count, "counter_type": counter_type, "kicked_gate": True}
+        result: dict[str, Any] = {
+            "is_x": False, "count": count, "counter_type": counter_type, "kicked_gate": True,
+        }
+        if match.group("kw"):
+            result["grant_keyword"] = _GRANT_KEYWORD_WORDS[match.group("kw")]
+        return result
     match = _KICKED_SCALED_ENTRY_COUNTERS_RE.match(line)
     if match is not None:
         count = _fixed_count(match.group(1))
         counter_type = match.group(2).lower()
-        return {"is_x": False, "count": count, "counter_type": counter_type, "kicked_scale": True}
+        result = {
+            "is_x": False, "count": count, "counter_type": counter_type, "kicked_scale": True,
+        }
+        if match.group("kw"):
+            result["grant_keyword"] = _GRANT_KEYWORD_WORDS[match.group("kw")]
+        return result
     match = _ENTRY_COUNTERS_RE.match(line)
     if not match:
         return None

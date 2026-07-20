@@ -186,7 +186,7 @@ frontend's UI language (see CLAUDE.md "Frontend").
 | `create_token` | `count`, `token_name`, `power`, `toughness`, `colors`, `subtypes`, `keywords` | RULE 111; the token gets the RULE 704.5d lifecycle automatically |
 | `copy_permanent` | `count`, `target_kind` (default `"creature"`) | RULE 707 — creates a *new token* copy of the target |
 | `become_copy` | `target_kind` (default `"permanent"`), `add_types`, `add_subtypes` | RULE 706/707.2 — the ability's *own source* becomes a copy of the target (Clone/Phantasmal Image/Copy Artifact-style), instead of creating a token. `add_types`/`add_subtypes` cover a card's own "except it's a(n) X in addition to its other types" clause (`Card.as_copy` — types before the type line's em dash, subtypes after) |
-| `search` | `criteria` (or `type` shorthand), `destination` (`"hand"`/`"battlefield_tapped"`/…), `count`, `optional` (default `True`) | see the Evolving Wilds entry already in the file |
+| `search` | `criteria` (or `type` shorthand), `destination` (`"hand"`/`"battlefield_tapped"`/…), `count`, `optional` (default `True`), `zones` (list, default `["library"]`; add `"graveyard"` for "library and/or graveyard" search), `destinations` (list, per-found-card override, positional against the picks — Cultivate/Kodama's Reach split destination), `exile_rest` (bool, default `False` — exile every remaining match in `zones` and skip the shuffle, Doomsday-shaped) | see the Evolving Wilds entry already in the file |
 | `shuffle` | *(none)* | |
 | `cascade` | `mana_value` | |
 | `discover` | `mana_value` (or `amount`) | |
