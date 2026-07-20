@@ -156,7 +156,7 @@ class TargetSpec:
     automatically (`_continue_trigger_multi_target`); a spell/activated
     ability's caller must supply ``target_groups`` explicitly (no real card
     needs this yet, so nothing auto-derives it from a plain flat list — see
-    `docs/implementation-state/ToDo_EdgeCases.md` for the remaining
+    `docs/implementation-state/ToDo_Backend.md` for the remaining
     cross-target-constraint gap, e.g. "two creatures controlled by
     *different* players"). ``description`` is a short UI label.
     """

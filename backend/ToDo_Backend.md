@@ -1,8 +1,8 @@
 # Backend TODO
 
 Open backend items only — a single merged backlog (formerly split across
-this file, `docs/implementation-state/ToDo_EdgeCases.md`, and
-`docs/implementation-state/CARDPOOL_MODELING_BATCHES.md`; those two are now
+this file, `docs/implementation-state/ToDo_Backend.md`, and
+`docs/implementation-state/ToDo_Backend.md`; those two are now
 thin pointers here). **When an item is finished, move its narrative into the
 matching section of [Done_Backend.md](../docs/implementation-state/Done_Backend.md)
 (section headers here mirror there) instead of leaving it `[x]` in place.**

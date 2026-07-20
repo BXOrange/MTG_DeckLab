@@ -101,7 +101,7 @@ _LOYALTY_RE = re.compile(r"^\s*\[\s*([+\-−]?)\s*(\d+)\s*\]")
 #: vocabulary `game/continuous.py`'s `count_selector` already evaluates for
 #: a characteristic-defining P/T (RULE 613.7c/604.3), so both share one
 #: authored selector list rather than guessing a second one. No real card
-#: needs this yet (`docs/implementation-state/ToDo_EdgeCases.md`) — an
+#: needs this yet (`docs/implementation-state/ToDo_Backend.md`) — an
 #: unrecognized/absent clause leaves ``x_selector`` unset, so `{X}` stays 0
 #: (RULE 107.3c's safe default) rather than guessed.
 _WARD_X_SELECTOR_RE = re.compile(

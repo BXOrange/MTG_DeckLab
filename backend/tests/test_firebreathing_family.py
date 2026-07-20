@@ -1,4 +1,4 @@
-"""Batch 1 (docs/implementation-state/CARDPOOL_MODELING_BATCHES.md): the
+"""Batch 1 (docs/implementation-state/ToDo_Backend.md): the
 firebreathing / "until end of turn" activated-pump family.
 
 Covers the previously-unclaimed templates that block the largest single head of

@@ -1,4 +1,4 @@
-"""Batch 3 (docs/implementation-state/CARDPOOL_MODELING_BATCHES.md): Aura/
+"""Batch 3 (docs/implementation-state/ToDo_Backend.md): Aura/
 Equipment attached-permanent grants — the "you control enchanted X"
 control-change family and the "<subject> has \"<ability>\"" quoted
 full-ability-grant family.

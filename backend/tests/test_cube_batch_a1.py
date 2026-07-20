@@ -18,7 +18,7 @@ Every test uses the real cached card (not a hand-built fixture) so a
 resolving. Cards that stay `UNMODELED` even after this batch (a real,
 separate engine gap unrelated to what was fixed) are asserted as such,
 pinning the *specific* remaining blocker so a future fix's regression shows
-up here too — see docs/implementation-state/ToDo_EdgeCases.md's "cEDH
+up here too — see docs/implementation-state/ToDo_Backend.md's "cEDH
 staples cube" section for the full reasoning on each.
 """
 
@@ -97,7 +97,7 @@ def test_red_elemental_blast_and_pyroblast_modeled():
 def test_archdruid_charm_stays_unmodeled_two_targeting_effects():
     """A real, current engine ceiling (docs/11 §5: "at most one targeting
     effect per AbilitySpec") plus a dynamic "damage equal to its power"
-    amount and a conditional search destination — see ToDo_EdgeCases.md."""
+    amount and a conditional search destination — see ToDo_Backend.md."""
     result = parse_oracle(_card("Archdruid's Charm"))
     assert not result.modeled
     assert any("deals damage equal to its power" in u for u in result.unclaimed)
@@ -106,7 +106,7 @@ def test_archdruid_charm_stays_unmodeled_two_targeting_effects():
 def test_tooth_and_nail_stays_unmodeled_no_battlefield_from_hand_effect():
     """Entwine aside, mode 2 ("Put up to two creature cards from your hand
     onto the battlefield.") has no matching engine effect at all — see
-    ToDo_EdgeCases.md."""
+    ToDo_Backend.md."""
     result = parse_oracle(_card("Tooth and Nail"))
     assert not result.modeled
 
@@ -132,7 +132,7 @@ def test_deadly_rollick_and_fierce_guardianship_modeled():
 def test_deflecting_swat_stays_unmodeled_no_redirect_primitive():
     """The shared free-cast clause is modeled; "You may choose new targets
     for target spell or ability." has no redirect mechanism — see
-    ToDo_EdgeCases.md (binding it as a no-op would silently do nothing the
+    ToDo_Backend.md (binding it as a no-op would silently do nothing the
     card claims to do)."""
     result = parse_oracle(_card("Deflecting Swat"))
     assert not result.modeled
@@ -174,7 +174,7 @@ def test_look_at_top_any_time_claimed_but_permission_clause_still_blocks():
     ``unclaimed`` — but each card's *actual* play/cast-from-top permission
     clause has no parser-front-end recognition yet (only hand-authored per
     card today), so the cards stay `UNMODELED` overall. See
-    ToDo_EdgeCases.md / ToDo_Backend.md."""
+    ToDo_Backend.md / ToDo_Backend.md."""
     for name in ("Elsha of the Infinite", "Bolas's Citadel"):
         result = parse_oracle(_card(name))
         assert not result.modeled
@@ -206,7 +206,7 @@ def test_professor_onyx_stays_unmodeled_unrelated_loyalty_abilities():
     """Magecraft itself parses fine (proven by Witherbloom Apprentice
     above); Professor Onyx stays `UNMODELED` because its +1/-3/-8 loyalty
     abilities are each their own complex, unrelated, unmodeled mechanic —
-    see ToDo_EdgeCases.md. Also proves the loyalty-ability bracket fix
+    see ToDo_Backend.md. Also proves the loyalty-ability bracket fix
     (below) doesn't over-claim: these lines are now *recognized* as loyalty
     abilities but still correctly fail on their own unparseable bodies."""
     result = parse_oracle(_card("Professor Onyx"))
@@ -226,7 +226,7 @@ def test_dress_down_and_underworld_breach_end_step_sac_claimed():
     trigger family + `SacrificeSelfEffect` for the plain self-sac) — both
     cards stay `UNMODELED` only because of their own separate static-ability
     line (`static_handlers.py`, out of this batch's scope — see
-    ToDo_EdgeCases.md)."""
+    ToDo_Backend.md)."""
     for name in ("Dress Down", "Underworld Breach"):
         result = parse_oracle(_card(name))
         assert not result.modeled
@@ -261,7 +261,7 @@ def test_pemmins_aura_stays_unmodeled_inline_or_modal():
     model fine via the same `attached_permanent` mechanism; the fourth
     ("gets +1/-1 or -1/+1") is an inline two-way modal choice with no
     bulleted "Choose one —" header — the modal grammar doesn't recognize
-    that shape. See ToDo_EdgeCases.md."""
+    that shape. See ToDo_Backend.md."""
     result = parse_oracle(_card("Pemmin's Aura"))
     assert not result.modeled
     assert len(result.unclaimed) == 1

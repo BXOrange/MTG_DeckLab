@@ -1952,7 +1952,7 @@ the Phase-1 models. Tests: `test_game_engine.py`.
       Tibalt's Trickery/Wheel of Misfortune, Soulbond/Mutate/Evoke/Bargain
       alt-cost mechanics, board-wide ability-strip for Humility, extra-turn
       for Final Fortune, and more) are each logged one line per card under
-      `docs/implementation-state/ToDo_EdgeCases.md`'s "cEDH staples cube"
+      `docs/implementation-state/ToDo_Backend.md`'s "cEDH staples cube"
       section rather than half-modeled. Full suite: 1457 → 1641 passed,
       zero regressions across all five waves.
 
@@ -2004,7 +2004,7 @@ the Phase-1 models. Tests: `test_game_engine.py`.
       dominated by genuinely-new core primitives (spell-copy-on-stack,
       extra-turn insertion, control-exchange, random numbers, reflexive
       per-firing triggers, alt-casting-costs, devotion, fading, mutate/
-      soulbond) — each a real feature, tracked in `ToDo_EdgeCases.md`'s
+      soulbond) — each a real feature, tracked in `ToDo_Backend.md`'s
       "cEDH staples cube" section.
 
 - [x] **Batches 15–17 (2026-07-18): three new core engine primitives from
@@ -2034,7 +2034,7 @@ the Phase-1 models. Tests: `test_game_engine.py`.
         form of the per-firing "that permanent/spell" reference the bespoke
         `check_ward`/`check_rampage` paths hand-build — "counter that spell",
         "destroy that land". No cube card is registered on it yet (each also
-        needs a second gap — see `ToDo_EdgeCases.md`), but it's proven
+        needs a second gap — see `ToDo_Backend.md`), but it's proven
         end-to-end through the binder + engine and is reused conceptually by
         Batch 17's copy targeting.
       - **Batch 17 — spell-copy on the stack (RULE 707.10)**
@@ -2057,7 +2057,7 @@ the Phase-1 models. Tests: `test_game_engine.py`.
 
       Full suite 1669 → 1687 passed, zero regressions; cube pool 285 → 288
       playable. Ten primitive batches were scoped for this effort (see
-      `ToDo_EdgeCases.md`); the remaining seven are being worked through
+      `ToDo_Backend.md`); the remaining seven are being worked through
       one at a time (Batch 20 below).
 
 - [x] **Batch 20 (2026-07-18): the "tapped for mana" event primitive
@@ -2141,7 +2141,7 @@ the Phase-1 models. Tests: `test_game_engine.py`.
 
 - [x] **Card-pool Batch 1 (2026-07-18): full-universe import + firebreathing /
       until-EOT activated pumps.** First batch of the whole-card-pool modeling
-      program (`docs/implementation-state/CARDPOOL_MODELING_BATCHES.md`), run
+      program (`docs/implementation-state/ToDo_Backend.md`), run
       against the **full ~34k Oracle universe** now bulk-loaded into the cache
       (`scripts/import_bulk.py` → persistent `RawCardStore`,
       `services/raw_card_store.py`; coverage measured/ranked by
@@ -2318,7 +2318,7 @@ the Phase-1 models. Tests: `test_game_engine.py`.
         gaps this batch deliberately doesn't try to close:
         - An **activated**-ability grant (`"{T}: ~ deals 1 damage…"`) needs a
           real "grant an activated ability" layer-6 engine primitive that
-          doesn't exist yet (already tracked: `ToDo_EdgeCases.md` #35,
+          doesn't exist yet (already tracked: `ToDo_Backend.md` #35,
           Umbral Mantle).
         - A **DAMAGE**-event grant ("deals combat damage to a player") can't
           even be recursively parsed: "deals combat damage to a player" was
@@ -2418,7 +2418,7 @@ the Phase-1 models. Tests: `test_game_engine.py`.
         "draw a card at the beginning of the next turn's upkeep" (a
         delayed-trigger phrasing, distinct from a standing phase trigger);
         conditional-transform upkeep triggers (Delver-shaped,
-        `ToDo_EdgeCases.md` #16); group-subject damage triggers ("a creature
+        `ToDo_Backend.md` #16); group-subject damage triggers ("a creature
         you control deals combat damage to a player").
 
 - [x] **Card-pool Batch 5 (2026-07-19): modal-block cleanup — investigation
@@ -2591,7 +2591,7 @@ the Phase-1 models. Tests: `test_game_engine.py`.
         escalation needing its own new grammar, not a `keywords.py` fix;
         true face-down Morph/Megamorph *execution* (casting face-down as a
         2/2, turning face up — a real new permanent-state subsystem,
-        `ToDo_EdgeCases.md`-tracked, unrelated to this batch's
+        `ToDo_Backend.md`-tracked, unrelated to this batch's
         recognition-only scope); generic Cycling *execution* for an
         unregistered card (the `discard_self` hand-zone activated-ability
         primitive already exists from earlier Channel/Cycling work, but
@@ -2908,7 +2908,7 @@ the Phase-1 models. Tests: `test_game_engine.py`.
         round 1, correctly excluded the round-1 pick on round 2, and
         both died on resolution. Scope: one targeting effect wanting N
         targets, wired up for `destroy`/`exile`/`damage` only — see
-        `docs/implementation-state/ToDo_EdgeCases.md`'s new entry on
+        `docs/implementation-state/ToDo_Backend.md`'s new entry on
         why several *different* targeting effects sharing one spell
         still don't each get their own targets (a real, pre-existing
         limitation this work surfaced more prominently, not introduced).
@@ -2998,7 +2998,7 @@ the Phase-1 models. Tests: `test_game_engine.py`.
 
 - [x] **Per-effect target partitioning, `StackItem.target_groups`
       (2026-07-16)** — the "targeting / hexproof / ward" edge-case chapter's
-      biggest entry: `docs/implementation-state/ToDo_EdgeCases.md` had
+      biggest entry: `docs/implementation-state/ToDo_Backend.md` had
       documented, since the N>=2 multi-target batch above, that a stack
       item's resolved `targets` list is shared by *every* effect on it —
       2+ *different* targeting effects on one spell/ability (two modes of
@@ -3220,7 +3220,7 @@ the Phase-1 models. Tests: `test_game_engine.py`.
   - Tests: `tests/test_wyleth_equip_deck.py` (11 end-to-end cases through a
     real `GameEngine`/`RulesEngine`, one per mechanic family above, using
     real cached cards). Deliberately not exhaustive per-card — see
-    `ToDo_EdgeCases.md` "Equipment / Auras / 'combat damage to a player'
+    `ToDo_Backend.md` "Equipment / Auras / 'combat damage to a player'
     triggers" for narrower per-card edge cases left open, and the entry
     just below for the 8 real architecture gaps that batch surfaced,
     since closed.

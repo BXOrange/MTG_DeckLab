@@ -27,8 +27,8 @@ finest-grained/most current detail:
   them easy to forget mid-change. `ToDo_Backend.md` is now the single
   merged backend backlog — narrow, deliberately-unhandled edge cases of an
   already-shipped feature and the oracle-parser long-tail/deferred backlog
-  live there too (formerly split across `ToDo_EdgeCases.md` and
-  `CARDPOOL_MODELING_BATCHES.md`, both now thin pointers).
+  live there too (formerly split across `ToDo_Backend.md` and
+  `ToDo_Backend.md`, both now thin pointers).
 - **Shipped** work, with the "why": [`implementation-state/Done_Backend.md`](implementation-state/Done_Backend.md),
   [`implementation-state/Done_Frontend.md`](implementation-state/Done_Frontend.md)
   — these *do* live under `docs/`, since they're append-only history rather

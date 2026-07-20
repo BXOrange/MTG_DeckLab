@@ -1,4 +1,4 @@
-"""Batch 6 (docs/implementation-state/CARDPOOL_MODELING_BATCHES.md):
+"""Batch 6 (docs/implementation-state/ToDo_Backend.md):
 "cost-keyword mechanics" — landcycling/basic landcycling, megamorph,
 escape, multikicker, kicker-counter variants.
 

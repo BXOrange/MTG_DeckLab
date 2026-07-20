@@ -1,4 +1,4 @@
-"""Batch 5 (docs/implementation-state/CARDPOOL_MODELING_BATCHES.md):
+"""Batch 5 (docs/implementation-state/ToDo_Backend.md):
 "modal-block cleanup".
 
 Investigation showed the ranked "choose <n> —" backlog wasn't a header-

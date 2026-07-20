@@ -1991,7 +1991,7 @@ def _corpse_dance() -> list[AbilitySpec]:
     graveyard" pick, not a RULE 115 target); the trailing "Exile it at the
     beginning of the next end step." is dropped — the same missing
     one-shot delayed-trigger primitive Mana Drain's entry above needs, see
-    docs/implementation-state/ToDo_EdgeCases.md.
+    docs/implementation-state/ToDo_Backend.md.
     """
     return [
         AbilitySpec(
@@ -2207,7 +2207,7 @@ def _winds_of_abandon() -> list[AbilitySpec]:
     (RULE 702.96, already recognized as a keyword so it doesn't block this
     entry) has no behavioral effect yet — casting via Overload still only
     exiles one target rather than rewriting "target" to "each" (see
-    docs/implementation-state/ToDo_EdgeCases.md). ``target_kind="creature"``
+    docs/implementation-state/ToDo_Backend.md). ``target_kind="creature"``
     drops the "you don't control" restriction — a documented simplification,
     no target kind carries an ownership exclusion yet.
     """
@@ -2243,7 +2243,7 @@ def _eiganjo_seat_of_the_empire() -> list[AbilitySpec]:
     activated-ability cost-reduction primitive yet (`continuous.
     cost_reduction_for`/`self_cost_reduction_for` only ever discount a
     *spell's* cast cost, RULE 601.2f, never an activated ability's own
-    cost) — logged in docs/implementation-state/ToDo_EdgeCases.md rather
+    cost) — logged in docs/implementation-state/ToDo_Backend.md rather
     than guessed at.
     """
     return [

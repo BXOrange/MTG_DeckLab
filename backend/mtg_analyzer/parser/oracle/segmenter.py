@@ -53,7 +53,7 @@ _TRIGGER_RE = re.compile(r"^(?:when|whenever|at)\b(?P<cond>[^,]*),\s*(?P<body>.+
 #: "cast" half (`EventType.SPELL_CAST`). The engine has no general
 #: spell-copy event bus at all yet (a real, separate, cross-cutting gap —
 #: nothing in the engine can currently produce a spell copy in the first
-#: place — tracked in ToDo_EdgeCases.md), so the missing "copy" branch is
+#: place — tracked in ToDo_Backend.md), so the missing "copy" branch is
 #: unreachable by any game state the engine can currently produce, not a
 #: silently wrong one. ``spell_subtype_any`` (an existing `effect_binder`
 #: trigger predicate, built for "cast an Aura/Equipment/Vehicle spell"

@@ -1,4 +1,4 @@
-"""Batch 8 (docs/implementation-state/CARDPOOL_MODELING_BATCHES.md):
+"""Batch 8 (docs/implementation-state/ToDo_Backend.md):
 "permission / 'you may' statics" — extra land drops, no maximum hand size,
 and an optional "may choose not to untap" toggle. None of these are about a
 permanent's own characteristics (RULE 613), so unlike most static families

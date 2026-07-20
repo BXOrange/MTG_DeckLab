@@ -1,4 +1,4 @@
-"""Batch 7 (docs/implementation-state/CARDPOOL_MODELING_BATCHES.md):
+"""Batch 7 (docs/implementation-state/ToDo_Backend.md):
 "choose-a-type-as-enters + scoped lords" — RULE 601.2b's "as ~ enters,
 choose a creature type/color" plus the dynamic "… of the chosen type/color
 …" anthem/grant tail and "~ is the chosen type in addition to its other

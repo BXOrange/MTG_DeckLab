@@ -53,7 +53,7 @@ class StackItem:
     2+ *different* targeting effects on one spell/ability each resolve
     against their own targets instead of all reading off the front of one
     shared ``targets`` list (RULE 115.1/601.2c — see
-    `docs/implementation-state/ToDo_EdgeCases.md`). ``None`` (the common
+    `docs/implementation-state/ToDo_Backend.md`). ``None`` (the common
     case: at most one targeting effect) keeps the legacy behaviour of every
     effect reading ``targets`` directly.
     """

@@ -1,4 +1,4 @@
-"""Batch 2 (docs/implementation-state/CARDPOOL_MODELING_BATCHES.md): the
+"""Batch 2 (docs/implementation-state/ToDo_Backend.md): the
 combat/evasion static-restriction family.
 
 Covers the printed self/attached-permanent statics that block RULE 508/509

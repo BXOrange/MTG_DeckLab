@@ -71,7 +71,7 @@ _TARGET_ROWS: list[tuple[str, str]] = [
 #: real "up to two/three/N" multi-target choice needs an interactive
 #: multi-select and per-effect application over a *list* of targets — a
 #: materially larger feature this grammar doesn't attempt (see
-#: `docs/implementation-state/ToDo_EdgeCases.md`). Exported (not
+#: `docs/implementation-state/ToDo_Backend.md`). Exported (not
 #: underscore-private) so a handler with its own hand-rolled "return/put
 #: target …" grammar (the graveyard-recursion family) can embed it too,
 #: without going through the shared `TARGET` alternation.

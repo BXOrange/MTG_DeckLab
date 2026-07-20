@@ -1,4 +1,4 @@
-"""Batch 4 (docs/implementation-state/CARDPOOL_MODELING_BATCHES.md): the
+"""Batch 4 (docs/implementation-state/ToDo_Backend.md): the
 self-referential-trigger family's two foundational pieces —
 
 * **RULE 207.2c ability-word stripping** (`normalize._strip_ability_words`)

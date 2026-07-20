@@ -2234,7 +2234,7 @@ class ReturnTopGraveyardCreatureWithHasteEffect(GameEffect):
     that creature gains haste until end of turn (Corpse Dance, minus its
     delayed "exile it at the beginning of the next end step" tail — no
     dynamically-created delayed-trigger primitive exists yet for a one-shot
-    future event, see docs/implementation-state/ToDo_EdgeCases.md). A
+    future event, see docs/implementation-state/ToDo_Backend.md). A
     single atomic effect, not `ReturnFromGraveyardEffect` (a RULE 115
     *target*) plus a separate haste grant: the "top card" pick is
     untargeted/positional (the graveyard's own insertion order — the most
@@ -2931,7 +2931,7 @@ class PhaseOutEffect(GameEffect):
     Any Aura/Equipment attached to the phasing-out permanent becomes
     unattached rather than phasing out together with it (RULE 702.26e-
     family simplification — no card needing a multi-permanent phase chain
-    yet, see docs/implementation-state/ToDo_EdgeCases.md).
+    yet, see docs/implementation-state/ToDo_Backend.md).
     """
 
     def __init__(
