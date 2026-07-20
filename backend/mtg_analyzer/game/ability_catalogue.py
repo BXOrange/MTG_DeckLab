@@ -634,6 +634,39 @@ def _glarb_calamitys_augur() -> list[AbilitySpec]:
 register("Glarb, Calamity's Augur", _glarb_calamitys_augur)
 
 
+def _lurrus_of_the_dream_den() -> list[AbilitySpec]:
+    """Once during each of your turns, you may cast a permanent spell with
+    mana value 2 or less from your graveyard.
+    Companion — Each permanent card in your starting deck has mana value 2
+    or less. (You may begin the game with this card in your sideboard.)
+
+    — Lurrus of the Dream-Den. The graveyard-cast permission
+    (`graveyard_cast_permission`, `game/graveyard_cast.py`) is the
+    open-ended sibling of `top_library_permission` above (a standing grant
+    from a permanent, not a closed alt-cost keyword like Flashback/Escape);
+    ``once_per_turn``/``permanent_only`` both default True, so only the
+    ``max_mana_value`` gate needs stating. Companion (RULE 702.139, a
+    deck-construction legality rule checked at deckbuilding time, not a
+    runtime game effect) isn't modeled — out of the game engine's scope,
+    same as every other Companion card. Deliberately does **not** model "if
+    a spell cast this way would be put into a graveyard this turn, exile it
+    instead" — a separate RULE 616 replacement-effect clause, open in
+    `backend/ToDo_Backend.md`.
+    """
+    return [
+        AbilitySpec(
+            "static",
+            [EffectSpec("graveyard_cast_permission", {"max_mana_value": 2})],
+            raw_text="Einmal während jedes deiner Züge darfst du einen "
+                     "permanenten Zauberspruch mit Manawert 2 oder weniger "
+                     "aus deinem Friedhof wirken.",
+        )
+    ]
+
+
+register("Lurrus of the Dream-Den", _lurrus_of_the_dream_den)
+
+
 # ---------------------------------------------------------------------------
 # "Wyleth Equip" — Boros equipment/voltron commander deck. Every entry below
 # hand-authors the *whole* card (not just its unclaimed clause): registering

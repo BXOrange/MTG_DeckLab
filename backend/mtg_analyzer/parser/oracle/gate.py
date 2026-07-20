@@ -137,7 +137,13 @@ UNMODELED = "UNMODELED"
 #: source" `additional_damage` filter, and the "N target X controlled by
 #: different players/controllers" cross-target constraint on
 #: `destroy`/`exile` (Protector of the Wastes-shaped).
-PARSER_VERSION = "18"
+#: "19": the Search/tutor & graveyard batch — "exile target player's
+#: graveyard"/"exile all cards from target player's graveyard" (Bojuka
+#: Bog/Tormod's Crypt-shaped whole-graveyard exile, `exile_target_graveyard`)
+#: and "return it to the battlefield transformed under its owner's control"
+#: (Bruce Banner-shaped graveyard-sourced forced flip,
+#: `return_from_graveyard_transformed`).
+PARSER_VERSION = "19"
 
 
 @dataclass

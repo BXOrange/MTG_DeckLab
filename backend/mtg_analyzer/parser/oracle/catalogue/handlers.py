@@ -659,6 +659,19 @@ def _exile_from_graveyard(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     return [EffectSpec("exile", {"target_kind": kind})]
 
 
+#: "exile target player's graveyard." (Bojuka Bog) / "exile all cards from
+#: target player's graveyard." (Tormod's Crypt) — a whole *graveyard*
+#: targeted by player, not a single card from one (`_EXILE_FROM_GRAVEYARD_RE`
+#: above) — the two phrasings are the same effect, so one builder claims both.
+_EXILE_TARGET_GRAVEYARD_RE = _c(
+    r"exile (?:all cards from )?target player'?s graveyard"
+)
+
+
+def _exile_target_graveyard(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    return [EffectSpec("exile_target_graveyard", {"target_kind": "player"})]
+
+
 #: "search your library for a [<criteria>] card, [reveal it,] put it/that
 #: card/them/those cards <destination>, then shuffle." (RULE 701.19, the
 #: general tutor/ramp/fetch family — Demonic Tutor/Rampant Growth/Farseek/
@@ -973,6 +986,22 @@ _EXILE_RETURN_TRANSFORMED_RE = _c(
 
 def _exile_return_transformed(m: re.Match[str]) -> list[EffectSpec]:
     return [EffectSpec("exile_return_transformed", {})]
+
+
+#: "return it/~ to the battlefield transformed under its owner's control"
+#: (RULE 400.7 + RULE 712.8, Bruce Banner-shaped) — the graveyard-sourced
+#: sibling of `_EXILE_RETURN_TRANSFORMED_RE` above: a dies trigger's own
+#: "return it..." (no "exile ~, then" prefix — dying already put it in the
+#: graveyard, so this clause returns straight from there) rather than an
+#: exile-and-blink. Always self/untargeted, same as that sibling.
+_RETURN_FROM_GRAVEYARD_TRANSFORMED_RE = _c(
+    rf"return (?:{re.escape(SELF)}|it) to the battlefield transformed under "
+    r"(?:your control|(?:its|his|her) owner'?s control)"
+)
+
+
+def _return_from_graveyard_transformed(m: re.Match[str]) -> list[EffectSpec]:
+    return [EffectSpec("return_from_graveyard_transformed", {})]
 
 
 def _become_prepared(m: re.Match[str]) -> list[EffectSpec]:
@@ -1696,6 +1725,14 @@ HANDLERS: list[EffectHandler] = [
         _EXILE_FROM_GRAVEYARD_RE,
         _exile_from_graveyard,
     ),
+    # "exile target player's graveyard."/"exile all cards from target
+    # player's graveyard." (Bojuka Bog/Tormod's Crypt-shaped whole-graveyard
+    # hate, as opposed to a single card from one above).
+    EffectHandler(
+        "exile_target_graveyard",
+        _EXILE_TARGET_GRAVEYARD_RE,
+        _exile_target_graveyard,
+    ),
     # "search your library for <criteria>, [reveal <pronoun>,] put <pronoun>
     # <destination>, then shuffle." (RULE 701.19 — the general tutor/ramp/
     # fetch family: unrestricted tutors, basic-land fetches, criteria-
@@ -1775,6 +1812,15 @@ HANDLERS: list[EffectHandler] = [
         "exile_return_transformed",
         _EXILE_RETURN_TRANSFORMED_RE,
         _exile_return_transformed,
+    ),
+    # "return it/~ to the battlefield transformed under its owner's
+    # control" (RULE 400.7 + RULE 712.8, Bruce Banner-shaped) — a dies
+    # trigger's own graveyard-sourced sibling of the exile-and-blink shape
+    # just above (no "exile ~, then" prefix: dying already put it there).
+    EffectHandler(
+        "return_from_graveyard_transformed",
+        _RETURN_FROM_GRAVEYARD_TRANSFORMED_RE,
+        _return_from_graveyard_transformed,
     ),
     # "~ becomes prepared" / "it becomes prepared" / "this permanent"/
     # "this creature becomes prepared" (RULE 722.3a) — a preparation card's

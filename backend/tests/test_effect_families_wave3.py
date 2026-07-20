@@ -163,6 +163,31 @@ def test_return_from_graveyard_fails_closed_on_an_unrecognized_shape():
     ) is None
 
 
+def test_exile_target_graveyard_recognizes_both_phrasings():
+    # Bojuka Bog's "exile target player's graveyard" and Tormod's Crypt's
+    # "exile all cards from target player's graveyard" are the same effect.
+    bojuka = parse_effect_body("exile target player's graveyard")[0]
+    assert bojuka.type == "exile_target_graveyard"
+    assert bojuka.params == {"target_kind": "player"}
+
+    tormod = parse_effect_body("exile all cards from target player's graveyard")[0]
+    assert tormod.type == "exile_target_graveyard"
+    assert tormod.params == {"target_kind": "player"}
+
+
+def test_return_from_graveyard_transformed_recognizes_self_and_it():
+    dies_shape = parse_effect_body(
+        "return it to the battlefield transformed under its owner's control"
+    )[0]
+    assert dies_shape.type == "return_from_graveyard_transformed"
+    assert dies_shape.params == {}
+
+    self_shape = parse_effect_body(
+        "return ~ to the battlefield transformed under its owner's control"
+    )[0]
+    assert self_shape.type == "return_from_graveyard_transformed"
+
+
 def test_put_from_graveyard_under_its_owners_control_reuses_return_from_graveyard():
     # "put … onto the battlefield under its owner's control" (Kenrith) is
     # the same effect as "return … to the battlefield" (Karmic Guide) —
@@ -485,6 +510,96 @@ def test_reanimate_under_your_control_steals_from_an_opponents_graveyard():
     assert opp_dead in state.battlefield
     assert opp_dead.controller_id == "p1"  # stolen
     assert opp_dead.owner_id == "p2"  # still p2's card
+
+
+def test_exile_target_graveyard_end_to_end_empties_only_the_targeted_players_graveyard():
+    # Bojuka Bog-shaped: "exile target player's graveyard" — every card in
+    # that one graveyard, the other player's untouched.
+    engine, state, p1, p2 = _rules()
+    p1.add_to_zone(GameObject(_bear("P1 Bear"), owner_id="p1", zone=Zone.GRAVEYARD), Zone.GRAVEYARD)
+    p1.add_to_zone(GameObject(_bear("P1 Bear 2"), owner_id="p1", zone=Zone.GRAVEYARD), Zone.GRAVEYARD)
+    p2_card = GameObject(_bear("P2 Bear"), owner_id="p2", zone=Zone.GRAVEYARD)
+    p2.add_to_zone(p2_card, Zone.GRAVEYARD)
+
+    exile_gy = _spell(
+        "Test Bojuka Bog", "Exile target player's graveyard.",
+        [EffectSpec("exile_target_graveyard", {"target_kind": "player"})],
+        target={"kind": "player"},
+    )
+    p1.hand.append(exile_gy)
+
+    engine.cast_spell(p1, exile_gy, targets=[p1])
+    engine.resolve_top_of_stack()
+
+    # Both bears (present before the cast) are exiled; the spell itself
+    # lands in the graveyard afterward, as any resolved instant does.
+    assert p1.graveyard == [exile_gy]
+    assert p2_card in p2.graveyard  # untouched
+
+
+def test_return_from_graveyard_transformed_via_registry():
+    # RulesEngine.return_from_graveyard(transformed=True) — the Bruce
+    # Banner-shaped "return this card to the battlefield transformed"
+    # primitive, mirroring exile_return_transformed's flip-on-re-entry.
+    engine, state, p1, p2 = _rules()
+    card = Card(
+        id="Flip Test", name="Flip Test", type_line="Legendary Creature — Human",
+        is_creature=True, power=2, toughness=2,
+        layout="transform",
+        back_name="Flip Test Back", back_type_line="Legendary Creature — Monster",
+        back_power=5, back_toughness=5,
+    )
+    obj = GameObject(card, owner_id="p1", zone=Zone.GRAVEYARD)
+    bind_from_catalogue(obj)
+    p1.add_to_zone(obj, Zone.GRAVEYARD)
+
+    engine.return_from_graveyard(obj, "battlefield", transformed=True)
+
+    assert obj in state.battlefield
+    assert obj.transformed is True
+    assert obj.name == "Flip Test Back"
+    assert (obj.power, obj.toughness) == (5, 5)
+    assert obj.summoning_sick is True
+
+
+def test_return_from_graveyard_transformed_is_noop_without_a_back_face():
+    engine, state, p1, p2 = _rules()
+    obj = GameObject(_bear("Vanilla"), owner_id="p1", zone=Zone.GRAVEYARD)
+    p1.add_to_zone(obj, Zone.GRAVEYARD)
+
+    engine.return_from_graveyard(obj, "battlefield", transformed=True)
+
+    assert obj in state.battlefield
+    assert obj.transformed is False
+
+
+def test_return_from_graveyard_transformed_dies_trigger_end_to_end():
+    # "When ~ dies, return it to the battlefield transformed under its
+    # owner's control." (Bruce Banner-shaped) — a real dies trigger firing
+    # the new self-only effect off real oracle text via the parser.
+    engine, state, p1, p2 = _rules()
+    card = Card(
+        id="Bruce Test", name="Bruce Test", type_line="Legendary Creature — Human",
+        is_creature=True, power=1, toughness=1,
+        oracle_text="When Bruce Test dies, return it to the battlefield transformed "
+                    "under its owner's control.",
+        layout="transform",
+        back_name="Bruce Test Back", back_type_line="Legendary Creature — Hulk",
+        back_power=8, back_toughness=8,
+    )
+    obj = GameObject(card, owner_id="p1", controller_id="p1", zone=Zone.BATTLEFIELD)
+    bind_from_catalogue(obj)
+    state.add_to_battlefield(obj)
+
+    engine.put_into_graveyard(obj)
+    placed = engine.put_triggers_on_stack()
+    assert placed == 1
+    engine.resolve_top_of_stack()
+
+    assert obj in state.battlefield
+    assert obj.transformed is True
+    assert obj.name == "Bruce Test Back"
+    assert (obj.power, obj.toughness) == (8, 8)
 
 
 def test_lose_life_effect_selectors_hit_the_right_players():

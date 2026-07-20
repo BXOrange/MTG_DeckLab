@@ -2688,6 +2688,83 @@ the Phase-1 models. Tests: `test_game_engine.py`.
       `can_cast`/`cast_spell`/`legal_actions`, both hand-authored cards
       end to end, and the session-view flag).
 
+- [x] **(2026-07-20) Search/tutor & graveyard batch** — three previously
+      deferred `ToDo_Backend.md` items:
+
+      **Whole-graveyard targeted exile** (`ExileTargetGraveyardEffect`,
+      `game/effects.py`, registered `"exile_target_graveyard"`):
+      "exile target player's graveyard" (Bojuka Bog) — distinct from both
+      `_exile_from_graveyard`'s single-card family ("exile target creature
+      card from your graveyard") and `ExileAllGraveyardsEffect`'s
+      untargeted "exile all graveyards" (Farewell-shaped); this one targets
+      one player and empties only that graveyard. Parser recognition
+      (`parser/oracle/catalogue/handlers.py`'s `_exile_target_graveyard`)
+      claims both real phrasings — Bojuka Bog's "exile target player's
+      graveyard" and Tormod's Crypt's "exile all cards from target
+      player's graveyard" — as the same effect.
+
+      **Standing graveyard-cast permission** (`GraveyardCastPermissionEffect`,
+      `game/effects.py`, registered `"graveyard_cast_permission"`; new
+      **`game/graveyard_cast.py`**): the graveyard-zone sibling of
+      `top_library_permission` just above — same "scan on demand" shape
+      (`active_graveyard_cast_grants`/`graveyard_cast_grant_for`/
+      `may_cast_spell_from_graveyard`, multiple grants OR together on the
+      loosest filter) — but a genuinely different mechanism from
+      Flashback/Escape's closed alt-cost keyword vocabulary
+      (`GameEngine._graveyard_cast_keyword`): this is a *permission*
+      granted by some other permanent, paid at the cast card's own normal
+      mana cost, not an alternative cost printed on the card itself.
+      `max_mana_value`/`permanent_only` gate what's castable;
+      `once_per_turn` (default True, Lurrus's own "once during each of
+      your turns") is tracked per **granting object**
+      (`GameObject.graveyard_casts_this_turn`, reset every untap step
+      alongside `activated_loyalty_this_turn` — two copies of the granting
+      permanent each grant their own use). Engine wiring mirrors
+      `top_library`'s exactly: `GameEngine.can_cast`'s zone gate grew a
+      `_graveyard_cast_permission` disjunct alongside the existing
+      `_castable_from_graveyard` keyword check, `_cast_current_face`
+      records which grant was used (captured before the cast moves the
+      card off the graveyard, same reason `graveyard_keyword` already was)
+      and increments its source's counter after a successful cast, and
+      `legal_actions`'s graveyard loop offers the cast when either check
+      passes. `effective_cast_cost` needed no change — a standing
+      permission carries no keyword, so it already falls through to the
+      card's own printed cost. Hand-authored: Lurrus of the Dream-Den
+      (`game/ability_catalogue.py`, `max_mana_value=2`) — **not** its
+      trailing "if a spell cast this way would be put into a graveyard
+      this turn, exile it instead" replacement clause, a separate RULE 616
+      gap still open in `ToDo_Backend.md`.
+
+      **Graveyard-sourced "return this card transformed"**
+      (`RulesEngine.return_from_graveyard`'s new `transformed` param;
+      new `ReturnFromGraveyardTransformedEffect`, registered
+      `"return_from_graveyard_transformed"`): the graveyard-sourced sibling
+      of the existing `exile_return_transformed` (Fable of the
+      Mirror-Breaker/Ayara-shaped exile-and-blink). `transformed=True`
+      flips the object onto its back face (`transform_permanent`) right
+      after `_put_searched_card` places it — same RULE 400.7 "new object"
+      + RULE 712.8 forced-flip treatment, just sourced from a graveyard
+      zone-change instead of an exile. The new effect class is untargeted
+      (always `self.source`, a dies trigger's own subject — mirroring
+      `ExileReturnTransformedEffect`'s identical shape) and no-ops if the
+      source isn't actually sitting in a graveyard when it resolves.
+      Parser recognition (`_return_from_graveyard_transformed`) claims
+      "return it/~ to the battlefield transformed under its owner's
+      control" — the graveyard-sourced sibling of
+      `_EXILE_RETURN_TRANSFORMED_RE`'s "exile ~, then return it..." (no
+      "exile ~, then" prefix: a dies trigger's card is already in the
+      graveyard by the time this resolves).
+
+      `PARSER_VERSION` bumped "18" → "19". Tests: `backend/tests/
+      test_graveyard_cast.py` (new, 16 tests — unit coverage mirroring
+      `test_top_library.py`'s shape, `GameEngine` integration, the
+      once-per-turn reset, and Lurrus end to end) plus new parser/engine
+      tests in `test_effect_families_wave3.py` (exile-target-graveyard
+      parsing + a real two-player exile, the transformed-return primitive,
+      its no-back-face no-op, and a full dies-trigger-to-Hulk end-to-end
+      test off real oracle text). Full suite 1817 passed, zero
+      regressions. **Coverage: 8,041 → 8,052 / 34,209 (23.5%, +11 cards).**
+
 - [x] **Combat blocking + creature-vs-creature damage core:**
       `GameEngine.declare_blockers`/`can_block` and `_step_combat_damage`
       handle blocked/unblocked attackers, gang blocks (lethal-first

@@ -245,9 +245,15 @@ class GameContext:
         self.engine.return_to_hand(target)
 
     def return_from_graveyard(
-        self, target: "GameObject", destination: str = "battlefield", controller_id: Optional[str] = None
+        self,
+        target: "GameObject",
+        destination: str = "battlefield",
+        controller_id: Optional[str] = None,
+        transformed: bool = False,
     ) -> None:
-        self.engine.return_from_graveyard(target, destination, controller_id=controller_id)
+        self.engine.return_from_graveyard(
+            target, destination, controller_id=controller_id, transformed=transformed
+        )
 
     def blink(self, target: "GameObject") -> None:
         self.engine.blink(target)
@@ -882,6 +888,48 @@ class TopLibraryPermissionEffect(GameEffect):
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
         return None  # continuous marker — consulted by top_library.py, not applied
+
+
+class GraveyardCastPermissionEffect(GameEffect):
+    """Standing permission to cast [permanent] spells from the controller's
+    own graveyard (Lurrus of the Dream-Den-shaped) — the graveyard sibling of
+    `TopLibraryPermissionEffect` above, consulted the same "scan on demand"
+    way by `game/graveyard_cast.py` rather than a closed keyword vocabulary
+    like Flashback/Escape (`GameEngine._graveyard_cast_keyword`): those are
+    an alternative *cost* printed on the card itself, this is a *permission*
+    granted by some other permanent, paid at the card's own normal mana cost.
+
+    ``permanent_only`` is Lurrus's own "a permanent spell" restriction
+    (creature/artifact/enchantment/land/planeswalker); ``max_mana_value`` is
+    its "with mana value 2 or less" gate (``None`` = unrestricted).
+    ``once_per_turn`` (RULE 500.4-adjacent "once during each of your turns")
+    is tracked per *granting object* (`GameObject.graveyard_casts_this_turn`,
+    reset every untap step alongside `activated_loyalty_this_turn` — the same
+    per-object, not per-player, precedent: two copies of the granting
+    permanent each grant their own use).
+
+    Bound like `TopLibraryPermissionEffect` (an ordinary ``static`` ability,
+    inert to `continuous.recompute` — the only consumer is
+    `game/graveyard_cast.py`). Deliberately does **not** model "if a spell
+    cast this way would be put into a graveyard this turn, exile it
+    instead" — a separate RULE 616 replacement-effect clause, still open in
+    `backend/ToDo_Backend.md`.
+    """
+
+    def __init__(
+        self,
+        max_mana_value: Optional[int] = None,
+        permanent_only: bool = True,
+        once_per_turn: bool = True,
+        source: Optional["GameObject"] = None,
+    ) -> None:
+        super().__init__(source)
+        self.max_mana_value = max_mana_value
+        self.permanent_only = permanent_only
+        self.once_per_turn = once_per_turn
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        return None  # continuous marker — consulted by graveyard_cast.py, not applied
 
 
 # ---------------------------------------------------------------------------
@@ -1851,6 +1899,30 @@ class ExileGraveyardCreaturesGainLifeEffect(GameEffect):
             controller = _controller_of(self.source, context)
             if controller is not None:
                 context.gain_life(controller, self.life_per_card * len(creatures))
+
+
+class ExileTargetGraveyardEffect(GameEffect):
+    """"Exile target player's graveyard." (Bojuka Bog/Tormod's Crypt-shaped)
+    — every card in that one graveyard, untargeted per-card unlike
+    `_exile_from_graveyard`'s single-card family; the untargeted "every
+    graveyard" sibling is `ExileAllGraveyardsEffect` above."""
+
+    def __init__(
+        self,
+        target: Any = None,
+        source: Optional["GameObject"] = None,
+        target_kind: str = "player",
+    ) -> None:
+        super().__init__(source)
+        self.target = target
+        self.target_spec = TargetSpec(kind=target_kind)
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        player = (targets[0] if targets else None) or self.target
+        if player is None:
+            return
+        for obj in list(player.graveyard):
+            context.exile(obj)
 
 
 class DestroyLoseLifeEqualManaValueEffect(GameEffect):
@@ -2988,6 +3060,26 @@ class ExileReturnTransformedEffect(GameEffect):
             context.exile_return_transformed(self.source)
 
 
+class ReturnFromGraveyardTransformedEffect(GameEffect):
+    """"Return this card from your graveyard to the battlefield transformed
+    under its owner's control." (Bruce Banner-shaped) — the graveyard-
+    sourced sibling of `ExileReturnTransformedEffect` above: a dies
+    trigger's own subject is always the card that just died, so this is
+    untargeted and always acts on ``self.source``, exactly like that
+    sibling — never a chosen target. See `RulesEngine.return_from_graveyard`'s
+    ``transformed`` param for the RULE 400.7 + RULE 712.8 mechanics (a
+    genuine new-object zone change, then a forced flip onto the back face —
+    not an in-place face swap). A no-op if ``self.source`` isn't actually
+    sitting in a graveyard when this resolves (e.g. something else already
+    moved it) or has no back face at all.
+    """
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        if self.source is None or self.source.zone != Zone.GRAVEYARD:
+            return
+        context.return_from_graveyard(self.source, "battlefield", transformed=True)
+
+
 class PhaseOutEffect(GameEffect):
     """Phase a permanent out (RULE 702.26) — treated as though it doesn't
     exist until it phases back in at its controller's next untap step
@@ -4028,6 +4120,12 @@ EffectRegistry.register(
     ),
 )
 EffectRegistry.register(
+    "exile_target_graveyard",  # Bojuka Bog/Tormod's Crypt
+    lambda p: ExileTargetGraveyardEffect(
+        target=p.get("target"), target_kind=p.get("target_kind", "player"),
+    ),
+)
+EffectRegistry.register(
     "destroy_lose_life_equal_mana_value",  # Feed the Swarm
     lambda p: DestroyLoseLifeEqualManaValueEffect(
         target=p.get("target"), target_kind=p.get("target_kind", "permanent"),
@@ -4331,6 +4429,14 @@ EffectRegistry.register(
     ),
 )
 EffectRegistry.register(
+    "graveyard_cast_permission",
+    lambda p: GraveyardCastPermissionEffect(
+        max_mana_value=p.get("max_mana_value"),
+        permanent_only=p.get("permanent_only", True),
+        once_per_turn=p.get("once_per_turn", True),
+    ),
+)
+EffectRegistry.register(
     "create_token",
     lambda p: CreateTokenEffect(
         count=p.get("count", 1),
@@ -4393,6 +4499,9 @@ EffectRegistry.register(
 )
 EffectRegistry.register(
     "exile_return_transformed", lambda p: ExileReturnTransformedEffect()
+)
+EffectRegistry.register(
+    "return_from_graveyard_transformed", lambda p: ReturnFromGraveyardTransformedEffect()
 )
 EffectRegistry.register("become_prepared", lambda p: BecomePreparedEffect())
 EffectRegistry.register(

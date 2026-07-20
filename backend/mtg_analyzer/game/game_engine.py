@@ -51,6 +51,7 @@ from .targeting import (
     requirements_with_targets,
     spell_target_specs,
 )
+from .graveyard_cast import graveyard_cast_grant_for
 from .top_library import (
     may_cast_spell_from_top_of_library,
     may_play_land_from_top_of_library,
@@ -396,6 +397,10 @@ class GameEngine:
             obj.summoning_sick = False
             # RULE 606.3: a new loyalty ability may be activated this turn.
             obj.activated_loyalty_this_turn = False
+            # RULE 500.4-adjacent: a `GraveyardCastPermissionEffect`'s "once
+            # during each of your turns" restriction (Lurrus-shaped) resets
+            # the same way.
+            obj.graveyard_casts_this_turn = 0
         self.state.fire_event(GameEvent(EventType.UNTAP, player_id=active.id))
         # RULE 731.2: "as the second part of the untap step", check whether
         # day/night should flip based on last turn's spell count.
@@ -1028,6 +1033,18 @@ class GameEngine:
         """
         return cls._graveyard_cast_keyword(obj) is not None
 
+    def _graveyard_cast_permission(self, player: Player, obj: GameObject) -> bool:
+        """Whether ``obj`` — sitting in ``player``'s own graveyard — is
+        castable from there via a standing permission some other permanent
+        grants (Lurrus of the Dream-Den-shaped, `game/graveyard_cast.py`) —
+        the open-ended sibling of `_castable_from_graveyard`'s closed
+        Flashback/Escape keyword vocabulary. Cast this way, ``obj`` pays its
+        own normal mana cost (`effective_cast_cost` only substitutes an
+        alternative cost for a recognised graveyard keyword, so this falls
+        through to the printed cost unchanged).
+        """
+        return graveyard_cast_grant_for(player, self.state, obj.card) is not None
+
     def _castable_from_library(self, player: Player, obj: GameObject) -> bool:
         """Whether the top-of-library card ``obj`` is castable from there
         right now (Oracle of Mul Daya/Glarb, Calamity's Augur-shaped — see
@@ -1098,16 +1115,19 @@ class GameEngine:
         # previous cast from there) isn't modeled yet. An Adventure creature
         # or a prepared copy sitting in exile may also be castable — see
         # `_castable_from_exile`. A graveyard card with Flashback/Escape may
-        # be castable from there too — see `_castable_from_graveyard`. The
-        # top of the library may be castable too (Oracle of Mul Daya/Glarb,
-        # Calamity's Augur-shaped) — see `_castable_from_library`; only the
-        # top card itself ever qualifies, never anything deeper.
+        # be castable from there too — see `_castable_from_graveyard` — as
+        # may one some other permanent grants standing permission for
+        # (Lurrus of the Dream-Den-shaped) — see `_graveyard_cast_permission`.
+        # The top of the library may be castable too (Oracle of Mul Daya/
+        # Glarb, Calamity's Augur-shaped) — see `_castable_from_library`;
+        # only the top card itself ever qualifies, never anything deeper.
         in_castable_zone = (
             obj in player.hand
             or obj in player.command
             or (obj in player.exile and self._castable_from_exile(obj))
             or (obj in player.exile and self._has_temp_play_permission(obj))
             or (obj in player.graveyard and self._castable_from_graveyard(obj))
+            or (obj in player.graveyard and self._graveyard_cast_permission(player, obj))
             or (
                 bool(player.library)
                 and obj is player.library[-1]
@@ -1528,6 +1548,14 @@ class GameEngine:
             graveyard_keyword = (
                 self._graveyard_cast_keyword(obj) if obj in player.graveyard else None
             )
+            # Lurrus-shaped standing permission, read *before* the cast for
+            # the same "off the object's current zone" reason as above — only
+            # relevant when no closed-vocabulary keyword already covers it.
+            graveyard_grant = (
+                graveyard_cast_grant_for(player, self.state, obj.card)
+                if obj in player.graveyard and graveyard_keyword is None
+                else None
+            )
             if free:
                 result = self.rules.cast_without_paying(player, obj, targets)
             else:
@@ -1561,6 +1589,12 @@ class GameEngine:
                 escape_cost = self._escape_cost(obj)
                 if escape_cost is not None and escape_cost.exile_from_graveyard:
                     self._pay_escape_graveyard_cost(player, escape_cost.exile_from_graveyard)
+            # RULE 500.4-adjacent: record this use of a Lurrus-shaped
+            # "once during each of your turns" standing permission against
+            # its *granting* permanent, not the cast card — untapped again
+            # by `_step_untap` alongside `activated_loyalty_this_turn`.
+            if graveyard_grant is not None and graveyard_grant.source is not None:
+                graveyard_grant.source.graveyard_casts_this_turn += 1
         if from_command:
             player.commander_casts[obj.instance_id] = (
                 player.commander_casts.get(obj.instance_id, 0) + 1
@@ -2722,8 +2756,14 @@ class GameEngine:
 
         for obj in list(player.graveyard):
             # RULE 702.34 / 702.138: Flashback/Escape let a card be cast
-            # from the graveyard for an alternative cost.
-            if self._castable_from_graveyard(obj) and self.can_cast(player, obj):
+            # from the graveyard for an alternative cost — or some other
+            # permanent may grant a standing permission instead (Lurrus of
+            # the Dream-Den-shaped, `_graveyard_cast_permission`).
+            castable = (
+                self._castable_from_graveyard(obj)
+                or self._graveyard_cast_permission(player, obj)
+            )
+            if castable and self.can_cast(player, obj):
                 if getattr(obj, "spell_modes", None):
                     actions.extend(self._modal_cast_actions(player, obj))
                 else:

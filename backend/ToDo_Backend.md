@@ -62,18 +62,6 @@ for the dependency-ordered plan to finish the implementation.
         `RemoveCountersEffect.max_count` chosen-amount shape itself (which
         already covers plain "target permanent"/"target creature").
 
-      **Search/tutor & graveyard:**
-      - "Exile target player's graveyard" — needs a new whole-graveyard
-        effect, not just recognition.
-      - Standing graveyard-cast permission (mirroring `top_library_
-        permission` for the graveyard zone, with its own MV filter +
-        once-per-turn tracking, rather than the closed Flashback/Escape
-        keyword vocabulary): Lurrus of the Dream-Den.
-      - Graveyard-sourced "return this card transformed" (Bruce
-        Banner-shaped) — a graveyard sibling of the shipped
-        battlefield-sourced `exile_return_transformed`; needs
-        `return_from_graveyard` plus a forced flip.
-
       **Library-top / impulsive-draw permissions:**
       - "You may look at the top card of your library any time" itself is
         now claimed by the parser (a documented no-op — purely
@@ -215,6 +203,15 @@ for the dependency-ordered plan to finish the implementation.
       - The full RULE 616.1 "if X would Y, Z instead" grammar beyond the
         five fixed sentences shipped so far (more real formulations —
         target/duration variants).
+      - Lurrus of the Dream-Den's own "if a spell cast this way would be
+        put into a graveyard this turn, exile it instead" — a standing
+        replacement scoped to *spells cast via this permission this turn*
+        (not the whole card, not the whole turn); the graveyard-cast
+        permission itself (`graveyard_cast_permission`,
+        `game/graveyard_cast.py`) is shipped and the card is `MODELED` on
+        that alone, but this trailing clause isn't modeled, so a permanent
+        recast this way and later destroyed will incorrectly return to the
+        graveyard instead of exile.
       - A land's own "spend only on a spell of the *chosen* creature
         type/color" mana-spend variant (Cavern of Souls, Unclaimed
         Territory, Throne of Eldraine) and a mana-value-threshold clause

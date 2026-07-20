@@ -193,6 +193,11 @@ class GameObject:
         #: Whether a loyalty ability of this planeswalker has been activated
         #: this turn (RULE 606.3: only one per turn). Reset each untap step.
         self.activated_loyalty_this_turn: bool = False
+        #: How many times this object's own `GraveyardCastPermissionEffect`
+        #: grant (Lurrus of the Dream-Den-shaped, `game/graveyard_cast.py`)
+        #: has been used this turn — gates its ``once_per_turn`` restriction.
+        #: Reset each untap step, same as `activated_loyalty_this_turn`.
+        self.graveyard_casts_this_turn: int = 0
         #: Blocking (RULE 509): ``blocking`` is the instance id of the
         #: attacker this creature is declared to block (None if not
         #: blocking); ``blocked_by`` lists the blocker instance ids assigned
@@ -512,6 +517,7 @@ class GameObject:
         self.attacking = False
         self.combat_defender = None
         self.activated_loyalty_this_turn = False
+        self.graveyard_casts_this_turn = 0
         self.blocking = None
         self.blocked_by = []
         self.dealt_deathtouch_damage = False

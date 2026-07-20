@@ -2108,7 +2108,11 @@ class RulesEngine:
         self._put_searched_card(owner, obj, "battlefield")
 
     def return_from_graveyard(
-        self, obj: GameObject, destination: str = "battlefield", controller_id: Optional[str] = None
+        self,
+        obj: GameObject,
+        destination: str = "battlefield",
+        controller_id: Optional[str] = None,
+        transformed: bool = False,
     ) -> None:
         """Return ``obj`` from a graveyard to ``destination`` (RULE 701.3,
         the Regrowth/Reanimate-shaped recursion family).
@@ -2126,6 +2130,15 @@ class RulesEngine:
         effects see it too) instead of its owner's — real Magic only ever
         pairs this with ``destination="battlefield"``, never "hand" (a card
         can't go to a hand that isn't its owner's).
+
+        ``transformed`` (RULE 400.7 + RULE 712.8, Bruce Banner-shaped "return
+        this card to the battlefield transformed") flips ``obj`` onto its
+        back face (`transform_permanent`) right after it lands — mirroring
+        `exile_return_transformed`'s "new object enters already transformed"
+        treatment, just sourced from a graveyard instead of an exile-and-
+        blink; only meaningful with a battlefield-shaped ``destination``,
+        and a no-op flip for a card with no back face at all
+        (`transform_permanent` already handles that gracefully).
 
         RULE 400.7: leaving the graveyard makes this a new object regardless
         of destination — `GameObject.reset_as_new_object` drops whatever it
@@ -2148,6 +2161,8 @@ class RulesEngine:
             # followed by a return at all).
             obj.controller_id = owner.id
             self._put_searched_card(owner, obj, destination)
+        if transformed and destination in ("battlefield", "battlefield_tapped"):
+            self.transform_permanent(obj)
 
     def add_mana(self, player: Player, color: str, amount: int = 1) -> None:
         """Add ``amount`` mana of ``color`` straight to ``player``'s pool
