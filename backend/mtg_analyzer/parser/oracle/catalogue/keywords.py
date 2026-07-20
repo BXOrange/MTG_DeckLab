@@ -452,6 +452,18 @@ def _resolve(slug: str) -> Optional[KeywordDef]:
     return None
 
 
+def resolve_keyword(slug: str) -> Optional[KeywordDef]:
+    """Public wrapper over `_resolve` for callers outside this module that
+    need the generalized ``<type>walk``/``<type>cycling`` family lookup, not
+    just an exact catalogue row — `keyword_slug` only normalizes spelling
+    (aliases), not that family generalization. Used by
+    `catalogue.static_handlers._flag_keywords` to recognise a granted
+    landwalk variant ("all creatures have forestwalk") — the grant only ever
+    needs the raw variant slug (RULE 702.14's land type lives in the slug
+    itself), not a separately-carried quality param."""
+    return _resolve(slug)
+
+
 def _clause_for(text: str, display: str) -> str:
     """The oracle line the keyword appears on, for the spec's provenance."""
     pattern = re.compile(r"\b" + re.escape(display), re.I)

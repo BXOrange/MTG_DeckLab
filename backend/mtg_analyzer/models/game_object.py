@@ -138,6 +138,15 @@ class GameObject:
 
         # Permanent state (meaningful on the battlefield).
         self.tapped: bool = False
+        #: RULE 502.1 standing toggle for a "you may choose not to untap ~
+        #: during your untap step" permission (`"no_untap_optional"`
+        #: `StaticAbility`, Rubinia Soulsinger/Hivis of the Scale/The
+        #: Pandorica-shaped) — the engine has no mid-untap-step pause to ask
+        #: fresh every turn, so the controller flips this any time
+        #: (`GameEngine.set_skip_untap`) and it stays sticky until changed
+        #: again. Inert unless the object actually carries that permission
+        #: (`continuous.has_no_untap_static` checks both).
+        self.skip_untap: bool = False
         #: Summoning sickness (RULE 302.6): a creature can't attack/tap
         #: until its controller has controlled it since their last turn
         #: began. Set when it enters, cleared at that controller's untap.
@@ -236,6 +245,26 @@ class GameObject:
         #: to the battlefield, unlike `replacement_effects`'s event-transform
         #: `ReplacementEffect`s.
         self.enter_as_copy_effects: list[Any] = []
+        #: "As ~ enters, choose a creature type/color" (RULE 601.2b-style
+        #: characteristic-defining choice made as part of entering, not a
+        #: triggered ability) — `ChooseCreatureTypeReplacement`/
+        #: `ChooseColorReplacement`, bound the same `enter_replacement` way as
+        #: `enter_as_copy_effects` (a different family, so its own list; see
+        #: `effect_binder.bind_ability`'s routing). Consulted by
+        #: `RulesEngine._offer_enter_choices` right alongside
+        #: `_offer_enter_as_copy`, before this object is added to the
+        #: battlefield.
+        self.enter_choice_effects: list[Any] = []
+        #: The creature type/color chosen by this object's own "as ~ enters,
+        #: choose a …" ability (`enter_choice_effects` above), e.g.
+        #: ``"Goblin"`` / ``"R"``. Read by `game/continuous.py`'s
+        #: ``subtype_from_source``/``color_from_source`` selector params
+        #: (Adaptive Automaton/Arcane Adaptation-shaped lords) — ``None``
+        #: until the choice is made, or if the card has no such ability.
+        #: RULE 400.7: a new object hasn't made the choice yet either, so
+        #: `reset_as_new_object` clears both.
+        self.chosen_type: Optional[str] = None
+        self.chosen_color: Optional[str] = None
         #: Static abilities (`StaticAbility`) this object grants through the
         #: layer system (RULE 613) — anthems, keyword grants, type changes,
         #: cost reductions. Read by `game/continuous.py`.
@@ -296,6 +325,14 @@ class GameObject:
         #: separate removal code needed, same as `_granted_keywords`).
         self._granted_triggered_abilities: list[Any] = []
         self._added_types: set[str] = set()
+        #: Creature *subtypes* a layer-4 "~ is the chosen type in addition to
+        #: its other types"/"… of the chosen type …" static ability adds
+        #: (RULE 613.4a) — distinct from `_added_types` (card-type words like
+        #: "creature") and from `_derived_subtypes` (a full RULE 613.5
+        #: overwrite): this only *adds* a subtype alongside the printed ones,
+        #: so `continuous._has_subtype` checks it in addition to the printed
+        #: type line. Reset each recompute.
+        self._added_subtypes: set[str] = set()
         #: Types a layer-4 effect strips off (RULE 613.4a) — currently just
         #: Reconfigure (RULE 702.151b): the permanent stops being a creature
         #: for as long as it's attached to another creature.
@@ -402,6 +439,7 @@ class GameObject:
         self._granted_mana = []
         self._granted_triggered_abilities = []
         self._added_types = set()
+        self._added_subtypes = set()
         self._removed_types = set()
         self._derived_subtypes = None
         self._derived_colors = None
@@ -459,6 +497,7 @@ class GameObject:
         self.cast_via_flashback = False
         self.commander_zone_choice_pending = False
         self.tapped = False
+        self.skip_untap = False
         self.summoning_sick = True
         self.turn_entered = None
         self.phased_out = False
@@ -479,6 +518,10 @@ class GameObject:
         #: an ordinary recompute", not "not reset ever" (no code implemented
         #: a genuine RULE 400.7 transition until this method existed).
         self.renowned = False
+        #: RULE 601.2b/400.7: a new object hasn't made its "as it enters,
+        #: choose a creature type/color" pick yet either.
+        self.chosen_type = None
+        self.chosen_color = None
         self.temp_power = 0
         self.temp_toughness = 0
         self.temp_keywords = set()
@@ -740,6 +783,11 @@ class GameObject:
             "cast_via_flashback": self.cast_via_flashback,
             # Types added by a layer-4 effect (e.g. "creature"), for the board.
             "added_types": sorted(self._added_types),
+            # "As ~ enters, choose a creature type/color" (RULE 601.2b) — the
+            # board shows this so a Sliver-lord-shaped permanent's chosen
+            # tribe/color is visible, not just its effect.
+            "chosen_type": self.chosen_type,
+            "chosen_color": self.chosen_color,
             "attacking": self.attacking,
             "combat_defender": self.combat_defender,
             "blocking": self.blocking,

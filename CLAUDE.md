@@ -194,9 +194,17 @@ subjects + a `EventType.DAMAGE` `"filter"` predicate); "play/cast
 from the top of your library" as a standing, battlefield-sourced permission
 (`game/top_library.py` — Oracle of Mul Daya/Glarb, Calamity's Augur
 hand-authored; the goldfish board's library zone shows the top card and its
-buttons whenever a player has this active); and the deeper card-type
-structures — DFC transform + day/night/daybound-nightbound, modal-DFC/
-Adventure/Split-Fuse/Prepared casting, Saga chapters, Class/Leveler
+buttons whenever a player has this active); RULE 601.2b's "as ~ enters,
+choose a creature type/color" (Adaptive Automaton/Caged Sun/A-Thran
+Portal-shaped) as a second `enter_replacement` family alongside "enter as a
+copy of target X" — an interactive `pending_choice` offered before
+battlefield entry (`RulesEngine._offer_enter_choices`/`resolve_enter_choice`,
+`GameObject.chosen_type`/`chosen_color`), read back live every layer-engine
+recompute by a dynamic `subtype_from_source`/`color_from_source`/
+`add_subtypes_from_source` selector param so the board updates if the choice
+is ever changed (Replay/Puzzle mode) rather than being baked in once; and the
+deeper card-type structures — DFC transform + day/night/daybound-nightbound,
+modal-DFC/Adventure/Split-Fuse/Prepared casting, Saga chapters, Class/Leveler
 level-ups.
 
 The **oracle-text → behaviour parser** (docs/09, `parser/oracle/`) is the
@@ -243,14 +251,27 @@ counters — "if ~ was kicked, it enters with N counters on it" and its
 Multikicker-scaled "…for each time it was kicked" sibling
 (`counters.py`'s `kicked_gate`/`kicked_scale`, resolved against
 `GameObject.kicker_count` in `RulesEngine._apply_entry_counters`).
+and three "permission" statics that aren't about a permanent's own
+characteristics at all, so each is consulted by a dedicated per-player/
+per-object helper in `game/continuous.py` rather than the RULE 613 layer
+engine proper (`cast_limit`/`draw_limit`/`no_untap`'s existing treatment):
+"you may play an additional land on each of your turns" (`extra_land_drop`,
+`continuous.extra_land_plays_for` — its one-turn resolve-time sibling
+"…this turn" is the new `extra_land_play`/`ExtraLandPlayEffect`); "you have
+no maximum hand size" (`no_max_hand_size`, `continuous.
+has_no_maximum_hand_size`); and "you may choose not to untap ~ during your
+untap step" (`no_untap_optional`) — the one real new engine primitive here,
+since the untap step has no mid-step pause to ask fresh every turn, modeled
+as a sticky `GameObject.skip_untap` toggle instead (`GameEngine.
+set_skip_untap`).
 `parse_oracle` itself is now memoized (content-keyed on
 every field it reads, `parser/oracle/gate.py`) since it's called once per
 `GameObject` built — a popular card no longer gets re-parsed from scratch
 on every copy/every game. `parser/oracle/processing_list.py` tracks
 cache-wide coverage and ranks the next handlers worth building. The cache is
 now bulk-loaded with the **full ~34k-card Oracle universe**
-(`scripts/import_bulk.py`), so coverage is measured against that: **23.0%
-covered (7,872 / 34,209) as of 2026-07-19, Batch 6** (parser-`MODELED` **or**
+(`scripts/import_bulk.py`), so coverage is measured against that: **23.2%
+covered (7,947 / 34,209) as of 2026-07-20, Batch 8** (parser-`MODELED` **or**
 hand-`AUTHORED`; the old 24.4% was over only the ~2,900-card curated cache).
 Re-measure with `scripts/coverage_report.py` (ledger-backed — see
 `services/coverage_db.py`) before trusting this number; the batch plan and

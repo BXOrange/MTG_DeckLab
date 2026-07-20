@@ -118,6 +118,13 @@ for the dependency-ordered plan to finish the implementation.
         (`frontend/ToDo_Frontend.md`).
       - monarch/initiative (deferred per M6), prohibition/cost-
         modification statics, and emblems remain unmodeled.
+      - Leyline's "As long as this card is in your opening hand, you may
+        begin the game with it on the battlefield" (Card-pool Batch 8,
+        investigated and deferred) — a pregame mulligan/setup-phase
+        permission, not a battlefield static or resolve-time spell effect,
+        so it doesn't fit the `EffectRegistry`/binder pipeline at all; it
+        needs a new "opening hand → battlefield" step in
+        `services/game_session.py`'s `_mulligan`/`keep_hand` flow instead.
 - [~] Combat blocking + creature-vs-creature damage: **engine + keywords
       done** — see
       [Done_Backend.md](../docs/implementation-state/Done_Backend.md)

@@ -65,6 +65,13 @@ class Player:
         #: Per-turn flags, reset by the engine at the start of each turn.
         self.lands_played_this_turn = 0
         self.max_lands_per_turn = 1
+        #: RULE 305.2: a one-turn "you may play an additional land this
+        #: turn" grant (`ExtraLandPlayEffect`, Explore/Escape to the Wilds-
+        #: shaped) — reset to 0 each turn (`GameEngine.begin_turn`) alongside
+        #: `lands_played_this_turn`; `GameEngine.can_play_land` adds it to
+        #: the per-turn cap on top of the standing `"extra_land_drop"` static
+        #: grant (`game/continuous.py`'s `extra_land_plays_for`).
+        self.extra_land_plays_this_turn = 0
 
         #: Whether this player has lost (RULE 104.3). Kept distinct from
         #: removal from the game so history/UI can show the reason.

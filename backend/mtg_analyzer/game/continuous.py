@@ -99,6 +99,13 @@ def _has_subtype(obj: "GameObject", subtype: str) -> bool:
     override = getattr(obj, "_derived_subtypes", None)
     if override is not None:
         return subtype.lower() in {s.lower() for s in override}
+    added = getattr(obj, "_added_subtypes", None)
+    if added and subtype.lower() in {s.lower() for s in added}:
+        # RULE 613.4a: a layer-4 "~ is the chosen type in addition to its
+        # other types" grant (`add_subtypes`/`add_subtypes_from_source`,
+        # Adaptive Automaton/A-Thran Portal-shaped) — additive, unlike
+        # `_derived_subtypes`'s full RULE 613.5 overwrite above.
+        return True
     type_line = obj.card.type_line.lower()
     if "changeling" in type_line or "changeling" in obj.intrinsic_keywords:
         return True
@@ -252,10 +259,28 @@ def group_selector_objects(
         # (an inactive gate means nothing here matches at all).
         return []
 
-    subtype = params.get("subtype")
+    # "… of the chosen type/color …" (RULE 601.2b, Adaptive Automaton/Ward
+    # Sliver-shaped) — the dynamic sibling of the literal ``subtype``/
+    # ``color`` params below: reads the ability's own source's `chosen_type`/
+    # `chosen_color` (stamped by `RulesEngine.resolve_enter_choice`) fresh
+    # every recompute, rather than a fixed literal baked in at parse time.
+    # ``None`` (the choice hasn't happened yet, or the source has left)
+    # narrows to "nothing" — the same safe fallback a plain unset filter gets.
+    if params.get("subtype_from_source"):
+        subtype = getattr(src, "chosen_type", None)
+        if not subtype:  # choice not made yet (or source has left) → nothing matches
+            return []
+    else:
+        subtype = params.get("subtype")
     if subtype:
         result = [o for o in result if _has_subtype(o, str(subtype))]
-    color = params.get("color")
+    if params.get("color_from_source"):
+        chosen_color = getattr(src, "chosen_color", None)
+        if not chosen_color:
+            return []
+        color = [chosen_color]
+    else:
+        color = params.get("color")
     if color:  # colour-scoped anthem ("Black creatures get +1/+1", Bad Moon)
         result = [o for o in result if _has_color(o, list(color))]
     if params.get("tokens"):  # "creature tokens you control …" (RULE 111)
@@ -611,19 +636,31 @@ def recompute(state: "GameState") -> None:
     for ability in _in_layer(abilities, "type"):
         added = ability.params.get("add_types", [])
         set_subtypes = ability.params.get("set_subtypes")
+        # "~ is the chosen type in addition to its other types" (RULE
+        # 601.2b/613.4a, Adaptive Automaton/A-Thran Portal-shaped) — reads
+        # the ability's own source's `chosen_type` fresh every recompute,
+        # same as the `subtype_from_source` selector param above; ``None``
+        # (no choice made yet) simply adds nothing.
+        add_subtypes = list(ability.params.get("add_subtypes", []))
+        if ability.params.get("add_subtypes_from_source"):
+            chosen = getattr(ability.source, "chosen_type", None)
+            if chosen:
+                add_subtypes.append(chosen)
         power, toughness = ability.params.get("power"), ability.params.get("toughness")
         for obj in affected_objects(state, ability):
             for type_name in added:
                 obj._added_types.add(type_name)
+            for subtype_name in add_subtypes:
+                obj._added_subtypes.add(subtype_name)
             if set_subtypes is not None:
                 # RULE 613.5 full overwrite ("Nonbasic lands are Mountains.")
-                # — replaces the subtype set outright, unlike `add_types`
-                # above (which only adds "creature" alongside whatever the
-                # object already was).
+                # — replaces the subtype set outright, unlike `add_types`/
+                # `add_subtypes` above (which only *add* alongside whatever
+                # the object already was).
                 obj._derived_subtypes = set(set_subtypes)
             if power is not None and toughness is not None:
                 animation_pt[obj.instance_id] = (power, toughness)
-            label = ", ".join(added) if added else ", ".join(set_subtypes or [])
+            label = ", ".join(added + add_subtypes) if (added or add_subtypes) else ", ".join(set_subtypes or [])
             _trace(obj, 4, _source_name(ability), f"becomes {label}")
 
     # -- Layer 5: colour-changing effects (RULE 613.4b).
@@ -1037,10 +1074,66 @@ def has_no_untap_static(state: "GameState", obj: "GameObject") -> bool:
     (an ordinary ``untap`` one-shot effect) and isn't affected by this
     restriction at all.
     """
+    for ab in _battlefield_static_abilities(state):
+        if ab.layer == "no_untap" and obj in affected_objects(state, ab):
+            return True
+        if ab.layer == "no_untap_optional" and obj.skip_untap and obj in affected_objects(state, ab):
+            return True
+    return False
+
+
+def has_optional_no_untap_permission(state: "GameState", obj: "GameObject") -> bool:
+    """Whether ``obj`` carries a "you may choose not to untap ~ during your
+    untap step" permission (RULE 502.1 — Rubinia Soulsinger/Hivis of the
+    Scale/The Pandorica-shaped), regardless of whether `GameObject.
+    skip_untap` is currently toggled on. Consulted by `GameEngine.
+    set_skip_untap` to validate the toggle is actually legal before setting
+    it — `has_no_untap_static` above is the gated "does it actually skip
+    untapping right now" check the untap step itself uses.
+    """
     return any(
-        ab.layer == "no_untap" and obj in affected_objects(state, ab)
+        ab.layer == "no_untap_optional" and obj in affected_objects(state, ab)
         for ab in _battlefield_static_abilities(state)
     )
+
+
+def extra_land_plays_for(state: "GameState", player: "Player") -> int:
+    """How many *additional* lands ``player`` may play this turn, on top of
+    the base one (RULE 305.2, Exploration/Dryad of the Ilysian Grove/Azusa-
+    shaped) — every currently-active `"extra_land_drop"` static grant, summed
+    (two Explorations really do stack). A ``affects="you"`` grant (the
+    default — "you may play an additional land…") counts only for its own
+    source's controller; ``affects="each_player"`` ("each player may play an
+    additional land…", Rites of Flourishing/Storm Cauldron-shaped) counts for
+    every player regardless of who controls the source. `GameEngine.
+    can_play_land` also adds the one-turn `Player.extra_land_plays_this_turn`
+    counter (`ExtraLandPlayEffect`'s resolve-time grant) on top of this.
+    """
+    total = 0
+    for ability in _battlefield_static_abilities(state):
+        if ability.layer != "extra_land_drop":
+            continue
+        if ability.affects == "each_player" or getattr(ability.source, "controller_id", None) == player.id:
+            total += int(ability.params.get("count", 1))
+    return total
+
+
+def has_no_maximum_hand_size(state: "GameState", player: "Player") -> bool:
+    """Whether ``player`` is exempt from RULE 402.2's cleanup-step maximum
+    hand size right now ("You have no maximum hand size." — A-Wizard Class/
+    Body of Knowledge-shaped, or the unscoped "Players have no maximum hand
+    size." — Anvil of Bogardan-shaped, ``affects="each_player"``) — consulted
+    by `GameEngine._step_cleanup` in place of the flat `MAX_HAND_SIZE`
+    comparison. A resolve-time-granted, durational version of this exemption
+    ("…for the rest of the game") is a different, unmodeled shape (Card-pool
+    Batch 8's writeup).
+    """
+    for ability in _battlefield_static_abilities(state):
+        if ability.layer != "no_max_hand_size":
+            continue
+        if ability.affects == "each_player" or getattr(ability.source, "controller_id", None) == player.id:
+            return True
+    return False
 
 
 def untap_cap_for_lands(state: "GameState") -> Optional[int]:
@@ -1137,8 +1230,9 @@ def enters_tapped_from_static(state: "GameState", obj: "GameObject") -> bool:
 #: UI's layer-trace panel rather than a bare "99", same treatment "cost"
 #: already got before any of these existed.
 _NON_RULE_613_LAYERS: frozenset[str] = frozenset(
-    {"cost", "no_untap", "enters_tapped", "activation_prohibition", "cast_limit", "draw_limit",
-     "trigger_prohibition", "untap_cap"}
+    {"cost", "no_untap", "no_untap_optional", "enters_tapped", "activation_prohibition",
+     "cast_limit", "draw_limit", "trigger_prohibition", "untap_cap", "extra_land_drop",
+     "no_max_hand_size"}
 )
 
 
@@ -1179,6 +1273,10 @@ def _describe_ability(ability: StaticAbility) -> str:
     if ability.layer == "type":
         if p.get("set_subtypes"):
             return "becomes " + "/".join(p["set_subtypes"])
+        if p.get("add_subtypes_from_source"):
+            return "is also the chosen type"
+        if p.get("add_subtypes"):
+            return "is also " + "/".join(p["add_subtypes"])
         return "makes " + ", ".join(p.get("add_types", []))
     if ability.layer == "color":
         return "colours " + ", ".join(p.get("colors", []))
@@ -1200,6 +1298,14 @@ def _describe_ability(ability: StaticAbility) -> str:
         return f"each player can't draw more than {p.get('max_per_turn', 1)} card(s) each turn"
     if ability.layer == "no_untap":
         return "doesn't untap during its controller's untap step"
+    if ability.layer == "no_untap_optional":
+        return "controller may choose not to untap it during their untap step"
+    if ability.layer == "extra_land_drop":
+        who = "each player" if ability.affects == "each_player" else "its controller"
+        return f"{who} may play {p.get('count', 1)} additional land(s) each turn"
+    if ability.layer == "no_max_hand_size":
+        who = "each player" if ability.affects == "each_player" else "its controller"
+        return f"{who} has no maximum hand size"
     if ability.layer == "trigger_prohibition":
         subject = f"{p['subject_type']}s" if p.get("subject_type") else "objects"
         return f"{subject} entering don't cause abilities to trigger"

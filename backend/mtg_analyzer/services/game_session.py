@@ -312,6 +312,13 @@ class GameSession:
             self.engine.play_land(active, self._object(action), face=face)
             return
 
+        if kind == "set_skip_untap":
+            # RULE 502.1 "you may choose not to untap ~ during your untap
+            # step" — a standing toggle (`GameEngine.set_skip_untap`), not a
+            # per-turn prompt; see its docstring for why.
+            self.engine.set_skip_untap(active, self._object(action), bool(action.get("value", True)))
+            return
+
         if kind == "tap_for_mana":
             option_index = int(action.get("option_index", 0))
             ability_index = int(action.get("ability_index", 0))

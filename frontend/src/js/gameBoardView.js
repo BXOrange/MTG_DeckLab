@@ -54,6 +54,7 @@ const CHOICE_ICONS = {
   land_tapped: '💧', order_triggers: '🔀', trigger_target: '🎯',
   enter_as_copy: '🪞', counter_unless_pays: '🚫', ward: '🛡️',
   commander_zone: '👑', trigger_mode: '🎭', add_mana_any_color: '💎',
+  choose_creature_type: '🐾', choose_color: '🎨',
 };
 
 /**

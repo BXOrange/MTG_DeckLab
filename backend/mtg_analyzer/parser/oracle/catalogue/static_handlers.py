@@ -27,6 +27,25 @@ already honours that selector for both `anthem` and `grant_keyword` (it's the
 same code path the hand-authored Armadillo Cloak entry in
 `game/ability_catalogue.py` uses) — only the parser recognition was missing.
 
+A third family (Card-pool Batch 7) recognises RULE 601.2b's "as ~ enters,
+choose a creature type/color" (`enter_choice_specs`, a sibling entry point
+segmenter.py calls separately since it wraps as an ``enter_replacement``
+`AbilitySpec`, not ``static``) plus the "… of the chosen type/color …"
+dynamic tail on the anthem/grant families above (`_CHOSEN_TAIL`) and "~ is
+the chosen type in addition to its other types" (`_IS_CHOSEN_TYPE_RE`) — see
+`game/continuous.py`'s ``subtype_from_source``/``color_from_source``/
+``add_subtypes_from_source`` params for how the layer engine reads the
+choice back.
+
+A fourth family (Card-pool Batch 8) recognises three "permission" statics
+that aren't about a permanent's own characteristics at all: "you may play an
+additional land on each of your turns" (`extra_land_drop`), "you have no
+maximum hand size" (`no_max_hand_size`), and "you may choose not to untap ~
+during your untap step" (`no_untap_optional`) — all consulted by
+per-*player*/per-*object* helpers in `game/continuous.py` rather than the
+RULE 613 layer engine proper (the same treatment `cast_limit`/`draw_limit`/
+`no_untap` already got).
+
 Pure regex + data — **no `game/` imports** (front-end security boundary).
 """
 
@@ -36,8 +55,8 @@ import re
 from typing import NamedTuple, Optional
 
 from ..spec import EffectSpec, ParserProvenance
-from .keywords import KEYWORDS, KeywordShape, keyword_slug
-from .subgrammars import CANT_BE_COUNTERED_RE
+from .keywords import KEYWORDS, KeywordShape, keyword_slug, resolve_keyword
+from .subgrammars import CANT_BE_COUNTERED_RE, COUNT, count_of
 
 #: Trigger events a granted triggered ability can be safely re-scoped to a
 #: *different* object each time it's granted (`continuous.
@@ -61,16 +80,25 @@ _COLOR_WORDS: dict[str, str] = {
     "white": "W", "blue": "U", "black": "B", "red": "R", "green": "G", "colorless": "C",
 }
 
-# "[Other] <scope> [you control] get +N/+N [and have <keywords>]"  (anthem, +grant)
+#: An optional "of the chosen type/color" tail (RULE 601.2b, Adaptive
+#: Automaton/Ward Sliver-shaped) — the dynamic sibling of a literal subtype/
+#: colour scope, sitting between the "you control" clause and "get"/"have".
+_CHOSEN_TAIL = r"(?: of the chosen (?P<chosen>type|color))?"
+
+# "[Other] <scope> [you control] [of the chosen type/color] get +N/+N [and
+# have <keywords>]"  (anthem, +grant)
 _ANTHEM_RE = re.compile(
-    r"(?:(?P<scope>other) )?(?P<body>[a-z][a-z ]*?)(?P<yours> you control)? "
+    r"(?:(?P<scope>other) )?(?P<body>[a-z][a-z ]*?)(?P<yours> you control)?"
+    rf"{_CHOSEN_TAIL} "
     r"get (?P<p>[+-]\d+)/(?P<t>[+-]\d+)"
     r"(?: and have (?P<kw>[a-z][a-z, ]*))?",
     re.IGNORECASE,
 )
-# "[Other] <scope> [you control] have <keywords>"  (keyword grant, layer 6)
+# "[Other] <scope> [you control] [of the chosen type/color] have <keywords>"
+# (keyword grant, layer 6)
 _GRANT_RE = re.compile(
-    r"(?:(?P<scope>other) )?(?P<body>[a-z][a-z ]*?)(?P<yours> you control)? "
+    r"(?:(?P<scope>other) )?(?P<body>[a-z][a-z ]*?)(?P<yours> you control)?"
+    rf"{_CHOSEN_TAIL} "
     r"have (?P<kw>[a-z][a-z, ]*)",
     re.IGNORECASE,
 )
@@ -113,6 +141,46 @@ _SPELL_COST_TAX_RE = re.compile(
 # spelled-out "one" to "1" before this ever runs.
 _CAST_LIMIT_RE = re.compile(
     r"each player can'?t cast more than (?P<n>\d+) spells? each turn", re.IGNORECASE
+)
+
+# "You may play [an|N] additional land[s] on/during each of your/their
+# turns."  (RULE 305.2 permission static, Exploration/Dryad of the Ilysian
+# Grove/Azusa-shaped) or its unscoped "Each player may play …" sibling
+# (Rites of Flourishing/Storm Cauldron) — `_EXTRA_LAND_DROP_RE.group("n")`
+# via `count_of` handles both "an"/"a" and a digit count (Azusa's "two
+# additional lands"→"2" after `normalize`'s spelled-out-number fold). The
+# one-turn "…this turn" phrasing (Explore-shaped) is a different, resolve-
+# time-effect shape claimed by `catalogue.handlers`' `extra_land_play` row
+# instead, not this static family.
+_EXTRA_LAND_DROP_RE = re.compile(
+    rf"(?P<subject>you|each player) may play {COUNT} additional lands? "
+    r"(?:on|during) each of (?:your|their) turns",
+    re.IGNORECASE,
+)
+
+# "You have no maximum hand size."  (RULE 402.2, A-Wizard Class/Body of
+# Knowledge-shaped) or "Players have no maximum hand size." (Anvil of
+# Bogardan/Folio of Fancies, unscoped). The durational "…for the rest of the
+# game"/"…until your next turn" one-shot variants (Enter the Infinite/
+# Choice of Fortunes-shaped) don't fullmatch this — they're a different,
+# resolve-time-granted shape, deliberately left unclaimed.
+_NO_MAX_HAND_SIZE_RE = re.compile(
+    r"(?P<subject>you have|players have) no maximum hand size", re.IGNORECASE
+)
+
+# "You may choose not to untap ~ during your untap step."  (RULE 502.1
+# self-scoped opt-out, Rubinia Soulsinger/Hivis of the Scale/The Pandorica-
+# shaped) — `~` covers all three printed subject wordings ("this creature"/
+# "this artifact"/"this land", folded by `normalize._fold_self_reference`)
+# uniformly. Unlike `_NO_UNTAP_RE` below (an unconditional restriction), this
+# only *permits* skipping untap — actually skipping it needs the controller
+# to separately toggle `GameObject.skip_untap` on (`GameEngine.
+# set_skip_untap`). Deliberately excludes every targeted/imposed "doesn't
+# untap … for as long as this remains tapped" variant (Sand Squid/Ice Floe-
+# shaped) — a different family entirely (an activated ability locking a
+# *different* permanent), not "you may choose" at all.
+_NO_UNTAP_OPTIONAL_RE = re.compile(
+    r"you may choose not to untap ~ during your untap step", re.IGNORECASE
 )
 
 # "~ doesn't untap during your untap step."  (RULE 502.3-adjacent
@@ -284,6 +352,49 @@ def _combat_restriction_specs(
     return specs
 
 
+# "As ~ enters, choose a creature type."/"As ~ enters, choose a color."
+# (RULE 601.2b — a characteristic-defining choice made *as part of*
+# entering, not a triggered ability) — recognised separately from every
+# other family in this module: the segmenter wraps its `EffectSpec`s as an
+# ``enter_replacement`` `AbilitySpec` (RULE 614.1c/614.12's family, the same
+# one Clever Impersonator's hand-authored "enter as a copy" uses) rather than
+# ``static``, so `enter_choice_specs` below is a sibling entry point to
+# `static_effect_specs`, not folded into it — see `segmenter.segment_line`'s
+# call site. The choice itself is offered interactively by `RulesEngine.
+# _offer_enter_choices` and stamped onto `GameObject.chosen_type`/
+# `chosen_color`, which the dynamic ``subtype_from_source``/
+# ``color_from_source`` selector params below (and `_IS_CHOSEN_TYPE_RE`) read
+# back.
+_CHOOSE_CREATURE_TYPE_ON_ENTER_RE = re.compile(
+    r"as ~ enters, choose a creature type", re.IGNORECASE
+)
+_CHOOSE_COLOR_ON_ENTER_RE = re.compile(r"as ~ enters, choose a color", re.IGNORECASE)
+
+
+def enter_choice_specs(clause: str) -> Optional[list[EffectSpec]]:
+    """`EffectSpec`s for a RULE 601.2b "as ~ enters, choose a …" ``clause``,
+    or ``None`` — see the module comment above `_CHOOSE_CREATURE_TYPE_ON_
+    ENTER_RE`. Called by `segmenter.segment_line` *before*
+    `static_effect_specs`, since the two clause families are wrapped as
+    different `AbilitySpec.ability_kind`s (``enter_replacement`` vs.
+    ``static``).
+    """
+    text = clause.strip().rstrip(".").strip()
+    if _CHOOSE_CREATURE_TYPE_ON_ENTER_RE.fullmatch(text):
+        return [EffectSpec("choose_creature_type_on_enter", {})]
+    if _CHOOSE_COLOR_ON_ENTER_RE.fullmatch(text):
+        return [EffectSpec("choose_color_on_enter", {})]
+    return None
+
+
+# "~ is the chosen type in addition to its other types." (RULE 601.2b/613.4a,
+# A-Thran Portal/Adaptive Automaton-shaped self grant) — the layer-4 sibling
+# of the dynamic anthem/grant ``subtype_from_source`` params above, scoped to
+# just the source itself (``affects="self"``) rather than a controlled group.
+_IS_CHOSEN_TYPE_RE = re.compile(
+    r"~ is the chosen type in addition to its other types", re.IGNORECASE
+)
+
 # "You control enchanted creature/permanent." (Mind Control/Control Magic-
 # shaped, RULE 613.2 layer-2 control-grant) — the existing `control_change`
 # `StaticAbility` already defaults to ``affects="attached_permanent"`` and a
@@ -443,6 +554,16 @@ def _scope_params(scope: _Scope, m: "re.Match[str]") -> dict:
             params["exclude_self"] = True
     if scope.subtype:
         params["subtype"] = scope.subtype
+    # "… of the chosen type/color …" (RULE 601.2b) — a dynamic sibling of the
+    # literal subtype/colour params above, read fresh off the ability's own
+    # source at recompute time (`continuous.group_selector_objects`). Only
+    # `_ANTHEM_RE`/`_GRANT_RE` carry a "chosen" group; every other caller of
+    # this function matches a body with no such group at all.
+    chosen = m.groupdict().get("chosen")
+    if chosen == "type":
+        params["subtype_from_source"] = True
+    elif chosen == "color":
+        params["color_from_source"] = True
     if scope.tokens:
         params["tokens"] = True
     if scope.colors:
@@ -451,18 +572,34 @@ def _scope_params(scope: _Scope, m: "re.Match[str]") -> dict:
 
 
 def _flag_keywords(text: str) -> Optional[list[str]]:
-    """A "have <keywords>" list → flag-keyword slugs, or ``None`` if any isn't a
-    parameterless keyword (fail-closed — a granted parametric keyword like
-    "ward {2}" or landwalk needs behaviour the grant can't express yet)."""
+    """A "have <keywords>" list → grantable keyword slugs, or ``None`` if any
+    isn't recognised (fail-closed — most other granted parametric keywords,
+    e.g. "ward {2}", need behaviour the grant can't express yet).
+
+    Almost every entry must be a parameterless FLAG keyword ("flying",
+    "trample"). The one parametric exception: a landwalk variant
+    ("forestwalk", "islandwalk", …) — RULE 702.14's land type lives in the
+    slug itself, and `combat._landwalk_slugs` already matches any
+    ``granted_keywords`` entry ending in "walk" directly, so the grant
+    mechanism needs no separate quality param the way "protection from
+    <color>" would. A bare "landwalk" with no type (never printed on a real
+    card) still fails closed.
+    """
     slugs: list[str] = []
     for part in re.split(r",|\band\b", text):
         part = part.strip()
         if not part:
             continue
-        kdef = KEYWORDS.get(keyword_slug(part))
-        if kdef is None or kdef.shape is not KeywordShape.FLAG:
-            return None
-        slugs.append(kdef.slug)
+        slug = keyword_slug(part)
+        kdef = KEYWORDS.get(slug)
+        if kdef is not None and kdef.shape is KeywordShape.FLAG:
+            slugs.append(kdef.slug)
+            continue
+        resolved = resolve_keyword(slug)
+        if resolved is not None and resolved.slug == "landwalk" and slug != "landwalk":
+            slugs.append(slug)
+            continue
+        return None
     return slugs or None
 
 
@@ -516,6 +653,19 @@ def static_effect_specs(clause: str) -> Optional[list[EffectSpec]]:
     m = _CAST_LIMIT_RE.fullmatch(text)
     if m is not None:
         return [EffectSpec("cast_limit", {"max_per_turn": int(m.group("n"))})]
+
+    m = _EXTRA_LAND_DROP_RE.fullmatch(text)
+    if m is not None:
+        affects = "each_player" if m.group("subject").lower() == "each player" else "you"
+        return [EffectSpec("extra_land_drop", {"affects": affects, "count": count_of(m.group("n"))})]
+
+    m = _NO_MAX_HAND_SIZE_RE.fullmatch(text)
+    if m is not None:
+        affects = "each_player" if m.group("subject").lower() == "players have" else "you"
+        return [EffectSpec("no_max_hand_size", {"affects": affects})]
+
+    if _NO_UNTAP_OPTIONAL_RE.fullmatch(text):
+        return [EffectSpec("no_untap_optional", {})]
 
     if _NO_UNTAP_RE.fullmatch(text):
         return [EffectSpec("no_untap", {"affects": "self"})]
@@ -638,6 +788,9 @@ def static_effect_specs(clause: str) -> Optional[list[EffectSpec]]:
 
     if _CONTROL_GRANT_RE.fullmatch(text):
         return [EffectSpec("control_change", {})]
+
+    if _IS_CHOSEN_TYPE_RE.fullmatch(text):
+        return [EffectSpec("type_change", {"affects": "self", "add_subtypes_from_source": True})]
 
     m = _ATTACHED_QUOTED_ANTHEM_GRANT_RE.fullmatch(text)
     if m is not None:

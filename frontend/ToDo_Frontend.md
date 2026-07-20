@@ -73,6 +73,12 @@ engine hookup".
       submit "none". Casting with no `targets` (or an empty list) is
       already a legal request (`services/game_session.py`'s
       `_resolve_targets` treats an empty list the same as omitted).
+- [ ] "May choose not to untap" toggle (RULE 502.1 — Rubinia Soulsinger/
+      Hivis of the Scale/The Pandorica-shaped) has a working backend path
+      (`GameEngine.set_skip_untap`, a new `set_skip_untap` action kind
+      alongside `play_land`), but the board has no button to flip it — a
+      permanent with this permission just untaps normally every turn today,
+      with no way to opt out client-side.
 
 ## Multiplayer
 

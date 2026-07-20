@@ -88,7 +88,34 @@ UNMODELED = "UNMODELED"
 #: (`counters.py`'s ``kicked_gate``/``kicked_scale``, `GameObject.
 #: kicker_count`-driven) for "if ~ was kicked, it enters with N counters on
 #: it."/"~ enters with N counters on it for each time it was kicked."
-PARSER_VERSION = "8"
+#: "9": Batch 7 — RULE 601.2b "as ~ enters, choose a creature type/color"
+#: (`static_handlers.enter_choice_specs`, a new `enter_replacement` family
+#: alongside "enter as a copy of target X" — `ChooseCreatureTypeReplacement`/
+#: `ChooseColorReplacement`, `RulesEngine._offer_enter_choices`/
+#: `resolve_enter_choice`, `GameObject.chosen_type`/`chosen_color`); the
+#: dynamic "… of the chosen type/color …" anthem/grant tail
+#: (`subtype_from_source`/`color_from_source`) and "~ is the chosen type in
+#: addition to its other types" (`add_subtypes_from_source`, layer 4); a
+#: granted landwalk variant via the plain "have <keyword>" family
+#: (`_flag_keywords`, `combat._landwalk_slugs` already reads the raw slug);
+#: and the board-wide "all creatures get -N/-N until end of turn" pump group
+#: selector (`catalogue.handlers._GROUP`). Also fixed `ParseResult.
+#: effect_specs` never including ``enter_replacement`` specs at all — a
+#: latent bug since Clever Impersonator's hand-authored entry predates this
+#: property (hand-authored specs bypass it), but it would have silently
+#: dropped every *oracle-parsed* enter_replacement ability, including this
+#: batch's, for an unregistered card.
+#: "10": Batch 8 — three "permission" statics that aren't about a
+#: permanent's own characteristics: "you may play an additional land on
+#: each of your turns" (`extra_land_drop`, `continuous.extra_land_plays_for`
+#: — its one-turn resolve-time sibling "…this turn" is a new
+#: `catalogue.handlers` row, `extra_land_play`/`ExtraLandPlayEffect`); "you
+#: have no maximum hand size" (`no_max_hand_size`, `continuous.
+#: has_no_maximum_hand_size`); and "you may choose not to untap ~ during
+#: your untap step" (`no_untap_optional`, gated on a new sticky
+#: `GameObject.skip_untap` toggle — `GameEngine.set_skip_untap` — since the
+#: engine has no mid-untap-step pause to ask fresh each turn).
+PARSER_VERSION = "10"
 
 
 @dataclass
@@ -105,14 +132,22 @@ class ParseResult:
         return self.coverage == MODELED
 
     #: The effect-bearing specs (triggered / spell_effect / activated /
-    #: static / replacement) parsed from text — as opposed to the keyword
-    #: specs, which are safe individually. The binder only trusts these when
-    #: the whole card is `MODELED`.
+    #: static / replacement / enter_replacement) parsed from text — as
+    #: opposed to the keyword specs, which are safe individually. The binder
+    #: only trusts these when the whole card is `MODELED`. ``enter_
+    #: replacement`` (RULE 601.2b/614.1c/614.12 "as ~ enters" — Card-pool
+    #: Batch 7's "choose a creature type/color", `static_handlers.
+    #: enter_choice_specs`) was added alongside the other five here so
+    #: `ability_catalogue.specs_for` actually binds it for an unregistered
+    #: MODELED card, not just keeps it visible on `specs`.
     @property
     def effect_specs(self) -> list[AbilitySpec]:
         return [
             s for s in self.specs
-            if s.ability_kind in ("triggered", "spell_effect", "activated", "static", "replacement")
+            if s.ability_kind in (
+                "triggered", "spell_effect", "activated", "static", "replacement",
+                "enter_replacement",
+            )
         ]
 
 

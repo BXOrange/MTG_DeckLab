@@ -25,6 +25,8 @@ from .costs import parse_activation_cost
 from .effects import (
     ActivatedAbility,
     AttachEffect,
+    ChooseColorReplacement,
+    ChooseCreatureTypeReplacement,
     ConditionalEffect,
     EffectRegistry,
     GameEffect,
@@ -426,10 +428,13 @@ def bind_ability(
       * ``triggered``    → a `TriggeredAbility`,
       * ``static``       → the list of `StaticAbility` effects,
       * ``replacement``  → the list of `ReplacementEffect`s,
-      * ``enter_replacement`` → the list of `EnterAsCopyReplacement`-style
-        effects (RULE 614.1c/614.12 "as ~ enters" — a different family from
-        ``replacement``'s event-transform `ReplacementEffect`s, bound
-        through `EffectRegistry` instead of `ReplacementRegistry`),
+      * ``enter_replacement`` → the list of `EnterAsCopyReplacement`/
+        `ChooseCreatureTypeReplacement`/`ChooseColorReplacement`-style
+        effects (RULE 614.1c/614.12/601.2b "as ~ enters" — a different family
+        from ``replacement``'s event-transform `ReplacementEffect`s, bound
+        through `EffectRegistry` instead of `ReplacementRegistry`; routed
+        onto `GameObject.enter_as_copy_effects`/``enter_choice_effects`` by
+        `attach_to_object`, see its ``enter_replacement`` branch),
       * ``activated``    → an `ActivatedAbility`.
 
     ``source`` is the `GameObject` the ability belongs to (used as each
@@ -806,7 +811,17 @@ def attach_to_object(obj: Any, specs: list[AbilitySpec]) -> None:
         elif spec.ability_kind == "replacement":
             obj.replacement_effects.extend(bound)
         elif spec.ability_kind == "enter_replacement":
-            obj.enter_as_copy_effects.extend(bound)
+            # Two different families share this ability_kind (docs/09):
+            # `EnterAsCopyReplacement` (RULE 614.1c/614.12, target-choosing)
+            # goes on `enter_as_copy_effects`; the "as ~ enters, choose a
+            # creature type/color" pair (RULE 601.2b, no target at all) goes
+            # on `enter_choice_effects` instead — `RulesEngine._resolve_
+            # permanent_spell` offers both in turn before battlefield entry.
+            for effect in bound:
+                if isinstance(effect, (ChooseCreatureTypeReplacement, ChooseColorReplacement)):
+                    obj.enter_choice_effects.append(effect)
+                else:
+                    obj.enter_as_copy_effects.append(effect)
         else:  # pragma: no cover - bind_ability already refused it
             raise BindError(f"cannot attach ability_kind {spec.ability_kind!r}")
 

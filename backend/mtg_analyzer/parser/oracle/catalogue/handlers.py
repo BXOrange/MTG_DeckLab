@@ -932,6 +932,24 @@ def _proliferate(m: re.Match[str]) -> list[EffectSpec]:
     return [EffectSpec("proliferate", {})]
 
 
+# "You may play [up to] N additional land(s) this turn."  (RULE 305.2
+# one-turn permission, Explore/Escape to the Wilds/Kiora's -1-shaped) — the
+# resolve-time, single-turn sibling of the standing `extra_land_drop` static
+# `catalogue.static_handlers` recognises for a permanent's own printed
+# ability ("…on each of your turns"); this shape only ever appears as a
+# clause in a spell/ability's effect body, never a permanent's standing text.
+# "You may " is optional here: when this is the *only* clause in the body,
+# `segmenter.segment_line`'s `_peel_optional` already stripped a leading
+# "you may " before this ever runs (Summer Bloom-shaped); when it trails an
+# earlier clause ("Draw a card. You may play …", Explore/Urban Evolution-
+# shaped) it's still there in the text this handler sees.
+_EXTRA_LAND_PLAY_RE = _c(rf"(?:you may )?play (?:up to )?{COUNT} additional lands? this turn")
+
+
+def _extra_land_play(m: re.Match[str]) -> list[EffectSpec]:
+    return [EffectSpec("extra_land_play", {"count": count_of(m.group("n"))})]
+
+
 def _surveil(m: re.Match[str]) -> list[EffectSpec]:
     return [EffectSpec("surveil", {"count": int(m.group("n"))})]
 
@@ -939,8 +957,10 @@ def _surveil(m: re.Match[str]) -> list[EffectSpec]:
 # A pump's subject: a targeted creature/permanent, the self-reference ``~``
 # (a creature's own activated "~ gets +1/+0 …"), or an untargeted *group*
 # ("creatures you control get +2/+1 …" — RULE 601.2c, not a target at all;
-# the common Saga-chapter/anthem-spell shape). Shared by the pump handlers.
-_GROUP = r"(?P<group>other creatures you control|creatures you control)"
+# the common Saga-chapter/anthem-spell shape, or the board-wide "all
+# creatures get -N/-N until end of turn" mass-removal shape, Infest/Blight
+# Grenade-shaped). Shared by the pump handlers.
+_GROUP = r"(?P<group>other creatures you control|creatures you control|all creatures)"
 _SUBJECT = (
     rf"(?:{TARGET}|(?P<selfref>{re.escape(SELF)})|{_GROUP}|(?P<attached>{_ATTACHED_SUBJECT}))"
 )
@@ -948,6 +968,7 @@ _SUBJECT = (
 _GROUP_SELECTORS: dict[str, str] = {
     "creatures you control": "creatures_you_control",
     "other creatures you control": "other_creatures_you_control",
+    "all creatures": "all_creatures",
 }
 #: A signed P/T delta, "+3/+3" / "-2/-2" / "+0/-1" (ASCII or unicode minus).
 _PT_DELTA = r"(?P<p>[+\-−]\d+)/(?P<t>[+\-−]\d+)"
@@ -1380,6 +1401,15 @@ HANDLERS: list[EffectHandler] = [
         "proliferate",
         _c(r"proliferate"),
         _proliferate,
+    ),
+    # "You may play an additional land this turn." / "You may play up to
+    # two additional lands this turn." (RULE 305.2 one-turn permission) —
+    # see `_EXTRA_LAND_PLAY_RE` above; the standing per-turn static sibling
+    # is `catalogue.static_handlers`' `extra_land_drop`.
+    EffectHandler(
+        "extra_land_play",
+        _EXTRA_LAND_PLAY_RE,
+        _extra_land_play,
     ),
     # "create a 1/1 white Soldier creature token" / "create two 2/2 green Bear
     # creature tokens with trample" — inline creature tokens (fully modeled).

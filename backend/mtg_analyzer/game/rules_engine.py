@@ -18,6 +18,7 @@ engine is the toolbox that loop drives.
 
 from __future__ import annotations
 
+import re
 from typing import Any, Callable, Optional
 
 from ..models import card_query
@@ -34,6 +35,8 @@ from .costs import DISCARD_HAND, ActivationCost, parse_activation_cost
 from .mana_abilities import restriction_predicate_for_cast
 from .effects import (
     CantBeCounteredEffect,
+    ChooseColorReplacement,
+    ChooseCreatureTypeReplacement,
     GameContext,
     PumpEffect,
     ReplacementEffect,
@@ -72,6 +75,40 @@ def _matches_permanent_type(obj: GameObject, what: str) -> bool:
     if what == "land":
         return obj.is_land
     return True  # unknown type word → any permanent, so the cost is payable
+
+
+def _creature_type_options(state: GameState, controller_id: Optional[str]) -> list[str]:
+    """The creature-type choices to offer for a RULE 601.2b "as ~ enters,
+    choose a creature type" pick.
+
+    RAW technically lets a player name *any* creature type, including one no
+    card in the game has — an unbounded, ~300-entry vocabulary this engine
+    has no canonical list of (unlike a scoped tribal-lord subtype match,
+    which just substring-tests against whatever's actually printed,
+    `continuous._has_subtype`). Offering every official type as a button
+    isn't a real UI, so this instead offers every creature subtype among
+    cards ``controller_id`` actually has anywhere in the game (battlefield,
+    hand, library, graveyard, exile, command) — the practically relevant
+    set for boosting *their own* creatures, which is what every real card in
+    this family (Adaptive Automaton/Arcane Adaptation-shaped) is for. A
+    puzzle board with no creature cards anywhere offers nothing — see
+    `RulesEngine._offer_enter_choices`'s empty-options handling.
+    """
+    player = state.player_by_id(controller_id) if controller_id else None
+    if player is None:
+        return []
+    objects = [o for o in state.battlefield if o.owner_id == controller_id]
+    objects += list(player.library) + list(player.hand) + list(player.graveyard)
+    objects += list(player.exile) + list(player.command)
+    types: set[str] = set()
+    for obj in objects:
+        type_line = (getattr(obj.card, "type_line", "") or "").lower()
+        if "creature" not in type_line:
+            continue
+        _, _, sub = type_line.partition("—")
+        for word in re.findall(r"[a-z]+", sub):
+            types.add(word.capitalize())
+    return sorted(types)
 
 
 class RulesEngine:
@@ -131,6 +168,16 @@ class RulesEngine:
         self._pending_enter_as_copy_obj: Optional[GameObject] = None
         self._pending_enter_as_copy_effect: Optional[Any] = None
         self._pending_enter_as_copy_continuation: Optional[Callable[[], None]] = None
+        #: The permanent currently awaiting an "as ~ enters, choose a
+        #: creature type/color" pick (RULE 601.2b — `enter_choice_effects`),
+        #: which of its queued choice-effects is open, and the continuation
+        #: to resume once it's answered (which may itself open the *next*
+        #: queued choice, if the card has more than one) — populated only
+        #: while that choice is pending; see `_offer_enter_choices`/
+        #: `resolve_enter_choice`.
+        self._pending_enter_choice_obj: Optional[GameObject] = None
+        self._pending_enter_choice_effect: Optional[Any] = None
+        self._pending_enter_choice_continuation: Optional[Callable[[], None]] = None
         #: The spell awaiting a `counter_unless_pays` choice (RULE 601 —
         #: "counter target spell unless its controller pays …"), and the
         #: resolved `ManaCost` it would take to save it — populated only
@@ -1356,11 +1403,13 @@ class RulesEngine:
         Aura attachment, and the ENTERS_BATTLEFIELD/SPELL_RESOLVED events.
 
         If ``obj`` carries an `enter_as_copy_effects` "you may have this
-        enter as a copy of target X" (RULE 614.1c/614.12), that choice must
-        be resolved *first* — before the object is ever added to the
-        battlefield/fires ENTERS_BATTLEFIELD as itself — unlike every other
-        resolution path here, this can pause on a `pending_choice` and
-        resume later from `resolve_enter_as_copy_choice`.
+        enter as a copy of target X" (RULE 614.1c/614.12) and/or
+        `enter_choice_effects` "as ~ enters, choose a creature type/color"
+        (RULE 601.2b), those choices must be resolved *first* — before the
+        object is ever added to the battlefield/fires ENTERS_BATTLEFIELD as
+        itself — unlike every other resolution path here, this can pause on
+        a `pending_choice` (possibly more than one, in sequence) and resume
+        later from `resolve_enter_as_copy_choice`/`resolve_enter_choice`.
         """
         def _finish() -> None:
             obj.summoning_sick = True
@@ -1401,10 +1450,19 @@ class RulesEngine:
             )
             self.check_state_based_actions()
 
+        def _after_copy_choice() -> None:
+            # RULE 601.2b: a "choose a creature type/color" pick (if any)
+            # also happens before the object is added to the battlefield —
+            # after the enter-as-copy choice (a copy takes on the copied
+            # permanent's text, so its own "as ~ enters" clauses, if any,
+            # are what should be offered — no real card in the pool combines
+            # both, so the ordering is for correctness-in-principle only).
+            self._offer_enter_choices(obj, _finish)
+
         if obj.enter_as_copy_effects:
-            self._offer_enter_as_copy(obj, _finish)
+            self._offer_enter_as_copy(obj, _after_copy_choice)
         else:
-            _finish()
+            _after_copy_choice()
 
     def _offer_enter_as_copy(self, obj: GameObject, continuation: Callable[[], None]) -> None:
         """RULE 614.1c/614.12: offer ``obj``'s "you may have this enter as a
@@ -1462,6 +1520,94 @@ class RulesEngine:
             target = self._resolve_choice_option(choice["options"], str(answer))
             if target is not None and target is not obj:
                 copy_mechanics.become_copy(obj, target, effect.add_types, effect.add_subtypes)
+        if continuation is not None:
+            continuation()
+
+    def _offer_enter_choices(self, obj: GameObject, continuation: Callable[[], None]) -> None:
+        """RULE 601.2b: offer ``obj``'s queued "as it enters, choose a
+        creature type/color" pick(s) *before* it's added to the battlefield —
+        the `enter_choice_effects` sibling of `_offer_enter_as_copy`.
+
+        Offers one at a time (a card only ever has one in the pool this
+        engine models, but the queue shape mirrors `enter_choice_effects`
+        exactly in case a future card stacks two): pops the first queued
+        effect, opens its `pending_choice`, and stashes a continuation that
+        re-enters this method for whatever remains before finally calling
+        ``continuation``. Calls ``continuation`` immediately once the queue
+        is empty (or was empty to begin with — nothing to choose, nothing
+        pauses), same as `_offer_enter_as_copy`'s no-legal-target case.
+        """
+        if not obj.enter_choice_effects:
+            continuation()
+            return
+        effect = obj.enter_choice_effects[0]
+        remaining = obj.enter_choice_effects[1:]
+
+        def _next() -> None:
+            obj.enter_choice_effects = remaining
+            self._offer_enter_choices(obj, continuation)
+
+        if isinstance(effect, ChooseCreatureTypeReplacement):
+            kind = "choose_creature_type"
+            prompt = "Kreaturentyp wählen"
+            options = [{"id": t, "label": t} for t in _creature_type_options(self.state, obj.controller_id)]
+        else:
+            kind = "choose_color"
+            prompt = "Farbe wählen"
+            options = [{"id": color, "label": label} for color, label in self._ANY_COLOR_LABELS.items()]
+
+        if not options:
+            # RULE 601.2b's choice still has to happen in principle, but
+            # with no legal answer (e.g. a puzzle board with no creature
+            # cards anywhere) there's nothing to pause on — chosen_type/
+            # chosen_color stays None, and every dependent selector then
+            # just matches nothing, the same safe fallback an ordinary
+            # unset subtype/colour filter already gets.
+            _next()
+            return
+
+        self._pending_enter_choice_obj = obj
+        self._pending_enter_choice_effect = effect
+        self._pending_enter_choice_continuation = _next
+        self.state.pending_choice = {
+            "kind": kind,
+            "player_id": obj.controller_id,
+            "prompt": prompt,
+            "options": options,
+        }
+
+    def resolve_enter_choice(self, answer: Optional[str]) -> None:
+        """Answer a pending `choose_creature_type`/`choose_color` choice
+        (RULE 601.2b), then resume whatever `_offer_enter_choices` deferred —
+        which may open the *next* queued choice rather than finishing entry
+        outright.
+
+        A mandatory choice (there's no "decline" option offered at all): an
+        unrecognized/missing ``answer`` defaults to the first offered option,
+        the same treatment `resolve_add_mana_any_color_choice` gives a
+        missing mandatory answer, so a dependent selector is never silently
+        starved by a skipped pick.
+        """
+        choice = self.state.pending_choice
+        if not choice or choice.get("kind") not in ("choose_creature_type", "choose_color"):
+            raise ValueError("no pending enter-choice to resolve")
+        self.state.pending_choice = None
+        obj = self._pending_enter_choice_obj
+        continuation = self._pending_enter_choice_continuation
+        self._pending_enter_choice_obj = None
+        self._pending_enter_choice_effect = None
+        self._pending_enter_choice_continuation = None
+
+        options = choice["options"]
+        valid_ids = {str(o["id"]) for o in options}
+        chosen = str(answer) if answer is not None and str(answer) in valid_ids else (
+            str(options[0]["id"]) if options else None
+        )
+        if obj is not None and chosen is not None:
+            if choice["kind"] == "choose_creature_type":
+                obj.chosen_type = chosen
+            else:
+                obj.chosen_color = chosen
         if continuation is not None:
             continuation()
 
@@ -2150,7 +2296,10 @@ class RulesEngine:
         `copy_permanent`) is bound but never offered here — interactively
         pausing *inside* the ``final_count``-token creation loop is real
         added complexity for a case no card in the pool needs (a copy of a
-        copy-effect creature). Revisit if one ever does.
+        copy-effect creature). Revisit if one ever does. Same gap, same
+        reasoning, for `enter_choice_effects` (RULE 601.2b "as ~ enters,
+        choose a creature type/color") — every real card with that ability
+        in the pool is a cast permanent, never a token.
         """
         from .effect_binder import bind_from_catalogue  # function-scoped: avoid cycle
 

@@ -295,12 +295,18 @@ def test_static_noncreature_scope_is_unclaimed():
     assert statics == [] and r.coverage == UNMODELED
 
 
-def test_static_granted_landwalk_is_unclaimed():
-    # Landwalk is parametric (a land-type quality), not a flag keyword → the
-    # whole compound clause is left unclaimed rather than dropping the ability.
+def test_static_granted_landwalk_is_claimed_via_its_raw_variant_slug():
+    # Card-pool Batch 7: landwalk is parametric (a land-type quality), but the
+    # grant mechanism only ever needs the raw variant slug ("mountainwalk") —
+    # `combat._landwalk_slugs` matches any `granted_keywords` entry ending in
+    # "walk" directly — so this is claimed now, unlike every *other*
+    # parametric keyword grant (e.g. "protection from X"), which still needs
+    # a quality param the grant can't express and stays unclaimed.
     r, statics = _static_specs("Other Goblins you control get +1/+1 and have mountainwalk.",
                                tl="Creature — Goblin", creature=True)
-    assert statics == [] and r.coverage == UNMODELED
+    assert r.coverage != UNMODELED
+    kws = [s for s in statics[0].effects if s.type == "grant_keyword"][0]
+    assert kws.params["keywords"] == ["mountainwalk"]
 
 
 def test_create_token_with_nonflag_ability_is_unclaimed():

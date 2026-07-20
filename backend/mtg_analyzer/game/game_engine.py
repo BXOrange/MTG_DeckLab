@@ -154,6 +154,7 @@ class GameEngine:
                 self.state.active_player_index = self.state.next_active_index()
         active = self.state.active_player
         active.lands_played_this_turn = 0
+        active.extra_land_plays_this_turn = 0
         self.state.spells_cast_this_turn[active.id] = 0
         self.state.cards_drawn_this_turn[active.id] = 0
         self._clear_combat()
@@ -578,10 +579,13 @@ class GameEngine:
 
     def _step_cleanup(self) -> None:
         active = self.state.active_player
-        # RULE 514.1: discard down to maximum hand size.
-        excess = len(active.hand) - MAX_HAND_SIZE
-        if excess > 0:
-            self.rules.discard(active, excess)
+        # RULE 514.1: discard down to maximum hand size — unless a standing
+        # "no maximum hand size" static (RULE 402.2, `continuous.
+        # has_no_maximum_hand_size`) exempts this player.
+        if not continuous.has_no_maximum_hand_size(self.state, active):
+            excess = len(active.hand) - MAX_HAND_SIZE
+            if excess > 0:
+                self.rules.discard(active, excess)
         # RULE 514.2: remove marked damage and end "until end of turn" effects
         # (pump P/T bonuses, temporary keyword grants, and a "becomes a copy
         # of target creature until end of turn" activation — Cursed Mirror).
@@ -799,6 +803,12 @@ class GameEngine:
             # RULE 614.1c/614.12: the option id is a permanent's instance id,
             # or decline to enter as itself.
             self.rules.resolve_enter_as_copy_choice(None if declined else str(answer))
+        elif kind in ("choose_creature_type", "choose_color"):
+            # RULE 601.2b: a mandatory pick (no "decline" option is ever
+            # offered) — the option id is a creature-type name or a WUBRG
+            # colour letter; `resolve_enter_choice` defaults an
+            # unrecognized/missing answer to the first offered option.
+            self.rules.resolve_enter_choice(None if declined else str(answer))
         elif kind == "counter_unless_pays":
             # RULE 601: "pay" saves the target spell, anything else counters it.
             self.rules.resolve_counter_unless_pays_choice(None if declined else str(answer))
@@ -867,7 +877,11 @@ class GameEngine:
             and player is self.state.active_player
             and self._in_main_phase()
             and not self.state.stack
-            and player.lands_played_this_turn < player.max_lands_per_turn
+            and player.lands_played_this_turn < (
+                player.max_lands_per_turn
+                + continuous.extra_land_plays_for(self.state, player)
+                + player.extra_land_plays_this_turn
+            )
             and in_playable_zone
             and card.is_land
         )
@@ -923,6 +937,24 @@ class GameEngine:
         # RULE 117.3c: taking an action reclaims priority for its taker.
         self.give_priority(player)
         return obj
+
+    def set_skip_untap(self, player: Player, obj: GameObject, value: bool) -> None:
+        """Toggle RULE 502.1's "you may choose not to untap ~ during your
+        untap step" permission on ``obj`` (Rubinia Soulsinger/Hivis of the
+        Scale/The Pandorica-shaped).
+
+        The engine has no mid-untap-step pause to ask fresh every turn (the
+        rest of `_step_untap` runs straight through), so this is a standing
+        toggle the controller flips any time rather than a per-turn prompt —
+        it stays sticky (`GameObject.skip_untap`) until changed again, and
+        `continuous.has_no_untap_static` only honours it while ``obj``
+        actually carries the underlying `"no_untap_optional"` grant.
+        """
+        if obj.controller_id != player.id:
+            raise ValueError(f"{player.id} doesn't control {obj.name}")
+        if not continuous.has_optional_no_untap_permission(self.state, obj):
+            raise ValueError(f"{obj.name} has no 'you may choose not to untap' permission")
+        obj.skip_untap = value
 
     @staticmethod
     def _castable_from_exile(obj: GameObject) -> bool:

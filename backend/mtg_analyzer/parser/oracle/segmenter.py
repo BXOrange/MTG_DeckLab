@@ -24,7 +24,7 @@ from .catalogue.handlers import match_clause
 from .catalogue.keywords import ALIAS_DISPLAYS, KEYWORDS
 from .catalogue.replacements import replacement_clause_specs
 from .catalogue.saga import CHAPTER_LINE_RE, parse_chapter_token
-from .catalogue.static_handlers import static_effect_specs
+from .catalogue.static_handlers import enter_choice_specs, static_effect_specs
 from .spec import AbilitySpec, EffectSpec, ParserProvenance
 
 #: Trigger phrase → `EventType` value (mirrors `models/events.py`). Conservative
@@ -648,10 +648,22 @@ def segment_line(
         )
         return Segment(raw=raw, spec=spec, claimed=True)
 
-    # No trigger wrapper. On a *permanent*, a standing "Creatures you control
-    # get +1/+1" / "Goblins you control have haste" is a static continuous
-    # ability (RULE 613), not a resolve-time effect — try that before giving up.
+    # No trigger wrapper. On a *permanent*, "As ~ enters, choose a creature
+    # type/color" (RULE 601.2b) is a characteristic-defining choice made as
+    # part of entering — an ``enter_replacement`` ability (RULE 614.1c/
+    # 614.12's family, not a triggered ability and not `static_effect_specs`'
+    # standing-continuous-ability shape either), tried first since it's a
+    # narrower, closed pair of clauses.
     if not allow_spell_effect:
+        enter_choice = enter_choice_specs(raw)
+        if enter_choice is not None:
+            spec = AbilitySpec(
+                "enter_replacement", effects=enter_choice, raw_text=raw, parser=provenance
+            )
+            return Segment(raw=raw, spec=spec, claimed=True)
+        # A standing "Creatures you control get +1/+1" / "Goblins you
+        # control have haste" is a static continuous ability (RULE 613), not
+        # a resolve-time effect — try that before giving up.
         static = static_effect_specs(raw)
         if static is not None:
             spec = AbilitySpec(

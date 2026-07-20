@@ -1176,6 +1176,29 @@ class GainLifeEffect(GameEffect):
         context.gain_life(player, self.amount)
 
 
+class ExtraLandPlayEffect(GameEffect):
+    """A one-shot "you may play N additional land(s) this turn" grant
+    (Explore/Escape to the Wilds/Kiora's -1-shaped, RULE 305.2) — the
+    resolve-time, single-turn sibling of the standing `"extra_land_drop"`
+    `StaticAbility` a permanent like Exploration grants continuously
+    (`game/continuous.py`'s `extra_land_plays_for`).
+
+    Bumps the controller's `Player.extra_land_plays_this_turn` counter,
+    which `GameEngine.can_play_land` adds to the per-turn cap alongside the
+    standing static grant; `GameEngine.begin_turn` resets it to 0 each turn
+    the same way `lands_played_this_turn` resets.
+    """
+
+    def __init__(self, count: int = 1, source: Optional["GameObject"] = None) -> None:
+        super().__init__(source)
+        self.count = count
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        player = _controller_of(self.source, context)
+        if player is not None:
+            player.extra_land_plays_this_turn += self.count
+
+
 #: `LoseLifeEffect`'s mass-selector vocabulary ("each opponent loses N
 #: life"/"each player loses N life", RULE 601.2c) — the same closed,
 #: untargeted-group shape `DealDamageEffect`'s `_DAMAGE_SELECTORS` uses (no
@@ -3241,6 +3264,45 @@ class EnterAsCopyReplacement(GameEffect):
         return None  # consulted by RulesEngine._offer_enter_as_copy, not applied
 
 
+class ChooseCreatureTypeReplacement(GameEffect):
+    """"As ~ enters, choose a creature type." (RULE 601.2b-style
+    characteristic-defining choice made as part of entering — not a
+    triggered ability, so it's an ``enter_replacement`` like
+    `EnterAsCopyReplacement`, just without a target — a pure data holder
+    (``apply`` is never called).
+
+    `RulesEngine._offer_enter_choices` reads this off `GameObject.
+    enter_choice_effects` at the same battlefield-entry choke point
+    `_offer_enter_as_copy` reads `enter_as_copy_effects` from, and stamps the
+    answer onto `GameObject.chosen_type` — read back by `game/continuous.py`'s
+    ``subtype_from_source`` selector param (Adaptive Automaton/Arcane
+    Adaptation-shaped "creatures you control of the chosen type …"/"~ is the
+    chosen type in addition to its other types" lords).
+    """
+
+    def __init__(self, description: str = "") -> None:
+        super().__init__(None)
+        self.description = description
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        return None  # consulted by RulesEngine._offer_enter_choices, not applied
+
+
+class ChooseColorReplacement(GameEffect):
+    """"As ~ enters, choose a color." — the colour sibling of
+    `ChooseCreatureTypeReplacement`; see its docstring. Stamps
+    `GameObject.chosen_color`, read by `continuous.py`'s
+    ``color_from_source`` selector param.
+    """
+
+    def __init__(self, description: str = "") -> None:
+        super().__init__(None)
+        self.description = description
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        return None  # consulted by RulesEngine._offer_enter_choices, not applied
+
+
 class BecomeCopyUntilEndOfTurnEffect(GameEffect):
     """*This* permanent becomes a copy of a target creature until end of
     turn (Cursed Mirror-style: "{T}: ~ becomes a copy of target creature
@@ -3596,6 +3658,10 @@ EffectRegistry.register(
     ),
 )
 EffectRegistry.register(
+    "extra_land_play",
+    lambda p: ExtraLandPlayEffect(count=p.get("count", 1)),
+)
+EffectRegistry.register(
     "lose_life",
     lambda p: LoseLifeEffect(
         amount=p.get("amount", 0), player=p.get("player"), selector=p.get("selector"),
@@ -3877,6 +3943,14 @@ EffectRegistry.register(
     ),
 )
 EffectRegistry.register(
+    "choose_creature_type_on_enter",  # "As ~ enters, choose a creature type." (RULE 601.2b)
+    lambda p: ChooseCreatureTypeReplacement(),
+)
+EffectRegistry.register(
+    "choose_color_on_enter",  # "As ~ enters, choose a color." (RULE 601.2b)
+    lambda p: ChooseColorReplacement(),
+)
+EffectRegistry.register(
     "become_copy_until_eot",  # "~ becomes a copy of target creature until end of turn" (Cursed Mirror)
     lambda p: BecomeCopyUntilEndOfTurnEffect(
         target=p.get("target"),
@@ -4043,6 +4117,11 @@ _SELECTOR_KEYS: tuple[str, ...] = (
     # tapped.", "Nonbasic lands are Mountains.") and its "nonbasic" qualifier
     # — `continuous._has_card_type`/the "basic" substring check.
     "card_type", "nonbasic",
+    # RULE 601.2b "… of the chosen type/color …" (Adaptive Automaton/Caged
+    # Sun-shaped) — read the ability source's own `chosen_type`/
+    # `chosen_color` fresh each recompute instead of a literal `subtype`/
+    # `color` baked in at parse time; see `continuous.group_selector_objects`.
+    "subtype_from_source", "color_from_source",
 )
 
 
@@ -4158,6 +4237,14 @@ EffectRegistry.register(
         affects=p.get("affects", "self"),
         params={
             "add_types": list(p.get("add_types", [])),
+            # RULE 601.2b/613.4a "~ is the chosen type in addition to its
+            # other types" (Adaptive Automaton/A-Thran Portal-shaped) — a
+            # literal `add_subtypes` list and/or the dynamic
+            # `add_subtypes_from_source` flag (reads the ability source's
+            # own `chosen_type` fresh every recompute); *adds* alongside the
+            # object's printed subtypes, unlike `set_subtypes` below.
+            "add_subtypes": list(p.get("add_subtypes", [])),
+            "add_subtypes_from_source": bool(p.get("add_subtypes_from_source", False)),
             "power": p.get("power"),
             "toughness": p.get("toughness"),
             # RULE 613.5 full subtype overwrite ("Nonbasic lands are
@@ -4264,6 +4351,40 @@ EffectRegistry.register(
     # _step_untap`, gated live on the source's own tapped state.
     "untap_cap",
     lambda p: StaticAbility("untap_cap", affects="all_players", params={"count": p.get("count", 1)}),
+)
+EffectRegistry.register(
+    # "You may choose not to untap ~ during your untap step." (RULE 502.1
+    # self-scoped opt-out, Rubinia Soulsinger/Hivis of the Scale/The
+    # Pandorica-shaped) — unlike `no_untap` (unconditional), this only
+    # actually skips untapping once the controller has separately toggled
+    # `GameObject.skip_untap` on (`GameEngine.set_skip_untap`, since the
+    # engine has no mid-untap-step pause to ask fresh every turn — a
+    # standing toggle instead); consulted by `continuous.has_no_untap_static`.
+    "no_untap_optional",
+    lambda p: StaticAbility("no_untap_optional", affects="self", params={}),
+)
+EffectRegistry.register(
+    # "You may play an additional land on each of your turns." (RULE 305.2,
+    # Exploration/Dryad of the Ilysian Grove/Azusa-shaped, ``count`` for
+    # Azusa's "two additional lands") or, unscoped, "Each player may play an
+    # additional land on each of their turns." (Rites of Flourishing/Ghirapur
+    # Orrery/Storm Cauldron, ``affects="each_player"``); consulted by
+    # `continuous.extra_land_plays_for` (`GameEngine.can_play_land`). The
+    # one-turn, resolve-time sibling is `ExtraLandPlayEffect`/``extra_land_play``.
+    "extra_land_drop",
+    lambda p: StaticAbility(
+        "extra_land_drop", affects=p.get("affects", "you"), params={"count": p.get("count", 1)}
+    ),
+)
+EffectRegistry.register(
+    # "You have no maximum hand size." (RULE 402.2, A-Wizard Class/Body of
+    # Knowledge-shaped) or "Players have no maximum hand size." (Anvil of
+    # Bogardan/Folio of Fancies, ``affects="each_player"``); consulted by
+    # `continuous.has_no_maximum_hand_size` (`GameEngine._step_cleanup`). The
+    # durational "…for the rest of the game"/"…until your next turn" one-shot
+    # variants are a different, resolve-time-granted shape, not modeled here.
+    "no_max_hand_size",
+    lambda p: StaticAbility("no_max_hand_size", affects=p.get("affects", "you"), params={}),
 )
 EffectRegistry.register(
     # "Creatures entering don't cause abilities to trigger." (RULE 603,
