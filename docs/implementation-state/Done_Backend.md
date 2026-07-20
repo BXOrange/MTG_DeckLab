@@ -3664,6 +3664,64 @@ the Phase-1 models. Tests: `test_game_engine.py`.
       a layer-1 continuous effect is also done** — see "Become a copy of
       target permanent/creature" in "Rules Engine (Phase 2)" above (Vesuvan
       Shapeshifter).
+- [x] Monarch (RULE 725), Initiative (RULE 726), Emblems (RULE 114) —
+      Card-pool Batch 10, three previously-deprioritized (roadmap M6)
+      greenfield subsystems. Monarch/Initiative are plain player
+      designations (`GameState.monarch_id`/`initiative_id`,
+      `RulesEngine.become_monarch`/`take_initiative`, `become_monarch`/
+      `take_initiative` `EffectSpec`s — untargeted "you become the
+      monarch"/"you take the initiative" or a real RULE 115 target). Their
+      inherent triggered abilities have *no source* (RULE 725.2/726.2 — not
+      attached to any permanent), so the ordinary per-permanent trigger scan
+      (`RulesEngine._collect_triggers`) can never find them; a new
+      `_collect_inherent_triggers`, called alongside it, builds both fresh
+      off live state on every matching event instead: the monarch's own end
+      step draws a card, and a creature dealing the monarch (or the
+      Initiative holder) combat damage swaps the designation to that
+      creature's controller. RULE 726.2's "venture into the dungeon"
+      companion trigger is *not* fired — dungeons (RULE 309) aren't modeled
+      in this engine at all — so a card whose only clause is "You take the
+      initiative." still becomes fully MODELED regardless, on the strength
+      of the designation swap and its own combat-damage-steal trigger alone.
+      Emblems ("\[Player\] get\[s\] an emblem with '\[ability\]'",
+      `create_emblem`/`CreateEmblemEffect`) needed a genuinely new
+      "source" concept: an emblem has no permanent for `effect_binder.
+      bind_ability` to bind its quoted ability onto at bind-on-load like
+      every other ability, so a minimal `Emblem` (`models/emblem.py`) stands
+      in — carrying just `controller_id` (for "you control"/`phase_relation`
+      trigger scoping) and `timestamp` (RULE 613.7b layer ordering) — with
+      `RulesEngine.create_emblem` binding the ability once, at *resolve*
+      time, into the new `Player.emblems` list. The quoted ability is
+      recursively parsed at *parse* time into a full nested `AbilitySpec`
+      (`parser/oracle/catalogue/handlers.py`'s `_emblem_ability_spec`,
+      mirroring `static_handlers._quoted_ability_grant_effects`'s
+      recursive-`segment_line` idiom) rather than flattened to a
+      `grant_triggered_ability`'s bare effects list, since `bind_ability`
+      already knows how to build a real `TriggeredAbility`/`StaticAbility`
+      from a whole spec and an emblem has no host permanent to flatten onto
+      in the first place; subject/selector shapes meaningful only relative
+      to a source permanent ("self"/"attached_permanent"/"other creatures
+      you control") are rejected at parse time (fail-closed) rather than
+      silently binding an ability that could never fire. `game/
+      continuous.py`'s static-ability scan and `RulesEngine._collect_
+      triggers` both gained a "scan every player's `Player.emblems` too"
+      branch alongside their existing battlefield scan (RULE 114.4:
+      "abilities of emblems function in the command zone"). Caught along
+      the way: `continuous._source_name` read `ability.source.name`
+      unconditionally for the static-effect trace log, which crashed the
+      instant a real static emblem ability (e.g. "Creatures you control get
+      +1/+1.") went through a layer-engine recompute, since `Emblem` (RULE
+      114.3: no name of its own) has no `.name` — fixed with a `getattr`
+      fallback to `"static"`, the label a sourceless ability already got.
+      Deliberately deferred: RULE 725.4/726.4 ("if the monarch/initiative-
+      holder leaves the game, the active player inherits it" — no
+      multiplayer-elimination flow exercises more than two players yet);
+      dungeons/RULE 309 entirely; and an emblem's own *activated* ability
+      (permitted in principle by RULE 114.4, but no real emblem in the pool
+      prints one, so `create_emblem` only files a bound result's
+      `TriggeredAbility`/`StaticAbility`). Tests:
+      `backend/tests/test_batch10_monarch_initiative_emblem_family.py` (20,
+      parse+execute).
 
 ## Auth & persistence
 

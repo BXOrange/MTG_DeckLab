@@ -263,15 +263,45 @@ has_no_maximum_hand_size`); and "you may choose not to untap ~ during your
 untap step" (`no_untap_optional`) — the one real new engine primitive here,
 since the untap step has no mid-step pause to ask fresh every turn, modeled
 as a sticky `GameObject.skip_untap` toggle instead (`GameEngine.
-set_skip_untap`).
+set_skip_untap`); and RULE 400.7 + RULE 712.8's "exile ~/this saga, then
+return it to the battlefield transformed under its owner's control"
+(`exile_return_transformed` — a genuine zone change, not an in-place face
+swap: a transforming Saga's own final chapter, Fable of the Mirror-Breaker-
+shaped, or a transform-flip permanent's activated ability phrased this way
+instead of a bare "transform ~", Ayara/Clive/Jin-Gitaxias-shaped).
+Three more greenfield subsystems, previously deprioritized per the
+completion roadmap's M6: the **Monarch** (RULE 725, `GameState.monarch_id`/
+`RulesEngine.become_monarch`) and **Initiative** (RULE 726, `initiative_id`/
+`take_initiative`) designations, each with their own inherent, source-less
+triggered abilities (the monarch's own end step draws a card; either
+designation swaps to a creature's controller when it deals that designation's
+holder combat damage) checked fresh off live state by `RulesEngine.
+_collect_inherent_triggers` rather than found by the ordinary per-permanent
+trigger scan — neither is attached to any permanent for that to find. RULE
+726's "venture into the dungeon" companion trigger isn't fired (dungeons,
+RULE 309, aren't modeled at all yet), so a card whose only clause is "You
+take the initiative." still becomes fully MODELED on the strength of the
+designation swap and its own combat-damage-steal trigger alone. **Emblems**
+(RULE 114, "\[Player\] get\[s\] an emblem with '\[ability\]'") create a
+command-zone marker with no characteristics beyond the quoted ability
+(`models/emblem.py`'s `Emblem` — a minimal `source` stand-in carrying just
+`controller_id`/`timestamp`, since an emblem has no permanent to bind onto
+at bind-on-load like every other ability); the quoted ability is recursively
+parsed into a full nested `AbilitySpec` at parse time
+(`parser/oracle/catalogue/handlers.py`'s `_emblem_ability_spec`, mirroring
+the Aura/Equipment quoted-grant recursion) and bound once, at resolve time,
+against that synthetic source (`RulesEngine.create_emblem`); `game/
+continuous.py`'s static-ability scan and `RulesEngine._collect_triggers`
+both read every player's `Player.emblems` alongside the battlefield so a
+static/triggered emblem ability applies exactly like a permanent's own.
 `parse_oracle` itself is now memoized (content-keyed on
 every field it reads, `parser/oracle/gate.py`) since it's called once per
 `GameObject` built — a popular card no longer gets re-parsed from scratch
 on every copy/every game. `parser/oracle/processing_list.py` tracks
 cache-wide coverage and ranks the next handlers worth building. The cache is
 now bulk-loaded with the **full ~34k-card Oracle universe**
-(`scripts/import_bulk.py`), so coverage is measured against that: **23.2%
-covered (7,947 / 34,209) as of 2026-07-20, Batch 8** (parser-`MODELED` **or**
+(`scripts/import_bulk.py`), so coverage is measured against that: **23.3%
+covered (7,969 / 34,209) as of 2026-07-20, Batch 10** (parser-`MODELED` **or**
 hand-`AUTHORED`; the old 24.4% was over only the ~2,900-card curated cache).
 Re-measure with `scripts/coverage_report.py` (ledger-backed — see
 `services/coverage_db.py`) before trusting this number; the batch plan and

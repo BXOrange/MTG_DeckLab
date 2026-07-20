@@ -91,6 +91,15 @@ class GameContext:
     def lose_game(self, player: "Player", reason: str = "effect") -> None:
         self.engine._player_loses(player, reason)
 
+    def become_monarch(self, player: "Player") -> None:
+        self.engine.become_monarch(player)
+
+    def take_initiative(self, player: "Player") -> None:
+        self.engine.take_initiative(player)
+
+    def create_emblem(self, player: "Player", ability: dict) -> None:
+        self.engine.create_emblem(player, ability)
+
     def take_extra_turn(self, player: "Player") -> None:
         # RULE 500.7: queue an extra turn for ``player``, taken after the
         # current one (`GameEngine.begin_turn` consumes `state.extra_turns`).
@@ -227,6 +236,9 @@ class GameContext:
 
     def blink(self, target: "GameObject") -> None:
         self.engine.blink(target)
+
+    def exile_return_transformed(self, target: "GameObject") -> None:
+        self.engine.exile_return_transformed(target)
 
     def add_mana(self, player: "Player", color: str, amount: int = 1) -> None:
         self.engine.add_mana(player, color, amount)
@@ -699,6 +711,104 @@ class WinGameEffect(GameEffect):
         if self.if_empty_library and player.library:
             return
         context.engine.player_wins(player)
+
+
+class BecomeMonarchEffect(GameEffect):
+    """"[Player] become[s] the monarch." (RULE 725.1) — untargeted ("you
+    become the monarch", Palace Jailer-shaped) by default; ``target_kind="player"``
+    opts into a real RULE 115 target ("target player becomes the monarch",
+    the Throne of the Damned-adjacent phrasing), mirroring `GainLifeEffect`.
+    """
+
+    def __init__(
+        self,
+        player: Any = None,
+        source: Optional["GameObject"] = None,
+        target_kind: Optional[str] = None,
+    ) -> None:
+        super().__init__(source)
+        self.player = player
+        self.target_spec = TargetSpec(kind=target_kind) if target_kind is not None else None
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        player = self.player
+        if player is None and self.target_spec is not None:
+            player = targets[0] if targets else None
+        if player is None:
+            player = _controller_of(self.source, context)
+        if player is not None:
+            context.become_monarch(player)
+
+
+class TakeInitiativeEffect(GameEffect):
+    """"[Player] take[s] the initiative." (RULE 726.1) — same untargeted/
+    targeted split as `BecomeMonarchEffect`. RULE 726.2's "venture into the
+    dungeon" companion trigger isn't fired: dungeons (RULE 309) aren't
+    modeled in this engine yet, so a card whose *only* clause is this one
+    still becomes fully MODELED (the designation swap and its own combat-
+    damage-steal trigger, `RulesEngine._collect_inherent_triggers`, are real
+    RULE 726 behaviour on their own), while venturing stays a documented gap
+    (`ToDo_Backend.md`).
+    """
+
+    def __init__(
+        self,
+        player: Any = None,
+        source: Optional["GameObject"] = None,
+        target_kind: Optional[str] = None,
+    ) -> None:
+        super().__init__(source)
+        self.player = player
+        self.target_spec = TargetSpec(kind=target_kind) if target_kind is not None else None
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        player = self.player
+        if player is None and self.target_spec is not None:
+            player = targets[0] if targets else None
+        if player is None:
+            player = _controller_of(self.source, context)
+        if player is not None:
+            context.take_initiative(player)
+
+
+class CreateEmblemEffect(GameEffect):
+    """"[Player] get[s] an emblem with '[ability]'." (RULE 114.2) — the
+    quoted ability was already recursively parsed into a full nested
+    `AbilitySpec` at parse time (`parser/oracle/catalogue/handlers.py`'s
+    `_emblem_ability_spec`, the same recursive-`segment_line` idiom
+    `static_handlers._quoted_ability_grant_effects` uses for an Aura/
+    Equipment's quoted grant) and carried here as a plain JSON dict
+    (``self.ability``) — still pure IR, nothing derived from card text has
+    executed yet.
+
+    Binding it into a live `TriggeredAbility`/`StaticAbility` happens once,
+    at resolve time (`RulesEngine.create_emblem`), against a synthetic
+    `Emblem` "source" rather than a real permanent (`models/emblem.py`) —
+    an emblem has no permanent to attach to, so this can't happen at
+    bind-on-load like every other ability.
+    """
+
+    def __init__(
+        self,
+        ability: Optional[dict] = None,
+        player: Any = None,
+        source: Optional["GameObject"] = None,
+        target_kind: Optional[str] = None,
+    ) -> None:
+        super().__init__(source)
+        self.ability = ability
+        self.player = player
+        self.target_spec = TargetSpec(kind=target_kind) if target_kind is not None else None
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        player = self.player
+        if player is None and self.target_spec is not None:
+            player = targets[0] if targets else None
+        if player is None:
+            player = _controller_of(self.source, context)
+        if player is None or not self.ability:
+            return
+        context.create_emblem(player, self.ability)
 
 
 class WinConditionEffect(GameEffect):
@@ -2789,6 +2899,22 @@ class TransformEffect(GameEffect):
             context.engine.transform_permanent(target)
 
 
+class ExileReturnTransformedEffect(GameEffect):
+    """"Exile ~, then return it to the battlefield transformed under its
+    owner's control" (RULE 400.7 + RULE 712.8 combined). Untargeted and
+    always self — a transforming Saga's own final chapter (Fable of the
+    Mirror-Breaker-shaped) or a transform-flip permanent's activated
+    ability phrased this way instead of a plain `TransformEffect`
+    (Ayara/Clive/Jin-Gitaxias-shaped). See `RulesEngine.
+    exile_return_transformed`'s docstring for why this is a genuine
+    RULE 400.7 zone change rather than an in-place flip.
+    """
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        if self.source is not None:
+            context.exile_return_transformed(self.source)
+
+
 class PhaseOutEffect(GameEffect):
     """Phase a permanent out (RULE 702.26) — treated as though it doesn't
     exist until it phases back in at its controller's next untap step
@@ -4083,6 +4209,9 @@ EffectRegistry.register(
 EffectRegistry.register(
     "transform", lambda p: TransformEffect(target_kind=p.get("target_kind"))
 )
+EffectRegistry.register(
+    "exile_return_transformed", lambda p: ExileReturnTransformedEffect()
+)
 EffectRegistry.register("become_prepared", lambda p: BecomePreparedEffect())
 EffectRegistry.register(
     "phase_out",
@@ -4460,6 +4589,18 @@ EffectRegistry.register(
 EffectRegistry.register(
     "win_game",  # "you win the game" (Jace, Wielder of Mysteries' -8 tail)
     lambda p: WinGameEffect(if_empty_library=bool(p.get("if_empty_library", False))),
+)
+EffectRegistry.register(
+    "become_monarch",  # "you become the monarch" (RULE 725.1, Palace Jailer-shaped)
+    lambda p: BecomeMonarchEffect(target_kind=p.get("target_kind")),
+)
+EffectRegistry.register(
+    "take_initiative",  # "you take the initiative" (RULE 726.1)
+    lambda p: TakeInitiativeEffect(target_kind=p.get("target_kind")),
+)
+EffectRegistry.register(
+    "create_emblem",  # "you get an emblem with '<ability>'" (RULE 114.2)
+    lambda p: CreateEmblemEffect(ability=p.get("ability"), target_kind=p.get("target_kind")),
 )
 
 

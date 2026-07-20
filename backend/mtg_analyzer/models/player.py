@@ -17,6 +17,7 @@ from __future__ import annotations
 import random
 from typing import Any, Optional
 
+from .emblem import Emblem
 from .game_object import GameObject, Zone
 from .mana_pool import ManaPool
 
@@ -96,6 +97,10 @@ class Player:
         #: e.g. "skip your next untap step", "you can't lose the game".
         #: The rules engine reads these; see game/effects.py.
         self.player_effects: list[Any] = []
+
+        #: Emblems this player owns and controls (RULE 114.2), created by
+        #: `RulesEngine.create_emblem`. See `models/emblem.py`.
+        self.emblems: list[Emblem] = []
 
     # -- Zone accessors --------------------------------------------------
 
@@ -181,6 +186,7 @@ class Player:
             "has_lost": self.has_lost,
             "loss_reason": self.loss_reason,
             "commander_damage": {str(k): v for k, v in self.commander_damage.items()},
+            "emblems": [e.to_dict() for e in self.emblems],
             "library_count": len(self.library),
             "hand_count": len(self.hand),
             "hand": [obj.to_dict() for obj in self.hand],

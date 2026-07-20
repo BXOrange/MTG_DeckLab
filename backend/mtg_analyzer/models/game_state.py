@@ -193,6 +193,15 @@ class GameState:
         self.game_over = False
         self.winner_id: Optional[str] = None
 
+        #: RULE 725/726: the monarch/initiative are designations, not
+        #: objects — at most one player id each, ``None`` until an effect
+        #: first grants one. `RulesEngine.become_monarch`/`take_initiative`
+        #: set these; `RulesEngine._collect_inherent_triggers` reads them to
+        #: fire the (source-less) triggered abilities RULE 725.2/726.2
+        #: attach to holding either designation.
+        self.monarch_id: Optional[str] = None
+        self.initiative_id: Optional[str] = None
+
         #: Reproducible-randomness state (RULE 706 — "choose … at random", coin
         #: flips): a seed plus a monotonically-advancing counter. `RulesEngine.
         #: random_int` derives each draw from ``(rng_seed, rng_counter)`` and
@@ -551,6 +560,8 @@ class GameState:
             "day_night": self.day_night,
             "game_over": self.game_over,
             "winner_id": self.winner_id,
+            "monarch_id": self.monarch_id,
+            "initiative_id": self.initiative_id,
             "pending_choice": self.pending_choice,
             "temp_play_permissions": dict(self.temp_play_permissions),
             "players": [p.to_dict() for p in self.players],

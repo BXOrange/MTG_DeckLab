@@ -52,13 +52,13 @@ else is comparatively narrow, additive work.
 
 | CR area | State | Notes |
 | --- | --- | --- |
-| 100–123 Game concepts | ✅ mostly | mana, life, damage, counters, targets, costs, timing (solo + basic interactive priority), tokens. Emblems (114), Stickers (123) not modeled. |
+| 100–123 Game concepts | ✅ mostly | mana, life, damage, counters, targets, costs, timing (solo + basic interactive priority), tokens, Emblems (114). Stickers (123) not modeled. |
 | 200–213 Parts of a card | ✅ mostly | Card model complete, loyalty tracked and playable. Defense (210)/Battles not. |
 | 300–315 Card types | ◐ | artifact/creature/enchant/instant/land/sorcery/planeswalker done, incl. Aura/Equip/Fortify/Reconfigure attachment. Battles/dungeons/adventure/split not; Saga/DFC partial (see 700–733). |
 | 400–408 Zones | ✅ | battlefield/stack/hand/library/graveyard/exile/command all present. |
 | 500–514 Turn structure | ✅ | complete, walked from a sequence with skip effects. |
 | 600–616 Spells/abilities/effects | ◐ | casting/activated/triggered/static/mana/replacement/loyalty (606) done; layers (613) done except layer 3 + full dependency ordering (deliberately deferred, see M3); replacement/prevention ordering (616.1e/f) is interactive, by the affected player. |
-| 700–733 Additional | ◐ | SBAs (704) done; keyword abilities (702) recognized + bound (flag + landwalk); keyword *actions* (701) partial via effects. Copying (707): token copies + `become_copy` done, not a true layer-1 continuous effect. DFC transform (712.3–9) + MDFC back-face cast (712.10) done; Saga (714) lore-counter mechanics done, chapter *abilities* not; Adventure (715)/Split-Fuse (709)/Class (716)/Leveler (711)/Day-Night (731)/Monarch/Initiative not. |
+| 700–733 Additional | ◐ | SBAs (704) done; keyword abilities (702) recognized + bound (flag + landwalk); keyword *actions* (701) partial via effects. Copying (707): token copies + `become_copy` done, not a true layer-1 continuous effect. DFC transform (712.3–9) + MDFC back-face cast (712.10) done; Saga (714) lore-counter mechanics done, chapter *abilities* not; Adventure (715)/Split-Fuse (709)/Class (716)/Leveler (711)/Day-Night (731) not. Monarch (725)/Initiative (726) designations + their inherent triggers done; Initiative's own "venture into the dungeon" (726.2) not (depends on Dungeons, 309). |
 | 800–811 Multiplayer | ✖ | interactive `pass_priority(player)` primitive built; `create_multiplayer` still raises, route returns 501. |
 | 900–905 Casual variants | ◐ | Commander (903) damage + command zone + tax (903.8) done. Others not. |
 
@@ -101,9 +101,9 @@ Follows [`09_ORACLE_EFFECT_PARSER.md`](../concepts/09_ORACLE_EFFECT_PARSER.md).
      selection, RULE 700.2) is now done; remaining top blockers per the
      (stale) live ranking: "you may look at the top card of your library
      any time" (13, a standing *permission* rather than a one-shot/
-     triggered effect — no existing family shape to reuse),
-     monarch/initiative (7-9 each, deferred per M6), cost-modification
-     statics, and emblems.
+     triggered effect — no existing family shape to reuse), and
+     cost-modification statics. Monarch/Initiative/Emblems shipped
+     (Card-pool Batch 10).
   2. **Related, same pipeline, separately tracked in `ToDo_Backend.md`**:
     the mana-ability follow-up list from the 2026-07-15 Elf-mana-dork pass
     is now fully done (spend restrictions, Leveler-gating, Deathrite
@@ -170,9 +170,11 @@ depend on M1, and copies feed M3's layer 1.
   (`Card.is_adventure`/`is_split`) but still resolve as the single
   front-face spell — not started.
 - Battles (310), Dungeons (309) — not started.
-- Deprioritized until a deck needs one: Emblems (114), Stickers (123), Monarch
-  (725) / Initiative (726), Rad counters (728), remaining multiplayer/casual
-  variants.
+- Done: Emblems (114), Monarch (725) / Initiative (726) — Card-pool Batch
+  10. Initiative's own "venture into the dungeon" (726.2) still depends on
+  Dungeons above.
+- Deprioritized until a deck needs one: Stickers (123), Rad counters (728),
+  remaining multiplayer/casual variants.
 
 ### M7 — Product features (parallel track, not rules-engine)
 

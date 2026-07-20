@@ -115,7 +115,21 @@ UNMODELED = "UNMODELED"
 #: your untap step" (`no_untap_optional`, gated on a new sticky
 #: `GameObject.skip_untap` toggle — `GameEngine.set_skip_untap` — since the
 #: engine has no mid-untap-step pause to ask fresh each turn).
-PARSER_VERSION = "10"
+#: "11": Batch 9 — "exile ~/this saga, then return it to the battlefield
+#: transformed under its owner's control" (`exile_return_transformed` —
+#: RULE 400.7 + RULE 712.8 combined, a transforming Saga's own final
+#: chapter, Fable of the Mirror-Breaker-shaped, or an activated ability's
+#: own flip phrased this way instead of a bare "transform ~",
+#: Ayara/Clive/Jin-Gitaxias-shaped).
+#: "13": Batch 10 — Monarch/Initiative/Emblem (RULE 725/726/114): "you
+#: become the monarch"/"you take the initiative" (plain designation grants,
+#: `RulesEngine.become_monarch`/`take_initiative`) and "you get an emblem
+#: with '<ability>'" (`create_emblem`, the quoted ability recursively
+#: parsed into a full nested `AbilitySpec` and bound at resolve time against
+#: a synthetic `Emblem` source — `models/emblem.py`). "12" was consumed by a
+#: concurrent Batch 9 coverage re-measure before this batch's own code
+#: landed, so it's skipped here rather than reused for a different card set.
+PARSER_VERSION = "13"
 
 
 @dataclass

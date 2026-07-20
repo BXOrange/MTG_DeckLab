@@ -24,7 +24,7 @@ from dataclasses import dataclass
 from typing import Callable, Optional
 
 from ..normalize import SELF
-from ..spec import EffectSpec
+from ..spec import EffectSpec, ParserProvenance
 from .keywords import KEYWORDS, KeywordShape, keyword_slug
 from .subgrammars import (
     CANT_BE_COUNTERED_RE,
@@ -723,6 +723,27 @@ def _transform(m: re.Match[str]) -> list[EffectSpec]:
     return [EffectSpec("transform", {})]
 
 
+#: "exile ~/this saga, then return it/him/her to the battlefield transformed
+#: under your/its/his/her owner's control" (RULE 400.7 + RULE 712.8 combined)
+#: — distinct from a plain in-place `transform`: this is a Batch 9 shape
+#: where the permanent actually leaves and re-enters the battlefield already
+#: on its back face (a transforming Saga's own final chapter, Fable of the
+#: Mirror-Breaker-shaped; or a transform-flip permanent's activated ability
+#: that phrases its own flip this way instead of a bare "transform ~",
+#: Ayara/Clive/Jin-Gitaxias-shaped). "this saga" is matched literally since
+#: `normalize._SELF_REFERENCE_RE` deliberately excludes it (Saga gets its own
+#: dedicated grammar, `catalogue/saga.py`); every other self-reference
+#: (including "this equipment") already folds to ``~`` before this runs.
+_EXILE_RETURN_TRANSFORMED_RE = _c(
+    rf"exile (?:{re.escape(SELF)}|this saga),? then return (?:it|him|her) to "
+    r"the battlefield transformed under (?:your control|(?:its|his|her) owner's control)"
+)
+
+
+def _exile_return_transformed(m: re.Match[str]) -> list[EffectSpec]:
+    return [EffectSpec("exile_return_transformed", {})]
+
+
 def _become_prepared(m: re.Match[str]) -> list[EffectSpec]:
     return [EffectSpec("become_prepared", {})]
 
@@ -952,6 +973,92 @@ def _extra_land_play(m: re.Match[str]) -> list[EffectSpec]:
 
 def _surveil(m: re.Match[str]) -> list[EffectSpec]:
     return [EffectSpec("surveil", {"count": int(m.group("n"))})]
+
+
+# "You become the monarch." / "Target player becomes the monarch." (RULE
+# 725.1) and "You take the initiative." / "Target player takes the
+# initiative." (RULE 726.1) — plain designation grants, the same untargeted-
+# vs-targeted "who" split `_gain_life`/`_lose_life` use.
+def _become_monarch(m: re.Match[str]) -> list[EffectSpec]:
+    params: dict = {}
+    if (m.groupdict().get("who") or "").strip() == "target player":
+        params["target_kind"] = "player"
+    return [EffectSpec("become_monarch", params)]
+
+
+def _take_initiative(m: re.Match[str]) -> list[EffectSpec]:
+    params: dict = {}
+    if (m.groupdict().get("who") or "").strip() == "target player":
+        params["target_kind"] = "player"
+    return [EffectSpec("take_initiative", params)]
+
+
+# "[You/Target player] get[s] an emblem with '<ability>'." (RULE 114.2) —
+# the quoted ability is itself an ordinary ability line, recursively parsed
+# the same way `static_handlers._quoted_ability_grant_effects` parses an
+# Aura/Equipment's quoted grant (`segmenter.segment_line`, imported lazily in
+# `_emblem_ability_spec` below — `segmenter` imports *this* module, so a
+# module-level import would cycle). Unlike that grant (which flattens to a
+# `grant_triggered_ability`'s bare effects list), the *whole* nested
+# `AbilitySpec` is kept, since `game/rules_engine.py`'s `create_emblem` binds
+# it fresh at resolve time against a synthetic `Emblem` source (RULE 114.4) —
+# there's no host permanent to flatten onto in the first place.
+_EMBLEM_RE = re.compile(
+    r'(?P<who>you |target player )?gets? an emblem with "(?P<inner>.+)"',
+    re.IGNORECASE | re.DOTALL,
+)
+
+#: Subject/selector shapes that only mean something relative to a *source
+#: permanent* ("this creature", "equipped/enchanted creature", "other
+#: creatures you control") — meaningless for an emblem's synthetic source,
+#: so a nested spec using one is rejected (fail-closed) rather than silently
+#: binding an ability that can never fire, or that resolves a selector that
+#: always comes back empty.
+_EMBLEM_UNSUPPORTED_SUBJECTS: frozenset[str] = frozenset(
+    {"self", "attached_permanent", "self_or_attached_permanent"}
+)
+_EMBLEM_UNSUPPORTED_AFFECTS: frozenset[str] = frozenset(
+    {"self", "attached_permanent", "other_creatures_you_control"}
+)
+
+
+def _emblem_ability_spec(inner: str) -> Optional[dict]:
+    from ..segmenter import segment_line  # lazy: segmenter imports this module
+
+    segment = segment_line(
+        inner.strip(),
+        allow_spell_effect=False,
+        provenance=ParserProvenance(version="nested", source="rule:oracle"),
+    )
+    spec = segment.spec
+    if spec is None or spec.modes:
+        return None
+    if spec.ability_kind == "triggered":
+        condition = (spec.trigger or {}).get("condition") or {}
+        if condition.get("subject") in _EMBLEM_UNSUPPORTED_SUBJECTS:
+            return None
+        if condition.get("subject") == "group" and condition.get("other"):
+            return None
+    elif spec.ability_kind == "static":
+        if any(e.params.get("affects") in _EMBLEM_UNSUPPORTED_AFFECTS for e in spec.effects):
+            return None
+    else:
+        return None  # only a static or triggered ability can live in an emblem
+    try:
+        spec.validate()
+    except Exception:
+        return None
+    return spec.to_dict()
+
+
+def _create_emblem(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    ability = _emblem_ability_spec(m.group("inner"))
+    if ability is None:
+        return None
+    params: dict = {"ability": ability}
+    if (m.groupdict().get("who") or "").strip() == "target player":
+        params["target_kind"] = "player"
+    return [EffectSpec("create_emblem", params)]
 
 
 # A pump's subject: a targeted creature/permanent, the self-reference ``~``
@@ -1299,6 +1406,15 @@ HANDLERS: list[EffectHandler] = [
         _c(rf"transform (?:{re.escape(SELF)}|it|this permanent|this creature)"),
         _transform,
     ),
+    # "exile ~/this saga, then return it/him/her to the battlefield
+    # transformed under your/its/his/her owner's control" (RULE 400.7 +
+    # RULE 712.8) — a transforming Saga's chapter III, or an activated
+    # ability's own flip phrased this way instead of a bare "transform ~".
+    EffectHandler(
+        "exile_return_transformed",
+        _EXILE_RETURN_TRANSFORMED_RE,
+        _exile_return_transformed,
+    ),
     # "~ becomes prepared" / "it becomes prepared" / "this permanent"/
     # "this creature becomes prepared" (RULE 722.3a) — a preparation card's
     # own "whenever X, ~ becomes prepared" trigger; the self-only shape
@@ -1410,6 +1526,29 @@ HANDLERS: list[EffectHandler] = [
         "extra_land_play",
         _EXTRA_LAND_PLAY_RE,
         _extra_land_play,
+    ),
+    # "You become the monarch." / "Target player becomes the monarch."
+    # (RULE 725.1).
+    EffectHandler(
+        "become_monarch",
+        _c(r"(?P<who>you |target player )?becomes? the monarch"),
+        _become_monarch,
+    ),
+    # "You take the initiative." / "Target player takes the initiative."
+    # (RULE 726.1) — RULE 726.2's "venture into the dungeon" companion isn't
+    # modeled (dungeons/RULE 309 aren't built yet); see
+    # `game/effects.py`'s `TakeInitiativeEffect`.
+    EffectHandler(
+        "take_initiative",
+        _c(r"(?P<who>you |target player )?takes? the initiative"),
+        _take_initiative,
+    ),
+    # "You get an emblem with '<ability>'." (RULE 114.2) — see
+    # `_emblem_ability_spec` above.
+    EffectHandler(
+        "create_emblem",
+        _EMBLEM_RE,
+        _create_emblem,
     ),
     # "create a 1/1 white Soldier creature token" / "create two 2/2 green Bear
     # creature tokens with trample" — inline creature tokens (fully modeled).

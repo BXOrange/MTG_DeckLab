@@ -116,8 +116,12 @@ for the dependency-ordered plan to finish the implementation.
       - No split-choice UI for "any combination of colours", and no
         button for hand-zone mana abilities yet
         (`frontend/ToDo_Frontend.md`).
-      - monarch/initiative (deferred per M6), prohibition/cost-
-        modification statics, and emblems remain unmodeled.
+      - Monarch/Initiative/Emblems now modeled (Card-pool Batch 10 — RULE
+        725/726/114); prohibition/cost-modification statics remain
+        unmodeled. RULE 725.4/726.4 ("if the monarch/initiative-holder
+        leaves the game, the active player inherits it") and RULE 726.2's
+        "venture into the dungeon" companion trigger (dungeons, RULE 309,
+        aren't modeled at all) are still open — see the Dungeons entry below.
       - Leyline's "As long as this card is in your opening hand, you may
         begin the game with it on the battlefield" (Card-pool Batch 8,
         investigated and deferred) — a pregame mulligan/setup-phase
@@ -179,11 +183,15 @@ eventually own. Roughly in decreasing commonness:
       [Done_Backend.md](../docs/implementation-state/Done_Backend.md)
       "Card-type & structural coverage".
 - [ ] Battles (RULE 310) and Dungeons (RULE 309) — new type lines with
-      their own attack/venture subsystems.
-- [ ] Niche/format extras: Emblems (RULE 114), Stickers (RULE 123), the
-      Monarch (RULE 725) / Initiative (RULE 726), Rad counters (RULE 728),
-      and the remaining multiplayer/casual variants (CR 8, CR 9 beyond
-      Commander). Deprioritized until a deck needs one.
+      their own attack/venture subsystems. Initiative's own "venture into
+      the dungeon" trigger (RULE 726.2) depends on Dungeons landing first —
+      see `Done_Backend.md` "Card-type & structural coverage" for what
+      Initiative already does without it.
+- [ ] Niche/format extras: Stickers (RULE 123), Rad counters (RULE 728), and
+      the remaining multiplayer/casual variants (CR 8, CR 9 beyond
+      Commander). Deprioritized until a deck needs one. (Emblems/RULE 114
+      and the Monarch/Initiative designations, RULE 725/726, shipped —
+      Card-pool Batch 10, moved to `Done_Backend.md`.)
 
 ## Game Engine (Phase 3) — remaining
 

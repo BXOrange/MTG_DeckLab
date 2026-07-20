@@ -23,6 +23,7 @@ from typing import Any, Callable, Optional
 
 from ..models import card_query
 from ..models.card import Card
+from ..models.emblem import Emblem
 from ..models.events import EventType, GameEvent
 from ..models.game_object import GameObject, Zone
 from ..models.game_state import GameState, StackItem
@@ -34,13 +35,17 @@ from .combat import is_protected_from
 from .costs import DISCARD_HAND, ActivationCost, parse_activation_cost
 from .mana_abilities import restriction_predicate_for_cast
 from .effects import (
+    BecomeMonarchEffect,
     CantBeCounteredEffect,
     ChooseColorReplacement,
     ChooseCreatureTypeReplacement,
+    DrawCardEffect,
     GameContext,
     PumpEffect,
     ReplacementEffect,
+    StaticAbility,
     StaticEffect,
+    TakeInitiativeEffect,
     TriggeredAbility,
     WardEffect,
     WinConditionEffect,
@@ -393,6 +398,90 @@ class RulesEngine:
                 if isinstance(ability, TriggeredAbility) and ability.check_trigger(
                     event, self.context
                 ):
+                    self.pending_triggers.append((ability, event))
+        # RULE 114.4: an emblem's abilities function in the command zone —
+        # scanned the same way as a permanent's, just off `Player.emblems`
+        # instead of the battlefield (see `models/emblem.py`).
+        for player in self.state.players:
+            for emblem in player.emblems:
+                for ability in emblem.triggered_abilities:
+                    if ability.check_trigger(event, self.context):
+                        self.pending_triggers.append((ability, event))
+        self._collect_inherent_triggers(event)
+
+    def _collect_inherent_triggers(self, event: GameEvent) -> None:
+        """RULE 725.2/726.2: the Monarch's and the Initiative's triggered
+        abilities "have no source" — they aren't attached to any permanent,
+        so the object scan above can never find them. Built fresh here
+        instead, each time a matching event fires, since who currently holds
+        either designation (and so who controls the ability) can change
+        turn to turn; RULE 726.2's "venture into the dungeon" trigger isn't
+        modeled (dungeons/RULE 309 aren't built yet — see
+        `TakeInitiativeEffect`'s docstring).
+        """
+        monarch = self.state.player_by_id(self.state.monarch_id) if self.state.monarch_id else None
+        if monarch is not None and not monarch.has_lost:
+            # "At the beginning of the monarch's end step, that player draws
+            # a card."
+            if (
+                event.type == EventType.STEP_BEGIN
+                and event.get("step") == "end"
+                and self.state.active_player.id == monarch.id
+            ):
+                ability = TriggeredAbility(
+                    trigger_event=EventType.STEP_BEGIN,
+                    effects=[DrawCardEffect(count=1, player=monarch)],
+                    controller_id=monarch.id,
+                    description="The monarch draws a card.",
+                )
+                self.pending_triggers.append((ability, event))
+            # "Whenever a creature deals combat damage to the monarch, its
+            # controller becomes the monarch."
+            if (
+                event.type == EventType.DAMAGE
+                and event.get("combat")
+                and event.get("is_player")
+                and event.get("target_id") == monarch.id
+            ):
+                new_monarch_id = event.get("source_controller_id")
+                if new_monarch_id and new_monarch_id != monarch.id:
+                    ability = TriggeredAbility(
+                        trigger_event=EventType.DAMAGE,
+                        effects=[BecomeMonarchEffect(player=self.state.player_by_id(new_monarch_id))],
+                        controller_id=new_monarch_id,
+                        description="Whenever a creature deals combat damage to the monarch, its controller becomes the monarch.",
+                    )
+                    self.pending_triggers.append((ability, event))
+        initiative = (
+            self.state.player_by_id(self.state.initiative_id) if self.state.initiative_id else None
+        )
+        if initiative is not None and not initiative.has_lost:
+            # "Whenever one or more creatures a player controls deal combat
+            # damage to the player who has the initiative, the controller of
+            # those creatures takes the initiative." Simplified to one
+            # trigger per damage event rather than batching every attacker
+            # a single player controls into one firing — RULE 726.2's own
+            # wording ("one or more creatures") makes that batching a
+            # presentation detail, not a rules difference: either way only
+            # one designation change results.
+            if (
+                event.type == EventType.DAMAGE
+                and event.get("combat")
+                and event.get("is_player")
+                and event.get("target_id") == initiative.id
+            ):
+                new_holder_id = event.get("source_controller_id")
+                if new_holder_id and new_holder_id != initiative.id:
+                    ability = TriggeredAbility(
+                        trigger_event=EventType.DAMAGE,
+                        effects=[TakeInitiativeEffect(player=self.state.player_by_id(new_holder_id))],
+                        controller_id=new_holder_id,
+                        description=(
+                            "Whenever one or more creatures a player controls deal combat "
+                            "damage to the player who has the initiative, the controller of "
+                            "those creatures takes the initiative."
+                        ),
+                    )
                     self.pending_triggers.append((ability, event))
 
     def put_triggers_on_stack(self) -> int:
@@ -2643,6 +2732,39 @@ class RulesEngine:
         bind_from_catalogue(obj)
         return True
 
+    def exile_return_transformed(self, obj: GameObject) -> bool:
+        """"Exile ~, then return it to the battlefield transformed under its
+        owner's control" (RULE 400.7 + RULE 712.8 combined — a transforming
+        Saga's own final chapter, Fable of the Mirror-Breaker-shaped, or a
+        transform-flip permanent's activated ability that phrases its flip
+        this way instead of a plain in-place `transform_permanent`,
+        Ayara/Clive/Jin-Gitaxias-shaped).
+
+        Unlike `transform_permanent` (an in-place face swap on the same
+        object), this is a genuine RULE 400.7 zone change — `blink` plus a
+        forced flip onto the back face: a brand-new object enters directly
+        already transformed, so leaves/enters-the-battlefield triggers
+        refire, counters/attachments/"until end of turn" effects fall off,
+        and it re-enters with summoning sickness. Always ends up on the back
+        face regardless of which face ``obj`` started on
+        (`reset_as_new_object` always presents the front face first, RULE
+        711.8, then `transform_permanent` flips it exactly once). Returns
+        whether it flipped — ``False`` (a no-op, nothing exiled) for a card
+        with no back face at all — checked against ``_front_card`` rather
+        than ``obj.card`` so it's correct even if ``obj`` happened to
+        already be on its back face when this resolves.
+        """
+        if obj._front_card.back_face() is None:
+            return False
+        owner = self.state.player_by_id(obj.owner_id)
+        self._detach_attachments_from(obj)
+        self.exile(obj)
+        obj.reset_as_new_object()
+        obj.controller_id = owner.id
+        self.transform_permanent(obj)
+        self._put_searched_card(owner, obj, "battlefield")
+        return True
+
     def gain_life(self, player: Player, amount: int) -> None:
         if amount <= 0:
             return
@@ -2650,6 +2772,49 @@ class RulesEngine:
         self.state.fire_event(
             GameEvent(EventType.LIFE_GAINED, player_id=player.id, amount=amount)
         )
+
+    def become_monarch(self, player: Player) -> None:
+        """RULE 725.3: ``player`` becomes the monarch; whoever held it
+        (possibly ``player`` themself) ceases to."""
+        self.state.monarch_id = player.id
+
+    def take_initiative(self, player: Player) -> None:
+        """RULE 726.3: ``player`` takes the initiative; whoever held it
+        (possibly ``player`` themself) ceases to. RULE 726.5's "venture into
+        the dungeon" companion trigger isn't fired — see
+        `TakeInitiativeEffect`'s docstring."""
+        self.state.initiative_id = player.id
+
+    def create_emblem(self, player: Player, ability: dict) -> None:
+        """RULE 114.2/114.4: bind the emblem's one already-parsed quoted
+        ability into a live `TriggeredAbility`/`StaticAbility` and file it in
+        ``player``'s command zone.
+
+        Binding happens here — once, at resolve time — rather than at
+        bind-on-load like every other ability, because an emblem has no
+        permanent to bind *onto*: `effect_binder.bind_ability` is imported
+        lazily (it imports `game/effects.py`, which this module also feeds
+        into, so a module-level import would cycle) and given a synthetic
+        `Emblem` as its ``source`` instead of a `GameObject` (`models/
+        emblem.py` — carries just enough, ``controller_id``/``timestamp``,
+        for the existing "you control"/layer-ordering machinery to work
+        unchanged).
+        """
+        from ..parser.oracle.spec import AbilitySpec
+        from .effect_binder import bind_ability
+
+        self.state._timestamp_counter = getattr(self.state, "_timestamp_counter", 0) + 1
+        emblem = Emblem(controller_id=player.id, timestamp=self.state._timestamp_counter)
+        spec = AbilitySpec.from_dict(ability)
+        emblem.description = spec.raw_text
+        bound = bind_ability(spec, source=emblem)
+        if isinstance(bound, TriggeredAbility):
+            emblem.triggered_abilities.append(bound)
+        elif isinstance(bound, list):
+            for effect in bound:
+                if isinstance(effect, StaticAbility):
+                    emblem.static_effects.append(effect)
+        player.emblems.append(emblem)
 
     def _stack_item_for(self, target: Any) -> Optional[StackItem]:
         """The `StackItem` a counter effect's ``target`` names, or ``None``.

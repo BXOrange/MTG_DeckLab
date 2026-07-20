@@ -339,8 +339,11 @@ def affected_objects(state: "GameState", ability: StaticAbility) -> list["GameOb
 
 
 def _source_name(ability: StaticAbility) -> str:
+    # An emblem's synthetic `source` (RULE 114.5: no name of its own, unlike
+    # a real permanent) has no `.name` — falls back to "static" the same as
+    # no source at all.
     src = ability.source
-    return src.name if src is not None else "static"
+    return getattr(src, "name", None) or "static"
 
 
 def _trace(
@@ -373,9 +376,16 @@ def _trace(
 def _battlefield_static_abilities(state: "GameState") -> list[StaticAbility]:
     # RULE 702.26c: a phased-out permanent's static abilities don't apply —
     # `state.permanents()` already excludes it from being a source.
+    # RULE 114.4: an emblem's abilities "function in the command zone" —
+    # every player's `Player.emblems` is scanned alongside the battlefield
+    # so a static emblem ability (e.g. "Creatures you control get +1/+1.")
+    # applies exactly like a permanent's own.
+    sources: list[Any] = list(state.permanents())
+    for player in state.players:
+        sources.extend(player.emblems)
     return [
         ab
-        for src in state.permanents()
+        for src in sources
         for ab in getattr(src, "static_effects", [])
         if isinstance(ab, StaticAbility)
     ]
