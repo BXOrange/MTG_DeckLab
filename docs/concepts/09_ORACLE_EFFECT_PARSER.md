@@ -213,6 +213,48 @@ combinatorially and the coverage gate never closes. The damage handler
 matches `deal N damage to <TARGET>`; `<TARGET>` is its own reusable
 matcher.
 
+**This rule is aspirational more often than it should be.** After 10+
+card-pool batches, `parser/oracle/catalogue/subgrammars.py` — the shared
+layer this section describes — holds a handful of helpers
+(`resolve_target_kind`/`count_of`/`resolve_color_word`/
+`resolve_spell_filter`); most handlers in `catalogue/handlers.py` still
+hand-roll their own type-word lists, zone-name alternations, and
+number-matching inline, because it's locally faster to write one more
+regex than to go generalize a shared one under batch-yield pressure. That
+debt is exactly what makes the parser brittle to "English is hard" instead
+of robust to it — the same phrasing gotcha bites multiple handlers
+independently instead of being fixed once. Two real examples from this
+codebase's own history:
+
+- **`normalize.py`'s spelled-number folding is global and blind to part of
+  speech.** "put **one** onto the battlefield tapped and the other into
+  your hand" (Cultivate) folds to "put **1** onto..." *before* any handler
+  regex sees it, because normalize can't tell a numeral "one" from the
+  pronoun "one." A handler written against the English word "one" silently
+  never matches; a handler written against the folded digit works by
+  accident, not by design. Every new handler must assume digit-folded text
+  and check `normalize()`'s actual output on a real card during
+  development — don't reason about the regex against the raw oracle text
+  string.
+- **`_peel_optional`'s "you may" stripping is positional, not general.** It
+  strips a *leading* "you may " at each ability-body level (top-level
+  spell, triggered-ability body, loyalty-ability body) before the body
+  reaches `match_clause`. A "you may" appearing **mid-body**, after an
+  earlier clause in the same sentence group ("Destroy target creature. You
+  may search your library for a basic land...") is not recognized anywhere
+  in the pipeline — a known, standing gap, not a one-off.
+
+**Practice this implies for every new handler, not just a nice-to-have:**
+before writing a handler-local regex for a type list, zone name, number,
+or "you may"/"up to N" phrasing, check whether `subgrammars.py` (or an
+existing sibling handler) already has it — extend the shared helper and
+have your handler call it, rather than copying the pattern inline. If you
+discover a phrasing brittleness like either example above, fix it in the
+shared layer (`normalize.py`/`segmenter.py`/`subgrammars.py`) so every
+present and future handler benefits, not with a local workaround scoped to
+the one card that exposed it — a local fix is a half-fix that leaves the
+same landmine for the next handler to step on.
+
 ---
 
 # THE COVERAGE GATE: FAIL-CLOSED, ALL-OR-NOTHING

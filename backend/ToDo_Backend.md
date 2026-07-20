@@ -1,9 +1,8 @@
 # Backend TODO
 
 Open backend items only — a single merged backlog (formerly split across
-this file, `docs/implementation-state/ToDo_Backend.md`, and
-`docs/implementation-state/ToDo_Backend.md`; those two are now
-thin pointers here). **When an item is finished, move its narrative into the
+this file and a `docs/implementation-state/` pointer copy; that copy no
+longer exists, this file is the sole source now). **When an item is finished, move its narrative into the
 matching section of [Done_Backend.md](../docs/implementation-state/Done_Backend.md)
 (section headers here mirror there) instead of leaving it `[x]` in place.**
 
@@ -119,8 +118,6 @@ for the dependency-ordered plan to finish the implementation.
       - "Sacrifice `<name>` unless you pay `<cost>`" — the single biggest
         remaining upkeep-trigger template (45 cards); needs a real
         interactive pay-or-lose-it choice, not just recognition.
-      - "Draw a card at the beginning of the next turn's upkeep" — a
-        delayed-trigger phrasing distinct from a standing phase trigger.
       - Quoted granted *phase/upkeep* triggers — "~ has 'at the beginning
         of your upkeep, …'"-shaped quoted-ability grants still fail closed;
         controller-scoped phase triggers work for a card's own top-level
@@ -139,12 +136,33 @@ for the dependency-ordered plan to finish the implementation.
         creature card in your graveyard has the chosen creature type"
         (Ashes of the Fallen) both extend past the battlefield-only
         layer-4 `type_change` that's shipped.
-      - Layer-6 grant of an *activated* ability — only
-        `grant_triggered_ability`/`grant_mana_ability`/`grant_keyword`
-        exist; blocks Umbral Mantle/Squirrel Nest directly, and also the
-        common "quoted `{cost}: <effect>`" Aura/Equipment/lord-grant shape
-        ("`<scope>` creatures you own have '`{2}, sacrifice ~: …`'"-type
-        clauses, and "all Slivers have '`{T}`: …'").
+      - A quoted **mana**-ability grant's inner "Add `<X>`" effect isn't
+        recognized — "Elves you control have '`{T}`: Add `{B}`.'" (Tyvar
+        Kell-shaped) and "Other permanents you control have '`{T}`: Add one
+        mana of any color.'" both still fail closed via the new
+        `grant_activated_ability`/`_quoted_ability_grant_effects` path
+        (shipped alongside this entry), since a plain top-level mana
+        ability is claimed-without-a-spec by `segmenter.py` (covered
+        directly by `game/mana_abilities.py`'s recognition instead of the
+        `EffectRegistry` pipeline) — so the nested recursive parse gets no
+        spec at all for a granted mana ability and correctly refuses to
+        guess. Needs its own small branch in `_quoted_ability_grant_effects`
+        (`static_handlers.py`) that recognizes a bare "Add `<mana>`" inner
+        body directly (mirroring `handlers.py`'s own `_add_mana`/
+        `_ADD_MANA_RE`) and emits `grant_mana_ability` (already shipped,
+        hand-authored-only today, `game/effects.py`) instead of
+        `grant_activated_ability` — not a new engine primitive, just the
+        missing text-recognition front end for an existing one. Found while
+        shipping the activated-ability grant above: a **pre-existing**
+        `segmenter.py` bug (`_ACTIVATED_RE`'s cost group was quote-blind, so
+        a quoted grant's own inner colon was stealing the match before any
+        grant handler ever ran) meant this exact shape was silently
+        swallowed as a no-op — not recognized *or* honestly UNMODELED —
+        wherever the cost-sniff (`_COST_LOOKS_REAL`) happened to accept the
+        bogus quote-truncated "cost". Fixed as part of shipping the
+        activated-ability grant (`_ACTIVATED_RE` now excludes `"`), which
+        correctly flipped every affected card to UNMODELED — this bullet is
+        what closes them for real.
 
       **Combat statics:**
       - Qualified/conditional combat-restriction variants — "can't be
@@ -414,8 +432,8 @@ eventually own. Roughly in decreasing commonness:
 ## Oracle parser: long-tail strategy & family-level gaps
 
 Full-universe coverage (`scripts/coverage_report.py`, ledger-backed via
-`services/coverage_db.py`): 23.3% (7,969/34,209 cards) as of 2026-07-20.
-The remaining ~27k single-card templates are, by construction, not
+`services/coverage_db.py`): 23.5% (8,041/34,209 cards) as of 2026-07-20,
+PARSER_VERSION 18. The remaining ~26k single-card templates are, by construction, not
 generic — closing them is an *indefinite* program, not a finite batch list,
 and proceeds two ways:
 
@@ -467,8 +485,6 @@ blocker). Each is a specific gap, not a vague "too hard".
   into the pool, not via the stack, so its extra mana is spendable in the
   same payment) — Wild Growth.
 - **Tap-all-matching-lands mana denial** — Mana Web.
-- **Layer-6 grant of an activated ability** — see the parser entry above
-  (Umbral Mantle, Squirrel Nest).
 - **Second dynamic-value source from a sacrificed permanent** —
   `StackItem.x` only threads a spell's announced `{X}`; nothing stashes an
   additional cost's sacrificed permanent (or its MV) for a resolving

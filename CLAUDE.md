@@ -300,8 +300,8 @@ every field it reads, `parser/oracle/gate.py`) since it's called once per
 on every copy/every game. `parser/oracle/processing_list.py` tracks
 cache-wide coverage and ranks the next handlers worth building. The cache is
 now bulk-loaded with the **full ~34k-card Oracle universe**
-(`scripts/import_bulk.py`), so coverage is measured against that: **23.3%
-covered (7,969 / 34,209) as of 2026-07-20, Batch 10** (parser-`MODELED` **or**
+(`scripts/import_bulk.py`), so coverage is measured against that: **23.5%
+covered (8,041 / 34,209) as of 2026-07-20, PARSER_VERSION 18** (parser-`MODELED` **or**
 hand-`AUTHORED`; the old 24.4% was over only the ~2,900-card curated cache).
 Re-measure with `scripts/coverage_report.py` (ledger-backed — see
 `services/coverage_db.py`) before trusting this number; Batches 1–10 are all
@@ -404,6 +404,40 @@ English and German.
   Done_*.md, section name" pointer, or just deleting the line, is enough.
   Leaving finished work's full detail sitting in ToDo defeats the split and
   makes every future read of that file more expensive for no reason.
+- **No half-implementations — close the loop, don't let a deferred item
+  silently roll over.** Every batch/session prioritizes by real
+  cards-unlocked (correct — see `backend/ToDo_Backend.md`'s "long-tail
+  strategy"), but that has a failure mode: a modest-yield item never wins
+  the "next batch" slot against bigger ones, so it gets deferred a second
+  and third time while the ToDo text describing it goes stale — worse, a
+  *later* batch can build the exact primitive an earlier deferred item was
+  "blocked on," for an unrelated card, and never loop back to close the
+  original entry. Concrete example this bit us on 2026-07-20: Batch 4
+  deferred "draw a card at the beginning of the next turn's upkeep" as
+  needing "a delayed-trigger phrasing distinct from a standing phase
+  trigger"; Batch 22 (2026-07-18) then built exactly that primitive
+  (`CreateDelayedTriggerEffect`/`GameState.delayed_triggers`, RULE 603.7)
+  for a *different* card (Mana Drain) — and the original ToDo entry was
+  never revisited, so it still read as engine-blocked when the real
+  remaining gap had shrunk to "write the parser handler." Similarly,
+  "grant an activated ability" (Umbral Mantle/Squirrel Nest) was deferred
+  as needing a new primitive in Batch 3, confirmed again in Batch 7, and
+  is *still* neither built nor hand-authored as the stopgap this repo's
+  own escape valve explicitly sanctions (`game/ability_catalogue.py` — see
+  [docs/Reference/11_CARD_CATALOGUE_AUTHORING_GUIDE.md](docs/Reference/11_CARD_CATALOGUE_AUTHORING_GUIDE.md)),
+  three rounds of deferral in. To prevent this: (1) before writing "needs a
+  new primitive/mechanism" in a ToDo entry, grep `game/effects.py`/
+  `game/rules_engine.py`/`Done_Backend.md` for whether an equivalently-shaped
+  primitive already exists from a *different* card's batch — cite it or
+  rule it out explicitly, don't assume; (2) whenever a batch **does** build
+  a new primitive, grep the open ToDo items for any other entry the same
+  primitive would also close or narrow, and update them in the same pass —
+  a primitive landing is exactly the moment to sweep for this, not an
+  afterthought; (3) an item deferred a **second** time must either get
+  hand-authored as a stopgap in that same batch (the sanctioned escape
+  valve — a named blocker cited across 2+ batches is reason enough on its
+  own) or be explicitly flagged as promoted to next-up — it must not be
+  allowed to silently roll to a third deferral with unchanged wording.
 
 ## Where to look first
 

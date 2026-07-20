@@ -3059,6 +3059,105 @@ the Phase-1 models. Tests: `test_game_engine.py`.
       two-search Cultivate workaround test replaced with a real
       single-search split-destination assertion.
 
+- [x] **"Draw a card at the beginning of the next turn's upkeep" parser
+      recognition (2026-07-20)** — closed a narrower gap than it looked:
+      the RULE 603.7 delayed-trigger *mechanism*
+      (`CreateDelayedTriggerEffect`/`GameState.delayed_triggers`) already
+      existed (built for Mana Drain), but the oracle-text parser had **zero**
+      recognition of the phrase at all — every card using the mechanism was
+      hand-authored. New `catalogue/handlers.py` handler `draw_next_upkeep`
+      matches "`[you] draw[s] <count> card(s) at the beginning of the next
+      turn's upkeep`" and emits `create_delayed_trigger` with `scope="any"`
+      (RULE 603.7a — no "your" qualifier means the very next such step
+      regardless of whose turn, unlike Mana Drain's own controller-scoped
+      "your next main phase"). Deliberately unclaimed: the pronoun-scoped
+      "its controller may draw…" variant (Arcane Denial's own first
+      sentence) — a different, indirect-referent grammar shape. ~46 real
+      cards match the clause; 17 sampled cards flip fully `MODELED`
+      (Carrier Pigeons, Blessed Wine, Burnout, …) — the rest have an
+      unrelated unclaimed sibling clause. Real cards proved a genuine,
+      **pre-existing bug** along the way: `DrawCardEffect.apply` (and the
+      identical `DiscardEffect.apply`) fell back to `context.active_player`
+      instead of the shared `_controller_of(self.source, context)` helper
+      every other untargeted effect uses (`GainLifeEffect` etc.) — invisible
+      as long as a "draw a card"/"discard a card" effect only ever resolved
+      during its own controller's turn, exactly the assumption an "any
+      scope" delayed trigger crossing into another player's turn breaks.
+      Both fixed to use `_controller_of`; ~8 other `context.active_player`
+      fallback sites elsewhere in `effects.py` were spot-checked but not
+      individually audited — flagged, not fixed, since each needs its own
+      verification (`backend/ToDo_Backend.md` doesn't currently list them
+      as they weren't proven broken). Tests:
+      `test_draw_next_upkeep_family.py` (13 — recognition, the pronoun
+      fail-closed boundary, a full step-loop end-to-end resolve, and a
+      regression guard proving the delayed draw credits its controller, not
+      whoever is active when it fires).
+
+- [x] **Layer-6 grant of an *activated* ability (2026-07-20)** — Umbral
+      Mantle/Squirrel Nest-shaped "`<host>` has '`{cost}`: `<effect>`.'",
+      the activated sibling of the already-shipped `grant_triggered_
+      ability`/`grant_mana_ability`/`grant_keyword` layer-6 grants. **Twice
+      deferred** before this (Batch 3, Batch 7) as needing "a real engine
+      primitive" — turned out to be a well-scoped mirror of the existing
+      `trigger_event` branch, not a from-scratch one: `GameObject.
+      _granted_activated_abilities`/`granted_activated_abilities` (mirrors
+      `_granted_triggered_abilities` exactly); a `grant_activated_ability`
+      `EffectSpec`/`StaticAbility`; a matching layer-6 branch in
+      `continuous.recompute` that builds (and per-relationship caches, keyed
+      `(id(ability), obj.instance_id, "activated")` so it can't collide with
+      the triggered-ability cache dict it shares) a real `ActivatedAbility`
+      via `costs.parse_activation_cost`; `GameEngine.can_activate`/
+      `activate_ability`/`legal_actions` all now read `activated_abilities +
+      granted_activated_abilities` together (both call sites enumerate the
+      identical concatenation, so an offered index still addresses the
+      right ability). Parser side: `static_handlers._quoted_ability_grant_
+      effects` (previously triggered-only) now also recognizes a plain
+      `<cost>: <effect>` inner body and emits `grant_activated_ability`;
+      `once_per_turn`/`sorcery_speed_only` markers are stripped the same way
+      `effect_binder.bind_ability` does for a top-level activated ability
+      (no real card needs either yet). Also added the **non-attached**
+      sibling `_QUOTED_GRANT_RE` ("`<scope>` [you control] have
+      '`<ability>`'" — Acidic Sliver's "All Slivers have '`{2}`, Sacrifice
+      this permanent: …'"), sharing `_scope`/`_scope_params` with
+      `_GRANT_RE`/`_ANTHEM_RE`.
+
+      Getting a real card working end-to-end surfaced a **pre-existing
+      segmenter bug**: `_ACTIVATED_RE` (the top-level "`<cost>`:
+      `<effect>`" check) was quote-blind, so a quoted grant whose *inner*
+      ability itself contains a cost-colon ("has '`{3}`, `{Q}`: ...'") was
+      silently misparsed as if that inner colon were the *outer* line's own
+      cost/effect boundary — invisible until now since no handler had ever
+      tried to recognize a quote-containing activated-ability shape.
+      Chasing this down surfaced a second, larger latent issue: for ~950
+      real cards whose quoted grant is a **mana** ability ("Elves you
+      control have '`{T}`: Add `{B}`.'", Tyvar Kell-shaped — a plain
+      top-level mana ability is claimed-without-a-spec by `segmenter.py`,
+      covered directly by `game/mana_abilities.py` instead of the
+      `EffectRegistry` pipeline), the *old* buggy `_ACTIVATED_RE` was
+      accidentally swallowing the line as "claimed, no spec" whenever the
+      bogus quote-truncated cost prefix happened to contain a `{...}`
+      symbol and the remaining "effect" text started with "add" — silently
+      dropping the real grant while still marking the clause claimed. Fixing
+      the quote-blindness (`_ACTIVATED_RE`'s cost group now excludes `"`)
+      correctly flipped these to honestly `UNMODELED` rather than
+      silently-wrong-but-`MODELED` — a real full-universe coverage
+      *decrease* (8038→8019) even though this batch's own net card count
+      only tells the fail-closed-correctness story, not a regression in
+      real behaviour. Recognizing the mana-ability shape itself
+      (`grant_mana_ability` text recognition) is a distinct, still-open
+      follow-up — `backend/ToDo_Backend.md` — that recovered most of the
+      apparent loss (8019→8041, net +3 over the pre-batch baseline once the
+      two real handlers above are counted) via the non-attached
+      `_QUOTED_GRANT_RE` addition alone. `PARSER_VERSION` → `"18"`
+      (16: draw-next-upkeep; 17: the `_ACTIVATED_RE` fix; 18: the
+      non-attached quoted-grant family). Tests:
+      `test_aura_equipment_grant_family.py` (its "activated ability grant
+      stays unclaimed" test flipped to a real coverage proof, plus three new
+      end-to-end tests: direct `ActivatedAbility.apply` for Umbral Mantle
+      and Squirrel Nest, and a full `GameEngine.legal_actions`/
+      `can_activate`/`activate_ability` round trip proving the offered
+      index and the resolved ability are the same object).
+
 - [x] **Per-effect target partitioning, `StackItem.target_groups`
       (2026-07-16)** — the "targeting / hexproof / ward" edge-case chapter's
       biggest entry: `docs/implementation-state/ToDo_Backend.md` had

@@ -324,6 +324,11 @@ class GameObject:
         #: stops appearing here the moment it doesn't (RULE 613.6: no
         #: separate removal code needed, same as `_granted_keywords`).
         self._granted_triggered_abilities: list[Any] = []
+        #: Layer-6-granted activated abilities (RULE 613.7f) — the
+        #: `ActivatedAbility` sibling of `_granted_triggered_abilities`
+        #: above, same per-relationship cache/rebuild shape (Umbral Mantle/
+        #: Squirrel Nest-shaped "<host> has '{cost}: <effect>.'").
+        self._granted_activated_abilities: list[Any] = []
         self._added_types: set[str] = set()
         #: Creature *subtypes* a layer-4 "~ is the chosen type in addition to
         #: its other types"/"… of the chosen type …" static ability adds
@@ -438,6 +443,7 @@ class GameObject:
         self._loses_all_abilities = False
         self._granted_mana = []
         self._granted_triggered_abilities = []
+        self._granted_activated_abilities = []
         self._added_types = set()
         self._added_subtypes = set()
         self._removed_types = set()
@@ -709,6 +715,15 @@ class GameObject:
     def granted_triggered_abilities(self) -> list[Any]:
         """Triggered abilities a layer-6 static ability granted this object."""
         return list(self._granted_triggered_abilities)
+
+    @property
+    def granted_activated_abilities(self) -> list[Any]:
+        """Activated abilities a layer-6 static ability granted this object
+        (Umbral Mantle/Squirrel Nest-shaped "<host> has '{cost}: <effect>.'")
+        — read together with `activated_abilities` (this object's own
+        printed ones) by `GameEngine.can_activate`/`activate_ability`/
+        `legal_actions`, mirroring `granted_triggered_abilities`."""
+        return list(self._granted_activated_abilities)
 
     # -- State transitions ----------------------------------------------
 

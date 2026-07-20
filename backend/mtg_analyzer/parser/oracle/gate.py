@@ -137,7 +137,7 @@ UNMODELED = "UNMODELED"
 #: source" `additional_damage` filter, and the "N target X controlled by
 #: different players/controllers" cross-target constraint on
 #: `destroy`/`exile` (Protector of the Wastes-shaped).
-PARSER_VERSION = "14"
+PARSER_VERSION = "18"
 
 
 @dataclass

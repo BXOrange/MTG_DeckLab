@@ -219,6 +219,7 @@ A `"static"` `AbilitySpec`'s effects use one of these types (all become a
 | `grant_keyword` | 6 (`ability`) | `keywords` (list) | "Creatures you control have flying" |
 | `grant_mana_ability` | 6 (`ability`) | `mana` — list of `mana_options`-shaped production dicts, e.g. `[{"B": 1}]` | "Elves you control have '{T}: Add {B}.'" (Tyvar Kell) |
 | `grant_triggered_ability` | 6 (`ability`) | `trigger_event`, `grant_effects` (list of `{"type", "params"}` one-shot-effect specs, same whitelist as everywhere else), `once_per_turn` (bool), `optional` (bool), `controllers_turn_only` (bool) | "Elves you control have '\<triggered ability\>'" (Dionus, Elvish Archdruid) |
+| `grant_activated_ability` | 6 (`ability`) | `cost` (an `AbilitySpec.cost`-shaped dict, e.g. `{"text": "{3}, {Q}"}` — fed to `costs.parse_activation_cost` at grant time), `grant_effects` (same shape as `grant_triggered_ability`'s), `once_per_turn` (bool), `sorcery_speed_only` (bool) | "Equipped creature has '{3}, {Q}: This creature gets +2/+2 until end of turn.'" (Umbral Mantle) |
 | `type_change` | 4 (`type`) | `add_types`, `power`, `toughness` | "Lands you control are 0/0 creatures" (animation P/T only takes effect together with `add_types: ["creature"]`) |
 | `color_change` | 5 (`color`) | `colors` (list), `set` (bool, default `True`) | "Enchanted creature is black" |
 | `control_change` | 2 (`control`) | `controller` (a player id; omit to default to the ability's own source's controller) | "You control enchanted creature" (Mind Control) |

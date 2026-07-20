@@ -2009,7 +2009,7 @@ class GameEngine:
                 return False
         elif source not in self.state.permanents() or source.controller_id != player.id:
             return False  # RULE 702.26c: a phased-out permanent's abilities can't be activated
-        if ability not in source.activated_abilities:
+        if ability not in source.activated_abilities and ability not in source.granted_activated_abilities:
             return False
         if getattr(source, "loses_all_abilities", False):
             return False  # RULE 613.7f: Humility/Dress Down stripped its abilities
@@ -2492,7 +2492,7 @@ class GameEngine:
         carries 2+ *different* targeting effects; omitted (``None``), every
         effect reads ``targets`` directly, unchanged from before this existed.
         """
-        abilities = source.activated_abilities
+        abilities = source.activated_abilities + source.granted_activated_abilities
         if not 0 <= ability_index < len(abilities):
             raise ValueError(f"{source.name} has no activated ability #{ability_index}")
         ability = abilities[ability_index]
@@ -2836,9 +2836,12 @@ class GameEngine:
 
         # Activated abilities (RULE 602) bound onto permanents this player
         # controls — one offer per payable ability (a fetch land's
-        # "{T}, Sacrifice: …", a mana rock, a pinger, …).
+        # "{T}, Sacrifice: …", a mana rock, a pinger, …). Includes any
+        # layer-6-granted ones (Umbral Mantle/Squirrel Nest-shaped) so the
+        # index offered here lines up with `activate_ability`'s own combined
+        # list — both must enumerate the identical concatenation.
         for source in self.state.permanents_controlled_by(player.id):
-            for index, ability in enumerate(source.activated_abilities):
+            for index, ability in enumerate(source.activated_abilities + source.granted_activated_abilities):
                 if self.can_activate(player, source, ability):
                     actions.append(self._activate_action(player, source, index, ability))
 

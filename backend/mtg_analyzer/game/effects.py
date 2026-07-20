@@ -1098,7 +1098,7 @@ class DrawCardEffect(GameEffect):
         self.target_spec = TargetSpec(kind=target_kind) if target_kind is not None else None
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
-        player = self.player or (targets[0] if targets else None) or context.active_player
+        player = self.player or (targets[0] if targets else None) or _controller_of(self.source, context)
         count = self.count
         if self.count_selector == "auras_and_equipment_attached_to_self":
             count = _attached_auras_and_equipment_count(context, self.source)
@@ -1114,7 +1114,7 @@ class DiscardEffect(GameEffect):
         self.player = player
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
-        player = self.player or (targets[0] if targets else None) or context.active_player
+        player = self.player or (targets[0] if targets else None) or _controller_of(self.source, context)
         context.discard(player, self.count)
 
 
@@ -4547,6 +4547,27 @@ EffectRegistry.register(
             # condition` ANDs it the same way `effect_binder._trigger_
             # condition`'s ``"filter"`` does for an ordinary printed trigger.
             **({"filter": dict(p["filter"])} if p.get("filter") else {}),
+            **_selectors(p),
+        },
+    ),
+)
+EffectRegistry.register(
+    # "Equipped creature/Enchanted land has '{cost}: <effect>.'" (Umbral
+    # Mantle/Squirrel Nest-shaped) — layer 6, ability-adding, the activated
+    # sibling of `grant_triggered_ability` just above. `continuous.recompute`
+    # builds (and per-relationship caches) a real `ActivatedAbility` per
+    # affected object onto `GameObject._granted_activated_abilities`, read
+    # together with the object's own printed ones by `GameEngine.
+    # can_activate`/`activate_ability`/`legal_actions`.
+    "grant_activated_ability",
+    lambda p: StaticAbility(
+        "ability",
+        affects=p.get("affects", "attached_permanent"),
+        params={
+            "activated_cost": dict(p.get("cost") or {}),
+            "grant_effects": list(p.get("grant_effects", [])),
+            "once_per_turn": bool(p.get("once_per_turn", False)),
+            "sorcery_speed_only": bool(p.get("sorcery_speed_only", False)),
             **_selectors(p),
         },
     ),

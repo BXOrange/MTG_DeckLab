@@ -71,7 +71,8 @@ from __future__ import annotations
 import re
 from typing import TYPE_CHECKING, Any, Optional
 
-from .effects import EffectRegistry, StaticAbility, TriggeredAbility
+from .costs import parse_activation_cost
+from .effects import ActivatedAbility, EffectRegistry, StaticAbility, TriggeredAbility
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
     from ..models.game_object import GameObject
@@ -694,6 +695,7 @@ def recompute(state: "GameState") -> None:
         lose_all = bool(ability.params.get("lose_all_abilities", False))
         mana = ability.params.get("mana", [])
         trigger_event = ability.params.get("trigger_event")
+        activated_cost = ability.params.get("activated_cost")
         for obj in affected_objects(state, ability):
             if lose_all:
                 # RULE 613.7f (Humility, Dress Down): strip *every* ability —
@@ -739,6 +741,33 @@ def recompute(state: "GameState") -> None:
                     granted.controller_id = obj.controller_id
                 obj._granted_triggered_abilities.append(granted)
                 _trace(obj, 6, _source_name(ability), "gains a triggered ability")
+            if activated_cost:
+                # "<host> has '{cost}: <effect>.'" (Umbral Mantle/Squirrel
+                # Nest-shaped) — the activated-ability sibling of the
+                # trigger_event branch above, same cache/dedup shape. A
+                # 3-element key (vs. the 2-element one above) so the two
+                # grant kinds never collide sharing one cache dict, even
+                # though nothing in this codebase currently grants both off
+                # the same StaticAbility.
+                key = (id(ability), obj.instance_id, "activated")
+                live_grant_keys.add(key)
+                granted_activated = state._granted_ability_cache.get(key)
+                if granted_activated is None:
+                    cost = parse_activation_cost(dict(activated_cost))
+                    cost.sorcery_speed_only = bool(ability.params.get("sorcery_speed_only", False))
+                    granted_activated = ActivatedAbility(
+                        effects=[
+                            EffectRegistry.create(spec["type"], dict(spec.get("params", {})))
+                            for spec in ability.params.get("grant_effects", [])
+                        ],
+                        cost=cost,
+                        source=obj,
+                        description=ability.description or "granted activated ability",
+                        once_per_turn=bool(ability.params.get("once_per_turn", False)),
+                    )
+                    state._granted_ability_cache[key] = granted_activated
+                obj._granted_activated_abilities.append(granted_activated)
+                _trace(obj, 6, _source_name(ability), "gains an activated ability")
     # Prune cache entries for relationships that no longer hold (the granting
     # ability left, or this object is no longer among its `affects`) — so a
     # later re-grant starts a fresh instance (fresh "once per turn" state),

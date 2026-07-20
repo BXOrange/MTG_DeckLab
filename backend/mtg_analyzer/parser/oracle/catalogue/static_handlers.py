@@ -55,6 +55,7 @@ import re
 from typing import NamedTuple, Optional
 
 from ..spec import EffectSpec, ParserProvenance
+from .handlers import ONCE_PER_TURN_MARKER, SORCERY_SPEED_MARKER
 from .keywords import KEYWORDS, KeywordShape, keyword_slug, resolve_keyword
 from .subgrammars import CANT_BE_COUNTERED_RE, COUNT, count_of
 
@@ -101,6 +102,21 @@ _GRANT_RE = re.compile(
     rf"{_CHOSEN_TAIL} "
     r"have (?P<kw>[a-z][a-z, ]*)",
     re.IGNORECASE,
+)
+# "[Other] <scope> [you control] [of the chosen type/color] have \"<ability>\""
+# (Tyvar Kell/Acidic Sliver-shaped — "Elves you control have '{T}: Add
+# {B}.'"/"All Slivers have '{2}, Sacrifice this permanent: ...'") — the
+# non-attached sibling of `_ATTACHED_QUOTED_GRANT_RE`/`_ATTACHED_QUOTED_
+# ANTHEM_GRANT_RE` above: a group-scoped grant of a *full* ability
+# (recursively parsed via `_quoted_ability_grant_effects`, same as the
+# attached family) rather than a bare keyword list (`_GRANT_RE` just
+# above). Shares `_scope`/`_scope_params` with `_GRANT_RE`/`_ANTHEM_RE` for
+# the `affects` (+ subtype/colour/tokens/chosen) params.
+_QUOTED_GRANT_RE = re.compile(
+    r"(?:(?P<scope>other) )?(?P<body>[a-z][a-z ]*?)(?P<yours> you control)?"
+    rf"{_CHOSEN_TAIL} "
+    r'have "(?P<inner>.+)"',
+    re.IGNORECASE | re.DOTALL,
 )
 
 #: Card-type words the "opponent-scoped"/"prohibition"/"type-overwrite"
@@ -405,19 +421,19 @@ _CONTROL_GRANT_RE = re.compile(
 )
 
 # "<equipped/enchanted/fortified subject> [gets +N/+N and] has \"<ability>\""
-# (Sword-of-X-and-Y/Assassin Gauntlet/Caustic Tar-shaped) — an Aura/Equipment
-# granting its host a *full* ability rather than a flag keyword. The quoted
-# text is itself an ordinary ability line, so it's parsed the same way any
-# top-level card's own line would be (`segmenter.segment_line`, imported
-# lazily in `_quoted_ability_grant_specs` below — `segmenter` imports *this*
-# module, so a module-level import would cycle) and only wrapped as a
-# `grant_triggered_ability` when that recursive parse comes back a plain,
-# unconditional, self-scoped trigger on one of `_GRANTABLE_TRIGGER_EVENTS`
-# (fail-closed on everything else: an activated-ability grant needs a real
-# "grant an activated ability" engine primitive that doesn't exist yet —
-# ToDo_EdgeCases #35/Umbral Mantle — and a controller-scoped phase trigger
-# like "at the beginning of your upkeep" is a pre-existing gap, not special
-# to grants; see `_GRANTABLE_TRIGGER_EVENTS`).
+# (Sword-of-X-and-Y/Assassin Gauntlet/Caustic Tar-shaped, Umbral Mantle/
+# Squirrel Nest-shaped) — an Aura/Equipment granting its host a *full*
+# ability rather than a flag keyword. The quoted text is itself an ordinary
+# ability line, so it's parsed the same way any top-level card's own line
+# would be (`segmenter.segment_line`, imported lazily in
+# `_quoted_ability_grant_effects` below — `segmenter` imports *this* module,
+# so a module-level import would cycle) and wrapped as a
+# `grant_triggered_ability`/`grant_activated_ability` when that recursive
+# parse comes back a plain, unconditional shape: a self-scoped trigger on
+# one of `_GRANTABLE_TRIGGER_EVENTS`, or a bare `<cost>: <effect>` activated
+# ability (fail-closed on everything else: a controller-scoped phase
+# trigger like "at the beginning of your upkeep" granted this way is a
+# pre-existing gap, not special to grants; see `_GRANTABLE_TRIGGER_EVENTS`).
 _ATTACHED_QUOTED_ANTHEM_GRANT_RE = re.compile(
     rf'(?P<subject>{_ATTACHED_SUBJECT_PATTERN}) gets (?P<p>[+-]\d+)/(?P<t>[+-]\d+) '
     r'and has "(?P<inner>.+)"',
@@ -431,9 +447,11 @@ _ATTACHED_QUOTED_GRANT_RE = re.compile(
 
 def _quoted_ability_grant_effects(inner: str) -> Optional[EffectSpec]:
     """Recursively parse a quoted granted-ability body into a
-    `grant_triggered_ability` `EffectSpec`, or ``None`` if it isn't a plain
-    self-scoped trigger on a `_GRANTABLE_TRIGGER_EVENTS` event (see the
-    module comment above `_ATTACHED_QUOTED_GRANT_RE`)."""
+    `grant_triggered_ability`/`grant_activated_ability` `EffectSpec`, or
+    ``None`` if it isn't a plain self-scoped trigger on a
+    `_GRANTABLE_TRIGGER_EVENTS` event, or a plain `<cost>: <effect>`
+    activated ability (see the module comment above
+    `_ATTACHED_QUOTED_GRANT_RE`)."""
     from ..segmenter import segment_line  # lazy: segmenter imports this module
 
     segment = segment_line(
@@ -442,7 +460,34 @@ def _quoted_ability_grant_effects(inner: str) -> Optional[EffectSpec]:
         provenance=ParserProvenance(version="nested", source="rule:oracle"),
     )
     spec = segment.spec
-    if spec is None or spec.ability_kind != "triggered" or spec.modes:
+    if spec is None or spec.modes:
+        return None
+
+    if spec.ability_kind == "activated":
+        # "<host> has '{cost}: <effect>.'" (Umbral Mantle/Squirrel
+        # Nest-shaped) — layer 6, ability-adding (RULE 613.7f), granting a
+        # full activated ability. `once_per_turn`/`sorcery_speed_only`
+        # markers mirror `effect_binder.bind_ability`'s own stripping for a
+        # top-level activated ability (no real card needs either yet, but a
+        # quoted "Activate only once each turn." shouldn't silently leak a
+        # marker EffectSpec into `grant_effects` for `build_effects` to choke
+        # on) — this nested parse doesn't go through `bind_ability` itself.
+        effect_specs = spec.effects
+        once_per_turn = any(e.type == ONCE_PER_TURN_MARKER for e in effect_specs)
+        sorcery_speed_only = any(e.type == SORCERY_SPEED_MARKER for e in effect_specs)
+        effect_specs = [
+            e for e in effect_specs
+            if e.type not in (ONCE_PER_TURN_MARKER, SORCERY_SPEED_MARKER)
+        ]
+        return EffectSpec("grant_activated_ability", {
+            "cost": dict(spec.cost or {}),
+            "grant_effects": [{"type": e.type, "params": e.params} for e in effect_specs],
+            "once_per_turn": once_per_turn,
+            "sorcery_speed_only": sorcery_speed_only,
+            "affects": "attached_permanent",
+        })
+
+    if spec.ability_kind != "triggered":
         return None
     trigger = spec.trigger or {}
     if trigger.get("event") not in _GRANTABLE_TRIGGER_EVENTS:
@@ -826,6 +871,17 @@ def static_effect_specs(clause: str) -> Optional[list[EffectSpec]]:
                 return None  # e.g. a granted landwalk — fail-closed, whole clause
             specs.append(EffectSpec("grant_keyword", {"keywords": keywords, **params}))
         return specs
+
+    m = _QUOTED_GRANT_RE.fullmatch(text)
+    if m is not None:
+        scope = _scope(m.group("body"))
+        if scope is None:
+            return None
+        grant = _quoted_ability_grant_effects(m.group("inner"))
+        if grant is None:
+            return None
+        grant.params.update(_scope_params(scope, m))
+        return [grant]
 
     m = _GRANT_RE.fullmatch(text)
     if m is not None:

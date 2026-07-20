@@ -155,8 +155,13 @@ _GROUP_SUBJECT_RE = re.compile(
 )
 
 #: An activated-ability wrapper: "<cost>: <effect>" (RULE 602.1). The cost is
-#: everything before the first colon.
-_ACTIVATED_RE = re.compile(r"^(?P<cost>[^:]+):\s*(?P<effect>.+)$", re.S)
+#: everything before the first colon. Excludes `"` from the cost group too —
+#: a real cost never contains a literal quote, but a quoted-ability-grant
+#: line ("equipped creature has '{3}, {Q}: ...'") does, and its *inner*
+#: colon isn't this line's own cost/effect boundary; without this guard the
+#: quote-blind ``[^:]+`` swallows straight through to that inner colon
+#: first, so the grant is never reached by `static_effect_specs` below.
+_ACTIVATED_RE = re.compile(r'^(?P<cost>[^:"]+):\s*(?P<effect>.+)$', re.S)
 
 #: A cost is only trusted as one if it actually *looks* like a cost — a mana/
 #: {T} symbol, or one of the non-mana cost words. This keeps a stray sentence

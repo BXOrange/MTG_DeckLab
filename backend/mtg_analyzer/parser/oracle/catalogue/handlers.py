@@ -193,6 +193,24 @@ def _draw(m: re.Match[str]) -> list[EffectSpec]:
     return [EffectSpec("draw", {"count": count_of(m.group("n"))})]
 
 
+def _draw_next_upkeep(m: re.Match[str]) -> list[EffectSpec]:
+    """RULE 603.7 delayed trigger: "draw a card at the beginning of the next
+    turn's upkeep" (Clairvoyance/Balduvian Rage/Carrier Pigeons-shaped, ~46
+    real cards). Arms via `create_delayed_trigger` — the same primitive
+    Batch 22 built for Mana Drain — with ``scope="any"``: no "your"
+    qualifier means the very next upkeep regardless of whose turn (RULE
+    603.7a), unlike Mana Drain's own controller-scoped "your next main
+    phase". A pronoun-scoped variant ("its controller may draw...", Arcane
+    Denial's own first sentence) is deliberately unclaimed here — a
+    different, indirect-referent grammar shape, same family of gap as
+    Run Away Together's (`backend/ToDo_Backend.md`)."""
+    return [EffectSpec("create_delayed_trigger", {
+        "step": "upkeep",
+        "scope": "any",
+        "effects": [{"type": "draw", "params": {"count": count_of(m.group("n"))}}],
+    })]
+
+
 def _discard(m: re.Match[str]) -> list[EffectSpec]:
     return [EffectSpec("discard", {"count": count_of(m.group("n"))})]
 
@@ -1423,6 +1441,13 @@ HANDLERS: list[EffectHandler] = [
         "draw",
         _c(rf"(?:you )?draws? {COUNT} cards?"),
         _draw,
+    ),
+    # "draw a card at the beginning of the next turn's upkeep" (RULE 603.7
+    # delayed trigger) — Clairvoyance/Balduvian Rage/Carrier Pigeons-shaped.
+    EffectHandler(
+        "draw_next_upkeep",
+        _c(rf"(?:you )?draws? {COUNT} cards? at the beginning of the next turn's upkeep"),
+        _draw_next_upkeep,
     ),
     # "you discard a card" / "discard 2 cards" / "target player discards a card"
     EffectHandler(
