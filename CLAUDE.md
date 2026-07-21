@@ -300,13 +300,18 @@ every field it reads, `parser/oracle/gate.py`) since it's called once per
 on every copy/every game. `parser/oracle/processing_list.py` tracks
 cache-wide coverage and ranks the next handlers worth building. The cache is
 now bulk-loaded with the **full ~34k-card Oracle universe**
-(`scripts/import_bulk.py`), so coverage is measured against that: **23.5%
-covered (8,041 / 34,209) as of 2026-07-20, PARSER_VERSION 18** (parser-`MODELED` **or**
+(`scripts/import_bulk.py`), so coverage is measured against that: **24.3%
+covered (8,328 / 34,209) as of 2026-07-21, PARSER_VERSION 22** (parser-`MODELED` **or**
 hand-`AUTHORED`; the old 24.4% was over only the ~2,900-card curated cache).
 Re-measure with `scripts/coverage_report.py` (ledger-backed — see
 `services/coverage_db.py`) before trusting this number; Batches 1–10 are all
 shipped, and the deferred backlog + long-tail strategy are merged into
-`backend/ToDo_Backend.md` (see below).
+`backend/ToDo_Backend.md` (see below). **Stickers (RULE 123) are a
+permanent project non-goal, not a backlog gap** — will never be
+implemented; the gate classifies any card mentioning "sticker" as
+`NEVER_SUPPORTED` (`parser/oracle/gate.py`), a verdict distinct from
+`UNMODELED` kept out of both the "covered" count and the processing-list
+backlog ranking.
 
 **Notable gaps** (see `backend/ToDo_Backend.md` for the full list with exact
 scope on each): a kicked spell's "if kicked, ... instead" *override* conditional (as opposed to the

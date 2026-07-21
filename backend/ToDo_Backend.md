@@ -386,14 +386,113 @@ eventually own. Roughly in decreasing commonness:
       fire on — real transformed DFCs keep their genuine Scryfall
       back-face art instead. (`gameBoardView.js`'s `resolveImageUrl`; see
       also `CLAUDE.md` "What this is".)
-- [ ] Battles (RULE 310) and Dungeons (RULE 309) — new type lines with
-      their own attack/venture subsystems. Initiative's own "venture into
-      the dungeon" trigger (RULE 726.2) depends on Dungeons landing first —
-      see `Done_Backend.md` "Card-type & structural coverage" for what
-      Initiative already does without it.
-- [ ] Niche/format extras: Stickers (RULE 123), Rad counters (RULE 728), and
-      the remaining multiplayer/casual variants (CR 8, CR 9 beyond
-      Commander). Deprioritized until a deck needs one.
+- [ ] **Battles (RULE 310)** — a new permanent type, cast like a spell
+      (310.1) but attackable like a planeswalker. Zero scaffolding exists
+      (`is_battle` on `Card`/`GameObject`, everything below). Scope:
+      - **Defense** (310.4): a battle enters with defense counters equal to
+        its printed defense (310.4b), current defense = counter count
+        (310.4c), and combat/spell damage to it *removes* defense counters
+        rather than being tracked separately (310.6) — reuse
+        `RulesEngine._apply_entry_counters`'s existing generic
+        `entry_counters(card) → add_counters(counter_type, amount)` path
+        (already how Sagas' `"lore"` counters and planeswalker `"loyalty"`
+        are seeded, `game/rules_engine.py:1132`), adding a `"defense"`
+        counter type + a `GameObject.defense` convenience property
+        mirroring `.loyalty`/`.lore` (`models/game_object.py:635-640`).
+        SBA: defense 0 and no pending triggered ability from it →
+        graveyard (310.7), same shape as the existing loyalty-0 SBA.
+      - **Attacking a battle**: the attacker-declaration defender-spec
+        pattern is already generic across `{"kind": "player"|"planeswalker"}`
+        (`legal_defenders_for`/`declare_attackers`/`_assign_defender`/
+        `_defender_spec`/`_same_defender` in `game/game_engine.py:1647-1754`,
+        `_resolve_combat_defender` in `game/rules_engine.py:566-586`) — add a
+        `"battle"` kind filtering `is_battle` instead of `is_planeswalker`
+        and routing combat damage to defense-counter removal instead of
+        loyalty loss. No restructuring needed, just a third branch at each
+        site.
+      - **Protector** (310.8–310.11): a battle has a controller *and* a
+        separate protector (usually an opponent, chosen on entry for the
+        only currently-real subtype, Siege — 310.11a) who is the
+        "defending player" for attacks against it (310.8d) and the only
+        player who can block for it (310.8c) — notably a Siege can be
+        attacked by its own controller (310.8b). This is a genuinely new
+        per-object field (`GameObject.protector_id`?) plus a new entry-time
+        choice (mirrors the existing `pending_choice` "choose a creature
+        type/color on enter" flow, `RulesEngine._offer_enter_choices`) and
+        touches blocker-legality checks wherever they currently assume
+        attacker's-opponent == defending player.
+      - **Siege transform-on-empty** (310.11b): "when the last defense
+        counter is removed, exile it, then you may cast it transformed
+        without paying its mana cost" — a triggered ability off the
+        counters-hitting-zero event, reusing the existing DFC
+        transform/MDFC-cast machinery (`Done_Backend.md` "DFC transform +
+        day/night") rather than anything new on the cast side.
+      - Not attachable even if also an Aura/Equipment/Fortification (310.9,
+        an edge case, no real card needs it yet).
+- [ ] **Dungeons (RULE 309)** — cards that are never part of a deck, are
+      brought into the game via the `venture into the dungeon` keyword
+      action (701.49) into the command zone, are never permanents and
+      can't be cast (309.2c), and track position with a per-player venture
+      marker across the dungeon's rooms. Zero scaffolding exists. Scope:
+      - **Model**: `Emblem` (`models/emblem.py`) is the closest existing
+        analog — a command-zone object with no permanent representation —
+        but it's a deliberate one-off, not a generic base class; a
+        `Dungeon` needs its own model (current room, i.e. venture-marker
+        position) plus a `Player.dungeons`-style single-slot field (309.3:
+        a player owns at most one dungeon card in the command zone at a
+        time). Dungeon cards themselves also need to exist as a distinct
+        pool outside any deck (309.2) — not currently representable at
+        all, since every card the engine knows about today comes from a
+        deck or the Oracle cache keyed for deck-building.
+      - **Room abilities** (309.4c): each room has a triggered ability,
+        "When you move your venture marker into this room, [effect]" — the
+        same *shape* as a Saga's lore-counter chapter trigger (event +
+        position payload, `RulesEngine.advance_sagas` firing
+        `EventType.SAGA_CHAPTER`, `game/rules_engine.py:2793`) but Saga's
+        plumbing isn't reusable as-is: it needs its own new event type and
+        its own parser grammar for room text (Saga's chapter-line grammar,
+        `parser/oracle/catalogue/saga.py`, is a different roman-numeral
+        shape). Completing a dungeon (309.7, removing it from the game at
+        the bottommost room) is a new SBA (309.6).
+      - **Venture into the dungeon** (RULE 701.49, the keyword action that
+        brings a dungeon in / advances the marker / completes and replaces
+        it) is itself a new engine primitive with no existing analog —
+        needed both as a standalone effect (a card can say "venture into
+        the dungeon") and to unblock Initiative's own inherent "venture
+        into the dungeon" companion trigger (RULE 726.2), which is
+        currently *not* fired for exactly this reason — see
+        `Done_Backend.md` "Card-type & structural coverage" for what
+        Initiative already does without it.
+      - No dungeon cards are legal in a real constructed deck (they're
+        brought in from "outside the game"), so this whole feature is
+        purely additive UI/engine plumbing — nothing here can partially
+        break an existing deck's coverage numbers.
+- [ ] Niche/format extras: the remaining multiplayer/casual variants (CR 8,
+      CR 9 beyond Commander). Deprioritized until a deck needs one.
+- **Rad counters (RULE 728) are DONE — not an open item.** The base
+  mechanic, the real ~23-card corpus's granting/removal oracle text, and
+  every card previously deferred here (Acquired Mutation, Bloatfly Swarm,
+  Contaminated Drink, Harold and Bob First Numens, Mariposa Military Base,
+  Nuka-Nuke Launcher, Struggle for Project Purity, The Ghoul Gunslinger,
+  The Wise Mothman, Vault 12: The Necropolis, Vexing Radgull) all now have
+  real engine behaviour (2026-07-21, PARSER_VERSION 22) — see
+  `Done_Backend.md`. Two narrow, genuinely separate sub-gaps surfaced along
+  the way and are tracked here on their own merits, not as rad-counter work:
+  - Acquired Mutation's "is goaded" status (RULE 701.15-ish) — goad isn't
+    modeled by this engine at all yet (no card needing it was prioritized
+    before now); its rad-counter clause parses/executes fine in isolation.
+  - A "whenever a player mills a nonland card"/"whenever one or more
+    nonland cards are milled" trigger family doesn't exist at all yet
+    (blocks Glowing One/Infesting Radroach's own second ability, The Wise
+    Mothman's second ability, and likely other real cards in the broader
+    mill corpus — no ToDo entry for it existed before now; this is the
+    seed of one).
+- **Stickers (RULE 123) are NOT an open item — permanent non-goal, will
+  never be implemented.** Enforced at the parser: any card mentioning
+  "sticker" gets `NEVER_SUPPORTED` instead of `UNMODELED`
+  (`parser/oracle/gate.py`'s `_mentions_stickers`, PARSER_VERSION 20; see
+  `docs/implementation-state/Done_Backend.md` for the full writeup). Kept
+  here only as a directive, not a task.
 
 ## Game Engine (Phase 3) — remaining
 
@@ -417,8 +516,8 @@ eventually own. Roughly in decreasing commonness:
 ## Oracle parser: long-tail strategy & family-level gaps
 
 Full-universe coverage (`scripts/coverage_report.py`, ledger-backed via
-`services/coverage_db.py`): 23.5% (8,041/34,209 cards) as of 2026-07-20,
-PARSER_VERSION 18. The remaining ~26k single-card templates are, by construction, not
+`services/coverage_db.py`): 24.3% (8,328/34,209 cards) as of 2026-07-21,
+PARSER_VERSION 22. The remaining ~26k single-card templates are, by construction, not
 generic — closing them is an *indefinite* program, not a finite batch list,
 and proceeds two ways:
 

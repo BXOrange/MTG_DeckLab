@@ -181,6 +181,61 @@ class DelayedTrigger:
         }
 
 
+class TemporaryPlayerTrigger:
+    """A *recurring*, bounded-duration ability installed on a **player**
+    rather than a permanent (RULE 603.7-adjacent) — "until the end of
+    defending player's next turn, that player gets two rad counters
+    whenever they cast a spell" (Nuka-Nuke Launcher). Unlike
+    `DelayedTrigger` (a one-shot future firing this fires *every* time its
+    own ``event_type`` occurs while active, tracked by a small phase state
+    machine `RulesEngine._collect_temporary_player_triggers` drives off
+    `EventType.TURN_BEGIN`:
+
+    * ``"waiting"`` — ``player_id``'s own next turn hasn't started yet
+      (armed mid-turn, so their *current* turn — if any is in progress —
+      doesn't count).
+    * ``"active"`` — currently within that turn; re-fires on every
+      matching ``event_type``.
+    * Removed the moment the *next* `TURN_BEGIN` (anyone's) arrives after
+      ``active_since_turn`` — that next turn beginning is what "the end of
+      [their] turn" means operationally, since this engine has no separate
+      "turn actually ended" event of its own to key off instead.
+
+    Plain data (built effects hold no engine reference), so it deep-copies
+    with `GameState.clone`.
+    """
+
+    def __init__(
+        self,
+        player_id: str,
+        event_type: str,
+        effects: list[Any],
+        install_turn: int,
+        description: str = "",
+    ) -> None:
+        self.player_id = player_id
+        self.event_type = event_type
+        self.effects = effects
+        self.install_turn = install_turn
+        self.phase = "waiting"
+        self.active_since_turn: Optional[int] = None
+        self.description = description
+
+    def __repr__(self) -> str:
+        return f"TemporaryPlayerTrigger({self.player_id} @ {self.event_type!r}, phase={self.phase!r})"
+
+    def to_dict(self) -> dict[str, Any]:
+        """For the UI's "planned" panel — mirrors `DelayedTrigger.to_dict()`."""
+        source = getattr(self.effects[0], "source", None) if self.effects else None
+        return {
+            "player_id": self.player_id,
+            "event_type": self.event_type,
+            "phase": self.phase,
+            "description": self.description,
+            "source": source.to_dict() if source is not None else None,
+        }
+
+
 class GameState:
     """The full state of one game and a light event bus over it."""
 
@@ -316,6 +371,15 @@ class GameState:
         #: triggers` places matches on the stack at STEP_BEGIN and drops them
         #: (they fire once). Plain board state — deep-copies with `clone`.
         self.delayed_triggers: list["DelayedTrigger"] = []
+
+        #: Recurring, bounded-duration player-scoped triggers (Nuka-Nuke
+        #: Launcher's "until the end of defending player's next turn, that
+        #: player gets rad counters whenever they cast a spell") — see
+        #: `TemporaryPlayerTrigger`'s own docstring. Consumed by
+        #: `RulesEngine._collect_temporary_player_triggers`, which also
+        #: prunes expired entries. Plain board state — deep-copies with
+        #: `clone`.
+        self.temporary_player_triggers: list["TemporaryPlayerTrigger"] = []
 
         #: Extra turns to take (RULE 500.7), as a FIFO of player ids —
         #: "take an extra turn after this one" (Final Fortune, the Time Warp

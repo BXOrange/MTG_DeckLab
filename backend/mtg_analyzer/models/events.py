@@ -138,6 +138,20 @@ class EventType:
     #: (Relic Seeker) can key off it distinctly from Renown's own counter-
     #: placing effect (`game/effects.py`'s `RenownEffect`, which fires this).
     RENOWNED = "RENOWNED"
+    #: RULE 506.4's "a player attacks you [with one or more creatures]" —
+    #: an aggregate, once-per-combat event `ATTACKS` (fired once per
+    #: *creature*) can't express on its own: a player attacking with 3
+    #: creatures fires `ATTACKS` three times, never once with a count.
+    #: Fired by `GameEngine._fire_player_attacked_events` the moment combat
+    #: locks in (leaving the declare-attackers step — that step's additive,
+    #: multi-call design has no other "I'm done" signal), once per
+    #: (attacking player, defending player) pair that attacked at all this
+    #: combat, carrying ``attacking_player_id``/``defending_player_id``/
+    #: ``count`` (how many of that attacker's creatures targeted that
+    #: defender) — direct player attacks only (``combat_defender["kind"] ==
+    #: "player"``), not the "or a planeswalker you control" variant (no
+    #: real card in this pool needs it yet).
+    PLAYER_ATTACKED = "PLAYER_ATTACKED"
 
     # Win/loss (RULE 104, RULE 704).
     PLAYER_WOULD_LOSE = "PLAYER_WOULD_LOSE"

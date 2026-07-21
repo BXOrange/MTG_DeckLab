@@ -912,6 +912,12 @@ class GameSession:
             # for the UI's "planned" panel (Ephemerate's Rebound/Marchesa's
             # counter-death return/Sneak Attack's delayed sacrifice-shaped).
             "delayed_triggers": [dt.to_dict() for dt in self.engine.state.delayed_triggers],
+            # Recurring player-scoped triggers armed for a bounded duration
+            # (Nuka-Nuke Launcher's "until the end of defending player's
+            # next turn, ..."), same "planned" panel as delayed_triggers.
+            "temporary_player_triggers": [
+                t.to_dict() for t in self.engine.state.temporary_player_triggers
+            ],
             # Which players currently have a "play with the top card of your
             # library revealed"-shaped permission active (Oracle of Mul
             # Daya/Glarb, Calamity's Augur-shaped, `game/top_library.py`) —

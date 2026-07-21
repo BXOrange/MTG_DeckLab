@@ -46,7 +46,13 @@ MAX_EFFECT_MAGNITUDE: int = 10_000
 _CLAMPED_PARAM_KEYS: tuple[str, ...] = ("amount", "count", "x", "n", "generic")
 
 #: `EffectSpec.condition`'s whitelisted keys — see that field's docstring.
-_ALLOWED_CONDITION_KEYS: frozenset[str] = frozenset({"kicked"})
+#: ``"target_is_controller"`` (RULE 603.4-style, gated on the *chosen
+#: target* rather than an announced-cost flag — "target player gets two
+#: rad counters. If that player is you, create a Treasure token." The
+#: Ghoul, Gunslinger-shaped) checks the ability's own resolved target
+#: (`game/effects.py`'s `ConditionalEffect._condition_holds`) against this
+#: effect's controller.
+_ALLOWED_CONDITION_KEYS: frozenset[str] = frozenset({"kicked", "target_is_controller"})
 
 #: `AbilitySpec.conditional_flash`'s whitelisted keys — see that field's
 #: docstring. A deliberately separate whitelist from `_ALLOWED_CONDITION_KEYS`
@@ -273,6 +279,41 @@ class AbilitySpec:
     #: time this runs). Hand-authored only. ``{"counter_kind": "+1/+1"}``
     #: (default) — a single optional key, no other counter kind needed yet.
     counter_death_return: Optional[dict[str, Any]] = None
+    #: RULE 728's own "whenever ~ deals combat damage to a player, they get
+    #: N rad counters" (Glowing One)/"...that many rad counters" (Infesting
+    #: Radroach) — the damaged player varies per firing, same per-firing
+    #: marker shape as `impulsive_draw_on_combat_damage`.
+    #: ``{"count": <int>}`` for a flat amount, or ``{"count":
+    #: "damage_amount"}`` for "that many" (the damage just dealt).
+    #: ``{"else": "proliferate"}`` (Vexing Radgull: "...if they don't have
+    #: any rad counters. Otherwise, proliferate.") branches to a
+    #: `ProliferateEffect` instead whenever the damaged player already has
+    #: >=1 of the granted ``kind``. ``{"kind": "rad"}`` (default) names
+    #: which counter kind — every real card in this family grants "rad",
+    #: kept as a key rather than hardcoded since the shape is otherwise
+    #: generic. Hand-authored only (`game/ability_catalogue.py`) — the
+    #: oracle-text parser front-end has no "that many"/branching grammar
+    #: yet. `RulesEngine._collect_rad_counter_damage_triggers` reads it
+    #: fresh off the DAMAGE event's own source, mirroring `_collect_
+    #: impulsive_draw_triggers`.
+    rad_counters_on_combat_damage: Optional[dict[str, Any]] = None
+    #: RULE 506.4/728's "whenever a player attacks you with one or more
+    #: creatures, that player gets twice that many rad counters" (Struggle
+    #: for Project Purity's Enclave mode) — the attacking player *and* the
+    #: amount (tied to `EventType.PLAYER_ATTACKED`'s own ``count``) vary per
+    #: firing, same per-firing marker shape as `rad_counters_on_combat_
+    #: damage`. ``{"multiplier": <int>}`` (default 1) scales the granted
+    #: amount; ``{"requires_mode": <str>}`` additionally gates this marker
+    #: to only apply while `GameObject.chosen_mode` matches (Struggle for
+    #: Project Purity's own named-mode choice — see `AbilitySpec.trigger`'s
+    #: ``"named_mode"`` key for the ordinary-ability equivalent this marker
+    #: mechanism can't use, since it isn't a bind-once `TriggeredAbility` at
+    #: all). Hand-authored only. `RulesEngine._collect_attacks_you_rad_
+    #: counter_triggers` reads it fresh off every permanent on `PLAYER_
+    #: ATTACKED`, mirroring `_collect_counter_death_return_triggers`'s
+    #: "scan every permanent" style (the source isn't the event's own
+    #: subject here either).
+    rad_counters_on_attacked: Optional[dict[str, Any]] = None
     optional: bool = False  # "you may"
     raw_text: str = ""
     parser: ParserProvenance = field(default_factory=ParserProvenance)
@@ -328,6 +369,12 @@ class AbilitySpec:
 
         if self.counter_death_return is not None:
             self._validate_counter_death_return()
+
+        if self.rad_counters_on_combat_damage is not None:
+            self._validate_rad_counters_on_combat_damage()
+
+        if self.rad_counters_on_attacked is not None:
+            self._validate_rad_counters_on_attacked()
 
         if self.ability_kind == "triggered":
             if not self.trigger or "event" not in self.trigger:
@@ -421,6 +468,45 @@ class AbilitySpec:
                 f"[1, {MAX_EFFECT_MAGNITUDE}]"
             )
 
+    def _validate_rad_counters_on_combat_damage(self) -> None:
+        """Structural check for a ``rad_counters_on_combat_damage`` marker."""
+        spec = self.rad_counters_on_combat_damage
+        if not isinstance(spec, dict):
+            raise SpecValidationError("'rad_counters_on_combat_damage' must be a dict")
+        count = spec.get("count", 1)
+        if count != "damage_amount":
+            if isinstance(count, bool) or not isinstance(count, int) or not 1 <= count <= MAX_EFFECT_MAGNITUDE:
+                raise SpecValidationError(
+                    "'rad_counters_on_combat_damage' count must be an int in "
+                    f"[1, {MAX_EFFECT_MAGNITUDE}] or the literal string 'damage_amount'"
+                )
+        else_branch = spec.get("else")
+        if else_branch is not None and else_branch != "proliferate":
+            raise SpecValidationError(
+                "'rad_counters_on_combat_damage' else must be the literal string 'proliferate'"
+            )
+        kind = spec.get("kind", "rad")
+        if not isinstance(kind, str) or not kind:
+            raise SpecValidationError("'rad_counters_on_combat_damage' kind must be a non-empty str")
+
+    def _validate_rad_counters_on_attacked(self) -> None:
+        """Structural check for a ``rad_counters_on_attacked`` marker."""
+        spec = self.rad_counters_on_attacked
+        if not isinstance(spec, dict):
+            raise SpecValidationError("'rad_counters_on_attacked' must be a dict")
+        multiplier = spec.get("multiplier", 1)
+        if (
+            isinstance(multiplier, bool)
+            or not isinstance(multiplier, int)
+            or not 1 <= multiplier <= MAX_EFFECT_MAGNITUDE
+        ):
+            raise SpecValidationError(
+                f"'rad_counters_on_attacked' multiplier must be an int in [1, {MAX_EFFECT_MAGNITUDE}]"
+            )
+        requires_mode = spec.get("requires_mode")
+        if requires_mode is not None and (not isinstance(requires_mode, str) or not requires_mode):
+            raise SpecValidationError("'rad_counters_on_attacked' requires_mode must be a non-empty str")
+
     def _validate_counter_death_return(self) -> None:
         """Structural check for a ``counter_death_return`` marker."""
         spec = self.counter_death_return
@@ -444,7 +530,7 @@ class AbilitySpec:
     @staticmethod
     def _validate_condition(condition: dict[str, Any]) -> None:
         """Structural check for an `EffectSpec.condition` (RULE 702.33b's
-        kicked-gate, so far the only member)."""
+        kicked-gate, and the target-based ``"target_is_controller"`` gate)."""
         if not isinstance(condition, dict) or not condition:
             raise SpecValidationError(f"malformed effect condition: {condition!r}")
         for key, value in condition.items():
@@ -452,6 +538,8 @@ class AbilitySpec:
                 raise SpecValidationError(f"unknown effect condition key {key!r}")
             if key == "kicked" and not isinstance(value, bool):
                 raise SpecValidationError("'kicked' condition must be a bool")
+            if key == "target_is_controller" and not isinstance(value, bool):
+                raise SpecValidationError("'target_is_controller' condition must be a bool")
 
     @staticmethod
     def _clamp_params(params: dict[str, Any]) -> None:

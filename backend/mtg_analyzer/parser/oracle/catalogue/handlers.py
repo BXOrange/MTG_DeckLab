@@ -30,12 +30,14 @@ from .subgrammars import (
     CANT_BE_COUNTERED_RE,
     COLOR_WORD_ALT,
     COUNT,
+    COUNT_X,
     IF_COLOR_SUFFIX,
     NUMBER,
     SPELL_TARGET,
     TARGET,
     UP_TO_ONE,
     count_of,
+    count_or_x_of,
     resolve_color_word,
     resolve_spell_filter,
     resolve_target_kind,
@@ -190,7 +192,11 @@ def _damage_selector(m: re.Match[str]) -> list[EffectSpec]:
 
 
 def _draw(m: re.Match[str]) -> list[EffectSpec]:
-    return [EffectSpec("draw", {"count": count_of(m.group("n"))})]
+    # `COUNT_X` also matches a literal "x" (RULE 107.3c's own announced
+    # {X}, "draw X cards" — Contaminated Drink), resolved via the same
+    # ``"x"`` sentinel `RulesEngine._substitute_x` already substitutes for
+    # every other one-shot effect's magnitude field.
+    return [EffectSpec("draw", {"count": count_or_x_of(m.group("n"))})]
 
 
 def _draw_next_upkeep(m: re.Match[str]) -> list[EffectSpec]:
@@ -245,6 +251,82 @@ _LOSE_LIFE_SELECTOR_WORDS: dict[str, str] = {
 def _lose_life_selector(m: re.Match[str]) -> list[EffectSpec]:
     selector = _LOSE_LIFE_SELECTOR_WORDS[m.group("selector")]
     return [EffectSpec("lose_life", {"amount": int(m.group("n")), "selector": selector})]
+
+
+def _rad_counter_amount(token: str) -> "int | str":
+    # "N rad counters"/"a rad counter" (COUNT) or "X rad counters" (RULE
+    # 601.2b's own announced {X} — the same ``"x"`` sentinel
+    # `additional_cost`'s `pay_life` uses, substituted at resolve time).
+    return "x" if token.strip().lower() == "x" else count_of(token)
+
+
+#: "[you/target player/defending player] get[s] N rad counters" (RULE 728,
+#: player counters — see `_gain_life`/`_lose_life`'s identical who-prefix
+#: shape). ``who`` omitted (bare "get two rad counters") covers a "you may"
+#: prefix already peeled by the segmenter (Tato Farmer's Landfall).
+#: "defending player" (Acquired Mutation, an Aura's "whenever enchanted
+#: creature attacks, defending player gets ~") reuses the same
+#: ``selector="defending_player"`` afflict/Simian Sling already established
+#: for `LoseLifeEffect`/`DealDamageEffect` (`AddPlayerCountersEffect`'s own
+#: apply()-time resolution accounts for the Aura-vs-host source split).
+_RAD_COUNTER_WHO_SELECTOR: dict[str, str] = {"defending player": "defending_player"}
+
+
+def _add_rad_counters(m: re.Match[str]) -> list[EffectSpec]:
+    who = (m.groupdict().get("who") or "").strip().lower()
+    params: dict = {"amount": _rad_counter_amount(m.group("n")), "kind": "rad"}
+    if who == "target player":
+        params["target_kind"] = "player"
+    elif who in _RAD_COUNTER_WHO_SELECTOR:
+        params["selector"] = _RAD_COUNTER_WHO_SELECTOR[who]
+    return [EffectSpec("add_player_counters", params)]
+
+
+#: "each player gets N rad counters" / "each opponent gets N rad counters"
+#: (RULE 601.2c mass effect) — the rad-counter sibling of
+#: `_lose_life_selector`.
+def _add_rad_counters_selector(m: re.Match[str]) -> list[EffectSpec]:
+    selector = _LOSE_LIFE_SELECTOR_WORDS[m.group("selector")]
+    return [EffectSpec("add_player_counters", {
+        "amount": _rad_counter_amount(m.group("n")), "kind": "rad", "selector": selector,
+    })]
+
+
+#: "target player loses all rad counters" (Survivor's Med Kit's RadAway
+#: mode) — the removal sibling, always ``target player`` in practice (no
+#: real card grants this to "you" untargeted), so ``target_kind`` is
+#: unconditional rather than an optional ``who`` group.
+def _lose_all_rad_counters(m: re.Match[str]) -> list[EffectSpec]:
+    return [EffectSpec("lose_all_player_counters", {"kind": "rad", "target_kind": "player"})]
+
+
+#: "each opponent gets a number of rad counters equal to its power" (Feral
+#: Ghoul's "When this creature dies, ..." — a dynamic amount tied to the
+#: dying object's own power, RULE 400.7 last-known-information). Unlike
+#: every other rad-counter clause above, the amount can't be a plain int/
+#: "x" sentinel, so this is its own dedicated effect
+#: (`DiesGrantsRadCountersEqualPowerEffect`) rather than a param shape on
+#: the generic `add_player_counters`.
+def _dies_rad_counters_equal_power(m: re.Match[str]) -> list[EffectSpec]:
+    return [EffectSpec("dies_grants_rad_counters_equal_power", {"kind": "rad"})]
+
+
+#: "you get half X rad counters, rounded up/down" (Contaminated Drink's
+#: "Draw X cards, then you get half X rad counters, rounded up.") — RULE
+#: 107.1e's division-and-rounding phrasing, {X}-scaled only (no real card
+#: needs a plain, non-X division yet); the ``"half_x_up"``/``"half_x_down"``
+#: sentinel `RulesEngine._substitute_x` resolves against the spell's
+#: actually-announced {X} at resolve time, mirroring the plain ``"x"``
+#: sentinel exactly.
+def _add_rad_counters_half_x(m: re.Match[str]) -> list[EffectSpec]:
+    who = (m.groupdict().get("who") or "").strip().lower()
+    amount = "half_x_up" if m.group("round") == "up" else "half_x_down"
+    params: dict = {"amount": amount, "kind": "rad"}
+    if who == "target player":
+        params["target_kind"] = "player"
+    elif who in _RAD_COUNTER_WHO_SELECTOR:
+        params["selector"] = _RAD_COUNTER_WHO_SELECTOR[who]
+    return [EffectSpec("add_player_counters", params)]
 
 
 def _destroy(m: re.Match[str]) -> Optional[list[EffectSpec]]:
@@ -1109,6 +1191,30 @@ def _create_token(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     return [EffectSpec("create_token", params)]
 
 
+#: A closed vocabulary of the popular colourless "named" artifact tokens
+#: (no inline P/T, no "creature" word — Treasure/Clue/Food-shaped) that
+#: `services/token_database.py`'s `data/tokens.json` actually defines with
+#: their own real abilities (a Treasure's mana ability, a Clue's sacrifice-
+#: to-draw, a Food's sacrifice-to-gain-life). Deliberately **not** every
+#: name real cards print (Blood/Map/Gold/Incubator/Powerstone aren't in
+#: that JSON yet) — claiming one of those here would silently synthesize a
+#: blank token missing its real ability (`CreateTokenEffect.apply`'s
+#: fallback), the exact half-resolved outcome docs/09's fail-closed
+#: discipline forbids. Keep this dict in sync with `data/tokens.json`
+#: whenever a new named token is added there.
+_NAMED_TOKEN_WORDS: dict[str, str] = {"treasure": "Treasure", "clue": "Clue", "food": "Food"}
+
+
+#: "create a Treasure token" / "create two Clue tokens" — the named-token
+#: sibling of `_create_token`'s inline-stats creature grammar: no P/T, no
+#: "creature" word, just a bare recognised token name. Looked up in the
+#: curated `TokenDatabase` at resolve time (`CreateTokenEffect.apply`), so
+#: the created object keeps its real activated ability, not a blank card.
+def _create_named_token(m: re.Match[str]) -> list[EffectSpec]:
+    name = _NAMED_TOKEN_WORDS[m.group("name")]
+    return [EffectSpec("create_token", {"count": count_of(m.group("n")), "token_name": name})]
+
+
 def _signed_int(token: str) -> int:
     """A signed integer literal, tolerating the unicode minus ``−`` (U+2212)."""
     return int(token.replace("−", "-"))
@@ -1465,10 +1571,10 @@ HANDLERS: list[EffectHandler] = [
         ),
         _damage_selector,
     ),
-    # "draw a card" / "draw 3 cards" / "you draw two cards"
+    # "draw a card" / "draw 3 cards" / "you draw two cards" / "draw X cards"
     EffectHandler(
         "draw",
-        _c(rf"(?:you )?draws? {COUNT} cards?"),
+        _c(rf"(?:you )?draws? {COUNT_X} cards?"),
         _draw,
     ),
     # "draw a card at the beginning of the next turn's upkeep" (RULE 603.7
@@ -1502,6 +1608,44 @@ HANDLERS: list[EffectHandler] = [
         "lose_life_selector",
         _c(rf"(?P<selector>each player|each opponent) loses? {NUMBER} life"),
         _lose_life_selector,
+    ),
+    # "you get half X rad counters, rounded up/down" (Contaminated Drink) —
+    # tried before the plain shape below since its own ``n`` group would
+    # otherwise never match "half x" anyway (no overlap risk either way).
+    EffectHandler(
+        "add_player_counters_half_x",
+        _c(rf"(?P<who>you |target player |defending player )?gets? half x rad counters?, "
+           rf"rounded (?P<round>up|down)"),
+        _add_rad_counters_half_x,
+    ),
+    # "you get two rad counters" / "target player gets four rad counters" /
+    # "defending player gets two rad counters" / bare "get two rad
+    # counters" (a "you may" prefix already peeled) — RULE 728 player
+    # counters.
+    EffectHandler(
+        "add_player_counters",
+        _c(rf"(?P<who>you |target player |defending player )?gets? (?P<n>a|an|x|\d+) rad counters?"),
+        _add_rad_counters,
+    ),
+    # "each player gets three rad counters" / "each opponent gets X rad
+    # counters" (RULE 601.2c mass effect).
+    EffectHandler(
+        "add_player_counters_selector",
+        _c(rf"(?P<selector>each player|each opponent) gets? (?P<n>a|an|x|\d+) rad counters?"),
+        _add_rad_counters_selector,
+    ),
+    # "target player loses all rad counters" (Survivor's Med Kit).
+    EffectHandler(
+        "lose_all_player_counters",
+        _c(r"target player loses all rad counters"),
+        _lose_all_rad_counters,
+    ),
+    # "each opponent gets a number of rad counters equal to its power"
+    # (Feral Ghoul's dies trigger).
+    EffectHandler(
+        "dies_grants_rad_counters_equal_power",
+        _c(r"each opponent gets a number of rad counters equal to its power"),
+        _dies_rad_counters_equal_power,
     ),
     # "destroy target [color] creature/permanent/artifact/enchantment/land"
     # (RULE 105 colour-hoser adjective, Red Elemental Blast-shaped) — tried
@@ -2003,6 +2147,14 @@ HANDLERS: list[EffectHandler] = [
             rf"(?: with (?P<kw>[a-z, ]+))?"
         ),
         _create_token,
+    ),
+    # "create a Treasure token" / "create two Clue tokens" — named,
+    # non-creature artifact tokens (`_NAMED_TOKEN_WORDS`, kept in sync with
+    # `data/tokens.json`).
+    EffectHandler(
+        "create_named_token",
+        _c(rf"(?:you )?creates? {COUNT} (?P<name>{'|'.join(_NAMED_TOKEN_WORDS)}) tokens?"),
+        _create_named_token,
     ),
 ]
 

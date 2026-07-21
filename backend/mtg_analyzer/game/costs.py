@@ -234,6 +234,17 @@ class ActivationCost:
     #: has no `{X}`, or the "where X is …" clause wasn't recognized (X stays
     #: 0 — RULE 107.3c).
     x_selector: Optional[str] = None
+    #: "This ability costs {1} less to activate for each rad counter you
+    #: have." (Mariposa Military Base) — ``{"kind": "rad", "generic_per":
+    #: 1}``: the generic mana cost drops by ``generic_per`` for every
+    #: counter of ``kind`` the *activating player* (not the source) has,
+    #: read live each activation (`GameEngine._reduced_activation_mana`).
+    #: Unlike `continuous.activation_cost_reduction_for`'s Power Artifact-
+    #: shaped static (a fixed amount granted by a *different* permanent),
+    #: this is the ability's own printed, dynamically-scaled reduction —
+    #: hand-authored only (`game/ability_catalogue.py`); no oracle-text
+    #: grammar for it yet.
+    dynamic_reduction: Optional[dict[str, Any]] = None
     raw: str = ""
 
     @property
@@ -386,6 +397,8 @@ def parse_activation_cost(
         parsed.class_level = int(cost["class_level"])
     if "unattach_self" in cost:
         parsed.unattach_self = bool(cost["unattach_self"])
+    if cost.get("dynamic_reduction"):
+        parsed.dynamic_reduction = dict(cost["dynamic_reduction"])
     parsed.raw = parsed.raw or text
     return parsed
 

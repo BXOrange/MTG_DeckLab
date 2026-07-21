@@ -312,12 +312,17 @@ def test_jeweled_lotus_mana_only_pays_for_the_commander():
     eng.state.add_to_battlefield(lotus_obj)
 
     produced = eng.tap_for_mana(p1, lotus_obj)
-    assert produced == {"W": 1}  # first colour option; a real UI would let the player choose
-    assert p1.mana_pool.total() == 1
+    # "Add three mana of any one color" — first colour option (a real UI
+    # would let the player choose); a real Jeweled Lotus really does add 3,
+    # not 1 (fixed alongside Harold and Bob's own "add three mana of any
+    # one color" granted ability — this module's "any one colour" amount
+    # parsing previously ignored any fixed leading count > 1).
+    assert produced == {"W": 3}
+    assert p1.mana_pool.total() == 3
 
     bears = p1.hand[0]
     assert not eng.can_cast(p1, bears)  # not the commander
-    assert not eng.can_cast(p1, commander_obj)  # {3}{G}{G} needs 5, only 1 restricted mana in the pool
+    assert not eng.can_cast(p1, commander_obj)  # {3}{G}{G} needs 5, only 3 restricted mana in the pool
 
 
 def test_castle_garenbrig_mana_pays_a_creatures_activated_ability():

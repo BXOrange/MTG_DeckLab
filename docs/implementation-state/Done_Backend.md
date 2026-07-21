@@ -2765,6 +2765,40 @@ the Phase-1 models. Tests: `test_game_engine.py`.
       test off real oracle text). Full suite 1817 passed, zero
       regressions. **Coverage: 8,041 → 8,052 / 34,209 (23.5%, +11 cards).**
 
+- [x] **Stickers (RULE 123) declared a permanent non-goal** — a project
+      directive, not an engineering gap: this codebase will never model
+      Sticker sheets/cards. Rather than leaving them as an ordinary
+      `UNMODELED` card whose unclaimed clauses perpetually clutter the
+      processing-list backlog (no handler will ever claim them), the gate
+      now recognizes and fails closed on them distinctly: `gate.py`'s new
+      `_mentions_stickers(raw)` (a plain case-insensitive `"sticker" in
+      raw.lower()` substring check — no real card uses that word for
+      anything else, so no segmenter/normalize machinery is needed to
+      decide) runs as an early exit in `_parse_oracle_uncached`, right
+      after `raw` is read and before `normalize()`, returning a new
+      `NEVER_SUPPORTED` verdict (alongside `MODELED`/`UNMODELED`) with
+      `unclaimed=[]` — so the card contributes zero processing-list noise.
+      `ParseResult` gained a matching `.never_supported` property
+      (`.modeled` already correctly returns `False` for it, so the binder
+      treats it exactly like an ordinary unmodeled card — no behaviour is
+      ever bound). Threaded through the engineering-side reporting too,
+      kept as a *separate* bucket rather than folded into either
+      "modeled" or the backlog: `processing_list.CoverageReport` gained a
+      `never_supported` field/count (`coverage_report()`); `services/
+      coverage_db.py` gained a matching `NEVER_SUPPORTED = "never_supported"`
+      ledger value (the `coverage` column already accepted any string, no
+      schema migration); `scripts/coverage_report.py`'s `measure()`/`main()`
+      write and print that count distinctly instead of collapsing it into
+      "unmodeled" (its CLI summary line now reads "N never-supported
+      [Stickers, RULE 123]"). `PARSER_VERSION` bumped "19" → "20". A
+      Sticker-mentioning card was already uncovered before this change (it
+      just polluted the backlog ranking instead of being excluded from
+      it), so this doesn't move the headline coverage fraction. Tests:
+      `backend/tests/test_stickers_never_supported.py` (new, 7 tests —
+      verdict shape, case-insensitivity, zero unclaimed clauses, backlog
+      exclusion, and that an ordinary unrelated UNMODELED/vanilla card is
+      unaffected). Full suite 1857 passed, zero regressions.
+
 - [x] **Combat blocking + creature-vs-creature damage core:**
       `GameEngine.declare_blockers`/`can_block` and `_step_combat_damage`
       handle blocked/unblocked attackers, gang blocks (lethal-first
@@ -4263,6 +4297,263 @@ the Phase-1 models. Tests: `test_game_engine.py`.
       `TriggeredAbility`/`StaticAbility`). Tests:
       `backend/tests/test_batch10_monarch_initiative_emblem_family.py` (20,
       parse+execute).
+- [x] Rad counters (RULE 728) — the last item on the roadmap M6 "deprioritized
+      until a deck needs one" list. Modeled as a fourth entry in `RulesEngine.
+      _collect_inherent_triggers` (same file as Monarch/Initiative above): an
+      inherent, source-less triggered ability with no permanent to host it,
+      built fresh off live state on every `STEP_BEGIN`/`"main1"` event rather
+      than found by the ordinary per-permanent scan. Unlike Monarch/
+      Initiative it doesn't follow a designation — RULE 728.1 is explicit
+      that it's "controlled by the active player" (an explicit RULE 113.8
+      exception), so the check is just `state.active_player.counters.
+      get("rad", 0) > 0`, no player lookup indirection needed. The counter
+      itself needed no new model field: `Player.counters` (`models/
+      player.py`) is already a generic slug→count dict built for exactly
+      this ("energy", "experience", and now "rad"), so `add_player_counters`
+      (the existing engine primitive for poison/energy/experience) and the
+      Replay editor's generic `edit_set_player_counter` action already work
+      for `kind="rad"` with zero further plumbing. The mill/life-loss/
+      counter-removal behaviour is a new `RadiationMillEffect` (`game/
+      effects.py`, built inline the same way `BecomeMonarchEffect`/
+      `TakeInitiativeEffect` are): mills a number of cards equal to the
+      live rad-counter count (read at resolution time, not frozen at
+      trigger time, matching the rule's present-tense "have"), diffs the
+      graveyard before/after to find how many of the milled cards were
+      nonland (`RulesEngine.mill` doesn't itself distinguish land from
+      nonland or return what it milled, so this reads `GameObject.is_land`
+      off the newly-appended graveyard slice rather than changing `mill`'s
+      shared signature), then loses that much life and removes that many
+      rad counters — both always ≤ the milled count since it started equal
+      to the rad-counter count. RULE 728.1a ("life lost 'from radiation'")
+      is honored by threading a `cause` through: `GameContext.lose_life`
+      didn't previously expose `RulesEngine.lose_life`'s existing `cause`
+      parameter (it hardcoded `cause="effect"`) — now forwards it, so
+      `RadiationMillEffect` can call `lose_life(player, n, cause=
+      "radiation")` and any future card checking "life lost from radiation"
+      can use `effect_binder`'s existing generic trigger-condition `filter`
+      key (`{"cause": "radiation"}` on a `LIFE_LOST`-triggered ability) with
+      no further engine changes.
+
+      **Follow-up in the same batch**: granting/removing rad counters from
+      oracle text, closed against the real ~23-card Fallout-set corpus
+      already sitting in the cache (`backend/cache/db/cards.db`, grepped by
+      `"rad counter"`) rather than left as a "no card needs it yet" stub.
+      New generic parser grammar (`catalogue/handlers.py`, mirroring
+      `_gain_life`/`_lose_life`'s who-prefix shape exactly): "\[you/target
+      player/defending player\] get\[s\] N/X rad counters" and "each
+      player/each opponent gets N/X rad counters" → a new
+      `AddPlayerCountersEffect` (`game/effects.py`, the oracle-text-facing
+      sibling of `RulesEngine.add_player_counters`, with the same
+      `target_kind`/`selector` split as `GainLifeEffect`/`LoseLifeEffect` —
+      including `selector="defending_player"`, resolved via the ability's
+      *host* permanent when its own source is an Aura/Equipment rather than
+      the attacker itself, since only the real attacker gets
+      `combat_defender` stamped on it); "target player loses all rad
+      counters" (Survivor's Med Kit) → `lose_all_player_counters`/
+      `LoseAllPlayerCountersEffect`; "each opponent gets a number of rad
+      counters equal to its power" (Feral Ghoul's dies trigger) →
+      `dies_grants_rad_counters_equal_power`/
+      `DiesGrantsRadCountersEqualPowerEffect`, a bespoke atomic effect
+      reading the dying object's own last-known power at apply time
+      (RULE 400.7), the same "read the characteristic directly, don't
+      compose two effects" shape `ExileGainLifeToControllerEffect` already
+      established — Feral Ghoul is the first fully `MODELED` rad-counter
+      card. `PARSER_VERSION` bumped to `"21"`.
+
+      "They get N/that many rad counters" off a "deals combat damage to a
+      player" self-trigger (Glowing One's flat 4, Infesting Radroach's
+      "that many" = the damage just dealt) has no oracle-text grammar at
+      all — the *damaged player* (and, for Radroach, the amount) varies per
+      firing, which a bind-on-load `TriggeredAbility`'s fixed effects list
+      can't carry, and the front-end has no "that many" grammar yet either.
+      Same shape as Ragavan's impulsive draw: a new `AbilitySpec.
+      rad_counters_on_combat_damage` marker (`{"count": <int>}` or
+      `{"count": "damage_amount"}`), read fresh off the `DAMAGE` event's own
+      source by a new `RulesEngine._collect_rad_counter_damage_triggers`
+      (mirroring `_collect_impulsive_draw_triggers`), building a fresh
+      `AddPlayerCountersEffect(player=damaged_player, ...)` per firing.
+      Hand-authored only (`game/ability_catalogue.py`, both cards) — the
+      oracle-text parser front-end never produces this marker, same
+      "hand-author it, no parser grammar needed" precedent as
+      `impulsive_draw_on_combat_damage`. Both cards are now coverage
+      `AUTHORED`; Infesting Radroach's unrelated "This creature can't
+      block." is hand-authored alongside it (a plain `grant_keyword`
+      static) so registering the card doesn't regress that clause's
+      coverage relative to what the parser could otherwise give it.
+
+      RULE 728.1a's "You gain life rather than lose life from radiation."
+      (Strong, the Brutish Thespian) is a new per-player permission static
+      — `radiation_life_gain`/`continuous.has_radiation_life_gain`, the
+      same "outside the RULE 613 layer engine proper" treatment as
+      `no_max_hand_size`/`no_untap_optional` — consulted directly inside
+      `RulesEngine.lose_life` (redirecting into `gain_life` when
+      `cause="radiation"`) rather than through the ordinary
+      `ReplacementEffect`/`apply_replacements` machinery: that machinery
+      only ever *rewrites* an event's amount, never redirects it into a
+      different engine call, and `lose_life` doesn't route through
+      `apply_replacements` at all today (unlike `add_counters`/
+      `add_player_counters`/`deal_damage`).
+
+      Net result against the real 23-card corpus: 3 cards fully modeled
+      (Feral Ghoul parser-`MODELED`; Glowing One/Infesting Radroach
+      hand-`AUTHORED`) and the rad-counter clause itself now parses
+      correctly on several more that still land `UNMODELED` overall for an
+      *unrelated* reason (Mirelurk Queen/Screeching Scorchbeast/The Master,
+      Transcendent/Tato Farmer/Nightkin Ambusher/Vault 12 chapter I/
+      Megaton's Fate/Strong/Survivor's Med Kit/Nuclear Fallout — each
+      blocked by a genuinely separate gap: a "whenever a player mills a
+      card" trigger family that doesn't exist at all yet, a modal sibling
+      mode's own unrelated grammar, RULE 400.7 dies-subtype/nontoken group
+      scoping, an "as ~ enters, choose one" modal-triggered-ability shape,
+      Enrage's "whenever ~ is dealt damage" trigger vocabulary, or a
+      quoted-reminder-text-plus-granted-token-ability combo). Left
+      genuinely unclaimed (rad-specific, and each niche — 1 card apiece):
+      Acquired Mutation's "whenever enchanted/equipped creature attacks"
+      trigger-subject recognition from raw text (the `attached_permanent`
+      trigger condition exists but is hand-authored-only today, never
+      parser-derived); Bloatfly Swarm's replacement-plus-"for each" compound
+      clause; Contaminated Drink's "half X, rounded up"; Harold and Bob's
+      dies-return-as-a-transformed-Aura-with-a-quoted-grant compound shape;
+      Mariposa Military Base's "if you do, ..." conditional and its
+      rad-counter-scaled cost reduction; Nuka-Nuke Launcher's delayed
+      "until end of next turn, whenever they cast a spell" recurring
+      trigger; Struggle for Project Purity's attacker-count-scaled "twice
+      that many"; The Ghoul, Gunslinger's subtype+nontoken dies-subject
+      filter; The Wise Mothman's compound "enters or attacks" trigger;
+      Vault 12 chapter II's sum-across-all-players' rad counters; and
+      Vexing Radgull's conditional-then-proliferate branch. All tracked in
+      `backend/ToDo_Backend.md` rather than re-derived from scratch later.
+      Tests: `backend/tests/test_rad_counters.py` (18, mixing parser-level
+      clause assertions with full engine execute-and-assert coverage).
+
+- [x] Rad counters (RULE 728) — the 11-card deferred-gap backlog above,
+      closed in one batch (2026-07-21, PARSER_VERSION 22), per the explicit
+      instruction not to leave modest-yield items deferred a further round:
+      every remaining named card now has real engine behaviour, not just
+      parser recognition. New primitives, each reusable well beyond the one
+      card that motivated it:
+      - **Trigger-subject grammar** (`parser/oracle/segmenter.py`):
+        "enchanted/equipped creature \<verb\>" now parses from raw oracle
+        text (`_ATTACHED_SUBJECT_RE` → the pre-existing
+        `{"subject": "attached_permanent"}` condition, previously
+        hand-authored-only — Acquired Mutation); a tribal "a/another/~ or
+        another \[nontoken\] \<subtype\>\[...\] you control \<verb\>" family
+        (`_GROUP_SUBTYPE_SUBJECT_RE`/`_SELF_OR_GROUP_SUBTYPE_RE`, a new
+        `"self_or_group"` subject alongside plain `"group"` —
+        `effect_binder._build_group_ok` shared by both — The Ghoul,
+        Gunslinger's "The Ghoul or another nontoken Zombie or Mutant you
+        control dies"); checked *after* the pre-existing exact-main-type
+        `_GROUP_SUBJECT_RE` so a bare "creature" still matches the more
+        specific pattern first (a real regression during development,
+        caught by the full suite, not shipped). A target-based intervening-
+        if, "if that player is(n't) you, \<rest\>"
+        (`_TARGET_IS_CONTROLLER_RE` → `condition={"target_is_controller":
+        bool}`, `ConditionalEffect` — Ghoul's own "if that player is you,
+        create a Treasure token."). A compound "~ \<verb1\> or \<verb2\>"
+        multi-event trigger (`_SELF_MULTI_EVENT_RE`, `trigger["event"]` as
+        a `list[str]` — `effect_binder.bind_ability`'s `"triggered"` branch
+        now returns a list of `TriggeredAbility`, one per event, when it
+        sees a list — The Wise Mothman's "enters or attacks").
+      - **Amount/cost grammar**: "half X rad counters, rounded up/down"
+        (`_substitute_x`'s new `"half_x_up"`/`"half_x_down"` division-of-X
+        sentinels — Contaminated Drink); "draw X cards" (`COUNT_X`/
+        `count_or_x_of` widening the `draw` handler past digit/word-only
+        counts — the other half of the same card); "create a Treasure/Clue/
+        Food token" (`_create_named_token` — Ghoul's self-targeted branch);
+        a per-ability, counter-scaled activation-cost reduction
+        (`costs.ActivationCost.dynamic_reduction`, `GameEngine.
+        _reduced_activation_mana` — distinct from the existing
+        static-granted `continuous.activation_cost_reduction_for`, stacks
+        with it — Mariposa Military Base's "costs {1} less ... for each rad
+        counter you have"); a land's own "you may have this enter tapped,
+        for a bonus" choice (`optional_bonus_rad`, `RulesEngine.
+        enter_land_tapped`/`_land_tapped_bonus_choice`/
+        `resolve_land_tapped_bonus_choice` — the mirror image of a shock
+        land's pay-life choice — Mariposa's other clause).
+      - **New replacement/compound families** (`game/effects.py`): a
+        damage-prevention-plus-counter-conversion replacement
+        (`prevent_damage_convert_counters`/
+        `_prevent_damage_convert_counters_replacement` — "that many" ties
+        both the counters removed and the rad counters granted to the
+        damage amount that would have been dealt, known only inside the
+        replacement itself — Bloatfly Swarm); a third `enter_replacement`
+        "named mode" family alongside creature-type/color
+        (`ChooseNamedModeReplacement`/`GameObject.chosen_mode`,
+        `RulesEngine._offer_enter_choices`/`resolve_enter_choice`'s
+        `"choose_named_mode"` kind — Struggle for Project Purity's "choose
+        Brotherhood or Enclave"), gating each subsequent named-bullet
+        ability via `effect_binder._trigger_condition`'s new `"named_mode"`
+        predicate rather than never binding the "wrong" one; a genuinely
+        new aggregate combat event, `EventType.PLAYER_ATTACKED`
+        (`GameEngine._fire_player_attacked_events`, fired once per
+        attacker/defender pair leaving `declare_attackers`, unlike
+        once-per-creature `ATTACKS`) plus its own marker/collector
+        (`rad_counters_on_attacked`, `RulesEngine.
+        _collect_attacks_you_rad_counter_triggers` — Struggle's Enclave
+        mode: "twice that many rad counters"); a *recurring*, bounded-
+        duration player-scoped trigger — RULE 603.7's one-shot
+        `CreateDelayedTriggerEffect` has no sibling for "until the end of
+        X's next turn, \<recurring effect\>" (`InstallTemporaryPlayerTrigger
+        Effect`/`GameState.temporary_player_triggers`/`TemporaryPlayerTrigger`'s
+        own waiting→active→expired phase state machine driven off
+        `EventType.TURN_BEGIN`, `RulesEngine._collect_temporary_player_
+        triggers` — Nuka-Nuke Launcher); a wholly new "return dies as a
+        different, synthetic permanent type" primitive
+        (`ReturnDiesAsNewPermanentEffect`/`RulesEngine.
+        return_dies_as_new_permanent` — distinct from RULE 712.8's
+        DFC-based "return transformed," which needs a real printed back
+        face this card doesn't have; swaps `obj.card` for a synthetic
+        `Card` built from quoted text, attached to a real RULE 115 target
+        resolved by the trigger's own interactive `trigger_target` choice
+        — Harold and Bob, First Numens). "~ loses all other abilities" is
+        made literal by clearing every bind-on-load field
+        (`triggered_abilities`/`activated_abilities`/`static_effects`/
+        `replacement_effects`/`intrinsic_keywords`/`parametric_keywords`) on
+        the object, not just skipping a re-bind — an ordinary blink/
+        return-transformed object deliberately leaves those alone
+        (`GameObject.reset_as_new_object`'s own docstring), but this card's
+        printed text is explicit that the *old* card's abilities (vigilance,
+        reach) are gone for good, caught and fixed during this batch's own
+        test-writing.
+      - **Extended existing primitives**: `ProliferateEffect` now also
+        proliferates player-level counters (`Player.poison`/`Player.
+        counters`), not just permanent counters — Vexing Radgull's
+        "otherwise, proliferate" branch (`rad_counters_on_combat_damage`'s
+        new `"else": "proliferate"` key, checked against the damaged
+        player's *pre-damage* counter count so "don't have any yet" reads
+        correctly even on the first hit); `AddCountersEffect` gained a
+        `subtypes` filter narrowing its mass `each_creature_you_control`
+        selector to an OR-combined tribal check (Vault 12 chapter III:
+        "each creature you control that's a Zombie or Mutant"); `continuous.
+        count_selector` gained `"total_rad_counters_among_players"`, the
+        first cross-player (rather than single-controller-scoped) aggregate
+        count (Vault 12 chapter II: "X is the total number of rad counters
+        among players," feeding `CreateTokenEffect.count_selector`); fixed a
+        real pre-existing bug in `game/mana_abilities.py`'s "any one color"
+        parsing — a printed fixed count > 1 was always silently discarded
+        down to 1 mana (no card before Harold and Bob's own granted ability
+        printed one; also affects the real card Jeweled Lotus, whose own
+        test asserted the buggy 1-mana behavior and was corrected
+        alongside this fix); and a `self_rad_counters` mana-ability rider
+        mirroring the pre-existing `self_damage` one (Harold and Bob's
+        granted "{T}: Add three mana of any one color. You get two rad
+        counters.").
+      - Net result: all 11 previously-deferred cards now have real,
+        reusable engine behaviour (not parser-recognition-only) —
+        Acquired Mutation, Bloatfly Swarm, Contaminated Drink, Harold and
+        Bob First Numens, Mariposa Military Base, Nuka-Nuke Launcher,
+        Struggle for Project Purity, The Ghoul Gunslinger, The Wise
+        Mothman, Vault 12: The Necropolis (all 3 chapters), and Vexing
+        Radgull. Acquired Mutation and The Wise Mothman still land
+        `UNMODELED` overall — each has one genuinely separate, out-of-scope
+        line ("goaded" status, RULE 701.15-ish; a "whenever one or more
+        nonland cards are milled" trigger family, respectively — neither
+        modeled by this engine at all) — but their rad-counter clause now
+        parses and executes correctly in isolation.
+      - Tests: `backend/tests/test_rad_counter_deferred_gaps.py` (37,
+        mixing parser-level clause assertions with full engine
+        execute-and-assert coverage per card, mirroring
+        `test_rad_counters.py`'s own two-layer style).
 
 ## Auth & persistence
 

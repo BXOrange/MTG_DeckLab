@@ -36,15 +36,20 @@ from .costs import DISCARD_HAND, ActivationCost, parse_activation_cost
 from .mana_abilities import restriction_predicate_for_cast
 from .effects import (
     AddCountersEffect,
+    AddPlayerCountersEffect,
     BecomeMonarchEffect,
     CantBeCounteredEffect,
     ChooseColorReplacement,
     ChooseCreatureTypeReplacement,
+    ChooseNamedModeReplacement,
     DrawCardEffect,
     GameContext,
+    GameEffect,
     ImpulsiveDrawEffect,
     MarchesaDelayedReturnEffect,
+    ProliferateEffect,
     PumpEffect,
+    RadiationMillEffect,
     ReboundFreeCastWindowEffect,
     ReplacementEffect,
     StaticAbility,
@@ -421,17 +426,23 @@ class RulesEngine:
                         self.pending_triggers.append((ability, event))
         self._collect_inherent_triggers(event)
         self._collect_impulsive_draw_triggers(event)
+        self._collect_rad_counter_damage_triggers(event)
+        self._collect_attacks_you_rad_counter_triggers(event)
+        self._collect_temporary_player_triggers(event)
         self._collect_counter_death_return_triggers(event)
 
     def _collect_inherent_triggers(self, event: GameEvent) -> None:
-        """RULE 725.2/726.2: the Monarch's and the Initiative's triggered
-        abilities "have no source" — they aren't attached to any permanent,
-        so the object scan above can never find them. Built fresh here
-        instead, each time a matching event fires, since who currently holds
-        either designation (and so who controls the ability) can change
-        turn to turn; RULE 726.2's "venture into the dungeon" trigger isn't
-        modeled (dungeons/RULE 309 aren't built yet — see
-        `TakeInitiativeEffect`'s docstring).
+        """RULE 725.2/726.2/728.1: the Monarch's, the Initiative's, and rad
+        counters' triggered abilities "have no source" — they aren't
+        attached to any permanent, so the object scan above can never find
+        them. Built fresh here instead, each time a matching event fires:
+        for monarch/initiative, since who currently holds either
+        designation (and so who controls the ability) can change turn to
+        turn; RULE 726.2's "venture into the dungeon" trigger isn't modeled
+        (dungeons/RULE 309 aren't built yet — see `TakeInitiativeEffect`'s
+        docstring). Rad counters differ in that the ability is always
+        controlled by the active player rather than following a
+        designation, so no lookup is needed beyond `state.active_player`.
         """
         monarch = self.state.player_by_id(self.state.monarch_id) if self.state.monarch_id else None
         if monarch is not None and not monarch.has_lost:
@@ -497,6 +508,30 @@ class RulesEngine:
                         ),
                     )
                     self.pending_triggers.append((ability, event))
+        # RULE 728.1: "At the beginning of each player's precombat main
+        # phase, if that player has one or more rad counters, that player
+        # mills..." — "each player's precombat main phase" just means
+        # whichever player's turn this is (there's exactly one precombat
+        # main per turn, always the active player's, `game/phases.py`), not
+        # an APNAP loop over every player. Controlled by the active player
+        # (an explicit exception to RULE 113.8, unlike monarch/initiative
+        # which follow whoever currently holds the designation).
+        if event.type == EventType.STEP_BEGIN and event.get("step") == "main1":
+            active = self.state.active_player
+            if not active.has_lost and active.counters.get("rad", 0) > 0:
+                ability = TriggeredAbility(
+                    trigger_event=EventType.STEP_BEGIN,
+                    effects=[RadiationMillEffect(player=active)],
+                    controller_id=active.id,
+                    description=(
+                        "At the beginning of each player's precombat main phase, if that "
+                        "player has one or more rad counters, that player mills a number of "
+                        "cards equal to the number of rad counters they have. For each "
+                        "nonland card milled this way, that player loses 1 life and removes "
+                        "one rad counter from themselves."
+                    ),
+                )
+                self.pending_triggers.append((ability, event))
 
     def _collect_impulsive_draw_triggers(self, event: GameEvent) -> None:
         """"Whenever ~ deals combat damage to a player, exile the top card of
@@ -544,6 +579,138 @@ class RulesEngine:
             description=f"{source.name}: verbanne die oberste Karte der gegnerischen Bibliothek",
         )
         self.pending_triggers.append((ability, event))
+
+    def _collect_rad_counter_damage_triggers(self, event: GameEvent) -> None:
+        """"Whenever ~ deals combat damage to a player, they get N rad
+        counters." (Glowing One)/"...that many rad counters." (Infesting
+        Radroach, `AbilitySpec.rad_counters_on_combat_damage`) — the
+        damaged player (and, for "that many", the amount itself) varies
+        per firing, the same "build fresh right here" shape
+        `_collect_impulsive_draw_triggers` above already uses for Ragavan's
+        damaged-player-library exile.
+
+        ``marker["else"] == "proliferate"`` (Vexing Radgull: "...if they
+        don't have any rad counters. Otherwise, proliferate.") branches on
+        whether the damaged player currently has any of the granted
+        ``kind`` — checked live against the *pre-damage* count (this fires
+        off the same `DAMAGE` event `add_player_counters` would use, before
+        this ability's own grant), so "don't have any yet" reads correctly
+        even on the very first hit.
+        """
+        if event.type != EventType.DAMAGE or not event.get("combat") or not event.get("is_player"):
+            return
+        source_id = event.get("source_id")
+        if source_id is None:
+            return
+        source = self.state.find_object(source_id)
+        if source is None:
+            return
+        marker = getattr(source, "rad_counters_on_combat_damage", None)
+        if not marker:
+            return
+        try:
+            damaged_player = self.state.player_by_id(event["target_id"])
+            controller = self.state.player_by_id(source.controller_id)
+        except KeyError:
+            return
+        count = marker.get("count", 1)
+        amount = int(event.get("amount", 0)) if count == "damage_amount" else int(count)
+        kind = marker.get("kind", "rad")
+        if marker.get("else") == "proliferate" and damaged_player.counters.get(kind, 0) > 0:
+            effect: GameEffect = ProliferateEffect(source=source)
+        else:
+            effect = AddPlayerCountersEffect(amount=amount, kind=kind, player=damaged_player, source=source)
+        ability = TriggeredAbility(
+            trigger_event=EventType.DAMAGE,
+            effects=[effect],
+            controller_id=controller.id,
+            source=source,
+            description=f"{source.name}: gib der geschädigten Spielerin/dem geschädigten Spieler Rad-Marken",
+        )
+        self.pending_triggers.append((ability, event))
+
+    def _collect_attacks_you_rad_counter_triggers(self, event: GameEvent) -> None:
+        """"Whenever a player attacks you with one or more creatures, that
+        player gets twice that many rad counters." (Struggle for Project
+        Purity's Enclave mode, `AbilitySpec.rad_counters_on_attacked`) —
+        the attacking player and the amount (tied to `EventType.
+        PLAYER_ATTACKED`'s own ``count``) vary per firing, the same
+        "build fresh right here" shape every other rad-counter marker
+        collector uses; scans every permanent for the marker rather than
+        reading it off the event's own subject, since the event is about a
+        *player* attacking, not this ability's source
+        (`_collect_counter_death_return_triggers`'s same "scan every
+        permanent" style, for the same reason).
+        """
+        if event.type != EventType.PLAYER_ATTACKED:
+            return
+        defending_player_id = event.get("defending_player_id")
+        attacking_player_id = event.get("attacking_player_id")
+        if defending_player_id is None or attacking_player_id is None:
+            return
+        for obj in self.state.permanents():
+            marker = getattr(obj, "rad_counters_on_attacked", None)
+            if not marker:
+                continue
+            if obj.controller_id != defending_player_id:
+                continue
+            requires_mode = marker.get("requires_mode")
+            if requires_mode and getattr(obj, "chosen_mode", None) != requires_mode:
+                continue
+            try:
+                attacker = self.state.player_by_id(attacking_player_id)
+            except KeyError:
+                continue
+            amount = int(marker.get("multiplier", 1)) * int(event.get("count", 0))
+            effect = AddPlayerCountersEffect(amount=amount, kind="rad", player=attacker, source=obj)
+            ability = TriggeredAbility(
+                trigger_event=EventType.PLAYER_ATTACKED,
+                effects=[effect],
+                controller_id=obj.controller_id,
+                source=obj,
+                description=f"{obj.name}: gib der angreifenden Spielerin/dem angreifenden Spieler Rad-Marken",
+            )
+            self.pending_triggers.append((ability, event))
+
+    def _collect_temporary_player_triggers(self, event: GameEvent) -> None:
+        """Re-fire and expire `GameState.temporary_player_triggers` (Nuka-
+        Nuke Launcher's "until the end of defending player's next turn,
+        that player gets rad counters whenever they cast a spell") — see
+        `TemporaryPlayerTrigger`'s own docstring for the phase state
+        machine this drives off `EventType.TURN_BEGIN`.
+        """
+        if not self.state.temporary_player_triggers:
+            return
+        remaining = []
+        for trig in self.state.temporary_player_triggers:
+            if trig.phase == "waiting":
+                if (
+                    event.type == EventType.TURN_BEGIN
+                    and event.get("player_id") == trig.player_id
+                    and int(event.get("turn", 0)) > trig.install_turn
+                ):
+                    trig.phase = "active"
+                    trig.active_since_turn = int(event.get("turn", 0))
+                remaining.append(trig)
+                continue
+            # phase == "active": the *next* TURN_BEGIN (anyone's) after their
+            # own turn started means their turn just ended — drop it.
+            if (
+                event.type == EventType.TURN_BEGIN
+                and trig.active_since_turn is not None
+                and int(event.get("turn", 0)) > trig.active_since_turn
+            ):
+                continue
+            if event.type == trig.event_type and event.get("player_id") == trig.player_id:
+                ability = TriggeredAbility(
+                    trigger_event=trig.event_type,
+                    effects=trig.effects,
+                    controller_id=trig.player_id,
+                    description=trig.description,
+                )
+                self.pending_triggers.append((ability, event))
+            remaining.append(trig)
+        self.state.temporary_player_triggers = remaining
 
     def _collect_counter_death_return_triggers(self, event: GameEvent) -> None:
         """"Whenever a creature you control with a counter of
@@ -1245,6 +1412,14 @@ class RulesEngine:
             self._pending_land_choice_obj = obj
             self._pending_land_choice_amount = condition["amount"]
             self.state.pending_choice = self._land_tapped_choice(obj, condition["amount"])
+        elif kind == "optional_bonus_rad":
+            # Mariposa Military Base: the mirror image of a shock land —
+            # untapped by default, with the controller able to choose
+            # tapped instead for a rad-counter bonus.
+            obj.tapped = False
+            self._pending_land_choice_obj = obj
+            self._pending_land_choice_amount = condition["amount"]
+            self.state.pending_choice = self._land_tapped_bonus_choice(obj, condition["amount"])
         else:
             obj.tapped = kind == "always"
         if not obj.tapped:
@@ -1287,6 +1462,41 @@ class RulesEngine:
             player = self.state.player_by_id(obj.controller_id)
             self.lose_life(player, amount, cause="cost")
             obj.tapped = False
+
+    def _land_tapped_bonus_choice(self, obj: GameObject, amount: int) -> dict[str, Any]:
+        """Build the `pending_choice` for Mariposa Military Base's own
+        "you may have this enter tapped, for a bonus" decision — the
+        mirror image of `_land_tapped_choice`'s shock-land prompt."""
+        return {
+            "kind": "land_tapped_bonus",
+            "player_id": obj.controller_id,
+            "prompt": f"{obj.name}: getappt ins Spiel kommen lassen, um {amount} "
+                      "Rad-Marken zu erhalten?",
+            "options": [
+                {"id": "tap", "label": f"Getappt ins Spiel kommen lassen ({amount} Rad-Marken)"},
+                {"id": "decline", "label": "Ungetappt ins Spiel kommen lassen"},
+            ],
+        }
+
+    def resolve_land_tapped_bonus_choice(self, answer: Optional[str]) -> None:
+        """Answer a pending `land_tapped_bonus` choice (Mariposa Military
+        Base). ``answer`` is ``"tap"`` to enter tapped and get the rad
+        counters, or anything else (``None``/``"decline"``) to stay
+        untapped (already the default `enter_land_tapped` set while the
+        choice was open) with no bonus.
+        """
+        choice = self.state.pending_choice
+        if not choice or choice.get("kind") != "land_tapped_bonus":
+            raise ValueError("no pending land-tapped-bonus choice to resolve")
+        self.state.pending_choice = None
+        obj = self._pending_land_choice_obj
+        amount = self._pending_land_choice_amount
+        self._pending_land_choice_obj = None
+        self._pending_land_choice_amount = 0
+        if obj is not None and answer == "tap":
+            obj.tapped = True
+            player = self.state.player_by_id(obj.controller_id)
+            self.add_player_counters(player, amount, "rad", source=obj)
 
     # ------------------------------------------------------------------
     # Casting & the stack (RULE 601 / 608)
@@ -1542,6 +1752,10 @@ class RulesEngine:
         "All creatures get -X/-X", where X comes from an ``additional_cost``
         life payment, not a mana ``{X}``, but is threaded through the exact
         same ``obj.x_paid``/`StackItem.x` mechanism regardless).
+        ``"half_x_up"``/``"half_x_down"`` are the division-of-X sentinels
+        (Contaminated Drink's "you get half X rad counters, rounded up") —
+        no real card needs a plain (non-X) division yet, so this only
+        covers the {X}-scaled case.
 
         Mirrors `_apply_entry_counters`'s ``is_x``-flag idiom, just generic
         over every one-shot effect's magnitude field instead of one
@@ -1556,6 +1770,10 @@ class RulesEngine:
                     setattr(effect, attr, x)
                 elif value == "-x":
                     setattr(effect, attr, -x)
+                elif value == "half_x_up":
+                    setattr(effect, attr, -(-x // 2))  # ceiling division
+                elif value == "half_x_down":
+                    setattr(effect, attr, x // 2)
 
     def resolve_top_of_stack(self) -> Optional[StackItem]:
         """Resolve the topmost stack object (RULE 608). Returns it, or None."""
@@ -1806,6 +2024,10 @@ class RulesEngine:
             kind = "choose_creature_type"
             prompt = "Kreaturentyp wählen"
             options = [{"id": t, "label": t} for t in _creature_type_options(self.state, obj.controller_id)]
+        elif isinstance(effect, ChooseNamedModeReplacement):
+            kind = "choose_named_mode"
+            prompt = "Modus wählen"
+            options = [{"id": label.strip().lower(), "label": label} for label in effect.options]
         else:
             kind = "choose_color"
             prompt = "Farbe wählen"
@@ -1844,7 +2066,9 @@ class RulesEngine:
         starved by a skipped pick.
         """
         choice = self.state.pending_choice
-        if not choice or choice.get("kind") not in ("choose_creature_type", "choose_color"):
+        if not choice or choice.get("kind") not in (
+            "choose_creature_type", "choose_color", "choose_named_mode",
+        ):
             raise ValueError("no pending enter-choice to resolve")
         self.state.pending_choice = None
         obj = self._pending_enter_choice_obj
@@ -1861,6 +2085,8 @@ class RulesEngine:
         if obj is not None and chosen is not None:
             if choice["kind"] == "choose_creature_type":
                 obj.chosen_type = chosen
+            elif choice["kind"] == "choose_named_mode":
+                obj.chosen_mode = chosen
             else:
                 obj.chosen_color = chosen
         if continuation is not None:
@@ -2043,9 +2269,19 @@ class RulesEngine:
         `cause` is metadata only ("damage" / "cost" / "effect") for
         logging/UI; nothing in the rules distinguishes *why* life was lost
         for trigger purposes, so every path fires the same `LIFE_LOST`
-        event.
+        event — except RULE 728.1a's ``cause="radiation"`` (rad counters'
+        own inherent mill trigger, `RadiationMillEffect`), which a player
+        can redirect into a life *gain* instead via "You gain life rather
+        than lose life from radiation." (Strong, the Brutish Thespian,
+        `continuous.has_radiation_life_gain`) — checked here rather than
+        through the ordinary `ReplacementEffect`/`apply_replacements`
+        machinery, since that only ever rewrites an event's amount, never
+        redirects it into a different engine call.
         """
         if amount <= 0:
+            return
+        if cause == "radiation" and continuous.has_radiation_life_gain(self.state, player):
+            self.gain_life(player, amount)
             return
         player.lose_life(amount)
         self.state.fire_event(
@@ -2317,6 +2553,70 @@ class RulesEngine:
             self._put_searched_card(owner, obj, destination)
         if transformed and destination in ("battlefield", "battlefield_tapped"):
             self.transform_permanent(obj)
+
+    def return_dies_as_new_permanent(
+        self,
+        obj: GameObject,
+        new_type_line: str,
+        new_oracle_text: str,
+        attach_to: Optional[GameObject] = None,
+    ) -> None:
+        """RULE 400.7: "When ~ dies, return it to the battlefield. It's a[n]
+        <type> with '<ability>'. ~ loses all other abilities." (Harold and
+        Bob, First Numens) — a *different* card entirely, not RULE 712.8's
+        ordinary "return transformed" (`return_from_graveyard(transformed=
+        True)`/`exile_return_transformed`, both of which need a real
+        printed back face): ``obj`` becomes a synthetic `Card` built here
+        from ``new_type_line``/``new_oracle_text`` — same name/owner/set,
+        everything else is now this new printed text. "Loses all other
+        abilities" is made literal by simply never re-attaching the old
+        card's catalogue specs (`effect_binder.bind_from_catalogue` is only
+        ever called once, when a `GameObject` is first built — this method
+        doesn't call it again) — only whatever the new oracle text itself
+        implies (a plain mana ability is read live off it,
+        `game/mana_abilities.py`; anything needing catalogue/parser
+        specs would need an explicit re-bind, not needed by the one real
+        card using this shape today.
+
+        ``attach_to``, when given, is stamped directly onto the returned
+        object (RULE 303.4a's own "target what it will enchant" — already
+        resolved by the calling effect's own target choice before this
+        runs, mirroring `AttachEffect`).
+
+        Reuses `return_from_graveyard`'s own `_remove_from_current_zone` +
+        `reset_as_new_object` + `_put_searched_card` sequence, just with
+        the card swap slotted in between the identity reset and the
+        battlefield add, so `ENTERS_BATTLEFIELD`'s own ``object_types``
+        payload already reflects the new permanent type.
+        """
+        owner = self.state.player_by_id(obj.owner_id)
+        self._remove_from_current_zone(owner, obj)
+        obj.reset_as_new_object()
+        obj.controller_id = owner.id
+        obj.card = Card(
+            id=obj.card.id,
+            name=obj.card.name,
+            type_line=new_type_line,
+            oracle_text=new_oracle_text,
+            set_code=obj.card.set_code,
+        )
+        # "~ loses all other abilities" — unlike an ordinary blink/return-
+        # transformed object (`reset_as_new_object`'s own docstring: bound-
+        # once abilities are deliberately left alone there, since they'd
+        # come back byte-identical from a re-bind), this card's own printed
+        # text says the *old* card's abilities are gone for good, not just
+        # not-yet-rebound. Clears every bind-on-load field so nothing of
+        # the original creature (vigilance/reach, the DIES trigger itself)
+        # lingers on the new permanent.
+        obj.triggered_abilities = []
+        obj.activated_abilities = []
+        obj.static_effects = []
+        obj.replacement_effects = []
+        obj.intrinsic_keywords = set()
+        obj.parametric_keywords = {}
+        if attach_to is not None:
+            obj.attached_to = attach_to.instance_id
+        self._put_searched_card(owner, obj, "battlefield")
 
     def add_mana(self, player: Player, color: str, amount: int = 1) -> None:
         """Add ``amount`` mana of ``color`` straight to ``player``'s pool
@@ -4278,6 +4578,14 @@ class RulesEngine:
                         # dying object may already be gone from the
                         # battlefield by the time that check runs.
                         counters=dict(obj.counters),
+                        # A tribal "another nontoken Zombie or Mutant you
+                        # control dies" subject filter (The Ghoul, Gunslinger,
+                        # `effect_binder._build_group_ok`) needs both off the
+                        # event for the same reason — the object is already
+                        # gone from the battlefield by the time that check
+                        # runs.
+                        is_token=obj.is_token,
+                        subtypes=obj.card.type_line.partition("—")[2].strip().lower().split(),
                     )
                 )
             if cause == "sacrifice":

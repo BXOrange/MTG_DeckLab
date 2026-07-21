@@ -244,6 +244,7 @@ class GameEngine:
             return None
         if self.state.current_step == "declare_attackers":
             self._enforce_attacks_if_able()
+            self._fire_player_attacked_events()
         if not self._turn_steps or self._cursor >= len(self._turn_steps):
             self.state.fire_event(
                 GameEvent(EventType.TURN_END, player_id=self.state.active_player.id)
@@ -274,6 +275,32 @@ class GameEngine:
                 and self._can_attack(active, obj)
             ):
                 raise ValueError(f"{obj.name} attacks each combat if able")
+
+    def _fire_player_attacked_events(self) -> None:
+        """RULE 506.4's "a player attacks you with one or more creatures" —
+        see `EventType.PLAYER_ATTACKED`'s docstring for why this needs its
+        own aggregate event rather than reusing `ATTACKS`. Groups every
+        currently-attacking creature by (its controller, the player it's
+        attacking) and fires one event per group.
+        """
+        counts: dict[tuple[str, str], int] = {}
+        for obj in self.state.battlefield:
+            if not obj.attacking:
+                continue
+            spec = obj.combat_defender
+            if not spec or spec.get("kind") != "player":
+                continue
+            key = (obj.controller_id, spec["id"])
+            counts[key] = counts.get(key, 0) + 1
+        for (attacker_id, defender_id), count in counts.items():
+            self.state.fire_event(
+                GameEvent(
+                    EventType.PLAYER_ATTACKED,
+                    attacking_player_id=attacker_id,
+                    defending_player_id=defender_id,
+                    count=count,
+                )
+            )
 
     def _run_step(self, phase: GamePhase, step: GameStep) -> None:
         self.state.current_phase = phase.name
@@ -812,6 +839,11 @@ class GameEngine:
         elif kind == "land_tapped":
             # RULE 614.1: a shock land's "pay life to stay untapped" choice.
             self.rules.resolve_land_tapped_choice(None if declined else str(answer))
+        elif kind == "land_tapped_bonus":
+            # RULE 614.1's "you may have this land enter tapped. If you do,
+            # <bonus>." (Mariposa Military Base) — the mirror-image choice:
+            # untapped by default, tap it for the bonus instead.
+            self.rules.resolve_land_tapped_bonus_choice(None if declined else str(answer))
         elif kind == "add_mana_any_color":
             # RULE 106.4: which color to add — a mandatory choice, so a
             # decline still resolves to a color rather than adding nothing
@@ -831,10 +863,12 @@ class GameEngine:
             # RULE 614.1c/614.12: the option id is a permanent's instance id,
             # or decline to enter as itself.
             self.rules.resolve_enter_as_copy_choice(None if declined else str(answer))
-        elif kind in ("choose_creature_type", "choose_color"):
-            # RULE 601.2b: a mandatory pick (no "decline" option is ever
-            # offered) — the option id is a creature-type name or a WUBRG
-            # colour letter; `resolve_enter_choice` defaults an
+        elif kind in ("choose_creature_type", "choose_color", "choose_named_mode"):
+            # RULE 601.2b(-adjacent): a mandatory pick (no "decline" option
+            # is ever offered) — the option id is a creature-type name, a
+            # WUBRG colour letter, or (``choose_named_mode``) a lowercase
+            # mode slug (Struggle for Project Purity's "choose Brotherhood
+            # or Enclave"); `resolve_enter_choice` defaults an
             # unrecognized/missing answer to the first offered option.
             self.rules.resolve_enter_choice(None if declined else str(answer))
         elif kind == "counter_unless_pays":
@@ -1987,6 +2021,10 @@ class GameEngine:
             # mana (the painland/Elves-of-Deep-Shadow "deals N damage to
             # you" rider) — applied right alongside it, no stack involved.
             self.rules.deal_damage(player, ability.self_damage, source=source)
+        if ability.self_rad_counters:
+            # RULE 728's own rider (Harold and Bob's granted ability) —
+            # same "applied right alongside, no stack" treatment.
+            self.rules.add_player_counters(player, ability.self_rad_counters, "rad", source=source)
         self.state.record_stat(player.id, "mana", amount=sum(produced.values()))
         # RULE 605.1: a "whenever ~ is tapped for mana" trigger (Price of
         # Glory, Wild Growth, Mana Web) fires here — after the mana is in the
@@ -2045,6 +2083,8 @@ class GameEngine:
         player.mana_pool.add_many(produced, restriction=ability.restriction)
         if ability.self_damage:
             self.rules.deal_damage(player, ability.self_damage, source=source)
+        if ability.self_rad_counters:
+            self.rules.add_player_counters(player, ability.self_rad_counters, "rad", source=source)
         self.state.record_stat(player.id, "mana", amount=sum(produced.values()))
         return produced
 
@@ -2217,7 +2257,9 @@ class GameEngine:
                 return x
         return 0
 
-    def _reduced_activation_mana(self, source: GameObject, mana: "ManaCost") -> "ManaCost":
+    def _reduced_activation_mana(
+        self, source: GameObject, mana: "ManaCost", cost: Optional["ActivationCost"] = None
+    ) -> "ManaCost":
         """Apply any "activated abilities cost {N} less to activate" static
         scoped to ``source`` (Power Artifact-shaped, RULE 601.2f-adjacent) —
         nothing in the ordinary activation-cost path consulted a reduction
@@ -2226,8 +2268,23 @@ class GameEngine:
         for the static's own "can't reduce below N mana" floor, honoured
         here by capping the reduction rather than trusting `reduce_generic`'s
         own floor-at-zero.
+
+        ``cost.dynamic_reduction`` (Mariposa Military Base's own printed
+        "costs {1} less for each rad counter you have") is a *second*,
+        independent reduction source — the ability's own cost, not a
+        separate permanent's static — added on top before the floor is
+        applied, since both would stack on a real card that had both.
         """
         reduction, floor = continuous.activation_cost_reduction_for(self.state, source)
+        if cost is not None and cost.dynamic_reduction:
+            kind = cost.dynamic_reduction.get("kind", "rad")
+            per = int(cost.dynamic_reduction.get("generic_per", 1))
+            try:
+                player = self.state.player_by_id(source.controller_id)
+            except (KeyError, ValueError):
+                player = None
+            if player is not None:
+                reduction += per * player.counters.get(kind, 0)
         if reduction <= 0:
             return mana
         if floor and mana.converted_mana_cost - reduction < floor:
@@ -2250,7 +2307,7 @@ class GameEngine:
         if cost.untaps_self and (not source.tapped or self._summoning_sick_for_tap(source)):
             return False
         mana = cost.mana.with_x(x) if cost.mana.has_variable else cost.mana
-        mana = self._reduced_activation_mana(source, mana)
+        mana = self._reduced_activation_mana(source, mana, cost)
         if mana.symbols:
             allows_restriction = restriction_predicate_for_activation(source, has_x=cost.mana.has_variable)
             if not player.mana_pool.can_pay(
@@ -2498,7 +2555,7 @@ class GameEngine:
             for obj in self._resolve_tap_others(player, source, count, subtype, tap_choices) or []:
                 self.rules.set_tapped(obj, True)
         mana = cost.mana.with_x(x) if cost.mana.has_variable else cost.mana
-        mana = self._reduced_activation_mana(source, mana)
+        mana = self._reduced_activation_mana(source, mana, cost)
         if mana.symbols:
             allows_restriction = restriction_predicate_for_activation(source, has_x=cost.mana.has_variable)
             life_spent = player.mana_pool.pay(

@@ -72,6 +72,16 @@ _UNLESS_OPPONENTS_COUNT_RE = re.compile(
     rf"^{_SUBJECT} {_ENTERS} tapped unless your opponents control (\d+) or (more|fewer) lands\.?$",
     re.IGNORECASE,
 )
+#: The mirror image of a shock land (Mariposa Military Base): untapped by
+#: default, with a *bonus* for choosing tapped instead of a cost to avoid
+#: it — "You may have this land enter tapped. If you do, you get two rad
+#: counters." Narrowly scoped to this exact real-card shape (rad counters)
+#: rather than a generic bonus-effect grammar, matching this module's own
+#: "one regex per real templating" style.
+_OPTIONAL_BONUS_RAD_RE = re.compile(
+    rf"^you may have {_SUBJECT} enter tapped\. if you do, you get (\d+|a|an) rad counters?\.?$",
+    re.IGNORECASE,
+)
 
 
 def _split_types_clause(clause: str) -> list[str]:
@@ -96,6 +106,9 @@ def tap_clause_condition(line: str) -> Optional[dict[str, Any]]:
     - ``{"kind": "always"}`` — a plain tap-land, unconditionally tapped.
     - ``{"kind": "pay_life", "amount": N}`` — a shock land: the controller
       may pay ``N`` life to keep it untapped, a genuine interactive choice.
+    - ``{"kind": "optional_bonus_rad", "amount": N}`` — the mirror image
+      (Mariposa Military Base): untapped by default, with the controller
+      able to choose tapped instead for ``N`` rad counters.
     - ``{"kind": "unless_types", "types": [...]}`` — a check land: untapped
       iff the controller already controls a land of one of these types.
     - ``{"kind": "unless_count", "cmp": "le" | "ge", "count": N}`` — a fast
@@ -113,6 +126,10 @@ def tap_clause_condition(line: str) -> Optional[dict[str, Any]]:
     match = _PAY_LIFE_RE.match(line)
     if match:
         return {"kind": "pay_life", "amount": int(match.group(1))}
+    match = _OPTIONAL_BONUS_RAD_RE.match(line)
+    if match:
+        amount = 1 if match.group(1).lower() in ("a", "an") else int(match.group(1))
+        return {"kind": "optional_bonus_rad", "amount": amount}
     match = _UNLESS_OPPONENTS_COUNT_RE.match(line)
     if match:
         cmp_op = "le" if match.group(2).lower() == "fewer" else "ge"

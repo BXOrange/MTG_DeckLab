@@ -45,11 +45,13 @@ from mtg_analyzer.parser.oracle.gate import PARSER_VERSION, _parse_cache_key
 #: schema-wiped) — see module docstring.
 DEFAULT_COVERAGE_DB_PATH = DATA_DIR / "coverage.db"
 
-#: Verdict a card gets in the ledger. MODELED/UNMODELED come straight from the
-#: parser; AUTHORED means the card is hand-registered in `ability_catalogue`
-#: and therefore *behaves* even if the parser alone leaves it UNMODELED.
+#: Verdict a card gets in the ledger. MODELED/UNMODELED/NEVER_SUPPORTED come
+#: straight from the parser (`gate.ParseResult.coverage`, lowercased); AUTHORED
+#: means the card is hand-registered in `ability_catalogue` and therefore
+#: *behaves* even if the parser alone leaves it UNMODELED.
 MODELED = "modeled"
 UNMODELED = "unmodeled"
+NEVER_SUPPORTED = "never_supported"
 AUTHORED = "authored"
 
 _SCHEMA = """
@@ -57,7 +59,7 @@ CREATE TABLE IF NOT EXISTS card_coverage (
     content_hash   TEXT PRIMARY KEY,
     name           TEXT NOT NULL,
     parser_version TEXT NOT NULL,
-    coverage       TEXT NOT NULL,   -- parser verdict: 'modeled' | 'unmodeled'
+    coverage       TEXT NOT NULL,   -- parser verdict: 'modeled' | 'unmodeled' | 'never_supported'
     source         TEXT NOT NULL,   -- 'parser' | 'authored'
     covered        INTEGER NOT NULL,-- 1 if the card behaves (modeled OR authored)
     unclaimed      TEXT NOT NULL,   -- JSON list[str] of unclaimed clause seeds

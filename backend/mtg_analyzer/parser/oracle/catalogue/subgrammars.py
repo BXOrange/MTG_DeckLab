@@ -101,6 +101,17 @@ NUMBER = r"(?P<n>\d+)"
 #: "draw 2 cards"). `count_of` maps a captured group to an int.
 COUNT = r"(?P<n>a|an|\d+)"
 
+#: `COUNT`, plus the literal "x" (RULE 107.3c's own announced {X}, already
+#: folded to a bare "x" token by `normalize` — "draw X cards", Braingeyser-
+#: shaped). Kept as its own fragment rather than widening `COUNT` itself:
+#: every existing `COUNT` caller expects a plain int from `count_of`, and
+#: auditing each one for whether "x" would even make rules sense there is
+#: out of scope for whichever single card motivates this — extend a
+#: specific handler to `COUNT_X` (+ `count_or_x_of`) as a real card needs
+#: it, the same "generalize the fragment, not blindly the call sites"
+#: split `_rad_counter_amount` used before this existed.
+COUNT_X = r"(?P<n>a|an|x|\d+)"
+
 
 def resolve_target_kind(phrase: str) -> Optional[str]:
     """Classify a matched TARGET ``phrase`` into an engine ``target_kind``.
@@ -130,6 +141,13 @@ def count_of(token: str) -> int:
     if token in ("a", "an"):
         return 1
     return int(token)
+
+
+def count_or_x_of(token: str) -> "int | str":
+    """A captured `COUNT_X` token → its integer value, or the ``"x"``
+    sentinel `RulesEngine._substitute_x` resolves against the spell/
+    ability's actually-announced {X} at resolve time."""
+    return "x" if token.strip().lower() == "x" else count_of(token)
 
 
 #: WUBRG colour words → letters, for the old-templating "target blue

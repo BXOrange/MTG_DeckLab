@@ -98,6 +98,32 @@ _ALL_COLORS = ("W", "U", "B", "R", "G")
 #: by `_WHERE_X_RE` first ("X mana of any one color", Wirewood Channeler).
 _ANY_COLOR_PHRASES = ("any color", "any colour", "any one color", "any one colour")
 
+#: A fixed leading count on an "any colour" clause ("three mana of any one
+#: color", Harold and Bob's granted ability) — this module works on *raw*
+#: oracle text (no `normalize()` number-word folding), so a spelled-out
+#: count needs its own small word map here. Absent/unrecognized → 1 (Elvish
+#: Harbinger's bare "one mana of any color", and the "X mana of any one
+#: color" variable-amount shape `_WHERE_X_RE` peels off *before* this ever
+#: runs — its own base clause never has a real number to find here either).
+_ANY_COLOR_COUNT_WORDS: dict[str, int] = {
+    "a": 1, "an": 1, "one": 1, "two": 2, "three": 3, "four": 4, "five": 5,
+    "six": 6, "seven": 7, "eight": 8, "nine": 9, "ten": 10,
+}
+_ANY_COLOR_COUNT_RE = re.compile(
+    r"^(?P<n>\d+|a|an|one|two|three|four|five|six|seven|eight|nine|ten)\s+mana\s+of\s+any",
+    re.IGNORECASE,
+)
+
+#: A mana ability's own extra "You get N rad counters" side effect (RULE
+#: 728/605.1a — Harold and Bob's granted "{T}: Add three mana of any one
+#: color. You get two rad counters."), the rad-counter sibling of
+#: `_SELF_DAMAGE_RE`. A spelled-out count needs the same local word map
+#: `_ANY_COLOR_COUNT_WORDS` provides above (raw, non-normalized oracle text).
+_SELF_RAD_COUNTERS_RE = re.compile(
+    r"you get (?P<n>\d+|a|an|one|two|three|four|five|six|seven|eight|nine|ten) rad counters?",
+    re.IGNORECASE,
+)
+
 #: RULE 605.1a: an ability that requires a target is never a mana ability,
 #: however "mana-shaped" its effect looks (Deathrite Shaman's "Exile target
 #: land card from a graveyard. Add one mana of any color." is a normal,
@@ -265,6 +291,14 @@ class ManaAbility:
     options: list[dict[str, int]] = field(default_factory=list)
     amount_selector: Optional[dict[str, Any]] = None
     self_damage: int = 0
+    #: A mana ability's own "You get N rad counters" rider (RULE 728,
+    #: Harold and Bob's granted quoted ability — "{T}: Add three mana of
+    #: any one color. You get two rad counters.") — the same "applied right
+    #: alongside mana production, no stack" shape as ``self_damage``, just
+    #: a different rider effect. Hand-authored only (`game/ability_
+    #: catalogue.py`); no oracle-text grammar recognizes this compound
+    #: mana-ability-plus-rider shape yet.
+    self_rad_counters: int = 0
     min_level: Optional[int] = None
     max_level: Optional[int] = None
     restriction: Optional[dict[str, Any]] = None
@@ -483,6 +517,7 @@ def _parse_mana_ability_lines(
         cost = parse_activation_cost(cost_text)
         if cost.exile_self_from_hand != want_hand_exile:
             continue
+        rad_match = _SELF_RAD_COUNTERS_RE.search(effect_text)
         combination_selector = _parse_combination_selector(add_match.group(1))
         if combination_selector is not None:
             damage_match = _SELF_DAMAGE_RE.search(effect_text)
@@ -492,6 +527,7 @@ def _parse_mana_ability_lines(
                 amount_selector=combination_selector,
                 any_combination=True,
                 self_damage=int(damage_match.group(1)) if damage_match else 0,
+                self_rad_counters=_rad_count_of(rad_match) if rad_match else 0,
                 restriction=_parse_restriction(effect_text),
             ))
             continue
@@ -505,6 +541,7 @@ def _parse_mana_ability_lines(
             options=options,
             amount_selector=selector,
             self_damage=int(damage_match.group(1)) if damage_match else 0,
+            self_rad_counters=_rad_count_of(rad_match) if rad_match else 0,
             restriction=_parse_restriction(effect_text),
         ))
     return abilities
@@ -610,6 +647,7 @@ def mana_abilities_for(obj: Any, state: Optional[Any] = None) -> list[ManaAbilit
             options=resolve_options(ability, obj, state),
             amount_selector=None,
             self_damage=ability.self_damage,
+            self_rad_counters=ability.self_rad_counters,
             restriction=ability.restriction,
             any_combination=ability.any_combination,
         )
@@ -650,6 +688,7 @@ def hand_mana_abilities_for(obj: Any, state: Optional[Any] = None) -> list[ManaA
             options=resolve_options(ability, obj, state),
             amount_selector=None,
             self_damage=ability.self_damage,
+            self_rad_counters=ability.self_rad_counters,
             restriction=ability.restriction,
             any_combination=ability.any_combination,
         )
@@ -726,12 +765,27 @@ def _basic_options(card: Any) -> list[dict[str, int]]:
     return produced
 
 
+def _rad_count_of(match: "re.Match[str]") -> int:
+    """A captured `_SELF_RAD_COUNTERS_RE` token → its int value."""
+    token = match.group("n").lower()
+    return int(token) if token.isdigit() else _ANY_COLOR_COUNT_WORDS.get(token, 1)
+
+
 def _parse_clause(clause: str) -> list[dict[str, int]]:
     lowered = clause.lower()
     if any(phrase in lowered for phrase in _ANY_COLOR_PHRASES):
-        # "one mana of any colour" / "X mana of any one colour" — one
-        # single-colour option each (the payer picks the colour).
-        return [{color: 1} for color in _ALL_COLORS]
+        # "one mana of any colour" / "three mana of any one colour" / "X
+        # mana of any one colour" — one single-colour option each (the
+        # payer picks the colour), scaled by any *fixed* leading count
+        # (the "X"/variable case has already been peeled off by
+        # `_peel_amount_selector` before this runs, so its own base clause
+        # never matches `_ANY_COLOR_COUNT_RE` and safely falls back to 1).
+        count_match = _ANY_COLOR_COUNT_RE.match(clause.strip())
+        amount = 1
+        if count_match:
+            token = count_match.group("n").lower()
+            amount = int(token) if token.isdigit() else _ANY_COLOR_COUNT_WORDS.get(token, 1)
+        return [{color: amount} for color in _ALL_COLORS]
 
     options: list[dict[str, int]] = []
     for alternative in _ALTERNATIVE_SPLIT_RE.split(clause):

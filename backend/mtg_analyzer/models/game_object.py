@@ -282,6 +282,14 @@ class GameObject:
         #: `reset_as_new_object` clears both.
         self.chosen_type: Optional[str] = None
         self.chosen_color: Optional[str] = None
+        #: A named-mode choice from this object's own "as ~ enters, choose
+        #: <Label1> or <Label2>" ability (Struggle for Project Purity's
+        #: "choose Brotherhood or Enclave") — a lowercase slug of the chosen
+        #: label (e.g. ``"brotherhood"``), read by `effect_binder._trigger_
+        #: condition`'s ``"named_mode"`` gate so only that mode's own
+        #: ability actually fires. ``None`` until chosen, same RULE 400.7
+        #: reset-on-new-object treatment as `chosen_type`/`chosen_color`.
+        self.chosen_mode: Optional[str] = None
         #: Static abilities (`StaticAbility`) this object grants through the
         #: layer system (RULE 613) — anthems, keyword grants, type changes,
         #: cost reductions. Read by `game/continuous.py`.
@@ -547,6 +555,7 @@ class GameObject:
         #: choose a creature type/color" pick yet either.
         self.chosen_type = None
         self.chosen_color = None
+        self.chosen_mode = None
         self.temp_power = 0
         self.temp_toughness = 0
         self.temp_keywords = set()

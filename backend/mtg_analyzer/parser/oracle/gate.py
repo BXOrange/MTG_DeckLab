@@ -47,6 +47,13 @@ from .spec import AbilitySpec, EffectSpec, ParserProvenance
 
 MODELED = "MODELED"
 UNMODELED = "UNMODELED"
+#: Stickers (RULE 123) are a permanent project non-goal — see
+#: `backend/ToDo_Backend.md` — not a "not yet" gap like an ordinary
+#: UNMODELED card. Any card mentioning them is classified `NEVER_SUPPORTED`
+#: instead of `UNMODELED` so its unclaimed clauses never surface in the
+#: processing-list backlog ranking (they'd otherwise sit there forever,
+#: since no handler will ever claim them).
+NEVER_SUPPORTED = "NEVER_SUPPORTED"
 
 #: Bumped when the catalogue/pipeline changes shape; stamped on every spec's
 #: provenance so a cached parse can be invalidated (docs/09 "Versioning").
@@ -143,7 +150,49 @@ UNMODELED = "UNMODELED"
 #: and "return it to the battlefield transformed under its owner's control"
 #: (Bruce Banner-shaped graveyard-sourced forced flip,
 #: `return_from_graveyard_transformed`).
-PARSER_VERSION = "19"
+#: "20": Stickers (RULE 123) declared a permanent non-goal — any card whose
+#: oracle text mentions "sticker" now gets the new `NEVER_SUPPORTED`
+#: verdict (`_mentions_stickers`) instead of `UNMODELED`, so it stops
+#: contributing unclaimed clauses to the processing-list backlog.
+#: "21": RULE 728 Rad counters' oracle-text grammar — "[you/target player/
+#: defending player/each player/each opponent] get[s] N/X rad counters",
+#: "target player loses all rad counters", and "each opponent gets a
+#: number of rad counters equal to its power" (`add_player_counters`/
+#: `lose_all_player_counters`/`dies_grants_rad_counters_equal_power`), plus
+#: "You gain life rather than lose life from radiation." (`radiation_life_
+#: gain`). The "that many"/dynamic-player combat-damage shape (Glowing
+#: One/Infesting Radroach) is hand-authored in `ability_catalogue.py`
+#: instead — no oracle-text grammar change for that half.
+#: "22": Rad-counter deferred-gap closeout batch (Acquired Mutation/Bloatfly
+#: Swarm/Contaminated Drink/Harold and Bob/Mariposa Military Base/
+#: Nuka-Nuke Launcher/Struggle for Project Purity/The Ghoul, Gunslinger/The
+#: Wise Mothman/Vault 12/Vexing Radgull). New `segmenter.py` grammar:
+#: "enchanted/equipped creature <verb>" subject (`_ATTACHED_SUBJECT_RE`,
+#: `{"subject": "attached_permanent"}`); tribal "a/another/~ or another
+#: [nontoken] <subtype>[...] you control <verb>" subjects
+#: (`_GROUP_SUBTYPE_SUBJECT_RE`/`_SELF_OR_GROUP_SUBTYPE_RE`, checked *after*
+#: the pre-existing exact-main-type `_GROUP_SUBJECT_RE` so a bare "creature"
+#: still matches the original, more specific pattern first); "if that
+#: player is(n't) you, <rest>" target-based intervening-if
+#: (`_TARGET_IS_CONTROLLER_RE`, `condition={"target_is_controller": bool}`);
+#: and "~ <verb1> or <verb2>" compound multi-event triggers
+#: (`_SELF_MULTI_EVENT_RE`, `trigger["event"]` as a `list[str]`). New
+#: `catalogue/handlers.py` grammar: "get half X rad counters, rounded
+#: up/down" (`_substitute_x`'s new `"half_x_up"`/`"half_x_down"` sentinels);
+#: "create a Treasure/Clue/Food token" (`_create_named_token`); and "draw X
+#: cards" (literal-X, `COUNT_X`/`count_or_x_of` widening the pre-existing
+#: digit/word-only `draw` grammar). New `catalogue/lands.py` grammar: "you
+#: may have this land enter tapped. If you do, you get N rad counters."
+#: (`_OPTIONAL_BONUS_RAD_RE`, `{"kind": "optional_bonus_rad"}`). Widened
+#: `spec.py` validation: `rad_counters_on_combat_damage`'s `"else"`
+#: (`"proliferate"`) and `"kind"` keys; a third `enter_replacement` "named
+#: mode" variant (`ChooseNamedModeReplacement`/`GameObject.chosen_mode`)
+#: alongside the existing creature-type/color choices; and a new
+#: `rad_counters_on_attacked` marker (RULE 506.4 "attacks you with N
+#: creatures", `EventType.PLAYER_ATTACKED`, fired once per attacker/
+#: defender pair leaving `declare_attackers`, distinct from the
+#: once-per-creature `ATTACKS` event).
+PARSER_VERSION = "22"
 
 
 @dataclass
@@ -158,6 +207,11 @@ class ParseResult:
     @property
     def modeled(self) -> bool:
         return self.coverage == MODELED
+
+    @property
+    def never_supported(self) -> bool:
+        """RULE 123 Stickers — a permanent non-goal, not an ordinary gap."""
+        return self.coverage == NEVER_SUPPORTED
 
     #: The effect-bearing specs (triggered / spell_effect / activated /
     #: static / replacement / enter_replacement) parsed from text — as
@@ -177,6 +231,17 @@ class ParseResult:
                 "enter_replacement",
             )
         ]
+
+
+def _mentions_stickers(raw: str) -> bool:
+    """RULE 123 Stickers — declared a permanent non-goal (see
+    `backend/ToDo_Backend.md`), not merely deprioritized. A simple
+    substring check is deliberate: real sticker cards say "sticker sheet"/
+    "sticker" in their own oracle text (there is no other card-text idiom
+    that uses the word), so this never needs the segmenter/normalize
+    machinery to decide — it's an early exit, not a parsed clause.
+    """
+    return "sticker" in raw.lower()
 
 
 def _is_spell(card: Any) -> bool:
@@ -343,6 +408,13 @@ def _parse_oracle_uncached(card: Any) -> ParseResult:
     keyword_specs = parse_keywords(card)
 
     raw = getattr(card, "oracle_text", "") or ""
+    if _mentions_stickers(raw):
+        # Fail-closed the same way as an ordinary UNMODELED card (the
+        # binder never sees these specs' effects — there are none), but
+        # tagged distinctly and with no `unclaimed` seeds so this card
+        # never shows up in the processing-list backlog (see
+        # `NEVER_SUPPORTED`'s docstring above).
+        return ParseResult(specs=list(keyword_specs), coverage=NEVER_SUPPORTED)
     normalized = normalize(raw, getattr(card, "name", None))
     if not normalized:
         return ParseResult(specs=list(keyword_specs), coverage=MODELED)

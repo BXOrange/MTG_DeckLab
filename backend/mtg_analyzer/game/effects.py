@@ -181,8 +181,8 @@ class GameContext:
     def gain_life(self, player: "Player", amount: int) -> None:
         self.engine.gain_life(player, amount)
 
-    def lose_life(self, player: "Player", amount: int) -> None:
-        self.engine.lose_life(player, amount, cause="effect")
+    def lose_life(self, player: "Player", amount: int, cause: str = "effect") -> None:
+        self.engine.lose_life(player, amount, cause=cause)
 
     def sacrifice(self, player: "Player", what: str = "permanent", count: int = 1) -> None:
         self.engine.sacrifice(player, what, count)
@@ -268,6 +268,17 @@ class GameContext:
 
     def exile_return_transformed(self, target: "GameObject") -> None:
         self.engine.exile_return_transformed(target)
+
+    def return_dies_as_new_permanent(
+        self,
+        target: "GameObject",
+        new_type_line: str,
+        new_oracle_text: str,
+        attach_to: Optional["GameObject"] = None,
+    ) -> None:
+        self.engine.return_dies_as_new_permanent(
+            target, new_type_line, new_oracle_text, attach_to=attach_to
+        )
 
     def add_mana(self, player: "Player", color: str, amount: int = 1) -> None:
         self.engine.add_mana(player, color, amount)
@@ -800,6 +811,39 @@ class TakeInitiativeEffect(GameEffect):
             context.take_initiative(player)
 
 
+class RadiationMillEffect(GameEffect):
+    """RULE 728.1's rad-counter inherent ability: "that player mills a
+    number of cards equal to the number of rad counters they have. For
+    each nonland card milled this way, that player loses 1 life and
+    removes one rad counter from themselves." Built fresh by
+    `RulesEngine._collect_inherent_triggers` for whichever player's
+    precombat main phase is beginning — no permanent hosts this ability,
+    same shape as `BecomeMonarchEffect`/`TakeInitiativeEffect`. The count
+    is read live at resolution time (not frozen at trigger time), matching
+    the rule's present-tense "have".
+    """
+
+    def __init__(self, player: Any = None, source: Optional["GameObject"] = None) -> None:
+        super().__init__(source)
+        self.player = player
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        player = self.player
+        if player is None:
+            return
+        count = player.counters.get("rad", 0)
+        if count <= 0:
+            return
+        before = len(player.graveyard)
+        context.mill(player, count)
+        milled = player.graveyard[before:]
+        nonland = sum(1 for obj in milled if not obj.is_land)
+        if nonland:
+            # RULE 728.1a: life lost "from radiation" refers to exactly this.
+            context.lose_life(player, nonland, cause="radiation")
+            context.add_player_counters(player, -nonland, "rad")
+
+
 class CreateEmblemEffect(GameEffect):
     """"[Player] get[s] an emblem with '[ability]'." (RULE 114.2) — the
     quoted ability was already recursively parsed into a full nested
@@ -951,7 +995,16 @@ class ConditionalEffect(GameEffect):
     effect on the same spell/ability, not a replacement of an earlier one;
     see `parser.oracle.spec.EffectSpec.condition`'s docstring for why "if
     kicked, ... instead" — overriding an *existing* effect's own amount —
-    is a different, unmodeled shape).
+    is a different, unmodeled shape). ``{"target_is_controller": True}``
+    (The Ghoul, Gunslinger: "target player gets two rad counters. If that
+    player is you, create a Treasure token.") is the RULE 603.4-style
+    sibling gated on the ability's own *resolved target* instead of an
+    announced-cost flag — checked against ``targets`` at apply time, which
+    only works because this effect carries no `target_spec` of its own: a
+    `target_groups=None` ability (the overwhelming common case) passes its
+    *whole* targets list to every sub-effect (`_apply_effects_partitioned`),
+    so this effect transparently sees the target chosen for whichever
+    *other* effect in the same ability actually declared it.
 
     Built only by `game/effect_binder.py`'s `build_effects`, never directly
     by `EffectRegistry` (``condition`` lives on the `EffectSpec`, not inside
@@ -971,17 +1024,26 @@ class ConditionalEffect(GameEffect):
         self.inner = inner
         self.target_spec = inner.target_spec
 
-    def _condition_holds(self) -> bool:
+    def _condition_holds(self, targets: Optional[list[Any]] = None) -> bool:
         kicked = self.condition.get("kicked")
         if kicked is not None:
             count = getattr(self.source, "kicker_count", 0) or 0
             return (count > 0) if kicked else (count == 0)
+        target_is_controller = self.condition.get("target_is_controller")
+        if target_is_controller is not None:
+            target = targets[0] if targets else None
+            controller_id = getattr(self.source, "controller_id", None)
+            is_controller = (
+                controller_id is not None
+                and getattr(target, "id", None) == controller_id
+            )
+            return is_controller if target_is_controller else not is_controller
         return True
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
         if self.inner.source is None:
             self.inner.source = self.source
-        if self._condition_holds():
+        if self._condition_holds(targets):
             self.inner.apply(context, targets)
 
 
@@ -1115,9 +1177,16 @@ class DealDamageEffect(GameEffect):
 #: `DrawCardEffect`'s ``count_selector`` vocabulary — a per-object dynamic
 #: draw count (RULE 601.2c-style variable amount), the same "count instead
 #: of a flat number" shape `continuous._pt_mod_count` uses for a per-count
-#: anthem. Only one shape needed so far: Wyleth, Soul of Steel's "draw a
-#: card for each Aura and Equipment attached to it".
-_DRAW_COUNT_SELECTORS: frozenset[str] = frozenset({"auras_and_equipment_attached_to_self"})
+#: anthem. Wyleth, Soul of Steel's "draw a card for each Aura and Equipment
+#: attached to it"; ``"opponents_you_have"`` (Struggle for Project Purity's
+#: Brotherhood mode: "each opponent draws a card. You draw a card for each
+#: card drawn this way.") approximates "cards drawn this way" as the
+#: opponent count — exact whenever nothing prevented an opponent's draw,
+#: the same "auto-resolve the common case" simplification `ProliferateEffect`/
+#: `SacrificeEffect` already use elsewhere in this engine.
+_DRAW_COUNT_SELECTORS: frozenset[str] = frozenset(
+    {"auras_and_equipment_attached_to_self", "opponents_you_have"}
+)
 
 
 def _attached_auras_and_equipment_count(context: GameContext, source: Optional["GameObject"]) -> int:
@@ -1134,7 +1203,11 @@ class DrawCardEffect(GameEffect):
     """Draw ``count`` cards for the effect's controller (or a target player)
     — or, with ``count_selector`` set, a per-object dynamic count instead of
     a flat number (Wyleth, Soul of Steel's "draw a card for each Aura and
-    Equipment attached to it")."""
+    Equipment attached to it"). ``selector="each_player"``/``"each_opponent"``
+    (Struggle for Project Purity's Brotherhood mode: "each opponent draws a
+    card") is instead a mass, untargeted draw for every matching living
+    player — mirrors `AddPlayerCountersEffect.selector`'s shape.
+    """
 
     def __init__(
         self,
@@ -1143,21 +1216,33 @@ class DrawCardEffect(GameEffect):
         source: Optional["GameObject"] = None,
         count_selector: Optional[str] = None,
         target_kind: Optional[str] = None,
+        selector: Optional[str] = None,
     ) -> None:
         super().__init__(source)
         self.count = count
         self.player = player
         self.count_selector = count_selector if count_selector in _DRAW_COUNT_SELECTORS else None
+        self.selector = selector if selector in ("each_player", "each_opponent") else None
         # "Target player draws N cards" (Sign in Blood-shaped) — a genuine
         # RULE 115 target, unlike the untargeted default (most draw effects
         # just draw for their own controller).
         self.target_spec = TargetSpec(kind=target_kind) if target_kind is not None else None
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        if self.selector in ("each_player", "each_opponent"):
+            controller_id = getattr(self.source, "controller_id", None)
+            for p in context.state.living_players():
+                if self.selector == "each_opponent" and p.id == controller_id:
+                    continue
+                context.draw(p, self.count)
+            return
         player = self.player or (targets[0] if targets else None) or _controller_of(self.source, context)
         count = self.count
         if self.count_selector == "auras_and_equipment_attached_to_self":
             count = _attached_auras_and_equipment_count(context, self.source)
+        elif self.count_selector == "opponents_you_have":
+            controller_id = getattr(self.source, "controller_id", None)
+            count = sum(1 for p in context.state.living_players() if p.id != controller_id)
         context.draw(player, count)
 
 
@@ -1447,6 +1532,125 @@ class LoseLifeEffect(GameEffect):
         if player is None:
             player = _controller_of(self.source, context)
         context.lose_life(player, self.amount)
+
+
+class AddPlayerCountersEffect(GameEffect):
+    """"[Player] get[s] N [kind] counters." (RULE 122 — only "rad", RULE
+    728, in practice today) — the oracle-text-facing sibling of
+    `RulesEngine.add_player_counters`. Same target_kind/selector split as
+    `GainLifeEffect`/`LoseLifeEffect`: untargeted (the effect's controller)
+    by default, ``target_kind="player"`` for a real RULE 115 target, or
+    ``selector="each_player"``/``"each_opponent"``/``"defending_player"``
+    for a mass/combat-relative recipient.
+
+    ``selector="defending_player"`` resolves against the *attacking*
+    object, which for an Aura/Equipment-hosted "whenever enchanted/equipped
+    creature attacks, defending player gets ~" ability (Acquired Mutation)
+    is ``self.source``'s *host*, not the Aura/Equipment itself — only the
+    actual attacker gets `combat_defender` stamped on it by
+    `declare_attackers` (RULE 506.4). Resolved here rather than widening
+    the shared `_defending_player_of` helper, since every existing caller
+    (afflict) is already the attacking creature itself.
+    """
+
+    def __init__(
+        self,
+        amount: Any = 0,
+        kind: str = "rad",
+        player: Any = None,
+        selector: Optional[str] = None,
+        source: Optional["GameObject"] = None,
+        target_kind: Optional[str] = None,
+    ) -> None:
+        super().__init__(source)
+        self.amount = amount
+        self.kind = kind
+        self.player = player
+        self.selector = selector
+        self.target_spec = TargetSpec(kind=target_kind) if target_kind is not None else None
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        if self.selector in ("each_player", "each_opponent"):
+            controller_id = getattr(self.source, "controller_id", None)
+            for p in context.state.living_players():
+                if self.selector == "each_opponent" and p.id == controller_id:
+                    continue
+                context.add_player_counters(p, self.amount, self.kind, source=self.source)
+            return
+        player = self.player
+        if player is None and self.target_spec is not None:
+            player = targets[0] if targets else None
+        if player is None and self.selector == "defending_player":
+            host = self.source
+            attached_to = getattr(host, "attached_to", None)
+            if attached_to is not None:
+                resolved = context.state.find_object(attached_to)
+                if resolved is not None:
+                    host = resolved
+            player = _defending_player_of(host, context)
+        if player is None:
+            player = _controller_of(self.source, context)
+        if player is not None:
+            context.add_player_counters(player, self.amount, self.kind, source=self.source)
+
+
+class LoseAllPlayerCountersEffect(GameEffect):
+    """"[Player] loses all [kind] counters." (RULE 122's removal sibling —
+    Survivor's Med Kit's "Target player loses all rad counters.") Reads the
+    live count at apply time and removes exactly that many via
+    `RulesEngine.add_player_counters`'s existing non-positive-amount path
+    (bypasses RULE 616.1 replacements, same as any other counter removal).
+    """
+
+    def __init__(
+        self,
+        kind: str = "rad",
+        player: Any = None,
+        source: Optional["GameObject"] = None,
+        target_kind: Optional[str] = None,
+    ) -> None:
+        super().__init__(source)
+        self.kind = kind
+        self.player = player
+        self.target_spec = TargetSpec(kind=target_kind) if target_kind is not None else None
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        player = self.player
+        if player is None and self.target_spec is not None:
+            player = targets[0] if targets else None
+        if player is None:
+            player = _controller_of(self.source, context)
+        if player is None:
+            return
+        current = player.counters.get(self.kind, 0)
+        if current > 0:
+            context.add_player_counters(player, -current, self.kind, source=self.source)
+
+
+class DiesGrantsRadCountersEqualPowerEffect(GameEffect):
+    """"When this creature dies, each opponent gets a number of rad
+    counters equal to its power." (Feral Ghoul-shaped) — an atomic effect
+    reading the dying creature's own last-known power (RULE 400.7) at
+    apply time, the same "read the characteristic directly rather than
+    compose two effects" shape `ExileGainLifeToControllerEffect` uses for
+    "exile ~; you gain life equal to its power" — a generic
+    `AddPlayerCountersEffect` has no way to receive a dynamic amount from
+    its own triggering object.
+    """
+
+    def __init__(self, kind: str = "rad", source: Optional["GameObject"] = None) -> None:
+        super().__init__(source)
+        self.kind = kind
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        power = getattr(self.source, "power", 0) or 0
+        if power <= 0:
+            return
+        controller_id = getattr(self.source, "controller_id", None)
+        for p in context.state.living_players():
+            if p.id == controller_id:
+                continue
+            context.add_player_counters(p, power, self.kind, source=self.source)
 
 
 class SacrificeEffect(GameEffect):
@@ -2779,6 +2983,74 @@ class CreateDelayedTriggerEffect(GameEffect):
         )
 
 
+class InstallTemporaryPlayerTriggerEffect(GameEffect):
+    """Arm a `TemporaryPlayerTrigger` (RULE 603.7-adjacent, but *recurring*
+    and player-scoped rather than one-shot and step-scoped) — "until the
+    end of defending player's next turn, that player gets two rad counters
+    whenever they cast a spell" (Nuka-Nuke Launcher).
+
+    The recipient defaults to the defending player (RULE 506.4). Like
+    `AddPlayerCountersEffect.selector="defending_player"`, an Aura/
+    Equipment-hosted "whenever equipped creature attacks, ..." trigger's
+    own source is the Equipment, not the attacker — `combat_defender` is
+    only ever stamped onto the actual attacking creature (RULE 506.4/
+    `declare_attackers`), so this resolves the source's own ``attached_to``
+    host first, exactly mirroring that effect's own docstring. ``event_type``
+    is the `EventType`
+    the installed trigger re-fires on (``"SPELL_CAST"`` — the only shape any
+    real card in this pool needs); ``effects`` are whitelisted descriptors
+    built into live effects immediately (mirroring `CreateDelayedTrigger
+    Effect`) and reused for every firing while the trigger stays active —
+    each is baked with ``player`` as its recipient (any effect carrying a
+    settable, currently-``None`` ``player`` attribute, e.g.
+    `AddPlayerCountersEffect`), since the specific player is fixed at
+    install time, not re-resolved per firing.
+    """
+
+    def __init__(
+        self,
+        event_type: str,
+        effects: Optional[list[dict[str, Any]]] = None,
+        description: str = "",
+        source: Optional["GameObject"] = None,
+    ) -> None:
+        super().__init__(source)
+        self.event_type = str(event_type)
+        self.inner_specs = list(effects or [])
+        self.description = str(description)
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        from .effect_binder import build_effects  # function-scoped: effects↔binder cycle
+        from ..parser.oracle.spec import EffectSpec
+        from ..models.game_state import TemporaryPlayerTrigger
+
+        host = self.source
+        attached_to = getattr(host, "attached_to", None)
+        if attached_to is not None:
+            resolved = context.state.find_object(attached_to)
+            if resolved is not None:
+                host = resolved
+        player = _defending_player_of(host, context)
+        if player is None:
+            return
+        inner = build_effects(
+            [EffectSpec(type=d["type"], params=dict(d.get("params") or {})) for d in self.inner_specs],
+            self.source,
+        )
+        for effect in inner:
+            if hasattr(effect, "player") and getattr(effect, "player", None) is None:
+                effect.player = player
+        context.state.temporary_player_triggers.append(
+            TemporaryPlayerTrigger(
+                player_id=player.id,
+                event_type=self.event_type,
+                effects=inner,
+                install_turn=context.state.turn_number,
+                description=self.description,
+            )
+        )
+
+
 class ReboundFreeCastWindowEffect(GameEffect):
     """RULE 702.88b Rebound's delayed half: "At the beginning of your next
     upkeep, you may cast this card from exile without paying its mana
@@ -3214,6 +3486,48 @@ class ReturnFromGraveyardTransformedEffect(GameEffect):
         context.return_from_graveyard(self.source, "battlefield", transformed=True)
 
 
+class ReturnDiesAsNewPermanentEffect(GameEffect):
+    """"When ~ dies, return it to the battlefield. It's a[n] <type> with
+    '<ability>'. ~ loses all other abilities." (Harold and Bob, First
+    Numens) — a genuinely *different* card, not RULE 712.8's ordinary
+    "return transformed" (`ReturnFromGraveyardTransformedEffect`, which
+    needs a real printed back face): see `RulesEngine.return_dies_as_new_
+    permanent`'s docstring for the mechanics (a synthetic `Card` built from
+    ``new_type_line``/``new_oracle_text``, same name/owner/set).
+
+    ``target_kind``, when given, is a real RULE 115 target this dies
+    trigger resolves before returning (RULE 303.4a's "enchant Forest you
+    control" — the specific permanent the new Aura form attaches to);
+    mandatory (no ``target_spec.optional``), so a dying object with no
+    legal target at all simply fizzles like any other single-target
+    triggered ability, rather than returning unattached.
+    """
+
+    def __init__(
+        self,
+        new_type_line: str,
+        new_oracle_text: str,
+        target_kind: Optional[str] = None,
+        source: Optional["GameObject"] = None,
+    ) -> None:
+        super().__init__(source)
+        self.new_type_line = new_type_line
+        self.new_oracle_text = new_oracle_text
+        self.target_spec = TargetSpec(kind=target_kind) if target_kind else None
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        if self.source is None or self.source.zone != Zone.GRAVEYARD:
+            return
+        attach_to = None
+        if self.target_spec is not None:
+            attach_to = targets[0] if targets else None
+            if attach_to is None:
+                return  # no legal target — the ability fizzles (RULE 608.2b)
+        context.return_dies_as_new_permanent(
+            self.source, self.new_type_line, self.new_oracle_text, attach_to=attach_to
+        )
+
+
 class PhaseOutEffect(GameEffect):
     """Phase a permanent out (RULE 702.26) — treated as though it doesn't
     exist until it phases back in at its controller's next untap step
@@ -3291,6 +3605,12 @@ class AddCountersEffect(GameEffect):
     mass, untargeted effect over the group `continuous.
     group_selector_objects` already resolves for pump/anthem clauses —
     mirrors `DealDamageEffect.selector`'s "no `target_spec` at all" shape.
+    ``subtypes`` (Vault 12: The Necropolis's own chapter III — "each
+    creature you control that's a Zombie or Mutant") further narrows that
+    same mass group to an OR-combined creature-subtype filter, checked
+    against the *live* object (unlike a DIES trigger's own subtype filter,
+    every affected creature here is still on the battlefield) — a real,
+    broader gap beyond this one card (tribal mass-counter effects are common).
     """
 
     def __init__(
@@ -3302,6 +3622,7 @@ class AddCountersEffect(GameEffect):
         optional: bool = False,
         selector: Optional[str] = None,
         count: int = 1,
+        subtypes: Optional[list[str]] = None,
     ) -> None:
         super().__init__(source)
         self.amount = amount
@@ -3309,6 +3630,7 @@ class AddCountersEffect(GameEffect):
         # net P/T the same machinery, just with opposite sign.
         self.kind = kind
         self.selector = selector if selector == "each_creature_you_control" else None
+        self.subtypes = [s.lower() for s in subtypes] if subtypes else None
         if self.selector is None and target_kind is not None:
             self.target_spec = TargetSpec(kind=target_kind, optional=optional, count=count)
 
@@ -3318,6 +3640,10 @@ class AddCountersEffect(GameEffect):
 
             controller_id = getattr(self.source, "controller_id", None)
             for obj in group_selector_objects(context.state, controller_id, "creatures_you_control"):
+                if self.subtypes is not None:
+                    sub = obj.card.type_line.partition("—")[2].strip().lower().split()
+                    if not any(s in sub for s in self.subtypes):
+                        continue
                 context.add_counters(obj, self.amount, self.kind, source=self.source)
             return
         if self.target_spec is not None and self.target_spec.count != 1:
@@ -3419,15 +3745,14 @@ class ProliferateEffect(GameEffect):
 
     RULE 701.30a's per-permanent/per-player "choose any number" is a real
     interactive choice this MVP doesn't offer (no counter-proliferation
-    picker exists yet) — auto-applies to *every* permanent that already
-    carries at least one counter, the same "auto-choose, no chooser in MVP"
-    simplification `SacrificeEffect`/`GameEngine._sacrifice_candidate` use
-    elsewhere. Player-level counters (poison/energy/experience) aren't
-    proliferated either, even though `RulesEngine.add_player_counters` now
-    exists (added for Innkeeper's Talent's doubling replacement) — this
-    effect just never loops over `context.players`/`Player.counters` to use
-    it, a documented gap rather than an engine limitation (no card in this
-    pool needs it yet).
+    picker exists yet) — auto-applies to *every* permanent/player that
+    already carries at least one counter, the same "auto-choose, no chooser
+    in MVP" simplification `SacrificeEffect`/`GameEngine._sacrifice_
+    candidate` use elsewhere. Player-level counters (poison via `Player.
+    poison`, everything else — rad/energy/experience — via `Player.
+    counters`) proliferate the same way (Vexing Radgull's own "otherwise,
+    proliferate" branch needs exactly this: a player who already has rad
+    counters gets another).
 
     ``times`` > 1 repeats the whole pass that many times (Contagion Engine's
     "Proliferate twice."/War of the Spark's "Proliferate three times.") —
@@ -3444,6 +3769,12 @@ class ProliferateEffect(GameEffect):
                 for kind in list(obj.counters.keys()):
                     if obj.counters.get(kind, 0) > 0:
                         context.add_counters(obj, 1, kind, source=self.source)
+            for player in list(context.state.players):
+                if player.poison > 0:
+                    context.add_player_counters(player, 1, "poison", source=self.source)
+                for kind in list(player.counters.keys()):
+                    if player.counters.get(kind, 0) > 0:
+                        context.add_player_counters(player, 1, kind, source=self.source)
 
 
 class RemoveCountersEffect(GameEffect):
@@ -3801,6 +4132,32 @@ class ChooseColorReplacement(GameEffect):
 
     def __init__(self, description: str = "") -> None:
         super().__init__(None)
+        self.description = description
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        return None  # consulted by RulesEngine._offer_enter_choices, not applied
+
+
+class ChooseNamedModeReplacement(GameEffect):
+    """"As this enters, choose <Label1> or <Label2>." (Struggle for Project
+    Purity: "choose Brotherhood or Enclave") — a third `enter_choice_effects`
+    sibling of `ChooseCreatureTypeReplacement`/`ChooseColorReplacement`,
+    for a small closed set of *named* flavour modes rather than a creature
+    type/colour. Each subsequent named-bullet ability ("Brotherhood — ...",
+    "Enclave — ...") stays a normal, always-bound ability, just gated by
+    `effect_binder._trigger_condition`'s ``"named_mode"`` predicate
+    checking the answer this stamps onto `GameObject.chosen_mode` — so the
+    "wrong" mode's ability simply never fires, rather than never being
+    bound at all.
+
+    ``options`` is the card's own printed label list (``["Brotherhood",
+    "Enclave"]``); `RulesEngine._offer_enter_choices` offers them as a
+    lowercase-slug choice and stamps the answer onto `chosen_mode`.
+    """
+
+    def __init__(self, options: Optional[list[str]] = None, description: str = "") -> None:
+        super().__init__(None)
+        self.options = list(options or [])
         self.description = description
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
@@ -4237,7 +4594,7 @@ EffectRegistry.register(
     "draw",
     lambda p: DrawCardEffect(
         count=p.get("count", 1), player=p.get("player"), count_selector=p.get("count_selector"),
-        target_kind=p.get("target_kind"),
+        target_kind=p.get("target_kind"), selector=p.get("selector"),
     ),
 )
 EffectRegistry.register(
@@ -4285,6 +4642,23 @@ EffectRegistry.register(
         amount=p.get("amount", 0), player=p.get("player"), selector=p.get("selector"),
         target_kind=p.get("target_kind"),
     ),
+)
+EffectRegistry.register(
+    "add_player_counters",
+    lambda p: AddPlayerCountersEffect(
+        amount=p.get("amount", 0), kind=p.get("kind", "rad"), player=p.get("player"),
+        selector=p.get("selector"), target_kind=p.get("target_kind"),
+    ),
+)
+EffectRegistry.register(
+    "lose_all_player_counters",
+    lambda p: LoseAllPlayerCountersEffect(
+        kind=p.get("kind", "rad"), player=p.get("player"), target_kind=p.get("target_kind"),
+    ),
+)
+EffectRegistry.register(
+    "dies_grants_rad_counters_equal_power",
+    lambda p: DiesGrantsRadCountersEqualPowerEffect(kind=p.get("kind", "rad")),
 )
 EffectRegistry.register(
     "counter",
@@ -4509,6 +4883,17 @@ EffectRegistry.register(
         description=p.get("description", ""),
     ),
 )
+EffectRegistry.register(
+    # RULE 603.7-adjacent recurring player-scoped trigger (Nuka-Nuke
+    # Launcher's "until the end of defending player's next turn, that
+    # player gets rad counters whenever they cast a spell").
+    "install_temporary_player_trigger",
+    lambda p: InstallTemporaryPlayerTriggerEffect(
+        event_type=p.get("event_type", "SPELL_CAST"),
+        effects=list(p.get("effects", [])),
+        description=p.get("description", ""),
+    ),
+)
 EffectRegistry.register("take_extra_turn", lambda p: TakeExtraTurnEffect())
 EffectRegistry.register(
     "cheat_creature_from_hand",  # Sneak Attack/Meek Attack
@@ -4584,6 +4969,12 @@ EffectRegistry.register(
     lambda p: ChooseColorReplacement(),
 )
 EffectRegistry.register(
+    # "As this enters, choose <Label1> or <Label2>." (Struggle for Project
+    # Purity-shaped) — hand-authored only, no oracle-text grammar yet.
+    "choose_named_mode",
+    lambda p: ChooseNamedModeReplacement(options=list(p.get("options", []))),
+)
+EffectRegistry.register(
     "become_copy_until_eot",  # "~ becomes a copy of target creature until end of turn" (Cursed Mirror)
     lambda p: BecomeCopyUntilEndOfTurnEffect(
         target=p.get("target"),
@@ -4629,6 +5020,7 @@ EffectRegistry.register(
         # amount per card) — this is the *target* count (RULE 115.1a N>=2,
         # "put a counter on each of up to two target creatures").
         count=p.get("target_count", 1),
+        subtypes=p.get("subtypes"),
     ),
 )
 EffectRegistry.register(
@@ -4740,6 +5132,17 @@ EffectRegistry.register(
 )
 EffectRegistry.register(
     "return_from_graveyard_transformed", lambda p: ReturnFromGraveyardTransformedEffect()
+)
+EffectRegistry.register(
+    # "return it to the battlefield. It's a[n] <type> with '<ability>'. ~
+    # loses all other abilities." (Harold and Bob, First Numens) —
+    # hand-authored only, no oracle-text grammar for this shape yet.
+    "return_dies_as_new_permanent",
+    lambda p: ReturnDiesAsNewPermanentEffect(
+        new_type_line=p.get("new_type_line", ""),
+        new_oracle_text=p.get("new_oracle_text", ""),
+        target_kind=p.get("target_kind"),
+    ),
 )
 EffectRegistry.register("become_prepared", lambda p: BecomePreparedEffect())
 EffectRegistry.register(
@@ -5076,6 +5479,17 @@ EffectRegistry.register(
     lambda p: StaticAbility("no_max_hand_size", affects=p.get("affects", "you"), params={}),
 )
 EffectRegistry.register(
+    # "You gain life rather than lose life from radiation." (RULE 728.1a,
+    # Strong, the Brutish Thespian) — consulted by `RulesEngine.lose_life`
+    # (`continuous.has_radiation_life_gain`) before applying a
+    # ``cause="radiation"`` life loss, redirecting it into a life *gain* of
+    # the same amount instead. A per-player permission static, the same
+    # "outside the layer engine proper" treatment as `no_max_hand_size`/
+    # `no_untap_optional`.
+    "radiation_life_gain",
+    lambda p: StaticAbility("radiation_life_gain", affects=p.get("affects", "you"), params={}),
+)
+EffectRegistry.register(
     # "Creatures entering don't cause abilities to trigger." (RULE 603,
     # Tocatli Honor Guard/Hushwing Gryff/Torpor Orb) — global: silences every
     # triggered ability (including the entering object's own) that would fire
@@ -5205,6 +5619,57 @@ def _prevent_damage_replacement(params: dict[str, Any]) -> ReplacementEffect:
         if prevented_to <= 0:
             return None  # fully prevented — the event doesn't happen
         return event.copy_with(amount=prevented_to)
+
+    effect.replacement_fn = replace
+    return effect
+
+
+def _prevent_damage_convert_counters_replacement(params: dict[str, Any]) -> ReplacementEffect:
+    """Prevent damage to the source while it has >=1 ``remove_kind`` counter,
+    remove up to that many (capped by how many it actually has), then grant
+    ``grant_kind`` counters equal to however many were actually removed
+    (RULE 615/616 compound shield — Bloatfly Swarm: "If damage would be dealt
+    to this creature while it has a +1/+1 counter on it, prevent that
+    damage, remove that many +1/+1 counters from it, then give each player a
+    rad counter for each +1/+1 counter removed this way").
+
+    "That many" ties the removed-counter count to the damage amount that
+    would have been dealt (not a flat number), so this can't be expressed as
+    a plain `_prevent_damage_replacement` + a separate one-shot — the removal
+    and the grant both need the *actual* damage amount, known only inside
+    the replacement itself. ``to`` is always ``"self"`` in practice (the
+    only real card needing this protects only its own source); ``grant_
+    selector`` reuses `AddPlayerCountersEffect`'s vocabulary (``"each_
+    player"``/``"each_opponent"``), read live off `context.state.players`
+    rather than through that effect class, since this fires mid-replacement
+    (before any stack item exists to carry an `EffectSpec`).
+    """
+    remove_kind = str(params.get("remove_kind", "+1/+1"))
+    grant_kind = str(params.get("grant_kind", "rad"))
+    grant_selector = str(params.get("grant_selector", "each_player"))
+    effect = ReplacementEffect(
+        event_type=EventType.DAMAGE,
+        replacement_fn=lambda e, c: e,  # replaced below once `effect` exists
+        description=str(params.get("description", "")),
+    )
+
+    def replace(event: GameEvent, context: GameContext) -> Optional[GameEvent]:
+        src = effect.source
+        if src is None or event.get("is_player") or event.get("target_id") != src.instance_id:
+            return event
+        current = src.counters.get(remove_kind, 0)
+        if current <= 0:
+            return event
+        dealt = int(event.get("amount", 0) or 0)
+        if dealt <= 0:
+            return event
+        removed = min(current, dealt)
+        context.engine.add_counters(src, -removed, remove_kind)
+        for player in context.state.players:
+            if grant_selector == "each_opponent" and player.id == src.controller_id:
+                continue
+            context.engine.add_player_counters(player, removed, grant_kind, source=src)
+        return None  # fully prevented (RULE 614.5 — the damage never happens)
 
     effect.replacement_fn = replace
     return effect
@@ -5461,6 +5926,7 @@ class ReplacementRegistry:
 
 
 ReplacementRegistry.register("prevent_damage", _prevent_damage_replacement)
+ReplacementRegistry.register("prevent_damage_convert_counters", _prevent_damage_convert_counters_replacement)
 ReplacementRegistry.register("double_damage", _double_damage_replacement)
 ReplacementRegistry.register("additional_damage", _additional_damage_replacement)
 ReplacementRegistry.register("double_counters", _double_counters_replacement)

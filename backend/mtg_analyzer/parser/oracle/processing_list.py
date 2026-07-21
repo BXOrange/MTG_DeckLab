@@ -67,6 +67,11 @@ class CoverageReport:
 
     total: int = 0
     modeled: int = 0
+    #: Cards whose only unclaimed clauses are a permanent non-goal (Stickers,
+    #: RULE 123 — `gate.NEVER_SUPPORTED`), not an ordinary backlog gap. Counted
+    #: separately from `modeled` so the headline coverage fraction isn't
+    #: inflated by cards that will never actually behave.
+    never_supported: int = 0
     #: Processing list: templates ranked by cards-unlocked, descending.
     processing_list: list[TemplateEntry] = None  # type: ignore[assignment]
 
@@ -82,6 +87,7 @@ class CoverageReport:
         return {
             "total": self.total,
             "modeled": self.modeled,
+            "never_supported": self.never_supported,
             "modeled_fraction": round(self.modeled_fraction, 4),
             "processing_list": [e.as_tuple() for e in self.processing_list],
         }
@@ -96,12 +102,16 @@ def coverage_report(results: Iterable[ParseResult]) -> CoverageReport:
     """
     total = 0
     modeled = 0
+    never_supported = 0
     template_cards: Counter[str] = Counter()
 
     for result in results:
         total += 1
         if result.modeled:
             modeled += 1
+            continue
+        if result.never_supported:
+            never_supported += 1
             continue
         templates = {abstract_clause(c) for c in result.unclaimed if c.strip()}
         for template in templates:
@@ -111,7 +121,9 @@ def coverage_report(results: Iterable[ParseResult]) -> CoverageReport:
         TemplateEntry(template=t, cards=n)
         for t, n in sorted(template_cards.items(), key=lambda kv: (-kv[1], kv[0]))
     ]
-    return CoverageReport(total=total, modeled=modeled, processing_list=ranked)
+    return CoverageReport(
+        total=total, modeled=modeled, never_supported=never_supported, processing_list=ranked
+    )
 
 
 def coverage_over_cards(cards: Iterable[Any]) -> CoverageReport:

@@ -3030,6 +3030,56 @@ textarea {
   font-size: 0.85rem;
 }
 
+.impl-group {
+  margin: 1.5rem 0 0;
+}
+
+.impl-group:first-of-type {
+  margin-top: 0;
+}
+
+.impl-group-head {
+  display: flex;
+  align-items: baseline;
+  gap: 0.6rem;
+  margin-bottom: 0.6rem;
+  padding-bottom: 0.3rem;
+  border-bottom: 1px solid var(--border);
+}
+
+.impl-group-head h3 {
+  margin: 0;
+  font-size: 1.05rem;
+}
+
+.impl-uc {
+  font-size: 0.68rem;
+  font-weight: 700;
+  color: var(--accent);
+  white-space: nowrap;
+}
+
+.impl-chapter {
+  margin: 1rem 0 0;
+}
+
+.impl-chapter:first-of-type {
+  margin-top: 0;
+}
+
+.impl-chapter-head {
+  display: flex;
+  align-items: baseline;
+  gap: 0.5rem;
+  margin-bottom: 0.5rem;
+}
+
+.impl-chapter-head h4 {
+  margin: 0;
+  font-size: 0.88rem;
+  color: var(--text-dim);
+}
+
 .impl-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
@@ -3060,13 +3110,6 @@ textarea {
   font-weight: 700;
   color: var(--accent);
   white-space: nowrap;
-}
-
-.impl-intro {
-  margin: 0.35rem 0 0.5rem;
-  font-size: 0.76rem;
-  color: var(--text-dim);
-  line-height: 1.4;
 }
 
 .impl-list {

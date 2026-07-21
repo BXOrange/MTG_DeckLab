@@ -38,6 +38,35 @@ _TRIGGER_EVENTS: list[tuple[re.Pattern[str], str]] = [
     (re.compile(r"\bblocks\b"), "BLOCKS"),
 ]
 
+#: The same four verbs as a plain word → `EventType` dict, for the compound
+#: "~ enters or attacks" shape below (`_SELF_MULTI_EVENT_RE`) — kept
+#: separate from `_TRIGGER_EVENTS`' regex/event pairs since that list is
+#: matched by `.search()` (first hit wins, order matters for a single-verb
+#: condition) while this one needs an exact per-verb lookup instead.
+_VERB_EVENTS: dict[str, str] = {
+    "enters": "ENTERS_BATTLEFIELD", "dies": "DIES", "attacks": "ATTACKS", "blocks": "BLOCKS",
+}
+
+#: RULE 603.1's compound "~ <verb> or <verb>" trigger condition (The Wise
+#: Mothman: "Whenever The Wise Mothman enters or attacks, ...") — two
+#: *different* firing events for the same self-subject ability, not the
+#: single-event shape `_trigger_event`/`_trigger_condition` handle (a bare
+#: "~ enters or attacks" fails `_SELF_SUBJECT_RE`'s anchored single-verb
+#: match today, so it already fails closed rather than silently binding
+#: just the first verb — this is real, additional recognition, not a bugfix).
+#: Self-subject only (no real card needs a "group"/"attached_permanent"
+#: compound-event trigger yet); `AbilitySpec.trigger["event"]` becomes a
+#: *list* of two `EventType` strings instead of one, and `effect_binder.
+#: bind_ability` builds one `TriggeredAbility` per listed event, each with
+#: its own freshly-bound effects (never sharing effect instances across the
+#: two abilities).
+_SELF_MULTI_EVENT_RE = re.compile(
+    r"^(?:~|this (?:creature|artifact|enchantment|land|permanent|equipment))\s+"
+    r"(?P<v1>enters|dies|attacks|blocks)(?:\s+the\s+battlefield)?"
+    r"\s+or\s+"
+    r"(?P<v2>enters|dies|attacks|blocks)(?:\s+the\s+battlefield)?$"
+)
+
 #: A triggered-ability wrapper: "When/Whenever/At <condition>, <body>".
 _TRIGGER_RE = re.compile(r"^(?:when|whenever|at)\b(?P<cond>[^,]*),\s*(?P<body>.+)$", re.S)
 
@@ -133,6 +162,22 @@ _SELF_SUBJECT_RE = re.compile(
     r"(?:enters|dies|attacks|blocks)(?:\s+the\s+battlefield)?$"
 )
 
+#: RULE 303.4/301.5's "enchanted/equipped creature" trigger subject (Acquired
+#: Mutation's "whenever enchanted creature attacks", a Sword's "whenever
+#: equipped creature deals combat damage to a player" — the latter still
+#: reaches the engine only via the hand-authored catalogue, since its own
+#: wrapper is `_SELF_DAMAGE_TRIGGER_RE`'s ``~``-only grammar, not this one).
+#: Maps onto `effect_binder._subject_condition`'s existing
+#: ``{"subject": "attached_permanent"}`` predicate — that engine primitive
+#: already exists (built for the Sword cycle); only the oracle-text
+#: recognition was missing. ``permanent``/``land``/``artifact`` included
+#: alongside ``creature`` since Auras/Equipment can enchant/equip any of
+#: those on some real cards.
+_ATTACHED_SUBJECT_RE = re.compile(
+    r"^(?:enchanted|equipped)\s+(?:creature|permanent|land|artifact)\s+"
+    r"(?:enters|dies|attacks|blocks)(?:\s+the\s+battlefield)?$"
+)
+
 #: The card-type words a "group" trigger condition can scope to (RULE 613.6-
 #: adjacent vocabulary shared with `catalogue.static_handlers`'s anthem
 #: selectors) — deliberately small: only what `models/game_object.py`'s
@@ -152,6 +197,37 @@ _GROUP_SUBJECT_RE = re.compile(
     r"\s+(?:enters|dies|attacks|blocks)"
     r"(?:\s+the\s+battlefield)?"
     r"(?P<you_b> under your control)?$"
+)
+
+#: RULE 603.1's condition subject, scoped by a **creature subtype** instead
+#: of `_GROUP_TYPE_WORDS`'s closed main-type vocabulary (The Ghoul,
+#: Gunslinger: "another nontoken Zombie or Mutant you control dies" — a
+#: real, broader gap: tribal "dies"/"enters"/"attacks" triggers are common
+#: beyond this one card). One or more capitalized subtype words joined by
+#: "or", an optional leading "nontoken" (RULE 111.9's "isn't a token"),
+#: always "you control" in practice (no real card leaves this bare for a
+#: subtype-scoped trigger) — checked against `EventType`'s own ``subtypes``/
+#: ``is_token`` payload (`effect_binder._subject_condition`, since a DIES
+#: event's object has already left the battlefield by the time a trigger
+#: check runs — RULE 400.7 — so a live lookup can't see its subtypes).
+_GROUP_SUBTYPE_SUBJECT_RE = re.compile(
+    r"^(?P<article>a|another)\s+(?P<nontoken>nontoken\s+)?"
+    r"(?P<subtypes>[a-z]+(?:\s+or\s+[a-z]+)*)\s+you control\s+"
+    r"(?:enters|dies|attacks|blocks)(?:\s+the\s+battlefield)?$"
+)
+
+#: The "~ or another <subject>" merge (The Ghoul, Gunslinger's own actual
+#: printed condition: "The Ghoul or another nontoken Zombie or Mutant you
+#: control dies") — this ability's own source *or* any matching battlefield
+#: object, not either alone. A dedicated subject (``"self_or_group"``)
+#: rather than composing "self"/"group" as two independent predicates,
+#: since RULE 603.1 wants their **union** (either firing condition puts the
+#: trigger on the stack) — a plain AND-composition (`_trigger_condition`'s
+#: usual multi-predicate style) would wrongly require *both* at once.
+_SELF_OR_GROUP_SUBTYPE_RE = re.compile(
+    r"^~ or another\s+(?P<nontoken>nontoken\s+)?"
+    r"(?P<subtypes>[a-z]+(?:\s+or\s+[a-z]+)*)\s+you control\s+"
+    r"(?:enters|dies|attacks|blocks)(?:\s+the\s+battlefield)?$"
 )
 
 #: An activated-ability wrapper: "<cost>: <effect>" (RULE 602.1). The cost is
@@ -229,6 +305,17 @@ _CONNECTORS: tuple[str, ...] = (r"\.\s+", r";\s+", r",?\s+then\s+", r"\s+and\s+"
 #: clause of its own), so it fails closed here too rather than needing a
 #: separate check.
 _KICKED_CONDITION_RE = re.compile(r"^if this spell was kicked,\s*(?P<rest>.+)$", re.IGNORECASE)
+
+#: RULE 603.4-style intervening-if keyed to a just-chosen *target*, rather
+#: than an announced-cost flag (The Ghoul, Gunslinger: "target player gets
+#: two rad counters. If that player is you, create a Treasure token.") —
+#: mirrors `_KICKED_CONDITION_RE`'s "wrap the rest, tag the condition" idiom
+#: exactly, onto `EffectSpec.condition`'s ``"target_is_controller"`` key
+#: instead of ``"kicked"``. "If that player isn't you, ..." (the negation)
+#: is real MTG templating too, so both polarities are recognised here.
+_TARGET_IS_CONTROLLER_RE = re.compile(
+    r"^if that player is(?P<neg> not|n't)? you,\s*(?P<rest>.+)$", re.IGNORECASE
+)
 
 #: RULE 601.2b/604.3's additional-cost line: "As an additional cost to cast
 #: this spell, <cost>." — instants/sorceries only (gated by
@@ -340,11 +427,18 @@ def _trigger_event(condition: str) -> Optional[str]:
 def _trigger_condition(condition: str) -> Optional[dict[str, Any]]:
     """RULE 603.1's condition *subject* → the `AbilitySpec.trigger["condition"]` dict.
 
-    Either ``{"subject": "self"}`` (this ability's own source only) or
-    ``{"subject": "group", "type": ..., "controller": "you"|"any", "other":
-    bool}`` (any matching battlefield object, e.g. a Soul-Warden-shaped
-    "another creature you control enters"). ``None`` — fail-closed — for a
-    condition phrase that isn't one of these two recognised shapes (e.g. "you
+    Either ``{"subject": "self"}`` (this ability's own source only),
+    ``{"subject": "attached_permanent"}`` (RULE 303.4/301.5's "enchanted/
+    equipped creature", Acquired Mutation-shaped), ``{"subject": "group",
+    "type": ..., "controller": "you"|"any", "other": bool}`` (any matching
+    battlefield object, e.g. a Soul-Warden-shaped "another creature you
+    control enters" — or, with ``"subtypes"``/``"nontoken"`` instead of
+    ``"type"``, a tribal filter, The Ghoul Gunslinger-shaped "another
+    nontoken Zombie or Mutant you control dies"), or ``{"subject":
+    "self_or_group", ...}`` (the same group filter, but the ability's own
+    source *also* qualifies — "~ or another <group> ..."). ``None`` —
+    fail-closed — for a
+    condition phrase that isn't one of these recognised shapes (e.g. "you
     cast a spell", a multi-event "enters or attacks", or anything RULE 603.1
     covers that this grammar doesn't yet model): the caller leaves the whole
     trigger unclaimed rather than binding a wrongly-scoped (or unscoped, i.e.
@@ -353,12 +447,41 @@ def _trigger_condition(condition: str) -> Optional[dict[str, Any]]:
     cond = condition.strip()
     if _SELF_SUBJECT_RE.match(cond):
         return {"subject": "self"}
+    if _ATTACHED_SUBJECT_RE.match(cond):
+        return {"subject": "attached_permanent"}
+    m = _SELF_OR_GROUP_SUBTYPE_RE.match(cond)
+    if m is not None:
+        return {
+            "subject": "self_or_group",
+            "subtypes": [w.strip() for w in m.group("subtypes").split(" or ")],
+            "nontoken": bool(m.group("nontoken")),
+            "controller": "you",
+            "other": True,
+        }
+    # Tried before the subtype variant below: a bare main-type word
+    # ("creature"/"artifact"/…) matches *both* regexes (`[a-z]+` is
+    # unavoidably as permissive as the closed `_GROUP_TYPE_WORDS` list it
+    # overlaps with) — `_GROUP_SUBJECT_RE`'s exact-vocabulary match must win
+    # so "a creature you control enters" keeps its ``"type"`` shape instead
+    # of being misread as a one-word tribal filter with no real subtype.
     m = _GROUP_SUBJECT_RE.match(cond)
     if m is not None:
         return {
             "subject": "group",
             "type": m.group("type"),
             "controller": "you" if (m.group("you_a") or m.group("you_b")) else "any",
+            "other": m.group("article") == "another",
+        }
+    # Only reached once the exact main-type vocabulary above has already
+    # failed to match — a genuine tribal filter ("another nontoken Zombie
+    # or Mutant you control dies", The Ghoul Gunslinger-shaped).
+    m = _GROUP_SUBTYPE_SUBJECT_RE.match(cond)
+    if m is not None:
+        return {
+            "subject": "group",
+            "subtypes": [w.strip() for w in m.group("subtypes").split(" or ")],
+            "nontoken": bool(m.group("nontoken")),
+            "controller": "you",
             "other": m.group("article") == "another",
         }
     return None
@@ -382,6 +505,17 @@ def parse_effect_body(body: str) -> Optional[list[EffectSpec]]:
         if inner is None:
             return None
         return [EffectSpec(e.type, dict(e.params), condition={"kicked": True}) for e in inner]
+
+    target_is_you = _TARGET_IS_CONTROLLER_RE.match(body)
+    if target_is_you is not None:
+        inner = parse_effect_body(target_is_you.group("rest"))
+        if inner is None:
+            return None
+        wants_controller = not target_is_you.group("neg")
+        return [
+            EffectSpec(e.type, dict(e.params), condition={"target_is_controller": wants_controller})
+            for e in inner
+        ]
 
     direct = match_clause(body)
     if direct is not None:
@@ -633,12 +767,17 @@ def segment_line(
     trig = _TRIGGER_RE.match(raw)
     if trig is not None:
         cond_text = trig.group("cond")
-        event = _trigger_event(cond_text)
-        if event is None:
-            return Segment(raw=raw)  # unrecognised trigger → unclaimed
-        condition = _trigger_condition(cond_text)
-        if condition is None:
-            return Segment(raw=raw)  # unrecognised subject scope → unclaimed (fail-closed)
+        multi = _SELF_MULTI_EVENT_RE.match(cond_text.strip())
+        if multi is not None:
+            event: "str | list[str]" = [_VERB_EVENTS[multi.group("v1")], _VERB_EVENTS[multi.group("v2")]]
+            condition: Optional[dict[str, Any]] = {"subject": "self"}
+        else:
+            event = _trigger_event(cond_text)
+            if event is None:
+                return Segment(raw=raw)  # unrecognised trigger → unclaimed
+            condition = _trigger_condition(cond_text)
+            if condition is None:
+                return Segment(raw=raw)  # unrecognised subject scope → unclaimed (fail-closed)
         body, optional = _peel_optional(trig.group("body"))
         effects = parse_effect_body(body)
         if effects is None:

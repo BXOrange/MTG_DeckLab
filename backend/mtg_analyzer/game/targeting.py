@@ -100,6 +100,10 @@ ALLOWED_TARGET_KINDS: frozenset[str] = frozenset(
         # real card in this codebase needing it); add its WUBRG siblings
         # here the same way once a card needs "target Island"/etc.
         "forest",
+        # "enchant Forest you control" (Harold and Bob, First Numens) —
+        # `forest` narrowed to the controller's own, the same split
+        # `land_you_control` is to a bare "land".
+        "forest_you_control",
     }
 ) | _GRAVEYARD_TARGET_KINDS
 
@@ -225,6 +229,7 @@ class TargetSpec:
             "equipment_you_control": "Ausrüstung unter deiner Kontrolle",
             "nonbasic_land": "nichtgrundlegendes Land",
             "legendary_permanent": "legendäre bleibende Karte",
+            "forest_you_control": "Wald unter deiner Kontrolle",
         }.get(self.kind, self.kind)
 
 
@@ -506,6 +511,18 @@ def legal_targets(
             {"instance_id": o.instance_id, "name": o.name}
             for o in state.permanents()
             if o.is_land and "forest" in o.card.type_line.lower()
+            and o is not source and _targetable_by(o, source)
+        ]
+    if kind == "forest_you_control":
+        # "enchant Forest you control" (Harold and Bob, First Numens's own
+        # dies-return-as-an-Aura shape) — `land_you_control` narrowed to
+        # just the Forest subtype, the same split `forest` above is to
+        # `nonbasic_land`.
+        return [
+            {"instance_id": o.instance_id, "name": o.name}
+            for o in state.permanents()
+            if o.is_land and "forest" in o.card.type_line.lower()
+            and o.controller_id == controller_id
             and o is not source and _targetable_by(o, source)
         ]
     if kind == "legendary_permanent":

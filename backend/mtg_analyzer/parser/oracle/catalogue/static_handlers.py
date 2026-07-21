@@ -199,6 +199,16 @@ _NO_UNTAP_OPTIONAL_RE = re.compile(
     r"you may choose not to untap ~ during your untap step", re.IGNORECASE
 )
 
+# "You gain life rather than lose life from radiation."  (RULE 728.1a,
+# Strong, the Brutish Thespian) — a per-player permission static redirecting
+# a ``cause="radiation"`` life loss into a gain instead
+# (`continuous.has_radiation_life_gain`, `RulesEngine.lose_life`). No
+# "players gain..." unscoped variant exists in the real card pool yet, so
+# unlike `_NO_MAX_HAND_SIZE_RE` this has no ``subject`` alternation.
+_RADIATION_LIFE_GAIN_RE = re.compile(
+    r"you gain life rather than lose life from radiation", re.IGNORECASE
+)
+
 # "~ doesn't untap during your untap step."  (RULE 502.3-adjacent
 # self-restriction, Basalt Monolith/Grim Monolith/Mana Vault) — `~` is the
 # self-reference token `normalize._fold_self_reference`/`_fold_self_name`
@@ -708,6 +718,9 @@ def static_effect_specs(clause: str) -> Optional[list[EffectSpec]]:
     if m is not None:
         affects = "each_player" if m.group("subject").lower() == "players have" else "you"
         return [EffectSpec("no_max_hand_size", {"affects": affects})]
+
+    if _RADIATION_LIFE_GAIN_RE.fullmatch(text):
+        return [EffectSpec("radiation_life_gain", {})]
 
     if _NO_UNTAP_OPTIONAL_RE.fullmatch(text):
         return [EffectSpec("no_untap_optional", {})]

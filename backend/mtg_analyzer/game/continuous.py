@@ -445,6 +445,13 @@ def count_selector(state: "GameState", controller_id: Optional[str], selector: s
         except KeyError:
             player = None
         return len(player.graveyard) if player is not None else 0
+    if selector == "total_rad_counters_among_players":
+        # Vault 12: The Necropolis chapter II: "X is the total number of rad
+        # counters among players" — the one cross-player aggregate amount in
+        # this pool, unlike every entry above (all scoped to ``controller_id``):
+        # sums `Player.counters["rad"]` across *every* player regardless of
+        # who controls this effect's source.
+        return sum(p.counters.get("rad", 0) for p in state.players)
     return 0
 
 
@@ -1175,6 +1182,21 @@ def has_no_maximum_hand_size(state: "GameState", player: "Player") -> bool:
     return False
 
 
+def has_radiation_life_gain(state: "GameState", player: "Player") -> bool:
+    """RULE 728.1a: "You gain life rather than lose life from radiation."
+    (Strong, the Brutish Thespian) — consulted by `RulesEngine.lose_life`
+    before applying a ``cause="radiation"`` life loss, same "permission
+    static outside the layer engine proper" treatment as
+    `has_no_maximum_hand_size`/`no_untap_optional`.
+    """
+    for ability in _battlefield_static_abilities(state):
+        if ability.layer != "radiation_life_gain":
+            continue
+        if ability.affects == "each_player" or getattr(ability.source, "controller_id", None) == player.id:
+            return True
+    return False
+
+
 def untap_cap_for_lands(state: "GameState") -> Optional[int]:
     """The global cap on how many lands *any* player may untap during their
     untap step this turn (RULE 502.3-adjacent, Winter Orb-shaped: "As long
@@ -1271,7 +1293,7 @@ def enters_tapped_from_static(state: "GameState", obj: "GameObject") -> bool:
 _NON_RULE_613_LAYERS: frozenset[str] = frozenset(
     {"cost", "no_untap", "no_untap_optional", "enters_tapped", "activation_prohibition",
      "cast_limit", "draw_limit", "trigger_prohibition", "untap_cap", "extra_land_drop",
-     "no_max_hand_size"}
+     "no_max_hand_size", "radiation_life_gain"}
 )
 
 
@@ -1345,6 +1367,9 @@ def _describe_ability(ability: StaticAbility) -> str:
     if ability.layer == "no_max_hand_size":
         who = "each player" if ability.affects == "each_player" else "its controller"
         return f"{who} has no maximum hand size"
+    if ability.layer == "radiation_life_gain":
+        who = "each player" if ability.affects == "each_player" else "its controller"
+        return f"{who} gains life rather than loses life from radiation"
     if ability.layer == "trigger_prohibition":
         subject = f"{p['subject_type']}s" if p.get("subject_type") else "objects"
         return f"{subject} entering don't cause abilities to trigger"

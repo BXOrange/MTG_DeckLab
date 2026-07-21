@@ -52,13 +52,13 @@ else is comparatively narrow, additive work.
 
 | CR area | State | Notes |
 | --- | --- | --- |
-| 100–123 Game concepts | ✅ mostly | mana, life, damage, counters, targets, costs, timing (solo + basic interactive priority), tokens, Emblems (114). Stickers (123) not modeled. |
+| 100–123 Game concepts | ✅ mostly | mana, life, damage, counters, targets, costs, timing (solo + basic interactive priority), tokens, Emblems (114). Stickers (123) are a **permanent non-goal, never to be implemented** — see M6 below; the parser classifies any mentioning card `NEVER_SUPPORTED`. |
 | 200–213 Parts of a card | ✅ mostly | Card model complete, loyalty tracked and playable. Defense (210)/Battles not. |
-| 300–315 Card types | ◐ | artifact/creature/enchant/instant/land/sorcery/planeswalker done, incl. Aura/Equip/Fortify/Reconfigure attachment. Battles/dungeons/adventure/split not; Saga/DFC partial (see 700–733). |
+| 300–315 Card types | ◐ | artifact/creature/enchant/instant/land/sorcery/planeswalker done, incl. Aura/Equip/Fortify/Reconfigure attachment, Adventure, Split/Fuse, Saga (incl. chapter abilities), DFC transform/MDFC, Class/Leveler. Battles/dungeons not. |
 | 400–408 Zones | ✅ | battlefield/stack/hand/library/graveyard/exile/command all present. |
 | 500–514 Turn structure | ✅ | complete, walked from a sequence with skip effects. |
 | 600–616 Spells/abilities/effects | ◐ | casting/activated/triggered/static/mana/replacement/loyalty (606) done; layers (613) done except layer 3 + full dependency ordering (deliberately deferred, see M3); replacement/prevention ordering (616.1e/f) is interactive, by the affected player. |
-| 700–733 Additional | ◐ | SBAs (704) done; keyword abilities (702) recognized + bound (flag + landwalk); keyword *actions* (701) partial via effects. Copying (707): token copies + `become_copy` done, not a true layer-1 continuous effect. DFC transform (712.3–9) + MDFC back-face cast (712.10) done; Saga (714) lore-counter mechanics done, chapter *abilities* not; Adventure (715)/Split-Fuse (709)/Class (716)/Leveler (711)/Day-Night (731) not. Monarch (725)/Initiative (726) designations + their inherent triggers done; Initiative's own "venture into the dungeon" (726.2) not (depends on Dungeons, 309). |
+| 700–733 Additional | ◐ | SBAs (704) done; keyword abilities (702) recognized + bound (flag + landwalk); keyword *actions* (701) partial via effects. Copying (707): token copies + `become_copy` done, not a true layer-1 continuous effect. Monarch (725)/Initiative (726) designations + their inherent triggers done; Initiative's own "venture into the dungeon" (726.2) not (depends on Dungeons, 309). See `backend/ToDo_Backend.md` for exact open edges. |
 | 800–811 Multiplayer | ✖ | interactive `pass_priority(player)` primitive built; `create_multiplayer` still raises, route returns 501. |
 | 900–905 Casual variants | ◐ | Commander (903) damage + command zone + tax (903.8) done. Others not. |
 
@@ -77,39 +77,13 @@ spells/abilities resolve without a hand-authored catalogue entry.
 Follows [`09_ORACLE_EFFECT_PARSER.md`](../concepts/09_ORACLE_EFFECT_PARSER.md).
 
 - Phase 0 (IR + binder + one card) and the Phase 1 *keyword* catalogue are **done**.
-- ⏳ **Remaining, priority-ordered by real cards-unlocked** (verified
-  2026-07-16 by running `processing_list.coverage_over_cards()` over the
-  live cache — 21.4% of 2,869 cards fully `MODELED`; **re-run this before
-  trusting the counts below**, the cache keeps growing and the ranking
-  shifts):
-  1. A real "up to two/three/N"/"up to X" **multi**-target choice (N>=2,
-     see Batch 11 above for why it's a separate, larger feature from the
-     N=1 case just shipped), a "remove a counter from ~" activation-cost
-     shape (`costs.py` — newly surfaced by an earlier batch's real-card
-     debugging, blocks Crystalline Crawler/Mana Bloom/Walking Ballista/
-     Triskelion/Wishclaw Talisman/Transmogrifying Wand — plausibly the
-     next highest-leverage single fix, not yet template-ranked), a
-     life-total-scaled amount ("lose life equal to that card's mana
-     value" — Reanimate/Rise from the Grave/Kenrith, newly surfaced by
-     an earlier batch, blocks otherwise-complete graveyard-recursion
-     cards), the remaining RULE 616.1 replacement-clause formulations
-     (`prevent_damage`'s one-shot-spell shape, differently-scoped/
-     compound-filter variants — see Batch 11), a kicked spell's "if
-     kicked, ... instead" *override* shape (as opposed to the additional-
-     effect shape Batch 11 covers), and the processing-list tail — "choose
-     \<n\> —"/"choose \<n\> or more —" (fixed and variable multi-*mode*
-     selection, RULE 700.2) is now done; remaining top blockers per the
-     (stale) live ranking: "you may look at the top card of your library
-     any time" (13, a standing *permission* rather than a one-shot/
-     triggered effect — no existing family shape to reuse), and
-     cost-modification statics. Monarch/Initiative/Emblems shipped
-     (Card-pool Batch 10).
-  2. **Related, same pipeline, separately tracked in `ToDo_Backend.md`**:
-    the mana-ability follow-up list from the 2026-07-15 Elf-mana-dork pass
-    is now fully done (spend restrictions, Leveler-gating, Deathrite
-    Shaman, "any combination of colors", and hand-zone activation) — not
-    cache-coverage-ranked since mana abilities are recognized without
-    needing a `MODELED` spec.
+- ⏳ **Remaining**: the oracle-parser long-tail (next-highest-leverage
+  families, ranked by `processing_list.coverage_over_cards()`) plus the
+  narrower family-level gaps are tracked in full, and kept current, in
+  `backend/ToDo_Backend.md` — read that file for the actual open item
+  list rather than this one; it goes stale here. Current coverage
+  headline (re-measure with `scripts/coverage_report.py` before trusting
+  it) lives in `CLAUDE.md`.
 - **Unblocks:** plain instants/sorceries/ETB-triggers/activated/static
   abilities from the handled families already resolve with no catalogue
   entry; is the seam M2 plugs into. *(docs/09 Phases 1–2.)*
@@ -166,15 +140,33 @@ All four are **done**
 Each is a `type_line`/layout the parser or a dedicated handler must own; most
 depend on M1, and copies feed M3's layer 1.
 
-- Adventure (715) & Split/Fuse (709): recognised structurally
-  (`Card.is_adventure`/`is_split`) but still resolve as the single
-  front-face spell — not started.
-- Battles (310), Dungeons (309) — not started.
+- Done: Adventure (715), Split/Fuse (709), Saga (714, incl. chapter
+  abilities), DFC transform/MDFC, Class (716)/Leveler (711).
+- Battles (310), Dungeons (309) — not started; scoped in
+  `backend/ToDo_Backend.md` "Card-type & structural coverage" (defense
+  counters/protector/attack-target-kind for Battles, command-zone
+  model/room-ability event/venture keyword action for Dungeons — zero
+  existing scaffolding for either).
 - Done: Emblems (114), Monarch (725) / Initiative (726) — Card-pool Batch
   10. Initiative's own "venture into the dungeon" (726.2) still depends on
   Dungeons above.
-- Deprioritized until a deck needs one: Stickers (123), Rad counters (728),
-  remaining multiplayer/casual variants.
+- Done: Rad counters (728) — an inherent, source-less, active-player-
+  controlled triggered ability, same `_collect_inherent_triggers` shape as
+  Monarch/Initiative; reuses the existing generic `Player.counters` slot.
+  See `Done_Backend.md`.
+- **Permanent non-goal — will never be implemented: Stickers (RULE 123).**
+  Not a "deprioritized until a deck needs one" gap like the remaining
+  multiplayer/casual variants below — this project has decided outright not
+  to model Sticker sheets/cards. Enforced at the parser level: any card
+  whose oracle text mentions "sticker" is classified `NEVER_SUPPORTED`
+  (`parser/oracle/gate.py`'s `_mentions_stickers`/`NEVER_SUPPORTED`,
+  PARSER_VERSION 20) instead of the ordinary `UNMODELED`, so it never
+  contributes unclaimed clauses to the processing-list backlog and is
+  tracked separately in coverage reporting (`CoverageReport.never_supported`,
+  `services/coverage_db.py`'s `NEVER_SUPPORTED` ledger value) rather than
+  either inflating or depressing the "real" coverage fraction.
+- Deprioritized until a deck needs one: remaining multiplayer/casual
+  variants.
 
 ### M7 — Product features (parallel track, not rules-engine)
 

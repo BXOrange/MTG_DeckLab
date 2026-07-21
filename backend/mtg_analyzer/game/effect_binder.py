@@ -27,6 +27,7 @@ from .effects import (
     AttachEffect,
     ChooseColorReplacement,
     ChooseCreatureTypeReplacement,
+    ChooseNamedModeReplacement,
     ConditionalEffect,
     EffectRegistry,
     GameEffect,
@@ -213,48 +214,105 @@ def _subject_condition(
 
         return _self_or_attached_ok
 
-    if subject == "group":
-        controller_id = getattr(source, "controller_id", None)
-        type_word = condition.get("type")
-        wants_you = condition.get("controller") == "you"
-        # "during each OTHER player's untap step" (Seedborn Muse) — the
-        # mirror image of ``"you"``: the event's player must be someone
-        # *besides* this ability's own controller.
-        wants_not_you = condition.get("controller") == "not_you"
-        other_only = bool(condition.get("other"))
-        controller_key = _GROUP_CONTROLLER_EVENT_KEYS.get(trigger.get("event"), "controller_id")
+    if subject in ("group", "self_or_group"):
+        group_ok = _build_group_ok(condition, source, trigger, instance_id)
+        if subject == "group":
+            return group_ok
 
-        def _group_ok(
-            event: Any,
-            context: Any,
-            iid=instance_id,
-            cid=controller_id,
-            tword=type_word,
-            you=wants_you,
-            not_you=wants_not_you,
-            other=other_only,
-            ckey=controller_key,
-        ) -> bool:
-            event_instance = event.get("instance_id")
-            if other and (event_instance is None or event_instance == iid):
-                return False
-            if you and event.get(ckey) != cid:
-                return False
-            if not_you and event.get(ckey) == cid:
-                return False
-            if tword and tword != "permanent":
-                types = event.get("object_types")
-                if types is None and event_instance is not None:
-                    state = getattr(context, "state", None)
-                    obj = state.find_object(event_instance) if state is not None else None
-                    types = sorted(obj.type_words) if obj is not None else None
-                if not types or tword not in types:
-                    return False
-            return True
+        # "self_or_group": RULE 603.1's "~ or another <group> ..." union —
+        # either this ability's own source, or a matching battlefield
+        # object (The Ghoul, Gunslinger). A real OR, not the usual AND-
+        # composition `_trigger_condition` builds every other predicate
+        # from, since RULE 603.1 wants *either* firing condition to place
+        # the trigger, not both simultaneously.
+        self_ok = _subject_condition({"condition": {"subject": "self"}}, source)
 
-        return _group_ok
+        def _self_or_group_ok(event: Any, context: Any, self_check=self_ok, group_check=group_ok) -> bool:
+            return self_check(event, context) or group_check(event, context)
+
+        return _self_or_group_ok
 
     return None
+
+
+def _build_group_ok(
+    condition: dict[str, Any], source: Optional[Any], trigger: dict[str, Any], instance_id: Optional[int]
+) -> Callable[[Any, Any], bool]:
+    """The predicate a ``{"subject": "group"}``/``"self_or_group"`` condition
+    needs to check *some* matching battlefield object — shared by both
+    subject kinds (`_subject_condition`), since "self_or_group" is just this
+    same filter OR-ed with the self check.
+
+    ``type`` (`_GROUP_TYPE_WORDS`, a main card type) and ``subtypes``/
+    ``nontoken`` (a creature-subtype tribal filter, The Ghoul Gunslinger's
+    "another nontoken Zombie or Mutant you control dies") are mutually
+    exclusive per condition dict (the segmenter only ever emits one or the
+    other) but both read the event's own stamped payload rather than a live
+    board lookup: a DIES event's object has already left the battlefield by
+    the time a trigger check runs (RULE 400.7), so `object_types`/
+    ``subtypes``/``is_token`` are snapshotted onto the event at fire time
+    (`RulesEngine.destroy`/`put_into_graveyard`'s DIES firing) exactly like
+    ``object_types`` already was for the plain ``type`` filter.
+    """
+    controller_id = getattr(source, "controller_id", None)
+    type_word = condition.get("type")
+    subtypes = condition.get("subtypes")
+    nontoken = bool(condition.get("nontoken"))
+    wants_you = condition.get("controller") == "you"
+    # "during each OTHER player's untap step" (Seedborn Muse) — the
+    # mirror image of ``"you"``: the event's player must be someone
+    # *besides* this ability's own controller.
+    wants_not_you = condition.get("controller") == "not_you"
+    other_only = bool(condition.get("other"))
+    controller_key = _GROUP_CONTROLLER_EVENT_KEYS.get(trigger.get("event"), "controller_id")
+
+    def _group_ok(
+        event: Any,
+        context: Any,
+        iid=instance_id,
+        cid=controller_id,
+        tword=type_word,
+        stypes=subtypes,
+        want_nontoken=nontoken,
+        you=wants_you,
+        not_you=wants_not_you,
+        other=other_only,
+        ckey=controller_key,
+    ) -> bool:
+        event_instance = event.get("instance_id")
+        if other and (event_instance is None or event_instance == iid):
+            return False
+        if you and event.get(ckey) != cid:
+            return False
+        if not_you and event.get(ckey) == cid:
+            return False
+        if tword and tword != "permanent":
+            types = event.get("object_types")
+            if types is None and event_instance is not None:
+                state = getattr(context, "state", None)
+                obj = state.find_object(event_instance) if state is not None else None
+                types = sorted(obj.type_words) if obj is not None else None
+            if not types or tword not in types:
+                return False
+        if stypes:
+            if want_nontoken and event.get("is_token"):
+                return False
+            event_subtypes = event.get("subtypes")
+            if event_subtypes is None and event_instance is not None:
+                state = getattr(context, "state", None)
+                obj = state.find_object(event_instance) if state is not None else None
+                event_subtypes = _card_subtypes(obj.card) if obj is not None else None
+            if not event_subtypes or not any(s in event_subtypes for s in stypes):
+                return False
+        return True
+
+    return _group_ok
+
+
+def _card_subtypes(card: Any) -> list[str]:
+    """Lowercase subtype words after a printed type line's em dash."""
+    type_line = str(getattr(card, "type_line", "") or "")
+    return type_line.partition("—")[2].strip().lower().split()
 
 
 def _trigger_condition(
@@ -406,6 +464,21 @@ def _trigger_condition(
 
         predicates.append(_level_ok)
 
+    # "Brotherhood — ..."/"Enclave — ..." (Struggle for Project Purity's
+    # own "as this enters, choose Brotherhood or Enclave" — `ChooseNamedModeReplacement`)
+    # — this ability only actually fires once its source's own chosen mode
+    # (a lowercase slug of the printed label, `RulesEngine.resolve_enter_
+    # choice`) matches. Checked live off the source each firing (like every
+    # other predicate here), never baked in at bind time, since the choice
+    # happens at ETB — after bind-on-load already built this ability.
+    named_mode = trigger.get("named_mode")
+    if named_mode:
+
+        def _named_mode_ok(event: Any, context: Any, src=source, mode=named_mode) -> bool:
+            return getattr(src, "chosen_mode", None) == mode
+
+        predicates.append(_named_mode_ok)
+
     if not predicates:
         return None
     if len(predicates) == 1:
@@ -419,13 +492,15 @@ def _trigger_condition(
 
 def bind_ability(
     spec: AbilitySpec, source: Optional[Any] = None
-) -> Union[list[GameEffect], list[ReplacementEffect], TriggeredAbility, ActivatedAbility]:
+) -> Union[list[GameEffect], list[ReplacementEffect], TriggeredAbility, list[TriggeredAbility], ActivatedAbility]:
     """Bind one validated `AbilitySpec` into its engine representation.
 
     Returns:
       * ``spell_effect`` → the list of one-shot effects (goes on a spell's
         ``spell_effects`` / a stack item),
-      * ``triggered``    → a `TriggeredAbility`,
+      * ``triggered``    → a `TriggeredAbility`, or a *list* of them for a
+        compound multi-event trigger ("~ enters or attacks" — see
+        `_SELF_MULTI_EVENT_RE`'s docstring in the segmenter),
       * ``static``       → the list of `StaticAbility` effects,
       * ``replacement``  → the list of `ReplacementEffect`s,
       * ``enter_replacement`` → the list of `EnterAsCopyReplacement`/
@@ -494,20 +569,40 @@ def bind_ability(
     if spec.ability_kind == "triggered":
         assert spec.trigger is not None  # validate() guarantees this
         modes = _build_mode_entries(spec.modes, source) if spec.modes else None
-        return TriggeredAbility(
-            trigger_event=spec.trigger["event"],
-            effects=effects,
-            modes=modes,
-            modes_or_both=bool(spec.modes.get("or_both", False)) if spec.modes else False,
-            modes_choose=int(spec.modes.get("choose", 1)) if spec.modes else 1,
-            modes_at_least=bool(spec.modes.get("at_least", False)) if spec.modes else False,
-            condition=_trigger_condition(spec.trigger, source),
-            optional=spec.optional,
-            controller_id=getattr(source, "controller_id", None),
-            source=source,
-            description=spec.raw_text,
-            reflexive=bool(spec.trigger.get("reflexive", False)),
-        )
+        trigger_event = spec.trigger["event"]
+
+        def _one(event: str, own_effects: list[GameEffect]) -> TriggeredAbility:
+            # `_trigger_condition`/`_subject_event_key` key off *this
+            # specific* event (e.g. DAMAGE's subject key differs from every
+            # other event's) — computed per-event via a single-event trigger
+            # dict, never off the original (possibly list-valued) ``event``
+            # key, which `_SUBJECT_EVENT_KEYS.get(...)` can't hash anyway.
+            single_trigger = {**spec.trigger, "event": event}
+            return TriggeredAbility(
+                trigger_event=event,
+                effects=own_effects,
+                modes=modes,
+                modes_or_both=bool(spec.modes.get("or_both", False)) if spec.modes else False,
+                modes_choose=int(spec.modes.get("choose", 1)) if spec.modes else 1,
+                modes_at_least=bool(spec.modes.get("at_least", False)) if spec.modes else False,
+                condition=_trigger_condition(single_trigger, source),
+                optional=spec.optional,
+                controller_id=getattr(source, "controller_id", None),
+                source=source,
+                description=spec.raw_text,
+                reflexive=bool(spec.trigger.get("reflexive", False)),
+            )
+
+        if isinstance(trigger_event, list):
+            # RULE 603.1's compound "~ enters or attacks" (The Wise Mothman,
+            # `parser.oracle.segmenter._SELF_MULTI_EVENT_RE`) — one
+            # `TriggeredAbility` per listed event, each with its own freshly
+            # bound effects (never sharing effect instances/state across
+            # the two abilities). `attach_to_object` extends
+            # `triggered_abilities` with this list instead of appending a
+            # single ability.
+            return [_one(evt, build_effects(effect_specs, source)) for evt in trigger_event]
+        return _one(trigger_event, effects)
 
     if spec.ability_kind == "static":
         # Each effect is a `StaticAbility` (from the anthem/grant_keyword/…
@@ -779,12 +874,13 @@ def attach_to_object(obj: Any, specs: list[AbilitySpec]) -> None:
     by whichever spec happens to carry the spell's "real" effects, keeping
     the parser/binder split simple regardless of line order on the card.
 
-    ``impulsive_draw_on_combat_damage``/``rebound``/``counter_death_return``
-    are the same "scan every spec" idiom, for hand-authored markers with no
-    effects of their own (RULE 603.4-style per-firing data — see
-    `AbilitySpec`'s docstring for each field, and `RulesEngine._collect_
-    impulsive_draw_triggers`/`_collect_counter_death_return_triggers`,
-    `cast_spell`/`resolve_top_of_stack` for ``rebound``).
+    ``impulsive_draw_on_combat_damage``/``rebound``/``counter_death_return``/
+    ``rad_counters_on_combat_damage`` are the same "scan every spec" idiom,
+    for hand-authored markers with no effects of their own (RULE 603.4-style
+    per-firing data — see `AbilitySpec`'s docstring for each field, and
+    `RulesEngine._collect_impulsive_draw_triggers`/`_collect_counter_death_
+    return_triggers`/`_collect_rad_counter_damage_triggers`, `cast_spell`/
+    `resolve_top_of_stack` for ``rebound``).
     """
     for spec in specs:
         if spec.additional_cost:
@@ -805,6 +901,12 @@ def attach_to_object(obj: Any, specs: list[AbilitySpec]) -> None:
         if spec.counter_death_return:
             spec.validate()
             obj.counter_death_return = dict(spec.counter_death_return)
+        if spec.rad_counters_on_combat_damage:
+            spec.validate()
+            obj.rad_counters_on_combat_damage = dict(spec.rad_counters_on_combat_damage)
+        if spec.rad_counters_on_attacked:
+            spec.validate()
+            obj.rad_counters_on_attacked = dict(spec.rad_counters_on_attacked)
         if spec.ability_kind == "keyword":
             attach_keyword(obj, spec)
             keyword_ability = _keyword_activated_ability(obj, spec)
@@ -819,7 +921,14 @@ def attach_to_object(obj: Any, specs: list[AbilitySpec]) -> None:
             if spec.modes:
                 _attach_modes(obj, spec.modes)
         elif spec.ability_kind == "triggered":
-            obj.triggered_abilities.append(bound)
+            # A compound multi-event trigger ("~ enters or attacks") binds
+            # to a *list* of `TriggeredAbility` (one per event) instead of
+            # one (`bind_ability`'s ``triggered`` branch) — extend rather
+            # than append in that case.
+            if isinstance(bound, list):
+                obj.triggered_abilities.extend(bound)
+            else:
+                obj.triggered_abilities.append(bound)
         elif spec.ability_kind == "activated":
             obj.activated_abilities.append(bound)
         elif spec.ability_kind == "static":
@@ -834,7 +943,9 @@ def attach_to_object(obj: Any, specs: list[AbilitySpec]) -> None:
             # on `enter_choice_effects` instead — `RulesEngine._resolve_
             # permanent_spell` offers both in turn before battlefield entry.
             for effect in bound:
-                if isinstance(effect, (ChooseCreatureTypeReplacement, ChooseColorReplacement)):
+                if isinstance(
+                    effect, (ChooseCreatureTypeReplacement, ChooseColorReplacement, ChooseNamedModeReplacement)
+                ):
                     obj.enter_choice_effects.append(effect)
                 else:
                     obj.enter_as_copy_effects.append(effect)
