@@ -512,6 +512,22 @@ eventually own. Roughly in decreasing commonness:
       choice`) is placed directly and does not pause for its own
       target/"you may" choice. Both features work individually; only the
       combination is untested/unhandled. (`RulesEngine._place_triggers`.)
+- [ ] RULE 502.1 "you may choose not to untap ~" (`no_untap_optional`,
+      `GameEngine.set_skip_untap`) has full engine + `legal_actions` +
+      frontend plumbing (`gameBoardView.js`'s toggle button, shipped
+      2026-07-21), but **no real printed card can reach it today**: every
+      one of the ~46 real cards carrying this clause (Amber Prison,
+      Rubinia Soulsinger, Hivis of the Scale, The Pandorica, …) pairs it
+      with a second clause the oracle parser doesn't model yet — usually
+      a "target permanent doesn't untap for as long as *this* remains
+      tapped" lock-down, or a "gain control of target creature" effect —
+      and `gate.parse_oracle` only ever binds a card's specs when the
+      *whole* card parses (fail-closed), so the static ability itself
+      never gets bound onto any of them. Modeling either family (lock-
+      down-while-tapped is the more common shape, ~15+ of the 46) would
+      immediately unlock this toggle for real gameplay, not just the
+      hand-authored/synthetic-token test coverage that exists now
+      (`tests/test_batch8_permission_statics_family.py`).
 
 ## Oracle parser: long-tail strategy & family-level gaps
 

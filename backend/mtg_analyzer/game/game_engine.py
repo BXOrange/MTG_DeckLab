@@ -2945,9 +2945,9 @@ class GameEngine:
                     # Gwenna/Smokebraider/Selvala) — the player may split
                     # this total across colours (`color_split`) instead of
                     # picking one of the single-colour ``options`` above;
-                    # no split UI exists yet (frontend/ToDo_Frontend.md), so
-                    # today's UI still offers the single-colour buttons as a
-                    # legal (if inflexible) fallback.
+                    # `gameBoardView.js`'s `colorSplitHtml` offers both: the
+                    # single-colour buttons as a still-legal fallback, plus
+                    # this split builder.
                     action["any_combination"] = True
                     action["combination_total"] = sum(ability.options[0].values())
                 if ability.cost.tap_others:
@@ -2978,6 +2978,23 @@ class GameEngine:
                     action["any_combination"] = True
                     action["combination_total"] = sum(ability.options[0].values())
                 actions.append(action)
+
+        for obj in self.state.permanents_controlled_by(player.id):
+            # RULE 502.1 "you may choose not to untap ~ during your untap
+            # step" (Rubinia Soulsinger/Hivis of the Scale/The Pandorica-
+            # shaped) — a sticky preference toggle (see `GameObject.
+            # skip_untap`'s docstring for why: the untap step has no mid-step
+            # pause to ask fresh every turn), so it's offered any time this
+            # player controls the permanent, not just during untap.
+            if continuous.has_optional_no_untap_permission(self.state, obj):
+                actions.append(
+                    {
+                        "type": "set_skip_untap",
+                        "instance_id": obj.instance_id,
+                        "name": obj.name,
+                        "skip_untap": obj.skip_untap,
+                    }
+                )
 
         # Activated abilities (RULE 602) bound onto permanents this player
         # controls — one offer per payable ability (a fetch land's

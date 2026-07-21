@@ -1607,6 +1607,15 @@ textarea {
   white-space: nowrap;
 }
 
+/* RULE 605.3a: mana tagged "spend only on X" — visually set apart from the
+   ordinary WUBRGC counts it's never merged with server-side. */
+.gf-mana-restricted {
+  padding: 0 0.25rem;
+  border: 1px dashed var(--accent);
+  border-radius: 4px;
+  color: var(--accent);
+}
+
 .gf-life {
   display: flex;
   flex-direction: column;
@@ -2280,6 +2289,49 @@ textarea {
 .gf-card-action--loyalty-zero {
   border-color: var(--text-dim);
   color: var(--text-dim);
+}
+
+/* RULE 502.1 "may choose not to untap" toggle — highlighted while active,
+   since it's a sticky standing choice rather than a one-off action. */
+.gf-card-action--skip-untap-on {
+  border-color: var(--warn);
+  color: var(--warn);
+}
+
+/* RULE 605.1a "any combination of colours" split builder (Selvala/Gwenna-
+   shaped): one small number input per real color, plus a confirm button. */
+.gf-mana-split {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.3rem;
+  width: 100%;
+  padding: 0.3rem;
+  border: 1px dashed var(--border);
+  border-radius: 4px;
+}
+
+.gf-split-hint {
+  font-size: 0.7rem;
+  color: var(--text-dim);
+  width: 100%;
+}
+
+.gf-split-color {
+  display: flex;
+  align-items: center;
+  gap: 0.15rem;
+  font-size: 0.8rem;
+}
+
+.gf-split-color input {
+  width: 2.2rem;
+  background: var(--panel-alt);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  color: var(--text);
+  padding: 0.15rem 0.2rem;
+  font-size: 0.7rem;
 }
 
 /* --- Battlefield: type rows, attachments, combat --- */

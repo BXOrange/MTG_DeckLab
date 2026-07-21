@@ -303,8 +303,9 @@ class ManaPool:
         data = dict(self.pool)
         if self.restricted:
             # Additive — existing WUBRGC keys are unchanged, so this is
-            # safe for any caller ignoring the new key (no frontend
-            # display of restricted mana yet, see frontend/ToDo_Frontend.md).
+            # safe for any caller ignoring the new key (rendered by
+            # gameBoardView.js's `restrictedManaHtml` as its own badge per
+            # lot, distinct from the ordinary WUBRGC counts above).
             data["restricted"] = [
                 {"restriction": lot["restriction"], "amounts": dict(lot["amounts"])}
                 for lot in self.restricted

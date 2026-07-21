@@ -25,51 +25,18 @@ non-trivial UI change instead of reading code + replaying API calls.
 
 ## Game engine hookup
 
-Targeting UI, activated abilities beyond tap-for-mana, planeswalker loyalty
-(abilities + display), Aura/Equipment attachment UX, and the conditional-land
-prompt all shipped — moved to
-[Done_Frontend.md](../docs/implementation-state/Done_Frontend.md) "Game
-engine hookup".
+Targeting UI (incl. declining an optional "up to one target"), activated
+abilities beyond tap-for-mana, planeswalker loyalty (abilities + display),
+Aura/Equipment attachment UX, the conditional-land prompt, restricted-mana
+display, the any-combination-of-colours split builder, the hand-zone mana
+ability trigger, and the "may choose not to untap" toggle all shipped —
+moved to [Done_Frontend.md](../docs/implementation-state/Done_Frontend.md)
+"Game engine hookup".
 
 - [ ] Subset attacker selection: attacking currently swings with **every**
       able creature (one "⚔️ Angreifen (N)" control). Per-creature select
       needs the backend to accumulate declared attackers rather than
       replace them.
-- [ ] Restricted-mana display: a mana ability's RULE 605.3a "Spend this
-      mana only to cast a creature spell" restriction is now tracked
-      server-side (`models/mana_pool.py`'s tagged `restricted` lots,
-      `Player.to_dict`'s additive `mana_pool.restricted` key) but the
-      board's mana-pool readout doesn't distinguish it from ordinary mana
-      yet — a player can't currently see *which* floating mana is
-      restricted, or to what.
-- [ ] "Any combination of colors" split UI: a `tap_for_mana` action for
-      such an ability (RULE 605.1a — Flamebraider/Gwenna/Smokebraider/
-      Selvala) now carries `any_combination: true` and `combination_total`
-      (`GameEngine.legal_actions`), and the action accepts a `color_split`
-      dict (`{colour: count}` summing to the total,
-      `services/game_session.py`), but there's no UI to build one yet —
-      the board still only offers the existing per-colour buttons (a
-      legal but inflexible single-colour tap).
-- [ ] Hand-zone mana abilities ("Exile this card from your hand: Add …",
-      RULE 605.1a — Elvish/Simian Spirit Guide) have a working backend
-      path now (`GameEngine.activate_hand_mana_ability`, a new
-      `activate_hand_mana` legal-action kind alongside `tap_for_mana`),
-      but the board has no UI trigger for it — a card in hand can only be
-      played/cast today, not exiled for mana.
-- [ ] "Up to one target" (RULE 115.1a — `destroy up to one target
-      creature`-shaped clauses, `TargetSpec.optional`) is now recognized
-      and never locks a cast/legal-actions offer server-side, but the
-      target-selection UI has no way to actually *decline* an optional
-      target — a player can pick one of the offered options, but not
-      submit "none". Casting with no `targets` (or an empty list) is
-      already a legal request (`services/game_session.py`'s
-      `_resolve_targets` treats an empty list the same as omitted).
-- [ ] "May choose not to untap" toggle (RULE 502.1 — Rubinia Soulsinger/
-      Hivis of the Scale/The Pandorica-shaped) has a working backend path
-      (`GameEngine.set_skip_untap`, a new `set_skip_untap` action kind
-      alongside `play_land`), but the board has no button to flip it — a
-      permanent with this permission just untaps normally every turn today,
-      with no way to opt out client-side.
 
 ## Multiplayer
 

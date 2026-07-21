@@ -432,6 +432,60 @@ now holds only open items). Section headers mirror that file.
       going through `legal_actions`, the actual surface any real caller
       uses. Tests: `backend/tests/test_delayed_trigger_examples.py` (18
       tests).
+- [x] Four remaining backend-ready "Game engine hookup" gaps wired up in one
+      pass (2026-07-21), each previously plumbed server-side with no UI:
+  - **Restricted-mana display** (RULE 605.3a "Spend this mana only to cast
+    a creature spell"): `manaPoolHtml`'s new `restrictedManaHtml` renders
+    each of `Player.mana_pool.restricted`'s lots as its own 🔒-badged span
+    (`.gf-mana-restricted`), never merged with the ordinary WUBRGC counts
+    it isn't merged with server-side either. A `restrictionLabel` maps the
+    opaque `restriction.kind` dict (`contains_x`/`creature_spell`/
+    `commander_spell`/`legendary_spell`/`instant_or_sorcery_spell`/
+    `type_spell`, `game/mana_abilities.py`'s `_parse_restriction`
+    whitelist) to a German tooltip, since there's no server-side label
+    string for this the way `TargetSpec.label()` covers targets.
+  - **"Any combination of colours" split builder** (RULE 605.1a —
+    Flamebraider/Gwenna/Smokebraider/Selvala): `colorSplitHtml` adds a
+    5-input (WUBRG, never colourless) builder alongside the pre-existing
+    single-colour buttons whenever a `tap_for_mana`/`activate_hand_mana`
+    action carries `any_combination`/`combination_total`; a client-side
+    sum check against `combination_total` (mirroring the server's own
+    `validate_color_split`) catches a mis-filled split before the round
+    trip, then sends `color_split`.
+  - **Hand-zone mana ability trigger** ("Exile this card from your hand:
+    Add …", RULE 605.1a — Elvish/Simian Spirit Guide): `cardActionButtons`
+    gained an `activate_hand_mana` branch (previously unhandled — the
+    action was already reaching the per-card button list via `byInstance`
+    but nothing rendered it), showing a "📤 `cost_label` → mana" button per
+    option, plus the same split builder above when applicable.
+  - **"May choose not to untap" toggle** (RULE 502.1 — Rubinia
+    Soulsinger/Hivis of the Scale/The Pandorica-shaped): `legal_actions`
+    (`game_engine.py`) previously had *no* offer for this at all, despite
+    the engine method (`set_skip_untap`) and dispatch
+    (`services/game_session.py`) already existing — a new per-permanent
+    loop now emits `{"type": "set_skip_untap", "instance_id", "name",
+    "skip_untap"}` for every permanent with `continuous.
+    has_optional_no_untap_permission`, and `cardActionButtons`'s new
+    branch renders it as a sticky toggle button reflecting the current
+    state (`.gf-card-action--skip-untap-on` when on). Backend test:
+    `test_legal_actions_offers_set_skip_untap_only_with_the_permission`
+    (`tests/test_batch8_permission_statics_family.py`). **Coverage note**:
+    verified live (Playwright) against real cards for the first three —
+    Castle Garenbrig (restricted mana), Selvala, Heart of the Wilds (any
+    combination), Simian Spirit Guide (hand mana) — but every one of the
+    ~46 *real* cards with the "may choose not to untap" clause pairs it
+    with a second, still-unmodeled clause (a lock-down/gain-control
+    effect), so the oracle parser's fail-closed whole-card gate never
+    binds it on a real card today; verified instead with a synthetic
+    single-ability token (`type_line: "Artifact"`, `oracle_text: "You may
+    choose not to untap ~ during your untap step."`) built in Replay/
+    Puzzle mode, which does reach `MODELED` and exercises the real
+    bind-on-load path end-to-end. Tracked as its own backend gap in
+    `backend/ToDo_Backend.md` "Game Engine (Phase 3)".
+  - The fourth item on the original list, "up to one target" decline, was
+    already shipped (see the generic targeting UI entry above,
+    "offering `∅ Kein Ziel` when optional") — the `frontend/ToDo_
+    Frontend.md` entry describing it as open was stale.
 
 ## Multiplayer
 

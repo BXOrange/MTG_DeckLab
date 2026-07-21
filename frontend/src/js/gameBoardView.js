@@ -674,6 +674,31 @@ export function createGameBoardView(opts = {}) {
       });
     });
 
+    // RULE 605.1a "any combination of colours" split builder's confirm
+    // button: reads its own container's number inputs, rejects a sum that
+    // doesn't match the ability's fixed/variable total client-side (the
+    // server's own `validate_color_split` would reject it too, but catching
+    // it here avoids a round-trip for the common "forgot to fill it in" slip).
+    root.querySelectorAll('.gf-mana-split').forEach((container) => {
+      container.querySelector('[data-split-confirm]')?.addEventListener('click', () => {
+        const total = Number(container.dataset.splitTotal);
+        const split = {};
+        let sum = 0;
+        container.querySelectorAll('[data-split-color]').forEach((inp) => {
+          const n = Math.max(0, Math.floor(Number(inp.value) || 0));
+          if (n > 0) split[inp.dataset.splitColor] = n;
+          sum += n;
+        });
+        if (sum !== total) {
+          setStatus(`Summe muss genau ${total} sein (aktuell ${sum}).`, 'warning');
+          render();
+          return;
+        }
+        const info = JSON.parse(container.dataset.splitAction);
+        act({ ...info, color_split: split });
+      });
+    });
+
     root.querySelectorAll('[data-tap-choice-start]').forEach((el) => {
       el.addEventListener('click', () => {
         const info = JSON.parse(el.dataset.tapChoiceStart);
@@ -1265,11 +1290,71 @@ export function createGameBoardView(opts = {}) {
             );
           }
         }
+        // RULE 605.1a "any combination of colours" (Flamebraider/Gwenna/
+        // Smokebraider/Selvala) — an additional split-across-colours option
+        // alongside the single-colour buttons above (still legal, just less
+        // flexible).
+        if (a.any_combination) buttons.push(colorSplitHtml(a, 'tap_for_mana'));
+      } else if (a.type === 'activate_hand_mana') {
+        // RULE 605.1a "Exile this card from your hand: Add …" (Elvish/Simian
+        // Spirit Guide) — the hand-zone counterpart of `tap_for_mana` above;
+        // the cost is exiling the card itself, so there's no tap/summoning-
+        // sickness framing to the button.
+        const optsList = a.options || [{ index: 0, label: '⟳' }];
+        for (const opt of optsList) {
+          const glyph = opt.label || '⟳';
+          const text = `📤 ${escapeHtml(a.cost_label || 'Exilieren')} → ${glyph}`;
+          buttons.push(
+            actionButton(
+              { type: 'activate_hand_mana', instance_id: a.instance_id, option_index: opt.index, ability_index: a.ability_index },
+              text
+            )
+          );
+        }
+        if (a.any_combination) buttons.push(colorSplitHtml(a, 'activate_hand_mana'));
+      } else if (a.type === 'set_skip_untap') {
+        // RULE 502.1 "you may choose not to untap ~ during your untap step"
+        // (Rubinia Soulsinger/Hivis of the Scale/The Pandorica-shaped) — a
+        // sticky preference toggle (`GameObject.skip_untap`), not a one-off
+        // action, so the button just flips it and reflects the current state.
+        const on = a.skip_untap;
+        buttons.push(
+          actionButton(
+            { type: 'set_skip_untap', instance_id: a.instance_id, value: !on },
+            on ? '🔓 Wieder normal enttappen' : '🔒 Nicht enttappen lassen',
+            on ? ' gf-card-action--skip-untap-on' : ''
+          )
+        );
       } else if (a.type === 'attack') {
         buttons.push(attackControlHtml(a));
       }
     }
     return buttons.length ? `<div class="gf-card-actions">${buttons.join('')}</div>` : '';
+  }
+
+  // RULE 605.1a "any combination of colours" split builder: one number input
+  // per real color (never colorless — RULE 605.1a's "any color" excludes it,
+  // `mana_abilities._ALL_COLORS`), constrained client-side to sum to exactly
+  // `combination_total` before the confirm button sends `color_split`
+  // (`kind` picks which action type the confirm dispatches — the shape is
+  // otherwise identical for a battlefield `tap_for_mana` ability and a
+  // hand-zone `activate_hand_mana` one).
+  function colorSplitHtml(a, kind) {
+    const colors = ['W', 'U', 'B', 'R', 'G'];
+    const glyph = { W: '⚪', U: '🔵', B: '⚫', R: '🔴', G: '🟢' };
+    const inputs = colors
+      .map(
+        (c) =>
+          `<label class="gf-split-color" title="${c}">${glyph[c]}<input type="number" min="0" max="${a.combination_total}" value="0" data-split-color="${c}" /></label>`
+      )
+      .join('');
+    const actionInfo = JSON.stringify({ type: kind, instance_id: a.instance_id, ability_index: a.ability_index });
+    return `
+      <div class="gf-mana-split" data-split-total="${a.combination_total}" data-split-action='${escapeAttr(actionInfo)}'>
+        <span class="gf-split-hint">Farbkombination (${a.combination_total}):</span>
+        ${inputs}
+        <button type="button" class="gf-card-action" data-split-confirm>💎 Erzeugen</button>
+      </div>`;
   }
 
   function castTargetHtml(a) {
@@ -1432,7 +1517,50 @@ export function createGameBoardView(opts = {}) {
     const order = ['W', 'U', 'B', 'R', 'G', 'C'];
     const glyph = { W: '⚪', U: '🔵', B: '⚫', R: '🔴', G: '🟢', C: '⟡' };
     const parts = order.filter((c) => pool[c] > 0).map((c) => `<span class="gf-mana">${glyph[c]}${pool[c]}</span>`);
-    return `<div class="gf-manapool" title="Mana-Pool">${parts.length ? parts.join('') : '<span class="empty-state">kein Mana</span>'}</div>`;
+    const restrictedParts = restrictedManaHtml(pool.restricted, glyph, order);
+    const empty = !parts.length && !restrictedParts.length;
+    return `<div class="gf-manapool" title="Mana-Pool">${empty ? '<span class="empty-state">kein Mana</span>' : parts.join('') + restrictedParts.join('')}</div>`;
+  }
+
+  // RULE 605.3a: mana tagged "spend only on X" (`ManaPool.to_dict`'s additive
+  // `restricted` key — a list of lots, never merged with the ordinary WUBRGC
+  // counts above) shown as its own badge per lot, so a player can tell
+  // restricted floating mana apart from ordinary mana instead of it just
+  // silently failing to pay an unrelated cost later.
+  function restrictedManaHtml(restricted, glyph, order) {
+    if (!restricted || !restricted.length) return [];
+    return restricted.map((lot) => {
+      const amounts = order
+        .filter((c) => c !== 'C' && lot.amounts[c] > 0)
+        .concat(lot.amounts.C > 0 ? ['C'] : [])
+        .map((c) => `${glyph[c]}${lot.amounts[c]}`)
+        .join('');
+      return `<span class="gf-mana gf-mana-restricted" title="Zweckgebunden: ${escapeAttr(restrictionLabel(lot.restriction))}">🔒${amounts}</span>`;
+    });
+  }
+
+  // Human label for an opaque restriction dict (`game/mana_abilities.py`'s
+  // `_parse_restriction` whitelist — this module has no server-side label
+  // string to read, unlike `TargetSpec.label()` for targets, so the mapping
+  // lives here).
+  function restrictionLabel(restriction) {
+    const kind = restriction?.kind;
+    if (kind === 'contains_x') return 'nur für Zaubersprüche mit {X} in den Kosten';
+    if (kind === 'creature_spell') {
+      return restriction.allow_ability
+        ? 'nur um einen Kreaturenzauber zu wirken oder eine Fähigkeit zu aktivieren'
+        : 'nur um einen Kreaturenzauber zu wirken';
+    }
+    if (kind === 'commander_spell') return 'nur für deinen Commander';
+    if (kind === 'legendary_spell') return 'nur für legendäre Zaubersprüche';
+    if (kind === 'instant_or_sorcery_spell') return 'nur für Spontanzauber/Hexereien';
+    if (kind === 'type_spell') {
+      const types = (restriction.types || []).join('/');
+      return restriction.allow_ability
+        ? `nur für ${types}-Zaubersprüche/-Fähigkeiten`
+        : `nur für ${types}-Zaubersprüche`;
+    }
+    return 'zweckgebunden';
   }
 
   function moveLogHtml(log) {

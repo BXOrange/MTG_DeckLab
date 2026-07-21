@@ -341,3 +341,29 @@ def test_set_skip_untap_rejects_the_wrong_controller():
     ), controller="p2")
     with pytest.raises(ValueError):
         engine.set_skip_untap(p1, obj, True)
+
+
+def test_legal_actions_offers_set_skip_untap_only_with_the_permission():
+    engine, state, p1, p2 = _engine()
+    obj = _bf(state, _permanent(
+        "Rubinia Soulsinger Shaped",
+        "You may choose not to untap this creature during your untap step.",
+        type_line="Creature — Human Wizard",
+    ))
+    plain = _bf(state, _permanent("Plain Bear", "", type_line="Creature — Bear"))
+
+    actions = engine.legal_actions(p1)
+    offer = next(
+        (a for a in actions if a["type"] == "set_skip_untap" and a["instance_id"] == obj.instance_id), None
+    )
+    assert offer is not None
+    assert offer["skip_untap"] is False
+    assert not any(
+        a["type"] == "set_skip_untap" and a["instance_id"] == plain.instance_id for a in actions
+    )
+
+    engine.set_skip_untap(p1, obj, True)
+    offer_after = next(
+        a for a in engine.legal_actions(p1) if a["type"] == "set_skip_untap" and a["instance_id"] == obj.instance_id
+    )
+    assert offer_after["skip_untap"] is True
