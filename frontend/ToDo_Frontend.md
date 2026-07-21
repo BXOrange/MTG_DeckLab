@@ -12,30 +12,6 @@ real-browser verification *is* available: Playwright (Python) lives in
 plus a running backend (`page.goto`/`.click`/`.screenshot`) — use it for any
 non-trivial UI change instead of reading code + replaying API calls.
 
-## Import — follow-ups
-
-- [ ] Moxfield import: a *fetch*-based version (client-side, then a
-      server-side proxy) was tried twice and reverted both times —
-      Cloudflare blocks it genuinely (not just a CORS/header issue;
-      confirmed via a live test against a real deck id, see
-      `../backend/ToDo_Backend.md` "Import — follow-up from the
-      frontend"), so that path is parked pending a headless-browser
-      fallback or similar, not a quick fix. Archidekt import shipped
-      instead via its (unprotected) API (`Done_Frontend.md` "Import").
-      **Different, unblocked approach requested 2026-07-21**: skip
-      fetching from Moxfield entirely — let the player paste the plain-
-      text decklist Moxfield's own "Export" feature produces (same input
-      surface as today's manual-list textareas, no server call, so no
-      Cloudflare exposure at all). Acceptance criteria: pasting that
-      exported text (a) populates the deck the same way typing into the
-      manual-list textareas does, and (b) auto-splits Commander and
-      Sideboard into their own sections instead of requiring the player
-      to copy each part into the matching textarea by hand — only
-      Mainboard-vs-Commander-vs-Sideboard needs recognizing, not a full
-      re-parse of Moxfield's format. Needs a real exported sample first
-      to confirm exactly how Moxfield marks those sections in text
-      (header line vs. blank-line-separated blocks) before writing the
-      split logic — don't guess the format.
 
 ## Backend integration
 

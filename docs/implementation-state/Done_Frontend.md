@@ -44,6 +44,41 @@ now holds only open items). Section headers mirror that file.
       On failure the German error message stays on the Import Deck tab
       instead ("Kein Archidekt-Deck mit ID …", HTTP status, or "Server
       nicht erreichbar").
+- [x] Moxfield import, take 3 — not a fetch this time (both earlier
+      attempts died to a genuine Cloudflare block, see above), but a
+      paste-and-split of Moxfield's own plain-text "Export" output.
+      `parser.js`'s `parseMoxfieldExport(rawText)` splits the whole
+      exported blob on its "SIDEBOARD:" header into pre-sideboard "body"
+      lines + sideboard text; `buildMoxfieldSections(parsed,
+      commanderCount)` turns a resolved commander count back into
+      `{commanderText, mainboardText, sideboardText}`.
+      Commander detection is a **real oracle-text/type-line check**, not
+      a text heuristic — Moxfield's export has zero markup for the
+      commander at all, so `deckImportView.js`'s `detectMoxfieldCommanderCount`
+      resolves the first (and, if eligible, second) body line's actual
+      card data via the existing `resolveCardImages` (same lazy card
+      cache every other view uses) and asks `parser.js`'s
+      `isCommanderCandidate(card)` — legendary creature, or oracle text
+      containing "can be your commander" (RULE 903.3's exception
+      wording, e.g. Comet, Stellar Pup) — then, for a second line,
+      `canPairAsCommanders(cardA, cardB)` (mirrors the backend's
+      `commander_legality._can_pair`: Partner / "Partner with X").
+      Renders the sideboard-only split immediately, then refines the
+      commander/mainboard boundary once the lookup resolves. An earlier
+      version used a purely textual heuristic (longest alphabetically-
+      sorted suffix of the pre-sideboard lines) before this real check
+      replaced it same-session; both were verified against two real
+      exports (2026-07-21, one 2-commander/Partner deck, one
+      1-commander deck) via a live Playwright run against the running
+      app — including the case that actually distinguishes the two
+      approaches: example 2's mainboard opens with a *second* legendary
+      creature (Abaddon the Despoiler) right after the real commander,
+      which has no Partner and correctly stays out of the Commander
+      section since it can't pair, not merely because it "sorted into
+      place". Wired into `deckImportView.js` as a `paste` handler on the
+      Mainboard textarea, gated on the pasted text containing a
+      `SIDEBOARD:` line (the one unambiguous "this is a whole export"
+      signal) so an ordinary multi-line paste isn't mis-split.
 
 ## Connection settings
 

@@ -33,7 +33,7 @@ const GROUPS = [
           ['full', 'Karten-Cache (Scryfall, cache-primär/lazy)'],
           ['full', 'Gespeicherte Decks (Filter, Autor, Sleeve)'],
           ['full', 'Player-Assets (Token-Art, Card-Back-Sleeves)'],
-          ['planned', 'Moxfield-Import (Export-Text einfügen, Commander/Sideboard auto-erkannt)'],
+          ['full', 'Moxfield-Import (Export-Text einfügen, Commander/Sideboard auto-erkannt)'],
         ],
       },
     ],

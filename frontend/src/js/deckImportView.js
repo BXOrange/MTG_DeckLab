@@ -1,4 +1,13 @@
-import { parseDeckSections, SAMPLE_COMMANDER, SAMPLE_MAINBOARD, SAMPLE_SIDEBOARD } from './parser.js';
+import {
+  parseDeckSections,
+  parseMoxfieldExport,
+  buildMoxfieldSections,
+  isCommanderCandidate,
+  canPairAsCommanders,
+  SAMPLE_COMMANDER,
+  SAMPLE_MAINBOARD,
+  SAMPLE_SIDEBOARD,
+} from './parser.js';
 import { setState } from './state.js';
 import { resolveCardImages, getResolvedCard, isConfirmedNotFound } from './cardImages.js';
 import { submitDeck, saveDeck } from './api.js';
@@ -17,6 +26,9 @@ export function renderDeckImportView(container, { onDeckLoaded } = {}) {
         <p class="hint">
           Jede Karte als eigene Zeile, z.B. "1 Sol Ring" oder "4x Mountain".
           Die Zuordnung ergibt sich aus dem Abschnitt, in den du einträgst.
+          Ein kompletter Moxfield-Export lässt sich auch als Ganzes ins
+          Mainboard-Feld einfügen — Commander und Sideboard werden dann
+          automatisch erkannt und in ihre Felder verschoben.
         </p>
 
         <div class="deck-section">
@@ -145,6 +157,53 @@ export function renderDeckImportView(container, { onDeckLoaded } = {}) {
   function refreshResult() {
     if (lastDeck) showResult(lastDeck, lastMeta);
   }
+
+  // Pasting a full Moxfield export (rather than just a mainboard snippet)
+  // into the Mainboard field auto-splits it into all three textareas.
+  // Gated on the export's own "SIDEBOARD:" header — the only unambiguous
+  // signal that this is a whole export and not, say, someone pasting 40
+  // ordinary mainboard lines.
+  //
+  // Moxfield prints no header for the commander(s) at all, so telling
+  // them apart from the mainboard needs a real oracle-text/type-line
+  // check, not a text heuristic: resolve the first (and, if it pairs,
+  // second) body line's real card data and ask "is this actually
+  // commander-eligible" (legendary creature / "can be your commander" /
+  // Partner) — the same question the backend's commander_legality.py
+  // asks once the deck is saved. Renders the sideboard-only split
+  // immediately for instant feedback, then refines the commander/
+  // mainboard boundary once that lookup resolves (typically a cached,
+  // sub-second call via resolveCardImages).
+  async function detectMoxfieldCommanderCount(bodyLines) {
+    if (!bodyLines.length) return 0;
+    const candidates = bodyLines.slice(0, 2).map((l) => l.name);
+    const resolved = await resolveCardImages(candidates);
+    const cardA = resolved.get(candidates[0].toLowerCase())?.card;
+    if (!isCommanderCandidate(cardA)) return 0;
+    if (candidates.length < 2) return 1;
+    const cardB = resolved.get(candidates[1].toLowerCase())?.card;
+    if (cardB && isCommanderCandidate(cardB) && canPairAsCommanders(cardA, cardB)) return 2;
+    return 1;
+  }
+
+  mainboardTextarea.addEventListener('paste', (event) => {
+    const text = event.clipboardData?.getData('text');
+    if (!text || !/^\s*sideboard:?\s*$/im.test(text)) return;
+    event.preventDefault();
+
+    const parsed = parseMoxfieldExport(text);
+    const draft = buildMoxfieldSections(parsed, 0);
+    commanderTextarea.value = draft.commanderText;
+    mainboardTextarea.value = draft.mainboardText;
+    sideboardTextarea.value = draft.sideboardText;
+
+    detectMoxfieldCommanderCount(parsed.bodyLines).then((commanderCount) => {
+      if (!commanderCount) return;
+      const final = buildMoxfieldSections(parsed, commanderCount);
+      commanderTextarea.value = final.commanderText;
+      mainboardTextarea.value = final.mainboardText;
+    });
+  });
 
   container.querySelector('#sample-btn').addEventListener('click', () => {
     commanderTextarea.value = SAMPLE_COMMANDER;
