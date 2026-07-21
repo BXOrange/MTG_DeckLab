@@ -39,6 +39,10 @@ const STEP_LABELS = {
   main2: 'Hauptphase II',
   end: 'Ende',
   cleanup: 'Aufräumen',
+  // Not a real step name on its own — `DelayedTrigger.step` uses this for
+  // "your next main phase" (Mana Drain-shaped), matching whichever of
+  // main1/main2 begins first (`GameEngine._fire_delayed_triggers`).
+  main: 'Hauptphase',
 };
 function labelPhase(name) {
   return PHASE_LABELS[name] || name || '—';
@@ -263,6 +267,8 @@ export function createGameBoardView(opts = {}) {
         ${live.map((p) => playerBoardHtml(p, s, byInstance, pending)).join('')}
 
         ${stackNonEmpty && !pending ? stackOverlayHtml(s, stackAside) : ''}
+
+        ${delayedTriggersPanelHtml(view)}
 
         ${moveLogHtml(view.move_log)}
       </div>
@@ -1438,6 +1444,58 @@ export function createGameBoardView(opts = {}) {
   // The optional static-effects panel (RULE 613): (1) every active static
   // ability in play and (2) the layer-by-layer derivation of each permanent
   // whose characteristics a static effect changed.
+  // RULE 603.7's "planned" delayed triggered abilities — armed by a
+  // resolved spell/ability but not yet fired ("at the beginning of your
+  // next upkeep/the next end step, …", Ephemerate's Rebound/Marchesa, the
+  // Black Rose's counter-death return/Sneak Attack's delayed sacrifice-
+  // shaped). Always shown (no toggle, unlike the static-effects panel)
+  // when non-empty — same "surface it, don't hide it behind an opt-in"
+  // treatment the Stack overlay gets, just not modal since nothing here
+  // needs a response right now.
+  function delayedTriggersPanelHtml(view) {
+    const dts = view.delayed_triggers || [];
+    if (!dts.length) return '';
+    const imageCache = getState().imageCache;
+    const items = dts
+      .map((dt) => {
+        const visual = dt.source;
+        const imageUrl = visual ? resolveImageUrl(visual, imageCache) : null;
+        const thumb = imageUrl
+          ? `<img src="${imageUrl}" alt="${escapeHtml(visual.name)}" loading="lazy" />`
+          : '<span class="gf-delayed-noart">⏳</span>';
+        const hover = visual ? ` data-hover-card="${escapeHtml(visual.name)}"` : '';
+        const label = dt.description || (visual ? visual.name : 'Ausgelöste Fähigkeit');
+        return `
+          <li class="gf-delayed-item">
+            <div class="gf-delayed-thumb"${hover}>${thumb}</div>
+            <div class="gf-delayed-body">
+              <p class="gf-delayed-desc">${escapeHtml(label)}</p>
+              <p class="gf-delayed-when">⏳ ${escapeHtml(delayedTriggerWhenLabel(dt))}</p>
+            </div>
+          </li>`;
+      })
+      .join('');
+    return `
+      <div class="gf-delayed-panel">
+        <h4>⏳ Geplant (Regel 603.7)</h4>
+        <ul class="gf-delayed-list">${items}</ul>
+      </div>`;
+  }
+
+  // "Zu Beginn von <Spieler>s nächstem Schritt …" (scope "controller",
+  // e.g. Ephemerate's Rebound/Mana Drain) vs. "Zu Beginn des nächsten
+  // Schritts …" (scope "any" — the very next matching step regardless of
+  // whose turn, e.g. Marchesa's/Sneak Attack's "next end step"). Phrased
+  // via the gender-neutral "Schritt „X“" rather than declining the step
+  // name's own noun (Versorgung/Ende/Hauptphase don't all share a gender).
+  function delayedTriggerWhenLabel(dt) {
+    const stepLabel = STEP_LABELS[dt.step] || dt.step || '—';
+    if (dt.scope === 'any') {
+      return `Zu Beginn des nächsten Schritts „${stepLabel}“`;
+    }
+    return `Zu Beginn von ${playerName(dt.controller_id)}s nächstem Schritt „${stepLabel}“`;
+  }
+
   function staticEffectsPanelHtml(view, s) {
     const actives = view.static_effects || [];
     const traced = (s.battlefield || []).filter((o) => (o.static_trace || []).length);

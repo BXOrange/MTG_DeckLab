@@ -3540,6 +3540,118 @@ the Phase-1 models. Tests: `test_game_engine.py`.
     sweeps expired entries (kept as long as `turn_granted >= turn_number`,
     so presence alone means "still valid" — no separate window check
     needed at the read sites). Tests: `test_impulsive_draw.py`.
+  - **Impulsive draw's dual-player extension** (Ragavan, Nimble Pilferer;
+    Mnemonic Betrayal): Light Up the Stage's mechanism assumed the same
+    player both owns the exiled zone and gets the play permission — false
+    for both these cards, so it grew a second dict, `GameState.
+    temp_play_permission_player` (`instance_id -> player_id`, defaulting to
+    "anyone" when absent so every pre-existing single-player grant is
+    unaffected), consulted by a `player`-taking `GameEngine.
+    _has_temp_play_permission` alongside the existing turn check. Ragavan's
+    own trigger ("whenever ~ deals combat damage to a player, exile the top
+    card of *that player's* library... until end of turn, you may cast that
+    card") splits into two triggered abilities sharing one condition: the
+    Treasure token has no per-firing variance, so it's an ordinary bound
+    `TriggeredAbility`; the damaged-player-dependent exile can't be (a
+    bind-on-load ability's one fixed `effects` list can't vary who's
+    library is hit), so it rides a new hand-authored-only `AbilitySpec.
+    impulsive_draw_on_combat_damage` marker (`{"count": N}`, validated,
+    stamped onto the `GameObject` by `effect_binder.attach_to_object` the
+    same "scan every spec" idiom as `additional_cost`/`conditional_flash`)
+    that a new `RulesEngine._collect_impulsive_draw_triggers` reads fresh
+    off a DAMAGE event's own source every firing — building the per-firing
+    `ImpulsiveDrawEffect` (now also taking `permission_player`/
+    `same_turn_only`) the same "build a fresh ability right when the event
+    fires" shape `_collect_inherent_triggers` already uses for the Monarch/
+    Initiative combat-damage swap, queued through the ordinary
+    `pending_triggers` pipeline (RULE 603.3 ordering) rather than
+    `check_rampage`/`check_ward`'s immediate-placement shortcut. Mnemonic
+    Betrayal ("Exile all opponents' graveyards. You may cast spells from
+    among those cards this turn, and mana of any type can be spent to cast
+    them. At the beginning of the next end step, if any of those cards
+    remain exiled, return them to their owners' graveyards.") is a
+    graveyard-sourced sibling: a new `RulesEngine.
+    exile_graveyard_with_cast_permission` (sharing `exile_with_play_
+    permission`'s new `_grant_temp_play_permission` helper) exiles a whole
+    graveyard at once, plus RULE 605.1a's broadest "any type" mana-wildcard
+    grant — `ManaPool.can_pay`/`pay`'s new `wildcard` param ("color" widens
+    a colored pip to any of WUBRG, "type" also lets colorless mana pay it),
+    tracked per-object in `GameState.mana_wildcard_permission` and read by
+    `RulesEngine.cast_spell`/`GameEngine.can_cast`. A new
+    `GraveyardImpulsiveCastEffect` drives the exile-all-opponents'-
+    graveyards + arms a `DelayedTrigger` (RULE 603.7, "at the beginning of
+    the next end step") running a new `ReturnRemainingExiledEffect` that
+    sends back whatever's still unexiled. Also closed a real pre-existing
+    gap this surfaced: `resolve_top_of_stack` unconditionally routed a
+    resolved instant/sorcery to the graveyard, even when one of its own
+    effects (a trailing "Exile ~." self-exile, `ExileEffect`'s
+    `target_kind=None` self mode) had already moved it elsewhere — it now
+    checks `obj.zone != Zone.STACK` first and skips the graveyard route
+    when so. `RulesEngine._remove_from_current_zone` also now searches
+    every player's zones (not just the acting player's own), since a card
+    with this dual-player permission can sit in a *different* player's
+    exile than whoever is now casting it (RULE 400.3: a card's zone is
+    keyed by its owner). Tests: `test_ragavan_and_mnemonic_betrayal.py`.
+  - **Delayed-trigger showcase cards for the frontend's new "planned"
+    panel** (Ephemerate's Rebound, Marchesa, the Black Rose's counter-death
+    return, Sneak Attack/Meek Attack's cheat-into-play-then-sacrifice — see
+    `Done_Frontend.md`'s "Game engine hookup" for the panel itself):
+    `CreateDelayedTriggerEffect` gained a real `description` param (it
+    previously read `getattr(self, "description", "")`, an attribute
+    nothing ever set — always blank; now filled in for Mana Drain/Final
+    Fortune too) and `DelayedTrigger` a `to_dict()` (`GameSession.view()`'s
+    new `delayed_triggers` key). Ephemerate's Rebound (RULE 702.88b) is a
+    new hand-authored-only `AbilitySpec.rebound` marker (the "scan every
+    spec" idiom, mirroring `impulsive_draw_on_combat_damage`) plus two
+    `GameObject` fields (`has_rebound`, and transient `rebound_pending` set
+    by `cast_spell` only when cast *from hand*): `resolve_top_of_stack`
+    exiles the spell instead of routing it to the graveyard and arms a
+    `DelayedTrigger` for the controller's next upkeep running a new
+    `ReboundFreeCastWindowEffect`, which opens a *standing* free-cast
+    window (`GameState.free_cast_instance_ids`, a same-turn-only sibling of
+    `temp_play_permissions`) rather than a forced yes/no choice at the
+    trigger's own resolution — this engine has no synchronous mid-
+    resolution chooser for a one-shot optional action, the same fidelity
+    `RulesEngine.discard`'s "auto-choose, no chooser in this MVP" already
+    sits at elsewhere. Marchesa, the Black Rose's "whenever a creature you
+    control with a counter on it dies, return it at the beginning of the
+    next end step" is a new `AbilitySpec.counter_death_return` marker (a
+    "group"-subject per-firing trigger, mirroring Ragavan's per-firing
+    shape but scanning every permanent for the marker instead of reading it
+    off the event's own source, since Marchesa isn't the dying object) read
+    by a new `RulesEngine._collect_counter_death_return_triggers` off a new
+    `counters` snapshot `_move_to_graveyard` now stamps onto every `DIES`
+    event (live, before the object leaves the battlefield) — Dethrone
+    itself (RULE 702.107, both Marchesa's own keyword and the static
+    granting it to every other creature she controls) stays unmodeled, a
+    separate keyword-mechanic build tracked in `backend/ToDo_Backend.md`.
+    Sneak Attack/Meek Attack ("{cost}: you may put a creature card from
+    your hand onto the battlefield with haste, sacrifice it at the
+    beginning of the next end step", the latter capped at total P/T 5) are
+    one new `CheatCreatureFromHandEffect` sharing a new `RulesEngine.
+    put_hand_creature_onto_battlefield` (auto-picks the first eligible
+    creature — no chooser in this MVP, same precedent) plus a new
+    `SacrificeObjectEffect` for the delayed tail — both hand-authored via
+    `game/ability_catalogue.py`'s ordinary `cost={"text": …}` activated-
+    ability shape. This pass also found and fixed two real pre-existing
+    bugs while testing Ephemerate end to end against a live backend over
+    the real HTTP API (curl — no browser-automation tool available this
+    session): `RulesEngine.blink` left a phantom duplicate reference in the
+    owner's exile zone list after returning the blinked object to the
+    battlefield (`_put_searched_card`'s battlefield branch never removes
+    the object from wherever it currently sits — its other callers, e.g.
+    tutors, already pop the card off its zone first; `blink` exiles via
+    `self.exile(obj)`, which *appends*, then never removed it before
+    calling `_put_searched_card`); and `GameEngine.legal_actions`'s exile
+    loop only ever checked `_castable_from_exile` (the Adventure/prepared-
+    copy shapes), so a temp-play-permission-exiled card — Light Up the
+    Stage/Ragavan/Mnemonic Betrayal/Rebound alike — could never actually be
+    *offered* as a castable action, despite `can_cast`/`cast_spell` fully
+    supporting it; no prior test caught either gap, since every existing
+    impulsive-draw test asserted `can_cast` directly rather than going
+    through `legal_actions`, the surface a real caller actually uses. Tests:
+    `backend/tests/test_delayed_trigger_examples.py` (18 tests, including a
+    regression test for each of the two bugs above).
   - **A per-firing dynamic trigger reference** ("that creature"/"the token
     this ability just created"): deliberately **not** new IR — no card in
     this catalogue needs one yet, and inventing a `"triggering_object"`
@@ -3808,6 +3920,33 @@ the Phase-1 models. Tests: `test_game_engine.py`.
       multiplayer`) and the opponent-side interactive blocker-declaration
       UI remain — see `backend/ToDo_Backend.md` "Game Engine (Phase 3)".
       Tests: `test_priority.py`.
+- [x] Dethrone (RULE 702.107, 2026-07-21): "Whenever this creature attacks
+      the player with the most life or tied for most life, put a +1/+1
+      counter on it." Built as `RulesEngine.check_dethrone`, called from
+      `GameEngine.declare_attackers` right where `ATTACKS` fires — a
+      per-firing procedural check (like `check_rampage`/`check_ward`)
+      rather than a bind-on-load `TriggeredAbility`, since `combat.has`
+      needs to be read fresh at the moment of attack: Dethrone isn't only
+      ever printed on the attacker, it's also grantable to "other
+      creatures you control" by a layer-6 static (Marchesa, the Black
+      Rose) that never runs the bind-on-load machinery on those other
+      creatures. `check_dethrone` resolves the defending *player* off
+      `attacker.combat_defender` — for a planeswalker/battle attack this
+      is that permanent's controller, not the permanent itself (a real
+      ruling: Dethrone cares about the defending player's life regardless
+      of what's actually being attacked) — then compares their life
+      against `GameState.living_players()`'s max. "dethrone" was also
+      added to `combat.COMBAT_KEYWORDS` so `combat.keywords_of`/`combat.
+      has` recognize a card's own printed keyword directly, the same as
+      any other evasion/combat-math keyword. Marchesa, the Black Rose's
+      "Other creatures you control have dethrone." (her other two clauses
+      — her own printed Dethrone needing no hand-authoring, and the RULE
+      603.7 delayed-return trigger — were already hand-authored,
+      `game/ability_catalogue.py`'s `_marchesa_the_black_rose`) is now a
+      plain layer-6 `grant_keyword` static (`affects: "other_creatures_
+      you_control", keywords: ["dethrone"]`) — the same generic mechanism
+      other keyword grants use, needing no Dethrone-specific plumbing on
+      the grant side. Tests: `test_dethrone.py`.
 
 ## Card-type & structural coverage
 

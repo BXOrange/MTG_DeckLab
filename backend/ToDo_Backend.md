@@ -86,18 +86,6 @@ for the dependency-ordered plan to finish the implementation.
         `entered_this_turn`; Bolas's Citadel's "pay life equal to its mana
         value rather than pay its mana cost" is a different alternative-
         cost shape from the flat/free ones modeled so far).
-      - "Impulsive draw" (exile a card and grant *temporary* permission to
-        cast/play just that card) now has a generic mechanism —
-        `ImpulsiveDrawEffect`/`RulesEngine.exile_with_play_permission`/
-        `GameState.temp_play_permissions` (Light Up the Stage-shaped:
-        exile from own library-top, playable until end of your next
-        turn) — see Done_Backend.md "Rules Engine (Phase 2)". Ragavan,
-        Nimble Pilferer and Mnemonic Betrayal still stay `UNMODELED`
-        though: Ragavan exiles from *the damaged player's* library (not
-        its own controller's) and additionally grants "spend mana as
-        though it were mana of any color," and Mnemonic Betrayal exiles
-        from a graveyard rather than a library-top — both need a small
-        extension to the mechanism, not a new one from scratch.
 
       **Triggers / grants:**
       - Group-subject damage triggers ("a creature you control deals

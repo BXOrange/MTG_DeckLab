@@ -778,6 +778,13 @@ def attach_to_object(obj: Any, specs: list[AbilitySpec]) -> None:
     picked up here by scanning every spec for ``additional_cost`` rather than
     by whichever spec happens to carry the spell's "real" effects, keeping
     the parser/binder split simple regardless of line order on the card.
+
+    ``impulsive_draw_on_combat_damage``/``rebound``/``counter_death_return``
+    are the same "scan every spec" idiom, for hand-authored markers with no
+    effects of their own (RULE 603.4-style per-firing data — see
+    `AbilitySpec`'s docstring for each field, and `RulesEngine._collect_
+    impulsive_draw_triggers`/`_collect_counter_death_return_triggers`,
+    `cast_spell`/`resolve_top_of_stack` for ``rebound``).
     """
     for spec in specs:
         if spec.additional_cost:
@@ -789,6 +796,15 @@ def attach_to_object(obj: Any, specs: list[AbilitySpec]) -> None:
         if spec.free_cast_condition:
             spec.validate()
             obj.free_cast_condition = spec.free_cast_condition
+        if spec.impulsive_draw_on_combat_damage:
+            spec.validate()
+            obj.impulsive_draw_on_combat_damage = dict(spec.impulsive_draw_on_combat_damage)
+        if spec.rebound:
+            spec.validate()
+            obj.has_rebound = True
+        if spec.counter_death_return:
+            spec.validate()
+            obj.counter_death_return = dict(spec.counter_death_return)
         if spec.ability_kind == "keyword":
             attach_keyword(obj, spec)
             keyword_ability = _keyword_activated_ability(obj, spec)

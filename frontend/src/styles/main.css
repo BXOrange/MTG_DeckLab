@@ -1976,6 +1976,75 @@ textarea {
   margin-top: 0.4rem;
 }
 
+/* --- Goldfisch: geplante verzögerte Fähigkeiten (Regel 603.7) --- */
+
+.gf-delayed-panel {
+  margin: 0.6rem 0;
+  padding: 0.6rem 0.75rem;
+  border: 1px solid var(--accent);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--accent) 6%, var(--panel));
+  font-size: 0.78rem;
+}
+
+.gf-delayed-panel h4 {
+  margin: 0 0 0.5rem;
+  font-size: 0.85rem;
+}
+
+.gf-delayed-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+
+.gf-delayed-item {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.gf-delayed-thumb {
+  flex: 0 0 auto;
+  width: 2.2rem;
+  height: 3.05rem;
+  border-radius: 4px;
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--panel-alt);
+  border: 1px solid var(--border);
+}
+
+.gf-delayed-thumb img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.gf-delayed-noart {
+  font-size: 1.1rem;
+}
+
+.gf-delayed-body {
+  min-width: 0;
+}
+
+.gf-delayed-desc {
+  margin: 0;
+  line-height: 1.3;
+}
+
+.gf-delayed-when {
+  margin: 0.1rem 0 0;
+  color: var(--text-dim);
+  font-style: italic;
+}
+
 /* --- Goldfisch: Deck-Auswahl aus der Deck-Datenbasis --- */
 
 .gf-deck-picker {

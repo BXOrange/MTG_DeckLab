@@ -112,6 +112,18 @@ class GameObject:
         #: Flashback — if so, `RulesEngine.resolve_top_of_stack` exiles it
         #: instead of sending it to the graveyard, then clears this flag.
         self.cast_via_flashback: bool = False
+        #: RULE 702.88b: whether this card has Rebound — a printed-
+        #: characteristic-like marker, bound once from `AbilitySpec.rebound`
+        #: (`game/effect_binder.py`) and never reset, unlike the transient
+        #: flags below. Ephemerate-shaped.
+        self.has_rebound: bool = False
+        #: RULE 702.88b: set by `RulesEngine.cast_spell` when a `has_rebound`
+        #: card is cast *from hand* — `resolve_top_of_stack` checks this to
+        #: exile the card instead of routing it to the graveyard (and arm
+        #: the delayed free-cast window), then clears it. Left ``False``
+        #: when recast later from exile via that same window, so the second
+        #: cast resolves as an ordinary spell (Rebound doesn't repeat).
+        self.rebound_pending: bool = False
         self.owner_id = owner_id
         #: Who currently controls the object; defaults to its owner
         #: (RULE 108.4). Control can change but ownership can't.
@@ -506,6 +518,7 @@ class GameObject:
         self.kicker_count = 0
         self.buyback_paid = False
         self.cast_via_flashback = False
+        self.rebound_pending = False
         self.commander_zone_choice_pending = False
         self.tapped = False
         self.skip_untap = False

@@ -161,6 +161,25 @@ class DelayedTrigger:
     def __repr__(self) -> str:
         return f"DelayedTrigger({self.controller_id} @ {self.scope} {self.step!r})"
 
+    def to_dict(self) -> dict[str, Any]:
+        """For the UI's "planned" delayed-trigger panel — plain descriptive
+        fields only (``effects`` are live `GameEffect` objects, not
+        serializable, and not needed to just *announce* what's armed).
+        ``source`` mirrors `StackItem.to_dict()`'s own field: the first
+        baked effect's ``source`` (every effect a `DelayedTrigger` carries
+        shares one, since one card/ability sets the whole thing up), so the
+        board can show that permanent's art the same way a stack item does.
+        """
+        source = getattr(self.effects[0], "source", None) if self.effects else None
+        return {
+            "controller_id": self.controller_id,
+            "step": self.step,
+            "scope": self.scope,
+            "description": self.description,
+            "min_turn": self.min_turn,
+            "source": source.to_dict() if source is not None else None,
+        }
+
 
 class GameState:
     """The full state of one game and a light event bus over it."""
@@ -249,6 +268,43 @@ class GameState:
         #: save/replay snapshot predating this field, or a caller that
         #: didn't pass one.
         self.temp_play_permission_source: dict[int, str] = {}
+
+        #: Which player a `temp_play_permissions` entry's permission actually
+        #: belongs to (``instance_id -> player_id``) — usually the same
+        #: player whose zone was exiled from (Light Up the Stage), but not
+        #: always: Ragavan, Nimble Pilferer exiles from *the player it just
+        #: damaged*, yet grants the permission to Ragavan's own controller;
+        #: Mnemonic Betrayal exiles an opponent's whole graveyard the same
+        #: way. Set by `RulesEngine._grant_temp_play_permission` (the shared
+        #: helper `exile_with_play_permission`/`exile_graveyard_with_cast_
+        #: permission` both call); `GameEngine._has_temp_play_permission`
+        #: checks it against the player attempting to cast/play, and
+        #: `_remove_from_current_zone` searches every player's zones (not
+        #: just the caster's own) so the object is actually found. Pruned in
+        #: lockstep with `temp_play_permissions` at cleanup.
+        self.temp_play_permission_player: dict[int, str] = {}
+
+        #: RULE 605.1a "you may spend mana as though it were mana of any
+        #: color/type" (Mnemonic Betrayal-shaped), scoped to *casting one
+        #: specific exiled card* — ``instance_id -> "color" | "type"``,
+        #: consulted by `RulesEngine.cast_spell`/`GameEngine.can_cast` as
+        #: `ManaPool`'s own ``wildcard`` param. Set by the same shared
+        #: `RulesEngine._grant_temp_play_permission` helper; pruned in
+        #: lockstep with `temp_play_permissions` at cleanup (or earlier, by
+        #: `ReturnRemainingExiledEffect`, once the card actually leaves
+        #: exile).
+        self.mana_wildcard_permission: dict[int, str] = {}
+
+        #: RULE 702.88b Rebound's free-cast window: instance ids currently
+        #: allowed to be cast *without paying their mana cost* — a sibling
+        #: marker to `temp_play_permissions` rather than a cost override
+        #: threaded through `ManaCost` itself, so every other `cast_spell`/
+        #: `can_cast` caller is unaffected. Set by `ReboundFreeCastWindowEffect`
+        #: (`game/effects.py`) when a Rebound delayed trigger fires; consumed
+        #: (discarded) the instant the card is actually cast, and pruned in
+        #: lockstep with `temp_play_permissions` at cleanup otherwise
+        #: (`GameEngine._step_cleanup`).
+        self.free_cast_instance_ids: set[int] = set()
 
         #: Delayed triggered abilities (RULE 603.7) a resolving spell/ability
         #: has set up to fire at a *future* step ("at the beginning of your
@@ -577,6 +633,9 @@ class GameState:
             "pending_choice": self.pending_choice,
             "temp_play_permissions": dict(self.temp_play_permissions),
             "temp_play_permission_source": dict(self.temp_play_permission_source),
+            "temp_play_permission_player": dict(self.temp_play_permission_player),
+            "mana_wildcard_permission": dict(self.mana_wildcard_permission),
+            "free_cast_instance_ids": sorted(self.free_cast_instance_ids),
             "players": [p.to_dict() for p in self.players],
             "battlefield": [obj.to_dict() for obj in self.battlefield],
             "stack": [item.to_dict() for item in self.stack],

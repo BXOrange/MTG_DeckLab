@@ -654,6 +654,18 @@ class GameEngine:
             iid: name for iid, name in self.state.temp_play_permission_source.items()
             if iid in self.state.temp_play_permissions
         }
+        self.state.temp_play_permission_player = {
+            iid: pid for iid, pid in self.state.temp_play_permission_player.items()
+            if iid in self.state.temp_play_permissions
+        }
+        self.state.mana_wildcard_permission = {
+            iid: kind for iid, kind in self.state.mana_wildcard_permission.items()
+            if iid in self.state.temp_play_permissions
+        }
+        self.state.free_cast_instance_ids = {
+            iid for iid in self.state.free_cast_instance_ids
+            if iid in self.state.temp_play_permissions
+        }
 
     # ------------------------------------------------------------------
     # Stack / priority resolution (RULE 117 / 608)
@@ -897,7 +909,7 @@ class GameEngine:
                 and obj is player.library[-1]
                 and may_play_land_from_top_of_library(player, self.state)
             )
-            or (obj in player.exile and self._has_temp_play_permission(obj))
+            or (obj.zone == Zone.EXILE and self._has_temp_play_permission(obj, player))
         )
         return (
             card is not None
@@ -997,16 +1009,27 @@ class GameEngine:
         """
         return obj.adventure_castable or obj.prepared_source_id is not None
 
-    def _has_temp_play_permission(self, obj: GameObject) -> bool:
+    def _has_temp_play_permission(self, obj: GameObject, player: Player) -> bool:
         """RULE 601.3b analogue: a temporary "you may play this card"
         permission (Light Up the Stage-shaped impulsive draw,
         `RulesEngine.exile_with_play_permission`,
         `GameState.temp_play_permissions`) — swept once its "until the end
-        of your next turn" window lapses (`_step_cleanup`), so mere
-        presence here means "still valid" without re-checking the turn
-        number.
+        of your next turn" (or, Ragavan/Mnemonic Betrayal-shaped, "until
+        end of turn") window lapses (`_step_cleanup`), so mere presence
+        here means "still valid" without re-checking the turn number.
+
+        Also checks `GameState.temp_play_permission_player`: the permission
+        belongs to a *specific* player, not to whoever's zone the card
+        happens to sit in (Ragavan exiles from the player it damaged, but
+        only its own controller may cast the result) — an absent entry
+        (an older snapshot predating that dict, or a caller that never set
+        it) defaults to "anyone may", matching every pre-existing single-
+        player grant's behaviour.
         """
-        return obj.instance_id in self.state.temp_play_permissions
+        if obj.instance_id not in self.state.temp_play_permissions:
+            return False
+        holder_id = self.state.temp_play_permission_player.get(obj.instance_id)
+        return holder_id is None or holder_id == player.id
 
     @staticmethod
     def _graveyard_cast_keyword(obj: GameObject) -> Optional[str]:
@@ -1125,7 +1148,7 @@ class GameEngine:
             obj in player.hand
             or obj in player.command
             or (obj in player.exile and self._castable_from_exile(obj))
-            or (obj in player.exile and self._has_temp_play_permission(obj))
+            or (obj.zone == Zone.EXILE and self._has_temp_play_permission(obj, player))
             or (obj in player.graveyard and self._castable_from_graveyard(obj))
             or (obj in player.graveyard and self._graveyard_cast_permission(player, obj))
             or (
@@ -1198,10 +1221,18 @@ class GameEngine:
                 return False
             if not condition_query.free_cast_condition_holds(free_cast_condition, obj, self.state):
                 return False
+        elif obj.instance_id in self.state.free_cast_instance_ids:
+            # RULE 702.88b Rebound's own free-cast window
+            # (`RulesEngine.grant_rebound_free_cast_window`) — already
+            # armed for this specific instance, no mana check needed.
+            pass
         else:
             cost = self.effective_cast_cost(player, obj, x, face=face, kicked=kicked, buyback=buyback)
             allows_restriction = restriction_predicate_for_cast(obj, has_x=cost.has_variable)
-            if not player.mana_pool.can_pay(cost, life_available=player.life, allows_restriction=allows_restriction):
+            wildcard = self.state.mana_wildcard_permission.get(obj.instance_id)
+            if not player.mana_pool.can_pay(
+                cost, life_available=player.life, allows_restriction=allows_restriction, wildcard=wildcard
+            ):
                 return False
         # RULE 601.2b: an "as an additional cost to cast this spell, …"
         # clause is a separate legality gate from the mana cost above — a
@@ -1679,6 +1710,10 @@ class GameEngine:
                     object_types=sorted(obj.type_words),
                 )
             )
+            # RULE 702.107: Dethrone's own per-firing dynamic check — see
+            # `RulesEngine.check_dethrone` for why this can't go through the
+            # ordinary annihilator/afflict/bushido `TriggeredAbility` path.
+            self.rules.check_dethrone(obj)
 
     def _assign_defender(
         self, obj: GameObject, defender: Any, legal: list[dict[str, Any]]
@@ -2747,12 +2782,25 @@ class GameEngine:
 
         for obj in list(player.exile):
             # RULE 715.3d / 722.3c: an Adventure creature exiled by its own
-            # spell half, or a prepared copy, may be cast from exile.
-            if self._castable_from_exile(obj) and self.can_cast(player, obj):
+            # spell half, or a prepared copy, may be cast from exile — or
+            # RULE 601.3b analogue's temporary "you may play/cast this"
+            # permission (Light Up the Stage/Ragavan/Mnemonic Betrayal/
+            # Ephemerate's Rebound-shaped, `_has_temp_play_permission`).
+            # Previously missing here entirely — `can_cast`/`cast_spell`
+            # already supported this zone/permission combination, but
+            # nothing ever surfaced it as an actual offered action, so no
+            # caller (UI or otherwise) could ever actually cast one of
+            # these; found end-to-end testing Ephemerate's Rebound.
+            castable = self._castable_from_exile(obj) or self._has_temp_play_permission(obj, player)
+            if castable and self.can_cast(player, obj):
                 if getattr(obj, "spell_modes", None):
                     actions.extend(self._modal_cast_actions(player, obj))
                 else:
                     actions.append(self._cast_action(player, obj))
+            if self._has_temp_play_permission(obj, player) and self.can_play_land(player, obj):
+                actions.append(
+                    {"type": "play_land", "instance_id": obj.instance_id, "name": obj.name}
+                )
 
         for obj in list(player.graveyard):
             # RULE 702.34 / 702.138: Flashback/Escape let a card be cast

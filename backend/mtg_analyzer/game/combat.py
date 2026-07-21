@@ -55,6 +55,7 @@ COMBAT_KEYWORDS: frozenset[str] = frozenset(
         "haste",
         "indestructible",
         "protection",
+        "dethrone",
     }
 )
 

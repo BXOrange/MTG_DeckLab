@@ -217,9 +217,17 @@ class GameContext:
         )
 
     def exile_with_play_permission(
-        self, player: "Player", count: int, source_name: Optional[str] = None
+        self,
+        player: "Player",
+        count: int,
+        source_name: Optional[str] = None,
+        permission_player: Optional["Player"] = None,
+        same_turn_only: bool = False,
     ) -> None:
-        self.engine.exile_with_play_permission(player, count, source_name=source_name)
+        self.engine.exile_with_play_permission(
+            player, count, source_name=source_name,
+            permission_player=permission_player, same_turn_only=same_turn_only,
+        )
 
     def shuffle_library(self, player: "Player") -> None:
         self.engine.shuffle_library(player)
@@ -2713,6 +2721,11 @@ class CreateDelayedTriggerEffect(GameEffect):
     ``"x"`` amount/count sentinel with the targeted spell's mana value (Mana
     Drain's "add an amount of {C} equal to that spell's mana value") — captured
     now, since the spell is gone by the time the delayed ability fires.
+
+    ``description`` is a human-readable label for the UI's "planned"
+    delayed-trigger panel (`DelayedTrigger.to_dict()`) — e.g. "Mana Drain:
+    {C} in Höhe der Manakosten hinzufügen". Optional (defaults to empty);
+    hand-authored specs should still set one so the panel isn't blank.
     """
 
     def __init__(
@@ -2722,6 +2735,7 @@ class CreateDelayedTriggerEffect(GameEffect):
         scope: str = "controller",
         capture: Optional[str] = None,
         min_turn_offset: int = 0,
+        description: str = "",
         source: Optional["GameObject"] = None,
     ) -> None:
         super().__init__(source)
@@ -2734,6 +2748,7 @@ class CreateDelayedTriggerEffect(GameEffect):
         # (extra) turn's end step" (Final Fortune) skip the *current* turn's
         # end step, which would otherwise be the very next one.
         self.min_turn_offset = int(min_turn_offset)
+        self.description = str(description)
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
         from .effect_binder import build_effects  # function-scoped: effects↔binder cycle
@@ -2758,8 +2773,127 @@ class CreateDelayedTriggerEffect(GameEffect):
                 effects=inner,
                 scope=self.scope,
                 targets=list(targets or []),
-                description=getattr(self, "description", "") or "",
+                description=self.description,
                 min_turn=context.state.turn_number + self.min_turn_offset,
+            )
+        )
+
+
+class ReboundFreeCastWindowEffect(GameEffect):
+    """RULE 702.88b Rebound's delayed half: "At the beginning of your next
+    upkeep, you may cast this card from exile without paying its mana
+    cost." Fires as a `DelayedTrigger`'s effect, armed by `RulesEngine.
+    resolve_top_of_stack` when a `GameObject.has_rebound` card resolves
+    having been cast from hand (Ephemerate-shaped).
+
+    Modeled as a *standing* temp-cast permission (`GameState.temp_play_
+    permissions`, already known to `can_cast`/`cast_spell`) plus `GameState.
+    free_cast_instance_ids` to zero the mana cost, rather than a forced
+    yes/no choice at this trigger's own resolution: RULE 702.88b's delayed
+    ability really does ask "you may cast X" right then, but this engine has
+    no synchronous mid-resolution chooser for a one-shot optional action
+    (`RulesEngine.discard`'s "auto-choose, no chooser in this MVP" is the
+    same fidelity level elsewhere). Same-turn-only (swept at this upkeep's
+    own cleanup, `GameEngine._step_cleanup`) — "use it this turn or lose
+    it", matching Rebound's real one-shot window closely enough without new
+    step-scoped cleanup machinery.
+    """
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        obj = self.source
+        if obj is None or obj.zone != Zone.EXILE:
+            return
+        context.engine.grant_rebound_free_cast_window(obj)
+
+
+class MarchesaDelayedReturnEffect(GameEffect):
+    """RULE 603.7 delayed half of "return that card to the battlefield under
+    your control at the beginning of the next end step" (Marchesa, the
+    Black Rose-shaped: a creature you control with a counter on it dies).
+    ``dying_object`` is baked in at construction — there's nothing left to
+    target once the delayed trigger fires (the same RULE 603.4 per-firing
+    shape `RulesEngine._collect_impulsive_draw_triggers`/`ImpulsiveDrawEffect`
+    already use for Ragavan's per-firing damaged player).
+    """
+
+    def __init__(self, dying_object: "GameObject", source: Optional["GameObject"] = None) -> None:
+        super().__init__(source)
+        self.dying_object = dying_object
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        from ..models.game_state import DelayedTrigger
+
+        controller_id = getattr(self.source, "controller_id", None) or context.active_player.id
+        inner = ReturnFromGraveyardEffect(
+            target=self.dying_object,
+            destination="battlefield",
+            under_your_control=True,
+            source=self.source,
+        )
+        context.state.delayed_triggers.append(
+            DelayedTrigger(
+                controller_id=controller_id,
+                step="end",
+                scope="any",
+                effects=[inner],
+                description=f"{self.dying_object.name}: unter Kontrolle zurück auf das Schlachtfeld",
+            )
+        )
+
+
+class SacrificeObjectEffect(GameEffect):
+    """Sacrifice one specific, already-known permanent (RULE 701.17) — the
+    delayed half of "sacrifice the creature at the beginning of the next end
+    step" (Sneak Attack/Meek Attack-shaped): baked in at arm time, since
+    there's no target left to choose once the delayed trigger fires.
+    """
+
+    def __init__(self, obj: "GameObject", source: Optional["GameObject"] = None) -> None:
+        super().__init__(source)
+        self.obj = obj
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        if self.obj in context.state.battlefield:
+            context.engine.put_into_graveyard(self.obj)
+
+
+class CheatCreatureFromHandEffect(GameEffect):
+    """"You may put a creature card from your hand onto the battlefield.
+    That creature gains haste. Sacrifice the creature at the beginning of
+    the next end step." (Sneak Attack/Meek Attack-shaped — RULE 701 "cheat
+    into play" plus a RULE 603.7 delayed sacrifice tail). ``max_total_pt``
+    is Meek Attack's own "total power and toughness 5 or less" filter
+    (``None`` for Sneak Attack's unrestricted version). The eligible
+    creature is auto-picked — no chooser in this MVP, the same idiom
+    `RulesEngine.discard` already uses for an un-targeted hand-card pick.
+    """
+
+    def __init__(
+        self, max_total_pt: Optional[int] = None, source: Optional["GameObject"] = None,
+    ) -> None:
+        super().__init__(source)
+        self.max_total_pt = max_total_pt
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        from ..models.game_state import DelayedTrigger
+
+        player = _controller_of(self.source, context)
+        if player is None:
+            return
+        creature = context.engine.put_hand_creature_onto_battlefield(player, self.max_total_pt)
+        if creature is None:
+            return
+        creature.temp_keywords.add("haste")
+        context.recompute()
+        source_name = self.source.name if self.source is not None else None
+        label = f"{creature.name}: geopfert" + (f" ({source_name})" if source_name else "")
+        context.state.delayed_triggers.append(
+            DelayedTrigger(
+                controller_id=player.id,
+                step="end",
+                scope="any",
+                effects=[SacrificeObjectEffect(creature, source=self.source)],
+                description=label,
             )
         )
 
@@ -3842,22 +3976,117 @@ class ImpulsiveDrawEffect(GameEffect):
     analogue, Light Up the Stage-shaped "impulsive draw") — every card
     exiled becomes playable, unlike `ImpulsiveLookEffect`'s filtered
     choice-and-route shape (see `GameContext.exile_with_play_permission`/
-    `RulesEngine.exile_with_play_permission`)."""
+    `RulesEngine.exile_with_play_permission`).
+
+    ``player`` (whose library is exiled from) and ``permission_player``
+    (who may play the exiled card) default to the same player — Light Up
+    the Stage's own shape — but can differ (Ragavan, Nimble Pilferer-shaped:
+    exile from *the player Ragavan just damaged*, permission to Ragavan's
+    own controller). ``same_turn_only`` shortens the window from "until
+    the end of your next turn" to "until end of turn" (Ragavan's own,
+    shorter clause) — see `RulesEngine.exile_with_play_permission`.
+    """
 
     def __init__(
         self,
         count: int = 1,
         player: Any = None,
+        permission_player: Any = None,
+        same_turn_only: bool = False,
         source: Optional["GameObject"] = None,
     ) -> None:
         super().__init__(source)
         self.count = count
         self.player = player
+        self.permission_player = permission_player
+        self.same_turn_only = same_turn_only
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
         player = self.player or context.active_player
+        permission_player = self.permission_player or player
         source_name = self.source.name if self.source is not None else None
-        context.exile_with_play_permission(player, self.count, source_name=source_name)
+        context.exile_with_play_permission(
+            player, self.count, source_name=source_name,
+            permission_player=permission_player, same_turn_only=self.same_turn_only,
+        )
+
+
+class ReturnRemainingExiledEffect(GameEffect):
+    """RULE 603.7 delayed cleanup: whichever of ``instance_ids`` are still
+    sitting in exile move to their owner's graveyard — Mnemonic Betrayal's
+    own "at the beginning of the next end step, if any of those cards
+    remain exiled, return them to their owners' graveyards." Anything
+    already cast by then is simply gone from the zone check (it resolved,
+    or is on the stack/battlefield/graveyard through its own path), so this
+    only ever touches leftovers. Plain data (``instance_ids`` are ints), so
+    it survives `GameState.clone` like any other armed `DelayedTrigger`.
+    """
+
+    def __init__(self, instance_ids: list[int], source: Optional["GameObject"] = None) -> None:
+        super().__init__(source)
+        self.instance_ids = list(instance_ids)
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        for iid in self.instance_ids:
+            obj = context.state.find_object(iid)
+            if obj is None or obj.zone != Zone.EXILE:
+                continue
+            owner = context.state.player_by_id(obj.owner_id)
+            owner.remove_from_zone(obj, Zone.EXILE)
+            owner.add_to_zone(obj, Zone.GRAVEYARD)
+            context.state.temp_play_permissions.pop(iid, None)
+            context.state.temp_play_permission_player.pop(iid, None)
+            context.state.temp_play_permission_source.pop(iid, None)
+            context.state.mana_wildcard_permission.pop(iid, None)
+
+
+class GraveyardImpulsiveCastEffect(GameEffect):
+    """"Exile all opponents' graveyards. You may cast spells from among
+    those cards this turn, and mana of any type can be spent to cast them.
+    At the beginning of the next end step, if any of those cards remain
+    exiled, return them to their owners' graveyards." (Mnemonic Betrayal) —
+    the graveyard-sourced sibling of `ImpulsiveDrawEffect`'s library-top
+    exile: the same dual-player permission shape (exile-owner vs.
+    permission-holder can differ, `RulesEngine._grant_temp_play_permission`)
+    plus RULE 605.1a's broadest "any type" mana-wildcard grant (``ManaPool``'s
+    ``wildcard="type"``, see `RulesEngine.cast_spell`) and a RULE 603.7
+    delayed cleanup (`ReturnRemainingExiledEffect`) for whatever's left
+    unexiled at the next end step.
+    """
+
+    def __init__(
+        self,
+        mana_wildcard: Optional[str] = "type",
+        source: Optional["GameObject"] = None,
+    ) -> None:
+        super().__init__(source)
+        self.mana_wildcard = mana_wildcard
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        from ..models.game_state import DelayedTrigger  # avoid effects↔game_state cycle
+
+        controller_id = getattr(self.source, "controller_id", None) or context.active_player.id
+        controller = context.state.player_by_id(controller_id)
+        source_name = self.source.name if self.source is not None else None
+        exiled_ids: list[int] = []
+        for player in context.state.living_players():
+            if player.id == controller_id or not player.graveyard:
+                continue
+            exiled = context.engine.exile_graveyard_with_cast_permission(
+                player, controller, source_name=source_name, mana_wildcard=self.mana_wildcard,
+            )
+            exiled_ids.extend(obj.instance_id for obj in exiled)
+        if not exiled_ids:
+            return
+        context.state.delayed_triggers.append(
+            DelayedTrigger(
+                controller_id=controller_id,
+                step="end",
+                scope="any",
+                effects=[ReturnRemainingExiledEffect(exiled_ids, source=self.source)],
+                description=f"{source_name}: restliche Karten zurückgeben" if source_name else "",
+            )
+        )
 
 
 class ShuffleLibraryEffect(GameEffect):
@@ -4277,9 +4506,14 @@ EffectRegistry.register(
         scope=p.get("scope", "controller"),
         capture=p.get("capture"),
         min_turn_offset=p.get("min_turn_offset", 0),
+        description=p.get("description", ""),
     ),
 )
 EffectRegistry.register("take_extra_turn", lambda p: TakeExtraTurnEffect())
+EffectRegistry.register(
+    "cheat_creature_from_hand",  # Sneak Attack/Meek Attack
+    lambda p: CheatCreatureFromHandEffect(max_total_pt=p.get("max_total_pt")),
+)
 EffectRegistry.register(
     "grant_protection",
     lambda p: GrantProtectionEffect(
@@ -4484,6 +4718,10 @@ EffectRegistry.register(
 EffectRegistry.register(
     "impulsive_draw",
     lambda p: ImpulsiveDrawEffect(count=p.get("count", 1)),
+)
+EffectRegistry.register(
+    "exile_opponents_graveyards_impulsive_cast",  # Mnemonic Betrayal
+    lambda p: GraveyardImpulsiveCastEffect(mana_wildcard=p.get("mana_wildcard", "type")),
 )
 EffectRegistry.register("shuffle", lambda p: ShuffleLibraryEffect())
 EffectRegistry.register(

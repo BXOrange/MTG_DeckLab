@@ -229,6 +229,50 @@ class AbilitySpec:
     #: ``ability_kind``" idiom — the clause is its own oracle-text line,
     #: standalone from the spell's actual effect.
     free_cast_condition: Optional[dict[str, Any]] = None
+    #: RULE 603.4-style per-firing marker: "whenever ~ deals combat damage
+    #: to a player, exile the top card of *that player's* library. Until
+    #: end of turn, you may cast that card." (Ragavan, Nimble Pilferer) —
+    #: the damaged player varies per firing, which a bind-on-load
+    #: `TriggeredAbility`'s one fixed effects list can't carry (see that
+    #: class's docstring, `game/effects.py`), so this rides as a plain
+    #: marker dict (``{"count": N}``, ``N>=1``) stamped onto the
+    #: `GameObject` at bind time instead of an ordinary effect —
+    #: `RulesEngine._collect_impulsive_draw_triggers` reads it fresh off
+    #: the event's own source every time a DAMAGE event fires, building the
+    #: per-firing `ImpulsiveDrawEffect` the same way `_collect_inherent_
+    #: triggers` already does for the Monarch/Initiative combat-damage
+    #: swap. Hand-authored only (`game/ability_catalogue.py`) — the
+    #: oracle-text parser front-end never produces this field. May ride on
+    #: any spec regardless of ``ability_kind``, same "scan every spec,
+    #: attach to the object" idiom `additional_cost`/`conditional_flash` use
+    #: (`game/effect_binder.py`'s `attach_to_object`).
+    impulsive_draw_on_combat_damage: Optional[dict[str, Any]] = None
+    #: RULE 702.88b Rebound marker: "If you cast this spell from your hand,
+    #: exile it as it resolves. At the beginning of your next upkeep, you
+    #: may cast this card from exile without paying its mana cost."
+    #: (Ephemerate) — hand-authored only, no effects of its own, same "scan
+    #: every spec, attach to the object" idiom as `impulsive_draw_on_combat_
+    #: damage`. Read by `RulesEngine.cast_spell` (arms ``obj.rebound_
+    #: pending`` when cast from hand) and `resolve_top_of_stack` (exiles
+    #: instead of routing to the graveyard, then arms the free-cast window
+    #: via `GameState.free_cast_instance_ids` — a *standing* until-end-of-
+    #: that-upkeep's-turn permission rather than a forced yes/no choice at
+    #: the delayed trigger's own resolution, the same simplification
+    #: `exile_with_play_permission`'s impulsive-draw window already uses).
+    rebound: bool = False
+    #: RULE 603.7-style per-firing marker: "whenever a creature you control
+    #: with a counter of ``counter_kind`` on it dies, return that card to
+    #: the battlefield under your control at the beginning of the next end
+    #: step." (Marchesa, the Black Rose) — the dying creature varies per
+    #: firing, so this rides as a marker (mirroring `impulsive_draw_on_
+    #: combat_damage`'s own per-firing shape) rather than a bind-once
+    #: `TriggeredAbility`; `RulesEngine._collect_counter_death_return_
+    #: triggers` reads it fresh off every `DIES` event, checking the dying
+    #: object's counters (snapshotted onto the event by `_move_to_graveyard`
+    #: since the object may already be gone from the battlefield by the
+    #: time this runs). Hand-authored only. ``{"counter_kind": "+1/+1"}``
+    #: (default) — a single optional key, no other counter kind needed yet.
+    counter_death_return: Optional[dict[str, Any]] = None
     optional: bool = False  # "you may"
     raw_text: str = ""
     parser: ParserProvenance = field(default_factory=ParserProvenance)
@@ -275,6 +319,15 @@ class AbilitySpec:
 
         if self.free_cast_condition is not None:
             self._validate_free_cast_condition()
+
+        if self.impulsive_draw_on_combat_damage is not None:
+            self._validate_impulsive_draw_on_combat_damage()
+
+        if not isinstance(self.rebound, bool):
+            raise SpecValidationError("'rebound' must be a bool")
+
+        if self.counter_death_return is not None:
+            self._validate_counter_death_return()
 
         if self.ability_kind == "triggered":
             if not self.trigger or "event" not in self.trigger:
@@ -355,6 +408,27 @@ class AbilitySpec:
             raise SpecValidationError(f"unknown conditional_flash key {key!r}")
         if key == "entered_this_turn" and not isinstance(value, bool):
             raise SpecValidationError("'entered_this_turn' condition must be a bool")
+
+    def _validate_impulsive_draw_on_combat_damage(self) -> None:
+        """Structural check for an ``impulsive_draw_on_combat_damage`` marker."""
+        spec = self.impulsive_draw_on_combat_damage
+        if not isinstance(spec, dict):
+            raise SpecValidationError("'impulsive_draw_on_combat_damage' must be a dict")
+        count = spec.get("count", 1)
+        if isinstance(count, bool) or not isinstance(count, int) or not 1 <= count <= MAX_EFFECT_MAGNITUDE:
+            raise SpecValidationError(
+                "'impulsive_draw_on_combat_damage' count must be an int in "
+                f"[1, {MAX_EFFECT_MAGNITUDE}]"
+            )
+
+    def _validate_counter_death_return(self) -> None:
+        """Structural check for a ``counter_death_return`` marker."""
+        spec = self.counter_death_return
+        if not isinstance(spec, dict):
+            raise SpecValidationError("'counter_death_return' must be a dict")
+        kind = spec.get("counter_kind", "+1/+1")
+        if not isinstance(kind, str) or not kind:
+            raise SpecValidationError("'counter_death_return' counter_kind must be a non-empty str")
 
     def _validate_free_cast_condition(self) -> None:
         """Structural check for a ``free_cast_condition`` clause."""

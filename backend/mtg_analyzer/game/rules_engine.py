@@ -26,7 +26,7 @@ from ..models.card import Card
 from ..models.emblem import Emblem
 from ..models.events import EventType, GameEvent
 from ..models.game_object import GameObject, Zone
-from ..models.game_state import GameState, StackItem
+from ..models.game_state import DelayedTrigger, GameState, StackItem
 from ..models.mana_cost import ManaCost
 from ..models.player import Player
 from ..parser.oracle.catalogue.saga import all_chapter_numbers
@@ -35,13 +35,17 @@ from .combat import is_protected_from
 from .costs import DISCARD_HAND, ActivationCost, parse_activation_cost
 from .mana_abilities import restriction_predicate_for_cast
 from .effects import (
+    AddCountersEffect,
     BecomeMonarchEffect,
     CantBeCounteredEffect,
     ChooseColorReplacement,
     ChooseCreatureTypeReplacement,
     DrawCardEffect,
     GameContext,
+    ImpulsiveDrawEffect,
+    MarchesaDelayedReturnEffect,
     PumpEffect,
+    ReboundFreeCastWindowEffect,
     ReplacementEffect,
     StaticAbility,
     StaticEffect,
@@ -416,6 +420,8 @@ class RulesEngine:
                     if ability.check_trigger(event, self.context):
                         self.pending_triggers.append((ability, event))
         self._collect_inherent_triggers(event)
+        self._collect_impulsive_draw_triggers(event)
+        self._collect_counter_death_return_triggers(event)
 
     def _collect_inherent_triggers(self, event: GameEvent) -> None:
         """RULE 725.2/726.2: the Monarch's and the Initiative's triggered
@@ -491,6 +497,93 @@ class RulesEngine:
                         ),
                     )
                     self.pending_triggers.append((ability, event))
+
+    def _collect_impulsive_draw_triggers(self, event: GameEvent) -> None:
+        """"Whenever ~ deals combat damage to a player, exile the top card of
+        *that player's* library. Until end of turn, you may cast that card."
+        (Ragavan, Nimble Pilferer, `AbilitySpec.impulsive_draw_on_combat_
+        damage`) — the damaged player varies per firing, which a bind-on-load
+        `TriggeredAbility`'s one fixed ``effects`` list can't carry (see that
+        class's docstring, `game/effects.py`). Built fresh right here, the
+        same "per-firing data baked in right when the event fires" shape
+        `_collect_inherent_triggers` above already uses for the Monarch/
+        Initiative combat-damage swap — queued through the ordinary
+        ``pending_triggers`` pipeline (RULE 603.3 ordering/choices), unlike
+        `check_rampage`/`check_ward`'s "place immediately" shortcut, since
+        this *is* a genuine source-bound triggered ability, just one no
+        object scan could ever find pre-built.
+        """
+        if event.type != EventType.DAMAGE or not event.get("combat") or not event.get("is_player"):
+            return
+        source_id = event.get("source_id")
+        if source_id is None:
+            return
+        source = self.state.find_object(source_id)
+        if source is None:
+            return
+        marker = getattr(source, "impulsive_draw_on_combat_damage", None)
+        if not marker:
+            return
+        try:
+            damaged_player = self.state.player_by_id(event["target_id"])
+            controller = self.state.player_by_id(source.controller_id)
+        except KeyError:
+            return
+        effect = ImpulsiveDrawEffect(
+            count=int(marker.get("count", 1)),
+            player=damaged_player,
+            permission_player=controller,
+            same_turn_only=True,
+            source=source,
+        )
+        ability = TriggeredAbility(
+            trigger_event=EventType.DAMAGE,
+            effects=[effect],
+            controller_id=controller.id,
+            source=source,
+            description=f"{source.name}: verbanne die oberste Karte der gegnerischen Bibliothek",
+        )
+        self.pending_triggers.append((ability, event))
+
+    def _collect_counter_death_return_triggers(self, event: GameEvent) -> None:
+        """"Whenever a creature you control with a counter of
+        ``counter_kind`` on it dies, return that card to the battlefield
+        under your control at the beginning of the next end step."
+        (Marchesa, the Black Rose, `AbilitySpec.counter_death_return`) — the
+        dying creature varies per firing, so this is built fresh here
+        exactly like `_collect_impulsive_draw_triggers` above, just scanning
+        every permanent for the marker instead of reading it off the
+        event's own source (Marchesa isn't the object the `DIES` event is
+        about — RULE 603.1's "group" subject shape, not "self").
+        """
+        if event.type != EventType.DIES:
+            return
+        if "creature" not in (event.get("object_types") or []):
+            return
+        dying_controller_id = event.get("controller_id")
+        dying_id = event.get("instance_id")
+        if dying_controller_id is None or dying_id is None:
+            return
+        dying_counters = event.get("counters") or {}
+        for obj in self.state.permanents():
+            marker = getattr(obj, "counter_death_return", None)
+            if not marker or obj.controller_id != dying_controller_id:
+                continue
+            kind = marker.get("counter_kind", "+1/+1")
+            if dying_counters.get(kind, 0) <= 0:
+                continue
+            dying_obj = self.state.find_object(dying_id)
+            if dying_obj is None:
+                continue
+            effect = MarchesaDelayedReturnEffect(dying_object=dying_obj, source=obj)
+            ability = TriggeredAbility(
+                trigger_event=EventType.DIES,
+                effects=[effect],
+                controller_id=obj.controller_id,
+                source=obj,
+                description=f"{obj.name}: {dying_obj.name} zum Ende des Zuges zurückbringen",
+            )
+            self.pending_triggers.append((ability, event))
 
     def put_triggers_on_stack(self) -> int:
         """Move fired triggers onto the stack (RULE 603.3). Returns count.
@@ -1235,15 +1328,34 @@ class RulesEngine:
             cost = self.mana_cost_of(obj.card)
             if cost.has_variable:
                 cost = cost.with_x(x)
-        allows_restriction = restriction_predicate_for_cast(obj, has_x=cost.has_variable)
-        if not player.mana_pool.can_pay(
-            cost, life_available=player.life, allows_restriction=allows_restriction
-        ):
-            raise ValueError(f"{player.id} cannot pay for {obj.name}")
-        life_spent = player.mana_pool.pay(
-            cost, life_available=player.life, allows_restriction=allows_restriction
-        )
+        # RULE 702.88b Rebound: cast from hand arms the "exile instead of
+        # graveyard, then reopen a free-cast window next upkeep" behaviour
+        # `resolve_top_of_stack` checks for below — recast later from that
+        # same window (zone already EXILE here), Rebound doesn't repeat.
+        if getattr(obj, "has_rebound", False) and obj.zone == Zone.HAND:
+            obj.rebound_pending = True
+        # RULE 702.88b's own free-cast window (`ReboundFreeCastWindowEffect`)
+        # — consumed the instant it's used, same "check, then discard" shape
+        # `mana_wildcard_permission`'s per-card grant already uses.
+        free_cast = obj.instance_id in self.state.free_cast_instance_ids
+        if free_cast:
+            life_spent = 0
+        else:
+            allows_restriction = restriction_predicate_for_cast(obj, has_x=cost.has_variable)
+            # RULE 605.1a "you may spend mana as though it were mana of any
+            # color/type" (Mnemonic Betrayal-shaped), scoped to casting this
+            # one exiled card — see `GameState.mana_wildcard_permission`.
+            wildcard = self.state.mana_wildcard_permission.get(obj.instance_id)
+            if not player.mana_pool.can_pay(
+                cost, life_available=player.life, allows_restriction=allows_restriction, wildcard=wildcard
+            ):
+                raise ValueError(f"{player.id} cannot pay for {obj.name}")
+            life_spent = player.mana_pool.pay(
+                cost, life_available=player.life, allows_restriction=allows_restriction, wildcard=wildcard
+            )
         self.lose_life(player, life_spent, cause="cost")
+        if free_cast:
+            self.state.free_cast_instance_ids.discard(obj.instance_id)
         # RULE 601.2b: remember the announced X on the object itself (not
         # just this ephemeral StackItem) — an "unless its controller pays
         # {X}" tied to *this* spell's own X (Logic Knot's Delve-adjacent
@@ -1327,11 +1439,22 @@ class RulesEngine:
         return item
 
     def _remove_from_current_zone(self, player: Player, obj: GameObject) -> None:
-        """Pull ``obj`` out of whichever zone currently holds it."""
-        for cards in player.zones.values():
-            if obj in cards:
-                cards.remove(obj)
-                return
+        """Pull ``obj`` out of whichever zone currently holds it.
+
+        Checks *every* player's zones, not just ``player``'s own — usually
+        the same thing (a card sits in its owner's zone, and ``player`` is
+        that owner), but not always: a Ragavan/Mnemonic Betrayal-shaped
+        temp play/cast permission (`exile_with_play_permission`/
+        `exile_graveyard_with_cast_permission`) can let ``player`` cast a
+        card actually sitting in a *different* player's exile zone (RULE
+        400.3: a card's zone is keyed by its owner, not by whoever currently
+        has permission to play it).
+        """
+        for candidate in self.state.players:
+            for cards in candidate.zones.values():
+                if obj in cards:
+                    cards.remove(obj)
+                    return
         if obj in self.state.battlefield:
             self.state.remove_from_battlefield(obj)
 
@@ -1496,6 +1619,30 @@ class RulesEngine:
                 # of going to the graveyard when it resolves.
                 obj.cast_via_flashback = False
                 self.exile(obj)
+            elif obj.rebound_pending:
+                # RULE 702.88b: a Rebound spell cast from hand is exiled
+                # instead of going to the graveyard, then a delayed trigger
+                # reopens its free-cast window at the controller's next
+                # upkeep (`ReboundFreeCastWindowEffect`).
+                obj.rebound_pending = False
+                self.exile(obj)
+                self.state.delayed_triggers.append(
+                    DelayedTrigger(
+                        controller_id=obj.controller_id,
+                        step="upkeep",
+                        scope="controller",
+                        effects=[ReboundFreeCastWindowEffect(source=obj)],
+                        description=f"{obj.name}: ohne Bezahlen der Manakosten aus dem Exil wirken",
+                    )
+                )
+            elif obj.zone != Zone.STACK:
+                # One of this instant/sorcery's own resolving effects already
+                # moved it elsewhere — a trailing "Exile ~." self-exile
+                # clause (Mnemonic Betrayal/Teferi's Protection-shaped,
+                # `ExileEffect`'s ``target_kind=None`` self mode) is the only
+                # shape that does this today. Honour it instead of also
+                # routing the card to the graveyard afterward.
+                pass
             else:
                 self._move_to_graveyard(obj)
             self.state.fire_event(
@@ -2103,6 +2250,13 @@ class RulesEngine:
         # Equipment that was on ``obj`` falls off here.
         self._detach_attachments_from(obj)
         self.exile(obj)
+        # `exile()` appended ``obj`` onto `owner.exile`; `_put_searched_card`'s
+        # battlefield branch only appends to `state.battlefield` (its usual
+        # callers already popped the card off whatever zone held it), so
+        # without this it would linger in `owner.exile` too — a phantom
+        # duplicate reference (the object's own `.zone` reads BATTLEFIELD
+        # correctly either way, but the exile *zone list* itself wouldn't).
+        owner.remove_from_zone(obj, Zone.EXILE)
         obj.reset_as_new_object()
         obj.controller_id = owner.id
         self._put_searched_card(owner, obj, "battlefield")
@@ -3339,6 +3493,67 @@ class RulesEngine:
         )
         self._place_trigger(ability)
 
+    def check_dethrone(self, attacker: GameObject) -> None:
+        """RULE 702.107: place Dethrone's own triggered ability, if any,
+        right when ``attacker`` is declared — built directly (like
+        `check_rampage`, for the same "per-firing dynamic" reason) rather
+        than as a bind-on-load `TriggeredAbility`
+        (`effect_binder._keyword_triggered_abilities`) since `combat.has`
+        must be read fresh at attack-declaration time: Dethrone isn't only
+        ever printed on the attacker itself, it's also grantable to "other
+        creatures you control" by a layer-6 static (Marchesa, the Black
+        Rose) that never runs the bind-on-load machinery on those other
+        creatures — only a check at the moment of the actual attack sees a
+        dynamically-granted keyword at all.
+
+        A no-op when ``attacker`` doesn't currently have dethrone, or the
+        defending player (its controller, for a planeswalker/battle attack —
+        RULE 702.107a's ruling that Dethrone cares about the defending
+        *player*'s life regardless of what's actually being attacked) isn't
+        at or tied for the game's highest life total.
+        """
+        if not combat.has(attacker, "dethrone"):
+            return
+        defender = self._dethrone_defending_player(attacker)
+        if defender is None:
+            return
+        living = self.state.living_players()
+        if not living or defender.life < max(p.life for p in living):
+            return
+        ability = TriggeredAbility(
+            trigger_event=EventType.ATTACKS,
+            effects=[AddCountersEffect(amount=1, source=attacker)],
+            controller_id=attacker.controller_id,
+            source=attacker,
+            description="Dethrone",
+        )
+        self._place_trigger(ability)
+
+    def _dethrone_defending_player(self, attacker: GameObject) -> Optional[Player]:
+        """Resolve ``attacker.combat_defender`` (`GameEngine.declare_attackers`/
+        `_assign_defender`) to the defending *player*, for `check_dethrone`.
+        Distinct from `GameEngine._resolve_combat_defender` — that one
+        returns the actual damage-assignment target (a planeswalker object
+        itself), while Dethrone needs that permanent's *controller*.
+        """
+        spec = getattr(attacker, "combat_defender", None)
+        if not spec:
+            return None
+        if spec.get("kind") == "player":
+            try:
+                return self.state.player_by_id(spec["id"])
+            except KeyError:
+                return None
+        if spec.get("kind") == "planeswalker":
+            obj = self.state.find_object(spec["instance_id"])
+            if obj is None:
+                return None
+            try:
+                return self.state.player_by_id(obj.controller_id)
+            except KeyError:
+                return None
+        return None
+
     # ------------------------------------------------------------------
     # Library search + shuffle + the pending-choice it needs (RULE 701.19/20)
     # ------------------------------------------------------------------
@@ -3692,13 +3907,55 @@ class RulesEngine:
             player.remove_from_zone(obj, Zone.EXILE)
             self._put_searched_card(player, obj, destination)
 
+    def _grant_temp_play_permission(
+        self,
+        obj: GameObject,
+        permission_player: Player,
+        source_name: Optional[str],
+        same_turn_only: bool,
+        mana_wildcard: Optional[str],
+    ) -> None:
+        """Shared bookkeeping for a "you may play/cast this exiled card"
+        grant (RULE 601.3b analogue) — factored out since both
+        `exile_with_play_permission` (Light Up the Stage/Ragavan-shaped, top
+        of a library) and `exile_graveyard_with_cast_permission` (Mnemonic
+        Betrayal-shaped, a whole graveyard) need it identically per object.
+
+        ``same_turn_only`` stores the *comparison-adjusted* turn value
+        `GameEngine._step_cleanup`'s existing ``turn >= state.turn_number``
+        sweep already uses, rather than changing that sweep itself: storing
+        ``turn_number`` (the default) survives through this turn's own
+        cleanup plus all of next turn ("until the end of your next turn");
+        storing ``turn_number - 1`` instead makes the very next cleanup
+        (this same turn's) already sweep it — "until end of turn" (Ragavan/
+        Mnemonic Betrayal's own, shorter window).
+        """
+        granted_value = self.state.turn_number - 1 if same_turn_only else self.state.turn_number
+        self.state.temp_play_permissions[obj.instance_id] = granted_value
+        self.state.temp_play_permission_player[obj.instance_id] = permission_player.id
+        if source_name:
+            self.state.temp_play_permission_source[obj.instance_id] = source_name
+        if mana_wildcard:
+            self.state.mana_wildcard_permission[obj.instance_id] = mana_wildcard
+
     def exile_with_play_permission(
-        self, player: Player, count: int, source_name: Optional[str] = None
+        self,
+        player: Player,
+        count: int,
+        source_name: Optional[str] = None,
+        permission_player: Optional[Player] = None,
+        same_turn_only: bool = False,
+        mana_wildcard: Optional[str] = None,
     ) -> list[GameObject]:
         """Exile the top ``count`` cards of ``player``'s library; every one
-        of them becomes playable through the end of ``player``'s *next*
-        turn (RULE 601.3b analogue — Light Up the Stage-shaped "impulsive
-        draw"), tracked in `GameState.temp_play_permissions`.
+        of them becomes playable by ``permission_player`` (``player``
+        itself, when omitted) through the end of ``player``'s *next* turn —
+        or, with ``same_turn_only=True``, only through the end of this turn
+        (RULE 601.3b analogue — Light Up the Stage-shaped "impulsive draw";
+        Ragavan, Nimble Pilferer's own shorter window and *different*
+        permission-holder, its own controller rather than the damaged
+        player whose library was exiled), tracked in `GameState.
+        temp_play_permissions`/`temp_play_permission_player`.
 
         Distinct from `request_impulsive_look`: no filter, no choice, and
         nothing is routed to a miss destination — every card exiled here
@@ -3709,7 +3966,9 @@ class RulesEngine:
         the Stage") is recorded in the sibling `GameState.
         temp_play_permission_source` so the board can explain *why* the
         card is castable — purely cosmetic, no effect on legality.
+        ``mana_wildcard`` — see `GameState.mana_wildcard_permission`.
         """
+        holder = permission_player or player
         exiled: list[GameObject] = []
         for _ in range(max(0, count)):
             if not player.library:
@@ -3717,14 +3976,98 @@ class RulesEngine:
             obj = player.library.pop()
             obj.zone = Zone.EXILE
             player.exile.append(obj)
-            self.state.temp_play_permissions[obj.instance_id] = self.state.turn_number
-            if source_name:
-                self.state.temp_play_permission_source[obj.instance_id] = source_name
+            self._grant_temp_play_permission(obj, holder, source_name, same_turn_only, mana_wildcard)
             exiled.append(obj)
             self.state.fire_event(
                 GameEvent(EventType.EXILE, player_id=player.id, object=obj.name, from_zone="library")
             )
         return exiled
+
+    def exile_graveyard_with_cast_permission(
+        self,
+        player: Player,
+        permission_player: Player,
+        source_name: Optional[str] = None,
+        mana_wildcard: Optional[str] = None,
+    ) -> list[GameObject]:
+        """Exile every card currently in ``player``'s graveyard; each becomes
+        castable by ``permission_player`` through the end of this turn
+        (Mnemonic Betrayal-shaped: "Exile all opponents' graveyards. You may
+        cast spells from among those cards this turn…") — the graveyard-
+        sourced sibling of `exile_with_play_permission`'s library-top exile,
+        sharing its `_grant_temp_play_permission` bookkeeping. Always
+        "this turn only" (RULE 601.3b analogue has no "next turn" variant
+        printed for this shape, unlike Light Up the Stage's).
+
+        Grants the same `GameState.temp_play_permissions` a "play" (not
+        strictly "cast"-only) permission — a card in a graveyard is
+        overwhelmingly a nonland spell, so this doesn't distinguish a
+        hypothetical land card there from every other exiled card; a
+        documented, narrow simplification (see `GameEngine.can_play_land`'s
+        shared zone check) rather than a second dict just for that edge case.
+        """
+        exiled: list[GameObject] = []
+        for obj in list(player.graveyard):
+            player.remove_from_zone(obj, Zone.GRAVEYARD)
+            obj.zone = Zone.EXILE
+            player.exile.append(obj)
+            self._grant_temp_play_permission(
+                obj, permission_player, source_name, same_turn_only=True, mana_wildcard=mana_wildcard,
+            )
+            exiled.append(obj)
+            self.state.fire_event(
+                GameEvent(EventType.EXILE, player_id=player.id, object=obj.name, from_zone="graveyard")
+            )
+        return exiled
+
+    def grant_rebound_free_cast_window(self, obj: GameObject) -> None:
+        """RULE 702.88b: open ``obj``'s (already-exiled) "cast it without
+        paying its mana cost" window through the rest of its controller's
+        current upkeep — reuses `_grant_temp_play_permission`'s same-
+        turn-only temp-cast permission (so `can_cast`/`cast_spell` already
+        know how to let it be cast from exile) plus `GameState.free_cast_
+        instance_ids` to also zero its mana cost. Called by
+        `ReboundFreeCastWindowEffect` when a Rebound delayed trigger fires.
+        """
+        controller = self.state.player_by_id(obj.controller_id)
+        if controller is None:
+            return
+        self._grant_temp_play_permission(
+            obj, controller, obj.name, same_turn_only=True, mana_wildcard=None,
+        )
+        self.state.free_cast_instance_ids.add(obj.instance_id)
+
+    def put_hand_creature_onto_battlefield(
+        self, player: Player, max_total_pt: Optional[int] = None
+    ) -> Optional[GameObject]:
+        """"You may put a creature card from your hand onto the
+        battlefield." (RULE 701 "cheat into play" — Sneak Attack/Meek
+        Attack-shaped). Auto-picks the first eligible creature in hand — no
+        chooser in this MVP, the same idiom `discard`/`put_hand_cards_on_
+        top` already use for an un-targeted hand-card pick — optionally
+        filtered by ``max_total_pt`` (Meek Attack's own "total power and
+        toughness 5 or less"). Returns the object placed, or ``None`` if no
+        eligible creature was in hand. RULE 400.7: leaving the hand makes
+        this a new object.
+        """
+        creature = next(
+            (
+                o for o in player.hand
+                if o.card.is_creature
+                and (
+                    max_total_pt is None
+                    or (o.card.power or 0) + (o.card.toughness or 0) <= max_total_pt
+                )
+            ),
+            None,
+        )
+        if creature is None:
+            return None
+        self._remove_from_current_zone(player, creature)
+        creature.reset_as_new_object()
+        creature.controller_id = player.id
+        self._put_searched_card(player, creature, "battlefield")
+        return creature
 
     def shuffle_library(self, player: Player) -> None:
         """Shuffle a player's library and announce it (RULE 701.20)."""
@@ -3927,6 +4270,14 @@ class RulesEngine:
                         controller_id=obj.controller_id,
                         instance_id=obj.instance_id,
                         object_types=sorted(obj.type_words),
+                        # Snapshotted live (before `remove_from_battlefield`
+                        # below): a "dies with a counter on it" trigger
+                        # condition (Marchesa, the Black Rose-shaped,
+                        # `_collect_counter_death_return_triggers`) needs
+                        # this off the event, not a live re-lookup — the
+                        # dying object may already be gone from the
+                        # battlefield by the time that check runs.
+                        counters=dict(obj.counters),
                     )
                 )
             if cause == "sacrifice":

@@ -907,6 +907,11 @@ class GameSession:
             "move_log": list(self.move_log),
             # Every static ability in play, for the UI's optional layer panel.
             "static_effects": continuous.active_static_abilities(self.engine.state),
+            # RULE 603.7 delayed triggered abilities armed but not yet fired
+            # ("at the beginning of your next upkeep/the next end step, …"),
+            # for the UI's "planned" panel (Ephemerate's Rebound/Marchesa's
+            # counter-death return/Sneak Attack's delayed sacrifice-shaped).
+            "delayed_triggers": [dt.to_dict() for dt in self.engine.state.delayed_triggers],
             # Which players currently have a "play with the top card of your
             # library revealed"-shaped permission active (Oracle of Mul
             # Daya/Glarb, Calamity's Augur-shaped, `game/top_library.py`) —

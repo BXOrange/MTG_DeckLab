@@ -1999,6 +1999,7 @@ def _mana_drain() -> list[AbilitySpec]:
                     "effects": [
                         {"type": "add_mana", "params": {"color": "C", "amount": "x"}},
                     ],
+                    "description": "Mana Drain: {C} in Höhe der Manakosten des annullierten Zauberspruchs hinzufügen",
                 }),
             ],
             raw_text="Annulliere einen Zielzauberspruch. Zu Beginn deiner nächsten "
@@ -2580,14 +2581,17 @@ def _ephemerate() -> list[AbilitySpec]:
     resolves. At the beginning of your next upkeep, you may cast this
     card from exile without paying its mana cost.)
 
-    — Ephemerate. Rebound (RULE 702.88b) isn't modeled — every triggered
-    ability today is bound once at `GameObject` creation and reused for the
-    object's whole lifetime; nothing creates a fresh, one-shot trigger tied
-    to one specific future upkeep (RULE 603.7, the same delayed-trigger gap
-    Mana Drain/Corpse Dance/Summoner's Pact are already logged as blocked
-    on). The blink half is modeled in full (`game/effects.py`'s
-    `BlinkEffect`/`RulesEngine.blink`, a new RULE 400.7 "exile then
-    immediately return" primitive).
+    — Ephemerate. Rebound (RULE 702.88b) is now modeled, reusing the
+    `create_delayed_trigger`/`GameState.delayed_triggers` primitive Mana
+    Drain's own batch built (this docstring previously deferred it as
+    blocked on exactly that primitive, citing Mana Drain among others —
+    stale the moment that batch shipped; see `AbilitySpec.rebound`'s
+    docstring for the "standing free-cast window instead of a forced
+    yes/no choice" simplification). The `rebound` marker rides on its own
+    empty-effects spec, the same "scan every spec" shape `impulsive_draw_
+    on_combat_damage` uses; the blink half is unchanged (`game/effects.py`'s
+    `BlinkEffect`/`RulesEngine.blink`, RULE 400.7's "exile then immediately
+    return").
     """
     return [
         AbilitySpec(
@@ -2596,7 +2600,16 @@ def _ephemerate() -> list[AbilitySpec]:
             raw_text="Exiliere eine Zielkreatur, die du kontrollierst, und "
                      "bringe sie dann unter der Kontrolle ihres Besitzers "
                      "auf das Schlachtfeld zurück.",
-        )
+        ),
+        AbilitySpec(
+            "static",
+            [],
+            rebound=True,
+            raw_text="Wiedergänger (Falls du diesen Zauberspruch von deiner Hand "
+                     "gewirkt hast, verbanne ihn, während er verrechnet wird. Zu "
+                     "Beginn deiner nächsten Versorgung darfst du diese Karte aus "
+                     "dem Exil wirken, ohne ihre Manakosten zu bezahlen.)",
+        ),
     ]
 
 
@@ -3704,6 +3717,7 @@ def _final_fortune() -> list[AbilitySpec]:
                     "scope": "controller",
                     "min_turn_offset": 1,
                     "effects": [{"type": "lose_game", "params": {"reason": "final_fortune"}}],
+                    "description": "Final Fortune: du verlierst das Spiel",
                 }),
             ],
             raw_text="Mache einen zusätzlichen Zug nach diesem. Zu Beginn des "
@@ -3805,3 +3819,190 @@ def _humility() -> list[AbilitySpec]:
 
 
 register("Humility", _humility)
+
+
+# ---------------------------------------------------------------------------
+# Impulsive draw's dual-player extension — Ragavan, Nimble Pilferer's
+# damaged-player-library exile + Mnemonic Betrayal's whole-graveyard, "any
+# type" mana-wildcard exile. See `game/effects.py`'s `ImpulsiveDrawEffect`/
+# `GraveyardImpulsiveCastEffect`/`ReturnRemainingExiledEffect`,
+# `RulesEngine._collect_impulsive_draw_triggers`/`exile_with_play_permission`/
+# `exile_graveyard_with_cast_permission`, and `ManaPool`'s ``wildcard`` param.
+# ---------------------------------------------------------------------------
+
+
+def _ragavan_nimble_pilferer() -> list[AbilitySpec]:
+    """Whenever Ragavan deals combat damage to a player, create a Treasure
+    token and exile the top card of that player's library. Until end of
+    turn, you may cast that card.
+    Dash {1}{R}
+
+    — Ragavan, Nimble Pilferer. Splits into two triggered abilities sharing
+    the same "self deals combat damage to a player" condition: the Treasure
+    token has no per-firing variance, so it's an ordinary bound
+    `TriggeredAbility` below; the exile-and-cast-permission half needs the
+    *damaged* player baked in fresh per firing (a bind-on-load ability's one
+    fixed effects list can't carry that), so it's a marker
+    (`impulsive_draw_on_combat_damage`) `RulesEngine.
+    _collect_impulsive_draw_triggers` reads off the event's own source
+    instead — see that method's docstring. Dash is a plain RULE 702 keyword,
+    covered by the keyword catalogue.
+    """
+    return [
+        AbilitySpec(
+            "triggered",
+            [EffectSpec("create_token", {"token_name": "Treasure", "count": 1})],
+            trigger={
+                "event": EventType.DAMAGE,
+                "condition": {"subject": "self"},
+                "filter": {"combat": True, "is_player": True},
+            },
+            raw_text="Wenn Ragavan einer Spielerin oder einem Spieler Kampfschaden zufügt, "
+                     "erschaffe einen Schatz-Spielstein.",
+        ),
+        AbilitySpec(
+            "static",
+            [],
+            impulsive_draw_on_combat_damage={"count": 1},
+            raw_text="Wenn Ragavan einer Spielerin oder einem Spieler Kampfschaden zufügt, "
+                     "verbanne die oberste Karte der Bibliothek dieser Spielerin oder dieses "
+                     "Spielers. Bis zum Ende des Zuges darfst du diese Karte wirken.",
+        ),
+    ]
+
+
+register("Ragavan, Nimble Pilferer", _ragavan_nimble_pilferer)
+
+
+def _mnemonic_betrayal() -> list[AbilitySpec]:
+    """Exile all opponents' graveyards. You may cast spells from among
+    those cards this turn, and mana of any type can be spent to cast them.
+    At the beginning of the next end step, if any of those cards remain
+    exiled, return them to their owners' graveyards.
+    Exile Mnemonic Betrayal.
+
+    — Mnemonic Betrayal. The trailing "Exile ~." is the ordinary
+    `ExileEffect` ``target_kind=None`` self mode (already claimed by the
+    oracle-text parser — see `backend/tests/test_cube_batch_a1.py`'s
+    ``test_mnemonic_betrayal_and_teferis_protection_self_exile_claimed``);
+    only the graveyard-impulsive-cast body needed hand authoring, via
+    `GraveyardImpulsiveCastEffect`.
+    """
+    return [
+        AbilitySpec(
+            "spell_effect",
+            [
+                EffectSpec("exile_opponents_graveyards_impulsive_cast", {"mana_wildcard": "type"}),
+                EffectSpec("exile", {"target_kind": None}),
+            ],
+            raw_text="Verbanne die Friedhöfe aller deiner Gegner. Du darfst in diesem Zug "
+                     "Zaubersprüche unter diesen Karten wirken, und Mana jeglichen Typs kann "
+                     "verwendet werden, um sie zu wirken. Zu Beginn des nächsten Endsegments "
+                     "gib alle Karten, die auf diese Weise noch immer verbannt sind, in den "
+                     "Friedhof ihres Besitzers zurück.\n"
+                     "Verbanne Mnemonic Betrayal.",
+        )
+    ]
+
+
+register("Mnemonic Betrayal", _mnemonic_betrayal)
+
+
+def _marchesa_the_black_rose() -> list[AbilitySpec]:
+    """Dethrone (Whenever this creature attacks the player with the most
+    life or tied for most life, put a +1/+1 counter on it.)
+    Other creatures you control have dethrone.
+    Whenever a creature you control with a +1/+1 counter on it dies,
+    return that card to the battlefield under your control at the
+    beginning of the next end step.
+
+    — Marchesa, the Black Rose. Her own printed Dethrone needs no
+    hand-authoring — it's a plain Scryfall keyword flag `combat.has` already
+    recognizes (`RulesEngine.check_dethrone`, called from `GameEngine.
+    declare_attackers` since Dethrone's amount is fixed per-firing rather
+    than bind-on-load, the same "per-firing dynamic" reason `check_rampage`
+    isn't a bind-time `TriggeredAbility` either). The "Other creatures you
+    control have dethrone" static *is* hand-authored here, below, as an
+    ordinary layer-6 `grant_keyword` — `check_dethrone` reads `combat.has`
+    fresh at attack-declaration time, so a creature holding the granted
+    keyword dethrones exactly like one with it printed. The third clause
+    (the RULE 603.7 delayed-return trigger) is modeled via
+    `AbilitySpec.counter_death_return`/`RulesEngine._collect_counter_
+    death_return_triggers` — a good showcase card for the "planned"
+    delayed-trigger UI panel, same reason Ephemerate/Sneak Attack/Meek
+    Attack were picked.
+    """
+    return [
+        AbilitySpec(
+            "static",
+            [EffectSpec("grant_keyword", {
+                "affects": "other_creatures_you_control", "keywords": ["dethrone"],
+            })],
+            raw_text="Andere Kreaturen, die du kontrollierst, haben Thronraub.",
+        ),
+        AbilitySpec(
+            "static",
+            [],
+            counter_death_return={"counter_kind": "+1/+1"},
+            raw_text="Wann immer eine Kreatur, die du kontrollierst und die einen "
+                     "+1/+1-Zählmarke auf sich hat, stirbt, bringe diese Karte zu "
+                     "Beginn des nächsten Endsegments unter deiner Kontrolle auf "
+                     "das Schlachtfeld zurück.",
+        )
+    ]
+
+
+register("Marchesa, the Black Rose", _marchesa_the_black_rose)
+
+
+def _sneak_attack() -> list[AbilitySpec]:
+    """{R}: You may put a creature card from your hand onto the
+    battlefield. That creature gains haste. Sacrifice the creature at the
+    beginning of the next end step.
+
+    — Sneak Attack. `CheatCreatureFromHandEffect` (`game/effects.py`)
+    covers the whole line in one atomic effect: the RULE 701 "cheat into
+    play", the haste grant, and arming the RULE 603.7 delayed sacrifice.
+    The hand-card pick is auto-chosen — no chooser in this MVP,
+    `RulesEngine.discard`'s established precedent for an un-targeted
+    hand-card pick — rather than an interactive choice among several
+    eligible creatures.
+    """
+    return [
+        AbilitySpec(
+            "activated",
+            [EffectSpec("cheat_creature_from_hand", {})],
+            cost={"text": "{R}"},
+            raw_text="{R}: Du darfst eine Kreaturenkarte aus deiner Hand ins Spiel "
+                     "bringen. Diese Kreatur erhält Eile. Opfere die Kreatur zu "
+                     "Beginn des nächsten Endsegments.",
+        )
+    ]
+
+
+register("Sneak Attack", _sneak_attack)
+
+
+def _meek_attack() -> list[AbilitySpec]:
+    """{1}{R}: You may put a creature card with total power and toughness
+    5 or less from your hand onto the battlefield. That creature gains
+    haste. At the beginning of the next end step, sacrifice that creature.
+
+    — Meek Attack (Sneak Attack's Unhinged sibling): the same
+    `CheatCreatureFromHandEffect`, just with its ``max_total_pt`` filter
+    set to 5 instead of unrestricted.
+    """
+    return [
+        AbilitySpec(
+            "activated",
+            [EffectSpec("cheat_creature_from_hand", {"max_total_pt": 5})],
+            cost={"text": "{1}{R}"},
+            raw_text="{1}{R}: Du darfst eine Kreaturenkarte mit einer Gesamt-Stärke "
+                     "und -Widerstandskraft von 5 oder weniger aus deiner Hand ins "
+                     "Spiel bringen. Diese Kreatur erhält Eile. Opfere diese Kreatur "
+                     "zu Beginn des nächsten Endsegments.",
+        )
+    ]
+
+
+register("Meek Attack", _meek_attack)

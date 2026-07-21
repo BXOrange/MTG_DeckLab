@@ -351,6 +351,52 @@ now holds only open items). Section headers mirror that file.
       `test_impulsive_draw.py`'s new "temp_play_permission_source" section
       (4 tests) and `test_card_structures.py::
       test_prepared_copy_is_serialized_for_the_board_but_an_ordinary_object_is_not`.
+- [x] "Planned" RULE 603.7 delayed-trigger panel (`gameBoardView.js`'s
+      `delayedTriggersPanelHtml`): a compact, always-visible-when-non-empty
+      list — thumbnail (`resolveImageUrl`, reusing the Stack overlay's own
+      art-resolution) + description + a "⏳ Zu Beginn von …" timing line
+      (`delayedTriggerWhenLabel`, `scope: "controller"` names the player,
+      `"any"` reads "des nächsten Schritts" — gender-neutral phrasing since
+      the step names don't share a grammatical gender) — reading a new
+      `GameSession.view()` key, `delayed_triggers`
+      (`GameState.delayed_triggers` mapped through a new
+      `DelayedTrigger.to_dict()`). Backend-side, `CreateDelayedTriggerEffect`
+      gained a real `description` param (previously always blank —
+      `getattr(self, "description", "")` read an attribute nothing ever
+      set) now filled in for both existing users (Mana Drain, Final
+      Fortune) plus three new showcase cards built specifically to exercise
+      this panel: Ephemerate's Rebound (RULE 702.88b — exile-on-resolve +
+      a same-turn free-cast window reopened at the next upkeep, `AbilitySpec.
+      rebound`/`ReboundFreeCastWindowEffect`/`GameState.
+      free_cast_instance_ids`), Marchesa, the Black Rose's counter-death
+      return trigger (`AbilitySpec.counter_death_return`/
+      `RulesEngine._collect_counter_death_return_triggers`/
+      `MarchesaDelayedReturnEffect` — Dethrone itself stays unmodeled, see
+      `backend/ToDo_Backend.md`), and Sneak Attack/Meek Attack's cheat-
+      into-play-then-sacrifice (`CheatCreatureFromHandEffect`/
+      `SacrificeObjectEffect`, `RulesEngine.put_hand_creature_onto_
+      battlefield`). Verified end to end against a live backend over the
+      real HTTP API (curl — no Playwright/browser tool available this
+      session, so no pixel-level screenshot): casting Ephemerate correctly
+      armed the delayed trigger, advancing to the next upkeep opened the
+      free-cast window, and casting it from there with an empty mana pool
+      resolved it to the graveyard without re-arming Rebound. That same
+      pass caught and fixed two real pre-existing bugs, unrelated to this
+      panel itself: `RulesEngine.blink` left a phantom duplicate reference
+      in the owner's exile zone list after returning the blinked object to
+      the battlefield (`_put_searched_card`'s battlefield branch never
+      removes the object from wherever it currently sits — its other
+      callers already pop the card off its zone first, `blink` didn't); and
+      `GameEngine.legal_actions`'s exile loop only ever checked
+      `_castable_from_exile` (the Adventure/prepared-copy shapes), so a
+      temp-play-permission-exiled card (Light Up the Stage/Ragavan/
+      Mnemonic Betrayal/Rebound alike) could never actually be offered as a
+      castable action at all, despite `can_cast`/`cast_spell` fully
+      supporting it — no prior test caught either gap because every
+      existing impulsive-draw test asserted `can_cast` directly instead of
+      going through `legal_actions`, the actual surface any real caller
+      uses. Tests: `backend/tests/test_delayed_trigger_examples.py` (18
+      tests).
 
 ## Multiplayer
 
