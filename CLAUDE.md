@@ -17,7 +17,9 @@ Two halves:
   effect IR, and the game-session API. This is where the depth is.
 - **`frontend/`** — a static, buildless ES-modules app (no bundler). Tabs for
   deck import/analysis, saved decks, the goldfish board, the **"Replay"**
-  board editor (a.k.a. puzzle mode), the card cache, a Multiplayer stub, and
+  board editor (a.k.a. puzzle mode), the card cache, Multiplayer
+  (**Setup** = lobby + game configuration, **Board** = the shared game,
+  disabled until you're at a table), and
   an **"Engine-Status"** tab documenting engine coverage, plus two header icon
   buttons: **"Einstellungen"** (server address, player-uploaded token art,
   card-back sleeves) and **"Profil"** (`profileView.js` — just the player
@@ -38,6 +40,68 @@ by id/name and rebuilt from the cache; tokens carry a self-describing block).
 `GET /api/game/{id}/replay-export` works for a goldfish session too, so a
 goldfish position can be exported and re-opened in Replay. Frontend:
 `frontend/src/js/replayView.js`.
+
+**Multiplayer** (UC4) is a real two-player game against the same engine,
+not a stub. Two layers, strictly separated: `services/lobby.py` is
+**rules-free** (people and tables — `LobbyPlayer` with a presence state of
+`online`/`available`/`playing`, `LobbyGame` with seats, deck picks, an
+agreed mulligan style and a per-seat "accept"), and `services/
+game_session.py` is the game (one `GameEngine`, as always).
+`api/multiplayer.py` is the only bridge: it resolves each seat's saved
+deck exactly like `api/game.py` resolves a goldfish deck (same
+`expand_entries`, same legality gate) and hands `Lobby.start()` a built
+session id. Four things make a session *shared* rather than solo:
+**actions carry an actor** (`apply_action(action, actor_id=...)`) so the
+engine's own per-player validation decides what a non-active seat may do;
+**`view(perspective=...)` redacts hidden zones server-side** (RULE 400.2 —
+an opponent's hand never leaves the process, `observer_view()` hides
+everyone's); **`/ws/lobby`** (`api/multiplayer_ws.py`) is presence *and*
+the push channel, sending each participant their own view rather than one
+shared payload; and **priority is played out for real** (below).
+`RulesEngine.concede` (RULE 104.3a) defers the RULE 800.4a board cleanup
+to the next turn (`GameState.pending_leave_ids`) so a concession doesn't
+yank a board away mid-turn. Frontend: `multiplayerView.js` +
+`lobbySocket.js`, driving the shared `gameBoardView.js` through an
+injected transport.
+
+**RULE 117 priority** is opt-in per session (`GameSession.
+interactive_priority`, on only for `MULTIPLAYER`; the engine flag is
+`GameEngine.interactive_priority`). Off, `_run_step` auto-drains the stack
+exactly as it always has — every solo path is untouched. On, a step only
+puts triggers on the stack, the active player holds priority, and
+`GameSession._pass_priority` drives `GameEngine.pass_priority(player)`
+(which already owned the APNAP round: record the pass, hand priority on,
+resolve the top of the stack once everyone has passed). The half the
+engine can't do is RULE 117.4's *other* branch — all passed on an **empty**
+stack ends the step — so the session does that (`_advance_to_priority_
+window`, which runs through untap/cleanup since those give nobody
+priority). Consequence worth knowing: **there is no "advance the turn"
+action in a shared game**; `advance_step` is refused and the board's
+primary button becomes "Passen". Only the priority holder may act, enforced
+in `_dispatch` and not merely filtered out of `legal_actions` (a client
+could post an action it was never offered) — except RULE 509.1a's
+declare-blockers, a turn-based action the *defending* player takes while
+the attacker still holds priority.
+
+**Presence, reconnects and timers.** A lobby player is identified by
+**name** (`services/lobby.py`'s `normalize_name`), not by the server-issued
+id: that's what survives a page reload, so reconnecting with the same
+Profil name walks back into the same seat mid-game. The trade is explicit —
+two people sharing a name share a seat, and the second to connect takes
+over (the old socket is closed with a `replaced` reason). Losing a socket
+doesn't forfeit: `Lobby.disconnect` starts a grace period
+(`MTG_MULTIPLAYER_DISCONNECT_GRACE`, default 90s) and meanwhile the server
+**passes priority for the absent player** (`pass_for_absent_players`) so
+the table keeps moving; letting it lapse concedes for them. A player who
+holds priority and is silent past `MTG_MULTIPLAYER_IDLE_TIMEOUT` (default
+120s) has their socket closed — not to police slow play, but because a tab
+that died without a clean close would otherwise hold the table forever.
+Both timers are swept once a second by `api/multiplayer_ws.sweep_once`,
+run from the app's lifespan. Client-side, **auto-pass** (settings.js
+cookies, default on / 3s / opponent-turns-only) counts down whenever this
+client holds priority and passes at zero; touching the board cancels that
+window, and both the toggle and the seconds are adjustable on the board
+itself as well as in Einstellungen.
 
 **Player-uploaded art** (Einstellungen tab): a player can upload art for
 tokens that have no real Scryfall art (matched by token name) and a
@@ -92,6 +156,16 @@ The backend FastAPI app is `mtg_analyzer.api.app:app`. There is **no JS build
 step** and no Node toolchain — edit `frontend/src/**` and reload. There is no
 JS test runner, so validate frontend changes by reasoning + reading; validate
 backend changes with pytest (the suite is fast, ~500+ tests, keep it green).
+
+**Stuck-test detection is automatic** (`backend/pytest.ini`, `pytest-timeout`):
+any single test running past 20s aborts with a `Timeout (>20.0s) from
+pytest-timeout.` traceback naming it, instead of hanging the run — no
+extra flag needed, plain `pytest -q` already has it. `backend/scripts/
+run_tests.py` is a thin wrapper (`python scripts/run_tests.py [--hard-timeout
+SECONDS] [pytest args...]`) adding a hard wall-clock ceiling (default 120s)
+on the *whole run*, for the rarer hang the per-test timer can't reach
+(collection, a session-scoped fixture, or a true C-level block) — it kills
+the process group and reports the last test that had started.
 
 ## Architecture & data flow
 
@@ -480,8 +554,7 @@ Humility/Dress Down, since `mana_abilities_for` had never honoured
 scope on each): a kicked spell's "if kicked, ... instead" *override* conditional (as opposed to the
 additional-effect shape already shipped); "search library and/or
 graveyard" (Doomsday/Finale of Devastation — needs a `request_search`
-engine extension, not just parsing); wiring the interactive priority
-primitive into the multiplayer session/WebSocket; battles/dungeons; and the
+engine extension, not just parsing); battles/dungeons; and the
 narrower already-shipped-feature rough edges (e.g. re-validating an
 *existing* attachment's legality every SBA pass, not just on the host
 leaving; combining interactive trigger-ordering with a targeted trigger;
@@ -623,6 +696,7 @@ English and German.
 | "Play/cast from top of library" permission | `game/top_library.py`, `game/game_engine.py` (`can_play_land`/`can_cast`/`legal_actions`), `gameBoardView.js` (`libraryTopHtml`) |
 | On-disk paths / env-var config | `backend/mtg_analyzer/config.py` |
 | Goldfish UI | `frontend/src/js/goldfishView.js` |
+| Multiplayer (lobby, seats, shared board) | `backend/mtg_analyzer/services/lobby.py`, `api/multiplayer.py`, `api/multiplayer_ws.py`, `frontend/src/js/multiplayerView.js`, `lobbySocket.js` |
 | Replay/Puzzle mode (build+save/load a board) | `backend/mtg_analyzer/services/replay.py`, `game_session.py` (`edit_*` actions), `frontend/src/js/replayView.js` |
 | Archidekt deck import proxy | `backend/mtg_analyzer/services/archidekt_client.py`, `api/import_external.py` (Moxfield was tried and reverted twice — Cloudflare-blocked; don't re-add it without checking that's changed) |
 | Player-uploaded token art / card-back sleeves | `backend/mtg_analyzer/services/player_assets.py`, `api/player_assets.py`, `frontend/src/js/connectionSettingsView.js`, `frontend/src/js/profileView.js` (player name), `gameBoardView.js` (`resolveImageUrl`/`setAssets`) |

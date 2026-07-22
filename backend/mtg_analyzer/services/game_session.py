@@ -1,4 +1,4 @@
-"""Server-held game sessions: goldfish (with rewind/restart) + multiplayer stub.
+"""Server-held game sessions: goldfish (with rewind/restart), replay, multiplayer.
 
 Reference: docs/requirements/02_MVP_USECASES_REVISED.md UC3 (Goldfisch) / UC4
 (Multiplayer), docs/implementation-state/Done_Backend.md "Game Engine".
@@ -16,11 +16,22 @@ Actions arrive as plain dicts in the same shape `GameEngine.legal_actions`
 reports, so the UI can round-trip "here are your options → I pick this
 one" without a translation layer.
 
+Every action carries an **actor** (``apply_action(action, actor_id=...)``):
+solo modes leave it implicit (the active player), multiplayer always names
+it, and the engine itself does the rules validation either way — its
+timing checks are already written against an explicit ``player`` argument
+(`GameEngine.can_cast`'s RULE 601.3a active-player gate, `declare_blockers`'
+"the attacking player does not declare blockers"), so a non-active player
+naturally gets exactly the instant-speed/blocking subset and nothing more.
+
+`view(perspective=...)` renders the session from one player's seat: hidden
+zones belonging to *other* players are redacted server-side (RULE 400.2 —
+a hand is a hidden zone; the client never receives what it may not see),
+and `legal_actions` is computed for that seat rather than for whoever is
+active.
+
 `GameSessionManager` holds sessions in memory keyed by id (like
 `game_ws.py`'s connection manager — single process, not persisted).
-Multiplayer is a deliberate stub (`MultiplayerNotImplementedError`): the
-session type is modeled so the API surface exists, but interactive
-two-player priority isn't wired yet (see ToDo "Multiplayer game session").
 """
 
 from __future__ import annotations
@@ -50,13 +61,30 @@ GOLDFISH = "goldfish"
 MULTIPLAYER = "multiplayer"
 REPLAY = "replay"
 
+#: Mulligan rules a table can agree on before the game starts (RULE 103.4).
+#: ``london`` is the current tournament rule — redraw a full hand, then put
+#: one card per mulligan taken on the bottom when you keep. ``none`` skips
+#: the whole procedure (the opening hand is the hand), which is what a quick
+#: test game between two people usually wants. Vancouver's "scry 1 after
+#: keeping" is deliberately absent: `RulesEngine.scry` is a non-interactive
+#: stub that always keeps every card on top, so offering it would be a
+#: choice with no effect (see backend/ToDo_Backend.md).
+MULLIGAN_STYLES = ("london", "none")
+
 
 class GameActionError(Exception):
     """An action was illegal or malformed for the current game state."""
 
 
 class MultiplayerNotImplementedError(Exception):
-    """Interactive multiplayer isn't built yet — see ToDo 'Multiplayer'."""
+    """Retained for the legacy ``POST /api/game/multiplayer`` stub route.
+
+    Multiplayer itself is implemented now (`GameSessionManager.
+    create_multiplayer`, driven by `services/lobby.py` and
+    `api/multiplayer.py`); the old bare "start a multiplayer game with no
+    lobby behind it" entry point stays a 501 because a session needs seats
+    — decks, names, an agreed mulligan style — that only the lobby has.
+    """
 
 
 #: One shared filler card for the goldfish dummy's deck/hand. Its identity
@@ -125,6 +153,91 @@ def build_goldfish_engine(
     return engine
 
 
+def build_multiplayer_engine(
+    seats: list[dict[str, Any]],
+    starting_life: int = 40,
+    starting_hand: int = 7,
+) -> GameEngine:
+    """Build an N-real-player `GameEngine` and deal every opening hand (UC4).
+
+    Each seat is ``{"player_id", "name", "library": [Card], "commanders":
+    [Card]}`` — the same per-player material `build_goldfish_engine` builds
+    for its single human, once per seat and with no passive dummy: every
+    player here takes real turns (`GameState.next_active_index` rotates
+    through them) and every one of them gets an opening hand.
+
+    Seat order is turn order; the first seat is the starting player (RULE
+    103.2 — who goes first is decided in the lobby, by seat order, rather
+    than by a die roll the server would have to arbitrate).
+    """
+    players: list[Player] = []
+    for seat in seats:
+        player = Player(id=str(seat["player_id"]), name=str(seat.get("name") or seat["player_id"]),
+                        life=starting_life)
+        for card in seat.get("library") or []:
+            obj = GameObject(card, owner_id=player.id, zone=Zone.LIBRARY)
+            bind_from_catalogue(obj)  # bind-on-load: card text → live abilities
+            player.library.append(obj)
+        for card in seat.get("commanders") or []:
+            obj = GameObject(card, owner_id=player.id, zone=Zone.COMMAND, is_commander=True)
+            bind_from_catalogue(obj)
+            player.add_to_zone(obj, Zone.COMMAND)
+        players.append(player)
+
+    state = GameState(players=players)
+    engine = GameEngine(state)
+    for player in players:
+        player.draw(starting_hand)
+    engine.start()
+    return engine
+
+
+def _redact_hidden_zones(
+    state_dict: dict[str, Any],
+    perspective: Optional[str],
+    top_library_visible: Optional[dict[str, bool]] = None,
+) -> None:
+    """Strip every player's hidden zones from a serialized state, in place.
+
+    RULE 400.2: the library and the hand are hidden zones. ``perspective``
+    is the one seat exempted — its own hand stays, and so does its own
+    top-of-library card when something lets it look (RULE 601.3b-adjacent,
+    `game/top_library.py`). ``None`` exempts nobody, which is what a
+    spectator gets.
+
+    Redaction happens here rather than in the client because the client is
+    not trustworthy: an opponent's hand must never be *sent*, not merely
+    left unrendered. ``library_count``/``hand_count`` are untouched, so the
+    board can still draw the right number of face-down cards.
+
+    Not yet redacted: a face-down card in exile (RULE 701.20a,
+    `GameObject.face_down_in_exile`) still ships its identity — no card in
+    the multiplayer path produces one today, and doing it properly means
+    redacting a *card's* characteristics rather than a whole zone (see
+    backend/ToDo_Backend.md).
+    """
+    for player in state_dict.get("players", []):
+        own = perspective is not None and player.get("id") == perspective
+        if not own:
+            player["hand"] = []
+        # A library is hidden even from its owner (they don't know their own
+        # draw order); only a card an effect actually reveals is kept.
+        top_visible = own and (top_library_visible or {}).get(player.get("id"))
+        player["library"] = player["library"][-1:] if top_visible and player["library"] else []
+
+    # A pending choice is answered by exactly one player; nobody else may
+    # see its options (they can name cards in a hidden zone). Everyone else
+    # gets a passive "waiting on X" marker instead — see `view`.
+    pending = state_dict.get("pending_choice")
+    if pending and pending.get("player_id") != perspective:
+        state_dict["pending_choice"] = None
+        state_dict["waiting_on_choice"] = {
+            "player_id": pending.get("player_id"),
+            "kind": pending.get("kind"),
+            "prompt": pending.get("prompt") or pending.get("description") or "",
+        }
+
+
 class GameSession:
     """A running game with undo history and restart."""
 
@@ -135,6 +248,7 @@ class GameSession:
         session_id: Optional[str] = None,
         starting_hand: int = 7,
         require_setup: bool = False,
+        mulligan_style: str = "london",
     ) -> None:
         self.id = session_id or str(uuid.uuid4())
         self.mode = mode
@@ -157,10 +271,28 @@ class GameSession:
         #: turn loop keep the old no-setup behaviour unless they opt in).
         self._require_setup = require_setup
         self._starting_hand = starting_hand
-        #: How many mulligans have been taken (London mulligan: each one
-        #: redraws 7, then keeping puts that many cards on the bottom).
-        self._mulligan_count = 0
-        self._setup_complete = not require_setup
+        #: Which mulligan procedure the table agreed on (`MULLIGAN_STYLES`).
+        self.mulligan_style = mulligan_style if mulligan_style in MULLIGAN_STYLES else "london"
+        #: How many mulligans each player has taken (London mulligan: each
+        #: one redraws 7, then keeping puts that many cards on the bottom).
+        #: Per-player because in multiplayer every seat mulligans for itself,
+        #: independently and in parallel (RULE 103.4 resolves them in turn
+        #: order, but nothing about one player's decision depends on
+        #: another's, so there is no reason to serialize them).
+        self._mulligan_counts: dict[str, int] = {}
+        #: Seats that still have to keep a hand before play starts. Empty
+        #: means setup is done; goldfish/replay start it empty or with the
+        #: single human in it.
+        self._setup_pending: set[str] = (
+            {p.id for p in engine.state.players if not p.is_dummy} if require_setup else set()
+        )
+        #: RULE 117: whether priority is genuinely passed around the table
+        #: rather than auto-drained. Only a shared game needs it — there is
+        #: nobody to pass to in a solo one. Kept on the session as well as
+        #: the engine because `_restore` (rewind/restart) builds a *fresh*
+        #: engine and has to re-arm it.
+        self.interactive_priority = mode == MULTIPLAYER
+        engine.interactive_priority = self.interactive_priority
         #: Turn-1 draw option (UC3): True → the human draws on their first
         #: turn ("on the draw"); False (default) → they skip it, the standard
         #: on-the-play rule. Chosen in the setup screen; applied at keep-hand.
@@ -177,11 +309,17 @@ class GameSession:
         # A fresh engine re-subscribes its rules to the restored state;
         # seek it back to where the turn was.
         self.engine = GameEngine(state.clone())
+        self.engine.interactive_priority = self.interactive_priority
         self.engine.resume_at(cursor)
 
     @property
     def can_rewind(self) -> bool:
         return bool(self._history)
+
+    @property
+    def _setup_complete(self) -> bool:
+        """Whether every seat has kept a hand and play can begin."""
+        return not self._setup_pending
 
     def restart(self) -> dict[str, Any]:
         """Reset to the opening state (UC3: 'jederzeit neu starten')."""
@@ -189,8 +327,12 @@ class GameSession:
         self._restore(state, cursor)
         self._history.clear()
         self.move_log.clear()
-        self._mulligan_count = 0
-        self._setup_complete = not self._require_setup
+        self._mulligan_counts.clear()
+        self._setup_pending = (
+            {p.id for p in self.engine.state.players if not p.is_dummy}
+            if self._require_setup
+            else set()
+        )
         return self.view()
 
     def rewind(self, steps: int = 1) -> dict[str, Any]:
@@ -211,25 +353,36 @@ class GameSession:
 
     # -- Actions -------------------------------------------------------
 
-    def apply_action(self, action: dict[str, Any]) -> dict[str, Any]:
+    def apply_action(
+        self, action: dict[str, Any], actor_id: Optional[str] = None
+    ) -> dict[str, Any]:
         """Validate + apply one action, snapshotting first so it can be undone.
+
+        ``actor_id`` names the player taking it; ``None`` (every solo mode)
+        means the active player. The engine does the actual rules validation
+        against that player — a non-active actor therefore gets exactly the
+        instant-speed subset RULE 601.3a allows, plus blocking, and nothing
+        else, without this layer having to enumerate what those are.
 
         Raises `GameActionError` for anything illegal, leaving the game
         untouched (the pre-action snapshot is restored on failure).
         """
         if not isinstance(action, dict) or "type" not in action:
             raise GameActionError("action must be a dict with a 'type'")
+        actor = self._actor(actor_id)
         # "Next decision" is a fast-forward, but it must remain a sequence of
         # ordinary steps — each a real, separately snapshotted/logged
         # `advance_step` firing its own events — so the game evolves exactly
         # as clicking "Next step" would, and undo/replay stay deterministic
         # even with the opponent present. It manages its own history entries.
         if action["type"] in ("advance_to_decision", "next_decision"):
+            if actor is not self.engine.state.active_player:
+                raise GameActionError("only the active player can advance the turn")
             return self._apply_advance_to_decision()
         label = self._describe(action)
         self._snapshot(label)
         try:
-            self._dispatch(action)
+            self._dispatch(action, actor)
         except (ValueError, KeyError) as exc:
             # Roll back the failed attempt so state stays clean.
             _, snapshot, cursor = self._history.pop()
@@ -238,9 +391,35 @@ class GameSession:
         self.move_log.append(label)
         return self.view()
 
-    def _dispatch(self, action: dict[str, Any]) -> None:
+    def _actor(self, actor_id: Optional[str]) -> Player:
+        """The player an action is taken by — named, or the active player."""
+        if actor_id is None:
+            return self.engine.state.active_player
+        try:
+            return self.engine.state.player_by_id(str(actor_id))
+        except KeyError as exc:
+            raise GameActionError(f"no player with id {actor_id!r}") from exc
+
+    def concede(self, player_id: str) -> dict[str, Any]:
+        """RULE 104.3a: ``player_id`` leaves the game (the "Aufgeben" button).
+
+        Legal at any time and from any seat — conceding doesn't use the
+        stack and doesn't need priority — so unlike `apply_action` it is not
+        routed through `_dispatch`'s timing gates. Snapshotted like any
+        other move so a misclick is still rewindable in a friendly game.
+        """
+        player = self._actor(player_id)
+        self._snapshot(f"concede: {player.name}")
+        self.engine.rules.concede(player)
+        # RULE 104.3a leaves the game *now*, so a seat that hadn't kept its
+        # opening hand yet must stop blocking the rest of the table.
+        self._setup_pending.discard(player.id)
+        self.move_log.append(f"concede: {player.name}")
+        return self.view()
+
+    def _dispatch(self, action: dict[str, Any], actor: Optional[Player] = None) -> None:
         state = self.engine.state
-        active = state.active_player
+        active = actor if actor is not None else state.active_player
         kind = action["type"]
 
         # Replay/puzzle board editing (mode == REPLAY): direct state
@@ -251,9 +430,17 @@ class GameSession:
             return
 
         # Setup phase (UC3: mulligan before the game proper starts): only
-        # `mulligan`/`keep_hand` are legal until the opening hand is kept.
+        # `mulligan`/`keep_hand` are legal until every seat's opening hand is
+        # kept. In multiplayer each seat runs its own copy of this in
+        # parallel, so the gate is per-actor (`_setup_pending`) rather than
+        # global — a player who has already kept can't mulligan again while
+        # waiting for the others.
         if not self._setup_complete:
+            if active.id not in self._setup_pending:
+                raise ValueError("you have already kept your opening hand")
             if kind == "mulligan":
+                if self.mulligan_style == "none":
+                    raise ValueError("this game is being played without mulligans")
                 self._mulligan(active)
                 return
             if kind == "keep_hand":
@@ -275,6 +462,22 @@ class GameSession:
         if state.pending_choice and kind not in ("choose", "decline"):
             raise GameActionError("a choice is pending — answer it first")
 
+        # RULE 117.1: with priority genuinely being passed around, only the
+        # player holding it may take an action. `legal_actions` already
+        # filters on this, but that's a *hint* to the UI — the rule has to
+        # be enforced where actions actually arrive, or a client could
+        # simply post one it was never offered. Exempt: RULE 509.1a's
+        # declare-blockers (a turn-based action, taken by the defending
+        # player while the attacker holds priority) and answering a pending
+        # choice (nobody holds priority while the game is blocked on one).
+        if (
+            self.interactive_priority
+            and kind not in ("declare_blockers", "choose", "decline")
+            and state.priority_player is not None
+            and active is not state.priority_player
+        ):
+            raise ValueError(f"{active.name} does not have priority")
+
         if kind in ("choose", "decline"):
             # A choice is answered by an option id ("cast"/"hand"/"decline" or
             # a card's instance id). `decline` is shorthand for the decline
@@ -289,6 +492,19 @@ class GameSession:
             self.engine.resolve_pending_choice(answer)
             return
 
+        if kind in ("advance_step", "advance", "next_step", "auto_turn"):
+            # Moving the turn on belongs to whoever's turn it is (RULE 500.1
+            # — the active player is the one who runs out of things to do
+            # first). Solo modes pass no actor and are unaffected.
+            if active is not state.active_player:
+                raise ValueError("only the active player can advance the turn")
+            if self.interactive_priority:
+                # RULE 117.4: a step doesn't end because someone decided it
+                # should — it ends when *all* players pass in succession on
+                # an empty stack. Passing is the only way forward here, and
+                # `_pass_priority` ends the step itself once that happens.
+                raise ValueError("pass priority instead — the step ends when everyone passes")
+
         if kind in ("advance_step", "advance", "next_step"):
             # Advance exactly one step — no auto-skip, no auto-wait. The
             # player visits every step (untap, upkeep, draw, both mains, each
@@ -300,7 +516,10 @@ class GameSession:
         if kind == "pass_priority":
             # Pass priority once: resolve the top of the stack (RULE 117),
             # one object at a time so instants can be cast in response.
-            self.engine.pass_priority()
+            if self.interactive_priority:
+                self._pass_priority(active)
+            else:
+                self.engine.pass_priority()
             return
 
         if kind == "auto_turn":
@@ -408,11 +627,15 @@ class GameSession:
         if kind == "declare_blockers":
             # assignments: [{"blocker": id, "attacker": id}, ...], declared by
             # a defending player (dormant in solo goldfish — the dummy never
-            # blocks). ``player_id`` names that defender; defaults to the
-            # first non-active player.
+            # blocks). The actor *is* the defender in multiplayer; an
+            # explicit ``player_id`` is honoured only for the solo/replay
+            # case where no actor is threaded through, and it otherwise
+            # falls back to the first non-active player.
             defender_id = action.get("player_id")
             blocker_player = (
-                state.player_by_id(defender_id)
+                active
+                if active is not state.active_player
+                else state.player_by_id(defender_id)
                 if defender_id
                 else next(iter(state.non_active_players()), None)
             )
@@ -639,6 +862,10 @@ class GameSession:
             state.current_phase = action.get("phase") or replay.phase_for_step(str(step))
             self.engine.resume_at(replay.cursor_after(str(step)))
 
+    def mulligan_count_for(self, player_id: str) -> int:
+        """How many mulligans ``player_id`` has taken (0 if none)."""
+        return self._mulligan_counts.get(str(player_id), 0)
+
     def _mulligan(self, player: Player) -> None:
         """London mulligan, part 1: shuffle the hand back and draw 7 (RULE 103.4-103.5)."""
         while player.hand:
@@ -647,7 +874,7 @@ class GameSession:
             player.library.append(obj)
         player.shuffle_library()
         player.draw(self._starting_hand)
-        self._mulligan_count += 1
+        self._mulligan_counts[player.id] = self.mulligan_count_for(player.id) + 1
 
     def _keep_hand(
         self,
@@ -660,11 +887,14 @@ class GameSession:
         ``draw_first`` sets who draws on turn 1 (UC3 setup option): True →
         the human draws in their first turn (they're "on the draw"); False →
         they skip it (the standard "on the play" rule, RULE 103.7a). None
-        keeps the session's current setting.
+        keeps the session's current setting. Multiplayer never sends it —
+        there the starting player is simply the first seat and skips the
+        draw, so the flag stays at its RULE 103.7a default.
         """
-        if len(bottom_instance_ids) != self._mulligan_count:
+        bottom_count = self.mulligan_count_for(player.id)
+        if len(bottom_instance_ids) != bottom_count:
             raise ValueError(
-                f"must put exactly {self._mulligan_count} card(s) on the bottom of the library"
+                f"must put exactly {bottom_count} card(s) on the bottom of the library"
             )
         chosen: list[GameObject] = []
         for instance_id in bottom_instance_ids:
@@ -679,7 +909,61 @@ class GameSession:
         if draw_first is not None:
             self._draw_first = bool(draw_first)
         self.engine.state.skip_first_draw = not self._draw_first
-        self._setup_complete = True
+        self._setup_pending.discard(player.id)
+        if self.interactive_priority and not self._setup_pending:
+            # Everyone has kept: run the game into its first real priority
+            # window. Nothing else can do this — with RULE 117.4 driving the
+            # turn, a step only ends when players pass, and nobody can pass
+            # before somebody holds priority in the first place.
+            self._advance_to_priority_window()
+
+    # -- Interactive priority (RULE 117, multiplayer only) --------------
+
+    def _pass_priority(self, player: Player) -> None:
+        """``player`` passes; the table moves on (RULE 117.3-4).
+
+        `GameEngine.pass_priority(player)` already owns the round itself:
+        it records the pass, hands priority to the next living player in
+        APNAP order, and — once everyone has passed in succession —
+        resolves the top of the stack and gives priority back to the
+        active player (RULE 117.3b).
+
+        The one thing it can't do is end the *step*, because it doesn't
+        drive the turn: RULE 117.4's other half says that when all players
+        pass with an **empty** stack, the phase or step ends instead. That
+        is this method's job, and it's why "Nächster Schritt" isn't an
+        action in a shared game — nobody decides a step is over, it simply
+        runs out of players who want to do something.
+        """
+        state = self.engine.state
+        holder = state.priority_player
+        if holder is not None and player is not holder:
+            raise ValueError(f"{player.name} does not have priority")
+        # Whether this pass completes the round has to be read *before* the
+        # engine clears `priority_passed` as part of handling it.
+        living = {p.id for p in state.living_players()}
+        completes_round = living <= (state.priority_passed | {player.id})
+        stack_was_empty = not state.stack
+
+        resolved = self.engine.pass_priority(player)
+        if resolved or not completes_round or not stack_was_empty:
+            return
+        # Everyone passed on an empty stack → the step ends.
+        self._advance_to_priority_window()
+
+    def _advance_to_priority_window(self) -> None:
+        """Run steps until one opens a priority window (or the game ends).
+
+        Untap and cleanup (RULE 502/514) give nobody priority, so stopping
+        in them would leave the table with no legal action at all and no
+        way out. Advancing straight through them lands on the next step
+        where somebody actually gets to act.
+        """
+        for _ in range(_MAX_DECISION_ADVANCE_STEPS):
+            if self.engine.advance_step() is None:
+                return  # game over
+            if self.engine.state.game_over or self.engine.state.priority_player is not None:
+                return
 
     def _apply_advance_to_decision(self) -> dict[str, Any]:
         """Fast-forward to the active player's next decision, one real step
@@ -833,20 +1117,36 @@ class GameSession:
 
     # -- Views ---------------------------------------------------------
 
-    def legal_actions(self) -> list[dict[str, Any]]:
+    def legal_actions(self, perspective: Optional[str] = None) -> list[dict[str, Any]]:
+        """What ``perspective`` may do right now (default: the active player).
+
+        In a multiplayer session every client asks for its own seat, so a
+        non-active player is offered exactly what the engine says they may
+        legally do — respond at instant speed, declare blockers — instead of
+        being shown the active player's options.
+        """
+        state = self.engine.state
+        seat = self._actor(perspective) if perspective is not None else state.active_player
         if not self._setup_complete:
+            if seat.id not in self._setup_pending:
+                return []  # already kept; waiting on the rest of the table
             # `bottom_count` tells the UI how many cards `keep_hand` must
             # bottom this time (0 on the very first hand, before any
             # mulligan has been taken).
-            return [
-                {"type": "mulligan"},
-                {"type": "keep_hand", "bottom_count": self._mulligan_count},
-            ]
-        pending = self.engine.state.pending_choice
+            actions: list[dict[str, Any]] = []
+            if self.mulligan_style != "none":
+                actions.append({"type": "mulligan"})
+            actions.append({"type": "keep_hand", "bottom_count": self.mulligan_count_for(seat.id)})
+            return actions
+        pending = state.pending_choice
         if pending:
             # A choice is pending: the only legal actions are answering it —
-            # one per option (a decline option maps to the `decline` action).
-            actions: list[dict[str, Any]] = []
+            # one per option (a decline option maps to the `decline` action) —
+            # and only for the player it's addressed to (`pending["player_id"]`).
+            if perspective is not None and pending.get("player_id") not in (None, seat.id):
+                return []
+            actions = []
+            # (falls through to the option list below)
             for opt in pending.get("options", []):
                 if opt["id"] == "decline":
                     actions.append({"type": "decline"})
@@ -860,7 +1160,19 @@ class GameSession:
                         }
                     )
             return actions
-        return self.engine.legal_actions(self.engine.state.active_player)
+        if self.interactive_priority and state.priority_player is not None:
+            # RULE 117.1: only the player who *has* priority may act. A
+            # non-holder is offered nothing at all — with one exception,
+            # RULE 509.1a's declare-blockers turn-based action, which isn't
+            # taken with priority (the defending player declares blocks
+            # while the active player still holds it).
+            if seat is not state.priority_player:
+                return [
+                    action
+                    for action in self.engine.legal_actions(seat)
+                    if action["type"] == "declare_blockers"
+                ]
+        return self.engine.legal_actions(seat)
 
     def analysis(self) -> dict[str, Any]:
         """A per-player digest of the game so far for the end-of-game review.
@@ -902,18 +1214,34 @@ class GameSession:
             }
         return {"turns": state.turn_number, "players": per_player}
 
-    def view(self) -> dict[str, Any]:
-        """Everything the UI needs to render the session after a change."""
+    def view(self, perspective: Optional[str] = None) -> dict[str, Any]:
+        """Everything the UI needs to render the session after a change.
+
+        ``perspective`` is the seat the view is *for*: its `legal_actions`
+        are that player's, and every other player's hidden zones (RULE
+        400.2) are redacted out of the payload rather than merely hidden by
+        the client — the opponent's hand never leaves the server. ``None``
+        (solo modes, and the observer view via `observer_view`) keeps the
+        full, unredacted state.
+        """
         # Refresh derived characteristics so the serialized board (P/T, types,
         # granted keywords, per-object trace) reflects the current layer stack
         # (RULE 613) even if nothing triggered an SBA since the last change.
         self.engine.recompute_continuous_effects()
+        state_dict = self.engine.state.to_dict()
+        top_visible = {
+            p.id: may_look_at_top_of_library(p, self.engine.state)
+            for p in self.engine.state.players
+        }
+        if perspective is not None:
+            _redact_hidden_zones(state_dict, perspective, top_visible)
         return {
             "session_id": self.id,
             "mode": self.mode,
-            "state": self.engine.state.to_dict(),
-            "legal_actions": self.legal_actions(),
-            "pending_choice": self.engine.state.pending_choice,
+            "perspective": perspective,
+            "state": state_dict,
+            "legal_actions": self.legal_actions(perspective),
+            "pending_choice": state_dict.get("pending_choice"),
             "can_rewind": self.can_rewind,
             "move_log": list(self.move_log),
             # Every static ability in play, for the UI's optional layer panel.
@@ -936,17 +1264,52 @@ class GameSession:
             # this is true for them; whether it's actually playable/castable
             # from there is conveyed the ordinary way, through
             # ``legal_actions``' per-instance offers.
-            "top_library_visible": {
-                p.id: may_look_at_top_of_library(p, self.engine.state)
-                for p in self.engine.state.players
+            "top_library_visible": top_visible,
+            # RULE 117, shared games only: who holds priority right now, who
+            # has already passed in this round, and whether priority is
+            # played out at all (a solo session auto-drains and never has a
+            # holder to show). The board reads this to say "du bist dran" /
+            # "warte auf X" and to drive the auto-pass countdown.
+            "priority": {
+                "interactive": self.interactive_priority,
+                "player_id": (
+                    self.engine.state.priority_player.id
+                    if self.engine.state.priority_player
+                    else None
+                ),
+                "passed": sorted(self.engine.state.priority_passed),
             },
             "setup": {
                 "complete": self._setup_complete,
-                "mulligan_count": self._mulligan_count,
+                "mulligan_style": self.mulligan_style,
+                # This seat's own mulligan count (the number of cards its
+                # `keep_hand` must bottom); solo modes have only one seat.
+                "mulligan_count": self.mulligan_count_for(
+                    perspective if perspective is not None else self.engine.state.active_player.id
+                ),
                 "draw_first": self._draw_first,
+                # Who the table is still waiting on, so a player who has
+                # already kept sees "waiting for X" instead of a dead screen.
+                "waiting_for": sorted(self._setup_pending),
             },
             "analysis": self.analysis(),
         }
+
+    def observer_view(self) -> dict[str, Any]:
+        """A spectator's view: the public board, nobody's hand (RULE 400.2).
+
+        Built by redacting against a seat that doesn't exist, so *every*
+        player's hidden zones are stripped — an observer is not a player and
+        has no hand of their own to be shown. `legal_actions` is empty for
+        the same reason: watching is not playing.
+        """
+        view = self.view()
+        _redact_hidden_zones(view["state"], perspective=None)
+        view["perspective"] = None
+        view["observer"] = True
+        view["legal_actions"] = []
+        view["pending_choice"] = view["state"].get("pending_choice")
+        return view
 
 
 class GameSessionManager:
@@ -988,16 +1351,31 @@ class GameSessionManager:
         self._sessions[session.id] = session
         return session
 
-    def create_multiplayer(self, *args: Any, **kwargs: Any) -> GameSession:
-        """Stub: interactive multiplayer isn't implemented yet (UC4).
+    def create_multiplayer(
+        self,
+        seats: list[dict[str, Any]],
+        starting_life: int = 40,
+        starting_hand: int = 7,
+        mulligan_style: str = "london",
+    ) -> GameSession:
+        """Start an N-real-player game (UC4), one seat per human.
 
-        Modeled so the API/route exists and returns a clear, typed
-        "not yet" rather than a 404, but there is no interactive priority
-        loop — see backend/ToDo_Backend.md "Multiplayer game session".
+        ``seats`` is `build_multiplayer_engine`'s shape; seat order is turn
+        order. Every seat mulligans for itself before play begins, so the
+        session starts in the setup phase with all of them pending.
         """
-        raise MultiplayerNotImplementedError(
-            "Multiplayer mode is not implemented yet; use goldfish mode."
+        if len(seats) < 2:
+            raise MultiplayerNotImplementedError("a multiplayer game needs at least two seats")
+        engine = build_multiplayer_engine(seats, starting_life, starting_hand)
+        session = GameSession(
+            engine,
+            mode=MULTIPLAYER,
+            starting_hand=starting_hand,
+            require_setup=True,
+            mulligan_style=mulligan_style,
         )
+        self._sessions[session.id] = session
+        return session
 
     def get(self, session_id: str) -> GameSession:
         session = self._sessions.get(session_id)

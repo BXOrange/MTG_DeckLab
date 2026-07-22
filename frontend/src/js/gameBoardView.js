@@ -18,6 +18,14 @@
 import { getState } from './state.js';
 import { sendGameAction, rewindGame, cardImageUrl, GENERIC_TOKEN_KEY } from './api.js';
 import { getCookie, setCookie } from './cookies.js';
+import {
+  getAutoPassEnabled,
+  getAutoPassScope,
+  getAutoPassSeconds,
+  saveSettings,
+  MAX_AUTO_PASS_SECONDS,
+  MIN_AUTO_PASS_SECONDS,
+} from './settings.js';
 
 const PHASE_LABELS = {
   beginning: 'Anfang',
@@ -72,10 +80,31 @@ const CHOICE_ICONS = {
  *   Entscheidung/Priorität/Zurücknehmen/Neu starten/Zonen-Seite) — e.g.
  *   goldfishView's "Als Replay speichern"/"Beenden", replayView's "Zurück
  *   zum Editor".
+ * @param {{sendAction?: Function, rewind?: Function}} [opts.transport] How
+ *   actions reach the server. Defaults to the REST session API (`api.js`'s
+ *   `sendGameAction`/`rewindGame`), which is right for every solo mode;
+ *   multiplayer swaps in its own so each action is attributed to a seat
+ *   (`POST /api/multiplayer/games/{id}/action`) and so the pushed view from
+ *   the lobby socket, not the HTTP reply, is what repaints the board.
+ * @param {boolean} [opts.allowRewind=true] Whether "Zurücknehmen" is offered.
+ *   Off for multiplayer: undo is a solo-practice affordance, and one player
+ *   can't unilaterally rewind a shared game.
+ * @param {boolean} [opts.allowFastForward=true] Whether "Nächste
+ *   Entscheidung" is offered. Off for multiplayer, where skipping steps
+ *   would skip *the opponent's* response windows too.
+ * @param {(playerId: string) => ({connected?: boolean}|null)} [opts.seatStatus]
+ *   Out-of-game facts about a seat, badged on that player's board. Only
+ *   multiplayer supplies it (connection state lives in the lobby, not in
+ *   the `GameState`), so a player who dropped is visibly *absent* rather
+ *   than just mysteriously never doing anything.
  */
 export function createGameBoardView(opts = {}) {
   const onViewChange = opts.onViewChange || (() => {});
   const extraControlsFn = opts.extraControls || (() => []);
+  const transport = opts.transport || {};
+  const seatStatus = opts.seatStatus || (() => null);
+  const allowRewind = opts.allowRewind !== false;
+  const allowFastForward = opts.allowFastForward !== false;
 
   let root = null;
   let sessionId = null;
@@ -115,6 +144,103 @@ export function createGameBoardView(opts = {}) {
   // Attacking creatures whose "choose a defender" submenu is open (2+ legal
   // defenders, RULE 508.1a).
   const attackMenuOpen = new Set();
+  // --- Auto-pass (RULE 117, shared games) ---------------------------------
+  // When this client holds priority, a countdown runs and passes for them
+  // when it reaches zero, so a game where nobody wants to respond doesn't
+  // need two clicks per step. Deliberately *not* a silent auto-pass: the
+  // remaining seconds are shown, and any interaction with the board cancels
+  // the window (you're clearly still thinking), so it can't pass out from
+  // under someone mid-decision.
+  let autoPassSeconds = getAutoPassSeconds();
+  let autoPassTimer = null;
+  let autoPassRemaining = 0;
+  //: Set once the player touches the board during a priority window; the
+  //: countdown doesn't restart until they next *gain* priority.
+  let autoPassCancelled = false;
+  //: Which priority window the current countdown belongs to, so a repaint
+  //: that doesn't change whose turn it is doesn't restart the clock.
+  let autoPassWindowKey = null;
+
+  /** Whether the countdown should be running right now. */
+  function autoPassArmed() {
+    if (!getAutoPassEnabled() || autoPassCancelled) return false;
+    if (!interactivePriority() || !hasPriority()) return false;
+    const s = view.state;
+    if (s.game_over || s.pending_choice || busy) return false;
+    // Scope: by default the timer only runs when you're *responding* in
+    // someone else's turn, which is what auto-pass means everywhere else in
+    // Magic. Your own turn stays yours unless you asked for "always".
+    if (getAutoPassScope() !== 'always' && s.active_player_id === view.perspective) return false;
+    return true;
+  }
+
+  /** A key identifying the current priority window (see `autoPassWindowKey`). */
+  function priorityWindowKey() {
+    const s = view?.state;
+    if (!s) return null;
+    return [
+      s.turn_number,
+      s.current_step,
+      view.priority?.player_id,
+      (view.priority?.passed || []).join(','),
+      s.stack.length,
+    ].join('|');
+  }
+
+  function stopAutoPass() {
+    if (autoPassTimer !== null) {
+      clearInterval(autoPassTimer);
+      autoPassTimer = null;
+    }
+  }
+
+  /** (Re)start the countdown if this is a new window and it's armed. */
+  function syncAutoPass() {
+    const key = priorityWindowKey();
+    if (key !== autoPassWindowKey) {
+      autoPassWindowKey = key;
+      autoPassCancelled = false; // a new window is a fresh decision
+      stopAutoPass();
+    }
+    if (!autoPassArmed()) {
+      stopAutoPass();
+      return;
+    }
+    if (autoPassTimer !== null) return; // already counting down this window
+    autoPassRemaining = autoPassSeconds;
+    paintCountdown();
+    autoPassTimer = setInterval(() => {
+      autoPassRemaining -= 1;
+      paintCountdown();
+      if (autoPassRemaining > 0) return;
+      stopAutoPass();
+      // Re-check on fire: a lot can have happened in three seconds.
+      if (autoPassArmed()) act({ type: 'pass_priority' });
+    }, 1000);
+  }
+
+  // Repaint just the number, not the board — a full re-render every second
+  // would tear down and rebuild every card tile under the player's cursor.
+  function paintCountdown() {
+    const el = root?.querySelector('[data-autopass-count]');
+    if (el) el.textContent = String(Math.max(0, autoPassRemaining));
+  }
+
+  /** The player is doing something — don't pass out from under them. */
+  function cancelAutoPassForThisWindow() {
+    if (autoPassTimer === null && !autoPassCancelled) return;
+    autoPassCancelled = true;
+    stopAutoPass();
+    const el = root?.querySelector('[data-autopass-count]');
+    if (el) el.closest('.gf-priority-badge')?.classList.add('gf-autopass-off');
+  }
+
+  // A block being assembled (RULE 509.1a), `blockerInstanceId -> attackerId`.
+  // Collected client-side and submitted as *one* `declare_blockers` action,
+  // because the menace family (RULE 702.111b, "…can't be blocked except by
+  // N or more creatures") is validated across the whole assignment — a
+  // blocker-at-a-time submission could never satisfy it.
+  let blockDraft = new Map();
   // A targeting spell/ability (RULE 115) mid-cast: `{ instanceId, requirements,
   // reqIndex, targets: [], x, send }` or null. See `castTargetHtml`.
   let castTargeting = null;
@@ -175,6 +301,9 @@ export function createGameBoardView(opts = {}) {
   function applyView(data) {
     view = data;
     castTargeting = null;
+    // A fresh position invalidates any half-assembled block — the attackers
+    // it referred to may not even be attacking any more.
+    blockDraft = new Map();
     onViewChange(data);
     render();
   }
@@ -193,9 +322,15 @@ export function createGameBoardView(opts = {}) {
   async function act(action) {
     if (!sessionId) return;
     await withBusy(async () => {
-      const res = await sendGameAction(sessionId, action);
+      const res = transport.sendAction
+        ? await transport.sendAction(action)
+        : await sendGameAction(sessionId, action);
       if (res.ok) {
-        applyView(res.data);
+        // A caller with its own transport may repaint from a pushed view
+        // instead (multiplayer does — every seat is updated over the
+        // socket), in which case it returns no `data` and we leave the
+        // board alone rather than painting a stale reply over it.
+        if (res.data) applyView(res.data);
         setStatus('', '');
       } else if (res.status === 400) {
         setStatus(`Aktion nicht erlaubt: ${res.data?.detail ?? ''}`, 'warning');
@@ -210,7 +345,9 @@ export function createGameBoardView(opts = {}) {
   async function rewind() {
     if (!sessionId) return;
     await withBusy(async () => {
-      const res = await rewindGame(sessionId, 1);
+      const res = transport.rewind
+        ? await transport.rewind(1)
+        : await rewindGame(sessionId, 1);
       if (res.ok) {
         applyView(res.data);
         setStatus('Letzter Zug rückgängig gemacht.', 'ok');
@@ -226,7 +363,13 @@ export function createGameBoardView(opts = {}) {
     if (!root || !view) return;
     const s = view.state;
     const dummy = s.players.find((p) => p.is_dummy) || null;
-    const live = s.players.filter((p) => !p.is_dummy);
+    // The seat this client is playing (multiplayer; null in every solo mode
+    // and for an observer). Their board is drawn *last* — i.e. nearest the
+    // player, like sitting at a table — with the opponents above it.
+    const seatId = view.perspective || null;
+    const live = s.players
+      .filter((p) => !p.is_dummy)
+      .sort((a, b) => Number(a.id === seatId) - Number(b.id === seatId));
     const actions = view.legal_actions || [];
     const gameOver = s.game_over;
     const pending = s.pending_choice;
@@ -257,14 +400,18 @@ export function createGameBoardView(opts = {}) {
 
         ${dummy ? opponentStripHtml(dummy) : ''}
 
-        ${gameOver ? gameOverHtml(s, live[0]) : ''}
+        ${gameOver ? gameOverHtml(s, seatId ? s.players.find((p) => p.id === seatId) : live[0]) : ''}
         ${statusHtml()}
+        ${view.observer ? '<p class="server-status gf-observer-note">👁️ Beobachter-Modus – du siehst das öffentliche Spielfeld, aber keine Handkarten.</p>' : ''}
+        ${waitingOnChoiceHtml(s)}
         ${pending ? pendingChoiceHtml(pending) : ''}
         ${castTargeting ? castTargetModalHtml() : ''}
 
         ${controlsHtml(stackNonEmpty, pending, gameOver)}
 
-        ${live.map((p) => playerBoardHtml(p, s, byInstance, pending)).join('')}
+        ${blockerPanelHtml(actions, s)}
+
+        ${live.map((p) => playerBoardHtml(p, s, byInstance, pending, seatId)).join('')}
 
         ${stackNonEmpty && !pending ? stackOverlayHtml(s, stackAside) : ''}
 
@@ -274,6 +421,7 @@ export function createGameBoardView(opts = {}) {
       </div>
     `;
     wire();
+    syncAutoPass();
   }
 
   function controlsHtml(stackNonEmpty, pending, gameOver) {
@@ -283,25 +431,175 @@ export function createGameBoardView(opts = {}) {
           `<button type="button" data-extra="${escapeAttr(c.id)}" title="${escapeAttr(c.title || '')}" ${busy || c.disabled ? 'disabled' : ''}>${c.label}</button>`,
       )
       .join('');
+    // An observer has no seat and therefore no actions at all (the server
+    // sends them an empty `legal_actions`) — only the layout toggle and
+    // whatever the caller added (e.g. "Zuschauen beenden") stay useful.
+    if (view.observer) {
+      return `
+        <div class="gf-controls">
+          <button id="gf-zones-side" type="button" title="Zonen-Spalte (Bibliothek, Friedhof …) auf die andere Seite legen">⇄ Zonen-Seite</button>
+          ${extra}
+        </div>`;
+    }
+    // With interactive priority (RULE 117, shared games) the turn isn't
+    // advanced by anyone deciding it should be — it moves when players
+    // pass, so "Nächster Schritt" is replaced by "Passen" and the whole
+    // toolbar keys off who holds priority rather than whose turn it is.
+    if (interactivePriority()) return priorityControlsHtml(pending, gameOver, extra);
+
+    // Whether *this* client may drive the turn. In a shared game only the
+    // active player can (RULE 500.1, enforced server-side too); solo modes
+    // have no perspective and always can.
+    const myTurn = !view.perspective || view.state.active_player_id === view.perspective;
     return `
       <div class="gf-controls">
-        <button id="gf-advance" type="button" class="primary" ${busy || gameOver || pending ? 'disabled' : ''}>Nächster Schritt →</button>
-        <button id="gf-next-decision" type="button" title="Überspringt Schritte ohne Entscheidung und hält bei der nächsten Wahl des aktiven Spielers" ${busy || gameOver || pending ? 'disabled' : ''}>⏭ Nächste Entscheidung</button>
+        <button id="gf-advance" type="button" class="primary" ${busy || gameOver || pending || !myTurn ? 'disabled' : ''}>Nächster Schritt →</button>
+        ${allowFastForward ? `<button id="gf-next-decision" type="button" title="Überspringt Schritte ohne Entscheidung und hält bei der nächsten Wahl des aktiven Spielers" ${busy || gameOver || pending || !myTurn ? 'disabled' : ''}>⏭ Nächste Entscheidung</button>` : ''}
         ${stackNonEmpty && !pending ? `<button type="button" data-action='${escapeAttr(JSON.stringify({ type: 'pass_priority' }))}'>Priorität abgeben (Stack auflösen)</button>` : ''}
-        <button id="gf-rewind" type="button" ${busy || !view.can_rewind ? 'disabled' : ''}>↶ Zurücknehmen</button>
+        ${allowRewind ? `<button id="gf-rewind" type="button" ${busy || !view.can_rewind ? 'disabled' : ''}>↶ Zurücknehmen</button>` : ''}
         <button id="gf-zones-side" type="button" title="Zonen-Spalte (Bibliothek, Friedhof …) auf die andere Seite legen">⇄ Zonen-Seite</button>
         ${extra}
       </div>`;
   }
 
+  /** Whether this session plays priority out for real (RULE 117). */
+  function interactivePriority() {
+    return !!view?.priority?.interactive && !view.observer;
+  }
+
+  /** Whether this client is the one the game is currently waiting on. */
+  function hasPriority() {
+    return !!view?.perspective && view.priority?.player_id === view.perspective;
+  }
+
+  // The shared-game toolbar. "Passen" is the only way forward: a step ends
+  // when every player passes in succession on an empty stack (RULE 117.4),
+  // so there is deliberately no "advance the turn" button to press.
+  function priorityControlsHtml(pending, gameOver, extra) {
+    const mine = hasPriority();
+    const holder = view.priority?.player_id;
+    const stackNonEmpty = view.state.stack.length > 0;
+    const label = stackNonEmpty ? 'Passen (Stack auflösen)' : 'Passen →';
+    const waiting = gameOver
+      ? ''
+      : mine
+        ? `<span class="gf-priority-badge gf-priority-mine">Du bist dran (Priorität)${autoPassCountdownHtml()}</span>`
+        : `<span class="gf-priority-badge">⏳ ${escapeHtml(playerName(holder))} ist dran …</span>`;
+    return `
+      <div class="gf-controls gf-priority-controls">
+        <button id="gf-pass" type="button" class="primary" ${busy || gameOver || pending || !mine ? 'disabled' : ''}>${label}</button>
+        ${waiting}
+        <button id="gf-zones-side" type="button" title="Zonen-Spalte (Bibliothek, Friedhof …) auf die andere Seite legen">⇄ Zonen-Seite</button>
+        ${extra}
+        ${gameOver ? '' : autoPassControlHtml()}
+      </div>`;
+  }
+
+  // The live countdown on the "you're up" badge. Purely cosmetic — the
+  // actual pass is fired by the timer in `restartAutoPass`.
+  function autoPassCountdownHtml() {
+    if (!autoPassArmed()) return '';
+    return ` · <span class="gf-autopass-count" data-autopass-count>${autoPassSeconds}</span>s`;
+  }
+
+  // Auto-pass is a per-player convenience, so it's adjustable right here
+  // rather than only in Einstellungen — you change your mind about it
+  // mid-game, usually the moment it passes on something you wanted.
+  function autoPassControlHtml() {
+    const on = getAutoPassEnabled();
+    return `
+      <label class="gf-autopass" title="Nach Ablauf der Zeit wird automatisch gepasst. Jede Aktion auf dem Brett stoppt den Countdown.">
+        <input type="checkbox" id="gf-autopass-toggle" ${on ? 'checked' : ''} />
+        Auto-Pass
+        <input type="number" id="gf-autopass-seconds" min="${MIN_AUTO_PASS_SECONDS}" max="${MAX_AUTO_PASS_SECONDS}"
+               value="${autoPassSeconds}" ${on ? '' : 'disabled'} /> s
+      </label>`;
+  }
+
+  // Someone else is answering a choice this client may not see (its options
+  // can name cards in a hidden zone, so the server strips them and sends
+  // this marker instead — `services/game_session.py`'s `_redact_hidden_zones`).
+  function waitingOnChoiceHtml(s) {
+    const waiting = s.waiting_on_choice;
+    if (!waiting) return '';
+    const who = playerName(waiting.player_id);
+    const what = waiting.prompt ? ` (${escapeHtml(waiting.prompt)})` : '';
+    return `<p class="server-status pending gf-waiting-choice">⏳ ${escapeHtml(who)} trifft gerade eine Entscheidung${what} …</p>`;
+  }
+
+  // RULE 509.1a: the defending player assigns blockers. Each offer from
+  // `legal_actions` is one creature that could block, with the attackers it
+  // may legally be assigned to; the whole block is submitted at once (see
+  // `blockDraft`). Only ever non-empty for a player who isn't the attacker.
+  function blockerPanelHtml(actions, s) {
+    const offers = actions.filter((a) => a.type === 'declare_blockers');
+    if (!offers.length) return '';
+    const rows = offers
+      .map((offer) => {
+        const chosen = blockDraft.get(offer.instance_id);
+        const options = [
+          `<option value="">— blockt nicht —</option>`,
+          ...offer.legal_attackers.map(
+            (a) =>
+              `<option value="${a.instance_id}"${chosen === a.instance_id ? ' selected' : ''}>${escapeHtml(a.name)}</option>`,
+          ),
+        ].join('');
+        return `
+          <div class="gf-block-row">
+            <span class="gf-block-blocker" data-hover-card="${escapeAttr(offer.name)}">${escapeHtml(offer.name)}</span>
+            <span class="gf-block-arrow">blockt</span>
+            <select class="gf-block-pick" data-block-blocker="${offer.instance_id}">${options}</select>
+          </div>`;
+      })
+      .join('');
+    const count = blockDraft.size;
+    return `
+      <section class="gf-block-panel">
+        <h4>🛡️ Blocker deklarieren</h4>
+        <p class="hint">
+          ${escapeHtml(playerName(s.active_player_id))} greift an. Weise deine
+          Kreaturen zu und bestätige – der ganze Block wird auf einmal
+          deklariert (nötig für Bedrohlich &amp; Co., Regel 702.111b).
+        </p>
+        ${rows}
+        <div class="gf-controls">
+          <button id="gf-submit-blocks" type="button" class="primary" ${busy || !count ? 'disabled' : ''}>
+            ${count ? `Block bestätigen (${count})` : 'Block bestätigen'}
+          </button>
+          <button id="gf-clear-blocks" type="button" ${busy || !count ? 'disabled' : ''}>Zurücksetzen</button>
+        </div>
+      </section>`;
+  }
+
+  async function submitBlocks() {
+    if (!blockDraft.size) return;
+    const assignments = Array.from(blockDraft, ([blocker, attacker]) => ({ blocker, attacker }));
+    await act({ type: 'declare_blockers', assignments });
+  }
+
   // One player's full board: mana/life header, command/library/graveyard/
   // exile column, battlefield (row-grouped by type) + hand.
-  function playerBoardHtml(p, s, byInstance, pending) {
+  function playerBoardHtml(p, s, byInstance, pending, seatId = null) {
     const bf = s.battlefield.filter((o) => o.controller_id === p.id);
+    const isMe = seatId != null && p.id === seatId;
+    const isActive = s.active_player_id === p.id;
+    const badges = [
+      isMe ? '<span class="gf-seat-badge gf-seat-you">Du</span>' : '',
+      isActive ? '<span class="gf-seat-badge gf-seat-active">am Zug</span>' : '',
+      p.has_lost
+        ? `<span class="gf-seat-badge gf-seat-out">${p.loss_reason === 'conceded' ? 'aufgegeben' : 'ausgeschieden'}</span>`
+        : '',
+      // Not a rules state at all — this player's browser is gone. The
+      // server passes priority for them meanwhile, so the game keeps
+      // moving; the badge is why it looks like they're doing nothing.
+      seatStatus(p.id)?.connected === false
+        ? '<span class="gf-seat-badge gf-seat-away" title="Verbindung verloren – der Platz bleibt kurz reserviert">⚡ getrennt</span>'
+        : '',
+    ].join('');
     return `
-      <section class="gf-player-board">
+      <section class="gf-player-board${isMe ? ' gf-own-board' : ''}${seatId && !isMe ? ' gf-opponent-board' : ''}${p.has_lost ? ' gf-board-out' : ''}">
         <header class="gf-player-board-head">
-          <h3>${escapeHtml(p.name)}</h3>
+          <h3>${escapeHtml(p.name)}${badges}</h3>
           ${manaPoolHtml(p.mana_pool)}
           ${lifeBox('Leben', p.life)}
         </header>
@@ -347,12 +645,37 @@ export function createGameBoardView(opts = {}) {
             ${exileCastableHtml(p, s, byInstance, pending)}
 
             <div class="gf-zone gf-hand">
-              <h4>Hand (${p.hand.length})</h4>
-              ${objGrid(p.hand, 'leer', byInstance, pending)}
+              <h4>Hand (${p.hand_count != null ? p.hand_count : p.hand.length})</h4>
+              ${handHtml(p, byInstance, pending)}
             </div>
           </div>
         </div>
       </section>`;
+  }
+
+  // A hand the server redacted (RULE 400.2 — an opponent's hand never
+  // leaves the server, `services/game_session.py`) arrives as an empty
+  // `hand` plus a non-zero `hand_count`; draw that many card backs so the
+  // board still shows *how much* they're holding. A genuinely empty hand
+  // has `hand_count === 0` and falls through to the normal "leer".
+  function handHtml(p, byInstance, pending) {
+    const count = p.hand_count != null ? p.hand_count : p.hand.length;
+    if (!p.hand.length && count > 0) {
+      return `<div class="card-grid">${Array.from(
+        { length: count },
+        () => `<div class="gf-card-slot">${faceDownCardHtml()}</div>`,
+      ).join('')}</div>`;
+    }
+    return objGrid(p.hand, 'leer', byInstance, pending);
+  }
+
+  // One face-down card: the player's own chosen sleeve if they uploaded one
+  // (Einstellungen tab, `setAssets`), otherwise a plain patterned back.
+  function faceDownCardHtml() {
+    if (assetsSleeveImageUrl) {
+      return `<div class="card has-image gf-face-down"><img src="${escapeAttr(assetsSleeveImageUrl)}" alt="Verdeckte Karte" /></div>`;
+    }
+    return '<div class="card gf-face-down" title="Verdeckte Karte"></div>';
   }
 
   // The top card of a library is normally face-down (`library_count` is
@@ -483,14 +806,17 @@ export function createGameBoardView(opts = {}) {
         if (!pending || pending.kind !== 'replacement_order') break;
         const opt = (pending.options || []).find((o) => o.id === remaining[0]);
         if (!opt) break;
-        const res = await sendGameAction(sessionId, {
+        const action = {
           type: 'choose', option_id: opt.id, instance_id: opt.instance_id, name: opt.label,
-        });
+        };
+        const res = transport.sendAction
+          ? await transport.sendAction(action)
+          : await sendGameAction(sessionId, action);
         if (!res.ok) {
           setStatus(`Aktion nicht erlaubt: ${res.data?.detail ?? res.status}`, 'warning');
           break;
         }
-        applyView(res.data);
+        if (res.data) applyView(res.data);
         remaining = remaining.slice(1);
       }
     });
@@ -529,6 +855,52 @@ export function createGameBoardView(opts = {}) {
     root.querySelector('#gf-advance')?.addEventListener('click', () => act({ type: 'advance_step' }));
     root.querySelector('#gf-next-decision')?.addEventListener('click', () => act({ type: 'advance_to_decision' }));
     root.querySelector('#gf-rewind')?.addEventListener('click', rewind);
+    root.querySelector('#gf-pass')?.addEventListener('click', () => act({ type: 'pass_priority' }));
+
+    // Auto-pass, adjustable mid-game (it's a per-player convenience, and
+    // people change their mind about it the moment it costs them a
+    // response). Both controls persist to the same cookies Einstellungen
+    // writes, so the change sticks for the next game too.
+    root.querySelector('#gf-autopass-toggle')?.addEventListener('change', (e) => {
+      saveSettings({ autoPass: e.target.checked });
+      autoPassCancelled = false;
+      stopAutoPass();
+      render();
+    });
+    root.querySelector('#gf-autopass-seconds')?.addEventListener('change', (e) => {
+      const saved = saveSettings({ autoPassSeconds: e.target.value });
+      autoPassSeconds = saved.autoPassSeconds;
+      stopAutoPass();
+      render();
+    });
+    // Touching the board at all means "I'm still thinking" — the countdown
+    // for this window stops rather than passing out from under the player.
+    if (interactivePriority()) {
+      root.querySelector('.goldfish')?.addEventListener('pointerdown', (e) => {
+        // …except the auto-pass control itself, which would otherwise
+        // disable the very timer you just switched on.
+        if (e.target.closest('.gf-autopass')) return;
+        cancelAutoPassForThisWindow();
+      });
+    }
+
+    // RULE 509.1a block assembly: each pick only updates the local draft
+    // (and re-renders so the confirm button's count follows); nothing is
+    // sent until "Block bestätigen".
+    root.querySelectorAll('[data-block-blocker]').forEach((el) => {
+      el.addEventListener('change', () => {
+        const blocker = Number(el.dataset.blockBlocker);
+        const attacker = Number(el.value);
+        if (attacker) blockDraft.set(blocker, attacker);
+        else blockDraft.delete(blocker);
+        render();
+      });
+    });
+    root.querySelector('#gf-submit-blocks')?.addEventListener('click', submitBlocks);
+    root.querySelector('#gf-clear-blocks')?.addEventListener('click', () => {
+      blockDraft = new Map();
+      render();
+    });
 
     root.querySelectorAll('[data-extra]').forEach((el) => {
       const control = extraControlsFn(busy).find((c) => c.id === el.dataset.extra);
@@ -1697,7 +2069,20 @@ export function createGameBoardView(opts = {}) {
     return `<div class="gf-life"><span class="gf-life-label">${escapeHtml(label)}</span><span class="life-total">${life}</span></div>`;
   }
 
-  return { mount, start, refresh, setAssets };
+  /** Detach: stop the auto-pass countdown and forget the session.
+   *
+   * A caller that navigates away from a live board (leaving a multiplayer
+   * table) must call this — the countdown is an interval, and it would
+   * otherwise keep ticking against a game this client is no longer in.
+   */
+  function stop() {
+    stopAutoPass();
+    autoPassWindowKey = null;
+    sessionId = null;
+    view = null;
+  }
+
+  return { mount, start, refresh, setAssets, stop };
 }
 
 function escapeHtml(str) {

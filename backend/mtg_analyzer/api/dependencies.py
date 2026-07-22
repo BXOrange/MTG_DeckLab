@@ -18,6 +18,7 @@ from mtg_analyzer.services.deck_database import DeckDatabase
 from mtg_analyzer.services.game_session import GameSessionManager
 from mtg_analyzer.services.image_cache import ImageCache
 from mtg_analyzer.services.lazy_card_loader import LazyCardLoader
+from mtg_analyzer.services.lobby import Lobby
 from mtg_analyzer.services.player_assets import PlayerAssetStore
 from mtg_analyzer.services.scryfall_client import ScryfallIntegration
 
@@ -50,6 +51,13 @@ def _game_session_manager() -> GameSessionManager:
 
 
 @lru_cache(maxsize=1)
+def _lobby() -> Lobby:
+    # In-memory, process-wide, like the session manager above: the lobby is
+    # presence, and presence has no meaning across a restart.
+    return Lobby()
+
+
+@lru_cache(maxsize=1)
 def _player_asset_store() -> PlayerAssetStore:
     return PlayerAssetStore(PLAYER_ASSETS_DB_PATH)
 
@@ -77,6 +85,10 @@ def get_deck_database() -> DeckDatabase:
 
 def get_game_session_manager() -> GameSessionManager:
     return _game_session_manager()
+
+
+def get_lobby() -> Lobby:
+    return _lobby()
 
 
 def get_player_asset_store() -> PlayerAssetStore:

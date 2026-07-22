@@ -489,10 +489,90 @@ now holds only open items). Section headers mirror that file.
 
 ## Multiplayer
 
-- [~] A dedicated **"Multiplayer"** sidebar tab (`multiplayerView.js`):
-      calls `POST /api/game/multiplayer` and shows the backend's 501
-      "not yet" message. Stubbed on purpose — the interactive priority
-      loop isn't built server-side yet.
+- [x] **The Multiplayer tab is two tabs**, "Setup" and "Board", driven by
+      one persistent controller (`multiplayerView.js`) the way Goldfisch
+      and Replay each have one. "Board" is `disabled` in `index.html` and
+      only unblocked (via app.js's `onBoardAvailable` hook) once this
+      client is actually at a table — there is nothing to render without a
+      game, and a dead tab you can click into is worse than one you can't.
+
+      **Setup** is the lobby: every connected player with their presence
+      state (🟡 Online / 🟢 Verfügbar / 🔵 Im Spiel), every table with its
+      seats and status, a "Spiel erstellen" box, and — once you're at a
+      table — the seat panel: who sits where, each seat's deck, the
+      host-only Mulligan-Regel dropdown, an "✔ Bereit" toggle per player
+      and the host's "▶ Spiel starten". Any change to the table (a deck
+      pick, a join, a settings change) clears everyone's acceptance
+      server-side, and the panel re-renders from the push, so you can never
+      be carried into a game you didn't agree to.
+
+      **Board** is the shared `gameBoardView.js` — the same board the other
+      two modes drive — with three things wired in for a shared game: a
+      multiplayer *transport* (each action is attributed to this seat and
+      the board repaints from the socket push, not the HTTP reply, so both
+      screens update from the same message); your own seat drawn *last*
+      (nearest you, opponents above) with "Du"/"am Zug"/"aufgegeben"
+      badges; and 🏳️ Aufgeben in place of Zurücknehmen/Nächste
+      Entscheidung, which are solo-practice affordances that make no sense
+      at a shared table. Mulligan is this module's own screen (each seat
+      mulligans in parallel and then sees who the table is still waiting
+      for); the end-of-game review reuses the Goldfisch stats digest,
+      extracted for the purpose into `gameStats.js`.
+
+- [x] **An opponent's hand renders as card backs.** The count comes from
+      `hand_count`, the contents never arrive at all (the server redacts
+      them — RULE 400.2), and the back is the player's own uploaded sleeve
+      if they have one. Same path draws an observer's view of *both*
+      hands.
+
+- [x] **Beobachter-Modus**: "👁️ Zuschauen" on any running table. The board
+      renders with no hands, no game controls and a banner saying so; the
+      only button is "Zuschauen beenden".
+
+- [x] **Blocker-Deklaration** (RULE 509.1a) — the first interactive
+      combat UI on the defending side. One row per creature that could
+      block, each with a dropdown of the attackers it may legally be
+      assigned to; picks accumulate in a local draft and "Block
+      bestätigen" submits the *whole* block as one action, which is what
+      makes Bedrohlich/menace (RULE 702.111b, validated across the
+      complete assignment) satisfiable at all. Shared code, so Replay's
+      play mode gets it too.
+
+- [x] **Priority is visible and interactive** (RULE 117). In a shared game
+      the toolbar swaps "Nächster Schritt" for **"Passen"** — a step ends
+      when everyone passes, so there is deliberately nothing to press that
+      *advances* it — plus a badge saying either "Du bist dran (Priorität)"
+      or "⏳ X ist dran …". Everything else is disabled while it isn't your
+      window, which matches what the server will accept.
+
+- [x] **Auto-pass with a countdown.** When this client holds priority a
+      timer runs and passes at zero, so a game where nobody wants to
+      respond doesn't need two clicks per step. Deliberately not silent:
+      the remaining seconds tick down on the badge, and **any interaction
+      with the board cancels that window** (the number is struck through)
+      — it must not be able to pass out from under someone mid-decision.
+      Default on, 3 seconds, and scoped to *opponents' turns only*, which
+      is what auto-pass means in every Magic client and keeps your own turn
+      entirely under your control; "alle Züge" is available for players who
+      want a fixed pace throughout. Set in **Einstellungen** and adjustable
+      on the board itself mid-game (both write the same cookies), because
+      people change their mind about auto-pass exactly when it has just
+      cost them a response.
+
+- [x] **Reconnect keeps your seat.** The lobby socket reclaims by *player
+      name* (the Profil tab), so a page reload or a dropped connection
+      lands you back in the same game rather than as a new player. The
+      board is rebuilt from the server's push, and the reason the server
+      dropped you (`idle` / `replaced` / `timeout`) is shown in words
+      instead of the UI silently flickering. A player whose connection went
+      away is badged **⚡ getrennt** on their own board (connection state is
+      lobby data, so it reaches `gameBoardView.js` through a `seatStatus`
+      hook rather than through the `GameState`), which is the explanation
+      for why the server is passing priority for them.
+
+- [x] **`lobbySocket.js`** — the `/ws/lobby` client: presence signal,
+      lobby snapshots, per-seat board pushes, peer connect/disconnect
+      events, and reconnect backoff that reclaims the seat by name.
 
 ## Deck analysis (UC2)
 

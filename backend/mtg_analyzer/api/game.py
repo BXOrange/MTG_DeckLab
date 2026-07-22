@@ -56,8 +56,12 @@ from mtg_analyzer.services.replay import blank_replay, serialize_replay
 router = APIRouter(prefix="/api/game", tags=["game"])
 
 
-def _expand(entries, cards_by_name: dict[str, Card]) -> tuple[list[Card], list[str]]:
-    """Expand ``(name, qty)`` entries into a flat Card list + missing names."""
+def expand_entries(entries, cards_by_name: dict[str, Card]) -> tuple[list[Card], list[str]]:
+    """Expand ``(name, qty)`` entries into a flat Card list + missing names.
+
+    Public because `api/multiplayer.py` resolves a seat's deck exactly the
+    same way this module resolves a goldfish deck.
+    """
     expanded: list[Card] = []
     missing: list[str] = []
     for entry in entries:
@@ -95,8 +99,8 @@ def start_goldfish(
     )
     apply_legality(parsed, resolved)
 
-    library, missing_lib = _expand(parsed.main_deck, resolved.cards)
-    commanders, missing_cmd = _expand(parsed.commanders, resolved.cards)
+    library, missing_lib = expand_entries(parsed.main_deck, resolved.cards)
+    commanders, missing_cmd = expand_entries(parsed.commanders, resolved.cards)
     missing = sorted(set(missing_lib) | set(missing_cmd) | set(resolved.not_found))
 
     # Only legal decks may start a goldfish game (docs/02 UC3, this file's
@@ -192,8 +196,8 @@ def deck_tokens(
     resolved = loader.load_cards(
         [e.name for e in parsed.commanders] + [e.name for e in parsed.all_cards]
     )
-    library, _ = _expand(parsed.main_deck, resolved.cards)
-    commanders, _ = _expand(parsed.commanders, resolved.cards)
+    library, _ = expand_entries(parsed.main_deck, resolved.cards)
+    commanders, _ = expand_entries(parsed.commanders, resolved.cards)
 
     tokens = producible_tokens(commanders + library)
     return {
@@ -234,9 +238,15 @@ def start_replay(
 def start_multiplayer(
     sessions: GameSessionManager = Depends(get_game_session_manager),
 ) -> dict[str, object]:
-    """Stub: interactive multiplayer isn't implemented yet (UC4)."""
+    """Legacy seat-less entry point — still a 501 (UC4).
+
+    Multiplayer itself is implemented (`api/multiplayer.py`), but a game
+    can't be started from nothing: it needs seats (players, decks, an
+    agreed mulligan style), which only the lobby has. Kept so an old client
+    calling this gets a clear "use the lobby" rather than a 404.
+    """
     try:
-        sessions.create_multiplayer()
+        sessions.create_multiplayer([])
     except MultiplayerNotImplementedError as exc:
         raise HTTPException(status_code=501, detail=str(exc)) from exc
     return {}  # unreachable

@@ -117,3 +117,66 @@ class RewindRequest(BaseModel):
     """Request body for POST /api/game/{id}/rewind."""
 
     steps: int = 1
+
+
+# -- Multiplayer (api/multiplayer.py, services/lobby.py) -------------------
+# Every one of these carries the caller's lobby `playerId` — the
+# server-assigned id from `/ws/lobby`'s welcome message or POST /connect,
+# not the free-text player name (which is neither unique nor authenticated).
+
+
+class LobbyConnectRequest(BaseModel):
+    """Request body for POST /api/multiplayer/connect.
+
+    ``playerId`` is optional: send it to reclaim an existing id after a
+    reload, omit it to be given a fresh one.
+    """
+
+    model_config = ConfigDict(populate_by_name=True)
+
+    name: str = "Spieler"
+    player_id: Optional[str] = Field(default=None, alias="playerId")
+
+
+class MultiplayerPlayerRequest(BaseModel):
+    """The bare "it's me" body: join/leave/observe/start/concede."""
+
+    model_config = ConfigDict(populate_by_name=True)
+
+    player_id: str = Field(alias="playerId")
+
+
+class MultiplayerGameRequest(MultiplayerPlayerRequest):
+    """Request body for POST /api/multiplayer/games (open a table)."""
+
+    name: str = ""
+    num_players: int = Field(default=2, alias="numPlayers")
+
+
+class MultiplayerDeckRequest(MultiplayerPlayerRequest):
+    """Request body for POST /api/multiplayer/games/{id}/deck."""
+
+    deck_id: str = Field(alias="deckId")
+
+
+class MultiplayerOptionsRequest(MultiplayerPlayerRequest):
+    """Request body for POST /api/multiplayer/games/{id}/options (host only)."""
+
+    mulligan_style: Optional[str] = Field(default=None, alias="mulliganStyle")
+    num_players: Optional[int] = Field(default=None, alias="numPlayers")
+
+
+class MultiplayerReadyRequest(MultiplayerPlayerRequest):
+    """Request body for POST /api/multiplayer/games/{id}/ready."""
+
+    ready: bool = True
+
+
+class MultiplayerActionRequest(MultiplayerPlayerRequest):
+    """Request body for POST /api/multiplayer/games/{id}/action.
+
+    ``action`` is one entry from the caller's own `legal_actions`, in the
+    same shape `POST /api/game/{id}/action` takes.
+    """
+
+    action: dict

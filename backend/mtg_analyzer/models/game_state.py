@@ -300,6 +300,15 @@ class GameState:
         #: it off so the human draws on turn 1 instead ("on the draw").
         self.skip_first_draw: bool = True
 
+        #: Ids of players who have left the game (conceded — RULE 104.3a)
+        #: but whose objects are still on the board. Concession normally
+        #: happens at sorcery speed, and yanking a board away mid-turn is
+        #: disorienting for the *other* players in a multiplayer game, so
+        #: `RulesEngine.concede` defers the RULE 800.4a cleanup to the start
+        #: of the next player's turn (`GameEngine.begin_turn` sweeps this).
+        #: With one living player left the game is over anyway and the board
+        #: is simply left standing for the end-of-match review.
+        self.pending_leave_ids: list[str] = []
         #: A player decision the engine is waiting on (e.g. a library
         #: search) before it can keep resolving — plain JSON-able data
         #: (kind, player_id, eligible instance ids, …) so it survives a
@@ -552,14 +561,15 @@ class GameState:
 
         Turn order rotates normally, but a passive "goldfish" opponent never
         becomes the active player — a solo game keeps handing the turn back
-        to the human. With no non-dummy player after the current one, the
-        active player is unchanged.
+        to the human. A player who has left the game (RULE 104.3a: lost or
+        conceded) is skipped for the same reason. With no eligible player
+        after the current one, the active player is unchanged.
         """
         count = len(self.players)
         index = self.active_player_index
         for _ in range(count):
             index = (index + 1) % count
-            if not self.players[index].is_dummy:
+            if not self.players[index].is_dummy and not self.players[index].has_lost:
                 return index
         return self.active_player_index
 

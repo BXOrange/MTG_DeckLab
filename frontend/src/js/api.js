@@ -334,7 +334,86 @@ export async function endGame(sessionId) {
   return gameRequest('DELETE', `/api/game/${encodeURIComponent(sessionId)}`);
 }
 
-/** Multiplayer is a backend stub (501) — used to show a "coming soon" note. */
+// --- Multiplayer lobby + shared games (UC4) -------------------------------
+// Backend: mtg_analyzer/api/multiplayer.py. Same {ok, status, data} shape as
+// the game-session helpers above. Every call identifies the caller by the
+// server-assigned lobby `playerId` (from /ws/lobby's welcome message, or
+// `connectToLobby` as a fallback) — never by the display name, which is
+// free text and not unique.
+
+/** Register with the lobby without a WebSocket (fallback / first contact). */
+export async function connectToLobby(name, playerId = null) {
+  return gameRequest('POST', '/api/multiplayer/connect', { name, playerId });
+}
+
+/** Everyone connected and every table (players + games). */
+export async function fetchLobby() {
+  return gameRequest('GET', '/api/multiplayer/lobby');
+}
+
+/** Open a new table; the caller becomes its host and first seat. */
+export async function createMultiplayerGame(playerId, name = '', numPlayers = 2) {
+  return gameRequest('POST', '/api/multiplayer/games', { playerId, name, numPlayers });
+}
+
+/** Take a seat at a forming table. */
+export async function joinMultiplayerGame(gameId, playerId) {
+  return gameRequest('POST', `/api/multiplayer/games/${encodeURIComponent(gameId)}/join`, { playerId });
+}
+
+/** Watch a table instead of playing it (public board, no hands). */
+export async function observeMultiplayerGame(gameId, playerId) {
+  return gameRequest('POST', `/api/multiplayer/games/${encodeURIComponent(gameId)}/observe`, { playerId });
+}
+
+/** Give up a seat (or stop watching). */
+export async function leaveMultiplayerGame(gameId, playerId) {
+  return gameRequest('POST', `/api/multiplayer/games/${encodeURIComponent(gameId)}/leave`, { playerId });
+}
+
+/** Pick this seat's deck from the decks saved on the server. */
+export async function setMultiplayerDeck(gameId, playerId, deckId) {
+  return gameRequest('POST', `/api/multiplayer/games/${encodeURIComponent(gameId)}/deck`, { playerId, deckId });
+}
+
+/** Host only: change the table's shared settings (mulligan style, seats). */
+export async function setMultiplayerOptions(gameId, playerId, options) {
+  return gameRequest('POST', `/api/multiplayer/games/${encodeURIComponent(gameId)}/options`, { playerId, ...options });
+}
+
+/** Accept (or un-accept) the table as configured. */
+export async function setMultiplayerReady(gameId, playerId, ready = true) {
+  return gameRequest('POST', `/api/multiplayer/games/${encodeURIComponent(gameId)}/ready`, { playerId, ready });
+}
+
+/** Everyone accepted — resolve the decks and start the real game. */
+export async function startMultiplayerGame(gameId, playerId) {
+  return gameRequest('POST', `/api/multiplayer/games/${encodeURIComponent(gameId)}/start`, { playerId });
+}
+
+/** This player's own (server-redacted) view of a running game. */
+export async function fetchMultiplayerGame(gameId, playerId) {
+  return gameRequest(
+    'GET',
+    `/api/multiplayer/games/${encodeURIComponent(gameId)}?player_id=${encodeURIComponent(playerId)}`,
+  );
+}
+
+/** Apply one action as this seat. */
+export async function sendMultiplayerAction(gameId, playerId, action) {
+  return gameRequest('POST', `/api/multiplayer/games/${encodeURIComponent(gameId)}/action`, { playerId, action });
+}
+
+/** RULE 104.3a: leave the game. */
+export async function concedeMultiplayerGame(gameId, playerId) {
+  return gameRequest('POST', `/api/multiplayer/games/${encodeURIComponent(gameId)}/concede`, { playerId });
+}
+
+/**
+ * The legacy seat-less multiplayer entry point — still a 501 by design (a
+ * game needs seats, which only the lobby has). Kept for the Engine-Status
+ * page's route probe.
+ */
 export async function startMultiplayer() {
   return gameRequest('POST', '/api/game/multiplayer', {});
 }

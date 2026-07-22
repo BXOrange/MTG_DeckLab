@@ -23,6 +23,10 @@ Env vars (all optional; defaults reproduce the pre-config-module paths):
     policy from cache-primary (default) to scryfall-primary; see
     SCRYFALL_PRIMARY below. Also settable via `setup/start.py
     --scryfall-primary`.
+  MTG_MULTIPLAYER_IDLE_TIMEOUT — seconds a multiplayer player may hold
+    priority without acting before the server drops their connection
+  MTG_MULTIPLAYER_DISCONNECT_GRACE — seconds a disconnected player's seat
+    is held open for them to reconnect into
 """
 
 from __future__ import annotations
@@ -86,3 +90,31 @@ SCRYFALL_MIN_REQUEST_INTERVAL_SECONDS = float(
 #: ("scryfall-primary"): today's original behavior — a stale row is always
 #: refetched to prefer Scryfall's current data.
 SCRYFALL_PRIMARY = os.environ.get("MTG_SCRYFALL_PRIMARY", "").strip().lower() in ("1", "true", "yes")
+
+
+def _env_seconds(name: str, default: float) -> float:
+    """A non-negative duration from the environment; 0 disables the timer."""
+    try:
+        value = float(os.environ.get(name, default))
+    except ValueError:
+        return float(default)
+    return max(0.0, value)
+
+
+#: How long a multiplayer player may **hold priority without acting** before
+#: the server closes their connection (`api/multiplayer_ws.py`'s sweeper).
+#: The point isn't to police slow play — it's that a browser tab that went
+#: away without a clean close still holds priority, and the game would
+#: otherwise wait on it forever. Their seat is *not* lost immediately: they
+#: become "disconnected", the server auto-passes for them so the table keeps
+#: moving, and MULTIPLAYER_DISCONNECT_GRACE below decides how long they have
+#: to come back. 0 disables the check entirely (useful for a table that
+#: takes long breaks, and for tests).
+MULTIPLAYER_IDLE_TIMEOUT_SECONDS = _env_seconds("MTG_MULTIPLAYER_IDLE_TIMEOUT", 120)
+
+#: How long a disconnected player's seat is held open. Reconnecting within
+#: this window (same player name — see `services/lobby.py`) puts them back in
+#: the same seat with the game as they left it; letting it lapse concedes
+#: for them (RULE 104.3a), because a seat nobody is sitting in can't be
+#: waited on forever. 0 disables the sweep, holding the seat indefinitely.
+MULTIPLAYER_DISCONNECT_GRACE_SECONDS = _env_seconds("MTG_MULTIPLAYER_DISCONNECT_GRACE", 90)

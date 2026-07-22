@@ -204,7 +204,7 @@ class TestSetup:
         # the way; only `GameSessionManager.create_goldfish` (below) opts a
         # real goldfish game into `require_setup`.
         session = make_session()
-        assert session.view()["setup"] == {"complete": True, "mulligan_count": 0, "draw_first": False}
+        assert session.view()["setup"]["complete"] is True
 
 
 class TestMulligan:
@@ -220,7 +220,8 @@ class TestMulligan:
     def test_starts_incomplete_with_only_mulligan_actions(self):
         session = self._start()
         view = session.view()
-        assert view["setup"] == {"complete": False, "mulligan_count": 0, "draw_first": False}
+        assert view["setup"]["complete"] is False
+        assert view["setup"]["mulligan_count"] == 0
         assert {a["type"] for a in view["legal_actions"]} == {"mulligan", "keep_hand"}
 
     def test_non_setup_actions_are_rejected_until_kept(self):
@@ -233,7 +234,8 @@ class TestMulligan:
         player = session.engine.state.active_player
         first_hand = {o.instance_id for o in player.hand}
         view = session.apply_action({"type": "mulligan"})
-        assert view["setup"] == {"complete": False, "mulligan_count": 1, "draw_first": False}
+        assert view["setup"]["complete"] is False
+        assert view["setup"]["mulligan_count"] == 1
         assert len(player.hand) == 7
         # A fresh 7 from a reshuffled 30-card library of identical basics
         # can't be asserted against by name, but the instances differ.
@@ -250,7 +252,8 @@ class TestMulligan:
         view = session.apply_action(
             {"type": "keep_hand", "bottom_instance_ids": [bottom_id]}
         )
-        assert view["setup"] == {"complete": True, "mulligan_count": 1, "draw_first": False}
+        assert view["setup"]["complete"] is True
+        assert view["setup"]["mulligan_count"] == 1
         assert len(player.hand) == 6
         assert player.library[0].instance_id == bottom_id
 
@@ -272,7 +275,8 @@ class TestMulligan:
         session.apply_action({"type": "keep_hand", "bottom_instance_ids": []})
         session.apply_action({"type": "advance_step"})
         view = session.restart()
-        assert view["setup"] == {"complete": False, "mulligan_count": 0, "draw_first": False}
+        assert view["setup"]["complete"] is False
+        assert view["setup"]["mulligan_count"] == 0
 
 
 class TestActions:
@@ -590,7 +594,10 @@ class TestManager:
         assert manager.remove(session.id) is True
         assert manager.remove(session.id) is False
 
-    def test_multiplayer_is_a_stub(self):
+    def test_multiplayer_needs_at_least_two_seats(self):
+        # The seat-less entry point behind the legacy `POST /api/game/
+        # multiplayer` route: a real game is started from the lobby, which
+        # is the only thing that knows the seats (see api/multiplayer.py).
         manager = GameSessionManager()
         with pytest.raises(MultiplayerNotImplementedError):
-            manager.create_multiplayer()
+            manager.create_multiplayer([])

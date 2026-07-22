@@ -1556,8 +1556,7 @@ textarea {
 
 /* --- Goldfisch-Modus --- */
 
-.goldfish-start,
-.mp-stub {
+.goldfish-start {
   max-width: 640px;
 }
 
@@ -3464,4 +3463,383 @@ textarea {
 }
 .replay-token-preset small {
   color: var(--text-dim);
+}
+
+/* --- Multiplayer (multiplayerView.js, gameBoardView.js's shared-game bits) --- */
+
+/* The Board tab is disabled until this client is actually at a table. */
+.tab-button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.mp-setup > h3 {
+  margin: 0 0 0.6rem;
+}
+
+.mp-columns {
+  display: grid;
+  grid-template-columns: minmax(0, 2fr) minmax(0, 1fr);
+  gap: 0.75rem;
+  align-items: start;
+}
+
+@media (max-width: 900px) {
+  .mp-columns {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+.mp-panel {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 0.6rem 0.8rem;
+}
+
+.mp-panel h4 {
+  margin: 0 0 0.5rem;
+  color: var(--accent);
+  font-size: 0.95rem;
+}
+
+.mp-my-game {
+  margin-bottom: 0.75rem;
+  border-color: var(--accent);
+}
+
+/* Connected players, one row each, coloured by presence state. */
+.mp-player-list,
+.mp-game-list,
+.mp-seat-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.mp-player,
+.mp-seat {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  background: var(--panel-alt);
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  padding: 0.3rem 0.5rem;
+  font-size: 0.85rem;
+}
+
+.mp-player-name,
+.mp-seat-name {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mp-player-state,
+.mp-seat-ready {
+  color: var(--text-dim);
+  font-size: 0.78rem;
+  flex: 0 0 auto;
+}
+
+.mp-state-available .mp-player-state {
+  color: var(--ok);
+}
+
+.mp-state-playing .mp-player-state {
+  color: var(--info);
+}
+
+.mp-you {
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.mp-seat-me {
+  border-color: var(--accent);
+}
+
+.mp-seat-index {
+  color: var(--text-dim);
+  flex: 0 0 auto;
+}
+
+.mp-seat-deck {
+  color: var(--text-dim);
+  font-size: 0.78rem;
+  flex: 0 0 auto;
+  max-width: 40%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mp-game {
+  background: var(--panel-alt);
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  padding: 0.45rem 0.6rem;
+}
+
+.mp-game-mine {
+  border-color: var(--accent);
+}
+
+.mp-game-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+
+.mp-game-status {
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-dim);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 0.05rem 0.5rem;
+}
+
+.mp-status-running {
+  color: var(--info);
+  border-color: var(--info);
+}
+
+.mp-status-finished {
+  color: var(--text-dim);
+}
+
+.mp-game-seats {
+  color: var(--text-dim);
+  font-size: 0.8rem;
+  margin: 0.2rem 0 0.35rem;
+}
+
+.mp-game-actions {
+  display: flex;
+  gap: 0.4rem;
+  flex-wrap: wrap;
+}
+
+.mp-new-game {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+  margin-top: 0.6rem;
+  padding-top: 0.6rem;
+  border-top: 1px solid var(--border);
+}
+
+.mp-new-game .hint {
+  flex: 1 1 100%;
+  margin: 0;
+}
+
+.mp-option-row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+  margin: 0.5rem 0;
+}
+
+.mp-option-row label {
+  min-width: 8rem;
+  color: var(--text-dim);
+  font-size: 0.85rem;
+}
+
+.mp-option-row select,
+.mp-new-game input {
+  flex: 1 1 14rem;
+  min-width: 0;
+  padding: 0.35rem 0.5rem;
+  background: var(--panel-alt);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 5px;
+}
+
+.mp-board-empty {
+  max-width: 640px;
+}
+
+/* --- Shared-board additions used by multiplayer --- */
+
+/* Your own board sits at the bottom (nearest you), the opponent's above it. */
+.gf-own-board > .gf-player-board-head {
+  border-color: var(--accent);
+}
+
+.gf-opponent-board {
+  opacity: 0.96;
+}
+
+.gf-board-out {
+  opacity: 0.55;
+}
+
+.gf-seat-badge {
+  margin-left: 0.5rem;
+  font-size: 0.68rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  border-radius: 999px;
+  padding: 0.05rem 0.45rem;
+  border: 1px solid currentColor;
+  vertical-align: middle;
+}
+
+.gf-seat-you {
+  color: var(--accent);
+}
+
+.gf-seat-active {
+  color: var(--ok);
+}
+
+.gf-seat-out {
+  color: var(--error);
+}
+
+/* A hidden hand card (RULE 400.2): the player's sleeve, or a plain patterned
+   back. Sized like a real card tile (.card.has-image) — it has no <img> and
+   no text to give it dimensions of its own. */
+.gf-face-down {
+  width: 100px;
+  max-width: none;
+  padding: 0;
+  aspect-ratio: 63 / 88;
+  background: repeating-linear-gradient(
+    45deg,
+    var(--panel-alt),
+    var(--panel-alt) 6px,
+    var(--panel) 6px,
+    var(--panel) 12px
+  );
+  border: 1px solid var(--border);
+}
+
+.gf-observer-note,
+.gf-waiting-choice {
+  margin: 0 0 0.6rem;
+}
+
+/* Blocker declaration (RULE 509.1a) — the defending player's own panel. */
+.gf-block-panel {
+  background: var(--panel);
+  border: 1px solid var(--info);
+  border-radius: 6px;
+  padding: 0.6rem 0.8rem;
+  margin-bottom: 0.75rem;
+}
+
+.gf-block-panel h4 {
+  margin: 0 0 0.3rem;
+  color: var(--info);
+  font-size: 0.95rem;
+}
+
+.gf-block-row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+  margin: 0.3rem 0;
+}
+
+.gf-block-blocker {
+  font-weight: 600;
+  min-width: 10rem;
+}
+
+.gf-block-arrow {
+  color: var(--text-dim);
+  font-size: 0.8rem;
+}
+
+.gf-block-pick {
+  flex: 1 1 12rem;
+  min-width: 0;
+  padding: 0.3rem 0.5rem;
+  background: var(--panel-alt);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 5px;
+}
+
+/* --- Interactive priority + auto-pass (RULE 117, multiplayer) --- */
+
+.gf-priority-controls {
+  align-items: center;
+}
+
+.gf-priority-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 0.3rem 0.6rem;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--panel-alt);
+  color: var(--text-dim);
+  font-size: 0.82rem;
+}
+
+.gf-priority-mine {
+  border-color: var(--ok);
+  color: var(--ok);
+  font-weight: 600;
+}
+
+/* The countdown stops as soon as the player touches the board — dim it so
+   it's obvious the clock is no longer running. */
+.gf-priority-badge.gf-autopass-off .gf-autopass-count {
+  opacity: 0.4;
+  text-decoration: line-through;
+}
+
+.gf-autopass-count {
+  font-variant-numeric: tabular-nums;
+  min-width: 1.2em;
+  display: inline-block;
+  text-align: right;
+}
+
+.gf-autopass {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  font-size: 0.8rem;
+  color: var(--text-dim);
+  margin-left: auto;
+}
+
+.gf-autopass input[type="number"] {
+  width: 3.5rem;
+  padding: 0.2rem 0.3rem;
+  background: var(--panel-alt);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+}
+
+.gf-seat-away {
+  color: var(--warn);
+}
+
+.mp-inline-option {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  margin: 0.4rem 0;
 }

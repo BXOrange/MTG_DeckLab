@@ -27,6 +27,7 @@ import { getPlayerName } from './settings.js';
 import { preloadCardImages, cacheResolvedCard } from './cardImages.js';
 import { parseDeckSections } from './parser.js';
 import { createGameBoardView } from './gameBoardView.js';
+import { analysisHtml } from './gameStats.js';
 
 /**
  * Create a persistent goldfish controller. Its session survives across
@@ -602,59 +603,6 @@ export function createGoldfishView() {
         : `Verloren – Sieger: ${escapeHtml(winner.name)}.`
       : 'Spiel beendet.';
     return `<p class="server-status ${youWon ? 'ok' : 'warning'}">${banner}</p>`;
-  }
-
-  // End-of-game review: totals + a mana-value curve and mana-per-turn bars
-  // for each player, side by side, built from the server's stats digest.
-  function analysisHtml(analysis) {
-    if (!analysis || !analysis.players) return '';
-    const players = Object.values(analysis.players);
-    const cards = players.map((p) => analysisCardHtml(p)).join('');
-    return `
-      <div class="gf-analysis">
-        <h4>Auswertung nach ${analysis.turns} Zügen</h4>
-        <div class="gf-analysis-grid">${cards}</div>
-      </div>`;
-  }
-
-  function analysisCardHtml(p) {
-    const stat = (label, value) =>
-      `<div class="gf-stat"><span class="gf-stat-v">${value}</span><span class="gf-stat-l">${label}</span></div>`;
-    return `
-      <div class="gf-analysis-card">
-        <h5>${p.is_dummy ? '🐟 ' : ''}${escapeHtml(p.name)}</h5>
-        <div class="gf-stat-row">
-          ${stat('Gezogen', p.cards_drawn)}
-          ${stat('Gespielt', p.cards_played)}
-          ${stat('Zauber', p.spells_cast)}
-          ${stat('Länder', p.lands_played)}
-        </div>
-        <div class="gf-stat-row">
-          ${stat('Mana erzeugt', p.mana_produced)}
-          ${stat('Ø MW', p.avg_cmc)}
-          ${stat('Schaden', p.damage_dealt)}
-          ${stat('erhalten', p.damage_taken)}
-        </div>
-        ${barChartHtml('Mana-Kurve gespielter Zauber (MW)', p.cmc_curve)}
-        ${barChartHtml('Mana pro Zug', p.mana_per_turn)}
-      </div>`;
-  }
-
-  // A minimal CSS bar chart over a {key: value} map (keys sorted numerically),
-  // heights scaled to the largest bar. No external chart lib — inline divs.
-  function barChartHtml(title, map) {
-    const entries = Object.entries(map || {})
-      .map(([k, v]) => [Number(k), v])
-      .sort((a, b) => a[0] - b[0]);
-    if (!entries.length) return `<div class="gf-chart"><span class="gf-chart-title">${title}</span><p class="empty-state">—</p></div>`;
-    const max = Math.max(...entries.map(([, v]) => v));
-    const bars = entries
-      .map(([k, v]) => {
-        const h = max ? Math.round((v / max) * 100) : 0;
-        return `<div class="gf-bar" title="${k}: ${v}"><span class="gf-bar-v">${v}</span><span class="gf-bar-fill" style="height:${h}%"></span><span class="gf-bar-k">${k}</span></div>`;
-      })
-      .join('');
-    return `<div class="gf-chart"><span class="gf-chart-title">${escapeHtml(title)}</span><div class="gf-bars">${bars}</div></div>`;
   }
 
   function statusHtml() {

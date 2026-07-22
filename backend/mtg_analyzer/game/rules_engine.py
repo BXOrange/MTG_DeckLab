@@ -6404,6 +6404,48 @@ class RulesEngine:
         )
         self._check_game_over()
 
+    def concede(self, player: Player) -> None:
+        """RULE 104.3a: ``player`` concedes and leaves the game immediately.
+
+        Conceding is the one thing a player may do at *any* time, without
+        holding priority — it is not an action that uses the stack, so
+        unlike every other action here it isn't gated on timing.
+
+        The RULE 800.4a cleanup (their objects leave the game with them) is
+        deliberately **deferred** rather than run here, because conceding is
+        in practice a sorcery-speed act and pulling a whole board out from
+        under the remaining players mid-turn is disorienting: the id is
+        parked on `GameState.pending_leave_ids` and swept by
+        `GameEngine.begin_turn` when the next player's turn starts. Once
+        only one living player is left the game is over anyway, so the
+        board is simply left standing for the end-of-match review and the
+        sweep never runs.
+        """
+        if player.has_lost:
+            return
+        self._player_loses(player, "conceded")
+        if not self.state.game_over and player.id not in self.state.pending_leave_ids:
+            self.state.pending_leave_ids.append(player.id)
+
+    def remove_player_from_game(self, player: Player) -> None:
+        """RULE 800.4a: every object a departing player owns leaves the game.
+
+        Their permanents (and anything they control that they don't own —
+        RULE 800.4a hands those back, but with no exchange-of-control
+        modeled at this level the simple reading is used: only *owned*
+        objects go) leave the battlefield, their personal zones empty, and
+        anything of theirs still on the stack ceases to exist. Called by
+        `GameEngine.begin_turn` for each id `concede` parked on
+        `GameState.pending_leave_ids`, not directly by the concession.
+        """
+        for obj in [o for o in self.state.battlefield if o.owner_id == player.id]:
+            self.state.remove_from_battlefield(obj)
+        self.state.stack = [
+            item for item in self.state.stack if getattr(item.source, "owner_id", None) != player.id
+        ]
+        for zone in Player.PERSONAL_ZONES:
+            player.zones[zone].clear()
+
     def player_wins(self, player: Player) -> None:
         """RULE 104.2: ``player`` wins the game outright (Jace, Wielder of
         Mysteries/Laboratory Maniac-shaped alternative win condition) —

@@ -236,7 +236,13 @@ class TestMulliganSetup:
         _setup()
         client = TestClient(app)
         view = self._start(client)
-        assert view["setup"] == {"complete": False, "mulligan_count": 0, "draw_first": False}
+        assert view["setup"] == {
+            "complete": False,
+            "mulligan_count": 0,
+            "mulligan_style": "london",
+            "draw_first": False,
+            "waiting_for": ["p1"],
+        }
         types = {a["type"] for a in view["legal_actions"]}
         assert types == {"mulligan", "keep_hand"}
 
@@ -253,7 +259,8 @@ class TestMulliganSetup:
         sid = self._start(client)["session_id"]
 
         after_mull = client.post(f"/api/game/{sid}/action", json={"type": "mulligan"}).json()
-        assert after_mull["setup"] == {"complete": False, "mulligan_count": 1, "draw_first": False}
+        assert after_mull["setup"]["complete"] is False
+        assert after_mull["setup"]["mulligan_count"] == 1
         assert len(after_mull["state"]["players"][0]["hand"]) == 7
         keep_action = next(
             a for a in after_mull["legal_actions"] if a["type"] == "keep_hand"
@@ -271,7 +278,8 @@ class TestMulliganSetup:
             f"/api/game/{sid}/action",
             json={"type": "keep_hand", "bottom_instance_ids": [hand[0]["instance_id"]]},
         ).json()
-        assert kept["setup"] == {"complete": True, "mulligan_count": 1, "draw_first": False}
+        assert kept["setup"]["complete"] is True
+        assert kept["setup"]["mulligan_count"] == 1
         assert len(kept["state"]["players"][0]["hand"]) == 6
         # The setup phase is over — normal actions are accepted again.
         response = client.post(f"/api/game/{sid}/action", json={"type": "advance_step"})
@@ -293,7 +301,8 @@ class TestMulliganSetup:
         sid = self._start(client)["session_id"]
         client.post(f"/api/game/{sid}/action", json={"type": "keep_hand", "bottom_instance_ids": []})
         restarted = client.post(f"/api/game/{sid}/restart").json()
-        assert restarted["setup"] == {"complete": False, "mulligan_count": 0, "draw_first": False}
+        assert restarted["setup"]["complete"] is False
+        assert restarted["setup"]["mulligan_count"] == 0
 
 
 class TestMultiplayerStub:

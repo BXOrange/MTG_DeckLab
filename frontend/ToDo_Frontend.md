@@ -39,13 +39,22 @@ moved to [Done_Frontend.md](../docs/implementation-state/Done_Frontend.md)
 
 ## Multiplayer
 
-- [ ] Second player / opponent zones. Needs matchmaking or a local
-      "load second deck" flow before this can show anything real
-      (docs/02 UC4, docs/04 S5).
-- [ ] Hide opponent's hand contents (only show count) once there's a
-      real opponent.
-- [ ] Turn/priority indicator for whose turn/priority it is.
-- [ ] Timeout handling for a slow opponent (docs/04 S2).
+The first version ships (Setup + Board tabs, lobby, seat configuration,
+shared board, observer mode) — see
+[Done_Frontend.md](../docs/implementation-state/Done_Frontend.md)
+"Multiplayer". Still open:
+
+- [ ] Chat / emotes at the table.
+- [ ] A move/priority log. The board has `move_log`, but in a shared game
+      it's hard to see *what* the opponent just did before you get your
+      response window — a short "Bob hat X gespielt" feed would make the
+      3-second auto-pass window usable instead of startling.
+- [ ] Mid-interaction state is lost on reconnect: a targeting modal or a
+      half-assembled block is rebuilt from the pushed view, which only
+      carries committed state.
+- [ ] Preload the *opponent's* card art too. Only your own deck is
+      preloaded at start, so an opponent's first play of a given card
+      pops in.
 
 ## Auth & sessions
 

@@ -95,16 +95,6 @@ for the dependency-ordered plan to finish the implementation.
         in `RulesEngine._offer_enter_choices`. Blocks Realmwright and
         A-Thran Portal, whose *type-grant* halves are otherwise modeled.
 
-      **Combat statics:** fully shipped — see Done_Backend.md, "Combat
-      statics" for the qualified/conditional restriction family, the RULE
-      509.1c/d requirement family, the RULE 509.1b multi-block permission
-      family, and the two closing parser-only gaps (a count-selector
-      threshold instead of a literal int; a group scope with its own
-      power/toughness qualifier). "…unless its controller pays `<cost>`"
-      (Brainwash/Propaganda-shaped) was never part of this section — it
-      belongs to the prohibition/cost-modification entry under
-      "Designations / setup" below.
-
       **Cost-keyword mechanics:**
       - Kicker `{X}`'s own paid-X variant (Emblazoned Golem, 1 card).
       - Granting Cycling to other cards ("each card in your hand has
@@ -260,13 +250,6 @@ for the dependency-ordered plan to finish the implementation.
         `conditional_flash`'s condition whitelist
         (`game/condition_query.py`).
 
-- [~] Combat blocking + creature-vs-creature damage: **engine + keywords
-      done** — see
-      [Done_Backend.md](../docs/implementation-state/Done_Backend.md)
-      "Rules Engine (Phase 2)". Remaining: an *interactive*
-      blocker-declaration UI (opponent-side, needs the multiplayer
-      priority loop).
-
 ## Card-type & structural coverage (Backlog)
 
 Card *kinds* the engine doesn't model as anything beyond a generic
@@ -395,16 +378,46 @@ eventually own. Roughly in decreasing commonness:
 
 ## Game Engine (Phase 3) — remaining
 
-- [~] Multiplayer game session + priority system (UC4): **priority
-      primitive built** (`GameEngine.pass_priority(player)`, RULE 117.3-4/
-      APNAP) — see
+- [~] Multiplayer game session (UC4): **a playable two-player game ships**
+      — lobby + presence, per-seat setup, server-side hidden-zone
+      redaction, the real RULE 117 priority loop, shared board, blocker
+      declaration, concede, observers, seat reclaim by name and the
+      idle/disconnect watchdog — see
       [Done_Backend.md](../docs/implementation-state/Done_Backend.md)
-      "Game Engine (Phase 3)". Still **stubbed**:
-      `GameSessionManager.create_multiplayer` raises
-      `MultiplayerNotImplementedError` and `POST /api/game/multiplayer`
-      returns 501 — the session/route need to drive `pass_priority(player)`
-      and expose the priority holder, and interactive blocker declaration
-      (`declare_blockers`, engine-ready) needs the opponent-side UI.
+      "Multiplayer (UC4)". Remaining follow-ups:
+      - Vancouver mulligan ("scry 1 after keeping") is deliberately not
+        offered as a `MULLIGAN_STYLES` option, because `RulesEngine.scry`
+        is a non-interactive stub that always keeps every card on top —
+        it would be a choice with no effect. Add it when scry becomes a
+        real `pending_choice`.
+      - More than two seats: `services/lobby.py`'s `MAX_SEATS` is 2. The
+        engine side is already N-player (`build_multiplayer_engine`,
+        `GameState.next_active_index`, and the RULE 800.4a deferred-leave
+        sweep on concede all handle 3+); it's the board layout and the
+        "which opponent am I attacking" UI that aren't tested for it.
+      - A face-down card in exile (RULE 701.20a,
+        `GameObject.face_down_in_exile`) is *not* redacted by
+        `_redact_hidden_zones`, which works zone by zone. No card in the
+        multiplayer path makes one today; doing it properly means
+        redacting a single card's characteristics rather than a whole zone.
+      - Player names are the identity, and they are neither unique nor
+        authenticated: two people who pick the same name share a seat,
+        and the second to connect takes it over. Fine for a LAN table,
+        not for anything public — that needs actual accounts (see "Auth
+        & sessions").
+      - The idle watchdog measures silence from the last *action*, so a
+        player who genuinely thinks for longer than
+        `MTG_MULTIPLAYER_IDLE_TIMEOUT` is disconnected and immediately
+        reconnects (keeping their seat — the client retries and reclaims
+        by name). Self-healing, but a `ping` that counted as liveness
+        would avoid the flicker entirely.
+      - A player who reconnects mid-game gets the board back, but any
+        half-finished interaction they were in the middle of (a targeting
+        modal, a half-assembled block) is lost — the client rebuilds from
+        the pushed view, which only carries committed state.
+      - Auto-pass is client-side, so it doesn't help a table whose player
+        has simply closed the tab; that's what the server-side watchdog
+        is for, and the two are deliberately separate mechanisms.
 - [ ] Goad (RULE 701.15) isn't modeled at all — no engine primitive, no
       parser recognition. A goaded creature "attacks each combat if able"
       (a forced-attack constraint, the same *shape* `combat.py`'s existing

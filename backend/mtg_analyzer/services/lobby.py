@@ -1,0 +1,543 @@
+"""The multiplayer lobby: who is connected, and which games are forming (UC4).
+
+Reference: docs/requirements/02_MVP_USECASES_REVISED.md UC4,
+docs/concepts/04_SERVER_CLIENT_ARCHITECTURE.md.
+
+This module is deliberately **rules-free**: it knows about people and
+tables, not about Magic. It answers two questions —
+
+* *Who is here?* Every connected client is a `LobbyPlayer` in one of three
+  presence states: ``online`` (connected, but off in some other tab),
+  ``available`` (sitting in the lobby, not in a game) and ``playing`` (in
+  a game, as a seat or an observer). Presence is driven by the client's
+  own `/ws/lobby` connection (`api/multiplayer_ws.py`): connecting makes
+  you ``online``, opening the Multiplayer tab reports ``available``, and
+  joining a game flips you to ``playing``.
+
+  A player is identified by their **name** (the Profil tab's free text —
+  this app has no auth). That's a deliberate trade: it means a reload or a
+  dropped connection walks straight back into the same seat, and it means
+  two people sharing a name share a seat. Losing the socket doesn't drop a
+  seated player — it starts a grace period
+  (`config.MULTIPLAYER_DISCONNECT_GRACE_SECONDS`, `disconnect`/`sweep`) in
+  which they can come back; a player with no seat is dropped at once,
+  since there's nothing to hold for them.
+
+* *What can I join?* A `LobbyGame` is a table in one of three statuses:
+  ``setup`` (seats being filled and configured), ``running`` (a real
+  `GameSession` exists behind it) and ``finished``.
+
+Handing the game off to the rules engine is the one thing this module
+does *not* do itself: `start()` takes an already-built `GameSession` id
+from the caller (`api/multiplayer.py`, which owns deck resolution), so
+the lobby never imports the engine or the card loader.
+
+Everything is in-memory and single-process, like `GameSessionManager` and
+`game_ws.py`'s connection registry — restarting the server empties the
+lobby.
+"""
+
+from __future__ import annotations
+
+import time
+import uuid
+from dataclasses import dataclass, field
+from typing import Any, Optional
+
+from mtg_analyzer.config import (
+    MULTIPLAYER_DISCONNECT_GRACE_SECONDS,
+    MULTIPLAYER_IDLE_TIMEOUT_SECONDS,
+)
+
+
+def normalize_name(name: str) -> str:
+    """The key a player name is recognized by across reconnects.
+
+    Case- and whitespace-insensitive, because the name is retyped by a
+    human in the Profil tab and "Bernd " coming back as "bernd" should
+    still find their seat.
+    """
+    return " ".join((name or "").split()).casefold()
+
+#: Presence states, in increasing order of "busy".
+ONLINE = "online"
+AVAILABLE = "available"
+PLAYING = "playing"
+
+#: Game statuses.
+SETUP = "setup"
+RUNNING = "running"
+FINISHED = "finished"
+
+#: The only table size the first version supports. Two-player is what the
+#: turn loop and the board UI are built and tested for; the seat/turn-order
+#: machinery below is written for N so raising this is a UI question rather
+#: than an engine one (`GameState.next_active_index` already rotates
+#: through any number of players).
+MAX_SEATS = 2
+
+
+class LobbyError(Exception):
+    """A lobby operation was invalid (unknown game, seat taken, …)."""
+
+
+@dataclass
+class LobbyPlayer:
+    """One client. **The player name is the identity** (`normalize_name`).
+
+    The name comes from the Profil tab and is not authenticated — this app
+    has no accounts — but it is the only handle that survives a page
+    reload, so it is what a returning client is recognized by: reconnecting
+    with the same name walks back into the same seat, with the game exactly
+    as it was left (`Lobby.connect`). The trade-off is deliberate and worth
+    stating plainly: two people who pick the same name *are* the same
+    player here, and the second one to connect takes the seat over. Give
+    everyone at the table a distinct name.
+
+    ``id`` stays a stable opaque handle (every REST call takes it, and it
+    doubles as the `Player.id` inside the `GameState`, so a seat and its
+    player are the same thing by construction) — it just isn't what
+    identifies a returning client any more.
+
+    ``connected`` is whether a live `/ws/lobby` socket is attached.
+    A disconnected player keeps their seat until ``disconnect_deadline``
+    passes (`config.MULTIPLAYER_DISCONNECT_GRACE_SECONDS`); meanwhile the
+    server passes priority for them so the table isn't stuck waiting.
+    """
+
+    id: str
+    name: str
+    state: str = ONLINE
+    game_id: Optional[str] = None
+    connected: bool = True
+    #: Monotonic deadline after which the seat is given up; None while connected.
+    disconnect_deadline: Optional[float] = None
+    #: Monotonic timestamp of this player's last action in a game — what
+    #: `config.MULTIPLAYER_IDLE_TIMEOUT_SECONDS` is measured against.
+    last_action_at: float = field(default_factory=time.monotonic)
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "id": self.id,
+            "name": self.name,
+            "state": self.state,
+            "game_id": self.game_id,
+            "connected": self.connected,
+        }
+
+
+@dataclass
+class Seat:
+    """One player's slot at a table during setup.
+
+    ``ready`` is the "accept" of "when all players accept, the game
+    starts" — it's cleared again whenever anything about the table changes
+    (someone joins or leaves, a deck or the mulligan style changes), so
+    nobody can be carried into a game they didn't agree to.
+    """
+
+    player_id: str
+    name: str
+    deck_id: Optional[str] = None
+    deck_name: str = ""
+    ready: bool = False
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "player_id": self.player_id,
+            "name": self.name,
+            "deck_id": self.deck_id,
+            "deck_name": self.deck_name,
+            "ready": self.ready,
+        }
+
+
+@dataclass
+class LobbyGame:
+    """A table: forming (``setup``), live (``running``) or over (``finished``)."""
+
+    id: str
+    name: str
+    host_id: str
+    num_players: int = 2
+    mulligan_style: str = "london"
+    status: str = SETUP
+    seats: list[Seat] = field(default_factory=list)
+    #: Watchers (RULE-irrelevant): they see the public board and no hands.
+    observer_ids: list[str] = field(default_factory=list)
+    #: The `GameSession` id once `start()` has been called.
+    session_id: Optional[str] = None
+    #: Player ids that conceded, in order — kept here as well as in the
+    #: game state so the lobby listing can say "2 von 3 noch dabei"
+    #: without loading the session.
+    conceded_ids: list[str] = field(default_factory=list)
+
+    @property
+    def is_full(self) -> bool:
+        return len(self.seats) >= self.num_players
+
+    @property
+    def all_ready(self) -> bool:
+        return self.is_full and all(seat.ready for seat in self.seats)
+
+    def seat_for(self, player_id: str) -> Optional[Seat]:
+        return next((s for s in self.seats if s.player_id == player_id), None)
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "id": self.id,
+            "name": self.name,
+            "host_id": self.host_id,
+            "num_players": self.num_players,
+            "mulligan_style": self.mulligan_style,
+            "status": self.status,
+            "seats": [s.to_dict() for s in self.seats],
+            "observer_ids": list(self.observer_ids),
+            "session_id": self.session_id,
+            "conceded_ids": list(self.conceded_ids),
+            "all_ready": self.all_ready,
+        }
+
+
+class Lobby:
+    """In-memory registry of connected players and forming/running games."""
+
+    def __init__(self) -> None:
+        self._players: dict[str, LobbyPlayer] = {}
+        #: Normalized name → player, the index a reconnect is resolved through.
+        self._by_name: dict[str, LobbyPlayer] = {}
+        self._games: dict[str, LobbyGame] = {}
+
+    # -- Presence ------------------------------------------------------
+
+    def connect(self, name: str, player_id: Optional[str] = None) -> LobbyPlayer:
+        """Register a client, **reclaiming their seat if the name is known**.
+
+        Identity is the player name (see `LobbyPlayer`): a client that
+        reloads the page, loses its connection, or is dropped by the idle
+        sweeper comes back with the same name from the Profil tab and lands
+        back in the same seat, mid-game. ``player_id`` is honoured when the
+        client still has one (it saves a lookup and survives a rename), but
+        it is no longer *required* for a reclaim — that's the whole point.
+
+        A name that is already connected is taken over rather than
+        rejected: the common case by far is the old socket being dead
+        without the server having noticed yet, and refusing there would
+        lock a player out of their own game. `api/multiplayer_ws.py` closes
+        the previous socket when this happens.
+        """
+        existing = None
+        if player_id:
+            existing = self._players.get(player_id)
+        if existing is None:
+            existing = self._by_name.get(normalize_name(name))
+        if existing is not None:
+            if name:
+                self._rename(existing, name)
+            existing.connected = True
+            existing.disconnect_deadline = None
+            existing.last_action_at = time.monotonic()
+            return existing
+
+        player = LobbyPlayer(id=player_id or str(uuid.uuid4()), name=" ".join(name.split()) or "Spieler")
+        self._players[player.id] = player
+        self._by_name[normalize_name(player.name)] = player
+        return player
+
+    def _rename(self, player: LobbyPlayer, name: str) -> None:
+        display = " ".join(name.split())  # trimmed, but the typed case is kept
+        if normalize_name(player.name) != normalize_name(display):
+            self._by_name.pop(normalize_name(player.name), None)
+            self._by_name[normalize_name(display)] = player
+        player.name = display
+        for game in self._games.values():
+            seat = game.seat_for(player.id)
+            if seat is not None:
+                seat.name = display
+
+    def disconnect(self, player_id: str) -> LobbyPlayer | None:
+        """A client's socket went away: hold their seat, don't drop them.
+
+        They stay in the lobby as ``connected=False`` until
+        `MULTIPLAYER_DISCONNECT_GRACE_SECONDS` passes (`sweep`), so a reload
+        or a flaky connection doesn't cost anyone their game. A player who
+        wasn't at a table has nothing to hold and is removed immediately —
+        keeping them would just show a ghost in everyone's player list.
+        """
+        player = self._players.get(player_id)
+        if player is None:
+            return None
+        player.connected = False
+        if not player.game_id:
+            self._remove_player(player)
+            return player
+        if MULTIPLAYER_DISCONNECT_GRACE_SECONDS <= 0:
+            player.disconnect_deadline = None  # held indefinitely
+        else:
+            player.disconnect_deadline = time.monotonic() + MULTIPLAYER_DISCONNECT_GRACE_SECONDS
+        return player
+
+    def _remove_player(self, player: LobbyPlayer) -> None:
+        """Drop a player for good and tidy up whatever they were sitting at."""
+        self._players.pop(player.id, None)
+        if self._by_name.get(normalize_name(player.name)) is player:
+            self._by_name.pop(normalize_name(player.name), None)
+        game_id = player.game_id
+        if not game_id:
+            return
+        try:
+            self.leave(game_id, player.id)
+        except LobbyError:
+            return
+        # A running game keeps its seats when someone leaves (the position
+        # is still the table's), but once *nobody* who belongs to it is
+        # connected any more there's no one left to come back to it — drop
+        # it rather than leaving a dead table in everyone's list forever.
+        game = self._games.get(game_id)
+        if game is None:
+            return
+        involved = [s.player_id for s in game.seats] + list(game.observer_ids)
+        if not any(pid in self._players for pid in involved):
+            del self._games[game_id]
+
+    def touch(self, player_id: str) -> None:
+        """Record that ``player_id`` just acted (resets their idle timer)."""
+        player = self._players.get(player_id)
+        if player is not None:
+            player.last_action_at = time.monotonic()
+
+    def idle_players(self, game: LobbyGame) -> list[LobbyPlayer]:
+        """Seated players who have been silent past the idle timeout.
+
+        Only meaningful for whoever the game is actually waiting on — the
+        caller checks that (it needs the `GameSession` to know who holds
+        priority, and this module deliberately knows nothing about Magic).
+        """
+        if MULTIPLAYER_IDLE_TIMEOUT_SECONDS <= 0:
+            return []
+        cutoff = time.monotonic() - MULTIPLAYER_IDLE_TIMEOUT_SECONDS
+        return [
+            player
+            for seat in game.seats
+            if (player := self._players.get(seat.player_id)) is not None
+            and player.connected
+            and player.last_action_at <= cutoff
+        ]
+
+    def expired_players(self) -> list[LobbyPlayer]:
+        """Disconnected players whose grace period has run out."""
+        now = time.monotonic()
+        return [
+            p
+            for p in self._players.values()
+            if not p.connected and p.disconnect_deadline is not None and p.disconnect_deadline <= now
+        ]
+
+    def forget(self, player_id: str) -> None:
+        """Remove a player for good (their grace period lapsed)."""
+        player = self._players.get(player_id)
+        if player is not None:
+            self._remove_player(player)
+
+    def set_presence(self, player_id: str, state: str) -> LobbyPlayer:
+        """Report where a client is (``online``/``available``).
+
+        ``playing`` is never set from outside — it's derived from actually
+        being in a game, so a client can't claim to be playing while it
+        isn't (or, more usefully, can't accidentally show as available
+        while it holds a seat).
+        """
+        player = self.player(player_id)
+        if player.game_id:
+            player.state = PLAYING
+        elif state in (ONLINE, AVAILABLE):
+            player.state = state
+        return player
+
+    def player(self, player_id: str) -> LobbyPlayer:
+        player = self._players.get(player_id)
+        if player is None:
+            raise LobbyError(f'unknown player "{player_id}"')
+        return player
+
+    def find(self, player_id: str) -> Optional[LobbyPlayer]:
+        """`player`, but ``None`` instead of raising — for sweeps and probes."""
+        return self._players.get(player_id)
+
+    def players(self) -> list[LobbyPlayer]:
+        return sorted(self._players.values(), key=lambda p: p.name.lower())
+
+    # -- Games ---------------------------------------------------------
+
+    def game(self, game_id: str) -> LobbyGame:
+        game = self._games.get(game_id)
+        if game is None:
+            raise LobbyError(f'unknown game "{game_id}"')
+        return game
+
+    def games(self) -> list[LobbyGame]:
+        return list(self._games.values())
+
+    def game_for_player(self, player_id: str) -> Optional[LobbyGame]:
+        game_id = self.player(player_id).game_id
+        return self._games.get(game_id) if game_id else None
+
+    def create(self, player_id: str, name: str = "", num_players: int = 2) -> LobbyGame:
+        """Open a new table and seat its creator (the host) at it."""
+        player = self.player(player_id)
+        if player.game_id:
+            raise LobbyError("you are already in a game — leave it first")
+        seats = max(2, min(int(num_players or 2), MAX_SEATS))
+        game = LobbyGame(
+            id=str(uuid.uuid4()),
+            name=(name or f"Spiel von {player.name}").strip(),
+            host_id=player_id,
+            num_players=seats,
+        )
+        self._games[game.id] = game
+        self._join(game, player)
+        return game
+
+    def join(self, game_id: str, player_id: str) -> LobbyGame:
+        game = self.game(game_id)
+        player = self.player(player_id)
+        if game.status != SETUP:
+            raise LobbyError("this game has already started — you can only watch it")
+        if player.game_id and player.game_id != game_id:
+            raise LobbyError("you are already in a game — leave it first")
+        if game.seat_for(player_id) is None and game.is_full:
+            raise LobbyError("this game is full")
+        self._join(game, player)
+        return game
+
+    def _join(self, game: LobbyGame, player: LobbyPlayer) -> None:
+        if game.seat_for(player.id) is None:
+            game.seats.append(Seat(player_id=player.id, name=player.name))
+        player.game_id = game.id
+        player.state = PLAYING
+        # The table changed shape, so every earlier "I accept" is stale.
+        self._unready(game)
+
+    def observe(self, game_id: str, player_id: str) -> LobbyGame:
+        """Watch a game instead of playing it (no hand, no actions)."""
+        game = self.game(game_id)
+        player = self.player(player_id)
+        if player.game_id and player.game_id != game_id:
+            raise LobbyError("you are already in a game — leave it first")
+        if game.seat_for(player_id) is not None:
+            raise LobbyError("you have a seat in this game — leave it before watching")
+        if player_id not in game.observer_ids:
+            game.observer_ids.append(player_id)
+        player.game_id = game.id
+        player.state = PLAYING
+        return game
+
+    def leave(self, game_id: str, player_id: str) -> Optional[LobbyGame]:
+        """Leave a table. Returns the game, or None once it's been dropped.
+
+        An empty table is dropped rather than left lying around; a running
+        game keeps its (conceded) seat, since the position and the
+        end-of-match review still belong to everyone at the table.
+        """
+        game = self.game(game_id)
+        player = self._players.get(player_id)
+        if player is not None and player.game_id == game_id:
+            player.game_id = None
+            player.state = AVAILABLE
+        if player_id in game.observer_ids:
+            game.observer_ids.remove(player_id)
+            return game
+        if game.status == SETUP:
+            game.seats = [s for s in game.seats if s.player_id != player_id]
+            self._unready(game)
+            if not game.seats:
+                del self._games[game.id]
+                return None
+            if game.host_id == player_id:
+                game.host_id = game.seats[0].player_id
+        return game
+
+    def set_deck(self, game_id: str, player_id: str, deck_id: str, deck_name: str = "") -> LobbyGame:
+        game = self._setup_game(game_id)
+        seat = game.seat_for(player_id)
+        if seat is None:
+            raise LobbyError("you have no seat in this game")
+        seat.deck_id = deck_id or None
+        seat.deck_name = deck_name
+        # The table changed, so *everyone's* acceptance is stale — the
+        # others accepted a game against a different deck.
+        self._unready(game)
+        return game
+
+    def set_options(
+        self,
+        game_id: str,
+        player_id: str,
+        mulligan_style: Optional[str] = None,
+        num_players: Optional[int] = None,
+    ) -> LobbyGame:
+        """Change the table's shared settings. Host only — everyone else
+        accepts them by readying up."""
+        game = self._setup_game(game_id)
+        if game.host_id != player_id:
+            raise LobbyError("only the host can change the game settings")
+        if mulligan_style is not None:
+            game.mulligan_style = mulligan_style
+        if num_players is not None:
+            seats = max(len(game.seats), min(int(num_players), MAX_SEATS))
+            game.num_players = seats
+        self._unready(game)
+        return game
+
+    def set_ready(self, game_id: str, player_id: str, ready: bool = True) -> LobbyGame:
+        """A player accepts (or un-accepts) the table as configured."""
+        game = self._setup_game(game_id)
+        seat = game.seat_for(player_id)
+        if seat is None:
+            raise LobbyError("you have no seat in this game")
+        if ready and not seat.deck_id:
+            raise LobbyError("choose a deck before accepting")
+        seat.ready = bool(ready)
+        return game
+
+    def start(self, game_id: str, session_id: str) -> LobbyGame:
+        """Mark the table live, behind the `GameSession` the caller built."""
+        game = self._setup_game(game_id)
+        if not game.all_ready:
+            raise LobbyError("not every player has accepted yet")
+        game.session_id = session_id
+        game.status = RUNNING
+        return game
+
+    def record_concession(self, game_id: str, player_id: str) -> LobbyGame:
+        game = self.game(game_id)
+        if player_id not in game.conceded_ids:
+            game.conceded_ids.append(player_id)
+        return game
+
+    def finish(self, game_id: str) -> LobbyGame:
+        """The game is over: the table stays visible for the review screen,
+        but nobody can join it and everyone still in it is free again."""
+        game = self.game(game_id)
+        game.status = FINISHED
+        return game
+
+    def _setup_game(self, game_id: str) -> LobbyGame:
+        game = self.game(game_id)
+        if game.status != SETUP:
+            raise LobbyError("this game has already started")
+        return game
+
+    @staticmethod
+    def _unready(game: LobbyGame) -> None:
+        for seat in game.seats:
+            seat.ready = False
+
+    # -- Views ---------------------------------------------------------
+
+    def snapshot(self) -> dict[str, Any]:
+        """The whole lobby, as the Setup screen renders it."""
+        return {
+            "players": [p.to_dict() for p in self.players()],
+            "games": [g.to_dict() for g in self._games.values()],
+        }

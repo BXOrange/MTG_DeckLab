@@ -79,6 +79,15 @@ class GameEngine:
         #: not use these — they run a whole turn at once.
         self._turn_steps: list = []
         self._cursor = 0
+        #: RULE 117: whether every priority window is *played out* by real
+        #: players (multiplayer) instead of auto-drained. Off by default, so
+        #: every solo path — goldfish, replay, every existing test — keeps
+        #: resolving the stack the moment a step opens, exactly as before.
+        #: On, `_run_step` only puts triggers on the stack and then leaves
+        #: it alone: the active player holds priority and the session drives
+        #: `pass_priority(player)` around the table (`services/
+        #: game_session.py`). See `GameSession._pass_priority`.
+        self.interactive_priority = False
 
     @property
     def attackers(self) -> list[GameObject]:
@@ -164,6 +173,18 @@ class GameEngine:
                 # Rotate to the next player, skipping the passive goldfish dummy
                 # (UC3) so a solo game keeps handing turns back to the human.
                 self.state.active_player_index = self.state.next_active_index()
+        # RULE 800.4a, deferred: a player who conceded during someone else's
+        # turn keeps their board standing until the next turn begins, so the
+        # position the other players were reading doesn't vanish mid-turn
+        # (see `RulesEngine.concede`). Swept here, before the new active
+        # player is settled on, so their permanents are already gone for
+        # every turn-based action of the turn about to start.
+        for player_id in self.state.pending_leave_ids:
+            try:
+                self.rules.remove_player_from_game(self.state.player_by_id(player_id))
+            except KeyError:
+                pass
+        self.state.pending_leave_ids.clear()
         active = self.state.active_player
         active.lands_played_this_turn = 0
         active.extra_land_plays_this_turn = 0
@@ -449,16 +470,29 @@ class GameEngine:
         self._fire_delayed_triggers(step.name)
         self._execute_step_body(step)
 
-        if step.gives_priority:
+        if not step.gives_priority:
+            # RULE 117.3a: nobody receives priority during untap or cleanup.
+            # Cleared rather than left pointing at whoever held it last, so
+            # "is anybody able to act right now?" is answerable from the
+            # state alone (`GameSession._advance_to_priority_window` runs
+            # through exactly these steps on that basis).
+            self.state.priority_player_index = None
+            self.state.priority_passed.clear()
+        else:
             # RULE 117.3a: (re-)grant priority to the active player as this
             # step's window opens.
             self.give_priority(self.state.active_player)
             # Turn-based actions can create triggers; resolve everything and
             # let priority pass around until the stack is empty (RULE 117).
-            # Solo/goldfish auto-drains here; an interactive multiplayer loop
-            # would instead drive `pass_priority(player)` itself and skip
-            # this auto-resolve — not wired into any session path yet.
-            self.resolve_until_stable()
+            # Solo/goldfish auto-drains here. With `interactive_priority` the
+            # triggers still go on the stack (so everyone can *see* what's
+            # waiting and respond to it) but nothing resolves on its own —
+            # each object comes off only when all players have passed in
+            # succession, which is the session's job to drive.
+            if self.interactive_priority:
+                self.rules.put_triggers_on_stack()
+            else:
+                self.resolve_until_stable()
 
         # RULE 500.4: unused mana empties as the step ends.
         for player in self.state.players:
@@ -3758,6 +3792,40 @@ class GameEngine:
                             "legal_defenders": defenders,
                         }
                     )
+
+        if (
+            player is not self.state.active_player
+            and self.state.current_step == "declare_blockers"
+        ):
+            # RULE 509.1a, the mirror of the attack offers above: one entry
+            # per creature this *defending* player could block with, carrying
+            # the attackers it may legally be assigned to (`can_block` covers
+            # evasion, protection and the RULE 508/509 restriction family).
+            # A creature already blocking is left out — `declare_blockers` is
+            # additive, but re-offering it would let the UI double-assign it.
+            attackers = [o for o in self.state.battlefield if o.attacking]
+            for obj in self.state.permanents_controlled_by(player.id):
+                if combat.blocking_attacker_ids(obj):
+                    continue
+                blockable = [a for a in attackers if self.can_block(player, obj, a)]
+                if not blockable:
+                    continue
+                actions.append(
+                    {
+                        "type": "declare_blockers",
+                        "instance_id": obj.instance_id,
+                        "name": obj.name,
+                        "player_id": player.id,
+                        # The UI collects a whole block (every blocker for
+                        # every attacker) and submits it as one action, so
+                        # RULE 702.111b menace and its "…except by N or more
+                        # creatures" siblings — validated across the complete
+                        # assignment in `declare_blockers` — can be satisfied.
+                        "legal_attackers": [
+                            {"instance_id": a.instance_id, "name": a.name} for a in blockable
+                        ],
+                    }
+                )
 
         for source in self.state.permanents_controlled_by(player.id):
             # One offer per mana ability the source has (almost always just

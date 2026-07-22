@@ -5225,6 +5225,190 @@ the Phase-1 models. Tests: `test_game_engine.py`.
         `MILL_CARD` primitive plus all three cards, including the
         opponent-only/own-mill-doesn't-trigger and decline paths).
 
+## Multiplayer (UC4)
+
+`mtg_analyzer/services/lobby.py`, `services/game_session.py`,
+`api/multiplayer.py`, `api/multiplayer_ws.py`; tests in
+`test_multiplayer_session.py` (21) and `test_api_multiplayer.py` (24).
+
+Shipped 2026-07-22, replacing the long-standing 501 stub. Two players sit
+down from a lobby, each with a saved deck, and play a real game against
+the same engine goldfish mode uses. The design keeps a hard line between
+**people** and **Magic**:
+
+- [x] **`services/lobby.py` — the lobby, deliberately rules-free.** It
+      knows `LobbyPlayer` (id, name, presence) and `LobbyGame` (seats,
+      status, observers) and imports nothing from `game/`. Presence is the
+      three states the UI shows — `online` (connected, elsewhere in the
+      app), `available` (in the lobby) and `playing` — and `playing` is
+      *derived* from holding a seat rather than settable, so a client can't
+      claim it (or, more usefully, can't accidentally show as available
+      while it holds a seat). A `Seat`'s `ready` flag is cleared by *any*
+      change to the table (a join, a leave, a deck pick, a settings
+      change), which is what makes "when all players accept, the game
+      starts" safe: you can only ever be carried into the table you
+      accepted. A player's identity is a server-assigned id, never the
+      free-text Profil name — that name is neither unique nor
+      authenticated (this app still has no auth), and the id doubles as
+      the `Player.id` inside the `GameState`, so a seat and its player are
+      the same thing by construction.
+
+- [x] **Handing off to the engine.** `Lobby.start()` takes an
+      already-built `GameSession` id; `api/multiplayer.py` is the only
+      module that bridges the two, resolving each seat's saved deck the
+      same way `api/game.py` resolves a goldfish deck (shared
+      `expand_entries`, same Commander-legality gate — a multiplayer game
+      is a real game). An illegal deck blocks the start with a 422 naming
+      *whose* it is. `build_multiplayer_engine` is the N-player sibling of
+      `build_goldfish_engine`: one seat each, no passive dummy, everyone
+      draws an opening hand, seat order is turn order (RULE 103.2's "who
+      goes first" is settled by the lobby rather than by a die roll the
+      server would have to arbitrate).
+
+- [x] **Per-seat setup.** `GameSession`'s single `_setup_complete` bool
+      became `_setup_pending`, a set of seats that still owe a kept hand,
+      and `_mulligan_count` became per-player: every seat mulligans for
+      itself, in parallel (RULE 103.4 resolves them in turn order, but no
+      seat's decision depends on another's, so there is nothing to
+      serialize). `MULLIGAN_STYLES` is the table's agreed procedure —
+      `london` or `none`; Vancouver is deliberately absent, see
+      `backend/ToDo_Backend.md`.
+
+- [x] **Actions carry an actor.** `apply_action(action, actor_id=...)`;
+      solo modes leave it implicit (the active player) and are unchanged.
+      The point of threading it is that **the engine already does the
+      rules validation against an explicit `player`** — `can_cast`'s RULE
+      601.3a active-player timing gate, `declare_blockers`' "the attacking
+      player does not declare blockers" — so a non-active seat gets
+      exactly the instant-speed-and-blocking subset for free, with no
+      second, drifting list of "what may an opponent do" in the session
+      layer. Only turn advancement is gated here (RULE 500.1: the active
+      player's job), because it isn't an action the engine attributes.
+
+- [x] **Hidden zones are redacted server-side** (RULE 400.2).
+      `view(perspective=...)` strips every *other* player's hand out of
+      the payload and every player's library (including your own — you
+      don't know your own draw order), keeping `hand_count`/
+      `library_count` so the board can still draw the right number of
+      card backs. A pending choice is delivered only to the player it's
+      addressed to; everyone else gets a `waiting_on_choice` marker, since
+      a choice's options can name cards in a hidden zone. `observer_view()`
+      is the same machinery with a perspective that matches nobody, plus
+      an empty `legal_actions`. This is redaction, not hiding: an
+      opponent's hand never leaves the process.
+
+- [x] **`RulesEngine.concede` (RULE 104.3a)** — legal at any time from any
+      seat, so it is *not* routed through the timing gates. The RULE 800.4a
+      cleanup (their objects leave with them) is deliberately **deferred**:
+      conceding is in practice a sorcery-speed act, and pulling a board out
+      from under the other players mid-turn is disorienting, so the id is
+      parked on `GameState.pending_leave_ids` and swept by
+      `GameEngine.begin_turn` when the next player's turn starts
+      (`remove_player_from_game`). With one living player left the game is
+      over anyway and the final board simply stands for the review.
+      `GameState.next_active_index` now also skips a player who has lost,
+      so a conceded seat is passed over in turn order.
+
+- [x] **Interactive blocker declaration (RULE 509.1a).**
+      `GameEngine.legal_actions` finally *offers* `declare_blockers` — one
+      entry per creature the defending player could block with, carrying
+      the attackers `can_block` says it may be assigned to (evasion,
+      protection and the whole RULE 508/509 restriction family included).
+      A creature already blocking is left out, since the action is
+      additive. The UI collects a complete block and submits it as one
+      action, which is what lets RULE 702.111b menace and its "…except by
+      N or more creatures" siblings — validated across the whole
+      assignment — actually be satisfied.
+
+- [x] **The RULE 117 priority loop is real.** Opt-in per session
+      (`GameSession.interactive_priority`, on only for `MULTIPLAYER`;
+      the engine flag it sets is `GameEngine.interactive_priority`), so
+      every solo path keeps auto-draining the stack exactly as before —
+      2,300+ existing tests passed through this change untouched, which is
+      the point of making it a flag rather than a rewrite.
+
+      `GameEngine.pass_priority(player)` had owned the APNAP round since
+      it was built (record the pass, hand priority to the next living
+      player, resolve the top of the stack once everyone has passed in
+      succession, RULE 117.3b's reset after anything resolves) — it had
+      simply never been *driven*. Three things were missing and are now
+      there: `_run_step` only puts triggers on the stack instead of
+      draining it when the flag is on; a step that gives nobody priority
+      (untap/cleanup, RULE 117.3a) now clears the holder rather than
+      leaving it pointing at whoever had it last, so "can anybody act?" is
+      answerable from the state; and `GameSession._pass_priority` supplies
+      RULE 117.4's *other* branch — all passed on an **empty** stack ends
+      the step — which the engine can't, because it doesn't drive the turn
+      (`_advance_to_priority_window` runs through the no-priority steps).
+
+      Consequences worth knowing: there is **no "advance the turn" action
+      in a shared game** — `advance_step`/`auto_turn`/`advance_to_decision`
+      are all refused, and the board's primary button is "Passen". Only the
+      priority holder may act, and that's enforced in `_dispatch`, not just
+      filtered out of `legal_actions`: the filter is a hint to the UI, and
+      a client could always post an action it was never offered. The one
+      exemption is RULE 509.1a declare-blockers, a turn-based action the
+      *defending* player takes while the attacker still holds priority.
+      Keeping the last opening hand now also runs the game into its first
+      priority window, since with 117.4 driving the turn nobody can pass
+      before somebody holds priority in the first place.
+
+- [x] **A seat is reclaimed by player name.** `services/lobby.py`'s
+      identity moved from the server-issued id to `normalize_name(name)`
+      (case- and whitespace-insensitive), because the name is the only
+      handle that survives a page reload — so reconnecting with the same
+      Profil name walks straight back into the same seat, mid-game, which
+      is what makes a refresh survivable at all. The id stays as the
+      opaque handle every REST call takes (and as the `Player.id` inside
+      the `GameState`); it just isn't what recognizes a returning client.
+      The trade is deliberate and documented in the module: two people who
+      pick the same name *are* the same player here, and the second to
+      connect takes the seat over rather than being refused — because the
+      overwhelmingly common cause of "that name is already connected" is a
+      dead socket the server hasn't noticed, and refusing would lock
+      someone out of their own game.
+
+- [x] **Disconnects hold the seat instead of forfeiting it.**
+      `Lobby.disconnect` marks a player absent and starts a grace period
+      (`config.MULTIPLAYER_DISCONNECT_GRACE_SECONDS`,
+      `MTG_MULTIPLAYER_DISCONNECT_GRACE`, default 90s) rather than
+      dropping them; a player with no seat is still removed at once, since
+      there's nothing to hold and a ghost in the player list is worse than
+      no entry. Meanwhile the table must not freeze on somebody who isn't
+      there, so `api/multiplayer_ws.pass_for_absent_players` passes
+      priority for them — the one action that is always legal and can
+      never gain the absent player anything. Letting the grace lapse
+      concedes for them (RULE 104.3a), because a seat nobody is coming
+      back to can't be waited on forever.
+
+- [x] **An idle priority holder is disconnected** after
+      `config.MULTIPLAYER_IDLE_TIMEOUT_SECONDS`
+      (`MTG_MULTIPLAYER_IDLE_TIMEOUT`, default 120s; 0 disables). This is
+      not about policing slow play — only the player the game is actually
+      *waiting on* is ever checked — it's that a browser tab which went
+      away without a clean close still holds priority, and the game would
+      otherwise wait on it forever. `POST …/action` calls `Lobby.touch`,
+      so acting is what proves a client is still there. Both timers are
+      swept once a second by `sweep_once`, run from the app's lifespan
+      (`api/app.py`) — the only background task in the app.
+
+- [x] **`/ws/lobby` (`api/multiplayer_ws.py`)** — one socket per client,
+      held for the session. It *is* the presence signal (losing it removes
+      the player; there is no auth or cookie to expire), it broadcasts a
+      fresh lobby snapshot on any change, and after a move it pushes each
+      participant **their own** view rather than one shared payload — that
+      asymmetry is the hidden-information rule, so it can't be flattened
+      into a broadcast. An abandoned table (nobody who belongs to it still
+      connected) is dropped rather than left in everyone's list. The
+      socket also carries presence *both ways*: `player_disconnected` /
+      `player_reconnected` tell everyone when somebody drops or returns,
+      and a `disconnected` frame tells a client being dropped **why**
+      (`idle`, `replaced`, `timeout`) before the close, so the UI can say
+      what happened instead of just flickering. Connecting always pushes
+      the client's own game straight away, which is the resync a reload or
+      a reconnect needs — the board is rebuilt from server state rather
+      than from whatever the client was holding.
+
 ## cEDH staples cube
 
 - [x] **Batch 25 (2026-07-22): all 43 cards of the cEDH cube pool.** The
