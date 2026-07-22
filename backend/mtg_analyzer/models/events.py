@@ -55,6 +55,17 @@ class EventType:
     ENTERS_BATTLEFIELD = "ENTERS_BATTLEFIELD"
     LEAVES_BATTLEFIELD = "LEAVES_BATTLEFIELD"
     DIES = "DIES"
+    #: A creature (``target_id``, controlled by ``controller_id``) would die —
+    #: be put into a graveyard from the battlefield (RULE 700.4) — fired
+    #: pre-emptively by `RulesEngine._move_to_graveyard` (creatures leaving
+    #: the battlefield only) so a "if ~ would die, exile it instead"
+    #: replacement (RULE 616.1, Gloomshrieker/Corpseweaver Prodigy,
+    #: `game/effects.py`'s `_die_to_exile_replacement`) can redirect it to
+    #: exile before any DIES trigger fires. Distinct from DIES above, which
+    #: fires *after* the death has happened (a trigger source), and from
+    #: DESTROY (only the "destroy" path, not every graveyard-from-battlefield
+    #: move this one covers).
+    WOULD_DIE = "WOULD_DIE"
     #: A permanent (``target_id``) would be destroyed (RULE 701.6) — fired
     #: pre-emptively by `RulesEngine.destroy` so a replacement effect can
     #: intercept it, chiefly a regeneration shield (RULE 701.16,
@@ -64,6 +75,23 @@ class EventType:
     #: replace them.
     DESTROY = "DESTROY"
     MILL = "MILL"
+    #: A single *nonland* card was milled (RULE 701.13) — fired once per
+    #: qualifying card by `RulesEngine.mill`, in addition to (and after) the
+    #: plain aggregate `MILL` above, which only ever carries a batch
+    #: ``count``. The "whenever a player/an opponent mills a nonland card"
+    #: trigger family (RULE 728's Glowing One/Infesting Radroach, and The
+    #: Wise Mothman's "whenever one or more nonland cards are milled" —
+    #: simplified to this same per-card firing, since "put a +1/+1 counter
+    #: on each of up to X target creatures" and "for each of N chances,
+    #: optionally put a counter on up to one target creature" reach the same
+    #: board states; see `game/ability_catalogue.py`) needs to tell a
+    #: nonland card apart from a land one, which the aggregate event can't
+    #: do without a live board lookup. Land mills don't fire this at all —
+    #: no real card needs a "mills a land card" trigger yet, so there's
+    #: nothing to filter for a hypothetical one; add an ``object_types``
+    #: payload and widen this docstring if one ever does. Carries
+    #: ``player_id`` (whose library it came from) and ``instance_id``.
+    MILL_CARD = "MILL_CARD"
     #: A permanent was sacrificed (RULE 701.17) — fired *in addition to*
     #: DIES/LEAVES_BATTLEFIELD by `RulesEngine._move_to_graveyard` when the
     #: move's ``cause`` is a sacrifice (every `put_into_graveyard` caller: a
@@ -119,6 +147,15 @@ class EventType:
 
     # Combat / damage / life.
     DAMAGE = "DAMAGE"
+    #: A player would gain life (RULE 119.3) — fired pre-emptively by
+    #: `RulesEngine.gain_life` (positive amounts only) so a "you gain that
+    #: much life plus N / twice that much instead" replacement (RULE 616.1,
+    #: e.g. Angel of Vitality/Boon Reflection) can rewrite the ``amount``
+    #: before any life is actually gained. Carries ``player_id`` (the
+    #: gaining player) and ``amount``. Distinct from LIFE_GAINED below,
+    #: which fires *after* the gain has happened (a trigger source, not a
+    #: replaceable pre-event).
+    LIFE_GAIN = "LIFE_GAIN"
     LIFE_GAINED = "LIFE_GAINED"
     LIFE_LOST = "LIFE_LOST"
     ATTACKS = "ATTACKS"

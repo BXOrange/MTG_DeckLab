@@ -119,6 +119,16 @@ _GROUP_CONTROLLER_EVENT_KEYS: dict[str, str] = {
     # "Whenever an opponent searches their library, …" (Archivist of Oghma)
     # — `RulesEngine.request_search` fires this keyed by ``player_id`` too.
     "LIBRARY_SEARCHED": "player_id",
+    # "Whenever a player/an opponent mills a nonland card, …" (RULE 728's
+    # Glowing One/Infesting Radroach, The Wise Mothman) — `RulesEngine.mill`
+    # fires this per nonland card, keyed by whose library it came from.
+    "MILL_CARD": "player_id",
+    # "Whenever a creature you control deals combat damage to a player, …"
+    # (RULE 120.3, Bident of Thassa/Deepfathom Skulker) — a DAMAGE event
+    # names the damage's *source*, so "you control" is that source's
+    # controller (`RulesEngine.deal_damage`'s ``source_controller_id``), not
+    # a bare ``controller_id`` the event doesn't carry at all.
+    "DAMAGE": "source_controller_id",
 }
 
 #: Which event-data key identifies *which object* an event is about — RULE
@@ -253,8 +263,16 @@ def _build_group_ok(
     ``subtypes``/``is_token`` are snapshotted onto the event at fire time
     (`RulesEngine.destroy`/`put_into_graveyard`'s DIES firing) exactly like
     ``object_types`` already was for the plain ``type`` filter.
+
+    *Which* event key names the acting object is `_subject_event_key`'s
+    call, the same one the "self"/"attached_permanent" subjects use —
+    ``instance_id`` for the RULE 603.1 object-subject events, ``source_id``
+    for `DAMAGE` ("whenever a creature you control deals combat damage to a
+    player", RULE 120.3: the damage event names its source rather than
+    stamping an ``instance_id``).
     """
     controller_id = getattr(source, "controller_id", None)
+    subject_key = _subject_event_key(trigger)
     type_word = condition.get("type")
     subtypes = condition.get("subtypes")
     nontoken = bool(condition.get("nontoken"))
@@ -278,8 +296,9 @@ def _build_group_ok(
         not_you=wants_not_you,
         other=other_only,
         ckey=controller_key,
+        skey=subject_key,
     ) -> bool:
-        event_instance = event.get("instance_id")
+        event_instance = event.get(skey)
         if other and (event_instance is None or event_instance == iid):
             return False
         if you and event.get(ckey) != cid:
@@ -875,12 +894,13 @@ def attach_to_object(obj: Any, specs: list[AbilitySpec]) -> None:
     the parser/binder split simple regardless of line order on the card.
 
     ``impulsive_draw_on_combat_damage``/``rebound``/``counter_death_return``/
-    ``rad_counters_on_combat_damage`` are the same "scan every spec" idiom,
-    for hand-authored markers with no effects of their own (RULE 603.4-style
-    per-firing data — see `AbilitySpec`'s docstring for each field, and
-    `RulesEngine._collect_impulsive_draw_triggers`/`_collect_counter_death_
-    return_triggers`/`_collect_rad_counter_damage_triggers`, `cast_spell`/
-    `resolve_top_of_stack` for ``rebound``).
+    ``rad_counters_on_combat_damage``/``mill_return_from_graveyard`` are the
+    same "scan every spec" idiom, for hand-authored markers with no effects
+    of their own (RULE 603.4-style per-firing data — see `AbilitySpec`'s
+    docstring for each field, and `RulesEngine._collect_impulsive_draw_
+    triggers`/`_collect_counter_death_return_triggers`/`_collect_rad_
+    counter_damage_triggers`/`_collect_mill_return_from_graveyard_triggers`,
+    `cast_spell`/`resolve_top_of_stack` for ``rebound``).
     """
     for spec in specs:
         if spec.additional_cost:
@@ -907,6 +927,9 @@ def attach_to_object(obj: Any, specs: list[AbilitySpec]) -> None:
         if spec.rad_counters_on_attacked:
             spec.validate()
             obj.rad_counters_on_attacked = dict(spec.rad_counters_on_attacked)
+        if spec.mill_return_from_graveyard:
+            spec.validate()
+            obj.mill_return_from_graveyard = True
         if spec.ability_kind == "keyword":
             attach_keyword(obj, spec)
             keyword_ability = _keyword_activated_ability(obj, spec)

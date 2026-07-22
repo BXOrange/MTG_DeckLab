@@ -341,9 +341,15 @@ def is_protected_from(obj: "GameObject", source: "GameObject") -> bool:
     """
     # Printed (+ layer-3-substituted) protections, plus any granted "until end
     # of turn" (Mother/Giver of Runes — `temp_protections`, RULE 702.16 as a
-    # resolve-time grant rather than printed text).
-    quals = protections_of_text(obj.effective_oracle_text) | frozenset(
-        getattr(obj, "temp_protections", None) or set()
+    # resolve-time grant rather than printed text), plus any *standing*
+    # layer-6 grant (`granted_protections` — Hungry Lynx's "Cats you control
+    # have protection from Rats", Flickering Ward's "Enchanted creature has
+    # protection from the chosen color"; re-derived every `continuous.
+    # recompute` pass, so it stops applying on its own when its source goes).
+    quals = (
+        protections_of_text(obj.effective_oracle_text)
+        | frozenset(getattr(obj, "temp_protections", None) or set())
+        | frozenset(getattr(obj, "granted_protections", None) or set())
     )
     if not quals:
         return False
@@ -458,7 +464,10 @@ def lethal_damage(target: "GameObject", source: Optional["GameObject"]) -> int:
 
 
 def display_keywords(
-    card: "Card", granted: "Optional[set[str]]" = None, removed: "Optional[set[str]]" = None
+    card: "Card",
+    granted: "Optional[set[str]]" = None,
+    removed: "Optional[set[str]]" = None,
+    granted_protections: "Optional[set[str]]" = None,
 ) -> list[str]:
     """Human-facing keyword labels for the UI, e.g. ``["Flying", "Trample"]``.
 
@@ -466,7 +475,10 @@ def display_keywords(
     the object by a layer-6 static ability (RULE 613.7f); ``removed``
     subtracts any a "loses <keyword>" static ability stripped (same layer,
     Colossus Hammer-shaped), mirroring `_obj_keywords`' precedence. "protection"
-    is expanded to what it is from ("Protection: red"). Reads the same
+    is expanded to what it is from ("Protection: red") — printed qualities
+    plus ``granted_protections``, a layer-6 *standing* protection grant
+    (Hungry Lynx-shaped), which also puts the badge on a permanent whose
+    printed text says nothing about protection at all. Reads the same
     recognition the engine uses so the board shows exactly what combat honours.
     """
     labels = {
@@ -485,7 +497,8 @@ def display_keywords(
     }
     kws = (keywords_of(card) | frozenset(granted or set())) - frozenset(removed or set())
     out = [label for slug, label in labels.items() if slug in kws]
-    if "protection" in kws:
-        quals = sorted(protections_of(card))
+    standing = frozenset(granted_protections or set())
+    if "protection" in kws or standing:
+        quals = sorted(protections_of(card) | standing)
         out.append("Protection: " + ", ".join(quals) if quals else "Protection")
     return out

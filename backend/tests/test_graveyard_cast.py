@@ -231,7 +231,10 @@ def test_lurrus_specs_include_graveyard_cast_permission():
     specs = ability_catalogue.specs_for(card)
     (static,) = [s for s in specs if s.ability_kind == "static"]
     (effect,) = static.effects
-    assert effect == EffectSpec("graveyard_cast_permission", {"max_mana_value": 2})
+    assert effect == EffectSpec(
+        "graveyard_cast_permission",
+        {"max_mana_value": 2, "exile_if_would_be_put_into_graveyard": True},
+    )
 
 
 def test_lurrus_end_to_end_casts_a_cheap_permanent_from_the_graveyard():
@@ -256,3 +259,107 @@ def test_lurrus_end_to_end_casts_a_cheap_permanent_from_the_graveyard():
     eng.cast_spell(p1, obj, targets=[])
     assert obj.zone == Zone.STACK
     assert lurrus.graveyard_casts_this_turn == 1
+
+
+# ---------------------------------------------------------------------------
+# Lurrus's own trailing clause: "if a spell cast this way would be put into
+# a graveyard this turn, exile it instead"
+# ---------------------------------------------------------------------------
+
+
+def _cast_dead_bear_via_lurrus(eng, p1):
+    lurrus_card = Card(
+        id="Lurrus of the Dream-Den", name="Lurrus of the Dream-Den",
+        type_line="Legendary Creature — Cat Nightmare", is_creature=True,
+        power=2, toughness=3,
+    )
+    lurrus = GameObject(lurrus_card, owner_id="p1", controller_id="p1", zone=Zone.BATTLEFIELD)
+    bind_from_catalogue(lurrus)
+    eng.state.add_to_battlefield(lurrus)
+
+    obj = GameObject(_bear("Dead Bear", mv=2, mana="{1}{G}"), owner_id="p1", zone=Zone.GRAVEYARD)
+    p1.add_to_zone(obj, Zone.GRAVEYARD)
+    eng.begin_turn()
+    eng.state.current_step = "main1"
+    p1.mana_pool.add_many({"G": 1, "C": 1})
+    eng.cast_spell(p1, obj, targets=[])
+    eng.resolve_until_stable()
+    assert obj.zone == Zone.BATTLEFIELD
+    return lurrus, obj
+
+
+def test_lurrus_exiles_instead_of_graveyard_when_destroyed_same_turn():
+    eng = _engine()
+    p1 = eng.state.players[0]
+    _, bear = _cast_dead_bear_via_lurrus(eng, p1)
+
+    eng.rules.destroy(bear, can_be_regenerated=False)
+    assert bear.zone == Zone.EXILE
+    assert bear not in p1.graveyard
+
+
+def test_lurrus_exiles_instead_of_graveyard_when_sacrificed_same_turn():
+    eng = _engine()
+    p1 = eng.state.players[0]
+    _, bear = _cast_dead_bear_via_lurrus(eng, p1)
+
+    eng.rules.put_into_graveyard(bear)
+    assert bear.zone == Zone.EXILE
+    assert bear not in p1.graveyard
+
+
+def test_lurrus_exiles_instead_of_graveyard_on_sba_death_same_turn():
+    eng = _engine()
+    p1 = eng.state.players[0]
+    _, bear = _cast_dead_bear_via_lurrus(eng, p1)
+
+    bear.damage_marked = 99
+    eng.rules.check_state_based_actions()
+    assert bear.zone == Zone.EXILE
+
+
+def test_lurrus_clause_does_not_apply_once_the_casting_turn_has_passed():
+    eng = _engine()
+    p1 = eng.state.players[0]
+    _, bear = _cast_dead_bear_via_lurrus(eng, p1)
+
+    eng._step_cleanup()
+    eng.begin_turn()  # p2's turn
+    eng.begin_turn()  # back to p1's turn — a full turn has now passed
+
+    eng.rules.destroy(bear, can_be_regenerated=False)
+    assert bear.zone == Zone.GRAVEYARD
+
+
+def test_lurrus_clause_does_not_apply_to_a_normally_cast_permanent():
+    eng = _engine()
+    p1 = eng.state.players[0]
+    obj = GameObject(_bear("Normal Bear", mv=2, mana="{1}{G}"), owner_id="p1", zone=Zone.HAND)
+    p1.add_to_zone(obj, Zone.HAND)
+    eng.begin_turn()
+    eng.state.current_step = "main1"
+    p1.mana_pool.add_many({"G": 1, "C": 1})
+    eng.cast_spell(p1, obj, targets=[])
+    eng.resolve_until_stable()
+    assert obj.zone == Zone.BATTLEFIELD
+
+    eng.rules.destroy(obj, can_be_regenerated=False)
+    assert obj.zone == Zone.GRAVEYARD
+
+
+def test_lurrus_clause_is_cleared_by_a_later_normal_recast_the_same_turn():
+    eng = _engine()
+    p1 = eng.state.players[0]
+    _, bear = _cast_dead_bear_via_lurrus(eng, p1)
+
+    # Bounced, then recast normally later the same turn — the flag must not
+    # survive to wrongly exile it (mirrors `cast_via_flashback`'s own
+    # unconditional-reassignment-on-every-cast pattern).
+    eng.rules.return_to_hand(bear)
+    p1.mana_pool.add_many({"G": 1, "C": 1})
+    eng.cast_spell(p1, bear, targets=[])
+    eng.resolve_until_stable()
+    assert bear.zone == Zone.BATTLEFIELD
+
+    eng.rules.destroy(bear, can_be_regenerated=False)
+    assert bear.zone == Zone.GRAVEYARD

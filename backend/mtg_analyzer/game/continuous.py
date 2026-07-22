@@ -428,6 +428,14 @@ def count_selector(state: "GameState", controller_id: Optional[str], selector: s
             1 for o in bf
             if (o.card.is_artifact or o.card.is_enchantment) and o.controller_id == controller_id
         )
+    if selector == "creatures_opponents_control":
+        # "for each creature your opponents control" (Riot Control) — the
+        # mirror image of "creatures_you_control" above, same "opponents"
+        # idiom as "artifacts_and_or_enchantments_opponents_control" below.
+        return sum(
+            1 for o in bf
+            if o.is_creature and o.controller_id not in (None, controller_id)
+        )
     if selector == "artifacts_and_or_enchantments_opponents_control":
         # "the number of artifacts and enchantments your opponents control"
         # (Dockside Extortionist) — the mirror image of the "you control"
@@ -487,6 +495,36 @@ def _pt_mod_count(state: "GameState", ability: StaticAbility, obj: "GameObject",
     return _count_selector(state, ability, selector)
 
 
+def _protection_qualities(ability: StaticAbility) -> set[str]:
+    """A layer-6 `grant_protection` ability's RULE 702.16 qualities, as
+    `combat.protections_of_text` tokens.
+
+    ``protections`` is the printed word list ("black", "rats") the parser
+    emits verbatim (it can't normalize them itself — the front end is
+    barred from importing `game/`). ``protection_from_chosen_color`` is the
+    RULE 601.2b dynamic variant (Flickering Ward/Benevolent Blessing's "…
+    protection from **the chosen color**"), read fresh off the ability's own
+    source every pass — the same live re-read the ``color_from_source``/
+    ``subtype_from_source`` selectors do — so re-choosing in Replay/Puzzle
+    mode updates the board rather than baking the choice in once.
+    """
+    from . import combat  # function-scoped: combat imports this module
+
+    words = ability.params.get("protections") or []
+    quals: set[str] = set()
+    for word in words:
+        quals |= combat.protections_of_text(f"protection from {word}.")
+    if ability.params.get("protection_from_chosen_color"):
+        # `GameObject.chosen_color` is already a WUBRG identity letter (see
+        # `RulesEngine._ANY_COLOR_LABELS`) — the exact token
+        # `is_protected_from` matches against a source's own `colors`, so it
+        # goes in directly rather than through the colour-*word* fold above.
+        chosen = getattr(ability.source, "chosen_color", None)
+        if chosen:
+            quals.add(str(chosen).upper())
+    return quals
+
+
 #: Mirrors `effect_binder._SUBJECT_EVENT_KEYS` — which event-data key
 #: identifies *which object* a grantable event is about. Kept as a local
 #: copy rather than imported (`continuous.py` stays free of `effect_binder`
@@ -499,6 +537,7 @@ def _granted_trigger_condition(
     controllers_turn_only: bool,
     trigger_event: Optional[str] = None,
     event_filter: Optional[dict[str, Any]] = None,
+    phase_relation: Optional[str] = None,
 ):
     """The `TriggeredAbility.condition` for one object's granted ability.
 
@@ -516,7 +555,17 @@ def _granted_trigger_condition(
     ``event_filter`` is the same small exact-match dict
     `effect_binder._trigger_condition`'s ``"filter"`` ANDs on — needed for
     DAMAGE's ``{"combat": ..., "is_player": ...}`` (RULE 120.3 "deals combat
-    damage to a player/creature").
+    damage to a player/creature") and for a granted RULE 500.7 phase
+    trigger's own ``{"step": "upkeep"}``.
+
+    ``phase_relation`` ("you"/"not_you") is that phase trigger's scope. A
+    ``STEP_BEGIN`` event carries no object key at all, so identity scoping
+    above is a no-op for it; what makes "Enchanted creature has 'At the
+    beginning of **your** upkeep, …'" (Commander's Authority/Aura Flux)
+    mean the right thing is resolving "your" against ``target`` — the
+    permanent the ability was granted *to* — rather than the granting
+    source's controller, which is why this can't reuse `effect_binder.
+    _trigger_condition`'s own `phase_relation` branch.
     """
     key = _GRANTED_EVENT_KEYS.get(trigger_event or "", "instance_id")
     filt = dict(event_filter) if event_filter else None
@@ -529,6 +578,13 @@ def _granted_trigger_condition(
             return False
         if controllers_turn_only and context.state.active_player.id != target.controller_id:
             return False
+        if phase_relation in ("you", "not_you"):
+            active = getattr(context.state, "active_player", None)
+            if active is None:
+                return False
+            is_yours = active.id == target.controller_id
+            if is_yours is not (phase_relation == "you"):
+                return False
         return True
 
     return condition
@@ -593,6 +649,89 @@ def _order_control_effects(abilities: list[StaticAbility]) -> list[StaticAbility
     direct = [a for a in abilities if a.affects in ("self", "attached_permanent")]
     scoped = [a for a in abilities if a not in direct]
     return direct + scoped
+
+
+#: `Zone`s an "off the battlefield" type-extending static ability reaches —
+#: RULE 613.4a applied to objects the layer engine's ordinary battlefield
+#: walk never touches (Arcane Adaptation/Leyline of Transformation's "…
+#: creature cards you own that aren't on the battlefield", Ashes of the
+#: Fallen's "each creature card in your graveyard"). Spells on the stack are
+#: handled separately (they live in `GameState.stack`, not a player zone).
+_OFF_BATTLEFIELD_ZONE_ATTRS: tuple[str, ...] = ("hand", "graveyard", "library", "exile")
+
+
+def _off_battlefield_objects(state: "GameState", scope: str, controller_id: Optional[str]):
+    """The off-battlefield `GameObject`s a type-extending static reaches.
+
+    ``"cards_you_own"`` — Arcane Adaptation's "creature spells you control
+    and creature cards you own that aren't on the battlefield": every zone
+    of the ability's controller *plus* any spell they control on the stack.
+    ``"your_graveyard"`` — Ashes of the Fallen's narrower "each creature
+    card in your graveyard".
+    """
+    if controller_id is None:
+        return []
+    player = next((p for p in state.players if p.id == controller_id), None)
+    if player is None:
+        return []
+    if scope == "your_graveyard":
+        return list(player.graveyard)
+    if scope != "cards_you_own":
+        return []
+    out: list[Any] = []
+    for attr in _OFF_BATTLEFIELD_ZONE_ATTRS:
+        out.extend(getattr(player, attr, None) or [])
+    for item in getattr(state, "stack", None) or []:
+        obj = getattr(item, "obj", None)
+        if obj is not None and getattr(item, "controller_id", None) == controller_id:
+            out.append(obj)
+    return out
+
+
+def _apply_off_battlefield_types(state: "GameState", abilities: list[StaticAbility]) -> None:
+    """RULE 613.4a type grants that reach *past* the battlefield.
+
+    Arcane Adaptation/Leyline of Transformation ("The same is true for
+    creature spells you control and creature cards you own that aren't on
+    the battlefield") and Ashes of the Fallen ("Each creature card in your
+    graveyard has the chosen creature type in addition to its other types")
+    both extend a chosen creature type onto objects `recompute`'s ordinary
+    battlefield walk never visits, so `reset_derived` never clears them
+    either. Every object stamped by a previous pass is therefore tracked on
+    the state and reset here first — that's what makes the grant disappear
+    on its own the moment its source leaves (RULE 613.6), exactly like every
+    battlefield-side layer effect.
+
+    Only `_added_subtypes` is stamped: `has_subtype` reads it directly, so
+    a tribal check ("target Zombie card in your graveyard", a Cavern of
+    Souls-shaped named-type cast restriction) sees the extension without any
+    caller needing to know about it.
+    """
+    previous = getattr(state, "_off_battlefield_typed", None) or []
+    for obj in previous:
+        obj._added_subtypes = set()
+    stamped: list[Any] = []
+
+    for ability in _in_layer(abilities, "type"):
+        scope = ability.params.get("off_battlefield")
+        if not scope:
+            continue
+        add_subtypes = list(ability.params.get("add_subtypes", []))
+        if ability.params.get("add_subtypes_from_source"):
+            chosen = getattr(ability.source, "chosen_type", None)
+            if chosen:
+                add_subtypes.append(chosen)
+        if not add_subtypes:
+            continue
+        controller_id = getattr(ability.source, "controller_id", None)
+        for obj in _off_battlefield_objects(state, str(scope), controller_id):
+            # RULE 205.3: the clause only ever names *creature* cards.
+            if not getattr(obj.card, "is_creature", False):
+                continue
+            obj._added_subtypes.update(add_subtypes)
+            stamped.append(obj)
+
+    state._off_battlefield_typed = stamped
 
 
 def recompute(state: "GameState") -> None:
@@ -681,6 +820,10 @@ def recompute(state: "GameState") -> None:
             label = ", ".join(added + add_subtypes) if (added or add_subtypes) else ", ".join(set_subtypes or [])
             _trace(obj, 4, _source_name(ability), f"becomes {label}")
 
+    # Still layer 4, but off the battlefield (Arcane Adaptation/Ashes of the
+    # Fallen) — see `_apply_off_battlefield_types`.
+    _apply_off_battlefield_types(state, abilities)
+
     # -- Layer 5: colour-changing effects (RULE 613.4b).
     for ability in _in_layer(abilities, "color"):
         colors = [str(c).upper() for c in ability.params.get("colors", [])]
@@ -703,6 +846,14 @@ def recompute(state: "GameState") -> None:
         mana = ability.params.get("mana", [])
         trigger_event = ability.params.get("trigger_event")
         activated_cost = ability.params.get("activated_cost")
+        # RULE 702.16 standing protection grant ("Cats you control have
+        # protection from Rats" — Hungry Lynx; "Enchanted creature has
+        # protection from the chosen color" — Flickering Ward). The parser
+        # front-end can't normalize the quality itself (it must stay free of
+        # `game/` imports), so the raw printed words are folded through
+        # `combat.protections_of_text`'s own vocabulary here, once per
+        # ability rather than once per affected object.
+        protections = _protection_qualities(ability)
         for obj in affected_objects(state, ability):
             if lose_all:
                 # RULE 613.7f (Humility, Dress Down): strip *every* ability —
@@ -716,6 +867,10 @@ def recompute(state: "GameState") -> None:
             if remove_keywords:
                 obj._removed_keywords.update(remove_keywords)
                 _trace(obj, 6, _source_name(ability), "loses " + ", ".join(remove_keywords))
+            if protections:
+                obj._granted_protections.update(protections)
+                _trace(obj, 6, _source_name(ability),
+                       "gains protection from " + ", ".join(sorted(protections)))
             if mana:
                 obj._granted_mana.extend(mana)
                 _trace(obj, 6, _source_name(ability), "gains a mana ability")
@@ -732,7 +887,8 @@ def recompute(state: "GameState") -> None:
                         ],
                         condition=_granted_trigger_condition(
                             obj, bool(ability.params.get("controllers_turn_only", False)),
-                            trigger_event, ability.params.get("filter")
+                            trigger_event, ability.params.get("filter"),
+                            ability.params.get("phase_relation"),
                         ),
                         optional=bool(ability.params.get("optional", False)),
                         once_per_turn=bool(ability.params.get("once_per_turn", False)),

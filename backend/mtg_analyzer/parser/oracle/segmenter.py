@@ -93,6 +93,14 @@ _MAGECRAFT_RE = re.compile(
     re.IGNORECASE,
 )
 
+#: The card-type words a "group" trigger condition can scope to (RULE 613.6-
+#: adjacent vocabulary shared with `catalogue.static_handlers`'s anthem
+#: selectors) — deliberately small: only what `models/game_object.py`'s
+#: `type_words` can check without a subtype grammar. Used by both
+#: `_GROUP_SUBJECT_RE` (the object-subject events) and `_DAMAGE_TRIGGER_RE`
+#: (RULE 120.3's damage shape) below.
+_GROUP_TYPE_WORDS = ("creature", "artifact", "enchantment", "land", "permanent")
+
 #: RULE 120.3's "deals combat damage to a player" (Sword-cycle/Bloodforged
 #: Battle-Axe-shaped self-subject trigger) and its "deals combat damage to a
 #: creature" (Kaldra Compleat-shaped) sibling — `EventType.DAMAGE` filtered to
@@ -102,15 +110,36 @@ _MAGECRAFT_RE = re.compile(
 #: recognition was missing. A dedicated bypass (checked before the generic
 #: `_TRIGGER_RE` dispatch, like `_MAGECRAFT_RE` above) since neither the
 #: verb phrase nor its filter fit the single-word `_TRIGGER_EVENTS`/
-#: `_trigger_condition` vocabulary. ``~``-subject only today (folded from the
-#: card's own name/"this creature" by `normalize`) — "a creature you control
-#: deals combat damage to a player" (a `group` subject) is a real but rarer
-#: phrasing, left unclaimed (fail-closed) for a future extension of this
-#: same regex. DAMAGE's subject key is ``source_id`` (`_subject_event_key`),
-#: already correctly handled by the ordinary ``{"subject": "self"}``
-#: condition — no new binder plumbing needed beyond the `filter`.
-_SELF_DAMAGE_TRIGGER_RE = re.compile(
-    r"^whenever ~ deals (?P<combat>combat )?damage to a (?P<recipient>player|creature),"
+#: `_trigger_condition` vocabulary. Two subject shapes:
+#:
+#: * ``~`` (folded from the card's own name/"this creature" by `normalize`)
+#:   — an ordinary ``{"subject": "self"}`` condition.
+#: * "a/an/another <type> [you control]" (Bident of Thassa/Deepfathom
+#:   Skulker/Cazur-shaped) — RULE 603.1's ``{"subject": "group"}``, the same
+#:   closed `_GROUP_TYPE_WORDS` vocabulary `_GROUP_SUBJECT_RE` uses, with
+#:   "you control" optional exactly as it is there. Every *qualified*
+#:   variant ("a **modified**/**renowned**/**historic** creature you
+#:   control", "a creature you control **with deathtouch**") stays
+#:   unclaimed — the type word is a closed list and the regex is anchored,
+#:   so the qualifier simply fails to match (fail-closed).
+#: * "enchanted/equipped <noun>" (the Sword-of-X-and-Y cycle) — RULE
+#:   303.4/301.5's ``{"subject": "attached_permanent"}``, the same subject
+#:   `_ATTACHED_SUBJECT_RE` maps for the enters/dies/attacks/blocks verbs.
+#:   Previously these cards reached the engine only through the
+#:   hand-authored catalogue.
+#:
+#: DAMAGE's subject key is ``source_id`` and its group-controller key is
+#: ``source_controller_id`` (`effect_binder._SUBJECT_EVENT_KEYS`/
+#: `_GROUP_CONTROLLER_EVENT_KEYS`) — the damage event names its *source*, not
+#: an `instance_id`/`controller_id` the way the RULE 603.1 object-subject
+#: events do.
+_DAMAGE_TRIGGER_RE = re.compile(
+    r"^whenever (?:"
+    r"(?P<self>~)"
+    r"|(?P<attached>(?:enchanted|equipped) (?:creature|permanent|land|artifact))"
+    r"|(?P<article>another|an|a) (?P<type>" + "|".join(_GROUP_TYPE_WORDS) + r")"
+    r"(?P<yours> you control)?"
+    r") deals (?P<combat>combat )?damage to a (?P<recipient>player|creature),"
     r"\s*(?P<body>.+)$",
     re.IGNORECASE,
 )
@@ -178,12 +207,6 @@ _ATTACHED_SUBJECT_RE = re.compile(
     r"(?:enters|dies|attacks|blocks)(?:\s+the\s+battlefield)?$"
 )
 
-#: The card-type words a "group" trigger condition can scope to (RULE 613.6-
-#: adjacent vocabulary shared with `catalogue.static_handlers`'s anthem
-#: selectors) — deliberately small: only what `models/game_object.py`'s
-#: `type_words` can check without a subtype grammar.
-_GROUP_TYPE_WORDS = ("creature", "artifact", "enchantment", "land", "permanent")
-
 #: RULE 603.1's condition subject — a *group* of objects, not just the
 #: source itself: "a"/"another" <type> [you control], then the trigger verb,
 #: optionally "the battlefield" (enters) and/or "under your control" (the
@@ -192,7 +215,7 @@ _GROUP_TYPE_WORDS = ("creature", "artifact", "enchantment", "land", "permanent")
 #: enters", "a creature dies", "another creature you control dies", "a
 #: creature you control attacks".
 _GROUP_SUBJECT_RE = re.compile(
-    r"^(?P<article>a|another)\s+(?P<type>" + "|".join(_GROUP_TYPE_WORDS) + r")"
+    r"^(?P<article>another|an|a)\s+(?P<type>" + "|".join(_GROUP_TYPE_WORDS) + r")"
     r"(?P<you_a> you control)?"
     r"\s+(?:enters|dies|attacks|blocks)"
     r"(?:\s+the\s+battlefield)?"
@@ -211,7 +234,7 @@ _GROUP_SUBJECT_RE = re.compile(
 #: event's object has already left the battlefield by the time a trigger
 #: check runs — RULE 400.7 — so a live lookup can't see its subtypes).
 _GROUP_SUBTYPE_SUBJECT_RE = re.compile(
-    r"^(?P<article>a|another)\s+(?P<nontoken>nontoken\s+)?"
+    r"^(?P<article>another|an|a)\s+(?P<nontoken>nontoken\s+)?"
     r"(?P<subtypes>[a-z]+(?:\s+or\s+[a-z]+)*)\s+you control\s+"
     r"(?:enters|dies|attacks|blocks)(?:\s+the\s+battlefield)?$"
 )
@@ -238,6 +261,14 @@ _SELF_OR_GROUP_SUBTYPE_RE = re.compile(
 #: quote-blind ``[^:]+`` swallows straight through to that inner colon
 #: first, so the grant is never reached by `static_effect_specs` below.
 _ACTIVATED_RE = re.compile(r'^(?P<cost>[^:"]+):\s*(?P<effect>.+)$', re.S)
+
+#: Throne of Eldraine's colour-lock rider on its second ability — a trailing
+#: "Spend only mana of the chosen color to activate this ability." sentence,
+#: peeled off the effect body and recorded as an `ActivationCost` flag.
+_SPEND_ONLY_CHOSEN_COLOR_RE = re.compile(
+    r"\s*\.?\s*spend only mana of the chosen colou?r to activate this ability\.?",
+    re.IGNORECASE,
+)
 
 #: A cost is only trusted as one if it actually *looks* like a cost — a mana/
 #: {T} symbol, or one of the non-mana cost words. This keeps a stray sentence
@@ -289,6 +320,16 @@ _MANA_EFFECT_RE = re.compile(r"^add\b", re.I)
 #: observable.
 _LOOK_AT_TOP_ANY_TIME_RE = re.compile(
     r"^you may look at the top card of your library any time\.?$", re.IGNORECASE
+)
+
+#: "Play with the top card of your library revealed." (Oracle of Mul
+#: Daya/Future Sight-shaped) — the same "purely informational, no separate
+#: game-state effect" no-op as `_LOOK_AT_TOP_ANY_TIME_RE` just above, printed
+#: as its own line right next to the actual play/cast-from-top permission
+#: (`catalogue.static_handlers._TOP_LIBRARY_PERMISSION_RE`) rather than
+#: combined with it.
+_PLAY_WITH_TOP_REVEALED_RE = re.compile(
+    r"^play with the top card of your library revealed\.?$", re.IGNORECASE
 )
 
 #: Connectors that chain two effect clauses in one ability body, tried in this
@@ -585,7 +626,7 @@ def segment_line(
     if is_keyword_line(raw):
         return Segment(raw=raw, claimed=True, keyword_line=True)
 
-    if _LOOK_AT_TOP_ANY_TIME_RE.match(raw):
+    if _LOOK_AT_TOP_ANY_TIME_RE.match(raw) or _PLAY_WITH_TOP_REVEALED_RE.match(raw):
         return Segment(raw=raw, claimed=True)  # informational-only, no spec (see docstring)
 
     magecraft = _MAGECRAFT_RE.match(raw)
@@ -606,7 +647,7 @@ def segment_line(
         )
         return Segment(raw=raw, spec=spec, claimed=True)
 
-    damage_trig = _SELF_DAMAGE_TRIGGER_RE.match(raw)
+    damage_trig = _DAMAGE_TRIGGER_RE.match(raw)
     if damage_trig is not None:
         body, optional = _peel_optional(damage_trig.group("body"))
         effects = parse_effect_body(body)
@@ -620,12 +661,24 @@ def segment_line(
         damage_filter: dict[str, Any] = {"is_player": damage_trig.group("recipient") == "player"}
         if damage_trig.group("combat"):
             damage_filter["combat"] = True
+        if damage_trig.group("self"):
+            condition: dict[str, Any] = {"subject": "self"}
+        elif damage_trig.group("attached"):
+            condition = {"subject": "attached_permanent"}
+        else:
+            condition = {
+                "subject": "group",
+                "type": damage_trig.group("type").lower(),
+                "other": damage_trig.group("article").lower() == "another",
+            }
+            if damage_trig.group("yours"):
+                condition["controller"] = "you"
         spec = AbilitySpec(
             "triggered",
             effects=effects,
             trigger={
                 "event": "DAMAGE",
-                "condition": {"subject": "self"},
+                "condition": condition,
                 "filter": damage_filter,
             },
             optional=optional,
@@ -717,6 +770,15 @@ def segment_line(
         if _MANA_EFFECT_RE.match(effect_text):
             # Mana ability — covered by the engine's mana model, no spec here.
             return Segment(raw=raw, claimed=True)
+        cost_dict: dict[str, Any] = {"text": act.group("cost").strip()}
+        # Throne of Eldraine-shaped colour-lock on this ability's own cost —
+        # a trailing "Spend only mana of the chosen color to activate this
+        # ability." sentence, peeled off the effect body and recorded as a
+        # cost flag (`ActivationCost.spend_only_chosen_color`) rather than a
+        # (non-existent) effect.
+        if _SPEND_ONLY_CHOSEN_COLOR_RE.search(effect_text):
+            effect_text = _SPEND_ONLY_CHOSEN_COLOR_RE.sub("", effect_text).strip()
+            cost_dict["spend_only_chosen_color"] = True
         body, optional = _peel_optional(effect_text)
         effects = parse_effect_body(body)
         if effects is None:
@@ -724,7 +786,7 @@ def segment_line(
         spec = AbilitySpec(
             "activated",
             effects=effects,
-            cost={"text": act.group("cost").strip()},
+            cost=cost_dict,
             optional=optional,
             raw_text=raw,
             parser=provenance,
@@ -841,9 +903,23 @@ def segment_line(
     return Segment(raw=raw, spec=spec, claimed=True)
 
 
+#: "you may pay {E}… . If/When you do, <effect>." (Aether Chaser) — the
+#: "you may" here is the *energy-payment* decision the `pay_energy_then`
+#: effect models with its own interactive choice, not a whole-ability "you
+#: may". Left un-peeled so the full clause reaches `parse_effect_body`'s
+#: `pay_energy_then` handler intact (otherwise the ability would be marked
+#: doubly-optional and the "if you do" gate would be lost).
+_PAY_ENERGY_THEN_PEEL_GUARD_RE = re.compile(
+    r"^you may pay (?:\{e\})+\.\s*(?:if|when) you do", re.IGNORECASE
+)
+
+
 def _peel_optional(body: str) -> tuple[str, bool]:
     """Strip a leading "you may " and report whether it was present (RULE 601.2)."""
-    m = re.match(r"^you may\s+(?P<rest>.+)$", body.strip(), re.S)
+    body = body.strip()
+    if _PAY_ENERGY_THEN_PEEL_GUARD_RE.match(body):
+        return body, False
+    m = re.match(r"^you may\s+(?P<rest>.+)$", body, re.S)
     if m is not None:
         return m.group("rest"), True
-    return body.strip(), False
+    return body, False

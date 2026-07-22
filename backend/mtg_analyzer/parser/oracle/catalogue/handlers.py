@@ -567,8 +567,15 @@ def _tap_self(m: re.Match[str]) -> list[EffectSpec]:
 #: whatever it's attached to (RULE 303.4/301.5), no player choice at all
 #: (`TapEffect`/`PumpEffect`'s ``"attached_permanent"`` mode) — the
 #: activated-ability sibling of `effect_binder._subject_condition`'s
-#: ``"attached_permanent"`` *trigger*-subject concept.
-_ATTACHED_SUBJECT = r"(?:enchanted creature|equipped creature|fortified land)"
+#: ``"attached_permanent"`` *trigger*-subject concept. The same five printed
+#: subject phrases `static_handlers._ATTACHED_SUBJECTS` lists — "enchanted
+#: permanent"/"enchanted land" appear on real Auras that enchant something
+#: other than a creature (Flood the Engine's "When ~ enters, tap enchanted
+#: permanent.", Animal Boneyard).
+_ATTACHED_SUBJECT = (
+    r"(?:enchanted creature|equipped creature|fortified land"
+    r"|enchanted permanent|enchanted land)"
+)
 
 
 #: "{U}: Tap enchanted creature."/"{U}: Untap enchanted creature." (Freed
@@ -583,6 +590,43 @@ def _tap_attached(m: re.Match[str]) -> list[EffectSpec]:
 #: choice or RULE 115 target (RULE 701.17).
 def _sacrifice_self(m: re.Match[str]) -> list[EffectSpec]:
     return [EffectSpec("sacrifice_self", {})]
+
+
+#: "Sacrifice ~ unless you pay `<cost>`." (RULE 701.17 + an "unless"
+#: payment) — the single most common upkeep-trigger body on older cards
+#: (Arcades Sabboth, Breeding Pit, Child of Gaea, Chromium, Kuro; Aura
+#: Flux/Coral Net grant it onto another permanent). Unlike `_sacrifice_self`
+#: this is a *choice*: `SacrificeUnlessPayEffect` opens the same
+#: pay-or-lose-it `pending_choice` ward uses.
+#:
+#: The cost is a deliberately **closed** list of shapes rather than free
+#: text handed to `costs.parse_activation_cost`, because that function
+#: returns a *free* cost for anything it doesn't understand — which here
+#: would silently read as "pay nothing to keep it". Every excluded variant
+#: is one the engine genuinely can't honour and so stays unclaimed:
+#:
+#: * "pay its echo cost"/"pay its upkeep cost for each age counter on it" —
+#:   Echo and Cumulative Upkeep's own reminder text, a self-referential cost
+#:   (and those two keywords aren't modeled at all).
+#: * "pay {G} **for each** wind counter on it" (Sandstorm Ambush) — a scaled
+#:   cost; `parse_activation_cost` would quietly drop the multiplier.
+#: * "discard a card **at random**" — the engine's `discard` auto-picks and
+#:   has no random mode, so claiming it would misrepresent the card.
+#: * "sacrifice **four** creatures" — `ActivationCost.sacrifice` is one
+#:   permanent.
+_UNLESS_COST = (
+    r"(?:pay (?:\{[^{}]+\})+"
+    r"|pay \d+ life"
+    r"|discard a card"
+    r"|sacrifice (?:a|another) (?:creature|permanent|artifact|enchantment|land))"
+)
+_SACRIFICE_UNLESS_PAY_RE = _c(
+    rf"sacrifice {_SELF_SUBJECT} unless you (?P<cost>{_UNLESS_COST})"
+)
+
+
+def _sacrifice_unless_pay(m: re.Match[str]) -> list[EffectSpec]:
+    return [EffectSpec("sacrifice_unless_pay", {"cost": m.group("cost")})]
 
 
 #: "Exile ~."/"Exile this card." (Teferi's Protection/Mnemonic Betrayal's
@@ -606,6 +650,22 @@ def _return_to_hand(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     if kind is None or kind not in _RETURN_TO_HAND_KINDS:
         return None
     return [EffectSpec("return_to_hand", {"target_kind": kind, **_optional_param(m)})]
+
+
+#: "Return ~ to its owner's hand." (RULE 701.3, self form — no RULE 115
+#: target and no player choice, the bounce sibling of `_sacrifice_self`/
+#: `_exile_self`). Two families of real cards, both Aura-heavy:
+#: Rancor/Launch/Aspect of Mongoose's "When ~ dies, return it to its
+#: owner's hand." trigger (`normalize` folds RULE 700.4's long "is put
+#: into a graveyard from the battlefield" phrasing to "dies", and ``it``
+#: to ``~``), and Flickering Ward/Fiery Mantle's "{W}: Return ~ to its
+#: owner's hand." activated ability. Resolves against the effect's own
+#: source wherever it currently is — battlefield *or* graveyard, since a
+#: dies-trigger's source has already moved (RULE 400.7) by the time the
+#: ability resolves and `RulesEngine.return_to_hand` moves an object from
+#: whatever zone it's in.
+def _return_self_to_hand(m: re.Match[str]) -> list[EffectSpec]:
+    return [EffectSpec("return_to_hand", {"target_kind": None})]
 
 
 #: "return two target creatures to their owners' hands" (RULE 115.1a
@@ -1043,6 +1103,43 @@ def _add_mana(m: re.Match[str]) -> list[EffectSpec]:
 
 def _add_mana_any_color(m: re.Match[str]) -> list[EffectSpec]:
     return [EffectSpec("add_mana", {"colors": ["any"]})]
+
+
+#: "you may pay {E}{E}. If/When you do, <effect>." (RULE 122, Aether Chaser/
+#: Herder/Inspector/Swooper) — a resolve-time optional energy payment gating
+#: a follow-up. The follow-up is recursively parsed; a follow-up the parser
+#: can't model (e.g. a *targeted* one — Guide of Souls) leaves the whole
+#: clause unclaimed (fail-closed).
+_PAY_ENERGY_THEN_RE = _c(
+    r"you may pay (?P<pips>(?:\{e\})+)\.\s*(?:if|when) you do,?\s*(?P<effect>.+)"
+)
+
+
+def _pay_energy_then(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    from ..segmenter import parse_effect_body  # lazy: segmenter imports this module
+
+    amount = m.group("pips").count("{e}")
+    sub = parse_effect_body(m.group("effect").strip())
+    if not sub:
+        return None  # follow-up not modeled → whole clause unclaimed
+    if any(s.params.get("target_kind") for s in sub):
+        # A *targeted* follow-up (Guide of Souls' "put counters on target
+        # attacking creature") isn't resolvable through `PayEnergyThen
+        # Effect`'s no-target resolution — fail-closed rather than model it
+        # half-way (the resolve handler runs each sub-effect untargeted).
+        return None
+    return [EffectSpec("pay_energy_then", {"amount": amount, "effects": [s.to_dict() for s in sub]})]
+
+
+#: "you get {E}{E}" (RULE 122 energy production, the reminder-text
+#: parenthetical already stripped by `normalize`) — N energy counters to the
+#: effect's controller, the resolve-time sibling of the "Pay {E}" cost. Uses
+#: the same generic `add_player_counters` primitive `rad`/`poison` do.
+_GET_ENERGY_RE = _c(r"you get (?P<pips>(?:\{e\})+)")
+
+
+def _get_energy(m: re.Match[str]) -> list[EffectSpec]:
+    return [EffectSpec("add_player_counters", {"amount": m.group("pips").count("{e}"), "kind": "energy"})]
 
 
 def _transform(m: re.Match[str]) -> list[EffectSpec]:
@@ -1774,6 +1871,15 @@ HANDLERS: list[EffectHandler] = [
         _c(rf"exile {_SELF_SUBJECT}"),
         _exile_self,
     ),
+    # "sacrifice ~ unless you pay <cost>" — before the plain self-sac
+    # below, whose regex is a prefix of this one (an unanchored
+    # `EffectHandler` match would otherwise claim the clause and silently
+    # drop the "unless you pay" half, sacrificing unconditionally).
+    EffectHandler(
+        "sacrifice_unless_pay",
+        _SACRIFICE_UNLESS_PAY_RE,
+        _sacrifice_unless_pay,
+    ),
     # "sacrifice ~" / "sacrifice this enchantment" — the self form (Dress
     # Down/Underworld Breach's standing end-step self-sac).
     EffectHandler(
@@ -1815,6 +1921,15 @@ HANDLERS: list[EffectHandler] = [
         "tap_attached",
         _c(rf"(?P<verb>tap|untap) {_ATTACHED_SUBJECT}"),
         _tap_attached,
+    ),
+    # "Return ~ to its owner's hand." (RULE 701.3, self form) — before the
+    # targeted sibling below, whose `TARGET` grammar has no ``~``
+    # alternative to compete with but would otherwise have first claim on
+    # the surrounding phrase.
+    EffectHandler(
+        "return_self_to_hand",
+        _c(rf"return {_SELF_SUBJECT} to its owner's hand"),
+        _return_self_to_hand,
     ),
     # "return target creature to its owner's hand" / "return a land you
     # control to its owner's hand" (RULE 701.3 — the bounce family).
@@ -1925,6 +2040,19 @@ HANDLERS: list[EffectHandler] = [
         "attach",
         _c(rf"attach (?:it|{re.escape(SELF)}) to {TARGET}"),
         _attach,
+    ),
+    # "you may pay {E}{E}. If you do, <effect>." (Aether Chaser) — tried
+    # before the bare mana/effect handlers since it wraps a whole clause.
+    EffectHandler(
+        "pay_energy_then",
+        _PAY_ENERGY_THEN_RE,
+        _pay_energy_then,
+    ),
+    # "you get {E}{E}" — energy-counter production (RULE 122).
+    EffectHandler(
+        "get_energy",
+        _GET_ENERGY_RE,
+        _get_energy,
     ),
     # "add 1 mana of any color" — a genuine resolve-time colour choice,
     # tried before the fixed-pip pattern below since it has no {…} symbols

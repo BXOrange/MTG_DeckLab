@@ -26,7 +26,7 @@ their own replacement/trigger consequences.
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from typing import TYPE_CHECKING, Any, Callable, Optional
+from typing import TYPE_CHECKING, Any, Callable, Optional, Union
 
 from ..models.events import EventType, GameEvent
 from ..models.game_object import Zone
@@ -180,6 +180,9 @@ class GameContext:
 
     def gain_life(self, player: "Player", amount: int) -> None:
         self.engine.gain_life(player, amount)
+
+    def prevent_damage_to_player(self, player: "Player", amount: Union[int, str] = "all") -> None:
+        self.engine.prevent_damage_to_player(player, amount)
 
     def lose_life(self, player: "Player", amount: int, cause: str = "effect") -> None:
         self.engine.lose_life(player, amount, cause=cause)
@@ -920,6 +923,20 @@ class TopLibraryPermissionEffect(GameEffect):
     attached to something) and merges the results: multiple simultaneous
     grants OR together (a spell is castable if *any* active grant's
     ``min_mana_value`` gate — or lack of one — allows it), never AND.
+
+    ``noncreature_only`` narrows ``cast_spells`` to noncreature spells only
+    (Elsha of the Infinite's own restriction — a closed vocabulary of one,
+    not a general subtype filter, since no other real card needs a different
+    restriction here today). ``grants_flash``/``life_payment`` are each
+    card's own conditional tail on top of the base permission: Elsha's "you
+    may cast it as though it had flash" (consulted by `game/top_library.py`'s
+    `may_cast_flash_from_top_of_library`, `GameEngine.can_cast`'s flash
+    union) and Bolas's Citadel's "pay life equal to its mana value rather
+    than pay its mana cost" (`top_library.top_library_life_payment_required`,
+    `GameEngine._top_library_life_payment`) — both apply automatically
+    whenever a spell is actually cast via *this* grant, never as a separate
+    opt-in choice, matching the printed wording ("If you cast a spell this
+    way, ...").
     """
 
     def __init__(
@@ -929,6 +946,9 @@ class TopLibraryPermissionEffect(GameEffect):
         cast_spells: bool = False,
         min_mana_value: Optional[int] = None,
         requires_attached: bool = False,
+        noncreature_only: bool = False,
+        grants_flash: bool = False,
+        life_payment: bool = False,
         source: Optional["GameObject"] = None,
     ) -> None:
         super().__init__(source)
@@ -937,6 +957,9 @@ class TopLibraryPermissionEffect(GameEffect):
         self.cast_spells = cast_spells
         self.min_mana_value = min_mana_value
         self.requires_attached = requires_attached
+        self.noncreature_only = noncreature_only
+        self.grants_flash = grants_flash
+        self.life_payment = life_payment
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
         return None  # continuous marker — consulted by top_library.py, not applied
@@ -962,10 +985,22 @@ class GraveyardCastPermissionEffect(GameEffect):
 
     Bound like `TopLibraryPermissionEffect` (an ordinary ``static`` ability,
     inert to `continuous.recompute` — the only consumer is
-    `game/graveyard_cast.py`). Deliberately does **not** model "if a spell
-    cast this way would be put into a graveyard this turn, exile it
-    instead" — a separate RULE 616 replacement-effect clause, still open in
-    `backend/ToDo_Backend.md`.
+    `game/graveyard_cast.py`).
+
+    ``exile_if_would_be_put_into_graveyard`` is Lurrus's own trailing "if a
+    spell cast this way would be put into a graveyard this turn, exile it
+    instead" clause (RULE 616, ``False`` by default — a different card
+    reusing this same base permission need not carry it). It isn't checked
+    here: `GameEngine.cast_spell`'s dispatch stamps `GameObject.
+    cast_via_graveyard_cast_permission_until_turn` with the casting turn
+    only when the grant it used has this flag set, and `RulesEngine.
+    _move_to_graveyard` (the one choke point every graveyard-bound move —
+    destroy, sacrifice, or SBA "dies" — funnels through) redirects to exile
+    while that still matches the current turn number. A per-cast turn
+    number rather than a per-object bool so a later *normal* recast this
+    same turn (no permission involved) correctly clears it, mirroring
+    `GameObject.cast_via_flashback`'s own unconditional-reassignment
+    pattern.
     """
 
     def __init__(
@@ -973,12 +1008,14 @@ class GraveyardCastPermissionEffect(GameEffect):
         max_mana_value: Optional[int] = None,
         permanent_only: bool = True,
         once_per_turn: bool = True,
+        exile_if_would_be_put_into_graveyard: bool = False,
         source: Optional["GameObject"] = None,
     ) -> None:
         super().__init__(source)
         self.max_mana_value = max_mana_value
         self.permanent_only = permanent_only
         self.once_per_turn = once_per_turn
+        self.exile_if_would_be_put_into_graveyard = exile_if_would_be_put_into_graveyard
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
         return None  # continuous marker — consulted by graveyard_cast.py, not applied
@@ -1434,11 +1471,13 @@ class GainLifeEffect(GameEffect):
         player: Any = None,
         source: Optional["GameObject"] = None,
         target_kind: Optional[str] = None,
+        count_selector: Optional[str] = None,
     ) -> None:
         super().__init__(source)
         self.amount = amount
         self.player = player
         self.target_spec = TargetSpec(kind=target_kind) if target_kind is not None else None
+        self.count_selector = count_selector
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
         player = self.player
@@ -1446,7 +1485,43 @@ class GainLifeEffect(GameEffect):
             player = targets[0] if targets else None
         if player is None:
             player = _controller_of(self.source, context)
-        context.gain_life(player, self.amount)
+        amount = self.amount
+        if self.count_selector and player is not None:
+            from . import continuous  # avoid the continuous↔effects import cycle
+
+            amount = continuous.count_selector(context.state, player.id, self.count_selector)
+        context.gain_life(player, amount)
+
+
+class PreventDamageEffect(GameEffect):
+    """RULE 615: "Prevent all/the next N damage that would be dealt to you
+    this turn" (Riot Control's spell-level "all"; Thought Lash's own
+    repeatable "the next 1") — a one-shot effect that grants its own
+    controller a turn-scoped damage-prevention shield, Regenerate-shaped:
+    this class just triggers `RulesEngine.prevent_damage_to_player`, which
+    builds+attaches the actual `ReplacementEffect` shield (unlike
+    `RegenerateEffect`'s shield, this one lives on `Player.player_effects`,
+    not a permanent's `replacement_effects` — nothing is being regenerated,
+    the target is always the caster/activator, never chosen).
+
+    ``amount="all"`` prevents every point of damage the player would take
+    for the rest of the turn; an int prevents a cumulative bank of that
+    many points total (Thought Lash's activated ability can be paid
+    multiple times, each adding to the same turn's bank).
+    """
+
+    def __init__(
+        self,
+        amount: Union[int, str] = "all",
+        source: Optional["GameObject"] = None,
+    ) -> None:
+        super().__init__(source)
+        self.amount = amount
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        player = _controller_of(self.source, context)
+        if player is not None:
+            context.prevent_damage_to_player(player, self.amount)
 
 
 class ExtraLandPlayEffect(GameEffect):
@@ -1699,6 +1774,46 @@ class SacrificeSelfEffect(GameEffect):
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
         if self.source is not None:
             context.put_into_graveyard(self.source)
+
+
+class SacrificeUnlessPayEffect(GameEffect):
+    """"Sacrifice ~ unless you pay `<cost>`." (RULE 701.17 + an "unless"
+    payment) — the single most common upkeep-trigger body on old cards
+    (Arcades Sabboth, Breeding Pit, Child of Gaea, Kuro; Aura Flux/Coral Net
+    grant it onto another permanent).
+
+    ``cost`` is the printed cost *text* ("{G}{G}", "1 life", "a card"),
+    parsed by `costs.parse_activation_cost` at resolution into the same
+    `ActivationCost` an activated ability's cost uses — that's what makes
+    the whole real vocabulary these cards print (mana / pay N life /
+    discard a card / sacrifice another permanent) work without a bespoke
+    cost model. Resolution itself is `RulesEngine.request_sacrifice_unless_
+    pay`, which reuses ward's pay-or-lose-it choice machinery.
+    """
+
+    def __init__(self, cost: str = "", source: Optional["GameObject"] = None) -> None:
+        super().__init__(source)
+        self.cost_text = str(cost or "")
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        from .costs import parse_activation_cost  # function-scoped: costs↔effects cycle
+
+        source = self.source
+        if source is None:
+            return
+        player = _controller_of(source, context)
+        if player is None:
+            return
+        cost = parse_activation_cost(self.cost_text)
+        if cost.is_free:
+            # `parse_activation_cost` returns a *free* cost for text it
+            # doesn't recognize rather than raising. Honouring that here
+            # would silently mean "pay nothing to keep it" — do nothing at
+            # all instead. (The parser front end only claims cost shapes it
+            # can express, so this is a belt-and-braces guard for a
+            # hand-authored entry, not a path real oracle text reaches.)
+            return
+        context.engine.request_sacrifice_unless_pay(player, cost, source)
 
 
 class CounterSpellEffect(GameEffect):
@@ -2710,25 +2825,49 @@ class ReturnToHandEffect(GameEffect):
     _MULTI_TARGET_DISTINCT_CONTROLLERS` claims) — this param exists so the
     engine primitive itself is complete and directly testable/hand-
     authorable in the meantime.
+
+    ``target_kind=None`` is the **self** form — "Return ~ to its owner's
+    hand." with no RULE 115 target and no player choice, mirroring
+    `TapEffect`/`AddCountersEffect`'s own untargeted mode. It acts on the
+    effect's own source wherever that currently is: Rancor's "When ~ dies,
+    return it to its owner's hand." resolves with the source already in a
+    *graveyard* (RULE 400.7 — it's a new object there), and
+    `RulesEngine.return_to_hand` moves an object out of whatever zone it's
+    in, so no separate graveyard path is needed. Flickering Ward's "{W}:
+    Return ~ to its owner's hand." is the same effect from the
+    battlefield.
     """
 
     def __init__(
         self,
         target: Any = None,
         source: Optional["GameObject"] = None,
-        target_kind: str = "permanent",
+        target_kind: Optional[str] = "permanent",
         optional: bool = False,
         count: int = 1,
         distinct_controllers: bool = False,
     ) -> None:
         super().__init__(source)
         self.target = target
-        self.target_spec = TargetSpec(
-            kind=target_kind, optional=optional, count=count,
-            distinct_controllers=distinct_controllers,
+        # ``target_kind=None`` is the self form — no `TargetSpec` at all, the
+        # same way `TapEffect`'s own untargeted modes leave it ``None``, so
+        # `RulesEngine._trigger_target_specs` doesn't count this as a
+        # targeting effect and open a RULE 115 choice with nothing to pick.
+        self.target_spec = (
+            TargetSpec(
+                kind=target_kind, optional=optional, count=count,
+                distinct_controllers=distinct_controllers,
+            )
+            if target_kind is not None
+            else None
         )
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        if self.target_spec is None:
+            # Self form — the source itself, from whatever zone it's in.
+            if self.source is not None:
+                context.return_to_hand(self.source)
+            return
         if self.target_spec.count != 1:
             # See `DestroyEffect.apply`'s comment: only this effect's own
             # ``count`` targets, off the front of a possibly-shared list.
@@ -3051,6 +3190,41 @@ class InstallTemporaryPlayerTriggerEffect(GameEffect):
         )
 
 
+class PayEnergyThenEffect(GameEffect):
+    """RULE 122/601.2b resolve-time optional cost: "you may pay {E}{E}. If you
+    do, `<effect>`." (Aether Chaser/Herder/Inspector/Swooper — "…create a 1/1
+    colorless Servo artifact creature token"). The controller may pay
+    ``amount`` energy counters; only if they do do the ``effects`` follow —
+    a genuine player decision (unlike the flat "Pay {E}" *activated-ability
+    cost*, `ActivationCost.pay_energy`), so it opens an interactive yes/no
+    `pay_energy_then` `pending_choice` at resolution (`RulesEngine.request_
+    pay_energy_then`), mirroring the shock-land pay-life choice.
+
+    ``effects`` are whitelisted descriptor dicts, built into live effects
+    lazily at resolution (mirroring `InstallTemporaryPlayerTriggerEffect`);
+    only untargeted follow-ups are modeled today (every real energy card
+    with this rider creates a token / gains life / draws — none needs a
+    freely-chosen target here). If the controller can't afford ``amount``
+    energy, the payment simply never happens (no choice offered).
+    """
+
+    def __init__(
+        self,
+        amount: int = 0,
+        effects: Optional[list[dict[str, Any]]] = None,
+        source: Optional["GameObject"] = None,
+    ) -> None:
+        super().__init__(source)
+        self.amount = int(amount)
+        self.inner_specs = list(effects or [])
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        player = _controller_of(self.source, context)
+        if player is None or player.counters.get("energy", 0) < self.amount:
+            return  # can't pay — the optional payment simply doesn't happen
+        context.engine.request_pay_energy_then(player, self.amount, self.inner_specs, self.source)
+
+
 class ReboundFreeCastWindowEffect(GameEffect):
     """RULE 702.88b Rebound's delayed half: "At the beginning of your next
     upkeep, you may cast this card from exile without paying its mana
@@ -3111,6 +3285,31 @@ class MarchesaDelayedReturnEffect(GameEffect):
                 description=f"{self.dying_object.name}: unter Kontrolle zurück auf das Schlachtfeld",
             )
         )
+
+
+class ReturnSelfFromGraveyardEffect(GameEffect):
+    """"...if this creature is in your graveyard, you may return it to your
+    hand." (RULE 112.6a, Infesting Radroach) — ``obj`` is baked in at
+    construction (`RulesEngine._collect_mill_return_from_graveyard_
+    triggers`, the same per-firing shape `MarchesaDelayedReturnEffect`
+    above uses for its own dying object), deliberately with no
+    `target_spec` of its own so `_place_or_pause_trigger` never opens a
+    target choice for it — "it" is always this ability's own source, never
+    a pick. Re-checks ``obj``'s zone at resolution time rather than
+    assuming it's still in the graveyard (RULE 603.3c/608.2b: something
+    else may have moved it between trigger and resolution, e.g. an
+    opponent's graveyard-hate instant).
+    """
+
+    def __init__(self, obj: "GameObject", destination: str = "hand", source: Optional["GameObject"] = None) -> None:
+        super().__init__(source)
+        self.obj = obj
+        self.destination = destination
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        if self.obj.zone != Zone.GRAVEYARD:
+            return
+        context.return_from_graveyard(self.obj, self.destination)
 
 
 class SacrificeObjectEffect(GameEffect):
@@ -4630,7 +4829,16 @@ EffectRegistry.register(
     "gain_life",
     lambda p: GainLifeEffect(
         amount=p.get("amount", 0), player=p.get("player"), target_kind=p.get("target_kind"),
+        count_selector=p.get("count_selector"),
     ),
+)
+EffectRegistry.register(
+    "prevent_damage_shield",
+    # RULE 615 one-shot "prevent all/the next N damage that would be dealt
+    # to you this turn" (Riot Control/Thought Lash) — NOT the standing-
+    # permanent shape; see `ReplacementRegistry`'s own unrelated
+    # `"prevent_damage"` factory below for that (still uncarded/unused).
+    lambda p: PreventDamageEffect(amount=p.get("amount", "all")),
 )
 EffectRegistry.register(
     "extra_land_play",
@@ -4685,6 +4893,14 @@ EffectRegistry.register(
 EffectRegistry.register(
     "sacrifice_self",  # "Sacrifice ~." (Dress Down/Underworld Breach-shaped)
     lambda p: SacrificeSelfEffect(),
+)
+EffectRegistry.register(
+    # "Sacrifice ~ unless you pay <cost>." (Arcades Sabboth/Breeding Pit/
+    # Child of Gaea) — an interactive pay-or-lose-it choice, not a plain
+    # sacrifice. ``cost`` is the printed cost *text*, parsed to an
+    # `ActivationCost` at resolution.
+    "sacrifice_unless_pay",
+    lambda p: SacrificeUnlessPayEffect(cost=p.get("cost", "")),
 )
 EffectRegistry.register(
     "exile",
@@ -4894,6 +5110,15 @@ EffectRegistry.register(
         description=p.get("description", ""),
     ),
 )
+EffectRegistry.register(
+    # RULE 122/601.2b resolve-time optional energy payment (Aether Chaser —
+    # "you may pay {E}{E}. If you do, create a 1/1 Servo").
+    "pay_energy_then",
+    lambda p: PayEnergyThenEffect(
+        amount=p.get("amount", 0),
+        effects=list(p.get("effects", [])),
+    ),
+)
 EffectRegistry.register("take_extra_turn", lambda p: TakeExtraTurnEffect())
 EffectRegistry.register(
     "cheat_creature_from_hand",  # Sneak Attack/Meek Attack
@@ -5052,6 +5277,9 @@ EffectRegistry.register(
         cast_spells=p.get("cast_spells", False),
         min_mana_value=p.get("min_mana_value"),
         requires_attached=p.get("requires_attached", False),
+        noncreature_only=p.get("noncreature_only", False),
+        grants_flash=p.get("grants_flash", False),
+        life_payment=p.get("life_payment", False),
     ),
 )
 EffectRegistry.register(
@@ -5060,6 +5288,7 @@ EffectRegistry.register(
         max_mana_value=p.get("max_mana_value"),
         permanent_only=p.get("permanent_only", True),
         once_per_turn=p.get("once_per_turn", True),
+        exile_if_would_be_put_into_graveyard=p.get("exile_if_would_be_put_into_graveyard", False),
     ),
 )
 EffectRegistry.register(
@@ -5259,6 +5488,42 @@ EffectRegistry.register(
     ),
 )
 EffectRegistry.register(
+    # "Cats you control have protection from Rats." (Hungry Lynx) /
+    # "White creatures you control have protection from black." (Righteous
+    # War) / "All creatures have protection from black." (Absolute Grace) /
+    # "Enchanted creature has protection from the chosen color."
+    # (Flickering Ward/Cho-Manno's Blessing) — layer 6, ability-adding
+    # (RULE 613.7f/702.16), the *standing* sibling of the resolve-time
+    # "until end of turn" grant `GameObject.temp_protections` already
+    # carried (Mother of Runes). `continuous.recompute` folds the qualities
+    # onto `obj._granted_protections`; `combat.is_protected_from` unions
+    # them with the printed ones.
+    #
+    # ``protections`` is the printed quality word list, normalized to
+    # `combat.protections_of_text` tokens at recompute time (the parser
+    # front-end can't do it — no `game/` imports).
+    # ``protection_from_chosen_color`` is the RULE 601.2b dynamic variant,
+    # re-read off the source's own `chosen_color` every pass.
+    #
+    # Named ``_static`` to distinguish it from the pre-existing, unrelated
+    # one-shot `grant_protection` above (Mother of Runes' resolve-time
+    # "until end of turn" grant onto `temp_protections`) — same rule,
+    # opposite duration, and `EffectRegistry.register` silently overwrites
+    # a duplicate name.
+    "grant_protection_static",
+    lambda p: StaticAbility(
+        "ability",
+        affects=p.get("affects", "attached_permanent"),
+        params={
+            "protections": [str(q) for q in p.get("protections", [])],
+            "protection_from_chosen_color": bool(
+                p.get("protection_from_chosen_color", False)
+            ),
+            **_selectors(p),
+        },
+    ),
+)
+EffectRegistry.register(
     # "Elves you control have '{T}: Add {B}.'" (Tyvar Kell) — layer 6,
     # ability-adding (RULE 613.7f), same layer/bucket as `grant_keyword`, just
     # granting a mana ability's production options instead of a keyword.
@@ -5296,7 +5561,17 @@ EffectRegistry.register(
             # _quoted_ability_grant_effects`; `continuous._granted_trigger_
             # condition` ANDs it the same way `effect_binder._trigger_
             # condition`'s ``"filter"`` does for an ordinary printed trigger.
+            # A granted RULE 500.7 phase trigger uses the same key for its
+            # own ``{"step": "upkeep"}``.
             **({"filter": dict(p["filter"])} if p.get("filter") else {}),
+            # RULE 500.7 "at the beginning of *your* upkeep" granted onto
+            # another permanent ("Enchanted creature has '…'", Commander's
+            # Authority/Aura Flux) — "you" is the *granted-to* permanent's
+            # controller, not the granting source's, so unlike
+            # `effect_binder._trigger_condition`'s own `phase_relation`
+            # branch (which closes over the printed source) this is resolved
+            # per affected object in `continuous._granted_trigger_condition`.
+            **({"phase_relation": p["phase_relation"]} if p.get("phase_relation") else {}),
             **_selectors(p),
         },
     ),
@@ -5346,6 +5621,16 @@ EffectRegistry.register(
             # included when the spec actually sets it so an ordinary
             # "are also creatures" clause is unaffected.
             **({"set_subtypes": list(p["set_subtypes"])} if p.get("set_subtypes") else {}),
+            # RULE 613.4a *past* the battlefield — "The same is true for
+            # creature spells you control and creature cards you own that
+            # aren't on the battlefield" (Arcane Adaptation/Leyline of
+            # Transformation, ``"cards_you_own"``) / "Each creature card in
+            # your graveyard has the chosen creature type…" (Ashes of the
+            # Fallen, ``"your_graveyard"``). The battlefield-side `affects`
+            # selector above is independent: Arcane Adaptation sets both
+            # (its battlefield half *and* this), Ashes of the Fallen only
+            # this. See `continuous._apply_off_battlefield_types`.
+            **({"off_battlefield": str(p["off_battlefield"])} if p.get("off_battlefield") else {}),
             **_selectors(p),
         },
     ),
@@ -5676,19 +5961,25 @@ def _prevent_damage_convert_counters_replacement(params: dict[str, Any]) -> Repl
 
 
 def _double_damage_replacement(params: dict[str, Any]) -> ReplacementEffect:
-    """Doubles damage that would be dealt (RULE 614/616), e.g. Furnace of
-    Rath ("if a source would deal damage, it deals double that damage
-    instead") or Gratuitous Violence (the same, but only ``combat_only``
-    damage from ``your_sources_only``).
+    """Multiplies damage that would be dealt (RULE 614/616), e.g. Furnace of
+    Rath/Dictate of the Twin Gods ("if a source would deal damage, it deals
+    double that damage instead" — unscoped), Gratuitous Violence ("a
+    *creature* you control", ``creature_only``+``your_sources_only``, no
+    combat restriction despite the name), or Fiery Emancipation ("a source
+    you control", ``multiplier=3``).
 
-    ``combat_only``/``your_sources_only`` scope the effect; ``your_sources_
-    only`` reads the *replacement's own source's* controller (``effect.
-    source``, set at bind time) against the damage event's ``source_
-    controller_id`` — so it needs the object it's attached to on the
-    battlefield to know whose damage counts as "yours".
+    ``combat_only``/``your_sources_only``/``creature_only`` scope the
+    effect; ``your_sources_only`` reads the *replacement's own source's*
+    controller (``effect.source``, set at bind time) against the damage
+    event's ``source_controller_id`` — so it needs the object it's attached
+    to on the battlefield to know whose damage counts as "yours".
+    ``multiplier`` defaults to 2 (every real "double" card); Fiery
+    Emancipation's "triple" is the only real 3.
     """
     combat_only = bool(params.get("combat_only", False))
     your_sources_only = bool(params.get("your_sources_only", False))
+    creature_only = bool(params.get("creature_only", False))
+    multiplier = int(params.get("multiplier", 2))
     effect = ReplacementEffect(
         event_type=EventType.DAMAGE,
         replacement_fn=lambda e, c: e,  # replaced below once `effect` exists
@@ -5701,6 +5992,8 @@ def _double_damage_replacement(params: dict[str, Any]) -> ReplacementEffect:
     def replace(event: GameEvent, _context: GameContext) -> Optional[GameEvent]:
         if combat_only and not event.get("combat"):
             return event
+        if creature_only and not event.get("source_is_creature"):
+            return event
         if your_sources_only:
             src = effect.source
             if src is None or event.get("source_controller_id") != src.controller_id:
@@ -5708,7 +6001,7 @@ def _double_damage_replacement(params: dict[str, Any]) -> ReplacementEffect:
         dealt = int(event.get("amount", 0) or 0)
         if dealt <= 0:
             return event
-        return event.copy_with(amount=dealt * 2)
+        return event.copy_with(amount=dealt * multiplier)
 
     effect.replacement_fn = replace
     return effect
@@ -5814,9 +6107,23 @@ def _double_counters_replacement(params: dict[str, Any]) -> ReplacementEffect:
     `EventType.COUNTER` handling below already covers "or player" for free
     once a caller (`RulesEngine.add_player_counters`) fires that event for a
     player recipient too.
+
+    ``plus`` (default ``None``) switches from the multiplicative "twice that
+    many" to the *additive* "that many plus N" shape (Hardened Scales/
+    Conclave Mentor's "that many plus one +1/+1 counters", RULE 616.1);
+    ``multiplier`` (default 2) is the "twice"/"triple" factor otherwise.
+    ``recipient`` scopes by the counters' recipient rather than the causer:
+    ``"creature_you_control"`` (Branching Evolution/Corpsejack Menace/
+    Hardened Scales — a creature this effect's source controls) or
+    ``"permanent_you_control"`` (Kami of Whispered Hopes — any permanent);
+    read off the event's ``recipient_controller_id``/``recipient_is_
+    creature`` against ``effect.source``'s controller.
     """
     kind_filter = params.get("kind")
     your_effects_only = bool(params.get("your_effects_only", False))
+    plus = params.get("plus")
+    multiplier = int(params.get("multiplier", 2))
+    recipient = params.get("recipient")
     effect = ReplacementEffect(
         event_type=EventType.COUNTER,
         replacement_fn=lambda e, c: e,
@@ -5830,10 +6137,93 @@ def _double_counters_replacement(params: dict[str, Any]) -> ReplacementEffect:
             src = effect.source
             if src is None or event.get("source_controller_id") != src.controller_id:
                 return event
+        if recipient is not None:
+            src = effect.source
+            if src is None or event.get("recipient_controller_id") != src.controller_id:
+                return event
+            if recipient == "creature_you_control" and not event.get("recipient_is_creature"):
+                return event
         amount = int(event.get("amount", 0) or 0)
         if amount <= 0:
             return event
-        return event.copy_with(amount=amount * 2)
+        new_amount = amount + int(plus) if plus is not None else amount * multiplier
+        return event.copy_with(amount=new_amount)
+
+    effect.replacement_fn = replace
+    return effect
+
+
+def _die_to_exile_replacement(params: dict[str, Any]) -> ReplacementEffect:
+    """"If ~ would die, exile it instead" (RULE 616.1) — redirects a
+    creature's battlefield→graveyard move to exile. Modeled like
+    regeneration's shield: the fn performs the exile as a side effect and
+    returns ``None`` to consume the `EventType.WOULD_DIE` event, so
+    `RulesEngine._move_to_graveyard` skips the graveyard move.
+
+    ``subject`` scopes which creatures it covers, read off the event's
+    ``target_id``/``controller_id`` against ``effect.source``:
+    ``"self"`` (Gloomshrieker — only the source itself), ``"you_control"``
+    (a creature its controller controls), ``"opponents_control"``
+    (Corpseweaver Prodigy — a creature an opponent controls), or ``"any"``.
+    """
+    subject = params.get("subject", "self")
+    effect = ReplacementEffect(
+        event_type=EventType.WOULD_DIE,
+        replacement_fn=lambda e, c: e,
+        description=str(params.get("description", "")),
+    )
+
+    def replace(event: GameEvent, context: GameContext) -> Optional[GameEvent]:
+        src = effect.source
+        controller_id = event.get("controller_id")
+        target_id = event.get("target_id")
+        if subject == "self":
+            matches = src is not None and target_id == getattr(src, "instance_id", None)
+        elif subject == "you_control":
+            matches = src is not None and controller_id == src.controller_id
+        elif subject == "opponents_control":
+            matches = src is not None and controller_id not in (None, src.controller_id)
+        else:  # "any"
+            matches = True
+        if not matches:
+            return event
+        obj = context.state.find_object(target_id)
+        if obj is None:
+            return event  # already gone — let the normal path no-op
+        context.engine.exile(obj)
+        return None  # event consumed; the graveyard move is replaced by exile
+
+    effect.replacement_fn = replace
+    return effect
+
+
+def _gain_life_replacement(params: dict[str, Any]) -> ReplacementEffect:
+    """A life gain is rewritten instead (RULE 119.3/616.1) — the *additive*
+    "you gain that much life plus N instead" (Angel of Vitality, ``plus``)
+    or the *multiplicative* "you gain twice that much life instead" (Boon
+    Reflection/Alhammarret's Archive/Rhox Faithmender, ``multiplier``,
+    default 2). Always scoped to the effect's own controller ("if **you**
+    would gain life"), read off the `EventType.LIFE_GAIN` event's
+    ``player_id`` against ``effect.source``'s controller — every real card
+    with this clause is a permanent whose controller is the gaining player.
+    """
+    plus = params.get("plus")
+    multiplier = int(params.get("multiplier", 2))
+    effect = ReplacementEffect(
+        event_type=EventType.LIFE_GAIN,
+        replacement_fn=lambda e, c: e,
+        description=str(params.get("description", "")),
+    )
+
+    def replace(event: GameEvent, _context: GameContext) -> Optional[GameEvent]:
+        src = effect.source
+        if src is None or event.get("player_id") != src.controller_id:
+            return event
+        amount = int(event.get("amount", 0) or 0)
+        if amount <= 0:
+            return event
+        new_amount = amount + int(plus) if plus is not None else amount * multiplier
+        return event.copy_with(amount=new_amount)
 
     effect.replacement_fn = replace
     return effect
@@ -5930,5 +6320,7 @@ ReplacementRegistry.register("prevent_damage_convert_counters", _prevent_damage_
 ReplacementRegistry.register("double_damage", _double_damage_replacement)
 ReplacementRegistry.register("additional_damage", _additional_damage_replacement)
 ReplacementRegistry.register("double_counters", _double_counters_replacement)
+ReplacementRegistry.register("gain_life_replacement", _gain_life_replacement)
+ReplacementRegistry.register("die_to_exile", _die_to_exile_replacement)
 ReplacementRegistry.register("double_tokens", _double_tokens_replacement)
 ReplacementRegistry.register("win_instead_of_empty_draw", _win_instead_of_empty_draw_replacement)

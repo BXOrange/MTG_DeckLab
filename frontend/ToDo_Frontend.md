@@ -12,7 +12,6 @@ real-browser verification *is* available: Playwright (Python) lives in
 plus a running backend (`page.goto`/`.click`/`.screenshot`) — use it for any
 non-trivial UI change instead of reading code + replaying API calls.
 
-
 ## Backend integration
 
 - [ ] Error/loading states for network calls (spinner, retry, offline

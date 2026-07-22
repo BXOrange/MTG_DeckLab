@@ -63,12 +63,20 @@ from .subgrammars import CANT_BE_COUNTERED_RE, COUNT, count_of
 #: *different* object each time it's granted (`continuous.
 #: _granted_trigger_condition` matches by the event's own subject key —
 #: ``instance_id`` for the RULE 603.1 object-subject four, ``source_id`` for
-#: ``DAMAGE`` — see `continuous._GRANTED_EVENT_KEYS`). Deliberately excludes
-#: any phase/upkeep event (``STEP_BEGIN`` — "at the beginning of your
-#: upkeep" is a pre-existing controller-scoping gap for even a top-level
-#: card's own printed ability, `segmenter.py`'s ``_PHASE_TRIGGER_RE``
-#: docstring).
-_GRANTABLE_TRIGGER_EVENTS = frozenset({"ENTERS_BATTLEFIELD", "DIES", "ATTACKS", "BLOCKS", "DAMAGE"})
+#: ``DAMAGE`` — see `continuous._GRANTED_EVENT_KEYS`).
+#:
+#: ``STEP_BEGIN`` is the odd one out: a RULE 500.7 phase trigger ("At the
+#: beginning of your upkeep, …", Commander's Authority/Clawing Torment/Aura
+#: Flux-shaped) has no object subject at all, so it isn't re-scoped by
+#: identity — instead the grant threads the segmenter's ``phase_relation``
+#: through to `continuous._granted_trigger_condition`, which resolves "your"
+#: against the **granted-to** permanent's own controller. That's what makes
+#: it safe to regrant: each affected permanent's copy fires on its own
+#: controller's upkeep, exactly as the printed reminder text on these cards
+#: reads.
+_GRANTABLE_TRIGGER_EVENTS = frozenset(
+    {"ENTERS_BATTLEFIELD", "DIES", "ATTACKS", "BLOCKS", "DAMAGE", "STEP_BEGIN"}
+)
 
 #: Type words that are *not* creature subtypes — a scope built on one of these
 #: isn't a creature anthem/grant, so we don't claim it.
@@ -274,6 +282,52 @@ del _name
 # `grant_mana_ability` for the matching colour.
 _TYPE_OVERWRITE_RE = re.compile(r"nonbasic lands are (?P<word>[a-z]+)", re.IGNORECASE)
 
+# "You may play lands [and cast [noncreature] spells [with mana value N or
+# greater]] from the top of your library."/"You may cast [noncreature]
+# spells [with mana value N or greater] from the top of your library."
+# (RULE 701-adjacent standing permission, Oracle of Mul Daya/Glarb, Calamity's
+# Augur/Future Sight/Bolas's Citadel/Elsha of the Infinite-shaped) — the
+# generic sibling of the two hand-authored `top_library_permission` entries
+# in `game/ability_catalogue.py` (left registered rather than migrated; no
+# harm in both existing side by side, the hand-authored registry always
+# takes precedence for a registered card). ``_TOP_LIBRARY_VERB_PARAMS``'
+# five printed phrasings are a closed vocabulary, same precedent as
+# `_ATTACHED_SUBJECTS`: "noncreature" is the one card-type restriction any
+# real card needs today (Elsha) — not a general subtype filter.
+#
+# An optional trailing "If you cast a spell this way, ..." sentence on the
+# *same* printed line (Elsha/Bolas's Citadel both fold their conditional
+# tail into the permission's own paragraph, not a separate line) captures
+# each card's own further conditional: "you may cast it as though it had
+# flash" (``grants_flash``) or "pay life equal to its mana value rather than
+# pay its mana cost" (``life_payment`` — a RULE 118 alternative cost,
+# substituted automatically whenever a spell is actually cast this way, not
+# offered as a separate choice — see `game/top_library.py`'s
+# `top_library_life_payment_required`/`game/game_engine.py`'s
+# `_top_library_life_payment`).
+_TOP_LIBRARY_VERB_PARAMS: dict[str, dict] = {
+    "play lands and cast noncreature spells": {
+        "play_lands": True, "cast_spells": True, "noncreature_only": True,
+    },
+    "play lands and cast spells": {"play_lands": True, "cast_spells": True},
+    "play lands": {"play_lands": True},
+    "cast noncreature spells": {"cast_spells": True, "noncreature_only": True},
+    "cast spells": {"cast_spells": True},
+}
+_TOP_LIBRARY_TAILS: dict[str, str] = {
+    "you may cast it as though it had flash": "grants_flash",
+    "pay life equal to its mana value rather than pay its mana cost": "life_payment",
+}
+_TOP_LIBRARY_PERMISSION_RE = re.compile(
+    r"you may (?P<verb>" + "|".join(re.escape(v) for v in _TOP_LIBRARY_VERB_PARAMS) + r")"
+    r"(?: with mana value (?P<mv>\d+) or greater)?"
+    r" from the top of your library"
+    r"(?:\. if you cast a spell this way, (?P<tail>"
+    + "|".join(re.escape(t) for t in _TOP_LIBRARY_TAILS) + r"))?",
+    re.IGNORECASE,
+)
+
+
 # "~ can be your commander."  (RULE 903.3 deck-legality permission,
 # Jeska/Tevesh Szat-shaped) — a plain-text line with **no in-game behavioral
 # effect** (nothing about the battlefield/stack/turn structure changes), so
@@ -421,6 +475,62 @@ _IS_CHOSEN_TYPE_RE = re.compile(
     r"~ is the chosen type in addition to its other types", re.IGNORECASE
 )
 
+# The *group* sibling of `_IS_CHOSEN_TYPE_RE` — "Creatures you control are
+# the chosen type in addition to their other types." (Arcane Adaptation/
+# Leyline of Transformation), "Each creature you control is …" (Xenograft),
+# "Lands you control are …" (Realmwright), "Vehicle creatures you control
+# are the chosen creature type …" (Lifecraft Engine).
+#
+# The optional ``off`` tail is Arcane Adaptation's second sentence, which
+# extends the very same grant *past the battlefield* — the layer engine's
+# ordinary walk only visits permanents, so it becomes an
+# ``off_battlefield="cards_you_own"`` param handled by `continuous.
+# _apply_off_battlefield_types`. Two sentences on one printed line, so it
+# has to be claimed by one regex (the segmenter splits on newlines, not
+# sentences); leaving the tail unmatched would fail the whole clause closed.
+_GROUP_CHOSEN_TYPE_RE = re.compile(
+    r"(?:each )?(?P<body>[a-z][a-z ]*?) you control (?:is|are) the chosen "
+    r"(?:creature )?type in addition to (?:its|their) other (?:creature )?types"
+    r"(?P<off>\. the same is true for creature spells you control and creature "
+    r"cards you own that aren'?t on the battlefield)?",
+    re.IGNORECASE,
+)
+
+# "Each creature card in your graveyard has the chosen creature type in
+# addition to its other types." (Ashes of the Fallen) — the same RULE 613.4a
+# grant with *no* battlefield half at all, so its `affects` deliberately
+# names a selector `continuous.group_selector_objects` doesn't recognise
+# (which safely picks out nothing) and all the work happens in the
+# off-battlefield pass.
+_GRAVEYARD_CHOSEN_TYPE_RE = re.compile(
+    r"each creature card in your graveyard has the chosen creature type "
+    r"in addition to its other types",
+    re.IGNORECASE,
+)
+
+
+def _chosen_type_group_affects(body: str) -> Optional[dict]:
+    """The `affects` (+ subtype narrowing) params for a `_GROUP_CHOSEN_TYPE_RE`
+    subject phrase, or ``None`` for one this can't express (fail-closed).
+
+    Lands get their own branch since `_scope` deliberately only claims
+    *creature* scopes; everything else goes through `_scope` so a tribal
+    narrowing ("Vehicle creatures you control", Lifecraft Engine) comes out
+    as the usual ``subtype`` param.
+    """
+    words = body.strip().split()
+    if words and words[0] in ("all", "each"):
+        words = words[1:]
+    if words in (["land"], ["lands"]):
+        return {"affects": "lands_you_control"}
+    scope = _scope(" ".join(words))
+    if scope is None:
+        return None
+    params: dict = {"affects": "creatures_you_control"}
+    if scope.subtype:
+        params["subtype"] = scope.subtype
+    return params
+
 # "You control enchanted creature/permanent." (Mind Control/Control Magic-
 # shaped, RULE 613.2 layer-2 control-grant) — the existing `control_change`
 # `StaticAbility` already defaults to ``affects="attached_permanent"`` and a
@@ -455,14 +565,74 @@ _ATTACHED_QUOTED_GRANT_RE = re.compile(
 )
 
 
+#: WUBRG, for a granted "add N mana of any [one] color" ability — one
+#: single-colour production option per colour, the payer picking which
+#: (mirrors `game/mana_abilities.py`'s own `_parse_clause` representation
+#: exactly; kept as a local literal rather than imported, since this module
+#: must stay free of `game/` imports).
+_ALL_COLORS = ("W", "U", "B", "R", "G")
+
+#: A granted **mana** ability's inner body — "{T}: Add {B}." (Tyvar Kell),
+#: "{T}: Add 1 mana of any color." (Abundant Growth), "{T}: Add 2 mana of any
+#: 1 color." (Find the Path — `normalize` folds both number words to digits,
+#: including the "any *one* color" one). Recognised *here* rather than by the
+#: nested `segment_line` parse below because a plain top-level mana ability is
+#: claimed-**without**-a-spec by `segmenter.py`: mana production is covered
+#: directly by `game/mana_abilities.py`'s own text recognition off the printed
+#: card, not by the `EffectRegistry` pipeline, so the recursive parse comes
+#: back with `spec is None` and nothing to re-emit. `grant_mana_ability`
+#: (`game/effects.py`, layer 6/RULE 613.7f) is the existing engine primitive
+#: — only this front end was missing.
+#:
+#: `{T}`-only by design: a mana ability with any *other* cost component
+#: ("{T}, Sacrifice a creature: …", Animal Boneyard) isn't expressible as a
+#: bare `mana` production list, so it stays unclaimed (fail-closed).
+_GRANTED_MANA_ABILITY_RE = re.compile(
+    r"\{t\}:\s*add\s+(?:"
+    r"(?P<syms>(?:\{[wubrgc]\})+)"
+    r"|(?P<n>\d+) mana of any (?:1 )?colou?r"
+    r")\.?",
+    re.IGNORECASE,
+)
+
+
+def _granted_mana_options(inner: str) -> Optional[list[dict[str, int]]]:
+    """A quoted mana ability's ``mana`` production options, or ``None``.
+
+    Returns the same "list of ``{colour: amount}`` options, payer picks one"
+    shape `mana_abilities.mana_options_for` already consumes for a printed
+    ability — a fixed pip run collapses to a single option, an "any colour"
+    clause fans out to one option per colour.
+    """
+    m = _GRANTED_MANA_ABILITY_RE.fullmatch(inner.strip())
+    if m is None:
+        return None
+    syms = m.group("syms")
+    if syms:
+        option: dict[str, int] = {}
+        for sym in re.findall(r"\{([wubrgc])\}", syms, re.IGNORECASE):
+            option[sym.upper()] = option.get(sym.upper(), 0) + 1
+        return [option]
+    amount = int(m.group("n"))
+    if amount < 1:
+        return None
+    return [{color: amount} for color in _ALL_COLORS]
+
+
 def _quoted_ability_grant_effects(inner: str) -> Optional[EffectSpec]:
     """Recursively parse a quoted granted-ability body into a
-    `grant_triggered_ability`/`grant_activated_ability` `EffectSpec`, or
-    ``None`` if it isn't a plain self-scoped trigger on a
-    `_GRANTABLE_TRIGGER_EVENTS` event, or a plain `<cost>: <effect>`
-    activated ability (see the module comment above
-    `_ATTACHED_QUOTED_GRANT_RE`)."""
+    `grant_triggered_ability`/`grant_activated_ability`/`grant_mana_ability`
+    `EffectSpec`, or ``None`` if it isn't a plain self-scoped trigger on a
+    `_GRANTABLE_TRIGGER_EVENTS` event, a controller-scoped phase trigger, a
+    plain `<cost>: <effect>` activated ability, or a bare `{T}: Add <mana>`
+    mana ability (see the module comment above `_ATTACHED_QUOTED_GRANT_RE`)."""
     from ..segmenter import segment_line  # lazy: segmenter imports this module
+
+    mana = _granted_mana_options(inner)
+    if mana is not None:
+        return EffectSpec("grant_mana_ability", {
+            "mana": mana, "affects": "attached_permanent",
+        })
 
     segment = segment_line(
         inner.strip(),
@@ -500,19 +670,113 @@ def _quoted_ability_grant_effects(inner: str) -> Optional[EffectSpec]:
     if spec.ability_kind != "triggered":
         return None
     trigger = spec.trigger or {}
-    if trigger.get("event") not in _GRANTABLE_TRIGGER_EVENTS:
+    event = trigger.get("event")
+    if event not in _GRANTABLE_TRIGGER_EVENTS:
         return None
-    if trigger.get("condition") != {"subject": "self"}:
+    if event == "STEP_BEGIN":
+        # A RULE 500.7 phase trigger carries no object subject to re-scope
+        # (see `_GRANTABLE_TRIGGER_EVENTS`) — only a `phase_relation`, which
+        # must resolve against the granted-to permanent's controller. An
+        # un-scoped "at the beginning of *each* upkeep" one would fire once
+        # per affected permanent per upkeep with no way to tell whose it is,
+        # so only the two scoped forms are claimed (fail-closed).
+        if trigger.get("phase_relation") not in ("you", "not_you"):
+            return None
+    elif trigger.get("condition") != {"subject": "self"}:
         return None  # a "group"/other subject wouldn't mean the same thing once regranted
     params: dict = {
-        "trigger_event": trigger["event"],
+        "trigger_event": event,
         "grant_effects": [{"type": e.type, "params": e.params} for e in spec.effects],
         "optional": spec.optional,
         "affects": "attached_permanent",
     }
-    if trigger.get("filter"):  # RULE 120.3 DAMAGE combat/is_player filter
+    if trigger.get("filter"):  # RULE 120.3 DAMAGE combat/is_player, STEP_BEGIN's step
         params["filter"] = dict(trigger["filter"])
+    if trigger.get("phase_relation"):
+        params["phase_relation"] = trigger["phase_relation"]
     return EffectSpec("grant_triggered_ability", params)
+
+
+# RULE 702.16 **standing** protection grants — the layer-6 sibling of the
+# resolve-time "until end of turn" grant (Mother of Runes) the engine
+# already had. Three printed subjects, each its own regex because the verb
+# and the `affects` selector differ:
+#
+#   * a controlled/global group — "Cats you control have protection from
+#     Rats." (Hungry Lynx), "White creatures you control have protection
+#     from black." (Righteous War), "All creatures have protection from
+#     black." (Absolute Grace/Absolute Law). Shares `_scope`/`_scope_params`
+#     with `_ANTHEM_RE`/`_GRANT_RE`.
+#   * an attached permanent — "Enchanted creature has protection from the
+#     chosen color." (Flickering Ward/Cho-Manno's Blessing/Pentarch Ward).
+#   * the source itself — "~ has protection from the chosen color." (Voice
+#     of All/Order of the Stars).
+#
+# These must be checked *before* `_GRANT_RE`/`_ATTACHED_GRANT_RE`, whose
+# `_flag_keywords` would reject "protection from black" outright (protection
+# isn't a RULE 702 flag keyword — it carries a parameter) and fail the whole
+# clause closed.
+#
+# The quality itself is captured as printed and normalized engine-side
+# (`continuous._protection_qualities` → `combat.protections_of_text`), which
+# is what keeps this module free of `game/` imports. "…and from <quality>"
+# multi-quality tails (the Sword cycle's printed form) are left to that same
+# splitter by passing the whole clause through.
+_PROTECTION_QUALITY = r"(?P<quality>the chosen colou?r|[a-z][a-z ]*?)"
+_GROUP_PROTECTION_RE = re.compile(
+    r"(?:(?P<scope>other) )?(?P<body>[a-z][a-z ]*?)(?P<yours> you control)?"
+    rf"{_CHOSEN_TAIL} "
+    rf"have protection from {_PROTECTION_QUALITY}",
+    re.IGNORECASE,
+)
+_ATTACHED_PROTECTION_RE = re.compile(
+    rf"(?P<subject>{_ATTACHED_SUBJECT_PATTERN}) has protection from {_PROTECTION_QUALITY}",
+    re.IGNORECASE,
+)
+_SELF_PROTECTION_RE = re.compile(
+    rf"~ has protection from {_PROTECTION_QUALITY}", re.IGNORECASE
+)
+
+# The compound "+N/+N **and** protection" forms — the whole Sword-of-X-and-Y
+# cycle ("Equipped creature gets +2/+2 and has protection from red and from
+# blue.", 24 cards) and its group sibling (Feline Sovereign/Haytham Kenway's
+# "Other Cats you control get +1/+1 and have protection from Dogs."). These
+# need their own rows rather than an extra tail on `_ATTACHED_ANTHEM_RE`/
+# `_ANTHEM_RE`, whose "and has/have <keywords>" tail goes through
+# `_flag_keywords` — protection isn't a RULE 702 flag keyword (it carries a
+# parameter), so that tail rejects it and fails the whole clause closed.
+_ATTACHED_ANTHEM_PROTECTION_RE = re.compile(
+    rf"(?P<subject>{_ATTACHED_SUBJECT_PATTERN}) gets (?P<p>[+-]\d+)/(?P<t>[+-]\d+) "
+    rf"and has protection from {_PROTECTION_QUALITY}",
+    re.IGNORECASE,
+)
+_GROUP_ANTHEM_PROTECTION_RE = re.compile(
+    r"(?:(?P<scope>other) )?(?P<body>[a-z][a-z ]*?)(?P<yours> you control)?"
+    rf"{_CHOSEN_TAIL} "
+    rf"get (?P<p>[+-]\d+)/(?P<t>[+-]\d+) and have protection from {_PROTECTION_QUALITY}",
+    re.IGNORECASE,
+)
+
+
+def _protection_params(quality: str) -> Optional[dict]:
+    """The `grant_protection` quality params for a captured ``quality``, or
+    ``None`` for one this can't express (fail-closed).
+
+    "the chosen color" (RULE 601.2b) becomes the dynamic flag the layer
+    engine re-reads off the source every pass; anything else is passed
+    through verbatim as a printed quality word for
+    `combat.protections_of_text` to normalize. Rebbec's "protection from
+    each mana value among artifacts you control" is deliberately *not*
+    expressible — a per-source computed quality, not a fixed one — and its
+    "each mana value …" text simply isn't a quality word, so it falls out
+    here rather than being mis-stored as one.
+    """
+    quality = quality.strip().rstrip(".").strip()
+    if quality in ("the chosen color", "the chosen colour"):
+        return {"protection_from_chosen_color": True}
+    if not quality or " each " in f" {quality} ":
+        return None
+    return {"protections": [q.strip() for q in re.split(r"\s+and\s+from\s+", quality)]}
 
 
 # "<equipped/enchanted/fortified subject> gets +N/+N [and has <keywords>]"
@@ -722,6 +986,16 @@ def static_effect_specs(clause: str) -> Optional[list[EffectSpec]]:
     if _RADIATION_LIFE_GAIN_RE.fullmatch(text):
         return [EffectSpec("radiation_life_gain", {})]
 
+    m = _TOP_LIBRARY_PERMISSION_RE.fullmatch(text)
+    if m is not None:
+        params: dict = {"look": True, **_TOP_LIBRARY_VERB_PARAMS[m.group("verb").lower()]}
+        if m.group("mv"):
+            params["min_mana_value"] = int(m.group("mv"))
+        tail = m.group("tail")
+        if tail is not None:
+            params[_TOP_LIBRARY_TAILS[tail.lower()]] = True
+        return [EffectSpec("top_library_permission", params)]
+
     if _NO_UNTAP_OPTIONAL_RE.fullmatch(text):
         return [EffectSpec("no_untap_optional", {})]
 
@@ -781,6 +1055,62 @@ def static_effect_specs(clause: str) -> Optional[list[EffectSpec]]:
             EffectSpec("type_change", {**shared, "set_subtypes": [basic_type]}),
             EffectSpec("grant_mana_ability", {**shared, "mana": [{color: 1}]}),
         ]
+
+    # RULE 702.16 standing protection grants — before every anthem/
+    # keyword-grant family below, whose `_flag_keywords` would reject
+    # "protection from <quality>" (not a flag keyword) and fail the clause
+    # closed. Compound "+N/+N and protection" first, since the bare forms
+    # are prefixes of it.
+    m = _ATTACHED_ANTHEM_PROTECTION_RE.fullmatch(text)
+    if m is not None:
+        params = _protection_params(m.group("quality"))
+        if params is None:
+            return None
+        return [
+            EffectSpec("anthem", {"power": int(m.group("p")), "toughness": int(m.group("t")),
+                                   "affects": "attached_permanent"}),
+            EffectSpec("grant_protection_static",
+                       {"affects": "attached_permanent", **params}),
+        ]
+
+    m = _GROUP_ANTHEM_PROTECTION_RE.fullmatch(text)
+    if m is not None:
+        scope = _scope(m.group("body"))
+        if scope is None:
+            return None
+        params = _protection_params(m.group("quality"))
+        if params is None:
+            return None
+        scoped = _scope_params(scope, m)
+        return [
+            EffectSpec("anthem", {"power": int(m.group("p")), "toughness": int(m.group("t")),
+                                   **scoped}),
+            EffectSpec("grant_protection_static", {**scoped, **params}),
+        ]
+
+    m = _SELF_PROTECTION_RE.fullmatch(text)
+    if m is not None:
+        params = _protection_params(m.group("quality"))
+        if params is None:
+            return None
+        return [EffectSpec("grant_protection_static", {"affects": "self", **params})]
+
+    m = _ATTACHED_PROTECTION_RE.fullmatch(text)
+    if m is not None:
+        params = _protection_params(m.group("quality"))
+        if params is None:
+            return None
+        return [EffectSpec("grant_protection_static", {"affects": "attached_permanent", **params})]
+
+    m = _GROUP_PROTECTION_RE.fullmatch(text)
+    if m is not None:
+        scope = _scope(m.group("body"))
+        if scope is None:
+            return None
+        params = _protection_params(m.group("quality"))
+        if params is None:
+            return None
+        return [EffectSpec("grant_protection_static", {**_scope_params(scope, m), **params})]
 
     # Attached-permanent shape first ("equipped creature gets +2/+2 [and has
     # <keywords>]") — a closed subject list, so this never competes with the
@@ -849,6 +1179,23 @@ def static_effect_specs(clause: str) -> Optional[list[EffectSpec]]:
 
     if _IS_CHOSEN_TYPE_RE.fullmatch(text):
         return [EffectSpec("type_change", {"affects": "self", "add_subtypes_from_source": True})]
+
+    if _GRAVEYARD_CHOSEN_TYPE_RE.fullmatch(text):
+        return [EffectSpec("type_change", {
+            "affects": "off_battlefield_only",  # no battlefield half at all
+            "add_subtypes_from_source": True,
+            "off_battlefield": "your_graveyard",
+        })]
+
+    m = _GROUP_CHOSEN_TYPE_RE.fullmatch(text)
+    if m is not None:
+        params = _chosen_type_group_affects(m.group("body"))
+        if params is None:
+            return None
+        params["add_subtypes_from_source"] = True
+        if m.group("off"):
+            params["off_battlefield"] = "cards_you_own"
+        return [EffectSpec("type_change", params)]
 
     m = _ATTACHED_QUOTED_ANTHEM_GRANT_RE.fullmatch(text)
     if m is not None:

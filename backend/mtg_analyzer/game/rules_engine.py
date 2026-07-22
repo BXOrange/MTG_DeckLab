@@ -19,7 +19,7 @@ engine is the toolbox that loop drives.
 from __future__ import annotations
 
 import re
-from typing import Any, Callable, Optional
+from typing import Any, Callable, Optional, Union
 
 from ..models import card_query
 from ..models.card import Card
@@ -52,6 +52,7 @@ from .effects import (
     RadiationMillEffect,
     ReboundFreeCastWindowEffect,
     ReplacementEffect,
+    ReturnSelfFromGraveyardEffect,
     StaticAbility,
     StaticEffect,
     TakeInitiativeEffect,
@@ -163,6 +164,10 @@ class RulesEngine:
         #: populated only while that choice is pending.
         self._pending_land_choice_obj: Optional[GameObject] = None
         self._pending_land_choice_amount: int = 0
+        #: Backing state for a `pay_energy_then` `pending_choice` (Aether
+        #: Chaser-shaped "you may pay {E}{E}. If you do, …") — see
+        #: `request_pay_energy_then`/`resolve_pay_energy_then_choice`.
+        self._pending_pay_energy: Optional[dict[str, Any]] = None
         #: A replacement chain awaiting an interactive `replacement_order`
         #: choice (RULE 616.1e/f — 2+ simultaneously-applicable replacement
         #: effects), and the continuation to resume once it's answered.
@@ -209,6 +214,13 @@ class RulesEngine:
         #: here: the stack itself sequences them one resolution at a time
         #: (RULE 702.21c). Populated only while a ward choice is pending;
         #: see `resolve_ward_effect`/`resolve_ward_choice`.
+        #: The "sacrifice ~ unless you pay `<cost>`" choice currently awaiting
+        #: an answer (`request_sacrifice_unless_pay`/
+        #: `resolve_sacrifice_unless_pay_choice`) — the permanent at stake,
+        #: whose controller is being asked, and the `ActivationCost`. Only one
+        #: can be pending at a time (like every other `pending_choice`); a
+        #: second upkeep trigger simply waits its turn on the stack.
+        self._pending_sacrifice_unless_pay: Optional[dict[str, Any]] = None
         self._pending_ward_item: Optional[StackItem] = None
         self._pending_ward_caster_id: Optional[str] = None
         self._pending_ward_cost: Optional[ActivationCost] = None
@@ -430,6 +442,7 @@ class RulesEngine:
         self._collect_attacks_you_rad_counter_triggers(event)
         self._collect_temporary_player_triggers(event)
         self._collect_counter_death_return_triggers(event)
+        self._collect_mill_return_from_graveyard_triggers(event)
 
     def _collect_inherent_triggers(self, event: GameEvent) -> None:
         """RULE 725.2/726.2/728.1: the Monarch's, the Initiative's, and rad
@@ -751,6 +764,49 @@ class RulesEngine:
                 description=f"{obj.name}: {dying_obj.name} zum Ende des Zuges zurückbringen",
             )
             self.pending_triggers.append((ability, event))
+
+    def _collect_mill_return_from_graveyard_triggers(self, event: GameEvent) -> None:
+        """"Whenever an opponent mills a nonland card, if this creature is
+        in your graveyard, you may return it to your hand." (RULE 112.6a,
+        Infesting Radroach, `AbilitySpec.mill_return_from_graveyard`) — the
+        only triggered ability in this catalogue that must keep firing
+        while its own source sits in a *graveyard*, not the battlefield, so
+        it can't ride the ordinary `obj.triggered_abilities` scan
+        (`_collect_triggers` only walks `state.permanents()`); scanned here
+        instead, exactly like `_collect_counter_death_return_triggers`'s
+        own "per-firing marker" style, just over every player's graveyard
+        rather than the battlefield.
+
+        "You"/"your" (RULE 108.4: a graveyard card has no controller, only
+        an owner) is that graveyard's own player — so a player's *own* mill
+        never triggers their own graveyard-sitting Radroach; only somebody
+        else's does, matched by skipping the milling player's own graveyard
+        entirely below rather than by the usual group-subject "not_you"
+        binder machinery (this ability never goes through that pipeline at
+        all — it's built fresh per firing, like every other rad-counter
+        marker in this file).
+        """
+        if event.type != EventType.MILL_CARD:
+            return
+        milling_player_id = event.get("player_id")
+        if milling_player_id is None:
+            return
+        for player in self.state.players:
+            if player.id == milling_player_id:
+                continue
+            for obj in player.graveyard:
+                if not getattr(obj, "mill_return_from_graveyard", False):
+                    continue
+                effect = ReturnSelfFromGraveyardEffect(obj=obj, destination="hand", source=obj)
+                ability = TriggeredAbility(
+                    trigger_event=EventType.MILL_CARD,
+                    effects=[effect],
+                    optional=True,
+                    controller_id=player.id,
+                    source=obj,
+                    description=f"{obj.name}: zurück auf die Hand nehmen",
+                )
+                self.pending_triggers.append((ability, event))
 
     def put_triggers_on_stack(self) -> int:
         """Move fired triggers onto the stack (RULE 603.3). Returns count.
@@ -1498,6 +1554,132 @@ class RulesEngine:
             player = self.state.player_by_id(obj.controller_id)
             self.add_player_counters(player, amount, "rad", source=obj)
 
+    def request_pay_energy_then(
+        self, player: Player, amount: int, effect_specs: list[dict], source: Optional[GameObject]
+    ) -> None:
+        """Open the interactive "you may pay {E}×N. If you do, `<effect>`."
+        choice (RULE 122, Aether Chaser-shaped) — the resolve-time energy
+        sibling of the shock-land pay-life choice. Assumes the caller
+        (`PayEnergyThenEffect`) already checked the player can afford it."""
+        self._pending_pay_energy = {
+            "player_id": player.id,
+            "amount": int(amount),
+            "effect_specs": [dict(d) for d in effect_specs],
+            "source": source,
+        }
+        pips = "{E}" * int(amount)
+        self.state.pending_choice = {
+            "kind": "pay_energy_then",
+            "player_id": player.id,
+            "prompt": f"{pips} bezahlen?",
+            "options": [
+                {"id": "pay", "label": f"{pips} bezahlen"},
+                {"id": "decline", "label": "Nicht bezahlen"},
+            ],
+        }
+
+    def resolve_pay_energy_then_choice(self, answer: Optional[str]) -> None:
+        """Answer a pending `pay_energy_then` choice. ``answer == "pay"``
+        spends the energy and resolves the follow-up effects; anything else
+        (``None``/``"decline"``) does neither."""
+        choice = self.state.pending_choice
+        if not choice or choice.get("kind") != "pay_energy_then":
+            raise ValueError("no pending pay-energy choice to resolve")
+        self.state.pending_choice = None
+        pending = self._pending_pay_energy
+        self._pending_pay_energy = None
+        if pending is None or answer != "pay":
+            return
+        player = self.state.player_by_id(pending["player_id"])
+        amount = pending["amount"]
+        if player.counters.get("energy", 0) < amount:
+            return  # energy changed since the offer — decline by default
+        self.add_player_counters(player, -amount, "energy")
+        from .effect_binder import build_effects  # function-scoped: effects↔binder cycle
+        from ..parser.oracle.spec import EffectSpec
+
+        inner = build_effects(
+            [EffectSpec(type=d["type"], params=dict(d.get("params") or {})) for d in pending["effect_specs"]],
+            pending["source"],
+        )
+        for effect in inner:
+            effect.apply(self.context)
+
+    def request_sacrifice_unless_pay(
+        self, player: Player, cost: "ActivationCost", source: Optional[GameObject]
+    ) -> None:
+        """Open the interactive "sacrifice ``source`` unless you pay ``cost``"
+        choice (RULE 701.17 + RULE 118.3-style "unless" payment).
+
+        The single biggest remaining upkeep-trigger template — Arcades
+        Sabboth/Breeding Pit/Child of Gaea's "At the beginning of your
+        upkeep, sacrifice ~ unless you pay `<cost>`.", and (granted onto
+        another permanent) Aura Flux/Coral Net's quoted form.
+
+        Deliberately built on the *same* pay-or-lose-it machinery ward
+        already uses (`_can_pay_player_cost`/`_pay_player_cost`, generalized
+        out of `resolve_ward_effect` for exactly this) rather than a second
+        parallel one: both are "a rule asks a player for an arbitrary cost
+        mid-resolution, and something bad happens if they don't", and
+        `ActivationCost` already covers the whole real cost vocabulary these
+        cards print (mana, life, discard, sacrifice-another-permanent).
+
+        A player who *can't* pay is not asked — the permanent is sacrificed
+        outright, the same "don't stall a passive goldfish opponent on a
+        choice nobody can act on" shortcut ward and `counter_unless_pays`
+        take. As with ward, a mana component has to be paid out of the pool
+        as it stands at resolution (RULE 605.3a mana abilities during
+        resolution aren't modeled for either).
+        """
+        if source is None:
+            return
+        if not self._can_pay_player_cost(player, cost):
+            self.put_into_graveyard(source)  # RULE 701.16c: sacrifice, not destruction
+            return
+        self._pending_sacrifice_unless_pay = {
+            "player_id": player.id,
+            "cost": cost,
+            "source": source,
+        }
+        cost_label = cost.label()
+        self.state.pending_choice = {
+            "kind": "sacrifice_unless_pay",
+            "player_id": player.id,
+            "prompt": f"{cost_label} bezahlen, um {source.name} zu behalten?",
+            "options": [
+                {"id": "pay", "label": f"{cost_label} bezahlen"},
+                {"id": "decline", "label": f"{source.name} opfern"},
+            ],
+        }
+
+    def resolve_sacrifice_unless_pay_choice(self, answer: Optional[str]) -> None:
+        """Answer a pending `sacrifice_unless_pay` choice. ``answer == "pay"``
+        charges the cost and keeps the permanent; anything else sacrifices
+        it (RULE 701.17)."""
+        choice = self.state.pending_choice
+        if not choice or choice.get("kind") != "sacrifice_unless_pay":
+            raise ValueError("no pending sacrifice-unless-pay choice to resolve")
+        self.state.pending_choice = None
+        pending = self._pending_sacrifice_unless_pay
+        self._pending_sacrifice_unless_pay = None
+        if pending is None:
+            return
+        source = pending["source"]
+        try:
+            player = self.state.player_by_id(pending["player_id"])
+        except KeyError:
+            player = None
+        if answer == "pay" and player is not None:
+            # Re-check: the board can have changed between the offer and the
+            # answer (an interactive session hands control back to the UI in
+            # between), and a promise to pay we can't honour must not
+            # silently keep the permanent for free.
+            if self._can_pay_player_cost(player, pending["cost"]):
+                self._pay_player_cost(player, pending["cost"])
+                return
+        if source is not None and source in self.state.battlefield:
+            self.put_into_graveyard(source)
+
     # ------------------------------------------------------------------
     # Casting & the stack (RULE 601 / 608)
     # ------------------------------------------------------------------
@@ -2139,6 +2321,7 @@ class RulesEngine:
         self.apply_replacements(event, on_resolved=_finish)
 
     def mill(self, player: Player, count: int) -> None:
+        milled: list[GameObject] = []
         for _ in range(count):
             if not player.library:
                 break
@@ -2146,7 +2329,13 @@ class RulesEngine:
             obj.zone = Zone.GRAVEYARD
             player.graveyard.append(obj)
             self._flag_commander_zone_choice(obj)  # RULE 903.9a (rare: a commander milled from the library)
+            milled.append(obj)
         self.state.fire_event(GameEvent(EventType.MILL, player_id=player.id, count=count))
+        for obj in milled:
+            if not obj.is_land:
+                self.state.fire_event(
+                    GameEvent(EventType.MILL_CARD, player_id=player.id, instance_id=obj.instance_id)
+                )
 
     def discard(self, player: Player, count: int = 1) -> None:
         discarded = 0
@@ -2219,6 +2408,10 @@ class RulesEngine:
             source_id=source.instance_id if source is not None else None,
             source_controller_id=source.controller_id if source is not None else None,
             source_colors=tuple(getattr(source.card, "color_identity", None) or ()) if source is not None else (),
+            # Gratuitous Violence-shaped "a *creature* you control" doubling
+            # (as opposed to Furnace of Rath's unscoped "a source") needs
+            # this to tell the two apart — see `_double_damage_replacement`.
+            source_is_creature=bool(getattr(source, "is_creature", False)),
             combat=combat,
         )
 
@@ -2811,6 +3004,13 @@ class RulesEngine:
             kind=kind,
             amount=amount,
             source_controller_id=source.controller_id if source is not None else None,
+            # Recipient scoping for a "on a creature/permanent **you control**"
+            # replacement (Hardened Scales/Branching Evolution/Kami of
+            # Whispered Hopes) — the counters' *recipient*'s controller and
+            # whether it's a creature, a different axis from the causer-scoped
+            # ``source_controller_id`` above (Innkeeper's Talent).
+            recipient_controller_id=obj.controller_id,
+            recipient_is_creature=bool(getattr(obj, "is_creature", False)),
         )
 
         def _finish(resolved: Optional[GameEvent]) -> None:
@@ -2853,6 +3053,12 @@ class RulesEngine:
             amount=amount,
             is_player=True,
             source_controller_id=source.controller_id if source is not None else None,
+            # A player recipient is never a creature; scoped-"you control"
+            # counter replacements (Hardened Scales et al.) never apply to a
+            # player anyway, but carry the fields for shape-consistency with
+            # `add_counters`'s own COUNTER event.
+            recipient_controller_id=player.id,
+            recipient_is_creature=False,
         )
 
         def _finish(resolved: Optional[GameEvent]) -> None:
@@ -3416,10 +3622,73 @@ class RulesEngine:
     def gain_life(self, player: Player, amount: int) -> None:
         if amount <= 0:
             return
-        player.gain_life(amount)
-        self.state.fire_event(
-            GameEvent(EventType.LIFE_GAINED, player_id=player.id, amount=amount)
+        # RULE 119.3/616.1: a life gain is routed through `apply_replacements`
+        # first, so a "you gain that much life plus N / twice that much
+        # instead" replacement (Angel of Vitality/Boon Reflection) can
+        # rewrite the amount before any life lands — mirroring `deal_damage`/
+        # `add_counters`'s own pre-event replacement hook. With no such
+        # replacement active (the overwhelmingly common case) `_finish` runs
+        # synchronously with the unchanged amount, exactly as before.
+        event = GameEvent(EventType.LIFE_GAIN, player_id=player.id, amount=amount)
+
+        def _finish(resolved: Optional[GameEvent]) -> None:
+            if resolved is None:
+                return
+            final = int(resolved.get("amount", amount) or 0)
+            if final <= 0:
+                return
+            player.gain_life(final)
+            self.state.fire_event(
+                GameEvent(EventType.LIFE_GAINED, player_id=player.id, amount=final)
+            )
+
+        self.apply_replacements(event, on_resolved=_finish)
+
+    def prevent_damage_to_player(self, player: Player, amount: Union[int, str] = "all") -> None:
+        """RULE 615: grant ``player`` a turn-scoped damage-prevention shield
+        (Riot Control's "all", Thought Lash's repeatable "the next 1") —
+        Regenerate-shaped (a `ReplacementEffect` built and attached at
+        resolve time, not bind time), but player- rather than object-scoped:
+        it lives on `Player.player_effects` (already `_all_replacement_
+        effects`'s second collection source, see `regenerate` for the
+        permanent-scoped sibling) since nothing is being regenerated here.
+
+        ``amount="all"`` prevents every point of damage dealt to ``player``
+        for the rest of the turn and never self-removes (an "all" shield
+        has no bank to exhaust). An int opens a cumulative bank of that
+        many points, spent (possibly across several `EventType.DAMAGE`
+        events) until exhausted, then self-removes — Thought Lash's own
+        activated ability can be paid more than once a turn, each call
+        opening an *independent* shield exactly like `regenerate`'s own
+        multiple-activations-stack behaviour. Either shape is swept at
+        cleanup regardless of remaining balance (RULE 514.2 "this turn"
+        expiry) by `GameEngine._step_cleanup`'s `damage_prevention_shield`
+        marker check, mirroring the existing unused-regeneration-shield
+        sweep.
+        """
+        remaining = None if amount == "all" else int(amount)
+        effect = ReplacementEffect(
+            event_type=EventType.DAMAGE,
+            replacement_fn=lambda e, c: e,  # replaced below once `effect` exists
+            condition=lambda e, c: bool(e.get("is_player")) and e.get("target_id") == player.id,
+            description=f"{player.name}: Schadensverhinderung",
         )
+        effect.damage_prevention_shield = True
+
+        def _replace(event: GameEvent, _context: Any) -> Optional[GameEvent]:
+            nonlocal remaining
+            dealt = int(event.get("amount", 0) or 0)
+            if remaining is None:
+                return None  # "all" — every point prevented, shield persists
+            prevented = min(remaining, dealt)
+            remaining -= prevented
+            if remaining <= 0 and effect in player.player_effects:
+                player.player_effects.remove(effect)
+            new_amount = dealt - prevented
+            return event.copy_with(amount=new_amount) if new_amount > 0 else None
+
+        effect.replacement_fn = _replace
+        player.player_effects.append(effect)
 
     def become_monarch(self, player: Player) -> None:
         """RULE 725.3: ``player`` becomes the monarch; whoever held it
@@ -3670,7 +3939,7 @@ class RulesEngine:
             caster = self.state.player_by_id(caster_id)
         except KeyError:
             caster = None
-        if caster is None or not self._can_pay_ward_cost(caster, cost):
+        if caster is None or not self._can_pay_player_cost(caster, cost):
             # No real decision — countered outright, same "don't stall a
             # passive goldfish opponent on a choice nobody can act on"
             # shortcut `counter_unless_pays` uses.
@@ -3691,16 +3960,19 @@ class RulesEngine:
             ],
         }
 
-    def _can_pay_ward_cost(self, player: Player, cost: ActivationCost) -> bool:
-        """Whether ``player`` can pay a ward cost (RULE 702.21).
+    def _can_pay_player_cost(self, player: Player, cost: ActivationCost) -> bool:
+        """Whether ``player`` can pay ``cost`` out of their own resources.
 
         The same per-component affordability checks
         `GameEngine._can_pay_activation_cost` uses for an activated
         ability's cost, minus the tap/untap-source and remove-counters
         components — those are tied to a specific permanent's own state,
-        which doesn't apply here: a ward cost is always paid from the
-        caster's own resources (mana, life, hand, permanents they control),
-        never "this permanent".
+        which doesn't apply to any of the "pay this or else" costs a *rule
+        or resolving effect* asks a player for: ward (RULE 702.21), and
+        cumulative upkeep-shaped "sacrifice ~ unless you pay `<cost>`"
+        (`sacrifice_unless_pay`). Those are always paid from the player's
+        own resources (mana, life, hand, permanents they control), never
+        "this permanent".
         """
         if cost.mana.symbols and not player.mana_pool.can_pay(
             cost.mana, life_available=player.life
@@ -3717,10 +3989,10 @@ class RulesEngine:
             return False
         return True
 
-    def _pay_ward_cost(self, player: Player, cost: ActivationCost) -> None:
-        """Charge ``player`` a ward cost's components (RULE 702.21) — reuses
-        the same per-kind payment primitives `GameEngine.activate_ability`
-        charges an activated ability's cost with."""
+    def _pay_player_cost(self, player: Player, cost: ActivationCost) -> None:
+        """Charge ``player`` a cost's components — reuses the same per-kind
+        payment primitives `GameEngine.activate_ability` charges an activated
+        ability's cost with. The payment half of `_can_pay_player_cost`."""
         if cost.mana.symbols:
             life_spent = player.mana_pool.pay(cost.mana, life_available=player.life)
             self.lose_life(player, life_spent, cause="cost")
@@ -3757,7 +4029,7 @@ class RulesEngine:
             except KeyError:
                 caster = None
             if caster is not None:
-                self._pay_ward_cost(caster, cost)
+                self._pay_player_cost(caster, cost)
             return
         if item is not None:
             self.counter_spell(item)
@@ -4540,10 +4812,41 @@ class RulesEngine:
         """Put ``obj`` into its owner's graveyard (RULE 704.5), firing the
         leave/dies triggers. ``cause="sacrifice"`` additionally fires
         `EventType.SACRIFICE` (RULE 701.17) — set only by `put_into_graveyard`,
-        the single choke point every genuine sacrifice funnels through."""
+        the single choke point every genuine sacrifice funnels through.
+
+        Lurrus-shaped redirect first (RULE 616): this is the one function
+        every graveyard-bound move funnels through regardless of cause
+        (destroy, sacrifice, SBA "dies") — while `obj.cast_via_graveyard_
+        cast_permission_until_turn` still matches the current turn, exile
+        it instead of proceeding, per the permission source's own trailing
+        "if a spell cast this way would be put into a graveyard this turn,
+        exile it instead" clause (`GraveyardCastPermissionEffect.exile_
+        if_would_be_put_into_graveyard`).
+        """
+        if obj.cast_via_graveyard_cast_permission_until_turn == self.state.turn_number:
+            self.exile(obj)
+            return
         was_on_battlefield = obj in self.state.battlefield
         was_creature = obj.is_creature
         owner = self.state.player_by_id(obj.owner_id)
+
+        # RULE 616.1: a "if ~ would die, exile it instead" replacement
+        # (Gloomshrieker/Corpseweaver Prodigy) intercepts a creature's
+        # battlefield→graveyard move before any DIES trigger fires. Modeled
+        # like regeneration's shield: the matching replacement's own fn does
+        # the exile as a side effect and returns None (event consumed), so a
+        # None result here means "already redirected — don't also move it to
+        # the graveyard". Only fired for a creature actually leaving the
+        # battlefield (RULE 700.4 "dies"); every other graveyard path is
+        # untouched.
+        if was_on_battlefield and was_creature:
+            would_die = GameEvent(
+                EventType.WOULD_DIE,
+                target_id=obj.instance_id,
+                controller_id=obj.controller_id,
+            )
+            if self.apply_replacements(would_die) is None:
+                return
 
         if was_on_battlefield:
             # RULE 603.6a "look back in time": fire while `obj` is still on
@@ -4561,33 +4864,41 @@ class RulesEngine:
                     object_types=sorted(obj.type_words),
                 )
             )
-            if was_creature:
-                self.state.fire_event(
-                    GameEvent(
-                        EventType.DIES,
-                        object=obj.name,
-                        owner_id=obj.owner_id,
-                        controller_id=obj.controller_id,
-                        instance_id=obj.instance_id,
-                        object_types=sorted(obj.type_words),
-                        # Snapshotted live (before `remove_from_battlefield`
-                        # below): a "dies with a counter on it" trigger
-                        # condition (Marchesa, the Black Rose-shaped,
-                        # `_collect_counter_death_return_triggers`) needs
-                        # this off the event, not a live re-lookup — the
-                        # dying object may already be gone from the
-                        # battlefield by the time that check runs.
-                        counters=dict(obj.counters),
-                        # A tribal "another nontoken Zombie or Mutant you
-                        # control dies" subject filter (The Ghoul, Gunslinger,
-                        # `effect_binder._build_group_ok`) needs both off the
-                        # event for the same reason — the object is already
-                        # gone from the battlefield by the time that check
-                        # runs.
-                        is_token=obj.is_token,
-                        subtypes=obj.card.type_line.partition("—")[2].strip().lower().split(),
-                    )
+            # RULE 700.4: "dies" means "is put into a graveyard from the
+            # battlefield" — for *any* permanent, not just a creature
+            # (Rancor's "When this Aura dies, return it to its owner's
+            # hand.", Ashiok's Reaper's "Whenever an enchantment you control
+            # dies, …"). Every consumer that does mean creatures
+            # specifically already narrows on the event's own
+            # ``object_types`` (`effect_binder._build_group_ok`'s ``type``
+            # filter, `_collect_counter_death_return_triggers`'s explicit
+            # check), so widening the firing condition can't over-fire them.
+            self.state.fire_event(
+                GameEvent(
+                    EventType.DIES,
+                    object=obj.name,
+                    owner_id=obj.owner_id,
+                    controller_id=obj.controller_id,
+                    instance_id=obj.instance_id,
+                    object_types=sorted(obj.type_words),
+                    # Snapshotted live (before `remove_from_battlefield`
+                    # below): a "dies with a counter on it" trigger
+                    # condition (Marchesa, the Black Rose-shaped,
+                    # `_collect_counter_death_return_triggers`) needs
+                    # this off the event, not a live re-lookup — the
+                    # dying object may already be gone from the
+                    # battlefield by the time that check runs.
+                    counters=dict(obj.counters),
+                    # A tribal "another nontoken Zombie or Mutant you
+                    # control dies" subject filter (The Ghoul, Gunslinger,
+                    # `effect_binder._build_group_ok`) needs both off the
+                    # event for the same reason — the object is already
+                    # gone from the battlefield by the time that check
+                    # runs.
+                    is_token=obj.is_token,
+                    subtypes=obj.card.type_line.partition("—")[2].strip().lower().split(),
                 )
+            )
             if cause == "sacrifice":
                 # RULE 701.17: a sacrifice both leaves/dies *and* is a
                 # distinct "was sacrificed" occurrence — fire it last so a

@@ -135,6 +135,9 @@ const GROUPS = [
             items: [
               ['full', 'Ereignis-Trigger'],
               ['full', 'Subjekt-Scoping (self/another/…)'],
+              ['full', 'Gruppen-Subjekt bei Kampfschaden („eine Kreatur, die du kontrollierst")'],
+              ['full', 'Verliehene Upkeep-/Phasen-Trigger (in Zitat-Fähigkeiten)'],
+              ['full', '„Opfere ~, es sei denn, du bezahlst <Kosten>" (interaktiv)'],
               ['full', 'Zielwahl für ausgelöste Fähigkeiten'],
               ['full', 'Modale ausgelöste Fähigkeiten'],
               ['full', '„Du darfst"-Trigger'],
@@ -167,6 +170,7 @@ const GROUPS = [
               ['full', '„Exiliere, du darfst bis Zugende spielen"'],
               ['full', 'Phasing'],
               ['full', 'grant_mana_ability / grant_triggered_ability'],
+              ['full', '„Bringe ~ auf die Hand zurück" (Rancor/Flickering Ward)'],
             ],
           },
           {
@@ -177,8 +181,10 @@ const GROUPS = [
               ['full', 'Layer 2 — Kontrollwechsel'],
               ['full', 'Layer 3 — Textänderung (eingegrenzt) & Abhängigkeits-Ordnung'],
               ['full', 'Layer 4 — Typänderung'],
+              ['full', 'Layer 4 — gewählter Typ auch außerhalb des Schlachtfelds (613.4a)'],
               ['full', 'Layer 5 — Farbwechsel'],
               ['full', 'Layer 6 — Fähigkeiten verleihen'],
+              ['full', 'Layer 6 — dauerhaft verliehener Schutz (702.16)'],
               ['full', 'Layer 7 — Stärke/Widerstandskraft (a–e)'],
               ['full', 'Zeitstempel-Ordnung'],
               ['full', 'Kostenanpassung (kein Layer)'],

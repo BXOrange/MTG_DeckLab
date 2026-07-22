@@ -65,15 +65,52 @@ def may_play_land_from_top_of_library(player: "Player", state: "GameState") -> b
     return any(g.play_lands for g in active_top_library_grants(player, state))
 
 
+def _grant_permits_cast(grant: TopLibraryPermissionEffect, card: "Card") -> bool:
+    """Whether a single ``grant`` — already known active — permits casting
+    ``card`` from the top: the shared ``cast_spells``/``min_mana_value``/
+    ``noncreature_only`` gate every consumer below checks identically."""
+    if not grant.cast_spells:
+        return False
+    if grant.min_mana_value is not None and card.converted_mana_cost < grant.min_mana_value:
+        return False
+    if grant.noncreature_only and getattr(card, "is_creature", False):
+        return False
+    return True
+
+
 def may_cast_spell_from_top_of_library(player: "Player", state: "GameState", card: "Card") -> bool:
     """Whether ``card`` — the top card, a non-land spell — is castable from
     there right now. Multiple simultaneous grants OR together: a spell is
-    castable if *any* active grant's ``min_mana_value`` gate (or lack of
-    one) allows it (RULE 702-style "mana value N or greater", e.g. Glarb),
+    castable if *any* active grant's ``min_mana_value``/``noncreature_only``
+    gate (or lack of one) allows it (RULE 702-style "mana value N or
+    greater", e.g. Glarb; "noncreature spells", e.g. Elsha of the Infinite),
     never the intersection of every grant's own filter.
     """
-    mv = card.converted_mana_cost
+    return any(_grant_permits_cast(g, card) for g in active_top_library_grants(player, state))
+
+
+def may_cast_flash_from_top_of_library(player: "Player", state: "GameState", card: "Card") -> bool:
+    """Whether ``card`` may be cast from the top of the library as though it
+    had flash (Elsha of the Infinite's own conditional tail, RULE 702.8b) —
+    true when some grant that actually permits casting ``card`` this way
+    also carries ``grants_flash``.
+    """
     return any(
-        g.cast_spells and (g.min_mana_value is None or mv >= g.min_mana_value)
+        g.grants_flash and _grant_permits_cast(g, card)
+        for g in active_top_library_grants(player, state)
+    )
+
+
+def top_library_life_payment_required(player: "Player", state: "GameState", card: "Card") -> bool:
+    """Whether casting ``card`` from the top of the library this way pays
+    life equal to its mana value *instead of* its mana cost (Bolas's
+    Citadel's own conditional tail) — a mandatory substitution, not an
+    optional alternative, so this is consulted automatically by
+    `GameEngine.can_cast`/`_cast_current_face` rather than through a
+    caller-supplied flag (unlike Kicker/Buyback/the RULE 601.2f free-cast
+    condition, which the caller opts into).
+    """
+    return any(
+        g.life_payment and _grant_permits_cast(g, card)
         for g in active_top_library_grants(player, state)
     )

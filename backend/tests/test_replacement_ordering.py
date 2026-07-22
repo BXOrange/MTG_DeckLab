@@ -198,7 +198,11 @@ def test_damage_adder_then_doubler_gives_a_different_total():
     assert p2.life == 20 - 14
 
 
-def test_gratuitous_violence_only_doubles_your_own_combat_damage():
+def test_gratuitous_violence_only_doubles_your_own_creature_damage():
+    # RULE 616.1: the real printed text ("if a creature you control would
+    # deal damage...") has no "combat" restriction at all — any damage
+    # (combat or not) from a creature you control is doubled; a non-creature
+    # source you control, or anyone's damage you don't control, isn't.
     eng = make_engine()
     state = eng.state
     _bound(state, "Gratuitous Violence")
@@ -215,7 +219,20 @@ def test_gratuitous_violence_only_doubles_your_own_combat_damage():
     assert state.pending_choice is None
     assert p2.life == 20 - 6
 
-    # Non-combat damage from the same creature: untouched.
+    # Non-combat damage from the same creature (e.g. a damage-dealing
+    # activated/triggered ability): also doubled — no "combat" restriction.
     p2.life = 20
     eng.rules.deal_damage(p2, 3, source=attacker, combat=False)
+    assert p2.life == 20 - 6
+
+    # A non-creature permanent you control (an artifact source): untouched
+    # — `creature_only` is the whole reason this differs from Furnace of
+    # Rath's unscoped version.
+    artifact = GameObject(
+        Card(id="art", name="Artifact Pinger", type_line="Artifact"),
+        owner_id="p1", zone=Zone.BATTLEFIELD,
+    )
+    state.add_to_battlefield(artifact)
+    p2.life = 20
+    eng.rules.deal_damage(p2, 3, source=artifact, combat=False)
     assert p2.life == 20 - 3

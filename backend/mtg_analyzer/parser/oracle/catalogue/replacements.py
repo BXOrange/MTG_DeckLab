@@ -3,19 +3,21 @@
 "if X would Y, Z instead" sentence, docs/09's Phase 1 "static-shaped"
 family. The binder side (`game/effects.py`'s `ReplacementRegistry`) has
 long supported `prevent_damage`/`double_damage`/`additional_damage`/
-`double_counters`/`double_tokens`; this module supplies the missing
-*recognition* half for three of those five — the ones with a single, fixed
-real-card phrasing (Doubling Season/Anointed Procession's token- and
-counter-doubling lines, Torbran/Mechanized Warfare's "plus N damage"
-line). `prevent_damage`'s real cards (Riot Control/Thought Lash) are a
-different, *one-shot spell effect* shape ("Prevent all/the next N damage
-that would be dealt to you this turn" grants a temporary shield, it isn't
-itself a standing permanent ability) and aren't covered here.
+`double_counters`/`double_tokens`; this module supplies the *recognition*
+half for four of those five — the ones with a single, fixed real-card
+phrasing (Doubling Season/Anointed Procession's token- and
+counter-doubling lines, Torbran/Mechanized Warfare's "plus N damage" line,
+and Furnace of Rath/Dictate of the Twin Gods/Gratuitous Violence/Fiery
+Emancipation's damage-multiplying lines below). `prevent_damage`'s real
+cards (Riot Control/Thought Lash) are a different, *one-shot spell effect*
+shape ("Prevent all/the next N damage that would be dealt to you this
+turn" grants a temporary shield, it isn't itself a standing permanent
+ability) and aren't covered here.
 
 RULE 616.1's full "if X would Y, Z instead" grammar has many more real
-formulations (target/duration variants) than these three fixed sentences —
-deliberately not attempted here; see `backend/ToDo_Backend.md` "Rules
-Engine" for the open scope.
+formulations (further target/duration variants) than the ones covered so
+far — deliberately not attempted exhaustively here; see
+`backend/ToDo_Backend.md` "Rules Engine" for the remaining open scope.
 
 Pure regex + data — **no `game/` imports** (front-end security boundary).
 """
@@ -77,6 +79,82 @@ _ADDITIONAL_DAMAGE_RE = re.compile(
 )
 
 
+#: Furnace of Rath/Dictate of the Twin Gods's unscoped damage-doubling line
+#: ("a source" — no controller restriction at all).
+_DOUBLE_DAMAGE_ANY_SOURCE_RE = re.compile(
+    r"if a source would deal damage to a permanent or player, "
+    r"it deals double that damage to that permanent or player instead",
+    re.IGNORECASE,
+)
+#: Gratuitous Violence's own, narrower line: "a *creature* you control" —
+#: no "combat" qualifier despite the card's own flavor, and note the tail
+#: doesn't repeat "to that permanent or player" the way the two above do.
+_DOUBLE_DAMAGE_YOUR_CREATURE_RE = re.compile(
+    r"if a creature you control would deal damage to a permanent or player, "
+    r"it deals double that damage instead",
+    re.IGNORECASE,
+)
+#: Fiery Emancipation's "triple" sibling of the unscoped line above, scoped
+#: to "a source *you control*" (any permanent, not creature-only).
+_TRIPLE_DAMAGE_YOUR_SOURCE_RE = re.compile(
+    r"if a source you control would deal damage to a permanent or player, "
+    r"it deals triple that damage to that permanent or player instead",
+    re.IGNORECASE,
+)
+
+
+#: Life-gain replacement, "if you would gain life, ... instead" (RULE
+#: 119.3/616.1). Two real shapes: additive "that much life plus N" (Angel of
+#: Vitality) and multiplicative "twice that much life" (Boon Reflection/
+#: Alhammarret's Archive/Rhox Faithmender). Always self-scoped ("if **you**
+#: would gain life") — every real card is a permanent whose controller is
+#: the gaining player, so the engine's `_gain_life_replacement` reads the
+#: `LIFE_GAIN` event's `player_id` against the effect's own controller.
+_GAIN_LIFE_PLUS_RE = re.compile(
+    r"if you would gain life, you gain that much life plus (?P<n>\d+) instead",
+    re.IGNORECASE,
+)
+_GAIN_LIFE_DOUBLE_RE = re.compile(
+    r"if you would gain life, you gain twice that much life instead",
+    re.IGNORECASE,
+)
+
+#: "+1/+1 counters on a creature/permanent you control" replacement (RULE
+#: 616.1) — the recipient-scoped counter family, distinct from Doubling
+#: Season's unscoped `_DOUBLE_COUNTERS_RE` above. Additive "that many plus N"
+#: (Hardened Scales/Conclave Mentor for a creature, Kami of Whispered Hopes
+#: for any permanent) or multiplicative "twice that many" (Branching
+#: Evolution/Corpsejack Menace). The recipient noun in the tail
+#: ("it"/"that creature"/"that permanent") is along for the ride.
+_COUNTERS_YOU_CONTROL_PLUS_RE = re.compile(
+    r"if 1 or more \+1/\+1 counters would be put on a (?P<who>creature|permanent) you control, "
+    r"that many plus (?P<n>\d+) \+1/\+1 counters are put on (?:it|that (?:creature|permanent)) instead",
+    re.IGNORECASE,
+)
+_COUNTERS_YOU_CONTROL_DOUBLE_RE = re.compile(
+    r"if 1 or more \+1/\+1 counters would be put on a (?P<who>creature|permanent) you control, "
+    r"twice that many \+1/\+1 counters are put on (?:it|that (?:creature|permanent)) instead",
+    re.IGNORECASE,
+)
+
+#: "If ~ would die, exile it instead" (RULE 616.1) — a creature's
+#: battlefield→graveyard move redirected to exile. ``subject`` scopes it:
+#: "this creature"/"~" (Gloomshrieker — self), "a creature you control", "a
+#: creature an opponent controls" (Corpseweaver Prodigy), or a bare "a
+#: creature" (any). The trailing referent ("it") is along for the ride.
+_DIE_TO_EXILE_RE = re.compile(
+    r"if (?P<subject>this creature|~|a creature you control|"
+    r"a creature an opponent controls|a creature) would die, exile it instead",
+    re.IGNORECASE,
+)
+_DIE_SUBJECT_MAP = {
+    "this creature": "self",
+    "~": "self",
+    "a creature you control": "you_control",
+    "a creature an opponent controls": "opponents_control",
+    "a creature": "any",
+}
+
 #: The alternative-win-condition family (Jace, Wielder of Mysteries/
 #: Laboratory Maniac-shaped, RULE 104.3a/120-adjacent) — "If you would draw
 #: a card while your library has no cards in it, you win the game instead."
@@ -128,5 +206,37 @@ def replacement_clause_specs(clause: str) -> Optional[list[EffectSpec]]:
 
     if _WIN_INSTEAD_OF_EMPTY_DRAW_RE.fullmatch(text):
         return [EffectSpec("win_instead_of_empty_draw", {})]
+
+    if _DOUBLE_DAMAGE_ANY_SOURCE_RE.fullmatch(text):
+        return [EffectSpec("double_damage", {})]
+
+    if _DOUBLE_DAMAGE_YOUR_CREATURE_RE.fullmatch(text):
+        return [EffectSpec("double_damage", {"creature_only": True, "your_sources_only": True})]
+
+    if _TRIPLE_DAMAGE_YOUR_SOURCE_RE.fullmatch(text):
+        return [EffectSpec("double_damage", {"multiplier": 3, "your_sources_only": True})]
+
+    m = _GAIN_LIFE_PLUS_RE.fullmatch(text)
+    if m is not None:
+        return [EffectSpec("gain_life_replacement", {"plus": int(m.group("n"))})]
+
+    if _GAIN_LIFE_DOUBLE_RE.fullmatch(text):
+        return [EffectSpec("gain_life_replacement", {})]  # multiplier defaults to 2
+
+    m = _COUNTERS_YOU_CONTROL_PLUS_RE.fullmatch(text)
+    if m is not None:
+        recipient = "creature_you_control" if m.group("who") == "creature" else "permanent_you_control"
+        return [EffectSpec("double_counters", {
+            "kind": "+1/+1", "plus": int(m.group("n")), "recipient": recipient,
+        })]
+
+    m = _COUNTERS_YOU_CONTROL_DOUBLE_RE.fullmatch(text)
+    if m is not None:
+        recipient = "creature_you_control" if m.group("who") == "creature" else "permanent_you_control"
+        return [EffectSpec("double_counters", {"kind": "+1/+1", "recipient": recipient})]
+
+    m = _DIE_TO_EXILE_RE.fullmatch(text)
+    if m is not None:
+        return [EffectSpec("die_to_exile", {"subject": _DIE_SUBJECT_MAP[m.group("subject").lower()]})]
 
     return None

@@ -300,9 +300,9 @@ every field it reads, `parser/oracle/gate.py`) since it's called once per
 on every copy/every game. `parser/oracle/processing_list.py` tracks
 cache-wide coverage and ranks the next handlers worth building. The cache is
 now bulk-loaded with the **full ~34k-card Oracle universe**
-(`scripts/import_bulk.py`), so coverage is measured against that: **24.3%
-covered (8,328 / 34,209) as of 2026-07-21, PARSER_VERSION 22** (parser-`MODELED` **or**
-hand-`AUTHORED`; the old 24.4% was over only the ~2,900-card curated cache).
+(`scripts/import_bulk.py`), so coverage is measured against that: **25.2%
+covered (8,633 / 34,209) as of 2026-07-22, PARSER_VERSION 27** (parser-`MODELED` **or**
+hand-`AUTHORED`).
 Re-measure with `scripts/coverage_report.py` (ledger-backed — see
 `services/coverage_db.py`) before trusting this number; Batches 1–10 are all
 shipped, and the deferred backlog + long-tail strategy are merged into
@@ -313,19 +313,85 @@ implemented; the gate classifies any card mentioning "sticker" as
 `UNMODELED` kept out of both the "covered" count and the processing-list
 backlog ranking.
 
+A **replacement-effects batch** closed most of the open RULE 616.1 backlog:
+`prevent_damage`'s one-shot spell shield (Riot Control/Thought Lash —
+`PreventDamageEffect`/`RulesEngine.prevent_damage_to_player`, a turn-scoped
+`ReplacementEffect` on `Player.player_effects` rather than a permanent's own,
+since nothing is being regenerated); the damage-multiplying family gaining
+oracle-text recognition (Furnace of Rath/Dictate of the Twin Gods's unscoped
+"double", Fiery Emancipation's "triple", Gratuitous Violence's own
+creature-scoped phrasing — `_double_damage_replacement`'s new `multiplier`/
+`creature_only` params, also fixing a latent bug where the hand-authored
+Gratuitous Violence entry wrongly required combat damage); and Lurrus of the
+Dream-Den's own trailing "exile instead of graveyard" clause
+(`GraveyardCastPermissionEffect.exile_if_would_be_put_into_graveyard`,
+redirecting at `RulesEngine._move_to_graveyard` — the one choke point every
+graveyard-bound move funnels through, regardless of cause). The same batch
+also added two RULE 605.3a mana-spend-restriction kinds (`chosen_type_spell`
+— Cavern of Souls/Unclaimed Territory, resolved per-instance off the land's
+own chosen creature type at tap time; `mana_value_or_x_spell` — Helga/
+Troyan) and RULE 122 energy's `{E}` activated-ability cost pips
+(`ActivationCost.pay_energy`). A **follow-up batch** then closed the rest of
+that ToDo section: more RULE 616.1 replacement families — life-gain rewrite
+(Angel of Vitality/Boon Reflection, `gain_life_replacement` on a new
+`EventType.LIFE_GAIN`), recipient-scoped +1/+1 counter replacement (Hardened
+Scales additive / Branching Evolution double / Kami permanent-scoped,
+`_double_counters_replacement`'s `plus`/`multiplier`/`recipient` params),
+and "if ~ would die, exile it instead" (Gloomshrieker/Corpseweaver Prodigy,
+`die_to_exile` on a new `EventType.WOULD_DIE`); **Throne of Eldraine** fully
+MODELED (chosen-colour mana production `ManaAbility.color_selector`, the
+`monocolored_spell`-of-chosen-colour restriction, and its second ability's
+colour-locked cost `ActivationCost.spend_only_chosen_color`); and energy's
+resolve-time optional "you may pay {E}{E}. If you do, `<effect>`." (Aether
+Chaser, `pay_energy_then`/interactive `request_pay_energy_then` choice) plus
+"you get {E}" production (`get_energy`).
+
+A **triggers/grants batch** then closed that whole ToDo section (seven
+items, +238 cards): RULE 603.1 **group-subject damage triggers** ("whenever
+a creature you control deals combat damage to a player" — needed DAMAGE's
+own `source_controller_id`/`source_id` keys threaded into
+`effect_binder._build_group_ok`, whose object lookup had been hard-coded to
+`instance_id`); **"Sacrifice ~ unless you pay `<cost>`."** (RULE 701.17, the
+biggest remaining upkeep-trigger template) as a real interactive
+pay-or-lose-it `pending_choice`, deliberately built on **ward's** existing
+machinery — `_can_pay_ward_cost`/`_pay_ward_cost` were never ward-specific,
+so they were renamed `_can_pay_player_cost`/`_pay_player_cost` and shared
+rather than duplicated; **quoted granted phase/upkeep triggers** (RULE 500.7
+`STEP_BEGIN` grants, with `phase_relation` resolved against the *granted-to*
+permanent's controller — Commander's Authority/Clawing Torment); **Aura
+lifecycle triggers** — RULE 700.4's long "is put into a graveyard from the
+battlefield" folded to "dies" in `normalize`, which exposed a real engine
+bug (`_move_to_graveyard` fired `EventType.DIES` for *creatures only*, so a
+dying Aura/enchantment/land was invisible to every dies-trigger) — plus
+`ReturnToHandEffect`'s self form (Rancor/Flickering Ward); **standing
+granted protection** (RULE 702.16 as a genuine layer-6 concept,
+`grant_protection_static`/`GameObject._granted_protections`, the
+continuously-re-derived sibling of the resolve-time `temp_protections`
+grant — Hungry Lynx/Righteous War/Absolute Grace/Voice of All);
+**type grants past the battlefield** (RULE 613.4a — `continuous.
+_apply_off_battlefield_types`, a dedicated pass over the controller's
+non-battlefield zones + their spells on the stack, for Arcane Adaptation/
+Leyline of Transformation/Ashes of the Fallen, alongside the battlefield
+half for Xenograft/Realmwright/Lifecraft Engine); and **quoted
+mana-ability grants** ("Elves you control have '{T}: Add {B}.'" — recognized
+directly by `static_handlers._granted_mana_options`, since a plain mana
+ability is claimed-*without*-a-spec by the segmenter and the nested parse
+has nothing to re-emit).
+
 **Notable gaps** (see `backend/ToDo_Backend.md` for the full list with exact
 scope on each): a kicked spell's "if kicked, ... instead" *override* conditional (as opposed to the
-additional-effect shape already shipped); the remaining RULE 616.1
-replacement-clause formulations (`prevent_damage`'s one-shot-spell shape,
-differently-scoped/compound-filter variants); "search library and/or
+additional-effect shape already shipped); "search library and/or
 graveyard" (Doomsday/Finale of Devastation — needs a `request_search`
 engine extension, not just parsing); wiring the interactive priority
 primitive into the multiplayer session/WebSocket; battles/dungeons; and the
 narrower already-shipped-feature rough edges (e.g. re-validating an
 *existing* attachment's legality every SBA pass, not just on the host
 leaving; combining interactive trigger-ordering with a targeted trigger;
-bespoke *conditional* transform triggers like Delver of Secrets) — all now
-tracked in that same file rather than split across siblings.
+bespoke *conditional* transform triggers like Delver of Secrets;
+non-creature group scopes for the anthem/grant families, which keeps
+"Other enchantments have '…'"-shaped cards closed even though the layer
+engine's selectors are ready) — all now tracked in that same file rather
+than split across siblings.
 
 Hand-authoring a card's abilities directly (rather than waiting on the
 oracle-effect front-end, or for a replacement-clause/conditional-trigger the

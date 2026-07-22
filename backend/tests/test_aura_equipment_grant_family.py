@@ -11,9 +11,26 @@ full-ability-grant family.
   Gauntlet/Candlestick-shaped) — the quoted body is recursively parsed as an
   ordinary ability line (`segmenter.segment_line`) and, when it comes back a
   plain self-scoped trigger on ENTERS_BATTLEFIELD/DIES/ATTACKS/BLOCKS,
-  wrapped as a `grant_triggered_ability`. A DAMAGE/phase-scoped trigger
-  inside the quotes must still stay unclaimed (fail-closed — a pre-existing
-  controller-scoped phase-trigger gap, not special to grants).
+  wrapped as a `grant_triggered_ability`. DAMAGE followed later; the
+  RULE 500.7 **phase**-scoped trigger ("… has 'At the beginning of your
+  upkeep, …'" — Commander's Authority/Clawing Torment/Aura Flux) followed
+  after that, and is the one grantable event with no object subject at all:
+  what makes it safe to regrant is threading the segmenter's
+  ``phase_relation`` through to `continuous._granted_trigger_condition`,
+  which resolves "your" against the **granted-to** permanent's controller.
+  The un-scoped "at the beginning of *each* upkeep" form stays unclaimed.
+* A quoted **mana**-ability grant ("Elves you control have '`{T}`: Add
+  `{B}`.'" — Tyvar Kell; "Enchanted land has '`{T}`: Add 1 mana of any
+  color.'" — Abundant Growth) can't go through the recursive
+  `segment_line` parse at all: a plain top-level mana ability is
+  claimed-*without*-a-spec by the segmenter (mana production is recognized
+  directly off printed text by `game/mana_abilities.py`, not via the
+  `EffectRegistry` pipeline), so the nested parse returns nothing to
+  re-emit. `static_handlers._granted_mana_options` recognizes the bare
+  "`{T}`: Add `<mana>`" body itself and emits the existing
+  `grant_mana_ability` primitive. `{T}`-only: any other cost component
+  ("`{T}`, Sacrifice a creature: …") isn't expressible as a bare production
+  list and stays unclaimed.
 * A quoted **activated**-ability grant (Umbral Mantle/Squirrel Nest-shaped
   "`<host>` has '`{cost}`: `<effect>`.'") was fail-closed as of Batch 3
   (needed a real "grant an activated ability" engine primitive that didn't
@@ -273,12 +290,31 @@ def test_quoted_damage_trigger_grant_is_modeled():
     assert result.unclaimed == []
 
 
-def test_quoted_upkeep_trigger_grant_stays_unclaimed():
-    # Fail-closed: controller-scoped phase triggers ("at the beginning of
-    # your end step") are a pre-existing gap for even a top-level card.
+def test_quoted_phase_trigger_grant_is_modeled():
+    # Was fail-closed until the phase/upkeep grant shipped: a RULE 500.7
+    # `STEP_BEGIN` trigger has no object subject to re-scope, so the grant
+    # threads the segmenter's `phase_relation` through instead and
+    # `continuous._granted_trigger_condition` resolves "your" against the
+    # *granted-to* permanent's controller (see `test_phase_and_damage_
+    # triggers.py`, which owns this family).
     card = _aura(
         "Cement Shoes",
         'Equipped creature gets +3/+3 and has "at the beginning of your end '
+        'step, tap ~."\nEquip {2}',
+        type_line="Artifact — Equipment",
+    )
+    result = parse_oracle(card)
+    assert result.coverage != UNMODELED
+    assert result.unclaimed == []
+
+
+def test_quoted_unscoped_phase_trigger_grant_stays_unclaimed():
+    # Fail-closed: "at the beginning of *each* upkeep" carries no
+    # `phase_relation`, so a regranted copy would have no way to say whose
+    # upkeep it means — only the "your"/"each opponent's" forms are claimed.
+    card = _aura(
+        "Cement Boots",
+        'Equipped creature gets +3/+3 and has "at the beginning of each end '
         'step, tap ~."\nEquip {2}',
         type_line="Artifact — Equipment",
     )
@@ -405,3 +441,134 @@ def test_quoted_trigger_grant_disappears_once_unattached():
     aura.attached_to = None
     continuous.recompute(state)
     assert len(host._granted_triggered_abilities) == 0
+
+
+# -- granted mana abilities (RULE 613.7f, `grant_mana_ability`) ---------------
+
+
+def test_quoted_mana_ability_grant_is_modeled():
+    card = _aura(
+        "Abundant Growth",
+        'Enchant land\nWhen this Aura enters, draw a card.\n'
+        'Enchanted land has "{T}: Add one mana of any color."',
+    )
+    result = parse_oracle(card)
+    assert result.coverage != UNMODELED
+    assert result.unclaimed == []
+
+
+def test_quoted_mana_ability_grant_with_a_second_cost_component_stays_unclaimed():
+    # Animal Boneyard-shaped: "{T}, Sacrifice a creature: …" isn't a bare
+    # production list, so the whole clause fails closed.
+    card = _aura(
+        "Animal Boneyard Clone",
+        'Enchant land\nEnchanted land has "{T}, Sacrifice a creature: Add {G}."',
+    )
+    assert parse_oracle(card).coverage == UNMODELED
+
+
+def test_granted_fixed_pip_mana_ability_reaches_mana_options():
+    from mtg_analyzer.game import mana_abilities
+
+    engine, state, p1, p2 = _rules()
+    elf = _bf(state, _creature("Llanowar Elf"), controller="p1")
+    elf.card.type_line = "Creature — Elf Druid"
+    lord = _bf(
+        state,
+        _aura(
+            "Tyvar Clone",
+            'Elves you control have "{T}: Add {B}."',
+            type_line="Legendary Planeswalker — Tyvar",
+        ),
+        controller="p1",
+    )
+    continuous.recompute(state)
+
+    assert elf.granted_mana_options == [{"B": 1}]
+    assert {"B": 1} in mana_abilities.mana_options_for(elf, state)
+
+    # RULE 613.6: the grant disappears on its own once its source leaves.
+    state.battlefield.remove(lord)
+    continuous.recompute(state)
+    assert elf.granted_mana_options == []
+
+
+def test_granted_any_color_mana_ability_fans_out_to_one_option_per_colour():
+    engine, state, p1, p2 = _rules()
+    land = _bf(state, _aura("Forest", "", type_line="Basic Land — Forest"), controller="p1")
+    aura = _bf(
+        state,
+        _aura(
+            "Abundant Growth",
+            'Enchant land\nEnchanted land has "{T}: Add one mana of any color."',
+        ),
+        controller="p1",
+    )
+    aura.attached_to = land.instance_id
+    continuous.recompute(state)
+
+    assert land.granted_mana_options == [
+        {"W": 1}, {"U": 1}, {"B": 1}, {"R": 1}, {"G": 1}
+    ]
+
+
+# -- granted phase/upkeep triggers (RULE 500.7) -------------------------------
+
+
+def _upkeep(state, engine):
+    from mtg_analyzer.models.events import EventType, GameEvent
+
+    state.fire_event(GameEvent(EventType.STEP_BEGIN, step="upkeep", phase="beginning"))
+    return engine.put_triggers_on_stack()
+
+
+def test_granted_upkeep_trigger_fires_on_the_hosts_own_controllers_upkeep():
+    engine, state, p1, p2 = _rules()
+    host = _bf(state, _creature("Bear"), controller="p2")
+    aura = _bf(
+        state,
+        _aura(
+            "Clawing Torment",
+            'Enchant artifact or creature\n'
+            'Enchanted permanent has "At the beginning of your upkeep, you lose 1 life."',
+        ),
+        controller="p1",
+    )
+    aura.attached_to = host.instance_id
+    continuous.recompute(state)
+
+    # "your" is the *enchanted permanent's* controller (p2), not the Aura's
+    # (p1) — that's the whole point of Clawing Torment.
+    state.active_player_index = 0  # p1's turn
+    assert _upkeep(state, engine) == 0
+
+    state.active_player_index = 1  # p2's turn
+    assert _upkeep(state, engine) == 1
+    engine.resolve_top_of_stack()
+    assert p2.life == 19
+    assert p1.life == 20
+
+
+def test_granted_upkeep_trigger_fires_once_per_affected_permanent():
+    engine, state, p1, p2 = _rules()
+    one = _bf(state, _creature("Bear One"), controller="p1")
+    two = _bf(state, _creature("Bear Two"), controller="p1")
+    lord = _bf(
+        state,
+        _aura(
+            "Upkeep Lord",
+            'Other creatures you control have "At the beginning of your upkeep, you lose 1 life."',
+            type_line="Creature — Bear",
+        ),
+        controller="p1",
+    )
+    continuous.recompute(state)
+
+    # "Other" — the granting creature itself is excluded, so exactly the two
+    # others each get their own copy of the ability, and both fire.
+    assert len(one._granted_triggered_abilities) == 1
+    assert len(two._granted_triggered_abilities) == 1
+    assert len(lord._granted_triggered_abilities) == 0
+
+    state.active_player_index = 0
+    assert _upkeep(state, engine) == 2

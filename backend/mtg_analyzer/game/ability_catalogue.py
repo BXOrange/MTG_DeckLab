@@ -518,27 +518,53 @@ register("Furnace of Rath", _furnace_of_rath)
 
 
 def _gratuitous_violence() -> list[AbilitySpec]:
-    """If a source you control would deal combat damage to a permanent or
+    """If a creature you control would deal damage to a permanent or
     player, it deals double that damage to that permanent or player
     instead.
 
-    — Gratuitous Violence. `double_damage` scoped to ``combat_only`` +
+    — Gratuitous Violence. `double_damage` scoped to ``creature_only`` +
     ``your_sources_only`` — narrower than Furnace of Rath's unscoped
-    version (noncombat burn spells, and an opponent's combat damage, are
-    both untouched).
+    version (a non-creature source you control, e.g. a burn spell or an
+    artifact, is untouched), but *not* combat-restricted despite the name —
+    the real printed text has no "combat" qualifier at all, unlike what an
+    earlier version of this entry assumed.
     """
     return [
         AbilitySpec(
             "replacement",
-            [EffectSpec("double_damage", {"combat_only": True, "your_sources_only": True})],
-            raw_text="Falls eine Quelle, die du kontrollierst, einer bleibenden Karte "
-                     "oder einem Spieler Kampfschaden zufügen würde, fügt sie "
-                     "stattdessen doppelt so viel Schaden zu.",
+            [EffectSpec("double_damage", {"creature_only": True, "your_sources_only": True})],
+            raw_text="Falls eine Kreatur, die du kontrollierst, einer bleibenden Karte "
+                     "oder einem Spieler Schaden zufügen würde, fügt sie stattdessen "
+                     "doppelt so viel Schaden zu.",
         )
     ]
 
 
 register("Gratuitous Violence", _gratuitous_violence)
+
+
+def _fiery_emancipation() -> list[AbilitySpec]:
+    """If a source you control would deal damage to a permanent or player,
+    it deals triple that damage to that permanent or player instead.
+
+    — Fiery Emancipation. `double_damage` with ``multiplier=3`` +
+    ``your_sources_only`` — the RULE 616.1 "triple" sibling of Furnace of
+    Rath's unscoped "double" and Torbran's flat "+2"; stacking multiple
+    multiplicative/additive damage replacements is exactly the ordering
+    case `_furnace_of_rath`'s own docstring calls out.
+    """
+    return [
+        AbilitySpec(
+            "replacement",
+            [EffectSpec("double_damage", {"multiplier": 3, "your_sources_only": True})],
+            raw_text="Falls eine Quelle, die du kontrollierst, einer bleibenden Karte "
+                     "oder einem Spieler Schaden zufügen würde, fügt sie stattdessen "
+                     "dreifach so viel Schaden zu.",
+        )
+    ]
+
+
+register("Fiery Emancipation", _fiery_emancipation)
 
 
 def _torbran_thane_of_red_fell() -> list[AbilitySpec]:
@@ -651,18 +677,24 @@ def _lurrus_of_the_dream_den() -> list[AbilitySpec]:
     ``max_mana_value`` gate needs stating. Companion (RULE 702.139, a
     deck-construction legality rule checked at deckbuilding time, not a
     runtime game effect) isn't modeled — out of the game engine's scope,
-    same as every other Companion card. Deliberately does **not** model "if
-    a spell cast this way would be put into a graveyard this turn, exile it
-    instead" — a separate RULE 616 replacement-effect clause, open in
-    `backend/ToDo_Backend.md`.
+    same as every other Companion card. "If a spell cast this way would be
+    put into a graveyard this turn, exile it instead" *is* now modeled via
+    ``exile_if_would_be_put_into_graveyard`` — see
+    `GraveyardCastPermissionEffect`'s own docstring for the mechanism
+    (`GameObject.cast_via_graveyard_cast_permission_until_turn` +
+    `RulesEngine._move_to_graveyard`'s redirect).
     """
     return [
         AbilitySpec(
             "static",
-            [EffectSpec("graveyard_cast_permission", {"max_mana_value": 2})],
+            [EffectSpec("graveyard_cast_permission", {
+                "max_mana_value": 2, "exile_if_would_be_put_into_graveyard": True,
+            })],
             raw_text="Einmal während jedes deiner Züge darfst du einen "
                      "permanenten Zauberspruch mit Manawert 2 oder weniger "
-                     "aus deinem Friedhof wirken.",
+                     "aus deinem Friedhof wirken. Falls ein auf diese Weise "
+                     "gewirkter Zauberspruch in diesem Zug auf einen "
+                     "Friedhof gelegt werden würde, exiliere ihn stattdessen.",
         )
     ]
 
@@ -4017,11 +4049,19 @@ register("Meek Attack", _meek_attack)
 # oracle-text parser has no such per-firing grammar; see
 # `AbilitySpec.rad_counters_on_combat_damage`, `RulesEngine._collect_rad_
 # counter_damage_triggers`, `game/effects.py`'s `AddPlayerCountersEffect`).
-# Only this one clause is hand-authored per card below; each card's other,
-# unrelated ability (a "whenever a player mills a nonland card, ..." trigger
-# family this engine doesn't model at all yet) is left unmodeled — printed
-# RULE 702 keywords (Deathtouch/Flying) are still picked up automatically
-# regardless of registration (`specs_for`'s unconditional keyword fold-in).
+# Each card's *other*, unrelated ability is a "whenever a player/an opponent
+# mills a nonland card, ..."/"whenever one or more nonland cards are milled,
+# ..." trigger (RULE 701.13) — now modeled too, off `EventType.MILL_CARD`
+# (`RulesEngine.mill`, fired once per nonland card, never for a land) and its
+# `effect_binder`-level "group" subject scoping, the same generic machinery
+# `LIBRARY_SEARCHED`'s "an opponent searches" trigger already uses. Both
+# clauses are hand-authored per card below — a 3-card family, same "narrow,
+# real-card-driven" bar the oracle-text parser front-end itself uses before
+# it's worth generalizing a whole new segmenter grammar for one, rather than
+# building genuine parser recognition — so printed RULE 702 keywords
+# (Deathtouch/Flying) are still picked up automatically regardless of
+# registration (`specs_for`'s unconditional keyword fold-in), but nothing
+# else on these cards falls through to the oracle-text parser.
 # ---------------------------------------------------------------------------
 
 
@@ -4031,9 +4071,10 @@ def _glowing_one() -> list[AbilitySpec]:
     rad counters.
     Whenever a player mills a nonland card, you gain 1 life.
 
-    — Glowing One. The second ability ("whenever a player mills a nonland
-    card") isn't modeled: no trigger family recognizes "a player mills a
-    card" as an event at all yet (`ToDo_Backend.md`).
+    — Glowing One. The mill trigger is an ordinary bind-once
+    `TriggeredAbility` off `EventType.MILL_CARD` with an unscoped ``"group"``
+    subject (no ``controller`` key — any player's mill counts, including
+    your own).
     """
     return [
         AbilitySpec(
@@ -4042,6 +4083,13 @@ def _glowing_one() -> list[AbilitySpec]:
             rad_counters_on_combat_damage={"count": 4},
             raw_text="Wenn diese Kreatur einer Spielerin oder einem Spieler Kampfschaden "
                      "zufügt, erhält sie/er vier Rad-Marken.",
+        ),
+        AbilitySpec(
+            "triggered",
+            [EffectSpec("gain_life", {"amount": 1})],
+            trigger={"event": EventType.MILL_CARD, "condition": {"subject": "group"}},
+            raw_text="Wenn eine Spielerin oder ein Spieler eine Nichtland-Karte mahlt, "
+                     "gewinnst du 1 Leben.",
         ),
     ]
 
@@ -4060,9 +4108,11 @@ def _infesting_radroach() -> list[AbilitySpec]:
     — Infesting Radroach. "That many" ties the rad-counter amount to the
     combat damage just dealt (`rad_counters_on_combat_damage`'s
     ``"damage_amount"`` sentinel, `RulesEngine._collect_rad_counter_damage_
-    triggers`). The graveyard-return-on-opponent-mill ability isn't
-    modeled: no trigger family recognizes "a player mills a card" yet
-    (`ToDo_Backend.md`), same gap as Glowing One's second ability.
+    triggers`). The graveyard-return-on-opponent-mill ability is RULE
+    112.6a's own family — a triggered ability that must keep functioning
+    while its source sits in the graveyard, not a bind-once
+    `TriggeredAbility` at all — see `AbilitySpec.mill_return_from_graveyard`/
+    `RulesEngine._collect_mill_return_from_graveyard_triggers`.
     """
     return [
         AbilitySpec(
@@ -4077,10 +4127,84 @@ def _infesting_radroach() -> list[AbilitySpec]:
             raw_text="Wenn diese Kreatur einer Spielerin oder einem Spieler Kampfschaden "
                      "zufügt, erhält sie/er so viele Rad-Marken.",
         ),
+        AbilitySpec(
+            "static",
+            [],
+            mill_return_from_graveyard=True,
+            raw_text="Wenn ein Gegner eine Nichtland-Karte mahlt, darfst du diese Karte, "
+                     "falls sie sich in deinem Friedhof befindet, auf deine Hand "
+                     "zurücknehmen.",
+        ),
     ]
 
 
 register("Infesting Radroach", _infesting_radroach)
+
+
+def _the_wise_mothman() -> list[AbilitySpec]:
+    """Flying
+    Whenever The Wise Mothman enters or attacks, each player gets a rad
+    counter.
+    Whenever one or more nonland cards are milled, put a +1/+1 counter on
+    each of up to X target creatures, where X is the number of nonland
+    cards milled this way.
+
+    — The Wise Mothman. The first ability is otherwise fully covered by the
+    oracle-text parser's own "~ enters or attacks" grammar and its
+    ``add_player_counters``/``each_player`` selector (confirmed by direct
+    `parse_oracle` output — see `docs/implementation-state/Done_Backend.md`
+    "Library-top ... closeout" batch), but registering this card at all
+    (needed for the second ability, below) makes `specs_for` skip the
+    parser entirely for it (registry wins wholesale), so it's reproduced
+    here verbatim rather than left to fall through.
+
+    The second ability is *simplified*: rather than a genuinely dynamic
+    "up to X target creatures where X is milled this way" (X varying per
+    firing the way Rampage's block-count bonus does — this catalogue's
+    sanctioned answer for that shape is building a fresh `TriggeredAbility`
+    directly at the firing call site, `RulesEngine.check_rampage`), this
+    reuses the same per-nonland-card `EventType.MILL_CARD` Glowing One/
+    Infesting Radroach's mill triggers use: "put a +1/+1 counter on up to
+    one target creature" fires once *per* nonland card milled (any player's
+    mill, unscoped ``"group"`` subject, same as Glowing One). Across N
+    simultaneous nonland mills this reaches the identical set of possible
+    end states as the real card's single "up to X targets" choice — for
+    each of N independent chances you may put a counter on some creature or
+    decline — just as N separate optional triggers instead of one modal
+    "choose up to X targets" ability; only trigger *count* (irrelevant to
+    every card in this engine's corpus today) differs. The same "for each,
+    optionally act" broadcast simplification `_dismantling_wave`-shaped
+    entries elsewhere in this catalogue already use for a fixed-count
+    "for each opponent" case, just driven by a per-firing count instead.
+    """
+    return [
+        AbilitySpec(
+            "triggered",
+            [EffectSpec("add_player_counters", {"amount": 1, "kind": "rad", "selector": "each_player"})],
+            trigger={"event": [EventType.ENTERS_BATTLEFIELD, EventType.ATTACKS], "condition": {"subject": "self"}},
+            raw_text="Wenn The Wise Mothman ins Spiel kommt oder angreift, erhält "
+                     "jede Spielerin und jeder Spieler eine Rad-Marke.",
+        ),
+        AbilitySpec(
+            "triggered",
+            [EffectSpec("add_counters", {"kind": "+1/+1", "amount": 1, "target_kind": "creature", "optional": True})],
+            trigger={"event": EventType.MILL_CARD, "condition": {"subject": "group"}},
+            # RULE 115.1a's "up to one target" — this codebase's trigger-
+            # placement UI (`RulesEngine._trigger_target_choice`) only offers
+            # a skip/decline option when the *ability* itself is marked
+            # ``optional`` (RULE 603.5), so this also needs setting here even
+            # though "up to one" isn't literally a "you may": without it a
+            # player with a legal creature on board couldn't decline putting
+            # the counter at all, contradicting "up to".
+            optional=True,
+            raw_text="Wenn eine oder mehrere Nichtland-Karten gemahlen werden, lege "
+                     "einen +1/+1-Marker auf bis zu je eine Zielkreatur, für jede so "
+                     "gemahlene Nichtland-Karte.",
+        ),
+    ]
+
+
+register("The Wise Mothman", _the_wise_mothman)
 
 
 def _bloatfly_swarm() -> list[AbilitySpec]:
@@ -4390,3 +4514,73 @@ def _harold_and_bob() -> list[AbilitySpec]:
 
 
 register("Harold and Bob, First Numens", _harold_and_bob)
+
+
+def _riot_control() -> list[AbilitySpec]:
+    """You gain 1 life for each creature your opponents control. Prevent
+    all damage that would be dealt to you this turn.
+
+    — Riot Control. The lifegain half is an ordinary `GainLifeEffect` with
+    the new `count_selector="creatures_opponents_control"` (mirroring the
+    existing "you control"/"opponents control" selector pairs in
+    `continuous.count_selector`). The prevention half is the new one-shot
+    `prevent_damage_shield` family (`PreventDamageEffect`/`RulesEngine.
+    prevent_damage_to_player`) this card and Thought Lash's own activated
+    ability motivated — a turn-scoped shield living on `Player.
+    player_effects`, distinct from `regenerate`'s permanent-scoped one and
+    from `ReplacementRegistry`'s unrelated standing-permanent `"prevent_
+    damage"` factory (still uncarded). ``amount="all"`` here since Riot
+    Control prevents everything, not a capped amount.
+    """
+    return [
+        AbilitySpec(
+            "spell_effect",
+            [
+                EffectSpec("gain_life", {"count_selector": "creatures_opponents_control"}),
+                EffectSpec("prevent_damage_shield", {"amount": "all"}),
+            ],
+            raw_text="Du gewinnst 1 Lebenspunkt für jede Kreatur, die deine Gegner "
+                     "kontrollieren. Verhindere jeglichen Schaden, der dir in diesem "
+                     "Zug zugefügt werden würde.",
+        )
+    ]
+
+
+register("Riot Control", _riot_control)
+
+
+def _thought_lash() -> list[AbilitySpec]:
+    """Exile the top card of your library: Prevent the next 1 damage that
+    would be dealt to you this turn.
+
+    — Thought Lash. Only this repeatable activated ability is hand-authored
+    here; the card's Cumulative upkeep ("At the beginning of your upkeep,
+    put an age counter on this permanent, then sacrifice it unless you pay
+    its upkeep cost for each age counter on it") and its own "when a player
+    doesn't pay this enchantment's cumulative upkeep, that player exiles
+    all cards from their library" trigger are a wholly separate, entirely
+    unmodeled mechanic (Cumulative upkeep isn't built at all yet — no card
+    needs it otherwise) and are deliberately left unclaimed; this entry
+    only supplies the activated ability so the shared `prevent_damage_
+    shield` primitive has its second real, amount-capped/repeatable-use
+    exercising card (Riot Control's own use is the single uncapped "all"
+    case). The cost is a plain "Exile the top card of your library" cost
+    (`costs.py`'s existing library-exile cost grammar); the effect passes
+    ``amount=1`` — a fresh `RulesEngine.prevent_damage_to_player` shield is
+    opened on each activation, so repeated activations in a turn stack
+    independent 1-point shields exactly like `regenerate`'s own multiple-
+    activations-stack behaviour.
+    """
+    return [
+        AbilitySpec(
+            "activated",
+            [EffectSpec("prevent_damage_shield", {"amount": 1})],
+            cost={"text": "Exile the top card of your library"},
+            raw_text="Exiliere die oberste Karte deiner Bibliothek: Verhindere den "
+                     "nächsten 1 Schadenspunkt, der dir in diesem Zug zugefügt werden "
+                     "würde.",
+        )
+    ]
+
+
+register("Thought Lash", _thought_lash)

@@ -53,8 +53,10 @@ from .targeting import (
 )
 from .graveyard_cast import graveyard_cast_grant_for
 from .top_library import (
+    may_cast_flash_from_top_of_library,
     may_cast_spell_from_top_of_library,
     may_play_land_from_top_of_library,
+    top_library_life_payment_required,
 )
 
 #: Maximum hand size enforced at cleanup (RULE 402.2 / 514.1).
@@ -667,6 +669,18 @@ class GameEngine:
                 ]
         if ended_effects:
             self.recompute_continuous_effects()  # re-derive P/T sans the pumps
+        # RULE 514.2 analogue: an unused (or partially-spent) turn-scoped
+        # damage-prevention shield (RULE 615, Riot Control/Thought Lash —
+        # `RulesEngine.prevent_damage_to_player`) also lasts only "this
+        # turn" — sweep it here rather than only on full consumption,
+        # mirroring the regeneration-shield sweep above but on
+        # `Player.player_effects` instead of a permanent's own.
+        for player in self.state.players:
+            if any(getattr(e, "damage_prevention_shield", False) for e in player.player_effects):
+                player.player_effects = [
+                    e for e in player.player_effects
+                    if not getattr(e, "damage_prevention_shield", False)
+                ]
         self._clear_combat()
         # RULE 601.3b analogue: a temporary "play until end of your next
         # turn" permission (Light Up the Stage-shaped impulsive draw) lapses
@@ -844,6 +858,11 @@ class GameEngine:
             # <bonus>." (Mariposa Military Base) — the mirror-image choice:
             # untapped by default, tap it for the bonus instead.
             self.rules.resolve_land_tapped_bonus_choice(None if declined else str(answer))
+        elif kind == "pay_energy_then":
+            # RULE 122: "you may pay {E}{E}. If you do, <effect>." (Aether
+            # Chaser) — "pay" spends the energy and resolves the follow-up,
+            # anything else declines.
+            self.rules.resolve_pay_energy_then_choice(None if declined else str(answer))
         elif kind == "add_mana_any_color":
             # RULE 106.4: which color to add — a mandatory choice, so a
             # decline still resolves to a color rather than adding nothing
@@ -879,6 +898,13 @@ class GameEngine:
             # else counters it — the caster decides, not the target's
             # controller (unlike counter_unless_pays).
             self.rules.resolve_ward_choice(None if declined else str(answer))
+        elif kind == "sacrifice_unless_pay":
+            # RULE 701.17: "sacrifice ~ unless you pay <cost>" (Arcades
+            # Sabboth/Breeding Pit) — "pay" keeps the permanent, anything
+            # else sacrifices it. Same pay-or-lose-it shape as ward.
+            self.rules.resolve_sacrifice_unless_pay_choice(
+                None if declined else str(answer)
+            )
         elif kind == "commander_zone":
             # RULE 903.9a/9b: "command" moves the commander to the command
             # zone instead of wherever it landed/was headed; anything else
@@ -1109,6 +1135,23 @@ class GameEngine:
         (the top); a card any deeper in the library is never castable."""
         return may_cast_spell_from_top_of_library(player, self.state, obj.card)
 
+    def _top_library_life_payment(
+        self, player: Player, obj: GameObject, card: Optional["Card"] = None
+    ) -> bool:
+        """Whether casting ``obj`` right now pays life equal to its mana
+        value instead of its mana cost (Bolas's Citadel-shaped, RULE 118) —
+        true only for the actual top-of-library card, and only when some
+        active grant that permits casting it also requires this
+        substitution (`top_library.top_library_life_payment_required`).
+        ``card`` is the face actually being cast (defaults to ``obj.card``)
+        so a back/fuse-face preview checks the right mana value.
+        """
+        return (
+            bool(player.library)
+            and obj is player.library[-1]
+            and top_library_life_payment_required(player, self.state, card or obj.card)
+        )
+
     @staticmethod
     def _flashback_cost(obj: GameObject) -> Optional["ManaCost"]:
         """RULE 702.34b: ``obj``'s Flashback cost as a `ManaCost`, or
@@ -1224,8 +1267,19 @@ class GameEngine:
         # TurnEffect`), independent of any keyword/condition on the object
         # itself.
         has_temp_flash = self.state.temp_flash_until_turn.get(player.id) == self.state.turn_number
+        # Elsha of the Infinite-shaped: "you may cast [noncreature spells
+        # cast this way] as though [they] had flash" — a standing grant
+        # tied to the *permission*, not the object's own printed/granted
+        # keywords, so it's consulted live off `game/top_library.py` like
+        # every other part of this permission family.
+        has_top_library_flash = (
+            bool(player.library)
+            and obj is player.library[-1]
+            and may_cast_flash_from_top_of_library(player, self.state, card)
+        )
         sorcery_speed = not (
             card.is_instant or combat.has(obj, "flash") or has_conditional_flash or has_temp_flash
+            or has_top_library_flash
         )
         if sorcery_speed:
             if player is not self.state.active_player:
@@ -1260,6 +1314,12 @@ class GameEngine:
             # (`RulesEngine.grant_rebound_free_cast_window`) — already
             # armed for this specific instance, no mana check needed.
             pass
+        elif self._top_library_life_payment(player, obj, card):
+            # Bolas's Citadel-shaped: casting this way pays life equal to
+            # the spell's mana value instead of its mana cost — mandatory,
+            # not optional, so no mana-pool check applies at all here.
+            if player.life < card.converted_mana_cost:
+                return False
         else:
             cost = self.effective_cast_cost(player, obj, x, face=face, kicked=kicked, buyback=buyback)
             allows_restriction = restriction_predicate_for_cast(obj, has_x=cost.has_variable)
@@ -1623,6 +1683,14 @@ class GameEngine:
             )
             if free:
                 result = self.rules.cast_without_paying(player, obj, targets)
+            elif self._top_library_life_payment(player, obj):
+                # Bolas's Citadel-shaped: no mana leaves the pool — the
+                # spell goes on the stack for free, then its controller
+                # pays life equal to its mana value as the cost instead
+                # (RULE 118), mirroring `RulesEngine.cast_spell`'s own
+                # "lose_life *after* the card leaves its current zone" order.
+                result = self.rules.cast_without_paying(player, obj, targets)
+                self.rules.lose_life(player, obj.card.converted_mana_cost, cause="cost")
             else:
                 cost = self.effective_cast_cost(player, obj, x, kicked=kicked, buyback=buyback)
                 result = self.rules.cast_spell(player, obj, targets, x, cost=cost, target_groups=target_groups)
@@ -1646,6 +1714,16 @@ class GameEngine:
             # `RulesEngine.resolve_top_of_stack` to exile the spell instead
             # of returning it to the graveyard on resolution.
             obj.cast_via_flashback = graveyard_keyword == "flashback"
+            # Lurrus-shaped: record the casting turn so `_move_to_graveyard`
+            # can honor the permission source's own "if a spell cast this
+            # way would be put into a graveyard this turn, exile it
+            # instead" clause — reassigned every cast (like the flag just
+            # above), so a later normal recast this same turn clears it.
+            obj.cast_via_graveyard_cast_permission_until_turn = (
+                self.state.turn_number
+                if graveyard_grant is not None and graveyard_grant.exile_if_would_be_put_into_graveyard
+                else None
+            )
             # RULE 702.138b: Escape's own "exile N other cards from your
             # graveyard" cost, paid as part of casting (like any other
             # additional cost) now that ``obj`` itself has left the
@@ -2015,7 +2093,26 @@ class GameEngine:
                 raise ValueError(f"invalid mana option {option_index} for {source.name}")
             produced = dict(ability.options[option_index])
         self._pay_activation_cost(player, source, cost, x=0, tap_choices=tap_choices)
-        player.mana_pool.add_many(produced, restriction=ability.restriction)
+        restriction = ability.restriction
+        if restriction is not None and restriction.get("kind") == "chosen_type_spell":
+            # Cavern of Souls/Unclaimed Territory-shaped: "of the chosen
+            # type" names no fixed type at parse time — resolve it here,
+            # per-instance, off this land's own RULE 601.2b ETB choice
+            # (`GameObject.chosen_type`) into the ordinary ``type_spell``
+            # shape `_restriction_allows_cast` already knows how to check.
+            restriction = {
+                "kind": "type_spell",
+                "types": [source.chosen_type] if source.chosen_type else [],
+                "allow_ability": restriction.get("allow_ability", False),
+            }
+        elif restriction is not None and restriction.get("kind") == "chosen_color_monocolored_spell":
+            # Throne of Eldraine-shaped: "monocolored spells of that color"
+            # names no fixed colour at parse time — resolve it here off this
+            # artifact's own RULE 601.2b ETB choice (`GameObject.chosen_
+            # color`) into the concrete ``monocolored_spell`` restriction
+            # `_restriction_allows_cast` checks.
+            restriction = {"kind": "monocolored_spell", "color": source.chosen_color}
+        player.mana_pool.add_many(produced, restriction=restriction)
         if ability.self_damage:
             # RULE 605.1a: a mana ability may have effects besides producing
             # mana (the painland/Elves-of-Deep-Shadow "deals N damage to
@@ -2257,6 +2354,23 @@ class GameEngine:
                 return x
         return 0
 
+    def _chosen_color_locked_cost(
+        self, source: GameObject, mana: "ManaCost"
+    ) -> Optional["ManaCost"]:
+        """Throne of Eldraine's colour-lock: ``mana`` re-expressed as its full
+        mana value in pips of ``source``'s `chosen_color`, so the ordinary
+        any-colour generic solve is forced onto that one colour (RULE
+        601.2b). ``None`` while no colour has been chosen (nothing legal to
+        pay with) — every real card printing this rider also has the "as ~
+        enters, choose a color" ETB that sets it. Only the generic total is
+        re-coloured; any card that ever paired a differently-coloured pip
+        with this rider (none does today) would be mis-modeled, so it's kept
+        deliberately simple rather than guessing a multi-colour split."""
+        chosen = getattr(source, "chosen_color", None)
+        if not chosen:
+            return None
+        return ManaCost.parse(("{" + chosen + "}") * mana.converted_mana_cost)
+
     def _reduced_activation_mana(
         self, source: GameObject, mana: "ManaCost", cost: Optional["ActivationCost"] = None
     ) -> "ManaCost":
@@ -2308,13 +2422,23 @@ class GameEngine:
             return False
         mana = cost.mana.with_x(x) if cost.mana.has_variable else cost.mana
         mana = self._reduced_activation_mana(source, mana, cost)
-        if mana.symbols:
+        if cost.spend_only_chosen_color:
+            # Throne of Eldraine-shaped colour-lock: the whole mana cost must
+            # be paid with mana of the source's chosen colour (RULE 601.2b) —
+            # modeled by requiring that many pips of `chosen_color` instead
+            # of the ordinary any-colour generic solve.
+            locked = self._chosen_color_locked_cost(source, mana)
+            if locked is None or not player.mana_pool.can_pay(locked, life_available=player.life):
+                return False
+        elif mana.symbols:
             allows_restriction = restriction_predicate_for_activation(source, has_x=cost.mana.has_variable)
             if not player.mana_pool.can_pay(
                 mana, life_available=player.life, allows_restriction=allows_restriction
             ):
                 return False
         if cost.pay_life and player.life < cost.pay_life:
+            return False
+        if cost.pay_energy and player.counters.get("energy", 0) < cost.pay_energy:
             return False
         if cost.discard and cost.discard != DISCARD_HAND and len(player.hand) < cost.discard:
             return False
@@ -2340,6 +2464,8 @@ class GameEngine:
             count, subtype = cost.tap_others
             if self._resolve_tap_others(player, source, count, subtype, tap_choices) is None:
                 return False
+        if cost.exile_top_of_library and not player.library:
+            return False
         if cost.exile_self_from_hand:
             # This path is for a battlefield permanent's own ability cost
             # (`can_activate`/`tap_for_mana`'s non-hand-exile branch) — an
@@ -2556,7 +2682,13 @@ class GameEngine:
                 self.rules.set_tapped(obj, True)
         mana = cost.mana.with_x(x) if cost.mana.has_variable else cost.mana
         mana = self._reduced_activation_mana(source, mana, cost)
-        if mana.symbols:
+        if cost.spend_only_chosen_color:
+            # See `_can_pay_activation_cost` — pay the whole cost as
+            # `chosen_color` pips (Throne of Eldraine).
+            locked = self._chosen_color_locked_cost(source, mana)
+            if locked is not None and locked.symbols:
+                player.mana_pool.pay(locked, life_available=player.life)
+        elif mana.symbols:
             allows_restriction = restriction_predicate_for_activation(source, has_x=cost.mana.has_variable)
             life_spent = player.mana_pool.pay(
                 mana, life_available=player.life, allows_restriction=allows_restriction
@@ -2564,6 +2696,11 @@ class GameEngine:
             self.rules.lose_life(player, life_spent, cause="cost")
         if cost.pay_life:
             self.rules.lose_life(player, cost.pay_life, cause="cost")
+        if cost.pay_energy:
+            # RULE 122: spend energy counters — a player-level resource
+            # (`Player.counters["energy"]`), same generic dict "rad"/
+            # "poison" already use.
+            self.rules.add_player_counters(player, -cost.pay_energy, "energy")
         if cost.sacrifice:
             victim = self._sacrifice_candidate(player, source, cost.sacrifice)
             if victim is not None:
@@ -2577,6 +2714,8 @@ class GameEngine:
         if cost.unattach_self:
             source.last_unattached_from_id = source.attached_to
             source.attached_to = None
+        if cost.exile_top_of_library and player.library:
+            self.rules.exile(player.library[-1])
         if cost.discard:
             self.rules.discard(player, len(player.hand) if cost.discard == DISCARD_HAND else cost.discard)
         if cost.discard_self:

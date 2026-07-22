@@ -192,7 +192,110 @@ NEVER_SUPPORTED = "NEVER_SUPPORTED"
 #: creatures", `EventType.PLAYER_ATTACKED`, fired once per attacker/
 #: defender pair leaving `declare_attackers`, distinct from the
 #: once-per-creature `ATTACKS` event).
-PARSER_VERSION = "22"
+#: "23": Library-top/impulsive-draw permissions closeout — the generic "You
+#: may play lands [and cast [noncreature] spells [with mana value N or
+#: greater]] from the top of your library" static (`static_handlers.
+#: _TOP_LIBRARY_PERMISSION_RE`/`_TOP_LIBRARY_VERB_PARAMS`, the oracle-text
+#: sibling of the two hand-authored `top_library_permission` catalogue
+#: entries — Future Sight/Experimental Frenzy-shaped), plus its optional
+#: same-line "If you cast a spell this way, ..." conditional tail: "you may
+#: cast it as though it had flash" (Elsha of the Infinite, `TopLibrary
+#: PermissionEffect.grants_flash`, `top_library.
+#: may_cast_flash_from_top_of_library`) or "pay life equal to its mana value
+#: rather than pay its mana cost" (Bolas's Citadel, `.life_payment`, a new
+#: RULE 118 alternative-cost substitution applied automatically by
+#: `GameEngine._top_library_life_payment`, never opt-in). Also a new
+#: `noncreature_only` restriction (Elsha's own "noncreature spells" gate,
+#: `top_library._grant_permits_cast`) and a "Play with the top card of your
+#: library revealed." no-op line (`segmenter._PLAY_WITH_TOP_REVEALED_RE`,
+#: mirroring the pre-existing "look at any time" no-op).
+#: "25": Replacement-effects batch — RULE 616.1's damage-multiplying family
+#: gains oracle-text recognition (`catalogue/replacements.py`):
+#: Furnace of Rath/Dictate of the Twin Gods's unscoped "if a source would
+#: deal damage..., it deals double that damage instead" and Fiery
+#: Emancipation's "triple" sibling (`double_damage`'s new ``multiplier``
+#: param), plus Gratuitous Violence's own narrower "a creature you
+#: control" phrasing (`double_damage`'s new ``creature_only`` param — also
+#: fixing a latent bug: the hand-authored catalogue entry had wrongly
+#: required ``combat_only``, a restriction the real printed text has never
+#: had). Also new this batch (no coverage-gate impact — these live outside
+#: the oracle-effect IR): the one-shot `prevent_damage_shield` family
+#: (Riot Control/Thought Lash, hand-authored — `PreventDamageEffect`/
+#: `RulesEngine.prevent_damage_to_player`); Lurrus of the Dream-Den's own
+#: trailing "exile instead of graveyard" clause
+#: (`GraveyardCastPermissionEffect.exile_if_would_be_put_into_graveyard`);
+#: two new `game/mana_abilities.py` RULE 605.3a restriction kinds —
+#: `chosen_type_spell` (Cavern of Souls/Unclaimed Territory, resolved
+#: per-instance off `GameObject.chosen_type` at tap time) and
+#: `mana_value_or_x_spell` (Helga, Skittish Seer/Troyan, Gutsy Explorer);
+#: and RULE 122's "Pay {E}" activated-ability cost pips
+#: (`ActivationCost.pay_energy`, `costs.py` — previously silently
+#: discarded).
+#: "26": Replacement-effects/mana closeout batch — the rest of the
+#: "Replacement effects / mana" ToDo section. New RULE 616.1 replacement
+#: families (`catalogue/replacements.py`): life-gain rewrite (Angel of
+#: Vitality's additive "plus N", Boon Reflection/Alhammarret's Archive's
+#: "twice" — `gain_life_replacement` on a new `EventType.LIFE_GAIN`
+#: pre-event routed through `RulesEngine.gain_life`); recipient-scoped
+#: +1/+1 counter replacement (Hardened Scales/Conclave Mentor additive,
+#: Branching Evolution/Corpsejack Menace double, Kami of Whispered Hopes
+#: permanent-scoped — `_double_counters_replacement`'s new `plus`/
+#: `multiplier`/`recipient` params + `recipient_controller_id`/`recipient_
+#: is_creature` on the COUNTER event); and "if ~ would die, exile it
+#: instead" (Gloomshrieker/Corpseweaver Prodigy — `die_to_exile`, a new
+#: `EventType.WOULD_DIE` fired by `_move_to_graveyard`). Throne of Eldraine
+#: fully MODELED: chosen-colour mana production ("Add N mana of the chosen
+#: color", `ManaAbility.color_selector`), a `monocolored_spell`-of-chosen-
+#: colour spend restriction, and its second ability's colour-locked
+#: activation cost (`ActivationCost.spend_only_chosen_color`, enforced by
+#: `GameEngine._chosen_color_locked_cost`). Energy: the resolve-time
+#: optional "you may pay {E}{E}. If you do, `<effect>`." (Aether Chaser,
+#: `pay_energy_then`/`PayEnergyThenEffect` + interactive `RulesEngine.
+#: request_pay_energy_then` choice) and the "you get {E}{E}" production
+#: (`get_energy` → the generic `add_player_counters` energy primitive).
+#: "27": Triggers/grants closeout batch — the whole "Triggers / grants"
+#: ToDo section, seven items. (1) **Group-subject damage triggers**:
+#: `_SELF_DAMAGE_TRIGGER_RE` → `_DAMAGE_TRIGGER_RE`, now also claiming
+#: "whenever a/an/another `<type>` [you control] deals [combat] damage to a
+#: player/creature" (Bident of Thassa/Defiling Daemogoth), with DAMAGE's
+#: group-controller key (``source_controller_id``) and `_build_group_ok`'s
+#: object key generalized to `_subject_event_key` (``source_id``).
+#: The article alternation also gained "an" — every vowel-initial group
+#: subject ("an enchantment you control dies") had been failing closed.
+#: (2) **"Sacrifice ~ unless you pay `<cost>`."** (45 cards, the biggest
+#: remaining upkeep-trigger template) — a real interactive pay-or-lose-it
+#: `pending_choice`, built on ward's machinery (`_can_pay_player_cost`/
+#: `_pay_player_cost`, generalized out of `resolve_ward_effect`) rather
+#: than a second copy; deliberately a *closed* cost vocabulary, since
+#: `parse_activation_cost` returns a **free** cost for text it doesn't
+#: understand. (3) **Quoted granted phase/upkeep triggers** —
+#: ``STEP_BEGIN`` joins `_GRANTABLE_TRIGGER_EVENTS`, with the segmenter's
+#: ``phase_relation`` threaded through so `continuous._granted_trigger_
+#: condition` resolves "your" against the *granted-to* permanent's
+#: controller (Commander's Authority/Clawing Torment). (4) **Aura lifecycle
+#: triggers** — RULE 700.4's long "is put into a graveyard from the
+#: battlefield" folded to "dies" in `normalize` (which also required
+#: `_move_to_graveyard` to stop firing `DIES` for creatures *only*), plus
+#: `ReturnToHandEffect`'s self form (Rancor/Flickering Ward) and
+#: "enchanted permanent"/"enchanted land" in `_ATTACHED_SUBJECT`.
+#: (5) **Standing granted protection** (RULE 702.16) — a real layer-6
+#: concept (`grant_protection_static`/`GameObject._granted_protections`),
+#: the continuously-re-derived sibling of the resolve-time
+#: `temp_protections` grant: Hungry Lynx/Righteous War/Absolute Grace, and
+#: the RULE 601.2b dynamic "protection from the chosen color" (Voice of
+#: All). (6) **Type grants past the battlefield** (RULE 613.4a) —
+#: `continuous._apply_off_battlefield_types`, a dedicated pass over the
+#: controller's non-battlefield zones + their spells on the stack, for
+#: Arcane Adaptation/Leyline of Transformation's "creature cards you own
+#: that aren't on the battlefield" and Ashes of the Fallen's graveyard
+#: form; the battlefield half of the same family (Xenograft/Realmwright/
+#: Lifecraft Engine) is the new group sibling of `_IS_CHOSEN_TYPE_RE`.
+#: (7) **Quoted mana-ability grants** — "Elves you control have '{T}: Add
+#: {B}.'" (Tyvar Kell) / "Enchanted land has '{T}: Add 1 mana of any
+#: color.'" (Abundant Growth): recognized directly by `static_handlers.
+#: _granted_mana_options` rather than the nested `segment_line` parse,
+#: since a plain mana ability is claimed-*without*-a-spec by the segmenter.
+PARSER_VERSION = "27"
 
 
 @dataclass

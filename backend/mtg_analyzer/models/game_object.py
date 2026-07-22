@@ -39,18 +39,23 @@ _instance_counter = itertools.count(1)
 
 
 def _combat_display_keywords(
-    card: Card, granted: Optional[set[str]] = None, removed: Optional[set[str]] = None
+    card: Card,
+    granted: Optional[set[str]] = None,
+    removed: Optional[set[str]] = None,
+    granted_protections: Optional[set[str]] = None,
 ) -> list[str]:
     """Combat/evasion keyword labels for a card's board badges, including any
     granted by a layer-6 static ability (RULE 613.7f) and excluding any it
-    stripped ("loses <keyword>").
+    stripped ("loses <keyword>"). ``granted_protections`` is the same layer's
+    standing RULE 702.16 protection grant, which the badge row shows even on
+    a permanent whose printed text mentions no protection at all.
 
     Local (function-scoped) import of the pure `game.combat` recognition so
     the model layer gains no import-time dependency on `game/` (RULE-keyword
     recognition lives with the combat rules that consume it)."""
     from ..game.combat import display_keywords
 
-    return display_keywords(card, granted, removed)
+    return display_keywords(card, granted, removed, granted_protections)
 
 
 class GameObject:
@@ -112,6 +117,17 @@ class GameObject:
         #: Flashback — if so, `RulesEngine.resolve_top_of_stack` exiles it
         #: instead of sending it to the graveyard, then clears this flag.
         self.cast_via_flashback: bool = False
+        #: Lurrus of the Dream-Den-shaped: the turn number this spell was
+        #: cast via a standing graveyard-cast permission
+        #: (`game/graveyard_cast.py`), or ``None`` if it wasn't. Consulted
+        #: by `RulesEngine._move_to_graveyard` — while it still equals the
+        #: *current* turn number, a graveyard-bound move for this object is
+        #: exiled instead (the permission source's own trailing "if a spell
+        #: cast this way would be put into a graveyard this turn, exile it
+        #: instead" clause). Reassigned (not just set) on every cast, like
+        #: `cast_via_flashback`, so a later normal recast this same turn
+        #: clears a stale value rather than leaving it to misfire.
+        self.cast_via_graveyard_cast_permission_until_turn: Optional[int] = None
         #: RULE 702.88b: whether this card has Rebound — a printed-
         #: characteristic-like marker, bound once from `AbilitySpec.rebound`
         #: (`game/effect_binder.py`) and never reset, unlike the transient
@@ -322,6 +338,17 @@ class GameObject:
         #: `game/combat.py`. Reset every recompute exactly like
         #: `_granted_keywords`.
         self._removed_keywords: set[str] = set()
+        #: RULE 702.16 protection qualities granted by a layer-6 *standing*
+        #: static ability ("Cats you control have protection from Rats" —
+        #: Hungry Lynx; "Enchanted creature has protection from the chosen
+        #: color" — Flickering Ward). Already-normalized tokens in
+        #: `game/combat.py`'s `protections_of_text` vocabulary (``"B"``,
+        #: ``"creatures"``, ``"rats"``), unioned into `is_protected_from`'s
+        #: printed set. Distinct from `temp_protections`, which is a
+        #: *resolve-time* "until end of turn" grant (Mother of Runes) rather
+        #: than a continuously re-derived one. Reset every recompute exactly
+        #: like `_granted_keywords`.
+        self._granted_protections: set[str] = set()
         #: Whether a layer-6 "loses all abilities" static ability (RULE 613.7f
         #: — Humility, Dress Down) is stripping *every* ability off this object
         #: this pass: all keywords (`game/combat.py`'s `_obj_keywords` returns
@@ -465,6 +492,7 @@ class GameObject:
         self._derived_toughness = None
         self._granted_keywords = set()
         self._removed_keywords = set()
+        self._granted_protections = set()
         self._loses_all_abilities = False
         self._granted_mana = []
         self._granted_triggered_abilities = []
@@ -727,6 +755,13 @@ class GameObject:
         return set(self._removed_keywords)
 
     @property
+    def granted_protections(self) -> set[str]:
+        """RULE 702.16 protection qualities granted by a layer-6 standing
+        static ability, as `combat.protections_of_text` tokens — see
+        `_granted_protections`."""
+        return set(self._granted_protections)
+
+    @property
     def loses_all_abilities(self) -> bool:
         """Whether a layer-6 "loses all abilities" static ability (Humility,
         Dress Down) is stripping every ability off this object (RULE 613.7f)."""
@@ -847,7 +882,8 @@ class GameObject:
             # reads keywords without turning the model→game boundary into an
             # import cycle.
             "keywords": _combat_display_keywords(
-                self.card, self._granted_keywords | self.intrinsic_keywords, self._removed_keywords
+                self.card, self._granted_keywords | self.intrinsic_keywords,
+                self._removed_keywords, self._granted_protections
             ),
             "counters": dict(self.counters),
             "attached_to": self.attached_to,

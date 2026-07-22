@@ -62,83 +62,38 @@ for the dependency-ordered plan to finish the implementation.
         `RemoveCountersEffect.max_count` chosen-amount shape itself (which
         already covers plain "target permanent"/"target creature").
 
-      **Library-top / impulsive-draw permissions:**
-      - "You may look at the top card of your library any time" itself is
-        now claimed by the parser (a documented no-op — purely
-        informational, `parser/oracle/segmenter.py`'s
-        `_LOOK_AT_TOP_ANY_TIME_RE`) — but the *actual* play/cast-from-top
-        permission clause it always sits next to ("You may play lands
-        and/or cast spells [with mana value N or greater] from the top of
-        your library") still has **no parser-front-end recognition at
-        all** — the engine capability exists (`game/top_library.py`,
-        `top_library_permission` `EffectSpec`, Done_Backend.md "Rules
-        Engine (Phase 2)") but only via hand-authoring (Oracle of Mul
-        Daya, Glarb, Calamity's Augur); a card whose only unclaimed line
-        is this one (Elsha of the Infinite, Bolas's Citadel) still fails
-        the coverage gate. Teaching a handler to recognize the permission
-        clause generically (mirroring `top_library_permission`'s existing
-        `look`/`play_lands`/`cast_spells`/`min_mana_value` params) would
-        unblock it and any future card with this wording — plus each
-        card's own conditional tail is a *further*, separate gap (Elsha's
-        "if you cast a spell this way, you may cast it as though it had
-        flash" needs a new `conditional_flash`-condition key scoped to
-        "cast from the top of your library" rather than the existing
-        `entered_this_turn`; Bolas's Citadel's "pay life equal to its mana
-        value rather than pay its mana cost" is a different alternative-
-        cost shape from the flat/free ones modeled so far).
-
-      **Triggers / grants:**
-      - Group-subject damage triggers ("a creature you control deals
-        combat damage to a player", as opposed to the shipped self-subject
-        shape).
-      - "Sacrifice `<name>` unless you pay `<cost>`" — the single biggest
-        remaining upkeep-trigger template (45 cards); needs a real
-        interactive pay-or-lose-it choice, not just recognition.
-      - Quoted granted *phase/upkeep* triggers — "~ has 'at the beginning
-        of your upkeep, …'"-shaped quoted-ability grants still fail closed;
-        controller-scoped phase triggers work for a card's own top-level
-        ability but not yet when granted onto another permanent via a
-        quoted-ability clause.
-      - Aura ETB effects ("when ~ enters, tap enchanted permanent") and
-        "return this Aura to hand" triggers aren't modeled.
-      - Standing granted protection — "all creatures have protection from
-        black"/"…from the chosen color" as a *standing* (non-"until end of
-        turn") grant; `combat.is_protected_from` only reads printed text
-        plus a one-shot `temp_protections` set, no layer-6 "standing
-        granted protection" concept exists yet.
-      - Extending a chosen-type/color choice (RULE 601.2b) beyond the
-        battlefield — "creatures you control are the chosen type in
-        addition to their other types" (Arcane Adaptation) and "each
-        creature card in your graveyard has the chosen creature type"
-        (Ashes of the Fallen) both extend past the battlefield-only
-        layer-4 `type_change` that's shipped.
-      - A quoted **mana**-ability grant's inner "Add `<X>`" effect isn't
-        recognized — "Elves you control have '`{T}`: Add `{B}`.'" (Tyvar
-        Kell-shaped) and "Other permanents you control have '`{T}`: Add one
-        mana of any color.'" both still fail closed via the new
-        `grant_activated_ability`/`_quoted_ability_grant_effects` path
-        (shipped alongside this entry), since a plain top-level mana
-        ability is claimed-without-a-spec by `segmenter.py` (covered
-        directly by `game/mana_abilities.py`'s recognition instead of the
-        `EffectRegistry` pipeline) — so the nested recursive parse gets no
-        spec at all for a granted mana ability and correctly refuses to
-        guess. Needs its own small branch in `_quoted_ability_grant_effects`
-        (`static_handlers.py`) that recognizes a bare "Add `<mana>`" inner
-        body directly (mirroring `handlers.py`'s own `_add_mana`/
-        `_ADD_MANA_RE`) and emits `grant_mana_ability` (already shipped,
-        hand-authored-only today, `game/effects.py`) instead of
-        `grant_activated_ability` — not a new engine primitive, just the
-        missing text-recognition front end for an existing one. Found while
-        shipping the activated-ability grant above: a **pre-existing**
-        `segmenter.py` bug (`_ACTIVATED_RE`'s cost group was quote-blind, so
-        a quoted grant's own inner colon was stealing the match before any
-        grant handler ever ran) meant this exact shape was silently
-        swallowed as a no-op — not recognized *or* honestly UNMODELED —
-        wherever the cost-sniff (`_COST_LOOKS_REAL`) happened to accept the
-        bogus quote-truncated "cost". Fixed as part of shipping the
-        activated-ability grant (`_ACTIVATED_RE` now excludes `"`), which
-        correctly flipped every affected card to UNMODELED — this bullet is
-        what closes them for real.
+      **Statics / scopes:**
+      - **Non-creature group scopes.** `static_handlers._scope` only ever
+        claims *creature* scopes ("goblins you control", "white creatures",
+        "all creatures"), so every anthem/keyword-grant/quoted-ability-grant
+        family it feeds fails closed on "Other **enchantments** have '…'"
+        (Aura Flux), "**Artifacts** you control get …", etc. The layer
+        engine itself is ready — `continuous.group_selector_objects` already
+        has `artifacts_you_control`/`permanents_you_control`/
+        `nonland_permanents_you_control`/`all_permanents`/`all_lands`
+        selectors — so this is parser-side only: `_scope`/`_scope_params`
+        need to return a card-type-scoped `affects` instead of returning
+        `None`, keeping the existing `_NONCREATURE_TYPES` block-list only
+        for the *anthem* family (a "+N/+N" clause really does only make
+        sense on creatures).
+      - **RULE 702.16e's "This effect doesn't remove this Aura." tail.**
+        Six of the eight "protection from the chosen color" Auras
+        (Flickering Ward, Cho-Manno's Blessing, Pentarch Ward, Benevolent
+        Blessing, Floating Shield, Ward of Lights) print this trailing
+        sentence on the same line as the grant, and it leaves them
+        UNMODELED even though the grant itself is now modeled. It's *not*
+        safe to claim as a no-op: it reads as one only because this engine
+        doesn't implement RULE 704.5n (an SBA unattaching an Aura its host
+        has protection from) at all — see the related "re-validate an
+        existing attachment's legality every SBA pass" item below. Build
+        that SBA and this exception together, or the exception becomes a
+        silent landmine.
+      - **"As ~ enters, choose a *basic land* type."** (RULE 601.2b) —
+        `static_handlers._CHOOSE_CREATURE_TYPE_ON_ENTER_RE` and the colour
+        sibling are the only two enter-choice shapes; the basic-land-type
+        one needs its own option list (Plains/Island/Swamp/Mountain/Forest)
+        in `RulesEngine._offer_enter_choices`. Blocks Realmwright and
+        A-Thran Portal, whose *type-grant* halves are otherwise modeled.
 
       **Combat statics:**
       - Qualified/conditional combat-restriction variants — "can't be
@@ -175,46 +130,14 @@ for the dependency-ordered plan to finish the implementation.
       - Fight (~40 cards across templates) — "target creature you control
         fights target creature …" (RULE 701.?) has no `FightEffect` at
         all; a good future-batch candidate.
-      - "Manifest dread" / "open an attraction" — new subsystems, distinct
-        from Monarch/Initiative/Emblem (shipped).
+      - "Manifest dread" — a new subsystem, distinct from
+        Monarch/Initiative/Emblem (shipped). (Attractions, RULE 717, are a
+        permanent project non-goal like Stickers (RULE 123) — not a gap,
+        never to be built.)
       - Jin-Gitaxias-style compound activation condition — "…and only if
         you have seven or more cards in hand" stacked on top of
         sorcery-speed timing; the whole clause fails closed rather than
         silently dropping the second condition.
-
-      **Replacement effects / mana:**
-      - `prevent_damage`'s two real cards (Riot Control/Thought Lash) — a
-        one-shot *spell effect* granting a temporary shield
-        (Regenerate-shaped: new effect class + `RulesEngine` method), not
-        the standing-permanent replacement-clause shape the other three
-        families used.
-      - The full RULE 616.1 "if X would Y, Z instead" grammar beyond the
-        five fixed sentences shipped so far (more real formulations —
-        target/duration variants).
-      - Lurrus of the Dream-Den's own "if a spell cast this way would be
-        put into a graveyard this turn, exile it instead" — a standing
-        replacement scoped to *spells cast via this permission this turn*
-        (not the whole card, not the whole turn); the graveyard-cast
-        permission itself (`graveyard_cast_permission`,
-        `game/graveyard_cast.py`) is shipped and the card is `MODELED` on
-        that alone, but this trailing clause isn't modeled, so a permanent
-        recast this way and later destroyed will incorrectly return to the
-        graveyard instead of exile.
-      - A land's own "spend only on a spell of the *chosen* creature
-        type/color" mana-spend variant (Cavern of Souls, Unclaimed
-        Territory, Throne of Eldraine) and a mana-value-threshold clause
-        (Helga, Troyan) — unrecognized, fail-soft.
-      - No split-choice UI for "any combination of colours", and no
-        button for hand-zone mana abilities yet
-        (`frontend/ToDo_Frontend.md`).
-      - `{E}` (energy) pips in cost text are silently ignored, not
-        modeled as the energy-counter mechanic
-        (`costs.parse_activation_cost`, `game/costs.py`).
-      - "Add 1 mana of any color" is left unclaimed — the mana-symbol-run
-        handler only claims a *pure* run of `{colour}` symbols (fail-closed)
-        since which color is a player choice the parser doesn't yet
-        express (`parser/oracle/catalogue/handlers.py`'s `_add_mana`/
-        `_ADD_MANA_RE`).
 
       **Designations / setup:**
       - Prohibition/cost-modification statics remain unmodeled. RULE
@@ -469,30 +392,6 @@ eventually own. Roughly in decreasing commonness:
         break an existing deck's coverage numbers.
 - [ ] Niche/format extras: the remaining multiplayer/casual variants (CR 8,
       CR 9 beyond Commander). Deprioritized until a deck needs one.
-- **Rad counters (RULE 728) are DONE — not an open item.** The base
-  mechanic, the real ~23-card corpus's granting/removal oracle text, and
-  every card previously deferred here (Acquired Mutation, Bloatfly Swarm,
-  Contaminated Drink, Harold and Bob First Numens, Mariposa Military Base,
-  Nuka-Nuke Launcher, Struggle for Project Purity, The Ghoul Gunslinger,
-  The Wise Mothman, Vault 12: The Necropolis, Vexing Radgull) all now have
-  real engine behaviour (2026-07-21, PARSER_VERSION 22) — see
-  `Done_Backend.md`. Two narrow, genuinely separate sub-gaps surfaced along
-  the way and are tracked here on their own merits, not as rad-counter work:
-  - Acquired Mutation's "is goaded" status (RULE 701.15-ish) — goad isn't
-    modeled by this engine at all yet (no card needing it was prioritized
-    before now); its rad-counter clause parses/executes fine in isolation.
-  - A "whenever a player mills a nonland card"/"whenever one or more
-    nonland cards are milled" trigger family doesn't exist at all yet
-    (blocks Glowing One/Infesting Radroach's own second ability, The Wise
-    Mothman's second ability, and likely other real cards in the broader
-    mill corpus — no ToDo entry for it existed before now; this is the
-    seed of one).
-- **Stickers (RULE 123) are NOT an open item — permanent non-goal, will
-  never be implemented.** Enforced at the parser: any card mentioning
-  "sticker" gets `NEVER_SUPPORTED` instead of `UNMODELED`
-  (`parser/oracle/gate.py`'s `_mentions_stickers`, PARSER_VERSION 20; see
-  `docs/implementation-state/Done_Backend.md` for the full writeup). Kept
-  here only as a directive, not a task.
 
 ## Game Engine (Phase 3) — remaining
 
@@ -506,6 +405,21 @@ eventually own. Roughly in decreasing commonness:
       returns 501 — the session/route need to drive `pass_priority(player)`
       and expose the priority holder, and interactive blocker declaration
       (`declare_blockers`, engine-ready) needs the opponent-side UI.
+- [ ] Goad (RULE 701.15) isn't modeled at all — no engine primitive, no
+      parser recognition. A goaded creature "attacks each combat if able"
+      (a forced-attack constraint, the same *shape* `combat.py`'s existing
+      "must attack" keywords would need to enforce) "and attacks a player
+      other than [the goading player] if able" — the second half needs a
+      per-object "may not attack this specific player" restriction that
+      doesn't exist yet either (unlike a landwalk/menace-style evasion
+      restriction on *blocking*). Moved here from the closed-out "Rad
+      counters" entry (`Done_Backend.md`): Acquired Mutation ("Enchanted
+      creature gets +2/+2 and is goaded") is the one real card blocked on
+      it, and goad is squarely a multiplayer/Commander-table mechanic (its
+      whole point — forcing an attack at a *specific other* opponent — is
+      inert in 1v1, where "a player other than you" only ever resolves to
+      one player anyway), so it's tracked alongside this engine's other
+      multiplayer gaps rather than as a standalone item.
 - [ ] Manual trigger-ordering combined with a targeted/optional trigger in
       the same ordered set isn't handled. A trigger placed via the opt-in
       RULE 603.3b interactive-ordering choice (`resolve_trigger_order_
@@ -532,8 +446,8 @@ eventually own. Roughly in decreasing commonness:
 ## Oracle parser: long-tail strategy & family-level gaps
 
 Full-universe coverage (`scripts/coverage_report.py`, ledger-backed via
-`services/coverage_db.py`): 24.3% (8,328/34,209 cards) as of 2026-07-21,
-PARSER_VERSION 22. The remaining ~26k single-card templates are, by construction, not
+`services/coverage_db.py`): 25.2% (8,633/34,209 cards) as of 2026-07-22,
+PARSER_VERSION 27. The remaining ~25k single-card templates are, by construction, not
 generic — closing them is an *indefinite* program, not a finite batch list,
 and proceeds two ways:
 

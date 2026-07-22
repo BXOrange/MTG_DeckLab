@@ -128,6 +128,28 @@ def test_to_dict_is_additive_and_omits_restricted_key_when_empty():
          {"kind": "type_spell", "types": ["elemental"], "allow_ability": True}),
         ("Add one mana of any color. Spend this mana only to cast a Ninja or Turtle spell.",
          {"kind": "type_spell", "types": ["ninja", "turtle"], "allow_ability": False}),
+        # Cavern of Souls/Unclaimed Territory's "of the chosen type" — the
+        # type itself isn't parsed here (no fixed word to read); it's
+        # resolved dynamically at tap time off the land's own `chosen_type`
+        # instead (`GameEngine.tap_for_mana`).
+        ("Add one mana of any color. Spend this mana only to cast a creature spell of the chosen type.",
+         {"kind": "chosen_type_spell"}),
+        ("Add one mana of any color. Spend this mana only to cast a creature spell of the chosen type, "
+         "and that spell can't be countered.",
+         {"kind": "chosen_type_spell"}),
+        # Helga/Troyan's mana-value-threshold-or-{X} clause.
+        ("Add X mana of any one color, where X is Helga's power. Spend this mana only to cast creature "
+         "spells with mana value 4 or greater or creature spells with {X} in their mana costs.",
+         {"kind": "mana_value_or_x_spell", "min_mana_value": 4, "creature_only": True}),
+        ("Add {G}{U}. Spend this mana only to cast spells with mana value 5 or greater or spells "
+         "with {X} in their mana costs.",
+         {"kind": "mana_value_or_x_spell", "min_mana_value": 5, "creature_only": False}),
+        # Throne of Eldraine's chosen-*colour* "monocolored spells of that
+        # color" restriction — resolved per-instance off `chosen_color` at
+        # tap time (`GameEngine.tap_for_mana` → a concrete `monocolored_
+        # spell` restriction), like the chosen-*type* family.
+        ("Add four mana of the chosen color. Spend this mana only to cast monocolored spells of that color.",
+         {"kind": "chosen_color_monocolored_spell"}),
     ],
 )
 def test_parse_restriction_recognises_the_modeled_shapes(clause, expected):
@@ -137,14 +159,6 @@ def test_parse_restriction_recognises_the_modeled_shapes(clause, expected):
 @pytest.mark.parametrize(
     "clause",
     [
-        # Chosen-type/chosen-colour lands (RULE 605.3a's "of the chosen
-        # type"/"of that color") — not modeled (no per-object "chosen type"
-        # read here yet); fail-soft, not fail-closed.
-        "Add one mana of any color. Spend this mana only to cast a creature spell of the chosen type.",
-        "Add four mana of the chosen color. Spend this mana only to cast monocolored spells of that color.",
-        # Mana-value-threshold clauses (Helga, Troyan) — not modeled.
-        "Add X mana of any one color, where X is Helga's power. Spend this mana only to cast creature "
-        "spells with mana value 4 or greater or creature spells with {X} in their mana costs.",
         # A mixed clause with a non-spell alternative (Sorcerer Class).
         "Add {U} or {R}. Spend this mana only to cast an instant or sorcery spell or to gain a Class level.",
         # No restriction clause at all.
@@ -395,3 +409,228 @@ def test_castle_garenbrig_mana_cannot_pay_a_noncreature_sources_ability():
     artifact.activated_abilities.append(ability)
 
     assert not eng.can_activate(p1, artifact, ability)  # not a creature source
+
+
+# ---------------------------------------------------------------------------
+# Cavern of Souls/Unclaimed Territory: "of the chosen type" — resolved
+# per-instance off `GameObject.chosen_type` at tap time.
+# ---------------------------------------------------------------------------
+
+
+def test_cavern_of_souls_mana_only_casts_the_chosen_creature_type():
+    cavern = Card(
+        id="Cavern of Souls", name="Cavern of Souls", type_line="Land",
+        oracle_text="As this land enters, choose a creature type.\n{T}: Add {C}.\n"
+                     "{T}: Add one mana of any color. Spend this mana only to cast a "
+                     "creature spell of the chosen type, and that spell can't be countered.",
+    )
+    elf_spell = _creature("Elvish Mystic", cost="{G}", type_line="Creature — Elf Druid")
+    bear = _creature("Grizzly Bears", cost="{1}{G}")
+    eng = _make_engine([elf_spell, bear], hand=2)
+    eng.begin_turn()
+    eng.state.current_step = "main1"
+    p1 = eng.state.active_player
+    cavern_obj = GameObject(cavern, owner_id="p1", zone=Zone.BATTLEFIELD)
+    cavern_obj.summoning_sick = False
+    cavern_obj.chosen_type = "Elf"  # the RULE 601.2b ETB choice, made directly here
+    eng.state.add_to_battlefield(cavern_obj)
+
+    eng.tap_for_mana(p1, cavern_obj, ability_index=1, option_index=4)  # "any color" → G
+    assert p1.mana_pool.total() == 1
+    assert p1.mana_pool.pool.get("G", 0) == 0  # tagged into a restricted lot
+
+    mystic = next(o for o in p1.hand if o.name == "Elvish Mystic")
+    grizzly = next(o for o in p1.hand if o.name == "Grizzly Bears")
+    assert eng.can_cast(p1, mystic)
+    assert not eng.can_cast(p1, grizzly)  # a Bear, not an Elf
+
+
+def test_cavern_of_souls_colorless_ability_is_unrestricted():
+    cavern = Card(
+        id="Cavern of Souls", name="Cavern of Souls", type_line="Land",
+        oracle_text="As this land enters, choose a creature type.\n{T}: Add {C}.\n"
+                     "{T}: Add one mana of any color. Spend this mana only to cast a "
+                     "creature spell of the chosen type, and that spell can't be countered.",
+    )
+    eng = _make_engine([], hand=0)
+    eng.begin_turn()
+    p1 = eng.state.active_player
+    cavern_obj = GameObject(cavern, owner_id="p1", zone=Zone.BATTLEFIELD)
+    cavern_obj.summoning_sick = False
+    cavern_obj.chosen_type = "Elf"
+    eng.state.add_to_battlefield(cavern_obj)
+
+    eng.tap_for_mana(p1, cavern_obj, ability_index=0)  # "{T}: Add {C}." — no restriction
+    assert p1.mana_pool.pool.get("C", 0) == 1  # unrestricted, sits in the flat pool
+
+
+# ---------------------------------------------------------------------------
+# Helga, Skittish Seer / Troyan, Gutsy Explorer: mana-value threshold or {X}
+# ---------------------------------------------------------------------------
+
+
+def test_mana_value_or_x_restriction_predicate_checks_value_x_and_creature():
+    high_mv_creature = _spell_obj(type_line="Creature — Beast", is_creature=True, converted_mana_cost=5)
+    low_mv_creature = _spell_obj(type_line="Creature — Beast", is_creature=True, converted_mana_cost=1)
+    high_mv_instant = _spell_obj(type_line="Instant", is_instant=True, converted_mana_cost=5)
+
+    creature_only = {"kind": "mana_value_or_x_spell", "min_mana_value": 4, "creature_only": True}
+    unscoped = {"kind": "mana_value_or_x_spell", "min_mana_value": 5, "creature_only": False}
+
+    assert restriction_predicate_for_cast(high_mv_creature)(creature_only)
+    assert not restriction_predicate_for_cast(low_mv_creature)(creature_only)
+    # {X} in the cost authorises it regardless of the actual mana value.
+    assert restriction_predicate_for_cast(low_mv_creature, has_x=True)(creature_only)
+    # creature_only=True rejects a high-mana-value noncreature spell.
+    assert not restriction_predicate_for_cast(high_mv_instant)(creature_only)
+    # Troyan's own unscoped ("spells", not "creature spells") shape allows it.
+    assert restriction_predicate_for_cast(high_mv_instant)(unscoped)
+
+
+def test_helga_ability_carries_the_mana_value_or_x_restriction():
+    helga = Card(
+        id="Helga, Skittish Seer", name="Helga, Skittish Seer",
+        type_line="Legendary Creature — Frog Druid", is_creature=True, power=1, toughness=1,
+        oracle_text="{T}: Add X mana of any one color, where X is Helga's power. Spend this "
+                     "mana only to cast creature spells with mana value 4 or greater or "
+                     "creature spells with {X} in their mana costs.",
+    )
+    [ability] = parse_mana_abilities(helga)
+    assert ability.restriction == {
+        "kind": "mana_value_or_x_spell", "min_mana_value": 4, "creature_only": True,
+    }
+
+
+def test_troyan_ability_carries_the_unscoped_mana_value_or_x_restriction():
+    troyan = Card(
+        id="Troyan, Gutsy Explorer", name="Troyan, Gutsy Explorer",
+        type_line="Legendary Creature — Vedalken Scout", is_creature=True, power=2, toughness=2,
+        oracle_text="{T}: Add {G}{U}. Spend this mana only to cast spells with mana value 5 "
+                     "or greater or spells with {X} in their mana costs.",
+    )
+    [ability] = parse_mana_abilities(troyan)
+    assert ability.restriction == {
+        "kind": "mana_value_or_x_spell", "min_mana_value": 5, "creature_only": False,
+    }
+
+
+def test_helga_mana_only_casts_a_high_mana_value_or_x_creature_spell_end_to_end():
+    helga = Card(
+        id="Helga, Skittish Seer", name="Helga, Skittish Seer",
+        type_line="Legendary Creature — Frog Druid", is_creature=True, power=5, toughness=5,
+        oracle_text="{T}: Add X mana of any one color, where X is Helga's power. Spend this "
+                     "mana only to cast creature spells with mana value 4 or greater or "
+                     "creature spells with {X} in their mana costs.",
+    )
+    big_creature = _creature("Big Beast", cost="{3}{G}{G}", type_line="Creature — Beast")
+    small_creature = _creature("Small Beast", cost="{G}", type_line="Creature — Beast")
+    eng = _make_engine([big_creature, small_creature], hand=2)
+    eng.begin_turn()
+    eng.state.current_step = "main1"
+    p1 = eng.state.active_player
+    helga_obj = GameObject(helga, owner_id="p1", zone=Zone.BATTLEFIELD)
+    helga_obj.summoning_sick = False
+    eng.state.add_to_battlefield(helga_obj)
+
+    eng.tap_for_mana(p1, helga_obj, option_index=4)  # power 5 → 5 G mana
+    assert p1.mana_pool.total() == 5
+    big = next(o for o in p1.hand if o.name == "Big Beast")
+    small = next(o for o in p1.hand if o.name == "Small Beast")
+    assert eng.can_cast(p1, big)  # mana value 5 >= 4, and affordable (5 G mana)
+    assert not eng.can_cast(p1, small)  # mana value 1, no {X} — restriction rejects it
+
+
+# ---------------------------------------------------------------------------
+# Throne of Eldraine — chosen-colour mana production, "monocolored spells of
+# that color" spend restriction, and the second ability's colour-lock.
+# ---------------------------------------------------------------------------
+
+
+def _throne():
+    return Card(
+        id="Throne of Eldraine", name="Throne of Eldraine", type_line="Legendary Artifact",
+        is_legendary=True,
+        oracle_text=(
+            "As Throne of Eldraine enters, choose a color.\n"
+            "{T}: Add four mana of the chosen color. Spend this mana only to cast "
+            "monocolored spells of that color.\n"
+            "{3}, {T}: Draw two cards. Spend only mana of the chosen color to activate "
+            "this ability."
+        ),
+    )
+
+
+def test_throne_produces_four_mana_of_the_chosen_color():
+    eng = _make_engine([], hand=0)
+    eng.begin_turn()
+    eng.state.current_step = "main1"
+    p1 = eng.state.active_player
+    throne = GameObject(_throne(), owner_id="p1", zone=Zone.BATTLEFIELD)
+    throne.summoning_sick = False
+    throne.chosen_color = "R"
+    eng.state.add_to_battlefield(throne)
+
+    produced = eng.tap_for_mana(p1, throne, ability_index=0)
+    assert produced == {"R": 4}
+    assert p1.mana_pool.pool.get("R", 0) == 0  # tagged into a restricted lot
+
+
+def test_throne_mana_casts_only_monocolored_spells_of_the_chosen_color():
+    red_spell = _creature("Red Bear", cost="{R}", type_line="Creature — Bear")
+    red_spell.color_identity = {"R"}
+    multi = _creature("Gruul Bear", cost="{R}{G}", type_line="Creature — Bear")
+    multi.color_identity = {"R", "G"}
+    blue_spell = _creature("Blue Bear", cost="{U}", type_line="Creature — Bear")
+    blue_spell.color_identity = {"U"}
+    eng = _make_engine([red_spell, multi, blue_spell], hand=3)
+    eng.begin_turn()
+    eng.state.current_step = "main1"
+    p1 = eng.state.active_player
+    throne = GameObject(_throne(), owner_id="p1", zone=Zone.BATTLEFIELD)
+    throne.summoning_sick = False
+    throne.chosen_color = "R"
+    eng.state.add_to_battlefield(throne)
+
+    eng.tap_for_mana(p1, throne, ability_index=0)
+    red = next(o for o in p1.hand if o.name == "Red Bear")
+    gruul = next(o for o in p1.hand if o.name == "Gruul Bear")
+    blue = next(o for o in p1.hand if o.name == "Blue Bear")
+    assert eng.can_cast(p1, red)  # monocolored, of the chosen colour
+    assert not eng.can_cast(p1, gruul)  # multicolored
+    assert not eng.can_cast(p1, blue)  # monocolored, but the wrong colour
+
+
+def test_throne_second_ability_is_colour_locked_to_the_chosen_colour():
+    eng = _make_engine([_land("L1"), _land("L2")], hand=0)  # two cards to draw
+    eng.begin_turn()
+    eng.state.current_step = "main1"
+    p1 = eng.state.active_player
+    from mtg_analyzer.game.effect_binder import bind_from_catalogue
+    throne = GameObject(_throne(), owner_id="p1", zone=Zone.BATTLEFIELD)
+    throne.summoning_sick = False
+    throne.chosen_color = "R"
+    bind_from_catalogue(throne)
+    eng.state.add_to_battlefield(throne)
+    [draw_ability] = throne.activated_abilities
+
+    # Three *green* mana can't pay the {3} — it's locked to the chosen (red).
+    p1.mana_pool.add_many({"G": 3})
+    assert not eng.can_activate(p1, throne, draw_ability)
+
+    # Add three red — now payable; the green is left untouched.
+    p1.mana_pool.add_many({"R": 3})
+    assert eng.can_activate(p1, throne, draw_ability)
+    before = len(p1.hand)
+    eng.activate_ability(p1, throne, ability_index=0)
+    eng.resolve_until_stable()
+    assert len(p1.hand) - before == 2
+    assert p1.mana_pool.pool.get("R", 0) == 0   # all three red spent
+    assert p1.mana_pool.pool.get("G", 0) == 3   # green untouched
+
+
+def test_throne_is_fully_modeled_by_the_parser():
+    from mtg_analyzer.parser.oracle import parse_oracle
+    from mtg_analyzer.parser.oracle.gate import MODELED
+
+    result = parse_oracle(_throne())
+    assert result.coverage == MODELED

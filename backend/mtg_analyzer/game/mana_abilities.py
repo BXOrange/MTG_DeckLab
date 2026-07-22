@@ -152,6 +152,15 @@ _WHERE_X_RE = re.compile(
     r"^(?P<base>x mana of any one colou?r),\s*where x is the number of\s+(?P<subject>.+?)$",
     re.IGNORECASE,
 )
+#: "X mana of any one color, where X is <name>'s power" (Helga, Skittish
+#: Seer) — `_WHERE_X_RE`'s own sibling for a *power* reference rather than
+#: a "the number of ..." count subject; resolved through the same
+#: `_power_selector` helper `_EQUAL_TO_POWER_RE` below already uses for its
+#: differently-worded "an amount of ... equal to X's power" shape.
+_WHERE_X_POWER_RE = re.compile(
+    r"^(?P<base>x mana of any one colou?r),\s*where x is\s+(?P<who>.+?)'s power$",
+    re.IGNORECASE,
+)
 _SUBJECT_CONTROL_RE = re.compile(r"^(?P<noun>.+?)\s+you control$", re.IGNORECASE)
 _SUBJECT_BATTLEFIELD_RE = re.compile(r"^(?P<noun>.+?)\s+on the battlefield$", re.IGNORECASE)
 _SUBJECT_COUNTER_RE = re.compile(
@@ -194,6 +203,47 @@ _RESTRICTION_MULTI_TYPE_RE = re.compile(
 #: creature type, the optional literal "creature" just along for the ride.
 _RESTRICTION_TYPE_RE = re.compile(
     r"^cast (?:an? )?(?P<type>[a-z]+)(?: creature)? spells?$", re.IGNORECASE
+)
+#: "cast a creature spell of the chosen type" (Cavern of Souls, Unclaimed
+#: Territory) — unlike `_RESTRICTION_TYPE_RE` above, the type isn't printed
+#: at all; it's whatever the land's own RULE 601.2b "as ~ enters, choose a
+#: creature type" ETB choice picked (`GameObject.chosen_type`, already
+#: modeled for the `enter_replacement` family — see `game/effect_binder.py`).
+#: The restriction dict parsed here carries no ``types`` of its own; it's
+#: resolved into an ordinary ``type_spell`` restriction dynamically, at tap
+#: time, off the tapped land's *own* `chosen_type` (`GameEngine.
+#: tap_for_mana`) — the same restriction dict shape `_RESTRICTION_TYPE_RE`
+#: already produces, just filled in per-instance instead of parsed from
+#: fixed text.
+_RESTRICTION_CHOSEN_TYPE_RE = re.compile(
+    r"^cast (?:an? )?creature spells? of the chosen type$", re.IGNORECASE
+)
+#: "cast monocolored spells of that color" (Throne of Eldraine) — like the
+#: chosen-type restriction above, the colour isn't printed here; it's
+#: resolved per-instance off the source's `chosen_color` at tap time
+#: (`GameEngine.tap_for_mana` → a concrete ``monocolored_spell`` restriction).
+_RESTRICTION_CHOSEN_COLOR_MONO_RE = re.compile(
+    r"^cast monocolou?red spells? of that colou?r$", re.IGNORECASE
+)
+#: "Add N mana of the chosen color" (Throne of Eldraine) — the colour is the
+#: object's own ETB choice, produced by a per-instance recolour (see
+#: `ManaAbility.color_selector`). ``N`` is a spelled-out word or digit.
+_CHOSEN_COLOR_ADD_RE = re.compile(
+    r"^(?P<n>\d+|[a-z]+) mana of the chosen colou?r$", re.IGNORECASE
+)
+#: Sentinel colour key an unresolved chosen-colour amount is parked under
+#: until `mana_abilities_for` recolours it to the real `chosen_color`.
+_CHOSEN_COLOR_KEY = "_CHOSEN_COLOR_"
+#: "cast [creature ]spells with mana value N or greater or [creature ]spells
+#: with {X} in their mana costs" (Helga, Skittish Seer / Troyan, Gutsy
+#: Explorer) — a mana-value threshold *or* an unresolved {X}, optionally
+#: creature-restricted; both halves always agree on the creature
+#: qualifier on every real card, so a mismatch is left unrecognized
+#: (fail-soft) rather than guessed.
+_RESTRICTION_MANA_VALUE_OR_X_RE = re.compile(
+    r"^cast (?P<c1>creature )?spells with mana value (?P<mv>\d+) or greater "
+    r"or (?P<c2>creature )?spells with \{x\} in their mana costs$",
+    re.IGNORECASE,
 )
 
 # --- "any combination of colours" (a *split*, not a single-colour choice) --
@@ -303,6 +353,14 @@ class ManaAbility:
     max_level: Optional[int] = None
     restriction: Optional[dict[str, Any]] = None
     any_combination: bool = False
+    #: "Add N mana of the chosen color" (Throne of Eldraine, RULE 601.2b) —
+    #: the colour isn't printed, it's the object's own "as ~ enters, choose a
+    #: color" ETB pick (`GameObject.chosen_color`). ``"chosen_color"`` marks
+    #: the one real shape; ``options`` carries the amount under the sentinel
+    #: key `_CHOSEN_COLOR_KEY`, recoloured per-instance in `mana_abilities_
+    #: for`/`resolve_options` off ``obj.chosen_color`` (dropped entirely if
+    #: the choice hasn't been made yet — no colour to produce).
+    color_selector: Optional[str] = None
 
 
 def _selector_from_subject(subject: str) -> Optional[dict[str, Any]]:
@@ -354,6 +412,11 @@ def _peel_amount_selector(clause: str, card_name: Optional[str]) -> tuple[str, O
         selector = _selector_from_subject(m.group("subject"))
         if selector is not None:
             return m.group("base"), selector
+    m = _WHERE_X_POWER_RE.match(clause)
+    if m is not None:
+        selector = _power_selector(m.group("who"), card_name)
+        if selector is not None:
+            return m.group("base"), selector
     m = _EQUAL_TO_POWER_RE.match(clause)
     if m is not None:
         selector = _power_selector(m.group("who"), card_name)
@@ -384,6 +447,20 @@ def _parse_restriction(effect_text: str) -> Optional[dict[str, Any]]:
 
     if _RESTRICTION_CONTAINS_X_RE.match(clause):
         return {"kind": "contains_x"}
+    if _RESTRICTION_CHOSEN_TYPE_RE.match(clause):
+        return {"kind": "chosen_type_spell"}
+    if _RESTRICTION_CHOSEN_COLOR_MONO_RE.match(clause):
+        return {"kind": "chosen_color_monocolored_spell"}
+    m = _RESTRICTION_MANA_VALUE_OR_X_RE.match(clause)
+    if m is not None:
+        creature_only = bool(m.group("c1")) and bool(m.group("c2"))
+        if bool(m.group("c1")) != bool(m.group("c2")):
+            return None  # the two halves disagree — outside the recognised shape
+        return {
+            "kind": "mana_value_or_x_spell",
+            "min_mana_value": int(m.group("mv")),
+            "creature_only": creature_only,
+        }
     if _RESTRICTION_CREATURE_SPELL_RE.match(clause):
         return {"kind": "creature_spell", "allow_ability": allow_ability}
     if _RESTRICTION_COMMANDER_RE.match(clause):
@@ -420,6 +497,20 @@ def _restriction_allows_cast(restriction: dict[str, Any], obj: Any, has_x: bool)
         return bool(getattr(obj, "is_commander", False))
     if kind == "instant_or_sorcery_spell":
         return bool(getattr(card, "is_instant", False) or getattr(card, "is_sorcery", False))
+    if kind == "mana_value_or_x_spell":
+        if restriction.get("creature_only") and not getattr(card, "is_creature", False):
+            return False
+        return has_x or getattr(card, "converted_mana_cost", 0) >= restriction.get("min_mana_value", 0)
+    if kind == "monocolored_spell":
+        # Throne of Eldraine's "cast monocolored spells of that color" —
+        # resolved to a concrete ``color`` at tap time (`GameEngine.
+        # tap_for_mana`). Monocolored = exactly one colour in the spell's
+        # identity (the repo's `color_identity` stand-in, same as the
+        # `additional_damage` colour filter), and that colour is the chosen
+        # one. ``color`` is ``None`` only if the land's ETB choice hasn't
+        # happened — then nothing qualifies (fail-closed).
+        colors = set(getattr(card, "color_identity", None) or ())
+        return len(colors) == 1 and restriction.get("color") in colors
     return False  # unrecognised restriction kind — fail closed, never usable
 
 
@@ -527,6 +618,18 @@ def _parse_mana_ability_lines(
                 amount_selector=combination_selector,
                 any_combination=True,
                 self_damage=int(damage_match.group(1)) if damage_match else 0,
+                self_rad_counters=_rad_count_of(rad_match) if rad_match else 0,
+                restriction=_parse_restriction(effect_text),
+            ))
+            continue
+        chosen = _CHOSEN_COLOR_ADD_RE.match(add_match.group(1).strip())
+        if chosen is not None:
+            token = chosen.group("n").lower()
+            amount = int(token) if token.isdigit() else _ANY_COLOR_COUNT_WORDS.get(token, 1)
+            abilities.append(ManaAbility(
+                cost=cost,
+                options=[{_CHOSEN_COLOR_KEY: amount}],
+                color_selector="chosen_color",
                 self_rad_counters=_rad_count_of(rad_match) if rad_match else 0,
                 restriction=_parse_restriction(effect_text),
             ))
@@ -650,6 +753,7 @@ def mana_abilities_for(obj: Any, state: Optional[Any] = None) -> list[ManaAbilit
             self_rad_counters=ability.self_rad_counters,
             restriction=ability.restriction,
             any_combination=ability.any_combination,
+            color_selector=ability.color_selector,
         )
         for ability in parse_mana_abilities(obj.card)
         if _leveler_tier_active(obj, ability)
@@ -699,7 +803,20 @@ def hand_mana_abilities_for(obj: Any, state: Optional[Any] = None) -> list[ManaA
 def resolve_options(ability: ManaAbility, obj: Any, state: Optional[Any] = None) -> list[dict[str, int]]:
     """``ability.options`` scaled by its `amount_selector` (if any) against
     ``obj``/``state`` — e.g. Elvish Archdruid's ``{"G": 1}`` base becomes
-    ``{"G": 4}`` with four Elves on the battlefield."""
+    ``{"G": 4}`` with four Elves on the battlefield.
+
+    A ``color_selector="chosen_color"`` ability (Throne of Eldraine) instead
+    recolours its `_CHOSEN_COLOR_KEY`-parked amount to ``obj.chosen_color``,
+    the object's own RULE 601.2b ETB pick — dropping the option entirely
+    while no colour has been chosen yet (nothing legal to produce)."""
+    if ability.color_selector == "chosen_color":
+        chosen = getattr(obj, "chosen_color", None)
+        if not chosen:
+            return []
+        return [
+            {chosen: amount for _key, amount in opt.items()}
+            for opt in ability.options
+        ]
     if ability.amount_selector is None:
         return [dict(opt) for opt in ability.options]
     n = _resolve_amount(ability.amount_selector, obj, state)

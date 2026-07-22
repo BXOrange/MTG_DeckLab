@@ -12,16 +12,25 @@ lookups — so these tests run in the ordinary suite rather than being gated
 behind `--full-cache` (see `tests/conftest.py`).
 
 Four cards (Acquired Mutation, Contaminated Drink, The Ghoul Gunslinger, The
-Wise Mothman) are *not* registered in `ability_catalogue.py` — their new
-grammar is pure oracle-text parsing. The Ghoul, Gunslinger and Contaminated
-Drink end up fully `MODELED` (every line claimed) and so are also exercised
-end-to-end via `bind_from_catalogue`/`cast_spell`. Acquired Mutation and The
-Wise Mothman stay `UNMODELED` overall (an unrelated, out-of-scope line each
-— "goaded" and a mill-triggered ability, respectively, neither ever modeled
-by this engine) — for those two, only the newly-claimed clause is verified
-at the parse level, plus a direct `attach_to_object` engine test of the
+Wise Mothman) were *not* registered in `ability_catalogue.py` as of this
+batch — their new grammar is pure oracle-text parsing. The Ghoul, Gunslinger
+and Contaminated Drink end up fully `MODELED` (every line claimed) and so are
+also exercised end-to-end via `bind_from_catalogue`/`cast_spell`. Acquired
+Mutation stays `UNMODELED` overall (its "goaded" line is a wholly separate,
+still-unimplemented mechanic — tracked under `backend/ToDo_Backend.md`'s
+Multiplayer entry now, not here) — only the rad-counter clause is verified
+here, at the parse level plus a direct `attach_to_object` engine test of the
 extracted spec in isolation (mirroring `test_rad_counters.py`'s own
 `test_radiation_life_gain_redirects_lose_life`).
+
+The Wise Mothman's own mill-triggered second ability, listed below as
+UNMODELED-at-the-parser-level in this same batch, was subsequently closed
+out (`tests/test_mill_trigger_family.py`): it's now hand-authored directly
+in `ability_catalogue.py`'s `_the_wise_mothman` (registered), which is why
+`parse_oracle` alone still correctly reports the card UNMODELED with the
+mill clause unclaimed below — `specs_for`'s registry always wins over the
+parser wholesale once a card is registered, so raw `parse_oracle` output
+no longer reflects what the live engine actually does for this card.
 
 The other 7 cards are hand-authored in `ability_catalogue.py` (each needed a
 compound shape no oracle-text grammar could express) and are exercised
@@ -708,10 +717,14 @@ def test_ghoul_gunslinger_fires_for_another_nontoken_zombie_but_not_an_unrelated
 # ---------------------------------------------------------------------------
 # The Wise Mothman — "Whenever The Wise Mothman enters or attacks, each
 # player gets a rad counter." A compound multi-event trigger
-# (`_SELF_MULTI_EVENT_RE`, `trigger["event"]` as a `list[str]`). Unregistered;
-# stays UNMODELED overall (its second ability is a mill-triggered-ability
-# family this engine doesn't model at all) — only the rad-counter clause is
-# under test.
+# (`_SELF_MULTI_EVENT_RE`, `trigger["event"]` as a `list[str]`). Direct
+# `parse_oracle` output stays UNMODELED overall (its second ability's raw
+# oracle-text phrasing is still parser-unrecognized) — only the rad-counter
+# clause is under test at *this* level. The card is now separately
+# registered in `ability_catalogue.py` (`_the_wise_mothman`, reproducing
+# this same first ability by hand plus a real mill-triggered second ability)
+# — see `tests/test_mill_trigger_family.py` for the live-engine behaviour,
+# which no longer goes through `parse_oracle` at all once registered.
 # ---------------------------------------------------------------------------
 
 

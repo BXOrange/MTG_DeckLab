@@ -81,6 +81,34 @@ def _strip_ability_words(text: str) -> str:
     return _ABILITY_WORD_RE.sub("", text)
 
 
+#: RULE 700.4 — "the term *dies* means 'is put into a graveyard from the
+#: battlefield'". An exact definitional synonym, so folding the long
+#: (pre-2011) phrasing to the modern one-word verb lets every existing
+#: "dies" grammar — `segmenter._SELF_SUBJECT_RE`/`_GROUP_SUBJECT_RE`/
+#: `_ATTACHED_SUBJECT_RE`, the tribal subject shapes, the quoted-grant
+#: recursion — cover it with no new recognition at all (Rancor/Launch/
+#: Aspect of Mongoose's "When this Aura is put into a graveyard from the
+#: battlefield, return it to its owner's hand.", Ashiok's Reaper's
+#: "Whenever an enchantment you control is put into a graveyard from the
+#: battlefield, …").
+#:
+#: Deliberately **not** folded: "is put into **your** graveyard from the
+#: battlefield" (Angelic Renewal). That names a specific player's
+#: graveyard rather than "a graveyard", which "dies" doesn't express — a
+#: genuinely narrower condition, so it stays unclaimed (fail-closed)
+#: instead of being widened by a rewrite. Same for the plural "are put
+#: into a graveyard" (a mass/batched shape with no "die" grammar behind
+#: it). Runs after lowercasing.
+_DIES_LONG_FORM_RE = re.compile(
+    r"\bis put into (?:a|its owner's) graveyard from the battlefield\b"
+)
+
+
+def _fold_dies_long_form(text: str) -> str:
+    """RULE 700.4: fold "is put into a graveyard from the battlefield" → "dies"."""
+    return _DIES_LONG_FORM_RE.sub("dies", text)
+
+
 def strip_reminder_text(text: str) -> str:
     """Remove all parenthesised reminder text (RULE 207.2), innermost-first."""
     prev = None
@@ -113,15 +141,17 @@ def normalize(text: str, name: Optional[str] = None) -> str:
     """Canonicalise ``text`` for the segmenter and handler table (docs/09).
 
     Strips reminder text, folds the card's own ``name`` to ``~``, lowercases,
-    folds spelled-out numbers to digits, and collapses runs of spaces/tabs —
-    while **preserving newlines**, which separate a card's distinct abilities
-    and drive segmentation.
+    folds spelled-out numbers to digits, folds RULE 700.4's long "is put into
+    a graveyard from the battlefield" phrasing to "dies", and collapses runs
+    of spaces/tabs — while **preserving newlines**, which separate a card's
+    distinct abilities and drive segmentation.
     """
     text = strip_reminder_text(text or "")
     text = _fold_self_name(text, name)
     text = text.lower()
     text = _fold_self_reference(text)
     text = _strip_ability_words(text)
+    text = _fold_dies_long_form(text)
     text = _NUMBER_WORD_RE.sub(lambda m: _NUMBER_WORDS[m.group(1).lower()], text)
     # Collapse horizontal whitespace only; keep '\n' as the ability separator.
     text = re.sub(r"[ \t]+", " ", text)

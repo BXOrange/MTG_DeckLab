@@ -118,14 +118,16 @@ def test_your_end_step_scoped_is_modeled():
     assert parse_oracle(card).unclaimed == []
 
 
-def test_sacrifice_unless_pay_body_stays_unclaimed():
-    # Fail-closed: the phase-scope wrapper is now recognized, but the
-    # "sacrifice ~ unless you pay <cost>" *body* is a distinct, still-
-    # unmodeled effect shape (a real new primitive, not this batch's scope).
+def test_sacrifice_unless_pay_body_is_modeled():
+    # The phase-scope wrapper shipped first; the "sacrifice ~ unless you pay
+    # <cost>" *body* followed later as its own interactive pay-or-lose-it
+    # primitive (see `test_sacrifice_unless_pay.py`, which owns that family).
     card = _permanent(
         "Icatian Store", "At the beginning of your upkeep, sacrifice ~ unless you pay {1}."
     )
-    assert parse_oracle(card).coverage == UNMODELED
+    result = parse_oracle(card)
+    assert result.coverage != UNMODELED
+    assert result.unclaimed == []
 
 
 # -- "deals (combat) damage to a player/creature" -----------------------------
@@ -148,11 +150,31 @@ def test_deals_combat_damage_to_a_creature_is_modeled():
     assert result.unclaimed == []
 
 
-def test_group_subject_damage_trigger_stays_unclaimed():
-    # Fail-closed: only the "~" self-subject phrasing is claimed today.
+def test_group_subject_damage_trigger_is_modeled():
+    # Bident of Thassa/Defiling Daemogoth-shaped: RULE 603.1's "group"
+    # subject on a RULE 120.3 damage trigger.
     card = _permanent(
         "Blood Artist Cousin",
         "Whenever a creature you control deals combat damage to a player, you gain 1 life.",
+        type_line="Creature — Bear",
+    )
+    result = parse_oracle(card)
+    assert result.coverage != UNMODELED
+    assert result.unclaimed == []
+    (spec,) = [s for s in result.specs if s.ability_kind == "triggered"]
+    assert spec.trigger["condition"] == {
+        "subject": "group", "type": "creature", "other": False, "controller": "you",
+    }
+    assert spec.trigger["filter"] == {"is_player": True, "combat": True}
+
+
+def test_qualified_group_subject_damage_trigger_stays_unclaimed():
+    # Fail-closed: "a **modified**/**renowned** creature you control" (Araña/
+    # Aragorn) adds a qualifier the closed type vocabulary can't express, so
+    # the anchored regex simply doesn't match rather than dropping it.
+    card = _permanent(
+        "Araña Cousin",
+        "Whenever a modified creature you control deals combat damage to a player, draw a card.",
         type_line="Creature — Bear",
     )
     assert parse_oracle(card).coverage == UNMODELED
@@ -261,6 +283,55 @@ def test_deals_combat_damage_to_a_creature_does_not_fire_on_player_damage():
 
     eng.rules.deal_damage(state.player_by_id("p2"), 2, source=obj, combat=True)
     assert eng.rules.put_triggers_on_stack() == 0
+
+
+def test_group_subject_damage_trigger_fires_for_any_creature_you_control():
+    eng = _engine()
+    state = eng.state
+    bident = _battlefield_obj(
+        state,
+        _permanent(
+            "Bident Clone",
+            "Whenever a creature you control deals combat damage to a player, you gain 1 life.",
+        ),
+        controller="p1",
+    )
+    mine = _battlefield_obj(state, _creature("My Bear", ""), controller="p1")
+    theirs = _battlefield_obj(state, _creature("Their Bear", ""), controller="p2")
+
+    # An opponent's creature dealing combat damage must not fire it — the
+    # DAMAGE event's "you control" key is ``source_controller_id``.
+    eng.rules.deal_damage(state.player_by_id("p1"), 2, source=theirs, combat=True)
+    assert eng.rules.put_triggers_on_stack() == 0
+
+    # Any creature its own controller controls does — including one that
+    # isn't the ability's own source (unlike a "self"-subject trigger).
+    life_before = state.player_by_id("p1").life  # the 2 damage above already landed
+    eng.rules.deal_damage(state.player_by_id("p2"), 2, source=mine, combat=True)
+    assert eng.rules.put_triggers_on_stack() == 1
+    eng.rules.resolve_top_of_stack()
+    assert state.player_by_id("p1").life == life_before + 1
+
+
+def test_another_group_subject_damage_trigger_excludes_its_own_source():
+    eng = _engine()
+    state = eng.state
+    obj = _battlefield_obj(
+        state,
+        _creature(
+            "Selfless Striker",
+            "Whenever another creature you control deals combat damage to a player, you gain 1 life.",
+        ),
+        controller="p1",
+    )
+    other = _battlefield_obj(state, _creature("Ally Bear", ""), controller="p1")
+
+    # "another" — the ability's own source doesn't count (RULE 603.1).
+    eng.rules.deal_damage(state.player_by_id("p2"), 2, source=obj, combat=True)
+    assert eng.rules.put_triggers_on_stack() == 0
+
+    eng.rules.deal_damage(state.player_by_id("p2"), 2, source=other, combat=True)
+    assert eng.rules.put_triggers_on_stack() == 1
 
 
 def test_quoted_damage_grant_fires_for_its_own_host_only():

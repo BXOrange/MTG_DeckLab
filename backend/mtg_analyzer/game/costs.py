@@ -29,10 +29,21 @@ from ..models.mana_cost import ManaCost
 _BRACE_RE = re.compile(r"\{([^}]+)\}")
 
 #: Number words a cost might spell out ("Discard two cards"); "a"/"an" == 1.
+#: The tens words (twenty/thirty/forty/fifty) exist only for a "Pay N {E}"
+#: energy cost's own outsized real counts (Aetherflux Conduit's "fifty").
 _NUMBER_WORDS: dict[str, int] = {
     "a": 1, "an": 1, "one": 1, "two": 2, "three": 3, "four": 4, "five": 5,
     "six": 6, "seven": 7, "eight": 8, "nine": 9, "ten": 10,
+    "twenty": 20, "thirty": 30, "forty": 40, "fifty": 50,
 }
+#: RULE 122 energy: "Pay <word> {E}" (Aethersquall Ancient's "Pay eight
+#: {E}", Aetherflux Conduit's "Pay fifty {E}") — a single ``{E}`` pip with a
+#: spelled-out count in front, unlike the ordinary repeated-pip form
+#: ("Pay {E}{E}{E}{E}", Guide of Souls) `_parse_text`'s brace loop already
+#: counts directly.
+_PAY_ENERGY_WORD_RE = re.compile(
+    r"pay\s+(?P<n>" + "|".join(_NUMBER_WORDS) + r")\s+\{e\}", re.IGNORECASE
+)
 
 _SACRIFICE_RE = re.compile(
     r"sacrifice\s+(this\s+\w+|~|an?\s+(\w+)|another\s+(\w+))", re.IGNORECASE
@@ -87,6 +98,15 @@ _EXILE_FROM_HAND_RE = re.compile(
 #: your graveyard". ``N`` may be a digit or a spelled-out number word.
 _EXILE_GRAVEYARD_RE = re.compile(
     r"exile\s+(\d+|[a-z]+)\s+other\s+cards?\s+from\s+your\s+graveyard", re.IGNORECASE
+)
+#: "Exile the top card of your library" (Thought Lash) — a non-mana
+#: additional cost paid straight off the payer's own library, distinct from
+#: `exile_self_from_hand`'s hand-zone alternative-cost shape (which the
+#: engine still doesn't charge through this path — see that field's own
+#: docstring) since this one always has a real battlefield source to pay it
+#: from.
+_EXILE_TOP_LIBRARY_RE = re.compile(
+    r"exile\s+the\s+top\s+card\s+of\s+your\s+library", re.IGNORECASE
 )
 #: "Return a Forest you control to its owner's hand" (Quirion Ranger/Scryb
 #: Ranger) — a non-mana additional cost that returns a permanent of a given
@@ -178,6 +198,12 @@ class ActivationCost:
     untaps_self: bool = False
     sacrifice: Optional[str] = None
     pay_life: int = 0
+    #: RULE 122 energy: how many energy counters this cost pays (a player-
+    #: level resource, `Player.counters["energy"]` — the same generic
+    #: per-player counter dict "rad"/"poison" already use). Parsed from
+    #: ``{E}`` pips in the cost text (`_parse_text`); charged by
+    #: `GameEngine._pay_activation_cost` via `RulesEngine.add_player_counters`.
+    pay_energy: int = 0
     discard: int = 0
     #: Channel (RULE 702.29)/Cycling (RULE 702.28): the cost is discarding
     #: *this specific card* from hand, not a player's choice of any card —
@@ -208,6 +234,17 @@ class ActivationCost:
     #: activation path); recognised so the ability is never treated as a
     #: free battlefield tap (see `game/mana_abilities.py`).
     exile_self_from_hand: bool = False
+    #: "Spend only mana of the chosen color to activate this ability" (Throne
+    #: of Eldraine's second ability, RULE 601.2b/106.6) — a colour-lock on
+    #: *this ability's own* mana cost (as opposed to a spend restriction on
+    #: mana the ability *produces*): the whole mana cost must be paid with
+    #: mana of the source's `GameObject.chosen_color`. Enforced by
+    #: `GameEngine._can_pay_activation_cost`/`_pay_activation_cost`.
+    spend_only_chosen_color: bool = False
+    #: "Exile the top card of your library" (Thought Lash) — a non-mana
+    #: additional cost paid off the payer's own library, charged by
+    #: `GameEngine._pay_activation_cost` via `RulesEngine.exile`.
+    exile_top_of_library: bool = False
     #: Loyalty-ability cost (RULE 606.5c): the signed change to the source's
     #: loyalty counters — ``+2`` for ``[+2]``, ``-3`` for ``[-3]``, ``0`` for
     #: ``[0]``. ``None`` means this is not a loyalty ability.
@@ -261,6 +298,7 @@ class ActivationCost:
             or self.untaps_self
             or self.sacrifice
             or self.pay_life
+            or self.pay_energy
             or self.discard
             or self.discard_self
             or self.remove_counters
@@ -286,6 +324,8 @@ class ActivationCost:
             parts.append(f"Sacrifice {what}")
         if self.pay_life:
             parts.append("Pay X life" if self.pay_life == PAY_LIFE_X else f"Pay {self.pay_life} life")
+        if self.pay_energy:
+            parts.append(f"Pay {'{E}' * self.pay_energy}")
         if self.discard:
             parts.append("Discard your hand" if self.discard == DISCARD_HAND
                          else f"Discard {self.discard} card(s)")
@@ -322,6 +362,7 @@ class ActivationCost:
             "untaps_self": self.untaps_self,
             "sacrifice": self.sacrifice,
             "pay_life": self.pay_life,
+            "pay_energy": self.pay_energy,
             "discard": self.discard,
             "discard_self": self.discard_self,
             "remove_counters": list(self.remove_counters) if self.remove_counters else None,
@@ -368,6 +409,8 @@ def parse_activation_cost(
     if "pay_life" in cost:
         value = cost["pay_life"]
         parsed.pay_life = PAY_LIFE_X if value == "x" else int(value)
+    if "pay_energy" in cost:
+        parsed.pay_energy = int(cost["pay_energy"])
     if "discard" in cost:
         parsed.discard = int(cost["discard"])
     if "discard_self" in cost:
@@ -389,6 +432,10 @@ def parse_activation_cost(
         parsed.x_selector = str(cost["x_selector"])
     if "exile_self_from_hand" in cost:
         parsed.exile_self_from_hand = bool(cost["exile_self_from_hand"])
+    if "spend_only_chosen_color" in cost:
+        parsed.spend_only_chosen_color = bool(cost["spend_only_chosen_color"])
+    if "exile_top_of_library" in cost:
+        parsed.exile_top_of_library = bool(cost["exile_top_of_library"])
     if cost.get("return_to_hand"):
         parsed.return_to_hand = str(cost["return_to_hand"])
     if "sorcery_speed_only" in cost:
@@ -421,18 +468,25 @@ def _parse_text(text: str) -> ActivationCost:
 
     # Mana + the {T}/{Q} symbols share the {...} syntax; split them apart.
     mana_tokens: list[str] = []
+    energy_pips = 0
     for token in _BRACE_RE.findall(cost_text):
         upper = token.strip().upper()
         if upper == "T":
             cost.taps_self = True
         elif upper == "Q":
             cost.untaps_self = True
-        elif upper in ("E",):  # energy etc. — not modeled; ignore the pip
-            continue
+        elif upper == "E":
+            # RULE 122: "Pay {E}{E}..." — each repeated pip pays one energy
+            # counter; `_PAY_ENERGY_WORD_RE` below overrides this count for
+            # the differently-worded "Pay <word> {E}" spelled-out form.
+            energy_pips += 1
         else:
             mana_tokens.append(token.strip())
     if mana_tokens:
         cost.mana = ManaCost.parse("".join(f"{{{t}}}" for t in mana_tokens))
+    if energy_pips:
+        word_pay = _PAY_ENERGY_WORD_RE.search(cost_text)
+        cost.pay_energy = _NUMBER_WORDS[word_pay.group("n").lower()] if word_pay else energy_pips
     if cost.mana.has_variable:
         # RULE 702.21b: a ward cost may define what its own {X} means.
         selector_match = _WARD_X_SELECTOR_RE.search(cost_text)
@@ -477,6 +531,9 @@ def _parse_text(text: str) -> ActivationCost:
     exile_graveyard = _EXILE_GRAVEYARD_RE.search(cost_text)
     if exile_graveyard:
         cost.exile_from_graveyard = _word_to_int(exile_graveyard.group(1))
+
+    if _EXILE_TOP_LIBRARY_RE.search(cost_text):
+        cost.exile_top_of_library = True
 
     tap_others = _TAP_OTHERS_RE.search(cost_text)
     if tap_others:

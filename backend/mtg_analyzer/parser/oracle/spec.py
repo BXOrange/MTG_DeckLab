@@ -42,8 +42,12 @@ _EFFECT_BEARING_KINDS: frozenset[str] = frozenset(
 #: at validation time (docs/09 "SECURITY MODEL": clamp params).
 MAX_EFFECT_MAGNITUDE: int = 10_000
 
-#: Numeric effect params subject to clamping (includes a keyword's "n").
-_CLAMPED_PARAM_KEYS: tuple[str, ...] = ("amount", "count", "x", "n", "generic")
+#: Numeric effect params subject to clamping (includes a keyword's "n", and
+#: replacement-effect scale factors ``plus``/``multiplier`` — Angel of
+#: Vitality/Hardened Scales/Fiery Emancipation).
+_CLAMPED_PARAM_KEYS: tuple[str, ...] = (
+    "amount", "count", "x", "n", "generic", "plus", "multiplier",
+)
 
 #: `EffectSpec.condition`'s whitelisted keys — see that field's docstring.
 #: ``"target_is_controller"`` (RULE 603.4-style, gated on the *chosen
@@ -314,6 +318,21 @@ class AbilitySpec:
     #: "scan every permanent" style (the source isn't the event's own
     #: subject here either).
     rad_counters_on_attacked: Optional[dict[str, Any]] = None
+    #: RULE 112.6a: "Whenever an opponent mills a nonland card, if this
+    #: creature is in your graveyard, you may return it to your hand."
+    #: (Infesting Radroach) — the one triggered ability in this catalogue
+    #: that must still fire while its own source sits in a *graveyard*,
+    #: not the battlefield, so it can't ride the ordinary `obj.
+    #: triggered_abilities` scan (`RulesEngine._collect_triggers` only
+    #: walks `state.permanents()`). Rides as a bind-once marker instead
+    #: (mirroring `counter_death_return`'s own per-firing-scan shape),
+    #: read fresh off every player's graveyard by `RulesEngine._collect_
+    #: mill_return_from_graveyard_triggers`. A plain flag, not a dict —
+    #: unlike its rad-counter siblings, this ability's shape ("opponent
+    #: mills a nonland card" → "you may return this to hand") has no
+    #: card-varying parameter, the same reasoning `rebound` is a bare
+    #: bool. Hand-authored only.
+    mill_return_from_graveyard: bool = False
     optional: bool = False  # "you may"
     raw_text: str = ""
     parser: ParserProvenance = field(default_factory=ParserProvenance)
@@ -375,6 +394,9 @@ class AbilitySpec:
 
         if self.rad_counters_on_attacked is not None:
             self._validate_rad_counters_on_attacked()
+
+        if not isinstance(self.mill_return_from_graveyard, bool):
+            raise SpecValidationError("'mill_return_from_graveyard' must be a bool")
 
         if self.ability_kind == "triggered":
             if not self.trigger or "event" not in self.trigger:
