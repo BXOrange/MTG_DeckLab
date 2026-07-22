@@ -446,7 +446,7 @@ eventually own. Roughly in decreasing commonness:
 ## Oracle parser: long-tail strategy & family-level gaps
 
 Full-universe coverage (`scripts/coverage_report.py`, ledger-backed via
-`services/coverage_db.py`): 25.2% (8,633/34,209 cards) as of 2026-07-22,
+`services/coverage_db.py`): 25.3% (8,670/34,209 cards) as of 2026-07-22,
 PARSER_VERSION 27. The remaining ~25k single-card templates are, by construction, not
 generic — closing them is an *indefinite* program, not a finite batch list,
 and proceeds two ways:
@@ -470,98 +470,6 @@ waves) is spent only on finalizing a handler's regex/builder semantics and
 hand-authoring the tail. Keep `CLAUDE.md`'s "Implementation state" coverage
 figure and the Engine-Status tab in sync after any change here.
 
-## cEDH staples cube
-
-Cards from a cEDH cube pool left `UNMODELED`/unregistered, grouped by the
-one engine primitive each is blocked on (a card appears once, under its
-blocker). Each is a specific gap, not a vague "too hard".
-
-- **Two independent targeting effects on one ability** — see the Equipment
-  entry above (Brass Squire, Halvar God of Battle, Archdruid's Charm).
-- **Interactive "pay `{cost}` or lose the game" at a delayed step** —
-  Summoner's Pact / Pact of Negation. Corpse Dance separately needs
-  Buyback + reanimation + a baked delayed-exile target.
-- **"If no mana was spent to cast it" mana-spent tracking** — Lavinia,
-  Azorius Renegade (plus its own dynamic cast-prohibition) / Boromir,
-  Warden of the Tower (plus the Ring).
-- **"Who was dealt combat damage by ~ this turn" history** — Hope of
-  Ghirapur.
-- **"Return another permanent you control that shares a type" choice** —
-  Cloudstone Curio.
-- **Buyback alt-cost** — Reiterate.
-- **Interactive per-opponent "may pay `{2}`" + reflexive copy** —
-  Wandering Archaic.
-- **Bounce-spell-to-hand effect alongside a spell copy** — Narset's
-  Reversal.
-- **Dynamic produced-mana amount** ("add one mana of any type that
-  permanent produced") — Kinnan, Bonder Prodigy.
-- **Triggered mana ability** (RULE 605.1b/605.4 — must resolve immediately
-  into the pool, not via the stack, so its extra mana is spendable in the
-  same payment) — Wild Growth.
-- **Tap-all-matching-lands mana denial** — Mana Web.
-- **Second dynamic-value source from a sacrificed permanent** —
-  `StackItem.x` only threads a spell's announced `{X}`; nothing stashes an
-  additional cost's sacrificed permanent (or its MV) for a resolving
-  effect to read: Eldritch Evolution, Neoform.
-- **"Choose a card name" input + dig-until-match loop** — no primitive lets
-  a player name an arbitrary card before a zone is examined, nor exiles
-  from the top until a filter matches: Demonic Consultation, Possibility
-  Storm (also needs to intercept every player's every hand-cast), Tibalt's
-  Trickery (also needs a secret-simultaneous-number choice for Wheel of
-  Misfortune-style effects — hidden multiplayer info).
-- **Control-*exchange* primitive** — `control_change` (layer-2 static) and
-  `CopyPermanentEffect` are the only control/copy shapes; neither swaps two
-  permanents' controllers: Gilded Drake.
-- **Repeat-until-condition loop** — no effect keeps going until a predicate
-  over what's happened so far is met: Helm of Obedience.
-- **Open-ended "as many times as you choose" loop** — every existing loop
-  has a fixed or player-capped count: Lim-Dûl's Vault.
-- **Fading (RULE 702.32)** — no "enters with N fade counters, remove one
-  each upkeep or sacrifice" mechanic: Tangle Wire.
-- **Devotion count-selector** — `continuous.count_selector` has no
-  devotion entry: Thassa's Oracle.
-- **Whole-board phasing** — the phasing mechanism (`GameObject.
-  phased_out`) is scoped to a single permanent; nothing phases out every
-  permanent a player controls plus the player: Teferi's Protection.
-- **Soulbond (RULE 702.94)** — bare `FLAG` keyword only, no pairing logic:
-  Deadeye Navigator.
-- **Mutate (RULE 702.140)** — no merge/casting implementation, no
-  `EventType.MUTATE`: Lore Drakkis.
-- **Bargain additional cost** — bare `FLAG` keyword only, no
-  additional-cost handling or "was it bargained" flag: Beseech the Mirror.
-- **Giver of Runes' "another" restriction** — no "other creature you
-  control" target kind yet for the shipped grant-protection path.
-- **Dress Down's ETB draw + end-step self-sacrifice**, and **Underworld
-  Breach's "escape" grant** — both ride the shipped board-wide
-  ability-strip static but need their own separate extension.
-- **Dynamic/count-driven mana amount + cross-graveyard "cards named X"
-  selector** — `AddManaEffect` adds a fixed symbol list, and
-  `count_selector` has no "cards named X across every graveyard" entry:
-  Rite of Flame.
-- **Per-count activation-cost reduction** — `activation_cost_reduction_for`
-  supports a flat amount but no per-count formula (mirroring
-  `cost_reduction`'s `per` param): Eiganjo, Seat of the Empire ("{1} less
-  per legendary creature"; registered with the Channel ability at full
-  cost, the reduction dropped).
-- **Blood Moon's layer-6 ability-removal half** — "Nonbasic lands are
-  Mountains" overwrites subtype + grants `{R}` (layer 4) but doesn't strip
-  a land's independently-printed mana ability; no pool card needs the
-  distinction yet.
-- **Inline two-way modal with no bulleted header** — the modal grammar
-  only recognizes the bulleted RULE 700.2 block, not a compact "A or B"
-  sentence: Pemmin's Aura ("{1}: enchanted creature gets +1/-1 or -1/+1").
-- **Conditional search destination** — `SearchLibraryEffect` allows one
-  fixed destination per search, not "onto the battlefield tapped if a
-  land, else to hand": Archdruid's Charm's first mode.
-- **"Put cards from hand onto the battlefield" + Entwine** — every "put
-  onto the battlefield" shape moves from a graveyard or library, never an
-  open choice from hand; Entwine also has no parser recognition: Tooth and
-  Nail.
-- **Assorted bespoke multi-ability cards** each combining several gaps
-  above or their own one-off mechanic, left fully unmodeled: Professor
-  Onyx, Jeska Thrice Reborn, Tevesh Szat Doom of Fools, Mana Vault
-  (optional-cost/state-conditioned upkeep + draw-step triggers), Dauntless
-  Dismantler (`{X}{X}{W}`-costed mass-destroy-by-X).
 
 ## LLM Deck Analysis (UC2)
 

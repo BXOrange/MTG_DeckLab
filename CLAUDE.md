@@ -300,8 +300,8 @@ every field it reads, `parser/oracle/gate.py`) since it's called once per
 on every copy/every game. `parser/oracle/processing_list.py` tracks
 cache-wide coverage and ranks the next handlers worth building. The cache is
 now bulk-loaded with the **full ~34k-card Oracle universe**
-(`scripts/import_bulk.py`), so coverage is measured against that: **25.2%
-covered (8,633 / 34,209) as of 2026-07-22, PARSER_VERSION 27** (parser-`MODELED` **or**
+(`scripts/import_bulk.py`), so coverage is measured against that: **25.4%
+covered (8,672 / 34,209) as of 2026-07-22, PARSER_VERSION 28** (parser-`MODELED` **or**
 hand-`AUTHORED`).
 Re-measure with `scripts/coverage_report.py` (ledger-backed — see
 `services/coverage_db.py`) before trusting this number; Batches 1–10 are all
@@ -377,6 +377,70 @@ mana-ability grants** ("Elves you control have '{T}: Add {B}.'" — recognized
 directly by `static_handlers._granted_mana_options`, since a plain mana
 ability is claimed-*without*-a-spec by the segmenter and the nested parse
 has nothing to re-emit).
+
+A **cEDH-cube batch** (batch 25, 2026-07-22) then made all **43 cards** of
+that pool playable, closing the whole "cEDH staples cube" ToDo section. Six
+new *general* mechanisms carried most of it, each closing several cards at
+once: `GameContext.trigger_event` (RULE 603.1 — the firing event exposed for
+exactly one resolution window, so an effect can depend on *which* firing
+without every `apply()` growing a parameter); the **triggered mana ability**
+(RULE 605.1b/605.4, `TriggeredAbility.mana_ability` — resolves off-stack, so
+its mana is spendable in the payment that triggered it: Wild Growth,
+Kinnan); `pay_cost_then` (RULE 118.3 — the general form of the shipped
+energy-only optional payment, with an "if you don't" branch and an
+event-named payer: Mana Vault, Wandering Archaic, both Pacts);
+`GameEffect.extra_target_specs` (**two independently-chosen targets of
+different kinds in one clause** — Brass Squire, Halvar, Archdruid's Charm);
+`RulesEngine.dig_until` (the cascade dig with predicate and both
+destinations parameterized) alongside `request_name_card` (the only choice
+whose answer space isn't enumerable from game state — Demonic Consultation);
+and the two remaining loop shapes, **repeat-until-a-predicate** (Helm of
+Obedience) and **open-ended** (Lim-Dûl's Vault, bounded by its own life
+payment). Four RULE 702 keywords went from recognized-but-inert to real
+behaviour — **Fading** (702.32), **Soulbond** (702.94, genuine pairing state
+broken as an SBA), **Mutate** (702.140, merging onto the host, which stays
+the same permanent per 702.140c) and **Bargain** — plus a *granted* Escape
+(702.138 from Underworld Breach rather than printed), a control **exchange**
+(701.10, Gilded Drake), mass phasing + a player life-lock (702.26b/119.6,
+Teferi's Protection), and RULE 606.5c's `[-X]` loyalty cost. Two latent bugs
+surfaced and were fixed on the way: `creature_you_control` had been
+*excluding* the ability's own source (so Mother of Runes couldn't protect
+herself and a Karoo land couldn't bounce itself — only the new
+`other_creature_you_control` excludes it now), and an "up to one target"
+trigger with no legal target was being dropped rather than resolving with
+zero targets (RULE 115.1a — which is what makes Gilded Drake sacrifice
+itself on an empty board).
+
+A follow-up **batch 26** then closed that pool's whole documented residue —
+the nine narrow simplifications each shipped card had recorded — so nothing
+of it is open any more. The load-bearing piece was **RULE 608.2 suspended
+resolutions** (`GameState.deferred_effects` / `RulesEngine.
+resume_deferred_effects`): the state holds exactly one `pending_choice`, so
+a resolution with 2+ interactive effects had been letting the second
+silently overwrite the first player's prompt; the remainder of the effect
+list is now parked and resumed once the choice is answered. On top of that:
+**Entwine** as a real priced modal upgrade (RULE 702.42a — a second,
+separately-priced and lockable "choose all" cast action, replacing the free
+`or_both` flag Tooth and Nail had been borrowing); per-found-card
+**conditional search destinations** (`SearchLibraryEffect.destination_if`);
+Beseech the Mirror's **face-down exile** round trip (RULE 701.20a,
+`GameObject.face_down_in_exile` plus Rebound's own exile free-cast window,
+with the "…to hand if it wasn't cast this way" half as a delayed trigger);
+**The Ring tempts you** (RULE 701.51/701.52 — `Player.ring_level`/
+`ring_bearer_id` as a designation subsystem in the Monarch/Initiative mould,
+its level-1 static split between a layer-4 legendary grant and a
+`can_block` restriction, its levels 2–4 built fresh per firing so they
+follow the *current* bearer); a **general interactive object chooser**
+(`RulesEngine.request_choose_objects`) that replaced the "auto-pick the
+first candidate" convention across seven cards at once, carrying its whole
+decision — including "if you do" follow-ups as serialized `EffectSpec`s —
+as clone-safe data rather than a closure; **mutate under the pile** (RULE
+702.140b) with a real `non_human_creature_you_own` target line; **RULE
+305.7**'s land-type ability removal (which also closed the same hole for
+Humility/Dress Down, since `mana_abilities_for` had never honoured
+`loses_all_abilities`); and parser recognition of the compact inline
+"gets A **or** B" activated ability. Full detail, wave by wave, in
+`docs/implementation-state/Done_Backend.md` ("cEDH staples cube").
 
 **Notable gaps** (see `backend/ToDo_Backend.md` for the full list with exact
 scope on each): a kicked spell's "if kicked, ... instead" *override* conditional (as opposed to the

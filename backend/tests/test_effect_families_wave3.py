@@ -405,7 +405,12 @@ def test_bounce_land_etb_trigger_offers_only_the_controllers_own_lands():
     ids = {o["instance_id"] for o in choice["options"]}
     assert my_other_land.instance_id in ids
     assert opp_land.instance_id not in ids  # controller-restricted
-    assert bounce.instance_id not in ids  # can't return itself (targeting.py convention)
+    # RULE 109.5: "a land you control" is *not* "another land you control" —
+    # a Karoo land really can bounce itself (Azorius Chancery returning
+    # itself is a legal, occasionally-correct play). Only a target kind that
+    # actually says "another" (`other_creature_you_control`, Giver of Runes)
+    # excludes the source.
+    assert bounce.instance_id in ids
 
     option = next(o for o in choice["options"] if o["instance_id"] == my_other_land.instance_id)
     engine.resolve_trigger_target_choice(option["id"])

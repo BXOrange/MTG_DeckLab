@@ -56,7 +56,12 @@ _CLAMPED_PARAM_KEYS: tuple[str, ...] = (
 #: Ghoul, Gunslinger-shaped) checks the ability's own resolved target
 #: (`game/effects.py`'s `ConditionalEffect._condition_holds`) against this
 #: effect's controller.
-_ALLOWED_CONDITION_KEYS: frozenset[str] = frozenset({"kicked", "target_is_controller"})
+#: ``"bargained"`` (RULE 701.x, Beseech the Mirror's "if this spell was
+#: bargained, …") is Kicker's own ``"kicked"`` gate for a different optional
+#: additional cost — same `GameObject`-flag shape, same resolve-time check.
+_ALLOWED_CONDITION_KEYS: frozenset[str] = frozenset(
+    {"kicked", "bargained", "target_is_controller"}
+)
 
 #: `AbilitySpec.conditional_flash`'s whitelisted keys — see that field's
 #: docstring. A deliberately separate whitelist from `_ALLOWED_CONDITION_KEYS`
@@ -204,6 +209,12 @@ class AbilitySpec:
     #: pattern, plus a "done" option once ``choose`` are picked when
     #: ``at_least``) — the same "choice made before the target/optional
     #: choice" ordering RULE 601.2c already uses for a spell's own mode.
+    #: ``entwine`` (RULE 702.42, ``spell_effect`` only) is the mana-cost
+    #: string of an Entwine additional cost: paying it upgrades the header
+    #: from "choose one" to "choose *all*", so the engine offers a second,
+    #: separately-priced cast action alongside the per-mode ones. Unlike
+    #: ``or_both`` — which hands both modes over for free — the combined
+    #: offer is locked when the entwine cost isn't affordable.
     modes: Optional[dict[str, Any]] = None
     #: RULE 601.2b/604.3: a spell's "as an additional cost to cast this
     #: spell, <cost>." clause — ``spell_effect`` only, a single-key dict from
@@ -439,6 +450,19 @@ class AbilitySpec:
             )
         if self.modes.get("or_both") and self.modes.get("at_least"):
             raise SpecValidationError("'modes' or_both and at_least are mutually exclusive")
+        entwine = self.modes.get("entwine")
+        if entwine is not None:
+            # RULE 702.42a: Entwine is an *additional* cost that upgrades the
+            # header from "choose one" to "choose all" — so it only makes
+            # sense on a plain "Choose one —" block, never alongside the
+            # free-of-charge `or_both` (RULE 700.2e) or a variable
+            # `at_least` count.
+            if not isinstance(entwine, str) or not entwine.strip():
+                raise SpecValidationError("'modes' entwine must be a mana-cost string")
+            if self.modes.get("or_both") or self.modes.get("at_least") or choose != 1:
+                raise SpecValidationError(
+                    "'modes' entwine requires a plain 'choose one' block"
+                )
 
     def _validate_additional_cost(self) -> None:
         """Structural check for an ``additional_cost`` clause (RULE 601.2b/604.3)."""

@@ -113,6 +113,62 @@ class GameObject:
         #: spell was cast — if so, `RulesEngine.resolve_top_of_stack` returns
         #: it to hand instead of the graveyard, then clears this flag.
         self.buyback_paid: bool = False
+        #: RULE 202.1/601.2h: how much mana was actually *spent* casting this
+        #: spell — the converted value of the cost that was paid, 0 for a
+        #: free/alternative-{0} cast. Reassigned on every cast (like
+        #: `cast_via_flashback`) and also stamped onto the `SPELL_CAST` event
+        #: as ``mana_spent``. "If no mana was spent to cast it" (Lavinia,
+        #: Azorius Renegade / Boromir, Warden of the Tower) reads it; the
+        #: object copy exists because a resolving effect can need it after
+        #: the spell has already left the stack. Deliberately *not* the same
+        #: as the event's ``free`` flag — see `EventType.SPELL_CAST`.
+        self.mana_spent_to_cast: int = 0
+        #: RULE 702.94a Soulbond: the `instance_id` of the creature this one
+        #: is paired with, held on **both** objects, or ``None`` when
+        #: unpaired. A genuine piece of game state rather than a continuous
+        #: effect — the *grant* a pair confers is a layer-6 static that reads
+        #: this, and RULE 702.94c breaks the pair the moment either creature
+        #: leaves the battlefield or changes controller (swept by
+        #: `RulesEngine.check_state_based_actions`).
+        self.paired_with: Optional[int] = None
+        #: RULE 702.140b: whether this spell was cast for its Mutate cost —
+        #: set at cast time by `GameEngine._cast_current_face` and consumed
+        #: by `RulesEngine._resolve_permanent_spell`, which merges it onto
+        #: its target instead of letting it enter the battlefield as its own
+        #: permanent. Reassigned on every cast, like `cast_via_flashback`.
+        self.cast_via_mutate: bool = False
+        #: RULE 702.140b: whether that Mutate cast chose "under" rather than
+        #: "over" — the pile then keeps the *target's* characteristics and
+        #: only gains this card's abilities. Set alongside `cast_via_mutate`
+        #: and consumed by the same resolution branch.
+        self.mutate_under: bool = False
+        #: RULE 701.x Bargain: whether the optional "sacrifice an artifact,
+        #: enchantment, or token as you cast this spell" additional cost was
+        #: paid — read by `EffectSpec.condition`'s ``"bargained"`` gate, the
+        #: same shape Kicker's own ``"kicked"`` condition uses.
+        self.bargained: bool = False
+        #: RULE 701.20a: this card was exiled **face down** (Beseech the
+        #: Mirror's "search your library for a card, exile it face down").
+        #: A face-down card in exile has no characteristics anyone but its
+        #: owner may look at, so the session view hides its identity from
+        #: everyone else (`to_dict`). Cleared the moment it leaves exile or
+        #: is turned face up — nothing keeps a card face down across a zone
+        #: change (RULE 400.7).
+        self.face_down_in_exile: bool = False
+        #: RULE 702.140c Mutate: the abilities merged in from *under* this
+        #: permanent — the oracle text of every card mutated onto it, kept as
+        #: text so `effect_binder.bind_from_catalogue` can re-derive real
+        #: abilities from it exactly as it does for a printed face. Empty for
+        #: every permanent that was never a mutate host.
+        self.merged_oracle_text: list[str] = []
+        #: RULE 601.2b: the mana value of the permanent sacrificed to pay this
+        #: spell's *additional* cost ("as an additional cost to cast this
+        #: spell, sacrifice a creature" — Eldritch Evolution/Neoform), or
+        #: ``None`` when no such cost was paid. `StackItem.x` only ever
+        #: threads a spell's *announced* {X}, so a resolving effect whose
+        #: magnitude is "the sacrificed creature's mana value" needs its own
+        #: channel; read by `SearchLibraryEffect`'s ``mana_value_from``.
+        self.sacrificed_cost_mana_value: Optional[int] = None
         #: RULE 702.34a: whether this spell was cast from the graveyard via
         #: Flashback — if so, `RulesEngine.resolve_top_of_stack` exiles it
         #: instead of sending it to the graveyard, then clears this flag.
@@ -349,6 +405,13 @@ class GameObject:
         #: than a continuously re-derived one. Reset every recompute exactly
         #: like `_granted_keywords`.
         self._granted_protections: set[str] = set()
+        #: RULE 205.4/613.2d: a layer-4 static ability making this permanent
+        #: legendary even though its printed type line isn't ("Your
+        #: Ring-bearer is legendary" — RULE 701.51's Ring emblem, the only
+        #: source today). Read by `is_legendary`; reset every recompute like
+        #: the other `_granted_*` fields, so it follows the Ring-bearer
+        #: designation automatically instead of having to be un-stamped.
+        self._granted_legendary: bool = False
         #: Whether a layer-6 "loses all abilities" static ability (RULE 613.7f
         #: — Humility, Dress Down) is stripping *every* ability off this object
         #: this pass: all keywords (`game/combat.py`'s `_obj_keywords` returns
@@ -493,6 +556,7 @@ class GameObject:
         self._granted_keywords = set()
         self._removed_keywords = set()
         self._granted_protections = set()
+        self._granted_legendary = False
         self._loses_all_abilities = False
         self._granted_mana = []
         self._granted_triggered_abilities = []
@@ -553,6 +617,14 @@ class GameObject:
         self.prepared_source_id = None
         self.kicker_count = 0
         self.buyback_paid = False
+        self.mana_spent_to_cast = 0
+        self.sacrificed_cost_mana_value = None
+        self.paired_with = None
+        self.merged_oracle_text = []
+        self.cast_via_mutate = False
+        self.mutate_under = False
+        self.bargained = False
+        self.face_down_in_exile = False
         self.cast_via_flashback = False
         self.rebound_pending = False
         self.commander_zone_choice_pending = False
@@ -639,7 +711,15 @@ class GameObject:
 
     @property
     def is_legendary(self) -> bool:
-        return self.card.is_legendary
+        """RULE 205.4: printed legendary, or made so by a layer-4 static.
+
+        The only source of the latter today is RULE 701.51's Ring emblem
+        ("Your Ring-bearer is legendary…"), stamped by `game/continuous.py`'s
+        layer pass — which is why it reads a derived flag rather than the
+        card alone. It matters to exactly one rule the engine models, the
+        RULE 704.5j legend-rule SBA.
+        """
+        return self.card.is_legendary or self._granted_legendary
 
     @property
     def is_planeswalker(self) -> bool:
@@ -850,6 +930,11 @@ class GameObject:
             "is_token": self.is_token,
             # RULE 715.3d: an exiled Adventure creature the player may cast.
             "adventure_castable": self.adventure_castable,
+            # RULE 701.20a: exiled face down (Beseech the Mirror) — the board
+            # renders a card back rather than the art. The name/type stay in
+            # the payload: this app's goldfish/Replay views are all shown to
+            # the card's own owner, who is exactly who *may* look at it.
+            "face_down_in_exile": self.face_down_in_exile,
             # RULE 722.3c: this object *is* a prepared copy sitting in exile,
             # castable as long as its source stays prepared — the mirror
             # image of `prepared` below (which flags the source permanent).

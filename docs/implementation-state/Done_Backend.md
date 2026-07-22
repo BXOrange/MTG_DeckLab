@@ -4956,6 +4956,367 @@ the Phase-1 models. Tests: `test_game_engine.py`.
         `MILL_CARD` primitive plus all three cards, including the
         opponent-only/own-mill-doesn't-trigger and decline paths).
 
+## cEDH staples cube
+
+- [x] **Batch 25 (2026-07-22): all 43 cards of the cEDH cube pool.** The
+      whole "cEDH staples cube" section moved here from
+      `backend/ToDo_Backend.md`; that file now keeps only the narrow
+      simplifications each shipped card documents in its own
+      `game/ability_catalogue.py` entry. Every card is registered, binds,
+      and is playable; 91 new tests across six files
+      (`test_cedh_cube_state_tracking.py`, `_mana_primitives.py`,
+      `_control_and_zones.py`, `_loops_and_naming.py`,
+      `_keyword_mechanics.py`, `_bespoke_tail.py`).
+
+      Organized as six waves, each around the primitive its cards actually
+      needed rather than card-by-card:
+
+      **Wave 1 — state the engine never recorded.** These cards weren't
+      blocked on an effect but on a *fact* that couldn't be re-derived
+      after the event:
+      - `GameObject.mana_spent_to_cast` + the `SPELL_CAST` event's
+        ``mana_spent`` key (RULE 202.1/601.2h) — deliberately **not** the
+        pre-existing ``free`` flag: a spell cast for an alternative cost of
+        {0}, or reduced to {0}, spends no mana while still being a paid
+        cast, and that is most of why Lavinia, Azorius Renegade and
+        Boromir, Warden of the Tower are played. "Counter that spell" is
+        the RULE 603.3d ``reflexive`` trigger shape, whose docstring had
+        named these two cards as its motivating example since it was built.
+      - `continuous.cast_prohibited`'s new ``cast_prohibition`` static
+        (RULE 601.3a) — the *conditional* sibling of ``cast_limit``'s flat
+        per-turn count, with its ``max_mana_value_selector`` evaluated for
+        the **casting** player rather than the static's controller
+        ("*that player*'s lands"), which is exactly why it can't be a layer
+        value. Lavinia's other half.
+      - `GameState.combat_damage_to_players_this_turn`, the
+        ``player_dealt_combat_damage_by_source`` target kind, and the
+        player-scoped `PlayerCastRestrictionEffect` — Hope of Ghirapur,
+        whose target is a *history* question no live board state can answer
+        and whose lock has no permanent behind it (it sacrificed itself).
+        Introduced the ``until_next_turn_of`` duration key
+        `GameEngine.begin_turn` sweeps, reused by three later cards.
+      - `continuous.count_selector` gained ``devotion_to_<colour>`` (RULE
+        202.2f, hybrid pips counting for both colours),
+        ``legendary_creatures_you_control`` and
+        ``cards_named_source_in_all_graveyards`` — Thassa's Oracle (whose
+        RULE 104.2a win routes through the same `player_wins` choke point
+        Jace, Wielder of Mysteries uses), Eiganjo, Seat of the Empire (via
+        `ActivationCost.dynamic_reduction`'s new ``count_selector``), and
+        Rite of Flame (via `AddManaEffect.amount_selector`).
+      - `GameObject.sacrificed_cost_mana_value` +
+        `SearchLibraryEffect.mana_value_from`/``extra_counters`` —
+        Eldritch Evolution/Neoform. `StackItem.x` only ever threads an
+        *announced* {X}, so an additional cost's sacrificed permanent
+        needed its own channel.
+      - Giver of Runes' "another" restriction closed with a new
+        ``other_creature_you_control`` target kind — which also **fixed a
+        latent inversion**: `creature_you_control` had been excluding the
+        source, so Mother of Runes couldn't protect herself and a Karoo
+        land couldn't bounce itself (both legal, occasionally-correct
+        plays). Only a kind that actually says "another" excludes it now.
+
+      **Wave 2 — mana.** The headline is the **triggered mana ability**
+      (RULE 605.1b/605.4, `TriggeredAbility.mana_ability`): an ability that
+      triggers off a mana ability and produces only mana never uses the
+      stack — it resolves on the spot, so its mana is spendable within the
+      payment that triggered it. Queueing it would deliver the mana one
+      full stack resolution too late, which is the entire reason Wild
+      Growth and Kinnan, Bonder Prodigy are played.
+      - `GameContext.trigger_event` (RULE 603.1) exposes the firing event
+        for exactly one resolution window, threaded onto
+        `StackItem.trigger_event` through every pause/resume path. Lets an
+        effect depend on *which* firing without every `apply()` growing an
+        event parameter; the `TriggeredAbility` docstring's "bake per-firing
+        data into freshly-built effects" pattern stays the answer whenever
+        the ability's *shape* varies, this covers the commoner case where
+        only a value does. Used by six cards across waves 2–4.
+      - `MirrorProducedManaEffect` (Kinnan — narrower than `AddManaEffect`'s
+        ``"ANY"``: only what that permanent *did* produce) and
+        `TapMatchingLandsEffect` (Mana Web — deliberately reading what a
+        land *could* produce, RULE 605.1a, so a dual tapped for {U} still
+        locks down every land making its other colour).
+      - `pay_cost_then` (RULE 118.3) — the general form of the shipped,
+        energy-only `PayEnergyThenEffect`, on the same
+        `_can_pay_player_cost`/`_pay_player_cost` machinery ward and
+        "sacrifice ~ unless you pay" already share, with an "if you don't"
+        branch and an event-named payer. Mana Vault's upkeep untap; reused
+        by Wandering Archaic and both Pacts. Mana Vault also brought a
+        ``source_state`` intervening-if (RULE 603.4 about the ability's own
+        source, alongside the event- and turn-scoped flavours) and a
+        ``controller`` damage selector.
+
+      **Wave 3 — control & zones.**
+      - `ExchangeControlEffect` (RULE 701.10) — a genuine two-way swap,
+        which neither shipped shape could express: the layer-2
+        ``control_change`` static reassigns one permanent while its source
+        lasts, and `GainControlUntilEndOfTurnEffect` is a one-way,
+        duration-bounded grab. Modeled as a one-shot `controller_id` swap
+        precisely so Gilded Drake dying afterwards doesn't hand the creature
+        back. Also fixed a RULE 115.1a bug on the way: an "up to one target"
+        trigger with **no** legal target was being dropped, when choosing
+        zero targets is itself legal — which is what makes Gilded Drake
+        sacrifice itself on an empty board.
+      - `PhaseOutAllYouControlEffect`/`PlayerShieldEffect` — mass phasing
+        (RULE 702.26b, with host and attachment phasing *together* per RULE
+        702.26e, unlike the single-permanent `PhaseOutEffect` which
+        unattaches), plus "your life total can't change" (RULE 119.6, a
+        prohibition checked at the `gain_life`/`lose_life` choke points, not
+        a replacement) and player-side protection from everything (RULE
+        702.16e). Teferi's Protection.
+      - `RulesEngine.move_spell_off_stack` (RULE 400.1) — pulling a
+        `StackItem` into hand or exile, which no existing bounce could do
+        (they all move battlefield permanents). Practically a counter that
+        sends the card somewhere other than the graveyard, which is why
+        Narset's Reversal and Possibility Storm both beat "can't be
+        countered".
+      - `ReturnSharedTypePermanentEffect` (Cloudstone Curio — the legal set
+        depends on the *entering* permanent) and
+        `PutFromHandOntoBattlefieldEffect` (Tooth and Nail — every other
+        "put onto the battlefield" moves from a library or graveyard;
+        reuses `request_search` against a new ``"hand"`` zone, which
+        correctly neither shuffles nor fires `LIBRARY_SEARCHED`).
+      - Reiterate needed **nothing new** — Buyback and `CopySpellEffect`
+        were both already built (the latter's docstring even named the
+        card); it was simply never registered, so the fail-closed gate left
+        it unmodeled.
+
+      **Wave 4 — naming a card, and the three loop shapes.** Four
+      separately-listed blockers, all closed:
+      - `RulesEngine.request_name_card` — the only choice in the engine
+        whose answer space isn't enumerable from game state. Offers the
+        names the player can see as *suggestions* while accepting an
+        arbitrary string, substituted into a ``"named_card"`` criteria
+        sentinel (the naming counterpart of `_substitute_x`). The string is
+        only ever compared against card names, never interpreted, so docs/09's
+        security boundary is intact.
+      - `RulesEngine.dig_until` — the cascade/discover dig with the
+        predicate and both destinations made parameters, plus a ``not_name``
+        key on `models.card_query`. Demonic Consultation (naming a card
+        that *isn't* there exiles the library, which is the actual cEDH
+        line into Thassa's Oracle).
+      - `MillUntilCreatureEffect` — the first **repeat-until-a-predicate**
+        loop; every other repetition primitive had its count fixed before
+        it started. Bounded on both sides by construction (X caps it, an
+        empty library ends it early), which is what makes having the
+        primitive safe. Helm of Obedience.
+      - `request_look_top_pay_life_loop` — the first **open-ended** loop,
+        bounded by its own life payment rather than a safety cap (RULE
+        118.4), driven by a self-re-opening `pending_choice`. Lim-Dûl's
+        Vault.
+      - `ScrambleSpellEffect` — Possibility Storm and Tibalt's Trickery,
+        which differ only in how the spell is answered and what the dig
+        looks for. One atomic effect because every clause is about the same
+        spell and **its** controller (never the caster). Possibility Storm
+        also drove the `SPELL_CAST` event's new ``from_hand`` key.
+
+      **Wave 5 — RULE 702 keywords that had recognition but no behaviour.**
+      - **Fading (RULE 702.32)**, both halves on the keyword rather than on
+        Tangle Wire, so every Fading/Vanishing card gets them: entry
+        counters read off the *parsed keyword* (not the reminder sentence,
+        which needn't be printed), and the upkeep "remove one or sacrifice"
+        synthesized alongside annihilator/afflict/bushido. Note "if you
+        can't" means no counter left, which is why Fading N lasts N+1
+        upkeeps.
+      - **Soulbond (RULE 702.94)** — real pairing state
+        (`GameObject.paired_with`, on both objects) rather than a
+        continuous effect, because RULE 702.94c breaks it on *events*;
+        swept as an SBA so no removal site has to tear it down. The grant is
+        an ordinary layer-6 static over a new ``soulbond_pair`` selector
+        that resolves to nothing while unpaired. Deadeye Navigator.
+      - **Mutate (RULE 702.140)** — an alternative cast cost that merges
+        onto its target instead of entering the battlefield. The **host**
+        stays the surviving `GameObject` per RULE 702.140c, so counters,
+        damage, Auras and summoning sickness carry over and no ETB trigger
+        fires; "all abilities from under it" banks both the oracle text and
+        the keyword list, re-derived through the ordinary bind path. New
+        `EventType.MUTATES`. Lore Drakkis.
+      - **Bargain** — a genuinely payable optional additional cost plus an
+        ``"if bargained"`` `EffectSpec.condition`, the exact shape Kicker's
+        ``"kicked"`` gate already had. Beseech the Mirror.
+      - A **granted** Escape (RULE 702.138 from a permanent rather than
+        printed on the card) — `continuous.granted_escape_for`, consulted
+        by `_graveyard_cast_keyword`/`_escape_cost`, which is why the rest
+        of the escape machinery needed no change. Underworld Breach.
+      - The **Pacts** needed nothing new beyond wave 2's `pay_cost_then`:
+        `CreateDelayedTriggerEffect` had named them in its docstring since
+        it was built. Corpse Dance's long-deferred "exile it at the
+        beginning of the next end step" also closed, kept inside the
+        returning effect because only it knows which object "it" is.
+
+      **Wave 6 — the bespoke tail.** The shared primitive is **two
+      independently-chosen targets of different kinds in one clause**
+      (`GameEffect.extra_target_specs`): the gathering paths
+      (`_trigger_target_specs`, `spell_target_specs`) now read
+      `target_specs` (plural), and `_apply_effects_partitioned` hands such
+      an effect all of its groups flattened. That one change closed the
+      whole "two independent targeting effects on one ability" entry —
+      Brass Squire, Halvar God of Battle, and Archdruid's Charm's second
+      mode (which *must* be atomic: the damage reads the target's power
+      after the +1/+1 counter lands).
+      - New target kinds: ``creature_you_dont_control``,
+        ``artifact_or_enchantment``,
+        ``attached_aura_or_equipment_you_control``.
+      - `DestroyEachWithManaValueEffect` (Dauntless Dismantler — a mass
+        destroy whose *filter* is the announced X; its "artifacts your
+        opponents control enter tapped" half was already shipped).
+      - `SacrificeEffect` gained ``each_opponent`` and ``greatest_power``
+        (the one place the engine's arbitrary auto-pick would be actively
+        *wrong*) and a registry entry — it had only ever been reachable
+        from the annihilator keyword. Professor Onyx.
+      - `GainControlOfAllCommandersEffect` (RULE 903.3, Tevesh Szat) and
+        `MultiplyDamageFromTargetEffect` (Jeska — RULE 616.1 scoped to one
+        source / combat only / your opponents and duration-bounded, reusing
+        the replacement machinery rather than a new one), plus RULE
+        606.5c's ``[-X]`` loyalty cost (`ActivationCost.loyalty_is_x`).
+      - Dress Down and Pemmin's Aura needed no new engine work at all —
+        the board-wide ability strip and the Aura pump/untap effects were
+        already shipped; Pemmin's inline "A or B" is split into two
+        activated abilities, which is faithful (choosing which to activate
+        *is* the printed choice).
+
+### Batch 26 (2026-07-22) — closing the documented residue
+
+Batch 25 left nine narrow simplifications behind, each recorded in its
+card's `game/ability_catalogue.py` entry and mirrored in
+`backend/ToDo_Backend.md`. All nine are now closed. Six of them needed a
+genuinely new mechanism; the rest fell out of those.
+
+- [x] **RULE 608.2 suspended resolutions** — the prerequisite nothing else
+      could be built on. `GameState.pending_choice` holds exactly one
+      decision, so a resolution with 2+ interactive effects used to let the
+      second silently overwrite the first player's prompt.
+      `game/effects.py`'s `_apply_effects_partitioned` now parks the
+      remainder of the list on `GameState.deferred_effects` whenever an
+      effect opens a choice, and `RulesEngine.resume_deferred_effects`
+      (driven from `GameEngine.resolve_until_stable`) picks it back up
+      afterwards — innermost first, before anything else on the stack, since
+      those effects still belong to the same resolving object. The same
+      change unified the two per-effect target-partitioning loops
+      (`_apply_stack_item`'s and the nested wrapper's) onto one code path.
+      A latent correctness bug, not just an enabler: it was reachable by any
+      multi-clause ability whose clauses both prompt.
+- [x] **Entwine (RULE 702.42a)** — a real priced modal upgrade rather than
+      the free RULE 700.2e ``or_both`` flag Tooth and Nail was borrowing.
+      The ``entwine`` key on a modes block (`AbilitySpec.modes`, bound onto
+      `GameObject.spell_modes_entwine`) makes `_modal_cast_actions` offer a
+      *second, separately-priced* "choose all" action that locks when its
+      cost isn't affordable, and `_cast_current_face` refuses
+      ``mode="both"`` on an ordinary "choose one" block unless that cost is
+      actually being paid. Getting the both-modes line for free had made
+      Tooth and Nail strictly better than printed. The same pass threaded
+      `buyback`/`mutate`/`bargained`/`entwine` through
+      `services/game_session.py`, which had never forwarded them — so the
+      Buyback toggle `legal_actions` already advertised was unusable.
+- [x] **Conditional search destinations (RULE 701.19c)** —
+      `SearchLibraryEffect.destination_if`, a list of
+      ``{"criteria", "destination"}`` rules checked per *found card*, first
+      match winning. Unlike the shipped positional ``destinations`` (fixed
+      when the search opens), this can only be resolved once the player says
+      what they found: Archdruid's Charm's "onto the battlefield tapped **if
+      it's a land card**. Otherwise, put it into your hand."
+- [x] **Face-down exile + a conditional cast window (RULE 701.20a)** —
+      Beseech the Mirror's round trip is real now. A search destination of
+      ``"exile_face_down"`` sets `GameObject.face_down_in_exile` (rendered
+      as a card back by `gameBoardView.js`'s `resolveImageUrl`, the first
+      genuinely reachable use of the sleeve fallback), and
+      `CastExiledFaceDownEffect` hands out Rebound's own exile free-cast
+      window (`RulesEngine.grant_free_cast_window_from_exile`, renamed from
+      the Rebound-specific name) so the card is cast through the ordinary
+      action loop with full targeting. The "put it into your hand if it
+      wasn't cast this way" half is a `DelayedTrigger` at the next end step —
+      or immediate when the card was never eligible. Note the two halves
+      have *different* conditions, which is why this isn't a
+      `ConditionalEffect` around a single cast: only the cast is gated on
+      ``bargained``.
+- [x] **The Ring tempts you (RULE 701.51)** — a whole designation
+      subsystem, built the way Monarch and Initiative were.
+      `Player.ring_level` (0–4) *is* the emblem: unlike a RULE 114 emblem
+      there's no quoted card text to parse, the four abilities are fixed by
+      the rules and all read live state, so nothing is created in the
+      command zone. `Player.ring_bearer_id` is RULE 701.52a's designation,
+      re-chosen on every temptation (an interactive ``ring_bearer``
+      `pending_choice` with 2+ creatures, forced with one, none with zero)
+      and swept by the SBA pass when its creature stops qualifying.
+      Ability 1 splits across `continuous._apply_ring_bearer_static`
+      (layer 4 legendary — the first `GameObject._granted_legendary`, and
+      the reason `is_legendary` is no longer a straight card read) and
+      `GameEngine.can_block` (the greater-power blocking restriction);
+      abilities 2–4 are built fresh per firing by
+      `RulesEngine._collect_ring_triggers`, source-less like the monarch's,
+      so each follows the *current* Ring-bearer rather than whoever was
+      bearer when the level was gained. Boromir, Warden of the Tower's
+      sacrifice ability now tempts for real.
+- [x] **A general interactive object chooser** — `RulesEngine.
+      request_choose_objects`, which replaced the "auto-pick the first
+      candidate" convention across seven cards at once. Every effect that
+      names *what kind* of object to act on but leaves *which one* to a
+      player routes through it: Cloudstone Curio's bounce, Tangle Wire's
+      tap, Deadeye Navigator's Soulbond partner, Tevesh Szat's and
+      Professor Onyx's sacrifices, Thassa's Oracle's "put **up to one** of
+      them on top", Lim-Dûl's Vault's final ordering. Offered one object at
+      a time like a library search (same UI shape, same undo granularity),
+      with the whole decision — candidates, action, picks so far, "if you
+      do" follow-ups — held as plain data on `pending_choice` so it survives
+      the `clone()` undo snapshots take. That data-not-closure constraint is
+      what `then_specs`/`then_specs_if_commander` exist for: Tevesh Szat's
+      "**if you do**, draw two cards" and RULE 903's "if a commander was
+      sacrificed this way" can only be decided *after* the pick, and are
+      carried as serialized `EffectSpec` dicts through
+      `_apply_effect_specs`. A forced choice with no room to decide (N or
+      fewer candidates, not optional) still applies without prompting.
+      Kinnan's produced-type pick reuses the existing
+      `add_mana_any_color` choice instead, narrowed to what that permanent
+      actually produced — safe to open mid-mana-ability (RULE 605.4) only
+      because `tap_for_mana` is a discrete player action, not a payment step.
+      Professor Onyx's −8 needed one more thing: seven rounds × N opponents
+      of "discard, or lose 3 life?" can't be a Python loop when only one
+      choice may be pending, so both branches of each `pay_cost_then` carry
+      a bookmarked continuation spec that opens the next round.
+- [x] **The optional free cast is offered, not taken** — Tibalt's Trickery
+      and Possibility Storm both print "they **may** cast that card", which
+      was being force-cast. `dig_until`'s new ``"cast_free_window"``
+      destination grants the same exile window Rebound and Beseech use, and
+      arms `ReturnUncastExiledEffect` (the generalized "…if it wasn't cast
+      this way" tail) to bottom the card at the next end step otherwise.
+      Tibalt's "choose 1, 2, or 3 at random" stays random — that's the card,
+      not a shortcut.
+- [x] **Mutate under the pile (RULE 702.140b)** and its real target line.
+      `mutate_onto(..., under=True)` keeps the *host's* characteristics and
+      merges the mutating card's abilities instead; which direction applies
+      is chosen as the spell is cast (`GameObject.mutate_under`, RULE
+      702.140a), and only which card supplies the printed face differs. The
+      host is now validated against a genuine ``non_human_creature_you_own``
+      target kind — *ownership*, not control (RULE 108.3), and Humans really
+      excluded — checked by `can_cast`/`_cast_current_face` directly, since
+      a mutate creature spell carries no targeting *effect* for the ordinary
+      RULE 115 machinery to read. Fixed a latent bug on the way: the merge
+      used to rewrite the shared printed `Card` in place.
+- [x] **RULE 305.7 land-type ability removal** — setting a land's subtype to
+      a basic land type strips its rules text and abilities, so a
+      Blood-Moon'd Underground Sea makes only {R} and a Blood-Moon'd
+      Wasteland can't be activated at all. Implemented by having the layer-4
+      subtype overwrite also set `_loses_all_abilities`, and by teaching
+      `mana_abilities_for` to honour that flag — which it never did, so
+      Humility and Dress Down had the same hole. The replacement basic
+      type's intrinsic mana ability survives precisely because that function
+      reads the *granted* list separately from the printed one.
+- [x] **The compact inline "A or B" activated ability (RULE 700.2)** —
+      `segmenter._inline_pt_modal_bodies` rebuilds "gets +1/-1 **or** -1/+1
+      until end of turn" as two complete clauses and emits one activated
+      ability each, so Pemmin's Aura parses without hand-authoring. Only
+      tried once the ordinary parse has already failed, and only on two full
+      P/T clauses — every *other* " or " in an effect body ("target artifact
+      or enchantment", "Add {W} or {U}") joins two nouns, not two effects.
+      `Segment.extra_specs` is the small plumbing that lets one printed line
+      yield two abilities.
+
+Two pre-existing bugs surfaced and were fixed on the way, beyond the ones
+noted above: `LoseLifeEffect` gained a ``player_id`` form (a specific
+player named by id is the only form a serialized spec can carry), and
+`RulesEngine._matches_permanent_type` learned ``creature_or_planeswalker``.
+Coverage moved 25.3% → **25.4% (8,672 / 34,209)**, PARSER_VERSION 28.
+
+
 ## Auth & persistence
 
 - [x] Deck persistence (save/load instead of re-parsing every time):

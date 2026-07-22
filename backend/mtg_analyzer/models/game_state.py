@@ -70,6 +70,7 @@ class StackItem:
         category: Optional[str] = None,
         source: Optional[GameObject] = None,
         target_groups: Optional[list[list[Any]]] = None,
+        trigger_event: Optional[GameEvent] = None,
     ) -> None:
         self.kind = kind
         self.controller_id = controller_id
@@ -78,6 +79,14 @@ class StackItem:
         self.description = description
         self.targets = targets or []
         self.target_groups = target_groups
+        #: RULE 603.1: the event that *caused* this triggered ability, kept
+        #: so an effect whose behaviour depends on the specific firing
+        #: ("that permanent"'s produced mana, "that spell"'s card types, the
+        #: player who tapped the land) can read it at resolution time. The
+        #: engine exposes it as `GameContext.trigger_event` for exactly the
+        #: window in which this item resolves; ``None`` for a spell or for
+        #: any ability placed without one.
+        self.trigger_event = trigger_event
         self.x = x
         self.category = category or self._derive_category()
         self.source = source
@@ -299,6 +308,19 @@ class GameState:
         #: engine (mtg_analyzer/game/rules_engine.py).
         self.pending_choice: Optional[dict[str, Any]] = None
 
+        #: RULE 608.2: effect lists suspended mid-resolution because one of
+        #: their effects opened `pending_choice`, innermost last (a LIFO
+        #: stack — the most recently paused resolution finishes first).
+        #: Since only one choice can be pending at a time, a resolution with
+        #: 2+ interactive effects has to stop after the first and pick the
+        #: rest back up once the player answers, rather than letting the
+        #: second effect overwrite the first one's prompt. Each entry is the
+        #: remaining effects plus the targets/`target_groups` slice they had
+        #: yet to consume — pushed by `game/effects.py`'s
+        #: `_apply_effects_partitioned`, drained by `RulesEngine.
+        #: resume_deferred_effects` from `GameEngine.resolve_until_stable`.
+        self.deferred_effects: list[dict[str, Any]] = []
+
         #: A temporary "you may play this card" permission granted to a
         #: card sitting outside hand/command/graveyard/library-top (Light
         #: Up the Stage-shaped "exile, play until the end of your next
@@ -458,6 +480,16 @@ class GameState:
         #: bookkeeping (it simply stops matching once the turn advances,
         #: unlike the `temp_*` `GameObject` fields `_step_cleanup` clears).
         self.temp_flash_until_turn: dict[str, int] = {}
+        #: Who each source has dealt *combat* damage to this turn (RULE
+        #: 120.3): ``{source instance_id: {player_id, …}}``, stamped by
+        #: `RulesEngine.deal_damage` and cleared for the whole game in
+        #: `GameEngine.begin_turn`. Exists because "target player who was
+        #: dealt combat damage by ~ this turn" (Hope of Ghirapur) is a
+        #: *history* question no live board state can answer — by the time
+        #: the sacrifice ability is activated, the damage step is long over.
+        #: Keyed by source rather than by player so two copies of the same
+        #: card each track their own victims.
+        self.combat_damage_to_players_this_turn: dict[int, set[str]] = {}
 
         #: Chronological log of everything fired; also the record the
         #: WebSocket layer can diff to build ``game_state_update``s.

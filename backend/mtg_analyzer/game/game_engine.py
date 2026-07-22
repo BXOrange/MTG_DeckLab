@@ -46,6 +46,7 @@ from .mana_abilities import (
 from .phases import GamePhase, GameStep, default_turn_sequence
 from .rules_engine import RulesEngine
 from .targeting import (
+    TargetSpec,
     all_requirements_satisfiable,
     legal_targets,
     requirements_with_targets,
@@ -167,6 +168,33 @@ class GameEngine:
         active.extra_land_plays_this_turn = 0
         self.state.spells_cast_this_turn[active.id] = 0
         self.state.cards_drawn_this_turn[active.id] = 0
+        # RULE 120.3 history ("dealt combat damage by ~ *this turn*", Hope of
+        # Ghirapur) — game-wide, not per active player: last turn's combat
+        # damage is stale for everyone once a new turn starts.
+        self.state.combat_damage_to_players_this_turn.clear()
+        # "Until your next turn, …" (RULE 611.2b) — a player-scoped effect
+        # granted on someone's turn lapses the moment *that* player's next
+        # turn begins, which is exactly now for `active`. Swept across every
+        # player's `player_effects`, since the restricted player (Hope of
+        # Ghirapur's target) generally isn't the one the duration is keyed to.
+        for player in self.state.players:
+            player.player_effects = [
+                e for e in player.player_effects
+                if getattr(e, "until_next_turn_of", None) != active.id
+            ]
+        # …and the same duration on a *permanent*-scoped replacement effect
+        # (Jeska, Thrice Reborn's damage multiplier, which lives on the
+        # targeted creature's own `replacement_effects` rather than on a
+        # player).
+        for obj in self.state.battlefield:
+            if any(
+                getattr(e, "until_next_turn_of", None) == active.id
+                for e in obj.replacement_effects
+            ):
+                obj.replacement_effects = [
+                    e for e in obj.replacement_effects
+                    if getattr(e, "until_next_turn_of", None) != active.id
+                ]
         self._clear_combat()
         # RULE 117.3a: the active player receives priority at the start of
         # their turn (harmless bookkeeping for solo play; the primitive an
@@ -719,7 +747,10 @@ class GameEngine:
         fired triggers on the stack, resolve the top, repeat; check SBAs
         throughout (RULE 704.3). Stops early if a resolving effect needs a
         player choice (`state.pending_choice`, e.g. a library search) — the
-        session surfaces it and resumes via `resolve_pending_choice`.
+        session surfaces it and resumes via `resolve_pending_choice`. When
+        that choice is answered, any effects the same resolution still owed
+        (`state.deferred_effects`) finish before the stack moves on — see
+        `RulesEngine.resume_deferred_effects`.
         """
         for _ in range(_MAX_RESOLUTIONS):
             self.rules.check_state_based_actions()
@@ -727,6 +758,12 @@ class GameEngine:
                 return
             if self.state.pending_choice:
                 return  # await a player decision before resolving further
+            if self.rules.resume_deferred_effects():
+                # RULE 608.2: a resolution that stopped mid-list on an
+                # interactive choice finishes here, *before* anything else
+                # on the stack — its remaining effects are still part of
+                # that same, still-resolving object.
+                continue
             self.rules.put_triggers_on_stack()
             if self.state.pending_choice:
                 # `put_triggers_on_stack` itself just opened one (RULE
@@ -858,6 +895,35 @@ class GameEngine:
             # <bonus>." (Mariposa Military Base) — the mirror-image choice:
             # untapped by default, tap it for the bonus instead.
             self.rules.resolve_land_tapped_bonus_choice(None if declined else str(answer))
+        elif kind == "choose_objects":
+            # The general "which one?" chooser (`request_choose_objects`) —
+            # Cloudstone Curio's bounce, Tangle Wire's tap, Tevesh Szat's
+            # and Professor Onyx's sacrifices, Deadeye Navigator's Soulbond
+            # partner, a library reorder. Declining is only legal when the
+            # effect said "you may"/"up to", which the choice records.
+            self.rules.resolve_choose_objects_choice(None if declined else int(answer))
+        elif kind == "ring_bearer":
+            # RULE 701.52a: "you choose a creature you control as your
+            # Ring-bearer" — mandatory (the choice only opens with 2+
+            # candidates), so a decline isn't offered or accepted.
+            self.rules.resolve_ring_bearer_choice(int(answer))
+        elif kind == "name_card":
+            # RULE 701's naming action (Demonic Consultation) — the one
+            # choice whose answer space isn't enumerable, so the raw string
+            # is passed straight through rather than matched against the
+            # offered options (which are only suggestions).
+            self.rules.resolve_name_card_choice(None if declined else str(answer))
+        elif kind == "look_top_pay_life":
+            # Lim-Dûl's Vault's open-ended "as many times as you choose"
+            # loop — "again" pays the life and re-opens; anything else stops.
+            self.rules.resolve_look_top_pay_life_loop_choice(
+                None if declined else str(answer)
+            )
+        elif kind == "pay_cost_then":
+            # RULE 118.3: "you may pay <cost>. If you do, <effect>." (Mana
+            # Vault, Wandering Archaic) — "pay" charges the cost and runs
+            # the follow-up; anything else runs the "if you don't" branch.
+            self.rules.resolve_pay_cost_then_choice(None if declined else str(answer))
         elif kind == "pay_energy_then":
             # RULE 122: "you may pay {E}{E}. If you do, <effect>." (Aether
             # Chaser) — "pay" spends the energy and resolves the follow-up,
@@ -1091,30 +1157,35 @@ class GameEngine:
         holder_id = self.state.temp_play_permission_player.get(obj.instance_id)
         return holder_id is None or holder_id == player.id
 
-    @staticmethod
-    def _graveyard_cast_keyword(obj: GameObject) -> Optional[str]:
+    def _graveyard_cast_keyword(self, obj: GameObject) -> Optional[str]:
         """Which alt-cost-from-graveyard keyword ``obj`` carries — ``"flashback"``
         (RULE 702.34) or ``"escape"`` (RULE 702.138) — or ``None``. The two
         share the same "cast from the graveyard for an alternative cost"
         zone gate; only what that cost is (and whether the card is exiled
         after resolving, Flashback only) differs.
+
+        Escape may also be *granted* rather than printed — "Each nonland card
+        in your graveyard has escape." (Underworld Breach), a layer-6
+        ability grant that no printed keyword scan would ever see, so the
+        board is consulted too (`continuous.granted_escape_for`).
         """
         params = getattr(obj, "parametric_keywords", None) or {}
         if "flashback" in params:
             return "flashback"
         if "escape" in params:
             return "escape"
+        if continuous.granted_escape_for(self.state, obj) is not None:
+            return "escape"
         return None
 
-    @classmethod
-    def _castable_from_graveyard(cls, obj: GameObject) -> bool:
+    def _castable_from_graveyard(self, obj: GameObject) -> bool:
         """Whether an object sitting in a graveyard is castable from there
         (RULE 702.34/702.138) — unlike `_castable_from_exile`, this needs no
         extra per-object flag: the keyword's mere presence is enough, since
         Flashback/Escape are always-available alternative costs, not a
         one-shot grant from some other effect.
         """
-        return cls._graveyard_cast_keyword(obj) is not None
+        return self._graveyard_cast_keyword(obj) is not None
 
     def _graveyard_cast_permission(self, player: Player, obj: GameObject) -> bool:
         """Whether ``obj`` — sitting in ``player``'s own graveyard — is
@@ -1163,18 +1234,90 @@ class GameEngine:
         return ManaCost.parse(str(param["cost"]))
 
     @staticmethod
-    def _escape_cost(obj: GameObject) -> Optional["ActivationCost"]:
+    def _mutate_cost(obj: GameObject) -> Optional["ManaCost"]:
+        """RULE 702.140b: ``obj``'s Mutate cost as a `ManaCost`, or ``None``
+        if it carries no Mutate keyword (or one with no parsed cost) — the
+        same shape `_buyback_cost`/`_flashback_cost` take for their own
+        keywords' costs."""
+        param = (getattr(obj, "parametric_keywords", None) or {}).get("mutate")
+        if not param or not param.get("cost"):
+            return None
+        return ManaCost.parse(str(param["cost"]))
+
+    @staticmethod
+    def _entwine_cost(obj: GameObject) -> Optional["ManaCost"]:
+        """RULE 702.42a: ``obj``'s Entwine cost as a `ManaCost`, or ``None``
+        if it isn't a modal spell carrying one.
+
+        Entwine is an *additional* cost that changes what the modal header
+        means — pay it and "choose one" becomes "choose all" — so unlike
+        Kicker/Buyback it isn't stored as a parametric keyword on the card
+        but on the modal block itself (`effect_binder._attach_modes`), next
+        to the modes it upgrades.
+        """
+        raw = getattr(obj, "spell_modes_entwine", None)
+        if not raw:
+            return None
+        return ManaCost.parse(str(raw))
+
+    def legal_mutate_hosts(self, player: Player, obj: GameObject) -> list[GameObject]:
+        """RULE 702.140a: the creatures ``obj`` could mutate onto — "target
+        **non-Human** creature you own".
+
+        Ownership, not control (RULE 108.3): a creature you own but an
+        opponent currently controls is still a legal host. Shared by
+        `can_cast` (which refuses a mutate cast with no host) and
+        `_cast_current_face` (which refuses an illegal one).
+        """
+        options = legal_targets(
+            self.state, player.id, TargetSpec(kind="non_human_creature_you_own"), obj
+        )
+        ids = {entry["instance_id"] for entry in options}
+        return [o for o in self.state.permanents() if o.instance_id in ids]
+
+    def _bargain_candidate(self, player: Player) -> Optional[GameObject]:
+        """A permanent ``player`` could sacrifice to Bargain (RULE 701.x):
+        "an artifact, enchantment, or **token**".
+
+        An auto-pick, like every other non-interactive cost choice here
+        (`_sacrifice_candidate`) — and deliberately preferring a **token**,
+        since sacrificing a Treasure/Clue is what a real player bargains
+        with, and only a *worse* choice (a real artifact/enchantment) is
+        left if no token is available.
+        """
+        candidates = [
+            obj
+            for obj in self.state.permanents_controlled_by(player.id)
+            if obj.is_token or obj.card.is_artifact or obj.card.is_enchantment
+        ]
+        if not candidates:
+            return None
+        return next((o for o in candidates if o.is_token), candidates[0])
+
+    def _escape_cost(self, obj: GameObject) -> Optional["ActivationCost"]:
         """RULE 702.138b: ``obj``'s Escape cost — mana plus "exile N other
         cards from your graveyard" — as a parsed `ActivationCost`, or
         ``None`` if it carries no Escape keyword (or one with no parsed
         cost). Uses the full activated-ability cost grammar (`game/costs.
         parse_activation_cost`), not just `ManaCost`, since Escape's cost
         has a non-mana component the mana model alone can't hold.
+
+        A *granted* escape (Underworld Breach's "the escape cost is equal to
+        the card's mana cost plus exile three other cards from your
+        graveyard") has no printed cost text to read, so its cost is
+        assembled per-card from the grant's parameters plus the card's own
+        mana cost — which is why the grant can't just hand back a fixed
+        string like a printed keyword does.
         """
         param = (getattr(obj, "parametric_keywords", None) or {}).get("escape")
-        if not param or not param.get("cost"):
+        if param and param.get("cost"):
+            return parse_activation_cost(str(param["cost"]))
+        grant = continuous.granted_escape_for(self.state, obj)
+        if grant is None:
             return None
-        return parse_activation_cost(str(param["cost"]))
+        cost = parse_activation_cost(obj.card.mana_cost_string or "{0}")
+        cost.exile_from_graveyard = int(grant.get("exile_from_graveyard", 0) or 0)
+        return cost
 
     def can_cast(
         self,
@@ -1185,6 +1328,9 @@ class GameEngine:
         kicked: int = 0,
         buyback: bool = False,
         free: bool = False,
+        mutate: bool = False,
+        bargained: bool = False,
+        entwine: bool = False,
     ) -> bool:
         """RULE 601/602.5: is this spell castable by ``player`` right now?
 
@@ -1246,6 +1392,19 @@ class GameEngine:
         max_spells = continuous.max_spells_per_turn(self.state)
         if max_spells is not None and self.state.spells_cast_this_turn.get(player.id, 0) >= max_spells:
             return False
+        # RULE 601.3a: a *conditional* prohibition on this specific spell,
+        # rather than a flat per-turn count — a standing static (Lavinia,
+        # Azorius Renegade's "each opponent can't cast noncreature spells
+        # with mana value greater than the number of lands that player
+        # controls") or a duration-bounded player effect with no permanent
+        # left behind it at all (Hope of Ghirapur, which sacrificed itself).
+        if continuous.cast_prohibited(self.state, player, card):
+            return False
+        if any(
+            getattr(e, "player_cast_restriction", False) and e.restricts(card)
+            for e in player.player_effects
+        ):
+            return False
         # Timing (RULE 601.3a): sorcery-speed spells need an empty stack,
         # the player's own main phase, and their priority. RULE 702.8b:
         # Flash lets an otherwise-sorcery-speed card (Embercleave, The
@@ -1295,6 +1454,21 @@ class GameEngine:
                 return False
         if buyback and self._buyback_cost(obj) is None:
             return False
+        if mutate:
+            if self._mutate_cost(obj) is None:
+                return False
+            # RULE 702.140a: mutate targets "**non-Human** creature you
+            # own" — with no legal host the spell simply can't be cast this
+            # way (RULE 601.2c), only for its printed cost.
+            if not self.legal_mutate_hosts(player, obj):
+                return False
+        if entwine and self._entwine_cost(obj) is None:
+            # RULE 702.42a: Entwine is only payable on a spell that has one.
+            return False
+        if bargained and not self._bargain_candidate(player):
+            # RULE 701.x: Bargain is optional, but *choosing* to bargain
+            # requires something to sacrifice.
+            return False
         if obj in player.graveyard and self._graveyard_cast_keyword(obj) == "escape":
             # RULE 702.138b: "exile N *other* cards from your graveyard" —
             # ``obj`` itself doesn't count toward that N.
@@ -1311,7 +1485,7 @@ class GameEngine:
                 return False
         elif obj.instance_id in self.state.free_cast_instance_ids:
             # RULE 702.88b Rebound's own free-cast window
-            # (`RulesEngine.grant_rebound_free_cast_window`) — already
+            # (`RulesEngine.grant_free_cast_window_from_exile`) — already
             # armed for this specific instance, no mana check needed.
             pass
         elif self._top_library_life_payment(player, obj, card):
@@ -1321,7 +1495,10 @@ class GameEngine:
             if player.life < card.converted_mana_cost:
                 return False
         else:
-            cost = self.effective_cast_cost(player, obj, x, face=face, kicked=kicked, buyback=buyback)
+            cost = self.effective_cast_cost(
+                player, obj, x, face=face, kicked=kicked, buyback=buyback, mutate=mutate,
+                entwine=entwine,
+            )
             allows_restriction = restriction_predicate_for_cast(obj, has_x=cost.has_variable)
             wildcard = self.state.mana_wildcard_permission.get(obj.instance_id)
             if not player.mana_pool.can_pay(
@@ -1384,6 +1561,8 @@ class GameEngine:
         face: str = "front",
         kicked: int = 0,
         buyback: bool = False,
+        mutate: bool = False,
+        entwine: bool = False,
     ) -> "ManaCost":
         """``obj``'s mana cost after static cost adjustments (RULE 601.2f/903.8).
 
@@ -1406,6 +1585,14 @@ class GameEngine:
         reduction/tax below so those still apply on top of it as usual.
         """
         card = self._face_card(obj, face) or obj.card
+        if mutate:
+            # RULE 702.140b: the Mutate cost replaces the printed one — an
+            # alternative cost, the same substitution shape Flashback/Escape
+            # already use below (and, like those, still subject to the
+            # reduction/tax applied afterwards).
+            mutate_cost = self._mutate_cost(obj)
+            if mutate_cost is not None:
+                return self._adjust_cost(mutate_cost, player, obj)
         if obj in player.graveyard:
             keyword = self._graveyard_cast_keyword(obj)
             if keyword == "flashback":
@@ -1433,6 +1620,12 @@ class GameEngine:
             buyback_cost = self._buyback_cost(obj)
             if buyback_cost is not None:
                 cost = cost.add(buyback_cost)
+        if entwine:
+            # RULE 702.42a: Entwine's cost is added on top of the printed
+            # one, like Kicker/Buyback above — not substituted for it.
+            entwine_cost = self._entwine_cost(obj)
+            if entwine_cost is not None:
+                cost = cost.add(entwine_cost)
         return cost
 
     @staticmethod
@@ -1495,6 +1688,10 @@ class GameEngine:
         buyback: bool = False,
         target_groups: Optional[list[list[Any]]] = None,
         free: bool = False,
+        mutate: bool = False,
+        mutate_under: bool = False,
+        bargained: bool = False,
+        entwine: bool = False,
     ):
         """Cast a spell after validating timing, payability and targets (RULE 601).
 
@@ -1511,8 +1708,14 @@ class GameEngine:
         ``mode`` chooses which of a modal spell's ("Choose one —", RULE
         700.2) printed options resolves: an index into ``obj.spell_modes``,
         or the literal ``"both"`` (RULE 700.2e, only when
-        ``obj.spell_modes_or_both``). Required — raises — for a spell that
+        ``obj.spell_modes_or_both``; or RULE 702.42a with ``entwine=True``).
+        Required — raises — for a spell that
         carries ``spell_modes``; ignored otherwise. See `_mode_effects_applied`.
+
+        ``entwine`` pays Entwine's additional cost (RULE 702.42a) so that
+        ``mode="both"`` resolves *every* mode of an ordinary "choose one"
+        block — illegal for a spell with no entwine cost, and the only way
+        to reach "both" on one.
 
         ``kicked`` is how many times to pay Kicker (RULE 702.33b) — see
         `can_cast`/`effective_cast_cost`; recorded on ``obj.kicker_count``
@@ -1540,7 +1743,8 @@ class GameEngine:
             try:
                 result = self._cast_current_face(
                     player, obj, targets, x, mode=mode, kicked=kicked, buyback=buyback,
-                    target_groups=target_groups, free=free,
+                    target_groups=target_groups, free=free, mutate=mutate,
+                    mutate_under=mutate_under, bargained=bargained, entwine=entwine,
                 )
             except Exception:
                 self.rules.restore_face(obj, snapshot)
@@ -1550,7 +1754,8 @@ class GameEngine:
             return result
         return self._cast_current_face(
             player, obj, targets, x, mode=mode, kicked=kicked, buyback=buyback,
-            target_groups=target_groups, free=free,
+            target_groups=target_groups, free=free, mutate=mutate,
+            mutate_under=mutate_under, bargained=bargained, entwine=entwine,
         )
 
     def _effects_for_mode(self, obj: GameObject, mode: Any) -> list[Any]:
@@ -1574,7 +1779,12 @@ class GameEngine:
         choose = getattr(obj, "spell_modes_choose", 1)
         at_least = getattr(obj, "spell_modes_at_least", False)
         if mode == "both":
-            if not getattr(obj, "spell_modes_or_both", False) or len(modes) != 2:
+            # RULE 700.2e gives both modes away for free (and only ever on a
+            # two-mode block); RULE 702.42a's Entwine sells "choose *all*"
+            # for its own additional cost — whether that cost is actually
+            # being paid is checked by `_cast_current_face`, not here.
+            or_both = getattr(obj, "spell_modes_or_both", False) and len(modes) == 2
+            if not or_both and self._entwine_cost(obj) is None:
                 raise ValueError(f"{obj.name} has no 'choose both' mode")
             effects: list[Any] = []
             for entry in modes:
@@ -1647,6 +1857,10 @@ class GameEngine:
         buyback: bool = False,
         target_groups: Optional[list[list[Any]]] = None,
         free: bool = False,
+        mutate: bool = False,
+        mutate_under: bool = False,
+        bargained: bool = False,
+        entwine: bool = False,
     ):
         """The common cast body, reading whatever `obj.card` currently is.
 
@@ -1655,8 +1869,18 @@ class GameEngine:
         `RulesEngine.cast_without_paying`, instead of the ordinary
         `RulesEngine.cast_spell` mana-cost path.
         """
+        if mode == "both" and not getattr(obj, "spell_modes_or_both", False):
+            # RULE 702.42a: on an ordinary "choose one" block, "choose all"
+            # exists only as Entwine's paid upgrade — never for free. (A
+            # RULE 700.2e ``or_both`` block hands it over unpriced, hence
+            # the guard only on the other branch.)
+            if not entwine or self._entwine_cost(obj) is None:
+                raise ValueError(f"{obj.name}: 'both' requires paying the entwine cost")
         with self._mode_effects_applied(obj, mode):
-            if not self.can_cast(player, obj, x, kicked=kicked, buyback=buyback, free=free):
+            if not self.can_cast(
+                player, obj, x, kicked=kicked, buyback=buyback, free=free,
+                mutate=mutate, bargained=bargained, entwine=entwine,
+            ):
                 raise ValueError(f"{player.id} cannot cast {obj.name} now")
             # RULE 601.2c: a spell that requires a target can't be cast unless
             # a legal target is available — the same check that locks the offer.
@@ -1692,7 +1916,10 @@ class GameEngine:
                 result = self.rules.cast_without_paying(player, obj, targets)
                 self.rules.lose_life(player, obj.card.converted_mana_cost, cause="cost")
             else:
-                cost = self.effective_cast_cost(player, obj, x, kicked=kicked, buyback=buyback)
+                cost = self.effective_cast_cost(
+                    player, obj, x, kicked=kicked, buyback=buyback, mutate=mutate,
+                    entwine=entwine,
+                )
                 result = self.rules.cast_spell(player, obj, targets, x, cost=cost, target_groups=target_groups)
             # RULE 601.2b/601.2h: an additional cost is paid as part of
             # casting, not resolving — so it stays paid even if the spell is
@@ -1710,6 +1937,32 @@ class GameEngine:
             # `RulesEngine.resolve_top_of_stack` to route the spell back to
             # hand instead of the graveyard.
             obj.buyback_paid = buyback
+            if mutate:
+                # RULE 702.140a/601.2c: the host must be a legal mutate
+                # target — checked here rather than by the ordinary
+                # targeting machinery, since a mutate creature spell carries
+                # no targeting *effect* for that machinery to read.
+                host = next((t for t in (targets or []) if isinstance(t, GameObject)), None)
+                if host is None or host not in self.legal_mutate_hosts(player, obj):
+                    raise ValueError(f"{obj.name}: illegal mutate host")
+            # RULE 702.140b: record a Mutate cast — consulted by
+            # `RulesEngine._resolve_permanent_spell`, which merges the spell
+            # onto its target instead of letting it enter as its own
+            # permanent.
+            obj.cast_via_mutate = mutate
+            # RULE 702.140b: "over **or** under" is chosen as the spell is
+            # cast, not as it resolves.
+            obj.mutate_under = mutate and mutate_under
+            # RULE 701.x Bargain: the optional "sacrifice an artifact,
+            # enchantment, or token as you cast this spell" cost, charged
+            # here alongside every other additional cost and recorded so an
+            # "if this spell was bargained" condition can read it.
+            obj.bargained = False
+            if bargained:
+                victim = self._bargain_candidate(player)
+                if victim is not None:
+                    self.rules.put_into_graveyard(victim)
+                    obj.bargained = True
             # RULE 702.34a: record a Flashback cast — consulted by
             # `RulesEngine.resolve_top_of_stack` to exile the spell instead
             # of returning it to the graveyard on resolution.
@@ -2013,6 +2266,13 @@ class GameEngine:
             # `parser/oracle/catalogue/static_handlers.py`'s combat-
             # restriction family.
             return False
+        # RULE 701.51a, the Ring emblem's first ability: "Your Ring-bearer
+        # is legendary and can't be blocked by creatures with greater
+        # power." Read off live designation state rather than any permanent
+        # (`continuous.ring_level_of`); its legendary half is layer 4.
+        if continuous.ring_level_of(self.state, attacker) >= 1:
+            if (blocker.power or 0) > (attacker.power or 0):
+                return False
         return (
             blocker.controller_id == player.id
             and blocker.is_creature
@@ -2384,21 +2644,31 @@ class GameEngine:
         own floor-at-zero.
 
         ``cost.dynamic_reduction`` (Mariposa Military Base's own printed
-        "costs {1} less for each rad counter you have") is a *second*,
-        independent reduction source — the ability's own cost, not a
-        separate permanent's static — added on top before the floor is
-        applied, since both would stack on a real card that had both.
+        "costs {1} less for each rad counter you have"; Eiganjo, Seat of the
+        Empire's "costs {1} less to activate for each legendary creature you
+        control") is a *second*, independent reduction source — the ability's
+        own cost, not a separate permanent's static — added on top before the
+        floor is applied, since both would stack on a real card that had both.
+        Its magnitude comes from either a player-counter ``kind`` or a
+        board-reading ``count_selector`` (`continuous.count_selector`),
+        whichever the cost names.
         """
         reduction, floor = continuous.activation_cost_reduction_for(self.state, source)
         if cost is not None and cost.dynamic_reduction:
-            kind = cost.dynamic_reduction.get("kind", "rad")
             per = int(cost.dynamic_reduction.get("generic_per", 1))
-            try:
-                player = self.state.player_by_id(source.controller_id)
-            except (KeyError, ValueError):
-                player = None
-            if player is not None:
-                reduction += per * player.counters.get(kind, 0)
+            selector = cost.dynamic_reduction.get("count_selector")
+            if selector:
+                reduction += per * continuous.count_selector(
+                    self.state, source.controller_id, str(selector), source=source
+                )
+            else:
+                kind = cost.dynamic_reduction.get("kind", "rad")
+                try:
+                    player = self.state.player_by_id(source.controller_id)
+                except (KeyError, ValueError):
+                    player = None
+                if player is not None:
+                    reduction += per * player.counters.get(kind, 0)
         if reduction <= 0:
             return mana
         if floor and mana.converted_mana_cost - reduction < floor:
@@ -2475,7 +2745,8 @@ class GameEngine:
             return False
         # A minus loyalty ability can't be activated for more loyalty than the
         # planeswalker has (RULE 606.5c / 118.5).
-        if cost.loyalty is not None and cost.loyalty < 0 and source.loyalty < -cost.loyalty:
+        loyalty_change = -x if cost.loyalty_is_x else cost.loyalty
+        if loyalty_change is not None and loyalty_change < 0 and source.loyalty < -loyalty_change:
             return False
         return True
 
@@ -2587,9 +2858,15 @@ class GameEngine:
         """
         if cost is None:
             return
+        obj.sacrificed_cost_mana_value = None
         if cost.sacrifice:
             victim = self._sacrifice_candidate(player, obj, cost.sacrifice)
             if victim is not None:
+                # RULE 601.2b: stash what was sacrificed *before* it leaves,
+                # so a resolving effect can still read "the sacrificed
+                # creature's mana value" (Eldritch Evolution/Neoform) —
+                # `StackItem.x` only ever threads an announced {X}.
+                obj.sacrificed_cost_mana_value = victim.card.converted_mana_cost
                 # RULE 701.16c: sacrifice isn't destruction — regeneration
                 # can't save it — so this bypasses `destroy` and its
                 # regeneration-shield check.
@@ -2729,8 +3006,10 @@ class GameEngine:
             source.add_counters(kind, count)
         if cost.loyalty is not None:
             # RULE 606.5c: pay by changing loyalty; a loyalty ability is once
-            # per turn per planeswalker (RULE 606.3).
-            source.add_counters("loyalty", cost.loyalty)
+            # per turn per planeswalker (RULE 606.3). A ``[-X]`` cost
+            # (Jeska, Thrice Reborn) removes the *announced* X rather than a
+            # printed constant — see `ActivationCost.loyalty_is_x`.
+            source.add_counters("loyalty", -x if cost.loyalty_is_x else cost.loyalty)
             source.activated_loyalty_this_turn = True
 
     def activate_ability(
@@ -2761,6 +3040,12 @@ class GameEngine:
         if not 0 <= ability_index < len(abilities):
             raise ValueError(f"{source.name} has no activated ability #{ability_index}")
         ability = abilities[ability_index]
+        if target_groups is not None and targets is None:
+            # Same derivation `RulesEngine.cast_spell` does: every flat-
+            # ``targets`` consumer (ward, the stack display) still needs to
+            # see every chosen target, even when the groups are what the
+            # effects actually resolve against.
+            targets = [t for group in target_groups for t in group]
         if not self.can_activate(player, source, ability, x, tap_choices=tap_choices):
             raise ValueError(f"cannot activate {source.name}'s ability")
 
@@ -2788,7 +3073,12 @@ class GameEngine:
     # ------------------------------------------------------------------
 
     def _cast_action(
-        self, player: Player, obj: GameObject, face: str = "front", mode: Optional[Any] = None
+        self,
+        player: Player,
+        obj: GameObject,
+        face: str = "front",
+        mode: Optional[Any] = None,
+        entwine: bool = False,
     ) -> dict[str, Any]:
         """A ``cast_spell`` legal-action entry, flagging ``{X}`` and targets.
 
@@ -2827,6 +3117,16 @@ class GameEngine:
         if mode is not None:
             action["mode"] = mode
             action["mode_description"] = self._mode_description(obj, mode)
+        # RULE 702.42a: the Entwine offer is the same "both modes" action as
+        # RULE 700.2e's, but priced — so it carries its cost and locks when
+        # that cost can't be paid, which the free ``or_both`` offer never does.
+        if entwine:
+            entwine_cost = self._entwine_cost(obj)
+            action["entwine"] = True
+            action["entwine_cost"] = entwine_cost.raw if entwine_cost is not None else ""
+            if not self.can_cast(player, obj, entwine=True):
+                action["locked"] = True
+                action["lock_reason"] = "Verflechten-Kosten nicht bezahlbar"
         cost = self.rules.mana_cost_of(obj.card)
         if cost.has_variable:
             action["has_x"] = True
@@ -2904,8 +3204,10 @@ class GameEngine:
 
         For the ordinary "choose one" case (``spell_modes_choose == 1``):
         one action per single mode, plus a combined "both" action when
-        ``obj.spell_modes_or_both`` (RULE 700.2e) — the same "an offer per
-        option" treatment `legal_actions` already gives an MDFC's two faces.
+        ``obj.spell_modes_or_both`` (RULE 700.2e) or, priced and lockable,
+        when the block carries an Entwine cost (RULE 702.42a) — the same
+        "an offer per option" treatment `legal_actions` already gives an
+        MDFC's two faces.
         For "choose *N*" (``N>=2`` — Kolaghan's Command/Austere Command
         -shaped): one action per legal *combination* of ``N`` modes
         (``itertools.combinations``), each tagged with a list of indices
@@ -2920,6 +3222,10 @@ class GameEngine:
             actions = [self._cast_action(player, obj, mode=i) for i in range(len(modes))]
             if getattr(obj, "spell_modes_or_both", False) and len(modes) == 2:
                 actions.append(self._cast_action(player, obj, mode="both"))
+            elif self._entwine_cost(obj) is not None:
+                # RULE 702.42a: the same combined offer, but sold rather
+                # than given — see `_cast_action`'s ``entwine`` branch.
+                actions.append(self._cast_action(player, obj, mode="both", entwine=True))
             return actions
         sizes = range(choose, len(modes) + 1) if at_least else [choose]
         return [

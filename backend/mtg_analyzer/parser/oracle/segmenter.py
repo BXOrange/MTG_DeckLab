@@ -17,7 +17,7 @@ so the front-end stays import-pure.
 from __future__ import annotations
 
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any, Optional
 
 from .catalogue.handlers import match_clause
@@ -455,6 +455,44 @@ class Segment:
     #: True when the line is a pure keyword line (claimed elsewhere, by the
     #: keyword catalogue) — it contributes no effect spec here but *is* covered.
     keyword_line: bool = False
+    #: Further abilities the same printed line produces. Empty for almost
+    #: every line: one printed line is one ability. The exception is RULE
+    #: 700.2's *compact* inline modal on an activated ability ("Enchanted
+    #: creature gets +1/-1 **or** -1/+1 until end of turn." — Pemmin's
+    #: Aura), which is faithfully modeled as two separately-activatable
+    #: abilities sharing a cost: choosing which one to activate **is** the
+    #: printed choice, so no mode-selection machinery is needed for it.
+    extra_specs: list[AbilitySpec] = field(default_factory=list)
+
+
+#: RULE 700.2's compact inline modal, in the one printed shape that is
+#: genuinely ambiguous to the bulleted modal-block grammar: "<subject> gets
+#: <P/T> **or** <P/T> [until end of turn]" (Pemmin's Aura, Freed from the
+#: Real's family). Two full pump clauses sharing a subject and a duration,
+#: written as one sentence — as opposed to every *other* " or " in an
+#: effect body ("target artifact or enchantment", "Add {W} or {U}"), which
+#: joins two nouns rather than two effects.
+_INLINE_PT_MODAL_RE = re.compile(
+    r"^(?P<prefix>.*?\bgets\s+)"
+    r"(?P<a>[+-]\d+/[+-]\d+)\s+or\s+(?P<b>[+-]\d+/[+-]\d+)"
+    r"(?P<suffix>.*)$",
+    re.IGNORECASE,
+)
+
+
+def _inline_pt_modal_bodies(body: str) -> Optional[list[str]]:
+    """Split a compact "gets A or B" pump body into its two full clauses,
+    or ``None`` when the body isn't that shape.
+
+    Each half is rebuilt as a complete sentence (subject + one P/T +
+    duration) so the ordinary pump handler reads it with no idea a modal
+    was ever involved.
+    """
+    m = _INLINE_PT_MODAL_RE.match(body.strip())
+    if m is None:
+        return None
+    prefix, suffix = m.group("prefix"), m.group("suffix")
+    return [f"{prefix}{m.group('a')}{suffix}", f"{prefix}{m.group('b')}{suffix}"]
 
 
 def _trigger_event(condition: str) -> Optional[str]:
@@ -782,7 +820,31 @@ def segment_line(
         body, optional = _peel_optional(effect_text)
         effects = parse_effect_body(body)
         if effects is None:
-            return Segment(raw=raw)
+            # RULE 700.2's *compact* inline modal ("gets +1/-1 or -1/+1
+            # until end of turn" — Pemmin's Aura), which the bulleted
+            # modal-block grammar can't see. Only tried once the ordinary
+            # parse has already failed, so it can never steal a line that
+            # already had a reading.
+            split = _inline_pt_modal_bodies(body)
+            if split is None:
+                return Segment(raw=raw)
+            parsed = [parse_effect_body(half) for half in split]
+            if any(half is None for half in parsed):
+                return Segment(raw=raw)
+            specs = [
+                AbilitySpec(
+                    "activated",
+                    effects=half,
+                    cost=dict(cost_dict),
+                    optional=optional,
+                    raw_text=raw,
+                    parser=provenance,
+                )
+                for half in parsed
+            ]
+            return Segment(
+                raw=raw, spec=specs[0], extra_specs=specs[1:], claimed=True
+            )
         spec = AbilitySpec(
             "activated",
             effects=effects,

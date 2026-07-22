@@ -43,7 +43,7 @@ Criteria = Union[str, dict[str, Any], None]
 #: Recognized dict keys, so an unknown key fails closed instead of being
 #: silently ignored (which would over-match and search wrongly).
 _ALLOWED_KEYS: frozenset[str] = frozenset(
-    {"type", "basic", "max_mana_value", "min_mana_value", "name", "color"}
+    {"type", "basic", "max_mana_value", "min_mana_value", "name", "not_name", "color"}
 )
 
 
@@ -81,6 +81,11 @@ def matches(card: Card, criteria: Criteria) -> bool:
         return False
     if "name" in crit and card.name.lower() != str(crit["name"]).lower():
         return False
+    # The negated form ("a nonland card with a **different name** than that
+    # spell" — Tibalt's Trickery). Kept as its own key rather than allowing a
+    # magic value in ``name``, so a criteria dict stays literal data.
+    if "not_name" in crit and card.name.lower() == str(crit["not_name"]).lower():
+        return False
     if not _color_matches(card, crit.get("color")):
         return False
     return True
@@ -102,6 +107,8 @@ def describe(criteria: Criteria) -> str:
     label = " ".join(parts) if parts else "card"
     if "name" in crit:
         label = f'named "{crit["name"]}"'
+    if "not_name" in crit:
+        label = f'not named "{crit["not_name"]}"'
     bounds = []
     if "max_mana_value" in crit:
         bounds.append(f"mana value ≤ {crit['max_mana_value']}")

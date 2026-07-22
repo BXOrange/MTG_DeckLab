@@ -123,6 +123,13 @@ class EventType:
     #: and ``chapter`` (the new level), the same convention as SAGA_CHAPTER,
     #: so a rare "when this Class becomes level N" trigger can scope by both.
     CLASS_LEVEL = "CLASS_LEVEL"
+    #: RULE 702.140b: a mutating creature merged onto a host — carries
+    #: ``instance_id`` (the surviving merged permanent, which per RULE
+    #: 702.140c is the *same* permanent, never a new object) and
+    #: ``controller_id``. "Whenever this creature mutates" (Lore Drakkis)
+    #: triggers off it; deliberately distinct from ENTERS_BATTLEFIELD, which
+    #: mutate specifically does *not* fire.
+    MUTATES = "MUTATES"
     #: A player scried (RULE 701.18): looked at the top N of their library and
     #: reordered / bottomed them.
     SCRY = "SCRY"
@@ -141,6 +148,16 @@ class EventType:
     # so a "cast" trigger can distinguish a normal cast from a free one; a
     # spell put onto the battlefield instead (never cast) fires only
     # ENTERS_BATTLEFIELD, never SPELL_CAST.
+    #
+    # It also carries ``mana_spent`` — how much mana was actually paid for it
+    # (RULE 202.1/601.2h), which is *not* the same as ``free``: a spell cast
+    # for an alternative cost of {0} (Ornithopter, a Pact, a free-cast
+    # permission) had mana "spent" of 0 while still being a paid cast, and a
+    # spell whose cost was reduced to {0} likewise. "If no mana was spent to
+    # cast it" (Lavinia, Azorius Renegade / Boromir, Warden of the Tower)
+    # reads exactly this key via a trigger ``filter``; also stamped onto the
+    # object itself as `GameObject.mana_spent_to_cast`, since a resolving
+    # effect can need it after the spell has left the stack.
     SPELL_CAST = "SPELL_CAST"
     SPELL_RESOLVED = "SPELL_RESOLVED"
     LAND_PLAYED = "LAND_PLAYED"

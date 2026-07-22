@@ -957,6 +957,11 @@ export function createGameBoardView(opts = {}) {
   // see GameObject.to_dict) so objects added directly in Replay/Puzzle mode
   // (never resolved into imageCache) still show art in Spielmodus.
   function resolveImageUrl(o, imageCache) {
+    // RULE 701.20a: a card exiled face down (Beseech the Mirror) shows its
+    // back, not its art — the one place the sleeve fallback below has a
+    // real, reachable use today. Checked before the name cache so a card
+    // whose art is already loaded doesn't leak through it.
+    if (o.face_down_in_exile) return assetsSleeveImageUrl || null;
     const cached = imageCache?.get((o.name || '').toLowerCase());
     if (cached?.small) return cached.small;
     const isToken = o.is_token || (o.card_id || '').startsWith('token:');

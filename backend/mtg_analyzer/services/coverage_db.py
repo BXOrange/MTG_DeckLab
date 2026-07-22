@@ -91,13 +91,25 @@ def _now() -> str:
 
 
 def content_hash(card: object, parser_version: str = PARSER_VERSION) -> str:
-    """Stable hash of the parser's own content signature + PARSER_VERSION.
+    """Stable hash of the parser's content signature + PARSER_VERSION + whether
+    the card is hand-`AUTHORED`.
 
     Uses `gate._parse_cache_key` so the ledger keys on *exactly* the fields the
     parser reads — a card whose text changes (or a parser-version bump) yields a
     new hash and is transparently re-measured, while an unchanged card is reused.
+
+    The registration flag has to be part of the key because "covered" means
+    parser-`MODELED` **or** hand-`AUTHORED` (`scripts/coverage_report.py`):
+    hand-authoring a card in `game/ability_catalogue.py` changes its coverage
+    without touching a single field the parser reads, so keying on the parse
+    signature alone would silently reuse a stale "uncovered" row forever — and
+    the only workaround would be bumping `PARSER_VERSION` for a change the
+    parser had no part in, invalidating all 34k rows to re-measure a handful.
     """
-    key = (parser_version,) + tuple(str(part) for part in _parse_cache_key(card))
+    from ..game.ability_catalogue import is_registered  # function-scoped: import cycle
+
+    authored = "1" if is_registered(getattr(card, "name", "") or "") else "0"
+    key = (parser_version, authored) + tuple(str(part) for part in _parse_cache_key(card))
     return hashlib.sha1("␟".join(key).encode("utf-8")).hexdigest()
 
 

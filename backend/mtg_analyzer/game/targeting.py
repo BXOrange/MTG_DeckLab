@@ -79,7 +79,29 @@ _GRAVEYARD_TARGET_KINDS: frozenset[str] = frozenset(
 ALLOWED_TARGET_KINDS: frozenset[str] = frozenset(
     {
         "any", "creature", "permanent", "player", "spell",
+        # "target player who was dealt combat damage by ~ this turn" (Hope of
+        # Ghirapur) — `player` narrowed by a per-turn damage *history*, the
+        # one target kind here answered from a record rather than the board.
+        "player_dealt_combat_damage_by_source",
         "creature_you_control", "land_you_control",
+        # RULE 109.5's "*another* target creature you control" (Giver of
+        # Runes) — `creature_you_control` minus the ability's own source.
+        "other_creature_you_control",
+        # "target creature you **don't** control" (Archdruid's Charm's second
+        # mode) — the mirror image of `creature_you_control`.
+        "creature_you_dont_control",
+        # RULE 702.140a's "target **non-Human** creature you own" — mutate's
+        # own target line. Note *own*, not control (RULE 108.3): a creature
+        # you own but an opponent controls is still a legal mutate host, and
+        # the Human exclusion is the reason Humans dodge the mechanic.
+        "non_human_creature_you_own",
+        # "target artifact or enchantment" (Archdruid's Charm) — the union of
+        # the two single-type kinds, a common printed phrasing.
+        "artifact_or_enchantment",
+        # "target Aura or Equipment attached to a creature you control"
+        # (Halvar, God of Battle) — `attached_equipment_you_control` widened
+        # to Auras, and narrowed to hosts you control.
+        "attached_aura_or_equipment_you_control",
         # An Equipment you control that's *currently attached* to something
         # (Akiri, Fearless Voyager's "unattach an Equipment from a creature
         # you control") — narrower than a bare "Equipment you control", since
@@ -222,8 +244,16 @@ class TargetSpec:
             "creature": "Kreatur",
             "permanent": "bleibende Karte",
             "player": "Spieler",
+            "player_dealt_combat_damage_by_source":
+                "Spieler, dem diese Karte in diesem Zug Kampfschaden zugefügt hat",
             "spell": "Zauberspruch",
             "creature_you_control": "Kreatur unter deiner Kontrolle",
+            "other_creature_you_control": "andere Kreatur unter deiner Kontrolle",
+            "non_human_creature_you_own": "Nicht-Mensch-Kreatur, die du besitzt",
+            "creature_you_dont_control": "Kreatur, die du nicht kontrollierst",
+            "artifact_or_enchantment": "Artefakt oder Verzauberung",
+            "attached_aura_or_equipment_you_control":
+                "Aura oder Ausrüstung an einer Kreatur unter deiner Kontrolle",
             "land_you_control": "Land unter deiner Kontrolle",
             "attached_equipment_you_control": "befestigte Ausrüstung unter deiner Kontrolle",
             "equipment_you_control": "Ausrüstung unter deiner Kontrolle",
@@ -249,12 +279,23 @@ def spell_target_specs(obj: GameObject) -> list[TargetSpec]:
     """
     specs: list[TargetSpec] = []
     for effect in getattr(obj, "spell_effects", []) or []:
-        spec = getattr(effect, "target_spec", None)
-        if spec is not None:
-            specs.append(spec)
+        # `target_specs` (not ``target_spec``) so an effect that genuinely
+        # needs two differently-typed targets in one clause announces both
+        # — see `game/effects.py`'s `GameEffect.extra_target_specs`.
+        specs.extend(getattr(effect, "target_specs", None) or [])
     if not specs and "enchant" in (getattr(obj, "parametric_keywords", None) or {}):
         specs.append(TargetSpec(kind="permanent", description="zu verzauberndes Ziel"))
     return specs
+
+
+def _is_human(obj: "GameObject") -> bool:
+    """RULE 205.3m: whether ``obj`` currently has the Human creature type —
+    layer-4 aware, via a function-scoped import of `game/continuous.py`
+    (which imports `game/effects.py`, which imports this module, so a
+    module-level import would cycle)."""
+    from . import continuous
+
+    return continuous.has_subtype(obj, "Human")
 
 
 def _targetable_by(obj: GameObject, source: Optional[GameObject]) -> bool:
@@ -420,6 +461,22 @@ def legal_targets(
             {"player_id": p.id, "name": p.name}
             for p in state.living_players()
         ]
+    if kind == "player_dealt_combat_damage_by_source":
+        # "target player who was dealt combat damage by ~ this turn" (Hope of
+        # Ghirapur) — a *history*-filtered player target (RULE 115/120.3),
+        # answered from `GameState.combat_damage_to_players_this_turn` rather
+        # than any live board state: by the time this ability is activated
+        # the damage step is long over. Fails closed to no legal targets when
+        # the source hasn't connected this turn, which is exactly right —
+        # RULE 601.2c then makes the ability unactivatable.
+        hit = state.combat_damage_to_players_this_turn.get(
+            getattr(source, "instance_id", None), set()
+        )
+        return [
+            {"player_id": p.id, "name": p.name}
+            for p in state.living_players()
+            if p.id in hit
+        ]
     if kind == "any":
         objs = [
             {"instance_id": o.instance_id, "name": o.name}
@@ -473,16 +530,76 @@ def legal_targets(
             and (not spec.color or spec.color in o.colors)
             and (spec.max_mana_value is None or o.card.converted_mana_cost <= spec.max_mana_value)
         ]
-    if kind in ("creature_you_control", "land_you_control"):
+    if kind == "creature_you_dont_control":
+        # RULE 115: the mirror image of `creature_you_control` — an
+        # opponent's creature (or, strictly, any creature this ability's
+        # controller doesn't control).
+        return [
+            {"instance_id": o.instance_id, "name": o.name}
+            for o in state.permanents()
+            if o.is_creature
+            and o.controller_id != controller_id
+            and _targetable_by(o, source)
+        ]
+    if kind == "attached_aura_or_equipment_you_control":
+        # "target Aura or Equipment attached to a creature you control"
+        # (Halvar) — both the attachment *and* its host must be yours, which
+        # is what makes this narrower than a bare "Equipment you control".
+        hosts = {
+            o.instance_id
+            for o in state.permanents()
+            if o.is_creature and o.controller_id == controller_id
+        }
+        return [
+            {"instance_id": o.instance_id, "name": o.name}
+            for o in state.permanents()
+            if o.controller_id == controller_id
+            and o.attached_to in hosts
+            and ("aura" in o.card.type_line.lower() or "equipment" in o.card.type_line.lower())
+            and _targetable_by(o, source)
+        ]
+    if kind in (
+        "creature_you_control", "land_you_control", "other_creature_you_control"
+    ):
         # RULE 115/603.3c controller-restricted pick — and the same shape for
         # a non-"target" resolve-time choice among the controller's own
         # permanents (a bounce-land's "return a land you control…").
+        #
+        # ``other_creature_you_control`` is the RULE 109.5 "*another* target
+        # creature you control" narrowing (Giver of Runes), which excludes
+        # the ability's own source; the two unprefixed kinds deliberately do
+        # *not* — "target creature you control" includes the source itself
+        # (Mother of Runes protecting herself is the card's whole point).
         wants_land = kind == "land_you_control"
+        exclude_source = kind.startswith("other_")
         return [
             {"instance_id": o.instance_id, "name": o.name}
             for o in state.permanents()
             if (o.is_land if wants_land else o.is_creature)
             and o.controller_id == controller_id
+            and not (exclude_source and o is source)
+            and _targetable_by(o, source)
+        ]
+    if kind == "non_human_creature_you_own":
+        # RULE 702.140a: mutate's own target. Keyed to *ownership* (RULE
+        # 108.3), not control, and excluding Humans by subtype (RULE 205.3m).
+        return [
+            {"instance_id": o.instance_id, "name": o.name}
+            for o in state.permanents()
+            if o.is_creature
+            and o.owner_id == controller_id
+            and not _is_human(o)
+            and _targetable_by(o, source)
+        ]
+    if kind == "artifact_or_enchantment":
+        # "Exile target artifact or enchantment." (Archdruid's Charm's third
+        # mode) — the union of the two single-type kinds below, which is a
+        # common enough printed phrasing to deserve its own kind rather than
+        # two effects with two prompts.
+        return [
+            {"instance_id": o.instance_id, "name": o.name}
+            for o in state.permanents()
+            if (o.card.is_artifact or o.card.is_enchantment)
             and o is not source
             and _targetable_by(o, source)
         ]

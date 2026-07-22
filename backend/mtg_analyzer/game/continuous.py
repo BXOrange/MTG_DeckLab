@@ -84,6 +84,15 @@ def _signed(n: int) -> str:
     return f"+{n}" if n >= 0 else str(n)
 
 
+#: RULE 305.6's five basic land types, lowercased — the trigger for RULE
+#: 305.7's "setting a land's subtype removes its rules text and abilities"
+#: (Blood Moon/Magus of the Moon), which is what tells an ordinary layer-4
+#: subtype overwrite apart from a land-type one.
+_BASIC_LAND_TYPES: frozenset[str] = frozenset(
+    {"plains", "island", "swamp", "mountain", "forest"}
+)
+
+
 def _has_subtype(obj: "GameObject", subtype: str) -> bool:
     """Whether ``obj`` has creature subtype ``subtype`` (RULE 205.3, tribal lords).
 
@@ -205,6 +214,19 @@ def group_selector_objects(
     elif affects == "attached_permanent":
         host_id = getattr(src, "attached_to", None)
         result = [o for o in battlefield if host_id is not None and o.instance_id == host_id]
+    elif affects == "soulbond_pair":
+        # RULE 702.94b: "As long as ~ is paired with another creature, **each
+        # of those creatures** has …" — the source and its partner, and only
+        # while the pair actually holds (`GameObject.paired_with`, which
+        # `RulesEngine.break_illegal_soulbond_pairs` clears as an SBA the
+        # moment it stops being legal). Unpaired, this selects nothing at
+        # all, so the grant simply isn't there.
+        partner_id = getattr(src, "paired_with", None)
+        result = (
+            []
+            if src is None or partner_id is None or src not in battlefield
+            else [o for o in battlefield if o.instance_id in (src.instance_id, partner_id)]
+        )
     elif affects == "all_lands":
         result = [o for o in battlefield if o.is_land]
     elif affects == "opponents_permanents":
@@ -404,7 +426,19 @@ def _in_layer(abilities: list[StaticAbility], layer: str) -> list[StaticAbility]
     return sorted(picked, key=lambda a: getattr(a.source, "timestamp", 0))
 
 
-def count_selector(state: "GameState", controller_id: Optional[str], selector: str) -> int:
+#: Colour word → WUBRG letter, for the ``devotion_to_<colour>`` selectors
+#: (RULE 202.2f). Colourless has no devotion (a {C} pip is not a colour).
+_DEVOTION_COLOURS: dict[str, str] = {
+    "white": "W", "blue": "U", "black": "B", "red": "R", "green": "G",
+}
+
+
+def count_selector(
+    state: "GameState",
+    controller_id: Optional[str],
+    selector: str,
+    source: Optional["GameObject"] = None,
+) -> int:
     """Evaluate a "number of X" count selector, scoped to ``controller_id``.
 
     The vocabulary a layer-7a characteristic-defining P/T (RULE 613.7c/604.3
@@ -413,14 +447,30 @@ def count_selector(state: "GameState", controller_id: Optional[str], selector: s
     definition (RULE 702.21b, `costs.ActivationCost.x_selector`) — one
     authored list rather than two. "you control"/"your graveyard" is scoped
     to ``controller_id``; ``None`` (no controller context) matches nothing.
+
+    ``source`` is the object the selector is being evaluated *for*, needed
+    only by the self-referential entries ("cards named ~", Rite of Flame) —
+    every other selector answers purely from ``state``/``controller_id``, so
+    callers without a source in hand can keep omitting it.
     """
     bf = state.battlefield
+    _source_card_name = getattr(source, "name", None)
     if selector == "creatures_you_control":
         return sum(1 for o in bf if o.is_creature and o.controller_id == controller_id)
     if selector == "lands_you_control":
         return sum(1 for o in bf if o.is_land and o.controller_id == controller_id)
     if selector == "permanents_you_control":
         return sum(1 for o in bf if o.controller_id == controller_id)
+    if selector == "legendary_creatures_you_control":
+        # "for each legendary creature you control" (Eiganjo, Seat of the
+        # Empire's Channel cost reduction) — RULE 205.4a's supertype, read
+        # off the printed type line the same way `_is_nonbasic` reads
+        # "basic".
+        return sum(
+            1 for o in bf
+            if o.is_creature and o.controller_id == controller_id
+            and "legendary" in o.card.type_line.lower()
+        )
     if selector == "artifacts_you_control":
         return sum(1 for o in bf if o.card.is_artifact and o.controller_id == controller_id)
     if selector == "artifacts_and_or_enchantments_you_control":
@@ -453,6 +503,47 @@ def count_selector(state: "GameState", controller_id: Optional[str], selector: s
         except KeyError:
             player = None
         return len(player.graveyard) if player is not None else 0
+    if selector.startswith("devotion_to_"):
+        # RULE 202.2f/700.5: "your devotion to <colour>" is the number of
+        # mana symbols of that colour in the mana costs of permanents you
+        # control (Thassa's Oracle) — with a hybrid pip counting toward
+        # *both* of its colours, which `ManaSymbol.colors` already models as
+        # a set (Kitchen Finks' {G/W}{G/W} is 2 green *and* 2 white
+        # devotion). Read off the printed cost string rather than
+        # `Card.mana_cost`'s per-colour dict, which is only populated for
+        # cards that came from Scryfall.
+        from ..models.mana_cost import ManaCost  # function-scoped: see module header
+
+        colour = _DEVOTION_COLOURS.get(selector[len("devotion_to_"):])
+        if colour is None:
+            return 0
+        return sum(
+            sum(
+                1
+                for symbol in ManaCost.parse(o.card.mana_cost_string).symbols
+                if colour in symbol.colors
+            )
+            for o in bf
+            if o.controller_id == controller_id
+        )
+    if selector == "cards_named_source_in_all_graveyards":
+        # "for each card named ~ in each graveyard" (Rite of Flame) — a
+        # cross-player aggregate like `total_rad_counters_among_players`
+        # below, but name-keyed, and keyed to the *effect's own source's*
+        # name rather than a literal from card text (which would put a
+        # free-form string through the spec boundary for no benefit).
+        # ``controller_id`` is unused: every graveyard counts, not just
+        # yours. The resolving spell itself is on the stack, not in a
+        # graveyard, so it never counts itself.
+        name = (_source_card_name or "").strip().lower()
+        if not name:
+            return 0
+        return sum(
+            1
+            for p in state.players
+            for card in p.graveyard
+            if (card.name or "").strip().lower() == name
+        )
     if selector == "total_rad_counters_among_players":
         # Vault 12: The Necropolis chapter II: "X is the total number of rad
         # counters among players" — the one cross-player aggregate amount in
@@ -467,7 +558,9 @@ def _count_selector(state: "GameState", ability: StaticAbility, selector: str) -
     """`count_selector`, scoped to a `StaticAbility`'s own source's
     controller (RULE 613.7c/604.3) — see `count_selector` for the
     vocabulary."""
-    return count_selector(state, getattr(ability.source, "controller_id", None), selector)
+    return count_selector(
+        state, getattr(ability.source, "controller_id", None), selector, source=ability.source
+    )
 
 
 def _equipment_attached_count(state: "GameState", obj: "GameObject") -> int:
@@ -734,6 +827,53 @@ def _apply_off_battlefield_types(state: "GameState", abilities: list[StaticAbili
     state._off_battlefield_typed = stamped
 
 
+def ring_bearer_of(state: "GameState", player: Any) -> Optional[Any]:
+    """RULE 701.52a: ``player``'s Ring-bearer, or ``None``.
+
+    Resolved fresh off `Player.ring_bearer_id` against the live battlefield
+    rather than held as an object reference, so a bearer that has left the
+    battlefield (or changed controller) simply stops being one — the same
+    "re-derive, never un-stamp" discipline every layer effect here follows.
+    """
+    bearer_id = getattr(player, "ring_bearer_id", None)
+    if not bearer_id:
+        return None
+    for obj in state.battlefield:
+        if obj.instance_id == bearer_id and obj.controller_id == player.id:
+            return obj
+    return None
+
+
+def ring_level_of(state: "GameState", obj: Any) -> int:
+    """How many times the Ring has tempted ``obj``'s controller, if ``obj``
+    is currently their Ring-bearer — 0 otherwise (RULE 701.51a).
+
+    The single question every Ring ability asks, so combat and the
+    inherent-trigger scan can both ask it without repeating the lookup.
+    """
+    player = state.player_by_id(obj.controller_id)
+    if player is None or ring_bearer_of(state, player) is not obj:
+        return 0
+    return int(getattr(player, "ring_level", 0) or 0)
+
+
+def _apply_ring_bearer_static(state: "GameState") -> None:
+    """RULE 701.51a, the Ring emblem's first ability: "Your Ring-bearer is
+    legendary and can't be blocked by creatures with greater power."
+
+    Only the legendary half is a characteristic (layer 4, stamped here); the
+    blocking restriction is a combat rule, enforced by `GameEngine.can_block`
+    off `ring_level_of` at declare-blockers time.
+    """
+    for player in state.players:
+        if int(getattr(player, "ring_level", 0) or 0) < 1:
+            continue
+        bearer = ring_bearer_of(state, player)
+        if bearer is not None:
+            bearer._granted_legendary = True
+            _trace(bearer, 4, "The Ring", "legendary (Ring-bearer)")
+
+
 def recompute(state: "GameState") -> None:
     """Re-derive every battlefield permanent's characteristics (RULE 613)."""
     # Restore any controller a prior layer-2 pass changed, so this pass
@@ -815,6 +955,18 @@ def recompute(state: "GameState") -> None:
                 # `add_subtypes` above (which only *add* alongside whatever
                 # the object already was).
                 obj._derived_subtypes = set(set_subtypes)
+                # RULE 305.7: setting a land's subtype to a *basic* land type
+                # also strips its rules text and abilities — a Blood-Moon'd
+                # Underground Sea makes only {R}, and a Blood-Moon'd
+                # Wasteland can't be activated at all. The intrinsic mana
+                # ability of the new type comes back as a layer-6 grant from
+                # the very same static (`grant_mana_ability`), which
+                # `mana_abilities_for` keeps precisely because it reads the
+                # *granted* list separately from the printed one.
+                if obj.is_land and any(
+                    str(t).lower() in _BASIC_LAND_TYPES for t in set_subtypes
+                ):
+                    obj._loses_all_abilities = True
             if power is not None and toughness is not None:
                 animation_pt[obj.instance_id] = (power, toughness)
             label = ", ".join(added + add_subtypes) if (added or add_subtypes) else ", ".join(set_subtypes or [])
@@ -823,6 +975,16 @@ def recompute(state: "GameState") -> None:
     # Still layer 4, but off the battlefield (Arcane Adaptation/Ashes of the
     # Fallen) — see `_apply_off_battlefield_types`.
     _apply_off_battlefield_types(state, abilities)
+
+    # Also layer 4 (RULE 205.4/613.2d), but sourced from a *designation*
+    # rather than a permanent: RULE 701.51a's Ring emblem, whose first
+    # ability reads "Your Ring-bearer is legendary…". There's no permanent
+    # to hang a `StaticAbility` on and no `Emblem` object either (the
+    # emblem's abilities are fixed by the rules, not quoted from a card), so
+    # it's applied here off live player state — the same treatment
+    # `extra_land_plays_for`/`has_no_maximum_hand_size` give the other
+    # non-permanent-sourced statics.
+    _apply_ring_bearer_static(state)
 
     # -- Layer 5: colour-changing effects (RULE 613.4b).
     for ability in _in_layer(abilities, "color"):
@@ -1245,6 +1407,82 @@ def max_spells_per_turn(state: "GameState") -> Optional[int]:
     return min(limits) if limits else None
 
 
+def cast_prohibited(state: "GameState", player: "Player", card: Any) -> bool:
+    """Whether a standing ``"cast_prohibition"`` static forbids ``player``
+    from casting ``card`` right now (RULE 601.3a).
+
+    The *conditional* sibling of `max_spells_per_turn`'s flat per-turn cap:
+    instead of counting how many spells were cast, this vetoes a specific
+    spell by its own characteristics, re-evaluated live against the board.
+    Lavinia, Azorius Renegade — "Each opponent can't cast noncreature spells
+    with mana value greater than the number of lands that player controls."
+    — is the seed, and needs all three knobs together:
+
+    * ``scope`` — whose casts are restricted, from the static's own source's
+      controller: ``"opponents"`` (default) or ``"all"``.
+    * ``noncreature`` — restrict only noncreature spells (RULE 302/307).
+    * ``max_mana_value_selector`` — a `count_selector` name evaluated **for
+      the casting player**, not the static's controller ("*that player*'s"
+      lands): the spell is forbidden when its mana value exceeds that count.
+      Omitted, the prohibition is unconditional on mana value.
+
+    Kept out of the RULE 613 layer engine for the same reason
+    ``cast_limit``/``draw_limit`` are — it changes what a player *may do*,
+    not any object's characteristics — and consulted directly by
+    `GameEngine.can_cast`.
+    """
+    for ability in _battlefield_static_abilities(state):
+        if ability.layer != "cast_prohibition":
+            continue
+        controller_id = getattr(ability.source, "controller_id", None)
+        scope = ability.params.get("scope", "opponents")
+        if scope == "opponents" and player.id in (None, controller_id):
+            continue
+        if ability.params.get("noncreature") and getattr(card, "is_creature", False):
+            continue
+        selector = ability.params.get("max_mana_value_selector")
+        if selector is not None:
+            allowed = count_selector(state, player.id, str(selector), source=ability.source)
+            if getattr(card, "converted_mana_cost", 0) <= allowed:
+                continue
+        return True
+    return False
+
+
+def granted_escape_for(state: "GameState", obj: "GameObject") -> Optional[dict[str, Any]]:
+    """The ``"grant_escape"`` static granting ``obj`` Escape right now (RULE
+    702.138 as a *granted* keyword), as its params dict, or ``None``.
+
+    "Each nonland card in your graveyard has escape. The escape cost is
+    equal to the card's mana cost plus exile three other cards from your
+    graveyard." (Underworld Breach) — a layer-6 ability grant onto cards in
+    a **graveyard**, which no printed-keyword scan and no battlefield
+    selector could reach. Kept out of `recompute` proper for the same reason
+    the other permission statics are: nothing about the affected object's
+    *characteristics* changes, so there is no layer to write it into.
+
+    ``nonland_only`` mirrors Underworld Breach's own restriction; the grant
+    is scoped to the granting permanent's controller's own graveyard
+    ("**your** graveyard"), so an opponent's graveyard is untouched.
+    """
+    for ability in _battlefield_static_abilities(state):
+        if ability.layer != "grant_escape":
+            continue
+        controller_id = getattr(ability.source, "controller_id", None)
+        if controller_id is None:
+            continue
+        owner = next((p for p in state.players if p.id == controller_id), None)
+        # Membership rather than a `Zone` comparison, so this module keeps
+        # its no-runtime-`models`-import rule (see the module header) —
+        # the same shape `_off_battlefield_objects` above already uses.
+        if owner is None or obj not in owner.graveyard:
+            continue
+        if ability.params.get("nonland_only") and obj.card.is_land:
+            continue
+        return dict(ability.params)
+    return None
+
+
 def max_draws_per_turn(state: "GameState") -> Optional[int]:
     """The most restrictive "Each player can't draw more than N cards each
     turn." cap in play (RULE 121.5-adjacent — Spirit of the Labyrinth), or
@@ -1448,8 +1686,8 @@ def enters_tapped_from_static(state: "GameState", obj: "GameObject") -> bool:
 #: already got before any of these existed.
 _NON_RULE_613_LAYERS: frozenset[str] = frozenset(
     {"cost", "no_untap", "no_untap_optional", "enters_tapped", "activation_prohibition",
-     "cast_limit", "draw_limit", "trigger_prohibition", "untap_cap", "extra_land_drop",
-     "no_max_hand_size", "radiation_life_gain"}
+     "cast_limit", "cast_prohibition", "draw_limit", "trigger_prohibition", "untap_cap",
+     "extra_land_drop", "no_max_hand_size", "radiation_life_gain", "grant_escape"}
 )
 
 

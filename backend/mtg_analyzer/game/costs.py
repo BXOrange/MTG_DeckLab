@@ -249,6 +249,15 @@ class ActivationCost:
     #: loyalty counters — ``+2`` for ``[+2]``, ``-3`` for ``[-3]``, ``0`` for
     #: ``[0]``. ``None`` means this is not a loyalty ability.
     loyalty: Optional[int] = None
+    #: RULE 606.5c's ``[-X]`` (Jeska, Thrice Reborn's "−X: Jeska deals X
+    #: damage to each of up to three targets"): the loyalty removed is the
+    #: *announced* X rather than a printed constant, so ``loyalty`` is left
+    #: at 0 and the real amount is resolved at activation from the same
+    #: ``x`` every other X-scaled magnitude reads. Kept as a flag rather
+    #: than a magic ``loyalty`` value so the arithmetic in
+    #: `GameEngine._can_pay_activation_cost`/`_pay_activation_cost` stays
+    #: plain ints.
+    loyalty_is_x: bool = False
     #: Sorcery-speed timing restriction (RULE 711.4b Leveler / 716.4c Class
     #: level-up abilities) that isn't tied to a planeswalker — see
     #: `GameEngine._sorcery_speed_ok`. Not itself a cost component.
@@ -276,6 +285,12 @@ class ActivationCost:
     #: 1}``: the generic mana cost drops by ``generic_per`` for every
     #: counter of ``kind`` the *activating player* (not the source) has,
     #: read live each activation (`GameEngine._reduced_activation_mana`).
+    #: The magnitude may instead come from the *board* rather than a player
+    #: counter — ``{"count_selector": "legendary_creatures_you_control",
+    #: "generic_per": 1}`` is Eiganjo, Seat of the Empire's "costs {1} less
+    #: to activate for each legendary creature you control", resolved
+    #: through `continuous.count_selector` (the same vocabulary a ward
+    #: cost's `x_selector` reads). ``count_selector`` wins when both are set.
     #: Unlike `continuous.activation_cost_reduction_for`'s Power Artifact-
     #: shaped static (a fixed amount granted by a *different* permanent),
     #: this is the ability's own printed, dynamically-scaled reduction —
@@ -372,6 +387,7 @@ class ActivationCost:
             "exile_self_from_hand": self.exile_self_from_hand,
             "return_to_hand": self.return_to_hand,
             "loyalty": self.loyalty,
+            "loyalty_is_x": self.loyalty_is_x,
             "x_selector": self.x_selector,
             "label": self.label(),
         }
@@ -416,7 +432,14 @@ def parse_activation_cost(
     if "discard_self" in cost:
         parsed.discard_self = bool(cost["discard_self"])
     if cost.get("loyalty") is not None:
-        parsed.loyalty = int(cost["loyalty"])
+        raw_loyalty = cost["loyalty"]
+        if isinstance(raw_loyalty, str) and raw_loyalty.strip().lower() in ("-x", "−x"):
+            # RULE 606.5c's [-X] — resolved against the announced X at
+            # activation time (see `loyalty_is_x`).
+            parsed.loyalty = 0
+            parsed.loyalty_is_x = True
+        else:
+            parsed.loyalty = int(raw_loyalty)
     if "exile_from_graveyard" in cost:
         parsed.exile_from_graveyard = int(cost["exile_from_graveyard"])
     if cost.get("tap_others"):

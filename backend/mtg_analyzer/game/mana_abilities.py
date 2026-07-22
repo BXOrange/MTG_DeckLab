@@ -744,6 +744,17 @@ def mana_abilities_for(obj: Any, state: Optional[Any] = None) -> list[ManaAbilit
     "{T}: Add {G}{G}." offers nothing at level 0 (before levelling up) or
     level 5+ (that tier grants the ability to Elves instead, a separate
     layer-6 static effect, not this card's own — already gated correctly)."""
+    if getattr(obj, "loses_all_abilities", False):
+        # RULE 613.7f (Humility/Dress Down) and RULE 305.7 (a Blood-Moon'd
+        # land) both strip the object's *printed* abilities — including its
+        # mana ability, which this used to keep offering. The granted list
+        # below is deliberately unaffected: RULE 305.7's replacement basic
+        # land type brings its own intrinsic mana ability back as a layer-6
+        # grant from the very same static effect.
+        return [
+            ManaAbility(cost=ActivationCost(taps_self=True), options=[dict(opt)])
+            for opt in getattr(obj, "granted_mana_options", [])
+        ]
     printed = [
         ManaAbility(
             cost=ability.cost,

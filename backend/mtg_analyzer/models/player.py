@@ -102,6 +102,22 @@ class Player:
         #: `RulesEngine.create_emblem`. See `models/emblem.py`.
         self.emblems: list[Emblem] = []
 
+        #: RULE 701.51a "The Ring tempts you": how many times this player has
+        #: been tempted, 0–4. The Ring emblem gains its four abilities one at
+        #: a time in printed order, cumulatively, so the level *is* the
+        #: emblem — no `Emblem` object is created for it, because unlike a
+        #: RULE 114 emblem its abilities are fixed by the rules rather than
+        #: quoted on a card, and they all read live state
+        #: (`ring_bearer_id`). Applied by `RulesEngine.the_ring_tempts_you`,
+        #: read by `RulesEngine._collect_inherent_triggers` (levels 2–4) and
+        #: `game/continuous.py` (level 1).
+        self.ring_level: int = 0
+        #: RULE 701.52a: the `GameObject.instance_id` of this player's
+        #: Ring-bearer, or ``None`` while they control no creature to be
+        #: one. Re-chosen every time the Ring tempts them; cleared by the
+        #: SBA sweep when that creature stops being a creature they control.
+        self.ring_bearer_id: Optional[int] = None
+
     # -- Zone accessors --------------------------------------------------
 
     @property
@@ -203,6 +219,9 @@ class Player:
             "loss_reason": self.loss_reason,
             "commander_damage": {str(k): v for k, v in self.commander_damage.items()},
             "emblems": [e.to_dict() for e in self.emblems],
+            # RULE 701.51/701.52: the Ring's level (0–4) and who carries it.
+            "ring_level": self.ring_level,
+            "ring_bearer_id": self.ring_bearer_id,
             "library_count": len(self.library),
             "hand_count": len(self.hand),
             "hand": [obj.to_dict() for obj in self.hand],

@@ -25,6 +25,8 @@ from .costs import parse_activation_cost
 from .effects import (
     ActivatedAbility,
     AttachEffect,
+    RemoveCounterOrSacrificeEffect,
+    SoulbondPairEffect,
     ChooseColorReplacement,
     ChooseCreatureTypeReplacement,
     ChooseNamedModeReplacement,
@@ -311,7 +313,15 @@ def _build_group_ok(
                 state = getattr(context, "state", None)
                 obj = state.find_object(event_instance) if state is not None else None
                 types = sorted(obj.type_words) if obj is not None else None
-            if not types or tword not in types:
+            if not types:
+                return False
+            if tword.startswith("non"):
+                # "whenever you tap a **nonland** permanent for mana"
+                # (Kinnan) — a negated main type, the only shape the
+                # positive `tword in types` test can't express.
+                if tword[3:] in types:
+                    return False
+            elif tword not in types:
                 return False
         if stypes:
             if want_nontoken and event.get("is_token"):
@@ -408,6 +418,21 @@ def _trigger_condition(
     # type line's em dash, so they're never in a `"group"` condition's
     # `object_types` (main types only) — this reads the live object's
     # printed type line directly instead.
+    # "Whenever an opponent casts an **instant or sorcery** spell, …"
+    # (Wandering Archaic) — a main-card-type filter on a `SPELL_CAST` event.
+    # The `"group"` condition's own ``type`` key takes a single type word;
+    # this is the OR-of-several form, read off the event's stamped
+    # ``object_types`` exactly the same way.
+    spell_card_types = trigger.get("spell_card_types")
+    if spell_card_types:
+        wanted_types = tuple(str(t).lower() for t in spell_card_types)
+
+        def _spell_type_ok(event: Any, context: Any, words=wanted_types) -> bool:
+            types = event.get("object_types") or ()
+            return any(w in types for w in words)
+
+        predicates.append(_spell_type_ok)
+
     subtype_any = trigger.get("spell_subtype_any")
     if subtype_any:
         wanted = tuple(str(s).lower() for s in subtype_any)
@@ -449,6 +474,25 @@ def _trigger_condition(
             return is_yours if rel == "you" else not is_yours
 
         predicates.append(_phase_relation_ok)
+
+    # "… if this artifact is tapped, …" (Mana Vault's draw-step ping) — a
+    # RULE 603.4 intervening-if about the ability's **own source's** current
+    # state, rather than the event or whose turn it is. Checked live at
+    # trigger time (and again at resolution by the rules' own intervening-if
+    # re-check, if a card ever needs that); a source that has left the
+    # battlefield fails closed.
+    source_state = trigger.get("source_state")
+    if source_state in ("tapped", "untapped"):
+        instance_id = getattr(source, "instance_id", None)
+
+        def _source_state_ok(event: Any, context: Any, iid=instance_id, want=source_state) -> bool:
+            state = getattr(context, "state", None)
+            obj = state.find_object(iid) if state is not None and iid is not None else None
+            if obj is None:
+                return False
+            return bool(obj.tapped) == (want == "tapped")
+
+        predicates.append(_source_state_ok)
 
     if trigger.get("not_controllers_turn"):
         controller_key = _GROUP_CONTROLLER_EVENT_KEYS.get(trigger.get("event"), "controller_id")
@@ -610,6 +654,10 @@ def bind_ability(
                 source=source,
                 description=spec.raw_text,
                 reflexive=bool(spec.trigger.get("reflexive", False)),
+                # RULE 605.1b/605.4: a triggered *mana* ability resolves
+                # immediately instead of using the stack (Wild Growth,
+                # Kinnan) — see `TriggeredAbility.mana_ability`.
+                mana_ability=bool(spec.trigger.get("mana_ability", False)),
             )
 
         if isinstance(trigger_event, list):
@@ -723,6 +771,26 @@ def _self_only_condition(instance_id: Optional[int]) -> Callable[[Any, Any], boo
     return _check
 
 
+def _other_creature_you_control_condition(obj: Any) -> Callable[[Any, Any], bool]:
+    """RULE 702.94a's other half: an event about some *other* creature this
+    object's controller controls — what makes Soulbond fire "when **either**
+    enters", not just when the Soulbond creature itself does."""
+    instance_id = getattr(obj, "instance_id", None)
+    controller_id = getattr(obj, "controller_id", None)
+
+    def _check(event: Any, context: Any, iid=instance_id, cid=controller_id) -> bool:
+        event_instance = event.get("instance_id")
+        if event_instance is None or event_instance == iid:
+            return False
+        if event.get("controller_id") != cid:
+            return False
+        state = getattr(context, "state", None)
+        other = state.find_object(event_instance) if state is not None else None
+        return other is not None and other.is_creature
+
+    return _check
+
+
 def _keyword_triggered_abilities(obj: Any, spec: AbilitySpec) -> list[TriggeredAbility]:
     """Synthesize real triggered abilities for combat-math keywords whose
     RULE 702 text *is* a triggered ability — annihilator (702.86), afflict
@@ -753,6 +821,33 @@ def _keyword_triggered_abilities(obj: Any, spec: AbilitySpec) -> list[TriggeredA
     keyword = spec.keyword or {}
     name = str(keyword.get("name") or "")
 
+    if name == "soulbond":
+        # RULE 702.94a: "You may pair this creature with another unpaired
+        # creature when *either* enters." Two abilities, not one — the pair
+        # can form when this creature arrives *or* when a later unpaired
+        # creature joins it — but both do the same thing, so the second is
+        # just the same effect with a group subject instead of a self one.
+        return [
+            TriggeredAbility(
+                trigger_event=EventType.ENTERS_BATTLEFIELD,
+                effects=[SoulbondPairEffect(source=obj)],
+                condition=_self_only_condition(getattr(obj, "instance_id", None)),
+                optional=True,
+                controller_id=getattr(obj, "controller_id", None),
+                source=obj,
+                description=spec.raw_text or "Soulbond",
+            ),
+            TriggeredAbility(
+                trigger_event=EventType.ENTERS_BATTLEFIELD,
+                effects=[SoulbondPairEffect(source=obj)],
+                condition=_other_creature_you_control_condition(obj),
+                optional=True,
+                controller_id=getattr(obj, "controller_id", None),
+                source=obj,
+                description=spec.raw_text or "Soulbond",
+            ),
+        ]
+
     if name == "living_weapon":
         return [
             TriggeredAbility(
@@ -765,6 +860,32 @@ def _keyword_triggered_abilities(obj: Any, spec: AbilitySpec) -> list[TriggeredA
         ]
 
     n = keyword.get("n")
+    if name == "fading" and n is not None:
+        # RULE 702.32b: "At the beginning of your upkeep, remove a fade
+        # counter from this permanent. If you can't, sacrifice it." The
+        # entry counters themselves (RULE 702.32a) are placed by
+        # `RulesEngine._apply_entry_counters`, alongside every other
+        # enters-with-counters clause.
+        controller_id = getattr(obj, "controller_id", None)
+
+        def _your_upkeep(event: Any, context: Any, cid=controller_id) -> bool:
+            if event.get("step") != "upkeep":
+                return False
+            state = getattr(context, "state", None)
+            active = getattr(state, "active_player", None) if state is not None else None
+            return active is not None and active.id == cid
+
+        return [
+            TriggeredAbility(
+                trigger_event=EventType.STEP_BEGIN,
+                effects=[RemoveCounterOrSacrificeEffect(kind="fade", source=obj)],
+                condition=_your_upkeep,
+                controller_id=controller_id,
+                source=obj,
+                description=spec.raw_text or f"Fading {n}",
+            )
+        ]
+
     if name == "renown" and n is not None:
         instance_id = getattr(obj, "instance_id", None)
 
@@ -861,7 +982,8 @@ def _attach_modes(obj: Any, modes: dict[str, Any]) -> None:
     one cast action per *legal combination* of ``spell_modes_choose`` modes
     (every size from ``spell_modes_choose`` to all modes when
     ``spell_modes_at_least``; plus a combined "both" action when ``or_both``
-    is set, for the ``choose == 1`` binary case) — the same per-face-offer
+    is set, for the ``choose == 1`` binary case, or when ``entwine`` (RULE
+    702.42) prices one) — the same per-face-offer
     treatment MDFC/Adventure casting already uses; casting temporarily swaps
     `obj.spell_effects` to the chosen mode(s) so the existing targeting/
     resolution machinery (which reads that attribute) needs no change to be
@@ -873,6 +995,11 @@ def _attach_modes(obj: Any, modes: dict[str, Any]) -> None:
     obj.spell_modes_or_both = bool(modes.get("or_both", False))
     obj.spell_modes_choose = int(modes.get("choose", 1))
     obj.spell_modes_at_least = bool(modes.get("at_least", False))
+    # RULE 702.42a Entwine: the raw mana cost that upgrades "choose one" to
+    # "choose all". Read by `GameEngine._entwine_cost` — the "both" offer it
+    # unlocks is priced (and lockable), unlike ``spell_modes_or_both``'s.
+    entwine = modes.get("entwine")
+    obj.spell_modes_entwine = str(entwine) if entwine else None
 
 
 def attach_to_object(obj: Any, specs: list[AbilitySpec]) -> None:

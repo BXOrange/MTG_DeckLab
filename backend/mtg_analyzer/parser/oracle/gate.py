@@ -295,7 +295,7 @@ NEVER_SUPPORTED = "NEVER_SUPPORTED"
 #: color.'" (Abundant Growth): recognized directly by `static_handlers.
 #: _granted_mana_options` rather than the nested `segment_line` parse,
 #: since a plain mana ability is claimed-*without*-a-spec by the segmenter.
-PARSER_VERSION = "27"
+PARSER_VERSION = "28"
 
 
 @dataclass
@@ -559,6 +559,9 @@ def _parse_oracle_uncached(card: Any) -> ParseResult:
             unclaimed.append(seg.raw)
         elif seg.spec is not None:
             effect_specs.append(seg.spec)
+            # One printed line can yield 2+ abilities — see
+            # `Segment.extra_specs` (RULE 700.2's compact inline modal).
+            effect_specs.extend(seg.extra_specs)
 
     def _tag_level_gate(
         spec: AbilitySpec, gate: dict[str, Any], default_affects: Optional[str]
