@@ -34,6 +34,12 @@ from .spec import AbilitySpec, EffectSpec, ParserProvenance
 _TRIGGER_EVENTS: list[tuple[re.Pattern[str], str]] = [
     (re.compile(r"\benters\b"), "ENTERS_BATTLEFIELD"),
     (re.compile(r"\bdies\b"), "DIES"),
+    # RULE 506.5's "attacks **alone**" — checked before the bare "attacks"
+    # row below, which would otherwise claim it and silently drop the
+    # "alone" qualifier (a strictly wrong, over-firing trigger). Its own
+    # aggregate event, fired once combat locks in — see `EventType.
+    # ATTACKS_ALONE` for why `ATTACKS` can't express it.
+    (re.compile(r"\battacks alone\b"), "ATTACKS_ALONE"),
     (re.compile(r"\battacks\b"), "ATTACKS"),
     (re.compile(r"\bblocks\b"), "BLOCKS"),
 ]
@@ -188,7 +194,7 @@ _PHASE_TRIGGER_RE = re.compile(
 #: blocks the ability cares about.
 _SELF_SUBJECT_RE = re.compile(
     r"^(?:~|this (?:creature|artifact|enchantment|land|permanent|equipment))\s+"
-    r"(?:enters|dies|attacks|blocks)(?:\s+the\s+battlefield)?$"
+    r"(?:enters|dies|attacks|blocks)(?:\s+the\s+battlefield)?(?:\s+alone)?$"
 )
 
 #: RULE 303.4/301.5's "enchanted/equipped creature" trigger subject (Acquired
@@ -204,7 +210,7 @@ _SELF_SUBJECT_RE = re.compile(
 #: those on some real cards.
 _ATTACHED_SUBJECT_RE = re.compile(
     r"^(?:enchanted|equipped)\s+(?:creature|permanent|land|artifact)\s+"
-    r"(?:enters|dies|attacks|blocks)(?:\s+the\s+battlefield)?$"
+    r"(?:enters|dies|attacks|blocks)(?:\s+the\s+battlefield)?(?:\s+alone)?$"
 )
 
 #: RULE 603.1's condition subject — a *group* of objects, not just the
@@ -218,7 +224,7 @@ _GROUP_SUBJECT_RE = re.compile(
     r"^(?P<article>another|an|a)\s+(?P<type>" + "|".join(_GROUP_TYPE_WORDS) + r")"
     r"(?P<you_a> you control)?"
     r"\s+(?:enters|dies|attacks|blocks)"
-    r"(?:\s+the\s+battlefield)?"
+    r"(?:\s+the\s+battlefield)?(?:\s+alone)?"
     r"(?P<you_b> under your control)?$"
 )
 
@@ -236,7 +242,7 @@ _GROUP_SUBJECT_RE = re.compile(
 _GROUP_SUBTYPE_SUBJECT_RE = re.compile(
     r"^(?P<article>another|an|a)\s+(?P<nontoken>nontoken\s+)?"
     r"(?P<subtypes>[a-z]+(?:\s+or\s+[a-z]+)*)\s+you control\s+"
-    r"(?:enters|dies|attacks|blocks)(?:\s+the\s+battlefield)?$"
+    r"(?:enters|dies|attacks|blocks)(?:\s+the\s+battlefield)?(?:\s+alone)?$"
 )
 
 #: The "~ or another <subject>" merge (The Ghoul, Gunslinger's own actual
@@ -250,7 +256,7 @@ _GROUP_SUBTYPE_SUBJECT_RE = re.compile(
 _SELF_OR_GROUP_SUBTYPE_RE = re.compile(
     r"^~ or another\s+(?P<nontoken>nontoken\s+)?"
     r"(?P<subtypes>[a-z]+(?:\s+or\s+[a-z]+)*)\s+you control\s+"
-    r"(?:enters|dies|attacks|blocks)(?:\s+the\s+battlefield)?$"
+    r"(?:enters|dies|attacks|blocks)(?:\s+the\s+battlefield)?(?:\s+alone)?$"
 )
 
 #: An activated-ability wrapper: "<cost>: <effect>" (RULE 602.1). The cost is

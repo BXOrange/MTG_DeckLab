@@ -262,6 +262,9 @@ class RulesEngine:
         state.subscribe(self._collect_triggers)
         # Tally spells cast this turn for the RULE 731.2 day/night check.
         state.subscribe(self._track_spell_cast)
+        # Tally creatures that died this turn (RULE 700.4) — see
+        # `GameState.creatures_died_this_turn`.
+        state.subscribe(self._track_creature_death)
 
     # ------------------------------------------------------------------
     # Mana cost lookup (RULE 202)
@@ -2946,6 +2949,7 @@ class RulesEngine:
             obj.attacking = False
             obj.combat_defender = None
             obj.blocking = None
+            obj.additional_blocking = []
             obj.blocked_by = []
             obj.dealt_deathtouch_damage = False
             obj.tapped = True
@@ -3755,6 +3759,28 @@ class RulesEngine:
         if player_id is None:
             return
         counts = self.state.spells_cast_this_turn
+        counts[player_id] = counts.get(player_id, 0) + 1
+
+    def _track_creature_death(self, event: GameEvent) -> None:
+        """Tally `DIES` toward `GameState.creatures_died_this_turn` (RULE
+        700.4). Subscribed rather than incremented at `_move_to_graveyard`,
+        so every path a creature can die by is covered from one place — the
+        same reason `_track_spell_cast` above listens for `SPELL_CAST`.
+
+        `DIES` fires for *every* permanent type (an Aura/land dying is a real
+        dies-trigger too), so this narrows to creatures off the event's own
+        snapshotted ``object_types`` — the object is already out of the
+        battlefield by the time a subscriber runs (RULE 400.7), so its types
+        can't be re-read live. ``controller_id`` is what "died **under your
+        control**" asks about, not the owner."""
+        if event.type != EventType.DIES:
+            return
+        if "creature" not in (event.get("object_types") or []):
+            return
+        player_id = event.get("controller_id")
+        if player_id is None:
+            return
+        counts = self.state.creatures_died_this_turn
         counts[player_id] = counts.get(player_id, 0) + 1
 
     def apply_day_night_turn_check(self) -> None:

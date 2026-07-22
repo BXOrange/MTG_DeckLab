@@ -1653,7 +1653,11 @@ export function createGameBoardView(opts = {}) {
         const steps = (o.static_trace || [])
           .map((t) => {
             const pt = t.power != null && t.toughness != null ? ` → ${t.power}/${t.toughness}` : '';
-            return `<li><span class="gf-static-layer">L${t.layer}</span>
+            // A numeric layer is a real RULE 613 layer ("L6"); a string one is
+            // a non-613 bucket (combat restrictions) that names itself.
+            const layer =
+              typeof t.layer === 'number' ? `L${t.layer}` : escapeHtml(String(t.layer));
+            return `<li><span class="gf-static-layer">${layer}</span>
               ${escapeHtml(t.source)}: ${escapeHtml(t.description)}${escapeHtml(pt)}</li>`;
           })
           .join('');

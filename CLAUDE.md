@@ -161,7 +161,41 @@ combination of colors" mana (`ManaAbility.any_combination`,
 `GameEngine.tap_for_mana`'s `color_split`), and RULE 605.1a hand-zone mana
 abilities ("Exile this card from your hand: Add …", Elvish/Simian Spirit
 Guide — `hand_mana_abilities_for`/`GameEngine.activate_hand_mana_ability`);
-all common combat keywords incl. landwalk; the RULE 613
+all common combat keywords incl. landwalk; the RULE 508/509
+**combat-restriction/requirement/multi-block** family in full — both the
+plain flag forms ("~ can't attack.") and every qualified restriction (a
+blocker filter — "…can't be blocked by creatures with power 2 or
+less"/"…except by Walls"/"…by more than one creature" — an "unless
+`<board condition>`" gate, "…alone" with its own aggregate
+`EventType.ATTACKS_ALONE` trigger, and the resolve-time "target creature
+can't block this turn"), RULE 509.1c/d's **requirements** (the mirror
+image — "~ must be blocked if able."/"All creatures able to block ~ do
+so.", synthetic flag keywords like `attacks_if_able`, checked by
+`GameEngine._enforce_block_requirements` as declare-blockers closes; plus
+the resolve-time, pairwise "target creature blocks/can't block ~ this
+turn [if able]" naming a specific attacker via
+`GrantCombatRestrictionEffect`'s `restrict_to_source`), and RULE 509.1b's
+**multi-block permissions** ("~ can block an additional creature each
+combat."/"…any number of creatures.", `GameObject.additional_blocking` +
+`combat.max_blocks_for`/`has_block_capacity`, with combat damage divided
+evenly across every attacker a multi-blocker ends up blocking via
+`GameEngine._split_blocker_damage`) — plus the family's last two gaps, a
+filter whose threshold is a **board count instead of a literal int**
+("Creatures with power less than the number of Islands you control can't
+block ~." — Kraken of the Straits, `matches_object_filter`'s
+`power_lt_count_selector` + `continuous.count_selector`'s
+`lands_you_control_of_type_<x>`, scoped to the *attacker's* controller per
+RULE 613.7c) and a **group scope with its own power/toughness qualifier**
+("Each creature you control with power 4 or greater can't be blocked by
+more than one creature." — Challenger Troll/Flopsie, `group_selector_
+objects`'s `min_power`/`max_power`/`min_toughness`/`max_toughness`, which is
+also why `continuous.recompute` now stamps `combat_restriction` *after* the
+layer-7 P/T pass instead of before it, so a same-pass anthem is visible to
+the qualifier) — the qualified/requirement/multi-block kinds all riding one
+`combat_restriction` static that `continuous.recompute` stamps onto
+`GameObject.combat_restrictions` but that is *evaluated at combat time*,
+since who's defending and who else is attacking don't exist yet when the
+layer engine runs; the RULE 613
 **layer system** (layers 1–7, timestamp-ordered within a layer + a bounded
 RULE 613.8 dependency pass, `EffectRegistry`-bridged for every hand-authored/
 parsed `static` spec shape, including layer-6 grants of a non-keyword mana
@@ -300,8 +334,8 @@ every field it reads, `parser/oracle/gate.py`) since it's called once per
 on every copy/every game. `parser/oracle/processing_list.py` tracks
 cache-wide coverage and ranks the next handlers worth building. The cache is
 now bulk-loaded with the **full ~34k-card Oracle universe**
-(`scripts/import_bulk.py`), so coverage is measured against that: **25.4%
-covered (8,672 / 34,209) as of 2026-07-22, PARSER_VERSION 28** (parser-`MODELED` **or**
+(`scripts/import_bulk.py`), so coverage is measured against that: **26.2%
+covered (8,946 / 34,209) as of 2026-07-22, PARSER_VERSION 31** (parser-`MODELED` **or**
 hand-`AUTHORED`).
 Re-measure with `scripts/coverage_report.py` (ledger-backed — see
 `services/coverage_db.py`) before trusting this number; Batches 1–10 are all
@@ -454,8 +488,10 @@ leaving; combining interactive trigger-ordering with a targeted trigger;
 bespoke *conditional* transform triggers like Delver of Secrets;
 non-creature group scopes for the anthem/grant families, which keeps
 "Other enchantments have '…'"-shaped cards closed even though the layer
-engine's selectors are ready) — all now tracked in that same file rather
-than split across siblings.
+engine's selectors are ready; the "Combat statics" ToDo entry is now fully
+closed — combat *requirements*, multi-block permissions, a count-selector
+threshold filter, and a qualified group scope have all shipped) — all
+now tracked in that same file rather than split across siblings.
 
 Hand-authoring a card's abilities directly (rather than waiting on the
 oracle-effect front-end, or for a replacement-clause/conditional-trigger the

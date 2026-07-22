@@ -4096,6 +4096,117 @@ class UnblockableEffect(GameEffect):
             target.temp_unblockable = True
 
 
+class CantBlockEffect(GameEffect):
+    """"Target creature can't block this turn" (Falter/Abandon the Post) and
+    its untargeted group form ("creatures your opponents control can't block
+    this turn") — sets `GameObject.temp_cant_block`, read by
+    `GameEngine.can_block` and cleared at cleanup (RULE 514.2).
+
+    The blocker-side mirror of `UnblockableEffect` above, and shaped like it:
+    ``selector`` (a `continuous.group_selector_objects` name) switches from
+    RULE 115's targeted form to RULE 601.2c's mass one, ``count``
+    generalizes the targeted form to N targets (RULE 115.1a — "up to two
+    target creatures can't block this turn"), and ``filter`` narrows the mass
+    form by characteristics `group_selector_objects`'s own selector params
+    can't express ("creatures **without flying** can't block this turn" —
+    `combat.matches_object_filter`'s shared vocabulary).
+    """
+
+    def __init__(
+        self,
+        target: Any = None,
+        source: Optional["GameObject"] = None,
+        target_kind: str = "creature",
+        selector: Optional[str] = None,
+        filter: Optional[dict[str, Any]] = None,
+        count: int = 1,
+        optional: bool = False,
+    ) -> None:
+        super().__init__(source)
+        self.target = target
+        self.selector = selector
+        self.filter = dict(filter or {})
+        self.target_spec = (
+            None if selector else TargetSpec(kind=target_kind, count=count, optional=optional)
+        )
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        if self.selector:
+            from . import combat
+            from .continuous import group_selector_objects  # avoid the continuous↔effects cycle
+
+            controller_id = getattr(self.source, "controller_id", None)
+            for obj in group_selector_objects(
+                context.state, controller_id, self.selector, src=self.source
+            ):
+                if obj.is_creature and combat.matches_object_filter(obj, self.filter):
+                    obj.temp_cant_block = True
+            return
+        count = self.target_spec.count if self.target_spec is not None else 1
+        # Only this effect's own ``count`` targets, off the front of a
+        # possibly-shared list — see `DestroyEffect.apply`'s comment.
+        chosen = (
+            targets[:count] if targets else ([self.target] if self.target is not None else [])
+        )
+        for one in chosen:
+            if one is not None:
+                one.temp_cant_block = True
+
+
+class GrantCombatRestrictionEffect(GameEffect):
+    """""~ can't be blocked by creatures with power 2 or less **this turn**"
+    (Cavern Stomper) / "target creature can't be blocked by Walls this turn"
+    (Tower of Coireall) — the resolve-time sibling of the standing
+    ``combat_restriction`` static.
+
+    Grants the *same* clamped param dict onto `GameObject.
+    temp_combat_restrictions`, which `combat.combat_restrictions` reads
+    alongside the recompute-derived list, so no combat-time check has to know
+    which of the two a restriction came from. Cleared at cleanup (RULE 514.2).
+
+    ``restrict_to_source=True`` stamps ``self.source``'s own instance id onto
+    the restriction's ``filter`` at apply time (``{"instance_id": ...}``) —
+    the pairwise "target creature can't block **~** this turn"/"target
+    creature blocks **~** this turn if able" shapes, where the *specific*
+    attacker named is this ability's own source and so can't be baked into
+    the `AbilitySpec` at parse time (it varies per game object). Combined
+    with the ``cant_block_filtered``/``must_block_target`` restriction
+    kinds, `combat.matches_object_filter`'s ``instance_id`` key then narrows
+    the (otherwise unfiltered) restriction to that one attacker.
+    """
+
+    def __init__(
+        self,
+        restriction: Optional[dict[str, Any]] = None,
+        target: Any = None,
+        source: Optional["GameObject"] = None,
+        target_kind: Optional[str] = None,
+        restrict_to_source: bool = False,
+    ) -> None:
+        super().__init__(source)
+        self.restriction = dict(restriction or {})
+        self.target = target
+        self.restrict_to_source = restrict_to_source
+        # No ``target_kind`` at all is the self form ("~ can't be blocked
+        # by … this turn"), matching `PumpEffect`'s own self/target split.
+        self.target_spec = TargetSpec(kind=target_kind) if target_kind else None
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        if self.target_spec is None:
+            target = self.source
+        else:
+            target = (targets[0] if targets else None) or self.target
+        if target is None or not self.restriction.get("kind"):
+            return
+        restriction = dict(self.restriction)
+        if self.restrict_to_source and self.source is not None:
+            restriction["filter"] = {
+                **dict(restriction.get("filter") or {}),
+                "instance_id": self.source.instance_id,
+            }
+        target.temp_combat_restrictions.append(restriction)
+
+
 class AttachEffect(GameEffect):
     """Attach a permanent to another permanent as an Aura/Equipment-style effect."""
 
@@ -7258,6 +7369,32 @@ EffectRegistry.register(
     lambda p: UnblockableEffect(target=p.get("target"), target_kind=p.get("target_kind", "creature")),
 )
 EffectRegistry.register(
+    # "Target creature can't block this turn" (Falter/Abandon the Post) and
+    # "creatures your opponents control can't block this turn" (the mass
+    # form) — the blocker-side mirror of "unblockable" just above.
+    "cant_block_this_turn",
+    lambda p: CantBlockEffect(
+        target=p.get("target"),
+        target_kind=p.get("target_kind", "creature"),
+        selector=p.get("selector"),
+        filter=dict(p.get("filter") or {}),
+        count=int(p.get("count", 1)),
+        optional=bool(p.get("optional", False)),
+    ),
+)
+EffectRegistry.register(
+    # "~ can't be blocked by creatures with power 2 or less this turn"
+    # (Cavern Stomper) — the resolve-time sibling of the standing
+    # `combat_restriction` static registered further down.
+    "combat_restriction_this_turn",
+    lambda p: GrantCombatRestrictionEffect(
+        restriction=dict(p.get("restriction") or {}),
+        target=p.get("target"),
+        target_kind=p.get("target_kind"),
+        restrict_to_source=bool(p.get("restrict_to_source", False)),
+    ),
+)
+EffectRegistry.register(
     "attach",
     lambda p: AttachEffect(
         target=p.get("target"),
@@ -7529,6 +7666,11 @@ _SELECTOR_KEYS: tuple[str, ...] = (
     # `chosen_color` fresh each recompute instead of a literal `subtype`/
     # `color` baked in at parse time; see `continuous.group_selector_objects`.
     "subtype_from_source", "color_from_source",
+    # A per-object power/toughness qualifier on the scope itself ("Each
+    # creature you control **with power 4 or greater** …" — Challenger
+    # Troll/Flopsie-shaped); read off each affected object's own *derived*
+    # characteristics, unlike every filter above (all about type/colour).
+    "min_power", "max_power", "min_toughness", "max_toughness",
 )
 
 
@@ -7809,7 +7951,42 @@ EffectRegistry.register(
     lambda p: StaticAbility(
         "activation_prohibition",
         affects=p.get("affects", "all_permanents"),
-        params={**_selectors(p)},
+        params={
+            # RULE 605.1a's carve-out ("…and its activated abilities can't be
+            # activated **unless they're mana abilities**" — Kasmina's
+            # Transmutation/Imprisoned in the Moon). Without it the
+            # prohibition covers mana abilities too, which is what makes Null
+            # Rod stop an artifact's "{T}: Add {C}".
+            "except_mana_abilities": bool(p.get("except_mana_abilities", False)),
+            **_selectors(p),
+        },
+    ),
+)
+EffectRegistry.register(
+    # RULE 508.1a/509.1b's *qualified* combat restrictions — "~ can't be
+    # blocked by creatures with power 2 or less", "…except by Walls", "…by
+    # more than one creature", "~ can't attack unless defending player
+    # controls an Island", "~ can't attack alone". Their unqualified siblings
+    # ride synthetic `grant_keyword` flags (`cant_attack`/`cant_block`/
+    # `cant_be_blocked`); these carry a parameter a flag can't, so the whole
+    # entry is stamped onto `GameObject.combat_restrictions` by
+    # `continuous.recompute` and evaluated at *combat* time instead — see
+    # `game/combat.py`'s `COMBAT_RESTRICTIONS` for the ``kind`` whitelist and
+    # `GameEngine._combat_condition_met` for the ``condition`` one.
+    #
+    # Not a RULE 613 layer (nothing here is a characteristic), so it sits in
+    # `continuous._NON_RULE_613_LAYERS` alongside `activation_prohibition`.
+    "combat_restriction",
+    lambda p: StaticAbility(
+        "combat_restriction",
+        affects=p.get("affects", "self"),
+        params={
+            "kind": str(p.get("kind", "")),
+            **({"filter": dict(p["filter"])} if p.get("filter") else {}),
+            **({"condition": dict(p["condition"])} if p.get("condition") else {}),
+            **({"count": int(p["count"])} if p.get("count") is not None else {}),
+            **_selectors(p),
+        },
     ),
 )
 EffectRegistry.register(

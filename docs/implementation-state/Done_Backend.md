@@ -4224,6 +4224,275 @@ the Phase-1 models. Tests: `test_game_engine.py`.
         Boneyard) isn't expressible as a bare production list and stays
         unclaimed. Tests: `test_aura_equipment_grant_family.py`.
 
+- [x] **Combat statics — the qualified/conditional restriction family**
+      (batch 27, 2026-07-22, `PARSER_VERSION` 29, +225 covered cards:
+      8,672 → 8,897 / 34,209 = 26.0%). Closes the whole "Combat statics"
+      section that was open in `backend/ToDo_Backend.md`; what remains
+      around it there is three *different* rules (requirements, multi-block
+      permissions, pairwise restrictions), not leftovers of this one.
+
+      The plain restrictions ("~ can't attack.") shipped in batch 2 as
+      synthetic layer-6 flag keywords, and that was the right shape for
+      them — a flag is all they need. Every *qualified* sibling carries a
+      parameter a flag can't hold, so the load-bearing decision here was a
+      new **`combat_restriction` static** (`game/effects.py`; a
+      `continuous._NON_RULE_613_LAYERS` bucket, not a layer — none of this
+      changes a characteristic) stamped onto `GameObject.
+      combat_restrictions` every recompute and **evaluated at combat time**.
+      That last part is the whole point: the two things these depend on —
+      who is defending, and who else is attacking — don't exist yet when
+      the layer engine runs, so a recompute-time answer would be wrong, not
+      merely early. The `kind` whitelist lives in `game/combat.py`'s
+      `COMBAT_RESTRICTIONS`, its `filter` vocabulary in
+      `matches_object_filter` (which `targeting._creature_matches_filter`
+      now delegates to, so the two can't drift), its `condition` vocabulary
+      in `GameEngine._COMBAT_CONDITIONS`.
+
+      - **Blocking filters** (RULE 509.1b) — "~ can't be blocked by
+        creatures with power 2 or less" / "…except by Walls" / "…except by
+        creatures with flying or reach" / "…by creatures with greater
+        power" (the one *relative* filter, resolved against the attacker
+        per blocker rather than baked in at parse time), plus the two
+        counted forms "…by more than one creature" and "…except by two or
+        more creatures", which generalize `combat.min_blockers`' existing
+        menace floor into a `min_blockers`/`max_blockers` pair
+        `declare_blockers` checks over the whole projected block. The
+        blocker-side mirror shipped with them ("~ can block only creatures
+        with flying", "~ can't block creatures with power 3 or greater" —
+        `blocker_may_block`), as did the *inverted* phrasing that reads off
+        the other end of the sentence ("Creatures with power less than ~'s
+        power can't block it." — Sedge Troll), which is the same
+        `cant_be_blocked_by` restriction and so gets a regex rather than a
+        second mechanism.
+      - **Conditional restrictions** — "~ can't attack/block[ or block]
+        unless `<condition>`", over a closed board/turn-state vocabulary
+        (defending player controls a land type/permanent type; you control
+        N (other) X; more creatures/lands than the other player; cards in
+        graveyard/hand; opponent is the monarch/poisoned; a creature died
+        under your control this turn). Two things fell out of this: RULE
+        508.1a's condition is about the player *actually* being attacked, so
+        `_can_attack` gained an optional `defending_player` — `None` asks
+        the weaker offer-time question "could this attack somebody" (for
+        `legal_actions`), and `declare_attackers` re-checks against the
+        assigned defender; and "a creature died this turn" is a *history*
+        question no live board can answer, so `GameState.
+        creatures_died_this_turn` joined `spells_cast_this_turn` as a
+        subscribed per-turn tally (`RulesEngine._track_creature_death`,
+        narrowed to creatures off the `DIES` event's own snapshotted
+        `object_types`, since RULE 400.7 means the object is already gone by
+        the time a subscriber runs). An unrecognised condition kind returns
+        **False** — the restriction keeps biting — so a mis-parse fails
+        toward "can't attack" rather than silently deleting the restriction.
+      - **"…alone"** — both halves. The restriction ("~ can't attack
+        alone.", "…attack or block alone") is a property of the *finished*
+        attack, so it's enforced where `_enforce_attacks_if_able` already
+        is: as the caller tries to leave the declare-attackers step. Since
+        `declare_attackers` is additive (the UI declares one creature per
+        click), rejecting mid-way would wrongly bite the first creature of a
+        legal pair. The **trigger** ("Whenever ~ / a Samurai or Warrior you
+        control attacks alone, …") needed a new aggregate `EventType.
+        ATTACKS_ALONE`, fired once combat locks in, for exactly the reason
+        `PLAYER_ATTACKED` is aggregate: `ATTACKS` fires per creature as it's
+        declared, so the first declaration of a two-creature attack would
+        always momentarily look alone. It carries `ATTACKS`' payload
+        verbatim, so RULE 603.1's self/group/subtype subject scoping works
+        unchanged.
+      - **"…unless they're mana abilities"** (RULE 605.1a) — an
+        `except_mana_abilities` rider on the existing `activation_
+        prohibition`. Wiring it exposed the converse bug: `tap_for_mana`
+        never consulted `activation_prohibited` at all, so an *unqualified*
+        prohibition wasn't stopping mana abilities either — which is
+        precisely what Null Rod is for. Both now go through the same check.
+      - **"Target creature can't block this turn"** — the family's largest
+        half (~100 cards) and, unlike everything above, an ordinary one-shot
+        effect rather than a static: `CantBlockEffect` →
+        `GameObject.temp_cant_block`, the blocker-side mirror of the
+        `temp_unblockable` grant that already existed, cleared at cleanup
+        (RULE 514.2). Shipped with the N-target ("up to two target
+        creatures") and untargeted mass ("creatures without flying can't
+        block this turn") forms.
+      - **The resolve-time "…this turn" variant** of the blocking filters
+        ("{3}{G}: ~ can't be blocked by creatures with power 2 or less this
+        turn") shipped in the same batch rather than being deferred as a
+        sibling: `GameObject.temp_combat_restrictions` holds the *same*
+        clamped param dicts, and `combat.combat_restrictions` reads the two
+        lists together, so no combat-time check has to know which kind of
+        grant a restriction came from.
+
+      Tests: `test_qualified_combat_restrictions.py` (new, 25 tests — each
+      shape driven through `parse_oracle` **and** exercised against a real
+      `GameEngine`), plus the fail-closed half rewritten in
+      `test_combat_restriction_family.py`.
+
+- [x] **Combat statics — requirements + multi-block permissions** (batch 28,
+      2026-07-22, `PARSER_VERSION` 30, +46 covered cards: 8,897 → 8,943 /
+      34,209 = 26.1%). Closes the three RULE 508/509 families batch 27
+      deliberately left open, so `ToDo_Backend.md`'s "Combat statics" entry
+      now holds only two narrow parser-only gaps (a board-count-threshold
+      filter, a qualified group scope).
+
+      **Combat requirements (RULE 509.1c/d)** — the mirror image of a
+      restriction (they force a block rather than forbid one):
+      - **"~ must be blocked if able."**/**"All creatures able to block ~ do
+        so."** (Lure-shaped) bind as synthetic layer-6 flag keywords
+        (`"must_be_blocked"`/`"all_must_block"`) — the same `grant_keyword`
+        plumbing `attacks_if_able` already used, so no new static-ability
+        shape was needed, only the flag names. Checked by a new
+        `GameEngine._enforce_block_requirements`, called exactly where
+        `_enforce_attacks_if_able` already is: as the caller tries to leave
+        the relevant declare step (here, declare-blockers) — the same "no
+        other 'I'm done' signal" reasoning, since `declare_blockers` is
+        additive too.
+      - **Deliberately no full requirement-satisfaction optimizer.** RULE
+        509.1c's real behaviour, when two requirements can't both be
+        satisfied by the creatures available, has the defending player
+        choose which to break subject to maximizing how many are obeyed.
+        Building that solver wasn't worth it: `_enforce_block_requirements`
+        instead re-asks `can_block` for each candidate, which *already*
+        reflects every restriction and remaining block capacity — so a
+        creature already fully committed elsewhere is naturally excused
+        from a second requirement, without tracking "why" it's excused.
+        This gets the common case (no conflict) exactly right and the
+        conflicting case gracefully (whatever the defending player actually
+        declared stands), which is what `test_all_must_block_excuses_a_
+        blocker_already_committed_elsewhere` pins down.
+      - **The resolve-time, *pairwise* siblings** — "target creature blocks
+        ~ this turn if able."/"…can't block ~ this turn." — name a
+        *specific* attacker (the ability's own source), which a bare flag
+        can't carry and which doesn't exist as a fixed value at parse time
+        (it varies per game object). `GrantCombatRestrictionEffect` (the
+        existing resolve-time `combat_restriction` grant) gained a
+        `restrict_to_source` flag: at `apply()` time it stamps
+        `{"instance_id": self.source.instance_id}` onto the restriction's
+        `filter`. Two new pieces made this reachable: `matches_object_
+        filter` gained an `instance_id` key (engine-internal only — never
+        emitted by the oracle-text parser itself, only computed at resolve
+        time), and a new `must_block_target` restriction kind, read by
+        `_enforce_block_requirements`'s second pass (over every permanent,
+        not just attackers, since the requirement lives on the *blocker*).
+        "…can't block ~ this turn" reuses the *existing* `cant_block_
+        filtered` kind with the same `restrict_to_source` trick — zero new
+        restriction kinds needed for that half.
+      - **"Target creature attacks this turn if able."** needed *no* new
+        engine code at all: it's a plain temporary keyword grant onto the
+        target (`GameObject.temp_keywords`, the same mechanism "gains flying
+        until end of turn" already uses), and `combat.has()` already unions
+        `temp_keywords` into the flag-keyword check `_enforce_attacks_if_
+        able` reads — so the resolve-time and standing forms of this one
+        requirement share one predicate without knowing which granted it.
+
+      **Multi-block permissions (RULE 509.1b)** — "~ can block an additional
+      creature each combat."/"~ can block any number of creatures.":
+      - `GameEngine.can_block`'s old bare `blocker.blocking is None` check
+        (one block per blocker, hard-coded) generalizes to `combat.
+        has_block_capacity`, backed by a new `GameObject.additional_
+        blocking` list — `blocking` still holds the *first* attacker
+        (untouched for the overwhelming majority of blockers), and
+        `additional_blocking` holds every one after it. `combat.
+        blocking_attacker_ids`/`blocks_used`/`max_blocks_for` read the two
+        together; the grants themselves ride the *existing* `combat_
+        restriction` static (`"extra_blocks"` + `count`, `"unlimited_
+        blocks"`) — a permission rather than a restriction, but neither
+        changes a characteristic either, so the same non-RULE-613 bucket
+        fits both.
+      - **Combat damage** (`GameEngine._deal_combat_damage_step`) needed a
+        real change: a blocker's power used to go entirely to the one
+        attacker it was blocking. `_split_blocker_damage` now divides it
+        evenly (remainder to the earliest-blocked attacker) across every
+        attacker named across `blocking`/`additional_blocking` — an
+        auto-pick, non-interactive simplification for the "divided as its
+        controller chooses" assignment (RULE 510.1c), matching this
+        project's existing "auto-pick" convention for choices with no
+        interactive UI yet (`_sacrifice_candidate` and friends). Degenerates
+        to the pre-existing single-attacker behaviour exactly when there's
+        only one, so no regression risk for the ordinary case.
+      - `declare_blockers`'s "can't block alone" check and its projected-
+        blocker set, and `_combat_has_first_strikers`'s combatant scan, both
+        moved from the bare `blocking is not None` test to `combat.
+        blocking_attacker_ids(...)` so a multi-blocker is counted correctly
+        everywhere, not just at the capacity check.
+
+      Tests: `test_combat_requirements_and_multiblock.py` (new, 13 tests —
+      each shape driven through `parse_oracle` **and** exercised against a
+      real `GameEngine`, including the damage-split and requirement-conflict
+      cases).
+
+- [x] **Combat statics — the last two parser-only gaps** (batch 29,
+      2026-07-22, `PARSER_VERSION` 31, +3 covered cards: 8,943 → 8,946 /
+      34,209 = 26.2%). Closes the two narrow gaps batch 28 deliberately left
+      open, so `ToDo_Backend.md`'s "Combat statics" entry is fully closed —
+      nothing left in that section at all.
+
+      **A count-selector threshold instead of a literal int** — "Creatures
+      with power less than the number of Islands you control can't block
+      ~." (Kraken of the Straits). Every existing filter key in `combat.
+      matches_object_filter` (`min_power`, `max_power`, …) is a literal int
+      baked in at parse time; this one is a *board count*, re-evaluated at
+      combat time:
+      - `matches_object_filter` gained a `power_lt_count_selector` key and,
+        for the first time, an optional `state` parameter — needed to walk
+        the whole battlefield for the count, unlike every other key (which
+        answers from `obj`/`reference` alone). `blocker_allowed` threads it
+        through from `GameEngine.can_block`.
+      - `continuous.count_selector` gained a `lands_you_control_of_type_
+        <x>` entry (the `devotion_to_<colour>`-style prefix-matched family)
+        for "the number of Islands you control" specifically.
+      - Scoped to the *attacker's* controller (RULE 613.7c: "you" in an
+        ability's text always means its own source's controller), read off
+        `reference.controller_id` in `matches_object_filter` — `reference`
+        is already the attacker at every call site, so no new parameter was
+        needed to carry that scoping.
+      - Parser: `object_filter`'s new `_POWER_LT_COUNT_RE` maps a basic land
+        type word to the selector name; an unrecognised type (or a
+        non-land-type count, e.g. "the number of creatures you control")
+        still fails closed, since `_BASIC_LAND_PLURALS` is a closed five-
+        entry table.
+
+      **A group scope with its own qualifier** — "Each creature you control
+      **with power 4 or greater** can't be blocked by more than one
+      creature." (Challenger Troll/Flopsie, Bumi's Buddy-shaped; Delney,
+      Streetwise Lookout combines this with an independent filtered *tail*
+      in the same sentence — "Creatures you control with power 2 or less
+      can't be blocked by creatures with power 3 or greater."):
+      - `_QUALIFIED_SUBJECT` gained a trailing `(?: with (power|toughness)
+        N or (greater|less))?` group, read by `_qualified_affects` into
+        `min_power`/`max_power`/`min_toughness`/`max_toughness` — new
+        per-object *selector* qualifiers, distinct from the restriction
+        tail's own `filter` dict (which describes the *other* creature in
+        the interaction, e.g. the blocker).
+      - `continuous.group_selector_objects` reads the four new keys to
+        narrow `result` by each affected object's own derived power/
+        toughness — the same names `combat.matches_object_filter`'s filter
+        dict already uses, but a different namespace (selector params vs. a
+        nested filter dict), so no collision. Whitelisted through
+        `effects.py`'s `_SELECTOR_KEYS` (the params-clamping boundary every
+        static-ability spec goes through) — shared infrastructure, so any
+        other static-ability family (anthem, `pt_set`, `grant_keyword`, …)
+        can use the same qualifier for free if a future card needs it.
+      - **A real ordering fix, not just new vocabulary**: a power qualifier
+        has to see the *current* recompute pass's derived power, including
+        an anthem that fires earlier in the very same pass — but
+        `combat_restriction` used to be stamped *before* the layer-7 P/T
+        pass (it isn't a RULE 613 layer itself, so its position in
+        `continuous.recompute` had never mattered before). Moved the whole
+        `combat_restriction` block to run *after* layer 7 instead;
+        `test_qualified_group_scope_reads_same_pass_anthem` pins down the
+        same-pass visibility this fixes. Purely a within-function
+        reordering — no other bucket depends on combat restrictions running
+        early, so nothing else changed behaviour.
+
+      One pre-existing test (`test_combat_restriction_family.py`'s
+      `test_qualified_variants_outside_the_vocabulary_stay_unclaimed`) had
+      cited the Kraken shape as a "stays unclaimed" example; updated to a
+      still-genuinely-unmodeled sibling (a *creature*-count threshold,
+      which has no selector at all) now that the Islands-count shape ships.
+
+      Tests: `test_combat_restriction_dynamic_thresholds.py` (new, 5 tests
+      — the dynamic threshold at two different board counts, its
+      RULE-613.7c controller-scoping, the qualified-scope filter alone, the
+      same-pass-anthem visibility fix, and the Delney-shaped combination of
+      a subject qualifier with an independent filtered tail).
+
 ## Game Engine (Phase 3)
 
 `mtg_analyzer/game/game_engine.py`, tests in `test_game_engine.py`.

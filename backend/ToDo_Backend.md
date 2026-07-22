@@ -95,15 +95,15 @@ for the dependency-ordered plan to finish the implementation.
         in `RulesEngine._offer_enter_choices`. Blocks Realmwright and
         A-Thran Portal, whose *type-grant* halves are otherwise modeled.
 
-      **Combat statics:**
-      - Qualified/conditional combat-restriction variants — "can't be
-        blocked by/except `<filter>`", "can't attack unless …", "…alone",
-        "…unless they're mana abilities" all still fail closed (only the
-        unqualified can't-attack/can't-block/can't-be-blocked/
-        attacks-if-able shapes shipped). Separately, the large family of
-        *targeted, resolve-time* "target creature can't block this turn"
-        activated/triggered effects is a different shape entirely (a
-        one-shot effect, not a standing static) and hasn't been attempted.
+      **Combat statics:** fully shipped — see Done_Backend.md, "Combat
+      statics" for the qualified/conditional restriction family, the RULE
+      509.1c/d requirement family, the RULE 509.1b multi-block permission
+      family, and the two closing parser-only gaps (a count-selector
+      threshold instead of a literal int; a group scope with its own
+      power/toughness qualifier). "…unless its controller pays `<cost>`"
+      (Brainwash/Propaganda-shaped) was never part of this section — it
+      belongs to the prohibition/cost-modification entry under
+      "Designations / setup" below.
 
       **Cost-keyword mechanics:**
       - Kicker `{X}`'s own paid-X variant (Emblazoned Golem, 1 card).
@@ -469,7 +469,6 @@ code (no LLM). LLM/subagent effort (Sonnet/Haiku only, file-ownership
 waves) is spent only on finalizing a handler's regex/builder semantics and
 hand-authoring the tail. Keep `CLAUDE.md`'s "Implementation state" coverage
 figure and the Engine-Status tab in sync after any change here.
-
 
 ## LLM Deck Analysis (UC2)
 

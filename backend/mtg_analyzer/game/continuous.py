@@ -316,6 +316,28 @@ def group_selector_objects(
     if params.get("nonbasic"):  # "Nonbasic lands …" (RULE 205.4a)
         result = [o for o in result if _is_nonbasic(o)]
 
+    # A per-object power/toughness qualifier on the scope itself ("Each
+    # creature you control **with power 4 or greater** can't be blocked by
+    # more than one creature." — Challenger Troll/Flopsie-shaped), unlike
+    # every filter above (all about a *type*/colour, never the affected
+    # object's own characteristics). Reads *derived* power/toughness, same as
+    # `combat.matches_object_filter`'s own min/max keys, so an anthem that
+    # fired earlier this same recompute pass is honoured (`continuous.
+    # recompute` stamps combat restrictions after the layer-7 P/T pass for
+    # exactly this reason).
+    min_power = params.get("min_power")
+    if min_power is not None:
+        result = [o for o in result if (o.power or 0) >= min_power]
+    max_power = params.get("max_power")
+    if max_power is not None:
+        result = [o for o in result if (o.power or 0) <= max_power]
+    min_toughness = params.get("min_toughness")
+    if min_toughness is not None:
+        result = [o for o in result if (o.toughness or 0) >= min_toughness]
+    max_toughness = params.get("max_toughness")
+    if max_toughness is not None:
+        result = [o for o in result if (o.toughness or 0) <= max_toughness]
+
     # RULE 613.6-style conditional static: "as long as this [permanent]'s own
     # <counter> is in range" — Leveler's mutually-exclusive P/T/keyword tiers
     # (RULE 711, ``affects="self"``, gated on the source's own ``level``) and
@@ -371,7 +393,7 @@ def _source_name(ability: StaticAbility) -> str:
 
 def _trace(
     obj: "GameObject",
-    layer: int,
+    layer: Any,
     label: str,
     description: str,
     power: Any = None,
@@ -459,6 +481,16 @@ def count_selector(
         return sum(1 for o in bf if o.is_creature and o.controller_id == controller_id)
     if selector == "lands_you_control":
         return sum(1 for o in bf if o.is_land and o.controller_id == controller_id)
+    if selector.startswith("lands_you_control_of_type_"):
+        # "the number of Islands you control" (Kraken of the Straits'
+        # `combat.matches_object_filter`'s ``power_lt_count_selector`` —
+        # a dynamic threshold, not a literal int) — one basic land type,
+        # scoped to ``controller_id`` like every "you control" selector above.
+        land_type = selector[len("lands_you_control_of_type_"):]
+        return sum(
+            1 for o in bf
+            if o.is_land and o.controller_id == controller_id and _has_subtype(o, land_type)
+        )
     if selector == "permanents_you_control":
         return sum(1 for o in bf if o.controller_id == controller_id)
     if selector == "legendary_creatures_you_control":
@@ -1234,6 +1266,37 @@ def recompute(state: "GameState") -> None:
         if obj.instance_id in base:
             obj._derived_power, obj._derived_toughness = base[obj.instance_id]
 
+    # -- Not a RULE 613 layer: parameterized combat restrictions (RULE
+    # 508.1a/509.1b). "~ can't be blocked by creatures with power 2 or less",
+    # "can't attack unless defending player controls an Island", "can't
+    # attack alone" — none of these change a *characteristic*, so there's
+    # nothing to fold into a layer; they're stamped onto the affected objects
+    # here (re-derived every pass, so they follow their source in and out of
+    # play exactly like `_granted_protections` does) and read at combat time
+    # by `GameEngine._can_attack`/`can_block`/`declare_blockers`, which are
+    # the only places that know who's defending and who else is attacking.
+    # Deliberately placed *after* the layer-7 P/T pass above (unlike every
+    # other bucket in this function, stamped inline with its RULE 613 layer):
+    # a scope qualifier ("each creature you control **with power 4 or
+    # greater**…", `group_selector_objects`'s ``min_power``/``max_power``) has
+    # to see this same pass's anthems, not last pass's stale derived P/T.
+    for ability in _in_layer(abilities, "combat_restriction"):
+        # Only the restriction's own keys — ``affects``/``subtype``/``color``/
+        # ``card_type``/``min_power``/``max_power``/… in the same params dict
+        # belong to the *selector* (which objects this applies to) and would
+        # be read as a blocker filter if they leaked through.
+        entry = {
+            k: ability.params[k]
+            for k in ("kind", "filter", "count", "condition")
+            if ability.params.get(k) is not None
+        }
+        for obj in affected_objects(state, ability):
+            obj._combat_restrictions.append(dict(entry))
+            # A *string* layer label, not a number: this bucket isn't a RULE
+            # 613 layer at all, so the board shows the word rather than a
+            # meaningless "L99" (see `gameBoardView.js`'s trace renderer).
+            _trace(obj, "Kampf", _source_name(ability), _describe_combat_restriction(entry))
+
 
 def _cost_static_amount(ability: StaticAbility, state: "GameState", controller_id: Optional[str]) -> int:
     """Signed generic-mana delta for one "cost" static (positive = reduction).
@@ -1368,7 +1431,9 @@ def activation_cost_reduction_for(state: "GameState", source: "GameObject") -> t
     return net, floor
 
 
-def activation_prohibited(state: "GameState", source: "GameObject") -> bool:
+def activation_prohibited(
+    state: "GameState", source: "GameObject", is_mana_ability: bool = False
+) -> bool:
     """Whether a board-wide static ("Activated abilities of artifacts can't
     be activated." — RULE 602, Collector Ouphe/Stony Silence/Null Rod)
     silences ``source``'s activated abilities right now.
@@ -1382,9 +1447,22 @@ def activation_prohibited(state: "GameState", source: "GameObject") -> bool:
     carries no self-exemption, matching these three cards' plain wording —
     Null Rod is itself an artifact and silences its own (non-existent here,
     but any future artifact-with-abilities') activated abilities too.
+
+    ``is_mana_ability`` says whether the ability being checked is a RULE
+    605.1a mana ability — set by `GameEngine.tap_for_mana`, the one caller
+    that activates one. A prohibition printed with the
+    ``except_mana_abilities`` rider ("…and its activated abilities can't be
+    activated unless they're mana abilities" — Kasmina's Transmutation/
+    Imprisoned in the Moon-shaped) then doesn't apply; an unqualified one
+    still does, which is what makes Null Rod stop an artifact's ``{T}: Add
+    {C}`` as well as everything else.
     """
     for ability in _battlefield_static_abilities(state):
-        if ability.layer == "activation_prohibition" and source in affected_objects(state, ability):
+        if ability.layer != "activation_prohibition":
+            continue
+        if is_mana_ability and ability.params.get("except_mana_abilities"):
+            continue
+        if source in affected_objects(state, ability):
             return True
     return False
 
@@ -1687,8 +1765,69 @@ def enters_tapped_from_static(state: "GameState", obj: "GameObject") -> bool:
 _NON_RULE_613_LAYERS: frozenset[str] = frozenset(
     {"cost", "no_untap", "no_untap_optional", "enters_tapped", "activation_prohibition",
      "cast_limit", "cast_prohibition", "draw_limit", "trigger_prohibition", "untap_cap",
-     "extra_land_drop", "no_max_hand_size", "radiation_life_gain", "grant_escape"}
+     "extra_land_drop", "no_max_hand_size", "radiation_life_gain", "grant_escape",
+     "combat_restriction"}
 )
+
+
+#: A `combat_restriction` entry → the one-line description the board's
+#: static-effect panel shows (both as a per-object `static_trace` row and in
+#: `active_static_abilities`). Kept terse and English like every other
+#: `_describe_ability` string.
+def _describe_combat_restriction(entry: dict[str, Any]) -> str:
+    kind = entry.get("kind")
+    if kind == "cant_be_blocked_by":
+        return "can't be blocked by " + _describe_filter(entry.get("filter"))
+    if kind == "only_blocked_by":
+        return "can't be blocked except by " + _describe_filter(entry.get("filter"))
+    if kind == "max_blockers":
+        return f"can't be blocked by more than {entry.get('count', 1)} creature(s)"
+    if kind == "min_blockers":
+        return f"can't be blocked except by {entry.get('count', 2)} or more creatures"
+    if kind == "cant_be_blocked_if_attacking_alone":
+        return "can't be blocked while attacking alone"
+    if kind == "cant_attack_alone":
+        return "can't attack alone"
+    if kind == "cant_block_alone":
+        return "can't block alone"
+    if kind in ("cant_attack_unless", "cant_block_unless"):
+        verb = "attack" if kind == "cant_attack_unless" else "block"
+        return f"can't {verb} unless " + _describe_condition(entry.get("condition"))
+    if kind == "extra_blocks":
+        return f"can block {entry.get('count', 1)} additional creature(s) each combat"
+    if kind == "unlimited_blocks":
+        return "can block any number of creatures"
+    if kind == "must_block_target":
+        return "must block a specific creature this turn if able"
+    return str(kind or "combat restriction")
+
+
+def _describe_filter(filt: Optional[dict[str, Any]]) -> str:
+    if not filt:
+        return "creatures"
+    bits: list[str] = []
+    for key, label in (("subtype", ""), ("color", ""), ("card_type", "")):
+        if filt.get(key):
+            bits.append(str(filt[key]))
+    if filt.get("subtype_any"):
+        bits.append(" or ".join(str(s) for s in filt["subtype_any"]))
+    if filt.get("min_power") is not None:
+        bits.append(f"power {filt['min_power']}+")
+    if filt.get("max_power") is not None:
+        bits.append(f"power {filt['max_power']} or less")
+    if filt.get("keyword"):
+        bits.append(str(filt["keyword"]))
+    if filt.get("keyword_any"):
+        bits.append(" or ".join(str(k) for k in filt["keyword_any"]))
+    if filt.get("power_vs_reference"):
+        bits.append(f"{filt['power_vs_reference']} power")
+    return (" ".join(bits) + " creatures").strip()
+
+
+def _describe_condition(condition: Optional[dict[str, Any]]) -> str:
+    if not condition:
+        return "(unconditional)"
+    return str(condition.get("kind", "a condition")).replace("_", " ")
 
 
 def active_static_abilities(state: "GameState") -> list[dict[str, Any]]:
@@ -1746,7 +1885,10 @@ def _describe_ability(ability: StaticAbility) -> str:
         return f"{prefix} cost {{{p.get('generic', 0)}}} {'more' if p.get('increase') else 'less'}"
     if ability.layer == "activation_prohibition":
         scope = f"{p['card_type']}s'" if p.get("card_type") else ""
-        return f"{scope} activated abilities can't be activated".strip()
+        tail = " unless they're mana abilities" if p.get("except_mana_abilities") else ""
+        return f"{scope} activated abilities can't be activated{tail}".strip()
+    if ability.layer == "combat_restriction":
+        return _describe_combat_restriction(p)
     if ability.layer == "cast_limit":
         return f"each player can't cast more than {p.get('max_per_turn', 1)} spell(s) each turn"
     if ability.layer == "draw_limit":

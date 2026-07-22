@@ -295,7 +295,74 @@ NEVER_SUPPORTED = "NEVER_SUPPORTED"
 #: color.'" (Abundant Growth): recognized directly by `static_handlers.
 #: _granted_mana_options` rather than the nested `segment_line` parse,
 #: since a plain mana ability is claimed-*without*-a-spec by the segmenter.
-PARSER_VERSION = "28"
+#:
+#: **Version 29** — the *qualified* combat-restriction family (RULE
+#: 508.1a/509.1b), closing `ToDo_Backend.md`'s "Combat statics" section:
+#: (1) **Blocking filters** — "~ can't be blocked by creatures with power 2
+#: or less"/"…except by Walls"/"…by more than one creature"/"…except by two
+#: or more creatures", plus their resolve-time "…this turn" sibling. These
+#: carry a parameter the synthetic flag keywords can't, so they bind to a
+#: new ``combat_restriction`` `StaticAbility` (`game/combat.py`'s
+#: `COMBAT_RESTRICTIONS`) evaluated at combat time rather than a layer.
+#: (2) **Conditional restrictions** — "~ can't attack/block[ or block]
+#: unless <condition>", over a closed board/turn-state condition vocabulary
+#: (`GameEngine._COMBAT_CONDITIONS`).
+#: (3) **"…alone"** — the "can't attack/block alone" restrictions *and* the
+#: "whenever ~/a Samurai you control attacks alone" trigger, which needed a
+#: new aggregate `EventType.ATTACKS_ALONE` (fired once combat locks in, for
+#: the same reason `PLAYER_ATTACKED` is aggregate).
+#: (4) **"…unless they're mana abilities"** — the RULE 605.1a carve-out on
+#: an activation prohibition.
+#: (5) **"Target creature can't block this turn"** — the family's largest
+#: half and an ordinary one-shot effect, not a static (`CantBlockEffect` →
+#: `GameObject.temp_cant_block`), with N-target and untargeted mass forms.
+#:
+#: **Version 30** — the three RULE 508/509 families version 29 deliberately
+#: left open (`ToDo_Backend.md`'s "Combat statics" residue):
+#: (1) **Combat requirements** (RULE 509.1c/d) — "~ must be blocked if
+#: able."/"All creatures able to block ~ do so." as synthetic flag keywords
+#: (`"must_be_blocked"`/`"all_must_block"`, the same `grant_keyword` plumbing
+#: `"attacks_if_able"` already uses), checked by `GameEngine.
+#: _enforce_block_requirements` as the declare-blockers step closes; plus
+#: their resolve-time, *pairwise* siblings "target creature blocks ~ this
+#: turn if able."/"…can't block ~ this turn." (naming a specific attacker,
+#: so they ride `GrantCombatRestrictionEffect`'s new ``restrict_to_source``
+#: instead of a bare flag) and "target creature attacks this turn if able."
+#: (a plain temporary keyword grant — `combat.has()` already unions in a
+#: `temp_keywords` grant, so no new engine code was needed for that one).
+#: (2) **Multi-block permissions** (RULE 509.1b) — "~ can block an
+#: additional creature each combat."/"~ can block any number of creatures.",
+#: a `combat_restriction` param entry (`"extra_blocks"`/`"unlimited_blocks"`)
+#: read by the new `GameObject.additional_blocking` list and `game/combat.
+#: py`'s `max_blocks_for`/`has_block_capacity` — `GameEngine.can_block`'s old
+#: bare "not already blocking" check generalizes to a capacity check, and
+#: combat damage (`_split_blocker_damage`) divides a multi-blocker's power
+#: evenly across every attacker it's blocking.
+#:
+#: **Version 31** — the two narrow parser-only gaps version 30's own ToDo
+#: entry left open, closing `ToDo_Backend.md`'s "Combat statics" section
+#: entirely:
+#: (1) **A count-selector threshold instead of a literal int** — "Creatures
+#: with power less than the number of Islands you control can't block ~."
+#: (Kraken of the Straits). `object_filter`'s ``_POWER_LT_COUNT_RE`` maps a
+#: basic land type to a new ``power_lt_count_selector`` filter key
+#: (`combat.matches_object_filter`, threaded a ``state`` param for the first
+#: time), resolved fresh at combat time against `continuous.count_selector`'s
+#: new ``lands_you_control_of_type_<x>`` entry — scoped to the *attacker's*
+#: controller (RULE 613.7c: "you" is always the ability's own source's
+#: controller), not the blocker being checked.
+#: (2) **A group scope with its own qualifier** — "Each creature you control
+#: **with power 4 or greater** can't be blocked by more than one creature."
+#: (Challenger Troll/Flopsie, Bumi's Buddy; Delney, Streetwise Lookout
+#: combines this with an independent filtered tail in the same sentence).
+#: `_QUALIFIED_SUBJECT` gained a trailing qualifier group, and
+#: `continuous.group_selector_objects` a ``min_power``/``max_power``/
+#: ``min_toughness``/``max_toughness`` per-object narrowing — which is also
+#: why `continuous.recompute` now stamps the whole ``combat_restriction``
+#: bucket *after* the layer-7 P/T pass instead of before it: a qualifier has
+#: to see an anthem that already fired this same recompute, not last pass's
+#: stale derived power.
+PARSER_VERSION = "31"
 
 
 @dataclass

@@ -1631,6 +1631,143 @@ def _pump_unblockable(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     })]
 
 
+#: "Target creature can't block this turn" (Falter/Ahn-Crop Crasher/Abandon
+#: the Post) — the *resolve-time* half of the combat-restriction family, and
+#: by far its largest: an ordinary one-shot effect (`game/effects.py`'s
+#: `CantBlockEffect` → `GameObject.temp_cant_block`, cleared at cleanup),
+#: not the standing `combat_restriction` static that
+#: `catalogue/static_handlers.py` binds. Three shapes, in the order tried
+#: below: N targets ("up to two target creatures"), one target, and the
+#: untargeted mass form.
+_CANT_BLOCK_TURN_MULTI_RE = _c(
+    rf"{_MULTI_TARGET_QUANTIFIER}(?P<target>{_MULTI_TARGET_ALT}) can'?t block this turn"
+)
+_CANT_BLOCK_TURN_RE = _c(rf"{TARGET} can'?t block this turn")
+
+#: The untargeted mass form's own subject vocabulary (RULE 601.2c) — a
+#: `continuous.group_selector_objects` selector plus an optional
+#: characteristic narrowing (`combat.matches_object_filter`), since
+#: "creatures **without flying**" is a real printed scope no selector name
+#: covers. Bare "creatures" is every creature on the battlefield.
+_CANT_BLOCK_TURN_GROUPS: dict[str, tuple[str, dict]] = {
+    "creatures": ("all_creatures", {}),
+    "all creatures": ("all_creatures", {}),
+    "creatures without flying": ("all_creatures", {"without_keyword": "flying"}),
+    "creatures with flying": ("all_creatures", {"keyword": "flying"}),
+    "creatures your opponents control": ("opponents_permanents", {}),
+    "creatures you control": ("creatures_you_control", {}),
+    "creatures you don't control": ("opponents_permanents", {}),
+}
+_CANT_BLOCK_TURN_GROUP_RE = _c(
+    r"(?P<group>" + "|".join(re.escape(g) for g in _CANT_BLOCK_TURN_GROUPS)
+    + r") can'?t block this turn"
+)
+
+
+def _cant_block_turn(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    kind = resolve_target_kind(m.group("target"))
+    if kind not in ("creature", "creature_you_control", "creature_you_dont_control"):
+        return None
+    return [EffectSpec("cant_block_this_turn", {"target_kind": kind, **_optional_param(m)})]
+
+
+def _cant_block_turn_multi(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    params = _multi_target_params(m)
+    if params is None or params["target_kind"] != "creature":
+        return None
+    return [EffectSpec("cant_block_this_turn", params)]
+
+
+#: "~ can't be blocked by creatures with power 2 or less this turn" (Cavern
+#: Stomper) / "target creature can't be blocked by Walls this turn" (Tower of
+#: Coireall) — the resolve-time sibling of the standing static that
+#: `catalogue/static_handlers.py` claims. Reuses that module's own
+#: `_object_filter` so the blocker vocabulary is literally the same one, and
+#: only the two subjects real cards print here (``~`` and a single target).
+_CANT_BE_BLOCKED_BY_TURN_RE = _c(
+    rf"(?:(?P<selfref>~)|{TARGET}) can'?t be blocked by (?P<filter>.+) this turn"
+)
+
+
+def _cant_be_blocked_by_turn(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    from .static_handlers import object_filter
+
+    filt = object_filter(m.group("filter"))
+    if filt is None:
+        return None
+    params: dict = {"restriction": {"kind": "cant_be_blocked_by", "filter": filt}}
+    if not m.group("selfref"):
+        kind = resolve_target_kind(m.group("target"))
+        if kind not in ("creature", "creature_you_control"):
+            return None
+        params["target_kind"] = kind
+    return [EffectSpec("combat_restriction_this_turn", params)]
+
+
+def _cant_block_turn_group(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    selector, filt = _CANT_BLOCK_TURN_GROUPS[m.group("group").lower()]
+    params: dict = {"selector": selector}
+    if filt:
+        params["filter"] = dict(filt)
+    return [EffectSpec("cant_block_this_turn", params)]
+
+
+#: "Target creature can't block ~ this turn." (RULE 509.1a, Provoke-adjacent
+#: but without the untap half) — the *pairwise* sibling of `_cant_block_turn`
+#: above: that one bars the target from blocking anything, this one bars it
+#: from blocking only this ability's own source. Can't be told apart from a
+#: standing static's own filter at parse time (the source's instance id
+#: doesn't exist yet), so it rides `GrantCombatRestrictionEffect`'s
+#: ``restrict_to_source`` instead — see its docstring.
+_CANT_BLOCK_SOURCE_TURN_RE = _c(rf"{TARGET} can'?t block (?:~|it|this creature) this turn")
+
+#: "Target creature blocks ~ this turn if able." — the resolve-time,
+#: targeted sibling of the standing "~ must be blocked if able." static:
+#: forces one specific (usually opposing) creature to block this ability's
+#: own source, checked by `GameEngine._enforce_block_requirements` via the
+#: `must_block_target` restriction kind.
+_BLOCKS_SOURCE_TURN_IF_ABLE_RE = _c(rf"{TARGET} blocks (?:~|it|this creature) this turn if able")
+
+
+def _cant_block_source_turn(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    kind = resolve_target_kind(m.group("target"))
+    if kind not in ("creature", "creature_you_control", "creature_you_dont_control"):
+        return None
+    return [EffectSpec("combat_restriction_this_turn", {
+        "target_kind": kind,
+        "restriction": {"kind": "cant_block_filtered"},
+        "restrict_to_source": True,
+    })]
+
+
+def _blocks_source_turn_if_able(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    kind = resolve_target_kind(m.group("target"))
+    if kind not in ("creature", "creature_you_control", "creature_you_dont_control"):
+        return None
+    return [EffectSpec("combat_restriction_this_turn", {
+        "target_kind": kind,
+        "restriction": {"kind": "must_block_target"},
+        "restrict_to_source": True,
+    })]
+
+
+#: "Target creature attacks this turn if able." — the resolve-time, targeted
+#: sibling of the standing "~ attacks each combat if able." static (RULE
+#: 508.1a): a plain temporary keyword grant (`PumpEffect`'s ``keywords``),
+#: since `GameEngine._enforce_attacks_if_able` already reads `combat.has()`,
+#: which unions in a `temp_keywords` grant the same as a printed one — no new
+#: engine code needed, unlike the pairwise "blocks ~"/"can't block ~" shapes
+#: above (which name a *specific* attacker no bare flag can carry).
+_ATTACKS_TURN_IF_ABLE_RE = _c(rf"{TARGET} attacks this turn if able")
+
+
+def _attacks_turn_if_able(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    kind = resolve_target_kind(m.group("target"))
+    if kind not in ("creature", "creature_you_control", "creature_you_dont_control"):
+        return None
+    return [EffectSpec("pump", {"keywords": ["attacks_if_able"], "target_kind": kind})]
+
+
 # --- The table --------------------------------------------------------------
 # Order matters only for reporting; a clause is claimed by the first handler
 # whose full-clause regex matches. Every pattern is anchored to the whole
@@ -2168,6 +2305,52 @@ HANDLERS: list[EffectHandler] = [
         "pump_unblockable",
         _PUMP_UNBLOCKABLE_RE,
         _pump_unblockable,
+    ),
+    # "Up to two target creatures can't block this turn" / "target creature
+    # can't block this turn" / "creatures without flying can't block this
+    # turn" — the multi form first, since its "up to two target creatures"
+    # phrase is not something the singular `TARGET` alternation can claim.
+    EffectHandler(
+        "cant_block_this_turn_multi",
+        _CANT_BLOCK_TURN_MULTI_RE,
+        _cant_block_turn_multi,
+    ),
+    EffectHandler(
+        "cant_block_this_turn",
+        _CANT_BLOCK_TURN_RE,
+        _cant_block_turn,
+    ),
+    EffectHandler(
+        "cant_block_this_turn_group",
+        _CANT_BLOCK_TURN_GROUP_RE,
+        _cant_block_turn_group,
+    ),
+    # "~ can't be blocked by creatures with power 2 or less this turn" — the
+    # resolve-time sibling of the standing combat-restriction static.
+    EffectHandler(
+        "cant_be_blocked_by_this_turn",
+        _CANT_BE_BLOCKED_BY_TURN_RE,
+        _cant_be_blocked_by_turn,
+    ),
+    # "Target creature can't block ~ this turn." — the pairwise sibling of
+    # `cant_block_this_turn` above (bars blocking *this* source specifically,
+    # not every attacker).
+    EffectHandler(
+        "cant_block_source_this_turn",
+        _CANT_BLOCK_SOURCE_TURN_RE,
+        _cant_block_source_turn,
+    ),
+    # "Target creature blocks ~ this turn if able." (RULE 509.1c, resolve-time)
+    EffectHandler(
+        "blocks_source_this_turn_if_able",
+        _BLOCKS_SOURCE_TURN_IF_ABLE_RE,
+        _blocks_source_turn_if_able,
+    ),
+    # "Target creature attacks this turn if able." (RULE 508.1a, resolve-time)
+    EffectHandler(
+        "attacks_this_turn_if_able",
+        _ATTACKS_TURN_IF_ABLE_RE,
+        _attacks_turn_if_able,
     ),
     # "target creature gets +3/+3 until end of turn" / "gets -2/-2 …" /
     # "gets +1/+1 and gains trample until end of turn" / "~ gets +1/+0 …" /

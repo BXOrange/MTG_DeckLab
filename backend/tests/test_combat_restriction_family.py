@@ -147,19 +147,31 @@ def test_no_untap_attached_permanent_is_modeled():
     assert result.unclaimed == []
 
 
-def test_qualified_variants_stay_unclaimed():
-    # Fail-closed: a qualified/conditional restriction is a different rule
-    # from the plain forms above and must not be mis-claimed by them.
-    unless_clause = _creature(
-        "Guarded Beast", "~ can't attack unless defending player controls an Island."
+def test_qualified_variants_outside_the_vocabulary_stay_unclaimed():
+    # Still fail-closed where it matters: a qualified restriction whose
+    # filter or condition isn't in the closed vocabulary must leave the whole
+    # clause unclaimed rather than silently drop the qualifier and claim the
+    # plain restriction — that would be actively wrong, not merely missing.
+    # (The recognised qualified shapes are covered in
+    # `test_qualified_combat_restrictions.py`/
+    # `test_combat_restriction_dynamic_thresholds.py` — the latter now
+    # includes the "count of Islands you control" dynamic-threshold shape
+    # this test used to cite as an *unclaimed* example, before it shipped.)
+    pay_cost = _creature(
+        # A cost-payment "unless" — the RULE 601-area prohibition/cost family,
+        # deliberately not part of the board-state condition vocabulary.
+        "Toll Beast", "~ can't attack unless its controller pays {3}."
     )
-    alone_clause = _creature("Lone Wolf", "~ can't attack alone.")
-    qualified_block = _creature(
-        "Wary Sentinel", "~ can't be blocked by creatures with power 2 or less."
+    board_count_threshold = _creature(
+        # A count-selector threshold this codebase has no vocabulary for at
+        # all (a *creature* count, not "you control N lands of a type") —
+        # unlike Kraken of the Straits' Islands-count shape, which now ships.
+        "Threshold Beast",
+        "Creatures with power less than the number of creatures you control "
+        "can't block ~.",
     )
-    assert parse_oracle(unless_clause).coverage == UNMODELED
-    assert parse_oracle(alone_clause).coverage == UNMODELED
-    assert parse_oracle(qualified_block).coverage == UNMODELED
+    assert parse_oracle(pay_cost).coverage == UNMODELED
+    assert parse_oracle(board_count_threshold).coverage == UNMODELED
 
 
 # -- execute-side (bind → engine) --------------------------------------------

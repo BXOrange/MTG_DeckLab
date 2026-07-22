@@ -316,23 +316,16 @@ def _targetable_by(obj: GameObject, source: Optional[GameObject]) -> bool:
 
 def _creature_matches_filter(obj: GameObject, filt: dict[str, Any]) -> bool:
     """Whether ``obj`` satisfies a `TargetSpec.creature_filter` (see its
-    docstring for the key vocabulary)."""
-    min_power = filt.get("min_power")
-    if min_power is not None and (obj.power or 0) < min_power:
-        return False
-    max_power = filt.get("max_power")
-    if max_power is not None and (obj.power or 0) > max_power:
-        return False
-    min_toughness = filt.get("min_toughness")
-    if min_toughness is not None and (obj.toughness or 0) < min_toughness:
-        return False
-    max_toughness = filt.get("max_toughness")
-    if max_toughness is not None and (obj.toughness or 0) > max_toughness:
-        return False
-    keyword = filt.get("keyword")
-    if keyword is not None and not combat.has(obj, keyword):
-        return False
-    return True
+    docstring for the key vocabulary).
+
+    Delegates to `combat.matches_object_filter`, which owns the same key
+    vocabulary for RULE 509.1b's qualified blocking restrictions ("can't be
+    blocked by creatures with power 2 or less") — one predicate rather than
+    two that can drift. That superset also understands subtype/colour/
+    card-type/relative-power keys this field's own docstring doesn't
+    advertise; a `TargetSpec` simply never sets them today.
+    """
+    return combat.matches_object_filter(obj, filt)
 
 
 def _spell_matches_filter(obj: GameObject, spell_filter: dict[str, Any]) -> bool:

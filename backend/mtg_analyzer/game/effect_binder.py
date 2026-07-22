@@ -110,6 +110,10 @@ def build_replacements(
 #: you control) — instead; see the firing sites in `game/game_engine.py`.
 _GROUP_CONTROLLER_EVENT_KEYS: dict[str, str] = {
     "ATTACKS": "player_id",
+    # RULE 506.5's "whenever a Samurai or Warrior you control attacks alone"
+    # — same payload shape as `ATTACKS`, just fired once per combat rather
+    # than once per attacker (`GameEngine._fire_attacks_alone_event`).
+    "ATTACKS_ALONE": "player_id",
     "BLOCKS": "player_id",
     "SPELL_CAST": "player_id",
     # "When you play another land, …" (City of Traitors) / "Untap all

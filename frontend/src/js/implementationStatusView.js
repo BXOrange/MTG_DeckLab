@@ -102,6 +102,24 @@ const GROUPS = [
           {
             items: [['full', 'Phasen & Schritte']],
           },
+          {
+            title: 'Kampf-Beschränkungen',
+            rule: '508/509',
+            items: [
+              ['full', '„~ kann nicht angreifen/blocken/geblockt werden"'],
+              ['full', 'Gefilterte Blocker („nicht geblockt werden von Kreaturen mit Stärke 2 oder weniger", „…außer von Mauern")'],
+              ['full', 'Blocker-Anzahl („von höchstens einer Kreatur", „außer von zwei oder mehr Kreaturen")'],
+              ['full', '„kann nur Kreaturen mit Flugfähigkeit blocken"'],
+              ['full', 'Bedingt („kann nicht angreifen, es sei denn, der verteidigende Spieler kontrolliert eine Insel")'],
+              ['full', '„…alleine" — Beschränkung und Trigger („immer wenn ~ alleine angreift")'],
+              ['full', '„Zielkreatur kann in diesem Zug nicht blocken" (auch Massen-Variante)'],
+              ['full', 'Kampf-Anforderungen („~ muss geblockt werden, wenn möglich", „Alle Kreaturen, die ~ blocken können, tun dies")'],
+              ['full', 'Zielgerichtete Anforderungen dieser Zug („Zielkreatur blockt/kann ~ in diesem Zug nicht blocken", „Zielkreatur greift in diesem Zug an, wenn möglich")'],
+              ['full', 'Mehrfach-Blocken („kann eine zusätzliche Kreatur blocken", „kann eine beliebige Anzahl Kreaturen blocken")'],
+              ['full', 'Dynamischer Schwellenwert („Kreaturen mit Stärke weniger als der Anzahl der von dir kontrollierten Inseln können ~ nicht blocken")'],
+              ['full', 'Qualifizierter Gruppenbereich („Jede Kreatur, die du kontrollierst, mit Stärke 4 oder größer, kann nicht von mehr als einer Kreatur geblockt werden")'],
+            ],
+          },
         ],
       },
       {
@@ -294,7 +312,7 @@ const GROUPS = [
             items: [
               ['full', 'Rückgängig / Neustart / Rewind'],
               ['partial', 'Passiver Gegner ("Goldfisch")'],
-              ['partial', 'Gesamtabdeckung Oracle-Parser (25,4 % von ~34 000)'],
+              ['partial', 'Gesamtabdeckung Oracle-Parser (26,2 % von ~34 000)'],
               ['full', 'Interaktive Auswahl statt Automatik: welches Objekt tappen/opfern/zurücknehmen'],
               ['full', 'Unterbrochene Auflösung — mehrere Entscheidungen in einem Effekt (608.2)'],
             ],

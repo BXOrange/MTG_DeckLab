@@ -52,7 +52,7 @@ Pure regex + data — **no `game/` imports** (front-end security boundary).
 from __future__ import annotations
 
 import re
-from typing import NamedTuple, Optional
+from typing import Callable, NamedTuple, Optional
 
 from ..spec import EffectSpec, ParserProvenance
 from .handlers import ONCE_PER_TURN_MARKER, SORCERY_SPEED_MARKER
@@ -374,23 +374,29 @@ _NO_UNTAP_ATTACHED_RE = re.compile(
 # "~"/an attached-permanent subject can't attack, can't block, can't be
 # blocked, or must attack each combat (RULE 508.1a/509.1a self-restrictions)
 # — modeled as synthetic layer-6 "keyword" flags (`"cant_attack"`/
-# `"cant_block"`/`"cant_be_blocked"`/`"attacks_if_able"`; *not* real RULE 702
-# keywords, just internal markers `game/combat.py`'s `has()` and the engine's
-# `_can_attack`/`can_block`/attack-declaration enforcement check alongside
+# `"cant_block"`/`"cant_be_blocked"`/`"attacks_if_able"`/`"must_be_blocked"`/
+# `"all_must_block"`; *not* real RULE 702 keywords, just internal markers
+# `game/combat.py`'s `has()` and the engine's `_can_attack`/`can_block`/
+# attack-declaration/block-requirement enforcement checks alongside
 # the real keyword union) reusing the exact same `grant_keyword` StaticAbility
 # / layer-6 plumbing — zero new engine code for the restriction half. The
 # "…and its activated abilities can't be activated" tail reuses the existing
 # board-wide `activation_prohibition` family (RULE 602) scoped to just this
 # one object instead of a card-type filter — the selector vocabulary
 # (``affects="self"``/``"attached_permanent"``) already supports that.
-# Deliberately excludes every qualified/conditional variant ("except by…",
-# "unless…", "…alone", "…unless they're mana abilities") — `fullmatch` leaves
-# the trailing clause unconsumed so those stay unclaimed (fail-closed) rather
-# than guess at a different rule.
+# The *qualified* variants ("except by…", "unless…", "…alone") are claimed
+# separately, by the `combat_restriction` family further down — each regex
+# here is `fullmatch`ed, so a trailing qualifier leaves this row unmatched
+# and falls through to those rather than being silently dropped. RULE
+# 509.1b's multi-block *permissions* ("~ can block an additional creature
+# each combat."/"~ can block any number of creatures.") ride that
+# `combat_restriction` family directly instead (`"extra_blocks"`/
+# `"unlimited_blocks"`), since the count actually matters there.
 _COMBAT_RESTRICTION_SUBJECT_PATTERN = rf"~|{_ATTACHED_SUBJECT_PATTERN}"
 _CANT_ATTACK_OR_BLOCK_LOCK_RE = re.compile(
     rf"(?P<subject>{_COMBAT_RESTRICTION_SUBJECT_PATTERN}) can'?t attack or "
-    r"block, and its activated abilities can'?t be activated",
+    r"block, and its activated abilities can'?t be activated"
+    r"(?P<mana_exception> unless they'?re mana abilities)?",
     re.IGNORECASE,
 )
 _CANT_ATTACK_OR_BLOCK_RE = re.compile(
@@ -417,19 +423,526 @@ _ATTACKS_IF_ABLE_RE = re.compile(
     re.IGNORECASE,
 )
 
+# RULE 509.1c/d combat *requirements* — the mirror image of the restriction
+# family above (they force a block rather than forbid one), but the same two
+# self/attached subjects and the same synthetic flag-keyword plumbing:
+# "must_be_blocked"/"all_must_block" are consulted by `GameEngine.
+# _enforce_block_requirements` exactly like `attacks_if_able` is by
+# `_enforce_attacks_if_able`, both checked as the relevant declare step
+# closes rather than at recompute time (a requirement needs to see who
+# actually got blocked/declared, same reason the restrictions above do).
+_MUST_BE_BLOCKED_RE = re.compile(
+    rf"(?P<subject>{_COMBAT_RESTRICTION_SUBJECT_PATTERN}) must be blocked if able",
+    re.IGNORECASE,
+)
+#: "All creatures able to block ~ do so." (Lure-shaped) — unlike every other
+#: row in this family, the printed *subject* of the sentence is the set of
+#: candidate blockers, not the restricted/required permanent itself (which
+#: appears only as the object of "block …"), so it needs its own regex
+#: rather than a `_QUALIFIED_SUBJECT`-shaped one.
+_ALL_MUST_BLOCK_RE = re.compile(
+    rf"all creatures able to block (?P<subject>~|it|{_ATTACHED_SUBJECT_PATTERN}) do so",
+    re.IGNORECASE,
+)
+
+# RULE 509.1b multi-block *permissions* — same self/attached subject family,
+# but a `combat_restriction` param entry (`extra_blocks`/`unlimited_blocks`)
+# rather than a bare flag, since the count matters (`game/combat.py`'s
+# `max_blocks_for`).
+_BLOCK_ADDITIONAL_RE = re.compile(
+    rf"(?P<subject>{_COMBAT_RESTRICTION_SUBJECT_PATTERN}) can block an additional creature "
+    r"each combat",
+    re.IGNORECASE,
+)
+_BLOCK_ANY_NUMBER_RE = re.compile(
+    rf"(?P<subject>{_COMBAT_RESTRICTION_SUBJECT_PATTERN}) can block any number of creatures",
+    re.IGNORECASE,
+)
+
 
 def _combat_restriction_affects(subject: str) -> str:
     return "self" if subject == "~" else "attached_permanent"
 
 
 def _combat_restriction_specs(
-    subject: str, flags: list[str], lock: bool = False
+    subject: str, flags: list[str], lock: bool = False, mana_exception: bool = False
 ) -> list[EffectSpec]:
     affects = _combat_restriction_affects(subject)
     specs = [EffectSpec("grant_keyword", {"keywords": flags, "affects": affects})]
     if lock:
-        specs.append(EffectSpec("activation_prohibition", {"affects": affects}))
+        params: dict = {"affects": affects}
+        if mana_exception:
+            # RULE 605.1a: "…unless they're mana abilities" (Imprisoned in
+            # the Moon/Kasmina's Transmutation) — the same prohibition with a
+            # carve-out `continuous.activation_prohibited` honours.
+            params["except_mana_abilities"] = True
+        specs.append(EffectSpec("activation_prohibition", params))
     return specs
+
+
+# -- The *qualified* combat restrictions (RULE 508.1a / 509.1b) --------------
+#
+# Everything above is a plain flag ("~ can't attack."). Their qualified
+# siblings carry a parameter — a blocker filter, a count, or an "unless"
+# condition — and so bind to a ``combat_restriction`` `EffectSpec` instead,
+# stamped onto `GameObject.combat_restrictions` and evaluated at combat time
+# (`game/combat.py`'s `COMBAT_RESTRICTIONS` whitelist / `GameEngine.
+# _combat_condition_met`). Still fail-closed: an unrecognised filter or
+# condition returns ``None`` for the whole clause rather than dropping the
+# qualifier and claiming the plain restriction, which would be strictly
+# *wrong* behaviour rather than merely missing behaviour.
+
+#: A blocker filter's colour/subtype/keyword/power vocabulary, as it appears
+#: after "can't be blocked by …"/"…except by …". Ordered most-specific-first
+#: (`object_filter` tries them in order); every one is anchored, so an
+#: unlisted phrasing falls through to ``None``.
+_FILTER_RES: list[tuple[re.Pattern[str], str]] = [
+    (re.compile(r"creatures with power (?P<n>\d+) or less", re.I), "max_power"),
+    (re.compile(r"creatures with power (?P<n>\d+) or greater", re.I), "min_power"),
+    (re.compile(r"creatures with toughness (?P<n>\d+) or less", re.I), "max_toughness"),
+    (re.compile(r"creatures with toughness (?P<n>\d+) or greater", re.I), "min_toughness"),
+    (re.compile(r"creatures with greater power", re.I), "greater_power"),
+    (
+        # "creatures with power less than ~'s power" (Sedge Troll-shaped) —
+        # anchored to the *source's own* power. The sibling phrasing whose
+        # threshold is a board count instead ("…less than the number of
+        # Islands you control", Kraken of the Straits) is a dynamic value,
+        # not a literal int, so it gets its own regex below rather than a
+        # row in this literal-int table.
+        re.compile(r"creatures with power less than (?:~'?s power|its power|~)", re.I),
+        "lesser_power",
+    ),
+]
+
+#: A basic land type's singular/plural pair → the `subtype` this pool's
+#: `continuous.count_selector`'s ``lands_you_control_of_type_<x>`` reads.
+#: "Plains" has no distinct singular, unlike the other four.
+_BASIC_LAND_PLURALS: dict[str, str] = {
+    "islands": "island", "swamps": "swamp", "mountains": "mountain",
+    "forests": "forest", "plains": "plains",
+}
+#: "creatures with power less than the number of Islands you control"
+#: (Kraken of the Straits) — the dynamic-threshold sibling of the literal
+#: ``_FILTER_RES`` rows above, resolved fresh at combat time
+#: (`combat.matches_object_filter`'s ``power_lt_count_selector``) rather
+#: than baked into a fixed int at parse time.
+_POWER_LT_COUNT_RE = re.compile(
+    r"creatures with power less than the number of (?P<type>[a-z]+) you control", re.I
+)
+
+#: The flag keywords a "creatures with <keyword>[ or <keyword>]" filter may
+#: name — the evasion-relevant subset of RULE 702 `game/combat.py` can check
+#: on a blocker. Deliberately small; anything else fails closed.
+_FILTER_KEYWORD_WORDS: dict[str, str] = {
+    "flying": "flying",
+    "reach": "reach",
+    "shadow": "shadow",
+    "defender": "defender",
+    "first strike": "first_strike",
+    "menace": "menace",
+}
+_FILTER_KEYWORDS_RE = re.compile(
+    r"creatures with (?P<kws>[a-z ]+?(?: or [a-z ]+?)*)$", re.I
+)
+_FILTER_WITHOUT_KEYWORD_RE = re.compile(r"creatures without (?P<kw>[a-z ]+)$", re.I)
+
+
+def object_filter(text: str) -> Optional[dict]:
+    """An object-describing phrase → a `combat.matches_object_filter` param
+    dict, or ``None`` (fail-closed) for a phrasing outside the closed
+    vocabulary above.
+
+    Shared by every half of this family: the blocker set of "can't be blocked
+    by <text>"/"…except by <text>", the counted set of "can't attack unless
+    you control <text>", and — from `catalogue/handlers.py` — the same
+    blocker set on the resolve-time "…this turn" variant. Public (no leading
+    underscore) for that last cross-module use.
+    """
+    text = text.strip().rstrip(".").strip()
+    if not text:
+        return None
+    if text in ("creatures", "creature"):
+        # No narrowing beyond the type itself — which still matters for the
+        # "unless you control another creature" counting half, where a land
+        # would otherwise be counted.
+        return {"card_type": "creature"}
+    if _singularize(text) in _CARD_TYPE_WORDS:
+        # A bare card type ("unless you control another **artifact**") — the
+        # anthem `_scope` parser below deliberately rejects these (a "+1/+1"
+        # scope really is creatures-only), but a count/blocker filter is happy
+        # with any permanent type.
+        return {"card_type": _singularize(text)}
+    m = _POWER_LT_COUNT_RE.fullmatch(text)
+    if m is not None:
+        land_type = _BASIC_LAND_PLURALS.get(m.group("type").lower())
+        return (
+            None if land_type is None
+            else {"power_lt_count_selector": f"lands_you_control_of_type_{land_type}"}
+        )
+    for pattern, key in _FILTER_RES:
+        m = pattern.fullmatch(text)
+        if m is None:
+            continue
+        if key == "greater_power":
+            return {"power_vs_reference": "greater"}
+        if key == "lesser_power":
+            return {"power_vs_reference": "less"}
+        return {key: int(m.group("n"))}
+    m = _FILTER_WITHOUT_KEYWORD_RE.fullmatch(text)
+    if m is not None:
+        keyword = _FILTER_KEYWORD_WORDS.get(m.group("kw").strip().lower())
+        return {"without_keyword": keyword} if keyword else None
+    m = _FILTER_KEYWORDS_RE.fullmatch(text)
+    if m is not None:
+        words = [w.strip().lower() for w in re.split(r"\s+or\s+", m.group("kws"))]
+        keywords = [_FILTER_KEYWORD_WORDS[w] for w in words if w in _FILTER_KEYWORD_WORDS]
+        if len(keywords) != len(words):
+            return None
+        return {"keyword": keywords[0]} if len(keywords) == 1 else {"keyword_any": keywords}
+    if " or " in text and " with " not in text:
+        # "another Wolf or Werewolf" (Howlpack Wolf) — an OR over subtypes,
+        # which `_scope` below can't express (it returns one subtype). Every
+        # alternative must itself be a recognisable single-word subtype, or
+        # the whole phrase fails closed.
+        parts = [p.strip() for p in text.split(" or ")]
+        subtypes = []
+        for part in parts:
+            sub = _scope(part)
+            if sub is None or not sub.subtype or " " in sub.subtype:
+                return None
+            subtypes.append(sub.subtype)
+        return {"subtype_any": subtypes}
+    # "black creatures" / "artifact creatures" / "Walls" — reuse the anthem
+    # family's own scope parser so the subtype/colour vocabulary can't drift
+    # between "black creatures get +1/+1" and "can't be blocked by black
+    # creatures".
+    if text.endswith(" creatures") or text.endswith(" creature"):
+        head = text.rsplit(" ", 1)[0]
+        if head in _CARD_TYPE_WORDS:
+            return {"card_type": head}
+    scope = _scope(text)
+    if scope is None:
+        return None
+    filt: dict = {}
+    if scope.subtype:
+        if " " in scope.subtype:
+            return None  # a multi-word "subtype" is `_scope` guessing — fail closed
+        filt["subtype"] = scope.subtype
+    if scope.colors:
+        if len(scope.colors) != 1:
+            return None  # a multi-colour blocker filter needs an OR this shape can't carry
+        filt["color"] = scope.colors[0]
+    if scope.tokens or not filt:
+        return None if scope.tokens else {}
+    return filt
+
+
+#: A basic land type / permanent type "defending player controls …" may name.
+_CONTROLS_FILTERS: dict[str, dict] = {
+    **{
+        f"a{'n' if t[0] in 'aeiou' else ''} {t}": {"subtype": t.capitalize()}
+        for t in ("plains", "island", "swamp", "mountain", "forest")
+    },
+    **{
+        f"a{'n' if t[0] in 'aeiou' else ''} {t}": {"card_type": t}
+        for t in ("creature", "artifact", "enchantment", "land")
+    },
+}
+
+#: Number words a "you control three or more creatures" count may use.
+_NUMBER_WORDS: dict[str, int] = {
+    "one": 1, "two": 2, "three": 3, "four": 4, "five": 5, "six": 6, "seven": 7,
+}
+
+
+def _you_control_condition(m: "re.Match[str]") -> Optional[dict]:
+    """The "unless you control …" condition family — a count + an optional
+    "another"/"other" self-exclusion + a `_blocker_filter`-shaped narrowing."""
+    article = (m.group("article") or "").lower()
+    other = bool(m.group("other")) or article == "another"
+    if m.group("count"):
+        count = int(m.group("count"))
+        if count > 1 and not (m.group("or_more") or m.group("at_least")):
+            return None  # an exact count isn't a threshold — don't guess
+    else:
+        count = 1
+    what = m.group("what").strip().lower()
+    filt = object_filter(what)
+    if filt is None:
+        return None
+    if m.group("power"):
+        filt = {**filt, "min_power": int(m.group("power"))}
+    condition: dict = {"kind": "you_control", "min": count}
+    if filt:
+        condition["filter"] = filt
+    if other:
+        condition["other"] = True
+    return condition
+
+
+#: "unless <condition>" → a `GameEngine._combat_condition_met` condition dict.
+#: A closed list, ordered most-specific-first; anything unlisted fails closed
+#: (the whole clause stays unclaimed).
+_CONDITION_RES: list[tuple[re.Pattern[str], Callable[["re.Match[str]"], Optional[dict]]]] = [
+    (
+        re.compile(r"defending player controls (?P<what>.+)", re.I),
+        lambda m: (
+            {"kind": "defending_player_controls", "filter": _CONTROLS_FILTERS[m.group("what")]}
+            if m.group("what") in _CONTROLS_FILTERS else None
+        ),
+    ),
+    (
+        re.compile(r"defending player is the monarch", re.I),
+        lambda m: {"kind": "opponent_is_monarch"},
+    ),
+    (
+        re.compile(r"defending player is poisoned", re.I),
+        lambda m: {"kind": "opponent_is_poisoned"},
+    ),
+    (
+        re.compile(r"you control more (?P<what>creatures|lands) than "
+                   r"(?:defending|attacking) player", re.I),
+        lambda m: {
+            "kind": "more_creatures_than_opponent" if m.group("what") == "creatures"
+            else "more_lands_than_opponent"
+        },
+    ),
+    (
+        re.compile(r"a creature died under your control this turn", re.I),
+        lambda m: {"kind": "creature_died_this_turn"},
+    ),
+    (
+        re.compile(r"there are (?P<n>\d+) or more cards in your graveyard", re.I),
+        lambda m: {"kind": "cards_in_graveyard", "min": int(m.group("n"))},
+    ),
+    (
+        re.compile(r"you have (?P<n>\d+) or (?P<dir>more|fewer) cards? in hand", re.I),
+        lambda m: {
+            "kind": "cards_in_hand",
+            **({"min": int(m.group("n"))} if m.group("dir") == "more"
+               else {"max": int(m.group("n"))}),
+        },
+    ),
+    (
+        # "you control another Giant" / "you control a Vampire" / "you control
+        # another artifact" / "you control another creature with power 4 or
+        # greater" / "you control three or more creatures" / "you control at
+        # least two other creatures". A bare exact count ("you control 2
+        # creatures") isn't a threshold and is rejected below, so ``or more``/
+        # ``at least`` is what licenses the numeric branch.
+        re.compile(
+            r"you control (?:(?P<at_least>at least )?(?P<count>\d+)(?P<or_more> or more)?"
+            r"|(?P<article>a|an|another)) "
+            r"(?P<other>other )?(?P<what>.+?)"
+            r"(?: with power (?P<power>\d+) or greater)?$",
+            re.I,
+        ),
+        _you_control_condition,
+    ),
+]
+
+def _fold_number_words(text: str) -> str:
+    """Spelled-out counts → digits ("three or more creatures" → "3 or more
+    creatures"), so one numeric grammar covers both spellings."""
+    for word, value in _NUMBER_WORDS.items():
+        text = re.sub(rf"\b{word}\b", str(value), text, flags=re.I)
+    return text
+
+
+def _combat_condition(text: str) -> Optional[dict]:
+    """An "unless <text>" clause → a condition dict, or ``None`` (fail-closed)."""
+    text = _fold_number_words(text.strip().rstrip(".").strip())
+    for pattern, build in _CONDITION_RES:
+        m = pattern.fullmatch(text)
+        if m is not None:
+            return build(m)
+    return None
+
+
+#: The subject of a qualified restriction — the same self/attached vocabulary
+#: the plain flags use, plus a "you control"-style *group* scope so
+#: "Each creature you control with a +1/+1 counter on it …"-free group forms
+#: ("Creatures you control can't be blocked by Walls") land too. The group
+#: branch reuses the anthem family's `_scope`/`_scope_params`, hence the
+#: ``scope``/``yours`` group names those two expect. The trailing ``qkind``/
+#: ``qn``/``qdir`` group is a per-object power/toughness qualifier on the
+#: scope itself ("Each creature you control **with power 4 or greater**
+#: can't be blocked by more than one creature." — Challenger Troll/
+#: Flopsie-shaped) — distinct from the restriction *tail*'s own filter
+#: (which describes the *other* creature in the interaction, e.g. the
+#: blocker), so it gets its own group rather than reusing `object_filter`.
+_QUALIFIED_SUBJECT = (
+    rf"(?P<subject>~|{_ATTACHED_SUBJECT_PATTERN})"
+    rf"|(?:(?P<scope>other) )?(?P<body>[a-z][a-z ]*?)(?P<yours> you control)?"
+    rf"(?: with (?P<qkind>power|toughness) (?P<qn>\d+) or (?P<qdir>greater|less))?"
+)
+#: The restriction *tails* (everything after the subject), each mapped to the
+#: `combat_restriction` param dicts it means. Ordered so a counted form is
+#: tried before the filter form that would otherwise swallow it ("two or more
+#: creatures" read as a blocker *description*), and the compound "attack or
+#: block" before its two halves. A tail whose filter/condition falls outside
+#: the closed vocabulary returns ``None`` — the whole clause then stays
+#: unclaimed rather than losing its qualifier.
+_TAIL_RES: list[tuple[re.Pattern[str], Callable[["re.Match[str]"], Optional[list[dict]]]]] = [
+    (
+        re.compile(r"can'?t be blocked by more than (?P<n>\d+) creatures?", re.I),
+        lambda m: [{"kind": "max_blockers", "count": int(m.group("n"))}],
+    ),
+    (
+        re.compile(r"can'?t be blocked except by (?P<n>\d+) or more creatures", re.I),
+        lambda m: [{"kind": "min_blockers", "count": int(m.group("n"))}],
+    ),
+    (
+        re.compile(r"can'?t be blocked except by (?P<filter>.+)", re.I),
+        lambda m: _filter_restriction(m, "only_blocked_by"),
+    ),
+    (
+        re.compile(r"can'?t be blocked as long as it'?s attacking alone", re.I),
+        lambda m: [{"kind": "cant_be_blocked_if_attacking_alone"}],
+    ),
+    (
+        re.compile(r"can'?t be blocked by (?P<filter>.+)", re.I),
+        lambda m: _filter_restriction(m, "cant_be_blocked_by"),
+    ),
+    (
+        re.compile(r"can'?t attack or block unless (?P<cond>.+)", re.I),
+        lambda m: _condition_restriction(m, "cant_attack_unless", "cant_block_unless"),
+    ),
+    (
+        re.compile(r"can'?t attack unless (?P<cond>.+)", re.I),
+        lambda m: _condition_restriction(m, "cant_attack_unless"),
+    ),
+    (
+        re.compile(r"can'?t block unless (?P<cond>.+)", re.I),
+        lambda m: _condition_restriction(m, "cant_block_unless"),
+    ),
+    (
+        re.compile(r"can'?t attack or block alone", re.I),
+        lambda m: [{"kind": "cant_attack_alone"}, {"kind": "cant_block_alone"}],
+    ),
+    (
+        re.compile(r"can'?t attack alone", re.I),
+        lambda m: [{"kind": "cant_attack_alone"}],
+    ),
+    (
+        re.compile(r"can'?t block alone", re.I),
+        lambda m: [{"kind": "cant_block_alone"}],
+    ),
+    # The blocker-side pair — printed on the creature doing the blocking
+    # rather than the one being blocked. Last, so the "…unless"/"…alone"
+    # tails above keep their own rows instead of being read as a (nonsense)
+    # blocker filter.
+    (
+        re.compile(r"can block only (?P<filter>.+)", re.I),
+        lambda m: _filter_restriction(m, "can_block_only"),
+    ),
+    (
+        re.compile(r"can'?t block (?P<filter>.+)", re.I),
+        lambda m: _filter_restriction(m, "cant_block_filtered"),
+    ),
+]
+
+#: The *inverted* phrasing of a blocking restriction, where the printed
+#: subject is the blocker set and the ability's own source is the object:
+#: "Creatures with power less than ~'s power can't block it." (Sedge
+#: Troll-shaped). Same `cant_be_blocked_by` restriction as "~ can't be
+#: blocked by <filter>", just read off the other end of the sentence — so it
+#: gets its own regex rather than a `_QUALIFIED_SUBJECT` row (whose subject
+#: group *is* the restricted permanent).
+_INVERTED_CANT_BLOCK_RE = re.compile(
+    r"(?P<filter>.+?) can'?t block (?:~|it)", re.IGNORECASE
+)
+
+#: Subject + an optional "has <keywords> and" grant + the restriction tail.
+#: The grant half exists because a handful of Auras print both in one
+#: sentence ("Enchanted creature has hexproof and can't be blocked by more
+#: than one creature." — Alpha Authority); splitting it here keeps the
+#: existing `_ATTACHED_GRANT_RE` family (whose `fullmatch` the tail defeats)
+#: unchanged.
+_QUALIFIED_CLAUSE_RE = re.compile(
+    rf"(?:{_QUALIFIED_SUBJECT})"
+    r"(?: (?:has|have) (?P<kw>[a-z, ]+?) and)?"
+    # Every tail is a "can't …" except the one *permitted*-set phrasing,
+    # "can block only <filter>" (RULE 509.1a, Wall of Air-shaped).
+    r" (?P<tail>can'?t .+|can block only .+)",
+    re.IGNORECASE,
+)
+
+
+def _filter_restriction(m: "re.Match[str]", kind: str) -> Optional[list[dict]]:
+    filt = object_filter(m.group("filter"))
+    return None if filt is None else [{"kind": kind, "filter": filt}]
+
+
+def _condition_restriction(m: "re.Match[str]", *kinds: str) -> Optional[list[dict]]:
+    condition = _combat_condition(m.group("cond"))
+    return None if condition is None else [{"kind": k, "condition": condition} for k in kinds]
+
+
+def _qualified_affects(m: "re.Match[str]") -> Optional[dict]:
+    """The ``affects``(+selector) params for a `_QUALIFIED_SUBJECT` match, or
+    ``None`` for a group scope outside `_scope`'s vocabulary (fail-closed)."""
+    subject = m.groupdict().get("subject")
+    if subject:
+        return {"affects": _combat_restriction_affects(subject)}
+    scope = _scope(m.group("body") or "")
+    if scope is None:
+        return None
+    params = _scope_params(scope, m)
+    qkind = m.groupdict().get("qkind")
+    if qkind:
+        # "…with power/toughness N or greater/less" (Challenger Troll/
+        # Flopsie-shaped) — a per-object qualifier on the scope itself,
+        # `group_selector_objects`'s ``min_power``/``max_power``/
+        # ``min_toughness``/``max_toughness``, read fresh off each affected
+        # object's own *derived* characteristics at recompute time.
+        n = int(m.group("qn"))
+        greater = m.group("qdir") == "greater"
+        key = f"{'min' if greater else 'max'}_{qkind}"
+        params[key] = n
+    return params
+
+
+def _qualified_combat_restriction_specs(text: str) -> Optional[list[EffectSpec]]:
+    """The whole qualified-restriction family for one already-normalized
+    clause, or ``None`` if it isn't one of these shapes (or is, but names a
+    filter/condition outside the closed vocabulary — fail-closed).
+    """
+    # Spelled-out counts ("more than **one** creature", "except by **two** or
+    # more creatures") folded to digits up front, so one numeric grammar
+    # covers both spellings — and so the counted tails win the ordering.
+    text = _fold_number_words(text)
+    inverted = _INVERTED_CANT_BLOCK_RE.fullmatch(text)
+    if inverted is not None:
+        filt = object_filter(inverted.group("filter"))
+        if filt is None:
+            return None
+        return [EffectSpec("combat_restriction", {
+            "kind": "cant_be_blocked_by", "filter": filt, "affects": "self",
+        })]
+
+    m = _QUALIFIED_CLAUSE_RE.fullmatch(text)
+    if m is None:
+        return None
+    affects = _qualified_affects(m)
+    if affects is None:
+        return None
+    for pattern, build in _TAIL_RES:
+        tail = pattern.fullmatch(m.group("tail"))
+        if tail is None:
+            continue
+        entries = build(tail)
+        if entries is None:
+            return None
+        specs = [EffectSpec("combat_restriction", {**entry, **affects}) for entry in entries]
+        if m.group("kw"):  # the "has <keywords> and …" half (Alpha Authority)
+            keywords = _flag_keywords(m.group("kw"))
+            if keywords is None:
+                return None
+            specs.insert(0, EffectSpec("grant_keyword", {"keywords": keywords, **affects}))
+        return specs
+    return None
+
 
 
 # "As ~ enters, choose a creature type."/"As ~ enters, choose a color."
@@ -1148,7 +1661,10 @@ def static_effect_specs(clause: str) -> Optional[list[EffectSpec]]:
     # rather than correctness.
     m = _CANT_ATTACK_OR_BLOCK_LOCK_RE.fullmatch(text)
     if m is not None:
-        return _combat_restriction_specs(m.group("subject"), ["cant_attack", "cant_block"], lock=True)
+        return _combat_restriction_specs(
+            m.group("subject"), ["cant_attack", "cant_block"], lock=True,
+            mana_exception=bool(m.group("mana_exception")),
+        )
 
     m = _CANT_ATTACK_OR_BLOCK_RE.fullmatch(text)
     if m is not None:
@@ -1173,6 +1689,42 @@ def static_effect_specs(clause: str) -> Optional[list[EffectSpec]]:
     m = _ATTACKS_IF_ABLE_RE.fullmatch(text)
     if m is not None:
         return _combat_restriction_specs(m.group("subject"), ["attacks_if_able"])
+
+    # RULE 509.1c/d combat requirements — "~ must be blocked if able."/"All
+    # creatures able to block ~ do so." (Lure-shaped).
+    m = _MUST_BE_BLOCKED_RE.fullmatch(text)
+    if m is not None:
+        return _combat_restriction_specs(m.group("subject"), ["must_be_blocked"])
+
+    m = _ALL_MUST_BLOCK_RE.fullmatch(text)
+    if m is not None:
+        subject = m.group("subject")
+        affects = "self" if subject in ("~", "it") else "attached_permanent"
+        return [EffectSpec("grant_keyword", {"keywords": ["all_must_block"], "affects": affects})]
+
+    # RULE 509.1b multi-block permissions — "~ can block an additional
+    # creature each combat."/"~ can block any number of creatures."
+    m = _BLOCK_ADDITIONAL_RE.fullmatch(text)
+    if m is not None:
+        return [EffectSpec("combat_restriction", {
+            "kind": "extra_blocks", "count": 1,
+            "affects": _combat_restriction_affects(m.group("subject")),
+        })]
+
+    m = _BLOCK_ANY_NUMBER_RE.fullmatch(text)
+    if m is not None:
+        return [EffectSpec("combat_restriction", {
+            "kind": "unlimited_blocks",
+            "affects": _combat_restriction_affects(m.group("subject")),
+        })]
+
+    # …and their *qualified* siblings ("can't be blocked by creatures with
+    # power 2 or less", "can't attack unless defending player controls an
+    # Island", "can't attack alone") — tried after the plain flags above,
+    # which are `fullmatch`ed and so can never swallow a qualifier.
+    qualified = _qualified_combat_restriction_specs(text)
+    if qualified is not None:
+        return qualified
 
     if _CONTROL_GRANT_RE.fullmatch(text):
         return [EffectSpec("control_change", {})]

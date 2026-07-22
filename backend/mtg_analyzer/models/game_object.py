@@ -287,6 +287,16 @@ class GameObject:
         #: blocking); ``blocked_by`` lists the blocker instance ids assigned
         #: to this attacker. Both are cleared when combat ends (RULE 511.3).
         self.blocking: Optional[int] = None
+        #: RULE 509.1b multi-block permissions ("~ can block an additional
+        #: creature each combat."/"~ can block any number of creatures.") —
+        #: every attacker this creature is blocking *beyond* the first,
+        #: which still lives on ``blocking`` above so an ordinary blocker
+        #: (the overwhelming majority) is untouched. `game/combat.py`'s
+        #: `blocking_attacker_ids` reads the two together;
+        #: `GameEngine._split_blocker_damage` divides this creature's power
+        #: among every attacker named across both. Cleared with the rest of
+        #: combat state at end-of-combat, same as ``blocking``.
+        self.additional_blocking: list[int] = []
         self.blocked_by: list[int] = []
         #: Set when this creature was dealt combat damage by a deathtouch
         #: source this combat (RULE 702.2b): any such creature is destroyed as
@@ -405,6 +415,20 @@ class GameObject:
         #: than a continuously re-derived one. Reset every recompute exactly
         #: like `_granted_keywords`.
         self._granted_protections: set[str] = set()
+        #: RULE 508.1a/509.1b combat *restrictions* granted by a standing
+        #: static ability that carry a parameter the synthetic flag keywords
+        #: (`cant_attack`/`cant_block`/`cant_be_blocked`) can't: "can't be
+        #: blocked by creatures with power 2 or less", "can't be blocked
+        #: except by Walls", "can't attack unless defending player controls
+        #: an Island", "can't attack alone". Each entry is a small clamped
+        #: param dict in `game/combat.py`'s `COMBAT_RESTRICTIONS` vocabulary,
+        #: evaluated at *combat time* (the defending player, and who else is
+        #: attacking, aren't known at recompute time) by `GameEngine.
+        #: _can_attack`/`can_block`. Not a characteristic, so it's a
+        #: `continuous.py` non-RULE-613 bucket rather than a layer — but
+        #: re-derived every recompute like `_granted_protections`, so it
+        #: disappears on its own when its source leaves.
+        self._combat_restrictions: list[dict[str, Any]] = []
         #: RULE 205.4/613.2d: a layer-4 static ability making this permanent
         #: legendary even though its printed type line isn't ("Your
         #: Ring-bearer is legendary" — RULE 701.51's Ring emblem, the only
@@ -516,6 +540,20 @@ class GameObject:
         #: part of the continuous-characteristics system). Cleared at
         #: cleanup (RULE 514.2) alongside `temp_power`/`temp_keywords`.
         self.temp_unblockable: bool = False
+        #: "Target creature can't block this turn" (Falter/Goblin War Drums'
+        #: whole family) — the mirror image of `temp_unblockable` above:
+        #: a resolve-time RULE 509.1a restriction on the *blocker* rather
+        #: than an evasion grant on the attacker, read directly by
+        #: `GameEngine.can_block` and cleared at cleanup (RULE 514.2).
+        self.temp_cant_block: bool = False
+        #: "~ can't be blocked by creatures with power 2 or less **this
+        #: turn**" (Cavern Stomper/Tower of Coireall) — the resolve-time
+        #: sibling of `_combat_restrictions`, in the same
+        #: `game/combat.py` `COMBAT_RESTRICTIONS` param vocabulary but
+        #: granted by a resolving effect rather than re-derived from a
+        #: standing static, so it's cleared at cleanup (RULE 514.2) instead.
+        #: `combat.combat_restrictions` reads the two together.
+        self.temp_combat_restrictions: list[dict[str, Any]] = []
         #: "Gains protection from <quality> until end of turn" (Mother/Giver of
         #: Runes) — a set of protection qualities (a WUBRG colour letter, or
         #: ``"colorless"``) read by `combat.is_protected_from`. Cleared at
@@ -556,6 +594,7 @@ class GameObject:
         self._granted_keywords = set()
         self._removed_keywords = set()
         self._granted_protections = set()
+        self._combat_restrictions = []
         self._granted_legendary = False
         self._loses_all_abilities = False
         self._granted_mana = []
@@ -640,6 +679,7 @@ class GameObject:
         self.activated_loyalty_this_turn = False
         self.graveyard_casts_this_turn = 0
         self.blocking = None
+        self.additional_blocking = []
         self.blocked_by = []
         self.dealt_deathtouch_damage = False
         self.attached_to = None
@@ -661,6 +701,8 @@ class GameObject:
         self.temp_keywords = set()
         self.temp_effects = []
         self.temp_unblockable = False
+        self.temp_cant_block = False
+        self.temp_combat_restrictions = []
         self.temp_protections = set()
         self.copy_target_id = None
         self._copy_base = None
@@ -842,6 +884,13 @@ class GameObject:
         return set(self._granted_protections)
 
     @property
+    def combat_restrictions(self) -> list[dict[str, Any]]:
+        """RULE 508.1a/509.1b parameterized combat restrictions granted by a
+        standing static ability — see `_combat_restrictions`. Copied out so a
+        caller can't mutate the recompute's own list."""
+        return [dict(entry) for entry in self._combat_restrictions]
+
+    @property
     def loses_all_abilities(self) -> bool:
         """Whether a layer-6 "loses all abilities" static ability (Humility,
         Dress Down) is stripping every ability off this object (RULE 613.7f)."""
@@ -958,6 +1007,7 @@ class GameObject:
             "attacking": self.attacking,
             "combat_defender": self.combat_defender,
             "blocking": self.blocking,
+            "additional_blocking": list(self.additional_blocking),
             "blocked_by": list(self.blocked_by),
             # Combat/evasion keyword labels the board shows as badges — the
             # same recognition the combat engine honours (printed keywords plus

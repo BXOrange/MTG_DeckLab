@@ -206,6 +206,17 @@ class EventType:
     #: "player"``), not the "or a planeswalker you control" variant (no
     #: real card in this pool needs it yet).
     PLAYER_ATTACKED = "PLAYER_ATTACKED"
+    #: RULE 506.5-adjacent "whenever ~ attacks alone" / "whenever a Samurai
+    #: or Warrior you control attacks alone" — the *only* attacking creature
+    #: this combat. Aggregate for the same reason `PLAYER_ATTACKED` is:
+    #: `ATTACKS` fires per creature as it's declared, and `declare_attackers`
+    #: is additive, so the first declaration of a two-creature attack would
+    #: always momentarily look alone. Fired by `GameEngine.
+    #: _fire_attacks_alone_event` once combat locks in (leaving the
+    #: declare-attackers step), at most once per combat, carrying the same
+    #: ``instance_id``/``player_id``/``object_types`` payload `ATTACKS` does
+    #: so RULE 603.1's self/group subject scoping works unchanged.
+    ATTACKS_ALONE = "ATTACKS_ALONE"
 
     # Win/loss (RULE 104, RULE 704).
     PLAYER_WOULD_LOSE = "PLAYER_WOULD_LOSE"

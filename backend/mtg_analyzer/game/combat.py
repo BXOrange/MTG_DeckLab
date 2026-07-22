@@ -29,13 +29,14 @@ it without a dependency cycle.
 from __future__ import annotations
 
 import re
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING, Any, Optional
 
 from ..parser.oracle.catalogue.levels import leveler_base_text
 
 if TYPE_CHECKING:  # pragma: no cover - typing only, avoids a model→game cycle
     from ..models.card import Card
     from ..models.game_object import GameObject
+    from ..models.game_state import GameState
 
 #: The combat-relevant keyword abilities we model, as canonical slugs. Other
 #: keywords (e.g. flash, ward, hexproof) are recognized elsewhere or not yet;
@@ -296,13 +297,295 @@ def has_hexproof(obj: "GameObject") -> bool:
     return "hexproof" in _obj_keywords(obj)
 
 
+# -- Parameterized combat restrictions (RULE 508.1a / 509.1b) ---------------
+#
+# The plain "~ can't attack."/"can't block."/"can't be blocked." statics are
+# synthetic flag keywords (`cant_attack`/`cant_block`/`cant_be_blocked`),
+# because a flag is all they need. Their *qualified* siblings — "can't be
+# blocked by creatures with power 2 or less", "can't be blocked except by
+# Walls", "can't attack unless defending player controls an Island", "can't
+# attack alone" — carry a parameter no flag can hold, so they ride a small
+# clamped param dict instead (`GameObject.combat_restrictions`, stamped every
+# `continuous.recompute` pass from a ``combat_restriction`` `StaticAbility`).
+#
+# Evaluated at *combat time* rather than recompute time: the two things these
+# depend on — who's defending, and who else is attacking — don't exist yet
+# when the layer engine runs. The predicates below are the pure half (the
+# ones answerable from the two creatures alone); the board/turn-scoped
+# ``unless`` conditions need `GameState`, so they live in `GameEngine`
+# (`_combat_condition_met`) rather than here.
+
+#: The restriction ``kind`` vocabulary — a whitelist, like every other spec
+#: string that crosses the parser→engine boundary (docs/09). Unknown kinds
+#: are ignored on sight rather than guessed at.
+COMBAT_RESTRICTIONS: frozenset[str] = frozenset(
+    {
+        # Attacker-side blocking restrictions (RULE 509.1b evasion):
+        "cant_be_blocked_by",  # "…by creatures with power 2 or less" (+ ``filter``)
+        "only_blocked_by",  # "…except by Walls" (+ ``filter``) — the inverse
+        "max_blockers",  # "…by more than one creature" (+ ``count``)
+        "min_blockers",  # "…except by two or more creatures" (+ ``count``)
+        "cant_be_blocked_if_attacking_alone",  # "…as long as it's attacking alone"
+        # Blocker-side restrictions — the same two set shapes, but printed on
+        # the creature doing the blocking (RULE 509.1a):
+        "can_block_only",  # "~ can block only creatures with flying." (+ ``filter``)
+        "cant_block_filtered",  # "~ can't block creatures with power 3 or greater."
+        # Attack/block *permission* restrictions (RULE 508.1a/509.1a):
+        "cant_attack_unless",  # + ``condition``
+        "cant_block_unless",  # + ``condition``
+        "cant_attack_alone",  # needs a fellow attacker
+        "cant_block_alone",  # needs a fellow blocker
+        # RULE 509.1b multi-block *permissions* — the mirror image of a
+        # restriction (they widen what's legal rather than narrow it), but
+        # ride the same param-dict/`combat_restriction` static plumbing since
+        # neither changes a characteristic (`game_engine.max_blocks_for`):
+        "extra_blocks",  # "~ can block an additional creature each combat." (+ ``count``)
+        "unlimited_blocks",  # "~ can block any number of creatures."
+        # RULE 509.1a's resolve-time pairwise requirement — "target creature
+        # blocks ~ this turn if able" (`GrantCombatRestrictionEffect`'s
+        # ``restrict_to_source``, `filter={"instance_id": <the attacker>}`) —
+        # checked by `GameEngine._enforce_block_requirements`, not by anything
+        # in this module (it needs the whole board, not just two creatures).
+        "must_block_target",
+    }
+)
+
+#: The ``filter`` key vocabulary a blocking restriction narrows by — a
+#: superset of `targeting.TargetSpec.creature_filter`'s own keys (which
+#: delegates here, so the two can't drift). All AND-combined; the ``*_any``
+#: keys are an OR *within* themselves ("creatures with flying or reach").
+#: ``power_vs_reference`` is the one relative key ("creatures with greater
+#: power" — greater than the *attacker*, supplied as ``reference``).
+_FILTER_KEYS: frozenset[str] = frozenset(
+    {
+        "min_power", "max_power", "min_toughness", "max_toughness",
+        "keyword", "keyword_any", "without_keyword",
+        "subtype", "subtype_any", "color", "card_type", "power_vs_reference",
+        # Engine-internal only — never produced by the oracle-text parser
+        # (which can't know a specific game object's id), only computed at
+        # resolve time by `GrantCombatRestrictionEffect`'s ``restrict_to_source``
+        # ("target creature can't block ~ this turn" / "…blocks ~ … if able").
+        "instance_id",
+        # A dynamic threshold instead of a literal int ("Creatures with power
+        # less than the number of Islands you control can't block ~." —
+        # Kraken of the Straits-shaped): the `continuous.count_selector`
+        # vocabulary, evaluated fresh at combat time against the *reference*
+        # object's controller (the ability's own source — Kraken, not the
+        # blocker being checked — RULE 613.7c "you" always means the source's
+        # controller), rather than a fixed int baked in at parse time.
+        "power_lt_count_selector",
+    }
+)
+
+
+def matches_object_filter(
+    obj: "GameObject",
+    filt: "Optional[dict[str, Any]]",
+    reference: "Optional[GameObject]" = None,
+    state: "Optional[GameState]" = None,
+) -> bool:
+    """Whether ``obj`` satisfies a characteristic ``filt`` (see `_FILTER_KEYS`).
+
+    An empty/``None`` filter matches everything. Reads *derived* power/
+    toughness and the `_obj_keywords` union, so a layer-engine pass (anthems,
+    counters, keyword grants) is honoured — "can't be blocked by creatures
+    with power 2 or less" has to see the anthem that just pushed a blocker to
+    3 power. ``reference`` is the other creature in the comparison, needed
+    only by ``power_vs_reference`` and ``power_lt_count_selector``.
+    ``state`` is only needed by ``power_lt_count_selector`` (has to walk the
+    whole battlefield); every other key answers from ``obj``/``reference``
+    alone, so callers without a state in hand can keep omitting it.
+    """
+    if not filt:
+        return True
+    min_power = filt.get("min_power")
+    if min_power is not None and (obj.power or 0) < min_power:
+        return False
+    max_power = filt.get("max_power")
+    if max_power is not None and (obj.power or 0) > max_power:
+        return False
+    min_toughness = filt.get("min_toughness")
+    if min_toughness is not None and (obj.toughness or 0) < min_toughness:
+        return False
+    max_toughness = filt.get("max_toughness")
+    if max_toughness is not None and (obj.toughness or 0) > max_toughness:
+        return False
+    keyword = filt.get("keyword")
+    if keyword is not None and not has(obj, str(keyword)):
+        return False
+    keyword_any = filt.get("keyword_any")
+    if keyword_any and not any(has(obj, str(k)) for k in keyword_any):
+        return False
+    without = filt.get("without_keyword")
+    if without is not None and has(obj, str(without)):
+        return False
+    subtype = filt.get("subtype")
+    if subtype is not None and not _has_subtype(obj, str(subtype)):
+        return False
+    subtype_any = filt.get("subtype_any")
+    if subtype_any and not any(_has_subtype(obj, str(s)) for s in subtype_any):
+        return False
+    color = filt.get("color")
+    if color is not None and str(color).upper() not in {
+        str(c).upper() for c in (getattr(obj, "colors", None) or set())
+    }:
+        return False
+    card_type = filt.get("card_type")
+    if card_type is not None and str(card_type).lower() not in {
+        str(w).lower() for w in (getattr(obj, "type_words", None) or set())
+    }:
+        return False
+    relation = filt.get("power_vs_reference")
+    if relation is not None:
+        if reference is None:
+            return False
+        if relation == "greater" and (obj.power or 0) <= (reference.power or 0):
+            return False
+        if relation == "less" and (obj.power or 0) >= (reference.power or 0):
+            return False
+    instance_id = filt.get("instance_id")
+    if instance_id is not None and obj.instance_id != instance_id:
+        return False
+    lt_selector = filt.get("power_lt_count_selector")
+    if lt_selector is not None:
+        if state is None or reference is None:
+            return False
+        from .continuous import count_selector  # function-scoped: see `_has_subtype` above
+
+        threshold = count_selector(state, reference.controller_id, str(lt_selector))
+        if (obj.power or 0) >= threshold:
+            return False
+    return True
+
+
+def _has_subtype(obj: "GameObject", subtype: str) -> bool:
+    # RULE 205.3/613.4a/613.5 + changeling — one authority for the whole
+    # engine, so "can't be blocked by Walls" sees exactly the same subtypes a
+    # Wall-scoped anthem does. Function-scoped import: `continuous` reaches
+    # back into `effects`, which reads this module, so a top-level import
+    # here would close a cycle.
+    from .continuous import has_subtype
+
+    return has_subtype(obj, subtype)
+
+
+def combat_restrictions(obj: "GameObject", kind: str) -> list["dict[str, Any]"]:
+    """The ``kind`` entries of ``obj``'s combat restrictions — the standing
+    ones re-derived every `continuous.recompute` pass *and* any granted
+    "until end of turn" by a resolving effect (`GameObject.
+    temp_combat_restrictions`), which read identically here."""
+    entries = list(getattr(obj, "combat_restrictions", None) or [])
+    entries += list(getattr(obj, "temp_combat_restrictions", None) or [])
+    return [
+        entry for entry in entries
+        if entry.get("kind") == kind and kind in COMBAT_RESTRICTIONS
+    ]
+
+
+def blocker_allowed(
+    attacker: "GameObject", blocker: "GameObject", state: "Optional[GameState]" = None
+) -> bool:
+    """RULE 509.1b: whether a *qualified* blocking restriction on ``attacker``
+    rules ``blocker`` out — "can't be blocked by creatures with power 3 or
+    greater" (a forbidden set) or "can't be blocked except by Walls" (a
+    permitted set). The parameterized sibling of `can_block` above, kept
+    separate because it reads `GameObject.combat_restrictions` rather than
+    the keyword union. ``state`` is only needed by a
+    ``power_lt_count_selector`` filter (Kraken of the Straits-shaped); every
+    other filter kind ignores it.
+    """
+    for entry in combat_restrictions(attacker, "cant_be_blocked_by"):
+        if matches_object_filter(blocker, entry.get("filter"), reference=attacker, state=state):
+            return False
+    for entry in combat_restrictions(attacker, "only_blocked_by"):
+        if not matches_object_filter(blocker, entry.get("filter"), reference=attacker, state=state):
+            return False
+    return True
+
+
+def blocker_may_block(blocker: "GameObject", attacker: "GameObject") -> bool:
+    """RULE 509.1a: whether a qualified restriction printed on ``blocker``
+    itself rules out blocking ``attacker`` — "~ can block only creatures with
+    flying" (a permitted set) or "~ can't block creatures with power 3 or
+    greater" (a forbidden one).
+
+    The mirror image of `blocker_allowed` above, which reads the restrictions
+    on the *attacker*; both are consulted by `GameEngine.can_block`.
+    """
+    for entry in combat_restrictions(blocker, "can_block_only"):
+        if not matches_object_filter(attacker, entry.get("filter"), reference=blocker):
+            return False
+    for entry in combat_restrictions(blocker, "cant_block_filtered"):
+        if matches_object_filter(attacker, entry.get("filter"), reference=blocker):
+            return False
+    return True
+
+
 def min_blockers(obj: "GameObject") -> int:
     """How many creatures must block ``obj`` for the block to be legal.
 
     2 for a menacing attacker (RULE 702.111b: "can't be blocked except by two
-    or more creatures"), otherwise 1.
+    or more creatures"), otherwise 1 — and the same clause printed in full on
+    a card without the keyword ("~ can't be blocked except by three or more
+    creatures", Kraken of the Straits-shaped) raises it further via a
+    ``min_blockers`` combat restriction. The largest requirement wins.
     """
-    return 2 if has_menace(obj) else 1
+    floor = 2 if has_menace(obj) else 1
+    for entry in combat_restrictions(obj, "min_blockers"):
+        floor = max(floor, int(entry.get("count", 2)))
+    return floor
+
+
+def max_blockers(obj: "GameObject") -> "Optional[int]":
+    """How many creatures may block ``obj`` at most (RULE 509.1b, "~ can't be
+    blocked by more than one creature" — Bristling Boar-shaped), or ``None``
+    for no cap. The smallest cap in play wins.
+    """
+    caps = [int(e.get("count", 1)) for e in combat_restrictions(obj, "max_blockers")]
+    return min(caps) if caps else None
+
+
+# -- Multi-block permissions (RULE 509.1b) -----------------------------------
+#
+# "~ can block an additional creature each combat."/"~ can block any number of
+# creatures." widen a blocker's own capacity rather than narrow anything, but
+# ride the same ``combat_restriction`` param-dict plumbing above since neither
+# is a RULE 613 characteristic either. `blocking`/`additional_blocking` on
+# `GameObject` hold, respectively, the first and every *subsequent* attacker a
+# blocker is assigned to — a plain blocker only ever populates the first.
+
+
+def blocking_attacker_ids(blocker: "GameObject") -> list[int]:
+    """Every attacker ``blocker`` is currently blocking, in assignment order."""
+    ids: list[int] = []
+    if blocker.blocking is not None:
+        ids.append(blocker.blocking)
+    ids.extend(getattr(blocker, "additional_blocking", None) or [])
+    return ids
+
+
+def blocks_used(blocker: "GameObject") -> int:
+    return len(blocking_attacker_ids(blocker))
+
+
+def max_blocks_for(blocker: "GameObject") -> "Optional[int]":
+    """How many attackers ``blocker`` may be assigned to block at once — 1 for
+    an ordinary creature, higher (or unbounded) under a multi-block grant.
+    ``None`` means no cap at all ("~ can block any number of creatures.",
+    which wins outright over any stacked "additional creature" count).
+    """
+    if combat_restrictions(blocker, "unlimited_blocks"):
+        return None
+    extra = sum(int(e.get("count", 1)) for e in combat_restrictions(blocker, "extra_blocks"))
+    return 1 + extra
+
+
+def has_block_capacity(blocker: "GameObject") -> bool:
+    """Whether ``blocker`` has room to be assigned to block one more attacker —
+    the generalized sibling of the old bare ``blocker.blocking is None`` check,
+    now that a multi-block grant can raise (or remove) the cap."""
+    cap = max_blocks_for(blocker)
+    return cap is None or blocks_used(blocker) < cap
 
 
 def _quality_matches_type(quality: str, card: "Card") -> bool:

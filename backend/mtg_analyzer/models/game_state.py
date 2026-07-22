@@ -490,6 +490,15 @@ class GameState:
         #: Keyed by source rather than by player so two copies of the same
         #: card each track their own victims.
         self.combat_damage_to_players_this_turn: dict[int, set[str]] = {}
+        #: How many creatures have died under each player's control *this
+        #: turn* (RULE 700.4) — ``{player_id: count}``, incremented off the
+        #: `DIES` event by `RulesEngine._track_creature_death` and cleared
+        #: wholesale in `GameEngine.begin_turn`, the same shape
+        #: `spells_cast_this_turn` uses. Exists because "unless a creature
+        #: died under your control this turn" (Bontu the Glorified's attack
+        #: restriction) is a *history* question — the creature is long gone
+        #: from every zone a live board scan could reach.
+        self.creatures_died_this_turn: dict[str, int] = {p.id: 0 for p in players}
 
         #: Chronological log of everything fired; also the record the
         #: WebSocket layer can diff to build ``game_state_update``s.

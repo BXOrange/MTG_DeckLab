@@ -98,6 +98,7 @@ class GameEngine:
             obj.attacking = False
             obj.combat_defender = None
             obj.blocking = None
+            obj.additional_blocking = []
             obj.blocked_by = []
             obj.dealt_deathtouch_damage = False
 
@@ -172,6 +173,9 @@ class GameEngine:
         # Ghirapur) — game-wide, not per active player: last turn's combat
         # damage is stale for everyone once a new turn starts.
         self.state.combat_damage_to_players_this_turn.clear()
+        # RULE 700.4 history ("unless a creature died under your control this
+        # turn", Bontu the Glorified) — game-wide for the same reason.
+        self.state.creatures_died_this_turn.clear()
         # "Until your next turn, …" (RULE 611.2b) — a player-scoped effect
         # granted on someone's turn lapses the moment *that* player's next
         # turn begins, which is exactly now for `active`. Swept across every
@@ -274,7 +278,11 @@ class GameEngine:
             return None
         if self.state.current_step == "declare_attackers":
             self._enforce_attacks_if_able()
+            self._enforce_attack_alone_restrictions()
             self._fire_player_attacked_events()
+            self._fire_attacks_alone_event()
+        if self.state.current_step == "declare_blockers":
+            self._enforce_block_requirements()
         if not self._turn_steps or self._cursor >= len(self._turn_steps):
             self.state.fire_event(
                 GameEvent(EventType.TURN_END, player_id=self.state.active_player.id)
@@ -306,6 +314,42 @@ class GameEngine:
             ):
                 raise ValueError(f"{obj.name} attacks each combat if able")
 
+    def _enforce_attack_alone_restrictions(self) -> None:
+        """RULE 508.1a: "~ can't attack alone." — a restriction on the *whole*
+        declared attack, not on one creature in isolation, so like
+        `_enforce_attacks_if_able` above it's checked as the caller tries to
+        leave the declare-attackers step (the additive, multi-call
+        `declare_attackers` has no other "I'm done" signal; rejecting mid-way
+        would wrongly bite the first creature declared in a legal pair).
+        """
+        for obj in self.state.battlefield:
+            if not obj.attacking:
+                continue
+            if combat.combat_restrictions(obj, "cant_attack_alone") and self._attacking_alone(obj):
+                raise ValueError(f"{obj.name} can't attack alone")
+
+    def _fire_attacks_alone_event(self) -> None:
+        """RULE 506.5-adjacent "whenever ~ attacks alone" (`EventType.
+        ATTACKS_ALONE`) — an aggregate over the finished attack, for the same
+        reason `PLAYER_ATTACKED` is one: `ATTACKS` fires per creature as it's
+        declared, so the very first declaration of a two-creature attack
+        would always look "alone". Fires at most once per combat, for the
+        single attacking creature.
+        """
+        attacking = [o for o in self.state.battlefield if o.attacking]
+        if len(attacking) != 1:
+            return
+        obj = attacking[0]
+        self.state.fire_event(
+            GameEvent(
+                EventType.ATTACKS_ALONE,
+                attacker=obj.name,
+                player_id=obj.controller_id,  # RULE 508.1a: the attacker's controller
+                instance_id=obj.instance_id,
+                object_types=sorted(obj.type_words),
+            )
+        )
+
     def _fire_player_attacked_events(self) -> None:
         """RULE 506.4's "a player attacks you with one or more creatures" —
         see `EventType.PLAYER_ATTACKED`'s docstring for why this needs its
@@ -331,6 +375,67 @@ class GameEngine:
                     count=count,
                 )
             )
+
+    def _enforce_block_requirements(self) -> None:
+        """RULE 509.1c/d: a blocking *requirement* — the mirror image of the
+        RULE 509.1a/b restrictions above — constrains the defending player's
+        declared blocks. Checked as they try to leave the declare-blockers
+        step, mirroring `_enforce_attacks_if_able`'s "leaving
+        declare_attackers" hook (`declare_blockers` is additive too, so
+        there's no other "I'm done" signal).
+
+        Two shapes, both read off live board state rather than tracked
+        separately: the standing attacker-side statics ("~ must be blocked
+        if able." / "All creatures able to block ~ do so.", synthetic flag
+        keywords exactly like `attacks_if_able`), and the resolve-time
+        pairwise "target creature blocks ~ this turn if able." (a
+        `must_block_target` `combat_restriction` naming a specific attacker
+        by instance id, `GrantCombatRestrictionEffect`'s
+        ``restrict_to_source``).
+
+        A requirement only binds a defending creature through `can_block`,
+        which already reflects every restriction *and* every remaining
+        block capacity (`combat.has_block_capacity`) — so a creature already
+        fully committed elsewhere is correctly excused, matching RULE
+        509.1c's "obey as many requirements as possible" when two collide,
+        without a full requirement-satisfaction optimizer.
+        """
+        for attacker in self.attackers:
+            must_any = combat.has(attacker, "must_be_blocked")
+            must_all = combat.has(attacker, "all_must_block")
+            if not must_any and not must_all:
+                continue
+            defender = self._defending_player(attacker.combat_defender)
+            if defender is None:
+                continue
+            candidates = [
+                o for o in self.state.permanents_controlled_by(defender.id)
+                if self.can_block(defender, o, attacker)
+            ]
+            if must_all:
+                for candidate in candidates:
+                    if attacker.instance_id not in combat.blocking_attacker_ids(candidate):
+                        raise ValueError(f"{candidate.name} must block {attacker.name}")
+            elif must_any and candidates and not attacker.blocked_by:
+                raise ValueError(f"{attacker.name} must be blocked if able")
+
+        for obj in self.state.permanents():
+            for entry in combat.combat_restrictions(obj, "must_block_target"):
+                attacker_id = (entry.get("filter") or {}).get("instance_id")
+                if attacker_id is None:
+                    continue
+                attacker = self.state.find_object(attacker_id)
+                if (
+                    attacker is None
+                    or not attacker.attacking
+                    or attacker.instance_id in combat.blocking_attacker_ids(obj)
+                ):
+                    continue
+                defender = self.state.player_by_id(obj.controller_id)
+                if self.can_block(defender, obj, attacker):
+                    raise ValueError(
+                        f"{obj.name} must block {attacker.name} this turn if able"
+                    )
 
     def _run_step(self, phase: GamePhase, step: GameStep) -> None:
         self.state.current_phase = phase.name
@@ -503,7 +608,7 @@ class GameEngine:
         """Whether any attacker or blocker has first or double strike (→ two
         damage steps, RULE 702.7e)."""
         combatants = list(self.attackers) + [
-            b for b in self.state.battlefield if b.blocking is not None
+            b for b in self.state.battlefield if combat.blocking_attacker_ids(b)
         ]
         return any(
             combat.has_first_strike(c) or combat.has_double_strike(c) for c in combatants
@@ -545,18 +650,45 @@ class GameEngine:
                 if defender is not None:  # None → bare swing (solo goldfish)
                     assignments.append((defender, power, attacker))
 
-        # Blockers strike the attacker they're blocking (RULE 510.1c).
+        # Blockers strike the attacker(s) they're blocking (RULE 510.1c).
         for blocker in self.state.battlefield:
-            if blocker.blocking is None or not self._deals_in_step(blocker, first_strike_step):
+            attacker_ids = combat.blocking_attacker_ids(blocker)
+            if not attacker_ids or not self._deals_in_step(blocker, first_strike_step):
                 continue
             power = blocker.power or 0
             if power <= 0:
                 continue
-            attacker = self.state.find_object(blocker.blocking)
-            if attacker is not None and attacker in self.state.battlefield:
-                assignments.append((attacker, power, blocker))
+            blocked_attackers = [
+                a
+                for a in (self.state.find_object(i) for i in attacker_ids)
+                if a is not None and a in self.state.battlefield
+            ]
+            assignments.extend(self._split_blocker_damage(blocker, power, blocked_attackers))
 
         self._apply_combat_damage(assignments)
+
+    def _split_blocker_damage(
+        self, blocker: GameObject, power: int, attackers: list[GameObject]
+    ) -> list[tuple[Any, int, GameObject]]:
+        """Divide ``blocker``'s power among every attacker it's blocking (RULE
+        510.1c: "divided as its controller chooses among the attacking
+        creatures it's blocking") — an auto-pick even split (remainder to the
+        earliest-blocked attackers), the same non-interactive simplification
+        `_sacrifice_candidate` and friends already make elsewhere for a choice
+        this engine has no UI to ask interactively. Degenerates to the
+        ordinary single-attacker case unchanged (the overwhelming majority):
+        the whole ``power`` goes to that one attacker, exactly as before
+        RULE 509.1b multi-block grants existed.
+        """
+        if not attackers:
+            return []
+        base, extra = divmod(power, len(attackers))
+        out: list[tuple[Any, int, GameObject]] = []
+        for index, attacker in enumerate(attackers):
+            amount = base + (1 if index < extra else 0)
+            if amount > 0:
+                out.append((attacker, amount, blocker))
+        return out
 
     def _assign_blocked_attacker(
         self, attacker: GameObject, power: int, blockers: list[GameObject]
@@ -671,6 +803,12 @@ class GameEngine:
                 ended_effects = True
             if obj.temp_unblockable:
                 obj.temp_unblockable = False
+                ended_effects = True
+            if obj.temp_cant_block:
+                obj.temp_cant_block = False
+                ended_effects = True
+            if obj.temp_combat_restrictions:
+                obj.temp_combat_restrictions.clear()
                 ended_effects = True
             if obj.temp_protections:
                 obj.temp_protections.clear()
@@ -2056,9 +2194,13 @@ class GameEngine:
                 defender = entry.get("defender")
             else:
                 obj, defender = entry, None
-            if not self._can_attack(player, obj):
+            assigned = self._assign_defender(obj, defender, legal)
+            # RULE 508.1a is checked against the *assigned* defender, not just
+            # "somebody" — "~ can't attack unless defending player controls an
+            # Island" is only legal against the player who actually has one.
+            if not self._can_attack(player, obj, self._defending_player(assigned)):
                 raise ValueError(f"{obj.name} cannot attack")
-            resolved.append((obj, self._assign_defender(obj, defender, legal)))
+            resolved.append((obj, assigned))
 
         for obj, defender in resolved:
             # Vigilance (RULE 702.21b): attacking doesn't cause it to tap.
@@ -2124,7 +2266,21 @@ class GameEngine:
             return a.get("id") == b.get("id")
         return a.get("instance_id") == b.get("instance_id")
 
-    def _can_attack(self, player: Player, obj: GameObject) -> bool:
+    def _can_attack(
+        self, player: Player, obj: GameObject, defending_player: Optional[Player] = None
+    ) -> bool:
+        """RULE 508.1a: whether ``obj`` may be declared as an attacker.
+
+        ``defending_player`` is only needed by the *conditional* restrictions
+        ("~ can't attack unless defending player controls an Island") — it
+        can't be folded into the standing restriction at recompute time
+        because it isn't known until a defender is assigned. Passing ``None``
+        (the offer-time callers: `legal_actions`, `_enforce_attacks_if_able`)
+        asks the weaker question "could this attack *somebody*", so a
+        creature stays offered as long as at least one legal defender
+        satisfies its condition; `declare_attackers` re-checks against the
+        actual chosen defender.
+        """
         return (
             obj.controller_id == player.id
             and obj.is_creature
@@ -2139,7 +2295,157 @@ class GameEngine:
             # `parser/oracle/catalogue/static_handlers.py`'s combat-
             # restriction family.
             and not combat.has(obj, "cant_attack")
+            # "~ can't attack unless <condition>." — the parameterized
+            # sibling of that flag (`GameObject.combat_restrictions`).
+            and self._attack_conditions_ok(obj, player, defending_player)
         )
+
+    def _attack_conditions_ok(
+        self, obj: GameObject, player: Player, defending_player: Optional[Player]
+    ) -> bool:
+        """Every ``cant_attack_unless`` restriction on ``obj``, against a known
+        defender — or, with none given, against *any* player it could attack
+        (see `_can_attack`)."""
+        restrictions = combat.combat_restrictions(obj, "cant_attack_unless")
+        if not restrictions:
+            return True
+        if defending_player is not None:
+            candidates = [defending_player]
+        else:
+            candidates = [p for p in self.state.players if p.id != player.id]
+        return any(
+            self._combat_restrictions_allow(
+                obj, "cant_attack_unless", defending_player=candidate, attacker=obj
+            )
+            for candidate in candidates
+        )
+
+    def _combat_restrictions_allow(
+        self,
+        obj: GameObject,
+        kind: str,
+        defending_player: Optional[Player],
+        attacker: Optional[GameObject] = None,
+    ) -> bool:
+        """Whether every ``kind`` (``cant_attack_unless``/``cant_block_unless``)
+        restriction on ``obj`` has its condition met (RULE 508.1a/509.1a)."""
+        for entry in combat.combat_restrictions(obj, kind):
+            if not self._combat_condition_met(
+                obj, entry.get("condition") or {}, defending_player, attacker
+            ):
+                return False
+        return True
+
+    #: The ``condition`` vocabulary a ``cant_attack_unless``/``cant_block_
+    #: unless`` restriction may name — a whitelist, like every other spec
+    #: string crossing the parser→engine boundary. Anything else is *not*
+    #: silently treated as satisfied: `_combat_condition_met` returns False
+    #: (the restriction bites), so a mis-parse fails closed toward "can't
+    #: attack" rather than quietly deleting the restriction.
+    _COMBAT_CONDITIONS: frozenset[str] = frozenset(
+        {
+            "defending_player_controls",
+            "you_control",
+            "more_creatures_than_opponent",
+            "more_lands_than_opponent",
+            "cards_in_graveyard",
+            "cards_in_hand",
+            "opponent_is_monarch",
+            "opponent_is_poisoned",
+            "creature_died_this_turn",
+        }
+    )
+
+    def _combat_condition_met(
+        self,
+        obj: GameObject,
+        condition: dict[str, Any],
+        defending_player: Optional[Player],
+        attacker: Optional[GameObject],
+    ) -> bool:
+        """Evaluate one ``unless`` condition against live game state.
+
+        "Defending player" is `defending_player` when attacking; when this is
+        a *blocking* restriction the printed subject is the attacking player
+        instead, so both roles resolve through the same "the other player in
+        this combat" reference (`opponent`) — RULE 508/509 phrase them
+        symmetrically ("more creatures than defending player" /
+        "…than attacking player") and every real card only ever names the
+        one it isn't.
+        """
+        kind = str(condition.get("kind", ""))
+        if kind not in self._COMBAT_CONDITIONS:
+            return False
+        try:
+            controller = self.state.player_by_id(obj.controller_id)
+        except KeyError:
+            return False
+        # The other side of this combat: the defender for an attack
+        # restriction, the attacker's controller for a block restriction.
+        opponent = defending_player
+        if opponent is None and attacker is not None and attacker is not obj:
+            opponent = self.state.player_by_id(attacker.controller_id)  # a block restriction
+        mine = self.state.permanents_controlled_by(controller.id)
+
+        if kind == "defending_player_controls":
+            if opponent is None:
+                return False
+            return any(
+                combat.matches_object_filter(o, condition.get("filter"))
+                for o in self.state.permanents_controlled_by(opponent.id)
+            )
+        if kind == "you_control":
+            filt = condition.get("filter")
+            matches = [
+                o for o in mine
+                if combat.matches_object_filter(o, filt, reference=obj)
+                and not (condition.get("other") and o is obj)
+            ]
+            return len(matches) >= int(condition.get("min", 1))
+        if kind in ("more_creatures_than_opponent", "more_lands_than_opponent"):
+            if opponent is None:
+                return False
+            attr = "is_creature" if kind.startswith("more_creatures") else "is_land"
+            ours = sum(1 for o in mine if getattr(o, attr, False))
+            theirs = sum(
+                1 for o in self.state.permanents_controlled_by(opponent.id)
+                if getattr(o, attr, False)
+            )
+            return ours > theirs
+        if kind == "cards_in_graveyard":
+            return self._count_in_range(len(controller.graveyard), condition)
+        if kind == "cards_in_hand":
+            return self._count_in_range(len(controller.hand), condition)
+        if kind == "opponent_is_monarch":
+            return opponent is not None and self.state.monarch_id == opponent.id
+        if kind == "opponent_is_poisoned":
+            # RULE 122/704.5c's "poisoned" — one or more poison counters.
+            return opponent is not None and opponent.poison >= 1
+        if kind == "creature_died_this_turn":
+            # RULE 700.4-adjacent history question no live board can answer —
+            # see `GameState.creatures_died_this_turn`. "under your control"
+            # scopes it to the restricted creature's own controller.
+            return self.state.creatures_died_this_turn.get(controller.id, 0) >= 1
+        return False
+
+    @staticmethod
+    def _count_in_range(value: int, condition: dict[str, Any]) -> bool:
+        """A ``min``/``max`` window over a counted quantity ("seven or more
+        cards in your graveyard", "one or fewer cards in hand")."""
+        minimum = condition.get("min")
+        maximum = condition.get("max")
+        if minimum is not None and value < int(minimum):
+            return False
+        if maximum is not None and value > int(maximum):
+            return False
+        return True
+
+    def _attacking_alone(self, obj: GameObject) -> bool:
+        """RULE 506.5-adjacent "attacking alone": ``obj`` is attacking and no
+        other creature is (used by both the "can't attack alone" restriction
+        and the `ATTACKS_ALONE` trigger event)."""
+        attacking = [o for o in self.state.battlefield if o.attacking]
+        return len(attacking) == 1 and attacking[0] is obj
 
     @staticmethod
     def _summoning_sick_for_tap(obj: GameObject) -> bool:
@@ -2184,11 +2490,15 @@ class GameEngine:
             resolved.append((blocker, attacker))
 
         # Menace (RULE 702.111b): a blocked menacing attacker must be blocked
-        # by two or more creatures. Validated over the resulting block —
-        # counting blockers already assigned plus this call's — *before* any
-        # mutation, so an illegal single-creature block leaves state untouched.
-        # (A whole legal block for one attacker is therefore declared in one
-        # call, matching how the UI submits blocks.)
+        # by two or more creatures — and its printed-in-full siblings, "~
+        # can't be blocked except by three or more creatures" (a higher
+        # floor) and "~ can't be blocked by more than one creature" (a cap),
+        # ride the same check via `combat.min_blockers`/`max_blockers`.
+        # Validated over the resulting block — counting blockers already
+        # assigned plus this call's — *before* any mutation, so an illegal
+        # block leaves state untouched. (A whole legal block for one attacker
+        # is therefore declared in one call, matching how the UI submits
+        # blocks.)
         projected: dict[int, set[int]] = {}
         for blocker, attacker in resolved:
             projected.setdefault(attacker.instance_id, set(attacker.blocked_by)).add(
@@ -2196,10 +2506,38 @@ class GameEngine:
             )
         for attacker_id, blocker_ids in projected.items():
             attacker = self.state.find_object(attacker_id)
-            if attacker is not None and combat.has_menace(attacker) and len(blocker_ids) < 2:
+            if attacker is None:
+                continue
+            floor = combat.min_blockers(attacker)
+            if len(blocker_ids) < floor:
+                if combat.has_menace(attacker) and floor == 2:
+                    raise ValueError(
+                        f"{attacker.name} has menace and must be blocked by two or more creatures"
+                    )
                 raise ValueError(
-                    f"{attacker.name} has menace and must be blocked by two or more creatures"
+                    f"{attacker.name} can't be blocked except by "
+                    f"{floor} or more creatures"
                 )
+            cap = combat.max_blockers(attacker)
+            if cap is not None and len(blocker_ids) > cap:
+                raise ValueError(
+                    f"{attacker.name} can't be blocked by more than {cap} creature(s)"
+                )
+
+        # RULE 509.1a: "~ can't block alone." — like its attacking sibling
+        # this is a property of the whole block, so it's validated over the
+        # projection above rather than per-assignment in `can_block`. Counts
+        # every creature this player has blocking *after* this call, since
+        # `declare_blockers` is additive too.
+        projected_blockers = {b.instance_id for b, _ in resolved} | {
+            o.instance_id
+            for o in self.state.permanents_controlled_by(player.id)
+            if combat.blocking_attacker_ids(o)
+        }
+        if len(projected_blockers) == 1:
+            lone = self.state.find_object(next(iter(projected_blockers)))
+            if lone is not None and combat.combat_restrictions(lone, "cant_block_alone"):
+                raise ValueError(f"{lone.name} can't block alone")
 
         # RULE 702.130/702.45/702.23 (afflict/bushido/rampage): capture, before
         # any mutation, which attackers are transitioning from unblocked to
@@ -2212,7 +2550,16 @@ class GameEngine:
         ]
 
         for blocker, attacker in resolved:
-            blocker.blocking = attacker.instance_id
+            # RULE 509.1b multi-block permission: a blocker with room for
+            # more than one (`extra_blocks`/`unlimited_blocks`) files every
+            # attacker after its first onto `additional_blocking` instead —
+            # an ordinary blocker (no such grant) only ever takes this
+            # branch once, since `can_block` already refused a second
+            # assignment past its capacity.
+            if blocker.blocking is None:
+                blocker.blocking = attacker.instance_id
+            elif attacker.instance_id not in combat.blocking_attacker_ids(blocker):
+                blocker.additional_blocking.append(attacker.instance_id)
             if blocker.instance_id not in attacker.blocked_by:
                 attacker.blocked_by.append(blocker.instance_id)
             self.state.fire_event(
@@ -2266,6 +2613,32 @@ class GameEngine:
             # `parser/oracle/catalogue/static_handlers.py`'s combat-
             # restriction family.
             return False
+        if getattr(blocker, "temp_cant_block", False):
+            # "Target creature can't block this turn" (Falter's whole family)
+            # — the blocker-side mirror of `temp_unblockable` above, likewise
+            # cleared at cleanup (RULE 514.2).
+            return False
+        if combat.combat_restrictions(attacker, "cant_be_blocked_if_attacking_alone") and (
+            self._attacking_alone(attacker)
+        ):
+            # "~ can't be blocked as long as it's attacking alone." — a
+            # conditional evasion, so it's re-asked per block declaration
+            # rather than baked in at recompute time.
+            return False
+        if not combat.blocker_allowed(attacker, blocker, state=self.state):
+            # RULE 509.1b's *qualified* restrictions ("can't be blocked by
+            # creatures with power 3 or greater", "…except by Walls", or a
+            # dynamic count-selector threshold — Kraken of the Straits).
+            return False
+        if not combat.blocker_may_block(blocker, attacker):
+            # …and their mirror image printed on the blocker instead ("~ can
+            # block only creatures with flying" — RULE 509.1a).
+            return False
+        if not self._combat_restrictions_allow(
+            blocker, "cant_block_unless", defending_player=player, attacker=attacker
+        ):
+            # "~ can't block unless you control another Wolf." (RULE 509.1a)
+            return False
         # RULE 701.51a, the Ring emblem's first ability: "Your Ring-bearer
         # is legendary and can't be blocked by creatures with greater
         # power." Read off live designation state rather than any permanent
@@ -2278,7 +2651,11 @@ class GameEngine:
             and blocker.is_creature
             and blocker in self.state.permanents()  # RULE 702.26c: excludes a phased-out creature
             and not blocker.tapped
-            and blocker.blocking is None
+            # RULE 509.1b: ordinarily one block each — `has_block_capacity`
+            # generalizes the old bare "not already blocking" check to honour
+            # a "~ can block an additional creature"/"…any number of
+            # creatures" grant (`GameObject.additional_blocking`).
+            and combat.has_block_capacity(blocker)
             # "~ can't block." / "enchanted creature can't block [or
             # attack]." — a synthetic layer-6 flag, same family as above.
             and not combat.has(blocker, "cant_block")
@@ -2292,6 +2669,26 @@ class GameEngine:
             o for o in self.state.permanents()
             if o.is_land and o.controller_id == player_id
         ]
+
+    def _defending_player(self, defender: Optional[dict[str, Any]]) -> Optional[Player]:
+        """The player being attacked by an assigned ``combat_defender`` spec —
+        the player themselves, or a defending planeswalker's controller (RULE
+        508.1a's "defending player" covers both). ``None`` for a bare swing
+        (solo goldfish, no legal defender at all)."""
+        if not defender:
+            return None
+        if defender.get("kind") == "player":
+            try:
+                return self.state.player_by_id(defender.get("id"))
+            except KeyError:
+                return None
+        pw = self.state.find_object(defender.get("instance_id"))
+        if pw is None:
+            return None
+        try:
+            return self.state.player_by_id(pw.controller_id)
+        except KeyError:
+            return None
 
     def _attacker_attacks_player(self, attacker: GameObject, player: Player) -> bool:
         defender = attacker.combat_defender
@@ -2336,6 +2733,13 @@ class GameEngine:
         """
         if source not in self.state.battlefield or source.controller_id != player.id:
             raise ValueError("can only tap your own permanents in play")
+        if continuous.activation_prohibited(self.state, source, is_mana_ability=True):
+            # RULE 602/605.1a: a mana ability *is* an activated ability, so a
+            # blanket "activated abilities of artifacts can't be activated"
+            # (Null Rod) silences it too — unlike a prohibition printed with
+            # the "unless they're mana abilities" rider, which
+            # `activation_prohibited` skips for this call.
+            raise ValueError(f"{source.name}'s abilities can't be activated")
         abilities = mana_abilities_for(source, state=self.state)
         if not 0 <= ability_index < len(abilities):
             raise ValueError(f"{source.name} has no mana ability #{ability_index}")
