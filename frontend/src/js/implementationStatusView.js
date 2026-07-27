@@ -67,7 +67,7 @@ const GROUPS = [
               ['partial', 'Echte Mehrfachziele (115.1a, N≥2) — nur bei wenigen Effekten'],
               ['full', 'Priorität & Stack (117)'],
               ['full', 'Interaktive Priorität reihum (117.3–4) — im Multiplayer'],
-              ['full', 'Mulligan — London (103)'],
+              ['full', 'Mulligan — London / Next 7 / kein Mulligan (103)'],
               ['full', 'Tokens & Marken (111/121)'],
               ['full', 'Embleme (114)'],
             ],
@@ -354,6 +354,7 @@ const GROUPS = [
           ['done', 'Auto-Pass mit Countdown (Standard 3 s, in den Einstellungen & im Spiel änderbar)'],
           ['done', 'Platz-Wiedereinstieg über den Spielernamen nach Reload/Verbindungsabbruch'],
           ['done', 'Server-Watchdog: Inaktivitäts-Trennung + Karenzzeit (env-konfigurierbar)'],
+          ['done', 'Take-backs je Spieler (im Setup konfigurierbar, pro Sitz begrenzt)'],
           ['partial', 'Spielerzahl (aktuell genau 2)'],
         ],
       },
@@ -365,8 +366,12 @@ const GROUPS = [
     sections: [
       {
         items: [
-          ['partial', 'Greedy-Autoplay (Land, Tap-out, günstigste Zauber, Angriff)'],
-          ['planned', 'Gewichtete Bot-Strategie'],
+          ['done', 'Bot als vollwertiger Platz im Multiplayer (vom Host gesetzt, mit eigenem Deck)'],
+          ['done', 'Goldfisch-Bot: spielt nur Länder, passt sonst immer'],
+          ['done', 'Gieriger Bot: spielt sofort alles, greift immer an, blockt immer'],
+          ['done', 'Bots spielen über dieselbe Schnittstelle wie ein Browser (redigierte Sicht + legale Züge)'],
+          ['done', 'Bots ziehen auch ohne menschlichen Zug weiter (Server-Watchdog)'],
+          ['planned', 'Gewichtete Bot-Strategie (Zuglinien bewerten statt erstbeste Option)'],
         ],
       },
     ],

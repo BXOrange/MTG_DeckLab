@@ -281,6 +281,9 @@ def build_replay_engine(
     state.active_player_index = idx if 0 <= idx < len(players) else 0
     state.current_phase = descriptor.get("current_phase") or "precombat_main"
     state.current_step = descriptor.get("current_step") or "main1"
+    # A position that was assembled rather than played has no turn history,
+    # so the display-only round counter is derived from the turn number.
+    state.sync_round_number()
 
     engine = GameEngine(state)
     engine.resume_at(cursor_after(state.current_step))

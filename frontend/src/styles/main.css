@@ -1569,6 +1569,10 @@ textarea {
   margin-top: 0.75rem;
 }
 
+/* Sticky so turn/phase stays visible while scrolling a two-board game —
+   `main` (app.css) is the scrolling ancestor, and this sticks to its top
+   padding edge. Below the stack overlay's z-index (30) so a resolving
+   stack still visually covers it rather than poking through underneath. */
 .gf-topbar {
   display: flex;
   align-items: center;
@@ -1579,11 +1583,17 @@ textarea {
   border-radius: 6px;
   padding: 0.5rem 0.75rem;
   margin-bottom: 0.6rem;
+  position: sticky;
+  top: 0;
+  z-index: 20;
 }
 
 .gf-turninfo {
   display: flex;
-  flex-direction: column;
+  flex-direction: row;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 0.5rem 0.9rem;
 }
 
 .gf-turn {
@@ -1635,7 +1645,6 @@ textarea {
 
 .gf-daynight {
   display: inline-block;
-  margin-top: 0.15rem;
   padding: 0.05rem 0.4rem;
   border-radius: 999px;
   font-size: 0.75rem;
@@ -3580,6 +3589,29 @@ textarea {
   white-space: nowrap;
 }
 
+/* Bot seats: the host manages them from the seat row itself (deck picker +
+   remove), since a bot has no client of its own to do it. */
+.mp-seat-bot {
+  border-style: dashed;
+}
+
+.mp-seat-deck select {
+  font-size: 0.78rem;
+  padding: 0.1rem 0.2rem;
+  max-width: 12rem;
+}
+
+.mp-seat-remove {
+  flex: 0 0 auto;
+  padding: 0.1rem 0.4rem;
+  font-size: 0.78rem;
+  line-height: 1.2;
+}
+
+.mp-add-bot .hint {
+  flex: 1 1 100%;
+}
+
 .mp-game {
   background: var(--panel-alt);
   border: 1px solid var(--border);
@@ -3661,6 +3693,16 @@ textarea {
 .mp-option-row select,
 .mp-new-game input {
   flex: 1 1 14rem;
+  min-width: 0;
+  padding: 0.35rem 0.5rem;
+  background: var(--panel-alt);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 5px;
+}
+
+.mp-option-row input[type="number"] {
+  flex: 0 0 5rem;
   min-width: 0;
   padding: 0.35rem 0.5rem;
   background: var(--panel-alt);
@@ -3831,6 +3873,64 @@ textarea {
   color: var(--text);
   border: 1px solid var(--border);
   border-radius: 4px;
+}
+
+/* The same priority badge + "Passen" the toolbar carries, repeated on the
+   banner of your own board — with two boards drawn the toolbar is usually
+   scrolled off. `margin-left: auto` pushes it to the far end of the head
+   row, next to the life box. */
+.gf-banner-priority {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  margin-left: auto;
+}
+
+.gf-banner-pass {
+  padding: 0.25rem 0.7rem;
+  font-size: 0.82rem;
+}
+
+/* Player-level counters: poison, energy/experience/rad, the Ring, the
+   Monarch/Initiative designations, emblems (RULE 704.5c/122/701.52/725/726/
+   114) — everything about a *player* that isn't life or floating mana. */
+.gf-pcounters {
+  display: inline-flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.3rem;
+}
+
+.gf-pcounter {
+  font-size: 0.75rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  padding: 0.05rem 0.35rem;
+  border-radius: 999px;
+  background: var(--panel-alt);
+  border: 1px solid var(--border);
+  white-space: nowrap;
+}
+
+.gf-pcounter--lethal {
+  background: var(--warn);
+  color: #1a1a1a;
+}
+
+.gf-pcounter--designation {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+/* An opponent's hand, collapsed to its count (the default — the cards are
+   never on the wire either way, RULE 400.2). */
+.gf-hand-hidden {
+  margin: 0;
+  padding: 0.4rem 0;
+}
+
+.gf-hand-toggle {
+  margin-left: 0.5rem;
 }
 
 .gf-seat-away {

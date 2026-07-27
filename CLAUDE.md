@@ -81,7 +81,20 @@ primary button becomes "Passen". Only the priority holder may act, enforced
 in `_dispatch` and not merely filtered out of `legal_actions` (a client
 could post an action it was never offered) — except RULE 509.1a's
 declare-blockers, a turn-based action the *defending* player takes while
-the attacker still holds priority.
+the attacker still holds priority (and "declares no blocks" is itself a
+complete, submittable answer — an empty `assignments` list — not a state
+the UI can just fail to reach).
+
+**Take-backs** (`GameSession.take_back`) are a table-configured, RULE-free
+undo convenience — not `rewind`, which is a solo-practice, whole-history
+tool disabled in multiplayer. Host-set in Setup (`LobbyGame.
+takebacks_per_player`), legal regardless of priority (same exemption as
+`concede`), and scoped to *the caller's own* last `_history` entry — which,
+since there is only one shared timeline, also discards anything an
+opponent did afterward. `_history` now carries each entry's actor id for
+exactly this; slice it (and `move_log`) by a tail-relative depth, never an
+absolute index — `_history` drops its oldest entries past `MAX_HISTORY`
+but `move_log` never does, so the two can differ in length.
 
 **Presence, reconnects and timers.** A lobby player is identified by
 **name** (`services/lobby.py`'s `normalize_name`), not by the server-issued
@@ -102,6 +115,31 @@ cookies, default on / 3s / opponent-turns-only) counts down whenever this
 client holds priority and passes at zero; touching the board cancels that
 window, and both the toggle and the seconds are adjustable on the board
 itself as well as in Einstellungen.
+
+**Bots (UC5, `services/bots.py`)** fill a seat at such a table — they are
+players, not a mode. The load-bearing rule is that a bot plays through the
+*client* surface and nothing else: it reads `session.view(perspective=<its
+own id>)` (so RULE 400.2 redaction means an opponent's hand and every
+library simply aren't in its data) and may only submit entries from its own
+`legal_actions` via `apply_action(action, actor_id=...)`. Never read
+`engine.state` from a bot — the engine's per-seat validation is what makes
+a bot legal, and every bot game doubles as a test of the redaction. `Bot`
+fixes the *order* a seat handles things in (`decide`: pending choice →
+mulligan → RULE 509.1a declare-blockers, which the defender takes while the
+attacker holds priority → `play()` only if it holds priority) and
+subclasses override policy only — `GoldfishBot` (lands, else pass) and
+`GreedyBot` (everything, immediately, first legal target). Bots have no
+loop of their own: `run_bots(session, bots)` is called after each human
+action, right after `lobby.start()` (so a bot keeps its opening hand before
+the humans see the mulligan screen), and once a second by the sweeper —
+which is what drives a table with no humans at it. It runs *before* the
+broadcast, so a human's move and every bot answer to it are one push.
+`MAX_BOT_ACTIONS` is a yield point, not an error budget. In the lobby a bot
+is an ordinary `LobbyPlayer`/`Seat` (+`Seat.bot_kind`), so the engine never
+learns bots exist; the differences are all social — a bot seat with a deck
+counts as ready, bots are kept out of presence sweeps, the host acts for
+them (`add_bot`/`remove_bot`/`set_deck(seat_id=…)`), and a table whose last
+*human* leaves is dropped rather than left playing itself.
 
 **Player-uploaded art** (Einstellungen tab): a player can upload art for
 tokens that have no real Scryfall art (matched by token name) and a
@@ -605,6 +643,13 @@ English and German.
   keywords), use a **function-scoped import** and keep the `game/` side pure of
   runtime model imports (`combat.py`, `continuous.py` only import models under
   `TYPE_CHECKING`).
+- **`turn_number` vs `round_number`**: `GameState.turn_number` is the
+  rules-correct count (RULE 500.1 — *every* player's turn is a turn, so a
+  two-player game is on turn 7 when the starting player takes their
+  fourth), and it is what the engine reads everywhere. `round_number` is
+  display-only: how often the turn has come back to whoever started, which
+  is what a player means by "we're on turn 4". The board shows the round
+  and puts the turn in a tooltip. Don't "fix" either one into the other.
 - **Derived characteristics**: `GameObject.power/toughness/is_creature/
   granted_keywords` read layer-engine output stamped by `continuous.recompute`,
   falling back to printed+counters when no pass has run. Recompute runs on every
@@ -697,6 +742,7 @@ English and German.
 | On-disk paths / env-var config | `backend/mtg_analyzer/config.py` |
 | Goldfish UI | `frontend/src/js/goldfishView.js` |
 | Multiplayer (lobby, seats, shared board) | `backend/mtg_analyzer/services/lobby.py`, `api/multiplayer.py`, `api/multiplayer_ws.py`, `frontend/src/js/multiplayerView.js`, `lobbySocket.js` |
+| Bots filling a multiplayer seat (UC5) | `backend/mtg_analyzer/services/bots.py` (`Bot`/`GoldfishBot`/`GreedyBot`/`run_bots`), `services/lobby.py` (`Seat.bot_kind`, `add_bot`), `frontend/src/js/multiplayerView.js` (`addBotHtml`/`seatRowHtml`) |
 | Replay/Puzzle mode (build+save/load a board) | `backend/mtg_analyzer/services/replay.py`, `game_session.py` (`edit_*` actions), `frontend/src/js/replayView.js` |
 | Archidekt deck import proxy | `backend/mtg_analyzer/services/archidekt_client.py`, `api/import_external.py` (Moxfield was tried and reverted twice — Cloudflare-blocked; don't re-add it without checking that's changed) |
 | Player-uploaded token art / card-back sleeves | `backend/mtg_analyzer/services/player_assets.py`, `api/player_assets.py`, `frontend/src/js/connectionSettingsView.js`, `frontend/src/js/profileView.js` (player name), `gameBoardView.js` (`resolveImageUrl`/`setAssets`) |

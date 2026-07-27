@@ -65,7 +65,15 @@ Once you're at a table, a panel appears at the top of **Setup** with:
   table:
   - *London-Mulligan* (the default): shuffle back and draw a fresh 7,
     then put one card on the bottom per mulligan taken when you keep.
+  - *Next 7*: shuffle back and draw a fresh 7, just like the
+    London-Mulligan — but keeping never bottoms any cards, however many
+    mulligans were taken. A "free" variant for casual play/playtesting.
   - *Kein Mulligan* (no mulligan): the opening hand is the hand.
+- **Take-backs je Spieler** (take-backs per player) — chosen by the host
+  for the whole table (default: 0, i.e. off). Lets each seat undo their
+  own last move during the game — for misclicks, not a general undo.
+  Since every seat shares one timeline, taking back your move
+  automatically undoes anything the opponent did *since* it too.
 - **Dein Deck** (your deck) — pick one of your saved decks. Everyone
   picks their own.
 - **✔ Bereit** (ready) — your acceptance. You can't accept without a
@@ -81,6 +89,34 @@ so you can never be pulled into a game you didn't agree to. Just click
 
 When the host starts the game, every player is switched to the **Board**
 tab automatically.
+
+### Seating a bot
+
+While a seat is still free, the **host** can fill it with a bot — to play
+alone against the computer, or to test something without a second person.
+A **Bot einsetzen** (seat a bot) row appears in the panel, with a picker
+and a **🤖 Hinzufügen** (add) button:
+
+- **Goldfisch-Bot** — plays lands and otherwise always passes. The
+  classic goldfish: an opponent who does nothing, ideal for testing your
+  own curve.
+- **Gieriger Bot** (greedy bot) — plays everything the moment it can,
+  attacks with everything, blocks with everything, and always takes the
+  first legal target. It optimizes nothing; it's an opponent that applies
+  pressure, not a good player.
+
+A bot then sits in the seat list like anyone else (marked 🤖). Two things
+the host does *for* it, since a bot has no screen of its own:
+
+- **Pick its deck** — right in its seat row. Once a bot has a deck it
+  counts as *ready*.
+- **Remove it** — the **✕** in its row.
+
+Everything after that is the usual flow: **▶ Spiel starten**, and the bot
+keeps its opening hand and takes its turns by itself. Its whole turn
+arrives on your screen in one go, as soon as the turn comes back to you.
+A table with nothing but bots left at it is dropped — bots don't play on
+by themselves, and they can't invite anyone or start a game either.
 
 ## Playing
 
@@ -165,6 +201,30 @@ and the number of seconds are also right there on the board so you can
 change them mid-game — usually the moment auto-pass has just cost you a
 response.
 
+### Other board settings
+
+- **The opponent's hand** shows only its *count* ("5 verdeckte Karten") by
+  default. Your browser never receives those cards anyway (RULE 400.2 —
+  the server doesn't send them), so the card backs were only costing
+  space. The **verdeckte Karten zeigen** checkbox on the hand zone (or in
+  **Einstellungen**) brings them back. Cards an effect genuinely *reveals*
+  are always shown.
+- **⏭ Nächste Aktion** (next action) passes through every priority window
+  in which you have no option at all, and stops at the first one where you
+  can actually do something. The **Leere Fenster überspringen** checkbox
+  makes that permanent. It's deliberately not auto-pass: auto-pass counts
+  down *because* you could have responded, whereas an empty window has
+  nothing to wait for.
+- **Passing from your own board**: the pass button and the "you're up"
+  badge also sit on your own board's header — with two boards drawn, the
+  toolbar at the top is usually scrolled out of sight.
+- **The turn counter**: "Zug 4" means the fourth *round* — the fourth time
+  the starting player is up. The rules-correct count (RULE 500.1 counts
+  every player's turn separately) is in the tooltip.
+- **Player values**: poison (RULE 704.5c), energy/experience/rad counters,
+  the Ring, Monarch/Initiative and emblems sit next to the life total in
+  each player's header.
+
 ### Blocking
 
 When you're attacked, a **🛡️ Blocker deklarieren** (declare blockers)
@@ -179,6 +239,21 @@ Assign as many creatures as you like, then click **Block bestätigen**
 makes multi-blocking work: an attacker with *Menace*, for instance, has
 to be blocked by two or more creatures, and that can only be checked
 against the complete assignment. **Zurücksetzen** clears your picks.
+
+Declining to block at all is a perfectly ordinary, valid decision: just
+leave everything unassigned and click the confirm button anyway (it reads
+**Keine Blocker bestätigen**, "confirm no blockers", when nothing is
+picked).
+
+### Taking back a move
+
+If the host set **Take-backs je Spieler** above 0 when setting the game
+up, an **↩️ Zug zurücknehmen (N)** (take back a move) button appears next
+to **Aufgeben** — N is however many you have left. Clicking it undoes
+your own last move and spends one from your budget. Because everyone at
+the table shares one timeline, this also undoes anything your opponent
+did since your last move — which is exactly why the budget is limited,
+so it stays a fix for a misclick rather than a general undo.
 
 ### Conceding
 
@@ -242,7 +317,8 @@ timer off.
 
 ## Notes and limits
 
-- **Two players.** More seats aren't supported yet.
+- **Two players.** More seats aren't supported yet (a bot takes one of
+  them).
 - **Names are identities, and they aren't protected.** Two people who pick
   the same name are treated as the same player, and the second to connect
   takes the seat over. Give everyone at the table a distinct name.

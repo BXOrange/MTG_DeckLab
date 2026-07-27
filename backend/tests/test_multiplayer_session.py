@@ -38,7 +38,7 @@ def bear(name="Grizzly Bears"):
     )
 
 
-def make_game(mulligan_style="london", library=None):
+def make_game(mulligan_style="london", library=None, takebacks_per_player=0):
     """A two-seat game, both seats holding the same 30-card pile."""
     manager = GameSessionManager()
     deck = library if library is not None else [land()] * 30
@@ -48,6 +48,7 @@ def make_game(mulligan_style="london", library=None):
             {"player_id": "bob", "name": "Bob", "library": list(deck)},
         ],
         mulligan_style=mulligan_style,
+        takebacks_per_player=takebacks_per_player,
     )
 
 
@@ -115,6 +116,19 @@ class TestSetup:
         assert [a["type"] for a in session.legal_actions("ann")] == ["keep_hand"]
         with pytest.raises(GameActionError):
             session.apply_action({"type": "mulligan"}, actor_id="ann")
+
+    def test_next7_mulligan_style_never_requires_bottoming(self):
+        session = make_game(mulligan_style="next7")
+        session.apply_action({"type": "mulligan"}, actor_id="ann")
+        session.apply_action({"type": "mulligan"}, actor_id="ann")
+        assert session.mulligan_count_for("ann") == 2
+        assert session.bottom_count_for("ann") == 0
+        view = session.view(perspective="ann")
+        assert view["setup"]["mulligan_count"] == 2
+        assert view["setup"]["bottom_count"] == 0
+        # Keeping needs no bottoming despite two mulligans taken.
+        session.apply_action({"type": "keep_hand", "bottom_instance_ids": []}, actor_id="ann")
+        assert len(session.engine.state.player_by_id("ann").hand) == 7
 
     def test_unknown_mulligan_style_falls_back_to_london(self):
         session = make_game(mulligan_style="calgary")
@@ -445,3 +459,153 @@ class TestPriority:
         session.rewind(1)
         assert session.engine.interactive_priority is True
         assert session.engine.state.priority_player.id == "ann"
+
+
+class TestRoundNumber:
+    """RULE 500.1 counts every player's turn; players count trips round the table.
+
+    `GameState.round_number` is display-only — nothing in the engine reads
+    it — but it's what the board shows as "Zug N", because at a real table
+    "turn 4" means the fourth time it's come back to you, not the fourth
+    player-turn.
+    """
+
+    def test_a_round_is_a_full_trip_around_the_table(self):
+        session = make_game()
+        keep_all(session)
+        state = session.engine.state
+        assert (state.turn_number, state.round_number) == (1, 1)
+        assert state.starting_player_id == "ann"
+
+        # Bob's turn is turn 2 — still round 1.
+        advance_until(session, turn=2)
+        assert session.engine.state.round_number == 1
+
+        # Back to Ann: her second turn opens round 2.
+        advance_until(session, turn=3)
+        assert session.engine.state.active_player.id == "ann"
+        assert session.engine.state.round_number == 2
+
+        advance_until(session, turn=5)
+        assert session.engine.state.round_number == 3
+
+    def test_a_solo_game_counts_every_turn_as_a_round(self):
+        # The goldfish dummy never takes a turn, so there is only ever one
+        # seat in the rotation and the two counters stay in step.
+        manager = GameSessionManager()
+        session = manager.create_goldfish(library=[land()] * 30)
+        session.apply_action({"type": "keep_hand", "bottom_instance_ids": []})
+        for _ in range(60):
+            if session.engine.state.turn_number >= 4:
+                break
+            session.apply_action({"type": "advance_step"})
+        state = session.engine.state
+        assert state.turn_number == 4
+        assert state.round_number == state.turn_number
+
+    def test_it_is_on_the_wire(self):
+        session = make_game()
+        keep_all(session)
+        assert session.view(perspective="ann")["state"]["round_number"] == 1
+
+
+class TestTakeBack:
+    """A per-seat, table-configured undo budget (UC4 Setup) — distinct from
+    `rewind` (a solo-practice, whole-history undo that's disabled here):
+    `take_back` only ever walks back through the *caller's own* last move,
+    is legal regardless of who holds priority, and is metered by
+    `takebacks_remaining` rather than free.
+    """
+
+    def _play_a_land(self, session, player_id):
+        land_action = next(
+            a for a in session.legal_actions(player_id) if a["type"] == "play_land"
+        )
+        session.apply_action(land_action, actor_id=player_id)
+
+    def test_no_budget_by_default(self):
+        session = make_game()
+        keep_all(session)
+        advance_until(session, step="main1")
+        self._play_a_land(session, "ann")
+        with pytest.raises(GameActionError):
+            session.take_back("ann")
+
+    def test_undoes_the_players_own_last_move(self):
+        session = make_game(takebacks_per_player=2)
+        keep_all(session)
+        advance_until(session, step="main1")
+        battlefield_before = len(session.engine.state.battlefield)
+        self._play_a_land(session, "ann")
+        assert len(session.engine.state.battlefield) == battlefield_before + 1
+
+        session.take_back("ann")
+        assert len(session.engine.state.battlefield) == battlefield_before
+        assert session.takebacks_remaining["ann"] == 1
+        # bob's budget is untouched — it's per seat.
+        assert session.takebacks_remaining["bob"] == 2
+
+    def test_is_legal_even_though_the_caller_no_longer_holds_priority(self):
+        # RULE 117.1 would refuse an ordinary action here (ann passed, so
+        # bob holds priority) — take_back is deliberately not routed
+        # through that gate, the same way concede isn't.
+        session = make_game(takebacks_per_player=1)
+        keep_all(session)
+        advance_until(session, step="main1")
+        self._play_a_land(session, "ann")
+        session.apply_action({"type": "pass_priority"}, actor_id="ann")
+        assert session.engine.state.priority_player.id == "bob"
+
+        session.take_back("ann")
+        assert session.takebacks_remaining["ann"] == 0
+
+    def test_undoes_past_a_later_players_move_too(self):
+        # A single shared history: "my own last move" is exactly that —
+        # here, ann's own most recent action is her *pass* (not the land
+        # she played just before it), so take_back targets the pass. But
+        # since bob's own pass happened after ann's, undoing hers discards
+        # his too — there is only one shared timeline to restore, so an
+        # opponent's move made *after* the point being undone can never
+        # survive it, even though this take-back is "spent" on ann's pass
+        # rather than her land. The land itself, played *before* that
+        # point, is untouched.
+        session = make_game(takebacks_per_player=1)
+        keep_all(session)
+        advance_until(session, step="main1")
+        self._play_a_land(session, "ann")
+        moves_after_land = len(session.move_log)
+        battlefield_after_land = len(session.engine.state.battlefield)
+        session.apply_action({"type": "pass_priority"}, actor_id="ann")
+        session.apply_action({"type": "pass_priority"}, actor_id="bob")
+        assert len(session.move_log) > moves_after_land
+
+        session.take_back("ann")
+        assert len(session.move_log) == moves_after_land
+        assert len(session.engine.state.battlefield) == battlefield_after_land  # the land stays
+        assert session.engine.state.current_step == "main1"
+        assert session.engine.state.priority_player.id == "ann"
+
+    def test_budget_is_exhausted_after_use(self):
+        session = make_game(takebacks_per_player=1)
+        keep_all(session)
+        advance_until(session, step="main1")
+        self._play_a_land(session, "ann")
+        session.take_back("ann")
+        self._play_a_land(session, "ann")
+        with pytest.raises(GameActionError):
+            session.take_back("ann")
+
+    def test_refused_with_no_move_in_history_at_all(self):
+        # Budget alone isn't enough — there has to be something to undo.
+        # `keep_hand` is itself snapshotted (so a kept hand can be
+        # reconsidered too), so an entirely fresh session before *that* is
+        # the one point with a genuinely empty history to test against.
+        session = make_game(takebacks_per_player=1)
+        with pytest.raises(GameActionError):
+            session.take_back("ann")
+
+    def test_it_is_on_the_wire(self):
+        session = make_game(takebacks_per_player=3)
+        keep_all(session)
+        view = session.view(perspective="ann")
+        assert view["takebacks_remaining"] == {"ann": 3, "bob": 3}

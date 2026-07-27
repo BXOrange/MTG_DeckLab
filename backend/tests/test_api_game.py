@@ -239,6 +239,7 @@ class TestMulliganSetup:
         assert view["setup"] == {
             "complete": False,
             "mulligan_count": 0,
+            "bottom_count": 0,
             "mulligan_style": "london",
             "draw_first": False,
             "waiting_for": ["p1"],

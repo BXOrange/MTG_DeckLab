@@ -574,6 +574,123 @@ now holds only open items). Section headers mirror that file.
       lobby snapshots, per-seat board pushes, peer connect/disconnect
       events, and reconnect backoff that reclaims the seat by name.
 
+- [x] **Board polish pass (2026-07-27).** Six things a real two-player
+      session made obvious, all in `gameBoardView.js` unless noted:
+
+      - **An opponent's hand is a number, not a row of card backs**
+        (default; `settings.js`'s `showOpponentHand`, toggleable on the
+        hand zone itself and in Einstellungen). The cards were never on the
+        wire — RULE 400.2 redaction happens server-side — so the backs were
+        pure decoration costing a lot of vertical space on a two-board
+        screen. Cards that *are* in an opponent's `hand` array (i.e. ones
+        the server chose to reveal) are always drawn, whatever the toggle
+        says. Only offered where there *is* an opponent: a Replay/Puzzle
+        board has no perspective and both hands stay visible, since editing
+        them is the whole point of that mode.
+      - **⏭ Nächste Aktion** — the shared-game answer to goldfish's
+        "Nächste Entscheidung", which multiplayer can't have (skipping
+        *steps* would skip the opponent's response windows). This one only
+        passes priority, and only through windows where `legal_actions`
+        offers literally nothing but `pass_priority`, stopping at the first
+        window that actually asks something. A persisted checkbox
+        (`autoSkipEmpty`) arms it permanently. Deliberately separate from
+        auto-pass: auto-pass is an interruptible countdown *because* there
+        was something you could have done, and an empty window has nothing
+        to interrupt.
+      - **The pass button and the priority badge are repeated on your own
+        board's banner.** With two full boards drawn, the toolbar at the
+        top of the page is usually scrolled off exactly when you need it.
+        Same control, so it's `data-pass-priority` rather than an id, and
+        every instance is wired.
+      - **"Zug N" is now the round**, not the raw per-player turn count
+        (`GameState.round_number`, see `Done_Backend.md`). The rules-correct
+        number is still there, in the tooltip.
+      - **Player-level counters are drawn at last**: poison (RULE 704.5c,
+        badged as lethal at 10), the counter bag (RULE 122 energy,
+        experience, rad, …), the Ring's level (RULE 701.52), the Monarch
+        and Initiative designations (RULE 725/726) and emblems (RULE 114).
+        Every one of them was already in the payload and simply never
+        rendered — only life and the mana pool were.
+
+- [x] **Board polish follow-up (2026-07-27), four bugs a real session
+      surfaced in the pass above:**
+
+      - **"Blockt nicht" is now a submittable answer.** The block panel's
+        confirm button required at least one assignment (`blockDraft.size
+        > 0`), so a defending player who wanted to decline every block had
+        no way to *confirm* that — RULE 509.1a's "declare no blocks" is a
+        real, complete turn-based action, not the mere absence of one.
+        `submitBlocks` now sends an empty `assignments: []` (the backend
+        already accepted it; only the client refused to send it), and the
+        button reads "Keine Blocker bestätigen" when nothing is selected.
+      - **Equip/Fortify/Reconfigure were legal onto *any* creature/land,
+        including an opponent's** (`game/targeting.py`'s `legal_targets` and
+        `game/rules_engine.py`'s `_attachment_legal`, both offer-time and
+        resolution-time) — RULE 702.6a/702.67a/702.151a all say "target
+        creature/land *you control*", which nothing was checking. Fixed at
+        both points (backend-only; no frontend change), with regression
+        tests seating an opponent's creature/land as bait.
+      - **"Leere Fenster überspringen" could spam the server with redundant
+        `pass_priority` calls fast enough to make casting feel broken.**
+        Root cause: the multiplayer transport deliberately returns no fresh
+        `data` from `act()` (it waits for the socket push instead — see the
+        transport's own comment in `multiplayerView.js`), so `view` — and
+        the priority-window key derived from it — can stay unchanged across
+        several renders while a pass is still in flight to the server and
+        back. `skipEmptyArmed()` had no memory of having already tried a
+        given window, so every one of those renders fired another attempt,
+        as fast as the event loop allowed, tearing the board down under any
+        click the player was making. Fixed with a `skipAttemptedForKey`
+        latch mirroring auto-pass's own `autoPassWindowKey` bookkeeping — at
+        most one attempt per distinct window, then genuinely wait. Verified
+        with a `jsc`-driven headless harness (the project has no JS test
+        runner and `osascript -l JavaScript` doesn't drain microtasks
+        between statements, so a real event-loop-bearing engine was needed
+        to reproduce the runaway): the pre-fix code hit >20 calls before the
+        harness's own safety cap; the fix holds it to exactly one. Both
+        checkboxes' tooltips were also rewritten in plain language after the
+        session reported not understanding what the label meant.
+      - **Turn/phase is now sticky and one row.** `.gf-topbar` scrolled out
+        of view on a two-board screen (exactly when you most want to check
+        the step); it's `position: sticky; top: 0` now (below the stack
+        overlay's z-index, so a resolving stack still visually covers it).
+        `.gf-turninfo` switched from a vertical stack to a wrapping row —
+        turn, phase/step, active player and day/night now sit side by side.
+
+- [x] **A finished game is closed deliberately** (`multiplayerView.js`):
+      the digest no longer hijacks the board irreversibly — "🔍 Spielfeld
+      ansehen" flips back to the final position, "📊 Auswertung" flips
+      back, and "✖ Spiel schließen" ends the table. Leaving a *finished*
+      table now really leaves it (backend half in `Done_Backend.md`),
+      so the last player out takes the dead row out of everyone's lobby
+      list with them.
+
+- [x] **Bot seats (UC5, 2026-07-27).** The host can fill a free seat with
+      a bot from the Setup panel: a kind picker (`GET
+      /api/multiplayer/bots`, so the list is the server's, not a hard-coded
+      one) whose hint line describes the selected bot, and a 🤖 Hinzufügen
+      button. A bot seat renders in the same seat list as everyone else,
+      marked 🤖 with a dashed border, and — for the host, before the game
+      starts — carries the two controls a bot can't operate for itself: an
+      inline deck `<select>` (posting `seatId`, the one case where a player
+      picks a deck for a seat that isn't theirs) and an ✕ to take it back
+      off the table. Everything after that is unchanged, because a bot is
+      an ordinary seat: it shows as ✔ bereit once it has a deck, the table
+      starts the usual way, and its turns arrive as ordinary pushed views.
+
+- [x] **Per-seat take-backs (UC4 Setup, 2026-07-27).** A table-configured,
+      rules-free undo budget — a "Take-backs je Spieler" number field in
+      the Setup panel (host only, 0 by default), and, once the game is
+      running, a "↩️ Zug zurücknehmen (N)" button next to "Aufgeben"
+      showing the caller's own remaining count and disabled at 0 or when
+      the table was set up with none at all (`view.takebacks_remaining`
+      being an empty object). See `Done_Backend.md`'s `GameSession.
+      take_back` for the shared-timeline semantics (undoing your own last
+      move undoes anything an opponent did since, too — there's only one
+      history to restore) — the button's tooltip says so plainly, since
+      "why did my opponent's move also disappear" is the one thing about
+      this feature that isn't obvious from the label.
+
 ## Deck analysis (UC2)
 
 - [x] "Deck analysieren" (`analyzeView.js` + `deckAnalysis.js`) is a full,

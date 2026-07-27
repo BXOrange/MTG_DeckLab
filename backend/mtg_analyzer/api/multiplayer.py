@@ -22,6 +22,9 @@ hands the id back to the lobby.
 * ``POST /api/multiplayer/games/{id}/observe``    — watch instead.
 * ``POST /api/multiplayer/games/{id}/leave``      — give up a seat/watch.
 * ``POST /api/multiplayer/games/{id}/deck``       — pick this seat's deck.
+* ``GET  /api/multiplayer/bots``                  — the pickable bot kinds.
+* ``POST /api/multiplayer/games/{id}/bots``       — host: seat a bot.
+* ``POST /api/multiplayer/games/{id}/bots/remove``— host: unseat one.
 * ``POST /api/multiplayer/games/{id}/options``    — host: table settings.
 * ``POST /api/multiplayer/games/{id}/ready``      — accept as configured.
 * ``POST /api/multiplayer/games/{id}/start``      — all accepted → play.
@@ -33,6 +36,14 @@ Every state-changing route pushes the result over `/ws/lobby`
 (`api/multiplayer_ws.py`) so the other clients update without polling; the
 REST response is that same payload for the caller, so a client that has
 no socket yet still works.
+
+A seat can be held by a **bot** (`services/bots.py`). Bots are driven from
+here rather than from a loop of their own: `_run_bots` is called after
+anything that changes the game and *before* the broadcast, so what gets
+pushed is the position after the bots have finished answering — one
+update, not a flicker of intermediate boards. (The other driver is the
+watchdog tick in `api/multiplayer_ws.py`, which is what moves a table with
+no human at it.)
 """
 
 from __future__ import annotations
@@ -53,6 +64,8 @@ from mtg_analyzer.api.multiplayer_ws import manager as lobby_connections
 from mtg_analyzer.api.schemas import (
     LobbyConnectRequest,
     MultiplayerActionRequest,
+    MultiplayerBotRemoveRequest,
+    MultiplayerBotRequest,
     MultiplayerDeckRequest,
     MultiplayerGameRequest,
     MultiplayerOptionsRequest,
@@ -60,6 +73,7 @@ from mtg_analyzer.api.schemas import (
     MultiplayerReadyRequest,
 )
 from mtg_analyzer.parser.deckliste_parser import parse_deck_sections
+from mtg_analyzer.services.bots import BOT_TYPES, bot_catalogue, bots_for_game, run_bots
 from mtg_analyzer.services.deck_database import DeckDatabase
 from mtg_analyzer.services.deck_validation import apply_legality
 from mtg_analyzer.services.game_session import GameActionError, GameSession, GameSessionManager
@@ -151,7 +165,40 @@ async def set_deck(
     deck = decks.get_deck(request.deck_id)
     if deck is None:
         raise HTTPException(404, f'No saved deck with id "{request.deck_id}"')
-    game = _guard(lambda: lobby.set_deck(game_id, request.player_id, request.deck_id, deck.name))
+    game = _guard(
+        lambda: lobby.set_deck(
+            game_id, request.player_id, request.deck_id, deck.name, seat_id=request.seat_id
+        )
+    )
+    return await _game_response(lobby, game)
+
+
+# -- Bots ----------------------------------------------------------------
+
+
+@router.get("/bots")
+def list_bots() -> dict[str, Any]:
+    """The bot kinds a seat can be filled with (`services/bots.py`)."""
+    return {"bots": bot_catalogue()}
+
+
+@router.post("/games/{game_id}/bots")
+async def add_bot(
+    game_id: str, request: MultiplayerBotRequest, lobby: Lobby = Depends(get_lobby)
+) -> dict[str, Any]:
+    """Seat a bot. The kind is validated here — the lobby keeps it opaque."""
+    if request.kind not in BOT_TYPES:
+        raise HTTPException(400, f'Unknown bot kind "{request.kind}"')
+    name = request.name or BOT_TYPES[request.kind].label
+    game = _guard(lambda: lobby.add_bot(game_id, request.player_id, request.kind, name))
+    return await _game_response(lobby, game)
+
+
+@router.post("/games/{game_id}/bots/remove")
+async def remove_bot(
+    game_id: str, request: MultiplayerBotRemoveRequest, lobby: Lobby = Depends(get_lobby)
+) -> dict[str, Any]:
+    game = _guard(lambda: lobby.remove_bot(game_id, request.player_id, request.bot_id))
     return await _game_response(lobby, game)
 
 
@@ -161,7 +208,11 @@ async def set_options(
 ) -> dict[str, Any]:
     game = _guard(
         lambda: lobby.set_options(
-            game_id, request.player_id, request.mulligan_style, request.num_players
+            game_id,
+            request.player_id,
+            request.mulligan_style,
+            request.num_players,
+            request.takebacks_per_player,
         )
     )
     return await _game_response(lobby, game)
@@ -218,8 +269,15 @@ async def start_game(
             }
         )
 
-    session = sessions.create_multiplayer(seats, mulligan_style=game.mulligan_style)
+    session = sessions.create_multiplayer(
+        seats, mulligan_style=game.mulligan_style, takebacks_per_player=game.takebacks_per_player
+    )
     game = _guard(lambda: lobby.start(game_id, session.id))
+    # Bots keep their opening hands (and, if one is on the play, take their
+    # first turn) before anybody is shown the table — otherwise the humans
+    # would sit in the mulligan screen waiting on a seat that has no client
+    # to click "Behalten".
+    run_bots(session, bots_for_game(game))
     return await _game_response(lobby, game, sessions, request.player_id)
 
 
@@ -317,13 +375,45 @@ async def concede(
     return await _after_move(lobby, game, session, request.player_id)
 
 
+@router.post("/games/{game_id}/takeback")
+async def take_back(
+    game_id: str,
+    request: MultiplayerPlayerRequest,
+    lobby: Lobby = Depends(get_lobby),
+    sessions: GameSessionManager = Depends(get_game_session_manager),
+) -> dict[str, Any]:
+    """Undo back through ``player_id``'s own last move (UC4 Setup).
+
+    A per-seat, table-configured convenience (`GameSession.take_back`), not
+    a RULE 117 action — legal regardless of who currently holds priority,
+    the same way conceding is, since a misclick doesn't wait for a
+    convenient moment.
+    """
+    game = _guard(lambda: lobby.game(game_id))
+    session = _require_session(game, sessions)
+    if game.seat_for(request.player_id) is None:
+        raise HTTPException(403, "you have no seat in this game")
+    try:
+        session.take_back(request.player_id)
+    except GameActionError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return await _after_move(lobby, game, session, request.player_id)
+
+
 # -- Shared helpers ------------------------------------------------------
 
 
 async def _after_move(
     lobby: Lobby, game: LobbyGame, session: GameSession, player_id: str
 ) -> dict[str, Any]:
-    """Push the new position to everyone, and close the table if it's over."""
+    """Let the bots answer, push the position, close the table if it's over.
+
+    The bots run *before* the broadcast on purpose: a human's move and
+    every bot response it provokes are one state change as far as the
+    clients are concerned, which is both fewer pushes and a board that
+    never shows a half-finished bot turn.
+    """
+    run_bots(session, bots_for_game(game))
     if session.engine.state.game_over:
         _guard(lambda: lobby.finish(game.id))
     await lobby_connections.broadcast_game(game, session)

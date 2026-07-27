@@ -80,6 +80,15 @@ def _legal_deck(decks, name="Mono-G"):
     return deck
 
 
+def _battlefield_of(view, player_id):
+    """The permanents ``player_id`` controls (the battlefield is shared)."""
+    return [
+        obj
+        for obj in view["state"]["battlefield"]
+        if obj.get("controller_id") == player_id
+    ]
+
+
 def _connect(client, name):
     return client.post("/api/multiplayer/connect", json={"name": name}).json()["player"]["id"]
 
@@ -186,6 +195,24 @@ class TestLobby:
             json={"playerId": ann, "mulliganStyle": "none"},
         ).json()
         assert body["game"]["mulligan_style"] == "none"
+
+    def test_takebacks_per_player_is_host_configurable_and_clamped(self, env):
+        client = env["client"]
+        ann, bob = _connect(client, "Ann"), _connect(client, "Bob")
+        gid = client.post("/api/multiplayer/games", json={"playerId": ann}).json()["game"]["id"]
+        client.post(f"/api/multiplayer/games/{gid}/join", json={"playerId": bob})
+        body = client.post(
+            f"/api/multiplayer/games/{gid}/options",
+            json={"playerId": ann, "takebacksPerPlayer": 2},
+        ).json()
+        assert body["game"]["takebacks_per_player"] == 2
+        # A silly value is clamped rather than accepted or rejected outright
+        # — this is a table convenience, not something worth a 400 over.
+        body = client.post(
+            f"/api/multiplayer/games/{gid}/options",
+            json={"playerId": ann, "takebacksPerPlayer": 9999},
+        ).json()
+        assert body["game"]["takebacks_per_player"] == 20
 
     def test_unknown_deck_is_404(self, env):
         client = env["client"]
@@ -334,6 +361,334 @@ class TestStartingAndPlaying:
         assert body["view"]["state"]["winner_id"] == ann
         assert body["game"]["status"] == "finished"
         assert body["game"]["conceded_ids"] == [bob]
+
+    def test_leaving_a_finished_game_closes_the_table(self, env):
+        """The end of a match is when a table should stop existing.
+
+        A *running* game keeps the seat of someone who walks away — they
+        may come back to the position. A finished one has no position left
+        to come back to, so leaving it really leaves, and the last player
+        out takes the table with them instead of littering everyone's
+        lobby with a dead row.
+        """
+        client = env["client"]
+        gid, ann, bob = _seated_game(env)
+        client.post(f"/api/multiplayer/games/{gid}/start", json={"playerId": ann})
+        client.post(f"/api/multiplayer/games/{gid}/concede", json={"playerId": bob})
+
+        first = client.post(f"/api/multiplayer/games/{gid}/leave", json={"playerId": bob}).json()
+        assert [s["player_id"] for s in first["game"]["seats"]] == [ann]
+        last = client.post(f"/api/multiplayer/games/{gid}/leave", json={"playerId": ann}).json()
+        assert last["game"] is None
+        assert last["lobby"]["games"] == []
+
+    def test_leaving_a_running_game_keeps_the_seat(self, env):
+        client = env["client"]
+        gid, ann, bob = _seated_game(env)
+        client.post(f"/api/multiplayer/games/{gid}/start", json={"playerId": ann})
+        body = client.post(f"/api/multiplayer/games/{gid}/leave", json={"playerId": bob}).json()
+        assert [s["player_id"] for s in body["game"]["seats"]] == [ann, bob]
+
+
+def _seated_game_with_takebacks(env, count):
+    """Like `_seated_game`, but the host configures a take-back budget first.
+
+    Options first, decks+ready after — changing the table (`set_options`)
+    clears every seat's acceptance, so it has to happen before anyone
+    accepts, the same ordering `_seated_game`'s own comment calls out for
+    picking a deck.
+    """
+    client, decks = env["client"], env["decks"]
+    ann, bob = _connect(client, "Ann"), _connect(client, "Bob")
+    deck = _legal_deck(decks)
+    game_id = client.post(
+        "/api/multiplayer/games", json={"playerId": ann, "name": "Testtisch"}
+    ).json()["game"]["id"]
+    client.post(f"/api/multiplayer/games/{game_id}/join", json={"playerId": bob})
+    client.post(
+        f"/api/multiplayer/games/{game_id}/options",
+        json={"playerId": ann, "takebacksPerPlayer": count},
+    )
+    for pid in (ann, bob):
+        client.post(
+            f"/api/multiplayer/games/{game_id}/deck", json={"playerId": pid, "deckId": deck.id}
+        )
+    for pid in (ann, bob):
+        client.post(f"/api/multiplayer/games/{game_id}/ready", json={"playerId": pid})
+    return game_id, ann, bob
+
+
+class TestTakeBack:
+    """UC4 Setup's per-seat undo budget through the HTTP API.
+
+    The engine-level behaviour (finding the right history point, the
+    shared-timeline trade-off, the budget bookkeeping) is exercised
+    thoroughly in `test_multiplayer_session.py::TestTakeBack`; this class
+    only checks the parts that only exist at the API layer: the route
+    itself, that it survives despite the caller not holding priority, and
+    that an observer/non-seat can't call it.
+    """
+
+    def _start_and_keep(self, env, gid, ann, bob):
+        """Start, keep both hands, and pass through to Ann's main1 — the
+        only step besides main2 offering `play_land` at all."""
+        client = env["client"]
+        client.post(f"/api/multiplayer/games/{gid}/start", json={"playerId": ann})
+        for pid in (ann, bob):
+            client.post(
+                f"/api/multiplayer/games/{gid}/action",
+                json={"playerId": pid, "action": {"type": "keep_hand", "bottom_instance_ids": []}},
+            )
+        for _ in range(20):
+            view = client.get(
+                f"/api/multiplayer/games/{gid}", params={"player_id": ann}
+            ).json()["view"]
+            if view["state"]["current_step"] == "main1":
+                return
+            holder = view["priority"]["player_id"]
+            client.post(
+                f"/api/multiplayer/games/{gid}/action",
+                json={"playerId": holder, "action": {"type": "pass_priority"}},
+            )
+        raise AssertionError("never reached main1")
+
+    def test_takes_back_the_callers_own_last_move(self, env):
+        client = env["client"]
+        gid, ann, bob = _seated_game_with_takebacks(env, 1)
+        self._start_and_keep(env, gid, ann, bob)
+        view = client.get(f"/api/multiplayer/games/{gid}", params={"player_id": ann}).json()["view"]
+        assert view["takebacks_remaining"] == {ann: 1, bob: 1}
+
+        land_action = next(a for a in view["legal_actions"] if a["type"] == "play_land")
+        before = client.post(
+            f"/api/multiplayer/games/{gid}/action",
+            json={"playerId": ann, "action": land_action},
+        ).json()
+        assert any(
+            o["controller_id"] == ann for o in before["view"]["state"]["battlefield"]
+        )
+
+        body = client.post(
+            f"/api/multiplayer/games/{gid}/takeback", json={"playerId": ann}
+        ).json()
+        assert not any(
+            o["controller_id"] == ann for o in body["view"]["state"]["battlefield"]
+        )
+        assert body["view"]["takebacks_remaining"] == {ann: 0, bob: 1}
+
+    def test_works_even_without_priority(self, env):
+        # Not routed through the RULE 117 dispatch gate at all — the same
+        # exemption `concede` gets, since a misclick doesn't wait for a
+        # convenient moment to be noticed.
+        client = env["client"]
+        gid, ann, bob = _seated_game_with_takebacks(env, 1)
+        self._start_and_keep(env, gid, ann, bob)
+        client.post(
+            f"/api/multiplayer/games/{gid}/action",
+            json={"playerId": ann, "action": {"type": "pass_priority"}},
+        )
+        view = client.get(f"/api/multiplayer/games/{gid}", params={"player_id": bob}).json()["view"]
+        assert view["priority"]["player_id"] == bob  # not ann's priority window
+
+        response = client.post(f"/api/multiplayer/games/{gid}/takeback", json={"playerId": ann})
+        assert response.status_code == 200
+
+    def test_no_budget_configured_is_a_400(self, env):
+        client = env["client"]
+        gid, ann, bob = _seated_game(env)  # default: no take-backs configured
+        self._start_and_keep(env, gid, ann, bob)
+        response = client.post(f"/api/multiplayer/games/{gid}/takeback", json={"playerId": ann})
+        assert response.status_code == 400
+
+    def test_an_observer_cannot_take_back_anything(self, env):
+        client = env["client"]
+        gid, ann, bob = _seated_game_with_takebacks(env, 1)
+        self._start_and_keep(env, gid, ann, bob)
+        watcher = _connect(client, "Watcher")
+        client.post(f"/api/multiplayer/games/{gid}/observe", json={"playerId": watcher})
+        response = client.post(
+            f"/api/multiplayer/games/{gid}/takeback", json={"playerId": watcher}
+        )
+        assert response.status_code == 403
+
+
+class TestBots:
+    """Seating a bot (UC5) — `services/bots.py` through the lobby routes.
+
+    The bot-specific part of the API is small on purpose: a bot seat is an
+    ordinary seat whose occupant has no client, so everything here is about
+    the two things that follow from that — the host acts *for* it (deck
+    pick, removal), and the server plays it (keeping, taking its turn)
+    without anybody clicking anything.
+    """
+
+    def _table_with_a_bot(self, env, kind="greedy"):
+        """Ann + one bot, both decks picked, Ann accepted. Not started."""
+        client, decks = env["client"], env["decks"]
+        ann = _connect(client, "Ann")
+        deck = _legal_deck(decks)
+        gid = client.post("/api/multiplayer/games", json={"playerId": ann}).json()["game"]["id"]
+        body = client.post(
+            f"/api/multiplayer/games/{gid}/bots", json={"playerId": ann, "kind": kind}
+        ).json()
+        bot_id = body["game"]["seats"][1]["player_id"]
+        for pid, seat in ((ann, None), (ann, bot_id)):
+            payload = {"playerId": pid, "deckId": deck.id}
+            if seat:
+                payload["seatId"] = seat
+            client.post(f"/api/multiplayer/games/{gid}/deck", json=payload)
+        client.post(f"/api/multiplayer/games/{gid}/ready", json={"playerId": ann})
+        return gid, ann, bot_id
+
+    def test_the_catalogue_lists_every_bot_kind(self, env):
+        bots = env["client"].get("/api/multiplayer/bots").json()["bots"]
+        kinds = {b["kind"]: b for b in bots}
+        assert set(kinds) == {"goldfish", "greedy"}
+        assert kinds["goldfish"]["label"] and kinds["goldfish"]["description"]
+
+    def test_the_host_can_seat_a_bot(self, env):
+        client = env["client"]
+        ann = _connect(client, "Ann")
+        gid = client.post("/api/multiplayer/games", json={"playerId": ann}).json()["game"]["id"]
+        body = client.post(
+            f"/api/multiplayer/games/{gid}/bots", json={"playerId": ann, "kind": "goldfish"}
+        ).json()
+        seat = body["game"]["seats"][1]
+        assert seat["is_bot"] is True
+        assert seat["bot_kind"] == "goldfish"
+        assert seat["name"] == "Goldfisch-Bot"
+        # No deck yet, so the table still isn't ready to start.
+        assert seat["ready"] is False
+
+    def test_a_bot_is_not_a_lobby_player(self, env):
+        """It has a `LobbyPlayer` internally, but it's nobody to play against."""
+        client = env["client"]
+        ann = _connect(client, "Ann")
+        gid = client.post("/api/multiplayer/games", json={"playerId": ann}).json()["game"]["id"]
+        body = client.post(
+            f"/api/multiplayer/games/{gid}/bots", json={"playerId": ann, "kind": "greedy"}
+        ).json()
+        assert [p["id"] for p in body["lobby"]["players"]] == [ann]
+
+    def test_only_the_host_can_seat_or_remove_a_bot(self, env):
+        client = env["client"]
+        ann, bob = _connect(client, "Ann"), _connect(client, "Bob")
+        gid = client.post("/api/multiplayer/games", json={"playerId": ann}).json()["game"]["id"]
+        client.post(f"/api/multiplayer/games/{gid}/join", json={"playerId": bob})
+        response = client.post(
+            f"/api/multiplayer/games/{gid}/bots", json={"playerId": bob, "kind": "greedy"}
+        )
+        assert response.status_code == 400
+
+    def test_an_unknown_bot_kind_is_refused(self, env):
+        client = env["client"]
+        ann = _connect(client, "Ann")
+        gid = client.post("/api/multiplayer/games", json={"playerId": ann}).json()["game"]["id"]
+        response = client.post(
+            f"/api/multiplayer/games/{gid}/bots", json={"playerId": ann, "kind": "kasparov"}
+        )
+        assert response.status_code == 400
+        assert len(env["lobby"].game(gid).seats) == 1
+
+    def test_the_host_picks_the_bot_s_deck_and_the_seat_goes_ready(self, env):
+        gid, ann, bot_id = self._table_with_a_bot(env)
+        game = (
+            env["client"]
+            .get(f"/api/multiplayer/games/{gid}", params={"player_id": ann})
+            .json()["game"]
+        )
+        seat = next(s for s in game["seats"] if s["player_id"] == bot_id)
+        assert seat["deck_name"] == "Mono-G"
+        # A bot with a deck counts as accepted — it has no client to accept.
+        assert seat["ready"] is True
+
+    def test_the_host_can_take_a_bot_back_off_the_table(self, env):
+        client = env["client"]
+        gid, ann, bot_id = self._table_with_a_bot(env)
+        body = client.post(
+            f"/api/multiplayer/games/{gid}/bots/remove", json={"playerId": ann, "botId": bot_id}
+        ).json()
+        assert [s["player_id"] for s in body["game"]["seats"]] == [ann]
+
+    def test_the_host_cannot_pick_a_deck_for_another_human(self, env):
+        """`seatId` is for bot seats only — not a way to pick for a person.
+
+        (`Lobby.set_deck`'s companion "only the host" guard can't be
+        reached from a two-seat table — a host plus a bot fills it, so
+        there is never a non-host sitting next to a bot. It's there for
+        when more seats exist.)
+        """
+        client, decks = env["client"], env["decks"]
+        ann, bob = _connect(client, "Ann"), _connect(client, "Bob")
+        deck = _legal_deck(decks)
+        gid = client.post("/api/multiplayer/games", json={"playerId": ann}).json()["game"]["id"]
+        client.post(f"/api/multiplayer/games/{gid}/join", json={"playerId": bob})
+        response = client.post(
+            f"/api/multiplayer/games/{gid}/deck",
+            json={"playerId": ann, "deckId": deck.id, "seatId": bob},
+        )
+        assert response.status_code == 400
+
+    def test_a_human_seat_cannot_be_removed_as_a_bot(self, env):
+        client = env["client"]
+        gid, ann, _bot_id = self._table_with_a_bot(env)
+        response = client.post(
+            f"/api/multiplayer/games/{gid}/bots/remove", json={"playerId": ann, "botId": ann}
+        )
+        assert response.status_code == 400
+
+    def test_starting_keeps_the_bot_s_hand_for_it(self, env):
+        """RULE 103.4 — nobody is going to click "Behalten" for the bot."""
+        client = env["client"]
+        gid, ann, bot_id = self._table_with_a_bot(env)
+        body = client.post(f"/api/multiplayer/games/{gid}/start", json={"playerId": ann}).json()
+        setup = body["view"]["setup"]
+        assert setup["complete"] is False  # Ann still has to keep
+        assert setup["waiting_for"] == [ann]  # ... and only Ann
+
+    def test_the_greedy_bot_takes_its_turn_without_a_client(self, env):
+        client = env["client"]
+        gid, ann, bot_id = self._table_with_a_bot(env, kind="greedy")
+        client.post(f"/api/multiplayer/games/{gid}/start", json={"playerId": ann})
+        body = client.post(
+            f"/api/multiplayer/games/{gid}/action",
+            json={"playerId": ann, "action": {"type": "keep_hand", "bottom_instance_ids": []}},
+        ).json()
+        # Ann (seat 1) is on the play, so the bot's whole turn is turn 2 and
+        # happens inside the responses to Ann's own passes.
+        view = body["view"]
+        assert view["setup"]["complete"] is True
+        for _ in range(40):
+            if view["state"]["turn_number"] > 2:
+                break
+            view = client.post(
+                f"/api/multiplayer/games/{gid}/action",
+                json={"playerId": ann, "action": {"type": "pass_priority"}},
+            ).json()["view"]
+        names = {obj["name"] for obj in _battlefield_of(view, bot_id)}
+        # Greedy, so: the land *and* everything the land can pay for — here
+        # the commander out of the command zone.
+        assert "Forest" in names, "the bot never played a land"
+        assert "Test Commander" in names, "the bot never cast anything"
+
+    def test_the_goldfish_bot_only_ever_plays_lands(self, env):
+        client = env["client"]
+        gid, ann, bot_id = self._table_with_a_bot(env, kind="goldfish")
+        client.post(f"/api/multiplayer/games/{gid}/start", json={"playerId": ann})
+        view = client.post(
+            f"/api/multiplayer/games/{gid}/action",
+            json={"playerId": ann, "action": {"type": "keep_hand", "bottom_instance_ids": []}},
+        ).json()["view"]
+        for _ in range(60):
+            if view["state"]["turn_number"] > 2:
+                break
+            view = client.post(
+                f"/api/multiplayer/games/{gid}/action",
+                json={"playerId": ann, "action": {"type": "pass_priority"}},
+            ).json()["view"]
+        battlefield = _battlefield_of(view, bot_id)
+        assert battlefield, "the goldfish never played a land"
+        assert all("Land" in obj["type_line"] for obj in battlefield)
 
 
 class TestLobbyWebSocket:

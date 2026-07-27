@@ -154,9 +154,28 @@ class MultiplayerGameRequest(MultiplayerPlayerRequest):
 
 
 class MultiplayerDeckRequest(MultiplayerPlayerRequest):
-    """Request body for POST /api/multiplayer/games/{id}/deck."""
+    """Request body for POST /api/multiplayer/games/{id}/deck.
+
+    ``seatId`` picks the deck for someone else's seat — only ever a bot's,
+    and only by the host, since a bot can't choose for itself. Omitted
+    (the normal case) it means "my own seat".
+    """
 
     deck_id: str = Field(alias="deckId")
+    seat_id: Optional[str] = Field(default=None, alias="seatId")
+
+
+class MultiplayerBotRequest(MultiplayerPlayerRequest):
+    """Request body for POST /api/multiplayer/games/{id}/bots (host only)."""
+
+    kind: str
+    name: str = ""
+
+
+class MultiplayerBotRemoveRequest(MultiplayerPlayerRequest):
+    """Request body for POST /api/multiplayer/games/{id}/bots/remove."""
+
+    bot_id: str = Field(alias="botId")
 
 
 class MultiplayerOptionsRequest(MultiplayerPlayerRequest):
@@ -164,6 +183,7 @@ class MultiplayerOptionsRequest(MultiplayerPlayerRequest):
 
     mulligan_style: Optional[str] = Field(default=None, alias="mulliganStyle")
     num_players: Optional[int] = Field(default=None, alias="numPlayers")
+    takebacks_per_player: Optional[int] = Field(default=None, alias="takebacksPerPlayer")
 
 
 class MultiplayerReadyRequest(MultiplayerPlayerRequest):

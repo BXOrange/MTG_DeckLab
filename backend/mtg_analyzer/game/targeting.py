@@ -391,24 +391,40 @@ def legal_targets(
                     attachment_kind = name
                     break
         if attachment_kind == "equip":
+            # RULE 702.6a: "Attach this permanent to target creature you
+            # control." Control is the *activating player's* — this is an
+            # ability of the Equipment, whose own controller need not be the
+            # equipped creature's controller (RULE 301.5d) — not the
+            # Equipment's own, so this checks `controller_id`, not `source`.
             return [
                 {"instance_id": o.instance_id, "name": o.name}
                 for o in state.permanents()
-                if (o.is_creature or o.card.is_artifact)
+                if o.is_creature
+                and o.controller_id == controller_id
                 and o is not source
                 and _targetable_by(o, source)
             ]
         if attachment_kind == "reconfigure":
+            # RULE 702.151a: "Attach this permanent to another target
+            # creature you control."
             return [
                 {"instance_id": o.instance_id, "name": o.name}
                 for o in state.permanents()
-                if o.is_creature and o is not source and _targetable_by(o, source)
+                if o.is_creature
+                and o.controller_id == controller_id
+                and o is not source
+                and _targetable_by(o, source)
             ]
         if attachment_kind == "fortify":
+            # RULE 702.67a: "Attach this Fortification to target land you
+            # control."
             return [
                 {"instance_id": o.instance_id, "name": o.name}
                 for o in state.permanents()
-                if o.is_land and o is not source and _targetable_by(o, source)
+                if o.is_land
+                and o.controller_id == controller_id
+                and o is not source
+                and _targetable_by(o, source)
             ]
         if attachment_kind == "enchant":
             quality = ((source.parametric_keywords or {}).get("enchant") or {}).get("quality", "")

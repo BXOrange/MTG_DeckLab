@@ -210,11 +210,14 @@ class TestSetup:
 class TestMulligan:
     """UC3: a goldfish game from the manager gates on mulligan/keep_hand first."""
 
-    def _start(self, library=None, commanders=None, hand=7):
+    def _start(self, library=None, commanders=None, hand=7, mulligan_style="london"):
         manager = GameSessionManager()
         library = library if library is not None else [land()] * 30
         return manager.create_goldfish(
-            library=library, commanders=commanders, starting_hand=hand
+            library=library,
+            commanders=commanders,
+            starting_hand=hand,
+            mulligan_style=mulligan_style,
         )
 
     def test_starts_incomplete_with_only_mulligan_actions(self):
@@ -277,6 +280,28 @@ class TestMulligan:
         view = session.restart()
         assert view["setup"]["complete"] is False
         assert view["setup"]["mulligan_count"] == 0
+
+    def test_next7_mulligan_redraws_seven_and_never_requires_bottoming(self):
+        session = self._start(mulligan_style="next7")
+        player = session.engine.state.active_player
+        first_hand = {o.instance_id for o in player.hand}
+        view = session.apply_action({"type": "mulligan"})
+        assert view["setup"]["complete"] is False
+        assert view["setup"]["mulligan_count"] == 1
+        assert view["setup"]["bottom_count"] == 0
+        assert len(player.hand) == 7
+        assert {o.instance_id for o in player.hand} != first_hand
+        assert {a["type"] for a in view["legal_actions"]} == {"mulligan", "keep_hand"}
+        keep_action = next(a for a in view["legal_actions"] if a["type"] == "keep_hand")
+        assert keep_action["bottom_count"] == 0
+
+        view = session.apply_action({"type": "mulligan"})
+        assert view["setup"]["mulligan_count"] == 2
+        assert view["setup"]["bottom_count"] == 0
+
+        view = session.apply_action({"type": "keep_hand", "bottom_instance_ids": []})
+        assert view["setup"]["complete"] is True
+        assert len(player.hand) == 7
 
 
 class TestActions:

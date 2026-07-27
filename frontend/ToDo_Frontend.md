@@ -78,8 +78,17 @@ analysis (UC2)". Still open, blocked on the backend LLM endpoint:
 
 ## Bot mode (UC5)
 
-- [ ] "Bot Play" vs "Manual Play" selector before a game starts.
-- [ ] Visualize bot actions in real time, with a speed control.
+Seating a bot in a Multiplayer table shipped 2026-07-27 — moved to
+`docs/implementation-state/Done_Frontend.md`, section "Multiplayer".
+Still open:
+
+- [ ] Visualize bot actions in real time, with a speed control. Right now
+      a bot's whole turn arrives as one pushed view (the server runs it
+      before broadcasting), so there is nothing to *watch* — showing it
+      step by step needs the server to push between the bot's plies, or
+      the client to replay the move log at a chosen speed.
+- [ ] A bot opponent in **Goldfisch** mode. Bots are a multiplayer-lobby
+      feature today (they need a seat); goldfish has no second seat at all.
 
 ## Cleanup / polish
 

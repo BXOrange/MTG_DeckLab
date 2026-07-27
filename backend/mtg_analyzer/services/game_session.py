@@ -63,13 +63,17 @@ REPLAY = "replay"
 
 #: Mulligan rules a table can agree on before the game starts (RULE 103.4).
 #: ``london`` is the current tournament rule — redraw a full hand, then put
-#: one card per mulligan taken on the bottom when you keep. ``none`` skips
-#: the whole procedure (the opening hand is the hand), which is what a quick
-#: test game between two people usually wants. Vancouver's "scry 1 after
-#: keeping" is deliberately absent: `RulesEngine.scry` is a non-interactive
-#: stub that always keeps every card on top, so offering it would be a
-#: choice with no effect (see backend/ToDo_Backend.md).
-MULLIGAN_STYLES = ("london", "none")
+#: one card per mulligan taken on the bottom when you keep. ``next7`` is a
+#: casual "free mulligan" variant popular for playtesting: same redraw
+#: (shuffle the hand back, draw a fresh 7), but keeping it never bottoms any
+#: cards, however many mulligans were taken — there is no size penalty, only
+#: a fresh random 7. ``none`` skips the whole procedure (the opening hand is
+#: the hand), which is what a quick test game between two people usually
+#: wants. Vancouver's "scry 1 after keeping" is deliberately absent:
+#: `RulesEngine.scry` is a non-interactive stub that always keeps every card
+#: on top, so offering it would be a choice with no effect (see
+#: backend/ToDo_Backend.md).
+MULLIGAN_STYLES = ("london", "next7", "none")
 
 
 class GameActionError(Exception):
@@ -249,19 +253,42 @@ class GameSession:
         starting_hand: int = 7,
         require_setup: bool = False,
         mulligan_style: str = "london",
+        takebacks_per_player: int = 0,
     ) -> None:
         self.id = session_id or str(uuid.uuid4())
         self.mode = mode
         self.engine = engine
+        #: RULE-free, table-agreed convenience (UC4 Setup): each seat may
+        #: unilaterally undo its own last move this many times over the
+        #: whole game, no matter who currently holds priority — unlike
+        #: `rewind`, which undoes *the* shared history by count and is a
+        #: solo-practice tool (disabled in multiplayer: one player can't
+        #: unilaterally rewind a shared game). `take_back` instead only
+        #: ever undoes back through the *caller's own* last action,
+        #: leaving anything an opponent did since then untouched — up to
+        #: the moment they did it, which is the whole point of a limited
+        #: budget rather than a free undo. Zero (goldfish/replay, and any
+        #: multiplayer table configured with none) means the feature is
+        #: simply never offered; nothing else in `GameSession` treats it
+        #: as special.
+        self.takebacks_remaining: dict[str, int] = (
+            {p.id: max(0, takebacks_per_player) for p in engine.state.players if not p.is_dummy}
+            if takebacks_per_player
+            else {}
+        )
         #: A card loader for Replay-mode `edit_add_object` (resolving a card
         #: name → `Card` on the fly). Set by `create_replay`; None otherwise.
         self._loader: Any = None
         #: Pristine opening state + step position, so restart is exact.
         self._initial: tuple[GameState, int] = (engine.state.clone(), engine.step_cursor)
-        #: (label, pre-action snapshot, cursor) stack; rewind pops the end.
-        #: The step cursor lives on the engine, not the state, so it must
-        #: travel with each snapshot or a mid-turn undo would jump turns.
-        self._history: list[tuple[str, GameState, int]] = []
+        #: (label, pre-action snapshot, cursor, actor_id) stack; rewind pops
+        #: the end. The step cursor lives on the engine, not the state, so
+        #: it must travel with each snapshot or a mid-turn undo would jump
+        #: turns. ``actor_id`` is ``None`` for the handful of callers that
+        #: don't have (or need) one — `_apply_advance_to_decision`'s
+        #: per-step snapshots — which simply can never be the target of a
+        #: `take_back` (there is no actor to match).
+        self._history: list[tuple[str, GameState, int, Optional[str]]] = []
         #: Human-readable labels of applied actions, for the UI.
         self.move_log: list[str] = []
 
@@ -300,8 +327,8 @@ class GameSession:
 
     # -- Snapshot / restore --------------------------------------------
 
-    def _snapshot(self, label: str) -> None:
-        self._history.append((label, self.engine.state.clone(), self.engine.step_cursor))
+    def _snapshot(self, label: str, actor_id: Optional[str] = None) -> None:
+        self._history.append((label, self.engine.state.clone(), self.engine.step_cursor, actor_id))
         if len(self._history) > MAX_HISTORY:
             self._history.pop(0)
 
@@ -344,12 +371,52 @@ class GameSession:
         for _ in range(steps):
             if not self._history:
                 return self.restart()
-            _label, state, cursor = self._history.pop()
+            _label, state, cursor, _actor_id = self._history.pop()
             if self.move_log:
                 self.move_log.pop()
         assert state is not None
         self._restore(state, cursor)
         return self.view()
+
+    def take_back(self, player_id: str) -> dict[str, Any]:
+        """``player_id`` undoes back through their own last move (UC4 Setup).
+
+        Unlike `rewind` (a solo-practice, whole-history-by-count undo,
+        disabled in multiplayer), this only ever looks for *this player's*
+        most recent entry in the shared history and restores the state from
+        just before it — same one-shared-timeline history as `rewind`, so
+        anything anyone else did *after* that point is undone too, not just
+        the caller's own move. That's the trade-off a single linear history
+        implies, not a bug: a take-back is "put the game back to right
+        before my mistake", and whatever happened next necessarily didn't
+        happen in a timeline where the mistake didn't.
+
+        Budget-gated by `takebacks_remaining` (0 for every solo mode, and
+        for a multiplayer table configured with none) rather than by
+        `interactive_priority`/whose turn it is — a misclick doesn't wait
+        for a convenient moment, and undoing it can't need priority you no
+        longer hold once you've noticed it.
+        """
+        if self.takebacks_remaining.get(player_id, 0) <= 0:
+            raise GameActionError(f"{player_id} has no take-backs left")
+        # Found by walking back from the most recent move; ``depth`` counts
+        # how many entries (this one plus everything more recent) have to
+        # go. `_history` drops its *oldest* entries once it passes
+        # `MAX_HISTORY` (`_snapshot`), but `move_log` never does — so the
+        # two can be different lengths, and slicing both from an absolute
+        # front-based index would desync them. Counting from the tail with
+        # ``depth`` and slicing with ``-depth:`` stays correct regardless,
+        # since neither list ever loses entries from its *tail* except
+        # here and in `rewind` (which pops one at a time for the same
+        # reason).
+        for depth, (_label, state, cursor, actor_id) in enumerate(reversed(self._history), start=1):
+            if actor_id == player_id:
+                del self._history[-depth:]
+                del self.move_log[-depth:]
+                self._restore(state, cursor)
+                self.takebacks_remaining[player_id] -= 1
+                return self.view()
+        raise GameActionError("no move of yours left to take back")
 
     # -- Actions -------------------------------------------------------
 
@@ -380,12 +447,12 @@ class GameSession:
                 raise GameActionError("only the active player can advance the turn")
             return self._apply_advance_to_decision()
         label = self._describe(action)
-        self._snapshot(label)
+        self._snapshot(label, actor.id)
         try:
             self._dispatch(action, actor)
         except (ValueError, KeyError) as exc:
             # Roll back the failed attempt so state stays clean.
-            _, snapshot, cursor = self._history.pop()
+            _, snapshot, cursor, _actor_id = self._history.pop()
             self._restore(snapshot, cursor)
             raise GameActionError(str(exc)) from exc
         self.move_log.append(label)
@@ -406,10 +473,12 @@ class GameSession:
         Legal at any time and from any seat — conceding doesn't use the
         stack and doesn't need priority — so unlike `apply_action` it is not
         routed through `_dispatch`'s timing gates. Snapshotted like any
-        other move so a misclick is still rewindable in a friendly game.
+        other move so a misclick is still rewindable in a friendly game —
+        attributed to the conceding player themselves, so their own
+        `take_back` budget (not anyone else's) is what can undo it.
         """
         player = self._actor(player_id)
-        self._snapshot(f"concede: {player.name}")
+        self._snapshot(f"concede: {player.name}", player.id)
         self.engine.rules.concede(player)
         # RULE 104.3a leaves the game *now*, so a seat that hadn't kept its
         # opening hand yet must stop blocking the rest of the table.
@@ -543,9 +612,10 @@ class GameSession:
             ability_index = int(action.get("ability_index", 0))
             tap_choices = self._resolve_tap_choices(action.get("tap_choices"))
             color_split = self._resolve_color_split(action.get("color_split"))
+            sacrifice_choice = self._resolve_sacrifice_choice(action.get("sacrifice_choice"))
             self.engine.tap_for_mana(
                 active, self._object(action), option_index, ability_index, tap_choices,
-                color_split=color_split,
+                color_split=color_split, sacrifice_choice=sacrifice_choice,
             )
             return
 
@@ -603,9 +673,10 @@ class GameSession:
             x = int(action.get("x", 0))
             index = int(action.get("ability_index", 0))
             tap_choices = self._resolve_tap_choices(action.get("tap_choices"))
+            sacrifice_choice = self._resolve_sacrifice_choice(action.get("sacrifice_choice"))
             self.engine.activate_ability(
                 active, self._object(action), index, targets, x, tap_choices,
-                target_groups=target_groups,
+                target_groups=target_groups, sacrifice_choice=sacrifice_choice,
             )
             return
 
@@ -853,6 +924,7 @@ class GameSession:
         state = self.engine.state
         if "turn_number" in action:
             state.turn_number = max(1, int(action["turn_number"]))
+            state.sync_round_number()
         if action.get("active_player_id"):
             player = state.player_by_id(str(action["active_player_id"]))
             state.active_player_index = state.players.index(player)
@@ -866,8 +938,19 @@ class GameSession:
         """How many mulligans ``player_id`` has taken (0 if none)."""
         return self._mulligan_counts.get(str(player_id), 0)
 
+    def bottom_count_for(self, player_id: str) -> int:
+        """How many cards ``keep_hand`` must bottom for this player right now.
+
+        London: one per mulligan taken (RULE 103.4-103.5). ``next7`` is the
+        "free mulligan" variant — a full fresh 7 every time, never any
+        bottoming, however many mulligans were taken.
+        """
+        if self.mulligan_style == "next7":
+            return 0
+        return self.mulligan_count_for(player_id)
+
     def _mulligan(self, player: Player) -> None:
-        """London mulligan, part 1: shuffle the hand back and draw 7 (RULE 103.4-103.5)."""
+        """Shuffle the hand back and draw 7 (RULE 103.4-103.5 / the ``next7`` variant)."""
         while player.hand:
             obj = player.hand.pop()
             obj.zone = Zone.LIBRARY
@@ -882,16 +965,17 @@ class GameSession:
         bottom_instance_ids: list[Any],
         draw_first: Optional[bool] = None,
     ) -> None:
-        """London mulligan, part 2: keep, bottoming one card per mulligan taken.
+        """Keep the current hand, bottoming ``bottom_count_for`` cards (if any).
 
-        ``draw_first`` sets who draws on turn 1 (UC3 setup option): True →
-        the human draws in their first turn (they're "on the draw"); False →
-        they skip it (the standard "on the play" rule, RULE 103.7a). None
+        London bottoms one card per mulligan taken; ``next7`` never bottoms
+        any. ``draw_first`` sets who draws on turn 1 (UC3 setup option): True
+        → the human draws in their first turn (they're "on the draw"); False
+        → they skip it (the standard "on the play" rule, RULE 103.7a). None
         keeps the session's current setting. Multiplayer never sends it —
         there the starting player is simply the first seat and skips the
         draw, so the flag stays at its RULE 103.7a default.
         """
-        bottom_count = self.mulligan_count_for(player.id)
+        bottom_count = self.bottom_count_for(player.id)
         if len(bottom_instance_ids) != bottom_count:
             raise ValueError(
                 f"must put exactly {bottom_count} card(s) on the bottom of the library"
@@ -1073,6 +1157,16 @@ class GameSession:
         return [int(i) for i in tap_choices]
 
     @staticmethod
+    def _resolve_sacrifice_choice(sacrifice_choice: Optional[Any]) -> Optional[int]:
+        """The player's pick of *which* permanent pays a "Sacrifice a
+        <type>" cost (RULE 602.1) — just an instance id; `GameEngine`
+        resolves and validates it against the eligible pool itself. ``None``
+        when absent, so the engine falls back to its own auto-pick."""
+        if sacrifice_choice is None:
+            return None
+        return int(sacrifice_choice)
+
+    @staticmethod
     def _resolve_color_split(color_split: Optional[dict[str, Any]]) -> Optional[dict[str, int]]:
         """The player's chosen colour distribution for an "any combination
         of colours" mana ability (`ManaAbility.any_combination`); ``None``
@@ -1136,7 +1230,7 @@ class GameSession:
             actions: list[dict[str, Any]] = []
             if self.mulligan_style != "none":
                 actions.append({"type": "mulligan"})
-            actions.append({"type": "keep_hand", "bottom_count": self.mulligan_count_for(seat.id)})
+            actions.append({"type": "keep_hand", "bottom_count": self.bottom_count_for(seat.id)})
             return actions
         pending = state.pending_choice
         if pending:
@@ -1243,6 +1337,10 @@ class GameSession:
             "legal_actions": self.legal_actions(perspective),
             "pending_choice": state_dict.get("pending_choice"),
             "can_rewind": self.can_rewind,
+            # Not hidden information (RULE 400.2 doesn't apply — a real
+            # table can see how many take-backs everyone still has), so
+            # the whole per-seat budget is shown, not just the caller's own.
+            "takebacks_remaining": dict(self.takebacks_remaining),
             "move_log": list(self.move_log),
             # Every static ability in play, for the UI's optional layer panel.
             "static_effects": continuous.active_static_abilities(self.engine.state),
@@ -1282,9 +1380,15 @@ class GameSession:
             "setup": {
                 "complete": self._setup_complete,
                 "mulligan_style": self.mulligan_style,
-                # This seat's own mulligan count (the number of cards its
-                # `keep_hand` must bottom); solo modes have only one seat.
+                # This seat's own mulligan count (how many it has taken —
+                # solo modes have only one seat). Not the same as
+                # `bottom_count` once `next7` exists: London bottoms one
+                # card per mulligan, `next7` never bottoms any.
                 "mulligan_count": self.mulligan_count_for(
+                    perspective if perspective is not None else self.engine.state.active_player.id
+                ),
+                # How many cards this seat's `keep_hand` must bottom right now.
+                "bottom_count": self.bottom_count_for(
                     perspective if perspective is not None else self.engine.state.active_player.id
                 ),
                 "draw_first": self._draw_first,
@@ -1325,6 +1429,7 @@ class GameSessionManager:
         player_name: str = "You",
         starting_life: int = 40,
         starting_hand: int = 7,
+        mulligan_style: str = "london",
     ) -> GameSession:
         engine = build_goldfish_engine(
             library, commanders, player_name, starting_life, starting_hand, with_dummy=True
@@ -1334,6 +1439,7 @@ class GameSessionManager:
             mode=GOLDFISH,
             starting_hand=starting_hand,
             require_setup=True,
+            mulligan_style=mulligan_style,
         )
         self._sessions[session.id] = session
         return session
@@ -1357,6 +1463,7 @@ class GameSessionManager:
         starting_life: int = 40,
         starting_hand: int = 7,
         mulligan_style: str = "london",
+        takebacks_per_player: int = 0,
     ) -> GameSession:
         """Start an N-real-player game (UC4), one seat per human.
 
@@ -1373,6 +1480,7 @@ class GameSessionManager:
             starting_hand=starting_hand,
             require_setup=True,
             mulligan_style=mulligan_style,
+            takebacks_per_player=takebacks_per_player,
         )
         self._sessions[session.id] = session
         return session

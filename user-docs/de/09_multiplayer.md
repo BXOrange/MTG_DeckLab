@@ -65,7 +65,17 @@ Sobald du an einem Tisch sitzt, erscheint oben in **Setup** ein Panel mit:
   - *London-Mulligan* (Standard): zurückmischen und neue 7 ziehen; beim
     Behalten so viele Karten unten in die Bibliothek legen, wie Mulligans
     genommen wurden.
+  - *Next 7*: zurückmischen und neue 7 ziehen, genau wie beim
+    London-Mulligan — aber beim Behalten wird nie unterlegt, egal wie
+    viele Mulligans genommen wurden. Eine "freie" Variante für lockeres
+    Spiel/Playtesting.
   - *Kein Mulligan*: die Starthand wird behalten.
+- **Take-backs je Spieler** — vom Host für den ganzen Tisch gewählt
+  (Standard: 0, also aus). Erlaubt jedem Platz, im laufenden Spiel seinen
+  eigenen letzten Zug zurückzunehmen — für Fehlklicks, nicht als
+  allgemeine Undo-Funktion. Da alle Spieler eine gemeinsame Zeitleiste
+  teilen, nimmt das Zurücknehmen deines Zuges automatisch auch alles mit
+  zurück, was der Gegner *seitdem* gemacht hat.
 - **Dein Deck** — eines deiner gespeicherten Decks. Jeder wählt selbst.
 - **✔ Bereit** — deine Zusage. Ohne Deck nicht möglich.
 - **▶ Spiel starten** — nur der Host, und erst wenn alle Plätze belegt
@@ -79,6 +89,34 @@ zugestimmt hat. Einfach erneut auf **Bereit** klicken.
 
 Startet der Host das Spiel, werden alle Spieler automatisch zum Tab
 **Board** geschaltet.
+
+### Einen Bot einsetzen
+
+Ist noch ein Platz frei, kann der **Host** ihn mit einem Bot besetzen —
+für ein Spiel allein gegen den Computer, oder um ohne zweite Person zu
+testen. Im Panel erscheint dazu die Zeile **Bot einsetzen** mit einer
+Auswahl und der Schaltfläche **🤖 Hinzufügen**:
+
+- **Goldfisch-Bot** — spielt nur Länder und passt sonst immer. Der
+  klassische "Goldfisch": ein Gegner, der nichts tut, ideal um die eigene
+  Kurve zu testen.
+- **Gieriger Bot** — spielt alles, sobald er es spielen kann, greift mit
+  allem an, blockt mit allem und wählt immer das erstbeste Ziel. Er
+  optimiert nichts; er ist ein Gegner, der Druck macht, kein guter
+  Spieler.
+
+Ein Bot sitzt danach wie jeder andere in der Platzliste (mit 🤖 markiert).
+Zwei Dinge macht der Host für ihn, weil ein Bot keine eigene Ansicht hat:
+
+- **Sein Deck wählen** — direkt in seiner Platzzeile. Sobald der Bot ein
+  Deck hat, gilt er als *bereit*.
+- **Ihn wieder entfernen** — mit dem **✕** in seiner Zeile.
+
+Danach läuft alles wie sonst: **▶ Spiel starten**, und der Bot behält
+seine Starthand und zieht seine Züge von selbst. Sein ganzer Zug erscheint
+bei dir in einem Rutsch, sobald du am Zug bist. Ein Tisch, an dem nur
+noch Bots sitzen, wird aufgelöst — Bots spielen nicht allein weiter, und
+sie können auch niemanden einladen oder ein Spiel starten.
 
 ## Spielen
 
@@ -167,6 +205,31 @@ Sekundenzahl findest du zusätzlich direkt am Spielfeld, damit du sie
 mitten in der Partie ändern kannst — meist genau in dem Moment, in dem der
 Auto-Pass dich gerade eine Reaktion gekostet hat.
 
+### Was am Spielfeld sonst noch einstellbar ist
+
+- **Gegnerische Hand**: standardmäßig steht in der Handzone des Gegners
+  nur die *Anzahl* ("5 verdeckte Karten"). Die Karten selbst bekommt dein
+  Browser ohnehin nie zu sehen (Regel 400.2 – der Server schickt sie gar
+  nicht erst mit), die Kartenrücken kosteten nur Platz. Über das Häkchen
+  **verdeckte Karten zeigen** an der Handzone (oder in den
+  **Einstellungen**) bekommst du sie zurück. Karten, die ein Effekt
+  wirklich *aufdeckt*, werden immer angezeigt.
+- **⏭ Nächste Aktion**: passt alle Prioritätsfenster durch, in denen dir
+  überhaupt keine Handlung offensteht, und hält beim ersten Fenster, in
+  dem du wirklich etwas tun kannst. Das Häkchen **Leere Fenster
+  überspringen** macht daraus einen Dauerzustand. Das ist bewusst etwas
+  anderes als Auto-Pass: Auto-Pass zählt herunter, *weil* du hättest
+  reagieren können – hier gibt es nichts abzuwarten.
+- **Passen am eigenen Brett**: der Passen-Knopf und die Anzeige „Du bist
+  dran" stehen zusätzlich auf der Kopfzeile deines eigenen Spielfelds –
+  bei zwei Brettern ist die Leiste ganz oben meist aus dem Bild gescrollt.
+- **Zug-Zähler**: „Zug 4" meint die vierte Runde, also das vierte Mal, dass
+  der Startspieler an der Reihe ist. Die regeltechnische Zählung (Regel
+  500.1 zählt jeden einzelnen Spielerzug) steht im Tooltip.
+- **Spielerwerte**: Gift (Regel 704.5c), Energie-/Erfahrungs-/
+  Strahlungsmarken, der Eine Ring, Monarch/Initiative und Embleme stehen
+  neben den Lebenspunkten in der Kopfzeile des jeweiligen Spielers.
+
 ### Blocken
 
 Wirst du angegriffen, erscheint im Blocker-Schritt über dem Spielfeld das
@@ -182,6 +245,21 @@ macht Mehrfachblocks möglich: Ein Angreifer mit *Bedrohlich* etwa muss
 von zwei oder mehr Kreaturen geblockt werden, und das lässt sich nur an
 der vollständigen Zuweisung prüfen. **Zurücksetzen** verwirft deine
 Auswahl.
+
+Willst du komplett auf einen Block verzichten, ist das eine ganz normale,
+gültige Entscheidung: weise einfach nichts zu und klicke trotzdem auf den
+Bestätigen-Knopf (er heißt dann **Keine Blocker bestätigen**).
+
+### Zug zurücknehmen
+
+Hat der Host beim Einrichten der Partie **Take-backs je Spieler** auf
+mehr als 0 gesetzt, erscheint am Spielfeld neben **Aufgeben** der Button
+**↩️ Zug zurücknehmen (N)** — N ist dein noch verbleibendes Kontingent.
+Ein Klick macht deinen letzten eigenen Zug ungeschehen und zieht eins von
+deinem Kontingent ab. Da alle an einem Tisch eine gemeinsame Zeitleiste
+teilen, macht das Zurücknehmen automatisch auch alles rückgängig, was der
+Gegner seit deinem letzten Zug getan hat — dafür ist das Kontingent
+begrenzt, damit daraus keine allgemeine Undo-Funktion wird.
 
 ### Aufgeben
 
@@ -247,7 +325,8 @@ schaltet die jeweilige Zeit ab.
 
 ## Hinweise und Grenzen
 
-- **Zwei Spieler.** Mehr Plätze werden noch nicht unterstützt.
+- **Zwei Spieler.** Mehr Plätze werden noch nicht unterstützt (ein Bot
+  belegt einen davon).
 - **Namen sind Identitäten — und ungeschützt.** Zwei Personen mit
   demselben Namen gelten als derselbe Spieler, und wer sich zuletzt
   verbindet, übernimmt den Platz. Gebt euch am Tisch also unterschiedliche

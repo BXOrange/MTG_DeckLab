@@ -4493,6 +4493,53 @@ the Phase-1 models. Tests: `test_game_engine.py`.
       same-pass-anthem visibility fix, and the Delney-shaped combination of
       a subject qualifier with an independent filtered tail).
 
+- [x] Two "auto-pick the first candidate" gaps became real player choices
+      (2026-07-27), reported directly against play: an activated ability's
+      own "Sacrifice a `<type>`" cost, and any discard (looting: "Draw a
+      card, then discard a card.", or a directly-targeted forced discard
+      like Mind Rot). Neither is a resolution-time effect — both used to be
+      paid/applied in one synchronous call with no player prompt at all.
+      **Sacrifice-as-cost**: `GameEngine._sacrifice_candidate` gained an
+      optional `chosen_id`, threaded as `sacrifice_choice` through
+      `_can_pay_activation_cost`/`_pay_activation_cost`/`can_activate`/
+      `activate_ability`/`tap_for_mana` (an Ashnod's Altar-shaped mana
+      ability's cost pays the same way) — the exact shape `tap_choices`
+      already established for "tap N untapped `<type>`s you control"
+      (Birchlore Rangers): `None` auto-picks (non-interactive callers, and
+      the existence-only check `legal_actions` uses before a choice is
+      made), an explicit id is validated against every legal candidate.
+      `GameEngine._sacrifice_cost_choice` (mirroring `_tap_cost_choice`)
+      offers the pool via `legal_actions`' new `sacrifice_cost` key on both
+      the `activate_ability` and `tap_for_mana` action shapes; not offered
+      for a `"self"` cost, which is never a choice. `game_session.py`'s
+      `_dispatch` round-trips a `sacrifice_choice` instance id the same way
+      it already does `tap_choices`. Frontend: `gameBoardView.js` reuses
+      the existing one-pick-at-a-time `castTargeting` modal (previously
+      only wired to `tap_cost`) with a new `isSacrificeChoice` flag,
+      `data-sacrifice-choice-start`. **Looting/discard**: `"discard"` joined
+      `RulesEngine.CHOOSE_OBJECT_ACTIONS` (alongside `tap`/`sacrifice`/
+      `return_to_hand`/`soulbond_pair`/`library_top`) with `discard_specific`
+      as its one-pick action; the new `RulesEngine.discard_choice` opens
+      that chooser via the existing `request_choose_objects`, and
+      `DiscardEffect.apply` (`game/effects.py`) now calls it — through a new
+      `GameContext.discard_choice` — instead of the plain `discard`. RULE
+      701.8: the *discarding* player picks, not the effect's controller, so
+      a Mind-Rot-shaped "target player discards N" still asks the right
+      seat. Forced with no prompt when the hand has at most `count` cards
+      left (Windfall's whole-hand discard, still routed through the plain
+      `discard` — no choice ever exists there). Cost-payment discard
+      (`ActivationCost.discard`, e.g. a Madness-enabling "Discard a card:
+      …") deliberately keeps the old non-interactive `RulesEngine.discard`
+      — a cost is paid inside one synchronous call, the same reason a
+      cast-time "as an additional cost, sacrifice a creature"
+      (`_pay_additional_cast_cost`) also stays auto-pick for now (see
+      `backend/ToDo_Backend.md`). Tests: `test_game_engine.py` (3 new
+      sacrifice-cost cases: 2+ candidates offered/honoured, auto-pick
+      fallback, invalid-choice rejection) and the new
+      `test_discard_choice.py` (5 cases: choice opens, answering discards
+      the one picked, a 2-card discard asks twice, whole-hand discard needs
+      no prompt, the discarding player — not the caster — owns the choice).
+
 ## Game Engine (Phase 3)
 
 `mtg_analyzer/game/game_engine.py`, tests in `test_game_engine.py`.
@@ -5408,6 +5455,146 @@ the same engine goldfish mode uses. The design keeps a hard line between
       the client's own game straight away, which is the resync a reload or
       a reconnect needs — the board is rebuilt from server state rather
       than from whatever the client was holding.
+
+- [x] **`GameState.round_number` (2026-07-27)** — a display-only companion
+      to `turn_number`. RULE 500.1 counts every player's turn separately,
+      which is correct and is what the whole engine reads; it is *not* what
+      a player means by "we're on turn 4", which is the fourth time it has
+      come back around to them. `GameEngine._advance_round_number` bumps it
+      when the turn reaches whoever took turn 1 (`starting_player_id`),
+      moving that reference point if they leave the game (RULE 800.4a) so
+      the counter can't get stranded. A board assembled rather than played
+      (Replay/Puzzle, the `edit_set_turn` action) derives it instead, via
+      `GameState.sync_round_number`. Nothing in the rules engine reads it.
+- [x] **Leaving a *finished* table closes it (2026-07-27).** `Lobby.leave`
+      kept the seat of anyone who walked away from a non-SETUP game, which
+      is right for a RUNNING one (the position is still the table's, and
+      they may come back) and wrong once the game is over: there is nothing
+      to come back to, and a played-out table sat in every player's lobby
+      list until the last participant's socket died. FINISHED now leaves
+      the same way SETUP does, dropping the table with the last human out.
+
+- [x] **Equip/Fortify/Reconfigure restricted to what you control
+      (2026-07-27).** RULE 702.6a ("target creature *you control*"),
+      702.67a ("target land *you control*") and 702.151a ("another target
+      creature *you control*") were all unenforced — `game/targeting.py`'s
+      `legal_targets` dispatch for these three (keyed off `_attachment_kind`
+      in the ``kind == "permanent"`` branch `game/effect_binder.py`'s
+      `_keyword_activated_ability` always sets, since it doesn't know the
+      real target restriction) offered *any* creature/land at all,
+      including an opponent's, and `game/rules_engine.py`'s
+      `_attachment_legal` didn't re-check control at resolution time either
+      (RULE 301.5b: control matters at both points). Both now compare
+      `target.controller_id` against the activating player (offer time) /
+      the Equipment's own controller — the only one who may activate it,
+      RULE 301.5d (resolution time). Equip's old `target.card.is_artifact`
+      fallback (letting it target a non-creature artifact — flatly wrong
+      per RULE 301.5's very first sentence) is gone with it. Regression
+      tests in `test_game_engine.py` seat an opponent's creature/land as
+      bait at both checkpoints.
+- [x] **`GameSession.take_back` — a per-seat undo budget (UC4 Setup,
+      2026-07-27).** Table-configured (`LobbyGame.takebacks_per_player`,
+      host-only via `set_options`, clamped to `MAX_TAKEBACKS_PER_PLAYER`),
+      not a RULE concept — a friendly-game convenience distinct from
+      `rewind` (a solo-practice, disabled-in-multiplayer, undo-by-count
+      tool). Unlike an ordinary action, it isn't gated by RULE 117
+      priority at all (the same exemption `concede` gets — a misclick
+      doesn't wait for a convenient moment), and unlike `rewind` it
+      targets *a specific player's own* last move rather than a raw count:
+      `_history` entries now carry the acting player's id (`_snapshot`'s
+      new `actor_id` param, threaded from `apply_action`'s `actor` and
+      from `concede` — so a player can even take back their own
+      accidental concession), and `take_back` walks backward for the
+      caller's most recent entry, discarding it and everything after. That
+      "everything after" is deliberate, not a gap: `_history` is one
+      shared timeline, so an opponent's move made *after* the point being
+      undone cannot survive undoing it — a take-back is "put the game back
+      to right before my mistake," and whatever happened next didn't
+      happen in a timeline where the mistake didn't. Slicing both
+      `_history` and `move_log` by a **tail-relative** depth (not an
+      absolute front-based index) is what keeps this correct once
+      `_history` starts dropping its oldest entries past `MAX_HISTORY` —
+      `move_log` never trims, so the two lists can differ in length, and
+      only their *tails* are guaranteed to stay aligned.
+
+## Bot AI (UC5)
+
+`mtg_analyzer/services/bots.py`, plus bot seats in `services/lobby.py` and
+the routes in `api/multiplayer.py`; tests in `test_bots.py` (22) and
+`test_api_multiplayer.py::TestBots` (12).
+
+Shipped 2026-07-27. A bot is a **player at a multiplayer table**, not a
+mode: the host seats one from the Setup tab, picks a deck for it, and the
+game that starts is an ordinary `GameSession`. Two are built on the base
+class — a **Goldfisch** (plays lands, otherwise passes) and a **greedy**
+bot (plays everything the moment it can, attacks with everything, blocks
+with everything, takes the first legal target).
+
+- [x] **The bot plays through the client surface, and only that.** A bot
+      reads `GameSession.view(perspective=<its own id>)` — the same
+      RULE 400.2-redacted payload a browser gets, so an opponent's hand and
+      every library are simply not in the data it sees — and may only
+      submit entries from its own `legal_actions`, through
+      `apply_action(action, actor_id=...)`. That is the whole design: the
+      engine's existing per-player validation is what makes a bot legal,
+      so a bot cannot cheat without the same bug letting a human client
+      cheat, and every bot game is an end-to-end test of the redaction.
+      Reading `engine.state` directly would have been far easier and is
+      deliberately not done anywhere in `bots.py`.
+- [x] **`Bot` (the base class) is policy hooks over a fixed skeleton.**
+      `decide(view, actions)` fixes the *order* a seat must handle things
+      in — answer a `pending_choice` first, then the setup/mulligan
+      question, then RULE 509.1a declare-blockers (a turn-based action the
+      defending player takes while the *attacker* holds priority, so it is
+      checked before the priority gate), and only then, if this bot holds
+      priority, `play()`. Subclasses override the policy, never the order:
+      `setup()`, `answer_choice()`, `blocks()`, `play()`, `rank_targets()`.
+      `pick_targets()` fills a `{TARGET}`-style requirement from the
+      offer's own candidate list (respecting `count`, RULE 115.1a's "up
+      to", and `distinct_controllers`) and returns None when a mandatory
+      requirement can't be met, so the bot skips that offer instead of
+      posting something illegal.
+- [x] **Bots are driven externally, not by a loop of their own.**
+      `run_bots(session, bots)` applies one action at a time, re-reading
+      the view between each, and is called from three places: after any
+      human action (`api/multiplayer.py`'s `_after_move`), right after
+      `lobby.start()` (so a bot keeps its opening hand before the humans
+      are shown the mulligan screen — nobody is going to click "Behalten"
+      for it), and once a second from the watchdog sweeper
+      (`api/multiplayer_ws.sweep_once`), which is what drives a table with
+      no human at it at all. Running *before* the broadcast is deliberate:
+      a human's move and every bot response it provokes reach the clients
+      as one push, so no board ever shows half a bot turn.
+      `MAX_BOT_ACTIONS` (200) is a yield point rather than an error budget
+      — a bot-vs-bot table simply resumes on the next call.
+- [x] **A bad offer can't wedge the table.** If an action a bot chose
+      raises `GameActionError`, the bot records that offer's signature in
+      `_failed` (so it won't re-pick it) and passes priority, which is
+      always legal. This is what keeps an unmodeled corner of a card from
+      turning into a hung game rather than a skipped play.
+- [x] **`GreedyBot` — "stupid and greedy", by specification.** Attack with
+      everything first; then, in its own main phase with an empty stack,
+      play a land, tap for mana (picking whichever colour it holds least
+      of), then cast/activate, cheapest first with `{X}` spells last (and
+      never `{X}`=0, which is a real offer and always a waste). Blocks by
+      spreading its untapped creatures across the attackers. Targets are
+      ranked "the opponent's things first", which is wrong about as often
+      as it's right and is exactly the level of thought asked for.
+- [x] **Bot seats in the lobby (`services/lobby.py`).** A bot gets an
+      ordinary `LobbyPlayer` and `Seat` (`Seat.bot_kind` is the only new
+      field, opaque to the lobby — `api/multiplayer.py` validates it
+      against `BOT_TYPES`), so the rules engine never learns that bots
+      exist. Three consequences are handled explicitly: a bot seat with a
+      deck counts as **ready** (it has no client to accept), a bot is kept
+      out of `players()`/`idle_players()` (it isn't a person, and has no
+      socket to sweep), and a table whose last *human* leaves is dropped
+      along with its bots (`has_human_seat`) rather than left playing
+      itself forever. The host acts for a bot throughout:
+      `set_deck(..., seat_id=...)`, `add_bot`, `remove_bot`.
+- [x] **`GameEngine._cast_action` now carries `mana_value`.** A client
+      offered several casts had no way to order them by cost without
+      re-deriving it; the bot needs exactly that to cast cheapest-first.
+      Added alongside the existing `has_x`/`max_x`.
 
 ## cEDH staples cube
 

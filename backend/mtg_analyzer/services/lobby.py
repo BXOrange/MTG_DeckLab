@@ -27,6 +27,14 @@ tables, not about Magic. It answers two questions —
   ``setup`` (seats being filled and configured), ``running`` (a real
   `GameSession` exists behind it) and ``finished``.
 
+A seat can also be filled by a **bot** (`add_bot`, `Seat.bot_kind` —
+`services/bots.py` for what a bot actually does). From here a bot is just
+a `LobbyPlayer` that happens to have no socket: it is exempt from both
+watchdogs, it doesn't appear in the "who is connected" list, the host
+picks its deck for it, and it accepts the table automatically because it
+has no opinion to withhold. The *kind* stays an opaque string in this
+module — it stores which bot without knowing what one is.
+
 Handing the game off to the rules engine is the one thing this module
 does *not* do itself: `start()` takes an already-built `GameSession` id
 from the caller (`api/multiplayer.py`, which owns deck resolution), so
@@ -75,6 +83,10 @@ FINISHED = "finished"
 #: than an engine one (`GameState.next_active_index` already rotates
 #: through any number of players).
 MAX_SEATS = 2
+#: Upper bound on `LobbyGame.takebacks_per_player` — purely a sanity clamp
+#: (nothing rules-based caps it), so a typo in the input can't hand out an
+#: effectively unlimited undo budget.
+MAX_TAKEBACKS_PER_PLAYER = 20
 
 
 class LobbyError(Exception):
@@ -115,6 +127,13 @@ class LobbyPlayer:
     #: Monotonic timestamp of this player's last action in a game — what
     #: `config.MULTIPLAYER_IDLE_TIMEOUT_SECONDS` is measured against.
     last_action_at: float = field(default_factory=time.monotonic)
+    #: A bot (`services/bots.py`) rather than a client. It exists here at
+    #: all because everything downstream — `pass_for_absent_players`, the
+    #: idle sweep, `game_for_player` — asks the lobby "is this seat's
+    #: player still with us?", and a bot must answer yes. It has no socket,
+    #: so it is exempt from both watchdogs and stays out of the "who is
+    #: connected" list (`players`); it lives and dies with its seat.
+    is_bot: bool = False
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -123,6 +142,7 @@ class LobbyPlayer:
             "state": self.state,
             "game_id": self.game_id,
             "connected": self.connected,
+            "is_bot": self.is_bot,
         }
 
 
@@ -134,6 +154,13 @@ class Seat:
     starts" — it's cleared again whenever anything about the table changes
     (someone joins or leaves, a deck or the mulligan style changes), so
     nobody can be carried into a game they didn't agree to.
+
+    ``bot_kind`` marks the seat as held by a bot (`services/bots.py`'s
+    `Bot.kind`) rather than a person. It stays an opaque string here —
+    this module is rules-free and doesn't know what a bot *does*; the API
+    layer validates it against the registry. A bot never accepts anything,
+    so `is_ready` treats a bot seat with a deck as accepted: a bot has no
+    opinion about the table to withhold.
     """
 
     player_id: str
@@ -141,6 +168,15 @@ class Seat:
     deck_id: Optional[str] = None
     deck_name: str = ""
     ready: bool = False
+    bot_kind: Optional[str] = None
+
+    @property
+    def is_bot(self) -> bool:
+        return bool(self.bot_kind)
+
+    @property
+    def is_ready(self) -> bool:
+        return bool(self.deck_id) if self.is_bot else self.ready
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -148,7 +184,9 @@ class Seat:
             "name": self.name,
             "deck_id": self.deck_id,
             "deck_name": self.deck_name,
-            "ready": self.ready,
+            "ready": self.is_ready,
+            "bot_kind": self.bot_kind,
+            "is_bot": self.is_bot,
         }
 
 
@@ -161,6 +199,12 @@ class LobbyGame:
     host_id: str
     num_players: int = 2
     mulligan_style: str = "london"
+    #: How many times each seat may take back its own last move over the
+    #: whole game (UC4 Setup) — a table-wide, rules-free convenience, not a
+    #: RULE 104 concept. 0 (the default) means the feature is off; the
+    #: budget is per seat, not shared. `services/game_session.py`'s
+    #: `GameSession.take_back` enforces it once the game is running.
+    takebacks_per_player: int = 0
     status: str = SETUP
     seats: list[Seat] = field(default_factory=list)
     #: Watchers (RULE-irrelevant): they see the public board and no hands.
@@ -178,7 +222,12 @@ class LobbyGame:
 
     @property
     def all_ready(self) -> bool:
-        return self.is_full and all(seat.ready for seat in self.seats)
+        return self.is_full and all(seat.is_ready for seat in self.seats)
+
+    @property
+    def has_human_seat(self) -> bool:
+        """Whether anybody at this table is a person (`Seat.is_bot`)."""
+        return any(not seat.is_bot for seat in self.seats)
 
     def seat_for(self, player_id: str) -> Optional[Seat]:
         return next((s for s in self.seats if s.player_id == player_id), None)
@@ -190,6 +239,7 @@ class LobbyGame:
             "host_id": self.host_id,
             "num_players": self.num_players,
             "mulligan_style": self.mulligan_style,
+            "takebacks_per_player": self.takebacks_per_player,
             "status": self.status,
             "seats": [s.to_dict() for s in self.seats],
             "observer_ids": list(self.observer_ids),
@@ -293,12 +343,22 @@ class Lobby:
         # is still the table's), but once *nobody* who belongs to it is
         # connected any more there's no one left to come back to it — drop
         # it rather than leaving a dead table in everyone's list forever.
+        # Bots don't count as someone coming back: they have no client, so
+        # a table of nothing but bots would otherwise play on forever with
+        # no one watching.
         game = self._games.get(game_id)
         if game is None:
             return
-        involved = [s.player_id for s in game.seats] + list(game.observer_ids)
+        involved = [s.player_id for s in game.seats if not s.is_bot] + list(game.observer_ids)
         if not any(pid in self._players for pid in involved):
-            del self._games[game_id]
+            self._drop_game(game)
+
+    def _drop_game(self, game: LobbyGame) -> None:
+        """Remove a table and every bot that only existed to sit at it."""
+        for seat in game.seats:
+            if seat.is_bot:
+                self._players.pop(seat.player_id, None)
+        self._games.pop(game.id, None)
 
     def touch(self, player_id: str) -> None:
         """Record that ``player_id`` just acted (resets their idle timer)."""
@@ -320,6 +380,7 @@ class Lobby:
             player
             for seat in game.seats
             if (player := self._players.get(seat.player_id)) is not None
+            and not player.is_bot  # no socket to time out, and never silent
             and player.connected
             and player.last_action_at <= cutoff
         ]
@@ -365,7 +426,15 @@ class Lobby:
         return self._players.get(player_id)
 
     def players(self) -> list[LobbyPlayer]:
-        return sorted(self._players.values(), key=lambda p: p.name.lower())
+        """Everyone *connected* — the Setup screen's player list.
+
+        Bots are deliberately not in it: this list answers "who else is on
+        the server", and a bot isn't. It shows up where it actually is,
+        as a seat at its own table.
+        """
+        return sorted(
+            (p for p in self._players.values() if not p.is_bot), key=lambda p: p.name.lower()
+        )
 
     # -- Games ---------------------------------------------------------
 
@@ -418,6 +487,45 @@ class Lobby:
         # The table changed shape, so every earlier "I accept" is stale.
         self._unready(game)
 
+    def add_bot(self, game_id: str, requester_id: str, kind: str, name: str = "") -> LobbyGame:
+        """Seat a bot at ``game_id`` (host only). ``kind`` is opaque here.
+
+        The bot gets a `LobbyPlayer` like anyone else, because a seat's
+        player has to be findable for the rest of the machinery to work —
+        but it never enters the name index (`_by_name`), since a bot has
+        no client to reclaim it and two tables may perfectly well each want
+        a "Gieriger Bot".
+        """
+        game = self._setup_game(game_id)
+        if game.host_id != requester_id:
+            raise LobbyError("only the host can add a bot")
+        if game.is_full:
+            raise LobbyError("this game is full")
+        bot = LobbyPlayer(
+            id=f"bot:{uuid.uuid4()}",
+            name=" ".join((name or "Bot").split()),
+            state=PLAYING,
+            game_id=game.id,
+            is_bot=True,
+        )
+        self._players[bot.id] = bot
+        game.seats.append(Seat(player_id=bot.id, name=bot.name, bot_kind=kind))
+        self._unready(game)
+        return game
+
+    def remove_bot(self, game_id: str, requester_id: str, bot_id: str) -> LobbyGame:
+        """Take a bot back off the table (host only)."""
+        game = self._setup_game(game_id)
+        if game.host_id != requester_id:
+            raise LobbyError("only the host can remove a bot")
+        seat = game.seat_for(bot_id)
+        if seat is None or not seat.is_bot:
+            raise LobbyError("that seat is not a bot")
+        game.seats = [s for s in game.seats if s.player_id != bot_id]
+        self._players.pop(bot_id, None)
+        self._unready(game)
+        return game
+
     def observe(self, game_id: str, player_id: str) -> LobbyGame:
         """Watch a game instead of playing it (no hand, no actions)."""
         game = self.game(game_id)
@@ -447,19 +555,47 @@ class Lobby:
         if player_id in game.observer_ids:
             game.observer_ids.remove(player_id)
             return game
-        if game.status == SETUP:
+        # A *finished* table is left the same way a forming one is: the game
+        # is over, so there is no position left to preserve for anyone, and
+        # a played-out table that lingers in every player's lobby list is
+        # just litter. Only a game still RUNNING keeps the seat of someone
+        # who walks away (they may yet come back to it).
+        if game.status in (SETUP, FINISHED):
             game.seats = [s for s in game.seats if s.player_id != player_id]
             self._unready(game)
-            if not game.seats:
-                del self._games[game.id]
+            # A table nobody is sitting at is gone — and a table with only
+            # bots left at it is nobody's, since a bot can't invite anyone
+            # or start the game.
+            if not game.has_human_seat:
+                self._drop_game(game)
                 return None
             if game.host_id == player_id:
-                game.host_id = game.seats[0].player_id
+                game.host_id = next(s.player_id for s in game.seats if not s.is_bot)
         return game
 
-    def set_deck(self, game_id: str, player_id: str, deck_id: str, deck_name: str = "") -> LobbyGame:
+    def set_deck(
+        self,
+        game_id: str,
+        player_id: str,
+        deck_id: str,
+        deck_name: str = "",
+        seat_id: Optional[str] = None,
+    ) -> LobbyGame:
+        """Pick a seat's deck. ``seat_id`` names a *bot* seat the host picks for.
+
+        A bot can't choose its own deck, so somebody has to — the host,
+        and only for a bot seat. Everyone else picks for themselves, which
+        is what the default (``seat_id is None``) means.
+        """
         game = self._setup_game(game_id)
-        seat = game.seat_for(player_id)
+        if seat_id is not None and seat_id != player_id:
+            seat = game.seat_for(seat_id)
+            if seat is None or not seat.is_bot:
+                raise LobbyError("you can only choose a deck for your own seat")
+            if game.host_id != player_id:
+                raise LobbyError("only the host can choose a bot's deck")
+        else:
+            seat = game.seat_for(player_id)
         if seat is None:
             raise LobbyError("you have no seat in this game")
         seat.deck_id = deck_id or None
@@ -475,6 +611,7 @@ class Lobby:
         player_id: str,
         mulligan_style: Optional[str] = None,
         num_players: Optional[int] = None,
+        takebacks_per_player: Optional[int] = None,
     ) -> LobbyGame:
         """Change the table's shared settings. Host only — everyone else
         accepts them by readying up."""
@@ -486,6 +623,8 @@ class Lobby:
         if num_players is not None:
             seats = max(len(game.seats), min(int(num_players), MAX_SEATS))
             game.num_players = seats
+        if takebacks_per_player is not None:
+            game.takebacks_per_player = max(0, min(int(takebacks_per_player), MAX_TAKEBACKS_PER_PLAYER))
         self._unready(game)
         return game
 

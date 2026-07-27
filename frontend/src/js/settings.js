@@ -12,6 +12,8 @@ const PLAYER_NAME_COOKIE = 'mtg_player_name';
 const AUTO_PASS_COOKIE = 'mtg_auto_pass';
 const AUTO_PASS_SECONDS_COOKIE = 'mtg_auto_pass_seconds';
 const AUTO_PASS_SCOPE_COOKIE = 'mtg_auto_pass_scope';
+const AUTO_SKIP_EMPTY_COOKIE = 'mtg_auto_skip_empty';
+const SHOW_OPPONENT_HAND_COOKIE = 'mtg_show_opponent_hand';
 const COOKIE_MAX_AGE_DAYS = 365;
 
 //: Multiplayer auto-pass (RULE 117): how long you get to decide whether to
@@ -66,6 +68,30 @@ export function getAutoPassScope() {
   return AUTO_PASS_SCOPES.includes(raw) ? raw : 'opponent';
 }
 
+/** Pass instantly through priority windows offering nothing but "pass".
+ *
+ * The sibling of auto-pass rather than the same thing: auto-pass is a
+ * countdown you can interrupt because there *was* something you could have
+ * done, while this one only fires in windows where `legal_actions` holds
+ * literally no other option — so there is nothing to interrupt, and it
+ * runs on your own turn too. Off by default: it changes how the board
+ * feels, and a player should ask for that.
+ */
+export function getAutoSkipEmpty() {
+  return getCookie(AUTO_SKIP_EMPTY_COOKIE) === '1';
+}
+
+/** Whether an opponent's (face-down) hand is drawn card-by-card.
+ *
+ * RULE 400.2 means the cards themselves never reach this client — the
+ * choice is only whether to draw N card backs or just say "N". Off by
+ * default: the backs are a row of nothing, and they cost the board a lot
+ * of vertical space on a two-player screen.
+ */
+export function getShowOpponentHand() {
+  return getCookie(SHOW_OPPONENT_HAND_COOKIE) === '1';
+}
+
 export function getSettings() {
   return {
     serverUrl: getServerUrl(),
@@ -73,12 +99,15 @@ export function getSettings() {
     autoPass: getAutoPassEnabled(),
     autoPassSeconds: getAutoPassSeconds(),
     autoPassScope: getAutoPassScope(),
+    autoSkipEmpty: getAutoSkipEmpty(),
+    showOpponentHand: getShowOpponentHand(),
   };
 }
 
 /**
  * @param {{serverUrl?: string, playerName?: string, autoPass?: boolean,
- *          autoPassSeconds?: number, autoPassScope?: string}} patch
+ *          autoPassSeconds?: number, autoPassScope?: string,
+ *          autoSkipEmpty?: boolean, showOpponentHand?: boolean}} patch
  */
 export function saveSettings(patch) {
   if (patch.serverUrl !== undefined) {
@@ -99,6 +128,12 @@ export function saveSettings(patch) {
   }
   if (patch.autoPassScope !== undefined && AUTO_PASS_SCOPES.includes(patch.autoPassScope)) {
     setCookie(AUTO_PASS_SCOPE_COOKIE, patch.autoPassScope, COOKIE_MAX_AGE_DAYS);
+  }
+  if (patch.autoSkipEmpty !== undefined) {
+    setCookie(AUTO_SKIP_EMPTY_COOKIE, patch.autoSkipEmpty ? '1' : '0', COOKIE_MAX_AGE_DAYS);
+  }
+  if (patch.showOpponentHand !== undefined) {
+    setCookie(SHOW_OPPONENT_HAND_COOKIE, patch.showOpponentHand ? '1' : '0', COOKIE_MAX_AGE_DAYS);
   }
   return getSettings();
 }

@@ -19,18 +19,22 @@
 // opponent's hand simply isn't in the data to leak.
 
 import {
+  addMultiplayerBot,
   concedeMultiplayerGame,
   createMultiplayerGame,
+  fetchBotKinds,
   fetchMultiplayerGame,
   joinMultiplayerGame,
   leaveMultiplayerGame,
   listSavedDecks,
   observeMultiplayerGame,
+  removeMultiplayerBot,
   sendMultiplayerAction,
   setMultiplayerDeck,
   setMultiplayerOptions,
   setMultiplayerReady,
   startMultiplayerGame,
+  takeBackMultiplayerMove,
   listTokenImages,
   tokenImageUrl,
   sleeveImageUrl,
@@ -60,6 +64,7 @@ const DROP_REASONS = {
 
 const MULLIGAN_LABELS = {
   london: 'London-Mulligan (neue 7, dann N Karten unterlegen)',
+  next7: 'Next 7 (neue 7, nichts unterlegen)',
   none: 'Kein Mulligan (Starthand wird behalten)',
 };
 
@@ -82,6 +87,10 @@ export function createMultiplayerView(hooks = {}) {
   /** The latest session view for this seat — already redacted server-side. */
   let view = null;
   let savedDecks = null;
+  //: The bot kinds the server offers (GET /api/multiplayer/bots), fetched
+  //: once — they're a property of the backend, not of this table.
+  let botKinds = null;
+  let botKindToAdd = '';
   let status = '';
   let statusKind = '';
   let busy = false;
@@ -96,6 +105,11 @@ export function createMultiplayerView(hooks = {}) {
   // end-of-match digest kept after the table closes so the review survives.
   let mulliganBottom = new Set();
   let summary = null;
+  //: With the game over the player can flip between the final position and
+  //: the digest, and closes the table when *they* decide to — a finished
+  //: game is no longer urgent, and being thrown out of the board the
+  //: instant somebody dies means never getting to look at why.
+  let showSummary = true;
   let assetsLoadedFor = null;
   //: The session id we've already switched the user to the Board tab for,
   //: so the switch happens once per game rather than on every push.
@@ -132,15 +146,51 @@ export function createMultiplayerView(hooks = {}) {
   });
 
   function seatControls() {
-    return [
+    // Once it's over there is nothing left to concede — the buttons become
+    // "look at the digest" and "close this table for good".
+    if (view?.state?.game_over) {
+      return [
+        {
+          id: 'summary',
+          label: '📊 Auswertung',
+          title: 'Die Partie-Auswertung statt des Spielfelds anzeigen',
+          onClick: () => {
+            showSummary = true;
+            renderBoard();
+          },
+        },
+        {
+          id: 'close',
+          label: '✖ Spiel schließen',
+          title: 'Die Partie beenden und den Tisch auflösen',
+          disabled: busy,
+          onClick: closeGame,
+        },
+      ];
+    }
+    const controls = [
       {
         id: 'concede',
         label: '🏳️ Aufgeben',
         title: 'Das Spiel aufgeben (Regel 104.3a) – normalerweise nur zu Hexerei-Zeitpunkten',
-        disabled: busy || !!view?.state?.game_over,
+        disabled: busy,
         onClick: concede,
       },
     ];
+    // Only shown at all when the host configured a budget (an empty
+    // `takebacks_remaining` means the table has none) — otherwise there's
+    // nothing this button could ever do.
+    const remaining = view?.takebacks_remaining?.[playerId];
+    if (remaining !== undefined) {
+      controls.push({
+        id: 'takeback',
+        label: `↩️ Zug zurücknehmen (${remaining})`,
+        title: 'Nimmt deinen eigenen letzten Zug zurück – geht dabei auch auf Züge zurück, die der Gegner seitdem gemacht hat, da es nur eine gemeinsame Zeitleiste gibt. Reduziert dein Kontingent um eins.',
+        disabled: busy || remaining <= 0,
+        onClick: takeBack,
+      });
+    }
+    return controls;
   }
 
   function observerControls() {
@@ -168,6 +218,7 @@ export function createMultiplayerView(hooks = {}) {
     // actually holding a seat, so this can't overwrite it).
     socket?.setPresence('available');
     if (savedDecks === null) loadDecks();
+    if (botKinds === null) loadBotKinds();
     // At a running table with nothing to draw — the pushes for it went to a
     // connection we no longer have (a reload), or the socket dropped and
     // reconnected. Pull the current position once instead of sitting on an
@@ -285,6 +336,14 @@ export function createMultiplayerView(hooks = {}) {
     renderSetup();
   }
 
+  async function loadBotKinds() {
+    botKinds = []; // don't re-fetch while this one is in flight
+    const res = await fetchBotKinds();
+    botKinds = res.ok ? res.data?.bots || [] : [];
+    if (!botKindToAdd && botKinds.length) botKindToAdd = botKinds[0].kind;
+    renderSetup();
+  }
+
   // The local player's uploaded art (Einstellungen tab) + the sleeve chosen
   // for their deck — the sleeve doubles as the back of the *opponent's*
   // hidden hand cards here (gameBoardView's `faceDownCardHtml`).
@@ -370,6 +429,7 @@ export function createMultiplayerView(hooks = {}) {
         game = null;
         view = null;
         summary = null;
+        showSummary = true;
         enteredBoardFor = null;
         lobby = res.data?.lobby || lobby;
         hooks.onBoardAvailable?.(false);
@@ -380,11 +440,26 @@ export function createMultiplayerView(hooks = {}) {
     });
   }
 
-  async function chooseDeck(deckId) {
+  /** Pick a deck. `seatId` set = picking for a bot's seat as the host. */
+  async function chooseDeck(deckId, seatId = null) {
     if (!game || !deckId) return;
     await withBusy('Deck wird gesetzt …', async () => {
-      applyLobbyResult(await setMultiplayerDeck(game.id, playerId, deckId));
-      await preloadOwnDeck();
+      applyLobbyResult(await setMultiplayerDeck(game.id, playerId, deckId, seatId));
+      if (!seatId) await preloadOwnDeck();
+    });
+  }
+
+  async function addBot(kind) {
+    if (!game || !kind) return;
+    await withBusy('Bot wird eingesetzt …', async () => {
+      applyLobbyResult(await addMultiplayerBot(game.id, playerId, kind), 'Bot eingesetzt.');
+    });
+  }
+
+  async function removeBot(botId) {
+    if (!game || !botId) return;
+    await withBusy('Bot wird entfernt …', async () => {
+      applyLobbyResult(await removeMultiplayerBot(game.id, playerId, botId), 'Bot entfernt.');
     });
   }
 
@@ -392,6 +467,14 @@ export function createMultiplayerView(hooks = {}) {
     if (!game) return;
     await withBusy('Einstellung wird gespeichert …', async () => {
       applyLobbyResult(await setMultiplayerOptions(game.id, playerId, { mulliganStyle: style }));
+    });
+  }
+
+  async function changeTakebacksPerPlayer(count) {
+    if (!game) return;
+    const n = Math.max(0, Math.min(20, Math.floor(Number(count)) || 0));
+    await withBusy('Einstellung wird gespeichert …', async () => {
+      applyLobbyResult(await setMultiplayerOptions(game.id, playerId, { takebacksPerPlayer: n }));
     });
   }
 
@@ -408,6 +491,7 @@ export function createMultiplayerView(hooks = {}) {
       const res = await startMultiplayerGame(game.id, playerId);
       if (res.ok) {
         summary = null;
+        showSummary = true;
         applyLobbyResult(res, 'Spiel gestartet.');
       } else if (res.status === 422) {
         const detail = res.data?.detail || {};
@@ -419,6 +503,13 @@ export function createMultiplayerView(hooks = {}) {
     });
   }
 
+  /** End of the match: drop the table and go back to the lobby. */
+  async function closeGame() {
+    summary = null;
+    showSummary = true;
+    await leaveGame();
+  }
+
   async function concede() {
     if (!game || !window.confirm('Wirklich aufgeben? Das beendet deine Partie.')) return;
     await withBusy('Aufgeben …', async () => {
@@ -426,6 +517,20 @@ export function createMultiplayerView(hooks = {}) {
       if (res.ok) {
         game = res.data.game;
         applyGameView(res.data.view);
+      } else {
+        setStatus(detailText(res) || `Fehler (${res.status}).`, 'warning');
+      }
+    });
+  }
+
+  async function takeBack() {
+    if (!game) return;
+    await withBusy('Zug wird zurückgenommen …', async () => {
+      const res = await takeBackMultiplayerMove(game.id, playerId);
+      if (res.ok) {
+        game = res.data.game;
+        applyGameView(res.data.view);
+        setStatus('Zug zurückgenommen.', 'ok');
       } else {
         setStatus(detailText(res) || `Fehler (${res.status}).`, 'warning');
       }
@@ -561,6 +666,7 @@ export function createMultiplayerView(hooks = {}) {
         <ol class="mp-seat-list">
           ${game.seats.map((s, i) => seatRowHtml(s, i)).join('')}
         </ol>
+        ${running ? '' : addBotHtml()}
         ${running ? '' : `
           <div class="mp-option-row">
             <label for="mp-mulligan">Mulligan-Regel</label>
@@ -572,6 +678,11 @@ export function createMultiplayerView(hooks = {}) {
                 )
                 .join('')}
             </select>
+            ${isHost ? '' : '<span class="hint">Nur der Host kann das ändern.</span>'}
+          </div>
+          <div class="mp-option-row" title="Erlaubt jedem Platz, seinen eigenen letzten Zug zurückzunehmen — begrenzt, damit es eine Ausnahme für Fehlklicks bleibt und keine allgemeine Undo-Funktion.">
+            <label for="mp-takebacks">Take-backs je Spieler</label>
+            <input id="mp-takebacks" type="number" min="0" max="20" value="${game.takebacks_per_player ?? 0}" ${isHost && !busy ? '' : 'disabled'} />
             ${isHost ? '' : '<span class="hint">Nur der Host kann das ändern.</span>'}
           </div>
           <div class="mp-option-row">
@@ -600,12 +711,49 @@ export function createMultiplayerView(hooks = {}) {
     const me = seat.player_id === playerId;
     const host = seat.player_id === game.host_id;
     const conceded = (game.conceded_ids || []).includes(seat.player_id);
-    return `<li class="mp-seat${me ? ' mp-seat-me' : ''}">
+    // A bot has no client, so the host both picks its deck and takes it back
+    // off the table — everything a human seat does for itself.
+    const iAmHost = game.host_id === playerId;
+    const canManage = seat.is_bot && iAmHost && game.status === 'setup';
+    return `<li class="mp-seat${me ? ' mp-seat-me' : ''}${seat.is_bot ? ' mp-seat-bot' : ''}">
       <span class="mp-seat-index">${index + 1}.</span>
-      <span class="mp-seat-name">${escapeHtml(seat.name)}${host ? ' 👑' : ''}${me ? ' <span class="mp-you">(du)</span>' : ''}</span>
-      <span class="mp-seat-deck">${seat.deck_name ? escapeHtml(seat.deck_name) : '<em>kein Deck</em>'}</span>
+      <span class="mp-seat-name">${seat.is_bot ? '🤖 ' : ''}${escapeHtml(seat.name)}${host ? ' 👑' : ''}${me ? ' <span class="mp-you">(du)</span>' : ''}</span>
+      <span class="mp-seat-deck">${
+        canManage
+          ? `<select data-bot-deck="${escapeAttr(seat.player_id)}" ${busy ? 'disabled' : ''}>${deckOptionsHtml(seat.deck_id)}</select>`
+          : seat.deck_name
+            ? escapeHtml(seat.deck_name)
+            : '<em>kein Deck</em>'
+      }</span>
       <span class="mp-seat-ready">${conceded ? '🏳️ aufgegeben' : seat.ready ? '✔ bereit' : '…'}</span>
+      ${
+        canManage
+          ? `<button type="button" class="mp-seat-remove" data-remove-bot="${escapeAttr(seat.player_id)}" title="Bot entfernen" ${busy ? 'disabled' : ''}>✕</button>`
+          : ''
+      }
     </li>`;
+  }
+
+  /** Host-only row for seating a bot, while the table still has a free seat. */
+  function addBotHtml() {
+    if (game.host_id !== playerId || game.status !== 'setup') return '';
+    if (game.seats.length >= game.num_players) return '';
+    if (!botKinds || !botKinds.length) return '';
+    const chosen = botKinds.find((b) => b.kind === botKindToAdd) || botKinds[0];
+    return `
+      <div class="mp-option-row mp-add-bot">
+        <label for="mp-bot-kind">Bot einsetzen</label>
+        <select id="mp-bot-kind" ${busy ? 'disabled' : ''}>
+          ${botKinds
+            .map(
+              (b) =>
+                `<option value="${escapeAttr(b.kind)}"${b.kind === chosen.kind ? ' selected' : ''}>${escapeHtml(b.label)}</option>`,
+            )
+            .join('')}
+        </select>
+        <button id="mp-add-bot" type="button" ${busy ? 'disabled' : ''}>🤖 Hinzufügen</button>
+        <span class="hint">${escapeHtml(chosen.description || '')}</span>
+      </div>`;
   }
 
   function deckOptionsHtml(selectedId) {
@@ -636,9 +784,25 @@ export function createMultiplayerView(hooks = {}) {
     setupRoot
       .querySelector('#mp-mulligan')
       ?.addEventListener('change', (e) => changeMulliganStyle(e.target.value));
+    setupRoot
+      .querySelector('#mp-takebacks')
+      ?.addEventListener('change', (e) => changeTakebacksPerPlayer(e.target.value));
     setupRoot.querySelector('#mp-ready')?.addEventListener('click', () => {
       const mySeat = game?.seats.find((s) => s.player_id === playerId);
       toggleReady(!mySeat?.ready);
+    });
+    setupRoot.querySelector('#mp-bot-kind')?.addEventListener('change', (e) => {
+      botKindToAdd = e.target.value;
+      renderSetup(); // the hint under the picker describes the chosen bot
+    });
+    setupRoot
+      .querySelector('#mp-add-bot')
+      ?.addEventListener('click', () => addBot(botKindToAdd || botKinds?.[0]?.kind));
+    setupRoot.querySelectorAll('[data-bot-deck]').forEach((el) => {
+      el.addEventListener('change', () => chooseDeck(el.value, el.dataset.botDeck));
+    });
+    setupRoot.querySelectorAll('[data-remove-bot]').forEach((el) => {
+      el.addEventListener('click', () => removeBot(el.dataset.removeBot));
     });
     setupRoot.querySelector('#mp-start')?.addEventListener('click', startGame);
     setupRoot.querySelector('#mp-goto-board')?.addEventListener('click', () => hooks.onEnterBoard?.());
@@ -656,7 +820,7 @@ export function createMultiplayerView(hooks = {}) {
         </div>`;
       return;
     }
-    if (summary && view?.state?.game_over) {
+    if (summary && showSummary && view?.state?.game_over) {
       renderSummary();
       return;
     }
@@ -688,7 +852,8 @@ export function createMultiplayerView(hooks = {}) {
   function renderMulligan() {
     const setup = view.setup;
     const me = view.state.players.find((p) => p.id === playerId);
-    const bottomCount = setup.mulligan_count;
+    const mulliganCount = setup.mulligan_count;
+    const bottomCount = setup.bottom_count;
     const iAmDone = !setup.waiting_for.includes(playerId);
     const canKeep = mulliganBottom.size === bottomCount;
     const noMulligans = view.legal_actions.every((a) => a.type !== 'mulligan');
@@ -711,9 +876,11 @@ export function createMultiplayerView(hooks = {}) {
         <h3>Starthand</h3>
         <p class="hint">
           ${
-            bottomCount === 0
+            mulliganCount === 0
               ? `Deine Starthand: ${me.hand.length} Karten.${noMulligans ? ' In diesem Spiel wird ohne Mulligan gespielt.' : ' Behalten, oder neu mischen (Mulligan)?'}`
-              : `Mulligan Nr. ${bottomCount}: neue 7 Karten gezogen. Beim Behalten ${bottomCount === 1 ? 'muss 1 Karte' : `müssen ${bottomCount} Karten`} unten in die Bibliothek gelegt werden.`
+              : bottomCount === 0
+                ? `Mulligan Nr. ${mulliganCount}: neue 7 Karten gezogen. Kein Unterlegen nötig — die Hand bleibt bei 7 Karten.`
+                : `Mulligan Nr. ${mulliganCount}: neue 7 Karten gezogen. Beim Behalten ${bottomCount === 1 ? 'muss 1 Karte' : `müssen ${bottomCount} Karten`} unten in die Bibliothek gelegt werden.`
           }
         </p>
         ${statusHtml()}
@@ -758,7 +925,7 @@ export function createMultiplayerView(hooks = {}) {
   }
 
   function toggleBottomCard(instanceId) {
-    const bottomCount = view?.setup?.mulligan_count || 0;
+    const bottomCount = view?.setup?.bottom_count || 0;
     if (mulliganBottom.has(instanceId)) mulliganBottom.delete(instanceId);
     else if (mulliganBottom.size < bottomCount) mulliganBottom.add(instanceId);
     renderBoard();
@@ -795,13 +962,15 @@ export function createMultiplayerView(hooks = {}) {
         <p class="server-status ${won ? 'ok' : 'warning'}">${banner}</p>
         ${analysisHtml(summary.analysis)}
         <div class="gf-controls">
-          <button id="mp-summary-leave" type="button" class="primary">Zurück in die Lobby</button>
+          <button id="mp-summary-board" type="button">🔍 Spielfeld ansehen</button>
+          <button id="mp-summary-leave" type="button" class="primary">✖ Spiel schließen</button>
         </div>
       </div>`;
-    boardRoot.querySelector('#mp-summary-leave')?.addEventListener('click', async () => {
-      summary = null;
-      await leaveGame();
+    boardRoot.querySelector('#mp-summary-board')?.addEventListener('click', () => {
+      showSummary = false;
+      renderBoard();
     });
+    boardRoot.querySelector('#mp-summary-leave')?.addEventListener('click', closeGame);
   }
 
   // --- Small helpers ------------------------------------------------------

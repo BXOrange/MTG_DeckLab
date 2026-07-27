@@ -166,10 +166,35 @@ for the dependency-ordered plan to finish the implementation.
         (`RulesEngine._detach_attachments_from`, `game/rules_engine.py`.)
       - `SacrificeEffect` auto-picks which permanent is sacrificed.
         Annihilator's "defending player sacrifices N permanents" (RULE
-        702.86) uses the same non-interactive MVP auto-choice as
-        `GameEngine._sacrifice_candidate` (cost-payment sacrifice) rather
-        than letting the player choose. An interactive picker is a future
-        upgrade. (`SacrificeEffect`, `game/effects.py`.)
+        702.86) still uses a non-interactive MVP auto-choice, unlike
+        `GameEngine._sacrifice_candidate` (an activated ability's own
+        "Sacrifice a `<type>`" cost), which became a real interactive
+        choice — `sacrifice_choice` threaded through `can_activate`/
+        `activate_ability`/`tap_for_mana`, offered via `legal_actions`'
+        `sacrifice_cost` — since this entry was written. `SacrificeEffect`'s
+        own upgrade would reuse the *other* existing mechanism instead,
+        `RulesEngine.request_choose_objects(..., action="sacrifice", ...)`
+        (already used for Tevesh Szat's/Professor Onyx's own sacrifice
+        effects), not `_sacrifice_candidate`. (`SacrificeEffect`,
+        `game/effects.py`.)
+      - Two cost-payment auto-picks weren't upgraded alongside an
+        activated ability's sacrifice cost (2026-07-27 batch): a spell's
+        own "as an additional cost to cast this spell, sacrifice a
+        creature" (RULE 601.2b, `GameEngine._pay_additional_cast_cost`)
+        still calls the auto-picking `_sacrifice_candidate` with no
+        `chosen_id` — `cast_spell` has no `sacrifice_choice`/`tap_choices`
+        parameter at all yet, unlike `activate_ability`/`tap_for_mana`.
+        And any cost-payment discard (`ActivationCost.discard`, e.g. a
+        Madness-enabling "Discard a card: …" cost, charged in both
+        `_pay_activation_cost` and `_pay_additional_cast_cost`) still uses
+        the plain, non-interactive `RulesEngine.discard` rather than the
+        new `discard_choice` a looting-shaped *effect* now gets — a cost is
+        paid inside one synchronous call, so making either interactive
+        needs the same "choice supplied as an action parameter, existence
+        checked with `None`" shape `tap_choices`/`sacrifice_choice` use,
+        threaded into `cast_spell` too, not a `request_choose_objects`
+        `pending_choice` (that only works mid-*resolution*, which cost
+        payment isn't). (`game/game_engine.py`.)
       - `CopyPermanentEffect` doesn't model copy-of-a-copy. RULE 707.2's
         "copiable values" interacting with *other* copy effects (a copy of
         a copy, layered copy effects) isn't modeled — it copies straight
@@ -502,9 +527,18 @@ figure and the Engine-Status tab in sync after any change here.
 
 ## Bot AI (UC5)
 
-- [ ] Greedy bot strategy (docs/02 UC5) — a start exists in
-      `GameEngine.run_goldfish_turn`/`auto_play_step` (play a land, tap
-      out, cast cheapest-first, swing); a real bot would weigh lines.
+The `Bot` base + the Goldfisch and greedy bots shipped 2026-07-27 —
+moved to `docs/implementation-state/Done_Backend.md`, section "Bot AI
+(UC5)". What's left is only what those two deliberately don't do:
+
+- [ ] A bot that actually *weighs* lines (which spell, which target, which
+      attack) rather than taking the first legal offer. `GreedyBot`'s
+      `rank_targets`/`play` are the intended override points — the base
+      class was split that way for exactly this — but nothing subclasses
+      them yet.
+- [ ] Bots for tables of more than two seats: `Bot.rank_targets` treats
+      "not mine" as "the opponent's", which stops being a single answer
+      once there are two opponents.
 
 ## Data / cache freshness
 

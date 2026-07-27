@@ -37,6 +37,7 @@ from typing import Any, Optional
 from fastapi import APIRouter, Depends, Query, WebSocket, WebSocketDisconnect
 
 from mtg_analyzer.api.dependencies import get_game_session_manager, get_lobby
+from mtg_analyzer.services.bots import bots_for_game, run_bots
 from mtg_analyzer.services.game_session import GameActionError, GameSession, GameSessionManager
 from mtg_analyzer.services.lobby import AVAILABLE, ONLINE, Lobby, LobbyError, LobbyGame
 
@@ -323,7 +324,9 @@ async def sweep_once(lobby: Lobby, sessions: GameSessionManager) -> None:
        is dropped; in a running game that concedes for them (RULE 104.3a),
        because a seat nobody is coming back to can't be waited on.
     3. **Keeping play moving.** Priority is passed for anyone currently
-       absent, so the players who *are* there can keep going.
+       absent, and any bot at the table takes whatever turn is now its —
+       so the players who *are* there can keep going, and a table of
+       nothing but bots plays itself out.
     """
     for game in list(lobby.games()):
         session = _session_or_none(sessions, game.session_id)
@@ -360,7 +363,19 @@ async def sweep_once(lobby: Lobby, sessions: GameSessionManager) -> None:
         session = _session_or_none(sessions, game.session_id)
         if session is None:
             continue
-        if pass_for_absent_players(session, lobby):
+        moved = pass_for_absent_players(session, lobby)
+        # Bots normally act inside the request that provoked them
+        # (`api/multiplayer.py`), but two things can leave one holding
+        # priority with nobody about to make an HTTP call: a table of
+        # nothing but bots, and a bot whose turn came round because the
+        # server just passed for an absent human.
+        moved = run_bots(session, bots_for_game(game)) or moved
+        if moved:
+            if session.engine.state.game_over:
+                try:
+                    lobby.finish(game.id)
+                except LobbyError:
+                    pass
             await manager.broadcast_game(game, session)
 
 

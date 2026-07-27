@@ -182,8 +182,13 @@ depend on M1, and copies feed M3's layer 1.
   models.
 - **Auth & persistence:** accounts/login, scope saved decks to an owner, game
   history/session persistence. *UI:* login/signup, token storage, reconnect.
-- **Bot AI (UC5):** upgrade the greedy `run_goldfish_turn` to weigh lines.
-  *UI:* bot-vs-manual selector, action visualization + speed control.
+- **Bot AI (UC5):** the seat-filling bots shipped 2026-07-27
+  (`services/bots.py` — `Bot` + a Goldfisch and a greedy bot, seated from
+  the Multiplayer Setup tab; `Done_Backend.md`/`Done_Frontend.md` "Bot AI
+  (UC5)"). Still open: a bot that *weighs* lines rather than taking the
+  first legal offer, and bots at tables of more than two seats.
+  *UI:* action visualization + speed control (a bot's turn currently
+  arrives as one pushed view).
 
 ---
 

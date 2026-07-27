@@ -88,6 +88,9 @@ class GameContext:
     def discard(self, player: "Player", count: int = 1) -> None:
         self.engine.discard(player, count)
 
+    def discard_choice(self, player: "Player", count: int = 1) -> None:
+        self.engine.discard_choice(player, count)
+
     def put_hand_cards_on_top(self, player: "Player", count: int = 1) -> None:
         self.engine.put_hand_cards_on_top(player, count)
 
@@ -1432,7 +1435,10 @@ class DrawCardEffect(GameEffect):
 
 
 class DiscardEffect(GameEffect):
-    """Make a player discard ``count`` cards."""
+    """Make a player discard ``count`` cards — an interactive choice (RULE
+    701.8: the discarding player, not this effect's controller, picks which
+    cards), the looting-shaped template ("draw a card, then discard a
+    card") shares with a directly-targeted forced discard (Mind Rot)."""
 
     def __init__(self, count: int = 1, player: Any = None, source: Optional["GameObject"] = None) -> None:
         super().__init__(source)
@@ -1441,7 +1447,7 @@ class DiscardEffect(GameEffect):
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
         player = self.player or (targets[0] if targets else None) or _controller_of(self.source, context)
-        context.discard(player, self.count)
+        context.discard_choice(player, self.count)
 
 
 class PutHandCardsOnTopEffect(GameEffect):

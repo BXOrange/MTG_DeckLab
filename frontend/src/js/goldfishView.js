@@ -281,9 +281,9 @@ export function createGoldfishView() {
   async function keepHand() {
     const setup = view?.setup;
     if (!setup) return;
-    if (mulliganBottom.size !== setup.mulligan_count) {
+    if (mulliganBottom.size !== setup.bottom_count) {
       setStatus(
-        `Bitte genau ${setup.mulligan_count} Karte(n) zum Unterlegen auswählen.`,
+        `Bitte genau ${setup.bottom_count} Karte(n) zum Unterlegen auswählen.`,
         'warning'
       );
       render();
@@ -301,7 +301,7 @@ export function createGoldfishView() {
     if (!setup) return;
     if (mulliganBottom.has(instanceId)) {
       mulliganBottom.delete(instanceId);
-    } else if (mulliganBottom.size < setup.mulligan_count) {
+    } else if (mulliganBottom.size < setup.bottom_count) {
       mulliganBottom.add(instanceId);
     }
     render();
@@ -503,8 +503,9 @@ export function createGoldfishView() {
   }
 
   function renderMulligan() {
-    const setup = view.setup || { complete: false, mulligan_count: 0 };
-    const bottomCount = setup.mulligan_count;
+    const setup = view.setup || { complete: false, mulligan_count: 0, bottom_count: 0 };
+    const mulliganCount = setup.mulligan_count;
+    const bottomCount = setup.bottom_count;
     const me = view.state.players[0];
     const canKeep = mulliganBottom.size === bottomCount;
     root.innerHTML = `
@@ -512,9 +513,11 @@ export function createGoldfishView() {
         <h3>Starthand</h3>
         <p class="hint">
           ${
-            bottomCount === 0
+            mulliganCount === 0
               ? 'Deine Starthand: 7 Karten. Behalten, oder neu mischen (Mulligan)?'
-              : `Mulligan Nr. ${bottomCount}: neue 7 Karten gezogen. Beim Behalten ${bottomCount === 1 ? 'muss 1 Karte' : `müssen ${bottomCount} Karten`} unten in die Bibliothek gelegt werden — wähle sie unten aus.`
+              : bottomCount === 0
+                ? `Mulligan Nr. ${mulliganCount}: neue 7 Karten gezogen. Kein Unterlegen nötig — die Hand bleibt bei 7 Karten.`
+                : `Mulligan Nr. ${mulliganCount}: neue 7 Karten gezogen. Beim Behalten ${bottomCount === 1 ? 'muss 1 Karte' : `müssen ${bottomCount} Karten`} unten in die Bibliothek gelegt werden — wähle sie unten aus.`
           }
         </p>
         ${statusHtml()}

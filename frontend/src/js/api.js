@@ -371,9 +371,28 @@ export async function leaveMultiplayerGame(gameId, playerId) {
   return gameRequest('POST', `/api/multiplayer/games/${encodeURIComponent(gameId)}/leave`, { playerId });
 }
 
-/** Pick this seat's deck from the decks saved on the server. */
-export async function setMultiplayerDeck(gameId, playerId, deckId) {
-  return gameRequest('POST', `/api/multiplayer/games/${encodeURIComponent(gameId)}/deck`, { playerId, deckId });
+/** Pick a seat's deck from the decks saved on the server.
+ *
+ * `seatId` picks for someone else's seat — only ever a bot's, and only as
+ * the host, since a bot has no client to choose for itself.
+ */
+export async function setMultiplayerDeck(gameId, playerId, deckId, seatId = null) {
+  return gameRequest('POST', `/api/multiplayer/games/${encodeURIComponent(gameId)}/deck`, { playerId, deckId, seatId });
+}
+
+/** The bot kinds a seat can be filled with (backend services/bots.py). */
+export async function fetchBotKinds() {
+  return gameRequest('GET', '/api/multiplayer/bots');
+}
+
+/** Host only: seat a bot of `kind` at the table. */
+export async function addMultiplayerBot(gameId, playerId, kind) {
+  return gameRequest('POST', `/api/multiplayer/games/${encodeURIComponent(gameId)}/bots`, { playerId, kind });
+}
+
+/** Host only: take a bot back off the table. */
+export async function removeMultiplayerBot(gameId, playerId, botId) {
+  return gameRequest('POST', `/api/multiplayer/games/${encodeURIComponent(gameId)}/bots/remove`, { playerId, botId });
 }
 
 /** Host only: change the table's shared settings (mulligan style, seats). */
@@ -407,6 +426,11 @@ export async function sendMultiplayerAction(gameId, playerId, action) {
 /** RULE 104.3a: leave the game. */
 export async function concedeMultiplayerGame(gameId, playerId) {
   return gameRequest('POST', `/api/multiplayer/games/${encodeURIComponent(gameId)}/concede`, { playerId });
+}
+
+/** Undo back through this seat's own last move (UC4 Setup's take-back budget). */
+export async function takeBackMultiplayerMove(gameId, playerId) {
+  return gameRequest('POST', `/api/multiplayer/games/${encodeURIComponent(gameId)}/takeback`, { playerId });
 }
 
 /**

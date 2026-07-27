@@ -255,6 +255,17 @@ class GameState:
         self.players = players
 
         self.turn_number = 0
+        #: How many times the turn order has come back around to whoever
+        #: started the game. `turn_number` is the rules-correct count (RULE
+        #: 500.1 — *each* player's turn is a turn of its own, so a two-player
+        #: game is on turn 7 when the starting player takes their fourth);
+        #: `round_number` is what players mean by "we're on turn 4". Purely
+        #: for display: nothing in the rules engine reads it.
+        self.round_number = 0
+        #: Who took turn 1 — the reference point `round_number` counts. Kept
+        #: as an id rather than an index because players leave the game
+        #: (RULE 800.4a) and the indices shift under it.
+        self.starting_player_id: Optional[str] = None
         self.active_player_index = 0
         #: Which player currently holds priority (RULE 117); None between
         #: priority windows (e.g. during untap).
@@ -556,6 +567,20 @@ class GameState:
     def non_active_players(self) -> list[Player]:
         return [p for i, p in enumerate(self.players) if i != self.active_player_index]
 
+    def sync_round_number(self) -> None:
+        """Re-derive `round_number` from `turn_number` for a board set outright.
+
+        Replay/Puzzle positions and the `edit_set_turn` action assign a turn
+        number directly instead of reaching it by playing, so there was no
+        wrap around the table for `GameEngine._advance_round_number` to
+        count. Derived from how many seats actually take turns (the goldfish
+        dummy never does), which makes a solo board's round equal its turn.
+        """
+        seats = max(1, len([p for p in self.players if not p.is_dummy]))
+        self.round_number = max(1, -(-max(1, self.turn_number) // seats))
+        if self.starting_player_id is None and self.players:
+            self.starting_player_id = self.players[0].id
+
     def next_active_index(self) -> int:
         """The next player to take a turn, skipping passive dummies (UC3).
 
@@ -736,6 +761,9 @@ class GameState:
         return {
             "id": self.id,
             "turn_number": self.turn_number,
+            # Display-only companion to `turn_number` (see its docstring):
+            # the number of completed times around the table.
+            "round_number": self.round_number,
             "active_player_id": self.active_player.id,
             "priority_player_id": self.priority_player.id if self.priority_player else None,
             "current_phase": self.current_phase,

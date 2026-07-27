@@ -2193,11 +2193,24 @@ class RulesEngine:
         if kind is None:
             return False
         if kind == "equip":
-            return target.is_creature or target.card.is_artifact
+            # RULE 301.5b/702.6a: "target creature you control" — control
+            # of the creature matters both when the ability is activated
+            # and when it resolves, which is why this is re-checked here
+            # rather than only at offer time (`targeting.legal_targets`).
+            # Only the Equipment's own controller may activate its equip
+            # ability (RULE 301.5d), so that's the controller who must
+            # match — not necessarily the target's *owner*.
+            return target.is_creature and target.controller_id == obj.controller_id
         if kind == "reconfigure":
-            return target.is_creature and target is not obj
+            # RULE 702.151a: "another target creature you control."
+            return (
+                target.is_creature
+                and target.controller_id == obj.controller_id
+                and target is not obj
+            )
         if kind == "fortify":
-            return target.is_land
+            # RULE 702.67a: "target land you control."
+            return target.is_land and target.controller_id == obj.controller_id
         if kind == "enchant":
             quality = ((obj.parametric_keywords or {}).get(kind) or {}).get("quality", "")
             quality = str(quality).strip().lower()
@@ -2725,6 +2738,11 @@ class RulesEngine:
                 )
 
     def discard(self, player: Player, count: int = 1) -> None:
+        """Non-interactive discard: cost payment (`GameEngine._pay_activation_
+        cost`/`_pay_additional_cast_cost`, ward, RULE 514.3 cleanup) pays a
+        cost or resolves an SBA in one synchronous call, so it can't pause
+        for a chooser — see `discard_choice` for the interactive, effect-
+        resolution version looting-shaped effects use instead."""
         discarded = 0
         for _ in range(count):
             if not player.hand:
@@ -2738,6 +2756,23 @@ class RulesEngine:
             self.state.fire_event(
                 GameEvent(EventType.DISCARD, player_id=player.id, count=discarded)
             )
+
+    def discard_choice(self, player: Player, count: int, source: Optional[GameObject] = None) -> None:
+        """Interactive discard (RULE 701.8): ``player`` — the one discarding,
+        not necessarily an effect's controller (Mind Rot targets an
+        opponent) — picks which ``count`` cards leave their own hand,
+        through the same `request_choose_objects` chooser that replaced
+        "auto-pick the first candidate" for sacrifice/tap/bounce effects.
+        Forced with no prompt when the hand has at most ``count`` cards left
+        (a "discard your hand" effect, or `count` >= hand size) — nothing to
+        choose between. Used by looting-shaped effects (`DiscardEffect`);
+        cost payment still uses the plain, non-interactive `discard` (see
+        its own docstring) since a cost is paid in one synchronous call.
+        """
+        self.request_choose_objects(
+            player, list(player.hand), "discard", count=count,
+            prompt="Wähle eine Karte zum Abwerfen", source=source,
+        )
 
     def put_hand_cards_on_top(self, player: Player, count: int) -> None:
         """Put up to ``count`` cards from ``player``'s hand on top of their
@@ -4181,7 +4216,7 @@ class RulesEngine:
     #: this replaced the "auto-pick the first candidate" convention rather
     #: than passing a continuation closure around.
     CHOOSE_OBJECT_ACTIONS = frozenset(
-        {"tap", "sacrifice", "return_to_hand", "soulbond_pair", "library_top"}
+        {"tap", "sacrifice", "return_to_hand", "soulbond_pair", "library_top", "discard"}
     )
 
     def request_choose_objects(
@@ -4392,6 +4427,8 @@ class RulesEngine:
             self.put_into_graveyard(obj)
         elif action == "return_to_hand":
             self.return_to_hand(obj)
+        elif action == "discard":
+            self.discard_specific(obj)
         elif action == "soulbond_pair" and source is not None:
             # RULE 702.94a: the pairing is recorded on both creatures.
             source.paired_with = obj.instance_id

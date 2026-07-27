@@ -85,6 +85,23 @@ export function renderConnectionSettingsView(container) {
             <option value="always">alle Züge, auch meine eigenen</option>
           </select>
         </div>
+        <label class="mp-inline-option" title="Betrifft nur Fenster, in denen dir wirklich nur 'Passen' offensteht (z. B. im gegnerischen Zug ohne Instant in der Hand) – dort gibt es nichts abzuwarten, deshalb ohne Countdown. Sobald eine echte Aktion angeboten wird, greift das nicht mehr.">
+          <input type="checkbox" id="auto-skip-empty" />
+          Fenster ohne jede Handlungsmöglichkeit automatisch überspringen
+        </label>
+      </div>
+
+      <div class="deck-section">
+        <h3>Multiplayer: Spielfeld</h3>
+        <p class="hint">
+          Die Handkarten deines Gegners verlassen den Server nie (Regel 400.2) —
+          die Frage ist nur, ob das Spielfeld die Anzahl als verdeckte Karten
+          zeichnet oder bloß als Zahl. Auch direkt am Spielfeld umschaltbar.
+        </p>
+        <label class="mp-inline-option">
+          <input type="checkbox" id="show-opponent-hand" />
+          Gegnerische Hand als verdeckte Karten zeigen
+        </label>
       </div>
 
       <div class="deck-section player-assets-section">
@@ -131,6 +148,8 @@ export function renderConnectionSettingsView(container) {
   const autoPassToggle = container.querySelector('#auto-pass-toggle');
   const autoPassSeconds = container.querySelector('#auto-pass-seconds');
   const autoPassScope = container.querySelector('#auto-pass-scope');
+  const autoSkipEmpty = container.querySelector('#auto-skip-empty');
+  const showOpponentHand = container.querySelector('#show-opponent-hand');
 
   const settings = getSettings();
   urlInput.value = settings.serverUrl;
@@ -138,6 +157,8 @@ export function renderConnectionSettingsView(container) {
   autoPassSeconds.value = settings.autoPassSeconds;
   autoPassSeconds.disabled = !settings.autoPass;
   autoPassScope.value = settings.autoPassScope;
+  autoSkipEmpty.checked = settings.autoSkipEmpty;
+  showOpponentHand.checked = settings.showOpponentHand;
 
   // Saved on change rather than behind the "Speichern" button: these only
   // affect this browser's own play, and a setting you toggled but didn't
@@ -148,6 +169,12 @@ export function renderConnectionSettingsView(container) {
   });
   autoPassSeconds.addEventListener('change', () => {
     autoPassSeconds.value = saveSettings({ autoPassSeconds: autoPassSeconds.value }).autoPassSeconds;
+  });
+  autoSkipEmpty.addEventListener('change', () => {
+    saveSettings({ autoSkipEmpty: autoSkipEmpty.checked });
+  });
+  showOpponentHand.addEventListener('change', () => {
+    saveSettings({ showOpponentHand: showOpponentHand.checked });
   });
   autoPassScope.addEventListener('change', () => {
     saveSettings({ autoPassScope: autoPassScope.value });

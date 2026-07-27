@@ -147,11 +147,35 @@ class GameEngine:
     # Turn loop (RULE 500, R4.1)
     # ------------------------------------------------------------------
 
+    def _advance_round_number(self) -> None:
+        """Bump the display-only round counter when the table wraps around.
+
+        RULE 500.1 counts every player's turn separately, which is what
+        `turn_number` is; `round_number` counts how often the turn has come
+        back around to whoever started, which is what players mean by
+        "we're on turn 4". A player leaving the game (RULE 800.4a) would
+        strand a counter keyed on them alone, so the reference point moves
+        to whoever the turn lands on next in that case.
+        """
+        state = self.state
+        if state.starting_player_id is None:
+            state.starting_player_id = state.active_player.id
+        elif not any(p.id == state.starting_player_id for p in state.players):
+            state.starting_player_id = state.active_player.id
+            state.round_number += 1
+            return
+        if state.active_player.id == state.starting_player_id:
+            state.round_number += 1
+
     def begin_turn(self) -> None:
         """Advance to the next player's turn and reset per-turn state."""
         if self.state.turn_number == 0:
             self.state.turn_number = 1
             self.state.active_player_index = 0
+            # The reference point for the display-only round counter: round 1
+            # begins with whoever takes turn 1 (`GameState.round_number`).
+            self.state.round_number = 1
+            self.state.starting_player_id = self.state.active_player.id
         else:
             # Capture the outgoing player's final spell count before rotating
             # — RULE 731.2's day/night check reads *last* turn's active
@@ -173,6 +197,7 @@ class GameEngine:
                 # Rotate to the next player, skipping the passive goldfish dummy
                 # (UC3) so a solo game keeps handing turns back to the human.
                 self.state.active_player_index = self.state.next_active_index()
+            self._advance_round_number()
         # RULE 800.4a, deferred: a player who conceded during someone else's
         # turn keeps their board standing until the next turn begins, so the
         # position the other players were reading doesn't vanish mid-turn
@@ -2741,6 +2766,7 @@ class GameEngine:
         ability_index: int = 0,
         tap_choices: Optional[list[Any]] = None,
         color_split: Optional[dict[str, int]] = None,
+        sacrifice_choice: Optional[int] = None,
     ) -> dict[str, int]:
         """Activate one of a permanent's mana abilities (RULE 605) — the
         fast, no-stack path.
@@ -2763,7 +2789,10 @@ class GameEngine:
         the ability's resolved total, validated by `validate_color_split`;
         ``None`` (or a non-combination ability) falls back to
         ``option_index``'s single-colour choice, same as before this
-        parameter existed. Returns the mana added.
+        parameter existed. ``sacrifice_choice`` is the same cost choice
+        `activate_ability` takes, for a "Sacrifice a creature: Add …"-shaped
+        mana ability (Ashnod's Altar); ``None`` falls back to an auto-pick.
+        Returns the mana added.
         """
         if source not in self.state.battlefield or source.controller_id != player.id:
             raise ValueError("can only tap your own permanents in play")
@@ -2779,7 +2808,9 @@ class GameEngine:
             raise ValueError(f"{source.name} has no mana ability #{ability_index}")
         ability = abilities[ability_index]
         cost = ability.cost
-        if not self._can_pay_activation_cost(player, source, cost, x=0, tap_choices=tap_choices):
+        if not self._can_pay_activation_cost(
+            player, source, cost, x=0, tap_choices=tap_choices, sacrifice_choice=sacrifice_choice
+        ):
             raise ValueError(f"cannot pay {source.name}'s mana ability cost")
         if not ability.options:
             raise ValueError(f"{source.name}'s mana ability produces nothing")
@@ -2790,7 +2821,9 @@ class GameEngine:
             if not 0 <= option_index < len(ability.options):
                 raise ValueError(f"invalid mana option {option_index} for {source.name}")
             produced = dict(ability.options[option_index])
-        self._pay_activation_cost(player, source, cost, x=0, tap_choices=tap_choices)
+        self._pay_activation_cost(
+            player, source, cost, x=0, tap_choices=tap_choices, sacrifice_choice=sacrifice_choice
+        )
         restriction = ability.restriction
         if restriction is not None and restriction.get("kind") == "chosen_type_spell":
             # Cavern of Souls/Unclaimed Territory-shaped: "of the chosen
@@ -2894,6 +2927,7 @@ class GameEngine:
         ability: ActivatedAbility,
         x: int = 0,
         tap_choices: Optional[list[Any]] = None,
+        sacrifice_choice: Optional[int] = None,
     ) -> bool:
         """Whether ``player`` may activate ``ability`` of ``source`` right now.
 
@@ -2933,7 +2967,9 @@ class GameEngine:
             source, ability.cost.class_level
         ):
             return False
-        return self._can_pay_activation_cost(player, source, ability.cost, x, tap_choices=tap_choices)
+        return self._can_pay_activation_cost(
+            player, source, ability.cost, x, tap_choices=tap_choices, sacrifice_choice=sacrifice_choice
+        )
 
     def _sorcery_speed_ok(self, player: Player) -> bool:
         """RULE 117.1a-style sorcery-speed timing: the controller's main
@@ -3020,6 +3056,11 @@ class GameEngine:
                 action["lock_reason"] = "Kein gültiges Ziel im Spiel"
         if ability.cost.tap_others:
             action["tap_cost"] = self._tap_cost_choice(player, source, ability.cost)
+        if ability.cost.sacrifice and ability.cost.sacrifice != "self":
+            # RULE 602.1: which permanent pays a "Sacrifice a <type>" cost is
+            # the player's own choice — offer the pool so the UI can prompt
+            # instead of the engine auto-picking (see `_sacrifice_candidate`).
+            action["sacrifice_cost"] = self._sacrifice_cost_choice(player, ability.cost)
         return action
 
     def _max_x_for_activation_cost(
@@ -3120,6 +3161,7 @@ class GameEngine:
         cost: "ActivationCost",
         x: int,
         tap_choices: Optional[list[Any]] = None,
+        sacrifice_choice: Optional[int] = None,
     ) -> bool:
         # {T} needs an untapped source; {Q} a tapped one. Either symbol also
         # needs a non-summoning-sick source unless it has haste (RULE 302.6,
@@ -3152,7 +3194,9 @@ class GameEngine:
             return False
         if cost.discard_self and source not in player.hand:
             return False
-        if cost.sacrifice and self._sacrifice_candidate(player, source, cost.sacrifice) is None:
+        if cost.sacrifice and self._sacrifice_candidate(
+            player, source, cost.sacrifice, chosen_id=sacrifice_choice
+        ) is None:
             return False
         if cost.return_to_hand and self._return_to_hand_candidate(player, cost.return_to_hand) is None:
             return False
@@ -3329,20 +3373,50 @@ class GameEngine:
             self.rules.exile(victim)
 
     def _sacrifice_candidate(
-        self, player: Player, source: GameObject, what: str
+        self,
+        player: Player,
+        source: GameObject,
+        what: str,
+        chosen_id: Optional[int] = None,
     ) -> Optional[GameObject]:
         """A permanent ``player`` can sacrifice to pay ``what`` (RULE 701.17).
 
-        ``"self"`` is the ability's own source; a type word matches the first
-        permanent the player controls of that type — an auto-choice, matching
-        the MVP's non-interactive discard/search picks.
+        ``"self"`` is the ability's own source — never a choice. Otherwise
+        this is a genuine cost *choice* (RULE 602.1), the same shape
+        `_resolve_tap_others` already uses for "tap N untapped <type>s":
+        ``chosen_id`` is the player's own pick, validated against every
+        legal candidate; ``None`` falls back to the first matching
+        permanent, for non-interactive callers (tests, the goldfish
+        auto-player) and existence-only legality checks (`legal_actions`
+        offering the ability before a choice has been made yet).
         """
         if what == "self":
             return source if source in self.state.permanents() else None
-        for obj in self.state.permanents_controlled_by(player.id):
-            if self._matches_sacrifice_type(obj, what):
-                return obj
-        return None
+        candidates = [
+            obj
+            for obj in self.state.permanents_controlled_by(player.id)
+            if self._matches_sacrifice_type(obj, what)
+        ]
+        if chosen_id is not None:
+            return next((o for o in candidates if o.instance_id == chosen_id), None)
+        return candidates[0] if candidates else None
+
+    def _sacrifice_cost_choice(
+        self, player: Player, cost: "ActivationCost"
+    ) -> dict[str, Any]:
+        """The offer-time UI shape for a ``sacrifice`` cost: every legal
+        candidate, so the player can pick which permanent pays it instead of
+        the engine auto-choosing (RULE 602.1) — the `_sacrifice_candidate`
+        counterpart to `_tap_cost_choice`. Never called for ``"self"``,
+        which isn't a choice."""
+        candidates = [
+            obj
+            for obj in self.state.permanents_controlled_by(player.id)
+            if self._matches_sacrifice_type(obj, cost.sacrifice)
+        ]
+        return {
+            "options": [{"instance_id": o.instance_id, "name": o.name} for o in candidates]
+        }
 
     @staticmethod
     def _matches_sacrifice_type(obj: GameObject, what: str) -> bool:
@@ -3378,6 +3452,7 @@ class GameEngine:
         cost: "ActivationCost",
         x: int,
         tap_choices: Optional[list[Any]] = None,
+        sacrifice_choice: Optional[int] = None,
     ) -> None:
         """Charge every component of ``cost`` (RULE 601.2h analogue for
         abilities) — tap/untap the source, tap other permanents, pay mana,
@@ -3385,7 +3460,7 @@ class GameEngine:
         `activate_ability` and `tap_for_mana` (a mana ability's cost is
         charged exactly the same way, just without going on the stack).
         Assumes `_can_pay_activation_cost` already passed (with the same
-        ``tap_choices``, if any).
+        ``tap_choices``/``sacrifice_choice``, if any).
         """
         if cost.taps_self:
             self.rules.set_tapped(source, True)
@@ -3417,7 +3492,9 @@ class GameEngine:
             # "poison" already use.
             self.rules.add_player_counters(player, -cost.pay_energy, "energy")
         if cost.sacrifice:
-            victim = self._sacrifice_candidate(player, source, cost.sacrifice)
+            victim = self._sacrifice_candidate(
+                player, source, cost.sacrifice, chosen_id=sacrifice_choice
+            )
             if victim is not None:
                 # RULE 701.16c: sacrifice isn't destruction — see the
                 # matching comment in `_pay_additional_cast_cost`.
@@ -3459,6 +3536,7 @@ class GameEngine:
         x: int = 0,
         tap_choices: Optional[list[Any]] = None,
         target_groups: Optional[list[list[Any]]] = None,
+        sacrifice_choice: Optional[int] = None,
     ) -> None:
         """Pay an activated ability's cost and put it on the stack (RULE 602.2).
 
@@ -3467,7 +3545,11 @@ class GameEngine:
         counters — then the ability goes on the stack to resolve later like any
         other object. ``tap_choices`` is the player's pick for a "tap N
         untapped <type>s you control" cost, if any (see `tap_for_mana`).
-        Raises ValueError if the ability can't be paid for.
+        ``sacrifice_choice`` is the player's pick of *which* permanent pays a
+        "Sacrifice a <type>" cost (RULE 602.1 — a genuine cost choice, not an
+        engine auto-pick; see `_sacrifice_candidate`); ``None`` falls back to
+        an auto-pick, for non-interactive callers. Raises ValueError if the
+        ability can't be paid for.
 
         ``target_groups``, when given, partitions ``targets`` per targeting
         effect (`StackItem.target_groups`) — needed only when the ability
@@ -3484,10 +3566,14 @@ class GameEngine:
             # see every chosen target, even when the groups are what the
             # effects actually resolve against.
             targets = [t for group in target_groups for t in group]
-        if not self.can_activate(player, source, ability, x, tap_choices=tap_choices):
+        if not self.can_activate(
+            player, source, ability, x, tap_choices=tap_choices, sacrifice_choice=sacrifice_choice
+        ):
             raise ValueError(f"cannot activate {source.name}'s ability")
 
-        self._pay_activation_cost(player, source, ability.cost, x, tap_choices=tap_choices)
+        self._pay_activation_cost(
+            player, source, ability.cost, x, tap_choices=tap_choices, sacrifice_choice=sacrifice_choice
+        )
         if ability.once_per_turn:
             ability._last_activated_turn = self.state.turn_number
 
@@ -3566,6 +3652,11 @@ class GameEngine:
                 action["locked"] = True
                 action["lock_reason"] = "Verflechten-Kosten nicht bezahlbar"
         cost = self.rules.mana_cost_of(obj.card)
+        # RULE 202.3: the printed mana value, always present — a client
+        # ordering offers by cost (`services/bots.py`' cheapest-first line)
+        # otherwise has nowhere to read it from, since `GameObject.to_dict`
+        # carries board state rather than printed characteristics.
+        action["mana_value"] = cost.converted_mana_cost
         if cost.has_variable:
             action["has_x"] = True
             action["max_x"] = self.max_affordable_x(player, obj)
@@ -3869,6 +3960,11 @@ class GameEngine:
                     action["combination_total"] = sum(ability.options[0].values())
                 if ability.cost.tap_others:
                     action["tap_cost"] = self._tap_cost_choice(player, source, ability.cost)
+                if ability.cost.sacrifice and ability.cost.sacrifice != "self":
+                    # RULE 602.1: same cost choice as `_activate_action`'s,
+                    # for a mana ability whose cost is a sacrifice (Ashnod's
+                    # Altar-shaped).
+                    action["sacrifice_cost"] = self._sacrifice_cost_choice(player, ability.cost)
                 actions.append(action)
 
         for source in list(player.hand):

@@ -666,6 +666,112 @@ def test_attached_equipment_stays_on_battlefield_unattached_when_host_leaves():
     assert equipment.attached_to is None
 
 
+def test_equip_only_offers_and_attaches_creatures_you_control():
+    """RULE 301.5b/702.6a: "target creature you control" — not an opponent's.
+
+    Control matters both when the ability is activated (offer time) and
+    when it resolves (`_attachment_legal`), so both are checked here.
+    """
+    eng = make_engine([land()], [land()], hand=0)
+    eng.begin_turn()
+    p1 = eng.state.active_player
+
+    own_creature = obj_on_battlefield(eng.state, eng, creature(name="Own"), controller="p1")
+    opponents_creature = obj_on_battlefield(
+        eng.state, eng, creature(name="Theirs"), controller="p2"
+    )
+
+    card = Card(
+        id="Equipment",
+        name="Equipment",
+        type_line="Artifact — Equipment",
+        mana_cost_string="{1}",
+        converted_mana_cost=1,
+    )
+    card.keywords = ["Equip"]
+    card.oracle_text = "Equip {2}"
+    source = GameObject(card, owner_id="p1", zone=Zone.BATTLEFIELD)
+    source.summoning_sick = False
+    eng.state.add_to_battlefield(source)
+    bind_from_catalogue(source)
+
+    requirements = eng._ability_target_requirements(p1, source.activated_abilities[0], source)
+    option_ids = {opt["instance_id"] for opt in requirements[0]["options"]}
+    assert own_creature.instance_id in option_ids
+    assert opponents_creature.instance_id not in option_ids
+
+    assert eng.rules.attach_to_target(source, own_creature)
+    source.attached_to = None
+    assert not eng.rules._attachment_legal(source, opponents_creature)
+
+
+def test_reconfigure_only_offers_creatures_you_control():
+    """RULE 702.151a: "another target creature you control" — same restriction."""
+    eng = make_engine([land()], [land()], hand=0)
+    eng.begin_turn()
+    p1 = eng.state.active_player
+
+    own_creature = obj_on_battlefield(eng.state, eng, creature(name="Own"), controller="p1")
+    opponents_creature = obj_on_battlefield(
+        eng.state, eng, creature(name="Theirs"), controller="p2"
+    )
+
+    card = Card(
+        id="Reconfigurable",
+        name="Reconfigurable",
+        type_line="Artifact Creature — Equipment",
+        mana_cost_string="{1}",
+        converted_mana_cost=1,
+        is_creature=True,
+        power=1,
+        toughness=1,
+    )
+    card.keywords = ["Reconfigure"]
+    card.oracle_text = "Reconfigure {2}"
+    source = GameObject(card, owner_id="p1", zone=Zone.BATTLEFIELD)
+    source.summoning_sick = False
+    eng.state.add_to_battlefield(source)
+    bind_from_catalogue(source)
+
+    requirements = eng._ability_target_requirements(p1, source.activated_abilities[0], source)
+    option_ids = {opt["instance_id"] for opt in requirements[0]["options"]}
+    assert own_creature.instance_id in option_ids
+    assert opponents_creature.instance_id not in option_ids
+
+
+def test_fortify_only_offers_lands_you_control():
+    """RULE 702.67a: "target land you control" — same restriction."""
+    eng = make_engine([land()], [land()], hand=0)
+    eng.begin_turn()
+    p1 = eng.state.active_player
+
+    own_land = obj_on_battlefield(
+        eng.state, eng, land(name="Own Mountain", produces="Mountain"), controller="p1"
+    )
+    opponents_land = obj_on_battlefield(
+        eng.state, eng, land(name="Their Mountain", produces="Mountain"), controller="p2"
+    )
+
+    card = Card(
+        id="Fortification",
+        name="Fortification",
+        type_line="Artifact — Fortification",
+        mana_cost_string="{1}",
+        converted_mana_cost=1,
+    )
+    card.keywords = ["Fortify"]
+    card.oracle_text = "Fortify {2}"
+    source = GameObject(card, owner_id="p1", zone=Zone.BATTLEFIELD)
+    source.summoning_sick = False
+    eng.state.add_to_battlefield(source)
+    bind_from_catalogue(source)
+
+    requirements = eng._ability_target_requirements(p1, source.activated_abilities[0], source)
+    option_ids = {opt["instance_id"] for opt in requirements[0]["options"]}
+    assert own_land.instance_id in option_ids
+    assert opponents_land.instance_id not in option_ids
+
+
 def test_reconfigure_ability_only_offers_creature_attachment_targets():
     eng = make_engine([land()], hand=0)
     eng.begin_turn()
@@ -2905,6 +3011,67 @@ def test_sacrifice_self_cost_sends_source_to_graveyard():
     obj, ability = _with_ability(eng, creature(), "Sacrifice ~: Draw a card.", [DrawCardEffect(1, player=p1)])
     eng.activate_ability(p1, obj)
     assert obj not in eng.state.battlefield  # sacrificed as a cost
+
+
+def test_sacrifice_a_creature_cost_offers_a_choice_when_2plus_candidates():
+    """RULE 602.1: "Sacrifice a creature" is a cost *choice*, not an engine
+    auto-pick — `legal_actions` must offer every legal victim, and an
+    explicit `sacrifice_choice` must be honoured over the first match."""
+    from mtg_analyzer.game.effects import DrawCardEffect
+
+    eng = make_engine([land()], hand=0)
+    eng.begin_turn()
+    p1 = eng.state.active_player
+    source, ability = _with_ability(
+        eng, creature("Altar"), "Sacrifice a creature: Draw a card.", [DrawCardEffect(1, player=p1)]
+    )
+    fodder_a = obj_on_battlefield(eng.state, eng, creature("Fodder A"), controller="p1")
+    fodder_b = obj_on_battlefield(eng.state, eng, creature("Fodder B"), controller="p1")
+
+    action = next(
+        a for a in eng.legal_actions(p1) if a["type"] == "activate_ability" and a["instance_id"] == source.instance_id
+    )
+    offered_ids = {o["instance_id"] for o in action["sacrifice_cost"]["options"]}
+    # Every creature is a legal candidate, including the ability's own
+    # source — no choice is silently narrowed to "not the source".
+    assert offered_ids == {source.instance_id, fodder_a.instance_id, fodder_b.instance_id}
+
+    eng.activate_ability(p1, source, sacrifice_choice=fodder_b.instance_id)
+    assert fodder_b not in eng.state.battlefield
+    assert fodder_a in eng.state.battlefield
+    assert source in eng.state.battlefield
+
+
+def test_sacrifice_a_creature_cost_auto_picks_when_no_choice_given():
+    """Non-interactive callers (tests, the goldfish auto-player) keep working
+    unchanged: omitting `sacrifice_choice` falls back to the first legal
+    candidate, exactly as before this became a real choice."""
+    from mtg_analyzer.game.effects import DrawCardEffect
+
+    eng = make_engine([land()], hand=0)
+    eng.begin_turn()
+    p1 = eng.state.active_player
+    source, ability = _with_ability(
+        eng, creature("Altar"), "Sacrifice a creature: Draw a card.", [DrawCardEffect(1, player=p1)]
+    )
+    fodder = obj_on_battlefield(eng.state, eng, creature("Fodder"), controller="p1")
+    eng.activate_ability(p1, source)
+    assert source not in eng.state.battlefield  # first candidate, auto-picked
+    assert fodder in eng.state.battlefield
+
+
+def test_sacrifice_a_creature_cost_rejects_an_invalid_choice():
+    from mtg_analyzer.game.effects import DrawCardEffect
+
+    eng = make_engine([land()], hand=0)
+    eng.begin_turn()
+    p1 = eng.state.active_player
+    source, ability = _with_ability(
+        eng, creature("Altar"), "Sacrifice a creature: Draw a card.", [DrawCardEffect(1, player=p1)]
+    )
+    obj_on_battlefield(eng.state, eng, creature("Fodder"), controller="p1")
+    with pytest.raises(ValueError):
+        eng.activate_ability(p1, source, sacrifice_choice=999999)
 
 
 def test_pay_life_cost_reduces_life():
