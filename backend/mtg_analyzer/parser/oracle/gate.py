@@ -27,6 +27,7 @@ from .catalogue.counters import entry_counters_condition
 from .catalogue.keywords import parse_keywords
 from .catalogue.lands import tap_clause_condition
 from .catalogue.levels import (
+    CLASS_BECOMES_LEVEL_RE,
     LEVEL_UP_LINE_RE,
     PT_LINE_RE,
     split_class_blocks,
@@ -37,6 +38,7 @@ from .catalogue.static_handlers import commander_eligibility_line
 from .normalize import normalize
 from .segmenter import (
     Segment,
+    _peel_optional,
     _TRIGGER_RE,
     _trigger_condition,
     _trigger_event,
@@ -48,7 +50,7 @@ from .spec import AbilitySpec, EffectSpec, ParserProvenance
 MODELED = "MODELED"
 UNMODELED = "UNMODELED"
 #: Stickers (RULE 123) are a permanent project non-goal — see
-#: `backend/ToDo_Backend.md` — not a "not yet" gap like an ordinary
+#: `docs/implementation-state/BACKLOG.md` — not a "not yet" gap like an ordinary
 #: UNMODELED card. Any card mentioning them is classified `NEVER_SUPPORTED`
 #: instead of `UNMODELED` so its unclaimed clauses never surface in the
 #: processing-list backlog ranking (they'd otherwise sit there forever,
@@ -297,7 +299,7 @@ NEVER_SUPPORTED = "NEVER_SUPPORTED"
 #: since a plain mana ability is claimed-*without*-a-spec by the segmenter.
 #:
 #: **Version 29** — the *qualified* combat-restriction family (RULE
-#: 508.1a/509.1b), closing `ToDo_Backend.md`'s "Combat statics" section:
+#: 508.1a/509.1b), closing `BACKLOG.md`'s "Combat statics" section:
 #: (1) **Blocking filters** — "~ can't be blocked by creatures with power 2
 #: or less"/"…except by Walls"/"…by more than one creature"/"…except by two
 #: or more creatures", plus their resolve-time "…this turn" sibling. These
@@ -318,7 +320,7 @@ NEVER_SUPPORTED = "NEVER_SUPPORTED"
 #: `GameObject.temp_cant_block`), with N-target and untargeted mass forms.
 #:
 #: **Version 30** — the three RULE 508/509 families version 29 deliberately
-#: left open (`ToDo_Backend.md`'s "Combat statics" residue):
+#: left open (`BACKLOG.md`'s "Combat statics" residue):
 #: (1) **Combat requirements** (RULE 509.1c/d) — "~ must be blocked if
 #: able."/"All creatures able to block ~ do so." as synthetic flag keywords
 #: (`"must_be_blocked"`/`"all_must_block"`, the same `grant_keyword` plumbing
@@ -340,7 +342,7 @@ NEVER_SUPPORTED = "NEVER_SUPPORTED"
 #: evenly across every attacker it's blocking.
 #:
 #: **Version 31** — the two narrow parser-only gaps version 30's own ToDo
-#: entry left open, closing `ToDo_Backend.md`'s "Combat statics" section
+#: entry left open, closing `BACKLOG.md`'s "Combat statics" section
 #: entirely:
 #: (1) **A count-selector threshold instead of a literal int** — "Creatures
 #: with power less than the number of Islands you control can't block ~."
@@ -371,7 +373,35 @@ NEVER_SUPPORTED = "NEVER_SUPPORTED"
 #: ``grant_mana_ability`` spec in favour of `game/mana_abilities.py`'s
 #: generic RULE 305.6 derivation — same ``modeled`` verdict for Blood Moon,
 #: but a different `EffectSpec` shape, so cached rows need re-parsing.
-PARSER_VERSION = "32"
+#: 33: Class (RULE 716) residual edges — "When this Class becomes level N,
+#: <effect>." (`CLASS_BECOMES_LEVEL_RE`) and "When this Class enters, …"/
+#: "…dies"/"…attacks"/"…blocks" (`segmenter._SELF_SUBJECT_RE` gaining
+#: "class") are both now recognized instead of failing the whole card
+#: closed — real cached cards affected: Ranger Class, Rogue Class, Party
+#: Dude, Fighter Class, Blacksmith's Talent, Builder's Talent, Hunter's
+#: Talent, Intermediate Chirography, Sorcerer/A-Sorcerer Class,
+#: Stormchaser's Talent, Does Machines, Alchemist's Talent, Bandit's
+#: Talent (the "enters" fix) and Wizard/A-Wizard Class, Monk Class,
+#: Artificer Class, Caretaker's Talent, Cleric Class, Cool but Rude,
+#: Warlock Class, Builder's Talent again, A-Druid/Druid Class (the
+#: "becomes level N" fix) — though most still have a *different*,
+#: unrelated unclaimed line (general trigger/effect coverage, independent
+#: of this fix) so don't all flip to MODELED outright.
+#: "34": Battles (RULE 310). `normalize._SELF_REFERENCE_RE` folds "this
+#: battle"/"this Siege" to ``~`` — without it every real battle was
+#: UNMODELED on its own ETB line ("When this Siege enters, …"), 0/39 of the
+#: cached battle pool. Plus three shared-grammar widenings the battles
+#: motivated but that are not battle-specific: RULE 115.4's "any **other**
+#: target" (`subgrammars._TARGET_ROWS`, onto the existing ``any`` kind,
+#: whose candidate list already excludes the source); "target creature an
+#: opponent controls"/"…you don't control" onto the existing
+#: ``creature_you_dont_control`` kind, with `_pump_target` widened to accept
+#: the controller-scoped creature kinds; and the discard handler gaining
+#: "target opponent"/"each player"/"each opponent" subjects — which also
+#: fixed a latent bug where "target player discards a card" made the
+#: *source's controller* discard, since `_discard` never passed a
+#: ``target_kind`` through to `DiscardEffect`. Battle pool: 0 → 12 MODELED.
+PARSER_VERSION = "34"
 
 
 @dataclass
@@ -414,7 +444,7 @@ class ParseResult:
 
 def _mentions_stickers(raw: str) -> bool:
     """RULE 123 Stickers — declared a permanent non-goal (see
-    `backend/ToDo_Backend.md`), not merely deprioritized. A simple
+    `docs/implementation-state/BACKLOG.md`), not merely deprioritized. A simple
     substring check is deliberate: real sticker cards say "sticker sheet"/
     "sticker" in their own oracle text (there is no other card-text idiom
     that uses the word), so this never needs the segmenter/normalize
@@ -670,8 +700,17 @@ def _parse_oracle_uncached(card: Any) -> ParseResult:
         if pt is not None:
             power, toughness = pt.group("power"), pt.group("toughness")
             if power == "*" or toughness == "*":
-                # CDA-based Leveler P/T isn't modeled (no card in the pool
-                # needs it) — fail closed rather than guess.
+                # A "*/*" Leveler tier would need a `pt_cda` static (the
+                # engine primitive already exists — `game/continuous.py`'s
+                # layer-7a pass, shared with e.g. Tarmogoyf) instead of
+                # `pt_set`, gated the same `min_level`/`max_level` way. Left
+                # unimplemented on purpose, not merely deferred: unlike
+                # every other item this module fails closed on, there is no
+                # real printed Leveler tier to derive the CDA's actual count
+                # selector from (checked against the full ~34k-card Oracle
+                # cache — zero matches), so wiring this now would mean
+                # *guessing* the selector docs/09's fail-closed discipline
+                # exists to prevent. Revisit only if a real card is printed.
                 all_claimed = False
                 unclaimed.append(line)
                 return
@@ -767,6 +806,37 @@ def _parse_oracle_uncached(card: Any) -> ParseResult:
     def _process_class_body(line: str, level: int) -> None:
         nonlocal all_claimed
         gate = {"min_level": level, "level_counter": "class_level"}
+        # RULE 716.4c-adjacent one-shot: "When this Class becomes level N,
+        # <effect>." isn't the ordinary "stays active once unlocked" shape
+        # every other body line is — checked first since it has its own
+        # trigger wrapper the generic per-line dispatch doesn't recognize
+        # (`CLASS_BECOMES_LEVEL_RE`'s docstring).
+        becomes = CLASS_BECOMES_LEVEL_RE.match(line.strip())
+        if becomes is not None:
+            n = int(becomes.group("n"))
+            if n != level:
+                # Printed under a different level's own block than the
+                # number it names — not a shape any real card uses; fail
+                # closed rather than guess which block "wins".
+                all_claimed = False
+                unclaimed.append(line)
+                return
+            body, optional = _peel_optional(becomes.group("body"))
+            effects = parse_effect_body(body)
+            if effects is None:
+                all_claimed = False
+                unclaimed.append(line)
+                return
+            spec = AbilitySpec(
+                "triggered",
+                effects=effects,
+                trigger={"event": "CLASS_LEVEL", "chapter": [n]},
+                optional=optional,
+                raw_text=line,
+                parser=provenance,
+            )
+            _tag_level_gate(spec, gate, default_affects=None)
+            return
         seg = segment_line(line, allow_spell_effect=False, provenance=provenance, is_saga=False)
         if not seg.claimed:
             all_claimed = False

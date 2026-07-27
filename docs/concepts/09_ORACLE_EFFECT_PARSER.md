@@ -2,7 +2,7 @@
 
 Status: **design agreed, not yet implemented.** This is the plan for the
 open "Oracle-text → effect *parser*" item in
-[backend/ToDo_Backend.md](../../backend/ToDo_Backend.md) (Rules Engine,
+[docs/implementation-state/BACKLOG.md](../implementation-state/BACKLOG.md) (Rules Engine,
 Phase 2). It builds directly on the effect system already implemented in
 [07_GAME_LOOP_EFFECT_SYSTEM.md](07_GAME_LOOP_EFFECT_SYSTEM.md) — read that
 first; this document does not re-explain the effect hierarchy.

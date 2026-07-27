@@ -1,6 +1,6 @@
 """RULE 508/509's requirement and multi-block-permission families — the
 three shapes `test_qualified_combat_restrictions.py`'s batch deliberately
-left open (see `ToDo_Backend.md`'s post-batch-27 "Combat statics" residue):
+left open (see `BACKLOG.md`'s post-batch-27 "Combat statics" residue):
 
 * **Combat requirements** (RULE 509.1c/d) — "~ must be blocked if able."/
   "All creatures able to block ~ do so." as synthetic flag keywords (the

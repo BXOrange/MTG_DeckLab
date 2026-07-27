@@ -2447,6 +2447,27 @@ textarea {
   pointer-events: none;
 }
 
+/* RULE 714: a Saga's chapter progress — same shape/position as the loyalty
+   badge above (a Saga is never a planeswalker, so they never co-occur), just
+   a different colour so the two read as distinct concepts at a glance. */
+.gf-saga-badge {
+  background: var(--info);
+  color: #fff;
+}
+
+/* RULE 310.4c: a battle's remaining defense (plus its protector's name,
+   RULE 310.8) — same shape/position as the loyalty and Saga badges above,
+   which it likewise never co-occurs with (a battle is neither). Wider than
+   those two because it carries a player name, so it may wrap off the
+   corner on a narrow tile — hence the max-width + ellipsis. */
+.gf-battle-badge {
+  background: var(--error);
+  color: #fff;
+  max-width: 110px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
 .gf-attacking-badge {
   position: absolute;
   top: -0.4rem;

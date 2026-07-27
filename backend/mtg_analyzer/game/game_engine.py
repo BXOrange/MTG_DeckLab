@@ -638,8 +638,12 @@ class GameEngine:
         )
         if not skip_draw:
             self.rules.draw(self.state.active_player, 1)
-        # RULE 714.2b: after the draw step, each Saga its controller controls
-        # gets another lore counter, advancing it to its next chapter.
+
+    def _step_main1(self) -> None:
+        # RULE 714.3c: as a player's precombat main phase begins, they put a
+        # lore counter on each Saga they control with one or more chapter
+        # abilities — a turn-based action, not a trigger off the draw step
+        # (which is where this lived before it was fixed to match the CR).
         self.rules.advance_sagas(self.state.active_player)
 
     def _step_combat_damage(self) -> None:
@@ -814,10 +818,10 @@ class GameEngine:
     def _resolve_combat_defender(self, spec: Optional[dict[str, Any]]) -> Optional[Any]:
         """Turn a stored ``combat_defender`` spec back into the live target.
 
-        Returns the defending `Player`, the planeswalker `GameObject`, or
-        None (a bare swing / a defender that has since left). Robust to a
-        rewind having swapped in a fresh state — everything is re-looked-up
-        by id, never held by reference.
+        Returns the defending `Player`, the planeswalker or battle
+        `GameObject`, or None (a bare swing / a defender that has since
+        left). Robust to a rewind having swapped in a fresh state —
+        everything is re-looked-up by id, never held by reference.
         """
         if not spec:
             return None
@@ -827,7 +831,11 @@ class GameEngine:
             except KeyError:
                 return None
             return None if player.has_lost else player
-        if spec.get("kind") == "planeswalker":
+        if spec.get("kind") in ("planeswalker", "battle"):
+            # Both resolve to the permanent itself; what differs is what
+            # `RulesEngine.deal_damage` then does with it (loyalty counters
+            # vs. RULE 310.6 defense counters), which it decides off the
+            # object's own type rather than off this spec.
             obj = self.state.find_object(spec["instance_id"])
             if obj is not None and obj in self.state.battlefield:
                 return obj
@@ -1153,6 +1161,20 @@ class GameEngine:
             # or Enclave"); `resolve_enter_choice` defaults an
             # unrecognized/missing answer to the first offered option.
             self.rules.resolve_enter_choice(None if declined else str(answer))
+        elif kind == "choose_protector":
+            # RULE 310.8a/310.11a: which player protects an entering battle —
+            # a mandatory pick (no "decline" is offered), the option id being
+            # a player id; `resolve_protector_choice` defaults an
+            # unrecognized/missing answer to the first eligible player, same
+            # treatment as choose_creature_type above.
+            self.rules.resolve_protector_choice(None if declined else str(answer))
+        elif kind == "read_ahead":
+            # RULE 702.155/714.3b: a mandatory pick (no "decline" option is
+            # ever offered) — the option id is the chosen lore-counter count
+            # as a string; `resolve_read_ahead_choice` defaults an
+            # unrecognized/missing answer to 1 (no read-ahead), same
+            # treatment as choose_creature_type.
+            self.rules.resolve_read_ahead_choice(None if declined else str(answer))
         elif kind == "counter_unless_pays":
             # RULE 601: "pay" saves the target spell, anything else counters it.
             self.rules.resolve_counter_unless_pays_choice(None if declined else str(answer))
@@ -2209,11 +2231,12 @@ class GameEngine:
     def legal_defenders_for(self, player: Player) -> list[dict[str, Any]]:
         """Who ``player``'s creatures may attack (RULE 508.1a).
 
-        Each attacking creature is declared attacking either a player or a
-        planeswalker an opponent controls. Returns those choices as
-        serializable specs the UI renders as targets (and `declare_attackers`
-        validates against). In a solo goldfish there are no opponents, so
-        this is empty — attacks become "bare" swings with no target.
+        Each attacking creature is declared attacking a player, a
+        planeswalker an opponent controls, or a battle (RULE 310.5). Returns
+        those choices as serializable specs the UI renders as targets (and
+        `declare_attackers` validates against). In a solo goldfish there are
+        no opponents, so this is empty — attacks become "bare" swings with
+        no target.
         """
         defenders: list[dict[str, Any]] = []
         for other in self.state.players:
@@ -2225,6 +2248,18 @@ class GameEngine:
                 defenders.append(
                     {"kind": "planeswalker", "instance_id": obj.instance_id, "label": obj.name}
                 )
+        # RULE 310.8b: a battle can be attacked by any player for whom its
+        # *protector* is a defending player — i.e. by everyone except the
+        # protector themselves. Deliberately not filtered by controller, so
+        # a Siege's own controller can attack it (310.8b calls this out
+        # explicitly): a Siege is protected by an opponent, and attacking
+        # your own Siege to flip it is the card's whole point.
+        for obj in self.state.battlefield:
+            if not obj.is_battle or obj.protector_id in (None, player.id):
+                continue
+            defenders.append(
+                {"kind": "battle", "instance_id": obj.instance_id, "label": obj.name}
+            )
         return defenders
 
     def declare_attackers(
@@ -2304,14 +2339,19 @@ class GameEngine:
 
     @staticmethod
     def _defender_spec(defender: Any) -> dict[str, Any]:
-        """Coerce a Player / planeswalker `GameObject` / spec dict → a spec."""
+        """Coerce a Player / planeswalker or battle `GameObject` / spec dict
+        → a spec."""
         if isinstance(defender, dict):
             return dict(defender)
         if isinstance(defender, Player):
             return {"kind": "player", "id": defender.id, "label": defender.name}
         if isinstance(defender, GameObject):
             return {
-                "kind": "planeswalker",
+                # RULE 310.5: a battle is its own defender kind — combat
+                # damage to it removes defense counters (310.6) rather than
+                # loyalty, and its "defending player" is its protector
+                # (310.8d), neither of which the planeswalker branch does.
+                "kind": "battle" if defender.is_battle else "planeswalker",
                 "instance_id": defender.instance_id,
                 "label": defender.name,
             }
@@ -2650,7 +2690,10 @@ class GameEngine:
 
     def can_block(self, player: Player, blocker: GameObject, attacker: GameObject) -> bool:
         """RULE 509.1a: an untapped creature ``player`` controls may block an
-        attacker that is attacking ``player`` (or a planeswalker they control).
+        attacker that is attacking ``player`` (or a planeswalker they control,
+        or a battle they *protect* — RULE 310.8c, which falls out of
+        `_attacker_attacks_player` resolving a battle to its protector rather
+        than needing its own check here).
 
         Plus the evasion half (RULE 509.1b): flying can only be blocked by
         flying/reach, protection stops a block by the protected-from quality
@@ -2733,7 +2776,15 @@ class GameEngine:
         """The player being attacked by an assigned ``combat_defender`` spec —
         the player themselves, or a defending planeswalker's controller (RULE
         508.1a's "defending player" covers both). ``None`` for a bare swing
-        (solo goldfish, no legal defender at all)."""
+        (solo goldfish, no legal defender at all).
+
+        RULE 310.8d: for a **battle** the defending player is its *protector*,
+        not its controller — which is the whole reason a Siege can be
+        attacked by the player who controls it (310.8b). Everything that asks
+        "who is the defending player" (block legality, "~ can't attack unless
+        defending player controls…", Dethrone) goes through here, so that
+        substitution only has to be made once.
+        """
         if not defender:
             return None
         if defender.get("kind") == "player":
@@ -2741,22 +2792,27 @@ class GameEngine:
                 return self.state.player_by_id(defender.get("id"))
             except KeyError:
                 return None
-        pw = self.state.find_object(defender.get("instance_id"))
-        if pw is None:
+        obj = self.state.find_object(defender.get("instance_id"))
+        if obj is None:
+            return None
+        player_id = obj.protector_id if obj.is_battle else obj.controller_id
+        if player_id is None:
             return None
         try:
-            return self.state.player_by_id(pw.controller_id)
+            return self.state.player_by_id(player_id)
         except KeyError:
             return None
 
     def _attacker_attacks_player(self, attacker: GameObject, player: Player) -> bool:
+        """Whether ``attacker`` is attacking ``player`` — directly, or via a
+        permanent they're the defending player for (RULE 508.1a, and RULE
+        310.8d for a battle they protect)."""
         defender = attacker.combat_defender
         if not defender:
             return False
         if defender.get("kind") == "player":
             return defender.get("id") == player.id
-        pw = self.state.find_object(defender.get("instance_id"))
-        return pw is not None and pw.controller_id == player.id
+        return self._defending_player(defender) is player
 
     def tap_for_mana(
         self,

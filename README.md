@@ -60,7 +60,7 @@ uvicorn) plus the frontend static server at `http://localhost:8765`
 (Ctrl+C to stop both); add `--backend-tests` to also run the backend's
 pytest suite first, `--port` to change the frontend port,
 `--backend-only`/`--frontend-only` to start just one side, `--no-browser`
-to skip auto-opening a tab. See [backend/ToDo_Backend.md](backend/ToDo_Backend.md)
+to skip auto-opening a tab. See [docs/implementation-state/BACKLOG.md](docs/implementation-state/BACKLOG.md)
 for what's still open.
 
 To work on the backend directly:

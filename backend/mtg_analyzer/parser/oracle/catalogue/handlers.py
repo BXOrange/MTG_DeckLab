@@ -209,7 +209,7 @@ def _draw_next_upkeep(m: re.Match[str]) -> list[EffectSpec]:
     phase". A pronoun-scoped variant ("its controller may draw...", Arcane
     Denial's own first sentence) is deliberately unclaimed here — a
     different, indirect-referent grammar shape, same family of gap as
-    Run Away Together's (`backend/ToDo_Backend.md`)."""
+    Run Away Together's (`docs/implementation-state/BACKLOG.md`)."""
     return [EffectSpec("create_delayed_trigger", {
         "step": "upkeep",
         "scope": "any",
@@ -218,7 +218,21 @@ def _draw_next_upkeep(m: re.Match[str]) -> list[EffectSpec]:
 
 
 def _discard(m: re.Match[str]) -> list[EffectSpec]:
-    return [EffectSpec("discard", {"count": count_of(m.group("n"))})]
+    # "you discard"/bare "discard" is the controller (untargeted); "target
+    # player/opponent discards" is a real RULE 115 target; "each player/
+    # opponent discards" is the untargeted mass form (RULE 601.2c). Mirrors
+    # `_gain_life`'s ``who``-group treatment — and without the target_kind
+    # half, "target player discards a card" would have made the *source's
+    # controller* discard instead of the chosen player.
+    params: dict = {"count": count_of(m.group("n"))}
+    who = (m.groupdict().get("who") or "").strip()
+    if who in ("target player", "target opponent"):
+        params["target_kind"] = "player"
+    elif who == "each player":
+        params["scope"] = "each_player"
+    elif who == "each opponent":
+        params["scope"] = "each_opponent"
+    return [EffectSpec("discard", params)]
 
 
 def _gain_life(m: re.Match[str]) -> list[EffectSpec]:
@@ -1390,7 +1404,13 @@ def _pump_target(m: re.Match[str]) -> Optional[tuple[Optional[str], Optional[str
     if groupdict.get("attached"):
         return ("attached_permanent", None)  # "enchanted creature gains …" (Aura activated ability)
     kind = resolve_target_kind(m.group("target"))
-    if kind not in ("creature", "permanent"):
+    # The controller-scoped creature kinds are as pumpable as a bare
+    # "target creature" — `targeting.legal_targets` resolves all four, and a
+    # pump doesn't care *whose* creature it lands on. Anything else (a
+    # player, a spell) has no P/T to modify, so it stays fail-closed.
+    if kind not in (
+        "creature", "permanent", "creature_you_control", "creature_you_dont_control"
+    ):
         return None
     return (kind, None)
 
@@ -1821,7 +1841,10 @@ HANDLERS: list[EffectHandler] = [
     # "you discard a card" / "discard 2 cards" / "target player discards a card"
     EffectHandler(
         "discard",
-        _c(rf"(?:you |target player |each player )?discards? {COUNT} cards?"),
+        _c(
+            r"(?P<who>you|target player|target opponent|each player|each opponent)?\s*"
+            rf"discards? {COUNT} cards?"
+        ),
         _discard,
     ),
     # "you gain 3 life" / "gain 5 life" / "target player gains 3 life"

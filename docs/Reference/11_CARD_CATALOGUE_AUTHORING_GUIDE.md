@@ -532,7 +532,7 @@ Follow the pattern in `backend/tests/test_ability_catalogue.py` and
 
 - Register every name a functionally-identical printing uses (see
   `Evolving Wilds` / `Terramorphic Expanse`).
-- `backend/ToDo_Backend.md` / `Done_Backend.md` track what's open/shipped at
+- `docs/implementation-state/BACKLOG.md` / `Done_Backend.md` track what's open/shipped at
   the feature level; if your card motivated a new `EffectSpec` type or
   closed a backlog item, update those (and CLAUDE.md's "Implementation
   state" summary if it changes engine-wide coverage, not just one card).

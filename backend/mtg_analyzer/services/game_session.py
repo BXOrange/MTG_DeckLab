@@ -72,7 +72,7 @@ REPLAY = "replay"
 #: wants. Vancouver's "scry 1 after keeping" is deliberately absent:
 #: `RulesEngine.scry` is a non-interactive stub that always keeps every card
 #: on top, so offering it would be a choice with no effect (see
-#: backend/ToDo_Backend.md).
+#: docs/implementation-state/BACKLOG.md).
 MULLIGAN_STYLES = ("london", "next7", "none")
 
 
@@ -218,7 +218,7 @@ def _redact_hidden_zones(
     `GameObject.face_down_in_exile`) still ships its identity — no card in
     the multiplayer path produces one today, and doing it properly means
     redacting a *card's* characteristics rather than a whole zone (see
-    backend/ToDo_Backend.md).
+    docs/implementation-state/BACKLOG.md).
     """
     for player in state_dict.get("players", []):
         own = perspective is not None and player.get("id") == perspective

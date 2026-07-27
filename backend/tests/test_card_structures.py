@@ -5,6 +5,7 @@ import pytest
 from mtg_analyzer.models.card import Card
 from mtg_analyzer.models.events import EventType, GameEvent
 from mtg_analyzer.models.game_object import GameObject, Zone
+from mtg_analyzer.models.game_state import StackItem
 from mtg_analyzer.game import combat
 from mtg_analyzer.game.effect_binder import bind_from_catalogue
 from mtg_analyzer.game.game_engine import GameEngine
@@ -161,6 +162,45 @@ def test_saga_not_sacrificed_before_final_chapter():
     assert saga in eng.state.battlefield
 
 
+def test_saga_sacrifice_is_not_blocked_by_an_unrelated_stack_item():
+    """RULE 714.4: the sacrifice check must key off *this Saga's own*
+    chapter trigger, not "is the stack empty at all" — an opponent's
+    unrelated spell/ability sitting on the stack must not delay it."""
+    eng = make_engine()
+    saga = _put(eng, _saga())
+    saga.counters["lore"] = 3  # already at its final chapter, no trigger pending
+    eng.state.stack.append(StackItem(kind="spell", controller_id="p2", description="Lightning Bolt"))
+    eng.rules.check_state_based_actions()
+    assert saga not in eng.state.battlefield
+    assert saga in eng.state.player_by_id("p1").graveyard
+
+
+def test_saga_sacrifice_is_still_blocked_by_its_own_pending_chapter():
+    eng = make_engine()
+    eng.begin_turn()
+    saga = _saga_in_play(eng, _saga())
+    saga.counters["lore"] = 3  # final chapter reached...
+    assert eng.rules.put_triggers_on_stack() == 1  # ...but chapter I's own trigger is still on the stack
+    eng.rules.check_state_based_actions()
+    assert saga in eng.state.battlefield
+    eng.rules.resolve_top_of_stack()
+    eng.rules.check_state_based_actions()
+    assert saga not in eng.state.battlefield
+
+
+def test_advance_sagas_runs_at_precombat_main_not_the_draw_step():
+    """RULE 714.3c: the lore counter is a turn-based action as the
+    controller's precombat main phase begins — not off the draw step."""
+    eng = make_engine()
+    eng.begin_turn()
+    saga = _put(eng, _saga())
+    assert saga.lore == 1
+    eng._step_draw()
+    assert saga.lore == 1  # unchanged — the draw step no longer advances it
+    eng._step_main1()
+    assert saga.lore == 2
+
+
 def _saga_in_play(eng, card, controller="p1"):
     """Like `_put`, but binds the card's chapter abilities first (RULE 714.2d)
     — `add_to_battlefield` fires chapter I's `SAGA_CHAPTER` the moment it's
@@ -207,6 +247,99 @@ def test_saga_chapter_iii_group_pumps_creatures_you_control():
     assert bear.temp_power == 2 and bear.temp_toughness == 1
     for knight in knights:
         assert knight.temp_power == 2 and knight.temp_toughness == 1
+
+
+def _saga_read_ahead(name="Rally to Battle"):
+    # Chapters I and II are distinguishable tokens on purpose (RULE 702.155a:
+    # a skipped chapter never fires at all, so "one token" alone wouldn't
+    # prove *which* chapter produced it).
+    return Card(
+        id=name, name=name, type_line="Enchantment — Saga",
+        keywords=["Read Ahead"],
+        oracle_text=(
+            "Read ahead\n"
+            "I — Create a 1/1 white Soldier creature token.\n"
+            "II — Create a 2/2 white Knight creature token with vigilance.\n"
+            "III — Creatures you control get +2/+1 until end of turn."
+        ),
+    )
+
+
+def test_read_ahead_offers_a_choice_of_starting_chapter():
+    eng = make_engine()
+    p1 = _ready_main_phase(eng)
+    obj = _in_hand(eng, _saga_read_ahead())
+    bind_from_catalogue(obj)
+    eng.cast_spell(p1, obj)
+    eng.resolve_until_stable()
+
+    pending = eng.state.pending_choice
+    assert pending and pending["kind"] == "read_ahead"
+    assert obj not in eng.state.battlefield  # paused before entering
+    assert [o["id"] for o in pending["options"]] == ["1", "2", "3"]
+
+
+def test_read_ahead_choosing_two_enters_at_chapter_ii_only_skipping_chapter_i():
+    """RULE 702.155a: only the chapter matching the chosen count fires — a
+    skipped lower chapter never triggers, not even delayed."""
+    eng = make_engine()
+    p1 = _ready_main_phase(eng)
+    obj = _in_hand(eng, _saga_read_ahead())
+    bind_from_catalogue(obj)
+    eng.cast_spell(p1, obj)
+    eng.resolve_until_stable()
+
+    eng.resolve_pending_choice("2")
+
+    assert obj in eng.state.battlefield
+    assert obj.lore == 2
+    names = sorted(o.name for o in eng.state.battlefield if o.is_token)
+    assert names == ["Knight"]  # chapter II fired; chapter I's Soldier never did
+
+
+def test_read_ahead_choosing_one_behaves_like_an_ordinary_saga():
+    eng = make_engine()
+    p1 = _ready_main_phase(eng)
+    obj = _in_hand(eng, _saga_read_ahead())
+    bind_from_catalogue(obj)
+    eng.cast_spell(p1, obj)
+    eng.resolve_until_stable()
+
+    eng.resolve_pending_choice("1")
+
+    assert obj.lore == 1
+    names = sorted(o.name for o in eng.state.battlefield if o.is_token)
+    assert names == ["Soldier"]
+
+
+def test_read_ahead_choosing_the_final_chapter_skips_every_other_chapter():
+    eng = make_engine()
+    p1 = _ready_main_phase(eng)
+    obj = _in_hand(eng, _saga_read_ahead())
+    bind_from_catalogue(obj)
+    eng.cast_spell(p1, obj)
+    eng.resolve_until_stable()
+
+    eng.resolve_pending_choice("3")
+
+    assert obj.lore == 3
+    assert not any(o.is_token for o in eng.state.battlefield)  # neither I nor II fired
+    # Final chapter reached with none of its own triggers left on the stack
+    # (chapter III's own pump already resolved via resolve_until_stable) —
+    # sacrificed by the SBA (RULE 704.5x/714.4).
+    assert obj not in eng.state.battlefield
+    assert obj in eng.state.player_by_id("p1").graveyard
+
+
+def test_saga_without_read_ahead_never_opens_that_choice():
+    eng = make_engine()
+    p1 = _ready_main_phase(eng)
+    obj = _in_hand(eng, _saga())  # no "Read Ahead" keyword
+    bind_from_catalogue(obj)
+    eng.cast_spell(p1, obj)
+    eng.resolve_until_stable()
+    assert obj in eng.state.battlefield
+    assert obj.lore == 1
 
 
 # -- Leveler (RULE 711) ------------------------------------------------------
@@ -309,6 +442,36 @@ def test_leveler_tier_pt_and_keywords_are_level_gated():
     assert eng.rules.put_triggers_on_stack() == 0
 
 
+def _leveler_with_base_ability(name="Test Anthem Dragon"):
+    """RULE 711.4: a non-keyword ability printed *before* the first LEVEL
+    tier is "treated normally" — unconditional, not gated by the current
+    level at all (unlike a tier's own P/T/keywords/triggers)."""
+    return Card(
+        id=name, name=name, type_line="Creature — Dragon", is_creature=True,
+        power=1, toughness=1, keywords=["Level Up"],
+        oracle_text=(
+            "Level up {1}{R} (Level up only as a sorcery.)\n"
+            "Other creatures you control get +1/+1.\n"
+            "LEVEL 2-6\n2/2\n"
+            "LEVEL 7+\n6/6\nFlying"
+        ),
+    )
+
+
+def test_leveler_base_ability_is_unconditional_at_every_level():
+    eng = make_engine()
+    dragon = _leveler_in_play(eng, _leveler_with_base_ability())
+    bear = _put(eng, creature("Bear"))
+    eng.recompute_continuous_effects()
+    assert dragon.level == 0
+    assert (bear.power, bear.toughness) == (3, 3)  # anthem already active at level 0
+
+    dragon.counters["level"] = 7
+    eng.recompute_continuous_effects()
+    assert (bear.power, bear.toughness) == (3, 3)  # still active well past its own tiers
+    assert combat.has(dragon, "flying")  # and the tier grant still applies alongside it
+
+
 # -- Class (RULE 716) ---------------------------------------------------------
 
 
@@ -367,6 +530,63 @@ def test_class_level_up_must_go_in_order_and_is_sorcery_speed():
     # Cumulative: the level-2 anthem is still active alongside level 3's grant.
     assert (bear.power, bear.toughness) == (3, 3)
     assert combat.has(bear, "trample")
+
+
+def _class_card_with_one_shot_triggers(name="Test Talent"):
+    """RULE 716.4c-adjacent: a level whose body is a one-shot "When this
+    Class becomes level N, <effect>." trigger rather than an ordinary
+    cumulative static/keyword grant — and a preamble "When this Class
+    enters, <effect>." ETB trigger (RULE 716's own version of RULE 603.1's
+    ordinary self-ETB shape, which excludes "this Class"/"this Saga" from
+    the generic ``~``-folding on purpose — see `normalize.py`)."""
+    return Card(
+        id=name, name=name, type_line="Enchantment — Class",
+        oracle_text=(
+            "(Gain the next level as a sorcery to add its ability.)\n"
+            "When this Class enters, create a 2/2 green Wolf creature token.\n"
+            "{1}{G}: Level 2\nWhen this Class becomes level 2, draw two cards."
+        ),
+    )
+
+
+def test_class_enters_trigger_fires_on_etb():
+    # `_class_in_play` places the object directly (like `_saga_in_play`/
+    # `_leveler_in_play`), which skips `ENTERS_BATTLEFIELD` entirely — that
+    # event is only fired by the real cast-resolution path
+    # (`RulesEngine._resolve_permanent_spell`), so this needs an actual cast.
+    eng = make_engine()
+    p1 = _ready_main_phase(eng)
+    obj = _in_hand(eng, _class_card_with_one_shot_triggers())
+    bind_from_catalogue(obj)
+    eng.cast_spell(p1, obj)
+    eng.resolve_until_stable()
+    wolves = [o for o in eng.state.battlefield if o is not obj]
+    assert len(wolves) == 1 and wolves[0].is_token and wolves[0].name == "Wolf"
+
+
+def test_class_becomes_level_trigger_is_a_one_shot_not_a_cumulative_grant():
+    eng = make_engine()
+    p1 = _ready_main_phase(eng)
+    for i in range(2):
+        p1.library.append(GameObject(creature(f"Filler {i}"), owner_id="p1", zone=Zone.LIBRARY))
+    cls = _in_hand(eng, _class_card_with_one_shot_triggers())
+    bind_from_catalogue(cls)
+    eng.cast_spell(p1, cls)
+    eng.resolve_until_stable()  # drain the ETB Wolf trigger
+
+    p1.mana_pool.add_many({"G": 1, "C": 1})
+    before = len(p1.hand)
+    eng.activate_ability(p1, cls, 0)
+    eng.rules.resolve_top_of_stack()  # resolves the level-up itself
+    assert cls.class_level == 2
+    assert eng.rules.put_triggers_on_stack() == 1  # the "becomes level 2" trigger, exactly once
+    eng.rules.resolve_top_of_stack()
+    assert len(p1.hand) == before + 2
+
+    # A one-shot "becomes level N" trigger must not re-fire just because
+    # `class_level` still reads >= 2 later (unlike an ordinary cumulative
+    # static/keyword grant) — nothing left on the stack, no more cards drawn.
+    assert eng.rules.put_triggers_on_stack() == 0
 
 
 # -- Modal DFC casting (RULE 712.10) -----------------------------------------

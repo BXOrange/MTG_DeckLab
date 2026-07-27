@@ -53,6 +53,21 @@ CLASS_LEVEL_RE = re.compile(r"^(?P<cost>.+?)\s*:\s*level\s+(?P<n>\d+)\s*$")
 #: ``<cost>: <effect>`` line, since it has no colon.
 LEVEL_UP_LINE_RE = re.compile(r"^level up\s+(?P<cost>\{.+\})\s*$")
 
+#: A Class level body's own rare one-shot trigger (RULE 716.4c-adjacent —
+#: "When this Class becomes level 2, draw two cards."): unlike an ordinary
+#: cumulative body line, this fires exactly once, at the moment the level-up
+#: activated ability (`ClassLevelEffect`) sets `class_level` to this number
+#: and fires `EventType.CLASS_LEVEL` — the same one-shot shape a Saga's own
+#: chapter trigger uses (`saga.CHAPTER_LINE_RE`), just wrapped in an ordinary
+#: "When ..., <effect>" sentence instead of a numeral-dash line, since a
+#: Class level has no chapter-symbol grammar of its own. "this class" is
+#: deliberately *not* folded to ``~`` by `normalize._fold_self_reference`
+#: (its docstring excludes the structured card types on purpose), so this
+#: matches the literal words.
+CLASS_BECOMES_LEVEL_RE = re.compile(
+    r"^when this class becomes level (?P<n>\d+),\s*(?P<body>.+)$", re.S
+)
+
 #: Case-insensitive version of `LEVEL_TIER_RE`, for scanning raw oracle text.
 _LEVEL_TIER_RE_RAW = re.compile(LEVEL_TIER_RE.pattern, re.IGNORECASE)
 

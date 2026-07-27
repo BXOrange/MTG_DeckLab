@@ -1,7 +1,7 @@
 """The last two "Combat statics" gaps (RULE 508.1a/509.1b) —
 `test_qualified_combat_restrictions.py`/`test_combat_requirements_and_
 multiblock.py`'s batches deliberately left these two as narrow *parser*
-gaps, not engine gaps (see `ToDo_Backend.md`'s "Combat statics" entry):
+gaps, not engine gaps (see `BACKLOG.md`'s "Combat statics" entry):
 
 * A filter whose threshold is itself a board count, not a literal int —
   "Creatures with power less than the number of Islands you control can't

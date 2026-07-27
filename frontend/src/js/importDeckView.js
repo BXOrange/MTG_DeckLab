@@ -4,7 +4,7 @@ import { importArchidektDeck } from './api.js';
  * "Import Deck" tab: pull a public decklist from an external deck builder
  * (currently Archidekt only — Moxfield was tried client- and server-side
  * and reverted both times, genuinely Cloudflare-blocked; see
- * backend/ToDo_Backend.md "Import — follow-up from the frontend"). On a
+ * docs/implementation-state/Done_Backend.md "Import — follow-up from the frontend"). On a
  * successful import, hands the decklist text sections to `onImported`
  * (app.js loads them into the "Deck editieren" tab and switches to it);
  * on failure, the error stays on this page instead.

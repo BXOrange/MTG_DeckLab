@@ -59,6 +59,7 @@ from .effects import (
     ReboundFreeCastWindowEffect,
     ReplacementEffect,
     ReturnSelfFromGraveyardEffect,
+    SiegeDefeatedEffect,
     StaticAbility,
     StaticEffect,
     TakeInitiativeEffect,
@@ -223,6 +224,27 @@ class RulesEngine:
         self._pending_enter_choice_obj: Optional[GameObject] = None
         self._pending_enter_choice_effect: Optional[Any] = None
         self._pending_enter_choice_continuation: Optional[Callable[[], None]] = None
+        #: The battle currently awaiting its RULE 310.8a/310.11a "choose a
+        #: player to protect it" pick, and the battlefield-entry
+        #: continuation to resume once it's answered — populated only while
+        #: that choice is pending; see `_offer_protector_choice`/
+        #: `resolve_protector_choice`.
+        self._pending_protector_obj: Optional[GameObject] = None
+        self._pending_protector_continuation: Optional[Callable[[], None]] = None
+        #: A Saga with Read Ahead (RULE 702.155/714.3b) awaiting its "choose a
+        #: number from 1 to this Saga's final chapter number" pick, and the
+        #: battlefield-entry continuation to resume once it's answered —
+        #: populated only while that choice is pending; see
+        #: `_offer_read_ahead`/`resolve_read_ahead_choice`. The chosen count
+        #: itself is stashed separately (`_pending_read_ahead_count`) since it
+        #: must survive past the continuation into `_resolve_permanent_spell`'s
+        #: `_finish`, which passes it to `GameState.add_to_battlefield` as
+        #: ``saga_lore_override`` — RULE 702.155a's "only the exact-count
+        #: chapter fires, every lower one is skipped for good" means this
+        #: can't be layered on top of the ordinary chapter-1 entry path.
+        self._pending_read_ahead_obj: Optional[GameObject] = None
+        self._pending_read_ahead_continuation: Optional[Callable[[], None]] = None
+        self._pending_read_ahead_count: Optional[int] = None
         #: The spell awaiting a `counter_unless_pays` choice (RULE 601 —
         #: "counter target spell unless its controller pays …"), and the
         #: resolved `ManaCost` it would take to save it — populated only
@@ -2189,6 +2211,12 @@ class RulesEngine:
         """Whether ``obj`` can legally attach to ``target`` (basic MVP rules)."""
         if target not in self.state.permanents():
             return False  # RULE 702.26c: can't attach to a phased-out permanent
+        if target.is_battle:
+            # RULE 310.9: a battle can't be attached to, full stop. The
+            # equip/reconfigure branches below already exclude it by
+            # requiring a creature; this is what stops a broadly-worded Aura
+            # ("enchant permanent") from landing on one.
+            return False
         kind = self._attachment_kind(obj)
         if kind is None:
             return False
@@ -2476,7 +2504,16 @@ class RulesEngine:
                 self.state, obj
             )
             self._apply_entry_counters(obj, x_paid=getattr(obj, "x_paid", 0) or 0)
-            self.state.add_to_battlefield(obj)
+            # RULE 702.155b/714.3b: Read Ahead's chosen count (if any —
+            # `_offer_read_ahead` stashes it here) replaces the ordinary
+            # single lore counter `add_to_battlefield` would otherwise seed —
+            # RULE 702.155a means only the chapter matching that exact count
+            # fires; every lower chapter is skipped outright, not merely
+            # delayed, so this must never let the default chapter-1 firing
+            # happen first.
+            read_ahead_count = self._pending_read_ahead_count
+            self._pending_read_ahead_count = None
+            self.state.add_to_battlefield(obj, saga_lore_override=read_ahead_count)
             if self._attachment_kind(obj) == "enchant":
                 targets = [t for t in item.targets if isinstance(t, GameObject)]
                 if not (targets and self.attach_to_target(obj, targets[0])):
@@ -2505,19 +2542,85 @@ class RulesEngine:
             )
             self.check_state_based_actions()
 
-        def _after_copy_choice() -> None:
+        def _after_enter_choices() -> None:
+            # RULE 702.155/714.3b: Read Ahead's "choose a number" pick (if
+            # any) is the last of this pipeline's entry choices, offered
+            # right before the object actually joins the battlefield.
+            self._offer_read_ahead(obj, _finish)
+
+        def _after_protector_choice() -> None:
             # RULE 601.2b: a "choose a creature type/color" pick (if any)
             # also happens before the object is added to the battlefield —
             # after the enter-as-copy choice (a copy takes on the copied
             # permanent's text, so its own "as ~ enters" clauses, if any,
             # are what should be offered — no real card in the pool combines
             # both, so the ordering is for correctness-in-principle only).
-            self._offer_enter_choices(obj, _finish)
+            self._offer_enter_choices(obj, _after_enter_choices)
+
+        def _after_copy_choice() -> None:
+            # RULE 310.8a/310.11a: a battle's protector is chosen "as it
+            # enters", the same pre-entry window as every choice around it,
+            # so it joins this pipeline rather than getting a bespoke one.
+            self._offer_protector_choice(obj, _after_protector_choice)
 
         if obj.enter_as_copy_effects:
             self._offer_enter_as_copy(obj, _after_copy_choice)
         else:
             _after_copy_choice()
+
+    def _offer_protector_choice(self, obj: GameObject, continuation: Callable[[], None]) -> None:
+        """RULE 310.8a/310.11a: offer a battle's "choose a player to protect
+        it" pick *before* it's added to the battlefield — the `_offer_enter_
+        choices` sibling for battles, same continuation-passing shape.
+
+        Calls ``continuation`` immediately when there's nothing to ask: a
+        non-battle, or a battle with fewer than two eligible players. The
+        one-eligible case still *sets* the protector (RULE 310.8a is
+        mandatory, and a Siege with no protector would be swept up by RULE
+        310.10's SBA) — it just doesn't stop to ask about a choice of one.
+        With none eligible at all (a Siege in a solo goldfish, where its
+        controller has no opponents) the protector stays ``None`` and that
+        same SBA moves it to the graveyard, which is the rules-correct
+        outcome rather than a special case worth coding around here.
+        """
+        if not obj.is_battle:
+            continuation()
+            return
+        eligible = self._eligible_protectors(obj)
+        if len(eligible) < 2:
+            obj.protector_id = eligible[0].id if eligible else None
+            continuation()
+            return
+
+        self._pending_protector_obj = obj
+        self._pending_protector_continuation = continuation
+        self.state.pending_choice = {
+            "kind": "choose_protector",
+            "player_id": obj.controller_id,
+            "prompt": f"{obj.name}: Beschützer wählen (Regel 310.11a)",
+            "options": [{"id": p.id, "label": p.name} for p in eligible],
+        }
+
+    def resolve_protector_choice(self, answer: Optional[str]) -> None:
+        """Answer a pending `choose_protector` choice (RULE 310.8a), then
+        resume whatever `_offer_protector_choice` deferred.
+
+        Mandatory, with no "decline" option offered — an unrecognized or
+        missing ``answer`` falls back to the first eligible player, the same
+        treatment `resolve_enter_choice` gives a skipped mandatory pick.
+        """
+        choice = self.state.pending_choice
+        if not choice or choice.get("kind") != "choose_protector":
+            raise ValueError("no pending protector choice to resolve")
+        self.state.pending_choice = None
+        obj = self._pending_protector_obj
+        continuation = self._pending_protector_continuation
+        self._pending_protector_obj = None
+        self._pending_protector_continuation = None
+        if obj is not None:
+            self.choose_protector(obj, str(answer) if answer is not None else None)
+        if continuation is not None:
+            continuation()
 
     def _offer_enter_as_copy(self, obj: GameObject, continuation: Callable[[], None]) -> None:
         """RULE 614.1c/614.12: offer ``obj``'s "you may have this enter as a
@@ -2671,6 +2774,64 @@ class RulesEngine:
                 obj.chosen_mode = chosen
             else:
                 obj.chosen_color = chosen
+        if continuation is not None:
+            continuation()
+
+    def _offer_read_ahead(self, obj: GameObject, continuation: Callable[[], None]) -> None:
+        """RULE 702.155/714.3b: a Saga with Read Ahead lets its controller
+        choose a number from 1 to its final chapter number as it enters,
+        instead of the ordinary single lore counter — offered *before*
+        battlefield entry, alongside `_offer_enter_as_copy`/
+        `_offer_enter_choices` (same continuation-passing shape).
+
+        RULE 702.155a: only the chapter ability whose number *exactly*
+        matches the chosen count fires — every lower chapter is skipped for
+        good (not merely delayed), so a choice of N doesn't replay chapters
+        1..N-1 first. `_finish` in `_resolve_permanent_spell` reads the
+        stashed `_pending_read_ahead_count` and passes it straight to
+        `GameState.add_to_battlefield`'s ``saga_lore_override``, which seeds
+        the Saga with that many counters and fires one `SAGA_CHAPTER` event
+        for that exact count — the same single-event shape an ordinary
+        Saga's entry uses for chapter 1.
+        """
+        final = _saga_final_chapter(obj.card)
+        if (
+            obj.is_token
+            or not obj.card.is_saga
+            or final <= 1
+            or "read_ahead" not in obj.intrinsic_keywords
+        ):
+            continuation()
+            return
+        self._pending_read_ahead_obj = obj
+        self._pending_read_ahead_continuation = continuation
+        self.state.pending_choice = {
+            "kind": "read_ahead",
+            "player_id": obj.controller_id,
+            "prompt": f"{obj.name}: Voraus lesen — Kapitelmarke wählen (1-{final})",
+            "options": [{"id": str(n), "label": f"Kapitel {n}"} for n in range(1, final + 1)],
+        }
+
+    def resolve_read_ahead_choice(self, answer: Optional[str]) -> None:
+        """Answer a pending `read_ahead` choice (RULE 702.155), then resume
+        whatever `_offer_read_ahead` deferred.
+
+        A mandatory choice (no "decline" option is ever offered): an
+        unrecognized/missing ``answer`` defaults to 1 (no read-ahead), the
+        same missing-mandatory-answer treatment `resolve_enter_choice` gives.
+        """
+        choice = self.state.pending_choice
+        if not choice or choice.get("kind") != "read_ahead":
+            raise ValueError("no pending read-ahead choice to resolve")
+        self.state.pending_choice = None
+        obj = self._pending_read_ahead_obj
+        continuation = self._pending_read_ahead_continuation
+        self._pending_read_ahead_obj = None
+        self._pending_read_ahead_continuation = None
+
+        valid_ids = {str(o["id"]) for o in choice["options"]}
+        chosen = str(answer) if answer is not None and str(answer) in valid_ids else "1"
+        self._pending_read_ahead_count = int(chosen) if obj is not None else None
         if continuation is not None:
             continuation()
 
@@ -2878,6 +3039,18 @@ class RulesEngine:
                 # loyalty counters (the 0-loyalty SBA then sends it to the
                 # graveyard).
                 target.add_counters("loyalty", -final)
+            elif getattr(target, "is_battle", False):
+                # RULE 310.6: damage to a battle removes that many defense
+                # counters — combat *and* non-combat alike (a burn spell
+                # chips a battle down exactly like an attacker does), which
+                # is why this sits here rather than in the combat path.
+                # Hitting zero isn't handled here: the SBA pass owns both
+                # the Siege's own RULE 310.11b defeat trigger and RULE
+                # 310.7's graveyard move, so *every* route to zero defense
+                # (a "remove a defense counter" effect as much as damage)
+                # goes through one place. `add_counters` floors at zero, so
+                # overkill damage can't leave a negative count behind.
+                target.add_counters("defense", -final)
             else:
                 target.damage_marked += final
             # `copy_with` (not a fresh `GameEvent`) so `source_id`/`combat`/
@@ -3763,13 +3936,16 @@ class RulesEngine:
         return result
 
     def advance_sagas(self, player: Player) -> None:
-        """Add a lore counter to each Saga ``player`` controls (RULE 714.2b).
+        """Add a lore counter to each Saga ``player`` controls (RULE 714.3c).
 
-        Called after the controller's draw step. Fires `SAGA_CHAPTER` so a
-        chapter ability whose number the new count reaches goes on the stack
-        through the normal triggered-ability pipeline (RULE 714.2d). The
-        0-chapter-remaining Saga is sacrificed by a state-based action
-        (`_sba_pass`), so this only advances the chapter here."""
+        A turn-based action as the controller's precombat main phase begins
+        (`GameEngine._step_main1`) — not off the draw step, despite this
+        living there before it was fixed to match the CR. Fires
+        `SAGA_CHAPTER` so a chapter ability whose number the new count
+        reaches goes on the stack through the normal triggered-ability
+        pipeline (RULE 714.2d). The 0-chapter-remaining Saga is sacrificed by
+        a state-based action (`check_state_based_actions`), so this only
+        advances the chapter here."""
         for obj in self.state.permanents_controlled_by(player.id):
             if obj.card.is_saga:
                 obj.add_counters("lore", 1)
@@ -5066,15 +5242,100 @@ class RulesEngine:
                 return self.state.player_by_id(spec["id"])
             except KeyError:
                 return None
-        if spec.get("kind") == "planeswalker":
+        if spec.get("kind") in ("planeswalker", "battle"):
             obj = self.state.find_object(spec["instance_id"])
             if obj is None:
                 return None
+            # RULE 310.8d: a battle's defending player is its protector, not
+            # its controller — see `GameEngine._defending_player`.
+            player_id = obj.protector_id if obj.is_battle else obj.controller_id
+            if player_id is None:
+                return None
             try:
-                return self.state.player_by_id(obj.controller_id)
+                return self.state.player_by_id(player_id)
             except KeyError:
                 return None
         return None
+
+    # ------------------------------------------------------------------
+    # Battles (RULE 310)
+    # ------------------------------------------------------------------
+
+    def _eligible_protectors(self, obj: GameObject) -> list[Player]:
+        """Who may be ``obj``'s protector (RULE 310.8a), by battle type.
+
+        RULE 310.11a: a Siege's protector must be an **opponent** of its
+        controller — which is what makes a Siege attackable by its own
+        controller (310.8b). A battle with no battle type at all falls back
+        to 310.8a's "its controller becomes its protector".
+
+        Losers are excluded: a player who's out of the game can neither be
+        attacked nor block, so leaving them as protector would strand the
+        battle. That's exactly the case RULE 310.10's SBA exists to repair.
+        """
+        alive = [p for p in self.state.players if not p.has_lost]
+        if obj.card.is_siege:
+            return [p for p in alive if p.id != obj.controller_id]
+        return [p for p in alive if p.id == obj.controller_id]
+
+    def battle_is_being_attacked(self, obj: GameObject) -> bool:
+        """Whether any creature is currently attacking ``obj`` (RULE 310.10's
+        "a battle that isn't being attacked" carve-out — the protector of a
+        battle already under attack must not be swapped out from under the
+        combat that's resolving)."""
+        return any(
+            other.attacking
+            and (other.combat_defender or {}).get("kind") == "battle"
+            and (other.combat_defender or {}).get("instance_id") == obj.instance_id
+            for other in self.state.battlefield
+        )
+
+    def exile_siege_for_transformed_cast(self, obj: GameObject) -> bool:
+        """RULE 310.11b: exile a defeated Siege, then open its controller's
+        "you may cast it transformed without paying its mana cost" window.
+
+        The exile half is a genuine RULE 400.7 zone change (a new object, so
+        `reset_as_new_object` drops the spent defense counters and the
+        protector), after which the object is flipped onto its **back** face
+        — so the card sitting in exile simply *is* the transformed card, and
+        the ordinary cast path needs no notion of "cast this face instead".
+        The free-cast permission is `grant_free_cast_window_from_exile`, the
+        same one Rebound and Beseech the Mirror use.
+
+        Simplification worth knowing: that permission lasts the rest of the
+        turn, whereas RULE 310.11b's "you may cast it" is strictly a
+        window *during this ability's resolution*. Declining and casting it
+        two spells later is therefore legal here and wouldn't be in paper.
+        This is the shape the engine already had, shared with the two
+        callers above rather than a second, stricter mechanism.
+
+        Returns whether the Siege actually flipped — ``False`` (exiled, but
+        no free cast offered) for a battle with no back face at all, which
+        no real Siege is but a Replay-editor board could produce.
+        """
+        controller = self.state.player_by_id(obj.controller_id)
+        self._detach_attachments_from(obj)
+        self.exile(obj)
+        obj.reset_as_new_object()
+        obj.controller_id = controller.id
+        if not self.transform_permanent(obj):
+            return False
+        self.grant_free_cast_window_from_exile(obj)
+        return True
+
+    def choose_protector(self, obj: GameObject, player_id: Optional[str]) -> None:
+        """Set ``obj``'s protector (RULE 310.8a), validated against its battle
+        type. An unrecognized/missing ``player_id`` falls back to the first
+        eligible player — the same treatment `resolve_enter_choice` gives a
+        missing answer to a mandatory choice, so a battle is never left
+        without one (which RULE 310.10 would then punish with a graveyard
+        move)."""
+        eligible = self._eligible_protectors(obj)
+        if not eligible:
+            obj.protector_id = None
+            return
+        match = next((p for p in eligible if p.id == player_id), None)
+        obj.protector_id = (match or eligible[0]).id
 
     # ------------------------------------------------------------------
     # Library search + shuffle + the pending-choice it needs (RULE 701.19/20)
@@ -6324,13 +6585,104 @@ class RulesEngine:
                 self._move_to_graveyard(obj)
                 return True
 
-        # 704.5x: a Saga with lore counters >= its final chapter number and no
-        # chapter ability of it on the stack is put into its owner's graveyard.
+        # RULE 310.11b: a Siege's intrinsic "when the last defense counter is
+        # removed from this permanent, exile it, then you may cast it
+        # transformed without paying its mana cost". A *triggered* ability,
+        # not an SBA — but noticing the transition is what an SBA pass is
+        # for, and doing it here (rather than in `deal_damage`) means every
+        # route to zero defense is covered, not just damage. Placed straight
+        # on the stack like `check_ward`/`check_rampage` rather than through
+        # the RULE 603.3 queue, since it's built per firing; the latch stops
+        # the next pass from re-firing it while it's still on the stack.
+        for obj in self.state.permanents():
+            if (
+                obj.card.is_siege
+                and obj.card.defense
+                and obj.defense <= 0
+                and not obj.battle_defeat_triggered
+            ):
+                obj.battle_defeat_triggered = True
+                self._place_trigger(
+                    TriggeredAbility(
+                        trigger_event=EventType.BATTLE_DEFEATED,
+                        effects=[SiegeDefeatedEffect(source=obj)],
+                        controller_id=obj.controller_id,
+                        source=obj,
+                        description=f"{obj.name}: besiegt — ins Exil, dann transformiert wirken",
+                    )
+                )
+                # Announced *after* the trigger is placed so anything else
+                # watching a battle's defeat sees a stack that already holds
+                # the Siege's own ability, matching RULE 603.3's ordering.
+                self.state.fire_event(
+                    GameEvent(
+                        EventType.BATTLE_DEFEATED,
+                        instance_id=obj.instance_id,
+                        controller_id=obj.controller_id,
+                        object=obj.name,
+                    )
+                )
+                return True
+
+        # RULE 310.7: a battle with 0 defense that isn't itself the source of
+        # an ability which has triggered but not yet left the stack is put
+        # into its owner's graveyard — the exact shape of the Saga check
+        # below, and the reason a defeated Siege survives long enough for its
+        # own 310.11b trigger above to exile it instead. Only battles with a
+        # printed defense are subject (mirroring the loyalty check above: a
+        # battle that never had defense counters was never at "0 defense" in
+        # the 310.4c sense).
+        for obj in self.state.permanents():
+            if not (obj.is_battle and obj.card.defense and obj.defense <= 0):
+                continue
+            if any(item.source is obj for item in self.state.stack):
+                continue
+            self._move_to_graveyard(obj)
+            return True
+
+        # RULE 310.10: a battle that isn't being attacked and has no valid
+        # protector gets a fresh one chosen by its controller; with no
+        # eligible player at all it's put into its owner's graveyard. For the
+        # only real battle type (Siege, 310.11a) "eligible" means an opponent
+        # of the controller, so this is what cleans up a Siege whose
+        # protector has left the game — and what makes a Siege cast in a solo
+        # goldfish (no opponents at all) fall off the battlefield rather than
+        # sit there unattackable forever.
+        for obj in self.state.permanents():
+            if not obj.is_battle or self.battle_is_being_attacked(obj):
+                continue
+            eligible = self._eligible_protectors(obj)
+            if obj.protector_id is not None and any(p.id == obj.protector_id for p in eligible):
+                continue
+            if not eligible:
+                self._move_to_graveyard(obj)
+                return True
+            # A single eligible player is no choice at all (RULE 310.10's
+            # "chooses" degenerates); with several, the same auto-pick this
+            # engine already makes for a non-interactive pick applies, since
+            # an SBA has no window to open a `pending_choice` in.
+            obj.protector_id = eligible[0].id
+            return True
+
+        # 704.5x/RULE 714.4: a Saga with lore counters >= its final chapter
+        # number, and not itself the source of one of its own chapter
+        # abilities that has triggered but not yet left the stack, is put
+        # into its owner's graveyard. Checked against *this Saga's own*
+        # chapter trigger specifically (its `StackItem.source`/
+        # `trigger_event`, stamped by `_place_trigger_on_stack`) rather than
+        # "is the whole stack empty" — an unrelated spell/ability sitting on
+        # the stack (an opponent's instant, another permanent's trigger)
+        # must not delay this Saga's own sacrifice.
         for obj in self.state.permanents():
             if not obj.card.is_saga:
                 continue
             final = _saga_final_chapter(obj.card)
-            if final and obj.lore >= final and not self.state.stack:
+            if final and obj.lore >= final and not any(
+                item.source is obj
+                and item.trigger_event is not None
+                and item.trigger_event.type == EventType.SAGA_CHAPTER
+                for item in self.state.stack
+            ):
                 self._move_to_graveyard(obj)
                 return True
 

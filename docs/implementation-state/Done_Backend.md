@@ -1,10 +1,14 @@
 # Backend — Done
 
-Completed backend work, split out of
-[`../../backend/ToDo_Backend.md`](../../backend/ToDo_Backend.md) (which now
-holds only open items). Section headers mirror the ToDo file so a
-`Done_Backend.md "<section>"` reference in the code lands here. Remaining
-work: [10_COMPLETION_ROADMAP.md](10_COMPLETION_ROADMAP.md).
+**Worklog** (append-only): completed backend work and *why it was built that
+way*. Open work lives in [BACKLOG.md](BACKLOG.md); parser-tail strategy and
+worked examples in [PARSER_LONG_TAIL.md](PARSER_LONG_TAIL.md). Remaining
+plan: [10_COMPLETION_ROADMAP.md](10_COMPLETION_ROADMAP.md).
+
+Section headers are stable — a `Done_Backend.md "<section>"` reference from
+the code lands here. Entries written before 2026-07-27 cite a
+`ToDo_Backend.md`/`ToDo_Frontend.md` that no longer exists; both were merged
+into `BACKLOG.md`, and those mentions have been repointed there.
 
 ## Configuration
 
@@ -639,7 +643,7 @@ the Phase-1 models. Tests: `test_game_engine.py`.
       `activate_ability`, architecturally different from "add a new event
       type" (the pay-or-counter mechanics themselves are directly reusable
       from `RulesEngine.counter_unless_pays` — see the next entry, which
-      built exactly that). Tracked in `ToDo_Backend.md`. Tests:
+      built exactly that). Tracked in `BACKLOG.md`. Tests:
       `test_game_engine.py`
       (`test_annihilator_makes_defending_player_sacrifice_permanents`,
       `test_afflict_causes_defending_player_to_lose_life_on_block`,
@@ -758,7 +762,7 @@ the Phase-1 models. Tests: `test_game_engine.py`.
   no-double-firing regression guard for group-scoped triggers).
 
 - **M2 alt-cost keywords — Kicker/Multikicker, Buyback, Escape, Flashback
-  (2026-07-15):** the last open M2 keyword family (`backend/ToDo_Backend.md`)
+  (2026-07-15):** the last open M2 keyword family (`docs/implementation-state/BACKLOG.md`)
   — each was parsed-but-inert in `GameObject.parametric_keywords` before
   this; all four now have real cast-time/resolve-time behaviour.
   **Foundation:** `ManaCost.add(other)` (`models/mana_cost.py`) concatenates
@@ -781,7 +785,7 @@ the Phase-1 models. Tests: `test_game_engine.py`.
   `kicker_multi`/`max_kicker`, the same `has_x`/`max_x` treatment. Consuming
   "if this spell was kicked, …" at resolve time is a deliberate follow-up
   (new oracle-parser conditional-clause grammar), not part of this slice —
-  see `backend/ToDo_Backend.md`. **Buyback (RULE 702.27):** an optional
+  see `docs/implementation-state/BACKLOG.md`. **Buyback (RULE 702.27):** an optional
   additional cost the same shape as Kicker; `RulesEngine.
   resolve_top_of_stack` grows an `elif obj.buyback_paid` branch (mirroring
   the pre-existing adventure-snapshot exile branch) that calls
@@ -910,7 +914,7 @@ the Phase-1 models. Tests: `test_game_engine.py`.
     abilities instead of a mana ability. Previously they were wrongly
     offered as a free, stack-skipping tap; now they're correctly excluded
     (and not yet re-implemented as the real targeted ability — see
-    `backend/ToDo_Backend.md`).
+    `docs/implementation-state/BACKLOG.md`).
   - **Variable ("for each"/"equal to … power") amounts**: a new
     `amount_selector` on `ManaAbility`, resolved against the live
     `GameState` at activation time (`resolve_options`/`_resolve_amount`) —
@@ -953,7 +957,7 @@ the Phase-1 models. Tests: `test_game_engine.py`.
     button wiring (`frontend/src/js/gameBoardView.js`), which also now
     shows the ability's full cost label instead of a bare "Tappen" when
     it's more than `{T}`.
-  - Still open (see `backend/ToDo_Backend.md`): mana *spend* restrictions
+  - Still open (see `docs/implementation-state/BACKLOG.md`): mana *spend* restrictions
     ("spend this mana only to cast an Elf creature spell") aren't tracked
     by `ManaPool` at all; "any combination of colours" (Selvala, Gwenna)
     isn't a colour-choice shape this grammar covers; hand-zone mana
@@ -1023,7 +1027,7 @@ the Phase-1 models. Tests: `test_game_engine.py`.
       "another target nonland permanent"; a flicker/exile-then-return
       effect; "double this creature's own counters"). This fix is
       correctness/architecture that any future modal-trigger card needs,
-      not a coverage-% win by itself — see `backend/ToDo_Backend.md` and
+      not a coverage-% win by itself — see `docs/implementation-state/BACKLOG.md` and
       `10_COMPLETION_ROADMAP.md`'s M1 section for the follow-up effect
       families it exposed. Tests: `test_modal_spells.py` (parser → spec
       → binder → engine, including the `trigger_mode`/`trigger_target`
@@ -1150,7 +1154,7 @@ the Phase-1 models. Tests: `test_game_engine.py`.
       **Real-cache yield: 0 cards** — predicted honestly before starting,
       not a surprise: this was always framed as shared infrastructure
       for Deathrite Shaman (still open, needs a "card in any graveyard"
-      target kind next — see `backend/ToDo_Backend.md`), not a
+      target kind next — see `docs/implementation-state/BACKLOG.md`), not a
       coverage-% play. Confirmed against the live cache: every real card
       with this clause (Deathrite Shaman, Crystalline Crawler, Mana
       Bloom, Fertile Ground) is still blocked by a *different* gap on the
@@ -1358,7 +1362,7 @@ the Phase-1 models. Tests: `test_game_engine.py`.
       it first is always at least as good as spending unrestricted
       instead). `total()`/`empty()` cover both structures; `to_dict()`
       additively includes a `"restricted"` key only when non-empty (no
-      frontend display yet — see `frontend/ToDo_Frontend.md`).
+      frontend display yet — see `docs/implementation-state/BACKLOG.md`).
 
       **`game/mana_abilities.py`**: `ManaAbility` gained a `restriction`
       field, populated by a new `_parse_restriction` recognizing the
@@ -1466,7 +1470,7 @@ the Phase-1 models. Tests: `test_game_engine.py`.
       `legal_actions`' `tap_for_mana` offer now also stamps
       `any_combination`/`combination_total` on the action dict for a
       future frontend split UI (none exists yet — see
-      `frontend/ToDo_Frontend.md`; today's board still only offers the
+      `docs/implementation-state/BACKLOG.md`; today's board still only offers the
       single-colour buttons). `services/game_session.py`'s `tap_for_mana`
       action handler passes a `color_split` dict straight through
       (`_resolve_color_split`, same defensive-cast convention as
@@ -1536,7 +1540,7 @@ the Phase-1 models. Tests: `test_game_engine.py`.
       (`GameEngine.legal_actions`, mirroring the battlefield `tap_for_mana`
       offer's shape — `options`/`any_combination`/`combination_total`) and
       `services/game_session.py`'s matching action handler. No frontend UI
-      yet — see `frontend/ToDo_Frontend.md`.
+      yet — see `docs/implementation-state/BACKLOG.md`.
 
       **Real-cache yield**: of the 6 cards whose oracle text contains
       "exile this card from your hand" (live-cache scan), only 1
@@ -1952,7 +1956,7 @@ the Phase-1 models. Tests: `test_game_engine.py`.
       Tibalt's Trickery/Wheel of Misfortune, Soulbond/Mutate/Evoke/Bargain
       alt-cost mechanics, board-wide ability-strip for Humility, extra-turn
       for Final Fortune, and more) are each logged one line per card under
-      `docs/implementation-state/ToDo_Backend.md`'s "cEDH staples cube"
+      `docs/implementation-state/BACKLOG.md`'s "cEDH staples cube"
       section rather than half-modeled. Full suite: 1457 → 1641 passed,
       zero regressions across all five waves.
 
@@ -2004,7 +2008,7 @@ the Phase-1 models. Tests: `test_game_engine.py`.
       dominated by genuinely-new core primitives (spell-copy-on-stack,
       extra-turn insertion, control-exchange, random numbers, reflexive
       per-firing triggers, alt-casting-costs, devotion, fading, mutate/
-      soulbond) — each a real feature, tracked in `ToDo_Backend.md`'s
+      soulbond) — each a real feature, tracked in `BACKLOG.md`'s
       "cEDH staples cube" section.
 
 - [x] **Batches 15–17 (2026-07-18): three new core engine primitives from
@@ -2034,7 +2038,7 @@ the Phase-1 models. Tests: `test_game_engine.py`.
         form of the per-firing "that permanent/spell" reference the bespoke
         `check_ward`/`check_rampage` paths hand-build — "counter that spell",
         "destroy that land". No cube card is registered on it yet (each also
-        needs a second gap — see `ToDo_Backend.md`), but it's proven
+        needs a second gap — see `BACKLOG.md`), but it's proven
         end-to-end through the binder + engine and is reused conceptually by
         Batch 17's copy targeting.
       - **Batch 17 — spell-copy on the stack (RULE 707.10)**
@@ -2057,7 +2061,7 @@ the Phase-1 models. Tests: `test_game_engine.py`.
 
       Full suite 1669 → 1687 passed, zero regressions; cube pool 285 → 288
       playable. Ten primitive batches were scoped for this effort (see
-      `ToDo_Backend.md`); the remaining seven are being worked through
+      `BACKLOG.md`); the remaining seven are being worked through
       one at a time (Batch 20 below).
 
 - [x] **Batch 20 (2026-07-18): the "tapped for mana" event primitive
@@ -2141,7 +2145,7 @@ the Phase-1 models. Tests: `test_game_engine.py`.
 
 - [x] **Card-pool Batch 1 (2026-07-18): full-universe import + firebreathing /
       until-EOT activated pumps.** First batch of the whole-card-pool modeling
-      program (`docs/implementation-state/ToDo_Backend.md`), run
+      program (`docs/implementation-state/BACKLOG.md`), run
       against the **full ~34k Oracle universe** now bulk-loaded into the cache
       (`scripts/import_bulk.py` → persistent `RawCardStore`,
       `services/raw_card_store.py`; coverage measured/ranked by
@@ -2318,7 +2322,7 @@ the Phase-1 models. Tests: `test_game_engine.py`.
         gaps this batch deliberately doesn't try to close:
         - An **activated**-ability grant (`"{T}: ~ deals 1 damage…"`) needs a
           real "grant an activated ability" layer-6 engine primitive that
-          doesn't exist yet (already tracked: `ToDo_Backend.md` #35,
+          doesn't exist yet (already tracked: `BACKLOG.md` #35,
           Umbral Mantle).
         - A **DAMAGE**-event grant ("deals combat damage to a player") can't
           even be recursively parsed: "deals combat damage to a player" was
@@ -2418,7 +2422,7 @@ the Phase-1 models. Tests: `test_game_engine.py`.
         "draw a card at the beginning of the next turn's upkeep" (a
         delayed-trigger phrasing, distinct from a standing phase trigger);
         conditional-transform upkeep triggers (Delver-shaped,
-        `ToDo_Backend.md` #16); group-subject damage triggers ("a creature
+        `BACKLOG.md` #16); group-subject damage triggers ("a creature
         you control deals combat damage to a player").
 
 - [x] **Card-pool Batch 5 (2026-07-19): modal-block cleanup — investigation
@@ -2591,7 +2595,7 @@ the Phase-1 models. Tests: `test_game_engine.py`.
         escalation needing its own new grammar, not a `keywords.py` fix;
         true face-down Morph/Megamorph *execution* (casting face-down as a
         2/2, turning face up — a real new permanent-state subsystem,
-        `ToDo_Backend.md`-tracked, unrelated to this batch's
+        `BACKLOG.md`-tracked, unrelated to this batch's
         recognition-only scope); generic Cycling *execution* for an
         unregistered card (the `discard_self` hand-zone activated-ability
         primitive already exists from earlier Channel/Cycling work, but
@@ -2601,7 +2605,7 @@ the Phase-1 models. Tests: `test_game_engine.py`.
 
 - [x] **(2026-07-16) "Play/cast from the top of your library" permission**
       (Oracle of Mul Daya/Glarb, Calamity's Augur-shaped — the frontend's
-      library-zone visualization, `frontend/ToDo_Frontend.md`/
+      library-zone visualization, `docs/implementation-state/BACKLOG.md`/
       `Done_Frontend.md` "Game engine hookup", asked for the engine
       capability underneath it). RULE 701 has no native "play from the
       top" provision — every real card grants it as its own static
@@ -2689,7 +2693,7 @@ the Phase-1 models. Tests: `test_game_engine.py`.
       end to end, and the session-view flag).
 
 - [x] **(2026-07-20) Search/tutor & graveyard batch** — three previously
-      deferred `ToDo_Backend.md` items:
+      deferred `BACKLOG.md` items:
 
       **Whole-graveyard targeted exile** (`ExileTargetGraveyardEffect`,
       `game/effects.py`, registered `"exile_target_graveyard"`):
@@ -2733,7 +2737,7 @@ the Phase-1 models. Tests: `test_game_engine.py`.
       (`game/ability_catalogue.py`, `max_mana_value=2`) — **not** its
       trailing "if a spell cast this way would be put into a graveyard
       this turn, exile it instead" replacement clause, a separate RULE 616
-      gap still open in `ToDo_Backend.md`.
+      gap still open in `BACKLOG.md`.
 
       **Graveyard-sourced "return this card transformed"**
       (`RulesEngine.return_from_graveyard`'s new `transformed` param;
@@ -2986,7 +2990,7 @@ the Phase-1 models. Tests: `test_game_engine.py`.
         end to end. Scope: the fixed-count shape only (already what
         `_REMOVE_COUNTERS_RE` supported) — variable counts ("remove X
         counters", "remove up to 3", "remove any number") still fail
-        closed (`backend/ToDo_Backend.md`).
+        closed (`docs/implementation-state/BACKLOG.md`).
       - **N>=2 multi-target** (RULE 115.1a generalized — "destroy two
         target creatures"/"destroy up to two target artifacts and/or
         enchantments"/"deals N damage to each of up to two target X"):
@@ -3019,7 +3023,7 @@ the Phase-1 models. Tests: `test_game_engine.py`.
         round 1, correctly excluded the round-1 pick on round 2, and
         both died on resolution. Scope: one targeting effect wanting N
         targets, wired up for `destroy`/`exile`/`damage` only — see
-        `docs/implementation-state/ToDo_Backend.md`'s new entry on
+        `docs/implementation-state/BACKLOG.md`'s new entry on
         why several *different* targeting effects sharing one spell
         still don't each get their own targets (a real, pre-existing
         limitation this work surfaced more prominently, not introduced).
@@ -3197,7 +3201,7 @@ the Phase-1 models. Tests: `test_game_engine.py`.
       Both fixed to use `_controller_of`; ~8 other `context.active_player`
       fallback sites elsewhere in `effects.py` were spot-checked but not
       individually audited — flagged, not fixed, since each needs its own
-      verification (`backend/ToDo_Backend.md` doesn't currently list them
+      verification (`docs/implementation-state/BACKLOG.md` doesn't currently list them
       as they weren't proven broken). Tests:
       `test_draw_next_upkeep_family.py` (13 — recognition, the pronoun
       fail-closed boundary, a full step-loop end-to-end resolve, and a
@@ -3256,7 +3260,7 @@ the Phase-1 models. Tests: `test_game_engine.py`.
       only tells the fail-closed-correctness story, not a regression in
       real behaviour. Recognizing the mana-ability shape itself
       (`grant_mana_ability` text recognition) is a distinct, still-open
-      follow-up — `backend/ToDo_Backend.md` — that recovered most of the
+      follow-up — `docs/implementation-state/BACKLOG.md` — that recovered most of the
       apparent loss (8019→8041, net +3 over the pre-batch baseline once the
       two real handlers above are counted) via the non-attached
       `_QUOTED_GRANT_RE` addition alone. `PARSER_VERSION` → `"18"`
@@ -3271,7 +3275,7 @@ the Phase-1 models. Tests: `test_game_engine.py`.
 
 - [x] **Per-effect target partitioning, `StackItem.target_groups`
       (2026-07-16)** — the "targeting / hexproof / ward" edge-case chapter's
-      biggest entry: `docs/implementation-state/ToDo_Backend.md` had
+      biggest entry: `docs/implementation-state/BACKLOG.md` had
       documented, since the N>=2 multi-target batch above, that a stack
       item's resolved `targets` list is shared by *every* effect on it —
       2+ *different* targeting effects on one spell/ability (two modes of
@@ -3311,7 +3315,7 @@ the Phase-1 models. Tests: `test_game_engine.py`.
         `requirements_with_targets` already offers per-requirement, in
         order. No real card needs this for *casting* yet, so nothing
         auto-derives `target_groups` from a plain flat `targets` list —
-        that's still a genuine follow-up (`backend/ToDo_Backend.md`)
+        that's still a genuine follow-up (`docs/implementation-state/BACKLOG.md`)
         once one does; a modal spell's own `mode=[i, j]` combination
         already combines target_groups correctly too, as long as the
         caller supplies them in the same printed order `_effects_for_mode`
@@ -3493,13 +3497,13 @@ the Phase-1 models. Tests: `test_game_engine.py`.
   - Tests: `tests/test_wyleth_equip_deck.py` (11 end-to-end cases through a
     real `GameEngine`/`RulesEngine`, one per mechanic family above, using
     real cached cards). Deliberately not exhaustive per-card — see
-    `ToDo_Backend.md` "Equipment / Auras / 'combat damage to a player'
+    `BACKLOG.md` "Equipment / Auras / 'combat damage to a player'
     triggers" for narrower per-card edge cases left open, and the entry
     just below for the 8 real architecture gaps that batch surfaced,
     since closed.
 
 - **The 8 real feature gaps the Wyleth Equip batch surfaced** (2026-07-17,
-  `backend/ToDo_Backend.md`'s former "Feature gaps surfaced by hand-
+  `docs/implementation-state/BACKLOG.md`'s former "Feature gaps surfaced by hand-
   authoring the 'Wyleth Equip'..." entry) are now closed:
   - **{X} cost threading**: `StackItem.x` (set at cast/activate time) is
     now substituted into a resolving effect's `"x"`-sentinel `amount`/
@@ -3658,7 +3662,7 @@ the Phase-1 models. Tests: `test_game_engine.py`.
     event (live, before the object leaves the battlefield) — Dethrone
     itself (RULE 702.107, both Marchesa's own keyword and the static
     granting it to every other creature she controls) stays unmodeled, a
-    separate keyword-mechanic build tracked in `backend/ToDo_Backend.md`.
+    separate keyword-mechanic build tracked in `docs/implementation-state/BACKLOG.md`.
     Sneak Attack/Meek Attack ("{cost}: you may put a creature card from
     your hand onto the battlefield with haste, sacrifice it at the
     beginning of the next end step", the latter capped at total P/T 5) are
@@ -4227,7 +4231,7 @@ the Phase-1 models. Tests: `test_game_engine.py`.
 - [x] **Combat statics — the qualified/conditional restriction family**
       (batch 27, 2026-07-22, `PARSER_VERSION` 29, +225 covered cards:
       8,672 → 8,897 / 34,209 = 26.0%). Closes the whole "Combat statics"
-      section that was open in `backend/ToDo_Backend.md`; what remains
+      section that was open in `docs/implementation-state/BACKLOG.md`; what remains
       around it there is three *different* rules (requirements, multi-block
       permissions, pairwise restrictions), not leftovers of this one.
 
@@ -4327,7 +4331,7 @@ the Phase-1 models. Tests: `test_game_engine.py`.
 - [x] **Combat statics — requirements + multi-block permissions** (batch 28,
       2026-07-22, `PARSER_VERSION` 30, +46 covered cards: 8,897 → 8,943 /
       34,209 = 26.1%). Closes the three RULE 508/509 families batch 27
-      deliberately left open, so `ToDo_Backend.md`'s "Combat statics" entry
+      deliberately left open, so `BACKLOG.md`'s "Combat statics" entry
       now holds only two narrow parser-only gaps (a board-count-threshold
       filter, a qualified group scope).
 
@@ -4420,7 +4424,7 @@ the Phase-1 models. Tests: `test_game_engine.py`.
 - [x] **Combat statics — the last two parser-only gaps** (batch 29,
       2026-07-22, `PARSER_VERSION` 31, +3 covered cards: 8,943 → 8,946 /
       34,209 = 26.2%). Closes the two narrow gaps batch 28 deliberately left
-      open, so `ToDo_Backend.md`'s "Combat statics" entry is fully closed —
+      open, so `BACKLOG.md`'s "Combat statics" entry is fully closed —
       nothing left in that section at all.
 
       **A count-selector threshold instead of a literal int** — "Creatures
@@ -4533,7 +4537,7 @@ the Phase-1 models. Tests: `test_game_engine.py`.
       — a cost is paid inside one synchronous call, the same reason a
       cast-time "as an additional cost, sacrifice a creature"
       (`_pay_additional_cast_cost`) also stays auto-pick for now (see
-      `backend/ToDo_Backend.md`). Tests: `test_game_engine.py` (3 new
+      `docs/implementation-state/BACKLOG.md`). Tests: `test_game_engine.py` (3 new
       sacrifice-cost cases: 2+ candidates offered/honoured, auto-pick
       fallback, invalid-choice rejection) and the new
       `test_discard_choice.py` (5 cases: choice opens, answering discards
@@ -4607,7 +4611,7 @@ the Phase-1 models. Tests: `test_game_engine.py`.
       so nothing regresses. The session/route wiring to actually *drive*
       this (`GameSessionManager.create_multiplayer`, `POST /api/game/
       multiplayer`) and the opponent-side interactive blocker-declaration
-      UI remain — see `backend/ToDo_Backend.md` "Game Engine (Phase 3)".
+      UI remain — see `docs/implementation-state/BACKLOG.md` "Game Engine (Phase 3)".
       Tests: `test_priority.py`.
 - [x] Dethrone (RULE 702.107, 2026-07-21): "Whenever this creature attacks
       the player with the most life or tied for most life, put a +1/+1
@@ -4638,6 +4642,106 @@ the Phase-1 models. Tests: `test_game_engine.py`.
       the grant side. Tests: `test_dethrone.py`.
 
 ## Card-type & structural coverage
+
+- [x] **Battles (RULE 310)** — the whole card type, from zero scaffolding:
+      `Card.defense`/`is_battle`/`is_siege`, `GameObject.defense`/
+      `protector_id`, attacking, the protector, and the Siege
+      defeat/transform cycle. Tests: `test_battles.py` (27).
+
+      **Defense as counters, not a stat.** A battle enters with defense
+      counters equal to its printed defense (310.4b) and its *current*
+      defense simply is that count (310.4c), so there is no second field to
+      drift. Seeded in `GameState.add_to_battlefield` right beside a
+      planeswalker's starting loyalty rather than in `RulesEngine.
+      _apply_entry_counters` (where the ToDo had predicted it): that method
+      reads *oracle text*, and no battle prints an "enters with N defense
+      counters" sentence — the printed number is the rule. Seeding at the
+      universal entry choke point also means a battle reanimated or dropped
+      in by the Replay editor gets its counters, not just a cast one.
+      `RulesEngine.deal_damage` grew a `is_battle` branch beside the
+      planeswalker one (310.6); it is deliberately *not* gated on combat, so
+      a burn spell chips a battle exactly like an attacker does.
+
+      **`Card.defense` forced a cache reseed.** Scryfall carries `defense`
+      per-face (top-level only for the single-faced ones), and it had never
+      been captured, so every cached battle read back as `defense=None`.
+      Adding the field changed the `Card` schema hash, which is what
+      `CardDatabase._reconcile_schema` wipes the app cache on — the
+      documented cost of a model change. `scripts/import_bulk.py
+      --reseed-only` rebuilt all 34,258 rows from the durable `RawCardStore`
+      with no network, and because `card_from_scryfall_data` now parses the
+      field, that reseed populated it in the same pass. Worth knowing for
+      the next `Card` field: a targeted backfill script is never the right
+      answer, since the wipe is all-or-nothing anyway.
+
+      **Defeat is noticed by the SBA pass, not at a counter-removal site.**
+      RULE 310.11b is a *triggered* ability ("when the last defense counter
+      is removed…"), but hooking it into `deal_damage` would miss every
+      other route to zero. `check_state_based_actions` instead notices the
+      transition and places the trigger directly on the stack (the
+      `check_ward`/`check_rampage` precedent for a per-firing ability), with
+      a `GameObject.battle_defeat_triggered` latch so the repeated SBA loop
+      can't re-fire it. RULE 310.7's graveyard move then sits *after* it and
+      skips any battle that is the source of something still on the stack —
+      structurally the same check the Saga sacrifice already used, and what
+      lets a defeated Siege survive long enough for its own ability to exile
+      it instead. `exile_siege_for_transformed_cast` does the exile as a real
+      RULE 400.7 zone change, flips the new object onto its back face, and
+      reuses `grant_free_cast_window_from_exile` (Rebound's/Beseech the
+      Mirror's window) so the transformed card is castable for free through
+      the ordinary action loop. Known simplification: that window lasts the
+      rest of the turn, whereas 310.11b's is strictly during resolution.
+
+      **The protector is a genuinely new per-object field.** `protector_id`
+      is not `controller_id`: it is the "defending player" for attacks
+      against the battle (310.8d) and the only player who may block for it
+      (310.8c), which is exactly why a Siege can be attacked by its own
+      controller (310.8b). Chosen as it enters via `_offer_protector_choice`,
+      a new stage in the same pre-entry continuation pipeline as
+      enter-as-copy / choose-a-type / Read Ahead; it only *asks* when 2+
+      players are eligible, and with exactly one it assigns silently
+      (310.8a is mandatory, and an unprotected battle would be swept up by
+      310.10). The blocker half needed no new check at all —
+      `_attacker_attacks_player` now routes through `_defending_player`,
+      which substitutes the protector for a battle, so every existing
+      "who is the defending player" consumer (block legality, "can't attack
+      unless defending player controls…", Dethrone) got it at once.
+
+      **Attacking** rode the existing generic defender-spec pattern as the
+      ToDo predicted: a third `"battle"` kind in `legal_defenders_for` /
+      `_defender_spec` / `_resolve_combat_defender`. Damage routing needed
+      no branch there, since `deal_damage` decides off the target object's
+      own type. Also closed: 310.9 (a battle can't be attached to — the
+      equip/reconfigure paths already required a creature, so this only
+      needed to stop a broadly-worded Aura) and 310.10 (a battle with no
+      valid protector gets a fresh one, or goes to the graveyard if no
+      player qualifies — which is what makes a Siege correctly unplayable
+      in a solo goldfish, where its controller has no opponents).
+
+      **Frontend**: a defense badge on the board tile mirroring the
+      loyalty/Saga badges (`gf-battle-badge`, showing `🛡 N · <protector>`),
+      "defense" filtered out of the generic counter badge so it isn't shown
+      twice, and a real bug fix in `defenderPayload` — it branched on
+      `kind === 'planeswalker'` and would have mis-sent a battle as a
+      player, so it now branches on which key the spec carries.
+
+      **Parser**: 0 → 12 of the 39 cached battles MODELED, almost all of it
+      from one line — `normalize._SELF_REFERENCE_RE` folding "this
+      battle"/"this Siege" to `~`, without which every real battle failed
+      the gate on its own ETB clause. (RULE 310's reminder text was already
+      being stripped.) Three shared-grammar widenings the battles motivated
+      but that aren't battle-specific came with it: RULE 115.4's "any
+      **other** target" (onto the existing `any` kind, whose candidate list
+      already excludes the source, so the two are genuinely equivalent here);
+      "target creature an opponent controls"/"…you don't control" onto the
+      existing `creature_you_dont_control` kind, with `_pump_target` widened
+      to accept the controller-scoped creature kinds; and the discard handler
+      gaining "target opponent"/"each player"/"each opponent" subjects. That
+      last one exposed a latent bug: `_discard` never passed a `target_kind`
+      through, so "target player discards a card" had been making the
+      *source's controller* discard. `PARSER_VERSION` → 34. The remaining 27
+      battles are blocked on ordinary effect-body grammar, itemized in
+      `docs/implementation-state/BACKLOG.md`.
 
 - [x] Saga chapter abilities (RULE 714.2d) — the counter mechanics
       (lore-counter-on-ETB/draw-step, final-chapter sacrifice) already
@@ -4672,6 +4776,42 @@ the Phase-1 models. Tests: `test_game_engine.py`.
       grammar gained a `creatures you control`/`other creatures you control`
       alternative alongside `TARGET`/`~`. Tests: `test_card_structures.py`,
       `test_oracle_pipeline.py`.
+- [x] Saga (RULE 714) residual edges, closed in one pass: the lore counter
+      was being added off the draw step, not RULE 714.3c's actual timing
+      ("as a player's precombat main phase begins") — fixed by moving
+      `RulesEngine.advance_sagas` from `GameEngine._step_draw` to a new
+      `_step_main1`; the RULE 704.5x/714.4 sacrifice check was keying off
+      "is the whole stack empty", so an unrelated spell/ability sitting on
+      the stack (an opponent's instant, another permanent's trigger) wrongly
+      delayed a finished Saga's sacrifice — narrowed to check specifically
+      whether *this Saga's own* chapter trigger (`StackItem.source is obj`
+      and `trigger_event.type == SAGA_CHAPTER`) is what's still on the stack;
+      and **Read Ahead** (RULE 702.155/714.3b — recognized as a flag keyword
+      already, never bound to behaviour) is now real: `RulesEngine.
+      _offer_read_ahead` offers a `read_ahead` `pending_choice` ("choose a
+      number from 1 to this Saga's final chapter number") in the same
+      continuation-passing entry-choice chain as `_offer_enter_as_copy`/
+      `_offer_enter_choices`, right before the object joins the battlefield;
+      `resolve_read_ahead_choice` stashes the answer for `_resolve_permanent_
+      spell`'s `_finish` to pass straight to `GameState.add_to_battlefield`'s
+      new `saga_lore_override` param. RULE 702.155a is the subtle part: only
+      the chapter matching the chosen count *exactly* fires — every lower
+      chapter is **skipped for good, not delayed** — so this replaces the
+      ordinary single-counter/chapter-1 entry path outright rather than
+      layering extra firings on top of it (an earlier draft of this that
+      fired chapters 1..N in sequence was wrong and got corrected before
+      shipping). Frontend: a dedicated Saga chapter badge (`gameBoardView.js`
+      — "📜 current/final", mirroring the planeswalker loyalty badge and,
+      like it, pulled out of the generic counter badge) reading two new
+      `GameObject.to_dict` fields (`is_saga`, `saga_final_chapter` — the
+      latter via a small `models/game_object.py` helper sharing the pure
+      `parser/oracle/catalogue/saga.py` numeral grammar); the `read_ahead`
+      choice renders through the fully generic `pending_choice`/
+      `simpleChoiceButtonsHtml` machinery, so only a `CHOICE_ICONS` entry was
+      needed. Verified end-to-end in a live Replay/Puzzle session (casting a
+      real cached Read-Ahead Saga, "Founding the Third Path") — the choice
+      modal and the resulting chapter badge both render correctly. Tests:
+      `test_card_structures.py`.
 - [x] Class (RULE 716) + Leveler (RULE 711) — both print a multi-line
       **block** structure ordinary per-line segmentation can't see across:
       Leveler's `LEVEL n-m`/`LEVEL n+` tiers (mutually exclusive P/T/keyword/
@@ -4753,6 +4893,49 @@ the Phase-1 models. Tests: `test_game_engine.py`.
       sorcery-speed gating, tier P/T + keyword + triggered-ability gating,
       Class level-ordering + cumulative grants), `test_oracle_pipeline.py`
       (coverage-gate + spec-shape assertions).
+- [x] Class (RULE 716) / Leveler (RULE 711) residual edges, closed: **"When
+      this Class becomes level N, `<effect>`."** (RULE 716.4c-adjacent —
+      Wizard Class/Cleric Class/Warlock Class/…-shaped) was silently
+      failing every Class card that used it, since it has its own trigger
+      wrapper the generic per-line dispatch never recognized — a new
+      `CLASS_BECOMES_LEVEL_RE` (`parser/oracle/catalogue/levels.py`,
+      mirroring Saga's `CHAPTER_LINE_RE`) is checked first in
+      `gate._process_class_body`, producing an ordinary `triggered` spec
+      (`trigger={"event": "CLASS_LEVEL", "chapter": [n]}`) that reuses
+      `ClassLevelEffect`'s existing firing and `effect_binder`'s existing
+      `chapter` scoping unchanged — genuinely a one-shot (RULE 716.4c: fires
+      once, at the exact moment `class_level` becomes `n`), not the
+      ordinary "stays active once unlocked" shape every other body line is,
+      confirmed by a new test asserting it doesn't re-fire once `class_level`
+      later reads higher. Found and fixed the same pass: **"When this Class
+      enters, `<effect>`."** (Ranger Class/Fighter Class/Blacksmith's
+      Talent/…-shaped) was *also* silently failing — `normalize.py`'s
+      self-reference folding deliberately excludes "this Class"/"this Saga"
+      (its own docstring notes they have "their own dedicated parsing," which
+      for Class turned out not to exist yet), so `segmenter._SELF_SUBJECT_RE`
+      never matched it either. Added `"class"` to that regex's type-word
+      list (not `"saga"` — real Saga cards never print this phrasing outside
+      stripped reminder text, chapter I already covers it). Together these
+      two fixes newly recognize the ETB/becomes-level lines on a dozen-plus
+      real cached cards, though most still have one *other*, unrelated
+      unclaimed line (general trigger/effect coverage — explicitly
+      out of scope for this batch) so don't all flip to `MODELED` outright.
+      `PARSER_VERSION` bumped to `"33"`.
+
+      The other two named residuals turned out to already be non-issues:
+      a Leveler's non-keyword *base* (pre-`LEVEL`) ability line already goes
+      through the same unconditional per-line dispatch a Class's preamble
+      does (RULE 711.4's "treated normally" — no level gate applied), which
+      a new test now locks in explicitly (an anthem printed before the first
+      `LEVEL` tier stays active at every level, including well past the
+      card's own tiers). CDA-based Leveler P/T (``*/*``) is left
+      deliberately unimplemented rather than merely deferred: `game/
+      continuous.py`'s layer-7a `pt_cda` pass already exists and could gate
+      the same `min_level`/`max_level` way `pt_set` does, but there is no
+      real printed Leveler tier anywhere in the ~34k-card Oracle cache to
+      derive the CDA's count selector from — wiring it now would mean
+      guessing exactly what docs/09's fail-closed discipline forbids.
+      Tests: `test_card_structures.py`.
 - [x] DFC transform infrastructure (RULE 712.8) + day/night (RULE 731) +
       daybound/nightbound (RULE 702.145) — `GameObject.transform()` only
       ever flipped `card`; nothing in the live engine called it, and nothing
@@ -5077,7 +5260,7 @@ the Phase-1 models. Tests: `test_game_engine.py`.
       filter; The Wise Mothman's compound "enters or attacks" trigger;
       Vault 12 chapter II's sum-across-all-players' rad counters; and
       Vexing Radgull's conditional-then-proliferate branch. All tracked in
-      `backend/ToDo_Backend.md` rather than re-derived from scratch later.
+      `docs/implementation-state/BACKLOG.md` rather than re-derived from scratch later.
       Tests: `backend/tests/test_rad_counters.py` (18, mixing parser-level
       clause assertions with full engine execute-and-assert coverage).
 
@@ -5309,7 +5492,7 @@ the Phase-1 models. Tests: `test_game_engine.py`.
       - `GameObject.to_dict()` also gained a `has_back_face` key (read off
         `_front_card`, stable across an actual transform) so the frontend
         can offer a "peek other face" toggle without guessing from a
-        name-keyed cache — see `frontend/ToDo_Frontend.md`/
+        name-keyed cache — see `docs/implementation-state/BACKLOG.md`/
         `Done_Frontend.md` for the board-side half of this.
       - Still deliberately unmodeled: the legacy pre-2021 non-daybound
         werewolf template ("if no spells were cast last turn, transform
@@ -5363,7 +5546,7 @@ the same engine goldfish mode uses. The design keeps a hard line between
       seat's decision depends on another's, so there is nothing to
       serialize). `MULLIGAN_STYLES` is the table's agreed procedure —
       `london` or `none`; Vancouver is deliberately absent, see
-      `backend/ToDo_Backend.md`.
+      `docs/implementation-state/BACKLOG.md`.
 
 - [x] **Actions carry an actor.** `apply_action(action, actor_id=...)`;
       solo modes leave it implicit (the active player) and are unchanged.
@@ -5644,7 +5827,7 @@ with everything, takes the first legal target).
 
 - [x] **Batch 25 (2026-07-22): all 43 cards of the cEDH cube pool.** The
       whole "cEDH staples cube" section moved here from
-      `backend/ToDo_Backend.md`; that file now keeps only the narrow
+      `docs/implementation-state/BACKLOG.md`; that file now keeps only the narrow
       simplifications each shipped card documents in its own
       `game/ability_catalogue.py` entry. Every card is registered, binds,
       and is playable; 91 new tests across six files
@@ -5862,7 +6045,7 @@ with everything, takes the first legal target).
 
 Batch 25 left nine narrow simplifications behind, each recorded in its
 card's `game/ability_catalogue.py` entry and mirrored in
-`backend/ToDo_Backend.md`. All nine are now closed. Six of them needed a
+`docs/implementation-state/BACKLOG.md`. All nine are now closed. Six of them needed a
 genuinely new mechanism; the rest fell out of those.
 
 - [x] **RULE 608.2 suspended resolutions** — the prerequisite nothing else
@@ -6052,7 +6235,7 @@ Coverage moved 25.3% → **25.4% (8,672 / 34,209)**, PARSER_VERSION 28.
 ## Import — follow-up from the frontend
 
 - [x] Server-side Archidekt import proxy (`GET
-      /api/import/archidekt/{deckId}`) — Moxfield (`backend/ToDo_Backend.md`
+      /api/import/archidekt/{deckId}`) — Moxfield (`docs/implementation-state/BACKLOG.md`
       "Import — follow-up from the frontend") was tried client- and
       server-side and reverted both times (genuinely Cloudflare-blocked);
       Archidekt's API has no such protection — confirmed live, a plain

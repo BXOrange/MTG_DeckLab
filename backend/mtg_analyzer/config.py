@@ -1,6 +1,6 @@
 """Central configuration: on-disk paths and small runtime constants.
 
-Reference: backend/ToDo_Backend.md "Configuration".
+Reference: docs/implementation-state/Done_Backend.md "Configuration".
 
 Before this module existed, `CACHE_ROOT`/`DEFAULT_DB_PATH`
 (`card_database.py`), `DATA_ROOT`/`DEFAULT_DECKS_DB_PATH`

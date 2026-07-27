@@ -171,6 +171,10 @@ def card_from_scryfall_data(data: dict[str, Any]) -> Card:
         power=power if is_creature else None,
         toughness=toughness if is_creature else None,
         loyalty=_parse_int(front.get("loyalty")),
+        # RULE 310.4a: a battle's printed defense. Face-specific like
+        # loyalty/power — every real battle is a transforming DFC whose
+        # front face carries it, so it rides the same merged `front`.
+        defense=_parse_int(front.get("defense")),
         oracle_text=front.get("oracle_text", ""),
         keywords=list(data.get("keywords") or []),
         image_uri_small=image_uris.get("small", ""),

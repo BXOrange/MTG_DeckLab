@@ -22,6 +22,15 @@ from typing import Any, Optional
 #: Each fragment is a self-contained alternative that the TARGET matcher ORs
 #: together; the resolved ``kind`` is one of `targeting.ALLOWED_TARGET_KINDS`.
 _TARGET_ROWS: list[tuple[str, str]] = [
+    # RULE 115.4's "any **other** target" — every target legal for "any
+    # target" except the ability's own source. It resolves to the same
+    # ``any`` kind because `targeting.legal_targets`'s ``any`` branch
+    # *already* excludes the source unconditionally, so the two phrasings
+    # genuinely produce the same candidate list in this engine; the row
+    # exists so the phrase is claimed at all rather than leaving a card
+    # UNMODELED on wording alone. Above "any target" by the file's
+    # longest-first convention.
+    (r"any other target", "any"),
     (r"any target", "any"),
     (r"target creature or player", "any"),
     (r"target creature, player,? or planeswalker", "any"),
@@ -32,6 +41,10 @@ _TARGET_ROWS: list[tuple[str, str]] = [
     # pick, e.g. an Equipment's ETB "attach it to target creature you
     # control") — must sit above the bare "target creature" row below.
     (r"target creature you control", "creature_you_control"),
+    # "target creature an opponent controls" / "…you don't control" — the
+    # mirror image, onto the already-existing `creature_you_dont_control`
+    # kind. Also above the bare "target creature" row.
+    (r"target creature (?:an opponent controls|you don't control)", "creature_you_dont_control"),
     (r"target creature", "creature"),
     # "target legendary permanent" (Minamo, School at Water's Edge) — a
     # supertype-filtered pick (RULE 205.4a), above the bare "target
@@ -71,7 +84,7 @@ _TARGET_ROWS: list[tuple[str, str]] = [
 #: real "up to two/three/N" multi-target choice needs an interactive
 #: multi-select and per-effect application over a *list* of targets — a
 #: materially larger feature this grammar doesn't attempt (see
-#: `docs/implementation-state/ToDo_Backend.md`). Exported (not
+#: `docs/implementation-state/BACKLOG.md`). Exported (not
 #: underscore-private) so a handler with its own hand-rolled "return/put
 #: target …" grammar (the graveyard-recursion family) can embed it too,
 #: without going through the shared `TARGET` alternation.

@@ -58,6 +58,19 @@ def _combat_display_keywords(
     return display_keywords(card, granted, removed, granted_protections)
 
 
+def _saga_final_chapter_number(card: Card) -> Optional[int]:
+    """A Saga's final chapter number (RULE 714.2d) for the board's chapter
+    badge — ``None`` if the oracle text has no recognizable chapter line.
+
+    Local import of the pure chapter-numeral grammar (`parser/oracle/
+    catalogue/saga.py` — no `game/` imports itself), the same one
+    `RulesEngine._saga_final_chapter` (`game/rules_engine.py`) uses, so the
+    two never drift apart."""
+    from ..parser.oracle.catalogue.saga import all_chapter_numbers
+
+    return max(all_chapter_numbers(card.oracle_text or ""), default=0) or None
+
+
 class GameObject:
     """One instance of a card in a game, with its mutable in-play state."""
 
@@ -364,6 +377,24 @@ class GameObject:
         #: `reset_as_new_object` clears both.
         self.chosen_type: Optional[str] = None
         self.chosen_color: Optional[str] = None
+        #: The battle's **protector** (RULE 310.8) — the player id chosen as
+        #: this battle enters (310.11a, for a Siege: an opponent of its
+        #: controller). Genuinely distinct from `controller_id`: the
+        #: protector is the "defending player" when the battle is attacked
+        #: (310.8d) and the only player who may block for it (310.8c), while
+        #: the *controller* is who its abilities belong to — which is
+        #: exactly why a Siege can be attacked by its own controller
+        #: (310.8b). ``None`` for a non-battle, or a battle whose subtype
+        #: has no protector. RULE 400.7: a new object picks afresh, so
+        #: `reset_as_new_object` clears it.
+        self.protector_id: Optional[str] = None
+        #: Whether this Siege's RULE 310.11b "when the last defense counter
+        #: is removed" ability has already fired. A latch, not a state: the
+        #: SBA pass is what notices defense reached 0 (so *every* route
+        #: there is covered, not just damage), and it runs repeatedly until
+        #: nothing changes — without this the same defeat would re-trigger
+        #: on every pass while the first trigger still sat on the stack.
+        self.battle_defeat_triggered: bool = False
         #: A named-mode choice from this object's own "as ~ enters, choose
         #: <Label1> or <Label2>" ability (Struggle for Project Purity's
         #: "choose Brotherhood or Enclave") — a lowercase slug of the chosen
@@ -695,6 +726,8 @@ class GameObject:
         #: choose a creature type/color" pick yet either.
         self.chosen_type = None
         self.chosen_color = None
+        self.protector_id = None
+        self.battle_defeat_triggered = False
         self.chosen_mode = None
         self.temp_power = 0
         self.temp_toughness = 0
@@ -768,6 +801,12 @@ class GameObject:
         return self.card.is_planeswalker
 
     @property
+    def is_battle(self) -> bool:
+        """Whether this is a battle (RULE 310) — the attackable, non-creature
+        permanent type whose "toughness" is its defense-counter count."""
+        return self.card.is_battle
+
+    @property
     def type_words(self) -> set[str]:
         """Lowercase current card-type words (RULE 613 layer 4 aware).
 
@@ -792,6 +831,15 @@ class GameObject:
     def loyalty(self) -> int:
         """Current loyalty (RULE 606.5b) — the count of loyalty counters."""
         return self.counters.get("loyalty", 0)
+
+    @property
+    def defense(self) -> int:
+        """Current defense of a battle (RULE 310.4c) — its defense-counter
+        count. The exact mirror of `loyalty`: a battle enters with counters
+        equal to its printed defense (310.4b) and damage *removes* them
+        (310.6) rather than being tracked as marked damage, so there is no
+        separate "current defense" field to drift out of sync."""
+        return self.counters.get("defense", 0)
 
     @property
     def lore(self) -> int:
@@ -980,6 +1028,21 @@ class GameObject:
             "is_planeswalker": self.card.is_planeswalker,
             # Current loyalty for a planeswalker's board display (RULE 606.5b).
             "loyalty": self.loyalty if self.card.is_planeswalker else None,
+            # RULE 310: a battle's defense-counter count for the board's own
+            # badge (mirrors the loyalty badge above), plus its protector
+            # (310.8) as a player id the board resolves against the players
+            # it already has, so it can label the battle "protected by X".
+            "is_battle": self.card.is_battle,
+            "defense": self.defense if self.card.is_battle else None,
+            "protector_id": self.protector_id if self.card.is_battle else None,
+            # RULE 714: a Saga's chapter progress for the board's own badge
+            # (mirrors the loyalty badge above) — `saga_final_chapter` is the
+            # highest chapter number it has (0/no chapter lines → None, so
+            # the frontend can tell "no chapters recognized" from "chapter 0").
+            "is_saga": self.card.is_saga,
+            "saga_final_chapter": (
+                _saga_final_chapter_number(self.card) if self.card.is_saga else None
+            ),
             # A token badge for the board (RULE 111); it also disappears from
             # non-battlefield zones by RULE 704.5d, so it only shows in play.
             "is_token": self.is_token,

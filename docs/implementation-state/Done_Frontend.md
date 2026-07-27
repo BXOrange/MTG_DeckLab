@@ -1,8 +1,13 @@
 # Frontend — Done
 
-Completed frontend work, split out of
-[`../../frontend/ToDo_Frontend.md`](../../frontend/ToDo_Frontend.md) (which
-now holds only open items). Section headers mirror that file.
+**Worklog** (append-only): completed frontend work and *why it was built
+that way*. Open work lives in [BACKLOG.md](BACKLOG.md), under `VIS` and the
+other categories.
+
+Section headers are stable — a `Done_Frontend.md "<section>"` reference from
+the code lands here. Entries written before 2026-07-27 cite a
+`ToDo_Frontend.md`/`ToDo_Backend.md` that no longer exists; both were merged
+into `BACKLOG.md`, and those mentions have been repointed there.
 
 ## Backend integration
 
@@ -231,7 +236,7 @@ now holds only open items). Section headers mirror that file.
 - [x] Phase/step/turn indicator: goldfish's `.gf-topbar` shows the turn
       number and current phase/step (German labels), plus a "☀️ Tag"/
       "🌙 Nacht" badge (`.gf-daynight`) once `state.day_night` (RULE 731,
-      `backend/ToDo_Backend.md`/`Done_Backend.md` "Card-type & structural
+      `docs/implementation-state/BACKLOG.md`/`Done_Backend.md` "Card-type & structural
       coverage") is set — hidden entirely before any daybound/nightbound
       permanent has established a designation, matching the engine's own
       "no designation yet" state.
@@ -384,10 +389,10 @@ now holds only open items). Section headers mirror that file.
       badge and a "TR" keyword badge, exercising the new engine-side
       kicked-counters-plus-granted-keyword grammar
       (`parser/oracle/catalogue/counters.py`'s `_GRANT_KEYWORD_SUFFIX`,
-      `backend/ToDo_Backend.md`'s former "Targeting / multi-target /
+      `docs/implementation-state/BACKLOG.md`'s former "Targeting / multi-target /
       counters" chapter, Item F) through the real UI, not just unit
       tests. Buyback (`has_buyback`/`buyback_cost`) is a separate,
-      still-open gap — `backend/ToDo_Backend.md` "Buyback alt-cost". Tests:
+      still-open gap — `docs/implementation-state/BACKLOG.md` "Buyback alt-cost". Tests:
       `test_game_session.py::TestStackAndChoices::
       test_cast_spell_forwards_kicked_to_the_engine`.
 - [x] **"Castable from exile" zone (2026-07-20)** — the engine already
@@ -448,7 +453,7 @@ now holds only open items). Section headers mirror that file.
       return trigger (`AbilitySpec.counter_death_return`/
       `RulesEngine._collect_counter_death_return_triggers`/
       `MarchesaDelayedReturnEffect` — Dethrone itself stays unmodeled, see
-      `backend/ToDo_Backend.md`), and Sneak Attack/Meek Attack's cheat-
+      `docs/implementation-state/BACKLOG.md`), and Sneak Attack/Meek Attack's cheat-
       into-play-then-sacrifice (`CheatCreatureFromHandEffect`/
       `SacrificeObjectEffect`, `RulesEngine.put_hand_creature_onto_
       battlefield`). Verified end to end against a live backend over the
@@ -522,7 +527,7 @@ now holds only open items). Section headers mirror that file.
     choose not to untap ~ during your untap step."`) built in Replay/
     Puzzle mode, which does reach `MODELED` and exercises the real
     bind-on-load path end-to-end. Tracked as its own backend gap in
-    `backend/ToDo_Backend.md` "Game Engine (Phase 3)".
+    `docs/implementation-state/BACKLOG.md` "Game Engine (Phase 3)".
   - The fourth item on the original list, "up to one target" decline, was
     already shipped (see the generic targeting UI entry above,
     "offering `∅ Kein Ziel` when optional") — the `frontend/ToDo_
@@ -763,6 +768,6 @@ now holds only open items). Section headers mirror that file.
       `Deck.color_identity`/`.commanders` (`backend/Done_Backend.md`
       "Deck persistence") for the commander-vs-99 split. This is separate
       from, and doesn't block, the LLM-backed `POST /api/decks/{id}/analyze`
-      analysis still in `backend/ToDo_Backend.md` "LLM Deck Analysis" — that
+      analysis still in `docs/implementation-state/BACKLOG.md` "LLM Deck Analysis" — that
       endpoint would add synergy/archetype narrative on top of these
       numbers, not replace them.

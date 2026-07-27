@@ -36,7 +36,7 @@ Two bots are built on that base:
 
 Neither is *good*. They are deliberately simple opponents whose behaviour
 you can predict while testing a deck — the "weigh lines" bot in
-backend/ToDo_Backend.md is still open, and would subclass `Bot` the same
+docs/implementation-state/BACKLOG.md is still open, and would subclass `Bot` the same
 way these do.
 
 `run_bots` is the driver: it is called after anything changes a game

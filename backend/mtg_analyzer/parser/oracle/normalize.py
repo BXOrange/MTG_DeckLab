@@ -48,9 +48,16 @@ SELF = "~"
 #: "this spell" (the object on the stack), "this card" (often a zone-scoped
 #: reference), "this ability", and the structured card types with their own
 #: dedicated parsing ("this Saga"/"this Class"). Runs after lowercasing.
+#:
+#: "this battle"/"this Siege" (RULE 310) *are* included: unlike a Saga's
+#: chapters, a battle's own text has no positional structure a dedicated
+#: parse would need, so its clauses are ordinary triggers/effects about the
+#: resolving permanent — which is exactly what ``~`` means. Every real
+#: battle writes its ETB as "when this Siege enters, …", so without this
+#: fold the whole card type is UNMODELED on its first line.
 _SELF_REFERENCE_RE = re.compile(
     r"\bthis (?:creature|permanent|artifact|enchantment|land|planeswalker"
-    r"|vehicle|equipment|aura|token)\b"
+    r"|vehicle|equipment|aura|token|battle|siege)\b"
 )
 
 

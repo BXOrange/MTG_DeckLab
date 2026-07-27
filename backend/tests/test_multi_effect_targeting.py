@@ -2,7 +2,7 @@
 one spell/ability each resolving against their own target, instead of every
 effect on the item reading off the front of one shared ``targets`` list.
 
-Before this, `docs/implementation-state/ToDo_Backend.md` documented this as
+Before this, `docs/implementation-state/BACKLOG.md` documented this as
 a known, deliberately-unfixed boundary (`test_modal_spells.py`'s existing
 tests sidestep it by pairing untargeted modes, or the same target twice).
 This file exercises the fix directly: `game/rules_engine.py`'s

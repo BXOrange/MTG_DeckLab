@@ -58,7 +58,8 @@ _SUPPORTED_KINDS: frozenset[str] = frozenset(
 #: (`_keyword_triggered_abilities`) and equip/fortify/reconfigure
 #: (`_keyword_activated_ability`) also get real behaviour wired in at bind
 #: time. The rest (kicker/ward/rampage/protection quality/…) are still
-#: carried-but-inert — see `ToDo_Backend.md` "Rules Engine … M2".
+#: carried-but-inert — see `docs/implementation-state/BACKLOG.md` (PAR/MEC
+#: tickets) for which of them are still open.
 _PARAMETRIC_KEYWORD_KEYS: frozenset[str] = frozenset({"n", "cost", "quality"})
 
 

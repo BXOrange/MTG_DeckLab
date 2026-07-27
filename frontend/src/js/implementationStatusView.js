@@ -8,7 +8,7 @@
 // index. Static content (no server call); kept in sync by hand with the
 // backend — see CLAUDE.md "Implementation state". Deliberately heading-
 // level only (no per-item prose) — see docs/implementation-state/
-// Done_Backend.md / backend/ToDo_Backend.md for the full narrative.
+// Done_Backend.md / docs/implementation-state/BACKLOG.md for the full narrative.
 
 const LEGEND = [
   ['full', '✅', 'Vollständig'],
@@ -286,6 +286,17 @@ const GROUPS = [
             ],
           },
           {
+            title: 'Schlachten',
+            rule: '310',
+            items: [
+              ['full', 'Verteidigungsmarken: Eintritt, Schaden entfernt Marken, 0 → Friedhof (310.4/310.6/310.7)'],
+              ['full', 'Schlachten angreifen — auch die eigene Belagerung (310.5/310.8b)'],
+              ['full', 'Beschützer: Wahl beim Eintritt, verteidigender Spieler, Blocken (310.8/310.10/310.11a)'],
+              ['full', 'Belagerung besiegt → ins Exil, transformiert kostenlos zauberbar (310.11b)'],
+              ['partial', 'Kartentexte der Schlachten: 12 von 39 vollständig modelliert (die übrigen scheitern an allgemeinen Effekt-Grammatiken, nicht am Kartentyp)'],
+            ],
+          },
+          {
             title: 'Monarch / Initiative / Rad-Marken',
             rule: '725/726/728',
             items: [
@@ -444,7 +455,7 @@ export function renderImplementationStatusView(container) {
         Nach Software-Feature (UC1–UC5); der Goldfisch-Motor zusätzlich nach
         offiziellem Regelwerk-Kapitel (Comprehensive Rules). Details in
         <code>docs/implementation-state/Done_Backend.md</code> und
-        <code>backend/ToDo_Backend.md</code>.
+        <code>docs/implementation-state/BACKLOG.md</code>.
       </p>
       <div class="impl-legend">${legend}</div>
       ${GROUPS.map(groupHtml).join('')}

@@ -3,7 +3,7 @@
 // Analyse (mana curve, card types, mana value, opening-hand land odds,
 // color pips vs. sources, functional categories), the not-yet-implemented
 // Dynamische Analyse (archetype/synergy/coherence — see
-// backend/ToDo_Backend.md "LLM Deck Analysis (UC2)"), and Bracket-Analyse
+// docs/implementation-state/BACKLOG.md ANA-1), and Bracket-Analyse
 // (a heuristic approximation of WotC's "Commander Brackets" system).
 // Sub-tab switching (`wireAnalyzeTabs`) is a local, ad hoc show/hide of
 // `.analyze-subtab-panel` elements — separate from and not reusing the

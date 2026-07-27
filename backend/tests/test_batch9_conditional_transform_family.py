@@ -1,4 +1,4 @@
-"""Batch 9 (docs/implementation-state/ToDo_Backend.md): "Saga /
+"""Batch 9 (docs/implementation-state/BACKLOG.md): "Saga /
 conditional transform" — a new `exile_return_transformed` effect for the
 "exile ~, then return it to the battlefield transformed under its owner's
 control" wording (RULE 400.7 + RULE 712.8 combined), covering both:
@@ -22,7 +22,7 @@ so no changes were needed there either.
 Investigated and deliberately left unclaimed (fail-closed): the legacy
 pre-2021 non-daybound werewolf template ("at the beginning of each upkeep,
 if no spells were cast last turn, transform ~") — already flagged in
-docs/implementation-state/ToDo_Backend.md as superseded by RULE 731
+docs/implementation-state/BACKLOG.md as superseded by RULE 731
 day/night and intentionally not built, confirmed still true by sampling the
 32 real cards using that exact wording (none use the newer template); and
 Delver of Secrets-style "look at the top card... if it's an instant/sorcery,

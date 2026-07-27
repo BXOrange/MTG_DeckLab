@@ -6,8 +6,9 @@ can execute in order.
 
 ## Live sources this reconciles
 
-- Granular open items: [`backend/ToDo_Backend.md`](../../backend/ToDo_Backend.md),
-  [`frontend/ToDo_Frontend.md`](../../frontend/ToDo_Frontend.md)
+- Granular open items: [`BACKLOG.md`](BACKLOG.md) (backend + frontend, as
+  categorized tickets)
+- Examples / parser-tail strategy: [`PARSER_LONG_TAIL.md`](PARSER_LONG_TAIL.md)
 - Shipped: [`Done_Backend.md`](Done_Backend.md),
   [`Done_Frontend.md`](Done_Frontend.md)
 - User-facing coverage: in-app **Engine-Status** tab
@@ -58,7 +59,7 @@ else is comparatively narrow, additive work.
 | 400–408 Zones | ✅ | battlefield/stack/hand/library/graveyard/exile/command all present. |
 | 500–514 Turn structure | ✅ | complete, walked from a sequence with skip effects. |
 | 600–616 Spells/abilities/effects | ◐ | casting/activated/triggered/static/mana/replacement/loyalty (606) done; layers (613) done except layer 3 + full dependency ordering (deliberately deferred, see M3); replacement/prevention ordering (616.1e/f) is interactive, by the affected player. |
-| 700–733 Additional | ◐ | SBAs (704) done; keyword abilities (702) recognized + bound (flag + landwalk); keyword *actions* (701) partial via effects. Copying (707): token copies + `become_copy` done, not a true layer-1 continuous effect. Monarch (725)/Initiative (726) designations + their inherent triggers done; Initiative's own "venture into the dungeon" (726.2) not (depends on Dungeons, 309). See `backend/ToDo_Backend.md` for exact open edges. |
+| 700–733 Additional | ◐ | SBAs (704) done; keyword abilities (702) recognized + bound (flag + landwalk); keyword *actions* (701) partial via effects. Copying (707): token copies + `become_copy` done, not a true layer-1 continuous effect. Monarch (725)/Initiative (726) designations + their inherent triggers done; Initiative's own "venture into the dungeon" (726.2) not (depends on Dungeons, 309). See `docs/implementation-state/BACKLOG.md` for exact open edges. |
 | 800–811 Multiplayer | ✖ | interactive `pass_priority(player)` primitive built; `create_multiplayer` still raises, route returns 501. |
 | 900–905 Casual variants | ◐ | Commander (903) damage + command zone + tax (903.8) done. Others not. |
 
@@ -80,7 +81,7 @@ Follows [`09_ORACLE_EFFECT_PARSER.md`](../concepts/09_ORACLE_EFFECT_PARSER.md).
 - ⏳ **Remaining**: the oracle-parser long-tail (next-highest-leverage
   families, ranked by `processing_list.coverage_over_cards()`) plus the
   narrower family-level gaps are tracked in full, and kept current, in
-  `backend/ToDo_Backend.md` — read that file for the actual open item
+  `docs/implementation-state/BACKLOG.md` — read that file for the actual open item
   list rather than this one; it goes stale here. Current coverage
   headline (re-measure with `scripts/coverage_report.py` before trusting
   it) lives in `CLAUDE.md`.
@@ -101,7 +102,7 @@ Follows [`09_ORACLE_EFFECT_PARSER.md`](../concepts/09_ORACLE_EFFECT_PARSER.md).
   (already fully working via a separate, older path —
   `combat.is_protected_from` — not `parametric_keywords` at all); and
   hexproof-*from*'s quality (currently aliased onto plain hexproof, losing
-  the "from X" scope) — see `backend/ToDo_Backend.md`. (A ward cost's own `{X}`,
+  the "from X" scope) — see `docs/implementation-state/BACKLOG.md`. (A ward cost's own `{X}`,
   RULE 702.21b, is now resolved at the ward ability's resolution time —
   `costs.ActivationCost.x_selector`/`RulesEngine.resolve_ward_effect`.)
   Every parametric keyword
@@ -133,7 +134,7 @@ All four are **done**
   UI (engine-ready via `declare_blockers`, no opponent-side UI yet).
 - **UI:** opponent zones, hidden opponent hand, turn/priority indicator,
   per-creature attacker subset selection, slow-opponent timeout — all still
-  open (`ToDo_Frontend.md` "Multiplayer").
+  open (`BACKLOG.md` "Multiplayer").
 
 ### M6 — Card-type structures (partial)
 
@@ -143,7 +144,7 @@ depend on M1, and copies feed M3's layer 1.
 - Done: Adventure (715), Split/Fuse (709), Saga (714, incl. chapter
   abilities), DFC transform/MDFC, Class (716)/Leveler (711).
 - Battles (310), Dungeons (309) — not started; scoped in
-  `backend/ToDo_Backend.md` "Card-type & structural coverage" (defense
+  `docs/implementation-state/BACKLOG.md` "Card-type & structural coverage" (defense
   counters/protector/attack-target-kind for Battles, command-zone
   model/room-ability event/venture keyword action for Dungeons — zero
   existing scaffolding for either).
@@ -198,7 +199,7 @@ depend on M1, and copies feed M3's layer 1.
 M1 (oracle parser) ──┬─▶ M2 (parametric keyword behaviour) ── done
                      └─▶ M6 remainder (Adventure/Split, Battles/Dungeons)
 M3 (layers)          ── done except two deliberately-deferred corners
-M4 (permanent subsystems) ── done (engine-side); UI hookups remain in ToDo_Frontend.md
+M4 (permanent subsystems) ── done (engine-side); UI hookups remain in BACKLOG.md
 M5 (priority/multiplayer) ── primitive + ordering choices done; session/WS wiring + blocker UI remain
 M7 (product: LLM analysis / auth / bot) ── parallel track, no rules-engine dependency;
                                              static deck analysis already shipped

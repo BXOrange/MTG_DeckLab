@@ -5,7 +5,7 @@ delayed trigger) — Clairvoyance/Balduvian Rage/Carrier Pigeons-shaped,
 The underlying engine mechanism (`CreateDelayedTriggerEffect`/
 `GameState.delayed_triggers`) already existed (Batch 22, built for Mana
 Drain's "at the beginning of your next main phase") — this was purely a
-missing parser-front-end recognition gap (`backend/ToDo_Backend.md`), not a
+missing parser-front-end recognition gap (`docs/implementation-state/BACKLOG.md`), not a
 new primitive: the front-end had zero handlers for "at the beginning of the
 next `<step>`, `<effect>`" at all before this, so every card using the
 mechanism was hand-authored (`ability_catalogue.py`). The new
@@ -18,7 +18,7 @@ phase").
 Deliberately unclaimed (fail-closed): the pronoun-scoped "its controller may
 draw..." variant (Arcane Denial's own first sentence) — a different,
 indirect-referent grammar shape, same family of gap as Run Away Together's
-(`backend/ToDo_Backend.md`).
+(`docs/implementation-state/BACKLOG.md`).
 """
 
 from __future__ import annotations

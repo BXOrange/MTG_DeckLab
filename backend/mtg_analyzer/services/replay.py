@@ -79,6 +79,11 @@ def _serialize_object(obj: GameObject) -> dict[str, Any]:
         "is_token": obj.is_token,
         "is_commander": obj.is_commander,
         "attached_to": obj.attached_to,
+        # RULE 310.8: a battle's protector is per-object state chosen as it
+        # entered, not derivable from the card — without it a re-opened board
+        # would have RULE 310.10's SBA silently pick a new one. ``None`` for
+        # every non-battle, which is the overwhelming majority.
+        "protector_id": obj.protector_id,
     }
     if obj.is_token:
         card = obj.card
@@ -188,6 +193,7 @@ def build_object(
     obj.damage_marked = int(inst.get("damage_marked", 0) or 0)
     obj.counters = {k: int(v) for k, v in (inst.get("counters") or {}).items()}
     obj.attached_to = inst.get("attached_to")
+    obj.protector_id = inst.get("protector_id")  # RULE 310.8, see the descriptor
     # Transform *before* binding (not after) so catalogue-derived abilities/
     # keywords are bound against whichever face is actually current — the
     # same ordering `RulesEngine.transform_permanent` enforces for a live

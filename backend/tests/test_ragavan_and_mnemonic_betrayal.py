@@ -1,4 +1,4 @@
-"""Tests for the two ToDo_Backend.md-flagged "impulsive draw" extensions:
+"""Tests for the two BACKLOG.md-flagged "impulsive draw" extensions:
 Ragavan, Nimble Pilferer (exile from *the damaged player's* library, not its
 own controller's) and Mnemonic Betrayal (exile a whole graveyard, "any type"
 mana-wildcard). Both build on the shared `ImpulsiveDrawEffect`/

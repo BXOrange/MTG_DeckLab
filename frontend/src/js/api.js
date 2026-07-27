@@ -59,7 +59,7 @@ export async function submitDeck(sections, isCube = false) {
 /**
  * Server-side Archidekt import proxy (GET /api/import/archidekt/{deckId}).
  * Unlike Moxfield (tried and reverted twice — genuinely Cloudflare-
- * blocked, see backend/ToDo_Backend.md "Import — follow-up from the
+ * blocked, see docs/implementation-state/Done_Backend.md "Import — follow-up from the
  * frontend"), Archidekt's API has no such protection.
  * @param {string} deckIdOrUrl Bare Archidekt deck id, or a full
  *   archidekt.com/decks/{id}/{slug} URL pasted from the browser — the

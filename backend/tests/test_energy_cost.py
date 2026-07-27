@@ -12,7 +12,7 @@ check in `GameEngine._can_pay_activation_cost`/`_pay_activation_cost`.
 The much larger "may pay {E}{E}. If you do, <effect>" resolve-time optional-
 payment grammar (Aether Chaser/Guide of Souls-shaped triggered abilities)
 is a separate, unmodeled shape — out of scope here; see
-`backend/ToDo_Backend.md`.
+`docs/implementation-state/BACKLOG.md`.
 """
 
 from __future__ import annotations

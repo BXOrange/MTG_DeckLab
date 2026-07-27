@@ -1,4 +1,4 @@
-"""Library-top/impulsive-draw permissions closeout (backend/ToDo_Backend.md).
+"""Library-top/impulsive-draw permissions closeout (docs/implementation-state/BACKLOG.md).
 
 Covers `parser/oracle/catalogue/static_handlers.py`'s generic recognition of
 the "You may play lands [and cast [noncreature] spells [with mana value N or

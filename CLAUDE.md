@@ -258,10 +258,10 @@ for the actual mechanic-by-mechanic detail (what shipped, *why* it was built
 that way, which tests cover it), read
 [docs/implementation-state/Done_Backend.md](docs/implementation-state/Done_Backend.md);
 for open gaps and exactly what's left on a partial feature, read
-`backend/ToDo_Backend.md`. Both are organized under the same section headers
-(Rules Engine, Game Engine, Card-type & structural coverage, …) — search
-those files for a mechanic's name rather than re-deriving its state from the
-code or duplicating detail here.
+`docs/implementation-state/BACKLOG.md`. Search both for a mechanic's name
+rather than re-deriving its state from the code or duplicating detail here —
+`Done_*.md` is organized by section (Rules Engine, Game Engine, Card-type &
+structural coverage, …), `BACKLOG.md` by ticket category.
 
 **Implemented**: the full turn/stack/priority/SBA loop; London mulligan;
 targeting; the whole mana model (generic/color/colorless/hybrid/mono-hybrid/
@@ -351,7 +351,13 @@ recompute by a dynamic `subtype_from_source`/`color_from_source`/
 is ever changed (Replay/Puzzle mode) rather than being baked in once; and the
 deeper card-type structures — DFC transform + day/night/daybound-nightbound,
 modal-DFC/Adventure/Split-Fuse/Prepared casting, Saga chapters, Class/Leveler
-level-ups.
+level-ups, and **battles** (RULE 310 — defense counters as the permanent's
+only "toughness", a third `"battle"` defender kind alongside player/
+planeswalker, the separate `GameObject.protector_id` who is the *defending*
+player for it (310.8d) and the only legal blocker (310.8c) — which is what
+lets a Siege be attacked by its own controller (310.8b) — and the Siege
+defeat cycle, noticed by the SBA pass rather than at any counter-removal
+site so every route to zero defense reaches it).
 
 The **oracle-text → behaviour parser** (docs/09, `parser/oracle/`) is the
 main ongoing effort: `normalize` → `segmenter` → `catalogue/handlers` →
@@ -451,8 +457,10 @@ covered (8,946 / 34,209) as of 2026-07-22, PARSER_VERSION 31** (parser-`MODELED`
 hand-`AUTHORED`).
 Re-measure with `scripts/coverage_report.py` (ledger-backed — see
 `services/coverage_db.py`) before trusting this number; Batches 1–10 are all
-shipped, and the deferred backlog + long-tail strategy are merged into
-`backend/ToDo_Backend.md` (see below). **Stickers (RULE 123) are a
+shipped; open parser tickets are `PAR-*` in
+`docs/implementation-state/BACKLOG.md`, and the long-tail strategy (plus
+its recurring lessons and worked samples) is
+`docs/implementation-state/PARSER_LONG_TAIL.md`. **Stickers (RULE 123) are a
 permanent project non-goal, not a backlog gap** — will never be
 implemented; the gate classifies any card mentioning "sticker" as
 `NEVER_SUPPORTED` (`parser/oracle/gate.py`), a verdict distinct from
@@ -588,11 +596,17 @@ Humility/Dress Down, since `mana_abilities_for` had never honoured
 "gets A **or** B" activated ability. Full detail, wave by wave, in
 `docs/implementation-state/Done_Backend.md` ("cEDH staples cube").
 
-**Notable gaps** (see `backend/ToDo_Backend.md` for the full list with exact
+**Notable gaps** (see `docs/implementation-state/BACKLOG.md` for the full list with exact
 scope on each): a kicked spell's "if kicked, ... instead" *override* conditional (as opposed to the
 additional-effect shape already shipped); "search library and/or
 graveyard" (Doomsday/Finale of Devastation — needs a `request_search`
-engine extension, not just parsing); battles/dungeons; and the
+engine extension, not just parsing); dungeons; the *oracle coverage* of
+the battle pool (the RULE 310 engine is done, but only 12 of the 39
+cached battles are MODELED — the other 27 are blocked on ordinary
+effect-body grammar, enumerated in
+`docs/implementation-state/PARSER_LONG_TAIL.md` as that document's worked
+example; the biggest cluster needs only a **parser handler**, since its
+engine primitive `request_pay_cost_then` already exists); and the
 narrower already-shipped-feature rough edges (e.g. re-validating an
 *existing* attachment's legality every SBA pass, not just on the host
 leaving; combining interactive trigger-ordering with a targeted trigger;
@@ -610,13 +624,18 @@ front-end can't express yet) goes in `game/ability_catalogue.py` — see
 [docs/Reference/11_CARD_CATALOGUE_AUTHORING_GUIDE.md](docs/Reference/11_CARD_CATALOGUE_AUTHORING_GUIDE.md)
 for the field-by-field how-to and the full `EffectSpec`/layer whitelist.
 
-Living backlogs: `backend/ToDo_Backend.md` (open — every open backend item,
-including narrow edge cases and the oracle-parser long-tail backlog, now
-merged into this one file; stays next to the backend code it tracks) and
-`docs/implementation-state/Done_Backend.md` (shipped — append-only history
-rather than something edited in lockstep with in-progress code, so it lives
-under `docs/`; same split for the frontend's `frontend/ToDo_Frontend.md` /
-`docs/implementation-state/Done_Frontend.md`). The plan to finish is
+Implementation state is three kinds of document, kept strictly apart —
+**open points**, **worklogs**, **examples** — all under
+`docs/implementation-state/`:
+
+| Kind | File | Rule |
+| --- | --- | --- |
+| Open points | `BACKLOG.md` | The *single* backlog, backend **and** frontend, as categorized tickets (`ENG` game engine, `PAR` parser, `MEC` game mechanics, `TYP` card types, `PLR` player management, `VIS` visuals, `DB` database, `ANA` deck analysis). Open scope only — no history. |
+| Worklogs | `Done_Backend.md`, `Done_Frontend.md` | Append-only. What shipped and *why it was built that way*. |
+| Examples | `PARSER_LONG_TAIL.md` | Standing strategy + recurring lessons + enumerated worked samples for the indefinite parser tail. Neither backlog nor worklog. |
+
+(The former `backend/ToDo_Backend.md` and `frontend/ToDo_Frontend.md` are
+gone — merged into `BACKLOG.md`.) The plan to finish is
 `docs/implementation-state/10_COMPLETION_ROADMAP.md`
 (dependency-ordered milestones, reconciling the backlog files above into a
 coverage table). `docs/` is organized by *kind of question*: `requirements/`
@@ -683,22 +702,21 @@ English and German.
   `escapeAttr`. Client-only prefs persist via cookies (`cookies.js`).
 - **Commits**: only when asked; branch first if on `main`. End commit messages
   with `Co-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>`.
-- **ToDo/Done split discipline**: `backend/ToDo_Backend.md` /
-  `frontend/ToDo_Frontend.md` are read in full often (by humans and Claude)
-  and, unlike `Done_*.md`, aren't append-only history — they're meant to
-  hold *only* open work. When you finish an item, move its narrative into
-  the matching section of `docs/implementation-state/Done_Backend.md` /
-  `Done_Frontend.md` (section headers mirror 1:1) instead of leaving it
-  checked off with its writeup still in place — a one-line "moved to
-  Done_*.md, section name" pointer, or just deleting the line, is enough.
-  Leaving finished work's full detail sitting in ToDo defeats the split and
-  makes every future read of that file more expensive for no reason.
+- **Backlog/worklog split discipline**: `BACKLOG.md` is read in full often
+  (by humans and Claude) and, unlike `Done_*.md`, isn't append-only history
+  — it holds *only* open work. **Closing a ticket = deleting it from
+  `BACKLOG.md`** and appending its narrative to the matching section of
+  `Done_Backend.md` / `Done_Frontend.md`. Never leave a `[x]`, a "shipped"
+  note, or even a "moved to Done_*.md" pointer behind; if only part of a
+  ticket is done, keep only the part that isn't. Finished detail left in the
+  backlog defeats the split and taxes every future read.
 - **No half-implementations — close the loop, don't let a deferred item
   silently roll over.** Every batch/session prioritizes by real
-  cards-unlocked (correct — see `backend/ToDo_Backend.md`'s "long-tail
-  strategy"), but that has a failure mode: a modest-yield item never wins
+  cards-unlocked (correct — see
+  `docs/implementation-state/PARSER_LONG_TAIL.md`), but that has a failure
+  mode: a modest-yield item never wins
   the "next batch" slot against bigger ones, so it gets deferred a second
-  and third time while the ToDo text describing it goes stale — worse, a
+  and third time while the ticket describing it goes stale — worse, a
   *later* batch can build the exact primitive an earlier deferred item was
   "blocked on," for an unrelated card, and never loop back to close the
   original entry. Concrete example this bit us on 2026-07-20: Batch 4
@@ -715,11 +733,11 @@ English and German.
   own escape valve explicitly sanctions (`game/ability_catalogue.py` — see
   [docs/Reference/11_CARD_CATALOGUE_AUTHORING_GUIDE.md](docs/Reference/11_CARD_CATALOGUE_AUTHORING_GUIDE.md)),
   three rounds of deferral in. To prevent this: (1) before writing "needs a
-  new primitive/mechanism" in a ToDo entry, grep `game/effects.py`/
+  new primitive/mechanism" in a `BACKLOG.md` ticket, grep `game/effects.py`/
   `game/rules_engine.py`/`Done_Backend.md` for whether an equivalently-shaped
   primitive already exists from a *different* card's batch — cite it or
   rule it out explicitly, don't assume; (2) whenever a batch **does** build
-  a new primitive, grep the open ToDo items for any other entry the same
+  a new primitive, grep `BACKLOG.md` for any other ticket the same
   primitive would also close or narrow, and update them in the same pass —
   a primitive landing is exactly the moment to sweep for this, not an
   afterthought; (3) an item deferred a **second** time must either get
@@ -747,6 +765,9 @@ English and German.
 | Archidekt deck import proxy | `backend/mtg_analyzer/services/archidekt_client.py`, `api/import_external.py` (Moxfield was tried and reverted twice — Cloudflare-blocked; don't re-add it without checking that's changed) |
 | Player-uploaded token art / card-back sleeves | `backend/mtg_analyzer/services/player_assets.py`, `api/player_assets.py`, `frontend/src/js/connectionSettingsView.js`, `frontend/src/js/profileView.js` (player name), `gameBoardView.js` (`resolveImageUrl`/`setAssets`) |
 | Engine coverage doc (user-facing) | `frontend/src/js/implementationStatusView.js` |
+| What's still open (any area) | [docs/implementation-state/BACKLOG.md](docs/implementation-state/BACKLOG.md) — tickets by category |
+| Why shipped work looks the way it does | [Done_Backend.md](docs/implementation-state/Done_Backend.md) / [Done_Frontend.md](docs/implementation-state/Done_Frontend.md) |
+| Parser-tail strategy, lessons, worked samples | [docs/implementation-state/PARSER_LONG_TAIL.md](docs/implementation-state/PARSER_LONG_TAIL.md) |
 | Looking up a `RULE <n>` in the CR text | `docs/Reference/rules_wiki/` (rule#/term → source line; see its `README.md`) |
 | Full docs/ map (requirements/concepts/Reference/implementation-state) | [docs/README.md](docs/README.md) |
 | How to *use* the app (not build it) | [user-docs/](user-docs/) (English + German) |

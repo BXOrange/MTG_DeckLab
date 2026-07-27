@@ -1,4 +1,4 @@
-"""Batch 3 (docs/implementation-state/ToDo_Backend.md): Aura/
+"""Batch 3 (docs/implementation-state/BACKLOG.md): Aura/
 Equipment attached-permanent grants — the "you control enchanted X"
 control-change family and the "<subject> has \"<ability>\"" quoted
 full-ability-grant family.
@@ -35,7 +35,7 @@ full-ability-grant family.
   "`<host>` has '`{cost}`: `<effect>`.'") was fail-closed as of Batch 3
   (needed a real "grant an activated ability" engine primitive that didn't
   exist — ToDo_EdgeCases #35) and stayed that way through two further
-  deferrals (Batch 7, and again in this codebase's own `ToDo_Backend.md`)
+  deferrals (Batch 7, and again in this codebase's own `BACKLOG.md`)
   before finally shipping here: `GameObject._granted_activated_abilities`/
   `granted_activated_abilities` (mirrors `_granted_triggered_abilities`
   exactly), a `grant_activated_ability` `EffectSpec`/`StaticAbility`, and a

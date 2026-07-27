@@ -119,6 +119,15 @@ class EventType:
     #: token exists.
     CREATE_TOKENS = "CREATE_TOKENS"
     SAGA_CHAPTER = "SAGA_CHAPTER"
+    #: A battle lost its last defense counter (RULE 310.11b) — carries
+    #: ``instance_id`` and ``controller_id``. This is what a Siege's own
+    #: intrinsic "when the last defense counter is removed from this
+    #: permanent" ability watches, and what "whenever a battle you protect
+    #: is defeated"-style cards would hang off. Noticed by the SBA pass
+    #: (`RulesEngine.check_state_based_actions`) rather than at any one
+    #: counter-removal site, so damage and a bare "remove a defense counter"
+    #: effect reach it alike.
+    BATTLE_DEFEATED = "BATTLE_DEFEATED"
     #: A Class (RULE 716) reached a new class level — carries ``instance_id``
     #: and ``chapter`` (the new level), the same convention as SAGA_CHAPTER,
     #: so a rare "when this Class becomes level N" trigger can scope by both.

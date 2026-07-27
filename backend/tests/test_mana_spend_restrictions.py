@@ -5,7 +5,7 @@ cast a creature spell.") — the tagged/restricted `ManaPool` lots
 call sites (game/rules_engine.py's `cast_spell`, game/game_engine.py's
 `can_cast`/`_can_pay_activation_cost`/`_pay_activation_cost`) honoring them.
 
-Reference: backend/ToDo_Backend.md, docs/implementation-state/Done_Backend.md.
+Reference: docs/implementation-state/BACKLOG.md, docs/implementation-state/Done_Backend.md.
 """
 
 import pytest
@@ -345,7 +345,7 @@ def test_castle_garenbrig_mana_pays_a_creatures_activated_ability():
         is_land=True,
         # "Add six {G}" in the real printed text — spelled out numerals in a
         # production clause aren't parsed yet (a separate, pre-existing
-        # gap, see backend/ToDo_Backend.md); explicit pips sidestep it so
+        # gap, see docs/implementation-state/BACKLOG.md); explicit pips sidestep it so
         # this test stays focused on the restriction plumbing.
         oracle_text="{T}: Add {G}.\n{2}{G}{G}, {T}: Add {G}{G}{G}{G}{G}{G}. "
                      "Spend this mana only to cast creature spells or activate abilities of creatures.",
@@ -384,7 +384,7 @@ def test_castle_garenbrig_mana_cannot_pay_a_noncreature_sources_ability():
         is_land=True,
         # "Add six {G}" in the real printed text — spelled out numerals in a
         # production clause aren't parsed yet (a separate, pre-existing
-        # gap, see backend/ToDo_Backend.md); explicit pips sidestep it so
+        # gap, see docs/implementation-state/BACKLOG.md); explicit pips sidestep it so
         # this test stays focused on the restriction plumbing.
         oracle_text="{T}: Add {G}.\n{2}{G}{G}, {T}: Add {G}{G}{G}{G}{G}{G}. "
                      "Spend this mana only to cast creature spells or activate abilities of creatures.",

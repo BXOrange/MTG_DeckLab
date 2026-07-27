@@ -85,5 +85,8 @@ src/
     gameSocket.js                WebSocket client (kept for future multiplayer)
 ```
 
-See `ToDo_Frontend.md` / `Done_Frontend.md` for feature status, and
+See [`../docs/implementation-state/BACKLOG.md`](../docs/implementation-state/BACKLOG.md)
+(open work — the `VIS` tickets are the frontend ones) and
+[`../docs/implementation-state/Done_Frontend.md`](../docs/implementation-state/Done_Frontend.md)
+(what shipped, and why) for feature status, and
 [`../user-docs/`](../user-docs/) for how to actually use each tab.

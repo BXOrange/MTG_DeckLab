@@ -610,7 +610,7 @@ def _oracle_of_mul_daya() -> list[AbilitySpec]:
     — Oracle of Mul Daya. Only the reveal/play-lands-from-top lines are
     modeled here (`top_library_permission`, `game/top_library.py`); the
     "additional land drop" line is a separate, still-unmodeled player-level
-    permission (`backend/ToDo_Backend.md`'s processing-list tail — "you may
+    permission (`docs/implementation-state/BACKLOG.md`'s processing-list tail — "you may
     play an additional land on each of your turns") — deliberately left
     off rather than guessed at, not silently dropped by oversight.
     """
@@ -712,7 +712,7 @@ register("Lurrus of the Dream-Den", _lurrus_of_the_dream_den)
 # dropped — each says so inline — where the engine has no primitive for the
 # real shape yet (X-spells scaling an effect, phasing, per-object dynamic
 # "that creature" references, a genuine two-independent-target activated
-# ability); see `backend/ToDo_Backend.md` for the running list.
+# ability); see `docs/implementation-state/BACKLOG.md` for the running list.
 # ---------------------------------------------------------------------------
 
 
@@ -2284,7 +2284,7 @@ def _winds_of_abandon() -> list[AbilitySpec]:
     (RULE 702.96, already recognized as a keyword so it doesn't block this
     entry) has no behavioral effect yet — casting via Overload still only
     exiles one target rather than rewriting "target" to "each" (see
-    docs/implementation-state/ToDo_Backend.md). ``target_kind="creature"``
+    docs/implementation-state/BACKLOG.md). ``target_kind="creature"``
     drops the "you don't control" restriction — a documented simplification,
     no target kind carries an ownership exclusion yet.
     """
@@ -5648,7 +5648,7 @@ def _tibalts_trickery() -> list[AbilitySpec]:
     number choice (there is no hidden-information channel between players),
     and "they may cast that card" is taken automatically — the free cast is
     the only reason anyone resolves this. Tracked in
-    `backend/ToDo_Backend.md`.
+    `docs/implementation-state/BACKLOG.md`.
     """
     return [
         AbilitySpec(
@@ -6430,7 +6430,7 @@ def _professor_onyx() -> list[AbilitySpec]:
     non-interactively (discard if able, else lose the life) rather than as
     seven interactive `pay_cost_then` prompts per opponent — the outcome is
     identical for any opponent with cards, and an empty-handed one loses the
-    life either way. Tracked in `backend/ToDo_Backend.md`.
+    life either way. Tracked in `docs/implementation-state/BACKLOG.md`.
     """
     return [
         AbilitySpec(
@@ -6592,7 +6592,7 @@ def _delver_of_secrets() -> list[AbilitySpec]:
     revealed this way, transform Delver of Secrets.
 
     — Delver of Secrets. RULE 712's one still-open template
-    (`backend/ToDo_Backend.md` called it out by name): a *conditional*
+    (`docs/implementation-state/BACKLOG.md` called it out by name): a *conditional*
     transform gated on a library-peek rather than RULE 731's day/night
     spells-cast count. `RevealTopThenTransformEffect` (`game/effects.py`)
     is the new general-purpose primitive — it takes a `models.card_query`

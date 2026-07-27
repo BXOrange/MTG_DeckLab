@@ -35,7 +35,7 @@ rather than modeling every printed ability. RULE 605.1a excludes any
 ability that requires a target from being a mana ability at all (Deathrite Shaman's
 graveyard-exile abilities produce mana but target, so they're deliberately
 never offered here — they belong on the stack like any other activated
-ability, not through this fast no-stack path) — see `backend/ToDo_Backend.md`
+ability, not through this fast no-stack path) — see `docs/implementation-state/BACKLOG.md`
 for what's still open.
 
 A "Exile this card from your hand: Add …" mana ability (Elvish/Simian

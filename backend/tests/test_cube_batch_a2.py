@@ -379,7 +379,7 @@ def test_blood_moon_family_modeled():
 def test_blood_moon_overwrites_a_nonbasic_lands_subtype_and_grants_red_mana():
     """RULE 613.5: the dual loses its Island/Swamp subtypes outright (not
     just gains Mountain alongside them) and gains the matching basic land's
-    mana ability. Known, documented scope limit (see ToDo_Backend.md): the
+    mana ability. Known, documented scope limit (see BACKLOG.md): the
     dual's own *printed* mana ability isn't stripped, so it can still also
     tap for its original colours — only the subtype/new-mana-ability half of
     Blood Moon's real-world effect is modeled."""

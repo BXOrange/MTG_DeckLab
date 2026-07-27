@@ -1,5 +1,5 @@
 """Delver of Secrets — the last open item in RULE 712's ToDo entry
-(`backend/ToDo_Backend.md`): a *conditional* transform gated on a library
+(`docs/implementation-state/BACKLOG.md`): a *conditional* transform gated on a library
 peek ("look at the top card of your library. If it's an instant or sorcery
 card, transform ~"), distinct from RULE 731's day/night spells-cast-count
 flip. `RevealTopThenTransformEffect` (`game/effects.py`) is the new

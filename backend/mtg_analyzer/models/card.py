@@ -113,6 +113,7 @@ class Card:
         power: Optional[int] = None,
         toughness: Optional[int] = None,
         loyalty: Optional[int] = None,
+        defense: Optional[int] = None,
         oracle_text: str = "",
         keywords: Optional[list[str]] = None,
         image_uri_small: str = "",
@@ -176,6 +177,12 @@ class Card:
         #: Printed starting loyalty for a planeswalker (RULE 606.5b), or None.
         #: A planeswalker enters with this many loyalty counters.
         self.loyalty = loyalty
+        #: Printed defense for a battle (RULE 310.4a), or None. A battle
+        #: enters with this many defense counters (310.4b) and its *current*
+        #: defense is that counter count (310.4c) — the exact shape
+        #: `loyalty` has for a planeswalker, which is why the two seed
+        #: through the same `RulesEngine._apply_entry_counters` path.
+        self.defense = defense
         self.oracle_text = oracle_text
         self.keywords = list(keywords) if keywords is not None else []
         self.image_uri_small = image_uri_small
@@ -218,6 +225,29 @@ class Card:
     def is_artifact(self) -> bool:
         """Whether the card is an artifact (derived from the type line)."""
         return "artifact" in self.type_line.lower()
+
+    @property
+    def is_battle(self) -> bool:
+        """Whether the card is a battle (RULE 310, a card type).
+
+        Read off the type line like `is_planeswalker`/`is_artifact` above —
+        Scryfall gives no boolean for it either. "Battle" is a card type,
+        never a subtype, so a bare substring test can't false-positive off
+        another card's subtype line the way it could for e.g. "Saga".
+        """
+        return "battle" in self.type_line.lower()
+
+    @property
+    def is_siege(self) -> bool:
+        """Whether the card is a Siege (RULE 310.11, the only battle subtype
+        that currently exists on a real card).
+
+        Sieges are the subtype that gets a protector chosen on entry
+        (310.11a) and that exiles-and-casts-itself-transformed when defeated
+        (310.11b); a battle of any *other* subtype does neither, so the
+        engine branches on this rather than on `is_battle`.
+        """
+        return self.is_battle and "siege" in self.type_line.lower()
 
     @property
     def is_saga(self) -> bool:
@@ -402,6 +432,7 @@ class Card:
             power=self.power,
             toughness=self.toughness,
             loyalty=self.loyalty,
+            defense=self.defense,
             oracle_text=self.oracle_text,
             keywords=list(self.keywords),
             image_uri_small=self.image_uri_small,
@@ -540,6 +571,7 @@ class Card:
             "power": self.power,
             "toughness": self.toughness,
             "loyalty": self.loyalty,
+            "defense": self.defense,
             "oracle_text": self.oracle_text,
             "keywords": list(self.keywords),
             "image_uri_small": self.image_uri_small,
@@ -585,6 +617,7 @@ class Card:
             power=data.get("power"),
             toughness=data.get("toughness"),
             loyalty=data.get("loyalty"),
+            defense=data.get("defense"),
             oracle_text=data.get("oracle_text", ""),
             keywords=data.get("keywords"),
             image_uri_small=data.get("image_uri_small", ""),

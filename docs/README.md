@@ -20,15 +20,15 @@ status (milestones, CR-area coverage table) — start there. It reconciles
 sources that it doesn't duplicate, so check those directly for the
 finest-grained/most current detail:
 
-- Granular **open** items: [`../backend/ToDo_Backend.md`](../backend/ToDo_Backend.md),
-  [`../frontend/ToDo_Frontend.md`](../frontend/ToDo_Frontend.md) — these two
-  stay next to the code they track (not under `docs/`) since they're living
-  backlogs edited alongside nearly every change; moving them would make
-  them easy to forget mid-change. `ToDo_Backend.md` is now the single
-  merged backend backlog — narrow, deliberately-unhandled edge cases of an
-  already-shipped feature and the oracle-parser long-tail/deferred backlog
-  live there too (formerly split across `ToDo_Backend.md` and
-  `ToDo_Backend.md`, both now thin pointers).
+- Granular **open** items: [`implementation-state/BACKLOG.md`](implementation-state/BACKLOG.md)
+  — one categorized ticket list covering backend *and* frontend (ids
+  `ENG`/`PAR`/`MEC`/`TYP`/`PLR`/`VIS`/`DB`/`ANA`). Open scope only: closing
+  a ticket means deleting it here and appending its narrative to the
+  matching `Done_*.md`.
+- **Examples / calibration**: [`implementation-state/PARSER_LONG_TAIL.md`](implementation-state/PARSER_LONG_TAIL.md)
+  — the standing strategy for the indefinite oracle-parser tail, the
+  recurring lessons, and enumerated worked samples. Neither a backlog nor a
+  worklog.
 - **Shipped** work, with the "why": [`implementation-state/Done_Backend.md`](implementation-state/Done_Backend.md),
   [`implementation-state/Done_Frontend.md`](implementation-state/Done_Frontend.md)
   — these *do* live under `docs/`, since they're append-only history rather

@@ -10,7 +10,7 @@ Verified against the real cache cards: Flamebraider/Gwenna, Eyes of
 Gaea/Smokebraider (fixed "two") and Selvala, Heart of the Wilds (variable
 "X", the greatest power among creatures you control).
 
-Reference: backend/ToDo_Backend.md, docs/implementation-state/Done_Backend.md.
+Reference: docs/implementation-state/BACKLOG.md, docs/implementation-state/Done_Backend.md.
 """
 
 import pytest

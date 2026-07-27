@@ -2,7 +2,7 @@
 VERSION 22): Acquired Mutation, Bloatfly Swarm, Contaminated Drink, Harold
 and Bob First Numens, Mariposa Military Base, Nuka-Nuke Launcher, Struggle
 for Project Purity, The Ghoul Gunslinger, The Wise Mothman, Vault 12: The
-Necropolis, and Vexing Radgull — see `backend/ToDo_Backend.md`'s former
+Necropolis, and Vexing Radgull — see `docs/implementation-state/BACKLOG.md`'s former
 "Rad counters (RULE 728)" entry (now closed) and `parser/oracle/gate.py`'s
 PARSER_VERSION 22 comment block for the full list of new primitives.
 
@@ -17,7 +17,7 @@ batch — their new grammar is pure oracle-text parsing. The Ghoul, Gunslinger
 and Contaminated Drink end up fully `MODELED` (every line claimed) and so are
 also exercised end-to-end via `bind_from_catalogue`/`cast_spell`. Acquired
 Mutation stays `UNMODELED` overall (its "goaded" line is a wholly separate,
-still-unimplemented mechanic — tracked under `backend/ToDo_Backend.md`'s
+still-unimplemented mechanic — tracked under `docs/implementation-state/BACKLOG.md`'s
 Multiplayer entry now, not here) — only the rad-counter clause is verified
 here, at the parse level plus a direct `attach_to_object` engine test of the
 extracted spec in isolation (mirroring `test_rad_counters.py`'s own

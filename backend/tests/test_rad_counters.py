@@ -1,5 +1,5 @@
 """RULE 728 — Rad Counters (deprioritized in `10_COMPLETION_ROADMAP.md` M6
-until a deck needed them; see `backend/ToDo_Backend.md`).
+until a deck needed them; see `docs/implementation-state/BACKLOG.md`).
 
 Rad counters are a kind of player counter (RULE 122) with an inherent,
 source-less triggered ability controlled by the active player (RULE 113.8
@@ -152,7 +152,7 @@ def test_full_turn_loop_fires_rad_trigger_on_own_precombat_main():
 # "rad counter" oracle text (`backend/cache/db/cards.db`); most of these
 # clauses now parse correctly even where the card as a whole stays
 # UNMODELED because of an unrelated gap (a mill-triggered draw, a compound
-# "enters or attacks" trigger, etc.) — see `backend/ToDo_Backend.md`.
+# "enters or attacks" trigger, etc.) — see `docs/implementation-state/BACKLOG.md`.
 # ---------------------------------------------------------------------------
 
 

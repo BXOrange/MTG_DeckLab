@@ -1,4 +1,4 @@
-"""Batch 6 (docs/implementation-state/ToDo_Backend.md):
+"""Batch 6 (docs/implementation-state/BACKLOG.md):
 "cost-keyword mechanics" — landcycling/basic landcycling, megamorph,
 escape, multikicker, kicker-counter variants.
 

@@ -1,7 +1,7 @@
 """Tests for the "whenever a player/an opponent mills a nonland card"/
 "whenever one or more nonland cards are milled" trigger family — the
 "Library-top / impulsive-draw permissions"-adjacent gap `backend/
-ToDo_Backend.md`'s former "Rad counters (RULE 728)" entry left open (now
+BACKLOG.md`'s former "Rad counters (RULE 728)" entry left open (now
 closed): the two named sub-gaps were "goaded" (moved to the Multiplayer
 ToDo entry, unrelated to this file) and this mill-trigger family.
 

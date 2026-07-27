@@ -924,7 +924,7 @@ class TakeInitiativeEffect(GameEffect):
     still becomes fully MODELED (the designation swap and its own combat-
     damage-steal trigger, `RulesEngine._collect_inherent_triggers`, are real
     RULE 726 behaviour on their own), while venturing stays a documented gap
-    (`ToDo_Backend.md`).
+    (`BACKLOG.md`).
     """
 
     def __init__(
@@ -1439,15 +1439,44 @@ class DiscardEffect(GameEffect):
     """Make a player discard ``count`` cards — an interactive choice (RULE
     701.8: the discarding player, not this effect's controller, picks which
     cards), the looting-shaped template ("draw a card, then discard a
-    card") shares with a directly-targeted forced discard (Mind Rot)."""
+    card") shares with a directly-targeted forced discard (Mind Rot).
 
-    def __init__(self, count: int = 1, player: Any = None, source: Optional["GameObject"] = None) -> None:
+    ``target_kind="player"`` ("target player/opponent discards N cards")
+    opts into a real RULE 115 target, exactly as `GainLifeEffect`'s own
+    ``target_kind`` does — and for the same reason: without a declared
+    `target_spec` this effect must *not* read ``targets[0]``, since any
+    targets present would belong to a different effect on the same
+    ability. ``scope`` ("each_player"/"each_opponent") is the untargeted
+    mass form (RULE 601.2c), which hits everyone rather than one pick.
+    """
+
+    def __init__(
+        self,
+        count: int = 1,
+        player: Any = None,
+        source: Optional["GameObject"] = None,
+        target_kind: Optional[str] = None,
+        scope: Optional[str] = None,
+    ) -> None:
         super().__init__(source)
         self.count = count
         self.player = player
+        self.target_spec = TargetSpec(kind=target_kind) if target_kind is not None else None
+        self.scope = scope
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
-        player = self.player or (targets[0] if targets else None) or _controller_of(self.source, context)
+        if self.scope:
+            controller = _controller_of(self.source, context)
+            for other in context.state.living_players():
+                if self.scope == "each_opponent" and other is controller:
+                    continue
+                context.discard_choice(other, self.count)
+            return
+        player = self.player
+        if player is None and self.target_spec is not None and targets:
+            player = targets[0]
+        if player is None:
+            player = _controller_of(self.source, context)
         context.discard_choice(player, self.count)
 
 
@@ -4378,6 +4407,27 @@ class ExileReturnTransformedEffect(GameEffect):
             context.exile_return_transformed(self.source)
 
 
+class SiegeDefeatedEffect(GameEffect):
+    """A Siege's intrinsic defeat ability (RULE 310.11b): "exile it, then you
+    may cast it transformed without paying its mana cost."
+
+    Untargeted and always self, like `ExileReturnTransformedEffect` above —
+    but the destination differs in the way that matters: the Siege goes to
+    **exile and stays there**, and its back face becomes castable from
+    exile for free. It does *not* come back to the battlefield on its own.
+
+    Never bound from oracle text or the catalogue: RULE 310.11b is
+    intrinsic to the Siege subtype, so `RulesEngine.check_state_based_
+    actions` builds this per firing when a Siege's defense hits 0. That's
+    also why it takes its source at construction rather than relying on a
+    bind-time one.
+    """
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        if self.source is not None:
+            context.engine.exile_siege_for_transformed_cast(self.source)
+
+
 class ReturnFromGraveyardTransformedEffect(GameEffect):
     """"Return this card from your graveyard to the battlefield transformed
     under its owner's control." (Bruce Banner-shaped) — the graveyard-
@@ -4456,7 +4506,7 @@ class PhaseOutEffect(GameEffect):
     Any Aura/Equipment attached to the phasing-out permanent becomes
     unattached rather than phasing out together with it (RULE 702.26e-
     family simplification — no card needing a multi-permanent phase chain
-    yet, see docs/implementation-state/ToDo_Backend.md).
+    yet, see docs/implementation-state/BACKLOG.md).
     """
 
     def __init__(
@@ -6827,7 +6877,11 @@ EffectRegistry.register(
     ),
 )
 EffectRegistry.register(
-    "discard", lambda p: DiscardEffect(count=p.get("count", 1), player=p.get("player"))
+    "discard",
+    lambda p: DiscardEffect(
+        count=p.get("count", 1), player=p.get("player"),
+        target_kind=p.get("target_kind"), scope=p.get("scope"),
+    ),
 )
 EffectRegistry.register(
     "put_hand_cards_on_top",  # "put N cards from your hand on top of your library" (Brainstorm)

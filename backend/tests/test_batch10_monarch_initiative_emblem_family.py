@@ -1,4 +1,4 @@
-"""Batch 10 (docs/implementation-state/ToDo_Backend.md):
+"""Batch 10 (docs/implementation-state/BACKLOG.md):
 Monarch / Initiative / Emblem — three greenfield subsystems (deprioritized
 per `10_COMPLETION_ROADMAP.md` M6 until a batch needed them).
 

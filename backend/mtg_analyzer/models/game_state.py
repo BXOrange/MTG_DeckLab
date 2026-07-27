@@ -53,7 +53,7 @@ class StackItem:
     2+ *different* targeting effects on one spell/ability each resolve
     against their own targets instead of all reading off the front of one
     shared ``targets`` list (RULE 115.1/601.2c — see
-    `docs/implementation-state/ToDo_Backend.md`). ``None`` (the common
+    `docs/implementation-state/BACKLOG.md`). ``None`` (the common
     case: at most one targeting effect) keeps the legacy behaviour of every
     effect reading ``targets`` directly.
     """
@@ -665,7 +665,17 @@ class GameState:
             if obj.controller_id == player_id and not obj.phased_out
         ]
 
-    def add_to_battlefield(self, obj: GameObject) -> None:
+    def add_to_battlefield(self, obj: GameObject, *, saga_lore_override: Optional[int] = None) -> None:
+        """``saga_lore_override``, when given, is RULE 702.155b/714.3b's Read
+        Ahead entry count instead of the ordinary single lore counter —
+        `RulesEngine._offer_read_ahead`/`_resolve_permanent_spell`'s own
+        continuation is the only caller that ever passes it, having already
+        interactively asked the controller. RULE 702.155a: only the chapter
+        ability whose number *exactly* matches the entry count fires (a
+        single `SAGA_CHAPTER` event carrying that count) — any lower chapter
+        is skipped for good, not merely delayed, so this must never fire the
+        default chapter-1 event and then "catch up" separately.
+        """
         obj.zone = Zone.BATTLEFIELD
         # RULE 613.7b: stamp a timestamp on entry so the layer engine can order
         # multiple effects within the same layer (newest applies last).
@@ -677,10 +687,18 @@ class GameState:
         # RULE 606.5b: a planeswalker enters with its printed starting loyalty.
         if obj.is_planeswalker and obj.card.loyalty and "loyalty" not in obj.counters:
             obj.counters["loyalty"] = obj.card.loyalty
-        # RULE 714.2b: a Saga enters with a lore counter (its first chapter).
+        # RULE 310.4b: a battle enters with defense counters equal to its
+        # printed defense — the same shape as loyalty above, and seeded at
+        # the same choke point so *every* way a battle reaches the
+        # battlefield (cast, reanimated, or placed by the Replay editor)
+        # gets them, not just the cast path.
+        if obj.is_battle and obj.card.defense and "defense" not in obj.counters:
+            obj.counters["defense"] = obj.card.defense
+        # RULE 714.2b/714.3b: a Saga enters with a lore counter (its first
+        # chapter) — or, with Read Ahead, the controller's chosen count.
         is_entering_saga = obj.card.is_saga and not obj.is_token and "lore" not in obj.counters
         if is_entering_saga:
-            obj.counters["lore"] = 1
+            obj.counters["lore"] = saga_lore_override if saga_lore_override is not None else 1
         # RULE 716.2b: a Class enters the battlefield at class level 1.
         is_entering_class = (
             obj.card.is_class and not obj.is_token and "class_level" not in obj.counters
@@ -700,7 +718,7 @@ class GameState:
                     object=obj.name,
                     instance_id=obj.instance_id,
                     controller_id=obj.controller_id,
-                    chapter=1,
+                    chapter=obj.counters["lore"],
                 )
             )
         if is_entering_class:

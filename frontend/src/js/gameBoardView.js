@@ -68,7 +68,7 @@ const CHOICE_ICONS = {
   land_tapped: '💧', order_triggers: '🔀', trigger_target: '🎯',
   enter_as_copy: '🪞', counter_unless_pays: '🚫', ward: '🛡️',
   commander_zone: '👑', trigger_mode: '🎭', add_mana_any_color: '💎',
-  choose_creature_type: '🐾', choose_color: '🎨',
+  choose_creature_type: '🐾', choose_color: '🎨', read_ahead: '📜',
 };
 
 /**
@@ -1584,8 +1584,27 @@ export function createGameBoardView(opts = {}) {
     const loyaltyBadge = o.is_planeswalker && o.loyalty != null
       ? `<span class="gf-loyalty-badge">◆ ${o.loyalty}</span>`
       : '';
+    // RULE 714: a Saga's chapter progress, mirroring the loyalty badge above
+    // (and, like it, pulled out of the generic counter badge below so "lore"
+    // doesn't show twice). `saga_final_chapter` is only set once the oracle
+    // parser recognized at least one chapter line; without it, just the raw
+    // lore count is shown (no "/N" to compare against).
+    const lore = (o.counters || {}).lore;
+    const sagaBadge = o.is_saga && lore != null
+      ? `<span class="gf-loyalty-badge gf-saga-badge" title="Sagen-Kapitel (Regel 714)">📜 ${lore}${o.saga_final_chapter ? `/${o.saga_final_chapter}` : ''}</span>`
+      : '';
+    // RULE 310.4c: a battle's current defense is its defense-counter count,
+    // badged like loyalty/lore above (and likewise pulled out of the generic
+    // counter badge so "defense" doesn't show twice). RULE 310.8: the
+    // protector is the player who defends it — shown by name, resolved
+    // against the view's own player list, since a raw id means nothing here.
+    const protectorName = o.protector_id ? playerName(o.protector_id) : null;
+    const battleBadge = o.is_battle && o.defense != null
+      ? `<span class="gf-loyalty-badge gf-battle-badge" title="Verteidigung (Regel 310.4c)${protectorName ? ` — beschützt von ${escapeAttr(protectorName)}` : ''}">🛡 ${o.defense}${protectorName ? ` · ${escapeHtml(protectorName)}` : ''}</span>`
+      : '';
     const counterEntries = Object.entries(o.counters || {})
-      .filter(([k]) => !(o.is_planeswalker && k === 'loyalty'));
+      .filter(([k]) => !(o.is_planeswalker && k === 'loyalty') && !(o.is_saga && k === 'lore')
+        && !(o.is_battle && k === 'defense'));
     const counterBadge = counterEntries.length
       ? `<span class="gf-counter-badge">${counterEntries.map(([k, v]) => `${escapeHtml(k)}×${v}`).join(' · ')}</span>`
       : '';
@@ -1617,7 +1636,7 @@ export function createGameBoardView(opts = {}) {
       : '';
     return `
       <div class="gf-card-slot">
-        <div class="${classes.join(' ')}" data-hover-card="${escapeHtml(o.name)}" title="${escapeHtml(o.name)}${pt}${o.tapped ? ' — getappt' : ''}">${inner}${flipButton}${attackBadge}${loyaltyBadge}${counterBadge}${keywordBadge}${adventureBadge}${preparedBadge}${preparedCopyBadge}${effectsSummary}</div>
+        <div class="${classes.join(' ')}" data-hover-card="${escapeHtml(o.name)}" title="${escapeHtml(o.name)}${pt}${o.tapped ? ' — getappt' : ''}">${inner}${flipButton}${attackBadge}${loyaltyBadge}${sagaBadge}${battleBadge}${counterBadge}${keywordBadge}${adventureBadge}${preparedBadge}${preparedCopyBadge}${effectsSummary}</div>
         ${buttons}
       </div>`;
   }
@@ -2067,9 +2086,15 @@ export function createGameBoardView(opts = {}) {
     return `<button type="button" class="gf-card-action" data-attack-toggle="${iid}">⚔️ Angreifen ${open ? '▴' : '▾'}</button>${menu}`;
   }
 
+  // A defender spec from `legal_defenders_for` → the payload `declare_
+  // attackers` validates against. The two permanent kinds (planeswalker,
+  // RULE 508.1a; battle, RULE 310.5) are keyed by instance_id, a player by
+  // id — so branch on *which key the spec carries* rather than listing the
+  // permanent kinds, which is what silently mis-sent a battle as a player
+  // when the "battle" kind was added server-side.
   function defenderPayload(d) {
-    return d.kind === 'planeswalker'
-      ? { kind: 'planeswalker', instance_id: d.instance_id }
+    return d.instance_id != null
+      ? { kind: d.kind, instance_id: d.instance_id }
       : { kind: 'player', id: d.id };
   }
 

@@ -17,7 +17,7 @@ ability) and aren't covered here.
 RULE 616.1's full "if X would Y, Z instead" grammar has many more real
 formulations (further target/duration variants) than the ones covered so
 far — deliberately not attempted exhaustively here; see
-`backend/ToDo_Backend.md` "Rules Engine" for the remaining open scope.
+`docs/implementation-state/BACKLOG.md` (PAR tickets) for the remaining open scope.
 
 Pure regex + data — **no `game/` imports** (front-end security boundary).
 """

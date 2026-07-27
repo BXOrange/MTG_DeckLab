@@ -88,7 +88,7 @@ _TRIGGER_RE = re.compile(r"^(?:when|whenever|at)\b(?P<cond>[^,]*),\s*(?P<body>.+
 #: "cast" half (`EventType.SPELL_CAST`). The engine has no general
 #: spell-copy event bus at all yet (a real, separate, cross-cutting gap —
 #: nothing in the engine can currently produce a spell copy in the first
-#: place — tracked in ToDo_Backend.md), so the missing "copy" branch is
+#: place — tracked in BACKLOG.md), so the missing "copy" branch is
 #: unreachable by any game state the engine can currently produce, not a
 #: silently wrong one. ``spell_subtype_any`` (an existing `effect_binder`
 #: trigger predicate, built for "cast an Aura/Equipment/Vehicle spell"
@@ -191,9 +191,16 @@ _PHASE_TRIGGER_RE = re.compile(
 #: its own source, never any other permanent entering (the over-firing bug
 #: this grammar exists to close). The verb itself is still resolved by
 #: `_trigger_event` above; this only decides *whose* enters/dies/attacks/
-#: blocks the ability cares about.
+#: blocks the ability cares about. "class" is included directly (rather than
+#: relying on `normalize._fold_self_reference`, which deliberately leaves
+#: "this Class"/"this Saga" un-folded to ``~`` — its own docstring notes they
+#: have "their own dedicated parsing") since a Class commonly opens with
+#: "When this Class enters, <effect>." (RULE 716) and has no other automatic
+#: ETB effect the way a Saga's chapter I gives it — "saga" is deliberately
+#: left out: real Saga cards never print this phrasing outside stripped
+#: reminder text (chapter I already covers it).
 _SELF_SUBJECT_RE = re.compile(
-    r"^(?:~|this (?:creature|artifact|enchantment|land|permanent|equipment))\s+"
+    r"^(?:~|this (?:creature|artifact|enchantment|land|permanent|equipment|class))\s+"
     r"(?:enters|dies|attacks|blocks)(?:\s+the\s+battlefield)?(?:\s+alone)?$"
 )
 
