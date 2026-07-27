@@ -5271,6 +5271,50 @@ the Phase-1 models. Tests: `test_game_engine.py`.
       - Tests: `backend/tests/test_mill_trigger_family.py` (13 — the generic
         `MILL_CARD` primitive plus all three cards, including the
         opponent-only/own-mill-doesn't-trigger and decline paths).
+- [x] Double-faced & modal-DFC cards (RULE 712) — the ToDo entry's last two
+      open items (2026-07-27):
+      - **Delver of Secrets-shaped conditional transform**: "look at the
+        top card of your library. If it's a[n] `<type>` card, transform
+        ~." New `RevealTopThenTransformEffect` (`game/effects.py`,
+        registered as `"reveal_top_then_transform"`), parameterized on a
+        `models.card_query` criteria dict rather than hardcoded to
+        instant/sorcery, so it's the general primitive for any future card
+        sharing this exact template, not a one-off. Delver of Secrets
+        itself is hand-authored in `game/ability_catalogue.py` (a plain
+        `EventType.STEP_BEGIN`/`"upkeep"` trigger, no `phase_relation` —
+        fires on *every* player's upkeep, mirroring Tangle Wire's own
+        "each player's upkeep" shape — but the effect reads its own
+        *controller's* library via `_controller_of(self.source, ...)`
+        regardless of whose upkeep fired it). The card is only looked at,
+        never moved. Tests: `backend/tests/test_delver_of_secrets.py`.
+      - **MDFC commanders cast from the command zone**: `GameEngine.
+        legal_actions`'s command-zone loop only ever offered a commander's
+        *front* face — the hand loop three lines above it had a whole
+        second `if obj.card.back_face() is not None: ...` branch the
+        command-zone loop never got. `can_cast`/`_cast_action`/
+        `commander_tax` already threaded `face="back"` through generically
+        (zone-agnostic — `commander_tax` only checks `obj in player.
+        command`, not which face), so the fix is purely additive: one more
+        branch in the command-zone loop calling those same functions with
+        `face="back"`. Deliberately **not** mirroring the hand loop's
+        `can_play_land(face="back")` branch too: RULE 903.6 only lets a
+        commander be *cast* from the command zone, and playing a land
+        isn't casting a spell — a land back face stays unreachable from
+        there (same as a real paper Commander ruling), reachable only once
+        the card is actually in hand. Tests: `test_card_structures.py`
+        (`test_mdfc_commander_offers_a_castable_back_face_from_the_
+        command_zone`, `test_mdfc_commanders_land_back_face_is_not_
+        offered_from_the_command_zone`, `test_casting_an_mdfc_commanders_
+        back_face_still_pays_commander_tax`).
+      - `GameObject.to_dict()` also gained a `has_back_face` key (read off
+        `_front_card`, stable across an actual transform) so the frontend
+        can offer a "peek other face" toggle without guessing from a
+        name-keyed cache — see `frontend/ToDo_Frontend.md`/
+        `Done_Frontend.md` for the board-side half of this.
+      - Still deliberately unmodeled: the legacy pre-2021 non-daybound
+        werewolf template ("if no spells were cast last turn, transform
+        ~") — superseded by RULE 731 day/night, a permanent non-goal, not
+        a gap.
 
 ## Multiplayer (UC4)
 

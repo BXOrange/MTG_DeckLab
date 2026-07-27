@@ -3810,6 +3810,20 @@ class GameEngine:
                     actions.extend(self._modal_cast_actions(player, obj))
                 else:
                     actions.append(self._cast_action(player, obj))
+            # A modal-DFC commander (RULE 712.10) gets its *castable* back
+            # face offered from the command zone too — previously only the
+            # hand-cast loop above did this, so such a commander could only
+            # ever be cast as its front face. `can_cast`/`_cast_action`
+            # already thread `face="back"` through generically (they're the
+            # same calls the hand loop makes); `commander_tax` itself
+            # doesn't care which face is being cast, only that `obj` is in
+            # `player.command`. Unlike the hand loop, there's no
+            # `can_play_land(face="back")` branch here: RULE 903.6 only
+            # lets a commander be *cast* from the command zone — playing a
+            # land isn't casting a spell, so a land back face is reachable
+            # this way only once the card is actually in hand.
+            if obj.card.back_face() is not None and self.can_cast(player, obj, face="back"):
+                actions.append(self._cast_action(player, obj, face="back"))
 
         for obj in list(player.exile):
             # RULE 715.3d / 722.3c: an Adventure creature exiled by its own

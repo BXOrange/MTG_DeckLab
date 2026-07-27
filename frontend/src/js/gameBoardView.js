@@ -146,6 +146,13 @@ export function createGameBoardView(opts = {}) {
   // Attacking creatures whose "choose a defender" submenu is open (2+ legal
   // defenders, RULE 508.1a).
   const attackMenuOpen = new Set();
+  // Double-faced permanents a player has clicked "🔄" on to *preview* the
+  // other face — purely a client-side view toggle (RULE 712 has no such
+  // concept; the object's real `transformed` state is untouched), so a
+  // player can check a flip-card's back before it actually transforms, or
+  // just look at the back of an already-transformed one. Keyed by
+  // instance_id, same shape as `attackMenuOpen`.
+  const flippedForView = new Set();
   // --- Auto-pass (RULE 117, shared games) ---------------------------------
   // When this client holds priority, a countdown runs and passes for them
   // when it reaches zero, so a game where nobody wants to respond doesn't
@@ -1128,6 +1135,18 @@ export function createGameBoardView(opts = {}) {
       });
     });
 
+    // "🔄 peek other face" — a DFC's client-only preview toggle, not a real
+    // transform (see `flippedForView`/`showsBackFace`).
+    root.querySelectorAll('[data-flip-toggle]').forEach((el) => {
+      el.addEventListener('click', (event) => {
+        event.stopPropagation(); // don't also trigger the card's own hover/click behaviour
+        const iid = Number(el.dataset.flipToggle);
+        if (flippedForView.has(iid)) flippedForView.delete(iid);
+        else flippedForView.add(iid);
+        render();
+      });
+    });
+
     // {X} spells read the announced value from the adjacent number input at
     // click time rather than baking it into a static data-action attribute.
     root.querySelectorAll('[data-cast-x]').forEach((el) => {
@@ -1499,19 +1518,32 @@ export function createGameBoardView(opts = {}) {
       .join('')}</ul>`;
   }
 
+  // Whether this permanent's tile should currently show its *back* face —
+  // its real transformed state (RULE 712.8), inverted by a client-only
+  // "🔄 peek" toggle (`flippedForView`) that doesn't touch game state.
+  function showsBackFace(o) {
+    return flippedForView.has(o.instance_id) ? !o.transformed : !!o.transformed;
+  }
+
   // Art URL for a game object: prefer the by-name `imageCache` (populated
-  // from a deck import — see state.js), but fall back to building the URL
-  // straight from the object's own `card_id` (always present on non-tokens,
-  // see GameObject.to_dict) so objects added directly in Replay/Puzzle mode
-  // (never resolved into imageCache) still show art in Spielmodus.
+  // from a deck import — see state.js, indexed under both the front *and*
+  // back face names so a transformed permanent's now-current name still
+  // hits it), but fall back to building the URL straight from the object's
+  // own `card_id` (always present on non-tokens, see GameObject.to_dict) so
+  // objects added directly in Replay/Puzzle mode (never resolved into
+  // imageCache) still show art in Spielmodus.
   function resolveImageUrl(o, imageCache) {
     // RULE 701.20a: a card exiled face down (Beseech the Mirror) shows its
     // back, not its art — the one place the sleeve fallback below has a
     // real, reachable use today. Checked before the name cache so a card
     // whose art is already loaded doesn't leak through it.
     if (o.face_down_in_exile) return assetsSleeveImageUrl || null;
+    const showBack = showsBackFace(o);
     const cached = imageCache?.get((o.name || '').toLowerCase());
-    if (cached?.small) return cached.small;
+    if (cached) {
+      if (showBack && cached.backSmall) return cached.backSmall;
+      if (!showBack && cached.small) return cached.small;
+    }
     const isToken = o.is_token || (o.card_id || '').startsWith('token:');
     if (isToken) {
       const custom = tokenImages[(o.name || '').toLowerCase()];
@@ -1519,7 +1551,7 @@ export function createGameBoardView(opts = {}) {
       // A face-down/transformed token (e.g. a token copy of a flipped DFC,
       // RULE 707) has no real art for its back — fall back to the
       // player's chosen sleeve backside instead of a blank tile.
-      if (o.transformed && assetsSleeveImageUrl) return assetsSleeveImageUrl;
+      if (showBack && assetsSleeveImageUrl) return assetsSleeveImageUrl;
       // No specific art for this token by name (typically an ad hoc token
       // an effect synthesized inline, e.g. "1/1 white Soldier", which has
       // no catalogue entry to upload art against by exact name) — the
@@ -1527,7 +1559,7 @@ export function createGameBoardView(opts = {}) {
       return tokenImages[GENERIC_TOKEN_KEY] || null;
     }
     if (!o.card_id) return null;
-    return cardImageUrl(o.card_id, 'small', o.transformed ? 'back' : 'front');
+    return cardImageUrl(o.card_id, 'small', showBack ? 'back' : 'front');
   }
 
   function objCard(o, imageCache, cardActions) {
@@ -1576,9 +1608,16 @@ export function createGameBoardView(opts = {}) {
       ? `<span class="gf-prepared-badge" title="Vorbereitete Kopie: aus dem Exil zauberbar, solange die Quelle vorbereitet bleibt">🛡️ Kopie</span>`
       : '';
     const effectsSummary = effectSummaryHtml(o);
+    // A double-faced permanent (transform/modal DFC) gets a "🔄 peek other
+    // face" button — purely a client-side preview (`flippedForView`), not
+    // an actual transform (RULE 712.8 stays a real game action, offered
+    // instead among `buttons` when the card's own ability allows it).
+    const flipButton = o.has_back_face
+      ? `<button type="button" class="gf-card-flip" data-flip-toggle="${o.instance_id}" title="Andere Seite ansehen" aria-label="Andere Seite ansehen">🔄</button>`
+      : '';
     return `
       <div class="gf-card-slot">
-        <div class="${classes.join(' ')}" data-hover-card="${escapeHtml(o.name)}" title="${escapeHtml(o.name)}${pt}${o.tapped ? ' — getappt' : ''}">${inner}${attackBadge}${loyaltyBadge}${counterBadge}${keywordBadge}${adventureBadge}${preparedBadge}${preparedCopyBadge}${effectsSummary}</div>
+        <div class="${classes.join(' ')}" data-hover-card="${escapeHtml(o.name)}" title="${escapeHtml(o.name)}${pt}${o.tapped ? ' — getappt' : ''}">${inner}${flipButton}${attackBadge}${loyaltyBadge}${counterBadge}${keywordBadge}${adventureBadge}${preparedBadge}${preparedCopyBadge}${effectsSummary}</div>
         ${buttons}
       </div>`;
   }

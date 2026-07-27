@@ -362,7 +362,16 @@ NEVER_SUPPORTED = "NEVER_SUPPORTED"
 #: bucket *after* the layer-7 P/T pass instead of before it: a qualifier has
 #: to see an anthem that already fired this same recompute, not last pass's
 #: stale derived power.
-PARSER_VERSION = "31"
+#:
+#: v32: "Each land is a <BasicType> in addition to its other land types."
+#: (Urborg, Tomb of Yawgmoth/Yavimaya, Cradle of Growth — `static_handlers.
+#: _LAND_IS_BASIC_TYPE_RE`, a new `type_change`/``add_subtypes`` clause) plus
+#: a reshape of the existing "Nonbasic lands are <BasicType>." handler
+#: (Blood Moon/Magus of the Moon) to drop its hand-paired
+#: ``grant_mana_ability`` spec in favour of `game/mana_abilities.py`'s
+#: generic RULE 305.6 derivation — same ``modeled`` verdict for Blood Moon,
+#: but a different `EffectSpec` shape, so cached rows need re-parsing.
+PARSER_VERSION = "32"
 
 
 @dataclass

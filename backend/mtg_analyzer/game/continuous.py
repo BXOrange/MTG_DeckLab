@@ -104,7 +104,15 @@ def _has_subtype(obj: "GameObject", subtype: str) -> bool:
     A layer-4 "type overwrite" static (RULE 613.5 — `_derived_subtypes`,
     e.g. Blood Moon's "Nonbasic lands are Mountains") takes priority when
     set: the object's *printed* subtypes (and Changeling) no longer apply at
-    all once its subtype set has been wholesale replaced.
+    all once its subtype set has been wholesale replaced. This isn't a fixed
+    precedence between the two attributes, though — RULE 613.7's timestamp
+    order decides which one an "add" grant (Urborg/Yavimaya's "in addition
+    to its other land types") actually lands in: the layer-4 loop below
+    folds an add that runs *after* an overwrite directly into
+    `_derived_subtypes` (so it stacks on top — a land can end up "Mountain
+    Swamp"), while one that ran *before* the overwrite stays in
+    `_added_subtypes` and is correctly wiped out the moment the overwrite
+    replaces the set outright.
     """
     override = getattr(obj, "_derived_subtypes", None)
     if override is not None:
@@ -980,7 +988,20 @@ def recompute(state: "GameState") -> None:
             for type_name in added:
                 obj._added_types.add(type_name)
             for subtype_name in add_subtypes:
-                obj._added_subtypes.add(subtype_name)
+                # RULE 613.7: `abilities` is already timestamp-sorted, so an
+                # add that runs *after* an overwrite already stamped on this
+                # object (Urborg/Yavimaya entering after Blood Moon) has to
+                # stack directly onto `_derived_subtypes` — the override
+                # `_has_subtype` reads — rather than the now-ignored
+                # `_added_subtypes`, or it would silently vanish even though
+                # its own timestamp is the newer one. An add that runs
+                # *before* any overwrite still goes to `_added_subtypes` and
+                # is correctly discarded the moment `set_subtypes` below
+                # replaces the set outright.
+                if obj._derived_subtypes is not None:
+                    obj._derived_subtypes.add(subtype_name)
+                else:
+                    obj._added_subtypes.add(subtype_name)
             if set_subtypes is not None:
                 # RULE 613.5 full overwrite ("Nonbasic lands are Mountains.")
                 # — replaces the subtype set outright, unlike `add_types`/
@@ -991,10 +1012,10 @@ def recompute(state: "GameState") -> None:
                 # also strips its rules text and abilities — a Blood-Moon'd
                 # Underground Sea makes only {R}, and a Blood-Moon'd
                 # Wasteland can't be activated at all. The intrinsic mana
-                # ability of the new type comes back as a layer-6 grant from
-                # the very same static (`grant_mana_ability`), which
-                # `mana_abilities_for` keeps precisely because it reads the
-                # *granted* list separately from the printed one.
+                # ability of the new (and any later-stacked) basic type comes
+                # back from `mana_abilities_for`'s generic RULE 305.6
+                # derivation, which reads this same `_derived_subtypes` set
+                # once every layer-4 effect above has resolved.
                 if obj.is_land and any(
                     str(t).lower() in _BASIC_LAND_TYPES for t in set_subtypes
                 ):

@@ -92,6 +92,23 @@ def test_transform_swaps_faces_and_is_reversible():
     assert obj.name == "Delver of Secrets"
 
 
+def test_has_back_face_stays_true_in_the_wire_view_across_a_transform():
+    # The frontend's "🔄 peek other face" toggle (gameBoardView.js) needs
+    # this to decide whether to offer the button at all — it must stay
+    # true once transformed too, not just on the untransformed front.
+    eng = make_engine()
+    obj = _put(eng, _werewolf())
+    assert obj.to_dict()["has_back_face"] is True
+    obj.transform()
+    assert obj.to_dict()["has_back_face"] is True
+
+
+def test_has_back_face_is_false_for_an_ordinary_creature():
+    eng = make_engine()
+    obj = _put(eng, creature("Bear"))
+    assert obj.to_dict()["has_back_face"] is False
+
+
 def test_transform_is_noop_without_a_back_face():
     eng = make_engine()
     obj = _put(eng, creature("Vanilla"))
@@ -808,3 +825,61 @@ def test_day_night_is_visible_in_the_wire_view():
     eng = make_engine()
     eng.state.day_night = "night"
     assert eng.state.to_dict()["day_night"] == "night"
+
+
+# -- MDFC commander cast from the command zone (RULE 712.10 + 903.6) --------
+
+
+def _in_command(eng, card, controller="p1"):
+    obj = GameObject(card, owner_id=controller, is_commander=True)
+    eng.state.player_by_id(controller).add_to_zone(obj, Zone.COMMAND)
+    return obj
+
+
+def test_mdfc_commander_offers_a_castable_back_face_from_the_command_zone():
+    eng = make_engine()
+    p1 = _ready_main_phase(eng)
+    obj = _in_command(eng, _mdfc_damage_back())
+    p1.mana_pool.add_many({"C": 1, "R": 1})  # affords either face ({1}{R} or {R})
+    actions = eng.legal_actions(p1)
+    front = [a for a in actions if a.get("instance_id") == obj.instance_id and not a.get("face")]
+    back = [a for a in actions if a.get("instance_id") == obj.instance_id and a.get("face") == "back"]
+    assert front and front[0]["type"] == "cast_spell" and front[0]["name"] == "Fiery Discharge"
+    assert back and back[0]["type"] == "cast_spell" and back[0]["name"] == "Molten Rebuke"
+
+
+def test_mdfc_commanders_land_back_face_is_not_offered_from_the_command_zone():
+    """RULE 903.6 only lets a commander be *cast* from the command zone —
+    a land back face isn't a spell, so it stays unreachable there even
+    though the same land is offered as `play_land` once it's in hand
+    (`test_playing_the_back_face_as_a_land`)."""
+    eng = make_engine()
+    p1 = _ready_main_phase(eng)
+    obj = _in_command(eng, _mdfc_land_back())
+    p1.mana_pool.add_many({"G": 1, "C": 2})  # front costs {2}{G}
+    actions = eng.legal_actions(p1)
+    front = [a for a in actions if a.get("instance_id") == obj.instance_id and not a.get("face")]
+    back = [a for a in actions if a.get("instance_id") == obj.instance_id and a.get("face") == "back"]
+    assert front and front[0]["type"] == "cast_spell" and front[0]["name"] == "Bala Ged Recovery"
+    assert back == []
+
+
+def test_casting_an_mdfc_commanders_back_face_still_pays_commander_tax():
+    eng = make_engine()
+    p1 = _ready_main_phase(eng)
+    p2 = eng.state.player_by_id("p2")
+    obj = _in_command(eng, _mdfc_damage_back())
+    p1.mana_pool.add_many({"R": 1})
+    assert eng.can_cast(p1, obj, face="back")  # back costs just {R}
+    eng.cast_spell(p1, obj, targets=[p2], face="back")
+    assert obj.name == "Molten Rebuke"
+    assert p1.commander_casts.get(obj.instance_id) == 1
+
+    # RULE 903.9: recast (still the same commander, same tax bucket) —
+    # tax is {2} per previous cast, regardless of which face paid for it,
+    # and applies on top of *either* face's own printed cost.
+    obj2 = _in_command(eng, _mdfc_damage_back())
+    obj2.instance_id = obj.instance_id
+    assert eng.commander_tax(p1, obj2) == 2
+    # {R} (mv 1) + {2} tax = mv 3.
+    assert eng.effective_cast_cost(p1, obj2, face="back").converted_mana_cost == 3

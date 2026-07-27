@@ -282,19 +282,6 @@ permanent/spell. None block goldfishing a typical deck, but each is a
 clause the future oracle parser (docs/09) or a dedicated handler must
 eventually own. Roughly in decreasing commonness:
 
-- [~] Double-faced & modal-DFC cards (RULE 712): **transform on the
-      battlefield, modal-DFC back-face cast/play, a generic transform
-      trigger/effect, and day/night (RULE 731) + daybound/nightbound (RULE
-      702.145) are all done** — see `docs/implementation-state/
-      Done_Backend.md` "Card-type & structural coverage". Remaining:
-      bespoke *conditional* transform triggers ("look at the top card…, if
-      instant/sorcery, transform" — Delver of Secrets) aren't modeled (a
-      genuinely new "reveal + conditional" one-shot family); the legacy
-      pre-2021 non-daybound werewolf template ("if no spells were cast last
-      turn, transform ~") is deliberately not modeled, superseded by RULE
-      731 — a permanent non-goal, not open work; and MDFC commanders cast
-      from the command zone are a known, deliberately unhandled edge case
-      (only hand-cast offers both faces).
 - [ ] Saga (RULE 714) / Class (RULE 716) / Leveler (RULE 711) residual
       edges — the mechanics themselves are done (`docs/implementation-state/
       Done_Backend.md` "Card-type & structural coverage"); these are left

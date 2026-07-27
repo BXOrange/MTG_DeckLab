@@ -956,6 +956,12 @@ class GameObject:
             "tapped": self.tapped,
             # Whether a double-faced permanent is on its back face (RULE 712.8).
             "transformed": self.transformed,
+            # Whether this object *has* another face to show at all — read
+            # off `_front_card` (stable across a transform) rather than the
+            # currently-displayed `self.card`, so it stays true even while
+            # showing the back. The frontend's "🔄 peek other face" toggle
+            # uses this to decide whether to offer the button at all.
+            "has_back_face": self._front_card.has_back_face,
             "summoning_sick": self.summoning_sick,
             "phased_out": self.phased_out,
             "damage_marked": self.damage_marked,

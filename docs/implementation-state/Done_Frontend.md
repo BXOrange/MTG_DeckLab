@@ -157,6 +157,47 @@ now holds only open items). Section headers mirror that file.
       backend's `ManaCost.from_card` uses, see backend Done "Mana cost
       model"), so a genuinely free card (a land) still renders as
       nothing.
+- [x] Double-faced card front/back view on the battlefield board
+      (`gameBoardView.js`, shared by Goldfisch/Replay-Spielmodus/
+      Multiplayer), 2026-07-27. A real, latent bug first: `resolveImageUrl`
+      unconditionally returned the by-name `imageCache` hit's *front* art
+      even for an already-`transformed` permanent, since a transformed
+      object's `name` (`GameObject.to_dict`) is its *back* face's name and
+      the cache was only ever indexed under the deck's front-face name —
+      so the miss silently fell through to the (correctly face-aware)
+      `card_id`-based fallback, and never actually showed wrong art until
+      `cardImages.js` started indexing the same resolved entry under the
+      back name too (needed for the toggle below), which would have turned
+      that latent miss into a real wrong-art hit. Fixed by making
+      `resolveImageUrl` branch on face before trusting the cache hit.
+      On top of that fix: a "peek other face" button (`objCard`,
+      `.gf-card-flip`) on any permanent with a back face — a client-only
+      preview (`flippedForView`, a `Set<instance_id>`, same pattern as
+      `attackMenuOpen`) that shows the *other* face's art without touching
+      real game state, independent of RULE 712.8's actual `transform`
+      action (still offered separately among a card's own action buttons
+      when its ability allows it). Needs the backend to say whether a
+      permanent has another face at all without guessing from a
+      name-keyed cache — `GameObject.to_dict()` gained `has_back_face`
+      (backend Done, "Card-type & structural coverage"). `cardImages.js`
+      now caches a DFC's resolved entry under both its front and back
+      name (pointing at the same entry, plus new `backSmall`/`backNormal`
+      URLs) so a transformed permanent's board tile, and its hover tooltip,
+      both still resolve correctly by whichever name is currently showing;
+      `preloadCardImages` now warms the back-face image too, so flipping
+      (or an actual transform) never pops in unloaded art.
+      `cardHoverDetail.js`'s tooltip was the other latent front-face-only
+      spot: since the cache is now keyed under both names, a hover on a
+      transformed permanent would otherwise have silently rendered the
+      *front* face's name/type/oracle text/art — `faceForName`/`faceView`
+      detect which face is actually being hovered (by comparing the hovered
+      name against `card.back_name`) and render that face's own fields,
+      plus a small footnote naming the other face. The Replay board
+      *editor* (as opposed to its "Spielmodus" play board, which is this
+      same shared board) already had its own real, non-preview "Umwandeln"
+      transform button, so it didn't need the client-only toggle. Tests:
+      `backend/tests/test_card_structures.py`'s `test_has_back_face_*`;
+      frontend has no test runner (see CLAUDE.md), validated by reading.
 
 ## Game engine hookup
 

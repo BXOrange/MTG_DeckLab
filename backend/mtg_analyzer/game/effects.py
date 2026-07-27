@@ -29,6 +29,7 @@ import random
 from abc import ABC, abstractmethod
 from typing import TYPE_CHECKING, Any, Callable, Optional, Union
 
+from ..models import card_query
 from ..models.events import EventType, GameEvent
 from ..models.game_object import Zone
 from ..models.mana_cost import ManaCost
@@ -4328,6 +4329,39 @@ class TransformEffect(GameEffect):
             context.engine.transform_permanent(target)
 
 
+class RevealTopThenTransformEffect(GameEffect):
+    """"Look at the top card of your library. If it's a[n] <criteria> card,
+    transform ~." (RULE 712.8 conditional flip — Delver of Secrets-shaped).
+
+    Unlike the RULE 731 day/night flip (`RulesEngine.
+    apply_day_night_turn_check`, spells-cast-last-turn-driven), this checks
+    the top card of the *controller's* library, so it's its own one-shot
+    effect rather than routed through the day/night machinery. ``criteria``
+    is a `models.card_query` predicate (``{"type": ["instant", "sorcery"]}``
+    for Delver; a plain string/dict works the same as `SearchLibraryEffect`)
+    so the same effect covers any future card sharing this template, not
+    just an instant/sorcery check. The card is only looked at, never moved.
+    """
+
+    def __init__(
+        self,
+        source: Optional["GameObject"] = None,
+        criteria: Any = "",
+    ) -> None:
+        super().__init__(source)
+        self.criteria = criteria
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        if self.source is None:
+            return
+        player = _controller_of(self.source, context)
+        if player is None or not player.library:
+            return
+        top = player.library[-1]
+        if card_query.matches(top.card, self.criteria):
+            context.engine.transform_permanent(self.source)
+
+
 class ExileReturnTransformedEffect(GameEffect):
     """"Exile ~, then return it to the battlefield transformed under its
     owner's control" (RULE 400.7 + RULE 712.8 combined). Untargeted and
@@ -7605,6 +7639,12 @@ EffectRegistry.register(
 )
 EffectRegistry.register(
     "transform", lambda p: TransformEffect(target_kind=p.get("target_kind"))
+)
+EffectRegistry.register(
+    # "Look at the top card of your library. If it's a[n] <type> card,
+    # transform ~." (Delver of Secrets-shaped).
+    "reveal_top_then_transform",
+    lambda p: RevealTopThenTransformEffect(criteria=p.get("criteria", "")),
 )
 EffectRegistry.register(
     "exile_return_transformed", lambda p: ExileReturnTransformedEffect()

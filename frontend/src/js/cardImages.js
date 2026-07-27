@@ -10,16 +10,17 @@
 
 import { resolveCards, cardImageUrl } from './api.js';
 
-// name.toLowerCase() -> {small, normal, card} | null (null = not found).
-// `card` is the full resolved card dict — kept alongside the image URLs
-// so a detail view (deckImportView.js's "Detailansicht" toggle) can read
-// mana cost/oracle text/etc. from the same resolve call, without a
+// name.toLowerCase() -> {small, normal, backSmall, backNormal, card} | null
+// (null = not found; backSmall/backNormal are null for a card with no back
+// face). `card` is the full resolved card dict — kept alongside the image
+// URLs so a detail view (deckImportView.js's "Detailansicht" toggle) can
+// read mana cost/oracle text/etc. from the same resolve call, without a
 // second round trip for data goldfishView.js doesn't need.
 const cache = new Map();
 
 /**
  * @param {string[]} names Card names to resolve (deck-import spelling).
- * @returns {Promise<Map<string, {small: string, normal: string, card: object}>>} keyed by lowercase name
+ * @returns {Promise<Map<string, {small: string, normal: string, backSmall: (string|null), backNormal: (string|null), card: object}>>} keyed by lowercase name
  */
 export async function resolveCardImages(names) {
   const uniqueNames = Array.from(new Set(names.map((n) => n.trim()).filter(Boolean)));
@@ -29,11 +30,23 @@ export async function resolveCardImages(names) {
     const result = await resolveCards(missing);
     if (result) {
       for (const [name, card] of Object.entries(result.cards)) {
-        cache.set(name.toLowerCase(), {
+        const entry = {
           small: cardImageUrl(card.id, 'small'),
           normal: cardImageUrl(card.id, 'normal'),
+          backSmall: card.has_back_face ? cardImageUrl(card.id, 'small', 'back') : null,
+          backNormal: card.has_back_face ? cardImageUrl(card.id, 'normal', 'back') : null,
           card,
-        });
+        };
+        cache.set(name.toLowerCase(), entry);
+        // A transformed battlefield permanent's `name` (GameObject.to_dict)
+        // is its *back* face's name, not the deck-list name this was
+        // resolved by — index the same entry under the back name too, so
+        // a board tile can still find it (and its front-face `small`/
+        // `normal`) after the permanent flips. Same physical card either
+        // way (RULE 712.2), just a second lookup key onto one entry.
+        if (card.has_back_face && card.back_name) {
+          cache.set(card.back_name.toLowerCase(), entry);
+        }
       }
       for (const name of result.notFound) {
         cache.set(name.toLowerCase(), null);
@@ -101,8 +114,11 @@ export function isConfirmedNotFound(name) {
  */
 export async function preloadCardImages(names, onProgress) {
   const resolved = await resolveCardImages(names);
+  // A DFC's back face (`backSmall`) is preloaded too — it's reachable
+  // mid-game either by an actual transform or by the board's "show other
+  // face" flip button, and either way should already be warm by then.
   const urls = Array.from(resolved.values())
-    .map((entry) => entry.small)
+    .flatMap((entry) => [entry.small, entry.backSmall])
     .filter(Boolean);
   const total = urls.length;
   let loaded = 0;

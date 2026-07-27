@@ -276,11 +276,27 @@ del _name
 # "Nonbasic lands are <BasicType>."  (RULE 613.5 full layer-4 type overwrite,
 # board-wide — Magus of the Moon/Blood Moon) — unlike `type_change`'s ordinary
 # "are also creatures" shape (which only *adds* a type), this *replaces* the
-# land's subtypes outright (RULE 613.5's "loses all other types") and grants
-# the corresponding basic land's mana ability (RULE 305.6), so the clause
-# emits two specs together: a `type_change` carrying `set_subtypes`, and a
-# `grant_mana_ability` for the matching colour.
+# land's subtypes outright (RULE 613.5's "loses all other types"). The
+# resulting basic land's mana ability (RULE 305.6) is *not* a separate
+# hand-paired `grant_mana_ability` spec here — `game/mana_abilities.py`'s
+# `mana_abilities_for` derives it generically off whatever basic land types
+# `continuous.has_subtype` reports once every layer-4 effect has resolved, so
+# it stays correct however this stacks with an *additive* type grant like
+# Urborg/Yavimaya's (`_LAND_IS_BASIC_TYPE_RE` below) regardless of which
+# effect's timestamp is newer.
 _TYPE_OVERWRITE_RE = re.compile(r"nonbasic lands are (?P<word>[a-z]+)", re.IGNORECASE)
+
+# "Each land is a <BasicType> in addition to its other land types." (RULE
+# 613.4a additive land-type grant, board-wide — Urborg, Tomb of Yawgmoth/
+# Yavimaya, Cradle of Growth) — the land-type sibling of `_GROUP_CHOSEN_TYPE_
+# RE`'s "…the chosen type in addition to its other types", except the type
+# here is a fixed literal rather than an interactively chosen one. Emits only
+# an `add_subtypes` `type_change` — same as `_TYPE_OVERWRITE_RE` above, the
+# matching mana ability isn't a paired spec; it falls out of the generic
+# RULE 305.6 derivation once the land's subtype set is resolved.
+_LAND_IS_BASIC_TYPE_RE = re.compile(
+    r"each land is a (?P<word>[a-z]+) in addition to its other land types", re.IGNORECASE
+)
 
 # "You may play lands [and cast [noncreature] spells [with mana value N or
 # greater]] from the top of your library."/"You may cast [noncreature]
@@ -1562,12 +1578,18 @@ def static_effect_specs(clause: str) -> Optional[list[EffectSpec]]:
         basic_type = _BASIC_LAND_WORDS.get(m.group("word").lower())
         if basic_type is None:
             return None  # fail-closed — an unrecognised "are <X>" overwrite
-        color = _BASIC_LAND_COLOR[basic_type.lower()]
-        shared = {"affects": "all_lands", "nonbasic": True}
         return [
-            EffectSpec("type_change", {**shared, "set_subtypes": [basic_type]}),
-            EffectSpec("grant_mana_ability", {**shared, "mana": [{color: 1}]}),
+            EffectSpec("type_change", {
+                "affects": "all_lands", "nonbasic": True, "set_subtypes": [basic_type],
+            }),
         ]
+
+    m = _LAND_IS_BASIC_TYPE_RE.fullmatch(text)
+    if m is not None:
+        basic_type = _BASIC_LAND_WORDS.get(m.group("word").lower())
+        if basic_type is None:
+            return None  # fail-closed — an unrecognised "is a <X>" grant
+        return [EffectSpec("type_change", {"affects": "all_lands", "add_subtypes": [basic_type]})]
 
     # RULE 702.16 standing protection grants — before every anthem/
     # keyword-grant family below, whose `_flag_keywords` would reject

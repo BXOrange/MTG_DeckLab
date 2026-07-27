@@ -733,6 +733,34 @@ def _leveler_tier_active(obj: Any, ability: ManaAbility) -> bool:
     return True
 
 
+def _derived_basic_mana_options(obj: Any) -> list[dict[str, int]]:
+    """RULE 305.6: a land with a basic land type has that type's intrinsic
+    mana ability, even when the type came from another effect rather than
+    being printed — Urborg, Tomb of Yawgmoth/Yavimaya, Cradle of Growth's
+    "is a Swamp/Forest in addition to its other land types", or the single
+    basic type a RULE 613.5 full overwrite (Blood Moon) leaves a land with.
+
+    Read off `continuous.has_subtype`, i.e. the object's *final*,
+    already timestamp-resolved subtype set (`continuous.py`'s layer-4 loop),
+    rather than a hand-paired ``grant_mana_ability`` spec tied to one
+    particular card's clause — so this stays correct however an additive
+    grant (Urborg/Yavimaya) and a full overwrite (Blood Moon) stack, in
+    either order, without the two mechanisms needing to be kept in sync by
+    hand. Skips any basic type already on the card's own printed type line —
+    `parse_mana_abilities`/`_basic_options` already cover that.
+    """
+    if not getattr(obj, "is_land", False):
+        return []
+    printed_type_line = (getattr(obj.card, "type_line", "") or "").lower()
+    produced: list[dict[str, int]] = []
+    for basic_name, color in BASIC_LAND_MANA.items():
+        if basic_name.lower() in printed_type_line:
+            continue
+        if continuous.has_subtype(obj, basic_name):
+            produced.append({color: 1})
+    return produced
+
+
 def mana_abilities_for(obj: Any, state: Optional[Any] = None) -> list[ManaAbility]:
     """`parse_mana_abilities` for a `GameObject`, folding in layer-6 grants
     (RULE 613.7f — "Elves you control have '{T}: Add {B}.'") as plain
@@ -744,17 +772,21 @@ def mana_abilities_for(obj: Any, state: Optional[Any] = None) -> list[ManaAbilit
     "{T}: Add {G}{G}." offers nothing at level 0 (before levelling up) or
     level 5+ (that tier grants the ability to Elves instead, a separate
     layer-6 static effect, not this card's own — already gated correctly)."""
+    derived_basic = [
+        ManaAbility(cost=ActivationCost(taps_self=True), options=[opt])
+        for opt in _derived_basic_mana_options(obj)
+    ]
     if getattr(obj, "loses_all_abilities", False):
         # RULE 613.7f (Humility/Dress Down) and RULE 305.7 (a Blood-Moon'd
         # land) both strip the object's *printed* abilities — including its
         # mana ability, which this used to keep offering. The granted list
-        # below is deliberately unaffected: RULE 305.7's replacement basic
-        # land type brings its own intrinsic mana ability back as a layer-6
-        # grant from the very same static effect.
+        # and `derived_basic` below are deliberately unaffected: RULE 305.7's
+        # replacement basic land type brings its own intrinsic mana ability
+        # back via the RULE 305.6 derivation above.
         return [
             ManaAbility(cost=ActivationCost(taps_self=True), options=[dict(opt)])
             for opt in getattr(obj, "granted_mana_options", [])
-        ]
+        ] + derived_basic
     printed = [
         ManaAbility(
             cost=ability.cost,
@@ -773,7 +805,7 @@ def mana_abilities_for(obj: Any, state: Optional[Any] = None) -> list[ManaAbilit
         ManaAbility(cost=ActivationCost(taps_self=True), options=[dict(opt)])
         for opt in getattr(obj, "granted_mana_options", [])
     ]
-    return printed + granted
+    return printed + granted + derived_basic
 
 
 def hand_mana_abilities(card: Any) -> list[ManaAbility]:
