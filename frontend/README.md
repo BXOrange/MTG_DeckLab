@@ -46,10 +46,16 @@ in English and German:
 - **Replay** (Puzzle mode): build an arbitrary board state and play from
   it (`replayView.js`, shares `gameBoardView.js` with Goldfisch) — see
   `backend/mtg_analyzer/services/replay.py`.
-- **Multiplayer**: a stub tab (`multiplayerView.js`) — the backend route
-  returns 501 until the interactive priority loop is wired into a session.
-- **Einstellungen**: player name / server address (`connectionSettingsView.js`),
-  connection status, uploaded token art + card-back sleeves.
+- **Multiplayer**: a real two-player game against the same engine
+  (`multiplayerView.js` + `lobbySocket.js` → `/api/multiplayer/*`,
+  `/ws/lobby`). **Setup** is the lobby (tables, seats, deck picks, bots,
+  take-back and mulligan options); **Board** is the shared game, driving
+  `gameBoardView.js` through an injected transport, with RULE 117 priority
+  played out for real and hidden zones redacted server-side.
+- **Profil**: the player name (`profileView.js`) — who you are, split out of
+  Einstellungen so it doesn't read as a connection setting.
+- **Einstellungen**: server address (`connectionSettingsView.js`), connection
+  status, uploaded token art + card-back sleeves, auto-pass preferences.
 - **Karten-Cache**: browse every card currently cached server-side
   (`cachedCardsView.js`).
 - **Engine-Status**: a static, hand-maintained page (`implementationStatusView.js`)
@@ -77,8 +83,10 @@ src/
     goldfishView.js             "Goldfisch" tab, server-driven solo play
     replayView.js                "Replay" (Puzzle mode) tab
     gameBoardView.js             shared board rendering (Goldfisch + Replay)
-    multiplayerView.js          "Multiplayer" tab (stub)
-    connectionSettingsView.js   "Einstellungen" tab (player/server, token art, sleeves)
+    multiplayerView.js          "Multiplayer" tabs (Setup lobby + shared Board)
+    lobbySocket.js               /ws/lobby client — presence + per-player view push
+    profileView.js              "Profil" tab (player name)
+    connectionSettingsView.js   "Einstellungen" tab (server, token art, sleeves)
     cachedCardsView.js          "Karten-Cache" tab
     implementationStatusView.js "Engine-Status" tab
     api.js                      backend HTTP client (/api/decks, /api/cards, /api/game, …)

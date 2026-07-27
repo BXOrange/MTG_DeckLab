@@ -148,8 +148,8 @@ saved deck (`Deck.sleeve_id`). Stored server-side keyed by the free-text
 player name (this app has no auth) — set on the **Profil** tab
 (`profileView.js`), read via `getSettings().playerName` — via `services/
 player_assets.py` / `api/player_assets.py` rather than client-side,
-specifically so a shared backend can serve them to an opponent too, once
-multiplayer (`POST /api/game/multiplayer` is still a 501 stub) exists.
+specifically so a shared backend can serve them to an opponent too at a
+multiplayer table.
 The goldfish/Replay board (`gameBoardView.js` `resolveImageUrl`) renders
 a token's uploaded art when present, and falls back to the active
 sleeve for a face-down/transformed token with none — real transformed
