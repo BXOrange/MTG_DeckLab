@@ -418,6 +418,83 @@ def _seated_game_with_takebacks(env, count):
     return game_id, ann, bob
 
 
+class TestPodSizedTables:
+    """A table of three or four through the HTTP routes (`MAX_SEATS` = 4).
+
+    The engine and seat machinery are covered in `test_multiplayer_pods.py`;
+    what's checked here is that a pod can actually be *opened, filled and
+    started* over the API — including the host resizing the table and the
+    seat cap being enforced by the route rather than only by the lobby.
+    """
+
+    def _pod(self, env, size=4):
+        client, decks = env["client"], env["decks"]
+        names = ["Ann", "Bob", "Cid", "Dot"][:size]
+        ids = [_connect(client, name) for name in names]
+        deck = _legal_deck(decks)
+        gid = client.post(
+            "/api/multiplayer/games", json={"playerId": ids[0], "numPlayers": size}
+        ).json()["game"]["id"]
+        for pid in ids[1:]:
+            client.post(f"/api/multiplayer/games/{gid}/join", json={"playerId": pid})
+        for pid in ids:
+            client.post(
+                f"/api/multiplayer/games/{gid}/deck", json={"playerId": pid, "deckId": deck.id}
+            )
+        for pid in ids:
+            client.post(f"/api/multiplayer/games/{gid}/ready", json={"playerId": pid})
+        return gid, ids
+
+    def test_a_four_seat_table_starts_and_deals_four_hands(self, env):
+        client = env["client"]
+        gid, ids = self._pod(env)
+        body = client.post(
+            f"/api/multiplayer/games/{gid}/start", json={"playerId": ids[0]}
+        ).json()
+        assert body["game"]["status"] == "running"
+        view = body["view"]
+        hands = {p["id"]: p["hand_count"] for p in view["state"]["players"]}
+        assert hands == {pid: 7 for pid in ids}
+        # RULE 400.2 with three opponents: only the caller's own hand is sent.
+        sent = {p["id"]: len(p["hand"]) for p in view["state"]["players"]}
+        assert sent == {ids[0]: 7, ids[1]: 0, ids[2]: 0, ids[3]: 0}
+
+    def test_a_three_seat_table_starts_too(self, env):
+        client = env["client"]
+        gid, ids = self._pod(env, size=3)
+        body = client.post(
+            f"/api/multiplayer/games/{gid}/start", json={"playerId": ids[0]}
+        ).json()
+        assert body["game"]["num_players"] == 3
+        assert len(body["view"]["state"]["players"]) == 3
+
+    def test_the_host_can_grow_the_table_before_it_starts(self, env):
+        client = env["client"]
+        ann = _connect(client, "Ann")
+        gid = client.post("/api/multiplayer/games", json={"playerId": ann}).json()["game"]["id"]
+        body = client.post(
+            f"/api/multiplayer/games/{gid}/options", json={"playerId": ann, "numPlayers": 4}
+        ).json()
+        assert body["game"]["num_players"] == 4
+
+    def test_asking_for_more_than_four_seats_is_capped(self, env):
+        client = env["client"]
+        ann = _connect(client, "Ann")
+        body = client.post(
+            "/api/multiplayer/games", json={"playerId": ann, "numPlayers": 8}
+        ).json()
+        assert body["game"]["num_players"] == 4
+
+    def test_a_fifth_player_cannot_join_a_full_pod(self, env):
+        client = env["client"]
+        gid, _ids = self._pod(env)
+        eve = _connect(client, "Eve")
+        assert (
+            client.post(f"/api/multiplayer/games/{gid}/join", json={"playerId": eve}).status_code
+            == 400
+        )
+
+
 class TestTakeBack:
     """UC4 Setup's per-seat undo budget through the HTTP API.
 

@@ -63,6 +63,37 @@ pytest suite first, `--port` to change the frontend port,
 to skip auto-opening a tab. See [docs/implementation-state/BACKLOG.md](docs/implementation-state/BACKLOG.md)
 for what's still open.
 
+### Starting without an internet connection
+
+Once installed, the app starts **fully offline** — nothing in a normal
+start reaches the network:
+
+* `start.py`'s venv check runs pip with `--no-index`, so an
+  already-installed backend is verified purely locally (a fraction of a
+  second, no socket opened). Only a genuinely missing or outdated
+  dependency triggers a second, index-using attempt.
+* The frontend loads no external script, stylesheet, font or image — the
+  static server serves everything, and all card art comes from the
+  backend's own on-disk cache (`backend/cache/`, see
+  [docs/Reference/08_CARD_CACHE_EXPORT_IMPORT.md](docs/Reference/08_CARD_CACHE_EXPORT_IMPORT.md)).
+* Tokens, dungeons and the casual-variant cards (planes/schemes/
+  Vanguard avatars) are committed JSON catalogues in
+  `backend/mtg_analyzer/data/`, not lookups.
+
+The one thing that *does* need the internet is the very first
+dependency install (and looking up a card that has never been cached).
+To prepare a machine that will be offline, cache the dependency wheels
+while you still have a connection:
+
+```bash
+python3 setup/install.py --download-wheels   # fills setup/wheels/
+```
+
+Every later install — including creating a brand-new `backend/venv` —
+then resolves from that wheelhouse without a connection. Wheels are
+specific to the OS/architecture/Python version they were downloaded for,
+so run this on the machine (or an identical one) that will use them.
+
 To work on the backend directly:
 
 ```bash

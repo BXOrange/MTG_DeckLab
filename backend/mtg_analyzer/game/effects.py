@@ -119,6 +119,22 @@ class GameContext:
     def create_emblem(self, player: "Player", ability: dict) -> None:
         self.engine.create_emblem(player, ability)
 
+    def venture_into_the_dungeon(self, player: "Player", dungeon: Optional[str] = None) -> None:
+        # RULE 701.49; ``dungeon`` is 701.49d's "venture into [quality]".
+        self.engine.venture_into_the_dungeon(player, dungeon)
+
+    def complete_dungeon(self, player: "Player") -> None:
+        # RULE 309.6/309.7.
+        self.engine.complete_dungeon(player)
+
+    def manifest(self, player: "Player", count: int = 1, kind: str = "manifest") -> None:
+        # RULE 701.40a manifest / RULE 701.58a cloak.
+        self.engine.manifest(player, count, kind=kind)
+
+    def request_manifest_dread(self, player: "Player") -> None:
+        # RULE 701.40a's look-at-two variant.
+        self.engine.request_manifest_dread(player)
+
     def take_extra_turn(self, player: "Player") -> None:
         # RULE 500.7: queue an extra turn for ``player``, taken after the
         # current one (`GameEngine.begin_turn` consumes `state.extra_turns`).
@@ -918,13 +934,14 @@ class BecomeMonarchEffect(GameEffect):
 
 class TakeInitiativeEffect(GameEffect):
     """"[Player] take[s] the initiative." (RULE 726.1) — same untargeted/
-    targeted split as `BecomeMonarchEffect`. RULE 726.2's "venture into the
-    dungeon" companion trigger isn't fired: dungeons (RULE 309) aren't
-    modeled in this engine yet, so a card whose *only* clause is this one
-    still becomes fully MODELED (the designation swap and its own combat-
-    damage-steal trigger, `RulesEngine._collect_inherent_triggers`, are real
-    RULE 726 behaviour on their own), while venturing stays a documented gap
-    (`BACKLOG.md`).
+    targeted split as `BecomeMonarchEffect`.
+
+    All three of RULE 726.2's inherent abilities are live: the combat-damage
+    steal, the upkeep venture, and "whenever a player takes the initiative,
+    that player ventures into Undercity" — the last one fired off the
+    `EventType.TOOK_INITIATIVE` `RulesEngine.take_initiative` announces, which
+    is also why RULE 726.5's "taking the initiative while you already have
+    it" still ventures.
     """
 
     def __init__(
@@ -945,6 +962,48 @@ class TakeInitiativeEffect(GameEffect):
             player = _controller_of(self.source, context)
         if player is not None:
             context.take_initiative(player)
+
+
+class VentureIntoTheDungeonEffect(GameEffect):
+    """"Venture into the dungeon." (RULE 701.49) — enter a dungeon, or move
+    the venture marker one room down the one you're in.
+
+    ``dungeon`` names RULE 701.49d's "venture into [quality]" variant
+    ("venture into Undercity", RULE 726.2's own wording); ``None`` is the
+    plain keyword action, which lets the player choose."""
+
+    def __init__(
+        self,
+        dungeon: Optional[str] = None,
+        player: Any = None,
+        source: Optional["GameObject"] = None,
+    ) -> None:
+        super().__init__(source)
+        self.dungeon = dungeon
+        self.player = player
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        player = self.player or _controller_of(self.source, context)
+        if player is not None:
+            context.venture_into_the_dungeon(player, self.dungeon)
+
+
+class CompleteDungeonEffect(GameEffect):
+    """RULE 309.6/309.7: remove the completed dungeon card from the game.
+
+    Appended by `RulesEngine._collect_dungeon_room_triggers` to a *bottommost*
+    room's own ability, so it runs exactly when 309.6's condition first holds
+    — "the venture marker is on the bottommost room and that dungeon isn't the
+    source of a room ability that has triggered but not yet left the stack".
+    """
+
+    def __init__(self, source: Optional["GameObject"] = None) -> None:
+        super().__init__(source)
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        player = _controller_of(self.source, context)
+        if player is not None:
+            context.complete_dungeon(player)
 
 
 class RadiationMillEffect(GameEffect):
@@ -4914,6 +4973,47 @@ class SurveilEffect(GameEffect):
             context.surveil(player, self.count)
 
 
+class ManifestEffect(GameEffect):
+    """Manifest (RULE 701.40a) or cloak (RULE 701.58a) the top ``count``
+    cards of the effect controller's library.
+
+    One effect for both keyword actions because they *are* the same action
+    bar one characteristic — a cloaked permanent has ward {2} (701.58a) —
+    which `RulesEngine.manifest` takes as its ``kind``, exactly the way the
+    engine already parameterizes morph vs. disguise."""
+
+    def __init__(
+        self, count: int = 1, kind: str = "manifest", source: Optional["GameObject"] = None
+    ) -> None:
+        super().__init__(source)
+        self.count = count
+        self.kind = kind
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        player = _controller_of(self.source, context)
+        if player is not None:
+            context.manifest(player, self.count, kind=self.kind)
+
+
+class ManifestDreadEffect(GameEffect):
+    """"Manifest dread": look at the top two cards of your library, put one
+    onto the battlefield face down and the other into your graveyard (RULE
+    701.40a plus a look-and-choose wrapper).
+
+    The choice is a real interactive one (`RulesEngine.request_manifest_dread`)
+    rather than "take the top card", since which of the two is worth
+    manifesting — and which is worth *binning*, for a graveyard deck — is
+    the whole decision the mechanic exists for."""
+
+    def __init__(self, source: Optional["GameObject"] = None) -> None:
+        super().__init__(source)
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        player = _controller_of(self.source, context)
+        if player is not None:
+            context.request_manifest_dread(player)
+
+
 class CreateTokenEffect(GameEffect):
     """Create one or more token permanents (RULE 111.5 / 701.6).
 
@@ -7605,6 +7705,15 @@ EffectRegistry.register(
     "surveil", lambda p: SurveilEffect(count=p.get("count", p.get("amount", 1)))
 )
 EffectRegistry.register(
+    # RULE 701.40a manifest / RULE 701.58a cloak — one effect, one ``kind``
+    # param (see `ManifestEffect`).
+    "manifest",
+    lambda p: ManifestEffect(
+        count=p.get("count", p.get("amount", 1)), kind=p.get("kind", "manifest")
+    ),
+)
+EffectRegistry.register("manifest_dread", lambda p: ManifestDreadEffect())
+EffectRegistry.register(
     "top_library_permission",
     lambda p: TopLibraryPermissionEffect(
         look=p.get("look", False),
@@ -8273,6 +8382,10 @@ EffectRegistry.register(
 EffectRegistry.register(
     "take_initiative",  # "you take the initiative" (RULE 726.1)
     lambda p: TakeInitiativeEffect(target_kind=p.get("target_kind")),
+)
+EffectRegistry.register(
+    "venture",  # "venture into the dungeon" (RULE 701.49)
+    lambda p: VentureIntoTheDungeonEffect(dungeon=p.get("dungeon")),
 )
 EffectRegistry.register(
     "create_emblem",  # "you get an emblem with '<ability>'" (RULE 114.2)

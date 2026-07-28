@@ -102,6 +102,40 @@ class Player:
         #: `RulesEngine.create_emblem`. See `models/emblem.py`.
         self.emblems: list[Emblem] = []
 
+        #: RULE 904.5: this player's face-down scheme deck, when they are the
+        #: archenemy of an Archenemy game (empty for everyone else). Top of
+        #: the deck is the **end** of the list, the same convention `library`
+        #: uses.
+        self.scheme_deck: list[GameObject] = []
+        #: RULE 904.9: schemes that have been set in motion and stay face up
+        #: — an *ongoing* scheme's abilities keep functioning until it's
+        #: abandoned (904.11). A non-ongoing scheme never lands here: its one
+        #: ability fires and the card goes straight back under the deck
+        #: (904.10).
+        self.ongoing_schemes: list[GameObject] = []
+        #: RULE 902.2: this player's Vanguard avatar, face up in the command
+        #: zone for the whole game with its abilities functioning from there
+        #: (902.4). ``None`` outside a Vanguard game.
+        self.vanguard: Optional[GameObject] = None
+        #: RULE 902.3: the avatar's own maximum-hand-size modifier, applied
+        #: once as the game starts and kept here so the cleanup step's
+        #: discard-to-hand-size check can read it.
+        self.hand_size_modifier: int = 0
+
+        #: RULE 309.2b/309.3: the one dungeon card this player owns in the
+        #: command zone, with their venture marker on it — ``None`` while
+        #: they're not in a dungeon. A player can own only one at a time
+        #: (309.3), which is why this is a single slot rather than a list;
+        #: it's put here by `RulesEngine.venture_into_the_dungeon` and
+        #: removed as the dungeon is completed (309.6/309.7).
+        self.dungeon: Optional[Any] = None
+        #: RULE 309.7: the names of the dungeons this player has completed
+        #: this game, in order. Kept because "if you've completed a dungeon"
+        #: / "whenever you complete a dungeon" are real card conditions, and
+        #: because a completed dungeon leaves the game (309.6) so nothing
+        #: else would remember it.
+        self.completed_dungeons: list[str] = []
+
         #: RULE 701.51a "The Ring tempts you": how many times this player has
         #: been tempted, 0–4. The Ring emblem gains its four abilities one at
         #: a time in printed order, cumulatively, so the level *is* the
@@ -219,6 +253,18 @@ class Player:
             "loss_reason": self.loss_reason,
             "commander_damage": {str(k): v for k, v in self.commander_damage.items()},
             "emblems": [e.to_dict() for e in self.emblems],
+            # RULE 309: the dungeon card in this player's command zone (with
+            # their venture marker's current room), and every dungeon they
+            # have completed this game (309.7).
+            "dungeon": self.dungeon.to_dict() if self.dungeon is not None else None,
+            "completed_dungeons": list(self.completed_dungeons),
+            # RULE 902/904: the Vanguard avatar and the Archenemy scheme
+            # state. The scheme deck ships as a count only — its cards are
+            # face down (RULE 904.5), so their identity must not leave the
+            # process any more than a library's does.
+            "vanguard": self.vanguard.to_dict() if self.vanguard is not None else None,
+            "scheme_deck_count": len(self.scheme_deck),
+            "ongoing_schemes": [obj.to_dict() for obj in self.ongoing_schemes],
             # RULE 701.51/701.52: the Ring's level (0–4) and who carries it.
             "ring_level": self.ring_level,
             "ring_bearer_id": self.ring_bearer_id,

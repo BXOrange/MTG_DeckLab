@@ -41,8 +41,11 @@ by id/name and rebuilt from the cache; tokens carry a self-describing block).
 goldfish position can be exported and re-opened in Replay. Frontend:
 `frontend/src/js/replayView.js`.
 
-**Multiplayer** (UC4) is a real two-player game against the same engine,
-not a stub. Two layers, strictly separated: `services/lobby.py` is
+**Multiplayer** (UC4) is a real game of **two to four players** against the
+same engine, not a stub (`services/lobby.py`'s `MIN_SEATS`/`MAX_SEATS`;
+four is where the board UI stops being readable, not a rules limit — the
+engine has been N-player throughout). Two layers, strictly separated:
+`services/lobby.py` is
 **rules-free** (people and tables — `LobbyPlayer` with a presence state of
 `online`/`available`/`playing`, `LobbyGame` with seats, deck picks, an
 agreed mulligan style and a per-seat "accept"), and `services/
@@ -195,6 +198,19 @@ step** and no Node toolchain — edit `frontend/src/**` and reload. There is no
 JS test runner, so validate frontend changes by reasoning + reading; validate
 backend changes with pytest (the suite is fast, ~500+ tests, keep it green).
 
+**Starting is offline-safe, and must stay that way.** `start.py` calls
+`setup/install.py`'s `ensure_backend_venv()` on every run, so anything that
+does gets to decide whether the app can start without internet: it installs
+with `pip --no-index` first (an already-complete venv is verified locally in
+~0.2s, opening no socket) and only falls back to an index-using run when
+that fails; a fresh venv can be built offline from the wheelhouse
+`setup/install.py --download-wheels` caches in `setup/wheels/`. Nothing else
+in a start reaches the network — the frontend loads no external script/font/
+image, card data and art come from `backend/cache/`, and tokens/dungeons/
+variant cards are committed JSON in `mtg_analyzer/data/`. Don't reintroduce
+an unconditional `pip install --upgrade pip` (it always queries PyPI);
+`backend/tests/test_setup_offline_start.py` pins this down.
+
 **Stuck-test detection is automatic** (`backend/pytest.ini`, `pytest-timeout`):
 any single test running past 20s aborts with a `Timeout (>20.0s) from
 pytest-timeout.` traceback naming it, instead of hanging the run — no
@@ -263,7 +279,10 @@ rather than re-deriving its state from the code or duplicating detail here —
 `Done_*.md` is organized by section (Rules Engine, Game Engine, Card-type &
 structural coverage, …), `BACKLOG.md` by ticket category.
 
-**Implemented**: the full turn/stack/priority/SBA loop; London mulligan;
+**Implemented**: the full turn/stack/priority/SBA loop; the mulligan
+procedures a table can agree on (`MULLIGAN_STYLES` — London, Vancouver,
+"next 7", none; Vancouver's scry-1 is queued per seat in turn order after
+the *whole table* has kept, since the state holds one `pending_choice`);
 targeting; the whole mana model (generic/color/colorless/hybrid/mono-hybrid/
 Phyrexian/{X}), including RULE 605.3a **spend restrictions** ("Spend this
 mana only to cast a creature spell") as tagged lots in `models/mana_pool.py`
@@ -325,7 +344,12 @@ ward cost's own `{X}` (RULE 702.21b, resolved fresh against the board at
 the ward ability's own resolution time, not when it triggers); the one-shot
 effect library (damage/draw/discard/
 destroy/counter/search/gain_life/mill/exile/tap/counters/pump/scry/
-create-token/copy_permanent/become_copy/cascade/discover/proliferate/…,
+create-token/copy_permanent/become_copy/cascade/discover/proliferate/…
+— `scry` (RULE 701.18) and `surveil` (RULE 701.31) being one
+implementation (`RulesEngine._LOOK_TOP_KINDS`: look at the top N, send any
+number *somewhere*, order the rest back on top; scry's "somewhere" is the
+bottom of the library, surveil's is the graveyard), each a genuine
+two-phase `pending_choice` —,
 including mass "destroy/exile all X [with a toughness/mana-value filter]"
 board wipes, RULE 601.2c's untargeted-selector shape `DestroyEffect`/
 `ExileEffect` share with `DealDamageEffect`); tokens (RULE
@@ -452,8 +476,8 @@ every field it reads, `parser/oracle/gate.py`) since it's called once per
 on every copy/every game. `parser/oracle/processing_list.py` tracks
 cache-wide coverage and ranks the next handlers worth building. The cache is
 now bulk-loaded with the **full ~34k-card Oracle universe**
-(`scripts/import_bulk.py`), so coverage is measured against that: **26.2%
-covered (8,946 / 34,209) as of 2026-07-22, PARSER_VERSION 31** (parser-`MODELED` **or**
+(`scripts/import_bulk.py`), so coverage is measured against that: **27.1%
+covered (9,264 / 34,208) as of 2026-07-28, PARSER_VERSION 36** (parser-`MODELED` **or**
 hand-`AUTHORED`).
 Re-measure with `scripts/coverage_report.py` (ledger-backed — see
 `services/coverage_db.py`) before trusting this number; Batches 1–10 are all
@@ -596,11 +620,46 @@ Humility/Dress Down, since `mana_abilities_for` had never honoured
 "gets A **or** B" activated ability. Full detail, wave by wave, in
 `docs/implementation-state/Done_Backend.md` ("cEDH staples cube").
 
+A **card-type-structures batch** (2026-07-28) then closed the last four
+structural card-type gaps at once, so RULE 300–315 and RULE 900–905 are
+both complete. **Face-down spells and permanents** (RULE 708 — morph,
+megamorph, disguise, manifest, cloak, `game/face_down.py`) are modeled as a
+*face swap*, the same shape a DFC transform already used: the object's whole
+face-up bundle is stashed (`GameObject._face_up_snapshot`) and `card` is
+swapped for a synthetic 2/2 with no text, so the layer engine, combat and
+the board read a plain 2/2 with no special case; casting face down is a
+fourth `face` on `cast_spell` (`face="face_down"`, {3} per RULE 702.37a),
+turning face up is a real RULE 116.2b **special action** (`GameEngine.
+turn_face_up` — no stack, no timing gate, one offered option per legal
+route, since RULE 701.40c lets a manifested morph card use either its morph
+cost or its mana cost). **Dungeons** (RULE 309, `models/dungeon.py` +
+`game/dungeons.py`) are plain data on `Player.dungeon` rather than a
+`GameObject` (the `Emblem` argument), with the room graph parsed out of the
+*raw* printed card text — "(Leads to: …)" is arrows, not reminder text, so
+it must be read before `normalize` strips parentheticals — and venturing
+(RULE 701.49) implemented branch-for-branch, which also completed RULE
+726.2: the initiative now fires all three of its inherent abilities. The
+RULE 603.1/500.7 **trigger-condition vocabulary** went from four object
+verbs and four steps to ten and nine, all driven by one table
+(`segmenter._TRIGGER_VERBS`) that feeds every subject regex — a verb earns
+a row only if the engine fires an event carrying an `instance_id` for it,
+which is why "becomes untapped" is still deliberately absent. And the RULE 9
+**casual variants** — Planechase (901), Archenemy (904), Vanguard (902) —
+are playable behind a `GameFormat` record (`models/game_format.py`), reusing
+the dungeon idea of a command-zone pool that begins outside the game
+(`game/variants.py`, `services/variant_card_database.py`). The RULE
+809/810/811 **team** variants are deliberately out: they change the turn
+structure itself, so they're a turn-loop/seats project, tracked as `PLR-14`
+rather than as a card type. Note that no API or lobby path passes a
+`game_format` yet, so the RULE 9 variants are engine-complete but reachable
+only from Python (`PLR-13`), and their card *texts* are ordinary parser-tail
+work (`PAR-13`).
+
 **Notable gaps** (see `docs/implementation-state/BACKLOG.md` for the full list with exact
 scope on each): a kicked spell's "if kicked, ... instead" *override* conditional (as opposed to the
 additional-effect shape already shipped); "search library and/or
 graveyard" (Doomsday/Finale of Devastation — needs a `request_search`
-engine extension, not just parsing); dungeons; the *oracle coverage* of
+engine extension, not just parsing); the *oracle coverage* of
 the battle pool (the RULE 310 engine is done, but only 12 of the 39
 cached battles are MODELED — the other 27 are blocked on ordinary
 effect-body grammar, enumerated in
@@ -630,7 +689,7 @@ Implementation state is three kinds of document, kept strictly apart —
 
 | Kind | File | Rule |
 | --- | --- | --- |
-| Open points | `BACKLOG.md` | The *single* backlog, backend **and** frontend, as categorized tickets (`ENG` game engine, `PAR` parser, `MEC` game mechanics, `TYP` card types, `PLR` player management, `VIS` visuals, `DB` database, `ANA` deck analysis). Open scope only — no history. |
+| Open points | `BACKLOG.md` | The *single* backlog, backend **and** frontend, as categorized tickets (`ENG` game engine, `PAR` parser, `MEC` game mechanics, `PLR` player management, `VIS` visuals, `DB` database, `ANA` deck analysis — the former `TYP` card-types category is retired, RULE 300–315 being complete). Open scope only — no history. |
 | Worklogs | `Done_Backend.md`, `Done_Frontend.md` | Append-only. What shipped and *why it was built that way*. |
 | Examples | `PARSER_LONG_TAIL.md` | Standing strategy + recurring lessons + enumerated worked samples for the indefinite parser tail. Neither backlog nor worklog. |
 
@@ -756,6 +815,10 @@ English and German.
 | Card abilities / fetch lands / enters-tapped | `game/ability_catalogue.py`, `effect_binder.bind_from_catalogue` |
 | Hand-authoring a specific card's effects | [docs/Reference/11_CARD_CATALOGUE_AUTHORING_GUIDE.md](docs/Reference/11_CARD_CATALOGUE_AUTHORING_GUIDE.md) |
 | Effects / triggers | `game/effects.py`, `game/effect_binder.py` |
+| Which trigger conditions the parser recognizes | `parser/oracle/segmenter.py` (`_TRIGGER_VERBS` object subjects, `_PHASE_STEP_WORDS`, `_PLAYER_TRIGGER_CONDITIONS` "whenever **you** scry/surveil", `_VARIANT_TRIGGER_CONDITIONS`) |
+| Face-down permanents (morph/disguise/manifest/cloak) | `game/face_down.py`, `models/game_object.py` (`turn_face_down`/`turn_face_up`), `game/game_engine.py` (`turn_face_up`, `face="face_down"`) |
+| Dungeons + venturing | `models/dungeon.py`, `game/dungeons.py`, `services/dungeon_database.py`, `rules_engine.venture_into_the_dungeon` |
+| Formats & casual variants (Planechase/Archenemy/Vanguard) | `models/game_format.py`, `game/variants.py`, `services/variant_card_database.py`, `game_engine.new_game(game_format=…)` |
 | "Play/cast from top of library" permission | `game/top_library.py`, `game/game_engine.py` (`can_play_land`/`can_cast`/`legal_actions`), `gameBoardView.js` (`libraryTopHtml`) |
 | On-disk paths / env-var config | `backend/mtg_analyzer/config.py` |
 | Goldfish UI | `frontend/src/js/goldfishView.js` |

@@ -25,7 +25,9 @@ from ..models.game_object import GameObject, Zone
 from ..models.game_state import GameState, StackItem
 from ..models.mana_cost import ManaCost
 from ..models.player import Player
-from . import combat, condition_query, continuous
+from . import combat, condition_query, continuous, face_down, variants
+from ..models import game_format
+from ..models.game_format import GameFormat, get_format
 from .costs import (
     DISCARD_HAND,
     PAY_LIFE_X,
@@ -121,6 +123,8 @@ class GameEngine:
         player_libraries: list[tuple[str, str, list[Card]]],
         starting_life: int = 40,
         starting_hand: int = 7,
+        game_format: Optional[str] = None,
+        archenemy_id: Optional[str] = None,
     ) -> "GameEngine":
         """Build a game from ``(player_id, name, library_cards)`` tuples.
 
@@ -128,7 +132,19 @@ class GameEngine:
         library is the end of the list), and an opening hand is drawn. No
         shuffle is applied — callers wanting randomness shuffle first — so
         games are reproducible for tests and the bot.
+
+        ``game_format`` names a `models/game_format.py` record (RULE 8/9).
+        Given one, its own starting life/hand size replace the arguments
+        above — a caller picks *a format*, not a combination of numbers — and
+        its RULE 9 variants are set up: Planechase's shared planar deck (RULE
+        901.15), the archenemy's scheme deck and 40 life (RULE 904.4/904.5),
+        a Vanguard avatar per player with its hand/life modifiers (RULE
+        902.3/902.4). Without one, nothing changes: the explicit numbers win
+        and no variant state exists, which is every existing caller.
         """
+        fmt = get_format(game_format) if game_format else None
+        if fmt is not None:
+            starting_life, starting_hand = fmt.starting_life, fmt.starting_hand
         players: list[Player] = []
         for player_id, name, cards in player_libraries:
             player = Player(id=player_id, name=name, life=starting_life)
@@ -139,9 +155,40 @@ class GameEngine:
 
         state = GameState(players=players)
         engine = cls(state)
+        if fmt is not None:
+            state.format_name = fmt.name
+            engine._setup_variants(fmt, archenemy_id)
         for player in players:
-            player.draw(starting_hand)
+            # RULE 902.3: a Vanguard avatar's hand modifier changes how many
+            # cards its controller starts with, so it has to be settled
+            # before the opening hand is drawn.
+            player.draw(max(0, starting_hand + player.hand_size_modifier))
         return engine
+
+    def _setup_variants(self, fmt: "GameFormat", archenemy_id: Optional[str]) -> None:
+        """Put the RULE 9 variants' command-zone cards in place for a new game."""
+        state = self.state
+        if fmt.has(game_format.PLANECHASE):
+            # RULE 901.5/901.15: one shared planar deck; RULE 901.9: the game
+            # starts with its top card face up as the first plane, which
+            # `planeswalk`-free setup does by simply leaving it on top.
+            state.planar_deck = variants.build_planar_deck(state.players[0].id)
+        if fmt.has(game_format.ARCHENEMY) and state.players:
+            archenemy = next(
+                (p for p in state.players if p.id == archenemy_id), state.players[0]
+            )
+            state.archenemy_id = archenemy.id
+            archenemy.scheme_deck = variants.build_scheme_deck(archenemy.id)
+            archenemy.life = fmt.archenemy_life  # RULE 904.4
+        if fmt.has(game_format.VANGUARD):
+            for player in state.players:
+                avatar = variants.build_vanguard(player.id)
+                if avatar is None:
+                    continue
+                player.vanguard = avatar
+                hand_mod, life_mod = variants.vanguard_modifiers(avatar.name)
+                player.hand_size_modifier = hand_mod
+                player.life += life_mod  # RULE 902.4
 
     # ------------------------------------------------------------------
     # Turn loop (RULE 500, R4.1)
@@ -213,6 +260,10 @@ class GameEngine:
         active = self.state.active_player
         active.lands_played_this_turn = 0
         active.extra_land_plays_this_turn = 0
+        # RULE 901.6b: the planar die costs {X} where X is how many times its
+        # roller has already rolled it *this turn*, so the tally resets with
+        # every other per-turn counter here.
+        self.state.planar_die_rolls_this_turn.clear()
         self.state.spells_cast_this_turn[active.id] = 0
         self.state.cards_drawn_this_turn[active.id] = 0
         # RULE 120.3 history ("dealt combat damage by ~ *this turn*", Hope of
@@ -645,6 +696,15 @@ class GameEngine:
         # abilities — a turn-based action, not a trigger off the draw step
         # (which is where this lived before it was fixed to match the CR).
         self.rules.advance_sagas(self.state.active_player)
+        # RULE 904.7: "at the beginning of the archenemy's precombat main
+        # phase, before the active player gets priority, that player sets the
+        # top card of their scheme deck in motion" — a turn-based action like
+        # the Saga counter above, not a triggered ability, so it belongs here
+        # rather than in the trigger machinery. Silent in every non-Archenemy
+        # game: nobody has a scheme deck.
+        active = self.state.active_player
+        if self.state.archenemy_id == active.id and active.scheme_deck:
+            self.rules.set_scheme_in_motion(active)
 
     def _step_combat_damage(self) -> None:
         """Assign and deal combat damage (RULE 510), honouring combat keywords.
@@ -1195,6 +1255,30 @@ class GameEngine:
             # zone instead of wherever it landed/was headed; anything else
             # leaves it there.
             self.rules.resolve_commander_zone_choice(None if declined else str(answer))
+        elif kind == "choose_dungeon":
+            # RULE 309.2a: which dungeon card to bring in from outside the
+            # game — mandatory (venturing always enters one), so a decline
+            # still picks rather than aborting the venture.
+            self.rules.resolve_choose_dungeon_choice(None if declined else str(answer))
+        elif kind == "venture_room":
+            # RULE 701.49b: which arrow to follow out of the current room —
+            # mandatory for the same reason; the option id is the room name.
+            self.rules.resolve_venture_room_choice(None if declined else str(answer))
+        elif kind == "scry":
+            # RULE 701.18: the option id is one of the looked-at cards
+            # (bottom it, or — in the ordering phase — place it next from
+            # the top). Declining means "leave what's left as it is" in
+            # both phases; see `RulesEngine._LOOK_TOP_KINDS`.
+            self.rules.resolve_scry_choice(None if declined else int(answer))
+        elif kind == "surveil":
+            # RULE 701.31: the same decision as scry with the graveyard
+            # where scry has the bottom of the library.
+            self.rules.resolve_surveil_choice(None if declined else int(answer))
+        elif kind == "manifest_dread":
+            # RULE 701.40a: which of the two looked-at cards is manifested
+            # face down (the other is milled) — mandatory, so a decline
+            # still manifests the top card rather than neither.
+            self.rules.resolve_manifest_dread_choice(None if declined else int(answer))
         elif kind == "impulsive_look":
             # Grisly Salvage/Commune with the Gods-shaped: the option id is
             # one of the *peeled* cards' instance ids, or decline.
@@ -1241,6 +1325,15 @@ class GameEngine:
             return obj.card.back_face()
         if face == "fuse":
             return obj.card.fuse_face()
+        if face == "face_down":
+            # RULE 702.37a/702.168a: casting a card face down is a fourth
+            # "face" — the synthetic 2/2 with no text and a flat {3}
+            # alternative cost (`game/face_down.py`). Only a card whose own
+            # morph/disguise keyword grants that permission has one, so
+            # ``None`` here is exactly the RULE 702.37d "you can't normally
+            # cast a card face down" default, and `can_cast` fails closed.
+            kind = face_down.cast_face_down_kind(obj)
+            return face_down.face_down_card(kind) if kind else None
         return obj.card
 
     def can_play_land(self, player: Player, obj: GameObject, face: str = "front") -> bool:
@@ -1659,6 +1752,18 @@ class GameEngine:
             card.is_instant or combat.has(obj, "flash") or has_conditional_flash or has_temp_flash
             or has_top_library_flash
         )
+        if face == "face_down":
+            # RULE 708.4: an object cast face down is turned face down
+            # *before* it goes on the stack, so "effects that care about the
+            # characteristics of a spell will see only the face-down spell's
+            # characteristics" — a 2/2 creature with no text. The face-up
+            # card's own Flash (which `combat.has` reads off the still-face-up
+            # object above) therefore doesn't apply to this cast.
+            sorcery_speed = True
+            if player is not self.state.active_player:
+                return False
+            if not self._in_main_phase() or self.state.stack:
+                return False
         if sorcery_speed:
             if player is not self.state.active_player:
                 return False
@@ -1728,9 +1833,12 @@ class GameEngine:
         # clause is a separate legality gate from the mana cost above — a
         # sacrifice/discard/life payment that isn't payable makes the spell
         # uncastable even with the mana in hand.
-        return self._can_pay_additional_cast_cost(
-            player, obj, getattr(obj, "additional_cast_cost", None), x
-        )
+        additional_cost = getattr(obj, "additional_cast_cost", None)
+        if face == "face_down":
+            # RULE 708.4 again: no text means no "as an additional cost to
+            # cast this spell, …" clause either — the {3} is the whole price.
+            additional_cost = None
+        return self._can_pay_additional_cast_cost(player, obj, additional_cost, x)
 
     @staticmethod
     def _buyback_cost(obj: GameObject) -> Optional["ManaCost"]:
@@ -1948,6 +2056,25 @@ class GameEngine:
         2+ *different* targeting effects; omitted (``None``), every effect
         reads ``targets`` directly, unchanged from before this existed.
         """
+        if face == "face_down":
+            # RULE 702.37c/702.168b: "turn it face down and announce that
+            # you're using a morph ability … put it onto the stack (as a
+            # face-down spell with the same characteristics), and pay {3}".
+            # The face swap therefore happens *before* the ordinary cast
+            # body runs — the same order (and the same rollback-on-failure
+            # discipline) as the second-face branch below, so a rejected
+            # cast never leaves the card stuck face down in hand.
+            if not self.can_cast(player, obj, x, face=face):
+                raise ValueError(f"{player.id} cannot cast {obj.name} face down now")
+            kind = face_down.cast_face_down_kind(obj)
+            snapshot = self.rules.snapshot_face(obj)
+            self.rules.turn_face_down(obj, kind)
+            try:
+                return self._cast_current_face(player, obj, None, 0)
+            except Exception:
+                obj.turn_face_up()
+                self.rules.restore_face(obj, snapshot)
+                raise
         if face in ("back", "fuse"):
             if not self.can_cast(player, obj, x, face=face, kicked=kicked, buyback=buyback, free=free):
                 raise ValueError(f"{player.id} cannot cast {obj.name} now")
@@ -2217,6 +2344,98 @@ class GameEngine:
         # RULE 117.3c: taking an action reclaims priority for its taker.
         self.give_priority(player)
         return result
+
+    def planar_die_cost(self, player: Player) -> "ManaCost":
+        """RULE 901.6b: rolling the planar die costs {X}, where X is the
+        number of times ``player`` has already rolled it this turn — so the
+        first roll of a turn is free and each further one costs one more."""
+        rolled = self.state.planar_die_rolls_this_turn.get(player.id, 0)
+        return ManaCost.parse(f"{{{rolled}}}") if rolled else ManaCost.parse("")
+
+    def can_roll_planar_die(self, player: Player) -> bool:
+        """RULE 901.6a: a special action, so it needs only a face-up plane,
+        the player's own turn, their priority — and the {X} in the pool."""
+        if not self.state.planar_deck or player is not self.state.active_player:
+            return False
+        cost = self.planar_die_cost(player)
+        return not cost.symbols or player.mana_pool.can_pay(cost, life_available=player.life)
+
+    def roll_planar_die(self, player: Player) -> str:
+        """Take the RULE 901.6 special action: pay {X}, roll, apply the face.
+
+        Returns the face rolled (``"chaos"``/``"planeswalk"``/``"blank"``).
+        Like every special action this doesn't use the stack — but unlike
+        turning a permanent face up, the *consequences* do: a chaos ability
+        is a triggered ability and goes on the stack normally (RULE 901.13a).
+        """
+        if not self.can_roll_planar_die(player):
+            raise ValueError("cannot roll the planar die now")
+        cost = self.planar_die_cost(player)
+        if cost.symbols:
+            life_spent = player.mana_pool.pay(cost, life_available=player.life)
+            self.rules.lose_life(player, life_spent, cause="cost")
+        self.state.planar_die_rolls_this_turn[player.id] = (
+            self.state.planar_die_rolls_this_turn.get(player.id, 0) + 1
+        )
+        face = self.rules.roll_planar_die(player)
+        self.give_priority(player)  # RULE 117.3c, as for any other action
+        return face
+
+    def turn_face_up_actions(self, player: Player, obj: GameObject) -> list[dict[str, Any]]:
+        """The offered `legal_actions` entries for turning ``obj`` face up
+        (RULE 702.37e/702.168d/701.40b/701.58b) — one per payable route.
+
+        A special action, so it is offered "any time you have priority" with
+        no timing restriction of its own (RULE 116.2b): no main-phase gate,
+        no empty-stack gate — turning a morph up in response to a removal
+        spell is exactly the point of the mechanic. Payability is checked
+        against the mana pool here (the same way an activated ability's offer
+        is), so an unaffordable route simply isn't offered.
+        """
+        if not obj.face_down or obj.controller_id != player.id:
+            return []
+        actions: list[dict[str, Any]] = []
+        for index, option in enumerate(face_down.turn_face_up_options(obj)):
+            if not player.mana_pool.can_pay(option["cost"], life_available=player.life):
+                continue
+            actions.append(
+                {
+                    "type": "turn_face_up",
+                    "instance_id": obj.instance_id,
+                    "name": obj.name,
+                    "option_index": index,
+                    "kind": option["kind"],
+                    "cost_label": option["label"],
+                }
+            )
+        return actions
+
+    def turn_face_up(self, player: Player, obj: GameObject, option_index: int = 0) -> bool:
+        """Take the RULE 116.2b special action of turning ``obj`` face up.
+
+        Pays the chosen route's cost (morph/disguise's printed cost, or a
+        manifested/cloaked creature card's own mana cost) and turns the
+        permanent face up. Doesn't use the stack (RULE 702.37e) — the
+        permanent has its normal characteristics back the instant this
+        returns, with no window for anyone to respond in between, which is
+        what makes a face-down blocker's reveal work the way players expect.
+        """
+        options = face_down.turn_face_up_options(obj)
+        if not obj.face_down or obj.controller_id != player.id or not options:
+            raise ValueError(f"{obj.name} can't be turned face up")
+        if option_index < 0 or option_index >= len(options):
+            raise ValueError("no such turn-face-up option")
+        option = options[option_index]
+        if not player.mana_pool.can_pay(option["cost"], life_available=player.life):
+            raise ValueError(f"cannot pay {option['label']} to turn {obj.name} face up")
+        life_spent = player.mana_pool.pay(option["cost"], life_available=player.life)
+        self.rules.lose_life(player, life_spent, cause="cost")
+        turned = self.rules.turn_face_up(obj, megamorph=bool(option.get("megamorph")))
+        self.recompute_continuous_effects()
+        # RULE 117.3c: taking an action reclaims priority for its taker, the
+        # same as casting a spell or activating an ability does.
+        self.give_priority(player)
+        return turned
 
     def has_legal_targets(self, player: Player, obj: GameObject) -> bool:
         """Whether every target ``obj`` requires can be legally chosen now.
@@ -3859,6 +4078,21 @@ class GameEngine:
             # too (RULE 709.4), for their combined cost.
             if obj.card.fuse_face() is not None and self.can_cast(player, obj, face="fuse"):
                 actions.append(self._cast_action(player, obj, face="fuse"))
+            # RULE 702.37a/702.168a: a card with morph/disguise may instead be
+            # cast **face down** for {3} — a separate offer for the same hand
+            # card, like the second-face ones above, and the only way a
+            # face-down spell ever reaches the stack.
+            if face_down.cast_face_down_kind(obj) and self.can_cast(player, obj, face="face_down"):
+                actions.append(
+                    {
+                        "type": "cast_spell",
+                        "instance_id": obj.instance_id,
+                        "name": obj.name,
+                        "face": "face_down",
+                        "cost_label": face_down.FACE_DOWN_CAST_COST,
+                        "face_down_kind": face_down.cast_face_down_kind(obj),
+                    }
+                )
 
         for obj in list(player.command):
             if self.can_cast(player, obj):
@@ -4061,6 +4295,26 @@ class GameEngine:
                     action["any_combination"] = True
                     action["combination_total"] = sum(ability.options[0].values())
                 actions.append(action)
+
+        if self.can_roll_planar_die(player):
+            # RULE 901.6: rolling the planar die is a special action too, and
+            # only ever offered on its roller's own turn.
+            actions.append(
+                {
+                    "type": "roll_planar_die",
+                    "cost_label": self.planar_die_cost(player).raw or "{0}",
+                    "rolls_this_turn": self.state.planar_die_rolls_this_turn.get(player.id, 0),
+                }
+            )
+
+        for obj in self.state.permanents_controlled_by(player.id):
+            # RULE 116.2b: turning a face-down permanent face up is a
+            # *special action* — no stack, no timing gate beyond holding
+            # priority — so it's offered here for every face-down permanent
+            # this player controls with a payable route (RULE 702.37e/
+            # 702.168d/701.40b/701.58b; a manifested noncreature card offers
+            # none, RULE 701.40g).
+            actions.extend(self.turn_face_up_actions(player, obj))
 
         for obj in self.state.permanents_controlled_by(player.id):
             # RULE 502.1 "you may choose not to untap ~ during your untap

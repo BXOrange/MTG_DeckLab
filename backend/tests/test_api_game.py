@@ -240,6 +240,7 @@ class TestMulliganSetup:
             "complete": False,
             "mulligan_count": 0,
             "bottom_count": 0,
+            "next_hand_size": 7,
             "mulligan_style": "london",
             "draw_first": False,
             "waiting_for": ["p1"],

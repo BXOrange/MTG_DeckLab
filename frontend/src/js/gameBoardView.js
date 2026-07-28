@@ -69,6 +69,7 @@ const CHOICE_ICONS = {
   enter_as_copy: '🪞', counter_unless_pays: '🚫', ward: '🛡️',
   commander_zone: '👑', trigger_mode: '🎭', add_mana_any_color: '💎',
   choose_creature_type: '🐾', choose_color: '🎨', read_ahead: '📜',
+  scry: '🔮', surveil: '🕵️',
 };
 
 /**
@@ -146,6 +147,14 @@ export function createGameBoardView(opts = {}) {
   // Attacking creatures whose "choose a defender" submenu is open (2+ legal
   // defenders, RULE 508.1a).
   const attackMenuOpen = new Set();
+  // Opponents whose board is folded away to just its header. Only offered at
+  // a table of 3+ (`services/lobby.py` opens up to four seats): three full
+  // opponent boards stacked above your own is a lot of scrolling, and most
+  // of the time only one of them is the one you're thinking about. Purely a
+  // client-side view state — nothing about the game changes, and an
+  // opponent's hidden zones were never on the wire to begin with (RULE
+  // 400.2). Starts empty, so nothing is hidden unless asked for.
+  const collapsedBoards = new Set();
   // Double-faced permanents a player has clicked "🔄" on to *preview* the
   // other face — purely a client-side view toggle (RULE 712 has no such
   // concept; the object's real `transformed` state is untouched), so a
@@ -468,6 +477,8 @@ export function createGameBoardView(opts = {}) {
 
         ${dummy ? opponentStripHtml(dummy) : ''}
 
+        ${planechaseHtml(s, actions)}
+
         ${gameOver ? gameOverHtml(s, seatId ? s.players.find((p) => p.id === seatId) : live[0]) : ''}
         ${statusHtml()}
         ${view.observer ? '<p class="server-status gf-observer-note">👁️ Beobachter-Modus – du siehst das öffentliche Spielfeld, aber keine Handkarten.</p>' : ''}
@@ -490,6 +501,32 @@ export function createGameBoardView(opts = {}) {
     `;
     wire();
     syncAutoPass();
+  }
+
+  // RULE 901: the Planechase strip — the face-up plane (901.7) with its own
+  // text, how many planes are left behind it, and the planar-die roll (a
+  // special action, RULE 901.6, offered by the server only on its roller's
+  // own turn and only when the {X} is payable). Renders nothing at all in a
+  // game with no planar deck, which is every non-Planechase game.
+  function planechaseHtml(s, actions) {
+    const plane = s.active_plane;
+    if (!plane) return '';
+    const roll = (actions || []).find((a) => a.type === 'roll_planar_die');
+    const rollButton = roll
+      ? `<button type="button" class="primary" data-action='${escapeAttr(JSON.stringify({ type: 'roll_planar_die' }))}' title="Planarwürfel werfen (Regel 901.6): 1× Chaos, 1× Planarwanderung, 4× leer. Kostet {X} = bisherige Würfe in diesem Zug.">🎲 Planarwürfel (${escapeHtml(roll.cost_label || '{0}')})</button>`
+      : '';
+    return `
+      <div class="gf-planechase">
+        <div class="gf-planechase-plane">
+          <span class="gf-planechase-label" title="Aktive Ebene (Regel 901.7)">🌌 Ebene</span>
+          <!-- Deliberately no data-hover-card: a plane is not in the card
+               cache at all (the bulk importer drops the `planar` layout), so
+               a hover lookup by name could only ever miss. -->
+          <strong title="${escapeAttr(plane.type_line || '')}">${escapeHtml(plane.name)}</strong>
+          <span class="gf-planechase-count" title="Verbleibende Karten im Planarstapel">${s.planar_deck_count || 0} im Stapel</span>
+        </div>
+        ${rollButton}
+      </div>`;
   }
 
   function controlsHtml(stackNonEmpty, pending, gameOver) {
@@ -709,16 +746,27 @@ export function createGameBoardView(opts = {}) {
         : holdsPriority
           ? '<span class="gf-priority-badge">⏳ ist dran …</span>'
           : '';
+    // Folding an opponent away is only offered at a pod-sized table — with
+    // one opponent there is nothing to scroll past.
+    const opponents = s.players.filter((o) => !o.is_dummy && o.id !== seatId).length;
+    const foldable = seatId != null && !isMe && opponents > 1;
+    const folded = foldable && collapsedBoards.has(p.id);
     return `
-      <section class="gf-player-board${isMe ? ' gf-own-board' : ''}${seatId && !isMe ? ' gf-opponent-board' : ''}${p.has_lost ? ' gf-board-out' : ''}">
+      <section class="gf-player-board${isMe ? ' gf-own-board' : ''}${seatId && !isMe ? ' gf-opponent-board' : ''}${p.has_lost ? ' gf-board-out' : ''}${folded ? ' gf-board-folded' : ''}">
         <header class="gf-player-board-head">
+          ${
+            foldable
+              ? `<button type="button" class="gf-board-fold" data-fold-board="${escapeAttr(p.id)}" title="${folded ? 'Spielfeld ausklappen' : 'Spielfeld einklappen'}" aria-expanded="${folded ? 'false' : 'true'}">${folded ? '▸' : '▾'}</button>`
+              : ''
+          }
           <h3>${escapeHtml(p.name)}${badges}</h3>
           ${manaPoolHtml(p.mana_pool)}
           ${lifeBox('Leben', p.life)}
           ${playerCountersHtml(p, s)}
           ${priorityBits ? `<div class="gf-banner-priority">${priorityBits}</div>` : ''}
         </header>
-        <div class="gf-play gf-zones-${zonesLeft ? 'left' : 'right'}">
+        ${folded ? foldedBoardHtml(p, bf) : ''}
+        <div class="gf-play gf-zones-${zonesLeft ? 'left' : 'right'}"${folded ? ' hidden' : ''}>
           <aside class="gf-side">
             <div class="gf-zone gf-command">
               <h4>Command Zone</h4>
@@ -766,6 +814,23 @@ export function createGameBoardView(opts = {}) {
           </div>
         </div>
       </section>`;
+  }
+
+  // What a folded-away opponent still shows: how much of everything they
+  // have. Enough to know whether they're worth unfolding, and all of it is
+  // public information the board prints anyway (a hidden zone is only ever
+  // a count here, same as when the board is open — RULE 400.2).
+  function foldedBoardHtml(p, bf) {
+    const creatures = bf.filter((o) => o.is_creature).length;
+    const counts = [
+      `${bf.length} Permanent${bf.length === 1 ? '' : 'e'}`,
+      `${creatures} Kreatur${creatures === 1 ? '' : 'en'}`,
+      `Hand ${p.hand_count != null ? p.hand_count : p.hand.length}`,
+      `Bibliothek ${p.library_count}`,
+      `Friedhof ${p.graveyard.length}`,
+      `Exil ${p.exile.length}`,
+    ];
+    return `<p class="gf-board-fold-summary">${counts.map(escapeHtml).join(' · ')}</p>`;
   }
 
   // A hand the server redacted (RULE 400.2 — an opponent's hand never
@@ -1001,6 +1066,15 @@ export function createGameBoardView(opts = {}) {
     root.querySelector('#gf-skip-empty-toggle')?.addEventListener('change', (e) => {
       saveSettings({ autoSkipEmpty: e.target.checked });
       render();
+    });
+    // Fold an opponent's board away at a table of 3+ (see `collapsedBoards`).
+    root.querySelectorAll('[data-fold-board]').forEach((el) => {
+      el.addEventListener('click', () => {
+        const id = el.dataset.foldBoard;
+        if (collapsedBoards.has(id)) collapsedBoards.delete(id);
+        else collapsedBoards.add(id);
+        render();
+      });
     });
     // Show/hide an opponent's face-down hand (their cards are never on the
     // wire either way — RULE 400.2).
@@ -1538,6 +1612,13 @@ export function createGameBoardView(opts = {}) {
     // real, reachable use today. Checked before the name cache so a card
     // whose art is already loaded doesn't leak through it.
     if (o.face_down_in_exile) return assetsSleeveImageUrl || null;
+    // RULE 708.2: a face-down permanent (morph/disguise/manifest/cloak) is a
+    // 2/2 with no identity at all — the backend already ships only the
+    // synthetic face (`game/face_down.py`), so there is nothing to leak, but
+    // there is also no art to show: render the player's card back. This is
+    // the case the sleeve fallback below was written for before any state
+    // could actually reach it.
+    if (o.face_down) return assetsSleeveImageUrl || null;
     const showBack = showsBackFace(o);
     const cached = imageCache?.get((o.name || '').toLowerCase());
     if (cached) {
@@ -1626,6 +1707,17 @@ export function createGameBoardView(opts = {}) {
     const preparedCopyBadge = o.prepared_copy
       ? `<span class="gf-prepared-badge" title="Vorbereitete Kopie: aus dem Exil zauberbar, solange die Quelle vorbereitet bleibt">🛡️ Kopie</span>`
       : '';
+    // RULE 708.2: a face-down permanent shows *what put it there* (morph,
+    // disguise, manifest, cloak) and nothing about the card underneath —
+    // which is all the payload carries anyway. The kind matters to the
+    // player because it decides how it can be turned face up (RULE
+    // 702.37e/701.40b) and whether it has ward {2} (RULE 702.168a/701.58a).
+    const faceDownLabels = {
+      morph: 'Morph', disguise: 'Verkleidung', manifest: 'Manifestiert', cloak: 'Verhüllt',
+    };
+    const faceDownBadge = o.face_down
+      ? `<span class="gf-facedown-badge" title="Verdeckte bleibende Karte (Regel 708.2): 2/2 ohne Namen und Text">🎭 ${escapeHtml(faceDownLabels[o.face_down_kind] || 'Verdeckt')}</span>`
+      : '';
     const effectsSummary = effectSummaryHtml(o);
     // A double-faced permanent (transform/modal DFC) gets a "🔄 peek other
     // face" button — purely a client-side preview (`flippedForView`), not
@@ -1636,7 +1728,7 @@ export function createGameBoardView(opts = {}) {
       : '';
     return `
       <div class="gf-card-slot">
-        <div class="${classes.join(' ')}" data-hover-card="${escapeHtml(o.name)}" title="${escapeHtml(o.name)}${pt}${o.tapped ? ' — getappt' : ''}">${inner}${flipButton}${attackBadge}${loyaltyBadge}${sagaBadge}${battleBadge}${counterBadge}${keywordBadge}${adventureBadge}${preparedBadge}${preparedCopyBadge}${effectsSummary}</div>
+        <div class="${classes.join(' ')}" data-hover-card="${escapeHtml(o.name)}" title="${escapeHtml(o.name)}${pt}${o.tapped ? ' — getappt' : ''}">${inner}${flipButton}${attackBadge}${loyaltyBadge}${sagaBadge}${battleBadge}${counterBadge}${keywordBadge}${adventureBadge}${preparedBadge}${preparedCopyBadge}${faceDownBadge}${effectsSummary}</div>
         ${buttons}
       </div>`;
   }
@@ -1954,6 +2046,18 @@ export function createGameBoardView(opts = {}) {
             on ? ' gf-card-action--skip-untap-on' : ''
           )
         );
+      } else if (a.type === 'turn_face_up') {
+        // RULE 116.2b: the special action of turning a face-down permanent
+        // face up — one button per payable route (its morph/disguise cost,
+        // or a manifested/cloaked creature card's own mana cost, RULE
+        // 702.37e/702.168d/701.40b/701.58b). No stack, so the card is simply
+        // revealed the moment this lands.
+        buttons.push(
+          actionButton(
+            { type: 'turn_face_up', instance_id: a.instance_id, option_index: a.option_index },
+            `🔎 Aufdecken (${escapeHtml(a.cost_label || '')})`
+          )
+        );
       } else if (a.type === 'attack') {
         buttons.push(attackControlHtml(a));
       }
@@ -2148,6 +2252,44 @@ export function createGameBoardView(opts = {}) {
     }
     if (s.initiative_id === p.id) {
       bits.push('<span class="gf-pcounter gf-pcounter--designation" title="Initiative (Regel 726)">⚔️ Initiative</span>');
+    }
+    // RULE 309: the dungeon card in this player's command zone, with the
+    // room their venture marker is on and how far through they are — plus
+    // every dungeon they have already completed (309.7), which is a real
+    // card condition ("if you've completed a dungeon") and invisible
+    // otherwise, since a completed dungeon leaves the game.
+    if (p.dungeon) {
+      const rooms = p.dungeon.rooms || [];
+      const index = rooms.findIndex((r) => r.name === p.dungeon.current_room);
+      const room = index >= 0 ? rooms[index] : null;
+      const title = `${p.dungeon.name} (Regel 309) — Raum ${index + 1}/${rooms.length}${room ? `: ${room.effect_text}` : ''}`;
+      bits.push(
+        `<span class="gf-pcounter gf-pcounter--designation" title="${escapeAttr(title)}">🗝️ ${escapeHtml(p.dungeon.current_room || p.dungeon.name)}</span>`,
+      );
+    }
+    if ((p.completed_dungeons || []).length) {
+      bits.push(
+        `<span class="gf-pcounter" title="${escapeAttr(`Abgeschlossene Dungeons (Regel 309.7): ${p.completed_dungeons.join(', ')}`)}">🏁 ${p.completed_dungeons.length}</span>`,
+      );
+    }
+    // RULE 902.2: a Vanguard avatar sits in the command zone all game with
+    // its abilities functioning from there (902.4).
+    if (p.vanguard) {
+      bits.push(
+        `<span class="gf-pcounter gf-pcounter--designation" title="${escapeAttr(`Vanguard-Avatar (Regel 902): ${p.vanguard.name}`)}">🧝 ${escapeHtml(p.vanguard.name)}</span>`,
+      );
+    }
+    // RULE 904: the archenemy's scheme deck, and any ongoing scheme still
+    // face up (904.9).
+    if (s.archenemy_id === p.id || (p.scheme_deck_count || 0) > 0) {
+      bits.push(
+        `<span class="gf-pcounter gf-pcounter--designation" title="Erzfeind (Regel 904): Machenschaften im Stapel">😈 ${p.scheme_deck_count || 0}</span>`,
+      );
+    }
+    for (const scheme of p.ongoing_schemes || []) {
+      bits.push(
+        `<span class="gf-pcounter" title="${escapeAttr(`Andauernde Machenschaft (Regel 904.9): ${scheme.name}`)}">📜 ${escapeHtml(scheme.name)}</span>`,
+      );
     }
     const emblems = p.emblems || [];
     if (emblems.length) {

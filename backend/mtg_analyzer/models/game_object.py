@@ -168,6 +168,30 @@ class GameObject:
         #: is turned face up — nothing keeps a card face down across a zone
         #: change (RULE 400.7).
         self.face_down_in_exile: bool = False
+        #: RULE 708.2: whether this object is **face down** — a 2/2 creature
+        #: with no text, no name, no subtypes and no mana cost (morph/
+        #: disguise cast face down, or a manifested/cloaked card put onto the
+        #: battlefield that way). Unlike `face_down_in_exile` above (which
+        #: only hides a card's identity in the view), this is a genuine
+        #: characteristic change: `card` itself is swapped for the synthetic
+        #: face-down face (`game/face_down.py`), so the layer engine, combat
+        #: and the board all read the 2/2 with no special case. Cleared by
+        #: `turn_face_up`.
+        self.face_down: bool = False
+        #: Which rule put this object face down — ``"morph"``/``"disguise"``
+        #: (RULE 702.37/702.168, cast face down) or ``"manifest"``/
+        #: ``"cloak"`` (RULE 701.40/701.58, put onto the battlefield face
+        #: down). It decides how the permanent may be turned face up
+        #: (`game/face_down.py`'s `turn_face_up_options`), which is why the
+        #: *way in* has to be remembered rather than just the fact.
+        self.face_down_kind: Optional[str] = None
+        #: The face-up `Card` + catalogue-derived bindings stashed while this
+        #: object is face down (`game/copy_mechanics.py`'s `snapshot_face`
+        #: shape, the same bundle a transform/copy swap saves). ``None``
+        #: unless `face_down` is set; restored wholesale by `turn_face_up`,
+        #: which is what makes RULE 708.8's "it regains its normal
+        #: characteristics" a single assignment rather than a re-parse.
+        self._face_up_snapshot: Optional[dict[str, Any]] = None
         #: RULE 702.140c Mutate: the abilities merged in from *under* this
         #: permanent — the oracle text of every card mutated onto it, kept as
         #: text so `effect_binder.bind_from_catalogue` can re-derive real
@@ -677,6 +701,10 @@ class GameObject:
         `_granted_*`/`_derived_*` fields already get via the next
         `continuous.recompute` pass rather than an explicit clear here.
         """
+        # RULE 708.9: a face-down permanent is revealed as it changes zones,
+        # so a new object is never still face down (and never keeps the old
+        # object's stashed face-up bundle).
+        self.turn_face_up()
         if self.transformed:
             self.card = self._front_card  # RULE 711.8: a new object presents its front face
         self._front_card = self.card
@@ -973,6 +1001,80 @@ class GameObject:
     def untap(self) -> None:
         self.tapped = False
 
+    #: The catalogue-derived fields a face-down swap replaces wholesale —
+    #: kept in step with `game/copy_mechanics.py`'s `_FACE_ATTRS` (the same
+    #: bundle a copy/transform swap saves), duplicated here rather than
+    #: imported so the model layer keeps its no-`game/`-at-import-time rule.
+    _FACE_ATTRS: tuple[str, ...] = (
+        "spell_effects",
+        "triggered_abilities",
+        "activated_abilities",
+        "static_effects",
+        "replacement_effects",
+        "enter_as_copy_effects",
+        "intrinsic_keywords",
+        "parametric_keywords",
+    )
+
+    def _face_snapshot(self) -> dict[str, Any]:
+        """This object's current `Card` + catalogue-derived bindings."""
+        snapshot: dict[str, Any] = {"card": self.card}
+        for attr in self._FACE_ATTRS:
+            value = getattr(self, attr, None)
+            if isinstance(value, set):
+                snapshot[attr] = set(value)
+            elif isinstance(value, dict):
+                snapshot[attr] = dict(value)
+            else:
+                snapshot[attr] = list(value or [])
+        return snapshot
+
+    def turn_face_down(self, card: Card, kind: str) -> None:
+        """Become a face-down object presenting ``card`` (RULE 708.2).
+
+        Stashes the face-up bundle (`_face_up_snapshot`) and clears every
+        catalogue-derived ability, since a face-down object has no text at
+        all — a morph creature's own ETB/attack triggers must not fire while
+        it's face down, and RULE 708.3 says its enters-the-battlefield
+        abilities don't even trigger on the way in. RULE 708.2b: a face-down
+        permanent can't be turned face down again, so this is a no-op then.
+        """
+        if self.face_down:
+            return
+        self._face_up_snapshot = self._face_snapshot()
+        self.card = card
+        self.face_down = True
+        self.face_down_kind = kind
+        self.spell_effects = []
+        self.triggered_abilities = []
+        self.activated_abilities = []
+        self.static_effects = []
+        self.replacement_effects = []
+        self.enter_as_copy_effects = []
+        self.intrinsic_keywords = set()
+        self.parametric_keywords = {}
+
+    def turn_face_up(self) -> bool:
+        """Regain the normal characteristics (RULE 708.8) — restores exactly
+        what `turn_face_down` stashed. Returns whether anything changed.
+
+        The bare state transition only: the rules consequences that go with
+        the *special action* (paying a morph/manifest cost, RULE 702.37b's
+        megamorph counter, the "turned face up" trigger) belong to
+        `RulesEngine.turn_face_up`, which wraps this. Called directly — with
+        no event — by `GameState.remove_from_battlefield`, since RULE 708.9's
+        "reveal it as it moves" is not a turn-face-up that anything triggers
+        off (RULE 701.40g's own wording for the analogous case)."""
+        if not self.face_down:
+            return False
+        snapshot = self._face_up_snapshot or {}
+        for attr, value in snapshot.items():
+            setattr(self, attr, value)
+        self.face_down = False
+        self.face_down_kind = None
+        self._face_up_snapshot = None
+        return True
+
     def transform(self) -> bool:
         """Turn a double-faced permanent to its other face (RULE 712.8).
 
@@ -1053,6 +1155,17 @@ class GameObject:
             # the payload: this app's goldfish/Replay views are all shown to
             # the card's own owner, who is exactly who *may* look at it.
             "face_down_in_exile": self.face_down_in_exile,
+            # RULE 708.2: a face-down spell/permanent — the board renders the
+            # active card-back sleeve rather than art, and shows the 2/2 that
+            # `power`/`toughness` above already report. ``face_down_kind``
+            # says which rule put it there (morph/disguise/manifest/cloak),
+            # which is what decides how it may be turned face up. The card's
+            # own identity is *not* in this payload at all: `card_id`/`name`/
+            # `type_line` above read `self.card`, which is the synthetic
+            # face-down face while it's down, so RULE 708.5's "only you may
+            # look" holds for every viewer by construction.
+            "face_down": self.face_down,
+            "face_down_kind": self.face_down_kind,
             # RULE 722.3c: this object *is* a prepared copy sitting in exile,
             # castable as long as its source stays prepared — the mirror
             # image of `prepared` below (which flags the source permanent).

@@ -533,6 +533,35 @@ into `BACKLOG.md`, and those mentions have been repointed there.
     "offering `∅ Kein Ziel` when optional") — the `frontend/ToDo_
     Frontend.md` entry describing it as open was stale.
 
+- [x] **Face-down permanents, dungeons and Planechase on the board**
+      (2026-07-28, the frontend half of the RULE 708/309/901 backend work —
+      `backend` worklog "Face-down spells and permanents", "Dungeons",
+      "Formats and casual variants").
+  - `resolveImageUrl` now renders the player's chosen **card-back sleeve**
+    for a face-down permanent. That fallback had existed since the sleeve
+    feature shipped but was unreachable: the only state that could hit it
+    was a face-down *token*, which nothing could produce. Nothing is hidden
+    client-side — the backend ships only the synthetic 2/2 face (RULE
+    708.2a), so the identity isn't in the payload for any viewer.
+  - A `🎭` badge names *why* a permanent is face down (Morph / Verkleidung /
+    Manifestiert / Verhüllt), which is what decides how it can be turned up
+    and whether it has ward {2}. Bottom-left — the one corner the attacking/
+    loyalty/counter/keyword badges don't already use, since a face-down
+    creature can be attacking and carrying counters at the same time.
+  - `🔎 Aufdecken (<Kosten>)` is offered per payable route, straight from
+    `legal_actions` — a manifested morph card genuinely offers two (RULE
+    701.40c), so this is a button per option, not a single toggle.
+  - The player-counter strip gained the command-zone facts that have no
+    card tile of their own: the dungeon and its current room (with the
+    room's own effect text in the tooltip), completed dungeons, a Vanguard
+    avatar, the archenemy's scheme count, and any face-up ongoing scheme.
+  - Planechase gets a strip of its own above the boards: the face-up plane
+    and the `🎲 Planarwürfel` special action with its live {X} cost. It
+    renders nothing at all when there's no planar deck, i.e. in every game
+    that isn't Planechase. Deliberately no `data-hover-card` on the plane
+    name — planes aren't in the card cache at all (the bulk importer drops
+    the `planar` layout), so a hover lookup by name could only ever miss.
+
 ## Multiplayer
 
 - [x] **The Multiplayer tab is two tabs**, "Setup" and "Board", driven by
@@ -736,6 +765,47 @@ into `BACKLOG.md`, and those mentions have been repointed there.
       history to restore) — the button's tooltip says so plainly, since
       "why did my opponent's move also disappear" is the one thing about
       this feature that isn't obvious from the label.
+
+- [x] **Pod-sized tables, 2–4 seats (PLR-2, 2026-07-28).** Two controls and
+      one board affordance. In Setup, the "Spiel erstellen" row gained a
+      seat-count `<select>` (2/3/4, passed as `numPlayers` — `api.js` had
+      always taken the argument, nothing ever sent it) and the table panel
+      gained a host-only "Plätze" row that can still be changed until the
+      game starts. Counts below the number of players already seated are
+      `disabled` rather than hidden, so it's visible *why* a table can't
+      shrink further; the server clamps the same way regardless. The
+      "Aktuell werden zwei Spieler unterstützt" hint is gone.
+
+      On the board (`gameBoardView.js`), each opponent's section gained a
+      ▾/▸ fold button — offered **only** when there are 2+ opponents,
+      since with one there is nothing to scroll past. Folding hides the
+      play area and leaves the header (name, badges, life, counters,
+      priority) plus a one-line count summary (permanents/creatures/hand/
+      library/graveyard/exile). Nothing is folded by default: hiding an
+      opponent's board by default would hide the thing you most need to
+      look at. It's pure client-side view state (`collapsedBoards`), not
+      persisted — and no information question arises either way, since the
+      counts it shows are what the board prints anyway and the hidden
+      zones behind them never left the server (RULE 400.2).
+
+- [x] **Vancouver mulligan + the scry that makes it real (PLR-1,
+      2026-07-28).** The board needed nothing new for the scry itself: it
+      arrives as an ordinary `pending_choice`, so `simpleChoiceButtonsHtml`
+      renders "put this one on the bottom" / "Rest oben lassen" as buttons
+      and the modal already knows how to be answered — only a 🔮
+      `CHOICE_ICONS` entry was added. It lands on the *board* rather than
+      in the mulligan screen because the scry happens after the whole
+      table has kept, at which point setup is over (see `Done_Backend.md`).
+
+      The mulligan screens did need work, because Vancouver is the first
+      style whose hand *shrinks*: the "Mulligan (neue 7 ziehen)" button now
+      reads the real number (`setup.next_hand_size`, new in the view), and
+      the explanatory sentence — which differs per style and was already
+      duplicated between `goldfishView.js` and `multiplayerView.js` — moved
+      into a new shared `mulligan.js` (`mulliganText`, plus `MULLIGAN_LABELS`
+      and `SEAT_COUNTS`) rather than being forked a third way. The Setup
+      tab's Mulligan-Regel dropdown picks the new style up automatically,
+      being generated from `MULLIGAN_LABELS`.
 
 ## Deck analysis (UC2)
 

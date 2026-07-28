@@ -273,6 +273,11 @@ def test_combat_damage_to_the_initiative_holder_swaps_it():
     state = eng.state
     p1, p2 = state.player_by_id("p1"), state.player_by_id("p2")
     eng.rules.take_initiative(p1)
+    # RULE 726.2's third inherent ability ("whenever a player takes the
+    # initiative, that player ventures into Undercity") queues its own
+    # trigger off that; drop it so this test still measures exactly the
+    # combat-damage one.
+    eng.rules.pending_triggers.clear()
 
     attacker = _battlefield_obj(state, _creature("Raider"), controller="p2")
     eng.rules.deal_damage(p1, 2, source=attacker, combat=True)

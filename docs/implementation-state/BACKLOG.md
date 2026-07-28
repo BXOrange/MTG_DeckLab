@@ -27,7 +27,6 @@ Plan-level sequencing lives in
 | `ENG` | Game engine — turn/stack/priority loop, layers, targeting, combat plumbing |
 | `PAR` | Parser — oracle-text → `AbilitySpec` recognition (`parser/oracle/`) |
 | `MEC` | Game mechanics — a named MTG mechanic with no engine primitive yet |
-| `TYP` | Card types — whole card kinds not modeled beyond a generic permanent |
 | `PLR` | Player management — seats, multiplayer, bots, accounts, sessions |
 | `VIS` | Visuals — frontend UI/UX |
 | `DB` | Database — card cache, saved decks, persistence, data freshness |
@@ -163,9 +162,45 @@ Plan-level sequencing lives in
   parsing means the static never binds. Modeling the lock-down family would
   unlock the toggle for real play, not just synthetic tests
   (`tests/test_batch8_permission_statics_family.py`).
+- **PAR-14 · "This ability triggers only once each turn."** RULE 603.1's
+  once-per-turn limiter, in both its printed spellings — the trailing
+  sentence ("…put a +1/+1 counter on this creature. **This ability triggers
+  only once each turn.**", Chance-Met Elves/Prudent Fateseer) and the
+  in-condition one ("whenever you surveil **for the first time each turn**",
+  Whispering Snitch). **182 cards** mention one, and every one of them fails
+  the coverage gate as a whole today, however ordinary the rest of the card
+  is — which is what makes this a ranked ticket rather than tail work: it's
+  a *qualifier* blocking otherwise-modeled cards, not an unmodeled effect.
+  Found while closing the scry/surveil trigger family (2026-07-28), where it
+  is the single biggest blocker: 5 of those 25 cards are MODELED, and the
+  limiter is why two of the near misses aren't.
+  Needs a genuine new mechanism, not just a parser handler — a per-turn
+  fired-count on the `TriggeredAbility` (reset at cleanup, RULE 514.2's
+  neighbourhood) plus a `trigger["limit"]` the segmenter can emit. Grep
+  first: nothing in `game/effects.py` counts firings per turn today
+  (`GameState.stats` counts *game*-wide, and `temp_*` flags are cleared
+  rather than counted), so this really is new — but check again before
+  building, per the batch-discipline rule.
 - **PAR-12 · The indefinite long tail.** Strategy, current coverage, and a
   worked example: [PARSER_LONG_TAIL.md](PARSER_LONG_TAIL.md). Not a ticket
   that can be "closed" — a standing program.
+- **PAR-13 · Dungeon room, plane and scheme effect bodies.** The bounded,
+  enumerable corner of the tail, called out separately only because a
+  *shipped* subsystem is waiting on it: the RULE 309 dungeon engine and all
+  four room graphs are built, but a room whose printed effect the grammar
+  doesn't model resolves with no effect (fail-closed, `game/dungeons.py`'s
+  `room_effect_specs`) — 20 of 30 rooms bind today, the rest are ordinary
+  effect-body grammar ("each player loses 2 life unless they discard a
+  card", "exile the top two cards of your library. You may play them").
+  Planechase (901) and Archenemy (904) are the same one level up: their
+  *trigger conditions* are recognized ("whenever chaos ensues", "when you
+  set this scheme in motion", "when you planeswalk to ~"), but the bodies
+  are exotic even by tail standards ("creatures can't attack you until a
+  player planeswalks", "time travel"), so almost every real plane/scheme
+  still fails the coverage gate as a whole. Nothing dungeon- or
+  variant-specific is missing in either case — this is [PAR-12] work with a
+  known card list. (Reaching a Planechase/Archenemy table at all is a
+  separate, non-parser gap: [PLR-13].)
 
 ## MEC — Game mechanics
 
@@ -204,42 +239,8 @@ Plan-level sequencing lives in
 > out of both the coverage count and the backlog ranking — and Attractions
 > (RULE 717).
 
-## TYP — Card types
-
-- **TYP-1 · Face-down permanent states (morph/manifest/megamorph).** No
-  model for casting face-down as a 2/2 or turning face up — a real new
-  permanent-state subsystem. Also why the board's card-back-sleeve fallback
-  for a face-down token has no trigger condition to fire on
-  (`gameBoardView.js`'s `resolveImageUrl`).
-- **TYP-2 · Dungeons (RULE 309).** Zero scaffolding. Never in a deck,
-  brought in from outside the game (309.2), never permanents, can't be cast
-  (309.2c). Needs: a `Dungeon` model + `Player.dungeons` single slot (309.3)
-  — `Emblem` is the closest analog but a deliberate one-off, not a base
-  class — plus a card pool outside any deck, which isn't representable at
-  all today. Room abilities (309.4c) share a Saga chapter trigger's *shape*
-  but not its plumbing (own event type, own grammar — Saga's roman-numeral
-  line grammar doesn't fit). Completion (309.7) is a new SBA (309.6).
-  "Venture into the dungeon" (RULE 701.49) is itself a new primitive with no
-  analog, and also unblocks Initiative's companion trigger (RULE 726.2),
-  currently not fired for exactly this reason. Purely additive — no existing
-  deck's coverage can regress.
-- **TYP-3 · Prepared cards: trigger-condition recognition.** A Prepared
-  card's "become prepared" condition binds only for the four already-
-  recognized events (enters/dies/attacks/blocks). A general parser gap,
-  not specific to Prepared. `segmenter.py`'s `_TRIGGER_EVENTS`.
-- **TYP-4 · Niche/format extras** — remaining multiplayer/casual variants
-  (CR 8, CR 9 beyond Commander). Deprioritized until a deck needs one.
-
 ## PLR — Player management
 
-- **PLR-1 · Vancouver mulligan.** Deliberately not in `MULLIGAN_STYLES`
-  because `RulesEngine.scry` is a non-interactive stub that always keeps
-  every card on top — it would be a choice with no effect. Add when scry
-  becomes a real `pending_choice`.
-- **PLR-2 · More than two seats.** `services/lobby.py`'s `MAX_SEATS` is 2.
-  The engine is already N-player (`build_multiplayer_engine`,
-  `next_active_index`, the RULE 800.4a deferred-leave sweep); it's the board
-  layout and the "which opponent am I attacking" UI that aren't tested.
 - **PLR-3 · A face-down card in exile isn't redacted.**
   `_redact_hidden_zones` works zone by zone; `GameObject.face_down_in_exile`
   needs per-card characteristic redaction. No multiplayer card makes one
@@ -257,8 +258,13 @@ Plan-level sequencing lives in
 - **PLR-7 · A bot that weighs lines.** `GreedyBot`'s `rank_targets`/`play`
   are the intended override points — the base class was split for exactly
   this — but nothing subclasses them; bots take the first legal offer.
-- **PLR-8 · Bots at tables of 3+.** `Bot.rank_targets` treats "not mine" as
-  "the opponent's", which stops being a single answer with two opponents.
+- **PLR-8 · Bots at tables of 3+.** Now reachable, since the lobby opens
+  tables of up to four: `Bot.rank_targets` takes options as offered and
+  `GreedyBot._attack` swings at the first *player* defender in the list, so
+  a bot in a pod hits whoever happens to be listed first every turn rather
+  than choosing an opponent. Legal, and a bot pod plays out — it just isn't
+  a decision. Shares its fix with [PLR-7]: `rank_targets` is the override
+  point in both cases.
 - **PLR-9 · User accounts.** Login/signup (docs/04 PART 4), auth token
   storage + attachment to API/WebSocket calls, browser-refresh reconnect
   flow (docs/04 S1), and login/signup pages. Saved decks are unscoped until
@@ -270,8 +276,27 @@ Plan-level sequencing lives in
   doesn't fit the `EffectRegistry`/binder pipeline at all. Needs a new
   "opening hand → battlefield" step in `game_session.py`'s
   `_mulligan`/`keep_hand`.
-- **PLR-12 · A bot opponent in Goldfisch mode.** Bots need a seat; goldfish
-  has no second seat.
+- **PLR-12 · A bot opponent in Goldfisch mode.** There will be no bot implementation. The goldfish mode still counts additional cards being drawn by the goldfish or discarded cards by the goldfish as a stat.
+- **PLR-13 · No format switch at the table.** `GameEngine.new_game` takes a
+  `game_format=` (`models/game_format.py`, `game/variants.py`), but nothing
+  in `api/` or `services/` ever passes one — so Planechase, Archenemy and
+  Vanguard are engine-complete and *unreachable from the UI*, playable only
+  from Python. Needs a format picker in the Multiplayer **Setup** lobby
+  (`LobbyGame`, alongside the mulligan style — plus per-seat avatar choice
+  for Vanguard and who's the archenemy for 904) threaded through
+  `api/multiplayer.py`'s session build, and the same switch on the goldfish
+  side. Frontend halves: the board's Planechase strip and the variant
+  badges already exist and render off the session view. Card *text* for
+  those formats is a separate, parser-side gap: [PAR-13].
+- **PLR-14 · Team variants (RULE 809/810/811).** Two-Headed Giant, Emperor
+  and Grand Melee are the part of CR 8 that `models/game_format.py`
+  deliberately doesn't model: unlike the RULE 9 variants (which add a card
+  pool beside the game) these change the **turn structure itself** — a
+  shared life total, two players taking one turn together, a "defending
+  team" in combat, RULE 810.8's shared damage assignment. That's a turn-loop
+  and combat project, not a format record. The seats it needs exist now (a
+  table opens for up to four), so what's left is genuinely the turn loop;
+  [PLR-13] to be selectable once built.
 
 ## VIS — Visuals
 

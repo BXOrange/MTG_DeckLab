@@ -41,8 +41,11 @@ sitzt.
 ### Ein Spiel erstellen
 
 Gib im Kasten **Neues Spiel** optional einen Namen ein und klicke auf
-**Spiel erstellen**. Du wirst Host 👑 des Tisches und nimmst den ersten
-Platz ein. Unterstützt werden zwei Spieler.
+**Spiel erstellen**. Im Auswahlfeld daneben legst du fest, wie viele
+Plätze der Tisch hat: **2, 3 oder 4 Spieler**. Du wirst Host 👑 des
+Tisches und nimmst den ersten Platz ein. Die Platzzahl lässt sich bis zum
+Start noch ändern (siehe unten) — nur nicht unter die Zahl der Spieler,
+die schon sitzen.
 
 ### Einem Spiel beitreten
 
@@ -61,10 +64,19 @@ Sobald du an einem Tisch sitzt, erscheint oben in **Setup** ein Panel mit:
 - **Den Plätzen**, in Zugreihenfolge. Platz 1 beginnt. Jede Zeile zeigt
   den Spieler, sein gewähltes Deck und ob er schon zugesagt hat. 👑
   markiert den Host, "(du)" dich selbst.
+- **Plätze** — vom Host gewählt, 2 bis 4. Kleinere Zahlen als die schon
+  besetzten Plätze sind ausgegraut: Verkleinern setzt niemanden vor die
+  Tür.
 - **Mulligan-Regel** — vom Host für den ganzen Tisch gewählt:
   - *London-Mulligan* (Standard): zurückmischen und neue 7 ziehen; beim
     Behalten so viele Karten unten in die Bibliothek legen, wie Mulligans
     genommen wurden.
+  - *Vancouver*: die frühere Turnierregel. Jeder Mulligan zieht **eine
+    Karte weniger** (7, dann 6, dann 5 …) — dafür wird beim Behalten nie
+    unterlegt. Haben alle behalten, bekommt jeder, der mindestens einen
+    Mulligan genommen hat, **Hellsicht 1**: du siehst die oberste Karte
+    deiner Bibliothek und entscheidest, ob sie oben bleibt oder nach
+    unten kommt.
   - *Next 7*: zurückmischen und neue 7 ziehen, genau wie beim
     London-Mulligan — aber beim Behalten wird nie unterlegt, egal wie
     viele Mulligans genommen wurden. Eine "freie" Variante für lockeres
@@ -325,8 +337,12 @@ schaltet die jeweilige Zeit ab.
 
 ## Hinweise und Grenzen
 
-- **Zwei Spieler.** Mehr Plätze werden noch nicht unterstützt (ein Bot
-  belegt einen davon).
+- **Zwei bis vier Spieler.** Größere Tische werden nicht unterstützt;
+  Bots belegen ganz normale Plätze davon. An einem Tisch mit mehreren
+  Gegnern kannst du fremde Spielfelder über das ▾-Symbol in der
+  Kopfzeile einklappen, wenn dir das Scrollen zu viel wird.
+- **Bots im Pod.** Ein Bot greift immer den erstgenannten Gegner an — mit
+  zwei oder drei Gegnern also nicht *ausgewählt*, sondern immer denselben.
 - **Namen sind Identitäten — und ungeschützt.** Zwei Personen mit
   demselben Namen gelten als derselbe Spieler, und wer sich zuletzt
   verbindet, übernimmt den Platz. Gebt euch am Tisch also unterschiedliche

@@ -41,8 +41,11 @@ its status — *in Vorbereitung* (being set up), *läuft* (running) or
 ### Creating a game
 
 Type a name (optional) into the **Neues Spiel** (new game) box and click
-**Spiel erstellen** (create game). You become the table's host 👑 and take
-the first seat. Two players are supported.
+**Spiel erstellen** (create game). The dropdown next to it sets how many
+seats the table has: **2, 3 or 4 players**. You become the table's host 👑
+and take the first seat. The seat count can still be changed until the
+game starts (see below) — just not below the number of players already
+sitting down.
 
 ### Joining a game
 
@@ -61,10 +64,18 @@ Once you're at a table, a panel appears at the top of **Setup** with:
 - **The seats**, in turn order. Seat 1 goes first. Each row shows the
   player, their chosen deck and whether they've accepted yet. 👑 marks the
   host, and "(du)" marks you.
+- **Plätze** (seats) — chosen by the host, 2 to 4. Counts below the
+  seats already taken are greyed out: shrinking the table never evicts
+  anyone.
 - **Mulligan-Regel** (mulligan rule) — chosen by the host for the whole
   table:
   - *London-Mulligan* (the default): shuffle back and draw a fresh 7,
     then put one card on the bottom per mulligan taken when you keep.
+  - *Vancouver*: the tournament rule London replaced. Each mulligan draws
+    **one card fewer** (7, then 6, then 5 …) and keeping never bottoms
+    anything. Once the whole table has kept, everyone who took at least
+    one mulligan gets **scry 1**: you see the top card of your library
+    and decide whether it stays on top or goes to the bottom.
   - *Next 7*: shuffle back and draw a fresh 7, just like the
     London-Mulligan — but keeping never bottoms any cards, however many
     mulligans were taken. A "free" variant for casual play/playtesting.
@@ -317,8 +328,13 @@ timer off.
 
 ## Notes and limits
 
-- **Two players.** More seats aren't supported yet (a bot takes one of
-  them).
+- **Two to four players.** Bigger tables aren't supported; bots take
+  ordinary seats among those. At a table with several opponents you can
+  fold an opponent's board away with the ▾ button in its header if the
+  scrolling gets to be too much.
+- **Bots in a pod.** A bot always attacks the first opponent listed — so
+  with two or three opponents it isn't *choosing* one, just always hitting
+  the same one.
 - **Names are identities, and they aren't protected.** Two people who pick
   the same name are treated as the same player, and the second to connect
   takes the seat over. Give everyone at the table a distinct name.

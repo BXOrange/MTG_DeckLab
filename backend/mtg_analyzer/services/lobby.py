@@ -77,12 +77,15 @@ SETUP = "setup"
 RUNNING = "running"
 FINISHED = "finished"
 
-#: The only table size the first version supports. Two-player is what the
-#: turn loop and the board UI are built and tested for; the seat/turn-order
-#: machinery below is written for N so raising this is a UI question rather
-#: than an engine one (`GameState.next_active_index` already rotates
-#: through any number of players).
-MAX_SEATS = 2
+#: Biggest table the lobby will open. Four is the Commander pod size, and
+#: also where the board UI stops being readable — the engine itself has no
+#: opinion (`GameState.next_active_index` rotates through any number of
+#: players, `GameEngine.legal_defenders_for` offers every opponent, and the
+#: RULE 800.4a deferred-leave sweep is written for N), so this is a UI cap
+#: rather than a rules one. Two stays the default (`LobbyGame.num_players`).
+MAX_SEATS = 4
+#: Smallest table: a shared game needs somebody to share it with.
+MIN_SEATS = 2
 #: Upper bound on `LobbyGame.takebacks_per_player` — purely a sanity clamp
 #: (nothing rules-based caps it), so a typo in the input can't hand out an
 #: effectively unlimited undo budget.
@@ -456,7 +459,7 @@ class Lobby:
         player = self.player(player_id)
         if player.game_id:
             raise LobbyError("you are already in a game — leave it first")
-        seats = max(2, min(int(num_players or 2), MAX_SEATS))
+        seats = max(MIN_SEATS, min(int(num_players or MIN_SEATS), MAX_SEATS))
         game = LobbyGame(
             id=str(uuid.uuid4()),
             name=(name or f"Spiel von {player.name}").strip(),
@@ -621,8 +624,11 @@ class Lobby:
         if mulligan_style is not None:
             game.mulligan_style = mulligan_style
         if num_players is not None:
-            seats = max(len(game.seats), min(int(num_players), MAX_SEATS))
-            game.num_players = seats
+            # Never below the seats already taken: shrinking a table can't
+            # evict anyone who is already sitting at it.
+            game.num_players = max(
+                len(game.seats), MIN_SEATS, min(int(num_players), MAX_SEATS)
+            )
         if takebacks_per_player is not None:
             game.takebacks_per_player = max(0, min(int(takebacks_per_player), MAX_TAKEBACKS_PER_PLAYER))
         self._unready(game)

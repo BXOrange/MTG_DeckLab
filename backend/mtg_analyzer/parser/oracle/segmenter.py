@@ -27,31 +27,67 @@ from .catalogue.saga import CHAPTER_LINE_RE, parse_chapter_token
 from .catalogue.static_handlers import enter_choice_specs, static_effect_specs
 from .spec import AbilitySpec, EffectSpec, ParserProvenance
 
+#: RULE 603.1's object-subject trigger *verbs*, longest phrase first, each
+#: mapped to the `EventType` the engine actually fires for it. **One table**
+#: feeding everything below — `_TRIGGER_EVENTS` (which verb a condition
+#: names), `_VERB_EVENTS` (the compound "<verb> or <verb>" shape) and the
+#: verb alternation every subject regex shares — so widening the vocabulary
+#: is a single edit here rather than six regexes drifting apart.
+#:
+#: Each entry earns its place by pointing at an event the engine fires with
+#: an ``instance_id`` naming the object the condition is about, which is what
+#: `effect_binder._subject_condition` scopes on; a verb with no such event
+#: stays out and its cards stay `UNMODELED` (fail-closed). Deliberately
+#: absent for exactly that reason: "becomes untapped" (`EventType.UNTAP` is
+#: fired once per untap *step*, keyed by player, never per permanent),
+#: "becomes monstrous"/"specializes" (mechanics with no engine primitive at
+#: all — see the `MEC` tickets in `BACKLOG.md`).
+_TRIGGER_VERBS: tuple[tuple[str, str], ...] = (
+    # RULE 506.5's "attacks **alone**" comes first: the bare "attacks" row
+    # would otherwise claim it and silently drop the "alone" qualifier (a
+    # strictly wrong, over-firing trigger). Its own aggregate event, fired
+    # once combat locks in — see `EventType.ATTACKS_ALONE`.
+    ("attacks alone", "ATTACKS_ALONE"),
+    # RULE 708.8: "when ~ is turned face up" — the morph/megamorph/disguise
+    # trigger family (`game/face_down.py`), and the single largest verb the
+    # engine could already fire but the grammar couldn't name.
+    ("is turned face up", "TURNED_FACE_UP"),
+    # RULE 603.6c: "when ~ leaves the battlefield" — matched before "enters"
+    # can't be an issue (different verb), but the trailing "the battlefield"
+    # is part of the phrase here, unlike "enters the battlefield".
+    ("leaves the battlefield", "LEAVES_BATTLEFIELD"),
+    # RULE 509.5: "whenever ~ becomes blocked" — the attacker-side event,
+    # distinct from "blocks" (the blocker's own).
+    ("becomes blocked", "BECOMES_BLOCKED"),
+    # RULE 701.21b: "whenever ~ becomes tapped".
+    ("becomes tapped", "TAPPED"),
+    # RULE 702.140c: "whenever this creature mutates".
+    ("mutates", "MUTATES"),
+    ("enters", "ENTERS_BATTLEFIELD"),
+    ("dies", "DIES"),
+    ("attacks", "ATTACKS"),
+    ("blocks", "BLOCKS"),
+)
+
 #: Trigger phrase → `EventType` value (mirrors `models/events.py`). Conservative
 #: on purpose: only the events the engine actually fires and the binder can wire.
 #: Anything not here leaves the ability unclaimed → its card stays `UNMODELED`
-#: (docs/09 fail-closed), never a wrong trigger.
+#: (docs/09 fail-closed), never a wrong trigger. Order is `_TRIGGER_VERBS`'
+#: order, which is why the longest phrases sit first.
 _TRIGGER_EVENTS: list[tuple[re.Pattern[str], str]] = [
-    (re.compile(r"\benters\b"), "ENTERS_BATTLEFIELD"),
-    (re.compile(r"\bdies\b"), "DIES"),
-    # RULE 506.5's "attacks **alone**" — checked before the bare "attacks"
-    # row below, which would otherwise claim it and silently drop the
-    # "alone" qualifier (a strictly wrong, over-firing trigger). Its own
-    # aggregate event, fired once combat locks in — see `EventType.
-    # ATTACKS_ALONE` for why `ATTACKS` can't express it.
-    (re.compile(r"\battacks alone\b"), "ATTACKS_ALONE"),
-    (re.compile(r"\battacks\b"), "ATTACKS"),
-    (re.compile(r"\bblocks\b"), "BLOCKS"),
+    (re.compile(r"\b" + re.escape(verb) + r"\b"), event) for verb, event in _TRIGGER_VERBS
 ]
 
-#: The same four verbs as a plain word → `EventType` dict, for the compound
+#: The same verbs as a plain phrase → `EventType` dict, for the compound
 #: "~ enters or attacks" shape below (`_SELF_MULTI_EVENT_RE`) — kept
 #: separate from `_TRIGGER_EVENTS`' regex/event pairs since that list is
 #: matched by `.search()` (first hit wins, order matters for a single-verb
 #: condition) while this one needs an exact per-verb lookup instead.
-_VERB_EVENTS: dict[str, str] = {
-    "enters": "ENTERS_BATTLEFIELD", "dies": "DIES", "attacks": "ATTACKS", "blocks": "BLOCKS",
-}
+_VERB_EVENTS: dict[str, str] = {verb: event for verb, event in _TRIGGER_VERBS}
+
+#: The verb alternation every RULE 603.1 subject regex below shares, in
+#: `_TRIGGER_VERBS` order so a longer phrase always wins over a prefix of it.
+_VERB_ALT = "|".join(re.escape(verb) for verb, _ in _TRIGGER_VERBS)
 
 #: RULE 603.1's compound "~ <verb> or <verb>" trigger condition (The Wise
 #: Mothman: "Whenever The Wise Mothman enters or attacks, ...") — two
@@ -68,9 +104,89 @@ _VERB_EVENTS: dict[str, str] = {
 #: two abilities).
 _SELF_MULTI_EVENT_RE = re.compile(
     r"^(?:~|this (?:creature|artifact|enchantment|land|permanent|equipment))\s+"
-    r"(?P<v1>enters|dies|attacks|blocks)(?:\s+the\s+battlefield)?"
+    rf"(?P<v1>{_VERB_ALT})(?:\s+the\s+battlefield)?"
     r"\s+or\s+"
-    r"(?P<v2>enters|dies|attacks|blocks)(?:\s+the\s+battlefield)?$"
+    rf"(?P<v2>{_VERB_ALT})(?:\s+the\s+battlefield)?$"
+)
+
+#: RULE 9's casual-variant trigger conditions — the fixed phrasings a plane
+#: (RULE 901) and a scheme (RULE 904) share, which no object-verb grammar
+#: above can express because their subject is the *player* ("when **you**
+#: planeswalk to ~") while the ability still belongs to the card named.
+#: Matched against the *condition* text `_TRIGGER_RE` peels out — i.e. with
+#: the leading "when"/"whenever" already stripped, the same text
+#: `_trigger_event`/`_trigger_condition` see.
+#: Each maps to one `EventType` and needs no subject scoping: only the
+#: face-up plane's own abilities are ever collected in the first place
+#: (`game/variants.py`'s `command_zone_ability_sources`), so "this plane" is
+#: the only plane there is.
+#:
+#: The compound "when you planeswalk to ~ **and at the beginning of your
+#: upkeep**" is the single commonest plane template (22 of 207), and is two
+#: firing conditions — handled the same way `_SELF_MULTI_EVENT_RE` handles
+#: "~ enters or attacks": `AbilitySpec.trigger["event"]` becomes a list, and
+#: the binder builds one ability per event. Its upkeep half needs no
+#: `phase_relation`: a plane's controller is whoever last planeswalked to it,
+#: and the upkeep meant is theirs.
+_VARIANT_TRIGGER_CONDITIONS: tuple[tuple[re.Pattern[str], Any], ...] = (
+    (
+        re.compile(
+            r"^you planeswalk (?:to (?:~|this plane)|here)"
+            r" and at the beginning of your upkeep$"
+        ),
+        ["PLANESWALKED_TO", "STEP_BEGIN"],
+    ),
+    (
+        re.compile(r"^you planeswalk (?:to (?:~|this plane)|here)$"),
+        "PLANESWALKED_TO",
+    ),
+    (
+        re.compile(r"^you planeswalk away from (?:~|this plane)$"),
+        "PLANESWALKED_AWAY",
+    ),
+    # RULE 901.17: a phenomenon's own wording for "you planeswalked to me" —
+    # same event, since encountering one *is* planeswalking to it.
+    (
+        re.compile(r"^you encounter (?:~|this phenomenon|this)$"),
+        "PLANESWALKED_TO",
+    ),
+    (re.compile(r"^chaos ensues$"), "CHAOS_ENSUED"),
+    (
+        re.compile(r"^you set this scheme in motion$"),
+        "SCHEME_SET_IN_MOTION",
+    ),
+)
+
+#: RULE 603.1 trigger conditions whose subject is **the controller**, not an
+#: object: "whenever *you* scry", "whenever *you* surveil". No object-verb
+#: grammar above can express these — `_TRIGGER_VERBS` is a table of things a
+#: *permanent* does, and its whole scoping discipline (a verb earns a row
+#: only if the engine fires an event carrying an `instance_id` for it) is
+#: about matching the acting object. These events carry a ``player_id``
+#: instead, and the scoping question is "was it *me* who scried?".
+#:
+#: So they get their own table, emitting ``{"subject": "you"}`` for
+#: `effect_binder._subject_condition` — which is real scoping, unlike
+#: `_VARIANT_TRIGGER_CONDITIONS` (a plane's abilities are only ever
+#: collected for the face-up plane, so those need none). Without it, Dimir
+#: Spybug would grow a counter when an *opponent* surveiled.
+#:
+#: Matched against the *condition* text `_TRIGGER_RE` peels out — the
+#: leading "when"/"whenever" already stripped. Anchored end-to-end on
+#: purpose: "whenever you surveil **for the first time each turn**"
+#: (Whispering Snitch) is a once-per-turn qualifier the engine can't
+#: express, so it must fail to match and leave the card `UNMODELED` rather
+#: than bind an over-firing trigger.
+#:
+#: The compound "whenever you scry **or** surveil" (Matoya, Archon Elder;
+#: Planetarium of Wan Shi Tong) maps to a *list* of two events, handled the
+#: same way `_SELF_MULTI_EVENT_RE` and the compound plane template are: one
+#: `AbilitySpec` per event, each with its own freshly-bound effects.
+_PLAYER_TRIGGER_CONDITIONS: tuple[tuple[re.Pattern[str], Any], ...] = (
+    (re.compile(r"^you scry or surveil$"), ["SCRY", "SURVEIL"]),
+    (re.compile(r"^you surveil or scry$"), ["SURVEIL", "SCRY"]),
+    (re.compile(r"^you scry$"), "SCRY"),
+    (re.compile(r"^you surveil$"), "SURVEIL"),
 )
 
 #: A triggered-ability wrapper: "When/Whenever/At <condition>, <body>".
@@ -174,14 +290,43 @@ _DAMAGE_TRIGGER_RE = re.compile(
 #: `effect_binder._trigger_condition` (STEP_BEGIN events carry no controller
 #: of their own to key off, unlike RULE 603.1's object-subject events, so
 #: this checks `context.state.active_player` instead of an event field).
+#: The printed step words this family recognizes → the ``step`` name
+#: `game/phases.py`'s `default_turn_sequence` actually fires. The three
+#: **phase**-named rows are why this is a mapping rather than a bare
+#: alternation: a card says "at the beginning of combat"/"of your second main
+#: phase", but `EventType.STEP_BEGIN` names that phase's own first (and, for
+#: a main phase, only) step.
 _PHASE_STEP_WORDS: dict[str, str] = {
     "upkeep": "upkeep", "draw": "draw", "end": "end", "cleanup": "cleanup",
+    # RULE 507: "at the beginning of combat on your turn" — by a wide margin
+    # the most common phase trigger after upkeep/end step.
+    "combat": "begin_combat",
+    # RULE 505: the two main phases, printed either by ordinal or by
+    # pre-/postcombat name.
+    "first main phase": "main1",
+    "precombat main phase": "main1",
+    "second main phase": "main2",
+    "postcombat main phase": "main2",
 }
+
+#: The step/phase alternation, longest first so "first main phase" wins over
+#: any prefix of it.
+_PHASE_STEP_ALT = "|".join(
+    re.escape(word) for word in sorted(_PHASE_STEP_WORDS, key=len, reverse=True)
+)
+
 _PHASE_TRIGGER_RE = re.compile(
     r"^at the beginning of (?:"
-    r"(?:the|each) (?P<step_any>upkeep|draw|end|cleanup)(?:\s+step)?"
-    r"|your (?P<step_you>upkeep|draw|end|cleanup)(?:\s+step)?"
-    r"|each opponent'?s (?P<step_opp>upkeep|draw|end|cleanup)(?:\s+step)?"
+    # "each player's upkeep" reads exactly like "each upkeep" to this engine
+    # — every player's turn has one — so it shares the unscoped branch.
+    rf"(?:the|each)(?: player'?s)? (?P<step_any>{_PHASE_STEP_ALT})(?:\s+step)?"
+    rf"|your (?P<step_you>{_PHASE_STEP_ALT})(?:\s+step)?"
+    # "at the beginning of each of your postcombat main phases" — the plural
+    # form of the "your <phase>" row above, same meaning.
+    rf"|each of your (?P<step_you_each>{_PHASE_STEP_ALT})s?(?:\s+steps?)?"
+    # RULE 507's own idiom: the phase is named, the scope trails it.
+    r"|(?P<step_combat_you>combat) on your turn"
+    rf"|each opponent'?s (?P<step_opp>{_PHASE_STEP_ALT})(?:\s+step)?"
     r"),\s*(?P<body>.+)$",
     re.IGNORECASE,
 )
@@ -201,7 +346,7 @@ _PHASE_TRIGGER_RE = re.compile(
 #: reminder text (chapter I already covers it).
 _SELF_SUBJECT_RE = re.compile(
     r"^(?:~|this (?:creature|artifact|enchantment|land|permanent|equipment|class))\s+"
-    r"(?:enters|dies|attacks|blocks)(?:\s+the\s+battlefield)?(?:\s+alone)?$"
+    rf"(?:{_VERB_ALT})(?:\s+the\s+battlefield)?(?:\s+alone)?$"
 )
 
 #: RULE 303.4/301.5's "enchanted/equipped creature" trigger subject (Acquired
@@ -217,7 +362,7 @@ _SELF_SUBJECT_RE = re.compile(
 #: those on some real cards.
 _ATTACHED_SUBJECT_RE = re.compile(
     r"^(?:enchanted|equipped)\s+(?:creature|permanent|land|artifact)\s+"
-    r"(?:enters|dies|attacks|blocks)(?:\s+the\s+battlefield)?(?:\s+alone)?$"
+    rf"(?:{_VERB_ALT})(?:\s+the\s+battlefield)?(?:\s+alone)?$"
 )
 
 #: RULE 603.1's condition subject — a *group* of objects, not just the
@@ -230,7 +375,7 @@ _ATTACHED_SUBJECT_RE = re.compile(
 _GROUP_SUBJECT_RE = re.compile(
     r"^(?P<article>another|an|a)\s+(?P<type>" + "|".join(_GROUP_TYPE_WORDS) + r")"
     r"(?P<you_a> you control)?"
-    r"\s+(?:enters|dies|attacks|blocks)"
+    rf"\s+(?:{_VERB_ALT})"
     r"(?:\s+the\s+battlefield)?(?:\s+alone)?"
     r"(?P<you_b> under your control)?$"
 )
@@ -249,7 +394,7 @@ _GROUP_SUBJECT_RE = re.compile(
 _GROUP_SUBTYPE_SUBJECT_RE = re.compile(
     r"^(?P<article>another|an|a)\s+(?P<nontoken>nontoken\s+)?"
     r"(?P<subtypes>[a-z]+(?:\s+or\s+[a-z]+)*)\s+you control\s+"
-    r"(?:enters|dies|attacks|blocks)(?:\s+the\s+battlefield)?(?:\s+alone)?$"
+    rf"(?:{_VERB_ALT})(?:\s+the\s+battlefield)?(?:\s+alone)?$"
 )
 
 #: The "~ or another <subject>" merge (The Ghoul, Gunslinger's own actual
@@ -263,7 +408,7 @@ _GROUP_SUBTYPE_SUBJECT_RE = re.compile(
 _SELF_OR_GROUP_SUBTYPE_RE = re.compile(
     r"^~ or another\s+(?P<nontoken>nontoken\s+)?"
     r"(?P<subtypes>[a-z]+(?:\s+or\s+[a-z]+)*)\s+you control\s+"
-    r"(?:enters|dies|attacks|blocks)(?:\s+the\s+battlefield)?(?:\s+alone)?$"
+    rf"(?:{_VERB_ALT})(?:\s+the\s+battlefield)?(?:\s+alone)?$"
 )
 
 #: An activated-ability wrapper: "<cost>: <effect>" (RULE 602.1). The cost is
@@ -513,6 +658,28 @@ def _trigger_event(condition: str) -> Optional[str]:
     for pattern, event in _TRIGGER_EVENTS:
         if pattern.search(condition):
             return event
+    return None
+
+
+def _variant_trigger_event(condition: str) -> Any:
+    """A RULE 9 variant trigger condition (a plane's planeswalk/chaos, a
+    scheme's set-in-motion) → its `EventType`, a *list* of two for the
+    compound plane template, or ``None`` for anything else."""
+    cond = condition.strip()
+    for pattern, event in _VARIANT_TRIGGER_CONDITIONS:
+        if pattern.match(cond):
+            return list(event) if isinstance(event, list) else event
+    return None
+
+
+def _player_trigger_event(condition: str) -> Any:
+    """A player-subject trigger condition ("whenever you scry/surveil") → its
+    `EventType`, a *list* of two for the "scry or surveil" compound, or
+    ``None`` for anything else (`_PLAYER_TRIGGER_CONDITIONS`)."""
+    cond = condition.strip()
+    for pattern, event in _PLAYER_TRIGGER_CONDITIONS:
+        if pattern.match(cond):
+            return list(event) if isinstance(event, list) else event
     return None
 
 
@@ -873,12 +1040,18 @@ def segment_line(
         step_word = (
             phase_trig.group("step_any")
             or phase_trig.group("step_you")
+            or phase_trig.group("step_you_each")
+            or phase_trig.group("step_combat_you")
             or phase_trig.group("step_opp")
         )
-        step = _PHASE_STEP_WORDS.get(step_word)
+        step = _PHASE_STEP_WORDS.get((step_word or "").lower())
         if step is None:
             return Segment(raw=raw)
-        if phase_trig.group("step_you"):
+        if (
+            phase_trig.group("step_you")
+            or phase_trig.group("step_you_each")
+            or phase_trig.group("step_combat_you")
+        ):
             relation = "you"
         elif phase_trig.group("step_opp"):
             relation = "not_you"
@@ -904,6 +1077,71 @@ def segment_line(
     trig = _TRIGGER_RE.match(raw)
     if trig is not None:
         cond_text = trig.group("cond")
+        variant_event = _variant_trigger_event(cond_text)
+        if variant_event is not None:
+            body, optional = _peel_optional(trig.group("body"))
+            effects = parse_effect_body(body)
+            if effects is None:
+                return Segment(raw=raw)
+            # One `AbilitySpec` **per firing condition**, rather than the
+            # single list-valued ``event`` `_SELF_MULTI_EVENT_RE` emits: the
+            # compound plane template's two halves need *different* triggers,
+            # since only the upkeep half carries a step filter, and a filter
+            # is AND-ed onto the event payload (a `PLANESWALKED_TO` event has
+            # no ``step`` key, so a shared filter would fail closed and that
+            # half would never fire).
+            variant_specs: list[AbilitySpec] = []
+            for event_name in (
+                variant_event if isinstance(variant_event, list) else [variant_event]
+            ):
+                trigger = {"event": event_name}
+                if event_name == "STEP_BEGIN":
+                    trigger["filter"] = {"step": "upkeep"}
+                variant_specs.append(
+                    AbilitySpec(
+                        "triggered",
+                        effects=[EffectSpec(e.type, dict(e.params)) for e in effects],
+                        trigger=trigger,
+                        optional=optional,
+                        raw_text=raw,
+                        parser=provenance,
+                    )
+                )
+            return Segment(
+                raw=raw,
+                spec=variant_specs[0],
+                extra_specs=variant_specs[1:],
+                claimed=True,
+            )
+        player_event = _player_trigger_event(cond_text)
+        if player_event is not None:
+            # RULE 603.1 with a *player* subject ("whenever you scry") — the
+            # same one-spec-per-event shape as the compound above, but every
+            # spec carries the ``{"subject": "you"}`` scoping that makes it
+            # this controller's scry rather than anybody's.
+            body, optional = _peel_optional(trig.group("body"))
+            effects = parse_effect_body(body)
+            if effects is None:
+                return Segment(raw=raw)
+            player_specs = [
+                AbilitySpec(
+                    "triggered",
+                    effects=[EffectSpec(e.type, dict(e.params)) for e in effects],
+                    trigger={"event": event_name, "condition": {"subject": "you"}},
+                    optional=optional,
+                    raw_text=raw,
+                    parser=provenance,
+                )
+                for event_name in (
+                    player_event if isinstance(player_event, list) else [player_event]
+                )
+            ]
+            return Segment(
+                raw=raw,
+                spec=player_specs[0],
+                extra_specs=player_specs[1:],
+                claimed=True,
+            )
         multi = _SELF_MULTI_EVENT_RE.match(cond_text.strip())
         if multi is not None:
             event: "str | list[str]" = [_VERB_EVENTS[multi.group("v1")], _VERB_EVENTS[multi.group("v2")]]

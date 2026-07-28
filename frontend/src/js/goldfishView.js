@@ -28,6 +28,7 @@ import { preloadCardImages, cacheResolvedCard } from './cardImages.js';
 import { parseDeckSections } from './parser.js';
 import { createGameBoardView } from './gameBoardView.js';
 import { analysisHtml } from './gameStats.js';
+import { mulliganText } from './mulligan.js';
 
 /**
  * Create a persistent goldfish controller. Its session survives across
@@ -508,16 +509,16 @@ export function createGoldfishView() {
     const bottomCount = setup.bottom_count;
     const me = view.state.players[0];
     const canKeep = mulliganBottom.size === bottomCount;
+    const nextHand = setup.next_hand_size ?? 7;
     root.innerHTML = `
       <div class="goldfish-mulligan">
         <h3>Starthand</h3>
         <p class="hint">
           ${
             mulliganCount === 0
-              ? 'Deine Starthand: 7 Karten. Behalten, oder neu mischen (Mulligan)?'
-              : bottomCount === 0
-                ? `Mulligan Nr. ${mulliganCount}: neue 7 Karten gezogen. Kein Unterlegen nötig — die Hand bleibt bei 7 Karten.`
-                : `Mulligan Nr. ${mulliganCount}: neue 7 Karten gezogen. Beim Behalten ${bottomCount === 1 ? 'muss 1 Karte' : `müssen ${bottomCount} Karten`} unten in die Bibliothek gelegt werden — wähle sie unten aus.`
+              ? `Deine Starthand: ${me.hand.length} Karten. Behalten, oder neu mischen (Mulligan)?`
+              : mulliganText(setup, mulliganCount, bottomCount, me.hand.length) +
+                (bottomCount > 0 ? ' Wähle sie unten aus.' : '')
           }
         </p>
         ${statusHtml()}
@@ -529,7 +530,7 @@ export function createGoldfishView() {
           In Zug 1 eine Karte ziehen (sonst zieht der Goldfisch — du bist am Zug)
         </label>
         <div class="gf-controls">
-          <button id="gf-mulligan-btn" type="button" ${busy ? 'disabled' : ''}>🔀 Mulligan (neue 7 ziehen)</button>
+          <button id="gf-mulligan-btn" type="button" ${busy ? 'disabled' : ''}>🔀 Mulligan (${nextHand} Karten ziehen)</button>
           <button id="gf-keep-btn" type="button" class="primary" ${busy || !canKeep ? 'disabled' : ''}>
             ${bottomCount === 0 ? 'Hand behalten' : `Behalten (${mulliganBottom.size}/${bottomCount} unten ausgewählt)`}
           </button>

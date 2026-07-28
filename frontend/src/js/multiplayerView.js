@@ -46,6 +46,7 @@ import { analysisHtml } from './gameStats.js';
 import { getState, setState } from './state.js';
 import { preloadCardImages } from './cardImages.js';
 import { parseDeckSections } from './parser.js';
+import { MULLIGAN_LABELS, SEAT_COUNTS, mulliganText } from './mulligan.js';
 
 const PRESENCE_LABELS = {
   online: { icon: '🟡', text: 'Online' },
@@ -62,11 +63,6 @@ const DROP_REASONS = {
   closed: 'Verbindung verloren – versuche erneut …',
 };
 
-const MULLIGAN_LABELS = {
-  london: 'London-Mulligan (neue 7, dann N Karten unterlegen)',
-  next7: 'Next 7 (neue 7, nichts unterlegen)',
-  none: 'Kein Mulligan (Starthand wird behalten)',
-};
 
 /**
  * @param {{onBoardAvailable?: (available: boolean) => void, onEnterBoard?: () => void}} [hooks]
@@ -95,6 +91,9 @@ export function createMultiplayerView(hooks = {}) {
   let statusKind = '';
   let busy = false;
   let newGameName = '';
+  //: Seats the "Spiel erstellen" form asks for (2-4). Two by default, which
+  //: is what a quick game between two people wants.
+  let newGameSeats = 2;
   //: Notes about *this* client's connection and about the other players',
   //: shown as banners. Kept apart because they mean different things: one
   //: is "you dropped", the other "someone else did, keep playing".
@@ -402,8 +401,19 @@ export function createMultiplayerView(hooks = {}) {
   async function createGame() {
     if (!playerId) return;
     await withBusy('Spiel wird erstellt …', async () => {
-      applyLobbyResult(await createMultiplayerGame(playerId, newGameName), 'Spiel erstellt.');
+      applyLobbyResult(
+        await createMultiplayerGame(playerId, newGameName, newGameSeats),
+        'Spiel erstellt.',
+      );
       newGameName = '';
+    });
+  }
+
+  async function changeSeatCount(count) {
+    if (!game) return;
+    const n = Math.max(2, Math.min(4, Math.floor(Number(count)) || 2));
+    await withBusy('Einstellung wird gespeichert …', async () => {
+      applyLobbyResult(await setMultiplayerOptions(game.id, playerId, { numPlayers: n }));
     });
   }
 
@@ -640,8 +650,13 @@ export function createMultiplayerView(hooks = {}) {
       <div class="mp-new-game">
         <label for="mp-new-name">Neues Spiel</label>
         <input id="mp-new-name" type="text" placeholder="Name des Spiels (optional)" value="${escapeAttr(newGameName)}" />
+        <select id="mp-new-seats" title="Wie viele Plätze hat der Tisch?" ${busy ? 'disabled' : ''}>
+          ${SEAT_COUNTS.map(
+            (n) => `<option value="${n}"${n === newGameSeats ? ' selected' : ''}>${n} Spieler</option>`,
+          ).join('')}
+        </select>
         <button id="mp-create" type="button" class="primary" ${busy || !playerId ? 'disabled' : ''}>Spiel erstellen</button>
-        <p class="hint">Aktuell werden zwei Spieler unterstützt.</p>
+        <p class="hint">Zwei bis vier Spieler – die Plätze lassen sich bis zum Start noch ändern.</p>
       </div>`;
   }
 
@@ -668,6 +683,18 @@ export function createMultiplayerView(hooks = {}) {
         </ol>
         ${running ? '' : addBotHtml()}
         ${running ? '' : `
+          <div class="mp-option-row" title="Zwei bis vier Plätze. Verkleinern geht nur bis zur Zahl der Spieler, die schon sitzen.">
+            <label for="mp-seats">Plätze</label>
+            <select id="mp-seats" ${isHost && !busy ? '' : 'disabled'}>
+              ${SEAT_COUNTS.map(
+                (n) =>
+                  `<option value="${n}"${game.num_players === n ? ' selected' : ''}${
+                    n < game.seats.length ? ' disabled' : ''
+                  }>${n} Spieler</option>`,
+              ).join('')}
+            </select>
+            ${isHost ? '' : '<span class="hint">Nur der Host kann das ändern.</span>'}
+          </div>
           <div class="mp-option-row">
             <label for="mp-mulligan">Mulligan-Regel</label>
             <select id="mp-mulligan" ${isHost && !busy ? '' : 'disabled'}>
@@ -773,6 +800,9 @@ export function createMultiplayerView(hooks = {}) {
     setupRoot.querySelector('#mp-new-name')?.addEventListener('input', (e) => {
       newGameName = e.target.value; // no re-render: don't steal focus mid-typing
     });
+    setupRoot.querySelector('#mp-new-seats')?.addEventListener('change', (e) => {
+      newGameSeats = Number(e.target.value) || 2;
+    });
     setupRoot.querySelectorAll('[data-join]').forEach((el) => {
       el.addEventListener('click', () => joinGame(el.dataset.join));
     });
@@ -781,6 +811,9 @@ export function createMultiplayerView(hooks = {}) {
     });
     setupRoot.querySelector('#mp-leave')?.addEventListener('click', leaveGame);
     setupRoot.querySelector('#mp-deck')?.addEventListener('change', (e) => chooseDeck(e.target.value));
+    setupRoot
+      .querySelector('#mp-seats')
+      ?.addEventListener('change', (e) => changeSeatCount(e.target.value));
     setupRoot
       .querySelector('#mp-mulligan')
       ?.addEventListener('change', (e) => changeMulliganStyle(e.target.value));
@@ -857,6 +890,7 @@ export function createMultiplayerView(hooks = {}) {
     const iAmDone = !setup.waiting_for.includes(playerId);
     const canKeep = mulliganBottom.size === bottomCount;
     const noMulligans = view.legal_actions.every((a) => a.type !== 'mulligan');
+    const nextHand = setup.next_hand_size ?? 7;
 
     if (iAmDone) {
       const waiting = setup.waiting_for
@@ -878,9 +912,7 @@ export function createMultiplayerView(hooks = {}) {
           ${
             mulliganCount === 0
               ? `Deine Starthand: ${me.hand.length} Karten.${noMulligans ? ' In diesem Spiel wird ohne Mulligan gespielt.' : ' Behalten, oder neu mischen (Mulligan)?'}`
-              : bottomCount === 0
-                ? `Mulligan Nr. ${mulliganCount}: neue 7 Karten gezogen. Kein Unterlegen nötig — die Hand bleibt bei 7 Karten.`
-                : `Mulligan Nr. ${mulliganCount}: neue 7 Karten gezogen. Beim Behalten ${bottomCount === 1 ? 'muss 1 Karte' : `müssen ${bottomCount} Karten`} unten in die Bibliothek gelegt werden.`
+              : mulliganText(setup, mulliganCount, bottomCount, me.hand.length)
           }
         </p>
         ${statusHtml()}
@@ -888,7 +920,7 @@ export function createMultiplayerView(hooks = {}) {
           ${me.hand.map((o) => mulliganCardHtml(o, bottomCount)).join('')}
         </div>
         <div class="gf-controls">
-          ${noMulligans ? '' : `<button id="mp-mulligan" type="button" ${busy ? 'disabled' : ''}>🔀 Mulligan (neue 7 ziehen)</button>`}
+          ${noMulligans ? '' : `<button id="mp-mulligan" type="button" ${busy ? 'disabled' : ''}>🔀 Mulligan (${nextHand} Karten ziehen)</button>`}
           <button id="mp-keep" type="button" class="primary" ${busy || !canKeep ? 'disabled' : ''}>
             ${bottomCount === 0 ? 'Hand behalten' : `Behalten (${mulliganBottom.size}/${bottomCount} unten ausgewählt)`}
           </button>

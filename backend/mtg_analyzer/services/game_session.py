@@ -67,13 +67,14 @@ REPLAY = "replay"
 #: casual "free mulligan" variant popular for playtesting: same redraw
 #: (shuffle the hand back, draw a fresh 7), but keeping it never bottoms any
 #: cards, however many mulligans were taken — there is no size penalty, only
-#: a fresh random 7. ``none`` skips the whole procedure (the opening hand is
-#: the hand), which is what a quick test game between two people usually
-#: wants. Vancouver's "scry 1 after keeping" is deliberately absent:
-#: `RulesEngine.scry` is a non-interactive stub that always keeps every card
-#: on top, so offering it would be a choice with no effect (see
-#: docs/implementation-state/BACKLOG.md).
-MULLIGAN_STYLES = ("london", "next7", "none")
+#: a fresh random 7. ``vancouver`` is the rule London replaced: each mulligan
+#: redraws *one card fewer* (6, then 5, …) instead of a full 7 with bottoming,
+#: and once every seat has kept, each player who mulliganed scries 1 — in turn
+#: order, one at a time, since the state holds exactly one `pending_choice`
+#: (`GameSession._start_vancouver_scries`). ``none`` skips the whole procedure
+#: (the opening hand is the hand), which is what a quick test game between two
+#: people usually wants.
+MULLIGAN_STYLES = ("london", "next7", "vancouver", "none")
 
 
 class GameActionError(Exception):
@@ -324,6 +325,14 @@ class GameSession:
         #: turn ("on the draw"); False (default) → they skip it, the standard
         #: on-the-play rule. Chosen in the setup screen; applied at keep-hand.
         self._draw_first = False
+        #: Seats still owed their ``vancouver`` scry-1, in turn order. Only
+        #: ever non-empty between the last `keep_hand` and the last scry being
+        #: answered: the scries are queued rather than opened at once because
+        #: `GameState` holds exactly one `pending_choice` at a time.
+        self._pending_scries: list[str] = []
+        #: Whether the first RULE 117 priority window is still owed because a
+        #: setup-time choice (a Vancouver scry) was open when setup finished.
+        self._priority_window_pending = False
 
     # -- Snapshot / restore --------------------------------------------
 
@@ -338,6 +347,16 @@ class GameSession:
         self.engine = GameEngine(state.clone())
         self.engine.interactive_priority = self.interactive_priority
         self.engine.resume_at(cursor)
+        # The Vancouver scry queue and the deferred first priority window
+        # are *session* state the restored `GameState` knows nothing about,
+        # and both exist only across the setup handoff. Dropping them is the
+        # honest reconciliation: the scry that was owed belonged to the
+        # position being undone. (Undoing a `keep_hand` at all is already a
+        # half-supported corner — `_setup_pending` isn't restored either —
+        # so this keeps `vancouver` exactly as good as `london` there, no
+        # worse.)
+        self._pending_scries.clear()
+        self._priority_window_pending = False
 
     @property
     def can_rewind(self) -> bool:
@@ -504,7 +523,12 @@ class GameSession:
         # parallel, so the gate is per-actor (`_setup_pending`) rather than
         # global — a player who has already kept can't mulligan again while
         # waiting for the others.
-        if not self._setup_complete:
+        # A decision that opened *during* setup — a Vancouver scry — is
+        # answered the ordinary way below rather than being gated on the
+        # mulligan phase it belongs to.
+        if not self._setup_complete and not (
+            state.pending_choice and kind in ("choose", "decline")
+        ):
             if active.id not in self._setup_pending:
                 raise ValueError("you have already kept your opening hand")
             if kind == "mulligan":
@@ -559,6 +583,7 @@ class GameSession:
                     iid = action.get("instance_id")
                     answer = int(iid) if iid is not None else None
             self.engine.resolve_pending_choice(answer)
+            self._after_choice()
             return
 
         if kind in ("advance_step", "advance", "next_step", "auto_turn"):
@@ -662,6 +687,24 @@ class GameSession:
                 mutate_under=bool(action.get("mutate_under", False)),
                 bargained=bool(action.get("bargained", False)),
                 entwine=bool(action.get("entwine", False)),
+            )
+            return
+
+        if kind == "roll_planar_die":
+            # RULE 901.6: Planechase's own special action — pay {X}, roll,
+            # and let whatever came up (chaos trigger, planeswalk, nothing)
+            # happen. Silent outside a Planechase game: `can_roll_planar_die`
+            # refuses without a planar deck.
+            self.engine.roll_planar_die(active)
+            return
+
+        if kind == "turn_face_up":
+            # RULE 116.2b: the special action of turning a face-down
+            # permanent face up (morph/disguise/manifest/cloak) — no stack,
+            # so unlike `cast_spell` there's nothing to respond to and the
+            # board shows the real card the instant this returns.
+            self.engine.turn_face_up(
+                active, self._object(action), int(action.get("option_index", 0))
             )
             return
 
@@ -943,20 +986,37 @@ class GameSession:
 
         London: one per mulligan taken (RULE 103.4-103.5). ``next7`` is the
         "free mulligan" variant — a full fresh 7 every time, never any
-        bottoming, however many mulligans were taken.
+        bottoming, however many mulligans were taken. ``vancouver`` never
+        bottoms either: it pays for a mulligan by *drawing* one card fewer
+        (`_mulligan`), which is what London replaced.
         """
-        if self.mulligan_style == "next7":
+        if self.mulligan_style in ("next7", "vancouver"):
             return 0
         return self.mulligan_count_for(player_id)
 
+    def hand_size_after_mulligans(self, player_id: str) -> int:
+        """How big a fresh hand this seat draws on its *next* mulligan.
+
+        London/``next7`` always redraw the full starting hand; ``vancouver``
+        draws one card fewer per mulligan taken, down to none.
+        """
+        if self.mulligan_style != "vancouver":
+            return self._starting_hand
+        return max(0, self._starting_hand - (self.mulligan_count_for(player_id) + 1))
+
     def _mulligan(self, player: Player) -> None:
-        """Shuffle the hand back and draw 7 (RULE 103.4-103.5 / the ``next7`` variant)."""
+        """Shuffle the hand back and draw a fresh one (RULE 103.4-103.5).
+
+        London/``next7`` redraw the full starting hand; ``vancouver`` redraws
+        one card fewer each time (`hand_size_after_mulligans`).
+        """
+        drawn = self.hand_size_after_mulligans(player.id)
         while player.hand:
             obj = player.hand.pop()
             obj.zone = Zone.LIBRARY
             player.library.append(obj)
         player.shuffle_library()
-        player.draw(self._starting_hand)
+        player.draw(drawn)
         self._mulligan_counts[player.id] = self.mulligan_count_for(player.id) + 1
 
     def _keep_hand(
@@ -994,11 +1054,62 @@ class GameSession:
             self._draw_first = bool(draw_first)
         self.engine.state.skip_first_draw = not self._draw_first
         self._setup_pending.discard(player.id)
-        if self.interactive_priority and not self._setup_pending:
-            # Everyone has kept: run the game into its first real priority
-            # window. Nothing else can do this — with RULE 117.4 driving the
-            # turn, a step only ends when players pass, and nobody can pass
-            # before somebody holds priority in the first place.
+        if self._setup_pending:
+            return
+        # Everyone has kept. Vancouver's scries happen now, after the last
+        # keep rather than at each one (RULE 103.4's old wording: "after all
+        # players have kept, each player who mulliganed scries 1"), which is
+        # also the only timing a single shared `pending_choice` allows.
+        if self.mulligan_style == "vancouver":
+            self._start_vancouver_scries()
+        if not self.interactive_priority:
+            return
+        if self.engine.state.pending_choice:
+            # A scry is open: the first real priority window has to wait
+            # until it's answered (`_after_choice`), or `_advance_to_
+            # priority_window` would run steps around an open decision.
+            self._priority_window_pending = True
+            return
+        # Run the game into its first real priority window. Nothing else can
+        # do this — with RULE 117.4 driving the turn, a step only ends when
+        # players pass, and nobody can pass before somebody holds priority in
+        # the first place.
+        self._advance_to_priority_window()
+
+    def _start_vancouver_scries(self) -> None:
+        """Queue the ``vancouver`` scry-1 for every seat that mulliganed.
+
+        In turn order (seat order — RULE 103.4), one at a time: only the
+        first is opened here, and `_after_choice` walks the queue as each
+        answer comes in.
+        """
+        self._pending_scries = [
+            p.id
+            for p in self.engine.state.players
+            if not p.is_dummy and self.mulligan_count_for(p.id) > 0
+        ]
+        self._open_next_vancouver_scry()
+
+    def _open_next_vancouver_scry(self) -> None:
+        """Open the next queued Vancouver scry, if any is still owed."""
+        state = self.engine.state
+        while self._pending_scries and not state.pending_choice:
+            player = state.player_by_id(self._pending_scries.pop(0))
+            self.engine.rules.scry(player, 1)
+
+    def _after_choice(self) -> None:
+        """Follow-up owed once a `pending_choice` has been answered.
+
+        Only setup-time work: walk the Vancouver scry queue, and open the
+        first RULE 117 priority window once the last of them is done. During
+        the game proper both are empty and this does nothing.
+        """
+        if self._pending_scries:
+            self._open_next_vancouver_scry()
+        if self.engine.state.pending_choice or self._pending_scries:
+            return
+        if self._priority_window_pending:
+            self._priority_window_pending = False
             self._advance_to_priority_window()
 
     # -- Interactive priority (RULE 117, multiplayer only) --------------
@@ -1389,6 +1500,12 @@ class GameSession:
                 ),
                 # How many cards this seat's `keep_hand` must bottom right now.
                 "bottom_count": self.bottom_count_for(
+                    perspective if perspective is not None else self.engine.state.active_player.id
+                ),
+                # How big a hand the *next* mulligan would draw — the starting
+                # hand everywhere except ``vancouver``, which pays for each
+                # mulligan by drawing one card fewer instead of bottoming.
+                "next_hand_size": self.hand_size_after_mulligans(
                     perspective if perspective is not None else self.engine.state.active_player.id
                 ),
                 "draw_first": self._draw_first,

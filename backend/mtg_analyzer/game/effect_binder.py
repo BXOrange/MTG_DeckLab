@@ -116,6 +116,10 @@ _GROUP_CONTROLLER_EVENT_KEYS: dict[str, str] = {
     # than once per attacker (`GameEngine._fire_attacks_alone_event`).
     "ATTACKS_ALONE": "player_id",
     "BLOCKS": "player_id",
+    # RULE 509.5: "whenever a creature you control becomes blocked" — the
+    # attacker-side event names its controller as ``player_id`` (the same
+    # convention `ATTACKS`/`BLOCKS` use), not ``controller_id``.
+    "BECOMES_BLOCKED": "player_id",
     "SPELL_CAST": "player_id",
     # "When you play another land, …" (City of Traitors) / "Untap all
     # permanents you control during each other player's untap step."
@@ -136,6 +140,12 @@ _GROUP_CONTROLLER_EVENT_KEYS: dict[str, str] = {
     # controller (`RulesEngine.deal_damage`'s ``source_controller_id``), not
     # a bare ``controller_id`` the event doesn't carry at all.
     "DAMAGE": "source_controller_id",
+    # "Whenever you scry/surveil, …" (Chance-Met Elves, Dimir Spybug) — both
+    # keyword actions fire a per-player event naming who looked
+    # (`RulesEngine._look_at_top`), the same ``player_id`` convention as
+    # every other player-subject event above.
+    "SCRY": "player_id",
+    "SURVEIL": "player_id",
 }
 
 #: Which event-data key identifies *which object* an event is about — RULE
@@ -192,6 +202,16 @@ def _subject_condition(
     something else). Both read `_subject_event_key` for *which* event key
     identifies the acting object (``instance_id`` by default, ``source_id``
     for `DAMAGE`).
+
+    ``{"subject": "you"}`` — the odd one out, and deliberately so: RULE
+    603.1 conditions whose subject is a **player** rather than an object
+    ("whenever **you** scry", "whenever **you** surveil"). There is no
+    acting object to match at all, so this compares the event's *player*
+    key (`_GROUP_CONTROLLER_EVENT_KEYS`, ``player_id`` for these) against
+    the source's controller — the same key the "group … you control"
+    subjects use for their controller half, just used on its own. Missing
+    that key on the event → fail-closed ``False``, exactly like the
+    object subjects.
     """
     condition = trigger.get("condition")
     if not condition:
@@ -199,6 +219,17 @@ def _subject_condition(
     subject = condition.get("subject")
     instance_id = getattr(source, "instance_id", None)
     event_key = _subject_event_key(trigger)
+
+    if subject == "you":
+        controller_key = _GROUP_CONTROLLER_EVENT_KEYS.get(
+            trigger.get("event"), "controller_id"
+        )
+
+        def _you_ok(event: Any, context: Any, src=source, key=controller_key) -> bool:
+            actor = event.get(key)
+            return actor is not None and actor == getattr(src, "controller_id", None)
+
+        return _you_ok
 
     if subject == "self":
 

@@ -22,7 +22,7 @@ finest-grained/most current detail:
 
 - Granular **open** items: [`implementation-state/BACKLOG.md`](implementation-state/BACKLOG.md)
   — one categorized ticket list covering backend *and* frontend (ids
-  `ENG`/`PAR`/`MEC`/`TYP`/`PLR`/`VIS`/`DB`/`ANA`). Open scope only: closing
+  `ENG`/`PAR`/`MEC`/`PLR`/`VIS`/`DB`/`ANA`). Open scope only: closing
   a ticket means deleting it here and appending its narrative to the
   matching `Done_*.md`.
 - **Examples / calibration**: [`implementation-state/PARSER_LONG_TAIL.md`](implementation-state/PARSER_LONG_TAIL.md)

@@ -195,6 +195,47 @@ class EventType:
     #: afflict/bushido/rampage (RULE 702.130/702.45/702.23) all trigger off
     #: the *attacker* becoming blocked, which `BLOCKS` alone can't express.
     BECOMES_BLOCKED = "BECOMES_BLOCKED"
+    #: RULE 901.10: a player planeswalked **to** a plane — the plane that
+    #: just turned face up is named by ``instance_id``/``plane``, and the
+    #: planeswalking player by ``player_id``/``controller_id``. This is what
+    #: a plane's own "When you planeswalk to ~, …" ability triggers off.
+    PLANESWALKED_TO = "PLANESWALKED_TO"
+    #: RULE 901.10: the mirror — a player planeswalked **away from** the
+    #: plane named here, which is now face down at the bottom of the deck.
+    PLANESWALKED_AWAY = "PLANESWALKED_AWAY"
+    #: RULE 901.13: the chaos symbol came up on the planar die, so the
+    #: face-up plane's "Whenever chaos ensues, …" ability triggers. Carries
+    #: the rolling player as ``player_id``/``controller_id`` — the ability is
+    #: controlled by whoever rolled (901.13a).
+    CHAOS_ENSUED = "CHAOS_ENSUED"
+    #: RULE 904.7: the archenemy set a scheme in motion (turned it face up),
+    #: which is the trigger condition every scheme's own ability shares.
+    #: Carries ``instance_id`` (the scheme) and ``player_id``.
+    SCHEME_SET_IN_MOTION = "SCHEME_SET_IN_MOTION"
+    #: RULE 309.4c: a player moved their venture marker into a room — the
+    #: trigger condition every room ability shares ("When you move your
+    #: venture marker into this room, …"), which is why the event carries
+    #: ``player_id``/``dungeon``/``room`` rather than an ``instance_id``: a
+    #: dungeon card is not a permanent and has no game object.
+    DUNGEON_ROOM_ENTERED = "DUNGEON_ROOM_ENTERED"
+    #: RULE 309.7: a player completed a dungeon (the card left the game).
+    #: Carries ``player_id`` and ``dungeon`` (its name).
+    DUNGEON_COMPLETED = "DUNGEON_COMPLETED"
+    #: RULE 726.2/726.5: a player took the initiative — fired even when the
+    #: player who took it already had it (726.5 says the designation isn't
+    #: duplicated but the trigger still fires), which is what makes the
+    #: inherent "whenever a player takes the initiative, that player ventures
+    #: into Undercity" ability repeatable.
+    TOOK_INITIATIVE = "TOOK_INITIATIVE"
+    #: RULE 708.8: a face-down permanent was turned face up — by the RULE
+    #: 702.37e/702.168d/701.40b/701.58b special action, or by any effect that
+    #: turns one up. Carries ``instance_id``/``controller_id``/
+    #: ``object_types`` (the *face-up* card's, since it has already regained
+    #: its normal characteristics by the time this fires), so "when this
+    #: creature is turned face up, …" (the morph trigger family) rides RULE
+    #: 603.1's ordinary self/group subject scoping. Not fired by RULE 708.9's
+    #: "reveal it as it changes zones" — that's a reveal, not a turn-face-up.
+    TURNED_FACE_UP = "TURNED_FACE_UP"
     #: RULE 702.112b: a creature just became renowned (its Renown N ability
     #: fired for the first, only time) — carries ``instance_id``, so a
     #: card's own separate "when this creature becomes renowned, …" trigger

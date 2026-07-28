@@ -84,6 +84,13 @@ def _serialize_object(obj: GameObject) -> dict[str, Any]:
         # would have RULE 310.10's SBA silently pick a new one. ``None`` for
         # every non-battle, which is the overwhelming majority.
         "protector_id": obj.protector_id,
+        # RULE 708.2: a face-down permanent (morph/disguise/manifest/cloak).
+        # The *identity* above already round-trips — `_front_card` is the real
+        # card, untouched by the face swap — so only the face-down status and
+        # which rule caused it need carrying, and a re-opened board can put
+        # the synthetic 2/2 face back on.
+        "face_down": obj.face_down,
+        "face_down_kind": obj.face_down_kind,
     }
     if obj.is_token:
         card = obj.card
@@ -202,6 +209,17 @@ def build_object(
     if inst.get("transformed"):
         obj.transform()
     bind_from_catalogue(obj)  # card text → live abilities
+    if inst.get("face_down"):
+        # RULE 708.2, applied *after* binding: `turn_face_down` stashes the
+        # face-up bundle it finds, so the abilities have to exist first —
+        # otherwise turning it back face up later would restore an empty one.
+        from mtg_analyzer.game.face_down import face_down_card
+
+        kind = inst.get("face_down_kind") or "morph"
+        obj.turn_face_down(face_down_card(kind), kind)
+        if kind in ("disguise", "cloak"):
+            obj.intrinsic_keywords = {"ward"}          # RULE 702.168a/701.58a
+            obj.parametric_keywords = {"ward": {"cost": "{2}"}}
     return obj
 
 

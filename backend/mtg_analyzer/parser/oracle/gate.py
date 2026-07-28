@@ -401,7 +401,17 @@ NEVER_SUPPORTED = "NEVER_SUPPORTED"
 #: fixed a latent bug where "target player discards a card" made the
 #: *source's controller* discard, since `_discard` never passed a
 #: ``target_kind`` through to `DiscardEffect`. Battle pool: 0 → 12 MODELED.
-PARSER_VERSION = "34"
+#:
+#: 36 (2026-07-28): RULE 603.1 trigger conditions with a **player** subject —
+#: "whenever you scry" / "whenever you surveil" / "whenever you scry or
+#: surveil" (`segmenter._PLAYER_TRIGGER_CONDITIONS`, bound through
+#: `effect_binder`'s new ``{"subject": "you"}`` scoping). The first subject in
+#: this grammar that isn't an object at all: these events name a player, not
+#: an acting permanent, so `_TRIGGER_VERBS`' whole instance-id-matching
+#: discipline doesn't apply and they get their own table. Deliberately
+#: anchored, so "whenever you surveil **for the first time each turn**"
+#: (Whispering Snitch) still fails closed rather than over-firing.
+PARSER_VERSION = "36"
 
 
 @dataclass

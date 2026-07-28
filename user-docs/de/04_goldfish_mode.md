@@ -24,7 +24,7 @@ vereinfachtes Mock-Modell.
 Du erhältst 7 Karten. Von hier aus:
 
 - **Hand behalten** — diese 7 behalten und losspielen.
-- **🔀 Mulligan (neue 7 ziehen)** — ein London-Mulligan: zurückmischen
+- **🔀 Mulligan (7 Karten ziehen)** — ein London-Mulligan: zurückmischen
   und neue 7 ziehen. Jeder genommene Mulligan bedeutet, dass du beim
   Behalten so viele Karten unten in die Bibliothek legen musst —
   klicke Karten in deiner Hand an, um sie dafür zu markieren (eine

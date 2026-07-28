@@ -36,6 +36,49 @@ into `BACKLOG.md`, and those mentions have been repointed there.
       nothing importing them broke. Tests: `test_config.py` (env-var
       overrides, incl. that they flow through to the service modules).
 
+- [x] **Offline startup** (2026-07-28). An audit of what a start actually
+      fetches found exactly one internet dependency, and it was in the
+      setup scripts rather than the app: `setup/start.py` calls
+      `ensure_backend_venv()` on *every* run, and that ran
+      `pip install --upgrade pip` unconditionally — a PyPI query on each
+      start, `check=True`, so a network outage aborted startup of an
+      otherwise fully-installed app. Everything else was already local:
+      the frontend loads no external script/stylesheet/font/image
+      (`index.html` references only `src/**`, `main.css` uses system font
+      stacks) and reaches only the configured backend; card data and art
+      come from the on-disk `CardDatabase`/`ImageCache`; tokens, dungeons
+      and the RULE 9 variant cards are committed JSON in
+      `mtg_analyzer/data/`; and nothing in `api/app.py`'s lifespan or the
+      `api/dependencies.py` singletons opens a connection (constructing an
+      `httpx.Client` doesn't).
+      The fix inverts pip's order: `setup/install.py` now installs
+      **offline first** (`pip install --no-index [--find-links wheelhouse]
+      -r requirements.txt`), which resolves purely from what's installed
+      and so is *guaranteed* connectionless — and, when the venv is
+      already complete, is also the fast path (~0.2s vs. several seconds
+      of index traffic, so the whole `./start.sh` preamble went from
+      network-bound to 0.3s). Only when that fails is an index-using run
+      attempted, gated on a 2s TCP probe of `pypi.org:443` rather than on
+      pip's own tens-of-seconds retry stall, so "no internet + missing
+      dependency" fails immediately with an actionable message instead of
+      hanging. The self-upgrade of pip now runs only right after creating
+      a brand-new venv, and is non-fatal.
+      For the one case that genuinely can't be served locally — a *fresh*
+      venv with no network — `python3 setup/install.py --download-wheels`
+      caches every requirement as a wheel in `setup/wheels/` (gitignored:
+      wheels are OS/arch/Python-version specific, a cache rather than a
+      committed asset), and every later install passes `--find-links` at
+      it. Verified end-to-end: a brand-new venv installs the full
+      requirements set from the wheelhouse with `--no-index`, and the
+      backend serves `/api/health` with every outbound HTTP proxy pointed
+      at a dead port. Tests:
+      `test_setup_offline_start.py` (the happy path issues exactly one
+      pip command, it carries `--no-index`, and the network probe is
+      never called; no unconditional `--upgrade`; offline + missing
+      dependency raises pointing at `--download-wheels`; online falls
+      back to an index run; the wheelhouse is only passed when it holds
+      wheels).
+
 ## HTTP API foundation
 
 - [x] Pick and set up a server framework — FastAPI + uvicorn
@@ -5499,6 +5542,234 @@ the Phase-1 models. Tests: `test_game_engine.py`.
         ~") — superseded by RULE 731 day/night, a permanent non-goal, not
         a gap.
 
+- [x] **Face-down spells and permanents (RULE 708) — morph, megamorph,
+      disguise, manifest, cloak** (2026-07-28, closes the former TYP-1).
+      The first *permanent-state* subsystem where a permanent stops
+      presenting its own card at all: a face-down object "has no
+      characteristics other than those listed by the ability or rules that
+      allowed it to be face down" (RULE 708.2a) — a 2/2 creature with no
+      text, no name, no subtypes, no mana cost.
+      - Modeled as a **face swap**, the same shape a DFC transform already
+        used (`RulesEngine.switch_to_face`): `GameObject.turn_face_down`
+        stashes the whole face-up bundle (`Card` + every catalogue-derived
+        ability list, `_face_up_snapshot`) and swaps `card` for the
+        synthetic face-down one (`game/face_down.py`'s `face_down_card`).
+        Everything downstream — the layer engine, combat, targeting, the
+        board — then reads a plain 2/2 with no abilities and needed *no*
+        special case. `turn_face_up` is one assignment back, which is
+        exactly RULE 708.8's "it regains its normal characteristics".
+      - The synthetic card carries `mana_cost_string="{3}"` (RULE 702.37a's
+        flat alternative cost, so the ordinary `effective_cast_cost`
+        pipeline prices a face-down cast) but `converted_mana_cost=0` (RULE
+        708.2a's "no mana cost" — a face-down permanent's mana value is 0,
+        which is what every "mana value N or less" check must see). The one
+        deliberate inconsistency in the model, and the reason both fields
+        are set explicitly rather than derived.
+      - **Casting face down** is a fourth "face" on the existing
+        `can_cast`/`cast_spell` face parameter (`face="face_down"`,
+        alongside back/fuse), so the whole timing/cost/rollback path is
+        shared: a rejected cast restores the card face up in hand exactly
+        the way a rejected modal-DFC back-face cast already did. RULE
+        708.4's "effects that care about the spell's characteristics see
+        only the face-down ones" is honoured by two explicit overrides in
+        `can_cast` — the face-up card's own Flash doesn't apply (a
+        face-down creature spell is always sorcery-speed), and its "as an
+        additional cost" clause doesn't either.
+      - **Turning face up** is a genuine RULE 116.2b *special action*:
+        `GameEngine.turn_face_up`, offered by `legal_actions` any time its
+        controller holds priority with no main-phase/empty-stack gate at
+        all (revealing a morph in response to removal is the point of the
+        mechanic), and it doesn't use the stack — the permanent has its
+        real characteristics back the instant the action returns.
+        `face_down.turn_face_up_options` returns a *list* of routes because
+        RULE 701.40c/701.58c say a manifested/cloaked card that also has
+        morph may use either: its printed morph/disguise cost, or (manifest/
+        cloak only, and only for a creature card with a mana cost — RULE
+        701.40b) its own mana cost.
+      - **Megamorph** (RULE 702.37b) adds its +1/+1 counter only when the
+        *megamorph* cost was the one paid, so the counter rides the chosen
+        route, not the card. The keyword catalogue folds Megamorph onto the
+        `morph` slug (same cost shape, same rules section), so the
+        distinction is read back off the printed text
+        (`face_down.is_megamorph`) rather than needing a second slug.
+      - **Disguise/cloak** (RULE 702.168a/701.58a) differ from morph/manifest
+        in exactly one characteristic — ward {2} — which is stamped onto the
+        face-down object by `RulesEngine.turn_face_down`, since a face-down
+        object's characteristics are what the *rule that made it face down*
+        lists and nothing is read off the card underneath.
+      - **Manifest/cloak** (RULE 701.40a/701.58a) is `RulesEngine.manifest`,
+        one card at a time (701.40e) so an ETB trigger on the first can see
+        the second still in the library. "Manifest dread" got its own
+        `pending_choice` kind rather than riding `request_choose_objects`:
+        that chooser only ever *acts on the picks*, and "the one you didn't
+        pick goes to the graveyard" is half of this keyword action.
+      - RULE 708.9's "reveal it as it changes zones" lives in
+        `GameState.remove_from_battlefield` — the one chokepoint every
+        departure goes through — as the bare model transition, never
+        `RulesEngine.turn_face_up`: that reveal fires no "turned face up"
+        trigger and charges no cost.
+      - Parser: `manifest`/`cloak`/`manifest dread` effect handlers, and the
+        "when ~ is turned face up" trigger family that had no event to bind
+        to before this (see the trigger-vocabulary entry below). Frontend:
+        the board's card-back sleeve fallback finally has a state that
+        reaches it (`Done_Frontend.md`). Tests:
+        `test_face_down_permanents.py` (21 cases).
+
+- [x] **Dungeons (RULE 309) and venturing (RULE 701.49)** (2026-07-28,
+      closes the former TYP-2, and with it the RULE 726.2 gap the
+      initiative had carried since batch 10).
+      - A dungeon is **not** a `GameObject`: `models/dungeon.py`'s
+        `Dungeon`/`DungeonRoom` are plain data on `Player.dungeon` (RULE
+        309.3's single slot). The reasoning is `models/emblem.py`'s — a
+        dungeon has no power/toughness, no controller-vs-owner split and no
+        zone changes but the one that removes it from the game, so every
+        permanent-shaped path a `GameObject` drags along would be dead
+        weight. It *does* carry `controller_id`/`timestamp`, because RULE
+        309.4c makes the dungeon card the **source** of its room abilities.
+      - The room graph is parsed from the **printed card text**
+        (`game/dungeons.py`): a dungeon's whole rules text is
+        `"<Room> — <effect>. (Leads to: A, B)"` lines, and that
+        parenthetical is not reminder text but the RULE 309.5a arrows — so
+        it is read off the *raw* text before `normalize` (which strips
+        parentheticals) ever sees it. Only the effect half goes through the
+        ordinary effect-body grammar, so an unmodeled room keeps its place
+        in the graph and simply has no effect (fail-closed). 20 of the 30
+        rooms bind today; the rest are `PAR-13` tail work.
+      - The card pool is a **committed catalogue**
+        (`services/dungeon_database.py` + `mtg_analyzer/data/dungeons.json`),
+        the same three-tier durability argument `TokenDatabase` makes: a
+        dungeon is never in a decklist and never fetched by name, and two of
+        them aren't even in the app card cache (the bulk importer drops the
+        `double_faced_token` layout Undercity is printed under, which keeps
+        the parser's coverage denominator honest). Four dungeons ship;
+        Baldur's Gate Wilderness is deliberately excluded because its Oracle
+        text lists rooms with no "(Leads to: …)" arrows at all, so every room
+        would read as bottommost and one venture would complete the dungeon.
+      - `RulesEngine.venture_into_the_dungeon` implements RULE 701.49's
+        three branches literally: enter a chosen dungeon at its top room
+        (701.49a, an interactive `choose_dungeon` choice), follow one of the
+        arrows out of the current room (701.49b, a `venture_room` choice when
+        there are several), or — from the bottommost room — complete this
+        dungeon and start a fresh one (701.49c). RULE 701.49d's "venture into
+        [quality]" is a `dungeon` param, and it is ignored once the player is
+        already in a dungeon, which is the rule's own wording.
+      - Room abilities are collected the **source-less** way the monarch's
+        and the initiative's are (`_collect_dungeon_room_triggers`, off a new
+        `EventType.DUNGEON_ROOM_ENTERED`): there is no permanent for the
+        per-object trigger scan to find, only a card in the command zone.
+      - RULE 309.6's completion is **not** a separate SBA scan. Appending a
+        `CompleteDungeonEffect` to the bottommost room's own ability puts it
+        exactly at the moment 309.6's condition first becomes true ("the
+        marker is on the bottommost room and that dungeon isn't the source of
+        a room ability still on the stack"), without the SBA pass having to
+        answer "is this stack item this dungeon's ability?".
+      - **RULE 726.2 is now complete**: all three of the initiative's
+        inherent abilities fire — the combat-damage steal (already there),
+        the upkeep venture, and "whenever a player takes the initiative,
+        that player ventures into Undercity", the last off a new
+        `EventType.TOOK_INITIATIVE` that `take_initiative` announces
+        *unconditionally*, so RULE 726.5's re-take (same player, no new
+        designation) still ventures.
+      - Parser: `venture` effect + the "venture into the dungeon"/"venture
+        into Undercity" handler (46 cards in the cache print it). Tests:
+        `test_dungeons.py` (21 cases).
+
+- [x] **RULE 603.1/500.7 trigger-condition vocabulary** (2026-07-28, closes
+      the former TYP-3).
+      The parser named exactly four object verbs (enters/dies/attacks/blocks)
+      and four steps (upkeep/draw/end/cleanup); everything else fell out of
+      the coverage gate no matter how well the engine could already fire it.
+      - `segmenter._TRIGGER_VERBS` is now **one table** feeding
+        `_TRIGGER_EVENTS`, `_VERB_EVENTS` and the verb alternation all five
+        subject regexes share (self, attached-permanent, group, group-subtype,
+        self-or-group, and the compound "<verb> or <verb>" form) — so a new
+        verb is one edit, not six regexes drifting. Added, each measured
+        against the cache: `is turned face up` (91 cards, and the direct
+        payoff of the face-down subsystem above), `leaves the battlefield`
+        (148), `becomes blocked` (58), `becomes tapped` (52), `mutates` (31).
+        Every compound form ("enters or is turned face up", "attacks or
+        blocks") came along for free.
+      - The admission rule is explicit: a verb earns a row only if the engine
+        fires an event carrying an `instance_id` for it. "Becomes untapped"
+        is deliberately absent — `EventType.UNTAP` is fired once per untap
+        *step*, keyed by player — as are "becomes monstrous"/"specializes",
+        which have no engine primitive at all (`MEC` tickets).
+      - `_PHASE_STEP_WORDS` gained the two **phase**-named families the
+        step-only vocabulary couldn't reach: "at the beginning of combat on
+        your turn" (315 cards — the commonest phase trigger after upkeep and
+        end step) and the main phases, printed either by ordinal or by
+        pre-/postcombat name (52 + 30), plus "each player's <step>" (83+) and
+        "each of your <phase>s". A card names a *phase*; `EventType.
+        STEP_BEGIN` names that phase's first step, which is why this is a
+        mapping rather than a bare alternation.
+      - Cache-wide effect: coverage 26.6% → **27.1%** (9,092 → 9,259 of
+        34,208), `PARSER_VERSION` 34 → 35. Tests:
+        `test_trigger_condition_vocabulary.py` (23 cases).
+
+- [x] **Formats and casual variants (RULE 8/9): Planechase, Archenemy,
+      Vanguard** (2026-07-28, closes the former TYP-4 for everything but the
+      team variants, now `PLR-14`).
+      - `models/game_format.py` replaces "pass `starting_life=40` everywhere"
+        with a named record — starting life, starting hand size, singleton,
+        and which RULE 9 variants are on. `GameEngine.new_game` takes a
+        format name and, given one, sets the numbers *and* builds the variant
+        state; given none it behaves exactly as before, which is every
+        existing caller. `get_format` never raises: an unknown name falls
+        back to Commander, so a stale client or an old saved game can't wedge
+        a session on a format string.
+      - All three variants share the shape **dungeons** established: cards
+        that begin outside the game, live in the command zone and whose
+        abilities function from there. The difference is that these are real
+        cards with real oracle text, so they are ordinary `GameObject`s in
+        `Zone.COMMAND`, bound by `bind_from_catalogue` like any permanent,
+        and picked up by the same static/triggered scans that already read
+        `Player.emblems` (`variants.command_zone_ability_sources`, one new
+        call site each in `continuous.py` and `_collect_triggers`).
+      - **Planechase (901)**: one shared planar deck on `GameState`
+        (901.5 permits per-player decks too; one shared deck is the common
+        table setup and the only one with no "whose plane is this"
+        bookkeeping). `planeswalk` fires away-then-to (901.10's own order),
+        the planar die is a RULE 901.6 **special action** costing {X} where X
+        is that player's roll count this turn (reset in `begin_turn` beside
+        the land drop), and its six faces are one chaos, one planeswalk, four
+        blank. **Phenomena** (901.17) ride the same `planar` layout and the
+        same deck: capped at two per deck (901.15), kept off the opening
+        face-up card (901.9), and RULE 901.18's "planeswalk again once its
+        ability leaves the stack" is chained straight after the trigger is
+        queued, with a depth guard for a hand-built deck the rule's own cap
+        wouldn't protect.
+      - **Archenemy (904)**: a per-player scheme deck, 40 life for the
+        archenemy (904.4), and "set the top card in motion" as a *turn-based
+        action* in the precombat main phase (904.7) — filed next to the Saga
+        lore counter in `_step_main1`, not in the trigger machinery. An
+        ongoing scheme stays face up until abandoned (904.9/904.11); every
+        other scheme goes back under its deck immediately after its ability is
+        queued rather than after it resolves (904.10) — indistinguishable
+        here, since the ability is already on the stack with the card bound as
+        its source and reads no zone of its own.
+      - **Vanguard (902)**: an avatar per player in the command zone, its
+        hand modifier applied *before* the opening hand is drawn (902.3) and
+        its life modifier as the game starts (902.4).
+      - Card data is a committed catalogue again
+        (`services/variant_card_database.py` +
+        `mtg_analyzer/data/variant_cards.json`, 416 cards: 207 planes and
+        phenomena, 102 schemes, 107 avatars) — `scripts/import_bulk.py`
+        deliberately drops those three Scryfall layouts from the app card
+        cache so the parser's coverage denominator stays "cards a player can
+        cast", which leaves this the only place they can come from.
+      - Parser: the four fixed variant trigger conditions ("whenever chaos
+        ensues", "when you set this scheme in motion", "when you planeswalk
+        to/away from ~", "when you encounter ~"), plus the commonest plane
+        template — "when you planeswalk to ~ **and at the beginning of your
+        upkeep**" — which emits **two** `AbilitySpec`s rather than one
+        list-valued event, because only the upkeep half may carry the step
+        filter (a filter is AND-ed onto the event payload, so a shared one
+        would fail closed and the planeswalk half would never fire).
+      - Explicitly **not** built, and tracked as `PLR-14`: the RULE 809/810/811
+        team variants. Those change the turn structure itself (shared life,
+        two players taking one turn, a defending *team*) rather than adding a
+        card pool beside it. Tests: `test_casual_variants.py` (29 cases).
+
 ## Multiplayer (UC4)
 
 `mtg_analyzer/services/lobby.py`, `services/game_session.py`,
@@ -5743,6 +6014,188 @@ the same engine goldfish mode uses. The design keeps a hard line between
       `_history` starts dropping its oldest entries past `MAX_HISTORY` —
       `move_log` never trims, so the two lists can differ in length, and
       only their *tails* are guaranteed to stay aligned.
+
+- **Tables of two to four (PLR-2, 2026-07-28).** `services/lobby.py`'s
+  `MAX_SEATS` went from 2 to 4 (plus an explicit `MIN_SEATS = 2`), which
+  is the whole backend change — and that is the point worth recording:
+  the engine had been written for N players since the multiplayer batch
+  (`build_multiplayer_engine` builds one `Player` per seat,
+  `GameState.next_active_index` rotates through however many there are,
+  `GameEngine.legal_defenders_for` already offers *every* living opponent
+  as a defender, `can_block` already resolves "is this attacker attacking
+  me", `GameSession._redact_hidden_zones` already redacts per seat rather
+  than "the other one", and the RULE 800.4a deferred-leave sweep is a
+  list comprehension over `living_players()`). What the 2 was protecting
+  was the *board layout*, not the rules. Two clamps were tightened on the
+  way: `Lobby.create` and `set_options` now floor at `MIN_SEATS` as well
+  as capping at `MAX_SEATS` (`num_players=0` used to be able to leave a
+  one-seat table permanently "full"), and `set_options` still can't shrink
+  a table below the seats already taken, so resizing never evicts anyone.
+
+  Four is a cap on the *UI*, not on the rules — the pod size Commander is
+  played at, and where three opponent boards stacked above your own stops
+  being readable. The frontend half is a seat-count picker in Setup and a
+  per-opponent fold-away on the board (`Done_Frontend.md`).
+
+  Tests: `test_multiplayer_pods.py` (22) covers the lobby seat machinery
+  (opening/filling/resizing/refusing a fifth player) and the rules
+  consequences that only exist with 3+ seats — turn order rotating through
+  four seats, a priority round visiting all of them in APNAP order, every
+  opponent offered as a defender, *only the attacked* player being offered
+  (and allowed) blocks, damage landing on just the chosen opponent, a
+  concession leaving a game the survivors keep playing and the turn order
+  skipping the conceded seat, and per-seat redaction with three opponents.
+  `test_api_multiplayer.py::TestPodSizedTables` (6) covers the same over
+  HTTP: opening a table for 3 or 4, starting it, growing it, the cap, and
+  a fifth player being refused.
+
+- **Vancouver mulligan + interactive scry (PLR-1, 2026-07-28).** Vancouver
+  had been deliberately absent from `MULLIGAN_STYLES` for one reason —
+  `RulesEngine.scry` was a stub that fired `EventType.SCRY` and kept every
+  looked-at card on top, so the mulligan's defining feature would have
+  been a choice with no effect. So the scry was built first.
+
+  `RulesEngine.scry` now opens a real `scry` `pending_choice` running in
+  two phases (later generalized with surveil onto `_look_top_choice`/
+  `_resolve_look_top_choice`/`_finish_look_top`, see below): a
+  repeated **bottom** question ("which of these goes under the library?",
+  top card first, declining to move on), then — only when 2+ cards are
+  still headed for the top, since one card has only one order — a repeated
+  **order** question ("which goes topmost?"). Both phases offer a decline,
+  and the two mean different things: declining the bottoming keeps what's
+  left on top *and moves to ordering it*, while declining the ordering
+  finishes with the cards in the order they already were. That second
+  decline is what keeps the overwhelmingly common "fine as it is" a single
+  click while still allowing RULE 701.18's full "in any order". The whole
+  decision is carried as instance ids in the choice dict (`remaining`/
+  `bottom`/`top`), not as objects or a closure, so it survives the
+  `GameState.clone()` that undo takes. `SCRY` still fires up front, at the
+  moment the player looks, so "whenever you scry" triggers see it exactly
+  where the stub fired it. Dispatch is one more `kind` branch in
+  `GameEngine.resolve_pending_choice`.
+
+  On top of that, ``vancouver`` joins `MULLIGAN_STYLES`: `_mulligan` draws
+  `hand_size_after_mulligans` (one fewer per mulligan taken, floored at 0)
+  instead of a full seven, `bottom_count_for` returns 0 (Vancouver pays in
+  the draw, not in bottoming — London is what swapped those), and the
+  scry-1 happens **after the whole table has kept**, in turn order, which
+  is both the historical rule and the only timing a single shared
+  `pending_choice` allows. That queue is `GameSession._pending_scries`,
+  started by the last `keep_hand` (`_start_vancouver_scries`) and walked
+  one answer at a time by `_after_choice`. The RULE 117 consequence needed
+  a matching wait: `_keep_hand` used to run `_advance_to_priority_window`
+  the moment the last seat kept, which would now step the game around an
+  open scry, so it defers behind `_priority_window_pending` and
+  `_after_choice` opens the window once the last scry is answered.
+  `_dispatch`'s setup gate gained an exemption for `choose`/`decline`
+  while a choice is pending, so a decision raised during setup is
+  answerable at all. `view()["setup"]` gained `next_hand_size` for the UI.
+
+  Tests: `test_scry_vancouver_mulligan.py` (21) — the scry's two phases,
+  both declines, degenerate libraries, the event still firing, an
+  unoffered answer being refused; then the mulligan drawing one fewer,
+  never bottoming, scrying only when a mulligan was taken, London being
+  untouched, and at a table: the queue running in turn order, only the
+  seats that mulliganed being in it, the first priority window waiting for
+  the last answer, and the scrying seat being the only one offered it
+  (RULE 400.2 — the others get the "waiting on Ann" marker).
+
+- **Interactive surveil + the "whenever you scry/surveil" trigger family
+  (PLR-1b, 2026-07-28, PARSER_VERSION 36).** Three pieces, and the first is
+  the one that shaped the other two.
+
+  **Scry and surveil are one keyword action with one parameter changed.**
+  Look at the top N cards, send any number of them *somewhere*, put the
+  rest back on top in any order — scry's "somewhere" (RULE 701.18) is the
+  bottom of the same library, surveil's (RULE 701.31) is the graveyard.
+  Nothing else about them differs, including the shape of the decision, so
+  rather than copying scry's ~100 lines they were refactored onto one
+  implementation (`_look_at_top`/`_look_top_choice`/
+  `_resolve_look_top_choice`/`_finish_look_top`) driven by a two-entry
+  `_LOOK_TOP_KINDS` table holding each keyword's event and its German
+  prompts. They keep *separate* `pending_choice` kinds (so the UI can label
+  and icon them apart, and `resolve_pending_choice` dispatches by kind) and
+  separate public resolvers; only the internals are shared. The choice
+  dict's `bottom` key became `away` in the process. Surveil is deliberately
+  **not** routed through `mill`: RULE 701.31b and 701.13 are distinct
+  keyword actions, so nothing watching for milling sees a surveil — there's
+  a test asserting exactly that.
+
+  **A player-subject trigger condition, the first in this grammar.**
+  "Whenever you scry" / "whenever you surveil" / "whenever you scry or
+  surveil" are RULE 603.1 conditions whose subject is a *player*, not an
+  object — so `segmenter._TRIGGER_VERBS` can't express them at all: that
+  table's entire scoping discipline (a verb earns a row only if the engine
+  fires an event carrying an `instance_id` for it) is about matching the
+  acting permanent, and these events carry a `player_id` instead. They got
+  their own table, `_PLAYER_TRIGGER_CONDITIONS`, emitting
+  `{"subject": "you"}` — which `effect_binder._subject_condition` turns
+  into "the event's player key equals this source's controller", reading
+  `_GROUP_CONTROLLER_EVENT_KEYS` (gaining `SCRY`/`SURVEIL` → `player_id`)
+  for *which* key. That scoping is the whole point and is tested from both
+  sides: Dimir Spybug grows a counter when its controller surveils and
+  **not** when an opponent does. Unlike `_VARIANT_TRIGGER_CONDITIONS`
+  (whose plane abilities are only ever collected for the face-up plane, so
+  they need no scoping at all), this one genuinely has to discriminate.
+  The compound "scry or surveil" (Matoya, Archon Elder) becomes one
+  `AbilitySpec` per event with its own freshly-bound effects, the same
+  shape `_SELF_MULTI_EVENT_RE` and the compound plane template use.
+
+  The patterns are anchored end-to-end on purpose: "whenever you surveil
+  **for the first time each turn**" (Whispering Snitch) must *fail* to
+  match, since the engine can't express a once-per-turn limiter and an
+  unanchored pattern would silently bind an over-firing trigger.
+
+  **Yield, stated honestly: 5 of the 25 cards** carrying one of these
+  triggers are now MODELED (Arwen Undómiel, Dimir Spybug, Disinformation
+  Campaign, Flamespeaker Adept, Matoya, Archon Elder) — coverage 9,259 →
+  **9,264 / 34,208 (27.1%)**. The trigger family itself is complete; the
+  other 20 are blocked on ordinary effect-*body* grammar ("where X is the
+  number of cards looked at while scrying this way", "you may pay {2}",
+  Mirko's unrelated end-step ability). The one blocker worth naming is the
+  once-per-turn limiter above, which turns out to gate **182 cards**
+  cache-wide and is now [PAR-14] rather than an implicit near-miss.
+
+  Tests: `test_scry_surveil_vancouver.py` (36, renamed from
+  `test_scry_vancouver_mulligan.py` as it grew the surveil half) — surveil's
+  own choice kind and prompt, cards reaching the graveyard rather than the
+  bottom, both declines, reordering the kept pile, the `SURVEIL` event
+  firing, surveil not being a mill; then the parser recognizing all three
+  phrasings, the compound splitting into two specs with unshared effects,
+  the once-per-turn qualifier failing closed, and the binder firing for the
+  controller but not for an opponent.
+
+- **Two non-deterministic-suite fixes (2026-07-28),** found by running the
+  full suite repeatedly while measuring the batch above rather than by any
+  test failing once. Both were pre-existing; the suite went from failing
+  about one run in five to six clean runs in a row.
+
+  **`variants.build_planar_deck` could return a short deck.** It sampled
+  exactly ``size`` cards, then dropped every phenomenon past RULE 901.15's
+  `MAX_PHENOMENA` — with nothing to replace them, so ~6% of decks came back
+  with 9 (or 8, or 7) cards instead of 10, which is what made
+  `test_a_planechase_game_starts_with_a_face_up_plane` fail intermittently.
+  It now *deals* off a shuffle of the whole pool, skipping a phenomenon once
+  the cap is reached, so the deck is always full size. Worth noting why it
+  isn't the obvious one-line fix ("take exactly `MAX_PHENOMENA` phenomena,
+  fill the rest with planes"): that would have made every planar deck hold
+  exactly two phenomena, where both the old code and the real thing have a
+  *random* number up to the cap. Dealing preserves that (measured over 500
+  builds: 0/1/2 phenomena in roughly a 28/45/27 split, always 10 cards,
+  always a plane on top per RULE 901.9).
+
+  **A registration race in the `/ws/game/{id}` broadcast test.**
+  `TestClient.websocket_connect` returns once the *handshake* is accepted,
+  one step before `GameConnectionManager.connect` adds the socket to the
+  broadcast room (it registers after `await websocket.accept()`). A second
+  client that connected and immediately expected a broadcast could therefore
+  miss it and block until the 20s pytest-timeout. Fixed in the test — it now
+  round-trips one message of the second client's *own* first, which can only
+  be answered by the receive loop, i.e. after registration. Deliberately not
+  fixed by registering before `accept()`: another connection's broadcast
+  could then hit a socket mid-handshake, and Starlette raises on a send
+  before accept. The window is only reachable by a client that connects and
+  expects a broadcast in the same instant, which no real client does.
 
 ## Bot AI (UC5)
 

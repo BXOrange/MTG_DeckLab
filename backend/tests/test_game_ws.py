@@ -42,6 +42,25 @@ class TestGameWebSocket:
         game_id = _replay_session_id(manager)
         with client.websocket_connect(f"/ws/game/{game_id}") as player_one:
             with client.websocket_connect(f"/ws/game/{game_id}") as player_two:
+                # `websocket_connect` returns as soon as the *handshake* is
+                # accepted, which is one step earlier than the server adding
+                # the socket to the broadcast room (`GameConnectionManager.
+                # connect` registers it after `accept()`). Sending straight
+                # away therefore raced: player_one's broadcast could go out
+                # before player_two was in the room, and the `receive_json`
+                # below would block until the 20s pytest-timeout — roughly
+                # one run in five. Round-tripping one message of player_two's
+                # own closes the window: its reply can only be produced by
+                # the receive loop, which starts after registration.
+                player_two.send_json(
+                    {
+                        "type": "player_action",
+                        "player_id": "p2",
+                        "action": {"type": "edit_set_life", "player_id": "p2", "value": 20},
+                    }
+                )
+                assert player_two.receive_json()["type"] == "game_state_update"
+
                 player_one.send_json(
                     {
                         "type": "player_action",

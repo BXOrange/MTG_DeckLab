@@ -71,6 +71,7 @@ from __future__ import annotations
 import re
 from typing import TYPE_CHECKING, Any, Optional
 
+from . import variants
 from .costs import parse_activation_cost
 from .effects import ActivatedAbility, EffectRegistry, StaticAbility, TriggeredAbility
 
@@ -433,9 +434,14 @@ def _battlefield_static_abilities(state: "GameState") -> list[StaticAbility]:
     # every player's `Player.emblems` is scanned alongside the battlefield
     # so a static emblem ability (e.g. "Creatures you control get +1/+1.")
     # applies exactly like a permanent's own.
+    # RULE 901.7/902.4/904.9: the same is true of the casual variants' own
+    # command-zone cards — the face-up plane, a Vanguard avatar and any
+    # face-up ongoing scheme all have abilities that function from there
+    # (`game/variants.py`'s `command_zone_ability_sources`).
     sources: list[Any] = list(state.permanents())
     for player in state.players:
         sources.extend(player.emblems)
+    sources.extend(variants.command_zone_ability_sources(state))
     return [
         ab
         for src in sources

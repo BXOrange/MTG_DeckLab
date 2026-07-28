@@ -2525,6 +2525,55 @@ textarea {
   pointer-events: none;
 }
 
+/* RULE 708.2: badge on a face-down permanent (morph/disguise/manifest/
+   cloak). Bottom-left, the one corner none of the badges above use — a
+   face-down creature can be attacking (top-right), carry counters
+   (bottom-right) and still need to say *why* it's face down, since that
+   decides how it can be turned up. */
+.gf-facedown-badge {
+  position: absolute;
+  bottom: -0.4rem;
+  left: 0.15rem;
+  background: color-mix(in srgb, var(--panel) 70%, #000);
+  color: var(--text);
+  border: 1px solid var(--border);
+  font-size: 0.55rem;
+  font-weight: 700;
+  line-height: 1.2;
+  padding: 0.05rem 0.3rem;
+  border-radius: 999px;
+  white-space: nowrap;
+  pointer-events: none;
+}
+
+/* RULE 901: the Planechase strip above the boards — the face-up plane and
+   the planar-die button. One row, so it reads as part of the turn/phase
+   furniture rather than as a card zone. */
+.gf-planechase {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+  margin: 0.4rem 0;
+  padding: 0.35rem 0.6rem;
+  border: 1px solid var(--border);
+  border-radius: 0.5rem;
+  background: color-mix(in srgb, var(--panel) 85%, var(--accent));
+}
+
+.gf-planechase-plane {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  flex-wrap: wrap;
+}
+
+.gf-planechase-label,
+.gf-planechase-count {
+  font-size: 0.75rem;
+  color: var(--muted);
+}
+
 /* "🔄 peek other face" — a small inset button on a double-faced permanent's
    own art (mirrors .card-tile-flip's look, scaled down for the battlefield
    tile), rather than an overflowing badge like its siblings above/below,
@@ -3762,6 +3811,16 @@ textarea {
   border-radius: 5px;
 }
 
+/* The seat count sits next to the name field rather than stretching with it. */
+.mp-new-game select {
+  flex: 0 0 8rem;
+  padding: 0.35rem 0.5rem;
+  background: var(--panel-alt);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 5px;
+}
+
 .mp-option-row input[type="number"] {
   flex: 0 0 5rem;
   min-width: 0;
@@ -3785,6 +3844,36 @@ textarea {
 
 .gf-opponent-board {
   opacity: 0.96;
+}
+
+/* Folding an opponent away at a table of 3+ (gameBoardView's
+   `collapsedBoards`): the header stays, the play area is hidden, and a
+   one-line count summary takes its place. */
+.gf-board-fold {
+  background: none;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  color: var(--muted);
+  cursor: pointer;
+  font-size: 0.8rem;
+  line-height: 1;
+  padding: 0.2rem 0.4rem;
+}
+
+.gf-board-fold:hover {
+  color: var(--accent);
+  border-color: var(--accent);
+}
+
+.gf-board-folded > .gf-player-board-head {
+  margin-bottom: 0.25rem;
+}
+
+.gf-board-fold-summary {
+  margin: 0;
+  padding: 0 0.75rem 0.35rem;
+  color: var(--muted);
+  font-size: 0.8rem;
 }
 
 .gf-board-out {

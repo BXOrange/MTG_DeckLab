@@ -30,13 +30,15 @@ from ..models.game_state import DelayedTrigger, GameState, StackItem
 from ..models.mana_cost import ManaCost
 from ..models.player import Player
 from ..parser.oracle.catalogue.saga import all_chapter_numbers
-from . import ability_catalogue, combat, continuous, copy_mechanics
+from . import ability_catalogue, combat, continuous, copy_mechanics, dungeons, face_down, variants
 from .combat import is_protected_from
 from .costs import DISCARD_HAND, ActivationCost, parse_activation_cost
 from .mana_abilities import restriction_predicate_for_cast
 from .effects import (
     _apply_effects_partitioned,
     AddCountersEffect,
+    CompleteDungeonEffect,
+    VentureIntoTheDungeonEffect,
     AddPlayerCountersEffect,
     BecomeMonarchEffect,
     CantBeCounteredEffect,
@@ -496,6 +498,16 @@ class RulesEngine:
                 for ability in emblem.triggered_abilities:
                     if ability.check_trigger(event, self.context):
                         self.pending_triggers.append((ability, event))
+        # RULE 901.7/902.4/904.9: likewise for the casual variants' own
+        # command-zone cards — the face-up plane's planeswalk/chaos
+        # abilities, a scheme's "when you set this scheme in motion", a
+        # Vanguard avatar's own triggers.
+        for source in variants.command_zone_ability_sources(self.state):
+            for ability in getattr(source, "triggered_abilities", []):
+                if isinstance(ability, TriggeredAbility) and ability.check_trigger(
+                    event, self.context
+                ):
+                    self.pending_triggers.append((ability, event))
         self._collect_inherent_triggers(event)
         self._collect_impulsive_draw_triggers(event)
         self._collect_rad_counter_damage_triggers(event)
@@ -573,6 +585,28 @@ class RulesEngine:
             self.state.player_by_id(self.state.initiative_id) if self.state.initiative_id else None
         )
         if initiative is not None and not initiative.has_lost:
+            # RULE 726.2: "At the beginning of the upkeep of the player who
+            # has the initiative, that player ventures into Undercity." —
+            # RULE 701.49d's named variant, never a free choice of dungeon.
+            if (
+                event.type == EventType.STEP_BEGIN
+                and event.get("step") == "upkeep"
+                and self.state.active_player.id == initiative.id
+            ):
+                ability = TriggeredAbility(
+                    trigger_event=EventType.STEP_BEGIN,
+                    effects=[
+                        VentureIntoTheDungeonEffect(
+                            dungeon=dungeons.UNDERCITY, player=initiative
+                        )
+                    ],
+                    controller_id=initiative.id,
+                    description=(
+                        "At the beginning of the upkeep of the player who has the "
+                        "initiative, that player ventures into Undercity."
+                    ),
+                )
+                self.pending_triggers.append((ability, event))
             # "Whenever one or more creatures a player controls deal combat
             # damage to the player who has the initiative, the controller of
             # those creatures takes the initiative." Simplified to one
@@ -624,6 +658,29 @@ class RulesEngine:
                     ),
                 )
                 self.pending_triggers.append((ability, event))
+
+        # RULE 726.2's third inherent ability: "Whenever a player takes the
+        # initiative, that player ventures into Undercity." Keyed off the
+        # `TOOK_INITIATIVE` event rather than the designation itself, so RULE
+        # 726.5's re-take (same player, no new designation) still ventures.
+        if event.type == EventType.TOOK_INITIATIVE:
+            taker = self.state.player_by_id(event.get("player_id"))
+            if taker is not None and not taker.has_lost:
+                ability = TriggeredAbility(
+                    trigger_event=EventType.TOOK_INITIATIVE,
+                    effects=[
+                        VentureIntoTheDungeonEffect(dungeon=dungeons.UNDERCITY, player=taker)
+                    ],
+                    controller_id=taker.id,
+                    description=(
+                        "Whenever a player takes the initiative, that player "
+                        "ventures into Undercity."
+                    ),
+                )
+                self.pending_triggers.append((ability, event))
+
+        # RULE 309.4c: a room ability of a dungeon in someone's command zone.
+        self._collect_dungeon_room_triggers(event)
 
         self._collect_ring_triggers(event)
 
@@ -3807,35 +3864,196 @@ class RulesEngine:
         if remaining > 1:
             self._continue_remove_counters(target, remaining - 1)
 
-    def scry(self, player: Player, count: int) -> None:
-        """Scry ``count`` (RULE 701.18): look at the top ``count`` cards and
-        reorder / bottom them.
+    #: Scry (RULE 701.18) and surveil (RULE 701.31) are one keyword action
+    #: with one parameter changed: look at the top N cards of your library,
+    #: send any number of them *somewhere*, and put the rest back on top in
+    #: any order. Scry's "somewhere" is the bottom of the same library,
+    #: surveil's is the graveyard — everything else about them, including
+    #: the shape of the decision, is identical, so they share one
+    #: implementation (`_look_top_choice`/`_resolve_look_top_choice`/
+    #: `_finish_look_top`) and differ only by this table.
+    #:
+    #: Each entry: the event fired when the player looks, the German prompt
+    #: and decline label for the **away** phase (which cards leave the top)
+    #: and for the **order** phase (how the kept ones go back), and the label
+    #: the away pile is described by. The away phase repeats until the player
+    #: declines or runs out of cards; the order phase only opens with 2+
+    #: cards still headed for the top, since one card has only one order.
+    #: Both phases can be declined, and the two declines mean different
+    #: things: declining the away phase keeps what's left and *moves on to
+    #: ordering it*, while declining the order phase keeps the cards in the
+    #: order they were already in — the one-click answer for the
+    #: overwhelmingly common "fine as it is".
+    _LOOK_TOP_KINDS: dict[str, dict[str, Any]] = {
+        "scry": {
+            "event": EventType.SCRY,
+            "away": ("Hellsicht: welche Karte kommt unter die Bibliothek?", "Rest oben lassen"),
+            "order": ("Hellsicht: welche Karte kommt zuoberst?", "Reihenfolge behalten"),
+        },
+        "surveil": {
+            "event": EventType.SURVEIL,
+            "away": ("Überwachen: welche Karte kommt auf den Friedhof?", "Rest oben lassen"),
+            "order": ("Überwachen: welche Karte kommt zuoberst?", "Reihenfolge behalten"),
+        },
+    }
 
-        A goldfish/solo session has no interactive chooser, so this performs a
-        *legal* scry that keeps every looked-at card on top (always a valid
-        outcome — a player may keep any of them on top). It fires `SCRY` so the
-        UI and any "when you scry" trigger can observe it.
+    def scry(self, player: Player, count: int) -> None:
+        """Scry ``count`` (RULE 701.18): look at the top ``count`` cards, put
+        any number of them on the bottom and the rest back on top in any order.
+
+        A real, interactive decision — see `_LOOK_TOP_KINDS` for the shape it
+        shares with `surveil`. That is what makes Vancouver's "scry 1 after
+        keeping a mulliganed hand" a real choice rather than theatre
+        (`services/game_session.py`'s ``vancouver`` mulligan style).
         """
-        looked = min(count, len(player.library))
-        self.state.fire_event(
-            GameEvent(EventType.SCRY, player_id=player.id, count=looked)
-        )
+        self._look_at_top(player, count, "scry")
 
     def surveil(self, player: Player, count: int) -> None:
         """Surveil ``count`` (RULE 701.31): look at the top ``count`` cards,
-        put any number into the graveyard, the rest staying on top in any
-        order (no bottoming option, unlike `scry`).
+        put any number into the *graveyard* and the rest back on top in any
+        order — scry with a different destination (`_LOOK_TOP_KINDS`).
 
-        Same non-interactive-session shape as `scry`: a goldfish/solo session
-        has no chooser, so this performs the *legal* resolution that puts
-        nothing in the graveyard and keeps every looked-at card on top
-        (always a valid outcome). Fires `SURVEIL` so the UI and any "when
-        you surveil"/"whenever you surveil" trigger can observe it.
+        Note this is deliberately not `mill`: RULE 701.31b puts these cards
+        into the graveyard *from a look*, and the rules keep the two keyword
+        actions distinct (nothing that watches milling should see a surveil),
+        so no `MILL`/`MILL_CARD` event fires here.
         """
-        looked = min(count, len(player.library))
+        self._look_at_top(player, count, "surveil")
+
+    def _look_at_top(self, player: Player, count: int, kind: str) -> None:
+        """The shared body of `scry`/`surveil`: fire the keyword's event, then
+        open its decision.
+
+        The event fires *before* the decision, so "whenever you scry/surveil"
+        triggers see it at the moment the player looks — the same point the
+        old non-interactive stubs fired it, and the point RULE 603.2 means.
+        An empty library is still a scry/surveil of 0: the event fires (with
+        ``count`` 0) and nothing is asked.
+        """
+        looked = player.library[-count:] if count > 0 else []
         self.state.fire_event(
-            GameEvent(EventType.SURVEIL, player_id=player.id, count=looked)
+            GameEvent(
+                self._LOOK_TOP_KINDS[kind]["event"], player_id=player.id, count=len(looked)
+            )
         )
+        if not looked:
+            return
+        # Top card first, which is the order a player reads them in.
+        remaining = [obj.instance_id for obj in reversed(looked)]
+        self.state.pending_choice = self._look_top_choice(player, kind, "away", remaining, [], [])
+
+    def _look_top_choice(
+        self,
+        player: Player,
+        kind: str,
+        phase: str,
+        remaining: list[int],
+        away: list[int],
+        top: list[int],
+    ) -> dict[str, Any]:
+        """Build one step of the serializable `scry`/`surveil` decision.
+
+        ``remaining`` are the looked-at cards still undecided (top of library
+        first), ``away`` the ones already sent to the bottom/graveyard and
+        ``top`` the ones already placed, topmost first. All three are instance
+        ids rather than objects, so the choice survives the state `clone()`
+        undo takes.
+        """
+        prompt, decline_label = self._LOOK_TOP_KINDS[kind][phase]
+        looked = [(iid, self._object_by_instance_id(iid)) for iid in remaining]
+        options: list[dict[str, Any]] = [
+            {"id": str(iid), "label": obj.name, "instance_id": iid}
+            for iid, obj in looked
+            if obj is not None
+        ]
+        options.append({"id": "decline", "label": decline_label})
+        return {
+            "kind": kind,
+            "player_id": player.id,
+            "phase": phase,
+            "remaining": list(remaining),
+            "away": list(away),
+            "top": list(top),
+            "prompt": prompt,
+            "options": options,
+        }
+
+    def resolve_scry_choice(self, instance_id: Optional[int]) -> None:
+        """Answer a pending `scry` decision (RULE 701.18)."""
+        self._resolve_look_top_choice("scry", instance_id)
+
+    def resolve_surveil_choice(self, instance_id: Optional[int]) -> None:
+        """Answer a pending `surveil` decision (RULE 701.31)."""
+        self._resolve_look_top_choice("surveil", instance_id)
+
+    def _resolve_look_top_choice(self, kind: str, instance_id: Optional[int]) -> None:
+        """Answer one step of a `scry`/`surveil` decision.
+
+        In the ``away`` phase a card id sends that card to the bottom (scry)
+        or the graveyard (surveil) and re-asks; declining ends that phase and
+        moves on to ordering whatever is left. In the ``order`` phase a card
+        id places that card next from the top; declining there keeps the rest
+        in the order they already were and finishes. Either phase also
+        finishes on its own as soon as there is nothing left to decide.
+        """
+        choice = self.state.pending_choice
+        if not choice or choice.get("kind") != kind:
+            raise ValueError(f"no pending {kind} choice to resolve")
+        player = self.state.player_by_id(choice["player_id"])
+        remaining: list[int] = list(choice["remaining"])
+        away: list[int] = list(choice["away"])
+        top: list[int] = list(choice["top"])
+        phase = choice["phase"]
+
+        if instance_id is None:
+            if phase == "order":
+                self._finish_look_top(player, kind, away, top + remaining)
+                return
+            phase = "order"  # declined: what's left stays on top
+        elif instance_id in remaining:
+            remaining.remove(instance_id)
+            (away if phase == "away" else top).append(instance_id)
+        else:
+            raise ValueError(f"{instance_id} is not a legal choice")
+
+        # One card left needs no ordering, and no cards left needs nothing at
+        # all — either way the decision is over.
+        if not remaining or (phase == "order" and len(remaining) == 1):
+            self._finish_look_top(player, kind, away, top + remaining)
+            return
+        self.state.pending_choice = self._look_top_choice(
+            player, kind, phase, remaining, away, top
+        )
+
+    def _finish_look_top(
+        self, player: Player, kind: str, away: list[int], top: list[int]
+    ) -> None:
+        """Put the looked-at cards where they were sent.
+
+        ``top`` goes back on top with its first entry topmost (`Player.
+        library` is ordered bottom-first, so the kept pile goes back
+        reversed); ``away`` goes under the library (scry) or into the
+        graveyard (surveil, RULE 701.31b).
+        """
+        self.state.pending_choice = None
+        objects = {iid: self._object_by_instance_id(iid) for iid in (*away, *top)}
+        for obj in objects.values():
+            if obj is not None and obj in player.library:
+                player.library.remove(obj)
+        for iid in away:
+            obj = objects.get(iid)
+            if obj is None:
+                continue
+            if kind == "surveil":
+                obj.zone = Zone.GRAVEYARD
+                player.graveyard.append(obj)
+                self._flag_commander_zone_choice(obj)  # RULE 903.9a
+            else:
+                player.library.insert(0, obj)  # bottom of library
+        for iid in reversed(top):
+            obj = objects.get(iid)
+            if obj is not None:
+                player.library.append(obj)
 
     def create_token(
         self,
@@ -4250,6 +4468,137 @@ class RulesEngine:
         bind_from_catalogue(obj)
         return True
 
+    # ------------------------------------------------------------------
+    # Face-down spells and permanents (RULE 708)
+    # ------------------------------------------------------------------
+
+    def turn_face_down(self, obj: GameObject, kind: str) -> None:
+        """Turn ``obj`` face down as ``kind`` (RULE 708.2 — ``"morph"``/
+        ``"disguise"``/``"manifest"``/``"cloak"``, see `game/face_down.py`).
+
+        The object's whole face-up bundle is stashed on it and its `Card` is
+        swapped for the synthetic 2/2 — the same "swap the face, rebind the
+        abilities" shape `switch_to_face` uses for a DFC, except that here
+        the new face has no text at all, so there is nothing to bind and the
+        clear *is* the rebind. RULE 702.168a/701.58a's ward {2} is stamped on
+        for the disguise/cloak variants, since a face-down object's
+        characteristics are exactly what the rule that made it face down
+        lists — nothing is read off the card underneath.
+        """
+        obj.turn_face_down(face_down.face_down_card(kind), kind)
+        if kind in face_down.WARD_KINDS:
+            obj.intrinsic_keywords = {"ward"}
+            obj.parametric_keywords = {"ward": {"cost": "{2}"}}
+
+    def turn_face_up(self, obj: GameObject, megamorph: bool = False) -> bool:
+        """Turn a face-down permanent face up (RULE 708.8). Returns whether
+        it was face down at all.
+
+        Restores the stashed face-up characteristics and abilities, then —
+        for a megamorph cost being paid (RULE 702.37b) — puts a +1/+1 counter
+        on it *as* it turns face up, which is why the counter is placed
+        directly rather than through `add_counters` (that would fire a
+        replaceable COUNTER event for something the rules treat as part of
+        the turn-face-up itself). RULE 708.8: entering-the-battlefield
+        abilities don't trigger — the permanent has been on the battlefield
+        all along — so the only event fired is `EventType.TURNED_FACE_UP`.
+        """
+        if not obj.turn_face_up():
+            return False
+        if megamorph:
+            obj.counters["+1/+1"] = obj.counters.get("+1/+1", 0) + 1
+        self.state.fire_event(
+            GameEvent(
+                EventType.TURNED_FACE_UP,
+                instance_id=obj.instance_id,
+                controller_id=obj.controller_id,
+                object=obj.name,
+                card_id=obj.card.id,
+                object_types=sorted(obj.type_words),
+            )
+        )
+        self.check_state_based_actions()
+        return True
+
+    def manifest(self, player: Player, count: int = 1, kind: str = "manifest") -> list[GameObject]:
+        """Manifest (RULE 701.40a) or cloak (RULE 701.58a) the top ``count``
+        cards of ``player``'s library: turn each face down and put it onto
+        the battlefield as a 2/2 face-down creature.
+
+        RULE 701.40e/701.58e: multiple cards are manifested **one at a
+        time**, which is what this loop is — each card is turned face down
+        and enters before the next is looked at, so a replacement effect or
+        an ETB trigger on the first can see the second still in the library.
+        Returns the permanents created (empty for an empty library — RULE
+        701.40f's "nothing to manifest" case).
+        """
+        made: list[GameObject] = []
+        for _ in range(max(0, count)):
+            if not player.library:
+                break
+            obj = player.library[-1]
+            player.remove_from_zone(obj, Zone.LIBRARY)
+            obj.controller_id = player.id
+            self.turn_face_down(obj, kind)
+            # RULE 708.3: the card is turned face down *before* it enters,
+            # so its own enters-the-battlefield abilities never trigger —
+            # already true here, since `turn_face_down` cleared them.
+            self._put_searched_card(player, obj, "battlefield")
+            made.append(obj)
+        return made
+
+    def request_manifest_dread(self, player: Player) -> None:
+        """"Manifest dread": look at the top two cards of ``player``'s
+        library, manifest one face down and put the other into the graveyard.
+
+        Its own `pending_choice` kind rather than a `request_choose_objects`
+        call, because the generic chooser only ever *acts on the picks* — it
+        has no notion of "and the ones you didn't pick go somewhere else",
+        which is the entire second half of this keyword action. Degenerate
+        libraries resolve without asking: one card left is manifested with no
+        choice to make, an empty one does nothing (RULE 701.40f).
+        """
+        looked = player.library[-2:]
+        if not looked:
+            return
+        if len(looked) == 1:
+            self.manifest(player, 1)
+            return
+        self.state.pending_choice = {
+            "kind": "manifest_dread",
+            "player_id": player.id,
+            "prompt": "Manifest dread: welche Karte wird verdeckt gespielt?",
+            "options": [
+                {"id": str(obj.instance_id), "label": obj.name, "instance_id": obj.instance_id}
+                for obj in reversed(looked)  # top card first
+            ],
+        }
+
+    def resolve_manifest_dread_choice(self, instance_id: Optional[int]) -> None:
+        """Answer a pending manifest-dread choice: manifest the chosen card,
+        mill the other. A missing/unrecognized answer defaults to the top
+        card — the choice is mandatory (RULE 701.40a's "put one … and the
+        other …"), so declining can't mean "neither"."""
+        choice = self.state.pending_choice
+        if not choice or choice.get("kind") != "manifest_dread":
+            raise ValueError("no pending manifest-dread choice to resolve")
+        player = self.state.player_by_id(choice["player_id"])
+        self.state.pending_choice = None
+        offered = [opt["instance_id"] for opt in choice["options"]]
+        chosen_id = instance_id if instance_id in offered else offered[0]
+        chosen = self._object_by_instance_id(chosen_id)
+        others = [self._object_by_instance_id(i) for i in offered if i != chosen_id]
+        if chosen is not None:
+            player.remove_from_zone(chosen, Zone.LIBRARY)
+            chosen.controller_id = player.id
+            self.turn_face_down(chosen, "manifest")
+            self._put_searched_card(player, chosen, "battlefield")
+        for other in others:
+            if other is not None and other in player.library:
+                player.remove_from_zone(other, Zone.LIBRARY)
+                player.add_to_zone(other, Zone.GRAVEYARD)
+        self.check_state_based_actions()
+
     def exile_return_transformed(self, obj: GameObject) -> bool:
         """"Exile ~, then return it to the battlefield transformed under its
         owner's control" (RULE 400.7 + RULE 712.8 combined — a transforming
@@ -4372,6 +4721,358 @@ class RulesEngine:
         effect.replacement_fn = _replace
         player.player_effects.append(effect)
 
+    # ------------------------------------------------------------------
+    # Casual variants (RULE 9): Planechase, Archenemy, Vanguard
+    # ------------------------------------------------------------------
+
+    def planeswalk(self, player: Player, _depth: int = 0) -> Optional[GameObject]:
+        """Planeswalk (RULE 901.10): the face-up plane goes to the bottom of
+        the planar deck face down, and the next one turns face up.
+
+        Fires `PLANESWALKED_AWAY` for the plane being left and
+        `PLANESWALKED_TO` for the new one, in that order — RULE 901.10's own
+        order, and the one that lets a plane's leave-trigger see the board
+        before its successor's enter-trigger changes it. Returns the plane
+        walked to, or ``None`` outside a Planechase game.
+        """
+        deck = self.state.planar_deck
+        if not deck:
+            return None
+        leaving = deck.pop()
+        deck.insert(0, leaving)  # bottom of the deck (index 0 — see `planar_deck`)
+        self.state.fire_event(
+            GameEvent(
+                EventType.PLANESWALKED_AWAY,
+                player_id=player.id,
+                controller_id=player.id,
+                instance_id=leaving.instance_id,
+                plane=leaving.name,
+            )
+        )
+        arriving = deck[-1]
+        arriving.controller_id = player.id
+        self.state.fire_event(
+            GameEvent(
+                EventType.PLANESWALKED_TO,
+                player_id=player.id,
+                controller_id=player.id,
+                instance_id=arriving.instance_id,
+                plane=arriving.name,
+            )
+        )
+        if variants.is_phenomenon(arriving) and _depth < len(deck):
+            # RULE 901.18: "when a phenomenon's triggered ability leaves the
+            # stack, its controller planeswalks" — a phenomenon is never
+            # somewhere the game stays. Chained straight away rather than
+            # after that ability resolves: the ability is already queued with
+            # this object bound as its source and reads no zone of its own,
+            # so the two orders are indistinguishable (the same call
+            # `set_scheme_in_motion` makes for RULE 904.10). ``_depth`` is a
+            # loop guard, not a rule: RULE 901.15 caps a legal planar deck at
+            # two phenomena, but nothing stops a hand-built one.
+            return self.planeswalk(player, _depth=_depth + 1)
+        return arriving
+
+    def roll_planar_die(self, player: Player) -> str:
+        """Roll the planar die (RULE 901.6) and apply its face.
+
+        Returns the face rolled: ``"chaos"`` (901.13 — the face-up plane's
+        chaos ability triggers), ``"planeswalk"`` (901.14 — planeswalk right
+        away) or ``"blank"`` (nothing happens, which is four of the six
+        faces). Paying the {X} cost and counting the roll is the *special
+        action*'s job (`GameEngine.roll_planar_die`); this is the roll
+        itself, so a test — or a card that rolls the die for free — can use
+        it directly.
+        """
+        face = self.random_choice(list(variants.PLANAR_DIE_FACES))
+        if face == "chaos":
+            plane = variants.active_plane(self.state)
+            self.state.fire_event(
+                GameEvent(
+                    EventType.CHAOS_ENSUED,
+                    player_id=player.id,
+                    controller_id=player.id,
+                    instance_id=plane.instance_id if plane is not None else None,
+                    plane=plane.name if plane is not None else None,
+                )
+            )
+        elif face == "planeswalk":
+            self.planeswalk(player)
+        return face
+
+    def set_scheme_in_motion(self, player: Player) -> Optional[GameObject]:
+        """RULE 904.7: the archenemy turns the top card of their scheme deck
+        face up and it "is set in motion" — its triggered ability fires.
+
+        An **ongoing** scheme (RULE 904.9) stays face up in the command zone
+        until abandoned; every other scheme goes back under its deck as soon
+        as its ability has resolved (904.10) — done here rather than after
+        the resolution, since the ability is already on the stack by then and
+        its effects don't read the card's zone.
+        """
+        if not player.scheme_deck:
+            return None
+        scheme = player.scheme_deck.pop()
+        scheme.controller_id = player.id
+        is_ongoing = "ongoing" in (scheme.card.type_line or "").lower()
+        # Face up first, *then* the event: a scheme's own ability is found by
+        # the same command-zone scan that finds an ongoing one's
+        # (`variants.command_zone_ability_sources`), so the card has to be
+        # face up while `fire_event` collects triggers. A non-ongoing scheme
+        # then goes straight back under its deck — RULE 904.10 times that
+        # "after its ability leaves the stack", which is indistinguishable
+        # here: the ability is already on the stack with this object bound as
+        # its source, and nothing it does reads the card's zone.
+        player.ongoing_schemes.append(scheme)
+        self.state.fire_event(
+            GameEvent(
+                EventType.SCHEME_SET_IN_MOTION,
+                player_id=player.id,
+                controller_id=player.id,
+                instance_id=scheme.instance_id,
+                scheme=scheme.name,
+                ongoing=is_ongoing,
+            )
+        )
+        if not is_ongoing:
+            player.ongoing_schemes.remove(scheme)
+            player.scheme_deck.insert(0, scheme)  # bottom of the deck (904.10)
+        return scheme
+
+    def abandon_scheme(self, player: Player, scheme: GameObject) -> bool:
+        """RULE 904.11: an ongoing scheme is abandoned — turned face down and
+        put on the bottom of its owner's scheme deck."""
+        if scheme not in player.ongoing_schemes:
+            return False
+        player.ongoing_schemes.remove(scheme)
+        player.scheme_deck.insert(0, scheme)
+        return True
+
+    # ------------------------------------------------------------------
+    # Dungeons (RULE 309) and venturing (RULE 701.49)
+    # ------------------------------------------------------------------
+
+    def venture_into_the_dungeon(self, player: Player, dungeon_name: Optional[str] = None) -> None:
+        """The venture-into-the-dungeon keyword action (RULE 701.49).
+
+        Three branches, exactly as the rule splits them:
+
+        * **701.49a** — not in a dungeon: choose one from outside the game
+          (an interactive `pending_choice` when more than one is available),
+          put it into the command zone and put the venture marker on its
+          topmost room (309.4a).
+        * **701.49b** — in a room with arrows leaving it: move the marker
+          along one of them, choosing when there are several.
+        * **701.49c** — in the bottommost room: that dungeon is completed and
+          leaves the game, then a fresh one is entered at its top room.
+
+        ``dungeon_name`` is RULE 701.49d's "venture into [quality]" variant
+        (RULE 726.2's "venture into Undercity"): it names which dungeon a
+        *new* one must be, and is ignored once the player is already in one —
+        which is the rule's own wording, not a simplification.
+
+        Moving the marker into a room is what triggers that room's ability
+        (309.4c); this fires `EventType.DUNGEON_ROOM_ENTERED` and
+        `_collect_dungeon_room_triggers` builds the ability from it, the same
+        source-less way the monarch's and the initiative's own inherent
+        abilities are built.
+        """
+        dungeon = player.dungeon
+        if dungeon is None:
+            self._enter_new_dungeon(player, dungeon_name)
+            return
+        if dungeon.on_last_room:
+            # RULE 701.49c: complete this one first, then start another.
+            self.complete_dungeon(player)
+            self._enter_new_dungeon(player, dungeon_name)
+            return
+        rooms = dungeon.next_rooms()
+        if not rooms:
+            return
+        if len(rooms) == 1:
+            self.move_venture_marker(player, rooms[0].name)
+            return
+        # RULE 701.49b: "if there are multiple arrows … they choose one".
+        self.state.pending_choice = {
+            "kind": "venture_room",
+            "player_id": player.id,
+            "prompt": f"{dungeon.name}: welchen Raum betrittst du?",
+            "options": [
+                {"id": room.name, "label": f"{room.name} — {room.effect_text}"}
+                for room in rooms
+            ],
+        }
+
+    def resolve_venture_room_choice(self, answer: Optional[str]) -> None:
+        """Answer a pending RULE 701.49b room choice. Mandatory (the marker
+        has to move somewhere), so an unrecognized/missing answer takes the
+        first arrow rather than staying put."""
+        choice = self.state.pending_choice
+        if not choice or choice.get("kind") != "venture_room":
+            raise ValueError("no pending venture-room choice to resolve")
+        player = self.state.player_by_id(choice["player_id"])
+        self.state.pending_choice = None
+        names = [opt["id"] for opt in choice["options"]]
+        self.move_venture_marker(player, answer if answer in names else names[0])
+
+    def _enter_new_dungeon(self, player: Player, dungeon_name: Optional[str] = None) -> None:
+        """RULE 309.2a/701.49a: bring a dungeon card into the game.
+
+        A named dungeon (RULE 701.49d) is taken directly; otherwise the pool
+        is every dungeon that isn't gated behind its own "venture into
+        [quality]" wording, and the player picks when there's more than one.
+        """
+        if dungeon_name:
+            dungeon = dungeons.dungeon_by_name(dungeon_name)
+            if dungeon is None:
+                return
+            self._put_dungeon_into_command_zone(player, dungeon)
+            return
+        pool = dungeons.choosable_dungeons()
+        if not pool:
+            return
+        if len(pool) == 1:
+            self._put_dungeon_into_command_zone(player, pool[0])
+            return
+        self.state.pending_choice = {
+            "kind": "choose_dungeon",
+            "player_id": player.id,
+            "prompt": "In welchen Dungeon begibst du dich?",
+            "options": [{"id": d.name, "label": d.name} for d in pool],
+        }
+
+    def resolve_choose_dungeon_choice(self, answer: Optional[str]) -> None:
+        """Answer a pending RULE 309.2a dungeon choice — mandatory, so an
+        unrecognized/missing answer takes the first offered dungeon."""
+        choice = self.state.pending_choice
+        if not choice or choice.get("kind") != "choose_dungeon":
+            raise ValueError("no pending dungeon choice to resolve")
+        player = self.state.player_by_id(choice["player_id"])
+        self.state.pending_choice = None
+        names = [opt["id"] for opt in choice["options"]]
+        chosen = answer if answer in names else names[0]
+        dungeon = dungeons.dungeon_by_name(chosen)
+        if dungeon is not None:
+            self._put_dungeon_into_command_zone(player, dungeon)
+
+    def _put_dungeon_into_command_zone(self, player: Player, dungeon: Any) -> None:
+        """RULE 309.2b/309.4a: the card goes to the command zone and the
+        marker onto its topmost room — which immediately triggers that
+        room's ability (309.4c)."""
+        self.state._timestamp_counter = getattr(self.state, "_timestamp_counter", 0) + 1
+        dungeon.controller_id = player.id
+        dungeon.owner_id = player.id
+        dungeon.timestamp = self.state._timestamp_counter
+        player.dungeon = dungeon
+        top = dungeon.top_room
+        if top is None:
+            return
+        self.move_venture_marker(player, top.name)
+
+    def move_venture_marker(self, player: Player, room_name: str) -> None:
+        """Move ``player``'s venture marker into ``room_name`` and fire the
+        event its room ability triggers off (RULE 309.4c)."""
+        dungeon = player.dungeon
+        if dungeon is None or dungeon.room(room_name) is None:
+            return
+        dungeon.current_room = room_name
+        self.state.fire_event(
+            GameEvent(
+                EventType.DUNGEON_ROOM_ENTERED,
+                player_id=player.id,
+                controller_id=player.id,
+                dungeon=dungeon.name,
+                room=room_name,
+            )
+        )
+
+    def complete_dungeon(self, player: Player) -> None:
+        """RULE 309.6/309.7: the dungeon card is removed from the game, and
+        its owner thereby *completes* it."""
+        dungeon = player.dungeon
+        if dungeon is None:
+            return
+        player.dungeon = None
+        player.completed_dungeons.append(dungeon.name)
+        self.state.fire_event(
+            GameEvent(
+                EventType.DUNGEON_COMPLETED,
+                player_id=player.id,
+                controller_id=player.id,
+                dungeon=dungeon.name,
+            )
+        )
+
+    def _collect_dungeon_room_triggers(self, event: GameEvent) -> None:
+        """RULE 309.4c: build a room's triggered ability as the venture marker
+        moves into it — "When you move your venture marker into this room,
+        [effect]".
+
+        Source-less in the same sense the monarch's and the initiative's
+        abilities are: there is no permanent for `_collect_triggers`' object
+        scan to find, only a dungeon card in the command zone. The ability's
+        controller is the dungeon's owner (309.4c), and its source is the
+        `Dungeon` itself — which carries `controller_id`/`timestamp` for
+        exactly this, the way `models/emblem.py` does.
+        """
+        if event.type != EventType.DUNGEON_ROOM_ENTERED:
+            return
+        player = self.state.player_by_id(event.get("player_id"))
+        dungeon = getattr(player, "dungeon", None)
+        if dungeon is None:
+            return
+        room = dungeon.room(event.get("room"))
+        if room is None:
+            return
+        specs = dungeons.room_effect_specs(room)
+        effects = self._effects_from_specs(specs, source=dungeon)
+        if room.is_last:
+            # RULE 309.6: "if a player's venture marker is on the bottommost
+            # room … and that dungeon card isn't the source of a room ability
+            # that has triggered but not yet left the stack, the owner removes
+            # it from the game". Modeled as the last thing that room's own
+            # ability does, which is precisely the moment that condition first
+            # becomes true — rather than as a separate SBA scan that would
+            # have to identify "is this stack item this dungeon's ability?".
+            effects.append(CompleteDungeonEffect(source=dungeon))
+        if not effects:
+            return
+        ability = TriggeredAbility(
+            trigger_event=EventType.DUNGEON_ROOM_ENTERED,
+            effects=effects,
+            controller_id=player.id,
+            description=f"{dungeon.name} — {room.name}: {room.effect_text}",
+        )
+        self.pending_triggers.append((ability, event))
+
+    def _effects_from_specs(self, specs: list[dict[str, Any]], source: Any) -> list[Any]:
+        """Serialized `EffectSpec` dicts → live one-shot `GameEffect`s bound
+        against ``source`` — the same lazily-imported binder path
+        `create_emblem` uses for an emblem's quoted ability, and for the same
+        reason (a module-level import would cycle through `game/effects.py`).
+        """
+        from ..parser.oracle.spec import EffectSpec
+        from .effect_binder import BindError, build_effects
+
+        if not specs:
+            return []
+        try:
+            return build_effects(
+                [
+                    EffectSpec(
+                        type=spec["type"],
+                        params=dict(spec.get("params") or {}),
+                        condition=spec.get("condition"),
+                    )
+                    for spec in specs
+                ],
+                source=source,
+            )
+        except BindError:
+            # Fail closed, exactly as an unmodeled room text does: a spec the
+            # registry doesn't know produces no effect rather than a wrong one.
+            return []
+
     def become_monarch(self, player: Player) -> None:
         """RULE 725.3: ``player`` becomes the monarch; whoever held it
         (possibly ``player`` themself) ceases to."""
@@ -4379,10 +5080,19 @@ class RulesEngine:
 
     def take_initiative(self, player: Player) -> None:
         """RULE 726.3: ``player`` takes the initiative; whoever held it
-        (possibly ``player`` themself) ceases to. RULE 726.5's "venture into
-        the dungeon" companion trigger isn't fired — see
-        `TakeInitiativeEffect`'s docstring."""
+        (possibly ``player`` themself) ceases to.
+
+        RULE 726.5: a player who *already* has the initiative and is told to
+        take it doesn't gain a second designation, but the "whenever a player
+        takes the initiative" ability still triggers — which is why the event
+        is announced unconditionally rather than only on a change of holder.
+        """
         self.state.initiative_id = player.id
+        self.state.fire_event(
+            GameEvent(
+                EventType.TOOK_INITIATIVE, player_id=player.id, controller_id=player.id
+            )
+        )
 
     #: The closed vocabulary `request_choose_objects` accepts, mapping each
     #: action name to what it does to a chosen object. Deliberately small

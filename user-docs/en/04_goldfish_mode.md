@@ -22,7 +22,7 @@ the actual backend rules engine — not a simplified mock.
 You're dealt 7 cards. From here:
 
 - **Hand behalten** (keep hand) — keep these 7 and start playing.
-- **🔀 Mulligan (neue 7 ziehen)** (draw a new 7) — a London mulligan:
+- **🔀 Mulligan (7 Karten ziehen)** (draw 7 cards) — a London mulligan:
   shuffle back and draw a fresh 7. Each mulligan you've taken means
   that, when you do keep a hand, you must put that many cards on the
   bottom of your library first — click cards in your hand to mark them

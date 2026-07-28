@@ -1524,6 +1524,33 @@ def _surveil(m: re.Match[str]) -> list[EffectSpec]:
     return [EffectSpec("surveil", {"count": int(m.group("n"))})]
 
 
+# RULE 701.40a manifest / RULE 701.58a cloak — "manifest the top card of your
+# library" and its "the top N cards" plural, plus cloak's identical shape
+# (the only difference is ward {2} on the resulting permanent, carried as the
+# effect's ``kind``). "Manifest dread" (RULE 701.40a plus a look-at-two
+# chooser) is a separate handler since it isn't a count at all.
+def _manifest(m: re.Match[str]) -> list[EffectSpec]:
+    kind = "cloak" if m.group("verb").lower() == "cloak" else "manifest"
+    return [EffectSpec("manifest", {"count": count_of(m.group("n") or "a"), "kind": kind})]
+
+
+def _manifest_dread(m: re.Match[str]) -> list[EffectSpec]:
+    return [EffectSpec("manifest_dread", {})]
+
+
+# "Venture into the dungeon." (RULE 701.49) and its RULE 701.49d "venture
+# into [quality]" variant ("venture into Undercity") — the named form keeps
+# the dungeon's name as a param, which is what `RulesEngine.
+# venture_into_the_dungeon` uses to skip the RULE 309.2a choice.
+def _venture(m: re.Match[str]) -> list[EffectSpec]:
+    named = (m.groupdict().get("dungeon") or "").strip()
+    params: dict = {}
+    if named and named != "the dungeon":
+        # `normalize` lowercases, so the catalogue lookup is case-folded too.
+        params["dungeon"] = named
+    return [EffectSpec("venture", params)]
+
+
 # "You become the monarch." / "Target player becomes the monarch." (RULE
 # 725.1) and "You take the initiative." / "Target player takes the
 # initiative." (RULE 726.1) — plain designation grants, the same untargeted-
@@ -2404,6 +2431,28 @@ HANDLERS: list[EffectHandler] = [
         "surveil",
         _c(rf"surveil {NUMBER}"),
         _surveil,
+    ),
+    # "venture into the dungeon" (RULE 701.49) / "venture into Undercity"
+    # (RULE 701.49d).
+    EffectHandler(
+        "venture",
+        _c(r"venture into (?P<dungeon>the dungeon|undercity)"),
+        _venture,
+    ),
+    # "manifest dread" (RULE 701.40a) — tried before the plain manifest row
+    # below, which would otherwise not match it at all but reads more
+    # naturally kept in this order alongside its sibling.
+    EffectHandler(
+        "manifest_dread",
+        _c(r"manifest dread"),
+        _manifest_dread,
+    ),
+    # "manifest the top card of your library" / "…the top two cards…" and
+    # cloak's identical shape (RULE 701.40a/701.58a).
+    EffectHandler(
+        "manifest",
+        _c(rf"(?P<verb>manifest|cloak) the top (?:{COUNT} )?cards? of your library"),
+        _manifest,
     ),
     # "proliferate twice" / "proliferate N times" (RULE 701.30) — tried
     # before the bare `proliferate` row below since it's a strict superset.

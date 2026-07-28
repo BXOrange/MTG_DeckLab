@@ -296,6 +296,28 @@ class GameState:
         self.monarch_id: Optional[str] = None
         self.initiative_id: Optional[str] = None
 
+        #: The format/variant this game is being played under
+        #: (`models/game_format.py`) — its name only, so the state stays
+        #: plain data; `get_format` resolves it back to the record. Decides
+        #: which of the RULE 9 variant subsystems below are live at all.
+        self.format_name: str = "commander"
+        #: RULE 901.5: the **shared** planar deck of a Planechase game, face
+        #: down but for its top card, which is the plane currently face up
+        #: in the command zone (901.7). Top of the deck is the end of the
+        #: list, the same convention `Player.library` uses. Empty outside a
+        #: Planechase game. Per-player planar decks (also legal under 901.5)
+        #: aren't modeled: one shared deck is the common table setup and the
+        #: only one that needs no "whose plane is this" bookkeeping.
+        self.planar_deck: list[GameObject] = []
+        #: RULE 901.6b: how many times each player has rolled the planar die
+        #: this turn — the die's cost is {X} where X is exactly that count,
+        #: so it has to be tracked per player and reset each turn
+        #: (`GameEngine.begin_turn`, alongside `lands_played_this_turn`).
+        self.planar_die_rolls_this_turn: dict[str, int] = {}
+        #: RULE 904.3: which player is the archenemy of an Archenemy game
+        #: (the one with a scheme deck), or ``None``.
+        self.archenemy_id: Optional[str] = None
+
         #: Reproducible-randomness state (RULE 706 — "choose … at random", coin
         #: flips): a seed plus a monotonically-advancing counter. `RulesEngine.
         #: random_int` derives each draw from ``(rng_seed, rng_counter)`` and
@@ -735,6 +757,16 @@ class GameState:
     def remove_from_battlefield(self, obj: GameObject) -> None:
         if obj in self.battlefield:
             self.battlefield.remove(obj)
+        # RULE 708.9: "if a face-down permanent moves from the battlefield to
+        # any other zone, its owner must reveal it to all players as they
+        # move it" — so no object ever leaves the battlefield still wearing
+        # the synthetic 2/2 face. Done here, at the one chokepoint every
+        # departure goes through (graveyard, exile, hand, library, the
+        # command zone), rather than at each caller. Deliberately the bare
+        # model transition, never `RulesEngine.turn_face_up`: this reveal
+        # fires no "turned face up" trigger (RULE 701.40g's wording for the
+        # analogous case) and charges no cost.
+        obj.turn_face_up()
 
     # -- Event bus -------------------------------------------------------
 
@@ -791,6 +823,16 @@ class GameState:
             "winner_id": self.winner_id,
             "monarch_id": self.monarch_id,
             "initiative_id": self.initiative_id,
+            # RULE 8/9: the format, and the Planechase state the board shows —
+            # the face-up plane (901.7) plus how many planes are left behind
+            # it. The rest of the planar deck is face down, so only its size
+            # ships, exactly like a library's.
+            "format": self.format_name,
+            "archenemy_id": self.archenemy_id,
+            "active_plane": (
+                self.planar_deck[-1].to_dict() if self.planar_deck else None
+            ),
+            "planar_deck_count": len(self.planar_deck),
             "pending_choice": self.pending_choice,
             "temp_play_permissions": dict(self.temp_play_permissions),
             "temp_play_permission_source": dict(self.temp_play_permission_source),
