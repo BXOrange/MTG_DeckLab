@@ -49,8 +49,10 @@ from .phases import GamePhase, GameStep, default_turn_sequence
 from .rules_engine import RulesEngine
 from .targeting import (
     TargetSpec,
+    ability_target_specs,
     all_requirements_satisfiable,
     legal_targets,
+    partition_targets,
     requirements_with_targets,
     spell_target_specs,
 )
@@ -2241,6 +2243,16 @@ class GameEngine:
             # a legal target is available — the same check that locks the offer.
             if not self.has_legal_targets(player, obj):
                 raise ValueError(f"{obj.name} has no legal target")
+            # RULE 115.1: a spell announcing 2+ requirements needs its flat,
+            # in-printed-order picks split per targeting effect, or every
+            # effect would read the same first target ("target creature you
+            # control gets +1/+2 …. It fights target creature you don't
+            # control." would pump and fight the same creature). A caller
+            # that can *decline* an optional requirement must still send
+            # explicit groups — `partition_targets` returns None rather than
+            # guess which slot was skipped.
+            if target_groups is None:
+                target_groups = partition_targets(spell_target_specs(obj), targets)
             # RULE 903.8: record this command-zone cast so the next one is
             # taxed {2} more. Read *before* the cast moves the card off the
             # command zone.
@@ -2261,14 +2273,14 @@ class GameEngine:
                 else None
             )
             if free:
-                result = self.rules.cast_without_paying(player, obj, targets)
+                result = self.rules.cast_without_paying(player, obj, targets, target_groups)
             elif self._top_library_life_payment(player, obj):
                 # Bolas's Citadel-shaped: no mana leaves the pool — the
                 # spell goes on the stack for free, then its controller
                 # pays life equal to its mana value as the cost instead
                 # (RULE 118), mirroring `RulesEngine.cast_spell`'s own
                 # "lose_life *after* the card leaves its current zone" order.
-                result = self.rules.cast_without_paying(player, obj, targets)
+                result = self.rules.cast_without_paying(player, obj, targets, target_groups)
                 self.rules.lose_life(player, obj.card.converted_mana_cost, cause="cost")
             else:
                 cost = self.effective_cast_cost(
@@ -3295,19 +3307,27 @@ class GameEngine:
         self, player: Player, ability: ActivatedAbility, source: GameObject
     ) -> list[dict[str, Any]]:
         """Target requirements of an activated ability, with legal options —
-        the same shape `_cast_action` uses for spells (RULE 602.2b / 115)."""
+        the same shape `_cast_action` uses for spells (RULE 602.2b / 115).
+
+        Reads `GameEffect.target_specs` (not ``target_spec``) so a single
+        effect announcing two requirements — "target creature you control
+        fights another target creature", Ulvenwald Tracker — offers both,
+        and carries the same ``count``/cross-target keys
+        `targeting.requirements_with_targets` gives the cast path, so the
+        board's targeting rounds behave identically for an ability."""
         out: list[dict[str, Any]] = []
-        for effect in ability.effects:
-            spec = getattr(effect, "target_spec", None)
-            if spec is not None:
-                out.append(
-                    {
-                        "kind": spec.kind,
-                        "optional": spec.optional,
-                        "label": spec.label(),
-                        "options": legal_targets(self.state, player.id, spec, source=source),
-                    }
-                )
+        for spec in ability_target_specs(ability):
+            out.append(
+                {
+                    "kind": spec.kind,
+                    "optional": spec.optional,
+                    "count": spec.count,
+                    "label": spec.label(),
+                    "options": legal_targets(self.state, player.id, spec, source=source),
+                    "distinct_controllers": spec.distinct_controllers,
+                    "distinct_from_others": spec.distinct_from_others,
+                }
+            )
         return out
 
     def _activate_action(
@@ -3844,6 +3864,12 @@ class GameEngine:
         if not 0 <= ability_index < len(abilities):
             raise ValueError(f"{source.name} has no activated ability #{ability_index}")
         ability = abilities[ability_index]
+        if target_groups is None:
+            # RULE 115.1, same derivation the cast path makes: an ability
+            # announcing 2+ requirements needs its flat picks split per
+            # targeting effect (Ulvenwald Tracker's "target creature you
+            # control fights another target creature").
+            target_groups = partition_targets(ability_target_specs(ability), targets)
         if target_groups is not None and targets is None:
             # Same derivation `RulesEngine.cast_spell` does: every flat-
             # ``targets`` consumer (ward, the stack display) still needs to

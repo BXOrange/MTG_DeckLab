@@ -2182,6 +2182,7 @@ class RulesEngine:
         player: Player,
         obj: GameObject,
         targets: Optional[list[Any]] = None,
+        target_groups: Optional[list[list[Any]]] = None,
     ) -> StackItem:
         """Cast a card *without paying its mana cost* (RULE 118.9 / 601.3b).
 
@@ -2195,7 +2196,13 @@ class RulesEngine:
         Reusable by every free-cast mechanic — cascade, discover, "you may
         cast it without paying its mana cost", suspend — from whatever zone
         the card currently sits in (hand, exile, library, graveyard).
+
+        ``target_groups`` partitions ``targets`` per targeting effect exactly
+        as in `cast_spell` — a free cast of a two-requirement spell is still
+        a cast of that spell.
         """
+        if target_groups is not None and targets is None:
+            targets = [t for group in target_groups for t in group]
         from_hand = obj.zone == Zone.HAND
         self._remove_from_current_zone(player, obj)
         obj.zone = Zone.STACK
@@ -2211,6 +2218,7 @@ class RulesEngine:
             obj=obj,
             description=obj.name,
             targets=targets,
+            target_groups=target_groups,
         )
         self.state.stack.append(item)
         self.state.fire_event(
@@ -2424,6 +2432,7 @@ class RulesEngine:
             resumed["target_groups"],
             source=resumed.get("source"),
             group_index=resumed.get("group_index", 0),
+            previous_targets=resumed.get("previous_targets"),
         )
         return True
 

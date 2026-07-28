@@ -68,6 +68,21 @@ class GameContext:
         #: varies per firing; this covers the far commoner case where only a
         #: value does.
         self.trigger_event: Optional[GameEvent] = None
+        #: The targets the last *targeting* effect of this same resolution
+        #: used (RULE 608.2 applies an effect list in printed order), so a
+        #: clause whose subject is a pronoun pointing back at an earlier one
+        #: — "target creature you control gets +1/+2 until end of turn. **It**
+        #: fights target creature you don't control." (Epic Confrontation),
+        #: "Choose target creature you control and target creature you don't
+        #: control. … Then **those creatures** fight each other." — can
+        #: resolve that referent without the two clauses being fused into one
+        #: bespoke effect class per verb pair. Maintained by
+        #: `_apply_effects_partitioned`, which is the single choke point every
+        #: resolution (spell, wrapper ability, resumed remainder) goes
+        #: through. A *non*-targeting clause in between doesn't clear it: the
+        #: referent is the last thing actually chosen, not the last thing that
+        #: happened.
+        self.previous_targets: list[Any] = []
 
     @property
     def players(self) -> list["Player"]:
@@ -472,6 +487,7 @@ def _apply_effects_partitioned(
     target_groups: Optional[list[list[Any]]],
     source: Optional["GameObject"] = None,
     group_index: int = 0,
+    previous_targets: Optional[list[Any]] = None,
 ) -> None:
     """Apply each of ``effects`` against its own share of ``targets``.
 
@@ -495,39 +511,55 @@ def _apply_effects_partitioned(
     modal spell (RULE 702.42a), or an ability whose clauses each prompt.
     ``group_index`` is where in ``target_groups`` to start, so a resumed
     remainder keeps reading its own slices.
+
+    ``previous_targets`` seeds `GameContext.previous_targets` — the referent
+    a later clause's pronoun points at ("… **It** fights target creature you
+    don't control."). It is threaded here rather than kept on the context
+    alone so a resumed remainder (below) picks the referent back up, and
+    restored afterwards so a nested resolution can't leak its own.
     """
     state = getattr(context, "state", None)
     already_pending = getattr(state, "pending_choice", None) if state is not None else None
-    for position, effect in enumerate(effects):
-        if source is not None and effect.source is None:
-            effect.source = source
-        specs = effect.target_specs
-        if target_groups is not None and specs:
-            # An effect with 2+ requirements consumes that many groups and
-            # sees them flattened, so its `apply` reads targets[0],
-            # targets[1], … in printed order (see `extra_target_specs`).
-            group: list[Any] = []
-            for _ in specs:
-                if group_index < len(target_groups):
-                    group.extend(target_groups[group_index])
-                group_index += 1
-            effect.apply(context, group)
-        else:
-            effect.apply(context, targets)
-        if state is None or position + 1 >= len(effects):
-            continue
-        opened = getattr(state, "pending_choice", None)
-        if opened is not None and opened is not already_pending:
-            state.deferred_effects.append(
-                {
-                    "effects": list(effects[position + 1:]),
-                    "targets": targets,
-                    "target_groups": target_groups,
-                    "group_index": group_index,
-                    "source": source,
-                }
-            )
-            return
+    outer_previous = getattr(context, "previous_targets", [])
+    context.previous_targets = list(previous_targets or [])
+    try:
+        for position, effect in enumerate(effects):
+            if source is not None and effect.source is None:
+                effect.source = source
+            specs = effect.target_specs
+            if target_groups is not None and specs:
+                # An effect with 2+ requirements consumes that many groups and
+                # sees them flattened, so its `apply` reads targets[0],
+                # targets[1], … in printed order (see `extra_target_specs`).
+                group: list[Any] = []
+                for _ in specs:
+                    if group_index < len(target_groups):
+                        group.extend(target_groups[group_index])
+                    group_index += 1
+                effect.apply(context, group)
+                used = group
+            else:
+                effect.apply(context, targets)
+                used = list(targets or [])
+            if specs and used:
+                context.previous_targets = list(used)
+            if state is None or position + 1 >= len(effects):
+                continue
+            opened = getattr(state, "pending_choice", None)
+            if opened is not None and opened is not already_pending:
+                state.deferred_effects.append(
+                    {
+                        "effects": list(effects[position + 1:]),
+                        "targets": targets,
+                        "target_groups": target_groups,
+                        "group_index": group_index,
+                        "source": source,
+                        "previous_targets": list(context.previous_targets),
+                    }
+                )
+                return
+    finally:
+        context.previous_targets = outer_previous
 
 
 # ---------------------------------------------------------------------------
@@ -6689,6 +6721,252 @@ class CounterThenFightlikeDamageEffect(GameEffect):
             context.deal_damage(theirs, mine.power or 0, mine)
 
 
+#: Subject names that are *not* a RULE 115 target choice — the four ways a
+#: fight/one-sided-damage clause can name a creature without announcing a
+#: requirement for it. Shared by `FightEffect` and
+#: `DamageEqualToPowerEffect`, which take exactly the same subject vocabulary
+#: on either side of the verb (a fight is two of these dealing damage to each
+#: other; the one-sided family is one of them dealing to a target).
+#:
+#: * ``None`` — the effect's own source ("**it** fights …" in a trigger whose
+#:   subject is that permanent, "when ~ dies, **it** deals damage equal to its
+#:   power to any target");
+#: * ``"attached_permanent"`` — an Aura/Equipment's current host ("when this
+#:   Aura enters, **enchanted creature** fights …"), re-read live at
+#:   resolution the way `TapEffect`'s attached mode does;
+#: * ``"previous_target"`` / ``"previous_target_2"`` — the first/second target
+#:   the *preceding* clause of this same resolution chose
+#:   (`GameContext.previous_targets`): "target creature you control gets
+#:   +1/+2 until end of turn. **It** fights target creature you don't
+#:   control." (Epic Confrontation) and "Choose target creature you control
+#:   and target creature you don't control. … Then **those creatures** fight
+#:   each other." (Ancient Animus).
+_IMPLICIT_FIGHT_SUBJECTS: frozenset = frozenset(
+    {None, "attached_permanent", "previous_target", "previous_target_2"}
+)
+
+
+def _implicit_fight_subject(
+    kind: Optional[str], effect: "GameEffect", context: GameContext
+) -> Optional[Any]:
+    """Resolve one of `_IMPLICIT_FIGHT_SUBJECTS` against the live game."""
+    if kind is None:
+        return effect.source
+    if kind == "attached_permanent":
+        host_id = getattr(effect.source, "attached_to", None)
+        return context.state.find_object(host_id) if host_id is not None else None
+    index = 1 if kind == "previous_target_2" else 0
+    previous = getattr(context, "previous_targets", []) or []
+    return previous[index] if len(previous) > index else None
+
+
+class FightEffect(GameEffect):
+    """RULE 701.14 — "Target creature you control fights target creature you
+    don't control." (Prey Upon), "~ fights up to one target creature you don't
+    control." (Kogla's ETB).
+
+    Both creatures deal damage equal to their power to each other (701.14a),
+    and it is **not** combat damage (701.14d) — so `context.deal_damage`'s
+    default ``combat=False`` is exactly right, and a first-strike/deathtouch-
+    style combat concept never enters into it.
+
+    ``fighter_kind``/``other_kind`` each name either a RULE 115 target kind —
+    the printed two-target form ("target creature you control fights target
+    creature …"), where `extra_target_specs` carries the second requirement
+    the same way `AttachChosenEffect` does — or one of the four implicit
+    subjects `_IMPLICIT_FIGHT_SUBJECTS` documents (the source, an Aura's host,
+    or a pronoun pointing back at the previous clause's target). An implicit
+    subject announces no requirement at all, so "it fights target creature you
+    don't control" is a *one*-target spell and "those creatures fight each
+    other" is a zero-target one.
+
+    RULE 701.14b is the whole reason this is one atomic effect rather than two
+    `DealDamageEffect`s: if *either* creature has left the battlefield or
+    stopped being a creature by resolution, **neither** deals damage. Both
+    powers are also snapshotted before any damage is dealt, since 701.14a's
+    two damage events are simultaneous — a creature whose power changes as a
+    consequence of the first half (a dies-trigger, an SBA) must still deal
+    what it had. A creature fighting itself deals twice its power to itself
+    (701.14c), which falls out of dealing both halves to the same object —
+    *unless* ``distinct`` marks the clause's RULE 109.5 "**another** target
+    creature", where picking the same creature twice was never legal to begin
+    with (`TargetSpec.distinct_from_others`); this is that constraint's
+    resolve-time backstop.
+    """
+
+    def __init__(
+        self,
+        fighter_kind: Optional[str] = None,
+        other_kind: Optional[str] = "creature",
+        fighter_optional: bool = False,
+        optional: bool = False,
+        distinct: bool = False,
+        source: Optional["GameObject"] = None,
+    ) -> None:
+        super().__init__(source)
+        self.fighter_kind = fighter_kind
+        self.other_kind = other_kind
+        self.distinct = distinct
+        specs: list[TargetSpec] = []
+        if fighter_kind not in _IMPLICIT_FIGHT_SUBJECTS:
+            specs.append(TargetSpec(kind=fighter_kind, optional=fighter_optional))
+        if other_kind not in _IMPLICIT_FIGHT_SUBJECTS:
+            specs.append(
+                TargetSpec(kind=other_kind, optional=optional, distinct_from_others=distinct)
+            )
+        if specs:
+            self.target_spec = specs[0]
+            self.extra_target_specs = tuple(specs[1:])
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        picks = list(targets or [])
+        chosen = iter(picks)
+        if self.fighter_kind in _IMPLICIT_FIGHT_SUBJECTS:
+            fighter = _implicit_fight_subject(self.fighter_kind, self, context)
+        else:
+            fighter = next(chosen, None)
+        if self.other_kind in _IMPLICIT_FIGHT_SUBJECTS:
+            other = _implicit_fight_subject(self.other_kind, self, context)
+        else:
+            other = next(chosen, None)
+        # RULE 701.14b: gone from the battlefield, or no longer a creature →
+        # neither fights (an "up to one" clause with no target lands here too).
+        battlefield = context.state.permanents()
+        for creature in (fighter, other):
+            if creature is None or creature not in battlefield or not creature.is_creature:
+                return
+        if fighter is other and (self.distinct or self.fighter_kind == "previous_target"):
+            # RULE 109.5: "another" was never a legal pick of itself. The same
+            # guard covers a pronoun fighter whose clause declined its own
+            # "up to one" target — a caller that sends a *flat* list can't
+            # say which requirement was skipped (`targeting.partition_targets`
+            # returns None there), so this clause would otherwise read the
+            # earlier clause's pick as its own and have the creature fight
+            # itself. No printed card means that.
+            return
+        fighter_power = fighter.power or 0
+        other_power = other.power or 0
+        context.deal_damage(other, fighter_power, fighter)
+        context.deal_damage(fighter, other_power, other)
+
+
+class DamageEqualToPowerEffect(GameEffect):
+    """"Target creature you control deals damage equal to its power to target
+    creature you don't control." (Rabid Bite) — the *one-sided* fight, and
+    "When ~ dies, it deals damage equal to its power to any target." /
+    "… to each opponent." (Ghoulcaller's Accomplice-shaped dies triggers).
+
+    Shares `FightEffect`'s subject vocabulary for the **dealer**
+    (`_IMPLICIT_FIGHT_SUBJECTS`, or a target kind) and `DealDamageEffect`'s
+    for the **recipient** (a target kind, or an untargeted ``selector`` —
+    RULE 601.2c's "each opponent"/"each player"/"each creature").
+
+    Two rules-relevant differences from a fight, both deliberate: the damage
+    is one-way, and the dealer is **not** required to still be on the
+    battlefield. The commonest printed form of this clause is a dies trigger,
+    where the dealer is already in the graveyard as the ability resolves —
+    RULE 608.2h's last known information is what its power is read from, which
+    is exactly what `GameObject.power` still reports there.
+    """
+
+    def __init__(
+        self,
+        dealer_kind: Optional[str] = None,
+        target_kind: Optional[str] = "any",
+        selector: Optional[str] = None,
+        dealer_optional: bool = False,
+        optional: bool = False,
+        source: Optional["GameObject"] = None,
+    ) -> None:
+        super().__init__(source)
+        self.dealer_kind = dealer_kind
+        self.selector = selector if selector in _DAMAGE_SELECTORS else None
+        specs: list[TargetSpec] = []
+        if dealer_kind not in _IMPLICIT_FIGHT_SUBJECTS:
+            specs.append(TargetSpec(kind=dealer_kind, optional=dealer_optional))
+        if self.selector is None and target_kind is not None:
+            specs.append(TargetSpec(kind=target_kind, optional=optional))
+        if specs:
+            self.target_spec = specs[0]
+            self.extra_target_specs = tuple(specs[1:])
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        picks = list(targets or [])
+        chosen = iter(picks)
+        if self.dealer_kind in _IMPLICIT_FIGHT_SUBJECTS:
+            dealer = _implicit_fight_subject(self.dealer_kind, self, context)
+        else:
+            dealer = next(chosen, None)
+        if dealer is None:
+            return
+        amount = dealer.power or 0
+        if amount <= 0:
+            return
+        if self.selector is not None:
+            for recipient in self._selected_recipients(context, dealer):
+                context.deal_damage(recipient, amount, dealer)
+            return
+        recipient = next(chosen, None)
+        if recipient is None:
+            return
+        if recipient is dealer and self.dealer_kind == "previous_target":
+            # The same flat-list guard `FightEffect` makes: a declined "up to
+            # one" would otherwise leave this clause reading the previous
+            # clause's pick as its own recipient, damaging it with itself.
+            return
+        # A permanent that has since left the battlefield takes no damage
+        # (RULE 608.2b's illegal-target check, the same guard a fight makes);
+        # a player recipient (no ``instance_id``) is always still there.
+        if hasattr(recipient, "instance_id") and recipient not in context.state.permanents():
+            return
+        context.deal_damage(recipient, amount, dealer)
+
+    def _selected_recipients(self, context: GameContext, dealer: Any) -> list[Any]:
+        """RULE 601.2c's untargeted recipient groups, scoped to the **dealer**
+        (not the effect's source — "each opponent" of the creature dealing the
+        damage, which for a granted/copied ability need not be the same
+        player)."""
+        if self.selector == "each_creature":
+            return [obj for obj in context.state.permanents() if obj.is_creature]
+        controller_id = getattr(dealer, "controller_id", None)
+        return [
+            player
+            for player in context.state.living_players()
+            if not (self.selector == "each_opponent" and player.id == controller_id)
+        ]
+
+
+class ChooseTargetsEffect(GameEffect):
+    """"Choose target creature you control **and** target creature you don't
+    control." (Ancient Animus, Coven-style fight spells) — a clause that only
+    *announces* targets (RULE 601.2c), doing nothing on its own; the clauses
+    after it act on them by pronoun ("Then **those creatures** fight each
+    other.", `_IMPLICIT_FIGHT_SUBJECTS`' ``previous_target``/
+    ``previous_target_2`` via `GameContext.previous_targets`).
+
+    Modeling it as a real, no-op effect rather than folding the targets into
+    whichever later clause uses them keeps the announcement where the card
+    prints it: the targets are chosen as the spell is *cast* (RULE 601.2c),
+    so they must be part of what `targeting.spell_target_specs` reports even
+    when the clause consuming them is conditional and may never happen ("if
+    you control three or more snow permanents, …").
+    """
+
+    def __init__(
+        self, kinds: Optional[list[str]] = None, source: Optional["GameObject"] = None
+    ) -> None:
+        super().__init__(source)
+        specs = [TargetSpec(kind=kind) for kind in (kinds or [])]
+        if specs:
+            self.target_spec = specs[0]
+            self.extra_target_specs = tuple(specs[1:])
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        # Nothing happens here; the picks reach the following clauses through
+        # `_apply_effects_partitioned`'s `GameContext.previous_targets`.
+        return
+
+
 class DestroyEachWithManaValueEffect(GameEffect):
     """"Destroy each artifact with mana value X." (Dauntless Dismantler's
     ``{X}{X}{W}`` ability) — a mass destroy whose *filter* is the ability's
@@ -7348,6 +7626,38 @@ EffectRegistry.register(
     lambda p: CounterThenFightlikeDamageEffect(
         counters=int(p.get("counters", 1) or 1), kind=p.get("kind", "+1/+1"),
     ),
+)
+EffectRegistry.register(
+    # RULE 701.14 fight — "target creature you control fights target creature
+    # you don't control" (Prey Upon), "it fights up to one target creature you
+    # don't control" (Kogla's ETB, ``fighter_kind=None``).
+    "fight",
+    lambda p: FightEffect(
+        fighter_kind=p.get("fighter_kind"),
+        other_kind=p.get("other_kind", "creature"),
+        fighter_optional=bool(p.get("fighter_optional", False)),
+        optional=bool(p.get("optional", False)),
+        distinct=bool(p.get("distinct", False)),
+    ),
+)
+EffectRegistry.register(
+    # The one-sided fight — "target creature you control deals damage equal to
+    # its power to target creature you don't control" (Rabid Bite), "when ~
+    # dies, it deals damage equal to its power to any target".
+    "damage_equal_to_power",
+    lambda p: DamageEqualToPowerEffect(
+        dealer_kind=p.get("dealer_kind"),
+        target_kind=p.get("target_kind", "any"),
+        selector=p.get("selector"),
+        dealer_optional=bool(p.get("dealer_optional", False)),
+        optional=bool(p.get("optional", False)),
+    ),
+)
+EffectRegistry.register(
+    # RULE 601.2c target announcement with no effect of its own — "choose
+    # target creature you control and target creature you don't control."
+    "choose_targets",
+    lambda p: ChooseTargetsEffect(kinds=list(p.get("kinds", []) or [])),
 )
 EffectRegistry.register(
     # "Destroy each artifact with mana value X." (Dauntless Dismantler)

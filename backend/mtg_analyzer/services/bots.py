@@ -211,12 +211,46 @@ class Bot:
         (RULE 115.1a) is filled to N as well; a bot with no judgement has
         no reason to decline a free target, and 0 is what `rank_targets`
         returning nothing already produces.
+
+        `pick_target_groups` wraps this to also report the *per-requirement*
+        partition, which is what a spell with 2+ requirements needs (RULE
+        115.1, `StackItem.target_groups`).
         """
+        groups = self.pick_target_groups(view, action)
+        if groups is None:
+            return None
+        return [pick for group in groups for pick in group]
+
+    def pick_targets_and_groups(
+        self, view: dict[str, Any], action: dict[str, Any]
+    ) -> Optional[tuple[list[dict[str, Any]], Optional[list[list[dict[str, Any]]]]]]:
+        """`pick_targets` plus the groups to send alongside it (``None`` when
+        there's only one requirement and nothing to partition)."""
+        groups = self.pick_target_groups(view, action)
+        if groups is None:
+            return None
+        flat = [pick for group in groups for pick in group]
+        return flat, (groups if len(groups) > 1 else None)
+
+    def pick_target_groups(
+        self, view: dict[str, Any], action: dict[str, Any]
+    ) -> Optional[list[list[dict[str, Any]]]]:
+        """One list of picks per offered requirement, in printed order."""
         requirements = action.get("targets") or []
-        picks: list[dict[str, Any]] = []
+        groups: list[list[dict[str, Any]]] = []
         for requirement in requirements:
             count = max(1, int(requirement.get("count", 1) or 1))
             ranked = self.rank_targets(view, requirement.get("options") or [])
+            if requirement.get("distinct_from_others"):
+                # RULE 109.5's "another target creature" (Pit Fight): the
+                # other half of the same clause already took one, and this
+                # requirement may not repeat it.
+                taken = {
+                    pick.get("instance_id")
+                    for group in groups for pick in group
+                    if pick.get("instance_id") is not None
+                }
+                ranked = [o for o in ranked if o.get("instance_id") not in taken]
             if requirement.get("distinct_controllers"):
                 # RULE 601.2c variant ("target creature *each opponent*
                 # controls"-shaped): one pick per controller, not N picks
@@ -232,8 +266,8 @@ class Bot:
                 ranked = unique
             if len(ranked) < count and not requirement.get("optional"):
                 return None
-            picks.extend(ranked[:count])
-        return picks
+            groups.append(list(ranked[:count]))
+        return groups
 
     # -- Bookkeeping ---------------------------------------------------
 
@@ -452,11 +486,18 @@ class GreedyBot(Bot):
         built = dict(action)
         built.pop("targets", None)
         built.pop("legal_defenders", None)
+        built.pop("target_groups", None)
         if action.get("requires_target"):
-            targets = self.pick_targets(view, action)
-            if targets is None:
+            picked = self.pick_targets_and_groups(view, action)
+            if picked is None:
                 return None
+            targets, groups = picked
             built["targets"] = targets
+            if groups is not None:
+                # 2+ requirements: say which pick belongs to which, the same
+                # partition the board UI sends (RULE 115.1) — a flat list
+                # alone can't express a declined "up to one".
+                built["target_groups"] = groups
         if action.get("has_x"):
             x = int(action.get("max_x", 0) or 0)
             if x <= 0 and action["type"] == "cast_spell":

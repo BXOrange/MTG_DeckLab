@@ -59,12 +59,6 @@ Plan-level sequencing lives in
   trigger placed via the opt-in RULE 603.3b ordering choice is placed
   directly and never pauses for its own target/"you may" choice. Both work
   alone; only the combination is unhandled. `RulesEngine._place_triggers`.
-- **ENG-5 · Multi-target groups aren't auto-derived for casting.**
-  `StackItem.target_groups` works, and a *triggered* ability gathers one
-  group per effect automatically, but a spell/activated-ability caster must
-  still supply groups explicitly. Needs `requirements_with_targets`-driven
-  cast-offer + frontend flow to build them per requirement, mirroring
-  `gameBoardView.js`'s existing "expand into N single-target rounds".
 - **ENG-6 · `CopyPermanentEffect` has no copy-of-a-copy.** RULE 707.2
   copiable values interacting with other copy effects isn't modeled; it
   copies from the printed card. `game/effects.py`.
@@ -204,8 +198,6 @@ Plan-level sequencing lives in
 
 ## MEC — Game mechanics
 
-- **MEC-1 · Fight** (~40 cards) — "target creature you control fights target
-  creature …". No `FightEffect` at all. Good next-batch candidate.
 - **MEC-2 · Monstrosity / Adapt** (~63 cards) — needs a
   `GameObject.is_monstrous`-style flag, a "becomes monstrous/adapted" event,
   and its own effect types. A clean separate mechanic, not an extension of
@@ -233,6 +225,17 @@ Plan-level sequencing lives in
 - **MEC-9 · Designation inheritance.** RULE 725.4/726.4 — the monarch/
   initiative-holder leaving the game should pass it to the active player.
   Prohibition/cost-modification statics also remain unmodeled.
+- **MEC-11 · "Whenever ~ is dealt damage" (Enrage).** RULE 603.1's *recipient*
+  side of a damage trigger: `segmenter._DAMAGE_TRIGGER_RE` only recognizes a
+  permanent **dealing** damage, so all ~24 "Enrage —" cards fail the gate on
+  their trigger condition, however ordinary the body ("draw a card", "you
+  gain 2 life", and — found while shipping MEC-1 — "it fights up to one
+  target creature you don't control", Apex Altisaur). Needs the DAMAGE
+  event's ``target_id`` matched against the subject the way ``source_id``
+  already is (`effect_binder._build_group_ok`), plus "enrage" added to
+  `normalize._ABILITY_WORD_RE` (RULE 207.2c — no rules meaning, but the label
+  currently blocks the line on its own). Do both together: the label strip
+  alone unlocks nothing.
 
 > **Permanent non-goals** (never to be built, not gaps): Stickers (RULE 123)
 > — `gate.parse_oracle` classifies these `NEVER_SUPPORTED`, a verdict kept

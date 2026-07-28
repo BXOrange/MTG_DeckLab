@@ -4587,6 +4587,133 @@ the Phase-1 models. Tests: `test_game_engine.py`.
       the one picked, a 2-card discard asks twice, whole-hand discard needs
       no prompt, the discarding player — not the caster — owns the choice).
 
+- [x] **Fight (RULE 701.14, MEC-1, 2026-07-28)** — the mechanic *and* its
+      parser recognition in one batch, which is the standing rule for a
+      mechanic ticket: an engine primitive nothing can emit from oracle text
+      is half a feature. `game/effects.py`'s `FightEffect` is deliberately
+      **one atomic effect, not two `DealDamageEffect`s**, because RULE
+      701.14b's cancellation is mutual — if either creature has left the
+      battlefield or stopped being a creature by resolution, *neither* deals
+      damage — and because 701.14a's two damage events are simultaneous, so
+      both powers are snapshotted before either half lands. 701.14d (not
+      combat damage) falls out of `deal_damage`'s default; 701.14c (a
+      creature fighting itself deals twice its power) falls out of dealing
+      both halves to the same object.
+      ``fighter_kind`` picks the subject the way `TapEffect`'s modes do —
+      a target kind for the two-target printed form (the second requirement
+      riding the `GameEffect.extra_target_specs` shape `AttachChosenEffect`
+      introduced), ``None`` for "it fights …" where the source itself
+      fights, ``"attached_permanent"`` for an Aura host ("when this Aura
+      enters, enchanted creature fights …", re-read off `attached_to` at
+      resolution). No new targeting kind was needed: the engine's plain
+      ``creature`` kind already excludes the ability's own source, which is
+      exactly RULE 109.5's "**another** target creature" for a self-fight.
+      **Parser** (`catalogue/handlers.py`, four rows) brought two reusable
+      pieces. `subgrammars.target_macro(suffix)` is the shared `TARGET`
+      alternation with its group names renamed, so one regex can finally
+      carry *two* RULE 115 requirements ("target creature you control fights
+      target creature you don't control") — previously impossible, since a
+      regex can't name a group twice, and the reason every earlier
+      two-target card (Brass Squire, Halvar) had to be hand-authored.
+      `EffectHandler.self_subject_only` is the first handler row gated on
+      *context rather than text*: "it fights …" is the source in a trigger
+      body ("When Kogla enters, **it** fights …") and a **previously
+      targeted creature** in a spell's chained sentences ("target creature
+      you control gets +1/+2 until end of turn. **It** fights …", Epic
+      Confrontation) — the same string, two referents. `segmenter.
+      parse_effect_body` grew a ``self_subject`` flag that only the
+      *unsplit* body of a self-subject trigger sets (once a body chains
+      clauses on a connector, an earlier clause may have rebound the
+      pronoun, so it stops being trusted), and Epic Confrontation stays
+      UNMODELED rather than being modeled as a *sorcery* fighting — which
+      would resolve to nothing at all, exactly the half-modeling the
+      coverage gate exists to prevent.
+      Yield: fight cards MODELED 4 → 23 of 160; cache-wide 9,264 → 9,283
+      (27.1%), `PARSER_VERSION` 37. What's left is *whose* creature fights
+      (pronoun-chained clauses, cross-target "another", "those creatures
+      fight each other") and the same-shaped one-sided "deals damage equal
+      to its power" family — filed as MEC-10 and closed by the entry below;
+      the Enrage trigger condition found on the way is MEC-11. Tests:
+      `test_fight.py` (18: the primitive's five subjects/cancellations,
+      lethal-through-SBA, the not-combat-damage event, Prey Upon
+      parser→binder→stack end to end, and three guards that the fail-closed
+      shapes *stay* unclaimed).
+- [x] **Whose creature fights (MEC-10, 2026-07-28)** — the follow-up batch
+      that closed the rest of the fight family, and with it [ENG-5]. The
+      shape of the problem was never the fight: it was *naming* a creature
+      the card doesn't re-describe. Four mechanisms, each general rather
+      than fight-specific:
+      **1. A pronoun bound to the previous clause** (`GameContext.
+      previous_targets`). RULE 608.2 applies an effect list in printed
+      order, so `_apply_effects_partitioned` — the one choke point every
+      resolution goes through, spell, wrapper ability and RULE 608.2-resumed
+      remainder alike — now records what the last *targeting* effect
+      actually chose. A later clause names it with the pseudo-subject
+      ``previous_target``/``previous_target_2`` (`_IMPLICIT_FIGHT_SUBJECTS`,
+      shared with the source and Aura-host subjects MEC-1 introduced).
+      That's what makes "target creature you control gets +1/+2 until end of
+      turn. **It** fights target creature you don't control." (Epic
+      Confrontation) one ordinary pump plus one ordinary fight instead of a
+      bespoke fused effect class per verb pair — the trap
+      `CounterThenFightlikeDamageEffect` had already fallen into once for
+      Archdruid's Charm. A non-targeting clause in between doesn't clear the
+      referent: it's the last thing *chosen*, not the last thing that
+      happened.
+      **2. Per-effect target partitioning for a spell/ability** ([ENG-5]).
+      The referent above is only worth anything if the two clauses resolve
+      against *different* picks, and until now a spell's effects all read
+      the same flat list off the front. `targeting.partition_targets` splits
+      a flat, in-printed-order list into one group per requirement (RULE
+      115.1 — the order the board's own targeting rounds gather them in),
+      and both `GameEngine._cast_current_face` and `activate_ability` derive
+      `StackItem.target_groups` from it when the caller didn't supply any.
+      It deliberately returns ``None`` — old shared-list behaviour — when
+      the length doesn't match, because that is exactly what a **declined
+      "up to one"** produces and no server-side rule can tell which slot was
+      skipped. So the board sends the partition explicitly (see
+      `Done_Frontend.md`), bots do too (`bots.pick_target_groups`), and
+      `FightEffect`/`DamageEqualToPowerEffect` still refuse to have a
+      pronoun fighter fight *itself* as a last-line guard against a
+      hand-posted flat list. `_ability_target_requirements` also had to
+      start reading `target_specs` rather than ``target_spec`` — an
+      activated ability whose single effect wants two targets (Ulvenwald
+      Tracker) had been offering only the first.
+      **3. RULE 109.5's cross-requirement "another"** (`TargetSpec.
+      distinct_from_others`). "Target creature you control fights
+      **another** target creature" excludes the *other requirement's* pick,
+      which no per-candidate filter can answer — so, like
+      ``distinct_controllers``, it's an offer-time exclusion across rounds
+      (board + bots) with a resolve-time backstop in the effect. The
+      source-relative reading of the same word needs nothing new: the plain
+      ``creature`` kind already excludes the ability's own source, and
+      "another … you control" maps to the existing
+      `other_creature_you_control`.
+      **4. The one-sided fight** (`DamageEqualToPowerEffect`) — "target
+      creature you control deals damage equal to its power to target
+      creature you don't control" (Rabid Bite/Bite Down) and the "when ~
+      dies, **it** deals damage equal to its power to any target" family.
+      Same subject vocabulary as a fight on the dealer side,
+      `DealDamageEffect`'s untargeted ``selector`` on the recipient side.
+      Two deliberate differences from a fight: the damage is one-way, and
+      the dealer is **not** required to still be on the battlefield —
+      the commonest printed form is a dies trigger, where RULE 608.2h's last
+      known information is what its power comes from.
+      Parser: `EffectHandler.previous_subject_only` mirrors MEC-1's
+      `self_subject_only`, handed out by `parse_effect_body` to a split
+      part whose predecessor actually chose a creature
+      (`_announces_creature_target`) — the two flags are never both set, so
+      a pronoun means the source or the last pick, never either-or; plus a
+      `choose_targets` row for the "choose target … and target …" opener
+      (`ChooseTargetsEffect`, a real no-op effect so the pair is announced
+      at cast time even when the clause consuming it is conditional), the
+      "another" variants, the one-sided rows, and a "target creature or
+      planeswalker you don't control" `TARGET` row.
+      Yield: fight cards MODELED 23 → 39 of 160; cache-wide 9,283 → 9,344
+      (27.3%), `PARSER_VERSION` 38. The fight cards still open are blocked
+      on *other* clauses (a sibling mode of a modal block, "if it's
+      legendary", the Enrage ability word — MEC-11), not on who fights.
+      Tests: `test_fight.py` grew to 33.
+
 ## Game Engine (Phase 3)
 
 `mtg_analyzer/game/game_engine.py`, tests in `test_game_engine.py`.

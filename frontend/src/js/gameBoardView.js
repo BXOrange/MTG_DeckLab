@@ -364,17 +364,36 @@ export function createGameBoardView(opts = {}) {
   // exactly, just keyed on an already-picked round's `controller_id`
   // instead of its `instance_id`, so a later round's pool drops every
   // permanent sharing a controller with anything already chosen.
+  //
+  // `owners` maps each expanded round back to the index of the requirement
+  // it came from, so the picks can be regrouped into `target_groups` — one
+  // list per *requirement*, in printed order — for the server (RULE 115.1,
+  // `StackItem.target_groups`). A flat list alone can't say which slot a
+  // declined "up to one" left empty, which is exactly what a spell like
+  // Epic Confrontation ("target creature you control gets +1/+2 …. It
+  // fights target creature you don't control.") needs to get right: pump
+  // and fight must land on *different* creatures.
   function expandMultiTargetRequirements(requirements) {
     const expanded = [];
+    const owners = [];
     let excludePicked = false;
     let excludeControllers = false;
-    for (const req of requirements) {
+    for (const [reqIndex, req] of requirements.entries()) {
       const count = req.count || 1;
       if (count > 1) excludePicked = true;
       if (req.distinct_controllers) excludeControllers = true;
-      for (let i = 0; i < count; i += 1) expanded.push(req);
+      for (let i = 0; i < count; i += 1) {
+        expanded.push(req);
+        owners.push(reqIndex);
+      }
     }
-    return { requirements: expanded, excludePicked, excludeControllers };
+    return {
+      requirements: expanded,
+      owners,
+      groupCount: requirements.length,
+      excludePicked,
+      excludeControllers,
+    };
   }
   // The user's current drag-and-drop arrangement of a pending `replacement_
   // order` choice's options (RULE 616.1) — an array of option ids, reset
@@ -1450,9 +1469,12 @@ export function createGameBoardView(opts = {}) {
         const send = info.type === 'activate_ability'
           ? { type: 'activate_ability', instance_id: iid, ability_index: info.ability_index, name: action.name }
           : { type: 'cast_spell', instance_id: iid, name: action.name, face: info.face, kicked };
-        const { requirements, excludePicked, excludeControllers } = expandMultiTargetRequirements(action.targets || []);
+        const {
+          requirements, owners, groupCount, excludePicked, excludeControllers,
+        } = expandMultiTargetRequirements(action.targets || []);
         castTargeting = {
-          instanceId: iid, requirements, reqIndex: 0, targets: [], x, send,
+          instanceId: iid, requirements, owners, reqIndex: 0, targets: [], x, send,
+          groups: Array.from({ length: groupCount }, () => []),
           excludePicked, excludeControllers,
         };
         finishCastIfReady();
@@ -1465,6 +1487,11 @@ export function createGameBoardView(opts = {}) {
         if (!castTargeting || castTargeting.instanceId !== iid) return;
         if (target !== null) {
           castTargeting.targets.push(target);
+          // …and into this round's own requirement group, so a declined
+          // "up to one" leaves an *empty* group rather than shifting every
+          // later pick one slot up (see `expandMultiTargetRequirements`).
+          const owner = castTargeting.owners?.[castTargeting.reqIndex];
+          if (owner != null) castTargeting.groups?.[owner]?.push(target);
           // Tracked separately from `target` (the wire-format pick sent to
           // the server) purely for `excludeControllers`'s client-side
           // per-round filtering — see `castTargetModalHtml`.
@@ -1597,7 +1624,7 @@ export function createGameBoardView(opts = {}) {
   function finishCastIfReady() {
     if (!castTargeting) return;
     if (castTargeting.reqIndex >= castTargeting.requirements.length) {
-      const { send, targets, x, isTapChoice, isSacrificeChoice } = castTargeting;
+      const { send, targets, groups, x, isTapChoice, isSacrificeChoice } = castTargeting;
       castTargeting = null;
       if (isTapChoice) {
         // A "tap N untapped <type>s you control" cost choice (RULE 602.1),
@@ -1608,6 +1635,13 @@ export function createGameBoardView(opts = {}) {
         // A "Sacrifice a <type>" cost choice (RULE 602.1) — always exactly
         // one pick, sent as `sacrifice_choice` instead of `targets`.
         act({ ...send, sacrifice_choice: targets[0].instance_id });
+      } else if ((groups || []).length > 1) {
+        // 2+ requirements: send the per-requirement partition too (RULE
+        // 115.1), so each targeting effect resolves against its own pick
+        // rather than every effect reading the first one. The flat list
+        // still goes along — ward, the stack display and every other
+        // consumer read that (`RulesEngine.cast_spell`).
+        act({ ...send, targets, target_groups: groups, x });
       } else {
         act({ ...send, targets, x });
       }
@@ -2306,9 +2340,12 @@ export function createGameBoardView(opts = {}) {
     const idx = castTargeting.reqIndex;
     const req = castTargeting.requirements[idx] || {};
     let options = req.options || [];
-    if (castTargeting.excludePicked) {
+    if (castTargeting.excludePicked || req.distinct_from_others) {
       // A "tap N untapped <type>s you control" cost (RULE 602.1): the same
-      // permanent can't pay two of the N picks.
+      // permanent can't pay two of the N picks. `distinct_from_others` is
+      // RULE 109.5's "**another** target creature" (Pit Fight, Ulvenwald
+      // Tracker) — same exclusion, but across *requirements*: whatever the
+      // other half of the clause already chose is off this round's pool.
       const pickedIds = new Set(castTargeting.targets.map((t) => t.instance_id));
       options = options.filter((o) => !pickedIds.has(o.instance_id));
     }

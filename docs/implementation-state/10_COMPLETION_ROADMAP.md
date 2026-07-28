@@ -108,8 +108,9 @@ two ways, in this order of preference:
 1. **Named parser gaps** — [PAR-1] through [PAR-11], each a concrete
    recognition shape blocking an identified cluster.
 2. **Mechanics with no engine primitive at all** — the `MEC` tickets.
-   [MEC-1] (Fight, ~40 cards) is the highest-yield next batch;
-   [MEC-2] (Monstrosity/Adapt, ~63) the next.
+   [MEC-2] (Monstrosity/Adapt, ~63 cards) is the highest-yield next batch
+   now that Fight (RULE 701.14) has shipped; [MEC-11] (the Enrage trigger
+   condition, ~24) is the cheapest.
 3. **The indefinite tail** — [PAR-12], whose method, recurring lessons and
    worked samples live in [`PARSER_LONG_TAIL.md`](PARSER_LONG_TAIL.md).
 

@@ -562,6 +562,30 @@ into `BACKLOG.md`, and those mentions have been repointed there.
     name — planes aren't in the card cache at all (the bulk importer drops
     the `planar` layout), so a hover lookup by name could only ever miss.
 
+- [x] **Targeting rounds now report which requirement each pick belongs to**
+      (MEC-10, 2026-07-28). The modal already walked a spell/ability's
+      requirements one at a time (`expandMultiTargetRequirements`), but it
+      only ever posted the picks as one **flat** list. That is enough while
+      every effect wants the same target, and wrong the moment two clauses
+      want different ones — "Target creature you control gets +1/+2 until
+      end of turn. It fights target creature you don't control." would pump
+      and fight the same creature. Each expanded round now remembers the
+      index of the requirement it came from (`owners`), picks accumulate
+      into per-requirement `groups`, and a cast/activate with 2+
+      requirements sends `target_groups` alongside the flat `targets` (which
+      ward, the stack display and every other consumer still read).
+      The flat list stays the wire default for the single-requirement case,
+      and the server derives the partition itself when it's unambiguous
+      (`targeting.partition_targets`) — but only the client can express a
+      **declined** "∅ Kein Ziel" on an "up to one", since a shorter flat
+      list can't say *which* slot is empty. That's the whole reason the
+      groups are sent rather than re-derived.
+      Same modal, one new exclusion: a requirement flagged
+      `distinct_from_others` (RULE 109.5's "**another** target creature" —
+      Pit Fight, Ulvenwald Tracker) drops everything already picked in an
+      earlier round from its pool, exactly as `excludePicked` does within a
+      single "pick N" requirement.
+
 ## Multiplayer
 
 - [x] **The Multiplayer tab is two tabs**, "Setup" and "Board", driven by

@@ -34,6 +34,13 @@ _TARGET_ROWS: list[tuple[str, str]] = [
     (r"any target", "any"),
     (r"target creature or player", "any"),
     (r"target creature, player,? or planeswalker", "any"),
+    # "target creature or planeswalker you don't control" (Bite Down) — the
+    # controller-scoped sibling of the bare row just below, and above it by
+    # the longest-first convention. Both drop the planeswalker half (this
+    # engine's ``creature`` kinds are creature-only): a *narrowing*, never a
+    # widening, and the same simplification the unscoped row already makes.
+    (r"target creature or planeswalker (?:an opponent controls|you don't control)",
+     "creature_you_dont_control"),
     (r"target creature or planeswalker", "creature"),
     (r"target attacking or blocking creature", "creature"),
     (r"target (?:attacking|blocking|tapped|untapped) creature", "creature"),
@@ -95,10 +102,26 @@ UP_TO_ONE = r"(?:up to (?:one|1) )?"
 #: anchored itself. The optional ``up_to_one`` group sits *outside* ``target``
 #: so `resolve_target_kind` keeps seeing exactly the row text it already
 #: matches against.
+_TARGET_ALT = "|".join(f"(?:{frag})" for frag, _ in _TARGET_ROWS)
 TARGET = (
     r"(?P<up_to_one>" + UP_TO_ONE + r")"
-    r"(?P<target>" + "|".join(f"(?:{frag})" for frag, _ in _TARGET_ROWS) + r")"
+    r"(?P<target>" + _TARGET_ALT + r")"
 )
+
+
+def target_macro(suffix: str) -> str:
+    """`TARGET` with its two group names suffixed (``target_b``/``up_to_one_b``).
+
+    A regex can only name each group once, so a clause with **two**
+    independent RULE 115.1 requirements in it — "target creature you control
+    fights target creature you don't control" (RULE 701.14) — embeds `TARGET`
+    for the first and this for the second. `resolve_target_kind` /
+    `target_is_optional` both take the same ``suffix`` to read it back.
+    """
+    return (
+        rf"(?P<up_to_one{suffix}>" + UP_TO_ONE + r")"
+        rf"(?P<target{suffix}>" + _TARGET_ALT + r")"
+    )
 
 #: Each row's fragment compiled with a full-match anchor, in order, so
 #: `resolve_target_kind` can classify a matched target phrase deterministically.
@@ -139,13 +162,14 @@ def resolve_target_kind(phrase: str) -> Optional[str]:
     return None
 
 
-def target_is_optional(m: "re.Match[str]") -> bool:
+def target_is_optional(m: "re.Match[str]", suffix: str = "") -> bool:
     """Whether a `TARGET`-bearing match carries an "up to one" prefix.
 
     Every handler regex built with `{TARGET}` gets the ``up_to_one`` group
-    for free, so this is safe to call on any such match.
+    for free, so this is safe to call on any such match. ``suffix`` reads a
+    second requirement embedded via `target_macro`.
     """
-    return bool(m.group("up_to_one"))
+    return bool(m.group(f"up_to_one{suffix}"))
 
 
 def count_of(token: str) -> int:

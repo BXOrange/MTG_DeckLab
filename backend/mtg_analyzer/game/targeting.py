@@ -178,13 +178,12 @@ class TargetSpec:
     targeting effects, each needing its own target, `StackItem.target_groups`
     partitions the list per effect instead (`game/rules_engine.py`'s
     `resolve_top_of_stack`/`_apply_effects_partitioned`) — a triggered
-    ability's own target choice already gathers one per effect
-    automatically (`_continue_trigger_multi_target`); a spell/activated
-    ability's caller must supply ``target_groups`` explicitly (no real card
-    needs this yet, so nothing auto-derives it from a plain flat list — see
-    `docs/implementation-state/BACKLOG.md` for the remaining
-    cross-target-constraint gap, e.g. "two creatures controlled by
-    *different* players"). ``description`` is a short UI label.
+    ability's own target choice gathers one per effect automatically
+    (`_continue_trigger_multi_target`), a spell/activated ability's caller
+    may supply ``target_groups`` explicitly (the board UI does, since only
+    it can say which *optional* requirement was declined), and otherwise
+    `partition_targets` derives them from the flat, in-printed-order list.
+    ``description`` is a short UI label.
     """
 
     kind: str = "any"
@@ -237,6 +236,21 @@ class TargetSpec:
     #: ``False`` means unrestricted (independent picks, the overwhelming
     #: common case). Only meaningful with ``count >= 2``.
     distinct_controllers: bool = False
+    #: RULE 109.5's "**another** target creature" when "another" is relative
+    #: to a *different requirement's* pick rather than to the ability's own
+    #: source — "target creature you control fights **another** target
+    #: creature" (Pit Fight, Ulvenwald Tracker, Domri Rade). The source-
+    #: relative reading needs no field at all (`legal_targets`' plain
+    #: ``creature`` kind already excludes the source); this one can't be
+    #: answered per-candidate, because what it excludes is whatever the
+    #: *other* requirement of the same cast ends up choosing. Like
+    #: ``distinct_controllers`` it is therefore an **offer-time, across-
+    #: rounds** constraint (`gameBoardView.js` drops every already-picked
+    #: object from a flagged requirement's pool), with a resolve-time
+    #: backstop in the effect itself (`effects.FightEffect` won't let one
+    #: creature fight itself when the clause said "another"), since nothing
+    #: server-side re-validates a submitted target list.
+    distinct_from_others: bool = False
 
     def label(self) -> str:
         return self.description or _graveyard_label(self.kind) or {
@@ -718,6 +732,19 @@ def legal_targets(
     return []
 
 
+def ability_target_specs(ability: Any) -> list[TargetSpec]:
+    """Every RULE 115.1 requirement an activated/triggered ability announces,
+    in printed order — the ability-side sibling of `spell_target_specs`, and
+    the same `GameEffect.target_specs` read `RulesEngine._trigger_target_specs`
+    does (so a *single* effect wanting two differently-typed targets announces
+    both)."""
+    return [
+        spec
+        for effect in (getattr(ability, "effects", None) or [])
+        for spec in (getattr(effect, "target_specs", None) or [])
+    ]
+
+
 def requirements_with_targets(
     state: GameState, controller_id: str, obj: GameObject
 ) -> list[dict[str, Any]]:
@@ -732,9 +759,44 @@ def requirements_with_targets(
                 "label": spec.label(),
                 "options": legal_targets(state, controller_id, spec, source=obj),
                 "distinct_controllers": spec.distinct_controllers,
+                "distinct_from_others": spec.distinct_from_others,
             }
         )
     return out
+
+
+def partition_targets(
+    specs: list[TargetSpec], targets: Optional[list[Any]]
+) -> Optional[list[list[Any]]]:
+    """A flat, in-printed-order ``targets`` list → one group per spec.
+
+    RULE 115.1: a caster picks targets requirement by requirement in printed
+    order (`requirements_with_targets`, and the board UI walks exactly that
+    list), so a flat list of the expected length is unambiguously the
+    concatenation of the groups — which is what `StackItem.target_groups`
+    wants when 2+ *different* effects each need their own target ("target
+    creature you control gets +1/+2 …. It fights target creature you don't
+    control.").
+
+    Returns ``None`` — meaning "keep the old shared-list behaviour" — for
+    anything ambiguous: fewer than two requirements (nothing to partition),
+    or a length that doesn't match the requirements' total ``count``, which
+    is exactly what an *optional* requirement declined mid-list produces
+    (the picks shift and no server-side rule can tell which slot was
+    skipped). A client that can decline has to send explicit
+    ``target_groups`` instead; `gameBoardView.js` does.
+    """
+    if targets is None or len(specs) < 2:
+        return None
+    if len(targets) != sum(max(1, spec.count) for spec in specs):
+        return None
+    groups: list[list[Any]] = []
+    index = 0
+    for spec in specs:
+        take = max(1, spec.count)
+        groups.append(list(targets[index:index + take]))
+        index += take
+    return groups
 
 
 def all_requirements_satisfiable(requirements: list[dict[str, Any]]) -> bool:

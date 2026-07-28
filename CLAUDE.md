@@ -347,14 +347,26 @@ same event/trigger batch, and a triggered ability's own target/"you may"
 chosen interactively too — including, since 2026-07-16, 2+ *different*
 targeting effects on one spell/ability each resolving against their own
 target instead of a shared list (`StackItem.target_groups`, gathered
-automatically one at a time for a triggered ability; a spell/activated
-ability's caller supplies it explicitly — no real card needs that yet); a
+automatically one at a time for a triggered ability; for a **spell or
+activated ability** the board sends the per-requirement partition it
+already gathers round by round, and `targeting.partition_targets` derives
+it from a flat in-printed-order list otherwise — a declined "up to one" is
+the one case only an explicit partition can express); a
 ward cost's own `{X}` (RULE 702.21b, resolved fresh against the board at
 the ward ability's own resolution time, not when it triggers); the one-shot
 effect library (damage/draw/discard/
 destroy/counter/search/gain_life/mill/exile/tap/counters/pump/scry/
-create-token/copy_permanent/become_copy/cascade/discover/proliferate/…
-— `scry` (RULE 701.18) and `surveil` (RULE 701.31) being one
+create-token/copy_permanent/become_copy/cascade/discover/proliferate/fight/…
+— `fight` (RULE 701.14) being one atomic effect rather than two damage
+effects, since 701.14b's cancellation is mutual (either creature gone or no
+longer a creature → *neither* deals damage) and 701.14a's two damage events
+are simultaneous; either fighter may be a chosen target, the source itself,
+an Aura's host, or a **pronoun bound to the previous clause's target**
+("target creature you control gets +1/+2 until end of turn. It fights …" —
+`GameContext.previous_targets`, which also carries "choose target … and
+target …. Then those creatures fight each other"), and
+`damage_equal_to_power` is the same shape one-way (Rabid Bite); `scry` (RULE
+701.18) and `surveil` (RULE 701.31) being one
 implementation (`RulesEngine._LOOK_TOP_KINDS`: look at the top N, send any
 number *somewhere*, order the rest back on top; scry's "somewhere" is the
 bottom of the library, surveil's is the graveyard), each a genuine
@@ -485,8 +497,8 @@ every field it reads, `parser/oracle/gate.py`) since it's called once per
 on every copy/every game. `parser/oracle/processing_list.py` tracks
 cache-wide coverage and ranks the next handlers worth building. The cache is
 now bulk-loaded with the **full ~34k-card Oracle universe**
-(`scripts/import_bulk.py`), so coverage is measured against that: **27.1%
-covered (9,264 / 34,208) as of 2026-07-28, PARSER_VERSION 36** (parser-`MODELED` **or**
+(`scripts/import_bulk.py`), so coverage is measured against that: **27.3%
+covered (9,344 / 34,208) as of 2026-07-28, PARSER_VERSION 38** (parser-`MODELED` **or**
 hand-`AUTHORED`).
 Re-measure with `scripts/coverage_report.py` (ledger-backed — see
 `services/coverage_db.py`) before trusting this number; Batches 1–10 are all

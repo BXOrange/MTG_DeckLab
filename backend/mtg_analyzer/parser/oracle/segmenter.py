@@ -746,13 +746,28 @@ def _trigger_condition(condition: str) -> Optional[dict[str, Any]]:
     return None
 
 
-def parse_effect_body(body: str) -> Optional[list[EffectSpec]]:
+def parse_effect_body(
+    body: str, *, self_subject: bool = False, previous_subject: bool = False
+) -> Optional[list[EffectSpec]]:
     """A normalised effect ``body`` → its `EffectSpec`s, or ``None`` if unclaimed.
 
     Tries the whole body as one clause first (so a target phrase containing
     "or"/"and" isn't split), then falls back to splitting on effect connectors
     and parsing each part. Any unclaimed part fails the whole body (fail-closed:
     a partially-modeled ability is never emitted).
+
+    ``self_subject`` says a bare "it" in ``body`` means the ability's own
+    source — true of a trigger whose *subject* is the source ("when ~ enters,
+    it fights …"), which is what unlocks `handlers.EffectHandler.
+    self_subject_only` rows. It is deliberately **not** passed down into the
+    connector-split parse below: once a body chains clauses, an earlier one
+    may have introduced a new referent ("put a +1/+1 counter on target
+    creature you control, then it fights …") — that reading is
+    ``previous_subject``'s job instead, handed to each split part whose
+    predecessor actually chose a creature (`_announces_creature_target`), and
+    unlocking `handlers.EffectHandler.previous_subject_only` rows. The two
+    flags are therefore never both set: a pronoun means the source or the
+    last pick, never either-or.
     """
     body = body.strip().rstrip(".").strip()
     if not body:
@@ -760,14 +775,20 @@ def parse_effect_body(body: str) -> Optional[list[EffectSpec]]:
 
     kicked = _KICKED_CONDITION_RE.match(body)
     if kicked is not None:
-        inner = parse_effect_body(kicked.group("rest"))
+        inner = parse_effect_body(
+            kicked.group("rest"), self_subject=self_subject, previous_subject=previous_subject
+        )
         if inner is None:
             return None
         return [EffectSpec(e.type, dict(e.params), condition={"kicked": True}) for e in inner]
 
     target_is_you = _TARGET_IS_CONTROLLER_RE.match(body)
     if target_is_you is not None:
-        inner = parse_effect_body(target_is_you.group("rest"))
+        inner = parse_effect_body(
+            target_is_you.group("rest"),
+            self_subject=self_subject,
+            previous_subject=previous_subject,
+        )
         if inner is None:
             return None
         wants_controller = not target_is_you.group("neg")
@@ -776,7 +797,7 @@ def parse_effect_body(body: str) -> Optional[list[EffectSpec]]:
             for e in inner
         ]
 
-    direct = match_clause(body)
+    direct = match_clause(body, self_subject=self_subject, previous_subject=previous_subject)
     if direct is not None:
         return direct
 
@@ -785,15 +806,47 @@ def parse_effect_body(body: str) -> Optional[list[EffectSpec]]:
         if len(parts) > 1:
             collected: list[EffectSpec] = []
             ok = True
+            referent = False
             for part in parts:
-                sub = parse_effect_body(part)
+                sub = parse_effect_body(part, previous_subject=referent)
                 if sub is None:
                     ok = False
                     break
                 collected.extend(sub)
+                # RULE 601.2c: what the clause just parsed *chose* is what
+                # the next one's "it"/"that creature"/"those creatures" can
+                # point at (`handlers.EffectHandler.previous_subject_only`,
+                # `effects.GameContext.previous_targets`). A clause that
+                # chose no creature leaves the pronoun unbound — and so
+                # unclaimed — rather than letting it drift onto some earlier
+                # clause's pick, which is the ambiguity this gate exists for.
+                referent = _announces_creature_target(sub)
             if ok:
                 return collected
     return None
+
+
+#: Target kinds that make a clause a legal antecedent for the next clause's
+#: creature pronoun. `EffectSpec` params name their target kinds in a handful
+#: of differently-named keys (``target_kind`` for the damage/tap/destroy
+#: families, ``fighter_kind``/``other_kind``/``dealer_kind`` for the fight
+#: ones, a ``kinds`` list for `effects.ChooseTargetsEffect`), so this scans
+#: values rather than assuming one key.
+_CREATURE_TARGET_KINDS: frozenset[str] = frozenset(
+    {"creature", "creature_you_control", "creature_you_dont_control",
+     "other_creature_you_control"}
+)
+
+
+def _announces_creature_target(specs: list[EffectSpec]) -> bool:
+    """Whether the last of ``specs`` picks a creature the next clause can
+    refer back to as "it"/"those creatures"."""
+    if not specs:
+        return False
+    values: list[Any] = []
+    for value in specs[-1].params.values():
+        values.extend(value if isinstance(value, list) else [value])
+    return any(isinstance(v, str) and v in _CREATURE_TARGET_KINDS for v in values)
 
 
 def is_keyword_line(line: str) -> bool:
@@ -868,7 +921,10 @@ def segment_line(
     damage_trig = _DAMAGE_TRIGGER_RE.match(raw)
     if damage_trig is not None:
         body, optional = _peel_optional(damage_trig.group("body"))
-        effects = parse_effect_body(body)
+        # "Enrage — whenever ~ is dealt damage, **it** fights …": the source is
+        # the trigger's own subject, so a bare "it" in the body is the source
+        # (`parse_effect_body`'s ``self_subject``).
+        effects = parse_effect_body(body, self_subject=bool(damage_trig.group("self")))
         if effects is None:
             return Segment(raw=raw)
         # "deals combat damage" requires the ``combat`` flag; a bare "deals
@@ -1154,7 +1210,11 @@ def segment_line(
             if condition is None:
                 return Segment(raw=raw)  # unrecognised subject scope → unclaimed (fail-closed)
         body, optional = _peel_optional(trig.group("body"))
-        effects = parse_effect_body(body)
+        # "When ~ enters, **it** fights …": with the source as the trigger's
+        # own subject, a bare "it" in the body is the source — anything else
+        # (a group subject, an attached permanent) leaves the pronoun
+        # ambiguous, so only this scope unlocks it.
+        effects = parse_effect_body(body, self_subject=condition == {"subject": "self"})
         if effects is None:
             return Segment(raw=raw)
         spec = AbilitySpec(

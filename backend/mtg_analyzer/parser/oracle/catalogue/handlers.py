@@ -42,6 +42,7 @@ from .subgrammars import (
     resolve_spell_filter,
     resolve_target_kind,
     target_is_optional,
+    target_macro,
 )
 
 #: Colour words → their WUBRG symbol (for a created token's colours).
@@ -61,6 +62,30 @@ class EffectHandler:
     name: str
     regex: re.Pattern[str]
     build: Callable[[re.Match[str]], Optional[list[EffectSpec]]]
+    #: A row whose clause says "**it**" about the ability's own source ("when
+    #: ~ enters, it fights …"). English writes that pronoun the same way when
+    #: it means something else entirely — a *previously targeted* creature
+    #: ("target creature you control gets +1/+2 until end of turn. it fights
+    #: target creature you don't control.", Epic Confrontation) — and a clause
+    #: alone can't tell the two apart. So such a row is only offered when the
+    #: caller states that the implicit subject really is the source
+    #: (`match_clause`'s ``self_subject``, set by `segmenter.segment_line` for
+    #: an unsplit self-subject trigger body). Claiming it blind would model
+    #: Epic Confrontation as "the *sorcery* fights", which resolves to
+    #: nothing at all — exactly the half-modeling the coverage gate exists to
+    #: prevent.
+    self_subject_only: bool = False
+    #: The mirror image: a row whose clause says "it"/"that creature" about
+    #: the creature an **earlier clause of the same ability** chose ("target
+    #: creature you control gets +1/+2 until end of turn. **It** fights target
+    #: creature you don't control."). Offered only when `segmenter.
+    #: parse_effect_body` has actually parsed such a clause immediately before
+    #: this one *and* it announced a creature target, so the referent really
+    #: exists at resolution (`GameContext.previous_targets`). Never on at the
+    #: same time as ``self_subject_only``: an unsplit trigger body has no
+    #: earlier clause to point at, and a later part of a split body has no
+    #: guarantee the pronoun still means the source.
+    previous_subject_only: bool = False
 
     def match(self, clause: str) -> Optional[list[EffectSpec]]:
         """Effects for ``clause`` if this handler claims it whole, else ``None``.
@@ -1093,6 +1118,219 @@ def _attach(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     if kind is None or kind not in ("permanent", "creature", "creature_you_control"):
         return None
     return [EffectSpec("attach", {"target_kind": kind})]
+
+
+# --- RULE 701.14 fight ------------------------------------------------------
+# "Target creature you control fights target creature you don't control."
+# (Prey Upon), "it fights up to one target creature you don't control."
+# (Kogla's ETB), "when this Aura enters, enchanted creature fights …" — one
+# `fight` effect (`game/effects.py`'s `FightEffect`) in all three, differing
+# only in who the *fighter* is.
+
+#: The target kinds a fight clause may name. Both fighters must be creatures
+#: (RULE 701.14a), so a `TARGET` row resolving to anything else — "any
+#: target", "target permanent" — leaves the clause unclaimed rather than
+#: widening the fight to a non-creature.
+_FIGHT_TARGET_KINDS: frozenset[str] = frozenset(
+    {"creature", "creature_you_control", "creature_you_dont_control"}
+)
+
+#: The second requirement's `TARGET`, group-renamed so both fit one regex.
+_TARGET_B = target_macro("_b")
+
+#: RULE 109.5's "**another** target creature", which means one of two
+#: different things depending on who the *other* fighter is:
+#:
+#: * against an **implicit** fighter (the source, an Aura's host) it excludes
+#:   that permanent — already what the engine's plain ``creature`` kind means
+#:   (`targeting.legal_targets` unconditionally drops the ability's own
+#:   source), and `_another_kind` narrows a "…you control" phrase to the
+#:   dedicated `other_creature_you_control` kind for the same reason;
+#: * against a **chosen** fighter (the two-target form, or a pronoun pointing
+#:   back at the previous clause's pick) it excludes *that target*, which is
+#:   `TargetSpec.distinct_from_others` — an across-requirements constraint,
+#:   enforced at offer time by the board and backstopped in `FightEffect`.
+_ANOTHER = r"(?P<another>another )?"
+
+#: The same phrase in the second slot of a two-target clause ("target
+#: creature you control fights **another** target creature"), where the
+#: group has to carry its own name.
+_ANOTHER_B = r"(?P<another_b>another )?"
+
+
+def _fight_kind(phrase: str) -> Optional[str]:
+    kind = resolve_target_kind(phrase)
+    return kind if kind in _FIGHT_TARGET_KINDS else None
+
+
+def _another_kind(kind: str) -> str:
+    """RULE 109.5 against an implicit fighter: "another target creature you
+    control" is the `other_creature_you_control` kind; a bare "another target
+    creature" needs no narrowing (``creature`` already excludes the source)."""
+    return "other_creature_you_control" if kind == "creature_you_control" else kind
+
+
+def _fight(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    fighter = _fight_kind(m.group("target"))
+    other = _fight_kind(m.group("target_b"))
+    if fighter is None or other is None:
+        return None
+    params: dict = {"fighter_kind": fighter, "other_kind": other}
+    if target_is_optional(m):
+        params["fighter_optional"] = True
+    if target_is_optional(m, "_b"):
+        params["optional"] = True
+    if m.groupdict().get("another_b"):
+        params["distinct"] = True
+    return [EffectSpec("fight", params)]
+
+
+def _fight_implicit(fighter_kind: Optional[str]):
+    """Builder for the three clauses whose fighter isn't chosen: the source
+    (``None``), an Aura's host (``"attached_permanent"``), or the previous
+    clause's target (``"previous_target"``). Only the *other* creature is a
+    RULE 115 requirement, so the whole clause is one target wide."""
+
+    def build(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+        other = _fight_kind(m.group("target"))
+        if other is None:
+            return None
+        params: dict = {"other_kind": other, **_optional_param(m)}
+        if fighter_kind is not None:
+            params["fighter_kind"] = fighter_kind
+        if m.groupdict().get("another"):
+            # "Another" than a *chosen* previous target is a cross-requirement
+            # exclusion; than the source/host it's just the narrower kind.
+            if fighter_kind == "previous_target":
+                params["distinct"] = True
+            else:
+                params["other_kind"] = _another_kind(other)
+        return [EffectSpec("fight", params)]
+
+    return build
+
+
+def _fight_previous_pair(m: re.Match[str]) -> list[EffectSpec]:
+    """"Then those creatures fight each other." — both fighters come from the
+    preceding "choose target … and target …" clause, so this clause announces
+    no requirement of its own at all."""
+    return [
+        EffectSpec(
+            "fight",
+            {"fighter_kind": "previous_target", "other_kind": "previous_target_2"},
+        )
+    ]
+
+
+def _choose_targets(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    """"Choose target creature you control and target creature you don't
+    control." (RULE 601.2c) — announces the pair the following clauses act on
+    by pronoun; see `effects.ChooseTargetsEffect`."""
+    first = _fight_kind(m.group("target"))
+    second = _fight_kind(m.group("target_b"))
+    if first is None or second is None:
+        return None
+    return [EffectSpec("choose_targets", {"kinds": [first, second]})]
+
+
+#: "you may **have** it fight …" — `_peel_optional` strips the "you may",
+#: leaving the causative "have <subject> fight" (uninflected verb), so both
+#: inflections are accepted in one row. A leading "then " survives the
+#: segmenter's split on ". " (its own "then" connector only strips the
+#: comma-less mid-sentence form), so every pronoun row tolerates it.
+_THEN = r"(?:then )?"
+#: The pronouns a later clause uses for the creature an earlier one chose.
+_PREVIOUS_SUBJECT = r"(?:it|that creature|the chosen creature)"
+_FIGHT_TWO_TARGETS_RE = _c(rf"{TARGET} fights {_ANOTHER_B}{_TARGET_B}")
+_FIGHT_SELF_RE = _c(rf"(?:have )?{re.escape(SELF)} fights? {_ANOTHER}{TARGET}")
+_FIGHT_PRONOUN_RE = _c(rf"(?:have )?it fights? {_ANOTHER}{TARGET}")
+_FIGHT_ATTACHED_RE = _c(rf"(?:have )?{_ATTACHED_SUBJECT} fights? {_ANOTHER}{TARGET}")
+_FIGHT_PREVIOUS_RE = _c(
+    rf"{_THEN}(?:have )?{_PREVIOUS_SUBJECT} fights? {_ANOTHER}{TARGET}"
+)
+_FIGHT_PREVIOUS_PAIR_RE = _c(
+    rf"{_THEN}(?:those|the chosen) creatures fight each other"
+)
+_CHOOSE_TARGETS_RE = _c(rf"choose {TARGET} and {_TARGET_B}")
+
+
+# --- The one-sided fight ("deals damage equal to its power") ----------------
+# Same subject vocabulary as a fight, half the damage: "target creature you
+# control deals damage equal to its power to target creature you don't
+# control." (Rabid Bite), "when ~ dies, it deals damage equal to its power to
+# any target." — `effects.DamageEqualToPowerEffect`.
+
+#: Kinds that can *take* this damage (RULE 115.4-ish) — deliberately narrower
+#: than the whole `TARGET` table: "target permanent"/"target artifact" as a
+#: damage recipient would be a mis-model, since damage means nothing to a
+#: land or an enchantment in this engine.
+_DAMAGE_RECIPIENT_KINDS: frozenset[str] = frozenset(
+    {"any", "creature", "creature_you_control", "creature_you_dont_control", "player"}
+)
+_DEALS_POWER = r"deals? damage equal to its power to"
+
+
+def _power_recipient(phrase: str) -> Optional[str]:
+    kind = resolve_target_kind(phrase)
+    return kind if kind in _DAMAGE_RECIPIENT_KINDS else None
+
+
+def _damage_equal_to_power(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    dealer = _fight_kind(m.group("target"))
+    recipient = _power_recipient(m.group("target_b"))
+    if dealer is None or recipient is None:
+        return None
+    params: dict = {"dealer_kind": dealer, "target_kind": recipient}
+    if target_is_optional(m):
+        params["dealer_optional"] = True
+    if target_is_optional(m, "_b"):
+        params["optional"] = True
+    return [EffectSpec("damage_equal_to_power", params)]
+
+
+def _damage_equal_to_power_implicit(dealer_kind: Optional[str]):
+    """The self/host/previous-target dealer forms — one requirement wide."""
+
+    def build(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+        recipient = _power_recipient(m.group("target"))
+        if recipient is None:
+            return None
+        params: dict = {"target_kind": recipient, **_optional_param(m)}
+        if dealer_kind is not None:
+            params["dealer_kind"] = dealer_kind
+        return [EffectSpec("damage_equal_to_power", params)]
+
+    return build
+
+
+def _damage_equal_to_power_selector(dealer_kind: Optional[str]):
+    """"… to each opponent." — an untargeted recipient group (RULE 601.2c),
+    the same closed vocabulary `_damage_selector` uses."""
+
+    def build(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+        selector = _DAMAGE_SELECTOR_WORDS.get(m.group("selector").lower())
+        if selector is None:
+            return None
+        params: dict = {"selector": selector, "target_kind": None}
+        if dealer_kind is not None:
+            params["dealer_kind"] = dealer_kind
+        return [EffectSpec("damage_equal_to_power", params)]
+
+    return build
+
+
+_DAMAGE_SELECTOR_ALT = "|".join(_DAMAGE_SELECTOR_WORDS)
+_POWER_DAMAGE_TWO_TARGETS_RE = _c(rf"{TARGET} {_DEALS_POWER} {_TARGET_B}")
+_POWER_DAMAGE_SELF_RE = _c(rf"{re.escape(SELF)} {_DEALS_POWER} {TARGET}")
+_POWER_DAMAGE_PRONOUN_RE = _c(rf"it {_DEALS_POWER} {TARGET}")
+_POWER_DAMAGE_ATTACHED_RE = _c(rf"{_ATTACHED_SUBJECT} {_DEALS_POWER} {TARGET}")
+_POWER_DAMAGE_PREVIOUS_RE = _c(rf"{_THEN}{_PREVIOUS_SUBJECT} {_DEALS_POWER} {TARGET}")
+_POWER_DAMAGE_SELF_SELECTOR_RE = _c(
+    rf"{re.escape(SELF)} {_DEALS_POWER} (?P<selector>{_DAMAGE_SELECTOR_ALT})"
+)
+_POWER_DAMAGE_PRONOUN_SELECTOR_RE = _c(
+    rf"it {_DEALS_POWER} (?P<selector>{_DAMAGE_SELECTOR_ALT})"
+)
 
 
 #: A single mana symbol run — "add {b}{b}{b}." (Dark Ritual-shaped). Only a
@@ -2228,6 +2466,61 @@ HANDLERS: list[EffectHandler] = [
         _c(rf"attach (?:it|{re.escape(SELF)}) to {TARGET}"),
         _attach,
     ),
+    # RULE 701.14 fight, in its four printed subjects: two chosen creatures
+    # ("target creature you control fights target creature you don't
+    # control"), the source itself written as ``~`` or as "it", and an Aura's
+    # host ("enchanted creature fights …"). The "it" row is
+    # `self_subject_only` — see `EffectHandler`.
+    EffectHandler("fight", _FIGHT_TWO_TARGETS_RE, _fight),
+    EffectHandler("fight_self", _FIGHT_SELF_RE, _fight_implicit(None)),
+    EffectHandler(
+        "fight_pronoun", _FIGHT_PRONOUN_RE, _fight_implicit(None), self_subject_only=True,
+    ),
+    EffectHandler("fight_attached", _FIGHT_ATTACHED_RE, _fight_implicit("attached_permanent")),
+    # The same fight, with the fighter named by a pronoun pointing back at
+    # the clause before it ("… gets +1/+2 until end of turn. **It** fights
+    # target creature you don't control.") — only offered when the caller
+    # says an earlier clause in this same body actually chose a creature
+    # (`EffectHandler.previous_subject_only`).
+    EffectHandler(
+        "fight_previous", _FIGHT_PREVIOUS_RE, _fight_implicit("previous_target"),
+        previous_subject_only=True,
+    ),
+    EffectHandler(
+        "fight_previous_pair", _FIGHT_PREVIOUS_PAIR_RE, _fight_previous_pair,
+        previous_subject_only=True,
+    ),
+    # "Choose target creature you control and target creature you don't
+    # control." — the target announcement those pair clauses read back.
+    EffectHandler("choose_targets", _CHOOSE_TARGETS_RE, _choose_targets),
+    # The one-sided fight (RULE 701.14's shape minus the damage back):
+    # "target creature you control deals damage equal to its power to target
+    # creature you don't control" and its four implicit-dealer siblings.
+    EffectHandler("damage_equal_to_power", _POWER_DAMAGE_TWO_TARGETS_RE, _damage_equal_to_power),
+    EffectHandler(
+        "damage_equal_to_power_self", _POWER_DAMAGE_SELF_RE,
+        _damage_equal_to_power_implicit(None),
+    ),
+    EffectHandler(
+        "damage_equal_to_power_self_selector", _POWER_DAMAGE_SELF_SELECTOR_RE,
+        _damage_equal_to_power_selector(None),
+    ),
+    EffectHandler(
+        "damage_equal_to_power_pronoun", _POWER_DAMAGE_PRONOUN_RE,
+        _damage_equal_to_power_implicit(None), self_subject_only=True,
+    ),
+    EffectHandler(
+        "damage_equal_to_power_pronoun_selector", _POWER_DAMAGE_PRONOUN_SELECTOR_RE,
+        _damage_equal_to_power_selector(None), self_subject_only=True,
+    ),
+    EffectHandler(
+        "damage_equal_to_power_attached", _POWER_DAMAGE_ATTACHED_RE,
+        _damage_equal_to_power_implicit("attached_permanent"),
+    ),
+    EffectHandler(
+        "damage_equal_to_power_previous", _POWER_DAMAGE_PREVIOUS_RE,
+        _damage_equal_to_power_implicit("previous_target"), previous_subject_only=True,
+    ),
     # "you may pay {E}{E}. If you do, <effect>." (Aether Chaser) — tried
     # before the bare mana/effect handlers since it wraps a whole clause.
     EffectHandler(
@@ -2542,14 +2835,27 @@ HANDLERS: list[EffectHandler] = [
 ]
 
 
-def match_clause(clause: str) -> Optional[list[EffectSpec]]:
+def match_clause(
+    clause: str, *, self_subject: bool = False, previous_subject: bool = False
+) -> Optional[list[EffectSpec]]:
     """The `EffectSpec`s for one normalised effect ``clause``, or ``None``.
 
     Runs the handler table; the first handler to claim the whole clause wins.
     ``None`` means no handler modeled it — the clause is unclaimed and its card
     will fail the coverage gate (docs/09 fail-closed).
+
+    ``self_subject`` says the clause's bare "it" is the ability's own source;
+    ``previous_subject`` says it is the creature the *preceding* clause of
+    the same body chose. Each unlocks its own gated rows (see
+    `EffectHandler.self_subject_only`/``previous_subject_only``); with
+    neither set — the default, and the only reading available to a clause
+    standing alone — a pronoun claims nothing at all.
     """
     for handler in HANDLERS:
+        if handler.self_subject_only and not self_subject:
+            continue
+        if handler.previous_subject_only and not previous_subject:
+            continue
         effects = handler.match(clause)
         if effects is not None:
             return effects

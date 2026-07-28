@@ -411,7 +411,26 @@ NEVER_SUPPORTED = "NEVER_SUPPORTED"
 #: discipline doesn't apply and they get their own table. Deliberately
 #: anchored, so "whenever you surveil **for the first time each turn**"
 #: (Whispering Snitch) still fails closed rather than over-firing.
-PARSER_VERSION = "36"
+#: 37 (2026-07-28): RULE 701.14 **fight** (MEC-1) — "target creature you
+#: control fights target creature you don't control", the source's own "~/it
+#: fights …", and an Aura host's "enchanted creature fights …", over the new
+#: `effects.FightEffect`. Brings `subgrammars.target_macro` (a second,
+#: group-renamed `TARGET` so one clause can carry two RULE 115 requirements)
+#: and `handlers.EffectHandler.self_subject_only` — the first row gated on
+#: *who a bare "it" refers to*, which `segmenter.parse_effect_body` answers
+#: only for an unsplit self-subject trigger body.
+#: 38 (2026-07-28): MEC-10, the rest of the fight family — *whose* creature
+#: fights. A pronoun bound to the previous clause's target
+#: (`handlers.EffectHandler.previous_subject_only` +
+#: `effects.GameContext.previous_targets`, Epic Confrontation), RULE 109.5's
+#: cross-requirement "another target creature" (`TargetSpec.
+#: distinct_from_others`, Pit Fight), the "choose target … and target …" pair
+#: with "those creatures fight each other" (`effects.ChooseTargetsEffect`),
+#: and the one-sided sibling "deals damage equal to its power to …"
+#: (`effects.DamageEqualToPowerEffect`, Rabid Bite/Bite Down + the dies-
+#: trigger self form). Also adds the "target creature or planeswalker you
+#: don't control" `TARGET` row.
+PARSER_VERSION = "38"
 
 
 @dataclass
