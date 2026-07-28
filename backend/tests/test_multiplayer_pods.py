@@ -13,6 +13,8 @@ blocking (RULE 509.1a), a priority round going all the way around (RULE
 117.3), and a concession leaving a game the survivors keep playing.
 """
 
+import random
+
 import pytest
 
 from mtg_analyzer.models.card import Card
@@ -298,6 +300,96 @@ class TestPodConcession:
         for pid in ("bob", "cid", "dot"):
             session.concede(pid)
         assert session.engine.state.game_over
+
+
+class TestFirstDrawStep:
+    """RULE 103.8a vs. 103.8c — who skips the draw on turn one.
+
+    103.8a is a *two-player* rule. 103.8c: "In all other multiplayer games,
+    no player skips the draw step of their first turn." The engine used to
+    gate the skip on `len(players) > 1`, which carried the two-player rule
+    into every pod and cost the starting seat a card.
+    """
+
+    def hand_size_on_turn(self, session, turn, seat):
+        # Read it in main1: by then this turn's draw step has been and gone,
+        # and nothing else has touched the hand.
+        advance_until(session, step="main1", turn=turn)
+        player = next(p for p in session.engine.state.players if p.id == seat)
+        return len(player.hand)
+
+    def test_nobody_skips_the_first_draw_at_a_pod(self):
+        session = make_pod()
+        keep_all(session)
+        # Every seat, including the one that started, is on eight cards
+        # after its own first draw step.
+        for turn, seat in enumerate(SEATS, start=1):
+            assert self.hand_size_on_turn(session, turn, seat) == 8, seat
+
+    def test_the_starting_player_still_skips_it_at_two_seats(self):
+        session = make_pod(seats=("ann", "bob"))
+        keep_all(session, seats=("ann", "bob"))
+        assert self.hand_size_on_turn(session, 1, "ann") == 7
+        assert self.hand_size_on_turn(session, 2, "bob") == 8
+
+
+class TestSeatingAndStartingPlayer:
+    """RULE 103.1/103.2 as two table settings (`LobbyGame.seating_order`)."""
+
+    def table(self, **options):
+        lobby = Lobby()
+        host = lobby.connect("Ann")
+        game = lobby.create(host.id, num_players=4)
+        for name in ("Bob", "Cid", "Dot"):
+            lobby.join(game.id, lobby.connect(name).id)
+        if options:
+            lobby.set_options(game.id, host.id, **options)
+        return lobby, game
+
+    def names(self, seats):
+        return [s.name for s in seats]
+
+    def test_join_order_is_the_default(self):
+        _, game = self.table()
+        assert self.names(game.seating_order()) == ["Ann", "Bob", "Cid", "Dot"]
+        assert not game.randomize_seating and not game.random_starting_player
+
+    def test_randomized_seating_is_a_permutation_of_the_same_seats(self):
+        _, game = self.table(randomize_seating=True)
+        order = game.seating_order(rng=random.Random(7))
+        assert sorted(self.names(order)) == ["Ann", "Bob", "Cid", "Dot"]
+
+    def test_randomized_seating_actually_reorders_across_rolls(self):
+        _, game = self.table(randomize_seating=True)
+        rolls = {tuple(self.names(game.seating_order(rng=random.Random(s)))) for s in range(25)}
+        assert len(rolls) > 1
+
+    def test_a_random_starting_player_only_rotates_the_ring(self):
+        """Seating is who sits next to whom — a different starting point
+        must not disturb it, so every result is a rotation."""
+        _, game = self.table(random_starting_player=True)
+        joined = ["Ann", "Bob", "Cid", "Dot"]
+        rotations = {tuple(joined[i:] + joined[:i]) for i in range(len(joined))}
+        seen = {tuple(self.names(game.seating_order(rng=random.Random(s)))) for s in range(30)}
+        assert seen <= rotations
+        assert len(seen) > 1  # it does move
+
+    def test_both_options_together_still_seat_everyone_once(self):
+        _, game = self.table(randomize_seating=True, random_starting_player=True)
+        order = game.seating_order(rng=random.Random(3))
+        assert sorted(self.names(order)) == ["Ann", "Bob", "Cid", "Dot"]
+
+    def test_only_the_host_may_change_them(self):
+        lobby, game = self.table()
+        guest = next(s.player_id for s in game.seats if s.player_id != game.host_id)
+        with pytest.raises(LobbyError):
+            lobby.set_options(game.id, guest, randomize_seating=True)
+
+    def test_the_settings_are_on_the_wire(self):
+        _, game = self.table(randomize_seating=True)
+        payload = game.to_dict()
+        assert payload["randomize_seating"] is True
+        assert payload["random_starting_player"] is False
 
 
 class TestPodRedaction:

@@ -23,7 +23,13 @@ from mtg_analyzer.models.deck import Deck
 from mtg_analyzer.services.deck_database import DeckDatabase
 from mtg_analyzer.services.game_session import GameSessionManager
 from mtg_analyzer.services.lazy_card_loader import LoadCardsResult
-from mtg_analyzer.services.lobby import AVAILABLE, ONLINE, PLAYING, Lobby
+from mtg_analyzer.services.lobby import (
+    AVAILABLE,
+    ONLINE,
+    PLAYING,
+    Lobby,
+    normalize_banner_color,
+)
 
 
 def _forest():
@@ -74,8 +80,17 @@ def env():
         app.dependency_overrides.pop(dep, None)
 
 
-def _legal_deck(decks, name="Mono-G"):
-    deck = Deck(name=name, commander_text="1 Test Commander\n", mainboard_text="99 Forest\n")
+def _legal_deck(decks, name="Mono-G", color_identity=None):
+    """A playable saved deck. ``color_identity`` is what a deck the client
+    has already listed once carries (`api/saved_decks._ensure_identity`) —
+    left `None` here by default, i.e. not computed yet, since most tests
+    don't care and the banner default is explicitly written for both."""
+    deck = Deck(
+        name=name,
+        commander_text="1 Test Commander\n",
+        mainboard_text="99 Forest\n",
+        color_identity=color_identity,
+    )
     decks.save_deck(deck)
     return deck
 
@@ -214,6 +229,37 @@ class TestLobby:
         ).json()
         assert body["game"]["takebacks_per_player"] == 20
 
+    def test_randomization_options_round_trip(self, env):
+        """RULE 103.1/103.2 — the camelCase aliases have to reach the lobby.
+
+        The logic itself is `LobbyGame.seating_order`'s (see
+        test_multiplayer_pods.py); what this guards is the wiring, which is
+        exactly where a new option silently goes nowhere.
+        """
+        client = env["client"]
+        ann, bob = _connect(client, "Ann"), _connect(client, "Bob")
+        created = client.post("/api/multiplayer/games", json={"playerId": ann}).json()["game"]
+        gid = created["id"]
+        client.post(f"/api/multiplayer/games/{gid}/join", json={"playerId": bob})
+        # Both off by default: a table that says nothing keeps join order.
+        assert created["randomize_seating"] is False
+        assert created["random_starting_player"] is False
+
+        body = client.post(
+            f"/api/multiplayer/games/{gid}/options",
+            json={"playerId": ann, "randomizeSeating": True, "randomStartingPlayer": True},
+        ).json()
+        assert body["game"]["randomize_seating"] is True
+        assert body["game"]["random_starting_player"] is True
+
+        # And they can be turned back off — a `False` must not read as "unset".
+        body = client.post(
+            f"/api/multiplayer/games/{gid}/options",
+            json={"playerId": ann, "randomizeSeating": False},
+        ).json()
+        assert body["game"]["randomize_seating"] is False
+        assert body["game"]["random_starting_player"] is True
+
     def test_unknown_deck_is_404(self, env):
         client = env["client"]
         ann = _connect(client, "Ann")
@@ -222,6 +268,89 @@ class TestLobby:
             f"/api/multiplayer/games/{gid}/deck", json={"playerId": ann, "deckId": "nope"}
         )
         assert response.status_code == 404
+
+
+class TestBannerColors:
+    """A seat's cosmetic banner colour (`Seat.banner_color`, UC4 Setup)."""
+
+    def test_normalizes_to_wubrg_order(self):
+        assert normalize_banner_color("uw") == "wu"
+        assert normalize_banner_color("GRB") == "brg"
+        assert normalize_banner_color("wwww") == "w"
+        # Nothing recognizable left is the grey colourless banner, and an
+        # unset colour stays unset (rather than becoming grey).
+        assert normalize_banner_color("xyz") == "c"
+        assert normalize_banner_color("") == "c"
+        assert normalize_banner_color(None) is None
+
+    def test_setting_a_colour_does_not_clear_acceptance(self, env):
+        client = env["client"]
+        gid, ann, _bob = _seated_game(env)  # both already accepted
+        body = client.post(
+            f"/api/multiplayer/games/{gid}/banner", json={"playerId": ann, "color": "UW"}
+        ).json()
+        seats = {s["player_id"]: s for s in body["game"]["seats"]}
+        assert seats[ann]["banner_color"] == "wu"
+        # Repainting a banner isn't a change to the *game* anyone accepted.
+        assert all(s["ready"] for s in body["game"]["seats"])
+        assert body["game"]["all_ready"] is True
+
+    def test_deck_colour_identity_is_the_default_banner(self, env):
+        client, decks = env["client"], env["decks"]
+        ann = _connect(client, "Ann")
+        deck = _legal_deck(decks, color_identity=["G", "U"])
+        gid = client.post("/api/multiplayer/games", json={"playerId": ann}).json()["game"]["id"]
+        body = client.post(
+            f"/api/multiplayer/games/{gid}/deck", json={"playerId": ann, "deckId": deck.id}
+        ).json()
+        assert body["game"]["seats"][0]["banner_color"] == "ug"
+
+    def test_an_explicit_colour_survives_a_deck_change(self, env):
+        client, decks = env["client"], env["decks"]
+        ann = _connect(client, "Ann")
+        gid = client.post("/api/multiplayer/games", json={"playerId": ann}).json()["game"]["id"]
+        client.post(f"/api/multiplayer/games/{gid}/banner", json={"playerId": ann, "color": "r"})
+        deck = _legal_deck(decks, color_identity=["G"])
+        body = client.post(
+            f"/api/multiplayer/games/{gid}/deck", json={"playerId": ann, "deckId": deck.id}
+        ).json()
+        assert body["game"]["seats"][0]["banner_color"] == "r"
+
+    def test_an_uncomputed_identity_leaves_the_seat_unpainted(self, env):
+        client, decks = env["client"], env["decks"]
+        ann = _connect(client, "Ann")
+        deck = _legal_deck(decks)  # colour identity not computed yet
+        gid = client.post("/api/multiplayer/games", json={"playerId": ann}).json()["game"]["id"]
+        body = client.post(
+            f"/api/multiplayer/games/{gid}/deck", json={"playerId": ann, "deckId": deck.id}
+        ).json()
+        assert body["game"]["seats"][0]["banner_color"] is None
+
+    def test_you_cannot_paint_someone_elses_seat(self, env):
+        client = env["client"]
+        gid, ann, bob = _seated_game(env)
+        response = client.post(
+            f"/api/multiplayer/games/{gid}/banner",
+            json={"playerId": ann, "color": "b", "seatId": bob},
+        )
+        assert response.status_code == 400
+        seats = {s["player_id"]: s for s in env["lobby"].game(gid).to_dict()["seats"]}
+        assert seats[bob]["banner_color"] is None
+
+    def test_the_host_paints_a_bot_seat(self, env):
+        client = env["client"]
+        ann = _connect(client, "Ann")
+        gid = client.post("/api/multiplayer/games", json={"playerId": ann}).json()["game"]["id"]
+        body = client.post(
+            f"/api/multiplayer/games/{gid}/bots", json={"playerId": ann, "kind": "goldfish"}
+        ).json()
+        bot_id = next(s["player_id"] for s in body["game"]["seats"] if s["is_bot"])
+        body = client.post(
+            f"/api/multiplayer/games/{gid}/banner",
+            json={"playerId": ann, "color": "wbg", "seatId": bot_id},
+        ).json()
+        seats = {s["player_id"]: s for s in body["game"]["seats"]}
+        assert seats[bot_id]["banner_color"] == "wbg"
 
 
 class TestStartingAndPlaying:

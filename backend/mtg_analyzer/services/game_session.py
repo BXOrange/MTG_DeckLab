@@ -1030,10 +1030,11 @@ class GameSession:
         London bottoms one card per mulligan taken; ``next7`` never bottoms
         any. ``draw_first`` sets who draws on turn 1 (UC3 setup option): True
         → the human draws in their first turn (they're "on the draw"); False
-        → they skip it (the standard "on the play" rule, RULE 103.7a). None
-        keeps the session's current setting. Multiplayer never sends it —
-        there the starting player is simply the first seat and skips the
-        draw, so the flag stays at its RULE 103.7a default.
+        → they skip it (the standard "on the play" rule, RULE 103.8a). None
+        keeps the session's current setting. Multiplayer never sends it, and
+        at a pod it wouldn't matter: the flag only reaches anything in a
+        two-seat game, since RULE 103.8c has nobody skip the first draw with
+        three or more players (`GameEngine._step_draw`).
         """
         bottom_count = self.bottom_count_for(player.id)
         if len(bottom_instance_ids) != bottom_count:

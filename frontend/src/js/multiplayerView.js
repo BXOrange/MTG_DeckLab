@@ -30,6 +30,7 @@ import {
   observeMultiplayerGame,
   removeMultiplayerBot,
   sendMultiplayerAction,
+  setMultiplayerBannerColor,
   setMultiplayerDeck,
   setMultiplayerOptions,
   setMultiplayerReady,
@@ -47,6 +48,13 @@ import { getState, setState } from './state.js';
 import { preloadCardImages } from './cardImages.js';
 import { parseDeckSections } from './parser.js';
 import { MULLIGAN_LABELS, SEAT_COUNTS, mulliganText } from './mulligan.js';
+import {
+  BANNER_COLORS,
+  COLORLESS_BANNER,
+  bannerColorLabel,
+  bannerGradients,
+  normalizeBannerColor,
+} from './bannerColors.js';
 
 const PRESENCE_LABELS = {
   online: { icon: '🟡', text: 'Online' },
@@ -87,6 +95,10 @@ export function createMultiplayerView(hooks = {}) {
   //: once — they're a property of the backend, not of this table.
   let botKinds = null;
   let botKindToAdd = '';
+  //: Which seat's banner-colour picker is currently unfolded (a seat's
+  //: `player_id`, or null). Only one at a time, and never persisted — it's
+  //: a disclosure toggle on a row, not a setting.
+  let bannerPickerFor = null;
   let status = '';
   let statusKind = '';
   let busy = false;
@@ -140,7 +152,15 @@ export function createMultiplayerView(hooks = {}) {
     // quiet (the server is passing priority for them).
     seatStatus: (id) => {
       const player = (lobby.players || []).find((pl) => pl.id === id);
-      return player ? { connected: player.connected !== false } : null;
+      const seat = game?.seats.find((s) => s.player_id === id);
+      // Both facts are lobby-side, but they come from different places: a
+      // bot has a seat and no `LobbyPlayer` in the list at all, so its
+      // banner must still be found (and it is never "disconnected").
+      if (!player && !seat) return null;
+      return {
+        connected: player ? player.connected !== false : true,
+        banner_color: seat?.banner_color || null,
+      };
     },
   });
 
@@ -459,6 +479,26 @@ export function createMultiplayerView(hooks = {}) {
     });
   }
 
+  /**
+   * Repaint a seat's banner. `seatId` is the seat being painted — this
+   * client's own, or a bot's if this client is the host; the server checks
+   * that either way (`services/lobby.py`'s `_seat_to_configure`).
+   *
+   * Sent straight through on every click rather than staged locally: it
+   * costs nothing, it can't be wrong (an unknown key normalizes, it never
+   * clears anybody's acceptance), and it means the other players watch the
+   * colour appear while you are still choosing it.
+   */
+  async function chooseBannerColor(color, seatId = null) {
+    if (!game || !color) return;
+    const forOwnSeat = !seatId || seatId === playerId;
+    await withBusy('Banner-Farbe wird gesetzt …', async () => {
+      applyLobbyResult(
+        await setMultiplayerBannerColor(game.id, playerId, color, forOwnSeat ? null : seatId),
+      );
+    });
+  }
+
   async function addBot(kind) {
     if (!game || !kind) return;
     await withBusy('Bot wird eingesetzt …', async () => {
@@ -477,6 +517,16 @@ export function createMultiplayerView(hooks = {}) {
     if (!game) return;
     await withBusy('Einstellung wird gespeichert …', async () => {
       applyLobbyResult(await setMultiplayerOptions(game.id, playerId, { mulliganStyle: style }));
+    });
+  }
+
+  // RULE 103.1/103.2 as two table settings — the server applies them once,
+  // when the game is built (`LobbyGame.seating_order`), so nothing here has
+  // to (or could) preview the result.
+  async function changeRandomization(options) {
+    if (!game) return;
+    await withBusy('Einstellung wird gespeichert …', async () => {
+      applyLobbyResult(await setMultiplayerOptions(game.id, playerId, options));
     });
   }
 
@@ -707,6 +757,18 @@ export function createMultiplayerView(hooks = {}) {
             </select>
             ${isHost ? '' : '<span class="hint">Nur der Host kann das ändern.</span>'}
           </div>
+          <div class="mp-option-row" title="Regel 103.1/103.2: Wer sitzt wo, und wer fängt an? Ohne Haken bleibt es bei der Reihenfolge, in der ihr euch gesetzt habt – der Host beginnt.">
+            <label>Auslosen</label>
+            <label class="mp-option-check">
+              <input id="mp-random-seating" type="checkbox" ${game.randomize_seating ? 'checked' : ''} ${isHost && !busy ? '' : 'disabled'} />
+              Sitzordnung (Regel 103.1)
+            </label>
+            <label class="mp-option-check">
+              <input id="mp-random-start" type="checkbox" ${game.random_starting_player ? 'checked' : ''} ${isHost && !busy ? '' : 'disabled'} />
+              Startspieler (Regel 103.2)
+            </label>
+            ${isHost ? '' : '<span class="hint">Nur der Host kann das ändern.</span>'}
+          </div>
           <div class="mp-option-row" title="Erlaubt jedem Platz, seinen eigenen letzten Zug zurückzunehmen — begrenzt, damit es eine Ausnahme für Fehlklicks bleibt und keine allgemeine Undo-Funktion.">
             <label for="mp-takebacks">Take-backs je Spieler</label>
             <input id="mp-takebacks" type="number" min="0" max="20" value="${game.takebacks_per_player ?? 0}" ${isHost && !busy ? '' : 'disabled'} />
@@ -742,8 +804,13 @@ export function createMultiplayerView(hooks = {}) {
     // off the table — everything a human seat does for itself.
     const iAmHost = game.host_id === playerId;
     const canManage = seat.is_bot && iAmHost && game.status === 'setup';
+    // You paint your own banner; the host paints the bots' (nobody else's,
+    // and nobody's at all once the game is running — see `chooseBannerColor`).
+    const canPaint = game.status === 'setup' && (me || canManage);
+    const picking = canPaint && bannerPickerFor === seat.player_id;
     return `<li class="mp-seat${me ? ' mp-seat-me' : ''}${seat.is_bot ? ' mp-seat-bot' : ''}">
       <span class="mp-seat-index">${index + 1}.</span>
+      ${bannerSwatchHtml(seat, canPaint, picking)}
       <span class="mp-seat-name">${seat.is_bot ? '🤖 ' : ''}${escapeHtml(seat.name)}${host ? ' 👑' : ''}${me ? ' <span class="mp-you">(du)</span>' : ''}</span>
       <span class="mp-seat-deck">${
         canManage
@@ -758,7 +825,61 @@ export function createMultiplayerView(hooks = {}) {
           ? `<button type="button" class="mp-seat-remove" data-remove-bot="${escapeAttr(seat.player_id)}" title="Bot entfernen" ${busy ? 'disabled' : ''}>✕</button>`
           : ''
       }
+      ${picking ? bannerPickerHtml(seat) : ''}
     </li>`;
+  }
+
+  /**
+   * The seat's banner colour, as the board will paint it: a small chip of
+   * the very same gradient (`bannerColors.js`), so what you pick here is
+   * literally what you get there. Clickable — and a button rather than a
+   * `<select>` — for whoever may repaint it, since 32 combinations is a
+   * lousy dropdown but five toggles are an easy one (`bannerPickerHtml`).
+   */
+  function bannerSwatchHtml(seat, canPaint, picking) {
+    const key = seat.banner_color;
+    const style = key ? `background: ${bannerGradients(key).background}` : '';
+    const label = key ? bannerColorLabel(key) : 'noch keine Farbe – wird aus dem Deck übernommen';
+    const chip = `<span class="mp-banner-chip${key ? '' : ' mp-banner-chip-empty'}" style="${escapeAttr(style)}" aria-hidden="true"></span>`;
+    if (!canPaint) {
+      return `<span class="mp-seat-banner" title="Banner-Farbe: ${escapeAttr(label)}">${chip}</span>`;
+    }
+    return `<button type="button" class="mp-seat-banner mp-banner-edit" data-banner-toggle="${escapeAttr(seat.player_id)}"
+      aria-expanded="${picking ? 'true' : 'false'}" title="Banner-Farbe wählen (aktuell: ${escapeAttr(label)})" ${busy ? 'disabled' : ''}>${chip}</button>`;
+  }
+
+  /**
+   * The picker itself: one toggle per colour, in WUBRG order, plus the
+   * deck's own identity as a one-click shortcut. Toggles rather than a list
+   * of 32 named combinations, because a banner colour *is* a set — and
+   * turning them all off is how you fly the grey colourless banner, which
+   * is why there is no separate "grau" button.
+   */
+  function bannerPickerHtml(seat) {
+    const current = normalizeBannerColor(seat.banner_color || COLORLESS_BANNER);
+    const active = new Set(current === COLORLESS_BANNER ? [] : current.split(''));
+    const deck = (savedDecks || []).find((d) => d.id === seat.deck_id);
+    const fromDeck = deck?.colorIdentity ? normalizeBannerColor(deck.colorIdentity.join('')) : null;
+    const toggles = BANNER_COLORS.map((c) => {
+      const on = active.has(c.code);
+      const next = on
+        ? [...active].filter((code) => code !== c.code)
+        : [...active, c.code];
+      return `<button type="button" class="mp-banner-pip mp-banner-pip--${c.code}${on ? ' is-on' : ''}"
+        data-banner-set="${escapeAttr(seat.player_id)}" data-banner-color="${escapeAttr(next.join('') || COLORLESS_BANNER)}"
+        title="${escapeAttr(c.label)}" aria-pressed="${on ? 'true' : 'false'}" ${busy ? 'disabled' : ''}>${c.symbol}</button>`;
+    }).join('');
+    return `
+      <div class="mp-banner-picker">
+        <span class="mp-banner-pips">${toggles}</span>
+        <span class="mp-banner-name">${escapeHtml(seat.banner_color ? bannerColorLabel(seat.banner_color) : 'Farblos (C)')}</span>
+        ${
+          fromDeck && fromDeck !== current
+            ? `<button type="button" class="mp-banner-from-deck" data-banner-set="${escapeAttr(seat.player_id)}" data-banner-color="${escapeAttr(fromDeck)}" ${busy ? 'disabled' : ''}>🎨 Farbidentität des Decks (${escapeHtml(bannerColorLabel(fromDeck))})</button>`
+            : ''
+        }
+        <span class="hint">Alle Farben aus = graues Banner (farblos).</span>
+      </div>`;
   }
 
   /** Host-only row for seating a bot, while the table still has a free seat. */
@@ -820,6 +941,12 @@ export function createMultiplayerView(hooks = {}) {
     setupRoot
       .querySelector('#mp-takebacks')
       ?.addEventListener('change', (e) => changeTakebacksPerPlayer(e.target.value));
+    setupRoot
+      .querySelector('#mp-random-seating')
+      ?.addEventListener('change', (e) => changeRandomization({ randomizeSeating: e.target.checked }));
+    setupRoot
+      .querySelector('#mp-random-start')
+      ?.addEventListener('change', (e) => changeRandomization({ randomStartingPlayer: e.target.checked }));
     setupRoot.querySelector('#mp-ready')?.addEventListener('click', () => {
       const mySeat = game?.seats.find((s) => s.player_id === playerId);
       toggleReady(!mySeat?.ready);
@@ -836,6 +963,18 @@ export function createMultiplayerView(hooks = {}) {
     });
     setupRoot.querySelectorAll('[data-remove-bot]').forEach((el) => {
       el.addEventListener('click', () => removeBot(el.dataset.removeBot));
+    });
+    setupRoot.querySelectorAll('[data-banner-toggle]').forEach((el) => {
+      el.addEventListener('click', () => {
+        const seatId = el.dataset.bannerToggle;
+        bannerPickerFor = bannerPickerFor === seatId ? null : seatId;
+        renderSetup();
+      });
+    });
+    setupRoot.querySelectorAll('[data-banner-set]').forEach((el) => {
+      el.addEventListener('click', () =>
+        chooseBannerColor(el.dataset.bannerColor, el.dataset.bannerSet),
+      );
     });
     setupRoot.querySelector('#mp-start')?.addEventListener('click', startGame);
     setupRoot.querySelector('#mp-goto-board')?.addEventListener('click', () => hooks.onEnterBoard?.());

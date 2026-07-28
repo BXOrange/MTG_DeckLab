@@ -165,6 +165,18 @@ class MultiplayerDeckRequest(MultiplayerPlayerRequest):
     seat_id: Optional[str] = Field(default=None, alias="seatId")
 
 
+class MultiplayerBannerColorRequest(MultiplayerPlayerRequest):
+    """Request body for POST /api/multiplayer/games/{id}/banner.
+
+    ``color`` is a banner-colour key (`services/lobby.normalize_banner_color`
+    — any subset of ``wubrg``, or ``"c"`` for the grey colourless banner);
+    ``seatId`` targets a bot's seat, host only, exactly like the deck route.
+    """
+
+    color: str
+    seat_id: Optional[str] = Field(default=None, alias="seatId")
+
+
 class MultiplayerBotRequest(MultiplayerPlayerRequest):
     """Request body for POST /api/multiplayer/games/{id}/bots (host only)."""
 
@@ -184,6 +196,9 @@ class MultiplayerOptionsRequest(MultiplayerPlayerRequest):
     mulligan_style: Optional[str] = Field(default=None, alias="mulliganStyle")
     num_players: Optional[int] = Field(default=None, alias="numPlayers")
     takebacks_per_player: Optional[int] = Field(default=None, alias="takebacksPerPlayer")
+    #: RULE 103.1/103.2 — see `LobbyGame.seating_order`.
+    randomize_seating: Optional[bool] = Field(default=None, alias="randomizeSeating")
+    random_starting_player: Optional[bool] = Field(default=None, alias="randomStartingPlayer")
 
 
 class MultiplayerReadyRequest(MultiplayerPlayerRequest):

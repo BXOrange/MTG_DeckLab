@@ -61,6 +61,15 @@ an opponent's hand never leaves the process, `observer_view()` hides
 everyone's); **`/ws/lobby`** (`api/multiplayer_ws.py`) is presence *and*
 the push channel, sending each participant their own view rather than one
 shared payload; and **priority is played out for real** (below).
+A seat also carries one purely cosmetic thing, `Seat.banner_color`
+(`normalize_banner_color` — any subset of WUBRG, or grey for colourless,
+defaulting to the deck's colour identity when a deck is picked): the
+colours the shared board paints that player's title bar in. It lives in
+the lobby rather than in the game state (it's a property of the person at
+the table, and Setup must show it before there is a game), so it reaches
+the board through the same `seatStatus` hook as connection state; the
+palette and all 32 combinations are derived from six hexes in
+`frontend/src/js/bannerColors.js` rather than enumerated in CSS.
 `RulesEngine.concede` (RULE 104.3a) defers the RULE 800.4a board cleanup
 to the next turn (`GameState.pending_leave_ids`) so a concession doesn't
 yank a board away mid-turn. Frontend: `multiplayerView.js` +
@@ -822,7 +831,7 @@ English and German.
 | "Play/cast from top of library" permission | `game/top_library.py`, `game/game_engine.py` (`can_play_land`/`can_cast`/`legal_actions`), `gameBoardView.js` (`libraryTopHtml`) |
 | On-disk paths / env-var config | `backend/mtg_analyzer/config.py` |
 | Goldfish UI | `frontend/src/js/goldfishView.js` |
-| Multiplayer (lobby, seats, shared board) | `backend/mtg_analyzer/services/lobby.py`, `api/multiplayer.py`, `api/multiplayer_ws.py`, `frontend/src/js/multiplayerView.js`, `lobbySocket.js` |
+| Multiplayer (lobby, seats, shared board) | `backend/mtg_analyzer/services/lobby.py`, `api/multiplayer.py`, `api/multiplayer_ws.py`, `frontend/src/js/multiplayerView.js`, `lobbySocket.js`, `bannerColors.js` (seat banner colours) |
 | Bots filling a multiplayer seat (UC5) | `backend/mtg_analyzer/services/bots.py` (`Bot`/`GoldfishBot`/`GreedyBot`/`run_bots`), `services/lobby.py` (`Seat.bot_kind`, `add_bot`), `frontend/src/js/multiplayerView.js` (`addBotHtml`/`seatRowHtml`) |
 | Replay/Puzzle mode (build+save/load a board) | `backend/mtg_analyzer/services/replay.py`, `game_session.py` (`edit_*` actions), `frontend/src/js/replayView.js` |
 | Archidekt deck import proxy | `backend/mtg_analyzer/services/archidekt_client.py`, `api/import_external.py` (Moxfield was tried and reverted twice — Cloudflare-blocked; don't re-add it without checking that's changed) |

@@ -82,6 +82,18 @@ Sobald du an einem Tisch sitzt, erscheint oben in **Setup** ein Panel mit:
     viele Mulligans genommen wurden. Eine "freie" Variante für lockeres
     Spiel/Playtesting.
   - *Kein Mulligan*: die Starthand wird behalten.
+- **Auslosen** — zwei Haken, beide vom Host gesetzt und beide standardmäßig
+  aus:
+  - *Sitzordnung* (Regel 103.1): die Plätze werden gemischt, also auch die
+    Reihenfolge, in der ihr reihum drankommt.
+  - *Startspieler* (Regel 103.2): die Sitzordnung bleibt, aber es beginnt
+    ein zufälliger Platz. Bewusst nur eine **Drehung** der Runde – wer
+    neben wem sitzt, ändert sich dadurch nicht.
+
+  Ohne Haken bleibt es dabei, dass ihr in der Reihenfolge sitzt, in der ihr
+  euch gesetzt habt, und der Host beginnt. Gelost wird erst beim Start; die
+  ausgeloste Reihenfolge steht danach in der Zugreihenfolge-Leiste am
+  Spielfeld.
 - **Take-backs je Spieler** — vom Host für den ganzen Tisch gewählt
   (Standard: 0, also aus). Erlaubt jedem Platz, im laufenden Spiel seinen
   eigenen letzten Zug zurückzunehmen — für Fehlklicks, nicht als
@@ -89,6 +101,7 @@ Sobald du an einem Tisch sitzt, erscheint oben in **Setup** ein Panel mit:
   teilen, nimmt das Zurücknehmen deines Zuges automatisch auch alles mit
   zurück, was der Gegner *seitdem* gemacht hat.
 - **Dein Deck** — eines deiner gespeicherten Decks. Jeder wählt selbst.
+- **Deine Banner-Farbe** — siehe unten.
 - **✔ Bereit** — deine Zusage. Ohne Deck nicht möglich.
 - **▶ Spiel starten** — nur der Host, und erst wenn alle Plätze belegt
   sind und alle zugesagt haben.
@@ -101,6 +114,34 @@ zugestimmt hat. Einfach erneut auf **Bereit** klicken.
 
 Startet der Host das Spiel, werden alle Spieler automatisch zum Tab
 **Board** geschaltet.
+
+### Banner-Farbe
+
+Jeder Platz hat eine **Banner-Farbe**: die Titelleiste deines Spielfelds
+wird darin eingefärbt — bei allen am Tisch. An einem Tisch mit vier
+Spielern findest du dein eigenes Feld (und die der anderen) damit an der
+Farbe statt am Namen.
+
+Links in deiner Platzzeile steht dazu ein kleines Farbfeld. Ein Klick
+darauf klappt die Auswahl auf:
+
+- **Fünf Schalter** in WUBRG-Reihenfolge (W U B R G). Jede Kombination ist
+  erlaubt — eine Farbe, zwei (Azorius, Golgari …), drei (Esper, Naya …),
+  vier oder alle fünf. Mehrere Farben ergeben einen Farbverlauf über genau
+  diese Farben.
+- **Alle Schalter aus** = graues Banner, also farblos.
+- **🎨 Farbidentität des Decks** — übernimmt die Farben deines gewählten
+  Decks in einem Klick.
+
+Wählst du ein Deck und hast noch keine Banner-Farbe gesetzt, wird die
+**Farbidentität des Decks** automatisch übernommen. Ab dem Moment, in dem
+du selbst eine Farbe wählst, bleibt sie — auch wenn du danach das Deck
+wechselst.
+
+Die Banner-Farbe ist reine Optik: sie ändert nichts am Spiel und setzt
+deshalb — anders als jede andere Änderung am Tisch — auch **keine Zusagen
+zurück**. Sie wird vor dem Spielstart eingestellt; der Host stellt sie
+auch für Bot-Plätze ein.
 
 ### Einen Bot einsetzen
 
@@ -232,9 +273,36 @@ Auto-Pass dich gerade eine Reaktion gekostet hat.
   überspringen** macht daraus einen Dauerzustand. Das ist bewusst etwas
   anderes als Auto-Pass: Auto-Pass zählt herunter, *weil* du hättest
   reagieren können – hier gibt es nichts abzuwarten.
-- **Passen am eigenen Brett**: der Passen-Knopf und die Anzeige „Du bist
-  dran" stehen zusätzlich auf der Kopfzeile deines eigenen Spielfelds –
-  bei zwei Brettern ist die Leiste ganz oben meist aus dem Bild gescrollt.
+- **Passen am eigenen Brett**: **Passen**, **⏭ Nächste Aktion** und die
+  Anzeige „Du bist dran" stehen zusätzlich auf der Kopfzeile deines
+  eigenen Spielfelds – bei zwei Brettern ist die Leiste ganz oben meist
+  aus dem Bild gescrollt. Sie sitzen direkt neben deinem Namen, damit
+  Lebenspunkte und Marken wie bei jedem anderen Platz rechts gegenüber
+  stehen.
+- **Zugreihenfolge**: oben in der Leiste steht, wer in welcher Reihenfolge
+  an die Reihe kommt – `Alice → Bob → Carol ↻`. Der Spieler am Zug ist mit
+  ▶ hervorgehoben, dein eigener Name hell, wer ausgeschieden ist,
+  durchgestrichen (der Zug überspringt ihn, aber der Platz bleibt an
+  seiner Stelle stehen). Das ↻ heißt: danach geht es wieder von vorn los.
+- **Anordnung der Spielfelder**: bei zwei Spielern stehen die beiden
+  Bretter untereinander. **Ab drei Spielern** werden sie zu zweit
+  nebeneinander gelegt (2×2), damit niemand aus dem Bild scrollt – dein
+  eigenes Brett bleibt das unterste. Zu dritt bekommt es die volle Breite,
+  zu viert entsteht ein echtes 2×2. Auf schmalen Bildschirmen (unter etwa
+  1200 Pixeln) fällt die Ansicht automatisch wieder auf untereinander
+  zurück.
+  Die Bretter liegen dabei **reihum in Zugreihenfolge**, im Uhrzeigersinn:
+  oben-links → oben-rechts → unten-rechts → unten-links. Das erste ist der
+  Spieler, der nach dir dran ist, das letzte bist immer du – und weil der
+  Kreis sich schließt, sitzt du wieder direkt neben dem ersten. Die Leiste
+  oben zeigt genau dieselbe Reihenfolge – sie ist die Legende zum Layout.
+- **⇄ Zonen: innen / außen**: die Spalte mit Bibliothek, Friedhof, Exil
+  und Kommandozone kann in der 2×2-Ansicht entweder **innen** (beide
+  Spalten treffen sich in der Mitte) oder **außen** (sie liegen an den
+  Rändern, die Schlachtfelder stoßen in der Mitte aneinander) liegen.
+  Standard ist *außen*. Untereinander heißt derselbe Knopf **⇄
+  Zonen-Seite** und schiebt die Spalte schlicht nach links oder rechts;
+  beide Einstellungen werden getrennt gemerkt.
 - **Zug-Zähler**: „Zug 4" meint die vierte Runde, also das vierte Mal, dass
   der Startspieler an der Reihe ist. Die regeltechnische Zählung (Regel
   500.1 zählt jeden einzelnen Spielerzug) steht im Tooltip.

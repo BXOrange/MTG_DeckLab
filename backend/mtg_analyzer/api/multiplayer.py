@@ -22,6 +22,7 @@ hands the id back to the lobby.
 * ``POST /api/multiplayer/games/{id}/observe``    — watch instead.
 * ``POST /api/multiplayer/games/{id}/leave``      — give up a seat/watch.
 * ``POST /api/multiplayer/games/{id}/deck``       — pick this seat's deck.
+* ``POST /api/multiplayer/games/{id}/banner``     — this seat's banner colour.
 * ``GET  /api/multiplayer/bots``                  — the pickable bot kinds.
 * ``POST /api/multiplayer/games/{id}/bots``       — host: seat a bot.
 * ``POST /api/multiplayer/games/{id}/bots/remove``— host: unseat one.
@@ -64,6 +65,7 @@ from mtg_analyzer.api.multiplayer_ws import manager as lobby_connections
 from mtg_analyzer.api.schemas import (
     LobbyConnectRequest,
     MultiplayerActionRequest,
+    MultiplayerBannerColorRequest,
     MultiplayerBotRemoveRequest,
     MultiplayerBotRequest,
     MultiplayerDeckRequest,
@@ -170,6 +172,57 @@ async def set_deck(
             game_id, request.player_id, request.deck_id, deck.name, seat_id=request.seat_id
         )
     )
+    _default_banner_from_deck(lobby, game, request.player_id, request.seat_id, deck)
+    return await _game_response(lobby, game)
+
+
+def _default_banner_from_deck(
+    lobby: Lobby, game: LobbyGame, player_id: str, seat_id: Optional[str], deck: Any
+) -> None:
+    """Fly the deck's colour identity as this seat's banner, unless it has one.
+
+    A seat that has never chosen a banner colour gets the one nobody would
+    have to think about: the deck's own (RULE 903.4) colour identity, which
+    is exactly what the palette was built to be able to draw. Done here
+    rather than in the lobby because the lobby is rules-free and has no idea
+    what colours a deck has; done at all because "pick your deck, then also
+    pick your colours" is a step nobody wants to take twice.
+
+    An *explicit* pick is never overwritten — swapping decks later keeps the
+    banner the player chose. An identity that hasn't been computed yet
+    (`None`, unlike an empty list, which is a genuinely colourless deck)
+    simply leaves the seat untinted.
+    """
+    seat = game.seat_for(seat_id or player_id)
+    if seat is None or seat.banner_color is not None:
+        return
+    identity = getattr(deck, "color_identity", None)
+    if identity is None:
+        return
+    _guard(
+        lambda: lobby.set_banner_color(
+            game.id, player_id, "".join(identity), seat_id=seat_id
+        )
+    )
+
+
+@router.post("/games/{game_id}/banner")
+async def set_banner_color(
+    game_id: str,
+    request: MultiplayerBannerColorRequest,
+    lobby: Lobby = Depends(get_lobby),
+) -> dict[str, Any]:
+    """Pick the colours this seat's board banner flies (UC4 Setup).
+
+    Cosmetic only, so the key is normalized rather than validated
+    (`services/lobby.normalize_banner_color`) and nobody's acceptance is
+    cleared by it.
+    """
+    game = _guard(
+        lambda: lobby.set_banner_color(
+            game_id, request.player_id, request.color, seat_id=request.seat_id
+        )
+    )
     return await _game_response(lobby, game)
 
 
@@ -213,6 +266,8 @@ async def set_options(
             request.mulligan_style,
             request.num_players,
             request.takebacks_per_player,
+            request.randomize_seating,
+            request.random_starting_player,
         )
     )
     return await _game_response(lobby, game)
@@ -237,9 +292,13 @@ async def start_game(
 ) -> dict[str, Any]:
     """Every seat has accepted: resolve the decks and start the real game.
 
-    Seat order is turn order (the host sat down first, so they start —
-    RULE 103.2's "decide who goes first" is settled by the lobby rather
-    than by a die roll the server would have to arbitrate).
+    Seat order is turn order. By default that's join order — the host sat
+    down first, so they start, RULE 103.2's "decide who goes first" being
+    settled by the lobby rather than by a die roll the server arbitrates.
+    A table that would rather roll for it turns on `randomize_seating` /
+    `random_starting_player`; `LobbyGame.seating_order` applies both, once,
+    right here. Whatever it returns *is* the turn order the players then
+    see in the board's turn-order strip.
     """
     game = _guard(lambda: lobby.game(game_id))
     if game.session_id:
@@ -248,7 +307,7 @@ async def start_game(
         raise HTTPException(400, "not every player has accepted yet")
 
     seats: list[dict[str, Any]] = []
-    for seat in game.seats:
+    for seat in game.seating_order():
         library, commanders, errors = _resolve_seat_deck(seat.deck_id, decks, loader)
         if errors:
             raise HTTPException(

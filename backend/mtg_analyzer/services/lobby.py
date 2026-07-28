@@ -27,6 +27,14 @@ tables, not about Magic. It answers two questions —
   ``setup`` (seats being filled and configured), ``running`` (a real
   `GameSession` exists behind it) and ``finished``.
 
+A seat also carries the one purely decorative thing this module knows
+about: its **banner colour** (`Seat.banner_color`, `normalize_banner_color`
+— any subset of WUBRG, or grey for colourless), which is what the shared
+board paints that player's title bar in. It lives here rather than in the
+game because it is a property of the person at the table, not of the game
+state, and because it has to be visible to everyone in Setup before there
+is a game at all.
+
 A seat can also be filled by a **bot** (`add_bot`, `Seat.bot_kind` —
 `services/bots.py` for what a bot actually does). From here a bot is just
 a `LobbyPlayer` that happens to have no socket: it is exempt from both
@@ -47,6 +55,7 @@ lobby.
 
 from __future__ import annotations
 
+import random
 import time
 import uuid
 from dataclasses import dataclass, field
@@ -66,6 +75,35 @@ def normalize_name(name: str) -> str:
     still find their seat.
     """
     return " ".join((name or "").split()).casefold()
+
+#: The five colours a banner can be flown in, in canonical WUBRG order —
+#: a `Seat.banner_color` is any *subset* of them (31 combinations, enough to
+#: fly a deck's whole colour identity) or `COLORLESS_BANNER` for none.
+#: Deliberately just letters here: this module doesn't know what a colour
+#: looks like, only that a seat has picked one of a fixed vocabulary — the
+#: actual palette is the frontend's (`frontend/src/js/bannerColors.js`).
+BANNER_COLOR_LETTERS = "wubrg"
+#: The grey banner: no colour, i.e. a colourless deck.
+COLORLESS_BANNER = "c"
+
+
+def normalize_banner_color(value: Optional[str]) -> Optional[str]:
+    """Canonicalize a banner-colour key; ``None`` means "not chosen yet".
+
+    Free client input ("WU", "uw", "Gr") is reduced to the same key, so the
+    same pair of colours is always stored the same way: the WUBRG-ordered
+    letters, or `COLORLESS_BANNER` when nothing recognizable is left. It's
+    a normalizer rather than a validator on purpose — same treatment as
+    `normalize_name` — since an unknown letter here is a cosmetic typo, not
+    something worth failing a request over.
+    """
+    if value is None:
+        return None
+    letters = {ch for ch in str(value).lower() if ch in BANNER_COLOR_LETTERS}
+    if not letters:
+        return COLORLESS_BANNER
+    return "".join(ch for ch in BANNER_COLOR_LETTERS if ch in letters)
+
 
 #: Presence states, in increasing order of "busy".
 ONLINE = "online"
@@ -164,6 +202,12 @@ class Seat:
     layer validates it against the registry. A bot never accepts anything,
     so `is_ready` treats a bot seat with a deck as accepted: a bot has no
     opinion about the table to withhold.
+
+    ``banner_color`` is purely cosmetic (`normalize_banner_color`): the
+    colours this seat's board banner is painted in on everyone's screen.
+    ``None`` means the player hasn't picked one and hasn't got one from
+    their deck's colour identity either, which the board draws as the plain
+    felt header it always had.
     """
 
     player_id: str
@@ -172,6 +216,7 @@ class Seat:
     deck_name: str = ""
     ready: bool = False
     bot_kind: Optional[str] = None
+    banner_color: Optional[str] = None
 
     @property
     def is_bot(self) -> bool:
@@ -190,6 +235,7 @@ class Seat:
             "ready": self.is_ready,
             "bot_kind": self.bot_kind,
             "is_bot": self.is_bot,
+            "banner_color": self.banner_color,
         }
 
 
@@ -208,6 +254,13 @@ class LobbyGame:
     #: budget is per seat, not shared. `services/game_session.py`'s
     #: `GameSession.take_back` enforces it once the game is running.
     takebacks_per_player: int = 0
+    #: RULE 103.1/103.2 — how the table settles seating and who begins.
+    #: Both default off, which keeps the historical behaviour: seats are in
+    #: join order (the host sat down first, so the host starts). The lobby
+    #: only *records* the choice; `seating_order()` below is what applies
+    #: it, once, when the game is built.
+    randomize_seating: bool = False
+    random_starting_player: bool = False
     status: str = SETUP
     seats: list[Seat] = field(default_factory=list)
     #: Watchers (RULE-irrelevant): they see the public board and no hands.
@@ -235,6 +288,37 @@ class LobbyGame:
     def seat_for(self, player_id: str) -> Optional[Seat]:
         return next((s for s in self.seats if s.player_id == player_id), None)
 
+    def seating_order(self, rng: Optional[random.Random] = None) -> list[Seat]:
+        """The seats in the order the game should be built in — turn order.
+
+        RULE 103.1 (seating) and RULE 103.2 (who goes first) are decisions a
+        real table makes before the game; here they're two independent
+        table settings, applied in that same order:
+
+        * ``randomize_seating`` shuffles who sits next to whom, i.e. the
+          order turns rotate in.
+        * ``random_starting_player`` rotates that ring so a random seat
+          begins. A rotation rather than a swap on purpose — seating is
+          *whose left you sit on*, and picking a different starting point
+          must not disturb it.
+
+        Both off (the default) returns the seats in join order, which is
+        what this table did before either option existed: the host sat down
+        first and therefore starts.
+
+        Deliberately a pure function of the seats plus an injectable ``rng``
+        rather than something that mutates ``self.seats``: it's called once,
+        when the game starts, and a test needs to be able to pin the roll.
+        """
+        order = list(self.seats)
+        roll = rng or random
+        if self.randomize_seating:
+            roll.shuffle(order)
+        if self.random_starting_player and len(order) > 1:
+            start = roll.randrange(len(order))
+            order = order[start:] + order[:start]
+        return order
+
     def to_dict(self) -> dict[str, Any]:
         return {
             "id": self.id,
@@ -243,6 +327,8 @@ class LobbyGame:
             "num_players": self.num_players,
             "mulligan_style": self.mulligan_style,
             "takebacks_per_player": self.takebacks_per_player,
+            "randomize_seating": self.randomize_seating,
+            "random_starting_player": self.random_starting_player,
             "status": self.status,
             "seats": [s.to_dict() for s in self.seats],
             "observer_ids": list(self.observer_ids),
@@ -591,22 +677,55 @@ class Lobby:
         is what the default (``seat_id is None``) means.
         """
         game = self._setup_game(game_id)
-        if seat_id is not None and seat_id != player_id:
-            seat = game.seat_for(seat_id)
-            if seat is None or not seat.is_bot:
-                raise LobbyError("you can only choose a deck for your own seat")
-            if game.host_id != player_id:
-                raise LobbyError("only the host can choose a bot's deck")
-        else:
-            seat = game.seat_for(player_id)
-        if seat is None:
-            raise LobbyError("you have no seat in this game")
+        seat = self._seat_to_configure(game, player_id, seat_id)
         seat.deck_id = deck_id or None
         seat.deck_name = deck_name
         # The table changed, so *everyone's* acceptance is stale — the
         # others accepted a game against a different deck.
         self._unready(game)
         return game
+
+    def set_banner_color(
+        self,
+        game_id: str,
+        player_id: str,
+        color: Optional[str],
+        seat_id: Optional[str] = None,
+    ) -> LobbyGame:
+        """Pick the colours a seat's board banner flies (`Seat.banner_color`).
+
+        Same seat rules as `set_deck` — your own seat, or a bot's if you're
+        the host — but, unlike every other setting on the table, this one
+        deliberately does **not** clear anybody's acceptance: it changes how
+        a banner looks and nothing about the game being agreed to, so
+        re-asking the table to accept would be noise.
+        """
+        game = self._setup_game(game_id)
+        seat = self._seat_to_configure(game, player_id, seat_id)
+        seat.banner_color = normalize_banner_color(color)
+        return game
+
+    @staticmethod
+    def _seat_to_configure(
+        game: LobbyGame, player_id: str, seat_id: Optional[str]
+    ) -> Seat:
+        """The seat ``player_id`` is allowed to configure.
+
+        Everyone configures their own seat (``seat_id is None``); the host
+        additionally configures a **bot's**, since a bot has no client to do
+        it for itself.
+        """
+        if seat_id is not None and seat_id != player_id:
+            seat = game.seat_for(seat_id)
+            if seat is None or not seat.is_bot:
+                raise LobbyError("you can only configure your own seat")
+            if game.host_id != player_id:
+                raise LobbyError("only the host can configure a bot's seat")
+        else:
+            seat = game.seat_for(player_id)
+        if seat is None:
+            raise LobbyError("you have no seat in this game")
+        return seat
 
     def set_options(
         self,
@@ -615,6 +734,8 @@ class Lobby:
         mulligan_style: Optional[str] = None,
         num_players: Optional[int] = None,
         takebacks_per_player: Optional[int] = None,
+        randomize_seating: Optional[bool] = None,
+        random_starting_player: Optional[bool] = None,
     ) -> LobbyGame:
         """Change the table's shared settings. Host only — everyone else
         accepts them by readying up."""
@@ -623,6 +744,10 @@ class Lobby:
             raise LobbyError("only the host can change the game settings")
         if mulligan_style is not None:
             game.mulligan_style = mulligan_style
+        if randomize_seating is not None:
+            game.randomize_seating = bool(randomize_seating)
+        if random_starting_player is not None:
+            game.random_starting_player = bool(random_starting_player)
         if num_players is not None:
             # Never below the seats already taken: shrinking a table can't
             # evict anyone who is already sitting at it.

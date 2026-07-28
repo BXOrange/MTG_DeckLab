@@ -6049,6 +6049,44 @@ the same engine goldfish mode uses. The design keeps a hard line between
   HTTP: opening a table for 3 or 4, starting it, growing it, the cap, and
   a fifth player being refused.
 
+- **Nobody skips the first draw at a pod (RULE 103.8c, 2026-07-28).** A
+  real bug the pod work exposed. `GameEngine._step_draw` skipped turn 1's
+  draw whenever `len(players) > 1`, citing "RULE 103.7a" — but that rule
+  (103.8a in the current CR) is explicitly a **two-player** rule, and
+  103.8c says the opposite for everything else: *"In all other multiplayer
+  games, no player skips the draw step of their first turn."* At a table of
+  three or four the starting seat was therefore quietly a card down all
+  game. The gate is now `== 2`, which also keeps the goldfish behaviour
+  intact — a solo game is modeling a two-player game, and its dummy is the
+  second seat that makes the rule apply (its setup screen's "on the
+  draw" option is what clears `skip_first_draw`).
+  Tests: `test_multiplayer_pods.py::TestFirstDrawStep` — all four seats on
+  eight cards in their own first main phase, and the two-seat game still
+  having the starting player on seven.
+
+- **Random seating and random starting player (RULE 103.1/103.2,
+  2026-07-28).** Seat order *is* turn order, and it had exactly one
+  possible value: join order, so the host always started. Two independent
+  host-set table options now sit next to the mulligan style
+  (`LobbyGame.randomize_seating` / `random_starting_player`), applied once
+  by `LobbyGame.seating_order()` when `api/multiplayer.py`'s `start_game`
+  builds the seat list — after which the resulting order simply *is* what
+  everyone sees in the board's turn-order strip.
+
+  The two are separate on purpose and compose in that order: seating is
+  *whose left you sit on*, so `random_starting_player` **rotates** the ring
+  rather than shuffling it — picking a different starting point must not
+  disturb who sits next to whom. `seating_order` is a pure function of the
+  seats plus an injectable `rng` rather than something that mutates
+  `self.seats`, so a test can pin the roll; the lobby stays rules-free by
+  only *recording* the choice.
+  Tests: `test_multiplayer_pods.py::TestSeatingAndStartingPlayer` (7 —
+  join order by default, a shuffle being a permutation and actually
+  varying, a random start only ever producing rotations, both together,
+  host-only, and the flags reaching the wire) plus an API round-trip in
+  `test_api_multiplayer.py` for the camelCase aliases, which is where a new
+  option silently goes nowhere.
+
 - **Vancouver mulligan + interactive scry (PLR-1, 2026-07-28).** Vancouver
   had been deliberately absent from `MULLIGAN_STYLES` for one reason —
   `RulesEngine.scry` was a stub that fired `EventType.SCRY` and kept every
@@ -6196,6 +6234,40 @@ the same engine goldfish mode uses. The design keeps a hard line between
   could then hit a socket mid-handshake, and Starlette raises on a send
   before accept. The window is only reachable by a client that connects and
   expects a broadcast in the same instant, which no real client does.
+
+### Banner colours (2026-07-28)
+
+A seat's `banner_color` (`services/lobby.py`) — the colours the shared
+board paints that player's title bar in, set in Setup. Purely cosmetic, so
+the interesting decisions are all about *where* it lives:
+
+- **In the lobby, not in the game.** It's a property of the person at the
+  table rather than of the `GameState`, and it has to be visible to
+  everyone in Setup, i.e. before there is a game at all. It rides the
+  lobby snapshot that already reaches every client, so no view, session or
+  engine field was touched — `gameBoardView.js` reads it through the same
+  `seatStatus` hook multiplayer already uses for "this player dropped".
+- **Normalized, not validated** (`normalize_banner_color`, next to
+  `normalize_name` for the same reason): any subset of `wubrg` in any
+  order collapses to the WUBRG-ordered key, and anything unrecognizable to
+  `"c"`, the grey colourless banner. `None` stays `None` — "not chosen" is
+  distinct from "colourless". A cosmetic typo isn't worth a 400.
+- **It does not clear acceptance**, the only table setting that doesn't
+  (`set_banner_color` deliberately skips `_unready`): it changes how a
+  banner looks and nothing about the game anyone accepted, so re-asking
+  the table to accept would be noise.
+- **The default is the deck's colour identity** — `api/multiplayer.py`'s
+  `_default_banner_from_deck`, run when a seat picks a deck and has no
+  banner yet. In the API layer because the lobby is rules-free and has no
+  idea what colours a deck has; at all because "pick your deck, then also
+  pick your colours" is a step nobody wants to take twice. An explicit
+  pick is never overwritten by a later deck change, and an identity that
+  hasn't been computed yet (`None`, unlike an empty list, which is a
+  genuinely colourless deck) leaves the seat unpainted.
+
+`Lobby.set_deck`'s seat-permission logic ("your own seat, or a bot's if
+you're the host") was extracted to `_seat_to_configure` and shared, rather
+than copied into `set_banner_color`.
 
 ## Bot AI (UC5)
 

@@ -380,6 +380,16 @@ export async function setMultiplayerDeck(gameId, playerId, deckId, seatId = null
   return gameRequest('POST', `/api/multiplayer/games/${encodeURIComponent(gameId)}/deck`, { playerId, deckId, seatId });
 }
 
+/** Paint a seat's board banner (`bannerColors.js` for the palette).
+ *
+ * `color` is a banner key — WUBRG letters in any order, or `'c'` for the
+ * grey colourless banner; the server normalizes it. `seatId` targets a
+ * bot's seat, host only, exactly like `setMultiplayerDeck`.
+ */
+export async function setMultiplayerBannerColor(gameId, playerId, color, seatId = null) {
+  return gameRequest('POST', `/api/multiplayer/games/${encodeURIComponent(gameId)}/banner`, { playerId, color, seatId });
+}
+
 /** The bot kinds a seat can be filled with (backend services/bots.py). */
 export async function fetchBotKinds() {
   return gameRequest('GET', '/api/multiplayer/bots');

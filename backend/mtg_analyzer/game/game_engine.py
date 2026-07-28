@@ -679,12 +679,21 @@ class GameEngine:
         self.rules.apply_day_night_turn_check()
 
     def _step_draw(self) -> None:
-        # RULE 103.7a: the starting player skips their first draw in a
-        # two-or-more-player game — unless the goldfish setup opted the human
-        # onto the draw (`skip_first_draw` cleared).
+        # RULE 103.8a: in a **two-player** game the player who plays first
+        # skips the draw step of their first turn. RULE 103.8c: "in all
+        # other multiplayer games, no player skips the draw step of their
+        # first turn" — so at a pod of three or four *nobody* skips it,
+        # including the starting player. Gated on exactly two seats for
+        # that reason; it used to read `> 1`, which wrongly carried the
+        # two-player rule into every pod.
+        #
+        # The goldfish dummy counts as the second seat here: a solo game is
+        # modeling a two-player game against a passive opponent, and its
+        # setup screen is what clears `skip_first_draw` to put the human on
+        # the draw instead.
         skip_draw = (
             self.state.turn_number == 1
-            and len(self.state.players) > 1
+            and len(self.state.players) == 2
             and self.state.skip_first_draw
         )
         if not skip_draw:

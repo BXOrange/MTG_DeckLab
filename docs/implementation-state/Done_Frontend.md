@@ -788,6 +788,94 @@ into `BACKLOG.md`, and those mentions have been repointed there.
       counts it shows are what the board prints anyway and the hidden
       zones behind them never left the server (RULE 400.2).
 
+- [x] **2x2 pod layout + inside/outside zone columns (2026-07-28).**
+      Folding an opponent away made a 3–4 seat table survivable; it didn't
+      make it readable. From **three live boards up**, `gameBoardView.js`
+      wraps them in a `.gf-pod-grid` (`boardsHtml`) that tiles two per row
+      instead of stacking, so no seat is below the fold. DOM order is
+      untouched — opponents first, this client's seat last — so the grid
+      fills row-major and "drawn last is nearest you" still holds. At three
+      seats the odd board out is by definition that last one, i.e. your
+      own, and it takes the whole bottom row (`:last-child:nth-child(odd)`)
+      rather than half of it: it's the board you actually play from. Four
+      seats is a plain 2x2. Not a preference and not persisted — it's a
+      consequence of how many people are at the table. Observers get it
+      too, hence keying off the live-player count rather than
+      `view.perspective`.
+
+      The existing "⇄ Zonen-Seite" toggle doesn't survive the transposition:
+      one fixed side puts one column's zones against the screen edge and the
+      other's in the middle of the screen. In the grid it therefore becomes
+      **innen/außen** (`zonesInside`, cookie `gf_zones_pod`, persisted
+      separately from `gf_zones_side` because the two describe different
+      layouts and a player wants both remembered), and `zonesSideFor(index)`
+      mirrors the columns so the word means the same thing on both sides.
+      Default *außen*: the zone columns hug the outer edges and the
+      battlefields face each other in the middle — the physical table it
+      models, and it puts the two things you compare next to each other. One
+      button either way (its three copies across the observer/priority/plain
+      toolbars are now one `zonesSideButtonHtml`), reading out the current
+      state in grid mode since which of two mirrored layouts you're in isn't
+      obvious at a glance.
+
+      Seats are placed **clockwise**, not in auto-placement's reading order.
+      Row-major fill puts the third board bottom-*left*, which runs the ring
+      backwards across the bottom row and leaves seat 4 next to seat 3 twice
+      over; explicit `grid-area` per `nth-child` gives 1=top-left,
+      2=top-right, 3=bottom-right, 4=bottom-left, so turn order goes round
+      the table and the last seat is back beside the first. The three-seat
+      full-width bottom row still wins its column back — it carries one more
+      pseudo-class than the placement rules, so specificity settles it
+      without an `!important`. `gameBoardView.js`'s `POD_COLUMNS` mirrors
+      the mapping (the zone-side toggle needs to know which column a board
+      is in, and it is deliberately *not* `index % 2` any more); the two
+      have to be changed together, and both say so.
+
+      The boards are ordered by **turn order** rather than by seat-list
+      position (`boardOrder`). `GameState.players` already *is* the turn
+      order — `next_active_index` walks it cyclically (RULE 500.1), skipping
+      dummies and players who have left (RULE 104.3a) — so this is a
+      *rotation* of that list, not a sort: rotating keeps the cycle intact
+      while preserving the older rule that your own board comes last, i.e.
+      nearest you. Reading the grid row-major then goes around the table the
+      way the turns do, first board = whoever plays after you. Without a
+      seat (solo modes, observers) there's nothing to rotate to and the
+      plain turn order stands.
+
+      The topbar gained the matching **turn-order strip** (`turnOrderHtml`),
+      which replaced the older "Aktiv: X" readout — same information plus
+      who is up *after* them. It's in board order rather than
+      active-player-first on purpose: it's a legend for the layout below,
+      and the two have to read as one statement (a strip that re-sorts every
+      turn is also harder to follow than a fixed seating chart). The active
+      seat is marked ▶ and accented, your own stays legible when it isn't
+      active, and a player who has left is struck through rather than
+      dropped — the seating didn't change, the turn just passes over them
+      now. Note the CSS declaration order: `-me` and `-active` can land on
+      the same seat with equal specificity, so `-active` has to come second
+      to win the colour.
+
+      The board banner was rebalanced in the same pass. "Passen" had been
+      pushed to the far right of your own board's header (`.gf-banner-
+      priority`'s `margin-left: auto`), which is exactly where every *other*
+      seat's header shows life — so your own banner read differently from
+      the three around it. The priority controls now sit directly beside
+      the name and mana/life/counters moved into a `.gf-banner-stats`
+      wrapper that owns the auto margin instead (previously it lived on
+      `.gf-manapool`, i.e. on whichever of the three came first, which is
+      why grouping them was needed at all). "⏭ Nächste Aktion" joined
+      "Passen" there, and in doing so had to stop being an `id`: it is now
+      drawn twice (toolbar + banner), so it became `[data-skip-empty]` and
+      `wire()` binds all of them — the same reason `passButtonHtml` has
+      always been a data attribute.
+
+      The narrow-screen fallback is **JS, not a media query**: `podGrid()`
+      consults a `matchMedia(min-width: 1200px)` and simply doesn't emit the
+      wrapper below it, repainting on the `change` event. Doing it in CSS
+      would have left the toggle claiming "innen/außen" while the columns it
+      refers to no longer existed — the breakpoint has to be one fact, and
+      main.css carries a comment saying where it lives.
+
 - [x] **Vancouver mulligan + the scry that makes it real (PLR-1,
       2026-07-28).** The board needed nothing new for the scry itself: it
       arrives as an ordinary `pending_choice`, so `simpleChoiceButtonsHtml`
@@ -806,6 +894,54 @@ into `BACKLOG.md`, and those mentions have been repointed there.
       and `SEAT_COUNTS`) rather than being forked a third way. The Setup
       tab's Mulligan-Regel dropdown picks the new style up automatically,
       being generated from `MULLIGAN_LABELS`.
+
+- [x] **Banner colours per seat (2026-07-28).** A seat picks the colours
+      its board title bar is painted in, so at a pod of four you find your
+      own board — and everyone else's — by colour rather than by reading
+      four names. The new `bannerColors.js` owns the palette; the board
+      (`gameBoardView.js`) and the Setup seat list (`multiplayerView.js`)
+      both draw from it, and the backend stores nothing but the key
+      (`Seat.banner_color`, see `Done_Backend.md`).
+
+      **The 32 combinations are derived, not enumerated.** A banner colour
+      is a *set* of the five colours (any subset, so a deck's whole colour
+      identity can be flown) or none of them for grey/colourless — which
+      as CSS would be 32 classes. Instead each colour carries two hexes, a
+      deep one for the bar and a bright one for a hairline strip along its
+      top edge, and `bannerStyle()` hands the two `linear-gradient`s to CSS
+      as `--banner-bg`/`--banner-strip` custom properties: **one** rule
+      (`.gf-banner-tinted`) draws every banner there can be. A single
+      colour still gets a gradient (to a darkened copy of itself) so one-
+      and five-colour banners have the same sheen rather than one looking
+      flat. The hues are the existing `.color-pip--*` deck-identity
+      pastels taken down to the dark theme's lightness, so a Simic banner
+      and a Simic pip read as the same green-blue; deep enough that the
+      light board text stays legible on all 32, with the `h3` dropping the
+      gold `--accent` for near-white plus a shadow (gold is unreadable on
+      half the palette). A seat with no colour falls back to the plain felt
+      header, which is what every solo mode keeps — Goldfisch and Replay
+      have no lobby and so no banner.
+
+      The picker is **five toggles, not a list of 32 named options**,
+      because a banner colour *is* a set: turning them all off is how you
+      fly the grey banner, which is why there's no separate "grau" button.
+      It unfolds from a chip in the seat row (the chip being the very same
+      gradient at thumbnail size, so what you pick is literally what you
+      get), and every click posts straight through rather than staging
+      locally — it can't be wrong, and the others watch the colour appear
+      while you're still choosing. A seat with no colour yet shows a
+      hatched placeholder, so "not set" doesn't read as "colourless"
+      (which is a real choice). The turn-order strip repeats each seat's
+      colour as a dot, so it's a legend for the colours as well as the
+      order.
+
+      Two smaller things fell out of it: `seatStatus(id)` — the existing
+      hook for lobby-side facts the `GameState` doesn't carry — grew
+      `banner_color` alongside `connected`, and had to start looking up
+      `game.seats` as well as `lobby.players`, since a **bot** has a seat
+      but no entry in the connected-players list; and `.mp-seat` became
+      `flex-wrap: wrap` so the picker unfolds onto a second line of the row
+      it belongs to.
 
 ## Deck analysis (UC2)
 

@@ -80,6 +80,16 @@ Once you're at a table, a panel appears at the top of **Setup** with:
     London-Mulligan — but keeping never bottoms any cards, however many
     mulligans were taken. A "free" variant for casual play/playtesting.
   - *Kein Mulligan* (no mulligan): the opening hand is the hand.
+- **Auslosen** (randomize) — two checkboxes, host-set, both off by default:
+  - *Sitzordnung* (seating, RULE 103.1): shuffles who sits where, and so
+    the order you take turns in.
+  - *Startspieler* (starting player, RULE 103.2): keeps the seating but
+    begins at a random seat. Deliberately only a **rotation** of the ring —
+    who sits next to whom is left alone.
+
+  With neither ticked you sit in the order you sat down and the host
+  starts. The roll happens at start; the result is what the board's
+  turn-order strip then shows.
 - **Take-backs je Spieler** (take-backs per player) — chosen by the host
   for the whole table (default: 0, i.e. off). Lets each seat undo their
   own last move during the game — for misclicks, not a general undo.
@@ -87,6 +97,7 @@ Once you're at a table, a panel appears at the top of **Setup** with:
   automatically undoes anything the opponent did *since* it too.
 - **Dein Deck** (your deck) — pick one of your saved decks. Everyone
   picks their own.
+- **Banner-Farbe** (banner colour) — see below.
 - **✔ Bereit** (ready) — your acceptance. You can't accept without a
   deck.
 - **▶ Spiel starten** (start game) — the host only, and only once every
@@ -100,6 +111,32 @@ so you can never be pulled into a game you didn't agree to. Just click
 
 When the host starts the game, every player is switched to the **Board**
 tab automatically.
+
+### Banner colour
+
+Every seat has a **banner colour**: that player's board title bar is
+painted in it, on everybody's screen. At a table of four it's how you find
+your own board (and everyone else's) by colour instead of by name.
+
+A small colour chip sits at the left of your seat row; clicking it unfolds
+the picker:
+
+- **Five toggles** in WUBRG order (W U B R G). Every combination is
+  allowed — one colour, two (Azorius, Golgari, …), three (Esper, Naya, …),
+  four, or all five. Several colours become a gradient across exactly
+  those colours.
+- **All toggles off** = the grey banner, i.e. colourless.
+- **🎨 Farbidentität des Decks** (the deck's colour identity) — takes the
+  colours of your chosen deck in one click.
+
+If you pick a deck and haven't set a banner colour yet, the deck's colour
+identity is adopted automatically. From the moment you pick a colour
+yourself it stays, even if you swap decks afterwards.
+
+The banner colour is decoration only: it changes nothing about the game
+and therefore — unlike every other change to the table — does **not**
+clear anyone's acceptance. It's set before the game starts; the host sets
+it for bot seats too.
 
 ### Seating a bot
 
@@ -226,9 +263,32 @@ response.
   makes that permanent. It's deliberately not auto-pass: auto-pass counts
   down *because* you could have responded, whereas an empty window has
   nothing to wait for.
-- **Passing from your own board**: the pass button and the "you're up"
-  badge also sit on your own board's header — with two boards drawn, the
-  toolbar at the top is usually scrolled out of sight.
+- **Passing from your own board**: **Passen**, **⏭ Nächste Aktion** and the
+  "you're up" badge also sit on your own board's header — with two boards
+  drawn, the toolbar at the top is usually scrolled out of sight. They sit
+  directly beside your name, so life and counters stay across from it on
+  the right, the way every other seat's header reads.
+- **Turn order**: the top bar shows who is up in what order —
+  `Alice → Bob → Carol ↻`. The active player is marked ▶, your own name is
+  brighter, and anyone who has left is struck through (turns pass over
+  them, but their seat stays where it was). The ↻ means it starts over
+  from the left.
+- **How the boards are arranged**: with two players they stack. **From
+  three players up** they tile two per row (2×2) so nobody scrolls off
+  screen; your own board stays the bottom one. At three seats it takes the
+  full width, at four you get a true 2×2. On a narrow screen (below about
+  1200 pixels) the view falls back to the stacked column automatically.
+  The boards are laid out **in turn order, clockwise**: top-left →
+  top-right → bottom-right → bottom-left. The first one is whoever plays
+  after you, the last one is always you — and since the ring closes, you're
+  back next to the first. The strip at the top shows exactly the same
+  sequence — it's the legend for the layout.
+- **⇄ Zonen: innen / außen**: in the 2×2 view the column holding library,
+  graveyard, exile and command zone can sit **innen** (both columns meet
+  in the middle) or **außen** (they hug the outer edges, so the
+  battlefields meet in the middle). *Außen* is the default. In the stacked
+  view the same button reads **⇄ Zonen-Seite** and simply moves the column
+  left or right; the two settings are remembered separately.
 - **The turn counter**: "Zug 4" means the fourth *round* — the fourth time
   the starting player is up. The rules-correct count (RULE 500.1 counts
   every player's turn separately) is in the tooltip.

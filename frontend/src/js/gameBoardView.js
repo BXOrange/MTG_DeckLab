@@ -18,6 +18,7 @@
 import { getState } from './state.js';
 import { sendGameAction, rewindGame, cardImageUrl, GENERIC_TOKEN_KEY } from './api.js';
 import { getCookie, setCookie } from './cookies.js';
+import { bannerColorLabel, bannerGradients, bannerStyle } from './bannerColors.js';
 import {
   getAutoPassEnabled,
   getAutoPassScope,
@@ -95,11 +96,14 @@ const CHOICE_ICONS = {
  * @param {boolean} [opts.allowFastForward=true] Whether "Nächste
  *   Entscheidung" is offered. Off for multiplayer, where skipping steps
  *   would skip *the opponent's* response windows too.
- * @param {(playerId: string) => ({connected?: boolean}|null)} [opts.seatStatus]
- *   Out-of-game facts about a seat, badged on that player's board. Only
- *   multiplayer supplies it (connection state lives in the lobby, not in
- *   the `GameState`), so a player who dropped is visibly *absent* rather
- *   than just mysteriously never doing anything.
+ * @param {(playerId: string) => ({connected?: boolean, banner_color?: string|null}|null)} [opts.seatStatus]
+ *   Out-of-game facts about a seat, drawn on that player's board. Only
+ *   multiplayer supplies it (both of these live in the lobby, not in the
+ *   `GameState`): `connected` badges a player who dropped as visibly
+ *   *absent* rather than just mysteriously never doing anything, and
+ *   `banner_color` is the colours they picked in Setup for their own title
+ *   bar (`bannerColors.js`, `services/lobby.py`'s `Seat.banner_color`).
+ *   Without it — every solo mode — banners stay the plain felt header.
  */
 export function createGameBoardView(opts = {}) {
   const onViewChange = opts.onViewChange || (() => {});
@@ -141,6 +145,29 @@ export function createGameBoardView(opts = {}) {
   // Play-area layout: the static-zone column (command/library/graveyard/
   // exile) sits on one side, battlefield+hand on the other; toggleable side.
   let zonesLeft = getCookie('gf_zones_side') === 'left';
+  // The same choice, but for the pod grid (3+ boards, see `podGrid`), where
+  // a fixed "left"/"right" would put one column's zones against the screen
+  // edge and the other's in the middle. There the two columns mirror each
+  // other instead, so the setting is *inside* (both zone columns meet in the
+  // middle) or *outside* (they hug the outer edges and the battlefields face
+  // each other). Outside by default: that's the physical table it models —
+  // your library and graveyard sit at your own edge, the boards meet in the
+  // middle — and it puts the two things you compare next to each other.
+  // Persisted separately from `zonesLeft` because they mean different things
+  // and a player wants both remembered.
+  let zonesInside = getCookie('gf_zones_pod') === 'inside';
+  //: Below this the pod grid's two columns are narrower than they are
+  //: useful, so it falls back to the stacked layout (and the zone toggle
+  //: back to plain left/right — `zonesSideFor`). A *viewport* query rather
+  //: than a container one: the app's sidebar eats some of the width too,
+  //: and it can be collapsed away. main.css deliberately has no matching
+  //: media query — this is the only place the breakpoint lives.
+  const POD_GRID_MIN_WIDTH = 1200;
+  const podGridMedia = window.matchMedia?.(`(min-width: ${POD_GRID_MIN_WIDTH}px)`) || null;
+  //: Crossing the breakpoint changes the layout *and* what the toggle
+  //: means, so it has to repaint. No teardown: a board view lives as long
+  //: as its controller, which lives as long as the page.
+  podGridMedia?.addEventListener('change', () => render());
   // The stack overlays the board while non-empty; can be pushed aside to a
   // compact corner card so priority actions can be taken on the board below.
   let stackAside = false;
@@ -444,9 +471,7 @@ export function createGameBoardView(opts = {}) {
     // and for an observer). Their board is drawn *last* — i.e. nearest the
     // player, like sitting at a table — with the opponents above it.
     const seatId = view.perspective || null;
-    const live = s.players
-      .filter((p) => !p.is_dummy)
-      .sort((a, b) => Number(a.id === seatId) - Number(b.id === seatId));
+    const live = boardOrder(s.players, seatId);
     const actions = view.legal_actions || [];
     const gameOver = s.game_over;
     const pending = s.pending_choice;
@@ -470,7 +495,7 @@ export function createGameBoardView(opts = {}) {
           <div class="gf-turninfo">
             <span class="gf-turn" title="Regel 500.1 zählt jeden Spielerzug einzeln – das ist Spielzug ${s.turn_number}.">Zug ${s.round_number || s.turn_number}</span>
             <span class="gf-step">${escapeHtml(labelPhase(s.current_phase))} · ${escapeHtml(labelStep(s.current_step))}</span>
-            ${live.length > 1 ? `<span class="gf-active-player">Aktiv: ${escapeHtml(s.players.find((p) => p.id === s.active_player_id)?.name || '')}</span>` : ''}
+            ${turnOrderHtml(live, s)}
             ${s.day_night ? `<span class="gf-daynight gf-daynight-${s.day_night}">${s.day_night === 'night' ? '🌙 Nacht' : '☀️ Tag'}</span>` : ''}
           </div>
         </div>
@@ -490,7 +515,7 @@ export function createGameBoardView(opts = {}) {
 
         ${blockerPanelHtml(actions, s)}
 
-        ${live.map((p) => playerBoardHtml(p, s, byInstance, pending, seatId)).join('')}
+        ${boardsHtml(live, s, byInstance, pending, seatId)}
 
         ${stackNonEmpty && !pending ? stackOverlayHtml(s, stackAside) : ''}
 
@@ -520,13 +545,141 @@ export function createGameBoardView(opts = {}) {
         <div class="gf-planechase-plane">
           <span class="gf-planechase-label" title="Aktive Ebene (Regel 901.7)">🌌 Ebene</span>
           <!-- Deliberately no data-hover-card: a plane is not in the card
-               cache at all (the bulk importer drops the `planar` layout), so
-               a hover lookup by name could only ever miss. -->
+               cache at all (the bulk importer drops the "planar" layout), so
+               a hover lookup by name could only ever miss. Note: no
+               backticks in here — this comment sits inside a template
+               literal, where one would end the string mid-comment. -->
           <strong title="${escapeAttr(plane.type_line || '')}">${escapeHtml(plane.name)}</strong>
           <span class="gf-planechase-count" title="Verbleibende Karten im Planarstapel">${s.planar_deck_count || 0} im Stapel</span>
         </div>
         ${rollButton}
       </div>`;
+  }
+
+  // --- Board layout: turn order, stacked column vs. 2x2 pod grid ------------
+
+  /**
+   * The boards in the order they're drawn — **turn order**, rotated so this
+   * client's own seat comes last.
+   *
+   * `GameState.players` *is* the turn order: `next_active_index` walks that
+   * list cyclically (RULE 500.1), skipping dummies and players who have
+   * left (RULE 104.3a). Rotating rather than sorting keeps that cycle
+   * intact while preserving the older rule that your own board is drawn
+   * last, i.e. nearest you. Reading the layout row-major then goes around
+   * the table the way the turns actually do: the first board is whoever
+   * plays after you, the last one is you.
+   *
+   * No seat (solo modes, and an observer) means nothing to rotate to, so
+   * the plain turn order stands.
+   */
+  function boardOrder(players, seatId) {
+    const live = players.filter((p) => !p.is_dummy);
+    const mine = live.findIndex((p) => p.id === seatId);
+    if (mine < 0) return live;
+    return live.slice(mine + 1).concat(live.slice(0, mine + 1));
+  }
+
+  /**
+   * The turn-order strip in the topbar: every seat, in the same sequence as
+   * the boards below it, with the active player marked.
+   *
+   * Deliberately the *board* order rather than "active player first": the
+   * strip is a legend for the layout, so the two have to read as one
+   * statement, and a strip that re-sorts itself every turn is harder to
+   * follow than a fixed seating chart. Replaces the older "Aktiv: X" badge,
+   * which said strictly less (it named the active player; this names them
+   * *and* who is up after them).
+   */
+  function turnOrderHtml(order, s) {
+    if (order.length < 2) return '';
+    const arrow = '<span class="gf-turnorder-arrow" aria-hidden="true">→</span>';
+    const seats = order.map((p) => {
+      const isActive = p.id === s.active_player_id;
+      const classes = ['gf-turnorder-seat'];
+      if (isActive) classes.push('gf-turnorder-active');
+      if (p.id === view.perspective) classes.push('gf-turnorder-me');
+      // A player who has left is skipped by `next_active_index`, so they're
+      // shown struck through rather than dropped: the seating didn't change,
+      // the turn just passes over them now.
+      if (p.has_lost) classes.push('gf-turnorder-out');
+      const title = [
+        isActive ? 'am Zug' : '',
+        p.id === view.perspective ? 'du' : '',
+        p.has_lost ? 'ausgeschieden – wird übersprungen' : '',
+      ].filter(Boolean).join(', ');
+      // The same banner colour as that player's board below, so the strip
+      // is a legend for the *colours* too and not only for the order.
+      const banner = seatStatus(p.id)?.banner_color;
+      const dot = banner
+        ? `<span class="gf-turnorder-dot" style="background: ${escapeAttr(bannerGradients(banner).strip)}" aria-hidden="true"></span>`
+        : '';
+      return `<span class="${classes.join(' ')}"${title ? ` title="${escapeAttr(title)}"` : ''}>${isActive ? '▶ ' : ''}${dot}${escapeHtml(p.name)}</span>`;
+    });
+    return `
+      <span class="gf-turnorder" title="Zugreihenfolge (Regel 500.1) – dieselbe Reihenfolge wie die Spielfelder darunter. ↻: danach geht es wieder von vorn los.">
+        ${seats.join(arrow)}<span class="gf-turnorder-arrow" aria-hidden="true">↻</span>
+      </span>`;
+  }
+
+  // --- Board layout: stacked column vs. 2x2 pod grid ------------------------
+
+  /**
+   * Whether the boards tile 2x2 instead of stacking.
+   *
+   * From three live boards up (`services/lobby.py` opens up to four seats).
+   * Two boards stack better than they tile — full width is worth more than
+   * having them side by side — but three or four stacked means the player
+   * below the fold is off-screen entirely. Deliberately derived from the
+   * live view rather than persisted: it's a consequence of how many people
+   * are at the table, not a preference. Observers get it too (they watch
+   * the same pod), which is why this doesn't key off `view.perspective`.
+   *
+   * Also off on a screen too narrow for two columns — see `podGridMedia`.
+   */
+  function podGrid() {
+    if (podGridMedia && !podGridMedia.matches) return false;
+    return (view?.state?.players || []).filter((p) => !p.is_dummy).length >= 3;
+  }
+
+  //: Which column of the 2x2 each board lands in. The grid places seats
+  //: **clockwise** — top-left, top-right, bottom-right, bottom-left — so
+  //: turn order runs around the table and the last seat is back beside the
+  //: first. That is deliberately *not* `index % 2`: the third board is on
+  //: the right, not the left. Mirrors main.css's `.gf-pod-grid` placement
+  //: rules; change one and you must change the other.
+  const POD_COLUMNS = ['left', 'right', 'right', 'left'];
+
+  /**
+   * Which side one board's zone column sits on, as a `gf-zones-*` suffix.
+   *
+   * Stacked: the plain left/right toggle, same for every board. Pod grid:
+   * mirrored per column so "innen"/"außen" means the same thing on both
+   * sides of the grid — see `zonesInside`.
+   *
+   * @param {number} index Position in the rendered board list.
+   * @param {number} total How many boards are drawn — an odd count means
+   *   the last one spans the whole bottom row, so it follows the left
+   *   column's rule (it starts at the left edge) rather than its nominal
+   *   clockwise slot.
+   */
+  function zonesSideFor(index, total) {
+    if (!podGrid()) return zonesLeft ? 'left' : 'right';
+    const spansTheRow = total % 2 === 1 && index === total - 1;
+    const leftColumn = spansTheRow || POD_COLUMNS[index] === 'left';
+    return zonesInside === leftColumn ? 'right' : 'left';
+  }
+
+  // One control, three toolbars (observer / priority / plain), so it's a
+  // helper rather than three copies. In the pod grid the label reads out the
+  // current state ("Zonen: innen") because there are only two of them and
+  // which one you're in isn't otherwise obvious at a glance; the tooltip
+  // says what the click does. Stacked, the side is plain to see, so the
+  // label stays the action it always was.
+  function zonesSideButtonHtml() {
+    return podGrid()
+      ? `<button id="gf-zones-side" type="button" title="Zonen-Spalten (Bibliothek, Friedhof …) nach ${zonesInside ? 'außen an die Ränder' : 'innen zur Mitte'} legen">⇄ Zonen: ${zonesInside ? 'innen' : 'außen'}</button>`
+      : '<button id="gf-zones-side" type="button" title="Zonen-Spalte (Bibliothek, Friedhof …) auf die andere Seite legen">⇄ Zonen-Seite</button>';
   }
 
   function controlsHtml(stackNonEmpty, pending, gameOver) {
@@ -542,7 +695,7 @@ export function createGameBoardView(opts = {}) {
     if (view.observer) {
       return `
         <div class="gf-controls">
-          <button id="gf-zones-side" type="button" title="Zonen-Spalte (Bibliothek, Friedhof …) auf die andere Seite legen">⇄ Zonen-Seite</button>
+          ${zonesSideButtonHtml()}
           ${extra}
         </div>`;
     }
@@ -562,7 +715,7 @@ export function createGameBoardView(opts = {}) {
         ${allowFastForward ? `<button id="gf-next-decision" type="button" title="Überspringt Schritte ohne Entscheidung und hält bei der nächsten Wahl des aktiven Spielers" ${busy || gameOver || pending || !myTurn ? 'disabled' : ''}>⏭ Nächste Entscheidung</button>` : ''}
         ${stackNonEmpty && !pending ? `<button type="button" data-action='${escapeAttr(JSON.stringify({ type: 'pass_priority' }))}'>Priorität abgeben (Stack auflösen)</button>` : ''}
         ${allowRewind ? `<button id="gf-rewind" type="button" ${busy || !view.can_rewind ? 'disabled' : ''}>↶ Zurücknehmen</button>` : ''}
-        <button id="gf-zones-side" type="button" title="Zonen-Spalte (Bibliothek, Friedhof …) auf die andere Seite legen">⇄ Zonen-Seite</button>
+        ${zonesSideButtonHtml()}
         ${extra}
       </div>`;
   }
@@ -588,7 +741,7 @@ export function createGameBoardView(opts = {}) {
         ${passButtonHtml(disabled)}
         ${skipToActionButtonHtml(disabled)}
         ${gameOver ? '' : priorityBadgeHtml()}
-        <button id="gf-zones-side" type="button" title="Zonen-Spalte (Bibliothek, Friedhof …) auf die andere Seite legen">⇄ Zonen-Seite</button>
+        ${zonesSideButtonHtml()}
         ${extra}
         ${gameOver ? '' : autoPassControlHtml()}
       </div>`;
@@ -608,8 +761,12 @@ export function createGameBoardView(opts = {}) {
   // windows), so this is the legal version of the same idea: keep passing
   // while the only thing on offer is passing, and stop at the first window
   // that actually asks something of you.
-  function skipToActionButtonHtml(disabled) {
-    return `<button id="gf-skip-empty" type="button" title="Passt Prioritätsfenster ohne jede Handlungsmöglichkeit sofort durch und hält bei der nächsten echten Entscheidung" ${disabled ? 'disabled' : ''}>⏭ Nächste Aktion</button>`;
+  //
+  // Like `passButtonHtml`, this is drawn both in the toolbar and on this
+  // client's own board banner, so it's a data attribute rather than an id —
+  // two elements sharing one id would leave the second one dead.
+  function skipToActionButtonHtml(disabled, extraClass = '') {
+    return `<button type="button" class="gf-skip-empty${extraClass}" data-skip-empty title="Passt Prioritätsfenster ohne jede Handlungsmöglichkeit sofort durch und hält bei der nächsten echten Entscheidung" ${disabled ? 'disabled' : ''}>⏭ Nächste Aktion</button>`;
   }
 
   function priorityBadgeHtml(compact = false) {
@@ -711,9 +868,22 @@ export function createGameBoardView(opts = {}) {
     await act({ type: 'declare_blockers', assignments });
   }
 
+  // Every board, in order. Stacked they're just concatenated, as they always
+  // were; in the pod grid they need a wrapper to tile in, and each board
+  // needs to know its own position so its zone column can mirror (see
+  // `zonesSideFor`). DOM order is unchanged either way — opponents first,
+  // this client's own seat last — so "row-major" and "drawn last is nearest
+  // you" stay the same statement.
+  function boardsHtml(live, s, byInstance, pending, seatId) {
+    const boards = live
+      .map((p, i) => playerBoardHtml(p, s, byInstance, pending, seatId, i, live.length))
+      .join('');
+    return podGrid() ? `<div class="gf-pod-grid">${boards}</div>` : boards;
+  }
+
   // One player's full board: mana/life header, command/library/graveyard/
   // exile column, battlefield (row-grouped by type) + hand.
-  function playerBoardHtml(p, s, byInstance, pending, seatId = null) {
+  function playerBoardHtml(p, s, byInstance, pending, seatId = null, index = 0, total = 1) {
     const bf = s.battlefield.filter((o) => o.controller_id === p.id);
     const isMe = seatId != null && p.id === seatId;
     // "Is this hand mine to look at?" — true for my own seat, and for both
@@ -722,6 +892,7 @@ export function createGameBoardView(opts = {}) {
     // seat *and* no hand, so every hand there is somebody else's.
     const ownHand = isMe || (seatId == null && !view.observer);
     const isActive = s.active_player_id === p.id;
+    const seat = seatStatus(p.id);
     const badges = [
       isMe ? '<span class="gf-seat-badge gf-seat-you">Du</span>' : '',
       isActive ? '<span class="gf-seat-badge gf-seat-active">am Zug</span>' : '',
@@ -731,18 +902,30 @@ export function createGameBoardView(opts = {}) {
       // Not a rules state at all — this player's browser is gone. The
       // server passes priority for them meanwhile, so the game keeps
       // moving; the badge is why it looks like they're doing nothing.
-      seatStatus(p.id)?.connected === false
+      seat?.connected === false
         ? '<span class="gf-seat-badge gf-seat-away" title="Verbindung verloren – der Platz bleibt kurz reserviert">⚡ getrennt</span>'
         : '',
     ].join('');
-    // RULE 117: whose window it is, and the button that ends it, right on
+    // The banner colour this seat picked in the Multiplayer setup — the
+    // whole title bar, so at a pod of four you find your own board (and
+    // your opponents') by colour rather than by reading four names.
+    const bannerCss = bannerStyle(seat?.banner_color);
+    const bannerAttrs = bannerCss
+      ? ` style="${escapeAttr(bannerCss)}" title="${escapeAttr(`Banner-Farbe: ${bannerColorLabel(seat.banner_color)}`)}"`
+      : '';
+    // RULE 117: whose window it is, and the buttons that end it, right on
     // the banner of the board you're actually looking at — the toolbar at
-    // the top of the page is off-screen once two boards are drawn.
+    // the top of the page is off-screen once two boards are drawn. They sit
+    // directly beside the name, which puts life and counters across from it
+    // on the right — the same left-name/right-life shape every other seat's
+    // banner has, instead of the buttons taking that right-hand slot on
+    // your own.
     const holdsPriority = interactivePriority() && view.priority?.player_id === p.id;
+    const priorityDisabled = busy || !!pending || !hasPriority();
     const priorityBits = !interactivePriority() || s.game_over
       ? ''
       : isMe
-        ? `${priorityBadgeHtml(true)}${passButtonHtml(busy || !!pending || !hasPriority(), ' gf-banner-pass')}`
+        ? `${priorityBadgeHtml(true)}${passButtonHtml(priorityDisabled, ' gf-banner-pass')}${skipToActionButtonHtml(priorityDisabled, ' gf-banner-skip')}`
         : holdsPriority
           ? '<span class="gf-priority-badge">⏳ ist dran …</span>'
           : '';
@@ -753,20 +936,22 @@ export function createGameBoardView(opts = {}) {
     const folded = foldable && collapsedBoards.has(p.id);
     return `
       <section class="gf-player-board${isMe ? ' gf-own-board' : ''}${seatId && !isMe ? ' gf-opponent-board' : ''}${p.has_lost ? ' gf-board-out' : ''}${folded ? ' gf-board-folded' : ''}">
-        <header class="gf-player-board-head">
+        <header class="gf-player-board-head${bannerCss ? ' gf-banner-tinted' : ''}"${bannerAttrs}>
           ${
             foldable
               ? `<button type="button" class="gf-board-fold" data-fold-board="${escapeAttr(p.id)}" title="${folded ? 'Spielfeld ausklappen' : 'Spielfeld einklappen'}" aria-expanded="${folded ? 'false' : 'true'}">${folded ? '▸' : '▾'}</button>`
               : ''
           }
           <h3>${escapeHtml(p.name)}${badges}</h3>
-          ${manaPoolHtml(p.mana_pool)}
-          ${lifeBox('Leben', p.life)}
-          ${playerCountersHtml(p, s)}
           ${priorityBits ? `<div class="gf-banner-priority">${priorityBits}</div>` : ''}
+          <div class="gf-banner-stats">
+            ${manaPoolHtml(p.mana_pool)}
+            ${lifeBox('Leben', p.life)}
+            ${playerCountersHtml(p, s)}
+          </div>
         </header>
         ${folded ? foldedBoardHtml(p, bf) : ''}
-        <div class="gf-play gf-zones-${zonesLeft ? 'left' : 'right'}"${folded ? ' hidden' : ''}>
+        <div class="gf-play gf-zones-${zonesSideFor(index, total)}"${folded ? ' hidden' : ''}>
           <aside class="gf-side">
             <div class="gf-zone gf-command">
               <h4>Command Zone</h4>
@@ -1058,10 +1243,13 @@ export function createGameBoardView(opts = {}) {
     root.querySelectorAll('[data-pass-priority]').forEach((el) => {
       el.addEventListener('click', () => act({ type: 'pass_priority' }));
     });
-    root.querySelector('#gf-skip-empty')?.addEventListener('click', () => {
-      skipBurstArmed = true;
-      autoPassCancelled = false;
-      syncAutoPass();
+    // Every "⏭ Nächste Aktion" on the page (toolbar + own-board banner).
+    root.querySelectorAll('[data-skip-empty]').forEach((el) => {
+      el.addEventListener('click', () => {
+        skipBurstArmed = true;
+        autoPassCancelled = false;
+        syncAutoPass();
+      });
     });
     root.querySelector('#gf-skip-empty-toggle')?.addEventListener('change', (e) => {
       saveSettings({ autoSkipEmpty: e.target.checked });
@@ -1107,7 +1295,7 @@ export function createGameBoardView(opts = {}) {
       root.querySelector('.goldfish')?.addEventListener('pointerdown', (e) => {
         // …except the auto-pass/skip controls themselves, which would
         // otherwise disable the very thing you just switched on.
-        if (e.target.closest('.gf-autopass') || e.target.closest('#gf-skip-empty')) return;
+        if (e.target.closest('.gf-autopass') || e.target.closest('[data-skip-empty]')) return;
         cancelAutoPassForThisWindow();
       });
     }
@@ -1186,10 +1374,18 @@ export function createGameBoardView(opts = {}) {
       });
     });
 
-    // Flip the static-zone column (library/graveyard/…) to the other side.
+    // Flip the static-zone column (library/graveyard/…) to the other side —
+    // or, in the pod grid, between the middle and the outer edges. Two
+    // separate persisted settings because the layouts they describe are
+    // different (see `zonesInside`), one button because it's one question.
     root.querySelector('#gf-zones-side')?.addEventListener('click', () => {
-      zonesLeft = !zonesLeft;
-      setCookie('gf_zones_side', zonesLeft ? 'left' : 'right', 365);
+      if (podGrid()) {
+        zonesInside = !zonesInside;
+        setCookie('gf_zones_pod', zonesInside ? 'inside' : 'outside', 365);
+      } else {
+        zonesLeft = !zonesLeft;
+        setCookie('gf_zones_side', zonesLeft ? 'left' : 'right', 365);
+      }
       render();
     });
 
