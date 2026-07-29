@@ -3246,9 +3246,10 @@ textarea {
   border-color: var(--accent);
 }
 
-/* RULE 616.1 replacement-order popup: drag & drop to arrange the order
-   simultaneously-applicable replacement effects (Doubling Season + Parallel
-   Lives, Furnace of Rath + Torbran, …) are applied in. */
+/* RULE 616.1 replacement-order popup (drag & drop to arrange the order
+   simultaneously-applicable replacement effects — Doubling Season + Parallel
+   Lives, Furnace of Rath + Torbran, … — are applied in) and the RULE 603.3b
+   trigger-order popup (same list styling, `triggerOrderHtml`). */
 .gf-reorder-hint {
   margin: 0 0 0.6rem;
   font-size: 0.8rem;
@@ -3300,6 +3301,24 @@ textarea {
 
 .gf-reorder-label {
   font-size: 0.85rem;
+}
+
+/* Trigger-order items (`triggerOrderHtml`) additionally show the source
+   permanent's name above the ability's own oracle text, so two similarly-
+   worded triggers from different sources aren't a guessing game. */
+.gf-reorder-text {
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+  min-width: 0;
+}
+
+.gf-reorder-source {
+  font-size: 0.7rem;
+  font-weight: 600;
+  color: var(--text-dim);
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
 }
 
 /* --- Goldfisch: Ladebildschirm (Kartenbilder vorladen) --- */

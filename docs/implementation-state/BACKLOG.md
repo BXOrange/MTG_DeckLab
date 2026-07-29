@@ -36,10 +36,6 @@ Plan-level sequencing lives in
 
 ## ENG — Game engine
 
-- **ENG-4 · Manual trigger-ordering + a targeted/optional trigger.** A
-  trigger placed via the opt-in RULE 603.3b ordering choice is placed
-  directly and never pauses for its own target/"you may" choice. Both work
-  alone; only the combination is unhandled. `RulesEngine._place_triggers`.
 - **ENG-6 · `CopyPermanentEffect` has no copy-of-a-copy.** RULE 707.2
   copiable values interacting with other copy effects isn't modeled; it
   copies from the printed card. `game/effects.py`.
@@ -78,34 +74,6 @@ Plan-level sequencing lives in
   able creature (one "⚔️ Angreifen (N)" control). Per-creature select needs
   the backend to accumulate declared attackers rather than replace them.
   Paired frontend work: [VIS-3].
-- **ENG-25 · `parser/oracle/catalogue/handlers.py` (3,143 lines) and
-  `static_handlers.py` (2,314 lines) are flat**, unlike their split-up
-  `catalogue/` siblings (`saga.py`, `modal.py`, `lands.py`,
-  `replacements.py`, …). Scoped down on investigation (2026-07-29, part of
-  the ENG-16..24 God-class refactor — see `Done_Backend.md`'s Rules Engine
-  section for the rest of that batch): the blast radius is bigger than a
-  pure internal reorg. Both files are a long sequence of small regex-match
-  handler functions (`_damage`, `_draw`, `_destroy`, …) that `match_clause`
-  (`handlers.py`)/`static_effect_specs` (`static_handlers.py`) try **in
-  order** — unlike `game_engine.py`/`rules_engine.py`'s mixin split (where
-  method order genuinely didn't matter), a regex grammar can be
-  match-order-sensitive, so a family-by-family file split has to preserve
-  the exact original try-order and be checked against
-  `scripts/coverage_report.py`'s full ~34k-card measurement, not just the
-  unit suite, since a silently-reordered match wouldn't necessarily fail a
-  test. `match_clause`/`static_effect_specs` themselves (plus
-  `ONCE_PER_TURN_MARKER`/`SORCERY_SPEED_MARKER`, which `static_handlers.py`
-  imports from `handlers.py`) are also each directly imported by ~10 test
-  files (`from mtg_analyzer.parser.oracle.catalogue.handlers import
-  match_clause`, etc.) — a split needs `handlers.py`/`static_handlers.py`
-  to keep re-exporting these exact names, not just `gate.parse_oracle`'s
-  own import. The `extend-parser` skill's own recipe
-  (`.claude/skills/extend-parser/reference/handler-recipe.md`) also names
-  these two files as the canonical place to add a new handler — update it
-  in the same pass, or new handler work during/after a split lands in the
-  wrong place. Lowest priority — coordinate timing with in-flight parser
-  work to avoid merge churn, and budget for the coverage-regression check,
-  not just `pytest`.
 
 ## PAR — Parser
 

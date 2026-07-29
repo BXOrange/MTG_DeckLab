@@ -450,13 +450,28 @@ the Phase-1 models. Tests: `test_game_engine.py`.
       `resolve_trigger_target_choice` recognizes) before placing. Wired
       into `GameEngine.resolve_pending_choice` (`kind == "trigger_target"`)
       — answered through the same session `choose`/`decline` action as
-      every other pending choice. **Known narrow gap**: a trigger placed
-      via the separate RULE 603.3b interactive-ordering choice above
-      (`resolve_trigger_order_choice`) still places directly without a
-      target-choice pause — combining manual trigger ordering with a
-      targeted trigger among the ordered set isn't handled (both features
-      are individually solid; the two together is untested/unhandled).
-      Tests: `test_trigger_targeting.py`.
+      every other pending choice. Tests: `test_trigger_targeting.py`.
+- [x] **ENG-4** — combining manual trigger-ordering (RULE 603.3b) with a
+      targeted/modal/optional trigger among the ordered set. Previously
+      `resolve_trigger_order_choice` placed the picked ability with a bare
+      `_place_trigger(ability)`, bypassing every pause the deterministic
+      path already had — a targeted trigger went on the stack with no
+      target at all, "you may" always just happened. Fixed by routing the
+      picked ability through `_place_triggers` as a one-item queue
+      (`[(ability, event)]`) instead of calling `_place_trigger` directly —
+      the *same* mode/target/"you may" pausing the deterministic path uses
+      (`_place_or_pause_trigger`) now applies unconditionally, since
+      ordering no longer has its own placement branch. The one new piece is
+      `_maybe_continue_ordering` (called at the tail of `_place_triggers`'s
+      `while queue:` loop, only when it drains without pausing): it resumes
+      the ordering flow — re-opens `order_triggers` while 2+ of the active
+      player's triggers are still unordered, places the last one directly
+      once none remain to choose between (still through `_place_triggers`,
+      so still pause-aware), then flushes the non-active-player ("rest")
+      queue the same way. It's a no-op outside an ordering sequence
+      (`_ordering_active`/`_ordering_rest` are only ever non-empty while one
+      is in progress), so the plain APNAP-by-controller path is unaffected.
+      Tests: `test_ordering.py`.
 - [x] Mana abilities on tap (RULE 605) — `game/mana_abilities.py`
       (`mana_options`): a permanent's tap ability is modeled as a list of
       mutually-exclusive production options (`{colour: count}`). Basics,

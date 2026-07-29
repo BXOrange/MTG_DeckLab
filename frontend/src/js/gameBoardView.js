@@ -401,6 +401,24 @@ export function createGameBoardView(opts = {}) {
   // `replacementOrderHtml`/`confirmReplacementOrder`.
   let replacementOrderDraft = null;
 
+  // Same idea for a pending `order_triggers` choice (RULE 603.3b), keyed by
+  // `triggerOptionKey` rather than the raw option id — the id is just that
+  // trigger's *current* position among the still-unordered set, which the
+  // server re-derives (and re-numbers from 0) after every pick, so it can't
+  // be used to recognize the "same" trigger again once the set has shrunk.
+  // See `triggerOrderHtml`/`confirmTriggerOrder`.
+  let triggerOrderDraft = null;
+
+  // A stable identity for one `order_triggers` option, for matching the
+  // same trigger across rounds despite its `id` being re-numbered each time
+  // (see `triggerOrderDraft` above). Source name + ability text is what a
+  // player actually distinguishes triggers by, so two genuinely
+  // indistinguishable triggers (same source, same text) are — correctly —
+  // not told apart here either.
+  function triggerOptionKey(opt) {
+    return `${opt.source_name || ''}␟${opt.label || opt.id}`;
+  }
+
   function mount(el) {
     root = el;
   }
@@ -1109,14 +1127,17 @@ export function createGameBoardView(opts = {}) {
   // A pending choice is rendered as a modal popup for the deciding player:
   // the board behind it is dimmed/locked (`.goldfish.choosing`) so the only
   // thing to do is answer. Each server-provided option becomes one button —
-  // except `replacement_order` (RULE 616.1), which gets a drag-and-drop
-  // reorderable list instead (see `replacementOrderHtml`).
+  // except `replacement_order` (RULE 616.1) and `order_triggers`
+  // (RULE 603.3b), which get a drag-and-drop reorderable list instead (see
+  // `replacementOrderHtml`/`triggerOrderHtml`).
   function pendingChoiceHtml(pending) {
     const icon = CHOICE_ICONS[pending.kind] || '❔';
     const heading = pending.prompt || pending.description || 'Entscheidung nötig';
     const body = pending.kind === 'replacement_order'
       ? replacementOrderHtml(pending)
-      : simpleChoiceButtonsHtml(pending);
+      : pending.kind === 'order_triggers'
+        ? triggerOrderHtml(pending)
+        : simpleChoiceButtonsHtml(pending);
 
     return `
       <div class="gf-modal-overlay">
@@ -1224,6 +1245,85 @@ export function createGameBoardView(opts = {}) {
       }
     });
     replacementOrderDraft = null;
+  }
+
+  // RULE 603.3b: 2+ of the active player's triggers fired simultaneously
+  // (`state.interactive_ordering` opt-in). Same drag-and-drop convenience as
+  // `replacementOrderHtml` above: the player arranges the *whole* set once,
+  // confirming replays it as a sequence of single picks
+  // (`confirmTriggerOrder`). Each item shows the source permanent's name
+  // and the ability's own oracle text (`label` — see `_trigger_order_
+  // choice`'s docstring) rather than just a bare description, so ordering
+  // two similarly-named triggers doesn't come down to guessing which is
+  // which (ENG-4's frontend half).
+  function triggerOrderHtml(pending) {
+    const options = pending.options || [];
+    const keys = options.map(triggerOptionKey);
+    // (Re)seed the draft whenever the offered option set doesn't match what
+    // was last dragged (a fresh choice, or the previous one was just
+    // answered and the remaining triggers re-offered).
+    if (!triggerOrderDraft
+        || triggerOrderDraft.length !== keys.length
+        || !keys.every((k) => triggerOrderDraft.includes(k))) {
+      triggerOrderDraft = keys.slice();
+    }
+    const byKey = Object.fromEntries(options.map((o) => [triggerOptionKey(o), o]));
+    const items = triggerOrderDraft
+      .map((key, i) => {
+        const opt = byKey[key];
+        if (!opt) return '';
+        const source = opt.source_name
+          ? `<span class="gf-reorder-source">${escapeHtml(opt.source_name)}</span>`
+          : '';
+        return `<li class="gf-reorder-item" draggable="true" data-key="${escapeAttr(key)}">
+          <span class="gf-reorder-handle" aria-hidden="true">⠿</span>
+          <span class="gf-reorder-index">${i + 1}.</span>
+          <span class="gf-reorder-text">${source}<span class="gf-reorder-label">${escapeHtml(opt.label || opt.id)}</span></span>
+        </li>`;
+      })
+      .join('');
+    return `
+      <p class="gf-reorder-hint">Per Drag &amp; Drop in die gewünschte Reihenfolge bringen — die oberste Fähigkeit kommt zuerst auf den Stack und wird daher zuletzt aufgelöst.</p>
+      <ul class="gf-reorder-list gf-trigger-order-list">${items}</ul>
+      <div class="gf-modal-foot">
+        <button type="button" class="primary" data-trigger-order-confirm>Bestätigen</button>
+      </div>
+    `;
+  }
+
+  // Replays the player's dragged order as a sequence of single `choose`
+  // picks, mirroring `confirmReplacementOrder` — but matched by
+  // `triggerOptionKey` rather than raw option id, since `resolve_trigger_
+  // order_choice` re-numbers the remaining triggers' ids from 0 every
+  // round (the id is a position in the shrinking `_ordering_active` list,
+  // not a stable identifier). Stops automating (leaving whatever the server
+  // returned on screen) the moment a step's key is no longer offered or a
+  // different pending choice shows up instead — which is exactly what
+  // happens, by design, when the placed trigger itself needs a target/mode/
+  // "you may" choice (ENG-4): the ordering choice simply isn't re-offered
+  // until that's answered.
+  async function confirmTriggerOrder(order) {
+    if (!sessionId || !order || !order.length) return;
+    await withBusy(async () => {
+      let remaining = order.slice();
+      while (remaining.length) {
+        const pending = view.state?.pending_choice;
+        if (!pending || pending.kind !== 'order_triggers') break;
+        const opt = (pending.options || []).find((o) => triggerOptionKey(o) === remaining[0]);
+        if (!opt) break;
+        const action = { type: 'choose', option_id: opt.id, name: opt.label };
+        const res = transport.sendAction
+          ? await transport.sendAction(action)
+          : await sendGameAction(sessionId, action);
+        if (!res.ok) {
+          setStatus(`Aktion nicht erlaubt: ${res.data?.detail ?? res.status}`, 'warning');
+          break;
+        }
+        if (res.data) applyView(res.data);
+        remaining = remaining.slice(1);
+      }
+    });
+    triggerOrderDraft = null;
   }
 
   // Anchor each per-card effect popover (top layer) at its Σ-badge when it
@@ -1372,6 +1472,13 @@ export function createGameBoardView(opts = {}) {
       root.querySelector('[data-reorder-confirm]')?.addEventListener('click', () => {
         const order = Array.from(reorderList.querySelectorAll('.gf-reorder-item')).map((li) => li.dataset.id);
         confirmReplacementOrder(order);
+      });
+      // RULE 603.3b trigger-order popup shares the same `.gf-reorder-list`
+      // drag mechanics above; only the confirm step differs — items carry
+      // `data-key` (a stable `triggerOptionKey`, not a round-numbered id).
+      root.querySelector('[data-trigger-order-confirm]')?.addEventListener('click', () => {
+        const order = Array.from(reorderList.querySelectorAll('.gf-reorder-item')).map((li) => li.dataset.key);
+        confirmTriggerOrder(order);
       });
     }
 

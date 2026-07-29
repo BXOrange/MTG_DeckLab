@@ -797,12 +797,13 @@ class TriggerCollectionMixin:
         target with no legal option at all doesn't go on the stack (RULE
         603.3c) — dropped, not placed.
 
-        Note: a trigger placed via the (opt-in, off-by-default) RULE 603.3b
+        A trigger chosen via the (opt-in, off-by-default) RULE 603.3b
         interactive-ordering choice (`resolve_trigger_order_choice`) is
-        placed directly and does *not* pause for any of these — combining
-        manual trigger ordering with a modal/optional/targeted trigger among
-        the ordered set is a narrow, undocumented-further edge case, not
-        handled here.
+        placed through this same method — as a one-item ``queue`` — so it
+        pauses for its own mode/target/"you may" choice exactly like the
+        deterministic path; `_maybe_continue_ordering` (called once this
+        method's ``queue`` drains without pausing) is what resumes the
+        ordering flow for whatever's still unordered afterward.
         """
         while queue:
             ability, event = queue.pop(0)
@@ -824,6 +825,7 @@ class TriggerCollectionMixin:
                 return
             if not self._place_or_pause_trigger(ability, ability.effects, queue, event=event):
                 return
+        self._maybe_continue_ordering()
     def _place_or_pause_trigger(
         self,
         ability: "TriggeredAbility",
@@ -1343,9 +1345,18 @@ class TriggerCollectionMixin:
 
         Each option is one still-to-be-placed trigger; the player picks the one
         to put on the stack next (RULE 603.3b). Picked first → placed first →
-        resolves last (the stack is LIFO)."""
+        resolves last (the stack is LIFO). ``label`` is the ability's own
+        oracle text (`description` is `spec.raw_text` wherever the binder set
+        it — see `effect_binder.py`), and ``source_name`` the permanent/card
+        it's on, kept as a separate field (rather than folded into the
+        label) so the frontend can tell two identically-worded triggers from
+        different sources apart without string-parsing a combined label."""
         options = [
-            {"id": str(i), "label": ability.description or "Ausgelöste Fähigkeit"}
+            {
+                "id": str(i),
+                "label": ability.description or "Ausgelöste Fähigkeit",
+                "source_name": ability.source.name if ability.source is not None else None,
+            }
             for i, (ability, _event) in enumerate(self._ordering_active)
         ]
         return {
@@ -1355,28 +1366,47 @@ class TriggerCollectionMixin:
             "options": options,
         }
     def resolve_trigger_order_choice(self, index: Optional[int]) -> None:
-        """Place the chosen trigger next, then re-ask or finish (RULE 603.3b).
+        """Place the chosen trigger next (RULE 603.3b), then re-ask or finish.
 
         ``index`` selects one of the remaining active-player triggers (by its
-        option id). When one is left it is placed automatically, then the
-        non-active-player triggers go on top; the choice is cleared."""
+        option id). Placement goes through `_place_triggers` as a one-item
+        queue, so a modal/targeted/optional trigger opens its own choice
+        exactly as it would outside an ordering sequence, instead of being
+        placed blind — `_maybe_continue_ordering` (invoked once that queue
+        drains without pausing) picks up from there: re-opening this same
+        choice while 2+ still remain, auto-placing (still pause-aware) once
+        only one is left, then flushing the non-active-player triggers the
+        same way."""
         if not self._ordering_active:
             self.state.pending_choice = None
             return
         # Default to the first if the index is missing/out of range.
         if index is None or not 0 <= index < len(self._ordering_active):
             index = 0
-        ability, _event = self._ordering_active.pop(index)
-        self._place_trigger(ability)
-
-        if len(self._ordering_active) > 1:
-            self.state.pending_choice = self._trigger_order_choice()
-            return
-        # One (or none) left: place it and the non-active triggers, then finish.
-        for remaining, _e in self._ordering_active:
-            self._place_trigger(remaining)
-        for ability, _e in self._ordering_rest:
-            self._place_trigger(ability)
-        self._ordering_active = []
-        self._ordering_rest = []
+        ability, event = self._ordering_active.pop(index)
         self.state.pending_choice = None
+        self._place_triggers([(ability, event)])
+    def _maybe_continue_ordering(self) -> None:
+        """Resume the RULE 603.3b ordering flow once a `_place_triggers`
+        queue has drained without pausing for a nested choice.
+
+        No-op outside an ordering sequence — `_ordering_active`/
+        `_ordering_rest` are empty except while one is in progress, so this
+        runs harmlessly at the end of the ordinary (non-interactive)
+        placement path too. Re-opens the order choice while 2+ of the active
+        player's triggers remain unordered; once exactly one is left there's
+        nothing left to choose, so it's placed directly (still through
+        `_place_triggers`, so it still pauses for its own mode/target/"you
+        may" choice); once none remain, the non-active-player triggers are
+        placed the same pause-aware way."""
+        if self._ordering_active:
+            if len(self._ordering_active) > 1:
+                self.state.pending_choice = self._trigger_order_choice()
+                return
+            ability, event = self._ordering_active.pop(0)
+            self._place_triggers([(ability, event)])
+            return
+        if self._ordering_rest:
+            rest = self._ordering_rest
+            self._ordering_rest = []
+            self._place_triggers(rest)
