@@ -768,8 +768,7 @@ def _granted_trigger_condition(
     *other* Elf under the same anthem). Scoped by the event's own subject key
     (``source_id`` for ``DAMAGE``, ``instance_id`` for everything else — see
     `_GRANTED_EVENT_KEYS`, the same convention `effect_binder.
-    _subject_event_key` uses for an ordinary printed trigger) when the event
-    carries one; a shape with no such key isn't filtered by identity at all.
+    _subject_event_key` uses for an ordinary printed trigger).
     ``event_filter`` is the same small exact-match dict
     `effect_binder._trigger_condition`'s ``"filter"`` ANDs on — needed for
     DAMAGE's ``{"combat": ..., "is_player": ...}`` (RULE 120.3 "deals combat
@@ -778,19 +777,47 @@ def _granted_trigger_condition(
 
     ``phase_relation`` ("you"/"not_you") is that phase trigger's scope. A
     ``STEP_BEGIN`` event carries no object key at all, so identity scoping
-    above is a no-op for it; what makes "Enchanted creature has 'At the
+    is a deliberate no-op for it; what makes "Enchanted creature has 'At the
     beginning of **your** upkeep, …'" (Commander's Authority/Aura Flux)
     mean the right thing is resolving "your" against ``target`` — the
     permanent the ability was granted *to* — rather than the granting
     source's controller, which is why this can't reuse `effect_binder.
     _trigger_condition`'s own `phase_relation` branch.
+
+    ENG-11: ``STEP_BEGIN`` is the *only* legitimate no-subject case. Every
+    other grant is about one specific object, so an event that doesn't carry
+    the key `_GRANTED_EVENT_KEYS` maps its `trigger_event` to is a
+    registration gap (a new event shape nobody added there), not a
+    genuinely subject-less one — fail closed rather than let the fail-open
+    reading ("no key -> don't filter") fire the ability for *every* object
+    under the same grant, mirroring `effect_binder._subject_condition`'s own
+    "missing instance_id -> False" rule for the ordinary (non-granted)
+    self-subject case. The parser front-end
+    (`static_handlers._quoted_ability_grant_effects`) only ever emits a
+    non-``STEP_BEGIN`` grant for a ``{"subject": "self"}`` trigger, which by
+    construction only exists for events `_TRIGGER_VERBS` has matched to a
+    verb whose event *does* carry an identity key — so this is a safety net
+    against a future hand-authored `ability_catalogue.py` entry naming an
+    unregistered event, not a path any card exercises today.
     """
     key = _GRANTED_EVENT_KEYS.get(trigger_event or "", "instance_id")
     filt = dict(event_filter) if event_filter else None
+    no_object_subject = phase_relation in ("you", "not_you")
 
     def condition(event: Any, context: Any) -> bool:
         event_subject = event.get(key)
-        if event_subject is not None and event_subject != target.instance_id:
+        if event_subject is None:
+            if not no_object_subject:
+                # ENG-11: only a STEP_BEGIN phase trigger legitimately fires
+                # off an event with no object subject at all (scoped by
+                # whose turn it is, below, instead). Any other grant is
+                # about one specific object, so an event that doesn't carry
+                # the key `_GRANTED_EVENT_KEYS` maps `trigger_event` to is a
+                # registration gap, not a subject-less event — fail closed
+                # rather than let every object under the same grant react to
+                # an event about none of them.
+                return False
+        elif event_subject != target.instance_id:
             return False
         if filt and not all(event.get(k) == v for k, v in filt.items()):
             return False

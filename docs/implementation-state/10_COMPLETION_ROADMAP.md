@@ -65,8 +65,8 @@ accounts).
 | 300–315 Card types | ✅ | Every type modeled — Aura/Equip/Fortify/Reconfigure attachment, Adventure, Split/Fuse, Saga, DFC/MDFC, Class/Leveler, Battles (310), **Dungeons (309)** and face-down permanent states (morph/megamorph/disguise/manifest/cloak, RULE 708). What's left is card *text*, not card types: some dungeon rooms' effects, [PAR-13]. |
 | 400–408 Zones | ✅ | all seven zones, incl. RULE 400.2 per-perspective redaction and RULE 400.7 new-object identity on zone change. |
 | 500–514 Turn structure | ✅ | complete, walked from a sequence with skip effects. |
-| 600–616 Spells/abilities/effects | ◐ | casting/activated/triggered/static/mana/replacement/loyalty done; layers (613) done bar three deliberately-scoped corners, [ENG-8] [ENG-9] [ENG-10]. Remaining edges: [ENG-3]–[ENG-7], [ENG-11]–[ENG-14]. |
-| 700–733 Additional | ◐ | SBAs (704) done bar [ENG-1]; the RULE 702 keyword catalogue is recognized *and* bound; keyword *actions* (701) partial — the named gaps are the `MEC` tickets — and Annihilator still auto-picks its victims, [ENG-2]. Copying (707) works but isn't a true layer-1 continuous effect, [ENG-6] [ENG-10]. Monarch (725)/Initiative (726)/The Ring (701.51)/Rad counters (728) done, including all three of RULE 726.2's inherent abilities now that venturing (701.49) exists. Face-down objects (708) and manifest/cloak (701.40/701.58) done. |
+| 600–616 Spells/abilities/effects | ✅ | casting/activated/triggered/static/mana/replacement/loyalty/layers (613) all complete; the former `ENG-3`–`ENG-14` residue is closed. |
+| 700–733 Additional | ◐ | SBAs (704) complete; the RULE 702 keyword catalogue is recognized *and* bound; keyword *actions* (701) partial — the named gaps are the `MEC` tickets. Copying (707) is now a true layer-1 continuous effect. Monarch (725)/Initiative (726)/The Ring (701.51)/Rad counters (728) done, including all three of RULE 726.2's inherent abilities now that venturing (701.49) exists. Face-down objects (708) and manifest/cloak (701.40/701.58) done. |
 | 800–811 Multiplayer | ◐ | A table of **two to four** plays for real: APNAP priority all the way round, per-opponent attack declaration (508.1a), concede (104.3a), the RULE 800.4a deferred board cleanup. Range-of-influence and attack-multiple-players variants are unmodeled, and the **team** variants (809/810/811 — shared turns and life totals) are a turn-loop project, [PLR-14]. Bots in a pod pick their opponent by list order rather than judgement, [PLR-8]. |
 | 900–905 Casual variants | ✅ | Commander (903) — damage, command zone, tax (903.8); **Planechase (901)** — planar deck, planar die, chaos, planeswalking, phenomena; **Vanguard (902)** — avatar plus hand/life modifiers; **Archenemy (904)** — scheme deck, set in motion, ongoing schemes. Formats are a record now (`models/game_format.py`), not scattered ints. Their *card texts* are long-tail parser work, [PAR-13] — and no UI ever passes a `game_format`, so they are reachable only from Python, [PLR-13]. |
 
@@ -84,17 +84,17 @@ milestone and can proceed in parallel once the backend seam exists.
   models binds onto `GameObject.parametric_keywords` *and* consumes it.
   Residue: [PAR-5] (hexproof-*from* loses its quality — overprotective,
   never rules-illegal).
-- **M3 — layer system (RULE 613).** All layers implemented. Residue is three
-  deliberate scopings, each safe for today's effect vocabulary and each with
-  a written trigger for revisiting it: [ENG-8], [ENG-9], [ENG-10].
+- **M3 — layer system (RULE 613).** All layers implemented, no open residue
+  (the former `ENG-8`/`ENG-9`/`ENG-10` deliberate scopings are all closed).
 - **M4 — permanent subsystems.** All four shipped, engine-side and UI.
 - **M5 — interactive priority & multiplayer** (shipped 2026-07-22, bots
   2026-07-27). Note the legacy `POST /api/game/multiplayer` is *still* a 501
   and that is **correct, not a gap** — it is the superseded seat-less entry
   point; the live surface is `/api/multiplayer/*` plus `/ws/lobby`. Residue,
   all narrow: [PLR-8] (bots in a pod), [PLR-3], [PLR-5],
-  [PLR-6], [PLR-7], and UI polish [VIS-5] [VIS-6] [VIS-7]. The one
-  engine-side piece left is subset attacker declaration, [ENG-15] → [VIS-3].
+  [PLR-6], [PLR-7], and UI polish [VIS-5] [VIS-6] [VIS-7]. Subset attacker
+  declaration (ENG-15/VIS-3) turned out to already be shipped — closed,
+  `Done_Backend.md`/`Done_Frontend.md`.
 
 ### M1 — Oracle-effect parser (keystone; a standing program, not a finite batch)
 
@@ -165,9 +165,9 @@ intuition, and bump `PARSER_VERSION` in the same session you add a handler.
 ```code
 M1 (parser gaps → mechanics → tail)  ── standing; the ONLY path to "most decks playable"
 M6 residue ([PAR-13] card text → folds into M1's tail; [PLR-13] format switch → [PLR-14] teams)
-M5 residue ([PLR-8] bots in a pod; [ENG-15] → [VIS-3])          ── independent
+M5 residue ([PLR-8] bots in a pod)                              ── independent
 M7 ([ANA-1] → [ANA-2]/[ANA-3];  [PLR-9] → [PLR-10])              ── independent
-M2 / M3 / M4 ── closed; residue tracked as [PAR-5], [ENG-8], [ENG-9], [ENG-10]
+M2 / M3 / M4 ── closed; residue tracked as [PAR-5]
 ```
 
 **Critical path to "most decks are playable":** M1, alone. Two-player play

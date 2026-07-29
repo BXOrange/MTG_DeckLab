@@ -5493,6 +5493,120 @@ substitution (matched as one templated word, per RULE 702.14's official
 
 Full suite green (2,807 passed, 238 skipped, +8 from this batch).
 
+### ENG-9, ENG-11, ENG-13, ENG-14 (2026-07-29)
+
+Four more closed off `BACKLOG.md`'s ENG section, closing it out entirely for
+now (nothing left under "Game engine").
+
+**ENG-9 — RULE 613.8 dependency ordering, re-verified rather than
+extended.** The ticket's own condition for doing any work at all was "extend
+if a selector ever reads another object's *derived* state" outside layer
+2 — so before touching `continuous._order_control_effects`, that condition
+was re-checked against everything the engine has grown since it was
+written. Two selectors looked like candidates on a first read —
+`group_selector_objects`'s `min_power`/`max_power`/`power_lt_selector`/
+`power_gt_selector` — but both are consumed exclusively by
+`combat_restriction`/`goaded` statics, which `_apply_post_layer_combat_
+restrictions_and_goad` stamps strictly *after* the whole layer-7 pass
+finishes (the same ordering the "Combat statics" batch fixed for exactly
+this reason — see that section above). They're downstream consumers of
+finished layer-7 output, not a same-sublayer ordering dependency, so the
+ticket's premise still doesn't hold anywhere in the current effect
+vocabulary. No code changed; `tests/test_eng_batch_9_11_13_14.py::
+test_power_threshold_selector_sees_same_pass_anthem` pins the finding down
+as a regression test (an anthem and a goad power-qualifier applying in the
+same recompute must still compose correctly) so the next batch that adds a
+selector doesn't have to re-derive this proof from scratch — it can just
+check whether the new selector breaks that test.
+
+**ENG-11 — a granted trigger now fails closed without an identity key.**
+`continuous._granted_trigger_condition` scopes a layer-6 "X have '…'"
+grant per-grantee off the firing event's own subject key
+(`_GRANTED_EVENT_KEYS`, `instance_id` by default). Previously, an event
+carrying *no* matching key wasn't filtered at all — correct for the one
+real subject-less case (a `STEP_BEGIN` phase-trigger grant, scoped by
+`phase_relation`/whose turn it is instead of identity) but silently wrong
+for anything else: a future `trigger_event` whose payload shape never got
+added to `_GRANTED_EVENT_KEYS` would fire for *every* object under the
+grant, not just the one the event was actually about. Now fails closed —
+mirroring `effect_binder._subject_condition`'s existing "missing
+`instance_id` → `False`" rule for the ordinary (non-granted) `{"subject":
+"self"}` case, which already documented exactly this reasoning ("the
+over-firing bug this grammar exists to close"). `STEP_BEGIN` grants are
+unaffected (still scoped by `phase_relation`, not identity). The parser
+front-end (`static_handlers._quoted_ability_grant_effects`) already only
+ever emits a non-`STEP_BEGIN` grant for a `{"subject": "self"}` trigger,
+itself only reachable for events `_TRIGGER_VERBS` has matched to a verb
+whose event *does* carry an identity key — so this is a safety net against
+a future hand-authored `ability_catalogue.py` entry, not a path any
+shipped card exercises. Tests: `test_granted_trigger_condition_fails_
+closed_on_unregistered_event_shape`, plus regression coverage that an
+ordinary keyed grant (Dionus's shape) and a `STEP_BEGIN` grant both still
+behave exactly as before.
+
+**ENG-13 — a per-firing dynamic reference generalizes to granted
+abilities.** `GameContext.trigger_event` (built for the cEDH-cube batch,
+"the mana a permanent just produced… which player cast the spell…") was
+already general enough for an *ordinary* printed trigger's own per-firing
+"it" pronoun — `ReturnSharedTypePermanentEffect` (Cloudstone Curio) already
+read it. What was missing was demonstrating the same field on a *granted*
+ability's own resolution, since `_place_trigger`/`StackItem.trigger_event`
+never distinguished the two paths in the first place — turned out to need
+no engine change at all, just two bespoke effect classes following this
+file's standing "build a fresh per-firing shape rather than new IR" rule
+(`TriggeredAbility`'s own docstring):
+
+- `ExileTriggerDamagedCreatureEffect` — Kaldra Compleat's granted "Whenever
+  this creature deals combat damage to a creature, exile that creature."
+  RULE 603.3d's "that creature" is the `DAMAGE` event's own `target_id`, a
+  *different* field from the `source_id` `_GRANTED_EVENT_KEYS` already uses
+  to scope *which* grantee reacts (the equipped creature that dealt the
+  damage). `ability_catalogue._kaldra_compleat` now grants it via the
+  ordinary `grant_triggered_ability` machinery, `filter: {"combat": True,
+  "is_player": False}` narrowing to combat damage dealt to a creature.
+- `AttachTriggeringPermanentEffect` — Sigarda's Aid's "Whenever an
+  Equipment you control enters, you may attach it to target creature you
+  control." RULE 603.3d's "it" here is a **group**-subject trigger's own
+  matched member (the entering Equipment), read off `GameContext.
+  trigger_event`'s `instance_id` — not the ability's source (Sigarda's Aid
+  itself, unlike plain `AttachEffect`) and not a chosen target (unlike
+  `CreateTokenMayAttachEquipmentEffect`'s equipment-onto-a-just-created-
+  token shape). Only the destination is a real RULE 115 target; declining
+  it declines the whole attach, the same `target_spec.optional=True` idiom
+  those two siblings already use rather than a separate `AbilitySpec.
+  optional` flag. Registered as a new (partial) `ability_catalogue.
+  _sigardas_aid` entry — only this second ability is modeled; the first
+  ("cast Aura/Equipment spells as though they had flash") needs a standing,
+  card-type-scoped flash permission distinct from the existing one-shot
+  `grant_flash_until_eot`, a documented gap unrelated to ENG-13. Coverage:
+  +1 card (hand-authored, no parser handler — `PARSER_VERSION` unchanged).
+
+Tests: `test_kaldra_compleat_exiles_the_damaged_creature`, `test_kaldra_
+compleat_does_not_exile_on_player_damage` (the `is_player` guard),
+`test_sigardas_aid_attaches_the_entering_equipment_to_chosen_target`.
+
+**ENG-14 — Simian Sling's "defending player" now sees through
+Reconfigure.** `effects._defending_player_of` (annihilator/afflict's shared
+"defending player" resolver, RULE 506.4) read only its own `source`'s
+`combat_defender` stamp — correct when the ability's source is itself the
+attacker, wrong the moment Reconfigure moves it onto a *different*
+attacking creature: Simian Sling's own trigger already fires correctly off
+a `self_or_attached_permanent` subject ("this creature or equipped
+creature becomes blocked"), but the payoff effect's `_defending_player_of`
+call still only ever checked Simian Sling's own (never-attacking, once
+reconfigured) `combat_defender`, finding nobody. Now falls back to the
+object `source` is `attached_to` before giving up — the same self-or-host
+pair the trigger condition already scoped by. Every existing caller
+(annihilator, afflict — always the attacking creature itself, never an
+attached permanent) sees no behavior change: `attached_to` is unset for
+them, so the fallback is a no-op. Test: `test_simian_sling_hits_defending_
+player_when_reconfigured_elsewhere` — Simian Sling reconfigured onto a
+different creature, that creature attacks and is blocked, the opponent
+takes the 1 damage.
+
+Full suite green (2,815 passed, 238 skipped, +8 from this batch — the new
+`test_eng_batch_9_11_13_14.py`).
+
 ## Game Engine (Phase 3)
 
 `mtg_analyzer/game/game_engine.py`, tests in `test_game_engine.py`.
@@ -7257,6 +7371,21 @@ the interesting decisions are all about *where* it lives:
 `Lobby.set_deck`'s seat-permission logic ("your own seat, or a bot's if
 you're the host") was extracted to `_seat_to_configure` and shared, rather
 than copied into `set_banner_color`.
+
+- [x] **ENG-15 · Subset attacker selection — closed, no new work needed.**
+      `BACKLOG.md` still described the pre-multiplayer state ("swings with
+      every able creature, one control"), but `GameEngine.declare_attackers`
+      has been additive since the combat-restriction family shipped (RULE
+      508.1a's "…alone" needed to reject the *finished* attack, not the
+      first creature declared into it — see "Combat statics" above), and the
+      multiplayer batch's `legal_defenders_for` (this section, "every
+      opponent is offered as a defender") already lets each call assign its
+      own defender. Nothing was blocking a per-creature UI on the backend
+      side; the ticket had simply never been re-checked against the engine
+      after that work landed. Verified with two separate `declare_attackers`
+      calls in a 3-player pod, each with a different attacker/defender pair
+      — both stay attacking with their own `combat_defender` afterward.
+      Paired frontend ticket: VIS-3 (`Done_Frontend.md`).
 
 ## Bot AI (UC5)
 

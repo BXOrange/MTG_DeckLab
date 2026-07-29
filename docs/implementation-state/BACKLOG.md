@@ -34,32 +34,6 @@ Plan-level sequencing lives in
 
 ---
 
-## ENG — Game engine
-
-- **ENG-9 · RULE 613.8 dependency ordering is bounded to one sublayer.**
-  Only layer 2's controller-scoped `affects` is dependency-ordered. Provably
-  safe for today's effect vocabulary; extend if a selector ever reads
-  another object's derived state. `continuous._order_control_effects`.
-- **ENG-11 · A granted trigger isn't identity-scoped without an
-  `instance_id`.** Layer-6-granted triggers scope per-grantee off the firing
-  event's `instance_id`; an event shape carrying none isn't filtered by
-  identity. No card grants a trigger off such an event today.
-  `continuous._granted_trigger_condition`.
-- **ENG-13 · No per-firing dynamic reference for a *granted* ability.**
-  `check_rampage`/`check_ward` build a fresh `TriggeredAbility` per firing,
-  and `TriggeredAbility.reflexive` covers a fixed-shape target found by
-  `instance_id` — but neither generalizes to an arbitrary grant. Blocks
-  Kaldra Compleat's "exile that creature" and Sigarda's Aid's "attach *it*".
-- **ENG-14 · Simian Sling's "defending player" is attacker-scoped.**
-  Resolved off its own combat-defender stamp, only set when Simian Sling is
-  itself the attacker; reconfigured onto another creature the trigger fires
-  but finds nobody. `effects._defending_player_of`,
-  `ability_catalogue._simian_sling`.
-- **ENG-15 · Subset attacker selection.** Attacking swings with **every**
-  able creature (one "⚔️ Angreifen (N)" control). Per-creature select needs
-  the backend to accumulate declared attackers rather than replace them.
-  Paired frontend work: [VIS-3].
-
 ## PAR — Parser
 
 - **PAR-1 · Cross-target indirect referents.** Run Away Together's "Choose
@@ -245,8 +219,6 @@ Plan-level sequencing lives in
   offline message). docs/04 C4.
 - **VIS-2 · Saved decks: no rename/duplicate-as-new.** Only save
   (create/update via the tracked id) and delete.
-- **VIS-3 · Per-creature attacker selection UI** — the frontend half of
-  [ENG-15]; blocked on it.
 - **VIS-4 · Chat / emotes at the table.**
 - **VIS-5 · A move/priority feed.** The board has `move_log`, but in a
   shared game it's hard to see what the opponent just did before your

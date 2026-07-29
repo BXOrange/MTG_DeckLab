@@ -244,9 +244,11 @@ into `BACKLOG.md`, and those mentions have been repointed there.
       (`goldfishView.js`, `.gf-card-slot`/`.gf-card-actions`): a hand card
       shows "🌳 Land spielen" / "✨ Zaubern"; a land shows a **tap button
       per mana option** (dual lands get one per colour — the "🟢/🔵" choice
-      matching the backend `tap_for_mana` `option_index`). Attacking stays
-      an aggregate "⚔️ Angreifen (N)" control (swings with every able
-      creature). Built from the session's per-object `legal_actions`.
+      matching the backend `tap_for_mana` `option_index`). Attacking is a
+      **per-creature** "⚔️ Angreifen" button on each attack-eligible card
+      (ENG-15/VIS-3, superseding this bullet's earlier aggregate-control
+      description) — see `gameBoardView.js`'s dedicated entry below. Built
+      from the session's per-object `legal_actions`.
 - [x] Graveyard **and Exile** zones render their cards (`.gf-graveyard`/
       `.gf-exile`, from `state.players[0].graveyard`/`exile`).
 - [x] Pending-choice UI: a library search surfaces a "🔎 Suche …" panel
@@ -636,6 +638,21 @@ into `BACKLOG.md`, and those mentions have been repointed there.
       makes Bedrohlich/menace (RULE 702.111b, validated across the
       complete assignment) satisfiable at all. Shared code, so Replay's
       play mode gets it too.
+
+- [x] **VIS-3 · Per-creature attacker selection UI (`gameBoardView.js`'s
+      `attackControlHtml`) — closed, no new work needed.** Each
+      attack-eligible card already renders its own "⚔️ Angreifen" button
+      rather than one aggregate "swing with everybody" control: with zero
+      or one legal defender it's a single click, and with 2+ (a 3+ player
+      pod, or a battle/planeswalker on the board) it opens a per-defender
+      menu, one `declare_attackers` action per creature — matching the
+      backend's additive `declare_attackers` (ENG-15, `Done_Backend.md`).
+      `BACKLOG.md` still described the board's original goldfish-only
+      aggregate control, superseded when this shared board (Replay +
+      Multiplayer) needed per-attacker defender choice; the entry was never
+      re-checked afterward. Nothing left to build — the paired bullet above
+      this file's "Actions shown directly under the affected cards" entry
+      has been corrected to match.
 
 - [x] **Priority is visible and interactive** (RULE 117). In a shared game
       the toolbar swaps "Nächster Schritt" for **"Passen"** — a step ends

@@ -1188,11 +1188,15 @@ def _kaldra_compleat() -> list[AbilitySpec]:
     — Kaldra Compleat. Living weapon and Indestructible come from the RULE
     702 keyword catalogue (Living Weapon's germ-token creation is now
     synthesized behaviourally too, see `effect_binder._keyword_triggered_
-    abilities`). The granted "exile that creature" ability isn't modeled —
-    it needs a per-firing dynamic reference to *whichever* creature was
-    just damaged, which no generic `TriggeredAbility` (one fixed `effects`
-    list) can carry (the same class of gap `RulesEngine.check_rampage`
-    solves by going around `TriggeredAbility` entirely) — a documented gap.
+    abilities`). The granted "exile that creature" ability is a layer-6
+    (RULE 613.7f) `grant_triggered_ability` onto the equipped creature —
+    ``filter: {"combat": True, "is_player": False}`` narrows `DAMAGE` to
+    combat damage dealt to a creature (not a player), and the per-firing
+    "that creature" pronoun (ENG-13 — *which* creature was hit, a different
+    `DAMAGE` field from the ``source_id`` that scopes *which grantee*
+    reacts) is `ExileTriggerDamagedCreatureEffect`, reading the resolving
+    event's own ``target_id`` off `GameContext.trigger_event` rather than a
+    chosen target.
     """
     return [
         AbilitySpec(
@@ -1203,9 +1207,16 @@ def _kaldra_compleat() -> list[AbilitySpec]:
                     "affects": "attached_permanent",
                     "keywords": ["first_strike", "trample", "indestructible", "haste"],
                 }),
+                EffectSpec("grant_triggered_ability", {
+                    "affects": "attached_permanent",
+                    "trigger_event": EventType.DAMAGE,
+                    "filter": {"combat": True, "is_player": False},
+                    "grant_effects": [{"type": "exile_trigger_damaged_creature", "params": {}}],
+                }),
             ],
             raw_text="Ausgerüstete Kreatur erhält +5/+5 und hat Erstschlag, "
-                     "Trampelschaden, Unzerstörbarkeit und Eile.",
+                     "Trampelschaden, Unzerstörbarkeit und Eile. \"Wenn diese Kreatur "
+                     "einer Kreatur Kampfschaden zufügt, exiliere jene Kreatur.\"",
         )
     ]
 
@@ -1447,13 +1458,13 @@ def _simian_sling() -> list[AbilitySpec]:
     1 damage to defending player.
     Reconfigure {2}
 
-    — Simian Sling. The trigger's "defending player" resolves off the
-    ability's own source (Simian Sling) via `_defending_player_of`, which
-    reads *its own* combat-defender stamp — correct when Simian Sling
-    itself is the attacking creature, but it won't have one when it's
-    reconfigured onto a *different* attacking creature instead (a documented
-    simplification: the trigger still fires, but finds no defending player
-    to hit in that case).
+    — Simian Sling. The trigger's "defending player" resolves via
+    `_defending_player_of`, which reads the ability's own source's
+    combat-defender stamp — correct when Simian Sling itself is the
+    attacking creature — and, since ENG-14, falls back to the permanent
+    it's reconfigured onto when that's the one actually attacking instead
+    (RULE 702.151), matching this trigger's own "this creature **or
+    equipped creature**" subject scoping.
     """
     return [
         AbilitySpec(
@@ -1472,6 +1483,50 @@ def _simian_sling() -> list[AbilitySpec]:
 
 
 register("Simian Sling", _simian_sling)
+
+
+def _sigardas_aid() -> list[AbilitySpec]:
+    """You may cast Aura and Equipment spells as though they had flash.
+    Whenever an Equipment you control enters, you may attach it to target
+    creature you control.
+
+    — Sigarda's Aid. Only the second ability is modeled. RULE 603.3d's "it"
+    is the Equipment that just entered — not the ability's own source
+    (Sigarda's Aid itself), and not a choice — which is exactly ENG-13's
+    general per-firing dynamic reference: `AttachTriggeringPermanentEffect`
+    reads it off `GameContext.trigger_event`'s own ``instance_id``, the
+    same field `ReturnSharedTypePermanentEffect` reads for Cloudstone
+    Curio's "it". Only the destination ("target creature you control") is a
+    real choice, and it's what makes the whole ability optional — declining
+    the target is declining the attach, matching `CreateTokenMayAttach
+    EquipmentEffect`'s own "target_spec.optional" idiom rather than a
+    separate `AbilitySpec.optional` flag.
+
+    The first ability — a *standing* cast-as-flash permission scoped to two
+    card types — isn't modeled: it needs a static permission distinct from
+    the existing `grant_flash_until_eot` (a one-shot "this turn" grant,
+    Borne Upon a Wind-shaped), a documented gap unrelated to ENG-13.
+    """
+    return [
+        AbilitySpec(
+            "triggered",
+            [EffectSpec("attach_triggering_permanent", {
+                "target_kind": "creature_you_control", "optional": True,
+            })],
+            trigger={
+                "event": EventType.ENTERS_BATTLEFIELD,
+                "condition": {
+                    "subject": "group", "type": "artifact",
+                    "subtypes": ["equipment"], "controller": "you",
+                },
+            },
+            raw_text="Wenn eine Ausrüstung, die du kontrollierst, ins Spiel kommt, "
+                     "darfst du sie an eine Zielkreatur, die du kontrollierst, anlegen.",
+        )
+    ]
+
+
+register("Sigarda's Aid", _sigardas_aid)
 
 
 def _spirit_mantle() -> list[AbilitySpec]:

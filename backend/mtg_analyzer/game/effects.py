@@ -437,10 +437,30 @@ def _defending_player_of(source: Optional["GameObject"], context: GameContext) -
     afflict 702.130). Reads the ``combat_defender`` spec `declare_attackers`
     stamped onto the attacker — a player id directly, or a planeswalker's
     controller when the attack target was a planeswalker (RULE 506.4d).
-    ``None`` if ``source`` isn't a live, currently-attacking object (e.g. a
-    hand-built test event with no real attack declared).
+
+    ENG-14: ``source`` itself might not be the one attacking. Reconfigure
+    (RULE 702.151) lets an Equipment's own trigger fire off a
+    ``self_or_attached_permanent`` subject (Simian Sling's "whenever this
+    creature **or equipped creature** becomes blocked, it deals 1 damage to
+    defending player") — correct when the Equipment is itself a creature
+    currently attacking, but when it's attached to (and reconfigured off) a
+    *different* attacking creature instead, only that host carries the
+    `combat_defender` stamp. Falls back to the object ``source`` is
+    currently attached to before giving up — the same self-or-host pair the
+    trigger condition already scoped by — so every existing caller (always
+    the attacking creature itself, never an attached permanent) sees no
+    change: ``attached_to`` is unset for them.
+
+    ``None`` if neither ``source`` nor its host (if any) is a live,
+    currently-attacking object (e.g. a hand-built test event with no real
+    attack declared).
     """
     spec = getattr(source, "combat_defender", None)
+    if not spec:
+        host_id = getattr(source, "attached_to", None)
+        if host_id is not None:
+            host = context.state.find_object(host_id)
+            spec = getattr(host, "combat_defender", None) if host is not None else None
     if not spec:
         return None
     if spec.get("kind") == "player":
@@ -4396,6 +4416,47 @@ class AttachEffect(GameEffect):
         context.engine.attach_to_target(self.source, target)
 
 
+class AttachTriggeringPermanentEffect(GameEffect):
+    """"Whenever a[n] <X> you control enters, you may attach it to target
+    creature you control." (Sigarda's Aid-shaped) — RULE 603.3d's "it"
+    pronoun for a **group**-subject trigger ("an Equipment you control
+    enters", not "this permanent enters"), so unlike `AttachEffect` (always
+    attaches the ability's own source) and `CreateTokenMayAttachEquipmentEffect`
+    (a *chosen* Equipment onto a token this same resolution just created),
+    the permanent being moved here is neither: it's whichever object
+    actually fired the trigger this time, read off `GameContext.
+    trigger_event`'s own ``instance_id`` (ENG-13's general per-firing
+    dynamic reference — the same field `ReturnSharedTypePermanentEffect`
+    reads for Cloudstone Curio's own "it").
+
+    Only the destination is a real RULE 115 target (``target_kind``,
+    "target creature you control" by default); the mover is never offered
+    as one, so this can't be reused for a spell/ability that names the
+    moving object as a *chosen* target instead of "it".
+    """
+
+    def __init__(
+        self,
+        target: Any = None,
+        source: Optional["GameObject"] = None,
+        target_kind: str = "creature_you_control",
+        optional: bool = True,
+    ) -> None:
+        super().__init__(source)
+        self.target = target
+        self.target_spec = TargetSpec(kind=target_kind, optional=optional)
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        event = context.trigger_event
+        if event is None:
+            return
+        mover = context.state.find_object(event.get("instance_id"))
+        target = (targets[0] if targets else None) or self.target
+        if mover is None or target is None:
+            return
+        context.engine.attach_to_target(mover, target)
+
+
 class UnattachTapIndestructibleEffect(GameEffect):
     """Akiri, Fearless Voyager's own "{W}: You may unattach an Equipment
     from a creature you control. If you do, tap that creature and it gains
@@ -6466,6 +6527,34 @@ class ReturnSharedTypePermanentEffect(GameEffect):
             )
 
 
+class ExileTriggerDamagedCreatureEffect(GameEffect):
+    """"Whenever this creature deals combat damage to a creature, exile
+    that creature." (Kaldra Compleat-shaped — a Living Weapon's granted
+    ability, RULE 613.7f) — RULE 603.3d's "that creature" pronoun refers to
+    the `DAMAGE` event's *recipient*, not its source: `_GRANTED_EVENT_KEYS`
+    scopes *which grantee* reacts off the event's ``source_id`` (the
+    equipped creature that dealt the damage — "this creature"), a different
+    field from who was hit. No target choice at all — `GameContext.
+    trigger_event`'s own ``target_id`` (ENG-13's general per-firing dynamic
+    reference) names the exact object, the granted-ability counterpart of
+    what `TriggeredAbility.reflexive` does for an ordinary "that
+    permanent/spell" off ``instance_id``. A damaged *player* (``is_player``)
+    or a since-departed creature is simply nothing to exile.
+    """
+
+    def __init__(self, source: Optional["GameObject"] = None) -> None:
+        super().__init__(source)
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        event = context.trigger_event
+        if event is None or event.get("is_player"):
+            return
+        creature = context.state.find_object(event.get("target_id"))
+        if creature is None:
+            return
+        context.exile(creature)
+
+
 #: RULE 205.2a's permanent card types — the vocabulary "shares a permanent
 #: type with it" (Cloudstone Curio) compares against, so a shared *spell*
 #: type (instant/sorcery, which no permanent has anyway) can never match.
@@ -8105,6 +8194,13 @@ EffectRegistry.register(
     lambda p: ReturnSharedTypePermanentEffect(),
 )
 EffectRegistry.register(
+    # "Whenever this creature deals combat damage to a creature, exile that
+    # creature." (Kaldra Compleat's granted ability) — see
+    # `ExileTriggerDamagedCreatureEffect`.
+    "exile_trigger_damaged_creature",
+    lambda p: ExileTriggerDamagedCreatureEffect(),
+)
+EffectRegistry.register(
     # "Put up to N <criteria> cards from your hand onto the battlefield."
     # (Tooth and Nail's second mode) — a pick from *hand*, unlike every
     # other "put onto the battlefield" (library/graveyard).
@@ -8205,6 +8301,18 @@ EffectRegistry.register(
     lambda p: AttachEffect(
         target=p.get("target"),
         target_kind=p.get("target_kind", "permanent"),
+    ),
+)
+EffectRegistry.register(
+    # "Whenever a[n] <X> you control enters, you may attach it to target
+    # creature you control." (Sigarda's Aid) — the mover is the trigger
+    # event's own subject, not a chosen target; see
+    # `AttachTriggeringPermanentEffect`.
+    "attach_triggering_permanent",
+    lambda p: AttachTriggeringPermanentEffect(
+        target=p.get("target"),
+        target_kind=p.get("target_kind", "creature_you_control"),
+        optional=bool(p.get("optional", True)),
     ),
 )
 EffectRegistry.register(
