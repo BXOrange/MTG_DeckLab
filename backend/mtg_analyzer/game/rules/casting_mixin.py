@@ -1,0 +1,1208 @@
+"""The rules engine: mana, casting, stack, replacements, triggers, SBAs.
+
+Reference: docs/requirements/02_MVP_USECASES_REVISED.md R2.2-R2.8,
+docs/concepts/07_GAME_LOOP_EFFECT_SYSTEM.md (PART 2/3).
+
+This owns the *rules primitives* — the operations whose consequences are
+defined by the Comprehensive Rules — so they live in exactly one place:
+
+* draw / deal damage / destroy / discard, each routed through replacement
+  effects (RULE 614/616) and firing events that collect triggers (603).
+* the stack (RULE 608, LIFO resolution).
+* state-based actions (RULE 704).
+* mana cost lookup and payment (RULE 601.2g / 504) via `ManaPool`.
+
+The higher-level turn/phase/priority loop lives in `game_engine.py`; this
+engine is the toolbox that loop drives.
+"""
+
+from __future__ import annotations
+
+import re
+from typing import Any, Callable, Optional, Union
+
+from ...models import card_query
+from ...models.card import Card
+from ...models.emblem import Emblem
+from ...models.events import EventType, GameEvent
+from ...models.game_object import GameObject, Zone
+from ...models.game_state import DelayedTrigger, GameState, StackItem
+from ...models.mana_cost import ManaCost
+from ...models.player import Player
+from ...parser.oracle.catalogue.keywords import parse_keywords
+from ...parser.oracle.catalogue.saga import all_chapter_numbers
+from .. import ability_catalogue, combat, continuous, copy_mechanics, dungeons, face_down, variants
+from ..combat import is_protected_from
+from ..costs import DISCARD_HAND, ActivationCost, parse_activation_cost
+from ..mana_abilities import restriction_predicate_for_cast
+from ..effects import (
+    _apply_effects_partitioned,
+    AddCountersEffect,
+    CompleteDungeonEffect,
+    VentureIntoTheDungeonEffect,
+    AddPlayerCountersEffect,
+    BecomeMonarchEffect,
+    CantBeCounteredEffect,
+    ChooseColorReplacement,
+    ChooseCreatureTypeReplacement,
+    ChooseNamedModeReplacement,
+    DiscardEffect,
+    DrawCardEffect,
+    LoseLifeEffect,
+    ReturnUncastExiledEffect,
+    SacrificeSpecificEffect,
+    TheRingTemptsYouEffect,
+    GameContext,
+    GameEffect,
+    ImpulsiveDrawEffect,
+    MarchesaDelayedReturnEffect,
+    ProliferateEffect,
+    PumpEffect,
+    RadiationMillEffect,
+    ReboundFreeCastWindowEffect,
+    ReplacementEffect,
+    ReturnSelfFromGraveyardEffect,
+    SiegeDefeatedEffect,
+    StaticAbility,
+    StaticEffect,
+    TakeInitiativeEffect,
+    TriggeredAbility,
+    WardEffect,
+    WinConditionEffect,
+)
+from ..targeting import TargetSpec, collapse_groups, expand_counts, legal_targets
+
+def _saga_final_chapter(card: Card) -> int:
+    """The highest chapter number a Saga has (RULE 714.2c), 0 if unreadable.
+
+    Read off the oracle text's roman-numeral chapter markers ("I —", "II, III —",
+    "IV —"); the largest is the final chapter. Shares its numeral grammar with
+    the oracle-parser front-end's chapter-ability recognition
+    (`parser.oracle.catalogue.saga`, RULE 714.2d) rather than duplicating it."""
+    return max(all_chapter_numbers(card.oracle_text or ""), default=0)
+
+
+def _matches_permanent_type(obj: GameObject, what: str) -> bool:
+    """Whether ``obj`` matches a sacrifice cost/effect's type word (RULE
+    701.17), e.g. ``"creature"``/``"artifact"``/``"enchantment"``/``"land"``/
+    ``"permanent"``. Mirrors `GameEngine._matches_sacrifice_type` (the
+    cost-payment path) for the effect-driven path (`RulesEngine.sacrifice`);
+    kept as its own small copy rather than a cross-module import, since
+    `game_engine.py` imports `rules_engine.py`, not the reverse."""
+    if what in ("permanent", "another"):
+        return True
+    if what == "creature":
+        return obj.is_creature
+    if what == "artifact":
+        return obj.card.is_artifact
+    if what == "enchantment":
+        return obj.card.is_enchantment
+    if what == "land":
+        return obj.is_land
+    if what == "creature_or_planeswalker":
+        # RULE 306/302: Tevesh Szat's "another creature or planeswalker" —
+        # the one compound word any shipped card needs.
+        return obj.is_creature or obj.card.is_planeswalker
+    return True  # unknown type word → any permanent, so the cost is payable
+
+
+def _creature_type_options(state: GameState, controller_id: Optional[str]) -> list[str]:
+    """The creature-type choices to offer for a RULE 601.2b "as ~ enters,
+    choose a creature type" pick.
+
+    RAW technically lets a player name *any* creature type, including one no
+    card in the game has — an unbounded, ~300-entry vocabulary this engine
+    has no canonical list of (unlike a scoped tribal-lord subtype match,
+    which just substring-tests against whatever's actually printed,
+    `continuous._has_subtype`). Offering every official type as a button
+    isn't a real UI, so this instead offers every creature subtype among
+    cards ``controller_id`` actually has anywhere in the game (battlefield,
+    hand, library, graveyard, exile, command) — the practically relevant
+    set for boosting *their own* creatures, which is what every real card in
+    this family (Adaptive Automaton/Arcane Adaptation-shaped) is for. A
+    puzzle board with no creature cards anywhere offers nothing — see
+    `RulesEngine._offer_enter_choices`'s empty-options handling.
+    """
+    player = state.player_by_id(controller_id) if controller_id else None
+    if player is None:
+        return []
+    objects = [o for o in state.battlefield if o.owner_id == controller_id]
+    objects += list(player.library) + list(player.hand) + list(player.graveyard)
+    objects += list(player.exile) + list(player.command)
+    types: set[str] = set()
+    for obj in objects:
+        type_line = (getattr(obj.card, "type_line", "") or "").lower()
+        if "creature" not in type_line:
+            continue
+        _, _, sub = type_line.partition("—")
+        for word in re.findall(r"[a-z]+", sub):
+            types.add(word.capitalize())
+    return sorted(types)
+
+
+
+
+class CastingResolutionMixin:
+    """Casting a spell onto the stack and resolving it, incl. RULE 614.1 entry-tapped/counters and every ETB interactive choice."""
+
+    def _apply_entry_counters(self, obj: GameObject, x_paid: int = 0) -> None:
+        """Put ``obj``'s RULE 614.1-style "enters with N counters" starting
+        counters on it, read off its printed text.
+
+        Called at every battlefield-entry site right after the tapped-entry
+        check (`ability_catalogue.enters_tapped`) and before ``obj`` is
+        actually added to the battlefield, so the counters are already
+        present when ENTERS_BATTLEFIELD fires and any trigger/continuous
+        pass reads them. ``x_paid`` is the object's actual paid X (RULE
+        107.3c) — 0 for anything that didn't just resolve off a cast-for-X
+        (a token, a card reanimated/searched onto the battlefield, …).
+        """
+        # RULE 702.32a Fading N / RULE 702.61a Vanishing N: "this permanent
+        # enters with N <fade|time> counters on it". Read off the parsed
+        # keyword rather than the reminder text — the keyword *is* the rule,
+        # and the reminder sentence isn't guaranteed to be printed.
+        for kind, keyword in (("fade", "fading"), ("time", "vanishing")):
+            param = (getattr(obj, "parametric_keywords", None) or {}).get(keyword)
+            if param and int(param.get("n", 0) or 0) > 0:
+                obj.add_counters(kind, int(param["n"]))
+
+        condition = ability_catalogue.entry_counters(obj.card)
+        if condition is None:
+            return
+        if condition.get("kicked_gate") or condition.get("kicked_scale"):
+            # RULE 702.33b: gated/scaled on how many times Kicker was paid
+            # (`GameObject.kicker_count`, stamped at cast time) — 0 for
+            # anything that didn't just resolve off a kicked cast (a token,
+            # a card reanimated/searched onto the battlefield, …).
+            kicker_count = getattr(obj, "kicker_count", 0) or 0
+            if condition.get("kicked_gate"):
+                amount = condition["count"] if kicker_count > 0 else 0
+            else:
+                amount = condition["count"] * kicker_count
+            grant_keyword = condition.get("grant_keyword")
+            if grant_keyword and kicker_count > 0:
+                # The same kicked gate as the counters, applied to a granted
+                # keyword instead (RULE 702.33b's "...and with <keyword>."
+                # tail) — a one-time additive mutation onto `intrinsic_
+                # keywords`, not a continuous static: `kicker_count` never
+                # changes after cast, so this is exact, not an
+                # approximation, and it's read fresh every layer-engine
+                # pass the same way a card's own printed flag keywords are
+                # (`effect_binder.attach_to_object`'s flag-keyword handling).
+                obj.intrinsic_keywords.add(grant_keyword)
+        else:
+            amount = x_paid if condition["is_x"] else condition["count"]
+        if amount > 0:
+            obj.add_counters(condition["counter_type"], amount)
+    def enter_land_tapped(self, obj: GameObject) -> None:
+        """Resolve ``obj``'s RULE 614.1 tapped-entry as it's played.
+
+        The deterministic conditional shapes — check lands ("unless you
+        control a Mountain or a Forest"), fast/slow lands ("unless you
+        control two or fewer/more other lands", or the basic-land-counting
+        variant, "… two or more basic lands") and Commander "Battlebond"
+        lands ("unless you have two or more opponents") — are decided
+        immediately off the board/game state ``obj``'s controller already
+        has (`land_tap_condition` is read *before* ``obj`` itself is added
+        to the battlefield, so "other lands" naturally excludes it). A
+        shock land's "you may pay N life" is a genuine choice: ``obj``
+        defaults tapped (as if declined) and a `land_tapped` `pending_choice`
+        opens; `resolve_land_tapped_choice` flips it untapped if the
+        controller pays.
+        """
+        condition = ability_catalogue.land_tap_condition(obj.card)
+        kind = condition["kind"]
+        if kind == "unless_types":
+            types = condition["types"]
+            controlled = [
+                o
+                for o in self.state.battlefield
+                if o.is_land and o.controller_id == obj.controller_id
+            ]
+            obj.tapped = not any(
+                any(t in o.card.type_line.lower() for t in types) for o in controlled
+            )
+        elif kind == "unless_count":
+            if condition.get("basic"):
+                other_lands = sum(
+                    1
+                    for o in self.state.battlefield
+                    if o.is_land
+                    and o.controller_id == obj.controller_id
+                    and "basic" in o.card.type_line.lower()
+                )
+            else:
+                other_lands = sum(
+                    1
+                    for o in self.state.battlefield
+                    if o.is_land and o.controller_id == obj.controller_id
+                )
+            if condition["cmp"] == "le":
+                obj.tapped = not (other_lands <= condition["count"])
+            else:
+                obj.tapped = not (other_lands >= condition["count"])
+        elif kind == "unless_opponents":
+            # RULE 614.1 / Battlebond lands: untapped iff the game itself has
+            # enough opponents — a property of the game, not the board.
+            opponents = [
+                p for p in self.state.living_players() if p.id != obj.controller_id
+            ]
+            obj.tapped = not (len(opponents) >= condition["count"])
+        elif kind == "unless_opponents_count":
+            # "Turbulent" land cycle: untapped iff the *total* lands across
+            # all opponents (not the controller's own) compares as stated.
+            opponent_lands = sum(
+                1
+                for o in self.state.battlefield
+                if o.is_land and o.controller_id != obj.controller_id
+            )
+            if condition["cmp"] == "le":
+                obj.tapped = not (opponent_lands <= condition["count"])
+            else:
+                obj.tapped = not (opponent_lands >= condition["count"])
+        elif kind == "pay_life":
+            obj.tapped = True
+            self._pending_land_choice_obj = obj
+            self._pending_land_choice_amount = condition["amount"]
+            self.state.pending_choice = self._land_tapped_choice(obj, condition["amount"])
+        elif kind == "optional_bonus_rad":
+            # Mariposa Military Base: the mirror image of a shock land —
+            # untapped by default, with the controller able to choose
+            # tapped instead for a rad-counter bonus.
+            obj.tapped = False
+            self._pending_land_choice_obj = obj
+            self._pending_land_choice_amount = condition["amount"]
+            self.state.pending_choice = self._land_tapped_bonus_choice(obj, condition["amount"])
+        else:
+            obj.tapped = kind == "always"
+        if not obj.tapped:
+            # RULE 614.1, board-wide: a *different* permanent's standing
+            # effect ("Nonbasic lands your opponents control enter tapped."
+            # — Archon of Emeria) can still force this land tapped even when
+            # its own printed clause (if any) would have left it untapped —
+            # a shock land's pending pay-life choice already defaults tapped
+            # above, so this only ever adds a tap, never removes the choice.
+            obj.tapped = continuous.enters_tapped_from_static(self.state, obj)
+    def _land_tapped_choice(self, obj: GameObject, amount: int) -> dict[str, Any]:
+        """Build the `pending_choice` for a shock land's pay-life decision."""
+        return {
+            "kind": "land_tapped",
+            "player_id": obj.controller_id,
+            "prompt": f"{obj.name}: {amount} Leben zahlen, um ungetappt ins Spiel zu kommen?",
+            "options": [
+                {"id": "pay", "label": f"{amount} Leben zahlen"},
+                {"id": "decline", "label": "Getappt ins Spiel kommen lassen"},
+            ],
+        }
+    def resolve_land_tapped_choice(self, answer: Optional[str]) -> None:
+        """Answer a pending shock-land `land_tapped` choice.
+
+        ``answer`` is ``"pay"`` to pay the life and keep it untapped, or
+        anything else (``None``/``"decline"``) to leave it tapped — already
+        the default `enter_land_tapped` set while the choice was open.
+        """
+        choice = self.state.pending_choice
+        if not choice or choice.get("kind") != "land_tapped":
+            raise ValueError("no pending land-tapped choice to resolve")
+        self.state.pending_choice = None
+        obj = self._pending_land_choice_obj
+        amount = self._pending_land_choice_amount
+        self._pending_land_choice_obj = None
+        self._pending_land_choice_amount = 0
+        if obj is not None and answer == "pay":
+            player = self.state.player_by_id(obj.controller_id)
+            self.lose_life(player, amount, cause="cost")
+            obj.tapped = False
+    def _land_tapped_bonus_choice(self, obj: GameObject, amount: int) -> dict[str, Any]:
+        """Build the `pending_choice` for Mariposa Military Base's own
+        "you may have this enter tapped, for a bonus" decision — the
+        mirror image of `_land_tapped_choice`'s shock-land prompt."""
+        return {
+            "kind": "land_tapped_bonus",
+            "player_id": obj.controller_id,
+            "prompt": f"{obj.name}: getappt ins Spiel kommen lassen, um {amount} "
+                      "Rad-Marken zu erhalten?",
+            "options": [
+                {"id": "tap", "label": f"Getappt ins Spiel kommen lassen ({amount} Rad-Marken)"},
+                {"id": "decline", "label": "Ungetappt ins Spiel kommen lassen"},
+            ],
+        }
+    def resolve_land_tapped_bonus_choice(self, answer: Optional[str]) -> None:
+        """Answer a pending `land_tapped_bonus` choice (Mariposa Military
+        Base). ``answer`` is ``"tap"`` to enter tapped and get the rad
+        counters, or anything else (``None``/``"decline"``) to stay
+        untapped (already the default `enter_land_tapped` set while the
+        choice was open) with no bonus.
+        """
+        choice = self.state.pending_choice
+        if not choice or choice.get("kind") != "land_tapped_bonus":
+            raise ValueError("no pending land-tapped-bonus choice to resolve")
+        self.state.pending_choice = None
+        obj = self._pending_land_choice_obj
+        amount = self._pending_land_choice_amount
+        self._pending_land_choice_obj = None
+        self._pending_land_choice_amount = 0
+        if obj is not None and answer == "tap":
+            obj.tapped = True
+            player = self.state.player_by_id(obj.controller_id)
+            self.add_player_counters(player, amount, "rad", source=obj)
+    def is_permanent_spell(self, card: Card) -> bool:
+        """A spell that becomes a permanent on resolution (RULE 608.3)."""
+        return not (card.is_instant or card.is_sorcery)
+    def cast_spell(
+        self,
+        player: Player,
+        obj: GameObject,
+        targets: Optional[list[Any]] = None,
+        x: int = 0,
+        cost: Optional[ManaCost] = None,
+        target_groups: Optional[list[list[Any]]] = None,
+    ) -> StackItem:
+        """Pay the cost, move the card to the stack (RULE 601).
+
+        ``x`` is the announced value (RULE 601.2b) for a cost containing
+        ``{X}``; ignored otherwise. ``cost`` lets the caller supply an already
+        adjusted cost (X resolved, static reductions applied — RULE 601.2f);
+        omitted, the printed cost is used. Timing/priority legality is enforced
+        by the caller; this performs the mechanical cast. Raises ValueError if
+        the mana cost can't be paid.
+
+        ``target_groups``, when given, partitions ``targets`` per targeting
+        effect — see `StackItem.target_groups`. Needed only when ``obj``
+        carries 2+ *different* targeting effects; omitted (``None``), every
+        effect reads ``targets`` directly, unchanged from before this existed.
+        ``targets`` itself is derived as the flattened union when not given
+        explicitly, so `check_ward` below and every other flat-``targets``
+        consumer still sees every chosen target.
+        """
+        if target_groups is not None and targets is None:
+            targets = [t for group in target_groups for t in group]
+        if cost is None:
+            cost = self.mana_cost_of(obj.card)
+            if cost.has_variable:
+                cost = cost.with_x(x)
+        # RULE 702.88b Rebound: cast from hand arms the "exile instead of
+        # graveyard, then reopen a free-cast window next upkeep" behaviour
+        # `resolve_top_of_stack` checks for below — recast later from that
+        # same window (zone already EXILE here), Rebound doesn't repeat.
+        if getattr(obj, "has_rebound", False) and obj.zone == Zone.HAND:
+            obj.rebound_pending = True
+        # RULE 702.88b's own free-cast window (`ReboundFreeCastWindowEffect`)
+        # — consumed the instant it's used, same "check, then discard" shape
+        # `mana_wildcard_permission`'s per-card grant already uses.
+        free_cast = obj.instance_id in self.state.free_cast_instance_ids
+        if free_cast:
+            life_spent = 0
+        else:
+            allows_restriction = restriction_predicate_for_cast(obj, has_x=cost.has_variable)
+            # RULE 605.1a "you may spend mana as though it were mana of any
+            # color/type" (Mnemonic Betrayal-shaped), scoped to casting this
+            # one exiled card — see `GameState.mana_wildcard_permission`.
+            wildcard = self.state.mana_wildcard_permission.get(obj.instance_id)
+            if not player.mana_pool.can_pay(
+                cost, life_available=player.life, allows_restriction=allows_restriction, wildcard=wildcard
+            ):
+                raise ValueError(f"{player.id} cannot pay for {obj.name}")
+            life_spent = player.mana_pool.pay(
+                cost, life_available=player.life, allows_restriction=allows_restriction, wildcard=wildcard
+            )
+        self.lose_life(player, life_spent, cause="cost")
+        if free_cast:
+            self.state.free_cast_instance_ids.discard(obj.instance_id)
+        # RULE 601.2b: remember the announced X on the object itself (not
+        # just this ephemeral StackItem) — an "unless its controller pays
+        # {X}" tied to *this* spell's own X (Logic Knot's Delve-adjacent
+        # template) needs it after the spell has already left the stack.
+        obj.x_paid = x
+        # RULE 202.1/601.2h: how much mana was actually spent — 0 for a free
+        # cast, otherwise the converted value of the cost that was paid
+        # (already X-resolved and reduction-adjusted by the caller). Read by
+        # the "if no mana was spent to cast it" trigger family via the
+        # `SPELL_CAST` event's ``mana_spent`` key below.
+        obj.mana_spent_to_cast = 0 if free_cast else cost.converted_mana_cost
+
+        # RULE 601.2a: which zone the spell was cast *from* — snapshotted
+        # before the move below, since by the time `SPELL_CAST` fires the
+        # object already sits on the stack. "Whenever a player casts a spell
+        # from their hand" (Possibility Storm) reads it as the event's
+        # ``from_hand`` key.
+        from_hand = obj.zone == Zone.HAND
+        # Zone-agnostic (not just hand/command) so an Adventure creature can
+        # be cast from exile (RULE 715.3d) with no dedicated branch here.
+        self._remove_from_current_zone(player, obj)
+        obj.adventure_castable = False
+        if obj.prepared_source_id is not None:
+            # RULE 722.3c: the source loses "prepared" the moment its
+            # exiled copy becomes cast — not when the copy later resolves.
+            source = self.state.find_object(obj.prepared_source_id)
+            if source is not None:
+                source.prepared = False
+        obj.zone = Zone.STACK
+        item = StackItem(
+            kind="spell",
+            controller_id=player.id,
+            effects=self._effects_for_spell(obj),
+            obj=obj,
+            description=obj.name,
+            targets=targets,
+            x=x,
+            target_groups=target_groups,
+        )
+        self.state.stack.append(item)
+        self.state.record_stat(
+            player.id, "spell", cmc=obj.card.converted_mana_cost, name=obj.name
+        )
+        self.state.fire_event(
+            GameEvent(
+                EventType.SPELL_CAST, player_id=player.id, card_id=obj.card.id, spell=obj.name,
+                instance_id=obj.instance_id, object_types=sorted(obj.type_words),
+                mana_spent=obj.mana_spent_to_cast,
+                from_hand=from_hand,
+            )
+        )
+        self.check_ward(item, player)
+        return item
+    def cast_without_paying(
+        self,
+        player: Player,
+        obj: GameObject,
+        targets: Optional[list[Any]] = None,
+        target_groups: Optional[list[list[Any]]] = None,
+    ) -> StackItem:
+        """Cast a card *without paying its mana cost* (RULE 118.9 / 601.3b).
+
+        The free-cast half of the cast/put/draw split: unlike a "put onto the
+        battlefield" (a direct zone change, no stack), this is a real cast —
+        the card goes on the **stack** and resolves normally (a permanent ends
+        up on the battlefield firing `ENTERS_BATTLEFIELD`, an instant/sorcery
+        applies its effects then hits the graveyard). It fires `SPELL_CAST`
+        with ``free=True`` so a "when you cast" trigger still sees it.
+
+        Reusable by every free-cast mechanic — cascade, discover, "you may
+        cast it without paying its mana cost", suspend — from whatever zone
+        the card currently sits in (hand, exile, library, graveyard).
+
+        ``target_groups`` partitions ``targets`` per targeting effect exactly
+        as in `cast_spell` — a free cast of a two-requirement spell is still
+        a cast of that spell.
+        """
+        if target_groups is not None and targets is None:
+            targets = [t for group in target_groups for t in group]
+        from_hand = obj.zone == Zone.HAND
+        self._remove_from_current_zone(player, obj)
+        obj.zone = Zone.STACK
+        # RULE 202.1: a free cast spends no mana at all — the "if no mana was
+        # spent to cast it" family (Lavinia/Boromir) keys off this rather
+        # than ``free``, since a *paid* cast can also come to 0 (see
+        # `EventType.SPELL_CAST`).
+        obj.mana_spent_to_cast = 0
+        item = StackItem(
+            kind="spell",
+            controller_id=player.id,
+            effects=self._effects_for_spell(obj),
+            obj=obj,
+            description=obj.name,
+            targets=targets,
+            target_groups=target_groups,
+        )
+        self.state.stack.append(item)
+        self.state.fire_event(
+            GameEvent(
+                EventType.SPELL_CAST,
+                player_id=player.id,
+                card_id=obj.card.id,
+                spell=obj.name,
+                instance_id=obj.instance_id,
+                object_types=sorted(obj.type_words),
+                free=True,
+                mana_spent=0,
+                from_hand=from_hand,
+            )
+        )
+        self.check_ward(item, player)
+        return item
+    def _remove_from_current_zone(self, player: Player, obj: GameObject) -> None:
+        """Pull ``obj`` out of whichever zone currently holds it.
+
+        Checks *every* player's zones, not just ``player``'s own — usually
+        the same thing (a card sits in its owner's zone, and ``player`` is
+        that owner), but not always: a Ragavan/Mnemonic Betrayal-shaped
+        temp play/cast permission (`exile_with_play_permission`/
+        `exile_graveyard_with_cast_permission`) can let ``player`` cast a
+        card actually sitting in a *different* player's exile zone (RULE
+        400.3: a card's zone is keyed by its owner, not by whoever currently
+        has permission to play it).
+
+        RULE 400.7: leaving its zone also turns a face-down exiled card
+        (Beseech the Mirror) face up — nothing stays face down across a zone
+        change, and this is the one point every cast path funnels through.
+        """
+        obj.face_down_in_exile = False
+        for candidate in self.state.players:
+            for cards in candidate.zones.values():
+                if obj in cards:
+                    cards.remove(obj)
+                    return
+        if obj in self.state.battlefield:
+            self.state.remove_from_battlefield(obj)
+    def _attachment_kind(self, obj: GameObject) -> Optional[str]:
+        """The attachment family this object uses (Aura/Equipment/etc.)."""
+        if not hasattr(obj, "parametric_keywords"):
+            return None
+        keywords = obj.parametric_keywords or {}
+        for name in ("enchant", "equip", "fortify", "reconfigure"):
+            if name in keywords:
+                return name
+        return None
+    def _attachment_legal(self, obj: GameObject, target: GameObject) -> bool:
+        """Whether ``obj`` can legally attach to ``target`` (basic MVP rules)."""
+        if target not in self.state.permanents():
+            return False  # RULE 702.26c: can't attach to a phased-out permanent
+        if target.is_battle:
+            # RULE 310.9: a battle can't be attached to, full stop. The
+            # equip/reconfigure branches below already exclude it by
+            # requiring a creature; this is what stops a broadly-worded Aura
+            # ("enchant permanent") from landing on one.
+            return False
+        kind = self._attachment_kind(obj)
+        if kind is None:
+            return False
+        if is_protected_from(target, obj):
+            # RULE 702.16c/d: protection from ``obj``'s stated quality means
+            # ``target`` can't be enchanted/equipped/fortified by it — checked
+            # here rather than only at target-selection time so a permanent
+            # that *gains* protection after ``obj`` is already attached is
+            # caught by the RULE 704.5m/n re-validation in
+            # `_revalidate_attachments`.
+            return False
+        if kind == "equip":
+            # RULE 301.5b/702.6a: "target creature you control" — control
+            # of the creature matters both when the ability is activated
+            # and when it resolves, which is why this is re-checked here
+            # rather than only at offer time (`targeting.legal_targets`).
+            # Only the Equipment's own controller may activate its equip
+            # ability (RULE 301.5d), so that's the controller who must
+            # match — not necessarily the target's *owner*.
+            return target.is_creature and target.controller_id == obj.controller_id
+        if kind == "reconfigure":
+            # RULE 702.151a: "another target creature you control."
+            return (
+                target.is_creature
+                and target.controller_id == obj.controller_id
+                and target is not obj
+            )
+        if kind == "fortify":
+            # RULE 702.67a: "target land you control."
+            return target.is_land and target.controller_id == obj.controller_id
+        if kind == "enchant":
+            quality = ((obj.parametric_keywords or {}).get(kind) or {}).get("quality", "")
+            quality = str(quality).strip().lower()
+            if not quality or quality in {"permanent", "anything"}:
+                return True
+            if quality == "creature":
+                return target.is_creature
+            if quality == "artifact":
+                return target.card.is_artifact
+            if quality == "enchantment":
+                return target.card.is_enchantment
+            if quality == "land":
+                return target.is_land
+            if quality == "planeswalker":
+                return target.is_planeswalker
+            return True
+        return True
+    def attach_to_target(self, obj: GameObject, target: GameObject) -> bool:
+        """Attach an Aura/Equipment-like object to a legal target (RULE 303/301.5)."""
+        if not self._attachment_legal(obj, target):
+            return False
+        obj.attached_to = target.instance_id
+        return True
+    def _detach_attachments_from(self, host: GameObject) -> None:
+        """Unattach permanents attached to ``host`` when it leaves the battlefield.
+
+        RULE 704.5m: an Aura not attached to a legal object goes to its
+        owner's graveyard. RULE 704.5n: an Equipment or Fortification (which
+        includes a Reconfigure permanent acting as one, RULE 702.151b) merely
+        becomes unattached and remains on the battlefield.
+        """
+        for attached in list(self.state.permanents()):
+            if attached.attached_to != host.instance_id:
+                continue
+            attached.attached_to = None
+            if self._attachment_kind(attached) == "enchant":
+                self._move_to_graveyard(attached)
+    def _revalidate_attachments(self) -> bool:
+        """RULE 704.5m/n: unattach any permanent whose attachment has become
+        illegal since it was attached, with its *host* still on the
+        battlefield (a host that leaves is `_detach_attachments_from`'s job).
+
+        Checked against the same `_attachment_legal` an initial attach uses,
+        so any new legality rule added there (protection, quality, control)
+        is re-validated here for free. Returns on the first permanent it
+        unattaches, matching every other SBA check's "one action, then
+        re-check the whole board" cadence.
+        """
+        for attached in self.state.permanents():
+            host_id = attached.attached_to
+            if host_id is None:
+                continue
+            host = self._object_by_instance_id(host_id)
+            if host is None or host not in self.state.battlefield or host.phased_out:
+                # Host leaving the battlefield is `_detach_attachments_from`'s
+                # job; a phased-out host (RULE 702.26g/`PhaseOutAllYouControl
+                # Effect`) took `attached` phased-out with it, so `attached`
+                # is already absent from `self.state.permanents()` in the
+                # normal case — this guards the same-host-different-
+                # controller edge no shipped card reaches yet.
+                continue
+            if self._attachment_legal(attached, host):
+                continue
+            attached.attached_to = None
+            if self._attachment_kind(attached) == "enchant":
+                self._move_to_graveyard(attached)  # RULE 704.5m
+            return True  # RULE 704.5n: Equipment/Fortification just unattaches
+        return False
+    @staticmethod
+    def _effects_for_spell(obj: GameObject) -> list[Any]:
+        """Effects a spell applies when it resolves.
+
+        For a permanent spell this is empty (resolving just puts it onto
+        the battlefield); instants/sorceries carry their oracle-derived
+        effects here once oracle-text parsing exists (docs/07 PART 5). The
+        game object's own ``static_effects`` list is used as a hook so
+        tests/fixtures can attach behavior without a parser yet.
+        """
+        return list(getattr(obj, "spell_effects", []))
+    @staticmethod
+    def _substitute_x(effects: list[Any], x: int) -> None:
+        """Replace the ``"x"``/``"-x"`` sentinel amount/count/power/
+        toughness on any of ``effects`` with the spell/ability's actually-
+        announced {X} (RULE 107.3c/601.2b) — ``"-x"`` is its negation, for
+        an X-scaled *debuff* whose X isn't itself negative (Toxic Deluge's
+        "All creatures get -X/-X", where X comes from an ``additional_cost``
+        life payment, not a mana ``{X}``, but is threaded through the exact
+        same ``obj.x_paid``/`StackItem.x` mechanism regardless).
+        ``"half_x_up"``/``"half_x_down"`` are the division-of-X sentinels
+        (Contaminated Drink's "you get half X rad counters, rounded up") —
+        no real card needs a plain (non-X) division yet, so this only
+        covers the {X}-scaled case.
+
+        Mirrors `_apply_entry_counters`'s ``is_x``-flag idiom, just generic
+        over every one-shot effect's magnitude field instead of one
+        hand-authored counter clause — a real int param never equals the
+        literal string ``"x"``/``"-x"``, so this can't misfire on an
+        unrelated ``amount``/``count``/``power``/``toughness`` value.
+        """
+        for effect in effects:
+            for attr in ("amount", "count", "power", "toughness"):
+                value = getattr(effect, attr, None)
+                if value == "x":
+                    setattr(effect, attr, x)
+                elif value == "-x":
+                    setattr(effect, attr, -x)
+                elif value == "half_x_up":
+                    setattr(effect, attr, -(-x // 2))  # ceiling division
+                elif value == "half_x_down":
+                    setattr(effect, attr, x // 2)
+    def resolve_top_of_stack(self) -> Optional[StackItem]:
+        """Resolve the topmost stack object (RULE 608). Returns it, or None."""
+        if not self.state.stack:
+            return None
+        item = self.state.stack.pop()  # LIFO
+        # RULE 603.1: expose the firing event for exactly this resolution, so
+        # an effect that genuinely depends on *this* firing can read it
+        # (`GameContext.trigger_event`). Restored rather than cleared,
+        # because resolving one item can recursively resolve another.
+        outer_trigger_event = self.context.trigger_event
+        self.context.trigger_event = item.trigger_event
+        try:
+            return self._apply_stack_item(item)
+        finally:
+            self.context.trigger_event = outer_trigger_event
+    def resume_deferred_effects(self) -> bool:
+        """Pick a suspended effect list back up (RULE 608.2), innermost first.
+
+        `_apply_effects_partitioned` parks the remainder of a resolution
+        whenever one of its effects opens a `pending_choice`, because the
+        game state holds only one at a time — a second interactive effect
+        running now would overwrite the first player's prompt. Called by
+        `GameEngine.resolve_until_stable` once nothing is pending, it drains
+        one entry (which may itself pause again and re-park what's left of
+        it). Returns whether anything was resumed.
+
+        The resumed effects run *outside* the `GameContext.trigger_event`
+        window their original resolution had — an effect that reads the
+        firing event has to be the one that pauses, not one after it. No
+        shipped card is shaped that way; the alternative (persisting the
+        event through the suspension) would have to survive the state
+        `clone()` that undo takes, which the event object isn't built for.
+        """
+        if self.state.pending_choice or not self.state.deferred_effects:
+            return False
+        resumed = self.state.deferred_effects.pop()
+        _apply_effects_partitioned(
+            resumed["effects"],
+            self.context,
+            resumed["targets"],
+            resumed["target_groups"],
+            source=resumed.get("source"),
+            group_index=resumed.get("group_index", 0),
+            previous_targets=resumed.get("previous_targets"),
+            created_objects=resumed.get("created_objects"),
+        )
+        return True
+    def _apply_stack_item(self, item: StackItem) -> Optional[StackItem]:
+        """Apply an already-popped stack item's effects and route the card
+        that produced it (RULE 608.2m/608.3) — `resolve_top_of_stack`'s body,
+        split out only so that method can wrap it in the
+        `GameContext.trigger_event` window."""
+        if len(item.effects) == 1 and hasattr(item.effects[0], "effects"):
+            # A single `TriggeredAbility`/`ActivatedAbility` wrapper — it
+            # owns its *own* sub-effects list (`self.effects`, invisible to
+            # this loop), so the per-effect partitioning has to happen one
+            # level down, inside its own `apply()` (`_apply_effects_
+            # partitioned`). Pass `target_groups` straight through rather
+            # than treating the wrapper itself as "one targeting effect".
+            self._substitute_x(item.effects[0].effects, item.x)
+            item.effects[0].apply(self.context, item.targets, item.target_groups)
+        else:
+            self._substitute_x(item.effects, item.x)
+            # RULE 115.1/601.2c: each effect gets only *its own* slice of
+            # the partitioned targets, not the whole shared list — see
+            # `StackItem.target_groups`. Shared with the nested (wrapper)
+            # path above so both get the same partitioning *and* the same
+            # RULE 608.2 suspend-on-pending-choice behaviour.
+            _apply_effects_partitioned(
+                item.effects, self.context, item.targets, item.target_groups
+            )
+
+        if item.kind == "spell" and item.obj is not None:
+            obj = item.obj
+            if self.is_permanent_spell(obj.card):
+                # Self-contained: fires its own SPELL_RESOLVED (may pause on
+                # an `enter_as_copy` choice first — RULE 614.1c/614.12 — so
+                # it can't rely on the shared tail below).
+                self._resolve_permanent_spell(item, obj)
+                return item
+            if obj.adventure_snapshot is not None:
+                # RULE 715.3d: the Adventure instant/sorcery resolved — exile
+                # the card (as the creature, not the spell half) instead of
+                # the graveyard; it may be cast as the creature from there.
+                snapshot = obj.adventure_snapshot
+                obj.adventure_snapshot = None
+                self.restore_face(obj, snapshot)
+                self.exile(obj)
+                obj.adventure_castable = True
+            elif obj.buyback_paid:
+                # RULE 702.27a: Buyback's additional cost was paid at cast
+                # time — return the card to its owner's hand instead of the
+                # graveyard, reusing the same zone-routing `return_to_hand`
+                # an Unsummon-style bounce uses.
+                obj.buyback_paid = False
+                self.return_to_hand(obj)
+            elif obj.cast_via_flashback:
+                # RULE 702.34a: a spell cast via Flashback is exiled instead
+                # of going to the graveyard when it resolves.
+                obj.cast_via_flashback = False
+                self.exile(obj)
+            elif obj.rebound_pending:
+                # RULE 702.88b: a Rebound spell cast from hand is exiled
+                # instead of going to the graveyard, then a delayed trigger
+                # reopens its free-cast window at the controller's next
+                # upkeep (`ReboundFreeCastWindowEffect`).
+                obj.rebound_pending = False
+                self.exile(obj)
+                self.state.delayed_triggers.append(
+                    DelayedTrigger(
+                        controller_id=obj.controller_id,
+                        step="upkeep",
+                        scope="controller",
+                        effects=[ReboundFreeCastWindowEffect(source=obj)],
+                        description=f"{obj.name}: ohne Bezahlen der Manakosten aus dem Exil wirken",
+                    )
+                )
+            elif obj.zone != Zone.STACK:
+                # One of this instant/sorcery's own resolving effects already
+                # moved it elsewhere — a trailing "Exile ~." self-exile
+                # clause (Mnemonic Betrayal/Teferi's Protection-shaped,
+                # `ExileEffect`'s ``target_kind=None`` self mode) is the only
+                # shape that does this today. Honour it instead of also
+                # routing the card to the graveyard afterward.
+                pass
+            else:
+                self._move_to_graveyard(obj)
+            self.state.fire_event(
+                GameEvent(EventType.SPELL_RESOLVED, spell=obj.name, controller_id=item.controller_id)
+            )
+
+        self.check_state_based_actions()
+        return item
+    def _resolve_permanent_spell(self, item: StackItem, obj: GameObject) -> None:
+        """Finish resolving a permanent spell (RULE 608.3): summoning
+        sickness, RULE 614.1 tapped-entry, the battlefield zone change,
+        Aura attachment, and the ENTERS_BATTLEFIELD/SPELL_RESOLVED events.
+
+        If ``obj`` carries an `enter_as_copy_effects` "you may have this
+        enter as a copy of target X" (RULE 614.1c/614.12) and/or
+        `enter_choice_effects` "as ~ enters, choose a creature type/color"
+        (RULE 601.2b), those choices must be resolved *first* — before the
+        object is ever added to the battlefield/fires ENTERS_BATTLEFIELD as
+        itself — unlike every other resolution path here, this can pause on
+        a `pending_choice` (possibly more than one, in sequence) and resume
+        later from `resolve_enter_as_copy_choice`/`resolve_enter_choice`.
+        """
+        def _finish() -> None:
+            if obj.cast_via_mutate:
+                # RULE 702.140b-d: a mutate spell never enters the
+                # battlefield as its own permanent — it merges onto the
+                # creature it targeted, which stays the surviving object
+                # (and so fires no ENTERS_BATTLEFIELD, RULE 702.140c).
+                obj.cast_via_mutate = False
+                host = next((t for t in item.targets if isinstance(t, GameObject)), None)
+                if host is not None and host in self.state.permanents():
+                    self.mutate_onto(obj, host, under=obj.mutate_under)
+                else:
+                    # RULE 608.2b: the mutate target is gone, so the spell
+                    # resolves as an ordinary creature spell instead.
+                    obj.summoning_sick = True
+                    self.state.add_to_battlefield(obj)
+                self.state.fire_event(
+                    GameEvent(
+                        EventType.SPELL_RESOLVED,
+                        spell=obj.name,
+                        controller_id=item.controller_id,
+                    )
+                )
+                self.check_state_based_actions()
+                return
+            obj.summoning_sick = True
+            # RULE 614.1: either the object's own printed tapped-entry
+            # clause, or a *different* permanent's board-wide standing
+            # effect ("Artifacts your opponents control enter tapped." —
+            # Manglehorn/Dauntless Dismantler/Archon of Emeria-shaped).
+            obj.tapped = ability_catalogue.enters_tapped(obj.card) or continuous.enters_tapped_from_static(
+                self.state, obj
+            )
+            self._apply_entry_counters(obj, x_paid=getattr(obj, "x_paid", 0) or 0)
+            # RULE 702.155b/714.3b: Read Ahead's chosen count (if any —
+            # `_offer_read_ahead` stashes it here) replaces the ordinary
+            # single lore counter `add_to_battlefield` would otherwise seed —
+            # RULE 702.155a means only the chapter matching that exact count
+            # fires; every lower chapter is skipped outright, not merely
+            # delayed, so this must never let the default chapter-1 firing
+            # happen first.
+            read_ahead_count = self._pending_read_ahead_count
+            self._pending_read_ahead_count = None
+            self.state.add_to_battlefield(obj, saga_lore_override=read_ahead_count)
+            if self._attachment_kind(obj) == "enchant":
+                targets = [t for t in item.targets if isinstance(t, GameObject)]
+                if not (targets and self.attach_to_target(obj, targets[0])):
+                    self._move_to_graveyard(obj)
+                    self.state.fire_event(
+                        GameEvent(
+                            EventType.SPELL_RESOLVED,
+                            spell=obj.name,
+                            controller_id=item.controller_id,
+                        )
+                    )
+                    self.check_state_based_actions()
+                    return
+            self.state.fire_event(
+                GameEvent(
+                    EventType.ENTERS_BATTLEFIELD,
+                    controller_id=obj.controller_id,
+                    card_id=obj.card.id,
+                    object=obj.name,
+                    instance_id=obj.instance_id,
+                    object_types=sorted(obj.type_words),
+                )
+            )
+            self.state.fire_event(
+                GameEvent(EventType.SPELL_RESOLVED, spell=obj.name, controller_id=item.controller_id)
+            )
+            self.check_state_based_actions()
+
+        def _after_enter_choices() -> None:
+            # RULE 702.155/714.3b: Read Ahead's "choose a number" pick (if
+            # any) is the last of this pipeline's entry choices, offered
+            # right before the object actually joins the battlefield.
+            self._offer_read_ahead(obj, _finish)
+
+        def _after_protector_choice() -> None:
+            # RULE 601.2b: a "choose a creature type/color" pick (if any)
+            # also happens before the object is added to the battlefield —
+            # after the enter-as-copy choice (a copy takes on the copied
+            # permanent's text, so its own "as ~ enters" clauses, if any,
+            # are what should be offered — no real card in the pool combines
+            # both, so the ordering is for correctness-in-principle only).
+            self._offer_enter_choices(obj, _after_enter_choices)
+
+        def _after_copy_choice() -> None:
+            # RULE 310.8a/310.11a: a battle's protector is chosen "as it
+            # enters", the same pre-entry window as every choice around it,
+            # so it joins this pipeline rather than getting a bespoke one.
+            self._offer_protector_choice(obj, _after_protector_choice)
+
+        if obj.enter_as_copy_effects:
+            self._offer_enter_as_copy(obj, _after_copy_choice)
+        else:
+            _after_copy_choice()
+    def _offer_protector_choice(self, obj: GameObject, continuation: Callable[[], None]) -> None:
+        """RULE 310.8a/310.11a: offer a battle's "choose a player to protect
+        it" pick *before* it's added to the battlefield — the `_offer_enter_
+        choices` sibling for battles, same continuation-passing shape.
+
+        Calls ``continuation`` immediately when there's nothing to ask: a
+        non-battle, or a battle with fewer than two eligible players. The
+        one-eligible case still *sets* the protector (RULE 310.8a is
+        mandatory, and a Siege with no protector would be swept up by RULE
+        310.10's SBA) — it just doesn't stop to ask about a choice of one.
+        With none eligible at all (a Siege in a solo goldfish, where its
+        controller has no opponents) the protector stays ``None`` and that
+        same SBA moves it to the graveyard, which is the rules-correct
+        outcome rather than a special case worth coding around here.
+        """
+        if not obj.is_battle:
+            continuation()
+            return
+        eligible = self._eligible_protectors(obj)
+        if len(eligible) < 2:
+            obj.protector_id = eligible[0].id if eligible else None
+            continuation()
+            return
+
+        self._pending_protector_obj = obj
+        self._pending_protector_continuation = continuation
+        self.state.pending_choice = {
+            "kind": "choose_protector",
+            "player_id": obj.controller_id,
+            "prompt": f"{obj.name}: Beschützer wählen (Regel 310.11a)",
+            "options": [{"id": p.id, "label": p.name} for p in eligible],
+        }
+    def resolve_protector_choice(self, answer: Optional[str]) -> None:
+        """Answer a pending `choose_protector` choice (RULE 310.8a), then
+        resume whatever `_offer_protector_choice` deferred.
+
+        Mandatory, with no "decline" option offered — an unrecognized or
+        missing ``answer`` falls back to the first eligible player, the same
+        treatment `resolve_enter_choice` gives a skipped mandatory pick.
+        """
+        choice = self.state.pending_choice
+        if not choice or choice.get("kind") != "choose_protector":
+            raise ValueError("no pending protector choice to resolve")
+        self.state.pending_choice = None
+        obj = self._pending_protector_obj
+        continuation = self._pending_protector_continuation
+        self._pending_protector_obj = None
+        self._pending_protector_continuation = None
+        if obj is not None:
+            self.choose_protector(obj, str(answer) if answer is not None else None)
+        if continuation is not None:
+            continuation()
+    def _offer_enter_as_copy(self, obj: GameObject, continuation: Callable[[], None]) -> None:
+        """RULE 614.1c/614.12: offer ``obj``'s "you may have this enter as a
+        copy of target X" choice *before* it's added to the battlefield.
+
+        Calls ``continuation`` immediately if there's no legal target to
+        offer (RULE 603.3c-style: nothing to choose, nothing pauses);
+        otherwise opens an ``enter_as_copy`` `pending_choice` and stashes
+        ``continuation`` for `resolve_enter_as_copy_choice` to resume.
+        ``obj`` is not yet on the battlefield at this point — `legal_targets`
+        only needs it for exclusion/protection checks, both fine against an
+        object that isn't in ``state.battlefield`` yet.
+        """
+        effect = obj.enter_as_copy_effects[0]
+        spec = TargetSpec(kind=effect.target_kind)
+        options = legal_targets(self.state, obj.controller_id, spec, source=obj)
+        if not options:
+            continuation()
+            return
+        choice_options = [
+            {"id": str(o["instance_id"]), "label": o["name"], "instance_id": o["instance_id"]}
+            for o in options
+            if "instance_id" in o
+        ]
+        if effect.optional:
+            choice_options.append({"id": "decline", "label": "Nichts wählen"})
+        self._pending_enter_as_copy_obj = obj
+        self._pending_enter_as_copy_effect = effect
+        self._pending_enter_as_copy_continuation = continuation
+        self.state.pending_choice = {
+            "kind": "enter_as_copy",
+            "player_id": obj.controller_id,
+            "prompt": effect.description or "Als Kopie ins Spiel kommen lassen?",
+            "options": choice_options,
+        }
+    def resolve_enter_as_copy_choice(self, answer: Optional[str]) -> None:
+        """Answer a pending `enter_as_copy` choice, then resume whatever
+        battlefield-entry work `_offer_enter_as_copy` deferred.
+
+        ``answer`` is a target's stringified ``instance_id``, or
+        ``None``/``"decline"`` to enter as itself."""
+        choice = self.state.pending_choice
+        if not choice or choice.get("kind") != "enter_as_copy":
+            raise ValueError("no pending enter-as-copy choice to resolve")
+        self.state.pending_choice = None
+        obj = self._pending_enter_as_copy_obj
+        effect = self._pending_enter_as_copy_effect
+        continuation = self._pending_enter_as_copy_continuation
+        self._pending_enter_as_copy_obj = None
+        self._pending_enter_as_copy_effect = None
+        self._pending_enter_as_copy_continuation = None
+
+        if answer is not None and answer != "decline" and obj is not None and effect is not None:
+            target = self._resolve_choice_option(choice["options"], str(answer))
+            if target is not None and target is not obj:
+                copy_mechanics.become_copy(obj, target, effect.add_types, effect.add_subtypes)
+        if continuation is not None:
+            continuation()
+    def _offer_enter_choices(self, obj: GameObject, continuation: Callable[[], None]) -> None:
+        """RULE 601.2b: offer ``obj``'s queued "as it enters, choose a
+        creature type/color" pick(s) *before* it's added to the battlefield —
+        the `enter_choice_effects` sibling of `_offer_enter_as_copy`.
+
+        Offers one at a time (a card only ever has one in the pool this
+        engine models, but the queue shape mirrors `enter_choice_effects`
+        exactly in case a future card stacks two): pops the first queued
+        effect, opens its `pending_choice`, and stashes a continuation that
+        re-enters this method for whatever remains before finally calling
+        ``continuation``. Calls ``continuation`` immediately once the queue
+        is empty (or was empty to begin with — nothing to choose, nothing
+        pauses), same as `_offer_enter_as_copy`'s no-legal-target case.
+        """
+        if not obj.enter_choice_effects:
+            continuation()
+            return
+        effect = obj.enter_choice_effects[0]
+        remaining = obj.enter_choice_effects[1:]
+
+        def _next() -> None:
+            obj.enter_choice_effects = remaining
+            self._offer_enter_choices(obj, continuation)
+
+        if isinstance(effect, ChooseCreatureTypeReplacement):
+            kind = "choose_creature_type"
+            prompt = "Kreaturentyp wählen"
+            options = [{"id": t, "label": t} for t in _creature_type_options(self.state, obj.controller_id)]
+        elif isinstance(effect, ChooseNamedModeReplacement):
+            kind = "choose_named_mode"
+            prompt = "Modus wählen"
+            options = [{"id": label.strip().lower(), "label": label} for label in effect.options]
+        else:
+            kind = "choose_color"
+            prompt = "Farbe wählen"
+            options = [{"id": color, "label": label} for color, label in self._ANY_COLOR_LABELS.items()]
+
+        if not options:
+            # RULE 601.2b's choice still has to happen in principle, but
+            # with no legal answer (e.g. a puzzle board with no creature
+            # cards anywhere) there's nothing to pause on — chosen_type/
+            # chosen_color stays None, and every dependent selector then
+            # just matches nothing, the same safe fallback an ordinary
+            # unset subtype/colour filter already gets.
+            _next()
+            return
+
+        self._pending_enter_choice_obj = obj
+        self._pending_enter_choice_effect = effect
+        self._pending_enter_choice_continuation = _next
+        self.state.pending_choice = {
+            "kind": kind,
+            "player_id": obj.controller_id,
+            "prompt": prompt,
+            "options": options,
+        }
+    def resolve_enter_choice(self, answer: Optional[str]) -> None:
+        """Answer a pending `choose_creature_type`/`choose_color` choice
+        (RULE 601.2b), then resume whatever `_offer_enter_choices` deferred —
+        which may open the *next* queued choice rather than finishing entry
+        outright.
+
+        A mandatory choice (there's no "decline" option offered at all): an
+        unrecognized/missing ``answer`` defaults to the first offered option,
+        the same treatment `resolve_add_mana_any_color_choice` gives a
+        missing mandatory answer, so a dependent selector is never silently
+        starved by a skipped pick.
+        """
+        choice = self.state.pending_choice
+        if not choice or choice.get("kind") not in (
+            "choose_creature_type", "choose_color", "choose_named_mode",
+        ):
+            raise ValueError("no pending enter-choice to resolve")
+        self.state.pending_choice = None
+        obj = self._pending_enter_choice_obj
+        continuation = self._pending_enter_choice_continuation
+        self._pending_enter_choice_obj = None
+        self._pending_enter_choice_effect = None
+        self._pending_enter_choice_continuation = None
+
+        options = choice["options"]
+        valid_ids = {str(o["id"]) for o in options}
+        chosen = str(answer) if answer is not None and str(answer) in valid_ids else (
+            str(options[0]["id"]) if options else None
+        )
+        if obj is not None and chosen is not None:
+            if choice["kind"] == "choose_creature_type":
+                obj.chosen_type = chosen
+            elif choice["kind"] == "choose_named_mode":
+                obj.chosen_mode = chosen
+            else:
+                obj.chosen_color = chosen
+        if continuation is not None:
+            continuation()
+    def _offer_read_ahead(self, obj: GameObject, continuation: Callable[[], None]) -> None:
+        """RULE 702.155/714.3b: a Saga with Read Ahead lets its controller
+        choose a number from 1 to its final chapter number as it enters,
+        instead of the ordinary single lore counter — offered *before*
+        battlefield entry, alongside `_offer_enter_as_copy`/
+        `_offer_enter_choices` (same continuation-passing shape).
+
+        RULE 702.155a: only the chapter ability whose number *exactly*
+        matches the chosen count fires — every lower chapter is skipped for
+        good (not merely delayed), so a choice of N doesn't replay chapters
+        1..N-1 first. `_finish` in `_resolve_permanent_spell` reads the
+        stashed `_pending_read_ahead_count` and passes it straight to
+        `GameState.add_to_battlefield`'s ``saga_lore_override``, which seeds
+        the Saga with that many counters and fires one `SAGA_CHAPTER` event
+        for that exact count — the same single-event shape an ordinary
+        Saga's entry uses for chapter 1.
+        """
+        final = _saga_final_chapter(obj.card)
+        if (
+            obj.is_token
+            or not obj.card.is_saga
+            or final <= 1
+            or "read_ahead" not in obj.intrinsic_keywords
+        ):
+            continuation()
+            return
+        self._pending_read_ahead_obj = obj
+        self._pending_read_ahead_continuation = continuation
+        self.state.pending_choice = {
+            "kind": "read_ahead",
+            "player_id": obj.controller_id,
+            "prompt": f"{obj.name}: Voraus lesen — Kapitelmarke wählen (1-{final})",
+            "options": [{"id": str(n), "label": f"Kapitel {n}"} for n in range(1, final + 1)],
+        }
+    def resolve_read_ahead_choice(self, answer: Optional[str]) -> None:
+        """Answer a pending `read_ahead` choice (RULE 702.155), then resume
+        whatever `_offer_read_ahead` deferred.
+
+        A mandatory choice (no "decline" option is ever offered): an
+        unrecognized/missing ``answer`` defaults to 1 (no read-ahead), the
+        same missing-mandatory-answer treatment `resolve_enter_choice` gives.
+        """
+        choice = self.state.pending_choice
+        if not choice or choice.get("kind") != "read_ahead":
+            raise ValueError("no pending read-ahead choice to resolve")
+        self.state.pending_choice = None
+        obj = self._pending_read_ahead_obj
+        continuation = self._pending_read_ahead_continuation
+        self._pending_read_ahead_obj = None
+        self._pending_read_ahead_continuation = None
+
+        valid_ids = {str(o["id"]) for o in choice["options"]}
+        chosen = str(answer) if answer is not None and str(answer) in valid_ids else "1"
+        self._pending_read_ahead_count = int(chosen) if obj is not None else None
+        if continuation is not None:
+            continuation()

@@ -860,6 +860,172 @@ def _other_creature_you_control_condition(obj: Any) -> Callable[[Any, Any], bool
     return _check
 
 
+def _kw_soulbond(obj: Any, spec: AbilitySpec, n: Any) -> list[TriggeredAbility]:
+    # RULE 702.94a: "You may pair this creature with another unpaired
+    # creature when *either* enters." Two abilities, not one — the pair
+    # can form when this creature arrives *or* when a later unpaired
+    # creature joins it — but both do the same thing, so the second is
+    # just the same effect with a group subject instead of a self one.
+    return [
+        TriggeredAbility(
+            trigger_event=EventType.ENTERS_BATTLEFIELD,
+            effects=[SoulbondPairEffect(source=obj)],
+            condition=_self_only_condition(getattr(obj, "instance_id", None)),
+            optional=True,
+            controller_id=getattr(obj, "controller_id", None),
+            source=obj,
+            description=spec.raw_text or "Soulbond",
+        ),
+        TriggeredAbility(
+            trigger_event=EventType.ENTERS_BATTLEFIELD,
+            effects=[SoulbondPairEffect(source=obj)],
+            condition=_other_creature_you_control_condition(obj),
+            optional=True,
+            controller_id=getattr(obj, "controller_id", None),
+            source=obj,
+            description=spec.raw_text or "Soulbond",
+        ),
+    ]
+
+
+def _kw_living_weapon(obj: Any, spec: AbilitySpec, n: Any) -> list[TriggeredAbility]:
+    return [
+        TriggeredAbility(
+            trigger_event=EventType.ENTERS_BATTLEFIELD,
+            effects=[LivingWeaponEffect(source=obj)],
+            condition=_self_only_condition(getattr(obj, "instance_id", None)),
+            source=obj,
+            description=spec.raw_text or "Living weapon",
+        )
+    ]
+
+
+def _kw_fading(obj: Any, spec: AbilitySpec, n: Any) -> list[TriggeredAbility]:
+    if n is None:
+        return []
+    # RULE 702.32b: "At the beginning of your upkeep, remove a fade
+    # counter from this permanent. If you can't, sacrifice it." The
+    # entry counters themselves (RULE 702.32a) are placed by
+    # `RulesEngine._apply_entry_counters`, alongside every other
+    # enters-with-counters clause.
+    controller_id = getattr(obj, "controller_id", None)
+
+    def _your_upkeep(event: Any, context: Any, cid=controller_id) -> bool:
+        if event.get("step") != "upkeep":
+            return False
+        state = getattr(context, "state", None)
+        active = getattr(state, "active_player", None) if state is not None else None
+        return active is not None and active.id == cid
+
+    return [
+        TriggeredAbility(
+            trigger_event=EventType.STEP_BEGIN,
+            effects=[RemoveCounterOrSacrificeEffect(kind="fade", source=obj)],
+            condition=_your_upkeep,
+            controller_id=controller_id,
+            source=obj,
+            description=spec.raw_text or f"Fading {n}",
+        )
+    ]
+
+
+def _kw_renown(obj: Any, spec: AbilitySpec, n: Any) -> list[TriggeredAbility]:
+    if n is None:
+        return []
+    instance_id = getattr(obj, "instance_id", None)
+
+    def _renown_ok(event: Any, context: Any, obj=obj, iid=instance_id) -> bool:
+        if event.get("source_id") != iid:
+            return False
+        if not event.get("combat") or not event.get("is_player"):
+            return False
+        return not getattr(obj, "renowned", False)
+
+    return [
+        TriggeredAbility(
+            trigger_event=EventType.DAMAGE,
+            effects=[RenownEffect(amount=int(n), source=obj)],
+            condition=_renown_ok,
+            source=obj,
+            description=spec.raw_text or f"Renown {n}",
+        )
+    ]
+
+
+def _kw_annihilator(obj: Any, spec: AbilitySpec, n: Any) -> list[TriggeredAbility]:
+    if n is None:
+        return []
+    n = int(n)
+    condition = _self_only_condition(getattr(obj, "instance_id", None))
+    return [
+        TriggeredAbility(
+            trigger_event=EventType.ATTACKS,
+            effects=[SacrificeEffect(count=n, selector="defending_player")],
+            condition=condition,
+            source=obj,
+            description=spec.raw_text or f"Annihilator {n}",
+        )
+    ]
+
+
+def _kw_afflict(obj: Any, spec: AbilitySpec, n: Any) -> list[TriggeredAbility]:
+    if n is None:
+        return []
+    n = int(n)
+    condition = _self_only_condition(getattr(obj, "instance_id", None))
+    return [
+        TriggeredAbility(
+            trigger_event=EventType.BECOMES_BLOCKED,
+            effects=[LoseLifeEffect(amount=n, selector="defending_player")],
+            condition=condition,
+            source=obj,
+            description=spec.raw_text or f"Afflict {n}",
+        )
+    ]
+
+
+def _kw_bushido(obj: Any, spec: AbilitySpec, n: Any) -> list[TriggeredAbility]:
+    if n is None:
+        return []
+    n = int(n)
+    condition = _self_only_condition(getattr(obj, "instance_id", None))
+    # RULE 702.45a: bushido triggers both when this creature blocks
+    # (BLOCKS, this object as the blocker) and when it becomes blocked
+    # (BECOMES_BLOCKED, this object as the attacker) — two abilities,
+    # each pumping only in the combat where its own event fired.
+    return [
+        TriggeredAbility(
+            trigger_event=EventType.BLOCKS,
+            effects=[PumpEffect(power=n, toughness=n)],
+            condition=condition,
+            source=obj,
+            description=spec.raw_text or f"Bushido {n}",
+        ),
+        TriggeredAbility(
+            trigger_event=EventType.BECOMES_BLOCKED,
+            effects=[PumpEffect(power=n, toughness=n)],
+            condition=condition,
+            source=obj,
+            description=spec.raw_text or f"Bushido {n}",
+        ),
+    ]
+
+
+#: `keyword["name"]` → builder, mirroring `EffectRegistry`'s dict-over-
+#: if/elif pattern. Each builder takes ``(obj, spec, n)`` and returns the
+#: real triggered abilities to synthesize for that keyword (or ``[]`` if
+#: its own ``n`` requirement isn't met) — see `_keyword_triggered_abilities`.
+_KEYWORD_TRIGGERED_BUILDERS: dict[str, Callable[[Any, AbilitySpec, Any], list[TriggeredAbility]]] = {
+    "soulbond": _kw_soulbond,
+    "living_weapon": _kw_living_weapon,
+    "fading": _kw_fading,
+    "renown": _kw_renown,
+    "annihilator": _kw_annihilator,
+    "afflict": _kw_afflict,
+    "bushido": _kw_bushido,
+}
+
+
 def _keyword_triggered_abilities(obj: Any, spec: AbilitySpec) -> list[TriggeredAbility]:
     """Synthesize real triggered abilities for combat-math keywords whose
     RULE 702 text *is* a triggered ability — annihilator (702.86), afflict
@@ -889,139 +1055,10 @@ def _keyword_triggered_abilities(obj: Any, spec: AbilitySpec) -> list[TriggeredA
     """
     keyword = spec.keyword or {}
     name = str(keyword.get("name") or "")
-
-    if name == "soulbond":
-        # RULE 702.94a: "You may pair this creature with another unpaired
-        # creature when *either* enters." Two abilities, not one — the pair
-        # can form when this creature arrives *or* when a later unpaired
-        # creature joins it — but both do the same thing, so the second is
-        # just the same effect with a group subject instead of a self one.
-        return [
-            TriggeredAbility(
-                trigger_event=EventType.ENTERS_BATTLEFIELD,
-                effects=[SoulbondPairEffect(source=obj)],
-                condition=_self_only_condition(getattr(obj, "instance_id", None)),
-                optional=True,
-                controller_id=getattr(obj, "controller_id", None),
-                source=obj,
-                description=spec.raw_text or "Soulbond",
-            ),
-            TriggeredAbility(
-                trigger_event=EventType.ENTERS_BATTLEFIELD,
-                effects=[SoulbondPairEffect(source=obj)],
-                condition=_other_creature_you_control_condition(obj),
-                optional=True,
-                controller_id=getattr(obj, "controller_id", None),
-                source=obj,
-                description=spec.raw_text or "Soulbond",
-            ),
-        ]
-
-    if name == "living_weapon":
-        return [
-            TriggeredAbility(
-                trigger_event=EventType.ENTERS_BATTLEFIELD,
-                effects=[LivingWeaponEffect(source=obj)],
-                condition=_self_only_condition(getattr(obj, "instance_id", None)),
-                source=obj,
-                description=spec.raw_text or "Living weapon",
-            )
-        ]
-
-    n = keyword.get("n")
-    if name == "fading" and n is not None:
-        # RULE 702.32b: "At the beginning of your upkeep, remove a fade
-        # counter from this permanent. If you can't, sacrifice it." The
-        # entry counters themselves (RULE 702.32a) are placed by
-        # `RulesEngine._apply_entry_counters`, alongside every other
-        # enters-with-counters clause.
-        controller_id = getattr(obj, "controller_id", None)
-
-        def _your_upkeep(event: Any, context: Any, cid=controller_id) -> bool:
-            if event.get("step") != "upkeep":
-                return False
-            state = getattr(context, "state", None)
-            active = getattr(state, "active_player", None) if state is not None else None
-            return active is not None and active.id == cid
-
-        return [
-            TriggeredAbility(
-                trigger_event=EventType.STEP_BEGIN,
-                effects=[RemoveCounterOrSacrificeEffect(kind="fade", source=obj)],
-                condition=_your_upkeep,
-                controller_id=controller_id,
-                source=obj,
-                description=spec.raw_text or f"Fading {n}",
-            )
-        ]
-
-    if name == "renown" and n is not None:
-        instance_id = getattr(obj, "instance_id", None)
-
-        def _renown_ok(event: Any, context: Any, obj=obj, iid=instance_id) -> bool:
-            if event.get("source_id") != iid:
-                return False
-            if not event.get("combat") or not event.get("is_player"):
-                return False
-            return not getattr(obj, "renowned", False)
-
-        return [
-            TriggeredAbility(
-                trigger_event=EventType.DAMAGE,
-                effects=[RenownEffect(amount=int(n), source=obj)],
-                condition=_renown_ok,
-                source=obj,
-                description=spec.raw_text or f"Renown {n}",
-            )
-        ]
-
-    if n is None:
+    builder = _KEYWORD_TRIGGERED_BUILDERS.get(name)
+    if builder is None:
         return []
-    n = int(n)
-    condition = _self_only_condition(getattr(obj, "instance_id", None))
-
-    if name == "annihilator":
-        return [
-            TriggeredAbility(
-                trigger_event=EventType.ATTACKS,
-                effects=[SacrificeEffect(count=n, selector="defending_player")],
-                condition=condition,
-                source=obj,
-                description=spec.raw_text or f"Annihilator {n}",
-            )
-        ]
-    if name == "afflict":
-        return [
-            TriggeredAbility(
-                trigger_event=EventType.BECOMES_BLOCKED,
-                effects=[LoseLifeEffect(amount=n, selector="defending_player")],
-                condition=condition,
-                source=obj,
-                description=spec.raw_text or f"Afflict {n}",
-            )
-        ]
-    if name == "bushido":
-        # RULE 702.45a: bushido triggers both when this creature blocks
-        # (BLOCKS, this object as the blocker) and when it becomes blocked
-        # (BECOMES_BLOCKED, this object as the attacker) — two abilities,
-        # each pumping only in the combat where its own event fired.
-        return [
-            TriggeredAbility(
-                trigger_event=EventType.BLOCKS,
-                effects=[PumpEffect(power=n, toughness=n)],
-                condition=condition,
-                source=obj,
-                description=spec.raw_text or f"Bushido {n}",
-            ),
-            TriggeredAbility(
-                trigger_event=EventType.BECOMES_BLOCKED,
-                effects=[PumpEffect(power=n, toughness=n)],
-                condition=condition,
-                source=obj,
-                description=spec.raw_text or f"Bushido {n}",
-            ),
-        ]
-    return []
+    return builder(obj, spec, keyword.get("n"))
 
 
 def _build_mode_entries(modes: dict[str, Any], source: Any) -> list[dict[str, Any]]:

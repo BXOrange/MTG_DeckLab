@@ -5216,6 +5216,192 @@ the spell excluded from its own discard pool, the `None` auto-pick
 fallback unchanged, and an activated ability's own discard-cost choice.
 Full suite green (2,797 tests) including `--full-cache`.
 
+### ENG-16: shared `_chosen_targets` helper in `effects.py` (2026-07-29)
+
+Pure consolidation, no behavior change — the first phase of a broader
+God-class refactor (`game_engine.py`/`rules_engine.py` are next). Seven
+`GameEffect` subclasses each independently reimplemented the identical
+RULE 115.1a "up to N target(s), off the front of a possibly-shared list"
+resolution block before calling their own `context.<verb>(...)`:
+`DestroyEffect`, `ExileEffect`, `ReturnToHandEffect`,
+`ReturnFromGraveyardEffect` (found along the way — same block, not one of
+the originally-named candidates), `TapEffect`, `AddCountersEffect`, and
+`DealDamageEffect`'s non-divided branch. Extracted one module-level
+`_chosen_targets(targets, count, target=None)` (`effects.py`, just above
+`DestroyEffect`) that all seven now call; each class keeps its own name
+(the `EffectRegistry` type-string identity), constructor params, and RULE
+comments — this only removes the duplicated body, not the classes
+themselves. `SacrificeEffect` was checked and doesn't fit: it resolves a
+*player*, not a target list, and delegates the count to
+`RulesEngine.sacrifice`. Full suite green (2,797 passed, 238 skipped)
+verifies no behavior change.
+
+### ENG-18: shared combat-damage-marker trigger scaffold (2026-07-29)
+
+Third consolidation phase of the same God-class refactor
+([ENG-16]/[ENG-17]). The backlog ticket estimated five of the nine
+`_collect_*_triggers` methods shared an identical scaffold; reading all
+nine in full found that was optimistic — only two,
+`_collect_impulsive_draw_triggers` (Ragavan) and
+`_collect_rad_counter_damage_triggers` (Glowing One/Infesting Radroach),
+are genuinely byte-for-byte identical outside their own effect
+construction: both guard on "combat damage to a player", read the
+event's own `source_id`, look up the marker on that single source, and
+resolve the damaged player + controller before building one
+`TriggeredAbility`. The other three candidates each scan a different
+domain with different filters —
+`_collect_attacks_you_rad_counter_triggers` scans every permanent
+filtered by `defending_player_id`/`requires_mode`,
+`_collect_counter_death_return_triggers` scans every permanent filtered
+by controller + a specific counter kind, and
+`_collect_mill_return_from_graveyard_triggers` scans every *graveyard*
+skipping the milling player's own — forcing one driver over all of them
+would have meant threading three more parameters through call sites that
+don't share logic, not real deduplication. Extracted only what's
+genuinely identical: `_collect_combat_damage_marker_trigger(event,
+marker_attr, build_effect, description)` now holds the shared guard/
+lookup/ability-construction, with `_collect_impulsive_draw_triggers`/
+`_collect_rad_counter_damage_triggers` supplying just their own
+`build_effect`/`description` closures. Full suite green (2,797 passed,
+238 skipped).
+
+### ENG-19: `_halvar_god_of_battle` duplicate definition removed (2026-07-29)
+
+Found while surveying `ability_catalogue.py` for parametrization potential
+during the same God-class refactor: `_halvar_god_of_battle` was defined
+twice (an early, incomplete version predating `GameEffect.
+extra_target_specs`, documented as only modeling the static double-strike
+grant since a two-independent-targets move-attachment trigger wasn't
+supported yet; and the real, complete version from the cEDH-cube batch's
+wave 6, once `extra_target_specs` shipped — see "cEDH staples cube" §
+Wave 6 above). Since `register()` re-keys the same dict entry, the second
+`register("Halvar, God of Battle", ...)` call had always won at runtime —
+this was dead code, not a live bug, so removing the first definition and
+its `register` call is a pure no-op verified by the full suite staying
+green and `engine_bench.py inspect "Halvar, God of Battle"` still showing
+all three bound abilities (triggered/activated/static).
+
+Also found in the same pass: `BACKLOG.md`'s `ENG-12` ("Brass Squire,
+Halvar, Archdruid's Charm... left unregistered") was itself stale —
+all three were fully registered by the same wave-6 batch this section
+already documents. Deleted rather than re-narrated, since the shipping
+narrative already exists above.
+
+### ENG-21: `rules_engine.py` split into per-responsibility mixins (2026-07-29)
+
+The other reorganization half of the God-class refactor ([ENG-20] was
+`game_engine.py`; [ENG-16]/[ENG-18]/[ENG-19] were this file's own
+consolidation pass, done first). The single 7,849-line `RulesEngine` class
+(236 methods) is now composed from nine mixins under a new `game/rules/`
+subpackage — `triggers_mixin.py`, `casting_mixin.py`, `draw_discard_mixin.py`,
+`damage_death_mixin.py`, `mana_counters_mixin.py`, `copies_mixin.py`,
+`search_mixin.py`, `sba_mixin.py`, `misc_mixin.py` — with `rules_engine.py`
+itself shrunk to the module docstring/helper functions, `__init__`, the
+RULE 616 replacement-effect core (`apply_replacements`/
+`_run_replacement_loop`/…, its own central entry point rather than one
+responsibility among several), and the `class RulesEngine(TriggerCollectionMixin,
+...)` composition (471 lines). Same mixin-not-delegation reasoning and same
+mechanical extraction method as [ENG-20] (an `ast`-based script pulling
+exact method spans incl. leading comments, header imports bumped one `.`
+level per mixin, function-scoped relative imports caught by a second pass);
+the one new wrinkle here was 2+ *consecutive* class-level constants
+before a single method (`_ANY_COLOR_LABELS` then `_MANA_TYPE_LABELS`
+before `add_mana_any_color`) — the first script draft's single
+`pending_const` variable silently dropped the first constant when a second
+one immediately followed, caught by the resulting `NameError` on import
+before any test ran; fixed by accumulating a list instead of one slot.
+
+Investigated both dedup items the `ENG-21` ticket had carried over from
+initial scoping, and only one held up. The 237-line `_sba_pass` **did**:
+broken into eleven `_sba_check_<name>` helpers (`sba_mixin.py`), one per
+RULE 704.5 lettered sub-check (player loss, zero toughness, zero loyalty,
+Siege defeat, battle zero-defense, battle protector, Saga completion,
+lethal damage, counter annihilation, commander-zone-choice offer — three
+checks, `_revalidate_attachments`/`_apply_legend_rule`/
+`_remove_stranded_tokens`, were already their own methods before this
+batch) called in the same order from a now-short dispatcher, each helper
+independently citable by its own RULE number. The 8-times-repeated local
+`_finish(resolved)` continuation closure **didn't**: reading all eight
+found each has a genuinely different, mechanic-specific body (damage's
+records stats and calls `lose_life`; a counters one is a 2-line call to
+`_place`; draw's does the actual draw) — what repeats is the closure's
+*name and signature* as the `on_resolved` callback `apply_replacements`
+already accepts, not duplicated logic. Extracting a wrapper around a
+2-line null-guard would trade a small amount of boilerplate for an extra
+indirection layer obscuring control flow at each of the eight call sites —
+the premature abstraction CLAUDE.md warns against, so left as-is. The
+ticket's wording is adjusted accordingly rather than silently shipped as
+originally scoped, the same honesty-over-estimate call [ENG-18] made.
+
+Verified with the full suite (2,797 passed, 238 skipped, unchanged) plus
+the opt-in `--full-cache` suite (same 4 pre-existing failures as
+[ENG-20]'s verification, reproduced independent of this change),
+`python -c "import mtg_analyzer.api.app"`, and `engine_bench.py`'s `play`
+(Mulldrifter's ETB draw-two, exercising replacement effects and triggers)
+and `combat` commands against a real `RulesEngine`.
+
+### ENG-22: `continuous.py`'s `recompute()` split into one function per layer (2026-07-29)
+
+The last God-class-refactor reorganization phase, and the highest-risk one
+by design (RULE 613 layer *order* is load-bearing, unlike the mixin splits
+in [ENG-20]/[ENG-21] where method order genuinely didn't matter). The
+single 424-line `recompute()` is now a ~15-line dispatcher calling seven
+top-level functions in the same order the inline blocks always ran in:
+`_apply_layer_2_control`, `_apply_layer_3_text`, `_apply_layer_4_type`,
+`_apply_layer_5_color`, `_apply_layer_6_ability`, `_apply_layer_7_pt`, and
+`_apply_post_layer_combat_restrictions_and_goad` (the RULE 508/509 combat-
+restriction and RULE 701.15b goad stamping that runs after the P/T pass,
+never itself a RULE 613 layer). Layer 1 (`_apply_copy_layer`) was already
+its own function before this batch. Cross-layer data flow turned out to be
+almost nonexistent — the whole reason a mechanical extraction was viable
+here despite the risk: `animation_pt` (built in layer 4, read by layer 7)
+is the *only* value that crosses a layer boundary, so `_apply_layer_4_type`
+returns it and `_apply_layer_7_pt` takes it as a parameter; `live_grant_keys`
+(layer 6) and `base` (layer 7) are each fully local to their own layer and
+needed no threading at all. Extracted via a line-range cut-and-paste script
+(exact boundaries taken from the existing `# -- Layer N:` comments, which
+already marked every seam) rather than manual retyping, to remove
+transcription risk from a function this consequential.
+
+Verified harder than [ENG-20]/[ENG-21], per the ticket's own instruction to
+go carefully here: full suite (2,797 passed, 238 skipped, unchanged), the
+opt-in `--full-cache` suite (same 4 pre-existing failures, confirmed
+unrelated), every `layer`/`continuous`/`static`-named test explicitly
+(368 passed), and three live `engine_bench.py inspect` checks exercising a
+layer this risky to touch by hand: an anthem (`--with-bear`, "Creatures you
+control get +1/+1." boosts only the controller's own Grizzly Bears, 2/2 →
+3/3, leaving the opponent's Hill Giant untouched — layers 6/7 interacting
+correctly) and Kraken of the Straits (its board-count-threshold combat
+restriction still stamps a "Kampf" trace line — the post-layer block
+reading layer 7's own output correctly).
+
+### ENG-24: `_keyword_triggered_abilities` table-driven dispatch (2026-07-29)
+
+The last consolidation-style phase of the God-class refactor, scoped down
+on inspection like [ENG-18]: the ticket named *two* long if/elif chains in
+`effect_binder.py`, but only one turned out to be one.
+`_keyword_activated_ability` (Equip/Fortify/Reconfigure) is a single `if
+name not in {"equip", "fortify", "reconfigure"}: return None` applicability
+gate followed by one shared body — there's no per-keyword branching to
+convert, since all three names build the identical `ActivatedAbility`
+shape and differ only in their description string. Left untouched.
+`_keyword_triggered_abilities` (soulbond/living_weapon/fading/renown/
+annihilator/afflict/bushido) genuinely was seven `if name == "...":
+return [...]` arms, now seven `_kw_<name>(obj, spec, n) -> list[
+TriggeredAbility]` builder functions in a `_KEYWORD_TRIGGERED_BUILDERS:
+dict[str, Callable]` table — same registry-over-if/elif pattern
+`EffectRegistry` already uses. Each builder owns its own `n`-requirement
+check (`if n is None: return []`) since the three shapes differ (fading/
+renown accept `n is not None` inline and use it differently — renown
+`int()`-casts only the amount, fading doesn't cast at all; annihilator/
+afflict/bushido reassign `n = int(n)` once and read the converted value in
+both the effect and the description) — preserved exactly per-builder
+rather than hoisting a "same for all" conversion that would have been
+wrong for two of the seven. Full suite green (2,797 passed, 238 skipped),
+`--full-cache` (same 4 pre-existing failures), and every keyword-named
+test explicitly (`annihilator`/`afflict`/`bushido`/`soulbond`/`fading`/
+`renown`/`living_weapon`, 14 passed).
+
 ## Game Engine (Phase 3)
 
 `mtg_analyzer/game/game_engine.py`, tests in `test_game_engine.py`.
@@ -5312,6 +5498,89 @@ Full suite green (2,797 tests) including `--full-cache`.
       you_control", keywords: ["dethrone"]`) — the same generic mechanism
       other keyword grants use, needing no Dethrone-specific plumbing on
       the grant side. Tests: `test_dethrone.py`.
+- [x] ENG-17: shared `_resolve_pool_cost` helper (2026-07-29) — pure
+      consolidation, part of the same God-class refactor as [ENG-16].
+      `_resolve_tap_others` and `_resolve_discard_cost` each independently
+      implemented the identical RULE 602.1 "choose N from a pool" logic
+      (auto-pick the first N when `chosen_ids` is `None`, else validate
+      `chosen_ids` names exactly N distinct eligible objects and look them
+      up). Extracted one `_resolve_pool_cost(pool, count, chosen_ids)`
+      static helper both now call with their own pool
+      (`_tap_others_pool`/`_discard_cost_pool`). `_sacrifice_candidate`/
+      `_return_to_hand_candidate` were checked and don't fit — they're a
+      single-object first-match-or-`chosen_id` shape, not a "choose N"
+      pool, and sacrifice additionally has a `"self"` special case with no
+      analogue here. Full suite green (2,797 passed, 238 skipped).
+- [x] ENG-20: `game_engine.py` split into per-responsibility mixins
+      (2026-07-29) — the reorganization half of the God-class refactor
+      ([ENG-16]-[ENG-19] were the consolidation half, done first so there
+      was less duplicated code to move). The single 4,702-line `GameEngine`
+      class (~130 methods) is now composed from eight mixins under a new
+      `game/engine/` subpackage — `turn_loop_mixin.py` (incl. `new_game`),
+      `combat_mixin.py`, `casting_mixin.py`, `lands_mixin.py`,
+      `activation_mixin.py`, `mana_mixin.py`, `legal_actions_mixin.py`,
+      `misc_mixin.py` — with `game_engine.py` itself shrunk to `__init__` +
+      the `class GameEngine(TurnLoopMixin, CombatMixin, ...)` composition
+      (73 lines). Mixins, not delegation to sub-objects, because every
+      method reads/writes the same `self.state`/`self.rules` instance
+      state and ~100 test files plus `services/game_session.py`/
+      `services/replay.py` call methods on `GameEngine` directly by name —
+      a mixin split changes zero method names/signatures, so none of those
+      callers needed touching. Extracted mechanically via a small one-off
+      script using `ast` to get exact method boundaries (incl. leading
+      comment blocks) rather than hand-copying ~130 methods; each mixin
+      file carries its own copy of the original file's whole import block
+      (simplest way to guarantee nothing's missing, at the cost of ~400
+      lines of harmless duplication across 8 files) with relative imports
+      bumped one `.` level for the new subpackage depth — caught one
+      function-scoped `from . import copy_mechanics` the same bump had to
+      apply to (`turn_loop_mixin.py`'s `_step_cleanup`), which a plain
+      header-only fix would have missed. `_COMBAT_CONDITIONS` (the only
+      class-level, non-method attribute) moved into `combat_mixin.py`
+      alongside `_combat_condition_met`, its only reader. Also folded in
+      `legal_actions`'s five near-identical per-zone cast-offer blocks
+      (hand/command/exile/graveyard/library-top) into one
+      `_offer_cast(actions, player, obj)` helper on
+      `LegalActionsMixin`. Verified with the full suite (2,797 passed, 238
+      skipped, unchanged) plus the opt-in `--full-cache` suite (its 4
+      failures reproduce identically on unmodified `HEAD`, confirmed by
+      stashing and re-running — pre-existing, not caused by this split),
+      `python -c "import mtg_analyzer.api.app"`, and `engine_bench.py`'s
+      `play`/`combat` commands against a real `GameEngine` (Lightning Bolt
+      killing a Hill Giant, a real declare-attackers/blockers/damage
+      sequence).
+- [x] ENG-23: `GameSession._dispatch` table-driven dispatch (2026-07-29) —
+      the last God-class-refactor phase outside the parser tail (`ENG-25`
+      remains, lowest priority). The 264-line if/elif chain over
+      `action["type"]` (`services/game_session.py`) is now ~15 lines: the
+      cross-cutting guards that ran before any per-kind branching (replay
+      board-editing passthrough, the mulligan/setup-phase gate, the
+      pending-choice gate, the RULE 117.1 priority gate, and the shared
+      advance/auto_turn precondition — all of which read `kind` to decide
+      whether to short-circuit *multiple* kinds at once, so they aren't
+      "dispatch" in the per-kind sense) stayed inline in `_dispatch` in
+      their original order; everything that *was* one `if kind == "X":
+      ...; return` arm became its own `_dispatch_<kind>` method, looked up
+      through a `_ACTION_HANDLERS: dict[str, Callable]` class attribute —
+      same registry-over-if/elif pattern `EffectRegistry` already uses,
+      built from plain (not-yet-bound) method references at class-body
+      time and called as `handler(self, action, active)`. `"choose"`/
+      `"decline"` share one handler (`_dispatch_choose`, which already
+      branched on the literal action type for its answer value) and
+      `"attack"`/`"declare_attackers"` share another
+      (`_dispatch_declare_attackers`), matching the original two-kinds-one-
+      branch shape. `_dispatch_declare_blockers` gained one line
+      (`state = self.engine.state`) since it was the only handler reading
+      the enclosing method's local `state` — every other handler already
+      only touched `self.engine`/`self._*` helpers. Handler bodies are
+      otherwise byte-identical to their original inline arms. Verified
+      with the full suite (2,797 passed, 238 skipped, unchanged),
+      `--full-cache` (same 4 pre-existing failures as [ENG-20]'s
+      verification — a 5th, `test_a_planechase_game_starts_with_a_face_up_
+      plane`, failed on one run and passed on immediate rerun and in
+      isolation, an existing order-dependent flake rather than anything
+      this change touches), and every `game_session`/`multiplayer`/
+      `priority`-named test explicitly (195 passed).
 
 ## Card-type & structural coverage
 

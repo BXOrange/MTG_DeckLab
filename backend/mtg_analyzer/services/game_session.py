@@ -37,7 +37,7 @@ active.
 from __future__ import annotations
 
 import uuid
-from typing import Any, Optional
+from typing import Any, Callable, Optional
 
 from mtg_analyzer.models.card import Card
 from mtg_analyzer.models.game_object import GameObject, Zone
@@ -571,21 +571,6 @@ class GameSession:
         ):
             raise ValueError(f"{active.name} does not have priority")
 
-        if kind in ("choose", "decline"):
-            # A choice is answered by an option id ("cast"/"hand"/"decline" or
-            # a card's instance id). `decline` is shorthand for the decline
-            # option; a legacy `instance_id`-only payload still works.
-            if kind == "decline":
-                answer: Any = "decline"
-            else:
-                answer = action.get("option_id")
-                if answer is None:
-                    iid = action.get("instance_id")
-                    answer = int(iid) if iid is not None else None
-            self.engine.resolve_pending_choice(answer)
-            self._after_choice()
-            return
-
         if kind in ("advance_step", "advance", "next_step", "auto_turn"):
             # Moving the turn on belongs to whoever's turn it is (RULE 500.1
             # — the active player is the one who runs out of things to do
@@ -599,173 +584,205 @@ class GameSession:
                 # `_pass_priority` ends the step itself once that happens.
                 raise ValueError("pass priority instead — the step ends when everyone passes")
 
-        if kind in ("advance_step", "advance", "next_step"):
-            # Advance exactly one step — no auto-skip, no auto-wait. The
-            # player visits every step (untap, upkeep, draw, both mains, each
-            # combat step, …) one click at a time.
-            self.engine.advance_step()
-            return
+        handler = self._ACTION_HANDLERS.get(kind)
+        if handler is None:
+            raise GameActionError(f"unknown action type: {kind!r}")
+        handler(self, action, active)
 
+    def _dispatch_choose(self, action: dict[str, Any], active: Player) -> None:
+        # A choice is answered by an option id ("cast"/"hand"/"decline" or
+        # a card's instance id). `decline` is shorthand for the decline
+        # option; a legacy `instance_id`-only payload still works.
+        if action["type"] == "decline":
+            answer: Any = "decline"
+        else:
+            answer = action.get("option_id")
+            if answer is None:
+                iid = action.get("instance_id")
+                answer = int(iid) if iid is not None else None
+        self.engine.resolve_pending_choice(answer)
+        self._after_choice()
 
-        if kind == "pass_priority":
-            # Pass priority once: resolve the top of the stack (RULE 117),
-            # one object at a time so instants can be cast in response.
-            if self.interactive_priority:
-                self._pass_priority(active)
-            else:
-                self.engine.pass_priority()
-            return
+    def _dispatch_advance_step(self, action: dict[str, Any], active: Player) -> None:
+        # Advance exactly one step — no auto-skip, no auto-wait. The
+        # player visits every step (untap, upkeep, draw, both mains, each
+        # combat step, …) one click at a time.
+        self.engine.advance_step()
 
-        if kind == "auto_turn":
-            self._auto_turn()
-            return
+    def _dispatch_pass_priority(self, action: dict[str, Any], active: Player) -> None:
+        # Pass priority once: resolve the top of the stack (RULE 117),
+        # one object at a time so instants can be cast in response.
+        if self.interactive_priority:
+            self._pass_priority(active)
+        else:
+            self.engine.pass_priority()
 
-        if kind == "play_land":
-            face = action.get("face", "front")
-            self.engine.play_land(active, self._object(action), face=face)
-            return
+    def _dispatch_auto_turn(self, action: dict[str, Any], active: Player) -> None:
+        self._auto_turn()
 
-        if kind == "set_skip_untap":
-            # RULE 502.1 "you may choose not to untap ~ during your untap
-            # step" — a standing toggle (`GameEngine.set_skip_untap`), not a
-            # per-turn prompt; see its docstring for why.
-            self.engine.set_skip_untap(active, self._object(action), bool(action.get("value", True)))
-            return
+    def _dispatch_play_land(self, action: dict[str, Any], active: Player) -> None:
+        face = action.get("face", "front")
+        self.engine.play_land(active, self._object(action), face=face)
 
-        if kind == "tap_for_mana":
-            option_index = int(action.get("option_index", 0))
-            ability_index = int(action.get("ability_index", 0))
-            tap_choices = self._resolve_tap_choices(action.get("tap_choices"))
-            color_split = self._resolve_color_split(action.get("color_split"))
-            sacrifice_choice = self._resolve_sacrifice_choice(action.get("sacrifice_choice"))
-            self.engine.tap_for_mana(
-                active, self._object(action), option_index, ability_index, tap_choices,
-                color_split=color_split, sacrifice_choice=sacrifice_choice,
-            )
-            return
+    def _dispatch_set_skip_untap(self, action: dict[str, Any], active: Player) -> None:
+        # RULE 502.1 "you may choose not to untap ~ during your untap
+        # step" — a standing toggle (`GameEngine.set_skip_untap`), not a
+        # per-turn prompt; see its docstring for why.
+        self.engine.set_skip_untap(active, self._object(action), bool(action.get("value", True)))
 
-        if kind == "activate_hand_mana":
-            # RULE 605.1a "Exile this card from your hand: Add …" (Elvish/
-            # Simian Spirit Guide) — `tap_for_mana`'s hand-zone counterpart.
-            option_index = int(action.get("option_index", 0))
-            ability_index = int(action.get("ability_index", 0))
-            color_split = self._resolve_color_split(action.get("color_split"))
-            self.engine.activate_hand_mana_ability(
-                active, self._object(action), option_index, ability_index,
-                color_split=color_split,
-            )
-            return
+    def _dispatch_tap_for_mana(self, action: dict[str, Any], active: Player) -> None:
+        option_index = int(action.get("option_index", 0))
+        ability_index = int(action.get("ability_index", 0))
+        tap_choices = self._resolve_tap_choices(action.get("tap_choices"))
+        color_split = self._resolve_color_split(action.get("color_split"))
+        sacrifice_choice = self._resolve_sacrifice_choice(action.get("sacrifice_choice"))
+        self.engine.tap_for_mana(
+            active, self._object(action), option_index, ability_index, tap_choices,
+            color_split=color_split, sacrifice_choice=sacrifice_choice,
+        )
 
-        if kind == "cast_spell":
-            # The spell goes on the stack; it does NOT auto-resolve, so the
-            # player can respond (cast an instant) or pass priority to let
-            # it resolve — real stack interaction (RULE 608).
-            targets = self._resolve_targets(action.get("targets"))
-            target_groups = self._resolve_target_groups(action.get("target_groups"))
-            x = int(action.get("x", 0))
-            face = action.get("face", "front")
-            # RULE 700.2: a modal spell's chosen mode — an index into
-            # `obj.spell_modes`, or "both" (RULE 700.2e) — round-trips from
-            # the `mode` field `GameEngine._cast_action` stamped on the
-            # offered action; absent for a non-modal spell.
-            mode = action.get("mode")
-            # RULE 702.33: how many times Kicker was paid — round-trips from
-            # `legal_actions`' `has_kicker`/`kicker_multi`/`max_kicker` the
-            # same way `x` round-trips from `has_x`/`max_x`.
-            kicked = int(action.get("kicked", 0))
-            # The remaining optional cost toggles round-trip the same way,
-            # each off the flag `GameEngine._cast_action` stamps when the
-            # spell offers it: RULE 702.27 Buyback (``has_buyback``), RULE
-            # 702.140b Mutate, RULE 701.x Bargain, and RULE 702.42a Entwine
-            # (``entwine``, which is what makes ``mode="both"`` legal on an
-            # otherwise "choose one" block).
-            self.engine.cast_spell(
-                active, self._object(action), targets, x, face=face, mode=mode,
-                kicked=kicked, target_groups=target_groups,
-                buyback=bool(action.get("buyback", False)),
-                mutate=bool(action.get("mutate", False)),
-                mutate_under=bool(action.get("mutate_under", False)),
-                bargained=bool(action.get("bargained", False)),
-                entwine=bool(action.get("entwine", False)),
-            )
-            return
+    def _dispatch_activate_hand_mana(self, action: dict[str, Any], active: Player) -> None:
+        # RULE 605.1a "Exile this card from your hand: Add …" (Elvish/
+        # Simian Spirit Guide) — `tap_for_mana`'s hand-zone counterpart.
+        option_index = int(action.get("option_index", 0))
+        ability_index = int(action.get("ability_index", 0))
+        color_split = self._resolve_color_split(action.get("color_split"))
+        self.engine.activate_hand_mana_ability(
+            active, self._object(action), option_index, ability_index,
+            color_split=color_split,
+        )
 
-        if kind == "roll_planar_die":
-            # RULE 901.6: Planechase's own special action — pay {X}, roll,
-            # and let whatever came up (chaos trigger, planeswalk, nothing)
-            # happen. Silent outside a Planechase game: `can_roll_planar_die`
-            # refuses without a planar deck.
-            self.engine.roll_planar_die(active)
-            return
+    def _dispatch_cast_spell(self, action: dict[str, Any], active: Player) -> None:
+        # The spell goes on the stack; it does NOT auto-resolve, so the
+        # player can respond (cast an instant) or pass priority to let
+        # it resolve — real stack interaction (RULE 608).
+        targets = self._resolve_targets(action.get("targets"))
+        target_groups = self._resolve_target_groups(action.get("target_groups"))
+        x = int(action.get("x", 0))
+        face = action.get("face", "front")
+        # RULE 700.2: a modal spell's chosen mode — an index into
+        # `obj.spell_modes`, or "both" (RULE 700.2e) — round-trips from
+        # the `mode` field `GameEngine._cast_action` stamped on the
+        # offered action; absent for a non-modal spell.
+        mode = action.get("mode")
+        # RULE 702.33: how many times Kicker was paid — round-trips from
+        # `legal_actions`' `has_kicker`/`kicker_multi`/`max_kicker` the
+        # same way `x` round-trips from `has_x`/`max_x`.
+        kicked = int(action.get("kicked", 0))
+        # The remaining optional cost toggles round-trip the same way,
+        # each off the flag `GameEngine._cast_action` stamps when the
+        # spell offers it: RULE 702.27 Buyback (``has_buyback``), RULE
+        # 702.140b Mutate, RULE 701.x Bargain, and RULE 702.42a Entwine
+        # (``entwine``, which is what makes ``mode="both"`` legal on an
+        # otherwise "choose one" block).
+        self.engine.cast_spell(
+            active, self._object(action), targets, x, face=face, mode=mode,
+            kicked=kicked, target_groups=target_groups,
+            buyback=bool(action.get("buyback", False)),
+            mutate=bool(action.get("mutate", False)),
+            mutate_under=bool(action.get("mutate_under", False)),
+            bargained=bool(action.get("bargained", False)),
+            entwine=bool(action.get("entwine", False)),
+        )
 
-        if kind == "turn_face_up":
-            # RULE 116.2b: the special action of turning a face-down
-            # permanent face up (morph/disguise/manifest/cloak) — no stack,
-            # so unlike `cast_spell` there's nothing to respond to and the
-            # board shows the real card the instant this returns.
-            self.engine.turn_face_up(
-                active, self._object(action), int(action.get("option_index", 0))
-            )
-            return
+    def _dispatch_roll_planar_die(self, action: dict[str, Any], active: Player) -> None:
+        # RULE 901.6: Planechase's own special action — pay {X}, roll,
+        # and let whatever came up (chaos trigger, planeswalk, nothing)
+        # happen. Silent outside a Planechase game: `can_roll_planar_die`
+        # refuses without a planar deck.
+        self.engine.roll_planar_die(active)
 
-        if kind == "activate_ability":
-            # Pay the ability's cost and put it on the stack (RULE 602); like a
-            # spell it then waits for priority to resolve.
-            targets = self._resolve_targets(action.get("targets"))
-            target_groups = self._resolve_target_groups(action.get("target_groups"))
-            x = int(action.get("x", 0))
-            index = int(action.get("ability_index", 0))
-            tap_choices = self._resolve_tap_choices(action.get("tap_choices"))
-            sacrifice_choice = self._resolve_sacrifice_choice(action.get("sacrifice_choice"))
-            self.engine.activate_ability(
-                active, self._object(action), index, targets, x, tap_choices,
-                target_groups=target_groups, sacrifice_choice=sacrifice_choice,
-            )
-            return
+    def _dispatch_turn_face_up(self, action: dict[str, Any], active: Player) -> None:
+        # RULE 116.2b: the special action of turning a face-down
+        # permanent face up (morph/disguise/manifest/cloak) — no stack,
+        # so unlike `cast_spell` there's nothing to respond to and the
+        # board shows the real card the instant this returns.
+        self.engine.turn_face_up(
+            active, self._object(action), int(action.get("option_index", 0))
+        )
 
-        if kind in ("attack", "declare_attackers"):
-            ids = action.get("instance_ids")
-            if ids is None and "instance_id" in action:
-                ids = [action["instance_id"]]
-            # A single declared defender applies to every attacker in this
-            # call (the UI declares one creature per click, each picking its
-            # own defender). None → the engine auto-assigns / bare swing.
-            defender = self._resolve_defender(action.get("defender"))
-            declarations = [
-                {"attacker": self._object_by_id(i), "defender": defender}
-                for i in (ids or [])
-            ]
-            self.engine.declare_attackers(active, declarations)
-            return
+    def _dispatch_activate_ability(self, action: dict[str, Any], active: Player) -> None:
+        # Pay the ability's cost and put it on the stack (RULE 602); like a
+        # spell it then waits for priority to resolve.
+        targets = self._resolve_targets(action.get("targets"))
+        target_groups = self._resolve_target_groups(action.get("target_groups"))
+        x = int(action.get("x", 0))
+        index = int(action.get("ability_index", 0))
+        tap_choices = self._resolve_tap_choices(action.get("tap_choices"))
+        sacrifice_choice = self._resolve_sacrifice_choice(action.get("sacrifice_choice"))
+        self.engine.activate_ability(
+            active, self._object(action), index, targets, x, tap_choices,
+            target_groups=target_groups, sacrifice_choice=sacrifice_choice,
+        )
 
-        if kind == "declare_blockers":
-            # assignments: [{"blocker": id, "attacker": id}, ...], declared by
-            # a defending player (dormant in solo goldfish — the dummy never
-            # blocks). The actor *is* the defender in multiplayer; an
-            # explicit ``player_id`` is honoured only for the solo/replay
-            # case where no actor is threaded through, and it otherwise
-            # falls back to the first non-active player.
-            defender_id = action.get("player_id")
-            blocker_player = (
-                active
-                if active is not state.active_player
-                else state.player_by_id(defender_id)
-                if defender_id
-                else next(iter(state.non_active_players()), None)
-            )
-            if blocker_player is None:
-                raise GameActionError("no defending player to declare blockers")
-            pairs = [
-                {
-                    "blocker": self._object_by_id(a["blocker"]),
-                    "attacker": self._object_by_id(a["attacker"]),
-                }
-                for a in (action.get("assignments") or [])
-            ]
-            self.engine.declare_blockers(blocker_player, pairs)
-            return
+    def _dispatch_declare_attackers(self, action: dict[str, Any], active: Player) -> None:
+        ids = action.get("instance_ids")
+        if ids is None and "instance_id" in action:
+            ids = [action["instance_id"]]
+        # A single declared defender applies to every attacker in this
+        # call (the UI declares one creature per click, each picking its
+        # own defender). None → the engine auto-assigns / bare swing.
+        defender = self._resolve_defender(action.get("defender"))
+        declarations = [
+            {"attacker": self._object_by_id(i), "defender": defender}
+            for i in (ids or [])
+        ]
+        self.engine.declare_attackers(active, declarations)
 
-        raise GameActionError(f"unknown action type: {kind!r}")
+    def _dispatch_declare_blockers(self, action: dict[str, Any], active: Player) -> None:
+        # assignments: [{"blocker": id, "attacker": id}, ...], declared by
+        # a defending player (dormant in solo goldfish — the dummy never
+        # blocks). The actor *is* the defender in multiplayer; an
+        # explicit ``player_id`` is honoured only for the solo/replay
+        # case where no actor is threaded through, and it otherwise
+        # falls back to the first non-active player.
+        state = self.engine.state
+        defender_id = action.get("player_id")
+        blocker_player = (
+            active
+            if active is not state.active_player
+            else state.player_by_id(defender_id)
+            if defender_id
+            else next(iter(state.non_active_players()), None)
+        )
+        if blocker_player is None:
+            raise GameActionError("no defending player to declare blockers")
+        pairs = [
+            {
+                "blocker": self._object_by_id(a["blocker"]),
+                "attacker": self._object_by_id(a["attacker"]),
+            }
+            for a in (action.get("assignments") or [])
+        ]
+        self.engine.declare_blockers(blocker_player, pairs)
+
+    #: `kind` (`action["type"]`) → handler, mirroring `EffectRegistry`'s own
+    #: dict-over-if/elif pattern. Each handler takes ``(session, action,
+    #: active)`` — plain functions here, not yet bound, so `_dispatch` calls
+    #: them as ``handler(self, action, active)``. The cross-cutting guards
+    #: above (setup phase, pending choice, priority, the shared
+    #: advance/auto_turn precondition) already ran by the time this is
+    #: consulted; a handler only implements what's specific to its own kind.
+    _ACTION_HANDLERS: dict[str, Callable[["GameSession", dict[str, Any], Player], None]] = {
+        "choose": _dispatch_choose,
+        "decline": _dispatch_choose,
+        "advance_step": _dispatch_advance_step,
+        "advance": _dispatch_advance_step,
+        "next_step": _dispatch_advance_step,
+        "pass_priority": _dispatch_pass_priority,
+        "auto_turn": _dispatch_auto_turn,
+        "play_land": _dispatch_play_land,
+        "set_skip_untap": _dispatch_set_skip_untap,
+        "tap_for_mana": _dispatch_tap_for_mana,
+        "activate_hand_mana": _dispatch_activate_hand_mana,
+        "cast_spell": _dispatch_cast_spell,
+        "roll_planar_die": _dispatch_roll_planar_die,
+        "turn_face_up": _dispatch_turn_face_up,
+        "activate_ability": _dispatch_activate_ability,
+        "attack": _dispatch_declare_attackers,
+        "declare_attackers": _dispatch_declare_attackers,
+        "declare_blockers": _dispatch_declare_blockers,
+    }
 
     # -- Replay editing (mode == REPLAY) -------------------------
 

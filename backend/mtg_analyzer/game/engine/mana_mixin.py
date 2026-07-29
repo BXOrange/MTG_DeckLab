@@ -1,0 +1,229 @@
+"""The game engine: turn/phase/step loop, actions, goldfish (docs/02 R4.*).
+
+Reference: docs/requirements/02_MVP_USECASES_REVISED.md R4.1-R4.3 (Game Loop, Priority,
+Action Validation), UC3 (Goldfisch), docs/07 PART 1/8.
+
+`RulesEngine` is the toolbox of rules primitives; `GameEngine` is the
+loop that drives it: it walks a `TurnSequence`, opens priority windows in
+which the stack resolves (RULE 117/608), runs step bodies (untap, draw,
+combat damage, cleanup), and exposes validated player actions (play a
+land, cast a spell, attack) plus a `legal_actions` query the UI/bot can
+ask instead of guessing (docs/02 R4.3 — the frontend has no such check
+today). `run_goldfish_turn` wires those together into a solo auto-turn
+(UC3).
+"""
+
+from __future__ import annotations
+
+import itertools
+from contextlib import contextmanager
+from typing import Any, Optional
+
+from ...models.card import Card
+from ...models.events import EventType, GameEvent
+from ...models.game_object import GameObject, Zone
+from ...models.game_state import GameState, StackItem
+from ...models.mana_cost import ManaCost
+from ...models.player import Player
+from .. import combat, condition_query, continuous, durations, face_down, variants
+from ...models import game_format
+from ...models.game_format import GameFormat, get_format
+from ..costs import (
+    DISCARD_HAND,
+    PAY_LIFE_X,
+    REMOVE_COUNTERS_ANY,
+    REMOVE_COUNTERS_X,
+    ActivationCost,
+    parse_activation_cost,
+)
+from ..effects import ActivatedAbility
+from ..mana_abilities import (
+    hand_mana_abilities_for,
+    mana_abilities_for,
+    option_label,
+    restriction_predicate_for_activation,
+    restriction_predicate_for_cast,
+    validate_color_split,
+)
+from ..phases import GamePhase, GameStep, default_turn_sequence
+from ..rules_engine import RulesEngine
+from ..targeting import (
+    TargetSpec,
+    ability_target_specs,
+    all_requirements_satisfiable,
+    legal_targets,
+    partition_targets,
+    requirements_with_targets,
+    resolved_count,
+    spell_target_specs,
+)
+from ..graveyard_cast import graveyard_cast_grant_for
+from ..top_library import (
+    may_cast_flash_from_top_of_library,
+    may_cast_spell_from_top_of_library,
+    may_play_land_from_top_of_library,
+    top_library_life_payment_required,
+)
+
+#: Maximum hand size enforced at cleanup (RULE 402.2 / 514.1).
+
+
+class ManaMixin:
+    """Tapping for mana, incl. RULE 605.1a hand-zone mana abilities."""
+
+    def tap_for_mana(
+        self,
+        player: Player,
+        source: GameObject,
+        option_index: int = 0,
+        ability_index: int = 0,
+        tap_choices: Optional[list[Any]] = None,
+        color_split: Optional[dict[str, int]] = None,
+        sacrifice_choice: Optional[int] = None,
+    ) -> dict[str, int]:
+        """Activate one of a permanent's mana abilities (RULE 605) — the
+        fast, no-stack path.
+
+        ``ability_index`` picks *which* mana ability (most permanents print
+        just one; Devoted Druid's second line isn't a mana ability at all,
+        so it never counts here); ``option_index`` then picks one of *that*
+        ability's mutually-exclusive production options (the dual-land fix:
+        a "{T}: Add {W} or {U}." land makes *one* colour, not both). Charges
+        the ability's **full** cost (RULE 602.1) — not just {T} — so e.g.
+        Selvala's {G} or Gnarlroot Trapper's 1 life are actually paid.
+        ``tap_choices`` is the player's own pick of *which* permanents pay a
+        "tap N untapped Elves you control" cost (Birchlore Rangers, Heritage
+        Druid — a real cost choice, not an auto-pick, and the source itself
+        is eligible since the printed text doesn't say "other"); ``None``
+        falls back to an auto-pick (non-interactive callers). ``color_split``
+        is only consulted for an "any combination of colours" ability
+        (`ManaAbility.any_combination` — Flamebraider/Gwenna/Smokebraider/
+        Selvala): a ``{colour: count}`` distribution across WUBRG summing to
+        the ability's resolved total, validated by `validate_color_split`;
+        ``None`` (or a non-combination ability) falls back to
+        ``option_index``'s single-colour choice, same as before this
+        parameter existed. ``sacrifice_choice`` is the same cost choice
+        `activate_ability` takes, for a "Sacrifice a creature: Add …"-shaped
+        mana ability (Ashnod's Altar); ``None`` falls back to an auto-pick.
+        Returns the mana added.
+        """
+        if source not in self.state.battlefield or source.controller_id != player.id:
+            raise ValueError("can only tap your own permanents in play")
+        if continuous.activation_prohibited(self.state, source, is_mana_ability=True):
+            # RULE 602/605.1a: a mana ability *is* an activated ability, so a
+            # blanket "activated abilities of artifacts can't be activated"
+            # (Null Rod) silences it too — unlike a prohibition printed with
+            # the "unless they're mana abilities" rider, which
+            # `activation_prohibited` skips for this call.
+            raise ValueError(f"{source.name}'s abilities can't be activated")
+        abilities = mana_abilities_for(source, state=self.state)
+        if not 0 <= ability_index < len(abilities):
+            raise ValueError(f"{source.name} has no mana ability #{ability_index}")
+        ability = abilities[ability_index]
+        cost = ability.cost
+        if not self._can_pay_activation_cost(
+            player, source, cost, x=0, tap_choices=tap_choices, sacrifice_choice=sacrifice_choice
+        ):
+            raise ValueError(f"cannot pay {source.name}'s mana ability cost")
+        if not ability.options:
+            raise ValueError(f"{source.name}'s mana ability produces nothing")
+        if ability.any_combination and color_split is not None:
+            total = sum(ability.options[0].values())
+            produced = validate_color_split(color_split, total)
+        else:
+            if not 0 <= option_index < len(ability.options):
+                raise ValueError(f"invalid mana option {option_index} for {source.name}")
+            produced = dict(ability.options[option_index])
+        self._pay_activation_cost(
+            player, source, cost, x=0, tap_choices=tap_choices, sacrifice_choice=sacrifice_choice
+        )
+        restriction = ability.restriction
+        if restriction is not None and restriction.get("kind") == "chosen_type_spell":
+            # Cavern of Souls/Unclaimed Territory-shaped: "of the chosen
+            # type" names no fixed type at parse time — resolve it here,
+            # per-instance, off this land's own RULE 601.2b ETB choice
+            # (`GameObject.chosen_type`) into the ordinary ``type_spell``
+            # shape `_restriction_allows_cast` already knows how to check.
+            restriction = {
+                "kind": "type_spell",
+                "types": [source.chosen_type] if source.chosen_type else [],
+                "allow_ability": restriction.get("allow_ability", False),
+            }
+        elif restriction is not None and restriction.get("kind") == "chosen_color_monocolored_spell":
+            # Throne of Eldraine-shaped: "monocolored spells of that color"
+            # names no fixed colour at parse time — resolve it here off this
+            # artifact's own RULE 601.2b ETB choice (`GameObject.chosen_
+            # color`) into the concrete ``monocolored_spell`` restriction
+            # `_restriction_allows_cast` checks.
+            restriction = {"kind": "monocolored_spell", "color": source.chosen_color}
+        player.mana_pool.add_many(produced, restriction=restriction)
+        if ability.self_damage:
+            # RULE 605.1a: a mana ability may have effects besides producing
+            # mana (the painland/Elves-of-Deep-Shadow "deals N damage to
+            # you" rider) — applied right alongside it, no stack involved.
+            self.rules.deal_damage(player, ability.self_damage, source=source)
+        if ability.self_rad_counters:
+            # RULE 728's own rider (Harold and Bob's granted ability) —
+            # same "applied right alongside, no stack" treatment.
+            self.rules.add_player_counters(player, ability.self_rad_counters, "rad", source=source)
+        self.state.record_stat(player.id, "mana", amount=sum(produced.values()))
+        # RULE 605.1: a "whenever ~ is tapped for mana" trigger (Price of
+        # Glory, Wild Growth, Mana Web) fires here — after the mana is in the
+        # pool — off the genuine mana-ability tap, never a plain tap-cost or
+        # an attack. Collected like any other event; the caller places pending
+        # triggers on the stack as usual.
+        self.state.fire_event(
+            GameEvent(
+                EventType.TAPPED_FOR_MANA,
+                object=source.name,
+                controller_id=player.id,
+                instance_id=source.instance_id,
+                object_types=sorted(source.type_words),
+                produced=dict(produced),
+            )
+        )
+        return produced
+    def activate_hand_mana_ability(
+        self,
+        player: Player,
+        source: GameObject,
+        option_index: int = 0,
+        ability_index: int = 0,
+        color_split: Optional[dict[str, int]] = None,
+    ) -> dict[str, int]:
+        """RULE 605.1a "Exile this card from your hand: Add …" (Elvish
+        Spirit Guide, Simian Spirit Guide) — `tap_for_mana`'s hand-zone
+        counterpart: no battlefield permanent, no {T}/summoning-sickness
+        check; the cost is exiling the card itself straight out of hand
+        (`RulesEngine.exile` already handles the hand→exile zone move and
+        its event). Every real printed card's only cost component is the
+        exile itself; a future card pairing it with e.g. a life payment
+        would need this extended, same as `tap_for_mana`'s cost handling.
+        ``option_index``/``ability_index``/``color_split`` mirror
+        `tap_for_mana`'s parameters exactly (a hand-exile ability could in
+        principle be a dual-colour choice or an "any combination of
+        colours" one, same as a battlefield one). Returns the mana added.
+        """
+        if source not in player.hand:
+            raise ValueError("can only activate a hand mana ability from your own hand")
+        abilities = hand_mana_abilities_for(source, state=self.state)
+        if not 0 <= ability_index < len(abilities):
+            raise ValueError(f"{source.name} has no hand mana ability #{ability_index}")
+        ability = abilities[ability_index]
+        if not ability.options:
+            raise ValueError(f"{source.name}'s mana ability produces nothing")
+        if ability.any_combination and color_split is not None:
+            total = sum(ability.options[0].values())
+            produced = validate_color_split(color_split, total)
+        else:
+            if not 0 <= option_index < len(ability.options):
+                raise ValueError(f"invalid mana option {option_index} for {source.name}")
+            produced = dict(ability.options[option_index])
+        self.rules.exile(source)
+        player.mana_pool.add_many(produced, restriction=ability.restriction)
+        if ability.self_damage:
+            self.rules.deal_damage(player, ability.self_damage, source=source)
+        if ability.self_rad_counters:
+            self.rules.add_player_counters(player, ability.self_rad_counters, "rad", source=source)
+        self.state.record_stat(player.id, "mana", amount=sum(produced.values()))
+        return produced

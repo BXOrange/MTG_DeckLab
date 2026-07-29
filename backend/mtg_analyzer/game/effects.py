@@ -1447,15 +1447,7 @@ class DealDamageEffect(GameEffect):
         if self.selector is not None:
             self._apply_selector(context)
             return
-        # Only this effect's own ``count`` targets, taken off the *front* of
-        # a (possibly longer) shared targets list — see `TargetSpec.count`'s
-        # docstring: a stack item's targets list is shared by every effect
-        # on it, so a single-target effect (count=1, the default) must not
-        # swallow entries meant for something else sharing the same cast.
-        chosen = (
-            targets[: self.target_spec.count] if targets
-            else ([self.target] if self.target is not None else [])
-        )
+        chosen = _chosen_targets(targets, self.target_spec.count, self.target)
         if self.divided:
             self._apply_divided(context, chosen)
             return
@@ -1691,6 +1683,23 @@ def _mass_selector_objects(
     return result
 
 
+def _chosen_targets(targets: Optional[list[Any]], count: int, target: Any = None) -> list[Any]:
+    """RULE 115.1a "up to N target(s)" resolution: only this effect's own
+    ``count`` targets, off the front of a possibly-shared list — a stack
+    item's ``targets`` list is shared by every effect on it, so a
+    single-target effect (``count=1``, the default) must not swallow entries
+    meant for something else sharing the same cast. Falls back to an
+    explicit single ``target`` (a resolve-time pronoun/self reference) only
+    when no shared list was supplied at all. Shared by `DestroyEffect`,
+    `ExileEffect`, `ReturnToHandEffect`, `ReturnFromGraveyardEffect`,
+    `TapEffect`, `AddCountersEffect` and `DealDamageEffect`, which otherwise
+    each reimplemented this identically.
+    """
+    if targets:
+        return targets[:count]
+    return [target] if target is not None else []
+
+
 class DestroyEffect(GameEffect):
     """Destroy a target permanent — or, with ``count`` > 1, every one of a
     fixed/"up to N" set of chosen target permanents (RULE 115.1a
@@ -1745,12 +1754,7 @@ class DestroyEffect(GameEffect):
             for obj in _mass_selector_objects(context, self.selector, self.filter):
                 context.destroy(obj, can_be_regenerated=self.can_be_regenerated)
             return
-        # See `DealDamageEffect.apply`'s comment: only this effect's own
-        # ``count`` targets, off the front of a possibly-shared list.
-        chosen = (
-            targets[: self.target_spec.count] if targets
-            else ([self.target] if self.target is not None else [])
-        )
+        chosen = _chosen_targets(targets, self.target_spec.count, self.target)
         for target in chosen:
             context.destroy(target, can_be_regenerated=self.can_be_regenerated)
 
@@ -2476,12 +2480,7 @@ class ExileEffect(GameEffect):
             if target is not None:
                 context.exile(target)
             return
-        # See `DealDamageEffect.apply`'s comment: only this effect's own
-        # ``count`` targets, off the front of a possibly-shared list.
-        chosen = (
-            targets[: self.target_spec.count] if targets
-            else ([self.target] if self.target is not None else [])
-        )
+        chosen = _chosen_targets(targets, self.target_spec.count, self.target)
         for target in chosen:
             if self.remember and self.source is not None:
                 self.source.linked_exile_id = target.instance_id
@@ -3263,12 +3262,7 @@ class ReturnToHandEffect(GameEffect):
                 context.return_to_hand(self.source)
             return
         if self.target_spec.count != 1:
-            # See `DestroyEffect.apply`'s comment: only this effect's own
-            # ``count`` targets, off the front of a possibly-shared list.
-            chosen = (
-                targets[: self.target_spec.count] if targets
-                else ([self.target] if self.target is not None else [])
-            )
+            chosen = _chosen_targets(targets, self.target_spec.count, self.target)
             for target in chosen:
                 context.return_to_hand(target)
             return
@@ -3338,12 +3332,7 @@ class ReturnFromGraveyardEffect(GameEffect):
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
         if self.target_spec.count != 1:
-            # See `DestroyEffect.apply`'s comment: only this effect's own
-            # ``count`` targets, off the front of a possibly-shared list.
-            chosen = (
-                targets[: self.target_spec.count] if targets
-                else ([self.target] if self.target is not None else [])
-            )
+            chosen = _chosen_targets(targets, self.target_spec.count, self.target)
             for target in chosen:
                 self._apply_one(context, target)
             return
@@ -4247,12 +4236,7 @@ class TapEffect(GameEffect):
                 context.set_tapped(target, tapped=not self.untap)
             return
         if self.target_spec is not None and self.target_spec.count != 1:
-            # See `DestroyEffect.apply`'s comment: only this effect's own
-            # ``count`` targets, off the front of a possibly-shared list.
-            chosen = (
-                targets[: self.target_spec.count] if targets
-                else ([self.target] if self.target is not None else [])
-            )
+            chosen = _chosen_targets(targets, self.target_spec.count, self.target)
             for one in chosen:
                 context.set_tapped(one, tapped=not self.untap)
             return
@@ -4758,9 +4742,7 @@ class AddCountersEffect(GameEffect):
                 context.add_counters(obj, self.amount, self.kind, source=self.source)
             return
         if self.target_spec is not None and self.target_spec.count != 1:
-            # See `DestroyEffect.apply`'s comment: only this effect's own
-            # ``count`` targets, off the front of a possibly-shared list.
-            chosen = targets[: self.target_spec.count] if targets else []
+            chosen = _chosen_targets(targets, self.target_spec.count)
             for target in chosen:
                 context.add_counters(target, self.amount, self.kind, source=self.source)
             return

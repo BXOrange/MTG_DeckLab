@@ -996,23 +996,7 @@ def _apply_ring_bearer_static(state: "GameState") -> None:
             _trace(bearer, 4, "The Ring", "legendary (Ring-bearer)")
 
 
-def recompute(state: "GameState") -> None:
-    """Re-derive every battlefield permanent's characteristics (RULE 613)."""
-    # Restore any controller a prior layer-2 pass changed, so this pass
-    # re-applies control effects from a clean base (RULE 613.2, idempotent).
-    for obj in state.battlefield:
-        if obj._control_base is not None:
-            obj.controller_id = obj._control_base
-            obj._control_base = None
-        obj.reset_derived()
-
-    # -- Layer 1: copy effects (RULE 707) — must run before `abilities` is
-    # gathered below, so a permanent that just became a copy has its freshly
-    # rebound abilities picked up by every other layer in this same pass.
-    _apply_copy_layer(state)
-
-    abilities = [ab for ab in _battlefield_static_abilities(state) if ab.layer != "cost"]
-
+def _apply_layer_2_control(state: "GameState", abilities: list) -> None:
     # -- Layer 2: control-changing effects (RULE 613.2).
     for ability in _order_control_effects(_in_layer(abilities, "control")):
         new_controller = ability.params.get("controller") or getattr(
@@ -1026,6 +1010,8 @@ def recompute(state: "GameState") -> None:
                 obj.controller_id = new_controller
                 _trace(obj, 2, _source_name(ability), f"controlled by {new_controller}")
 
+
+def _apply_layer_3_text(state: "GameState", abilities: list) -> None:
     # -- Layer 3: text-changing effects (RULE 612), scoped (see module
     # docstring): word-substitution over `effective_oracle_text`, chained in
     # timestamp order if 2+ apply to the same object.
@@ -1040,6 +1026,8 @@ def recompute(state: "GameState") -> None:
             obj._derived_oracle_text = text
             _trace(obj, 3, _source_name(ability), f"text: {replace}")
 
+
+def _apply_layer_4_type(state: "GameState", abilities: list) -> dict[int, tuple[int, int]]:
     # -- Layer 4: type-changing effects (may add "creature" + animation P/T).
     animation_pt: dict[int, tuple[int, int]] = {}
 
@@ -1121,6 +1109,10 @@ def recompute(state: "GameState") -> None:
     # non-permanent-sourced statics.
     _apply_ring_bearer_static(state)
 
+    return animation_pt
+
+
+def _apply_layer_5_color(state: "GameState", abilities: list) -> None:
     # -- Layer 5: colour-changing effects (RULE 613.4b).
     for ability in _in_layer(abilities, "color"):
         colors = [str(c).upper() for c in ability.params.get("colors", [])]
@@ -1131,6 +1123,8 @@ def recompute(state: "GameState") -> None:
             obj._derived_colors.update(colors)
             _trace(obj, 5, _source_name(ability), "becomes " + ", ".join(colors))
 
+
+def _apply_layer_6_ability(state: "GameState", abilities: list) -> None:
     # -- Layer 6: ability-adding effects (keyword / mana / triggered-ability
     # grants — RULE 613.7f). A grant is re-derived every pass exactly like
     # every other layer effect here, so it disappears on its own the moment
@@ -1260,6 +1254,10 @@ def recompute(state: "GameState") -> None:
                 _trace(obj, 6, "Until-EOT", "gains " + ", ".join(sorted(residual)),
                        duration="end_of_turn")
 
+
+def _apply_layer_7_pt(
+    state: "GameState", abilities: list, animation_pt: dict[int, tuple[int, int]]
+) -> None:
     # -- Layer 7: power/toughness, on working base values so the sublayers
     # apply in order (7a CDA → 7b set → 7c counters → 7d modify → 7e switch).
     base: dict[int, list[int]] = {}
@@ -1369,6 +1367,8 @@ def recompute(state: "GameState") -> None:
         if obj.instance_id in base:
             obj._derived_power, obj._derived_toughness = base[obj.instance_id]
 
+
+def _apply_post_layer_combat_restrictions_and_goad(state: "GameState", abilities: list) -> None:
     # -- Not a RULE 613 layer: parameterized combat restrictions (RULE
     # 508.1a/509.1b). "~ can't be blocked by creatures with power 2 or less",
     # "can't attack unless defending player controls an Island", "can't
@@ -1420,6 +1420,31 @@ def recompute(state: "GameState") -> None:
         for obj in affected_objects(state, ability):
             obj._goaded_by_static.add(goader_id)
             _trace(obj, "Kampf", _source_name(ability), "wird aufgestachelt (goaded)")
+
+
+def recompute(state: "GameState") -> None:
+    """Re-derive every battlefield permanent's characteristics (RULE 613)."""
+    # Restore any controller a prior layer-2 pass changed, so this pass
+    # re-applies control effects from a clean base (RULE 613.2, idempotent).
+    for obj in state.battlefield:
+        if obj._control_base is not None:
+            obj.controller_id = obj._control_base
+            obj._control_base = None
+        obj.reset_derived()
+
+    # -- Layer 1: copy effects (RULE 707) — must run before `abilities` is
+    # gathered below, so a permanent that just became a copy has its freshly
+    # rebound abilities picked up by every other layer in this same pass.
+    _apply_copy_layer(state)
+
+    abilities = [ab for ab in _battlefield_static_abilities(state) if ab.layer != "cost"]
+    _apply_layer_2_control(state, abilities)
+    _apply_layer_3_text(state, abilities)
+    animation_pt = _apply_layer_4_type(state, abilities)
+    _apply_layer_5_color(state, abilities)
+    _apply_layer_6_ability(state, abilities)
+    _apply_layer_7_pt(state, abilities, animation_pt)
+    _apply_post_layer_combat_restrictions_and_goad(state, abilities)
 
 
 def _cost_static_amount(ability: StaticAbility, state: "GameState", controller_id: Optional[str]) -> int:

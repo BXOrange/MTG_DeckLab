@@ -1154,32 +1154,6 @@ def _forging_the_tyrite_sword() -> list[AbilitySpec]:
 register("Forging the Tyrite Sword", _forging_the_tyrite_sword)
 
 
-def _halvar_god_of_battle() -> list[AbilitySpec]:
-    """Creatures you control that are enchanted or equipped have double strike.
-    At the beginning of each combat, you may attach target Aura or Equipment
-    attached to a creature you control to target creature you control.
-
-    — Halvar, God of Battle. The move-attachment trigger needs two
-    independent targets on one ability (the Aura/Equipment *and* its new
-    host), which isn't supported yet (`docs/Reference/11_CARD_CATALOGUE_
-    AUTHORING_GUIDE.md` §5's "at most one targeting effect per ability") —
-    a documented gap; only the static double-strike grant is modeled.
-    """
-    return [
-        AbilitySpec(
-            "static",
-            [EffectSpec("grant_keyword", {
-                "affects": "enchanted_or_equipped_creatures_you_control", "keywords": ["double_strike"],
-            })],
-            raw_text="Kreaturen, die du kontrollierst und die verzaubert oder "
-                     "ausgerüstet sind, haben Doppelschlag.",
-        )
-    ]
-
-
-register("Halvar, God of Battle", _halvar_god_of_battle)
-
-
 def _indomitable_archangel() -> list[AbilitySpec]:
     """Flying
     Metalcraft — Artifacts you control have shroud as long as you control

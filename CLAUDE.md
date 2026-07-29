@@ -242,6 +242,20 @@ GameSession (services/game_session.py) wraps an engine: snapshots/undo, wire vie
 API (api/game.py)  ── JSON ──▶  frontend (src/js/goldfishView.js)
 ```
 
+`RulesEngine`/`GameEngine` are each a **composition of per-responsibility
+mixins** (ENG-20/21, 2026-07-29) rather than one file holding every method —
+`game_engine.py`/`rules_engine.py` themselves shrank to `__init__` + (for
+`RulesEngine`) the RULE 616 replacement-effect core + the class declaration;
+everything else lives in `game/engine/*_mixin.py` (turn loop incl.
+`new_game`, combat, casting, lands, activation, mana, legal_actions, misc)
+and `game/rules/*_mixin.py` (triggers, casting resolution, damage/death,
+draw/discard, mana/counters, copies, search, state-based actions, misc
+systems). This is invisible from outside `game/`: both classes keep their
+exact public method names/signatures, so `engine.cast_spell(...)`/
+`rules.deal_damage(...)`/etc. still work exactly as before, and searching by
+method name (grep/IDE) finds the right file regardless of which mixin
+defines it.
+
 Oracle-text → behaviour pipeline (docs/09):
 `AbilitySpec` IR (`parser/oracle/spec.py`, pure JSON-shaped data, the security
 boundary) → **binder** (`game/effect_binder.py`) → live `GameEffect` objects via
