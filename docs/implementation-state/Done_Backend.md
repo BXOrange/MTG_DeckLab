@@ -4714,6 +4714,333 @@ the Phase-1 models. Tests: `test_game_engine.py`.
       legendary", the Enrage ability word — MEC-11), not on who fights.
       Tests: `test_fight.py` grew to 33.
 
+- **Monstrosity, Adapt and Goad** (2026-07-29, MEC-2 + MEC-3, RULE 701.37 /
+  701.46 / 701.15). Three keyword actions that had no primitive *and* no
+  recognition; shipped in one batch because each is engine + parser or it
+  isn't shipped at all.
+
+  **Why monstrosity and adapt are not one mechanic.** They read alike
+  ("put N +1/+1 counters on it") and the backlog ticket treated them as one,
+  but their *gates* differ in kind: monstrosity's is a **designation**
+  (701.37b — once monstrous, always monstrous until it leaves the
+  battlefield), adapt's is the creature's **current counters** (701.46a), so
+  adapt can happen again and again as counters come and go. Sharing an
+  implementation would have meant one of them carrying a flag it must never
+  read. So: `RulesEngine.monstrosity` (atomic for the same reason
+  `RenownEffect` is — the 701.37a guard, the counters and the flag are a
+  single conditional, and two steps would put counters on a second
+  activation) and a separate `RulesEngine.adapt`. Adapt correspondingly gets
+  **no** event and no designation, and its cards' "as long as ~ has a +1/+1
+  counter on it" statics needed nothing new at all — that is the layer
+  engine's existing `min_level` gate with `level_counter="+1/+1"`.
+
+  **What the designation is for.** `GameObject.is_monstrous` exists so two
+  other things can read it: `EventType.BECAME_MONSTROUS` (fired only on the
+  transition, so a second activation is silent) and the RULE 613.6
+  conditional static "as long as ~ is monstrous, it has `<keywords>`" — a new
+  `requires_monstrous` gate in `group_selector_objects`, sitting with
+  `active_player_only`/`min_level`/`min_count_selector` rather than being a
+  layer of its own. Fleecemane Lion's hexproof therefore *appears and
+  disappears* with the designation on every recompute instead of being
+  granted once at resolution. `monstrosity_x` records 701.37c's "the value
+  of X as it became monstrous". Both are cleared by `reset_as_new_object`,
+  which is exactly 701.37b's "until it leaves the battlefield".
+
+  **Goad's two requirements land in two different places**, and that is the
+  whole design. "Attacks each combat if able" (701.15b) is the *same*
+  requirement the `attacks_if_able` flag keyword already imposes, so it
+  rides the same `_enforce_attacks_if_able` check rather than a parallel
+  one. "Attacks a player other than the goader if able" cannot be judged
+  creature-by-creature at declaration time — it is about the finished
+  attack — so it is a new `_enforce_goad_requirements` beside
+  `_enforce_attack_alone_restrictions`, on the way *out* of the
+  declare-attackers step, which is where this engine already puts
+  whole-attack requirements. One subtlety cost a debugging round and is
+  worth keeping: that check asks `_attack_conditions_ok`, **not**
+  `_can_attack`. By the time it runs the creature is declared and (without
+  vigilance) tapped, so `_can_attack` would answer "no legal alternative
+  existed" for every defender — it would be reading the state the very
+  declaration under audit created. Everything `_can_attack` adds beyond the
+  per-defender conditions is defender-independent and was already checked
+  when `declare_attackers` accepted the creature.
+
+  **Goaded is a set of goaders, not a flag.** RULE 701.15c (several players
+  goading = several requirements) and 701.15d (the same player twice = no
+  extra requirement) both fall straight out of that, and 701.15a's "until
+  the next turn of the controller" becomes a one-line sweep in `begin_turn`
+  discarding the incoming active player's own id — the same "until your next
+  turn" duration the player-effect and replacement-effect sweeps above it
+  use, keyed per-goader on the creature because goaded is a designation and
+  not an effect. The **static** half ("Enchanted creature gets +2/+2 and is
+  goaded", 8 cards — the most common goad phrasing printed) is deliberately
+  a *second* store, `_goaded_by_static`, re-derived every recompute: an
+  Aura's designation must vanish with the Aura, which the sticky
+  resolve-time set must not. `combat.goaders` unions them, the way
+  `combat_restrictions` already unions its standing and until-end-of-turn
+  halves. The static binds to a new `goaded` "layer" that isn't a RULE 613
+  layer at all — goaded is explicitly neither an ability nor a copiable
+  value (701.15b), so it can't be a layer-6 grant; `continuous.recompute`
+  stamps it in the same non-613 bucket as the combat restrictions, after the
+  P/T pass for the same reason (a power-scoped goad scope must see this
+  pass's anthems).
+
+  Parser: `monstrosity <n>|x` and `adapt <n>` effect rows; `goad {TARGET}`
+  plus its pronoun form (`previous_subject_only`, "goad that creature",
+  7 cards) and mass form (`goad all creatures your opponents control` over a
+  new `creatures_opponents_control` **group** selector — the name already
+  existed as a `count_selector`, so one idiom now covers both counting and
+  acting); `becomes monstrous` as a `_TRIGGER_VERBS` row, which also gets
+  "when ~ enters **or** becomes monstrous" (Alpha Deathclaw) free through
+  the existing compound-verb path; and three static rows — the "…and is
+  goaded" tail on `_ATTACHED_ANTHEM_RE`/`_ATTACHED_GRANT_RE`, the bare
+  "enchanted creature is goaded", and `_MONSTROUS_GRANT_RE`.
+  `requires_monstrous` had to be added to `_SELECTOR_KEYS` or it would have
+  been silently dropped at bind time — the standing trap for a new selector
+  param.
+
+  Yield: +28 cards cache-wide with **zero regressions** (9,344 → 9,372,
+  27.4%), `PARSER_VERSION` 39 — and Acquired Mutation, the one card MEC-3
+  named, which had been sitting UNMODELED on its goad line alone since the
+  rad-counter batch (`test_rad_counter_deferred_gaps.py`'s assertion that it
+  stays unmodeled was inverted to assert the opposite). Both tickets' card
+  estimates were stale in opposite directions: MEC-2 claimed ~63 monstrosity
+  cards (the cache has 43), MEC-3 claimed Acquired Mutation was "the one
+  blocked real card" (85 cards mention goad). What is left is genuinely
+  *not* about these mechanics — a variable target count, a
+  power-comparison scope, a token-creation referent, a goaded-filter trigger
+  subject, and a compound "as long as" tail — enumerated as MEC-12/MEC-13
+  rather than left implied.
+  Tests: `test_monstrosity_adapt_goad.py` (26), covering both no-op gates,
+  the designation's death on a zone change, the conditional static appearing
+  only once monstrous, goad expiry on the goader's turn (and *not* on
+  anyone else's), the two-player "may attack its goader" case that makes
+  goad inert in 1v1, and the static-vs-sticky distinction.
+
+- **"As long as" and "until": one condition vocabulary and one duration
+  system** (2026-07-29, MEC-13 + PAR-11, RULE 613.6 / RULE 611). The user
+  asked for MEC-13 and for the generic mechanism underneath it, and the
+  second is what this entry is mostly about.
+
+  **The problem.** Conditional statics had arrived one card at a time, and
+  each had added its own parameter to `continuous.group_selector_objects`:
+  ``active_player_only`` (Nahiri's "during your turn"), ``min_level``/
+  ``max_level`` (a Class/Leveler's own counters), ``min_count_selector``
+  (Metalcraft), and — shipped hours earlier in the monstrosity batch —
+  ``requires_monstrous``. Four `if`s returning `[]`, four entries in
+  `effects._SELECTOR_KEYS`, four chances to hit the trap where an
+  unwhitelisted selector param is silently dropped. Measuring first showed
+  why that pattern had to stop rather than continue: **"as long as" leads
+  ~250 clauses in the cache**, across at least five unrelated families (the
+  source's own state, an attached permanent's characteristics, a board
+  count, whose turn it is, a player's life/hand). The next dozen cards would
+  have been the next dozen parameters.
+
+  **`game/static_conditions.py`** is the single evaluation path: a whitelisted
+  ``{"kind": …}`` dict, carried by *any* static in its ``active_if`` param and
+  evaluated live on every recompute against the ability's own source and
+  controller. Live evaluation is the whole trick — "as long as ~ is untapped"
+  turns itself off the moment the permanent taps, with no event, no trigger
+  and no bookkeeping anywhere. The four legacy gates keep their spelling in
+  every shipped spec and are *translated* into this vocabulary
+  (`condition_from_legacy_params`) rather than evaluated separately, so there
+  is one implementation and no migration of existing cards.
+
+  Two naming decisions worth keeping. The param is ``active_if``, not
+  ``condition``: a ``combat_restriction`` static already carries a
+  ``condition`` of its own from the *combat-time* vocabulary ("~ can't attack
+  unless defending player controls an Island"), and one key holding two
+  vocabularies made each fail closed on the other's dicts — caught
+  immediately by four `test_qualified_combat_restrictions` failures, which is
+  exactly what that suite is for. And this module is deliberately *not*
+  `condition_query.py` (a cast/activation-legality gate that must work for a
+  card in hand) nor `spec.py`'s ``_ALLOWED_CONDITION_KEYS`` (whether a
+  resolving one-shot applies): three different questions, three whitelists,
+  per docs/09.
+
+  **The parser side is a pure wrapper.** `_conditional_static_specs` parses
+  the gate, hands the *bare* static back to `static_effect_specs`, and stamps
+  ``active_if`` on every spec that comes back — so no family needs a
+  conditional variant of itself, and both printed orders ("As long as X,
+  Y" / "Y as long as X") produce identical specs. Making that work needed the
+  first **self-scoped** anthem/grant rows the catalogue had ("~ gets +2/+2",
+  "~ has trample"): real cards print that shape almost only *inside* a
+  conditional, which is why they'd never been needed. Fail-closed in the
+  direction that matters — an unrecognised condition kills the whole clause
+  rather than degrading to an ungated static, since a static that should be
+  gated but isn't is strictly worse than an unmodeled card.
+
+  **Durations (`game/durations.py`)** are the time-bound half. The existing
+  ``temp_power``/``temp_keywords``/``temp_protections`` fields *are* "until
+  end of turn" — cleared wholesale at RULE 514.2 cleanup, with nowhere to
+  record any other ending — so "until your next turn" (120 occurrences),
+  "until end of combat" and RULE 611.2b's "for as long as `<condition>`" were
+  structurally unreachable. A RULE 611 continuous effect created by a
+  resolving spell now lives on `GameState.floating_statics` as an ordinary
+  `StaticAbility` (same layers, same timestamps, same dependency pass; it
+  deep-copies with `clone` because it is plain data) and is swept at the
+  window its duration names — cleanup, end of combat, the granting player's
+  next turn, the next end step. Existing until-EOT effects deliberately stay
+  on the `temp_*` path: one phrasing, one implementation, and the parser
+  routes only the durations `temp_*` can't express to `GrantUntilEffect`.
+
+  The subtlest piece is that a ``for_as_long_as`` duration must **remove** the
+  effect when its condition fails, not skip it — otherwise it is silently an
+  ``active_if`` gate, and the two are indistinguishable from outside until a
+  card's effect wrongly comes back. A test asserting exactly that (bring the
+  named permanent back; the grant must stay gone) caught the first
+  implementation, which only filtered. Unknown durations fail closed in the
+  *visible* direction — treated as ``rest_of_game`` and never swept, so a
+  mis-parse leaves a lingering effect rather than silently deleting a
+  legitimate one.
+
+  **MEC-13** then falls out as a small consumer: a combat-permission tail on
+  the grant rows ("…has trample **and can attack as though it didn't have
+  defender**") plus the new ``attacks_as_though_no_defender`` restriction —
+  which is a RULE 508.1a *permission*, not a keyword removal, so the creature
+  keeps Defender and only `_can_attack` is affected. 15 real cards print that
+  phrase; the ticket had it as one.
+
+  **PAR-11 closed by composition, with no new primitive at all** — the best
+  evidence the generalization was the right shape. "Tap target land. It
+  doesn't untap during its controller's untap step for as long as ~ remains
+  tapped." is the fight batch's `previous_subject` pronoun + batch 8's
+  ``no_untap`` static + this batch's condition-bounded duration; all three
+  existed, and had simply never met. It needed one handler row and one
+  widening: `segmenter._CREATURE_TARGET_KINDS` now also accepts a
+  land/artifact/permanent antecedent, since a pronoun pointing at a land is
+  no more ambiguous than one pointing at a creature. 8 of 23 lock-down cards
+  now model — and with them **`no_untap_optional` became reachable by 6 real
+  cards**, which was that ticket's entire premise (the engine, `legal_actions`
+  and the frontend toggle had all shipped in batch 8 with no card able to
+  reach them).
+
+  Yield: **+125 cards cache-wide with zero regressions** (9,344 → 9,469,
+  27.7%), `PARSER_VERSION` 41. Tests:
+  `test_static_conditions_and_durations.py` (27) — the condition vocabulary
+  unit by unit, conditions through the layer engine (on, off, and on again),
+  each duration at its own window, the ``for_as_long_as``-vs-gate
+  distinction, the fail-closed directions, MEC-13's card end to end, and the
+  composed lock-down family. What's left is whitelist width, not mechanism:
+  MEC-14 (conditions about the *attached* permanent, opponent-scoped counts)
+  and PAR-11's residue — both closed by the batch below.
+
+- **Goad's four residues and the rest of the "as long as" vocabulary**
+  (2026-07-29, MEC-12 + MEC-14, both closed in full). Neither ticket was
+  really about its headline mechanic, which is why they were worth taking
+  together: goad was only the card pool that made four *unrelated* system
+  gaps visible first, and MEC-14 was the widening that turned out to need one
+  new idea rather than four new rows.
+
+  **The condition subject (`of`) is the load-bearing part of MEC-14.** The
+  ticket read as four separate whitelist entries; the biggest of them
+  ("as long as **enchanted permanent** is a creature"/"…is red"/"…is a
+  Vehicle", ~52 cards) is not a new *kind* at all but a new *subject*: the
+  condition is about the Aura's host, not the Aura (RULE 303.4a), and an Aura
+  is never itself a creature, so reading the source made those conditions
+  permanently false. `static_conditions.condition_holds` now resolves a
+  subject first (`CONDITION_SUBJECTS`: ``source`` — the default and what
+  every shipped spec means — ``attached``, ``affected``), which makes *every*
+  existing ``source_*`` kind work on an attached host for free rather than
+  needing an `attached_*` twin per kind. Three characteristic kinds
+  (``is_card_type``/``is_color``/``is_subtype``) read through `continuous`'s
+  own matchers, so a *derived* type counts — an animated Vehicle is a
+  creature for "as long as enchanted permanent is a creature", which is
+  exactly what those cards are for. The remaining three phrasings were the
+  ordinary rows the ticket predicted (``drawn_cards_at_least`` off the
+  already-existing `GameState.cards_drawn_this_turn`; ``opponent_count``, the
+  opponent-scoped sibling of ``control_count``, satisfied by *any one*
+  opponent because that is what "an opponent has …" means).
+
+  The parser half needed one thing beyond the rows: `_conditional_static_
+  specs` rewrites the inner clause's pronoun to whichever attached-subject
+  phrase the gate used ("As long as enchanted permanent is a Vehicle, **it**'s
+  a creature…" → "enchanted permanent is a creature…"), so the body parses
+  through the ordinary `_ATTACHED_*` rows with no conditional variant — the
+  same "the wrapper stays a pure wrapper" discipline the previous batch set.
+
+  ``of="affected"`` closes **PAR-11's residue** in the same pass: "…doesn't
+  untap for as long as **it** has a paralyzation counter on it", where "it"
+  is the *locked* permanent. Only the floating static holds that referent
+  (`StaticAbility.object_ids`), so `durations.is_expired` supplies it and a
+  multi-object static yields none — the condition then fails closed, which is
+  right, because a group static has no single referent to mean.
+
+  **RULE 702.94b soulbond** finally reaches an engine primitive that had been
+  sitting unused: the ``soulbond_pair`` selector shipped with the cEDH cube
+  batch and nothing could say "each of those creatures has …" to it. Three
+  rows (quoted grant, anthem, bare keyword) and the pool parses. A good
+  reminder of why this repo's batch discipline says to grep for an existing
+  primitive first — the "missing mechanism" was a phrase.
+
+  **MEC-12(a), a target count read off the board.** The ticket described
+  Death Kiss's "goad up to **X** target creatures"; measuring first showed
+  that shape is *one* card, while four others print "**for each opponent**,
+  goad up to one target creature that player controls" — which is the same
+  feature (a `TargetSpec.count_selector` resolved at announce time, RULE
+  601.2c) with `distinct_controllers`, already shipped, doing the "that
+  player" half. The interesting constraint was the trigger path: it gathers
+  exactly one pick per spec, so `targeting.expand_counts` splits a
+  multi-target requirement into one round each and `collapse_groups` merges
+  them back before resolution, keeping `_apply_effects_partitioned`'s
+  one-group-per-`target_specs`-entry contract intact. RULE 115.1a's "stop
+  before N" needed its own answer (`"stop"`) rather than overloading the "you
+  may" decline — stopping keeps the ability and resolves it against what was
+  picked, declining abandons it — and RULE 601.2c's "not the same object
+  twice" is enforced within a span. An all-ones `spans` means nothing was
+  expanded, so every pre-existing path is byte-for-byte unchanged.
+
+  **MEC-12(b), a dynamic threshold on a group scope.** "Creatures your
+  opponents control **with power less than ~'s power** are goaded" can't use
+  the literal `min_power`/`max_power` the scope already had, because ~'s own
+  power is itself layer-engine output — an anthem on ~ moves the threshold.
+  `continuous.dynamic_threshold` reads either the source's derived
+  characteristics or `count_selector`'s whole board-count list, since both
+  appear in that same printed position.
+
+  **MEC-12(c), naming what the previous clause created.** `GameContext.
+  created_objects` is `previous_targets`' sibling and exists for the same
+  reason: those tokens were never targeted and did not exist when the ability
+  went on the stack, so no `TargetSpec` can name them.
+  `LivingWeaponEffect`'s docstring had recorded this gap from the other side
+  since it shipped ("there's no vocabulary for whatever the previous effect
+  just made") — an atomic effect class per verb pair was the only alternative.
+  Scoped per resolution and threaded through a RULE 608.2 suspension the same
+  way `previous_targets` is. Reaching it from card text also wanted "**each
+  player/opponent** creates" and "creates a **tapped** …" (RULE 110.5a —
+  applied as the token enters, not as a later tap), both of which the token
+  grammar simply hadn't had. The duration itself is a second designation set
+  (`GameObject.goaded_permanently`) rather than a per-entry expiry stamp: the
+  only thing these cards change about RULE 701.15a is the duration, so the
+  turn-begin sweep just never touches that set and `combat.goaders` unions
+  all three.
+
+  **MEC-12(d), a trigger subject filtered on a designation.** "Whenever a
+  **goaded** creature attacks/dies" is neither a type, a subtype nor a
+  controller, so it is its own key on the group filter. The RULE 400.7
+  wrinkle is the familiar one: a DIES event's object is already gone, so
+  ``goaded`` and ``in_combat`` are snapshotted onto the event at fire time
+  exactly as ``object_types``/``subtypes``/``counters`` already were — and
+  ``in_combat`` has to be, since RULE 506.4 removes a permanent from combat
+  as it leaves the battlefield, so even a live lookup would answer wrongly.
+
+  **Frontend**: `continuous.active_static_abilities` now carries each
+  static's two *bounds* — ``duration`` (RULE 611, empty for a standing one)
+  and ``condition`` (RULE 613.6's gate) — plus ``active``, whether that gate
+  holds right now, and the board's "Statische Effekte" panel shows them as
+  badges. A gated static that is currently off is **dimmed rather than
+  hidden**: it is genuinely in play and applies again the moment its
+  condition becomes true, which is the whole reason showing the condition is
+  worth anything. Without this, an effect that ends at end of combat and one
+  that lasts forever were indistinguishable on the board.
+
+  Yield: **+58 cards cache-wide with zero regressions** (9,469 → 9,527,
+  27.9%), `PARSER_VERSION` 42, 44 tests in
+  `test_goad_residues_and_condition_subjects.py`. Both tickets are closed
+  entirely — the goad pool's residue that remains (Rendmaw's "whenever you
+  play a card with two or more card types", Baeloth's "choose a Background",
+  Life of the Party's copy-token) is ordinary [PAR-12] tail work on clauses
+  that have nothing to do with goad.
+
 ## Game Engine (Phase 3)
 
 `mtg_analyzer/game/game_engine.py`, tests in `test_game_engine.py`.

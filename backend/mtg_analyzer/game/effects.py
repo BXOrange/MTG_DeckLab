@@ -83,6 +83,21 @@ class GameContext:
         #: referent is the last thing actually chosen, not the last thing that
         #: happened.
         self.previous_targets: list[Any] = []
+        #: The permanents an earlier clause of this same resolution **just
+        #: created**, for a follow-up clause whose subject is "the tokens" /
+        #: "that token" — "…each player creates a tapped 2/2 Bird. **The
+        #: tokens** are goaded for the rest of the game." (Rendmaw).
+        #:
+        #: `previous_targets`' sibling and the reason it isn't enough: those
+        #: objects were never *targeted*, and never existed at all when the
+        #: ability was put on the stack, so no `TargetSpec` can name them.
+        #: `LivingWeaponEffect`'s docstring records the same gap from the
+        #: other side ("there's no vocabulary for whatever the previous
+        #: effect just made") — an atomic effect class per verb pair was the
+        #: only alternative. Maintained by `_apply_effects_partitioned`
+        #: alongside `previous_targets`, and appended to (not replaced) by a
+        #: creating effect, since "each player creates …" makes several.
+        self.created_objects: list[Any] = []
 
     @property
     def players(self) -> list["Player"]:
@@ -124,6 +139,18 @@ class GameContext:
 
     def lose_game(self, player: "Player", reason: str = "effect") -> None:
         self.engine._player_loses(player, reason)
+
+    def monstrosity(self, target: "GameObject", amount: int = 1) -> bool:
+        # RULE 701.37a.
+        return self.engine.monstrosity(target, amount)
+
+    def adapt(self, target: "GameObject", amount: int = 1) -> bool:
+        # RULE 701.46a.
+        return self.engine.adapt(target, amount)
+
+    def goad(self, target: "GameObject", goader_id: str, permanent: bool = False) -> None:
+        # RULE 701.15a; ``permanent`` is the "for the rest of the game" form.
+        self.engine.goad(target, goader_id, permanent=permanent)
 
     def become_monarch(self, player: "Player") -> None:
         self.engine.become_monarch(player)
@@ -184,8 +211,10 @@ class GameContext:
 
         continuous.recompute(self.state)
 
-    def create_token(self, controller_id: str, token_card: Any, count: int = 1) -> None:
-        self.engine.create_token(controller_id, token_card, count)
+    def create_token(self, controller_id: str, token_card: Any, count: int = 1) -> list[Any]:
+        # Returns what it made (RULE 111.5) so a caller can keep the referent
+        # for a following "the tokens …" clause — see `created_objects`.
+        return self.engine.create_token(controller_id, token_card, count)
 
     def copy_permanent(self, controller_id: str, source: "GameObject", count: int = 1) -> None:
         self.engine.copy_permanent(controller_id, source, count)
@@ -488,6 +517,7 @@ def _apply_effects_partitioned(
     source: Optional["GameObject"] = None,
     group_index: int = 0,
     previous_targets: Optional[list[Any]] = None,
+    created_objects: Optional[list[Any]] = None,
 ) -> None:
     """Apply each of ``effects`` against its own share of ``targets``.
 
@@ -517,11 +547,17 @@ def _apply_effects_partitioned(
     don't control."). It is threaded here rather than kept on the context
     alone so a resumed remainder (below) picks the referent back up, and
     restored afterwards so a nested resolution can't leak its own.
+    `GameContext.created_objects` ("**The tokens** are goaded…") is scoped
+    the same way; ``created_objects`` is only ever passed by a *resumed*
+    remainder picking its own referent back up, so a fresh resolution always
+    starts empty and can't point at something an unrelated one made.
     """
     state = getattr(context, "state", None)
     already_pending = getattr(state, "pending_choice", None) if state is not None else None
     outer_previous = getattr(context, "previous_targets", [])
+    outer_created = getattr(context, "created_objects", [])
     context.previous_targets = list(previous_targets or [])
+    context.created_objects = list(created_objects or [])
     try:
         for position, effect in enumerate(effects):
             if source is not None and effect.source is None:
@@ -555,11 +591,13 @@ def _apply_effects_partitioned(
                         "group_index": group_index,
                         "source": source,
                         "previous_targets": list(context.previous_targets),
+                        "created_objects": list(context.created_objects),
                     }
                 )
                 return
     finally:
         context.previous_targets = outer_previous
+        context.created_objects = outer_created
 
 
 # ---------------------------------------------------------------------------
@@ -650,12 +688,29 @@ class StaticAbility(GameEffect):
         params: Optional[dict[str, Any]] = None,
         source: Optional["GameObject"] = None,
         description: str = "",
+        duration: Optional[str] = None,
+        duration_data: Optional[dict[str, Any]] = None,
     ) -> None:
         super().__init__(source)
         self.layer = layer
         self.affects = affects
         self.params = params or {}
         self.description = description
+        #: RULE 611: how long this continuous effect lasts, for one created by
+        #: a *resolving* spell/ability and parked in `GameState.
+        #: floating_statics` ("until your next turn, …"). ``None`` — the
+        #: overwhelming majority — is a permanent's own printed static, which
+        #: lasts exactly as long as the permanent is on the battlefield and
+        #: needs no duration at all. See `game/durations.py`.
+        self.duration = duration
+        #: Per-duration payload: ``{"player_id": …}`` for ``your_next_turn``
+        #: (whose turn ends it), ``{"condition": …}`` for ``for_as_long_as``.
+        self.duration_data = duration_data or {}
+        #: The objects a floating static applies to when it was created for
+        #: specific permanents ("target creature gains flying until …") — an
+        #: instance-id list, since the affected object is chosen at
+        #: resolution and can't be a selector. Empty = use ``affects``.
+        self.object_ids: list[int] = []
 
     @property
     def layer_number(self) -> int:
@@ -4735,6 +4790,239 @@ class RenownEffect(GameEffect):
         context.fire_event(GameEvent(EventType.RENOWNED, instance_id=self.source.instance_id))
 
 
+class GrantUntilEffect(GameEffect):
+    """RULE 611: create a continuous effect that lasts for a stated duration.
+
+    The resolve-time counterpart of a permanent's printed static ability, and
+    the general form of every "…until end of turn"-shaped grant: it builds a
+    `StaticAbility` (so the grant goes through the RULE 613 layer engine like
+    any other, rather than being a special case read by whoever happens to
+    look) and parks it in `GameState.floating_statics`, where
+    `game/durations.py` sweeps it at the window its ``duration`` names.
+
+    Why this exists next to the ``temp_power``/``temp_keywords`` fields the
+    shipped pump/grant effects use: those fields *are* "until end of turn" —
+    they're cleared wholesale at cleanup (RULE 514.2) and have nowhere to
+    record any other ending. "Until your next turn", "until end of combat"
+    and RULE 611.2b's "for as long as `<condition>`" are unreachable that
+    way. Existing effects are deliberately left on the old path; anything
+    needing a *different* duration comes here.
+
+    ``static`` is the `EffectSpec`-shaped payload for the underlying static
+    (``{"type": "grant_keyword", "params": {...}}``), built by the binder
+    from the same whitelisted registry every printed static goes through —
+    card text never reaches the layer engine except as a registered type.
+    """
+
+    def __init__(
+        self,
+        static: Optional[dict[str, Any]] = None,
+        duration: str = "end_of_turn",
+        target_kind: Optional[str] = "creature",
+        optional: bool = False,
+        count: int = 1,
+        condition: Optional[dict[str, Any]] = None,
+        previous_subject: bool = False,
+        source: Optional["GameObject"] = None,
+    ) -> None:
+        super().__init__(source)
+        self.static = dict(static or {})
+        self.duration = duration
+        self.condition = dict(condition) if condition else None
+        #: Apply to whatever the *previous clause* of this ability targeted
+        #: ("Tap target land. It doesn't untap … for as long as ~ remains
+        #: tapped.") instead of declaring a target of this effect's own.
+        self.previous_subject = previous_subject
+        self.target_spec = (
+            TargetSpec(kind=target_kind, optional=optional, count=count)
+            if target_kind is not None and not previous_subject
+            else None
+        )
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        from . import durations  # local: durations imports effects' siblings
+
+        spec_type = self.static.get("type")
+        if not spec_type or not EffectRegistry.is_registered(str(spec_type)):
+            return  # fail closed — an unregistered static grants nothing
+        ability = EffectRegistry.create(str(spec_type), dict(self.static.get("params") or {}))
+        if not isinstance(ability, StaticAbility):
+            return
+        controller_id = getattr(self.source, "controller_id", None)
+        ability.source = self.source
+        ability.duration = durations.normalize_duration(self.duration)
+        ability.duration_data = {"player_id": controller_id}
+        if self.condition is not None:
+            # RULE 611.2b's condition-bounded duration: the effect *ends*
+            # when this stops holding, unlike an ``active_if`` gate, which
+            # merely lies dormant and can come back on.
+            ability.duration = "for_as_long_as"
+            ability.duration_data["condition"] = dict(self.condition)
+        if self.target_spec is not None or self.previous_subject:
+            # A targeted grant applies to exactly the permanents chosen —
+            # `affects="objects"` reads the ids off the ability. With
+            # ``previous_subject`` the referent is instead whatever the
+            # *previous clause* of this same ability targeted ("Tap target
+            # land. **It** doesn't untap … for as long as ~ remains tapped."),
+            # the same `GameContext.previous_targets` pronoun `FightEffect`
+            # and `GoadEffect` use.
+            if self.previous_subject:
+                chosen = list(context.previous_targets)
+            else:
+                chosen = list(targets or [])[: self.target_spec.count]
+            ids = [t.instance_id for t in chosen if getattr(t, "instance_id", None) is not None]
+            if not ids:
+                return
+            ability.affects = "objects"
+            ability.object_ids = ids
+        context.state.floating_statics.append(ability)
+        # A new continuous effect changes derived characteristics immediately
+        # (RULE 613.1) — the caller's SBA pass would get there anyway, but a
+        # grant whose effect isn't visible until then reads as a bug.
+        context.recompute()
+
+
+class MonstrosityEffect(GameEffect):
+    """RULE 701.37a: "Monstrosity N" — the body of ``<cost>: Monstrosity N``.
+
+    Untargeted and always about the ability's own source (701.37b: only
+    permanents become monstrous, and every printed monstrosity ability is the
+    permanent's own), so there is no `TargetSpec` here at all — the
+    `RenownEffect` shape rather than the `TapEffect` one.
+
+    ``amount`` accepts the ``"x"`` sentinel `RulesEngine._substitute_x`
+    rewrites with the announced {X} ("{X}{X}{R}: Monstrosity X", Fanatic of
+    Xenagos-shaped), which is also what makes RULE 701.37c's "other abilities
+    may refer to that X" work: `RulesEngine.monstrosity` records the
+    substituted value on the permanent.
+    """
+
+    def __init__(self, amount: Any = 1, source: Optional["GameObject"] = None) -> None:
+        super().__init__(source)
+        self.amount = amount
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        if self.source is None:
+            return
+        # A still-unsubstituted "x" means no {X} was announced (a fixture, or
+        # an ability reached outside the stack) — 0 is the honest reading.
+        amount = self.amount if isinstance(self.amount, int) else 0
+        context.monstrosity(self.source, amount)
+
+
+class AdaptEffect(GameEffect):
+    """RULE 701.46a: "Adapt N" — "if this permanent has no +1/+1 counters on
+    it, put N +1/+1 counters on it".
+
+    Deliberately its own effect rather than a conditional `AddCountersEffect`:
+    the "has no +1/+1 counters" gate is part of the keyword action itself, and
+    every real adapt card is an activated ability on the creature, so like
+    `MonstrosityEffect` this is untargeted and self-scoped.
+    """
+
+    def __init__(self, amount: Any = 1, source: Optional["GameObject"] = None) -> None:
+        super().__init__(source)
+        self.amount = amount
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        if self.source is None:
+            return
+        amount = self.amount if isinstance(self.amount, int) else 0
+        context.adapt(self.source, amount)
+
+
+class GoadEffect(GameEffect):
+    """RULE 701.15a: "Goad target creature" — and its "up to N target
+    creatures" (RULE 115.1a) and pronoun forms.
+
+    The goader is the effect's *controller* (701.15b: "a player other than
+    the controller of the permanent, spell, or ability that caused it to be
+    goaded"), read off the source at resolution rather than baked in at bind
+    time, so a stolen/copied source goads for whoever controls it now.
+
+    ``target_kind=None`` is the pronoun form — "…deals 2 damage to target
+    creature. Goad that creature." (`GameContext.previous_targets`, the same
+    referent `FightEffect` uses), or with ``referent="created"`` the tokens an
+    earlier clause of this same resolution just made ("…each player creates a
+    tapped 2/2 Bird. **The tokens** are goaded for the rest of the game.",
+    `GameContext.created_objects`). ``selector`` is the untargeted mass form
+    ("Goad all creatures your opponents control").
+
+    ``permanent`` is the "…for the rest of the game" duration: the same
+    designation with no expiry (`RulesEngine.goad`), rather than 701.15a's
+    printed default of "until your next turn".
+    """
+
+    _SELECTORS = frozenset({"creatures_opponents_control"})
+    _REFERENTS = frozenset({"previous", "created"})
+
+    def __init__(
+        self,
+        source: Optional["GameObject"] = None,
+        target_kind: Optional[str] = "creature",
+        optional: bool = False,
+        count: Any = 1,
+        selector: Optional[str] = None,
+        count_selector: Optional[str] = None,
+        referent: str = "previous",
+        permanent: bool = False,
+    ) -> None:
+        super().__init__(source)
+        self.count = count
+        self.selector = selector if selector in self._SELECTORS else None
+        self.referent = referent if referent in self._REFERENTS else "previous"
+        self.permanent = bool(permanent)
+        self.target_spec = (
+            TargetSpec(
+                kind=target_kind,
+                optional=optional,
+                count=count if isinstance(count, int) else 1,
+                count_selector=count_selector,
+                # "For each opponent, goad up to one target creature **that
+                # player** controls" — one requirement of "as many as there
+                # are opponents", with the per-opponent half being exactly
+                # RULE 115's already-modeled "controlled by different
+                # players" constraint.
+                distinct_controllers=count_selector == "opponents",
+            )
+            if target_kind is not None and self.selector is None
+            else None
+        )
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        goader_id = getattr(self.source, "controller_id", None)
+        if goader_id is None:
+            return
+        if self.selector is not None:
+            from .continuous import group_selector_objects  # avoid the continuous↔effects cycle
+
+            for obj in group_selector_objects(context.state, goader_id, self.selector):
+                context.goad(obj, goader_id, permanent=self.permanent)
+            return
+        if self.target_spec is None:
+            # A pronoun: whatever the previous clause of this same ability
+            # targeted, or created (RULE 608.2 resolution order — either way
+            # it has already resolved by the time this effect runs).
+            chosen = list(
+                context.created_objects if self.referent == "created"
+                else context.previous_targets
+            )
+        elif self.target_spec.count_selector or self.target_spec.count != 1:
+            # A dynamic count is only known at announce time, so take
+            # everything that was actually chosen rather than re-deriving it.
+            chosen = list(targets or [])
+        else:
+            chosen = [targets[0]] if targets else []
+        for obj in chosen:
+            # A permanent, not a player: `previous_targets` and a shared
+            # targets list can both hold either, and only a creature can be
+            # goaded (RULE 701.15b). Duck-typed rather than `isinstance` —
+            # `game/` must not import `models/` at runtime (the module
+            # boundary; `GameObject` here is a TYPE_CHECKING name only).
+            if getattr(obj, "instance_id", None) is not None:
+                context.goad(obj, goader_id, permanent=self.permanent)
+
+
 class LivingWeaponEffect(GameEffect):
     """RULE 702.92: "When this Equipment enters, create a 0/0 black
     Phyrexian Germ creature token, then attach this Equipment to it."
@@ -5063,7 +5351,20 @@ class CreateTokenEffect(GameEffect):
     your opponents control" (Dockside Extortionist-shaped), scoped to the
     effect's own controller the same way a per-count anthem's ``power_
     count`` is.
+
+    ``creators`` is who does the creating: the effect's own controller by
+    default, or **every** player / every opponent ("Each player creates three
+    tapped 1/1 white Warrior creature tokens." — The War Games), each getting
+    their own ``count`` tokens under their own control. ``tapped`` is the
+    "creates a **tapped** …" wording (RULE 110.5a — a permanent enters
+    untapped unless an effect says otherwise), applied as the token enters
+    rather than as a separate tap, so nothing sees it untapped in between.
+
+    Whatever it creates is appended to `GameContext.created_objects`, which
+    is how a following clause says "**the tokens** are goaded".
     """
+
+    _CREATORS = frozenset({"you", "each_player", "each_opponent"})
 
     def __init__(
         self,
@@ -5076,6 +5377,8 @@ class CreateTokenEffect(GameEffect):
         keywords: Optional[list[str]] = None,
         source: Optional["GameObject"] = None,
         count_selector: Optional[str] = None,
+        creators: str = "you",
+        tapped: bool = False,
     ) -> None:
         super().__init__(source)
         self.count = count
@@ -5086,6 +5389,8 @@ class CreateTokenEffect(GameEffect):
         self.subtypes = subtypes or []
         self.keywords = keywords or []
         self.count_selector = count_selector
+        self.creators = creators if creators in self._CREATORS else "you"
+        self.tapped = bool(tapped)
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
         from ..services.token_database import default_token_database, synthesize_token_card
@@ -5113,7 +5418,19 @@ class CreateTokenEffect(GameEffect):
             from . import continuous  # avoid the continuous↔effects import cycle
 
             count = continuous.count_selector(context.state, controller_id, self.count_selector)
-        context.create_token(controller_id, card, count)
+        if self.creators == "each_player":
+            creator_ids = [p.id for p in context.state.living_players()]
+        elif self.creators == "each_opponent":
+            creator_ids = [p.id for p in context.state.living_players() if p.id != controller_id]
+        else:
+            creator_ids = [controller_id]
+        for creator_id in creator_ids:
+            made = context.create_token(creator_id, card, count) or []
+            if self.tapped:
+                for token in made:
+                    token.tapped = True
+            # The referent for a following "the tokens are …" clause.
+            context.created_objects.extend(made)
 
 
 class CopyPermanentEffect(GameEffect):
@@ -8056,6 +8373,8 @@ EffectRegistry.register(
         subtypes=list(p.get("subtypes", [])),
         keywords=list(p.get("keywords", [])),
         count_selector=p.get("count_selector"),
+        creators=p.get("creators", "you"),
+        tapped=bool(p.get("tapped", False)),
     ),
 )
 EffectRegistry.register(
@@ -8190,6 +8509,18 @@ _SELECTOR_KEYS: tuple[str, ...] = (
     # Troll/Flopsie-shaped); read off each affected object's own *derived*
     # characteristics, unlike every filter above (all about type/colour).
     "min_power", "max_power", "min_toughness", "max_toughness",
+    # The same qualifier with a *dynamic* threshold instead of a literal
+    # ("Creatures your opponents control with power less than ~'s power are
+    # goaded." — Baeloth Barrityl): `continuous.dynamic_threshold`'s
+    # vocabulary, strict `<`/`>` to match the printed "less/greater than".
+    "power_lt_selector", "power_gt_selector",
+    # RULE 613.6's general "as long as <condition>" gate — one whitelisted
+    # dict from `game/static_conditions.py`, evaluated live every recompute
+    # (`continuous.group_selector_objects`). The three older gates above
+    # (`active_player_only`, `min_level`/`max_level`, `min_count_selector`/
+    # `min_count`) are the same idea per-card, and are translated into this
+    # vocabulary rather than evaluated separately.
+    "active_if",
 )
 
 
@@ -8220,6 +8551,19 @@ EffectRegistry.register(
         affects=p.get("affects", "all_creatures"),
         params={"power": p.get("power", 0), "toughness": p.get("toughness", 0),
                 **_selectors(p)},
+    ),
+)
+EffectRegistry.register(
+    # RULE 701.15b goad as a *standing static* ("Enchanted creature gets +2/+2
+    # and is goaded.") — not a layer at all: goaded is explicitly neither an
+    # ability nor a copiable value, so it can't be a layer-6 grant. Stamped
+    # onto `GameObject._goaded_by_static` by `continuous.recompute` in the
+    # same non-RULE-613 bucket the combat restrictions use.
+    "goaded",
+    lambda p: StaticAbility(
+        "goaded",
+        affects=p.get("affects", "attached_permanent"),
+        params={**_selectors(p)},
     ),
 )
 EffectRegistry.register(
@@ -8696,6 +9040,47 @@ EffectRegistry.register(
 EffectRegistry.register(
     "venture",  # "venture into the dungeon" (RULE 701.49)
     lambda p: VentureIntoTheDungeonEffect(dungeon=p.get("dungeon")),
+)
+EffectRegistry.register(
+    # RULE 611 "…until <duration>" — a continuous effect created on
+    # resolution, for any duration the turn-scoped ``temp_*`` fields can't
+    # express (`game/durations.py`). ``static`` is the underlying static's
+    # own registered ``{"type", "params"}``.
+    "grant_until",
+    lambda p: GrantUntilEffect(
+        static=p.get("static"),
+        duration=str(p.get("duration") or "end_of_turn"),
+        target_kind=p.get("target_kind", "creature") if "target_kind" in p else "creature",
+        optional=bool(p.get("optional", False)),
+        count=int(p.get("count", 1) or 1),
+        condition=p.get("condition"),
+        previous_subject=bool(p.get("previous_subject", False)),
+    ),
+)
+EffectRegistry.register(
+    # RULE 701.37a "monstrosity N" — ``amount`` may be the ``"x"`` sentinel
+    # (`RulesEngine._substitute_x`) for "{X}{X}{R}: Monstrosity X".
+    "monstrosity",
+    lambda p: MonstrosityEffect(amount=p.get("amount", 1)),
+)
+EffectRegistry.register(
+    # RULE 701.46a "adapt N".
+    "adapt",
+    lambda p: AdaptEffect(amount=p.get("amount", 1)),
+)
+EffectRegistry.register(
+    # RULE 701.15a "goad target creature" — ``target_kind=None`` is the
+    # "goad it"/"goad that creature" pronoun form, ``selector`` the mass one.
+    "goad",
+    lambda p: GoadEffect(
+        target_kind=p.get("target_kind", "creature") if "target_kind" in p else "creature",
+        optional=bool(p.get("optional", False)),
+        count=p.get("count", 1),
+        selector=p.get("selector"),
+        count_selector=p.get("count_selector"),
+        referent=p.get("referent", "previous"),
+        permanent=bool(p.get("permanent", False)),
+    ),
 )
 EffectRegistry.register(
     "create_emblem",  # "you get an emblem with '<ability>'" (RULE 114.2)

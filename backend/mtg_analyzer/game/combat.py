@@ -341,6 +341,14 @@ COMBAT_RESTRICTIONS: frozenset[str] = frozenset(
         # neither changes a characteristic (`game_engine.max_blocks_for`):
         "extra_blocks",  # "~ can block an additional creature each combat." (+ ``count``)
         "unlimited_blocks",  # "~ can block any number of creatures."
+        # RULE 508.1a's *attack* permission — "~ can attack as though it
+        # didn't have defender" (Colossus of Akros, Tower Defense, ~15 real
+        # cards). Not the removal of the Defender keyword (RULE 702.3b): the
+        # creature keeps it — it still can't be declared as an attacker by
+        # anything else that reads the keyword, and losing it would also lift
+        # any other "creatures with defender…" clause. `GameEngine._can_attack`
+        # consults this alongside `has_defender` instead.
+        "attacks_as_though_no_defender",
         # RULE 509.1a's resolve-time pairwise requirement — "target creature
         # blocks ~ this turn if able" (`GrantCombatRestrictionEffect`'s
         # ``restrict_to_source``, `filter={"instance_id": <the attacker>}`) —
@@ -480,6 +488,31 @@ def combat_restrictions(obj: "GameObject", kind: str) -> list["dict[str, Any]"]:
         entry for entry in entries
         if entry.get("kind") == kind and kind in COMBAT_RESTRICTIONS
     ]
+
+
+def goaders(obj: "GameObject") -> set[str]:
+    """RULE 701.15b: every player who currently has ``obj`` goaded.
+
+    Three sources, read as one set the same way `combat_restrictions` above
+    unions its standing and until-end-of-turn halves: `GameObject.goaded_by`
+    (the resolve-time designation from "Goad target creature", expiring at
+    the goader's next turn per 701.15a), `goaded_permanently` (the same
+    designation from a "…goaded for the rest of the game" clause, which the
+    turn-begin sweep never touches) and `_goaded_by_static` (re-derived
+    every `continuous.recompute` from a standing "…is goaded" static, so it
+    vanishes with its Aura). RULE 701.15c/d fall out of it being a set:
+    several goaders each add a requirement, the same one twice adds nothing.
+    """
+    return (
+        set(getattr(obj, "goaded_by", None) or set())
+        | set(getattr(obj, "goaded_permanently", None) or set())
+        | set(getattr(obj, "_goaded_by_static", None) or set())
+    )
+
+
+def is_goaded(obj: "GameObject") -> bool:
+    """Whether ``obj`` is goaded by anyone (RULE 701.15b)."""
+    return bool(goaders(obj))
 
 
 def blocker_allowed(

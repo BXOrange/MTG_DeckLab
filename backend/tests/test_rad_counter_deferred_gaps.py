@@ -16,12 +16,14 @@ Wise Mothman) were *not* registered in `ability_catalogue.py` as of this
 batch — their new grammar is pure oracle-text parsing. The Ghoul, Gunslinger
 and Contaminated Drink end up fully `MODELED` (every line claimed) and so are
 also exercised end-to-end via `bind_from_catalogue`/`cast_spell`. Acquired
-Mutation stays `UNMODELED` overall (its "goaded" line is a wholly separate,
-still-unimplemented mechanic — tracked under `docs/implementation-state/BACKLOG.md`'s
-Multiplayer entry now, not here) — only the rad-counter clause is verified
-here, at the parse level plus a direct `attach_to_object` engine test of the
-extracted spec in isolation (mirroring `test_rad_counters.py`'s own
-`test_radiation_life_gain_redirects_lose_life`).
+Mutation was `UNMODELED` overall when this batch shipped — its "goaded" line
+was a wholly separate, then-unimplemented mechanic — so only its rad-counter
+clause was verified here, at the parse level plus a direct
+`attach_to_object` engine test of the extracted spec in isolation (mirroring
+`test_rad_counters.py`'s own `test_radiation_life_gain_redirects_lose_life`).
+Goad shipped later (RULE 701.15, the MEC-2/MEC-3 batch — see
+`tests/test_monstrosity_adapt_goad.py`), so the card is now fully `MODELED`
+and the test below asserts that instead.
 
 The Wise Mothman's own mill-triggered second ability, listed below as
 UNMODELED-at-the-parser-level in this same batch, was subsequently closed
@@ -98,11 +100,16 @@ def _acquired_mutation_card():
                 oracle_text=_ACQUIRED_MUTATION_TEXT, mana_cost_string="{R}", converted_mana_cost=1)
 
 
-def test_acquired_mutation_stays_unmodeled_but_only_goad_is_unclaimed():
+def test_acquired_mutation_is_now_fully_modeled_including_its_goad():
+    # This card's "…and is goaded" line was the single clause keeping it
+    # UNMODELED when the rad-counter batch shipped (this test used to assert
+    # exactly that). Goad landed with the MEC-2/MEC-3 batch — RULE 701.15,
+    # `tests/test_monstrosity_adapt_goad.py` — so the card is now complete:
+    # the rad-counter trigger below plus a `goaded` static.
     result = parse_oracle(_acquired_mutation_card())
-    assert not result.modeled
-    assert len(result.unclaimed) == 1
-    assert "goaded" in result.unclaimed[0]
+    assert result.modeled, result.unclaimed
+    assert result.unclaimed == []
+    assert any(s.type == "goaded" for spec in result.specs for s in spec.effects)
 
 
 def test_acquired_mutation_attacks_trigger_parses_as_attached_permanent_subject():

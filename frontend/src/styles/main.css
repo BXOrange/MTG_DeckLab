@@ -2110,6 +2110,41 @@ textarea {
   font-style: italic;
 }
 
+/* A continuous effect's bounds: when it ends (Regel 611) and the "solange"
+   condition gating it (Regel 613.6). Badges rather than prose — they sit at
+   the end of a one-line entry that already carries layer, source and scope. */
+.gf-static-duration,
+.gf-static-condition,
+.gf-static-inactive {
+  display: inline-block;
+  margin-left: 0.35rem;
+  padding: 0 0.3rem;
+  border-radius: 4px;
+  background: var(--panel-alt);
+  font-size: 0.68rem;
+  white-space: nowrap;
+}
+
+.gf-static-duration {
+  color: var(--accent);
+}
+
+.gf-static-condition {
+  color: var(--text-dim);
+}
+
+.gf-static-inactive {
+  color: var(--error);
+  font-weight: 700;
+}
+
+/* A gated static whose condition doesn't hold right now — dimmed, not
+   hidden: the ability is genuinely in play and applies again the moment the
+   condition becomes true. */
+.gf-static-off {
+  opacity: 0.55;
+}
+
 .gf-static-traces {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));

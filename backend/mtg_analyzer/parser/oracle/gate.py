@@ -430,7 +430,66 @@ NEVER_SUPPORTED = "NEVER_SUPPORTED"
 #: (`effects.DamageEqualToPowerEffect`, Rabid Bite/Bite Down + the dies-
 #: trigger self form). Also adds the "target creature or planeswalker you
 #: don't control" `TARGET` row.
-PARSER_VERSION = "38"
+#: 39 (2026-07-29): MEC-2 + MEC-3 — three keyword actions that had no
+#: primitive and no recognition at all. **Monstrosity** (RULE 701.37):
+#: `handlers._monstrosity` over `effects.MonstrosityEffect`/`RulesEngine.
+#: monstrosity`, the `BECAME_MONSTROUS` trigger verb (`segmenter.
+#: _TRIGGER_VERBS`, so "when ~ enters **or** becomes monstrous" works too),
+#: and the RULE 613.6 conditional static "as long as ~ is monstrous, it has
+#: <keywords>" (`static_handlers._MONSTROUS_GRANT_RE` → the new
+#: ``requires_monstrous`` selector gate). **Adapt** (RULE 701.46) as its own
+#: counter-gated effect — its "as long as ~ has a +1/+1 counter" statics
+#: needed nothing new, being the layer engine's existing ``min_level``.
+#: **Goad** (RULE 701.15): `handlers._goad`/`_goad_previous`/`_goad_selector`
+#: over `effects.GoadEffect`, plus the "…and is goaded" Aura/Equipment tail
+#: on `_ATTACHED_ANTHEM_RE`/`_ATTACHED_GRANT_RE` binding the new ``goaded``
+#: static, which `continuous.recompute` stamps in the same non-RULE-613
+#: bucket as the combat restrictions.
+#: 40 (2026-07-29): MEC-13 + the general "as long as"/duration machinery.
+#: RULE 613.6 conditional statics stop being one selector param per card
+#: family and become one whitelisted vocabulary (`game/static_conditions.py`)
+#: carried in any static's ``active_if``; `static_handlers.
+#: _conditional_static_specs` parses both printed orders ("As long as <cond>,
+#: <static>" / "<static> as long as <cond>") by parsing the gate and
+#: re-entering with the bare static, so no family needs a conditional variant
+#: — which also required the first *self*-scoped anthem/grant rows ("~ gets
+#: +2/+2", "~ has trample"), the inner half of nearly every such clause. The
+#: three pre-existing gates (``active_player_only``, ``min_level``,
+#: ``min_count_selector``) are translated into the same vocabulary rather than
+#: evaluated separately. RULE 611 **durations** are the time-bound half
+#: (`game/durations.py` + `GameState.floating_statics` +
+#: `effects.GrantUntilEffect`), reachable from card text for every duration
+#: the turn-scoped ``temp_*`` fields can't express ("until your next turn",
+#: "until end of combat"). MEC-13 itself: a combat-permission tail on the
+#: grant rows plus the new ``attacks_as_though_no_defender`` restriction.
+#: 41 (2026-07-29): PAR-11's tap-then-lock family, closed by *composing* the
+#: pieces above rather than by any new primitive — the `previous_subject`
+#: pronoun (v38), the ``no_untap`` static (batch 8) and v40's
+#: condition-bounded duration had never met. Needed only a handler row and
+#: one widening: `segmenter._CREATURE_TARGET_KINDS` now also accepts a
+#: land/artifact/permanent antecedent, since "Tap target **land**. **It**
+#: doesn't untap …" is the same pronoun with a non-creature referent.
+#: 42 (2026-07-29): MEC-12 (goad's four residues) + MEC-14 (the rest of the
+#: "as long as" vocabulary), both closed in full. The condition whitelist
+#: gained an ``of`` **subject selector** — every ``source_*`` kind can now
+#: read the *attached permanent* (RULE 303.4a "as long as enchanted permanent
+#: is a creature"/"…is red", ~52 cards) or a floating static's affected one —
+#: plus three characteristic kinds (``is_card_type``/``is_color``/
+#: ``is_subtype``), an opponent-scoped ``opponent_count`` and
+#: ``drawn_cards_at_least``; `_conditional_static_specs` rewrites the inner
+#: "it" to the attached subject when the gate named it, so the ordinary
+#: `_ATTACHED_*` rows parse the body. RULE 702.94b soulbond finally reaches
+#: the already-shipped ``soulbond_pair`` selector ("each of those creatures
+#: has …"). Goad: a **dynamic target count** (`TargetSpec.count_selector`,
+#: expanded into one gathering round per target by `targeting.expand_counts`)
+#: for "for each opponent, goad up to one target creature that player
+#: controls" and Death Kiss's "up to X"; a *dynamic* power threshold on a
+#: group scope (``power_lt_selector``, Baeloth Barrityl); the
+#: ``created_objects`` referent for "**the tokens** are goaded" (with
+#: "each player/opponent creates" and "creates a **tapped** …" to reach it);
+#: and a ``goaded``/``in_combat`` trigger-subject filter, snapshotted onto
+#: the DIES event since RULE 400.7 means the object is already gone.
+PARSER_VERSION = "42"
 
 
 @dataclass

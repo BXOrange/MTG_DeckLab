@@ -376,6 +376,45 @@ board wipes, RULE 601.2c's untargeted-selector shape `DestroyEffect`/
 `ExileEffect` share with `DealDamageEffect`); tokens (RULE
 704.5d lifecycle), Living Weapon's germ-token self-attach and Renown's
 counter-placement now real behaviour, not just keyword recognition;
+**monstrosity** (RULE 701.37) and **adapt** (RULE 701.46) — deliberately
+*not* one mechanic, since monstrosity's gate is a designation
+(`GameObject.is_monstrous`, feeding both an `EventType.BECAME_MONSTROUS`
+trigger and an "as long as ~ is monstrous, …" conditional static) while
+adapt's is simply the creature's current +1/+1 counters;
+RULE 613.6 **conditional statics** and RULE 611 **durations** as two
+general systems rather than per-card params — `game/static_conditions.py`
+is one whitelisted "as long as `<condition>`" vocabulary (state,
+characteristics, whose turn it is, a board count scoped to you *or* to any
+opponent, a named permanent, life/hand/cards-drawn-this-turn) carried by
+*any* static in its `active_if` param and evaluated live every
+recompute, with the older per-card gates (`active_player_only`,
+`min_level`, `min_count_selector`) translated into it — and with a
+`CONDITION_SUBJECTS` `of` key choosing *which object* every kind reads
+(the source by default, the **attached permanent** for an Aura's "as long
+as enchanted permanent is a creature", or a floating static's affected
+one), so a new subject costs nothing per kind; `game/durations.py`,
+`GameState.floating_statics` and `effects.GrantUntilEffect` are the
+time-bound half, for every duration the turn-scoped `temp_*` fields can't
+express ("until your next turn", "until end of combat", RULE 611.2b's
+"for as long as `<condition>`", which *ends* an effect rather than merely
+suspending it the way `active_if` does) — both bounds are surfaced on the
+goldfish/shared board's "Statische Effekte" panel, with a currently-false
+gate dimmed rather than hidden; **goad** (RULE 701.15) as a
+per-goader designation (`GameObject.goaded_by`, its no-expiry sibling
+`goaded_permanently` for "…goaded for the rest of the game", and a
+re-derived `_goaded_by_static` for the "enchanted creature … is goaded"
+Auras, all unioned by `combat.goaders`) imposing both of 701.15b's
+requirements — "attacks
+each combat if able" riding the existing `attacks_if_able` check, and
+"attacks a player other than the goader if able" as a whole-attack
+requirement checked leaving the declare-attackers step; a **target count
+read off the board** at announce time (RULE 601.2c —
+`TargetSpec.count_selector`, split into one gathering round per target by
+`targeting.expand_counts` and merged back by `collapse_groups`, for "for
+each opponent, goad up to one target creature that player controls" and
+"goad up to X target creatures"), and `GameContext.created_objects`, the
+referent for a clause naming what an *earlier clause of the same
+resolution* just created ("**The tokens** are goaded …");
 planeswalkers; commander damage + tax; the full RULE 702
 keyword catalogue (194 keywords, flag keywords bound to combat, RULE 702.8b
 Flash now gating cast timing); a trigger-subject family for "whenever
@@ -497,8 +536,8 @@ every field it reads, `parser/oracle/gate.py`) since it's called once per
 on every copy/every game. `parser/oracle/processing_list.py` tracks
 cache-wide coverage and ranks the next handlers worth building. The cache is
 now bulk-loaded with the **full ~34k-card Oracle universe**
-(`scripts/import_bulk.py`), so coverage is measured against that: **27.3%
-covered (9,344 / 34,208) as of 2026-07-28, PARSER_VERSION 38** (parser-`MODELED` **or**
+(`scripts/import_bulk.py`), so coverage is measured against that: **27.9%
+covered (9,527 / 34,208) as of 2026-07-29, PARSER_VERSION 42** (parser-`MODELED` **or**
 hand-`AUTHORED`).
 Re-measure with `scripts/coverage_report.py` (ledger-backed — see
 `services/coverage_db.py`) before trusting this number; Batches 1–10 are all
@@ -832,6 +871,10 @@ English and German.
 | --- | --- |
 | Combat / keywords | `game/combat.py`, `game/game_engine.py` (`_step_combat_damage`) |
 | Static abilities / P/T / anthems | `game/continuous.py`, `models/game_object.py` |
+| "As long as …" conditions on a static (RULE 613.6) | `game/static_conditions.py` (the whitelist + evaluator), a static's `active_if` param, `parser/oracle/catalogue/static_handlers.py` (`_STATIC_CONDITION_RES`, `_conditional_static_specs`) |
+| "Until …" durations on a continuous effect (RULE 611) | `game/durations.py`, `GameState.floating_statics`, `effects.GrantUntilEffect` — note "until end of turn" stays on the `temp_*` path |
+| How many targets a spell/ability wants (RULE 115.1/601.2c) | `game/targeting.py` (`TargetSpec.count`/`count_selector`, `resolved_count`, `expand_counts`/`collapse_groups`) |
+| A clause naming what a previous clause targeted or created | `effects.GameContext.previous_targets` / `created_objects` (both maintained by `_apply_effects_partitioned`) |
 | Activated abilities / costs | `game/costs.py`, `game/game_engine.py` (`activate_ability`) |
 | Card abilities / fetch lands / enters-tapped | `game/ability_catalogue.py`, `effect_binder.bind_from_catalogue` |
 | Hand-authoring a specific card's effects | [docs/Reference/11_CARD_CATALOGUE_AUTHORING_GUIDE.md](docs/Reference/11_CARD_CATALOGUE_AUTHORING_GUIDE.md) |

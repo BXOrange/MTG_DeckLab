@@ -242,6 +242,23 @@ class EventType:
     #: (Relic Seeker) can key off it distinctly from Renown's own counter-
     #: placing effect (`game/effects.py`'s `RenownEffect`, which fires this).
     RENOWNED = "RENOWNED"
+    #: RULE 701.37a: a permanent just became **monstrous** (its monstrosity
+    #: ability resolved for the first, only time) — carries ``instance_id``
+    #: and ``controller_id``, so "when ~ becomes monstrous, …" (Arbor
+    #: Colossus, the largest trigger family on these cards) rides RULE
+    #: 603.1's ordinary self/group subject scoping. Fired by
+    #: `game/effects.py`'s `MonstrosityEffect`, and *only* on the transition:
+    #: 701.37a's "if this permanent isn't monstrous" means a second
+    #: activation does nothing at all, event included.
+    BECAME_MONSTROUS = "BECAME_MONSTROUS"
+    #: RULE 701.15a: a creature was just **goaded** by a player — carries the
+    #: goaded creature's ``instance_id`` plus ``goader_id``/``controller_id``
+    #: (the goading effect's controller, i.e. the player the creature must
+    #: now attack around per 701.15b). Fired on every goad, including a
+    #: re-goad by the same player that 701.15d makes a no-op requirement-wise
+    #: — "whenever you goad a creature" cares that it happened, not whether
+    #: the designation changed.
+    GOADED = "GOADED"
     #: RULE 506.4's "a player attacks you [with one or more creatures]" —
     #: an aggregate, once-per-combat event `ATTACKS` (fired once per
     #: *creature*) can't express on its own: a player attacking with 3

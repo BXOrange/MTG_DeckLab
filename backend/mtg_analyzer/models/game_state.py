@@ -445,6 +445,25 @@ class GameState:
         #: `clone`.
         self.temporary_player_triggers: list["TemporaryPlayerTrigger"] = []
 
+        #: RULE 611 continuous effects created by a resolving spell/ability
+        #: rather than by a permanent's printed static ability — "Until your
+        #: next turn, creatures you control get +1/+1", "Target creature
+        #: gains flying until end of combat". Each is an ordinary
+        #: `game/effects.py` `StaticAbility` carrying a ``duration``, folded
+        #: into every `continuous.recompute` exactly like a permanent's own
+        #: (so it goes through the same RULE 613 layers, timestamps and
+        #: dependency pass) and swept by `GameEngine` at the window its
+        #: duration names (`game/durations.py`).
+        #:
+        #: Why these live on the *state* and not on the affected permanent
+        #: (the way `temp_power`/`temp_keywords` do): RULE 611.2b — the
+        #: effect exists independently of both its source and its subject, so
+        #: it must survive the source leaving the battlefield, and a
+        #: duration longer than the current turn has to outlive the cleanup
+        #: step that clears every ``temp_*`` field. Plain data (whitelisted
+        #: params + a source reference), so it deep-copies with `clone`.
+        self.floating_statics: list[Any] = []
+
         #: Extra turns to take (RULE 500.7), as a FIFO of player ids —
         #: "take an extra turn after this one" (Final Fortune, the Time Warp
         #: family) appends here; `GameEngine.begin_turn` pops the front instead

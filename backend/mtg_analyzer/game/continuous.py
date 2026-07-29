@@ -71,7 +71,7 @@ from __future__ import annotations
 import re
 from typing import TYPE_CHECKING, Any, Optional
 
-from . import variants
+from . import durations, static_conditions, variants
 from .costs import parse_activation_cost
 from .effects import ActivatedAbility, EffectRegistry, StaticAbility, TriggeredAbility
 
@@ -214,7 +214,16 @@ def group_selector_objects(
     # exist — invisible to every static-ability selector below.
     battlefield = state.permanents()
 
-    if affects == "self":
+    if affects == "objects":
+        # A RULE 611 floating static aimed at *specific* permanents chosen
+        # when it resolved ("target creature gains flying until your next
+        # turn") — the ids travel on the ability, since a target isn't
+        # expressible as a selector. A permanent that has since left simply
+        # drops out, which is RULE 611.2c: the effect keeps applying to the
+        # others.
+        wanted = set(params.get("object_ids") or [])
+        result = [o for o in battlefield if o.instance_id in wanted]
+    elif affects == "self":
         result = [src] if src is not None and src in battlefield else []
     elif affects == "all_creatures":
         result = [o for o in battlefield if o.is_creature]
@@ -250,6 +259,16 @@ def group_selector_objects(
         ]
     elif controller_id is None:
         result = []
+    elif affects == "creatures_opponents_control":
+        # "Goad all creatures your opponents control." / "…all creatures you
+        # don't control." — the creature-scoped sibling of
+        # ``opponents_permanents`` above, sharing its name with the
+        # already-existing `count_selector` of the same shape so one idiom
+        # covers both counting them and acting on them.
+        result = [
+            o for o in battlefield
+            if o.is_creature and o.controller_id not in (None, controller_id)
+        ]
     elif affects == "creatures_you_control":
         result = [o for o in battlefield if o.is_creature and o.controller_id == controller_id]
     elif affects == "other_creatures_you_control":
@@ -281,15 +300,28 @@ def group_selector_objects(
     else:
         result = []
 
-    if params.get("active_player_only") and (
-        state.active_player is None or state.active_player.id != controller_id
+    # RULE 613.6: the ability's "as long as <condition>" gate, if any. One
+    # whitelisted vocabulary (`game/static_conditions.py`) evaluated live
+    # every recompute — an inactive gate means nothing here matches at all,
+    # so the whole static simply isn't there this pass. ``condition`` is the
+    # general form; `condition_from_legacy_params` covers the three gates
+    # that predate it (``active_player_only`` — "During your turn, creatures
+    # you control have first strike", Nahiri; ``min_level``/``max_level`` —
+    # a Class/Leveler's own counters; ``min_count_selector``/``min_count`` —
+    # Metalcraft) so both spellings run through the same evaluator.
+    #
+    # Spelled ``active_if`` rather than the obvious ``condition``: a
+    # ``combat_restriction`` static already carries a ``condition`` param of
+    # its own — "~ can't attack **unless** defending player controls an
+    # Island" — evaluated at *combat* time against a defending player, which
+    # nothing here can see. Two different vocabularies under one key would
+    # have made each fail closed on the other's dicts.
+    for gate in (
+        params.get("active_if"),
+        static_conditions.condition_from_legacy_params(params),
     ):
-        # "During your turn, creatures you control have first strike"
-        # (Nahiri, Storm of Stone) — RULE 613.6-style conditional static,
-        # gated on whose turn it currently is rather than any counter/board
-        # count; checked before the subtype/color/tokens narrowing below
-        # (an inactive gate means nothing here matches at all).
-        return []
+        if gate and not static_conditions.condition_holds(gate, state, src, controller_id):
+            return []
 
     # "… of the chosen type/color …" (RULE 601.2b, Adaptive Automaton/Ward
     # Sliver-shaped) — the dynamic sibling of the literal ``subtype``/
@@ -347,32 +379,51 @@ def group_selector_objects(
     if max_toughness is not None:
         result = [o for o in result if (o.toughness or 0) <= max_toughness]
 
-    # RULE 613.6-style conditional static: "as long as this [permanent]'s own
-    # <counter> is in range" — Leveler's mutually-exclusive P/T/keyword tiers
-    # (RULE 711, ``affects="self"``, gated on the source's own ``level``) and
-    # a Class's cumulative per-level grants (RULE 716, gated on
-    # ``class_level``, even though ``affects`` targets other permanents —
-    # the *condition* is always about the ability's own source, never each
-    # affected object's counters). Mirrors ``attached_permanent``'s "recompute
-    # fresh every pass, empty list = inactive" shape.
-    min_level = params.get("min_level")
-    max_level = params.get("max_level")
-    if min_level is not None or max_level is not None:
-        counter_kind = params.get("level_counter") or "level"
-        n = src.counters.get(counter_kind, 0) if src is not None else 0
-        if (min_level is not None and n < min_level) or (max_level is not None and n > max_level):
-            return []
+    # The *dynamic* sibling of the literal min/max keys just above: a
+    # threshold read off the board rather than fixed at parse time
+    # ("Creatures your opponents control **with power less than ~'s power**
+    # are goaded." — Baeloth Barrityl). Strict ``<``/``>``, matching the
+    # printed "less/greater than"; the "N or more/less" phrasings keep using
+    # the inclusive literal keys. Same idea `combat.matches_object_filter`'s
+    # ``power_lt_count_selector`` already applies to a board count, and the
+    # same reason it has to be dynamic: ~'s own power is itself layer-engine
+    # output, so an anthem on ~ moves the threshold.
+    for key, keep in (
+        ("power_lt_selector", lambda p, n: p < n),
+        ("power_gt_selector", lambda p, n: p > n),
+    ):
+        selector = params.get(key)
+        if not selector:
+            continue
+        threshold = dynamic_threshold(state, controller_id, str(selector), src)
+        if threshold is None:
+            return []  # the source is gone — nothing to compare against
+        result = [o for o in result if keep(o.power or 0, threshold)]
 
-    # A Metalcraft/Threshold-style board-count condition ("as long as you
-    # control three or more artifacts") — unlike `min_level`/`max_level`
-    # above (the source's own *counter*), this reads a `count_selector`
-    # over the whole board (Indomitable Archangel's Metalcraft).
-    min_count_selector = params.get("min_count_selector")
-    min_count = params.get("min_count")
-    if min_count_selector is not None and min_count is not None:
-        if count_selector(state, controller_id, str(min_count_selector)) < min_count:
-            return []
     return result
+
+
+def dynamic_threshold(
+    state: "GameState",
+    controller_id: Optional[str],
+    selector: str,
+    source: Optional["GameObject"] = None,
+) -> Optional[int]:
+    """A power/toughness comparison threshold read off the board.
+
+    Two vocabularies in one lookup, because both appear in the same printed
+    position ("with power less than **~'s power**" / "with power less than
+    **the number of Islands you control**"): the source's own *derived*
+    characteristics first, then `count_selector`'s whole board-count list —
+    which, like everywhere else it's used, answers ``0`` for a name it
+    doesn't know rather than raising. ``None`` only when the source itself is
+    needed and absent, which the caller reads as "nothing matches".
+    """
+    if selector == "source_power":
+        return None if source is None else int(getattr(source, "power", 0) or 0)
+    if selector == "source_toughness":
+        return None if source is None else int(getattr(source, "toughness", 0) or 0)
+    return count_selector(state, controller_id, selector, source)
 
 
 def affected_objects(state: "GameState", ability: StaticAbility) -> list["GameObject"]:
@@ -389,7 +440,21 @@ def affected_objects(state: "GameState", ability: StaticAbility) -> list["GameOb
     """
     src = ability.source
     controller = getattr(src, "controller_id", None)
-    return group_selector_objects(state, controller, ability.affects, ability.params, src=src)
+    params = ability.params
+    # A RULE 611 floating static carries its chosen permanents on the ability
+    # (`StaticAbility.object_ids`) rather than in ``params``, since they're
+    # resolution-time data and not card-text-derived; fold them in for the
+    # ``objects`` selector without mutating the shared params dict.
+    object_ids = getattr(ability, "object_ids", None)
+    if object_ids:
+        params = {**params, "object_ids": list(object_ids)}
+    # "You" for a floating static is the player who created it, not the
+    # source's current controller — a stolen source doesn't re-aim an
+    # already-resolved continuous effect (RULE 611.2b).
+    owner = (getattr(ability, "duration_data", None) or {}).get("player_id")
+    if owner is not None:
+        controller = owner
+    return group_selector_objects(state, controller, ability.affects, params, src=src)
 
 
 def _source_name(ability: StaticAbility) -> str:
@@ -442,12 +507,23 @@ def _battlefield_static_abilities(state: "GameState") -> list[StaticAbility]:
     for player in state.players:
         sources.extend(player.emblems)
     sources.extend(variants.command_zone_ability_sources(state))
-    return [
+    abilities = [
         ab
         for src in sources
         for ab in getattr(src, "static_effects", [])
         if isinstance(ab, StaticAbility)
     ]
+    # RULE 611: continuous effects created by a *resolving* spell or ability
+    # rather than printed on a permanent ("Until your next turn, creatures you
+    # control get +1/+1"). They live on the state (`GameState.
+    # floating_statics`) because 611.2b makes them independent of their
+    # source, but from here on they are ordinary statics — same layers, same
+    # timestamp ordering, same dependency pass. `durations.active_statics`
+    # drops any whose "for as long as" condition has stopped holding.
+    abilities.extend(
+        ab for ab in durations.active_statics(state) if isinstance(ab, StaticAbility)
+    )
+    return abilities
 
 
 def _in_layer(abilities: list[StaticAbility], layer: str) -> list[StaticAbility]:
@@ -1324,6 +1400,27 @@ def recompute(state: "GameState") -> None:
             # meaningless "L99" (see `gameBoardView.js`'s trace renderer).
             _trace(obj, "Kampf", _source_name(ability), _describe_combat_restriction(entry))
 
+    # -- Also not a RULE 613 layer: the RULE 701.15b **goad** designation
+    # granted by a standing static ("Enchanted creature gets +2/+2 and is
+    # goaded", Acquired Mutation; "Creatures your opponents control with
+    # power less than ~'s power are goaded", Baeloth Barrityl). Goaded is
+    # explicitly *not* an ability and not a copiable value (701.15b), so it
+    # can't be a layer-6 grant; it's stamped here for the same reason a
+    # combat restriction is, and read at combat time by `combat.goaders`
+    # alongside the sticky, resolve-time `GameObject.goaded_by`.
+    #
+    # Placed after the P/T pass with the restrictions above, and for the same
+    # reason: Baeloth's scope is a power comparison, so it must see this
+    # pass's anthems. The goader is the *static's* controller — that is who
+    # 701.15b says the creature must then attack around.
+    for ability in _in_layer(abilities, "goaded"):
+        goader_id = getattr(ability.source, "controller_id", None)
+        if goader_id is None:
+            continue
+        for obj in affected_objects(state, ability):
+            obj._goaded_by_static.add(goader_id)
+            _trace(obj, "Kampf", _source_name(ability), "wird aufgestachelt (goaded)")
+
 
 def _cost_static_amount(ability: StaticAbility, state: "GameState", controller_id: Optional[str]) -> int:
     """Signed generic-mana delta for one "cost" static (positive = reduction).
@@ -1793,7 +1890,7 @@ _NON_RULE_613_LAYERS: frozenset[str] = frozenset(
     {"cost", "no_untap", "no_untap_optional", "enters_tapped", "activation_prohibition",
      "cast_limit", "cast_prohibition", "draw_limit", "trigger_prohibition", "untap_cap",
      "extra_land_drop", "no_max_hand_size", "radiation_life_gain", "grant_escape",
-     "combat_restriction"}
+     "combat_restriction", "goaded"}
 )
 
 
@@ -1858,9 +1955,23 @@ def _describe_condition(condition: Optional[dict[str, Any]]) -> str:
 
 
 def active_static_abilities(state: "GameState") -> list[dict[str, Any]]:
-    """A flat summary of every static ability in play, for the UI's panel."""
+    """A flat summary of every static ability in play, for the UI's panel.
+
+    Carries the two *bounds* a continuous effect can have alongside what it
+    does, since neither is visible anywhere else on the board: ``duration``
+    (RULE 611 — when it ends, empty for a standing one) and ``condition``
+    (RULE 613.6's "as long as" gate), plus ``active``, whether that gate holds
+    right now. A gated static that is currently *off* still appears in the
+    list — it is genuinely in play and will apply again — but says so, which
+    is the whole reason the condition is worth showing.
+    """
     summary: list[dict[str, Any]] = []
     for ability in _battlefield_static_abilities(state):
+        src = ability.source
+        controller_id = getattr(src, "controller_id", None)
+        gate = ability.params.get("active_if") or static_conditions.condition_from_legacy_params(
+            ability.params
+        )
         summary.append(
             {
                 "source": _source_name(ability),
@@ -1868,6 +1979,9 @@ def active_static_abilities(state: "GameState") -> list[dict[str, Any]]:
                 "kind": ability.layer,
                 "affects": ability.affects,
                 "description": ability.description or _describe_ability(ability),
+                "duration": durations.describe(ability),
+                "condition": static_conditions.describe(gate),
+                "active": static_conditions.condition_holds(gate, state, src, controller_id),
             }
         )
     return summary

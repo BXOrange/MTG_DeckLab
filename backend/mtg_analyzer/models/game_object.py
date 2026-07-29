@@ -484,6 +484,15 @@ class GameObject:
         #: re-derived every recompute like `_granted_protections`, so it
         #: disappears on its own when its source leaves.
         self._combat_restrictions: list[dict[str, Any]] = []
+        #: RULE 701.15b goad from a *standing static* rather than a one-shot
+        #: effect ("Enchanted creature gets +2/+2 and is goaded", Acquired
+        #: Mutation; "Creatures your opponents control with power less than
+        #: ~'s power are goaded", Baeloth Barrityl). The goaders' ids, and
+        #: like `_combat_restrictions` above re-derived every recompute — the
+        #: designation has to vanish the moment the Aura does, which the
+        #: sticky, resolve-time `goaded_by` set deliberately doesn't. Read
+        #: together with it by `combat.goaders`.
+        self._goaded_by_static: set[str] = set()
         #: RULE 205.4/613.2d: a layer-4 static ability making this permanent
         #: legendary even though its printed type line isn't ("Your
         #: Ring-bearer is legendary" — RULE 701.51's Ring emblem, the only
@@ -506,6 +515,38 @@ class GameObject:
         #: *does* clear it — RULE 400.7's new object hasn't become renowned
         #: either.
         self.renowned: bool = False
+        #: RULE 701.37b: whether this permanent is **monstrous**. A
+        #: designation with no rules meaning of its own — it exists so
+        #: monstrosity's own "if this permanent isn't monstrous" guard can
+        #: fire once (701.37a) and so "as long as ~ is monstrous" statics and
+        #: "when ~ becomes monstrous" triggers have something to read. Like
+        #: `renowned` above it survives an ordinary recompute and is cleared
+        #: by `reset_as_new_object` — 701.37b's "stays monstrous until it
+        #: leaves the battlefield" is exactly RULE 400.7's new object.
+        self.is_monstrous: bool = False
+        #: RULE 701.37c: the value of X as this permanent became monstrous,
+        #: so another of its abilities that refers to that X (Death Kiss's
+        #: "when ~ becomes monstrous, goad up to X target creatures") reads
+        #: the value that was announced, not a fresh one. 0 for a
+        #: "monstrosity N" with a literal N.
+        self.monstrosity_x: int = 0
+        #: RULE 701.15b: the ids of the players who have **goaded** this
+        #: creature. A designation, not an ability, and per 701.15c one
+        #: creature can carry several at once (each adding its own combat
+        #: requirement), which is why this is a set of goaders rather than a
+        #: flag. Entries expire at the start of that goader's next turn
+        #: (701.15a, `GameEngine.begin_turn`); the *static* half ("enchanted
+        #: creature … is goaded") is re-derived every recompute into
+        #: `_goaded_by_static` instead, since it must vanish with its source.
+        self.goaded_by: set[str] = set()
+        #: The same designation with **no** expiry — "The tokens are goaded
+        #: for the rest of the game." (Rendmaw, Jon Irenicus). RULE 701.15a's
+        #: "until your next turn" is the printed default that `goaded_by`
+        #: models, and the only thing these cards change is the duration, so
+        #: they get a second set rather than a per-entry expiry stamp: the
+        #: turn-begin sweep simply never touches this one. `combat.goaders`
+        #: reads all three sets as one.
+        self.goaded_permanently: set[str] = set()
         #: Mana-production options granted by a layer-6 "X have '{T}: Add
         #: …'" static ability (Tyvar Kell) — folded onto the printed ones by
         #: `mana_abilities.mana_options_for`. Reset each recompute.
@@ -650,6 +691,7 @@ class GameObject:
         self._removed_keywords = set()
         self._granted_protections = set()
         self._combat_restrictions = []
+        self._goaded_by_static = set()
         self._granted_legendary = False
         self._loses_all_abilities = False
         self._granted_mana = []
@@ -750,6 +792,17 @@ class GameObject:
         #: an ordinary recompute", not "not reset ever" (no code implemented
         #: a genuine RULE 400.7 transition until this method existed).
         self.renowned = False
+        #: RULE 701.37b/400.7: monstrous "stays until it leaves the
+        #: battlefield" — leaving *is* this transition, so the new object is
+        #: no longer monstrous and its monstrosity X is forgotten with it.
+        self.is_monstrous = False
+        self.monstrosity_x = 0
+        #: RULE 701.15b: goaded is not part of a permanent's copiable values
+        #: and doesn't survive the zone change either — including the
+        #: "rest of the game" variant, whose duration outlasts a turn but
+        #: still not the *object* (400.7: what comes back is a new one).
+        self.goaded_by = set()
+        self.goaded_permanently = set()
         #: RULE 601.2b/400.7: a new object hasn't made its "as it enters,
         #: choose a creature type/color" pick yet either.
         self.chosen_type = None

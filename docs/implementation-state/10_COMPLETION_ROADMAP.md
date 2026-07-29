@@ -105,12 +105,17 @@ spell resolves without a hand-authored catalogue entry. Design:
 This is the critical path and the only open item with no end state. Work it
 two ways, in this order of preference:
 
-1. **Named parser gaps** — [PAR-1] through [PAR-11], each a concrete
+1. **Named parser gaps** — the open `PAR` tickets, each a concrete
    recognition shape blocking an identified cluster.
 2. **Mechanics with no engine primitive at all** — the `MEC` tickets.
-   [MEC-2] (Monstrosity/Adapt, ~63 cards) is the highest-yield next batch
-   now that Fight (RULE 701.14) has shipped; [MEC-11] (the Enrage trigger
-   condition, ~24) is the cheapest.
+   [MEC-11] (the Enrage trigger condition, ~24 cards) is now both the
+   cheapest and the highest-yield, Fight (RULE 701.14), then
+   Monstrosity/Adapt/Goad (RULE 701.37/701.46/701.15) and then the general
+   RULE 613.6/611 condition-and-duration machinery having shipped.
+   Size a candidate against the real cache before trusting its ticket's
+   own estimate — MEC-2's "~63 cards", MEC-3's "one blocked real card" and
+   MEC-12(a)'s "one card" were all wrong, in both directions
+   (`engine_bench.py cards '<mechanic>'`).
 3. **The indefinite tail** — [PAR-12], whose method, recurring lessons and
    worked samples live in [`PARSER_LONG_TAIL.md`](PARSER_LONG_TAIL.md).
 

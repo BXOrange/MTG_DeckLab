@@ -13,7 +13,7 @@ Tracked in the backlog as a single standing entry, `PAR-12`.
 Measured by `scripts/coverage_report.py` (ledger-backed via
 `services/coverage_db.py`), against the full ~34k-card Oracle universe:
 
-**26.6% covered — 9,092 / 34,208 — as of 2026-07-27, PARSER_VERSION 34.**
+**27.9% covered — 9,527 / 34,208 — as of 2026-07-29, PARSER_VERSION 42.**
 
 "Covered" = parser-`MODELED` **or** hand-`AUTHORED`. Re-run the report rather
 than trusting a figure quoted here, in `CLAUDE.md`, or in the Engine-Status
@@ -79,6 +79,29 @@ Each was paid for once; re-reading them is cheaper than re-learning them.
   (`Zone` imported under `TYPE_CHECKING` only; `legal_targets` missing a
   branch and silently returning `[]`). Also: new selector params must be
   whitelisted in `effects._SELECTOR_KEYS`, or they are silently dropped.
+- **A ticket that reads as "N more rows in a whitelist" is worth
+  re-measuring before you write the rows.** MEC-14 listed four condition
+  phrasings as four independent entries; the biggest of them turned out not
+  to be a new *kind* at all but a new **subject** ("as long as *enchanted
+  permanent* is a creature" is about the Aura's host, not the Aura), and one
+  `of` key made every existing kind work on that subject for free. Two of
+  the other three then needed no more than the row the ticket predicted. The
+  general lesson: when several ticket items share a shape, look for the
+  axis they vary along before adding one entry per item.
+- **"Needs a new primitive" is worth re-checking against the phrasing.**
+  MEC-14's soulbond item was blocked on nothing at all in the engine — the
+  ``soulbond_pair`` selector had shipped with the cEDH cube batch and simply
+  had no oracle phrase that could reach it. Three parser rows closed it.
+  This is the same failure mode `CLAUDE.md`'s batch-discipline rule
+  describes, seen from the other end.
+- **Ticket card estimates are wrong in both directions, and the wrong
+  *shape* is the expensive kind.** MEC-12(a) described a variable target
+  count as "Death Kiss, 1 card". Death Kiss really is the only card with
+  that phrasing — but four *other* cards print "for each opponent, goad up
+  to one target creature that player controls", which is the same feature
+  with an already-shipped constraint (`distinct_controllers`) doing the rest.
+  Measuring the *mechanism* rather than the quoted phrase turned a
+  one-card item into a five-card one at no extra cost.
 
 ## Worked example: the battle pool (RULE 310)
 

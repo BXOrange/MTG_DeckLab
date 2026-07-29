@@ -314,6 +314,14 @@ def _build_group_ok(
     type_word = condition.get("type")
     subtypes = condition.get("subtypes")
     nontoken = bool(condition.get("nontoken"))
+    # RULE 701.15b: a *designation* filter on the acting object rather than a
+    # characteristic — "whenever a **goaded** creature attacks" (Vengeful
+    # Ancestor), "whenever a **goaded attacking or blocking** creature dies"
+    # (Baeloth Barrityl). Read live off the board where it can be, and off the
+    # event where it can't (a DIES event's object has already left, RULE
+    # 400.7, so `RulesEngine`'s DIES firing snapshots both keys).
+    goaded = bool(condition.get("goaded"))
+    in_combat = bool(condition.get("in_combat"))
     wants_you = condition.get("controller") == "you"
     # "during each OTHER player's untap step" (Seedborn Muse) — the
     # mirror image of ``"you"``: the event's player must be someone
@@ -335,6 +343,8 @@ def _build_group_ok(
         other=other_only,
         ckey=controller_key,
         skey=subject_key,
+        want_goaded=goaded,
+        want_in_combat=in_combat,
     ) -> bool:
         event_instance = event.get(skey)
         if other and (event_instance is None or event_instance == iid):
@@ -368,6 +378,29 @@ def _build_group_ok(
                 obj = state.find_object(event_instance) if state is not None else None
                 event_subtypes = _card_subtypes(obj.card) if obj is not None else None
             if not event_subtypes or not any(s in event_subtypes for s in stypes):
+                return False
+        if want_goaded or want_in_combat:
+            snapshot_goaded = event.get("goaded")
+            snapshot_combat = event.get("in_combat")
+            if snapshot_goaded is None or snapshot_combat is None:
+                state = getattr(context, "state", None)
+                obj = (
+                    state.find_object(event_instance)
+                    if state is not None and event_instance is not None else None
+                )
+                if obj is None:
+                    return False
+                from .combat import is_goaded  # local: combat imports models lazily too
+
+                if snapshot_goaded is None:
+                    snapshot_goaded = is_goaded(obj)
+                if snapshot_combat is None:
+                    snapshot_combat = bool(
+                        getattr(obj, "attacking", False)
+                    ) or getattr(obj, "blocking", None) is not None
+            if want_goaded and not snapshot_goaded:
+                return False
+            if want_in_combat and not snapshot_combat:
                 return False
         return True
 

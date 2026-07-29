@@ -1537,6 +1537,14 @@ def _create_token(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     }
     if subtypes:
         params["token_name"] = " ".join(subtypes)
+    # "**Each player** creates …" / "**each opponent** creates …" — everyone
+    # gets their own ``count`` tokens under their own control, rather than
+    # the effect's controller getting them all.
+    who = (m.groupdict().get("who") or "").strip()
+    if who:
+        params["creators"] = "each_opponent" if "opponent" in who else "each_player"
+    if m.groupdict().get("tapped"):  # RULE 110.5a — enters tapped, not tapped after
+        params["tapped"] = True
     return [EffectSpec("create_token", params)]
 
 
@@ -1690,6 +1698,91 @@ def _pump_keywords(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     return [EffectSpec("pump", params)]
 
 
+#: The durations a grant may carry beyond "until end of turn", as printed →
+#: `game/durations.py`'s vocabulary. "Until end of turn" is deliberately
+#: absent: that is exactly what the `pump` family's ``temp_*`` fields already
+#: are (cleared at RULE 514.2 cleanup), and routing it here too would give one
+#: phrasing two implementations. These are the ones ``temp_*`` *cannot*
+#: express, because it has nowhere to record any other ending.
+_GRANT_DURATIONS: dict[str, str] = {
+    "until your next turn": "your_next_turn",
+    "until end of combat": "end_of_combat",
+    "until the end of combat": "end_of_combat",
+    "until the beginning of the next end step": "next_end_step",
+}
+
+
+def _grant_until(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    """"Target creature gains flying until your next turn." (RULE 611)
+
+    The keyword-pump handler's sibling for every duration other than end of
+    turn — same subjects, same keyword vocabulary, but the grant becomes a
+    real continuous effect on `GameState.floating_statics` rather than a
+    turn-scoped ``temp_*`` stamp.
+    """
+    subject = _pump_target(m)
+    if subject is None:
+        return None
+    target_kind, selector = subject
+    keywords = _token_keywords(m.group("kw"))
+    if keywords is None:
+        return None
+    duration = _GRANT_DURATIONS.get(m.group("dur").strip().lower())
+    if duration is None:
+        return None
+    static: dict = {"type": "grant_keyword", "params": {"keywords": keywords}}
+    params: dict = {"static": static, "duration": duration}
+    if target_kind:
+        params["target_kind"] = target_kind
+    else:
+        # A group grant ("creatures you control gain flying until your next
+        # turn") has no target: the static keeps the selector as its own
+        # ``affects``, so the floating effect covers whatever matches it at
+        # each recompute (RULE 611.2c).
+        params["target_kind"] = None
+        static["params"]["affects"] = selector
+    return [EffectSpec("grant_until", params)]
+
+
+#: The lock-down family's own "for as long as <cond>" durations (PAR-11),
+#: matched against `game/static_conditions.py`'s vocabulary.
+_LOCKDOWN_CONDITIONS: list[tuple[re.Pattern[str], dict]] = [
+    (re.compile(r"~ remains tapped", re.I), {"kind": "source_tapped"}),
+    (re.compile(r"you control ~", re.I), {"kind": "source_on_battlefield"}),
+    (re.compile(r"~ remains on the battlefield", re.I), {"kind": "source_on_battlefield"}),
+]
+
+
+def _lockdown(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    """"It doesn't untap during its controller's untap step for as long as ~
+    remains tapped." (RULE 502.1 + RULE 611.2b — Sand Squid/Ice Floe-shaped.)
+
+    The second sentence of a tap-then-lock ability, so its subject is the
+    *previous* clause's target. Composes three pieces that already existed
+    separately and had never met: the `previous_subject_only` pronoun, the
+    ``no_untap`` static, and this batch's condition-bounded duration — which
+    is what made this family unreachable until now (PAR-11).
+    """
+    condition = next(
+        (cond for pattern, cond in _LOCKDOWN_CONDITIONS if pattern.fullmatch(m.group("cond").strip())),
+        None,
+    )
+    if condition is None:
+        return None
+    return [
+        EffectSpec(
+            "grant_until",
+            {
+                "static": {"type": "no_untap", "params": {}},
+                "duration": "for_as_long_as",
+                "condition": dict(condition),
+                "previous_subject": True,
+                "target_kind": None,
+            },
+        )
+    ]
+
+
 def _scry(m: re.Match[str]) -> list[EffectSpec]:
     return [EffectSpec("scry", {"count": int(m.group("n"))})]
 
@@ -1787,6 +1880,104 @@ def _venture(m: re.Match[str]) -> list[EffectSpec]:
         # `normalize` lowercases, so the catalogue lookup is case-folded too.
         params["dungeon"] = named
     return [EffectSpec("venture", params)]
+
+
+# "Monstrosity 3." (RULE 701.37a) and "Monstrosity X." — always the body of
+# the permanent's own activated ability, so there is nothing to target and
+# nothing to scope; the whole clause is its amount. "X" is passed through as
+# the ``"x"`` sentinel `RulesEngine._substitute_x` rewrites with the announced
+# {X} at resolution, which is also what RULE 701.37c's "other abilities may
+# refer to that X" reads back.
+def _monstrosity(m: re.Match[str]) -> list[EffectSpec]:
+    raw = m.group("n")
+    return [EffectSpec("monstrosity", {"amount": "x" if raw == "x" else int(raw)})]
+
+
+# "Adapt 2." (RULE 701.46a) — monstrosity's sibling, gated on the creature's
+# own +1/+1 counters rather than a designation. No real adapt card prints
+# "adapt X", so this stays a literal (fail-closed: an "adapt X" would leave
+# its card UNMODELED rather than silently adapting 0).
+def _adapt(m: re.Match[str]) -> list[EffectSpec]:
+    return [EffectSpec("adapt", {"amount": int(m.group("n"))})]
+
+
+# "Goad target creature." (RULE 701.15a) and its controller-scoped variants
+# ("…target creature an opponent controls"), off the shared `TARGET` rows.
+def _goad(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    kind = resolve_target_kind(m.group("target"))
+    if kind not in ("creature", "creature_you_control", "creature_you_dont_control"):
+        # Goaded is only ever a creature designation (RULE 701.15b) — a
+        # non-creature target row here means the clause isn't what it looks
+        # like, so leave it unclaimed.
+        return None
+    return [EffectSpec("goad", {"target_kind": kind, **_optional_param(m)})]
+
+
+# "Goad it." / "Goad that creature." — the pronoun form, pointing at whatever
+# the *previous* clause of this same ability targeted ("~ deals 2 damage to
+# target creature. Goad that creature.", Hellrider-shaped). Offered only when
+# such a clause really preceded it (`EffectHandler.previous_subject_only`),
+# never as a blind claim.
+def _goad_previous(m: re.Match[str]) -> list[EffectSpec]:
+    return [EffectSpec("goad", {"target_kind": None})]
+
+
+# "Goad all creatures your opponents control." / "…you don't control." — the
+# untargeted mass form (RULE 601.2c), the same selector shape
+# `_tap_selector`/`_add_counters_selector` use.
+def _goad_selector(m: re.Match[str]) -> list[EffectSpec]:
+    return [EffectSpec("goad", {"selector": "creatures_opponents_control"})]
+
+
+# "For each opponent, goad up to one target creature that player controls."
+# (RULE 601.2c — 4 cards: Sontaran General, Havoc Eater, Baldur's Gate
+# Wilderness, and the same clause inside Dungeon room text). One requirement
+# whose *count* is the number of opponents, not N separate requirements: the
+# "that player" half is RULE 115's already-modeled `distinct_controllers`
+# constraint, applied by `GoadEffect` when it sees this selector.
+def _goad_per_opponent(m: re.Match[str]) -> list[EffectSpec]:
+    return [
+        EffectSpec(
+            "goad",
+            {
+                "target_kind": "creature_you_dont_control",
+                "optional": True,
+                "count_selector": "opponents",
+            },
+        )
+    ]
+
+
+# "Goad up to X target creatures your opponents control." (Death Kiss) — the
+# other dynamic count: X is the monstrosity this same permanent just
+# announced (RULE 701.37c lets another ability refer to it), which
+# `GameObject.monstrosity_x` records for exactly this.
+def _goad_up_to_x(m: re.Match[str]) -> list[EffectSpec]:
+    return [
+        EffectSpec(
+            "goad",
+            {
+                "target_kind": "creature_you_dont_control",
+                "optional": True,
+                "count_selector": "source_monstrosity_x",
+            },
+        )
+    ]
+
+
+# "The tokens are goaded for the rest of the game." (Rendmaw, The War Games,
+# Life of the Party) — the subject is what an *earlier clause of this same
+# ability* just created, which is `GameContext.created_objects`; "for the
+# rest of the game" is the no-expiry variant of RULE 701.15a's default
+# "until your next turn".
+def _goad_created(m: re.Match[str]) -> list[EffectSpec]:
+    return [EffectSpec("goad", {"target_kind": None, "referent": "created", "permanent": True})]
+
+
+# "It's goaded for the rest of the game." (Jon Irenicus) — the same no-expiry
+# designation aimed at the previous clause's *target* instead.
+def _goad_previous_permanent(m: re.Match[str]) -> list[EffectSpec]:
+    return [EffectSpec("goad", {"target_kind": None, "permanent": True})]
 
 
 # "You become the monarch." / "Target player becomes the monarch." (RULE
@@ -2713,6 +2904,30 @@ HANDLERS: list[EffectHandler] = [
         _c(rf"{_SUBJECT} gains? (?P<kw>[a-z, ]+?) until end of turn"),
         _pump_keywords,
     ),
+    # "It doesn't untap during its controller's untap step for as long as ~
+    # remains tapped." — the tap-then-lock family (PAR-11), whose subject is
+    # the previous clause's target.
+    EffectHandler(
+        "lockdown_no_untap",
+        _c(
+            r"(?:it|that creature|that permanent|that land|that artifact) doesn'?t untap "
+            r"during its controller'?s untap step for as long as (?P<cond>.+)"
+        ),
+        _lockdown,
+        previous_subject_only=True,
+    ),
+    # The same grant with any *other* duration (RULE 611) — "…until your next
+    # turn", "…until end of combat". Ordered after the end-of-turn row above,
+    # which it can't collide with (that duration isn't in `_GRANT_DURATIONS`).
+    EffectHandler(
+        "grant_until",
+        _c(
+            rf"{_SUBJECT} gains? (?P<kw>[a-z, ]+?) "
+            r"(?P<dur>until (?:your next turn|the end of combat|end of combat|"
+            r"the beginning of the next end step))"
+        ),
+        _grant_until,
+    ),
     # "scry 2" (a self effect — the controller scries; RULE 701.18).
     EffectHandler(
         "scry",
@@ -2731,6 +2946,71 @@ HANDLERS: list[EffectHandler] = [
         "venture",
         _c(r"venture into (?P<dungeon>the dungeon|undercity)"),
         _venture,
+    ),
+    # "monstrosity 3" / "monstrosity x" (RULE 701.37a).
+    EffectHandler(
+        "monstrosity",
+        _c(r"monstrosity (?P<n>x|\d+)"),
+        _monstrosity,
+    ),
+    # "adapt 2" (RULE 701.46a).
+    EffectHandler(
+        "adapt",
+        _c(rf"adapt {NUMBER}"),
+        _adapt,
+    ),
+    # "goad all creatures your opponents control" (RULE 701.15a) — the mass
+    # form first: the targeted row below can't match it (no "target"), but
+    # the mass one is the more specific phrase and reads better up here.
+    EffectHandler(
+        "goad_selector",
+        _c(r"goad all creatures (?:your opponents control|you don't control)"),
+        _goad_selector,
+    ),
+    # "for each opponent, goad up to one target creature that player
+    # controls" — a per-opponent requirement (RULE 601.2c). Before the plain
+    # `goad` row, whose `TARGET` would otherwise claim the tail and silently
+    # goad exactly one creature.
+    EffectHandler(
+        "goad_per_opponent",
+        _c(
+            r"for each opponent, goad up to 1 target creature "
+            r"that (?:player|opponent) controls"
+        ),
+        _goad_per_opponent,
+    ),
+    # "goad up to X target creatures your opponents control" (Death Kiss).
+    EffectHandler(
+        "goad_up_to_x",
+        _c(r"goad up to x target creatures (?:your opponents control|you don't control)"),
+        _goad_up_to_x,
+    ),
+    # "goad target creature [an opponent controls]" (RULE 701.15a).
+    EffectHandler(
+        "goad",
+        _c(rf"goad {TARGET}"),
+        _goad,
+    ),
+    # "the tokens are goaded for the rest of the game" — the tokens an
+    # earlier clause of this same ability created (`created_objects`).
+    EffectHandler(
+        "goad_created",
+        _c(r"the tokens? (?:is|are) goaded for the rest of the game"),
+        _goad_created,
+    ),
+    # "it's goaded for the rest of the game" — same duration, previous target.
+    EffectHandler(
+        "goad_previous_permanent",
+        _c(r"(?:it's|that creature is) goaded for the rest of the game"),
+        _goad_previous_permanent,
+        previous_subject_only=True,
+    ),
+    # "goad it" / "goad that creature" — the previous clause's target.
+    EffectHandler(
+        "goad_previous",
+        _c(r"goad (?:it|that creature)"),
+        _goad_previous,
+        previous_subject_only=True,
     ),
     # "manifest dread" (RULE 701.40a) — tried before the plain manifest row
     # below, which would otherwise not match it at all but reads more
@@ -2818,7 +3098,8 @@ HANDLERS: list[EffectHandler] = [
     EffectHandler(
         "create_token",
         _c(
-            rf"(?:you )?creates? {COUNT} (?P<p>\d+)/(?P<t>\d+) "
+            rf"(?:(?P<who>you|each player|each opponent) )?creates? {COUNT} "
+            rf"(?P<tapped>tapped )?(?P<p>\d+)/(?P<t>\d+) "
             rf"(?P<mid>[a-z ]*?)creature tokens?"
             rf"(?: with (?P<kw>[a-z, ]+))?"
         ),

@@ -63,6 +63,12 @@ _TRIGGER_VERBS: tuple[tuple[str, str], ...] = (
     ("becomes tapped", "TAPPED"),
     # RULE 702.140c: "whenever this creature mutates".
     ("mutates", "MUTATES"),
+    # RULE 701.37a: "when ~ becomes monstrous" — the trigger half of the
+    # monstrosity family, and the one that carries most of those cards
+    # (the activated ability alone is rarely the whole text). Matched
+    # before the bare "becomes tapped"/"becomes blocked" rows can't be an
+    # issue (different adjective), but it sits with them for readability.
+    ("becomes monstrous", "BECAME_MONSTROUS"),
     ("enters", "ENTERS_BATTLEFIELD"),
     ("dies", "DIES"),
     ("attacks", "ATTACKS"),
@@ -259,9 +265,10 @@ _DAMAGE_TRIGGER_RE = re.compile(
     r"^whenever (?:"
     r"(?P<self>~)"
     r"|(?P<attached>(?:enchanted|equipped) (?:creature|permanent|land|artifact))"
-    r"|(?P<article>another|an|a) (?P<type>" + "|".join(_GROUP_TYPE_WORDS) + r")"
+    r"|(?P<article>another|an|a) (?P<goaded>goaded )?(?P<type>"
+    + "|".join(_GROUP_TYPE_WORDS) + r")"
     r"(?P<yours> you control)?"
-    r") deals (?P<combat>combat )?damage to a (?P<recipient>player|creature),"
+    r") deals (?P<combat>combat )?damage to (?:an?|1 of your) (?P<recipient>player|opponent|creature)s?,"
     r"\s*(?P<body>.+)$",
     re.IGNORECASE,
 )
@@ -378,6 +385,23 @@ _GROUP_SUBJECT_RE = re.compile(
     rf"\s+(?:{_VERB_ALT})"
     r"(?:\s+the\s+battlefield)?(?:\s+alone)?"
     r"(?P<you_b> under your control)?$"
+)
+
+#: RULE 603.1's condition subject scoped by a **designation** instead of a
+#: characteristic: "whenever a **goaded** creature attacks" (Vengeful
+#: Ancestor), "whenever a **goaded attacking or blocking** creature dies"
+#: (Baeloth Barrityl), "whenever a goaded creature deals combat damage to one
+#: of your opponents" (The Rani — through `_DAMAGE_TRIGGER_RE`'s own path).
+#: Goaded is not a type, a subtype or a controller, so it needs its own key
+#: (`effect_binder._build_group_ok`'s ``goaded``/``in_combat``) rather than a
+#: value in one of the existing vocabularies. The "attacking or blocking"
+#: qualifier rides along as ``in_combat`` because it only ever appears
+#: attached to this subject on real cards; both are snapshotted onto the DIES
+#: event, since RULE 400.7 means the object is gone by the time the check runs.
+_GOADED_SUBJECT_RE = re.compile(
+    r"^(?P<article>an|a)\s+goaded\s+(?P<combat>attacking or blocking\s+)?"
+    r"(?P<type>creature)\s+"
+    rf"(?:{_VERB_ALT})(?:\s+the\s+battlefield)?(?:\s+alone)?$"
 )
 
 #: RULE 603.1's condition subject, scoped by a **creature subtype** instead
@@ -717,6 +741,19 @@ def _trigger_condition(condition: str) -> Optional[dict[str, Any]]:
             "controller": "you",
             "other": True,
         }
+    # Before `_GROUP_SUBJECT_RE`, which would otherwise fail on the "goaded"
+    # word entirely (it isn't in `_GROUP_TYPE_WORDS`) and leave the clause
+    # unclaimed.
+    m = _GOADED_SUBJECT_RE.match(cond)
+    if m is not None:
+        return {
+            "subject": "group",
+            "type": m.group("type"),
+            "controller": "any",
+            "other": False,
+            "goaded": True,
+            "in_combat": bool(m.group("combat")),
+        }
     # Tried before the subtype variant below: a bare main-type word
     # ("creature"/"artifact"/…) matches *both* regexes (`[a-z]+` is
     # unavoidably as permissive as the closed `_GROUP_TYPE_WORDS` list it
@@ -834,13 +871,20 @@ def parse_effect_body(
 #: values rather than assuming one key.
 _CREATURE_TARGET_KINDS: frozenset[str] = frozenset(
     {"creature", "creature_you_control", "creature_you_dont_control",
-     "other_creature_you_control"}
+     "other_creature_you_control",
+     # Not only creatures: the tap-then-lock family ("Tap target **land**. It
+     # doesn't untap …") refers back to a land/artifact/permanent with the
+     # same pronoun, and a permanent pronoun is no more ambiguous than a
+     # creature one — the gate is about *whether the previous clause chose
+     # something at all*, not about what type it chose.
+     "land", "artifact", "permanent", "nonland_permanent",
+     "artifact_creature_or_land", "artifact_or_creature"}
 )
 
 
 def _announces_creature_target(specs: list[EffectSpec]) -> bool:
-    """Whether the last of ``specs`` picks a creature the next clause can
-    refer back to as "it"/"those creatures"."""
+    """Whether the last of ``specs`` picks a permanent the next clause can
+    refer back to as "it"/"that creature"/"those creatures"."""
     if not specs:
         return False
     values: list[Any] = []
@@ -932,7 +976,14 @@ def segment_line(
         # instance, combat or not, so the filter omits the key entirely
         # rather than pinning it to ``False`` (which would wrongly exclude
         # real combat damage from an unqualified trigger).
-        damage_filter: dict[str, Any] = {"is_player": damage_trig.group("recipient") == "player"}
+        # "…to **one of your opponents**" (The Rani) is the same recipient
+        # kind as "…to a player" as far as the damage event is concerned —
+        # the "yours" narrowing is a separate question this filter's
+        # ``is_player`` key doesn't express, and no shipped card's behaviour
+        # differs on it, so both spell it the same way.
+        damage_filter: dict[str, Any] = {
+            "is_player": damage_trig.group("recipient") in ("player", "opponent")
+        }
         if damage_trig.group("combat"):
             damage_filter["combat"] = True
         if damage_trig.group("self"):
@@ -947,6 +998,8 @@ def segment_line(
             }
             if damage_trig.group("yours"):
                 condition["controller"] = "you"
+            if damage_trig.group("goaded"):  # RULE 701.15b — see `_GOADED_SUBJECT_RE`
+                condition["goaded"] = True
         spec = AbilitySpec(
             "triggered",
             effects=effects,

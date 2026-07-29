@@ -2704,12 +2704,27 @@ export function createGameBoardView(opts = {}) {
         <p class="empty-state">Zurzeit keine statischen Effekte im Spiel.</p></div>`;
     }
     const layerLabel = (l) => (l === 'cost' ? 'Kosten (601.2f)' : `Layer ${l}`);
+    // A continuous effect's two *bounds* (Regel 611 duration, Regel 613.6
+    // "solange"-Bedingung) are shown next to what it does — an effect that
+    // ends at end of combat, or that is currently switched off because its
+    // condition doesn't hold, is otherwise indistinguishable on the board
+    // from a permanent one. `gf-static-off` dims the second case rather than
+    // hiding it: the ability really is in play and will apply again.
+    const boundsHtml = (e) => {
+      const bits = [];
+      if (e.duration) bits.push(`<span class="gf-static-duration">⏳ ${escapeHtml(e.duration)}</span>`);
+      if (e.condition) bits.push(`<span class="gf-static-condition">❓ ${escapeHtml(e.condition)}</span>`);
+      if (e.condition && e.active === false) bits.push('<span class="gf-static-inactive">inaktiv</span>');
+      return bits.join(' ');
+    };
     const activeList = actives.length
       ? `<ul class="gf-static-list">${actives
           .map((e) =>
-            `<li><span class="gf-static-layer">${escapeHtml(layerLabel(e.layer))}</span>
+            `<li class="${e.active === false ? 'gf-static-off' : ''}">
+             <span class="gf-static-layer">${escapeHtml(layerLabel(e.layer))}</span>
              <strong>${escapeHtml(e.source)}</strong> — ${escapeHtml(e.description || '')}
-             <span class="gf-static-scope">(${escapeHtml(e.affects)})</span></li>`
+             <span class="gf-static-scope">(${escapeHtml(e.affects)})</span>
+             ${boundsHtml(e)}</li>`
           )
           .join('')}</ul>`
       : '<p class="empty-state">Keine aktiven statischen Fähigkeiten.</p>';

@@ -148,14 +148,6 @@ Plan-level sequencing lives in
 - **PAR-10 · Jin-Gitaxias-style compound activation condition.** "…and only
   if you have seven or more cards in hand" stacked on sorcery-speed timing;
   the whole clause fails closed rather than dropping the second condition.
-- **PAR-11 · `no_untap_optional` is unreachable by any real card.** RULE
-  502.1's engine + `legal_actions` + frontend toggle all ship, but each of
-  the ~46 real cards pairs the clause with an unmodeled second one — usually
-  "target permanent doesn't untap for as long as *this* remains tapped"
-  (~15+ cards), sometimes "gain control of target creature". Fail-closed
-  parsing means the static never binds. Modeling the lock-down family would
-  unlock the toggle for real play, not just synthetic tests
-  (`tests/test_batch8_permission_statics_family.py`).
 - **PAR-14 · "This ability triggers only once each turn."** RULE 603.1's
   once-per-turn limiter, in both its printed spellings — the trailing
   sentence ("…put a +1/+1 counter on this creature. **This ability triggers
@@ -198,21 +190,8 @@ Plan-level sequencing lives in
 
 ## MEC — Game mechanics
 
-- **MEC-2 · Monstrosity / Adapt** (~63 cards) — needs a
-  `GameObject.is_monstrous`-style flag, a "becomes monstrous/adapted" event,
-  and its own effect types. A clean separate mechanic, not an extension of
-  the firebreathing-pump family.
-- **MEC-3 · Goad (RULE 701.15)** — no primitive, no recognition. "Attacks
-  each combat if able" matches the shape `combat.py`'s existing must-attack
-  keywords enforce; "and attacks a player other than [goader] if able" needs
-  a per-object "may not attack this specific player" restriction that
-  doesn't exist. Acquired Mutation is the one blocked real card. Squarely a
-  multiplayer mechanic — inert in 1v1, where "a player other than you" has
-  only one answer.
 - **MEC-4 · Strive** — not a RULE 702 keyword in this catalogue at all; a
   per-extra-target cost escalation needing its own grammar.
-- **MEC-5 · Manifest dread** — a new subsystem, distinct from
-  Monarch/Initiative/Emblem.
 - **MEC-6 · Embercleave's cost reduction** — "costs {1} less for each
   attacking creature you control" needs a board-count-*during-declare-
   attackers* `count_selector` on the existing `self_cost_reduction_for`.

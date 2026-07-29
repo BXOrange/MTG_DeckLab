@@ -20,7 +20,7 @@ here without a cycle.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Any, Optional
 
 from ..models.game_object import GameObject
@@ -251,6 +251,18 @@ class TargetSpec:
     #: creature fight itself when the clause said "another"), since nothing
     #: server-side re-validates a submitted target list.
     distinct_from_others: bool = False
+    #: ``count`` read off the board at *announce* time instead of being fixed
+    #: at parse time (RULE 601.2c — the number of targets is chosen as the
+    #: spell/ability is put on the stack, so it may depend on state that
+    #: didn't exist when the card was bound). Two real shapes, both in the
+    #: goad pool: "goad up to **X** target creatures your opponents control"
+    #: where X is the monstrosity that just happened (Death Kiss), and "**for
+    #: each opponent**, goad up to one target creature that player controls"
+    #: (4 cards), which is one requirement of "as many as there are
+    #: opponents" with `distinct_controllers` doing the "that player" half.
+    #: See `TARGET_COUNT_SELECTORS`. ``None`` (the common case) keeps
+    #: ``count`` exactly as printed.
+    count_selector: Optional[str] = None
 
     def label(self) -> str:
         return self.description or _graveyard_label(self.kind) or {
@@ -732,6 +744,89 @@ def legal_targets(
     return []
 
 
+#: The vocabulary `TargetSpec.count_selector` may name. Whitelisted like
+#: every other card-text-derived name in this package; an unknown one falls
+#: back to the printed ``count``.
+TARGET_COUNT_SELECTORS: frozenset[str] = frozenset({"opponents", "source_monstrosity_x"})
+
+
+def resolved_count(
+    spec: TargetSpec,
+    state: Optional[GameState] = None,
+    controller_id: Optional[str] = None,
+    source: Optional[GameObject] = None,
+) -> int:
+    """How many targets ``spec`` wants *right now* (RULE 601.2c).
+
+    ``spec.count`` unless it carries a `TARGET_COUNT_SELECTORS` name, in
+    which case the number is read off the board as the spell/ability is
+    announced. Never below 0 and never below the printed ``count`` when the
+    board can't answer, so a caller can always treat the result as the number
+    of picks to offer.
+    """
+    selector = spec.count_selector
+    if not selector or selector not in TARGET_COUNT_SELECTORS or state is None:
+        return spec.count
+    if selector == "opponents":
+        return sum(1 for p in state.living_players() if p.id != controller_id)
+    # "goad up to X target creatures" where X is the monstrosity just
+    # announced — `GameObject.monstrosity_x` is stamped by
+    # `RulesEngine.monstrosity` precisely so a *later* ability of the same
+    # permanent can read the value that was paid rather than a fresh one.
+    return max(0, int(getattr(source, "monstrosity_x", 0) or 0))
+
+
+def expand_counts(
+    specs: list[TargetSpec],
+    state: Optional[GameState] = None,
+    controller_id: Optional[str] = None,
+    source: Optional[GameObject] = None,
+) -> tuple[list[TargetSpec], list[int]]:
+    """Split every multi-target requirement into one single-target spec each.
+
+    The trigger-targeting path gathers **one pick per spec** (`RulesEngine.
+    _continue_trigger_multi_target`), so an "up to N target creatures"
+    requirement is offered as N consecutive rounds of the same spec rather
+    than needing its own multi-select prompt. Returns the expanded list plus
+    a parallel "span" list saying how many expanded specs each original one
+    became, so the gathered groups can be collapsed back to one group per
+    *original* spec before resolution — which is what `_apply_effects_
+    partitioned` maps onto `GameEffect.target_specs`.
+
+    A ``count`` of 1 (the overwhelming common case) expands to itself with a
+    span of 1, so an unexpanded list is returned unchanged.
+    """
+    expanded: list[TargetSpec] = []
+    spans: list[int] = []
+    for spec in specs:
+        n = max(0, resolved_count(spec, state, controller_id, source))
+        if n <= 1:
+            expanded.append(spec)
+            spans.append(1)
+            continue
+        # Each round asks for one target; "up to N" stays declinable per
+        # round (RULE 115.1a lets the player stop early), a mandatory "N
+        # target X" stays mandatory.
+        expanded.extend(replace(spec, count=1, count_selector=None) for _ in range(n))
+        spans.append(n)
+    return expanded, spans
+
+
+def collapse_groups(groups: list[list[Any]], spans: list[int]) -> list[list[Any]]:
+    """The inverse of `expand_counts`: N gathered groups → one per original
+    spec, so each effect still receives a single flat list of its own picks."""
+    out: list[list[Any]] = []
+    index = 0
+    for span in spans:
+        merged: list[Any] = []
+        for _ in range(span):
+            if index < len(groups):
+                merged.extend(groups[index])
+            index += 1
+        out.append(merged)
+    return out
+
+
 def ability_target_specs(ability: Any) -> list[TargetSpec]:
     """Every RULE 115.1 requirement an activated/triggered ability announces,
     in printed order — the ability-side sibling of `spell_target_specs`, and
@@ -755,7 +850,9 @@ def requirements_with_targets(
             {
                 "kind": spec.kind,
                 "optional": spec.optional,
-                "count": spec.count,
+                # RULE 601.2c: resolved now, since a `count_selector` reads
+                # the board as the spell is announced.
+                "count": resolved_count(spec, state, controller_id, obj),
                 "label": spec.label(),
                 "options": legal_targets(state, controller_id, spec, source=obj),
                 "distinct_controllers": spec.distinct_controllers,

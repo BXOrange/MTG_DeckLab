@@ -69,7 +69,7 @@ from .effects import (
     WardEffect,
     WinConditionEffect,
 )
-from .targeting import TargetSpec, legal_targets
+from .targeting import TargetSpec, collapse_groups, expand_counts, legal_targets
 
 def _saga_final_chapter(card: Card) -> int:
     """The highest chapter number a Saga has (RULE 714.2c), 0 if unreadable.
@@ -177,6 +177,10 @@ class RulesEngine:
         #: `resolve_trigger_target_multi_choice`.
         self._pending_trigger_specs: list[TargetSpec] = []
         self._pending_trigger_groups: list[list[Any]] = []
+        #: How those specs map back onto the *original* requirements when one
+        #: wanting N targets was expanded into a round each
+        #: (`targeting.expand_counts`); ``None`` when nothing was expanded.
+        self._pending_trigger_spans: Optional[list[int]] = None
         #: The shock land currently awaiting a `land_tapped` pay-life choice
         #: (RULE 614.1), and how much life it costs to keep it untapped —
         #: populated only while that choice is pending.
@@ -1164,6 +1168,19 @@ class RulesEngine:
         (empty for a modal trigger) is never what should resolve.
         """
         specs = self._trigger_target_specs(effects)
+        # RULE 601.2c: a requirement wanting N targets (a printed "up to two
+        # target creatures", or a `count_selector` resolved against the board
+        # right now — "up to **X**", "for each opponent") is gathered as N
+        # consecutive single-target rounds by the multi-spec path below, then
+        # collapsed back to one group per *original* spec at placement.
+        # ``spans`` is that mapping; an all-ones ``spans`` means nothing was
+        # expanded and every path below behaves exactly as it did before.
+        specs, spans = expand_counts(
+            specs,
+            self.state,
+            ability.controller_id or self.state.active_player.id,
+            ability.source,
+        )
         override = effects if effects is not ability.effects else None
         if not specs:
             if not ability.optional:
@@ -1202,11 +1219,49 @@ class RulesEngine:
             self._pending_trigger_event = event
             self.state.pending_choice = self._trigger_target_choice(ability, options)
             return False
-        # RULE 115.1/603.3c generalized: 2+ *different* targeting effects —
-        # gather one target per effect, one choice at a time (mirrors
-        # `_trigger_mode_choice`'s "pick up to N, one at a time"), then place
-        # with `target_groups` so each effect resolves against its own pick.
-        return self._continue_trigger_multi_target(ability, override, queue, specs, [], event)
+        # RULE 115.1/603.3c generalized: 2+ *different* targeting effects (or
+        # one effect wanting 2+ targets, expanded above) — gather one target
+        # per spec, one choice at a time (mirrors `_trigger_mode_choice`'s
+        # "pick up to N, one at a time"), then place with `target_groups` so
+        # each effect resolves against its own picks.
+        return self._continue_trigger_multi_target(
+            ability, override, queue, specs, [], event, spans
+        )
+
+    @staticmethod
+    def _span_bounds(spans: Optional[list[int]], idx: int) -> tuple[int, int]:
+        """``(start, length)`` of the expanded span holding spec ``idx`` —
+        i.e. which *original* requirement it belongs to and how many rounds
+        that requirement was split into (`targeting.expand_counts`).
+        ``(idx, 1)`` when nothing was expanded."""
+        if not spans:
+            return idx, 1
+        start = 0
+        for span in spans:
+            if start <= idx < start + span:
+                return start, span
+            start += span
+        return idx, 1
+
+    @classmethod
+    def _span_picks(
+        cls, groups: list[list[Any]], spans: Optional[list[int]], idx: int
+    ) -> set[Any]:
+        """The instance ids already picked for the *same* original
+        requirement as expanded spec ``idx`` — see `targeting.expand_counts`.
+
+        Empty when nothing was expanded (``spans`` all ones, or absent), so
+        the unexpanded path filters nothing and behaves as it always has.
+        """
+        if not spans:
+            return set()
+        start, _ = cls._span_bounds(spans, idx)
+        return {
+            getattr(obj, "instance_id", None)
+            for group in groups[start:idx]
+            for obj in group
+            if getattr(obj, "instance_id", None) is not None
+        }
 
     def _continue_trigger_multi_target(
         self,
@@ -1216,6 +1271,7 @@ class RulesEngine:
         specs: list[TargetSpec],
         groups: list[list[Any]],
         event: Optional[GameEvent] = None,
+        spans: Optional[list[int]] = None,
     ) -> bool:
         """Gather the next not-yet-filled spec's target (RULE 115.1), one at
         a time, for a trigger with 2+ *different* targeting effects.
@@ -1225,20 +1281,35 @@ class RulesEngine:
         (`_place_trigger`). A spec with no legal option is skipped (empty
         group) if it's "up to N" (``optional``), or drops the whole ability
         (RULE 603.3c — a required target the board can't supply) otherwise.
+
+        ``spans`` maps these specs back onto the *original* requirements when
+        `targeting.expand_counts` split a multi-target one into a round each;
+        the groups are collapsed by it at placement so every effect still
+        receives one flat list of its own picks.
         """
         idx = len(groups)
         if idx >= len(specs):
             self._place_trigger(
-                ability, target_groups=groups, effects_override=override, event=event
+                ability,
+                target_groups=collapse_groups(groups, spans) if spans else groups,
+                effects_override=override,
+                event=event,
             )
             return True
         spec = specs[idx]
         controller_id = ability.controller_id or self.state.active_player.id
         options = legal_targets(self.state, controller_id, spec, source=ability.source)
+        # RULE 601.2c: the same object can't be chosen twice for one
+        # requirement, so the rounds an expanded multi-target spec was split
+        # into exclude each other's picks. Cross-*requirement* exclusion is a
+        # different rule and stays `distinct_from_others`' job.
+        picked = self._span_picks(groups, spans, idx)
+        if picked:
+            options = [o for o in options if o.get("instance_id") not in picked]
         if not options:
             if spec.optional:
                 return self._continue_trigger_multi_target(
-                    ability, override, queue, specs, groups + [[]], event
+                    ability, override, queue, specs, groups + [[]], event, spans
                 )
             return True  # RULE 603.3c: no legal target — never placed
         self._pending_trigger_ability = ability
@@ -1247,12 +1318,24 @@ class RulesEngine:
         self._pending_trigger_event = event
         self._pending_trigger_specs = specs
         self._pending_trigger_groups = groups
+        self._pending_trigger_spans = spans
         # RULE 603.5: "you may" is asked once, on the *first* target — from
         # then on the ability is already committed to, so later specs are
         # never declinable on their own.
-        self.state.pending_choice = self._trigger_target_choice(
+        choice = self._trigger_target_choice(
             ability, options, kind="trigger_target_multi", allow_decline=(idx == 0 and ability.optional)
         )
+        # RULE 115.1a: "up to N target …" lets the player stop before N. That
+        # is a *different* answer from the "you may" decline just above —
+        # stopping keeps the ability and resolves it against however many
+        # were picked, declining abandons it — so it is its own option rather
+        # than an overloaded "decline". Only offered on a requirement that
+        # was actually expanded into several rounds; a plain "up to one"
+        # keeps expressing "none" through the decline it already had.
+        _, span_len = self._span_bounds(spans, idx)
+        if spec.optional and span_len > 1:
+            choice["options"].append({"id": "stop", "label": "Keine weiteren"})
+        self.state.pending_choice = choice
         return False
 
     def _trigger_mode_choice(
@@ -1487,19 +1570,32 @@ class RulesEngine:
         effects_override = self._pending_trigger_effects
         specs = self._pending_trigger_specs
         groups = self._pending_trigger_groups
+        spans = getattr(self, "_pending_trigger_spans", None)
         event = self._pending_trigger_event
         self._pending_trigger_ability = None
         self._pending_trigger_queue = []
         self._pending_trigger_effects = None
         self._pending_trigger_specs = []
         self._pending_trigger_groups = []
+        self._pending_trigger_spans = None
         self._pending_trigger_event = None
 
+        if answer == "stop" and ability is not None:
+            # RULE 115.1a: stop short of N on an expanded "up to N"
+            # requirement — the remaining rounds of *this* span are filled
+            # with empty picks and the next requirement (if any) continues.
+            start, span_len = self._span_bounds(spans, len(groups))
+            groups = groups + [[]] * (start + span_len - len(groups))
+            if self._continue_trigger_multi_target(
+                ability, effects_override, queue, specs, groups, event, spans
+            ):
+                self._place_triggers(queue)
+            return
         if answer is not None and answer != "decline" and ability is not None:
             target = self._resolve_choice_option(choice["options"], str(answer))
             groups = groups + [[target] if target is not None else []]
             if self._continue_trigger_multi_target(
-                ability, effects_override, queue, specs, groups, event
+                ability, effects_override, queue, specs, groups, event, spans
             ):
                 self._place_triggers(queue)
             return
@@ -2433,6 +2529,7 @@ class RulesEngine:
             source=resumed.get("source"),
             group_index=resumed.get("group_index", 0),
             previous_targets=resumed.get("previous_targets"),
+            created_objects=resumed.get("created_objects"),
         )
         return True
 
@@ -5082,6 +5179,90 @@ class RulesEngine:
             # registry doesn't know produces no effect rather than a wrong one.
             return []
 
+    def monstrosity(self, obj: GameObject, amount: int) -> bool:
+        """RULE 701.37a: "If this permanent isn't monstrous, put ``amount``
+        +1/+1 counters on it and it becomes monstrous."
+
+        One atomic primitive rather than counters-plus-a-flag at the call
+        site, for the same reason `RenownEffect` is one (RULE 702.112b): the
+        701.37a guard, the counters and the designation are a single
+        conditional — a monstrosity ability activated a second time must put
+        *no* counters on, which two separate steps would get wrong.
+
+        Returns whether it actually became monstrous, so a caller that has
+        follow-up behaviour ("monstrosity 3. When it becomes monstrous, …")
+        can tell the no-op case apart. ``amount`` is clamped at 0: a
+        "monstrosity X" with X=0 still flips the designation (701.37a puts
+        zero counters on, which is a legal number of counters to put on) and
+        still fires the trigger.
+        """
+        if obj.is_monstrous:
+            return False
+        self.add_counters(obj, max(0, int(amount)), "+1/+1", source=obj)
+        obj.is_monstrous = True
+        # RULE 701.37c: another ability of this permanent may refer to the X
+        # it became monstrous with, so remember the announced value.
+        obj.monstrosity_x = max(0, int(amount))
+        self.state.fire_event(
+            GameEvent(
+                EventType.BECAME_MONSTROUS,
+                instance_id=obj.instance_id,
+                controller_id=obj.controller_id,
+                object=obj.name,
+                object_types=sorted(obj.type_words),
+                amount=obj.monstrosity_x,
+            )
+        )
+        return True
+
+    def adapt(self, obj: GameObject, amount: int) -> bool:
+        """RULE 701.46a: "If this permanent has no +1/+1 counters on it, put
+        ``amount`` +1/+1 counters on it."
+
+        Monstrosity's sibling and deliberately *not* the same primitive: the
+        gate is the permanent's current counters, not a designation, so adapt
+        can happen again and again as counters come and go, and there is no
+        "becomes adapted" event to fire (701.46 defines no designation — the
+        real cards' "as long as ~ has a +1/+1 counter on it" statics read the
+        counters directly, which the layer engine's existing ``min_level``
+        gate already does).
+        """
+        if obj.counters.get("+1/+1", 0) > 0 or obj.plus_one_counters > 0:
+            return False
+        self.add_counters(obj, max(0, int(amount)), "+1/+1", source=obj)
+        return True
+
+    def goad(self, obj: GameObject, goader_id: str, permanent: bool = False) -> None:
+        """RULE 701.15a: ``goader_id`` goads ``obj`` until their next turn.
+
+        The designation is stored on the creature as the *set* of players who
+        have goaded it (RULE 701.15c — several players goading one creature
+        each add their own combat requirement; 701.15d — the same player
+        goading twice adds nothing, which a set gives for free). Expiry is
+        `GameEngine.begin_turn`'s job: "until the next turn of the
+        controller" means the entry is dropped as that player's turn begins.
+
+        ``permanent`` is the "…goaded **for the rest of the game**" wording
+        (Rendmaw, Jon Irenicus): same designation, no expiry, so it goes in
+        the sibling set the turn-begin sweep leaves alone.
+
+        Goading a creature that isn't a creature, or one already goaded by
+        this player, is legal and simply records/re-records the designation —
+        the event fires either way, since "whenever you goad" cares that the
+        action happened (701.15d only makes the *requirement* a no-op).
+        """
+        (obj.goaded_permanently if permanent else obj.goaded_by).add(goader_id)
+        self.state.fire_event(
+            GameEvent(
+                EventType.GOADED,
+                instance_id=obj.instance_id,
+                goader_id=goader_id,
+                controller_id=goader_id,
+                object=obj.name,
+                object_types=sorted(obj.type_words),
+            )
+        )
+
     def become_monarch(self, player: Player) -> None:
         """RULE 725.3: ``player`` becomes the monarch; whoever held it
         (possibly ``player`` themself) ceases to."""
@@ -7140,6 +7321,13 @@ class RulesEngine:
                     # runs.
                     is_token=obj.is_token,
                     subtypes=obj.card.type_line.partition("—")[2].strip().lower().split(),
+                    # RULE 701.15b's designation, for the same reason: "whenever
+                    # a **goaded** attacking or blocking creature dies" (Baeloth
+                    # Barrityl) can't re-derive it once the object is gone. Also
+                    # snapshots whether it was in combat, since 506.4 removes a
+                    # permanent from combat as it leaves the battlefield.
+                    goaded=bool(combat.is_goaded(obj)),
+                    in_combat=bool(obj.attacking) or obj.blocking is not None,
                 )
             )
             if cause == "sacrifice":

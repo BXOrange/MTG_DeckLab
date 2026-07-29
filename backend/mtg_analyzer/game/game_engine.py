@@ -25,7 +25,7 @@ from ..models.game_object import GameObject, Zone
 from ..models.game_state import GameState, StackItem
 from ..models.mana_cost import ManaCost
 from ..models.player import Player
-from . import combat, condition_query, continuous, face_down, variants
+from . import combat, condition_query, continuous, durations, face_down, variants
 from ..models import game_format
 from ..models.game_format import GameFormat, get_format
 from .costs import (
@@ -54,6 +54,7 @@ from .targeting import (
     legal_targets,
     partition_targets,
     requirements_with_targets,
+    resolved_count,
     spell_target_specs,
 )
 from .graveyard_cast import graveyard_cast_grant_for
@@ -298,6 +299,22 @@ class GameEngine:
                     e for e in obj.replacement_effects
                     if getattr(e, "until_next_turn_of", None) != active.id
                 ]
+        # RULE 701.15a: goad lasts "until the next turn of the controller of
+        # that spell or ability" — so the moment a player's turn begins, every
+        # goad *they* applied ends. The same "until your next turn" duration
+        # as the two sweeps above, keyed per-goader on the creature rather
+        # than by an effect object, since goaded is a designation and not an
+        # effect (701.15b). The static half (`_goaded_by_static`) is not swept
+        # here: it is re-derived every recompute and lasts as long as its
+        # source does.
+        for obj in self.state.battlefield:
+            obj.goaded_by.discard(active.id)
+        # RULE 611.2b: "until your next turn" ends as that player's turn
+        # begins — the one duration a `temp_*` field can't express, since
+        # those are all cleared at the cleanup step of the turn they were
+        # created in (`game/durations.py`).
+        if durations.sweep(self.state, "turn_begin"):
+            self.recompute_continuous_effects()
         self._clear_combat()
         # RULE 117.3a: the active player receives priority at the start of
         # their turn (harmless bookkeeping for solo play; the primitive an
@@ -377,6 +394,7 @@ class GameEngine:
             return None
         if self.state.current_step == "declare_attackers":
             self._enforce_attacks_if_able()
+            self._enforce_goad_requirements()
             self._enforce_attack_alone_restrictions()
             self._fire_player_attacked_events()
             self._fire_attacks_alone_event()
@@ -407,11 +425,72 @@ class GameEngine:
         active = self.state.active_player
         for obj in self.state.permanents_controlled_by(active.id):
             if (
-                combat.has(obj, "attacks_if_able")
+                (combat.has(obj, "attacks_if_able") or combat.is_goaded(obj))
                 and not obj.attacking
                 and self._can_attack(active, obj)
             ):
+                # RULE 701.15b's first half: a goaded creature "attacks each
+                # combat if able" — the same requirement the flag keyword
+                # imposes, so it rides the same check rather than a parallel
+                # one. Its second half (*whom* it must attack) is
+                # `_enforce_goad_requirements`, since that can only be judged
+                # once the whole attack is declared.
                 raise ValueError(f"{obj.name} attacks each combat if able")
+
+    def _enforce_goad_requirements(self) -> None:
+        """RULE 701.15b's second half: a goaded creature "attacks a player
+        other than the controller of the [goading] permanent, spell, or
+        ability if able".
+
+        A requirement about the *chosen defender*, so unlike the "attacks if
+        able" half it can only be judged once the attack is declared — hence
+        this sits beside `_enforce_attack_alone_restrictions` on the way out
+        of the declare-attackers step rather than inside `declare_attackers`.
+
+        "If able" is the whole difficulty. The creature is only in violation
+        when a legal *alternative* existed: another defender it could have
+        attacked that isn't one of its goaders (or something they control).
+        With only the goader attackable — a two-player game, the usual case,
+        where "a player other than you" has no answer — attacking them is
+        correct and this must stay silent. RULE 701.15c's several goaders are
+        handled by requiring the defender to satisfy *every* goad it carries,
+        which is the strictest reading and the one that matches "creates
+        additional combat requirements".
+        """
+        active = self.state.active_player
+        for obj in self.state.battlefield:
+            if not obj.attacking or obj.controller_id != active.id:
+                continue
+            goaded_by = combat.goaders(obj)
+            if not goaded_by:
+                continue
+            attacked = self._defending_player(obj.combat_defender)
+            if attacked is None or attacked.id not in goaded_by:
+                continue  # already attacking someone this goad doesn't forbid
+            # Attacking a goader — legal only if no permitted defender was
+            # available to this creature at all.
+            #
+            # Asked with `_attack_conditions_ok` rather than `_can_attack`:
+            # by now the creature is declared and (without vigilance) tapped,
+            # so `_can_attack` would answer "no" for *every* defender — it
+            # would be reading the state this very declaration created.
+            # Everything it checks beyond the defender-dependent conditions
+            # (tapped, summoning sickness, defender, "can't attack") is
+            # defender-*independent* and was already satisfied when
+            # `declare_attackers` accepted this creature, so the only open
+            # question left is the per-defender one.
+            alternatives = [
+                spec
+                for spec in self.legal_defenders_for(active)
+                if (defender := self._defending_player(spec)) is not None
+                and defender.id not in goaded_by
+                and self._attack_conditions_ok(obj, active, defender)
+            ]
+            if alternatives:
+                raise ValueError(
+                    f"{obj.name} is goaded and must attack a player other than "
+                    f"{attacked.name} if able"
+                )
 
     def _enforce_attack_alone_restrictions(self) -> None:
         """RULE 508.1a: "~ can't attack alone." — a restriction on the *whole*
@@ -546,6 +625,11 @@ class GameEngine:
 
         self.state.fire_event(GameEvent(EventType.STEP_BEGIN, step=step.name, phase=phase.name))
         self._fire_delayed_triggers(step.name)
+        # RULE 611: "until the beginning of the next end step" — swept as
+        # that step opens, alongside the delayed triggers due there, since
+        # both are "the next time we reach this step" durations.
+        if step.name == "end" and durations.sweep(self.state, "end_step"):
+            self.recompute_continuous_effects()
         self._execute_step_body(step)
 
         if not step.gives_priority:
@@ -915,6 +999,12 @@ class GameEngine:
     def _step_end_combat(self) -> None:
         # RULE 511.3: creatures are removed from combat as it ends.
         self._clear_combat()
+        # …and RULE 611's combat-scoped continuous effects end with it
+        # ("target creature gains flying until end of combat"), which is
+        # strictly earlier than the cleanup step every ``temp_*`` grant waits
+        # for (`game/durations.py`).
+        if durations.sweep(self.state, "end_of_combat"):
+            self.recompute_continuous_effects()
 
     def _step_cleanup(self) -> None:
         active = self.state.active_player
@@ -971,6 +1061,12 @@ class GameEngine:
                 obj.replacement_effects = [
                     e for e in obj.replacement_effects if not getattr(e, "regeneration_shield", False)
                 ]
+        # RULE 514.2 again, for the RULE 611 floating statics: "until end of
+        # turn" ends here too, in the same window as every ``temp_*`` field
+        # above — the difference is only *where* the effect was stored, not
+        # when it lapses (`game/durations.py`).
+        if durations.sweep(self.state, "cleanup"):
+            ended_effects = True
         if ended_effects:
             self.recompute_continuous_effects()  # re-derive P/T sans the pumps
         # RULE 514.2 analogue: an unused (or partially-spent) turn-scoped
@@ -2627,8 +2723,14 @@ class GameEngine:
             and not obj.tapped
             # Haste (RULE 702.10b) lets a creature attack the turn it arrives.
             and (not obj.summoning_sick or combat.has_haste(obj))
-            # Defender (RULE 702.3b) can never attack.
-            and not combat.has_defender(obj)
+            # Defender (RULE 702.3b) can never attack — unless something
+            # grants "can attack as though it didn't have defender" (RULE
+            # 508.1a permission, Colossus of Akros). The keyword itself
+            # stays: this lifts the attack restriction only.
+            and (
+                not combat.has_defender(obj)
+                or bool(combat.combat_restrictions(obj, "attacks_as_though_no_defender"))
+            )
             # "~ can't attack." / "enchanted creature can't attack [or
             # block]." — a synthetic layer-6 flag, not a real keyword; see
             # `parser/oracle/catalogue/static_handlers.py`'s combat-
@@ -3321,7 +3423,8 @@ class GameEngine:
                 {
                     "kind": spec.kind,
                     "optional": spec.optional,
-                    "count": spec.count,
+                    # RULE 601.2c — see `targeting.resolved_count`.
+                    "count": resolved_count(spec, self.state, player.id, source),
                     "label": spec.label(),
                     "options": legal_targets(self.state, player.id, spec, source=source),
                     "distinct_controllers": spec.distinct_controllers,
