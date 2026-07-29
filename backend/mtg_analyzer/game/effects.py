@@ -2068,20 +2068,23 @@ class DiesGrantsRadCountersEqualPowerEffect(GameEffect):
 
 class SacrificeEffect(GameEffect):
     """A player sacrifices up to ``count`` permanents matching ``what``
-    (RULE 701.17) — untargeted, an MVP auto-choice matching
-    `GameEngine._sacrifice_candidate`'s non-interactive convention (an
-    interactive picker is a future upgrade, not modeled here).
+    (RULE 701.17) — untargeted; a real RULE 601.2c-style choice via
+    `RulesEngine.sacrifice`/`request_choose_objects`, not an auto-pick
+    (`GameEngine._sacrifice_candidate`'s non-interactive convention is a
+    *cost*-payment concern, a synchronous call that can't pause for a
+    chooser — this is an effect resolving, which can).
 
     ``selector="defending_player"`` (annihilator, RULE 702.86) resolves the
     player dynamically at apply-time, the same way `LoseLifeEffect` does;
     ``selector="each_opponent"`` runs the sacrifice once per opponent
     (Professor Onyx's −3).
 
-    ``greatest_power`` narrows the auto-choice to "a creature with the
-    greatest power among creatures that player controls" (Professor Onyx
-    again) — the one place the MVP's arbitrary pick would be *wrong* rather
-    than merely uninteresting, since the card's whole effect is that the
-    sacrificing player can't dodge with a spare token.
+    ``greatest_power`` narrows the choice to "a creature with the greatest
+    power among creatures that player controls" (Professor Onyx again) —
+    still an auto-pick (`max()`) among the tied leaders rather than routed
+    through the chooser, since only a tie among several actually leaves
+    anything to decide and no shipped card sacrifices more than one this
+    way (recomputing "greatest" between interactive picks isn't modeled).
     """
 
     def __init__(

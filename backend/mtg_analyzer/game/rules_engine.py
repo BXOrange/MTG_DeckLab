@@ -29,6 +29,7 @@ from ..models.game_object import GameObject, Zone
 from ..models.game_state import DelayedTrigger, GameState, StackItem
 from ..models.mana_cost import ManaCost
 from ..models.player import Player
+from ..parser.oracle.catalogue.keywords import parse_keywords
 from ..parser.oracle.catalogue.saga import all_chapter_numbers
 from . import ability_catalogue, combat, continuous, copy_mechanics, dungeons, face_down, variants
 from .combat import is_protected_from
@@ -2381,6 +2382,14 @@ class RulesEngine:
         kind = self._attachment_kind(obj)
         if kind is None:
             return False
+        if is_protected_from(target, obj):
+            # RULE 702.16c/d: protection from ``obj``'s stated quality means
+            # ``target`` can't be enchanted/equipped/fortified by it — checked
+            # here rather than only at target-selection time so a permanent
+            # that *gains* protection after ``obj`` is already attached is
+            # caught by the RULE 704.5m/n re-validation in
+            # `_revalidate_attachments`.
+            return False
         if kind == "equip":
             # RULE 301.5b/702.6a: "target creature you control" — control
             # of the creature matters both when the ability is activated
@@ -2439,6 +2448,38 @@ class RulesEngine:
             attached.attached_to = None
             if self._attachment_kind(attached) == "enchant":
                 self._move_to_graveyard(attached)
+
+    def _revalidate_attachments(self) -> bool:
+        """RULE 704.5m/n: unattach any permanent whose attachment has become
+        illegal since it was attached, with its *host* still on the
+        battlefield (a host that leaves is `_detach_attachments_from`'s job).
+
+        Checked against the same `_attachment_legal` an initial attach uses,
+        so any new legality rule added there (protection, quality, control)
+        is re-validated here for free. Returns on the first permanent it
+        unattaches, matching every other SBA check's "one action, then
+        re-check the whole board" cadence.
+        """
+        for attached in self.state.permanents():
+            host_id = attached.attached_to
+            if host_id is None:
+                continue
+            host = self._object_by_instance_id(host_id)
+            if host is None or host not in self.state.battlefield or host.phased_out:
+                # Host leaving the battlefield is `_detach_attachments_from`'s
+                # job; a phased-out host (RULE 702.26g/`PhaseOutAllYouControl
+                # Effect`) took `attached` phased-out with it, so `attached`
+                # is already absent from `self.state.permanents()` in the
+                # normal case — this guards the same-host-different-
+                # controller edge no shipped card reaches yet.
+                continue
+            if self._attachment_legal(attached, host):
+                continue
+            attached.attached_to = None
+            if self._attachment_kind(attached) == "enchant":
+                self._move_to_graveyard(attached)  # RULE 704.5m
+            return True  # RULE 704.5n: Equipment/Fortification just unattaches
+        return False
 
     @staticmethod
     def _effects_for_spell(obj: GameObject) -> list[Any]:
@@ -3344,22 +3385,26 @@ class RulesEngine:
         """``player`` sacrifices up to ``count`` permanents matching ``what``
         (RULE 701.17) — an effect-driven sacrifice (annihilator, RULE
         702.86), not a cost payment (`GameEngine._sacrifice_candidate`
-        handles that separate path). Auto-picks the first matching permanent
-        each time, the same non-interactive MVP convention the cost path
-        uses; stops early if the player runs out of matching permanents.
+        handles that separate path, since a cost is paid in one synchronous
+        call and can't pause for a chooser — see `GameEngine._pay_activation_
+        cost`'s own ``sacrifice_choice``).
+
+        A real interactive choice via `request_choose_objects` (RULE 601.2c-
+        style) rather than an auto-pick: with ``count`` >= however many
+        candidates exist there's nothing to decide (every one is taken, same
+        as before), but a defending player facing Annihilator on a board
+        with more permanents than the trigger demands genuinely gets to
+        choose which ones go.
         """
-        for _ in range(count):
-            candidate = next(
-                (
-                    obj
-                    for obj in self.state.permanents_controlled_by(player.id)
-                    if _matches_permanent_type(obj, what)
-                ),
-                None,
-            )
-            if candidate is None:
-                return
-            self.put_into_graveyard(candidate)
+        candidates = [
+            obj
+            for obj in self.state.permanents_controlled_by(player.id)
+            if _matches_permanent_type(obj, what)
+        ]
+        self.request_choose_objects(
+            player, candidates, "sacrifice", count=count,
+            prompt="Wähle eine bleibende Karte zum Opfern",
+        )
 
     def exile(self, obj: GameObject) -> None:
         """Move ``obj`` to its owner's exile zone (RULE 406), from anywhere.
@@ -3588,6 +3633,18 @@ class RulesEngine:
         obj.replacement_effects = []
         obj.intrinsic_keywords = set()
         obj.parametric_keywords = {}
+        # RULE 702 keywords printed in the new text (here, just "Enchant
+        # Forest you control") are docked structurally — via the same
+        # `attach_keyword` an ordinary bind-on-load uses — even though no
+        # other ability rebinds: RULE 704.5m/n's own re-validation
+        # (`_revalidate_attachments`) reads `parametric_keywords["enchant"]`
+        # to tell a real Aura attachment from an illegal one, and that has
+        # to see this permanent's new "enchant" quality, not the old
+        # creature's (cleared) keyword set.
+        from .effect_binder import attach_keyword
+
+        for kw_spec in parse_keywords(obj.card):
+            attach_keyword(obj, kw_spec)
         if attach_to is not None:
             obj.attached_to = attach_to.instance_id
         self._put_searched_card(owner, obj, "battlefield")
@@ -7621,6 +7678,17 @@ class RulesEngine:
                 obj.add_counters("+1/+1", -removed)
                 obj.add_counters("-1/-1", -removed)
                 return True
+
+        # 704.5m/n: a permanent still attached to a *legal* host when it was
+        # attached can become illegally attached later — most commonly the
+        # host gaining protection from the attachment's quality, but also a
+        # changed control (equip/reconfigure/fortify's "you control") or a
+        # quality no longer matching ("enchant creature" on a host that's
+        # been turned into a noncreature). `_detach_attachments_from` only
+        # fires when the *host* leaves the battlefield; this is the other
+        # half, re-checked every SBA pass against the live board.
+        if self._revalidate_attachments():
+            return True
 
         # 704.5j: legend rule — same-named legendaries a player controls.
         if self._apply_legend_rule():

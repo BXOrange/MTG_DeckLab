@@ -166,7 +166,7 @@ def test_teferis_protection_keeps_an_aura_attached_through_the_phase():
     is the whole point of the card."""
     engine, state, p1, _ = _engine()
     host = _bf(state, _bear("Host"))
-    aura = _bf(state, _card("Rancor", "Enchantment — Aura"))
+    aura = _bf(state, _card("Rancor", "Enchantment — Aura", oracle_text="Enchant creature"))
     aura.attached_to = host.instance_id
 
     _cast_teferis(engine, state, p1)

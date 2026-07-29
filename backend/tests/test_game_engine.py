@@ -2413,6 +2413,18 @@ def test_annihilator_makes_defending_player_sacrifice_permanents():
     eng.declare_attackers(eng.state.active_player, [attacker])
     eng.resolve_until_stable()
 
+    # RULE 601.2c-style choice (ENG-2): three permanents, only two must be
+    # sacrificed, so the defending player picks rather than the engine
+    # auto-choosing.
+    choice = eng.state.pending_choice
+    assert choice is not None and choice["action"] == "sacrifice"
+    first_pick = choice["options"][0]["instance_id"]
+    eng.rules.resolve_choose_objects_choice(first_pick)
+    assert eng.state.pending_choice is not None  # one more to pick
+    second_pick = eng.state.pending_choice["options"][0]["instance_id"]
+    eng.rules.resolve_choose_objects_choice(second_pick)
+    eng.resolve_until_stable()
+
     remaining = [o for o in eng.state.battlefield if o.controller_id == "p2"]
     assert len(remaining) == 1
 

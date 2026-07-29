@@ -1750,6 +1750,8 @@ class GameEngine:
         mutate: bool = False,
         bargained: bool = False,
         entwine: bool = False,
+        sacrifice_choice: Optional[int] = None,
+        discard_choices: Optional[list[int]] = None,
     ) -> bool:
         """RULE 601/602.5: is this spell castable by ``player`` right now?
 
@@ -1773,7 +1775,13 @@ class GameEngine:
         carries a `free_cast_condition` (`game/effect_binder.py`) whose
         condition currently holds (`condition_query.
         free_cast_condition_holds`); illegal for an object with no such
-        condition at all.
+        condition at all. ``sacrifice_choice``/``discard_choices`` are the
+        caster's own pick for an "as an additional cost, sacrifice/discard
+        …" clause (RULE 601.2b) — the same RULE 602.1 cost-choice shape
+        `can_activate`'s ``sacrifice_choice``/``tap_choices`` are; ``None``
+        falls back to an auto-pick, for non-interactive callers and for
+        every other caller of `can_cast` that isn't checking one specific
+        choice (`legal_actions`, the mid-cast face-swap validation above).
         """
         # A commander may be cast from the command zone as well as the
         # hand (RULE 903.6, 903.8) — commander tax (RULE 903.8, +{2} per
@@ -1945,7 +1953,10 @@ class GameEngine:
             # RULE 708.4 again: no text means no "as an additional cost to
             # cast this spell, …" clause either — the {3} is the whole price.
             additional_cost = None
-        return self._can_pay_additional_cast_cost(player, obj, additional_cost, x)
+        return self._can_pay_additional_cast_cost(
+            player, obj, additional_cost, x,
+            sacrifice_choice=sacrifice_choice, discard_choices=discard_choices,
+        )
 
     @staticmethod
     def _buyback_cost(obj: GameObject) -> Optional["ManaCost"]:
@@ -2126,6 +2137,8 @@ class GameEngine:
         mutate_under: bool = False,
         bargained: bool = False,
         entwine: bool = False,
+        sacrifice_choice: Optional[int] = None,
+        discard_choices: Optional[list[int]] = None,
     ):
         """Cast a spell after validating timing, payability and targets (RULE 601).
 
@@ -2162,6 +2175,11 @@ class GameEngine:
         effect (`StackItem.target_groups`) — needed only when ``obj`` carries
         2+ *different* targeting effects; omitted (``None``), every effect
         reads ``targets`` directly, unchanged from before this existed.
+
+        ``sacrifice_choice``/``discard_choices`` answer a spell's own "as an
+        additional cost to cast this spell, sacrifice/discard …" clause
+        (RULE 601.2b) — see `can_cast`; ``None`` falls back to an auto-pick,
+        for non-interactive callers.
         """
         if face == "face_down":
             # RULE 702.37c/702.168b: "turn it face down and announce that
@@ -2198,6 +2216,7 @@ class GameEngine:
                     player, obj, targets, x, mode=mode, kicked=kicked, buyback=buyback,
                     target_groups=target_groups, free=free, mutate=mutate,
                     mutate_under=mutate_under, bargained=bargained, entwine=entwine,
+                    sacrifice_choice=sacrifice_choice, discard_choices=discard_choices,
                 )
             except Exception:
                 self.rules.restore_face(obj, snapshot)
@@ -2209,6 +2228,7 @@ class GameEngine:
             player, obj, targets, x, mode=mode, kicked=kicked, buyback=buyback,
             target_groups=target_groups, free=free, mutate=mutate,
             mutate_under=mutate_under, bargained=bargained, entwine=entwine,
+            sacrifice_choice=sacrifice_choice, discard_choices=discard_choices,
         )
 
     def _effects_for_mode(self, obj: GameObject, mode: Any) -> list[Any]:
@@ -2314,6 +2334,8 @@ class GameEngine:
         mutate_under: bool = False,
         bargained: bool = False,
         entwine: bool = False,
+        sacrifice_choice: Optional[int] = None,
+        discard_choices: Optional[list[int]] = None,
     ):
         """The common cast body, reading whatever `obj.card` currently is.
 
@@ -2333,6 +2355,7 @@ class GameEngine:
             if not self.can_cast(
                 player, obj, x, kicked=kicked, buyback=buyback, free=free,
                 mutate=mutate, bargained=bargained, entwine=entwine,
+                sacrifice_choice=sacrifice_choice, discard_choices=discard_choices,
             ):
                 raise ValueError(f"{player.id} cannot cast {obj.name} now")
             # RULE 601.2c: a spell that requires a target can't be cast unless
@@ -2390,7 +2413,8 @@ class GameEngine:
             # Phyrexian-mana payment reads the player's life before any
             # "pay N life" additional cost reduces it.
             self._pay_additional_cast_cost(
-                player, obj, getattr(obj, "additional_cast_cost", None), x
+                player, obj, getattr(obj, "additional_cast_cost", None), x,
+                sacrifice_choice=sacrifice_choice, discard_choices=discard_choices,
             )
             # RULE 702.33b: record how many times Kicker was paid, so a
             # resolve-time effect that reads "if this spell was kicked" (a
@@ -3326,13 +3350,17 @@ class GameEngine:
         x: int = 0,
         tap_choices: Optional[list[Any]] = None,
         sacrifice_choice: Optional[int] = None,
+        discard_choices: Optional[list[int]] = None,
     ) -> bool:
         """Whether ``player`` may activate ``ability`` of ``source`` right now.
 
         Requires ``source`` to be a permanent ``player`` controls carrying the
         ability, and every part of its cost to be payable (RULE 602.2a):
         mana, tapping/untapping the source, a life/discard/counter payment,
-        and a legal thing to sacrifice.
+        and a legal thing to sacrifice. ``discard_choices`` is the same RULE
+        602.1 cost-choice shape as ``sacrifice_choice``, for a plain
+        "discard N cards" cost component (`_resolve_discard_cost`); ``None``
+        falls back to an auto-pick.
 
         A ``discard_self`` cost (Channel/Cycling, RULE 702.29/28.2h) is the
         one shape activated from *hand* instead of the battlefield — the
@@ -3366,7 +3394,8 @@ class GameEngine:
         ):
             return False
         return self._can_pay_activation_cost(
-            player, source, ability.cost, x, tap_choices=tap_choices, sacrifice_choice=sacrifice_choice
+            player, source, ability.cost, x, tap_choices=tap_choices,
+            sacrifice_choice=sacrifice_choice, discard_choices=discard_choices,
         )
 
     def _sorcery_speed_ok(self, player: Player) -> bool:
@@ -3569,6 +3598,7 @@ class GameEngine:
         x: int,
         tap_choices: Optional[list[Any]] = None,
         sacrifice_choice: Optional[int] = None,
+        discard_choices: Optional[list[int]] = None,
     ) -> bool:
         # {T} needs an untapped source; {Q} a tapped one. Either symbol also
         # needs a non-summoning-sick source unless it has haste (RULE 302.6,
@@ -3597,8 +3627,9 @@ class GameEngine:
             return False
         if cost.pay_energy and player.counters.get("energy", 0) < cost.pay_energy:
             return False
-        if cost.discard and cost.discard != DISCARD_HAND and len(player.hand) < cost.discard:
-            return False
+        if cost.discard and cost.discard != DISCARD_HAND:
+            if self._resolve_discard_cost(player, cost.discard, discard_choices) is None:
+                return False
         if cost.discard_self and source not in player.hand:
             return False
         if cost.sacrifice and self._sacrifice_candidate(
@@ -3698,7 +3729,13 @@ class GameEngine:
         return chosen if len(chosen) == count else None
 
     def _can_pay_additional_cast_cost(
-        self, player: Player, obj: GameObject, cost: Optional["ActivationCost"], x: int
+        self,
+        player: Player,
+        obj: GameObject,
+        cost: Optional["ActivationCost"],
+        x: int,
+        sacrifice_choice: Optional[int] = None,
+        discard_choices: Optional[list[int]] = None,
     ) -> bool:
         """RULE 601.2b: whether ``player`` can pay a spell's "as an
         additional cost to cast this spell, …" clause right now.
@@ -3712,14 +3749,24 @@ class GameEngine:
         ``obj`` — the spell itself, still sitting in hand at legality-check
         time — is excluded from its own "discard a card" count: it isn't a
         legal discard candidate for its own cost.
+
+        ``sacrifice_choice``/``discard_choices`` are the same RULE 602.1 cost
+        *choices* `can_activate`'s own ``sacrifice_choice``/``tap_choices``
+        are — the caster's own pick, validated against the legal candidates;
+        ``None`` falls back to an auto-pick (non-interactive callers, and
+        existence-only checks like `legal_actions` before a choice has been
+        made yet).
         """
         if cost is None:
             return True
-        if cost.sacrifice and self._sacrifice_candidate(player, obj, cost.sacrifice) is None:
+        if cost.sacrifice and self._sacrifice_candidate(
+            player, obj, cost.sacrifice, chosen_id=sacrifice_choice
+        ) is None:
             return False
         if cost.discard and cost.discard != DISCARD_HAND:
-            available = len(player.hand) - (1 if obj in player.hand else 0)
-            if available < cost.discard:
+            if self._resolve_discard_cost(
+                player, cost.discard, discard_choices, exclude=obj
+            ) is None:
                 return False
         if cost.pay_life:
             amount = x if cost.pay_life == PAY_LIFE_X else cost.pay_life
@@ -3733,23 +3780,32 @@ class GameEngine:
         obj: GameObject,
         cost: Optional["ActivationCost"],
         x: int,
+        sacrifice_choice: Optional[int] = None,
+        discard_choices: Optional[list[int]] = None,
     ) -> None:
         """Pay a spell's additional cast cost (RULE 601.2b), assumed already
-        checked payable by `_can_pay_additional_cast_cost`/`can_cast`.
+        checked payable by `_can_pay_additional_cast_cost`/`can_cast` (with
+        the same ``sacrifice_choice``/``discard_choices``, if any).
 
-        Sacrifice/discard use the same non-interactive auto-choice
-        `_can_pay_activation_cost`'s callers do for an activated ability's
-        cost (an MVP simplification, not this feature's own decision — see
-        `_sacrifice_candidate`'s docstring). ``obj`` — the spell itself — is
-        never a valid sacrifice candidate at this point (it's a spell on the
-        stack, not a permanent), so passing it as the sacrifice ability's
-        "self" source is only ever a no-op fallback.
+        A real RULE 602.1 cost choice (ENG-3), the same
+        ``sacrifice_choice``/``tap_choices``-as-an-action-parameter shape
+        `activate_ability` already uses for an activated ability's cost —
+        cost payment is one synchronous call inside `cast_spell`, so it
+        can't pause for a `request_choose_objects` chooser the way an
+        *effect* resolving can (see `RulesEngine.sacrifice`, ENG-2's
+        upgrade); the choice has to already be known when this runs.
+        ``obj`` — the spell itself — is never a valid sacrifice candidate at
+        this point (it's a spell on the stack, not a permanent), so passing
+        it as the sacrifice ability's "self" source is only ever a no-op
+        fallback.
         """
         if cost is None:
             return
         obj.sacrificed_cost_mana_value = None
         if cost.sacrifice:
-            victim = self._sacrifice_candidate(player, obj, cost.sacrifice)
+            victim = self._sacrifice_candidate(
+                player, obj, cost.sacrifice, chosen_id=sacrifice_choice
+            )
             if victim is not None:
                 # RULE 601.2b: stash what was sacrificed *before* it leaves,
                 # so a resolving effect can still read "the sacrificed
@@ -3761,9 +3817,14 @@ class GameEngine:
                 # regeneration-shield check.
                 self.rules.put_into_graveyard(victim)
         if cost.discard:
-            self.rules.discard(
-                player, len(player.hand) if cost.discard == DISCARD_HAND else cost.discard
-            )
+            if cost.discard == DISCARD_HAND:
+                self.rules.discard(player, len(player.hand))
+            else:
+                chosen = self._resolve_discard_cost(
+                    player, cost.discard, discard_choices, exclude=obj
+                )
+                for card in chosen or []:
+                    self.rules.discard_specific(card)
         if cost.pay_life:
             amount = x if cost.pay_life == PAY_LIFE_X else cost.pay_life
             self.rules.lose_life(player, amount, cause="cost")
@@ -3839,6 +3900,47 @@ class GameEngine:
             return obj.is_land
         return True  # unknown type word → any permanent, so the cost is payable
 
+    def _discard_cost_pool(
+        self, player: Player, exclude: Optional[GameObject] = None
+    ) -> list[GameObject]:
+        """Every card in ``player``'s hand eligible to pay a plain "discard
+        N cards" cost component. ``exclude`` keeps a spell's own hand copy
+        of itself out of its own additional-cost pool (RULE 601.2b — it
+        isn't a legal discard candidate for its own cost); unused for an
+        activated ability's cost, whose source is a battlefield permanent,
+        not a card in hand."""
+        return [c for c in player.hand if c is not exclude]
+
+    def _resolve_discard_cost(
+        self,
+        player: Player,
+        count: int,
+        chosen_ids: Optional[list[int]],
+        exclude: Optional[GameObject] = None,
+    ) -> Optional[list[GameObject]]:
+        """The cards to actually discard for a plain "discard N cards" cost
+        component — the `_resolve_tap_others` counterpart for discard (ENG-3:
+        this used to be an unconditional back-of-hand auto-pick, ``RulesEngine.
+        discard``, even though a cost is a genuine RULE 602.1 choice).
+
+        ``chosen_ids`` is the player's own pick (instance ids); ``None``
+        falls back to an auto-pick of the first ``count`` eligible cards,
+        for non-interactive callers (tests, the goldfish auto-player) and
+        existence-only legality checks (`legal_actions` offering the cast/
+        activation before a choice has been made yet). Returns ``None`` if
+        fewer than ``count`` are eligible, or ``chosen_ids`` doesn't name
+        exactly ``count`` distinct eligible cards — the same "not payable /
+        not a valid choice" signal `_resolve_tap_others` uses.
+        """
+        pool = self._discard_cost_pool(player, exclude)
+        if chosen_ids is None:
+            return pool[:count] if len(pool) >= count else None
+        if len(chosen_ids) != count or len(set(chosen_ids)) != count:
+            return None
+        by_id = {c.instance_id: c for c in pool}
+        chosen = [by_id[i] for i in chosen_ids if i in by_id]
+        return chosen if len(chosen) == count else None
+
     def _return_to_hand_candidate(
         self, player: Player, subtype: str
     ) -> Optional[GameObject]:
@@ -3860,6 +3962,7 @@ class GameEngine:
         x: int,
         tap_choices: Optional[list[Any]] = None,
         sacrifice_choice: Optional[int] = None,
+        discard_choices: Optional[list[int]] = None,
     ) -> None:
         """Charge every component of ``cost`` (RULE 601.2h analogue for
         abilities) — tap/untap the source, tap other permanents, pay mana,
@@ -3867,7 +3970,7 @@ class GameEngine:
         `activate_ability` and `tap_for_mana` (a mana ability's cost is
         charged exactly the same way, just without going on the stack).
         Assumes `_can_pay_activation_cost` already passed (with the same
-        ``tap_choices``/``sacrifice_choice``, if any).
+        ``tap_choices``/``sacrifice_choice``/``discard_choices``, if any).
         """
         if cost.taps_self:
             self.rules.set_tapped(source, True)
@@ -3916,7 +4019,12 @@ class GameEngine:
         if cost.exile_top_of_library and player.library:
             self.rules.exile(player.library[-1])
         if cost.discard:
-            self.rules.discard(player, len(player.hand) if cost.discard == DISCARD_HAND else cost.discard)
+            if cost.discard == DISCARD_HAND:
+                self.rules.discard(player, len(player.hand))
+            else:
+                chosen = self._resolve_discard_cost(player, cost.discard, discard_choices)
+                for card in chosen or []:
+                    self.rules.discard_specific(card)
         if cost.discard_self:
             self.rules.discard_specific(source)
         if cost.remove_counters:
@@ -3944,6 +4052,7 @@ class GameEngine:
         tap_choices: Optional[list[Any]] = None,
         target_groups: Optional[list[list[Any]]] = None,
         sacrifice_choice: Optional[int] = None,
+        discard_choices: Optional[list[int]] = None,
     ) -> None:
         """Pay an activated ability's cost and put it on the stack (RULE 602.2).
 
@@ -3954,9 +4063,11 @@ class GameEngine:
         untapped <type>s you control" cost, if any (see `tap_for_mana`).
         ``sacrifice_choice`` is the player's pick of *which* permanent pays a
         "Sacrifice a <type>" cost (RULE 602.1 — a genuine cost choice, not an
-        engine auto-pick; see `_sacrifice_candidate`); ``None`` falls back to
-        an auto-pick, for non-interactive callers. Raises ValueError if the
-        ability can't be paid for.
+        engine auto-pick; see `_sacrifice_candidate`); ``discard_choices`` is
+        the same shape for a plain "discard N cards" cost component
+        (`_resolve_discard_cost`). Both ``None`` fall back to an auto-pick,
+        for non-interactive callers. Raises ValueError if the ability can't
+        be paid for.
 
         ``target_groups``, when given, partitions ``targets`` per targeting
         effect (`StackItem.target_groups`) — needed only when the ability
@@ -3980,12 +4091,14 @@ class GameEngine:
             # effects actually resolve against.
             targets = [t for group in target_groups for t in group]
         if not self.can_activate(
-            player, source, ability, x, tap_choices=tap_choices, sacrifice_choice=sacrifice_choice
+            player, source, ability, x, tap_choices=tap_choices,
+            sacrifice_choice=sacrifice_choice, discard_choices=discard_choices,
         ):
             raise ValueError(f"cannot activate {source.name}'s ability")
 
         self._pay_activation_cost(
-            player, source, ability.cost, x, tap_choices=tap_choices, sacrifice_choice=sacrifice_choice
+            player, source, ability.cost, x, tap_choices=tap_choices,
+            sacrifice_choice=sacrifice_choice, discard_choices=discard_choices,
         )
         if ability.once_per_turn:
             ability._last_activated_turn = self.state.turn_number

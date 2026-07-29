@@ -5041,6 +5041,181 @@ the Phase-1 models. Tests: `test_game_engine.py`.
   Life of the Party's copy-token) is ordinary [PAR-12] tail work on clauses
   that have nothing to do with goad.
 
+### ENG-1: re-validate attachments every SBA pass (2026-07-29)
+
+RULE 704.5m/n ("an Aura not attached to a legal object goes to its owner's
+graveyard"/"an illegally-attached Equipment or Fortification just becomes
+unattached") had only ever been checked at the one moment a host *leaves the
+battlefield* (`RulesEngine._detach_attachments_from`). A host that stays on
+the battlefield but becomes newly illegal for its attachment — the common
+real case is the enchanted/equipped creature *gaining* protection from the
+attachment's colour after it's already attached — was never re-checked.
+
+Two pieces:
+
+- **`_attachment_legal` now checks protection** (`combat.is_protected_from
+  (target, obj)`, RULE 702.16c/d), which it never had before — only
+  matters once something re-checks an *existing* attachment, since the
+  initial `attach_to_target`/spell-resolution path already can't select a
+  protected target via `targeting.legal_targets`' own protection filter.
+- **`RulesEngine._revalidate_attachments`**, a new RULE 704.5m/n check
+  slotted into `check_state_based_actions` alongside the 704.5q counter-
+  annihilation check: for every attached permanent whose host is still on
+  the battlefield (and not phased out — see below), re-run the same
+  `_attachment_legal` an initial attach uses. Illegal → an Aura goes to the
+  graveyard (704.5m), an Equipment/Fortification/Reconfigure-as-equipment
+  just unattaches and stays (704.5n) — one action per pass, matching every
+  other SBA check's "act once, then let the caller re-check the whole
+  board" cadence.
+
+Reusing `_attachment_legal` verbatim means any future legality rule added
+there (a changed "enchant" quality, a control check) is picked up by the
+periodic sweep for free — the two checks can't drift apart.
+
+**Phasing interaction (RULE 702.26g):** `PhaseOutAllYouControlEffect`
+(Teferi's Protection) phases an Aura/Equipment out *together* with its host
+rather than unattaching it (a deliberate exception to the single-permanent
+`PhaseOutEffect`, which does unattach) — a phased-out permanent is excluded
+from `state.permanents()`, so it's already invisible to the new sweep's own
+iteration; the host-lookup also explicitly skips a phased-out host as a
+belt-and-suspenders guard for the same-host-different-controller edge no
+shipped card reaches yet.
+
+**Fallout, since this was the first thing to ever re-validate an
+*already-attached* permanent's legality:** two existing hand-authored/test
+paths turned out to rely on `parametric_keywords` being populated for an
+attachment that never went through the normal `attach_keyword`/oracle-text
+route, and would have had their (legitimate) attachment silently stripped
+on the very next SBA pass —
+
+- `RulesEngine.return_dies_as_new_permanent` (Harold and Bob, First
+  Numens' "return it to the battlefield, it's an Aura enchanting...")
+  builds a synthetic post-death `Card` and deliberately clears
+  `parametric_keywords` ("loses all other abilities"), then stamps
+  `attached_to` directly — bypassing `attach_to_target`. It now re-runs
+  `parse_keywords`/`attach_keyword` against the *new* card's own printed
+  text before attaching, which docks the structural "enchant" keyword
+  quoted right there in the new oracle text without reviving any of the
+  old creature's triggered/activated/static abilities (those stay cleared,
+  same as before).
+- Two test fixtures (`test_phasing.py`'s Robe of Stars,
+  `test_cedh_cube_control_and_zones.py`'s Rancor) set `.attached_to`
+  directly on a bare synthetic `Card` with no "Equip {N}"/"Enchant
+  creature" oracle text — unrealistic versus the real cards, which always
+  print that text — so `_attachment_kind` never recognized them as
+  attachable at all. Fixed by giving both fixtures the missing oracle-text
+  line, matching the real card.
+
+Tests: `tests/test_attachment_revalidation.py` (new — protection-gained-
+after-attach for both an Aura and an Equipment, an Equipment's host
+changing control, a same-pass regression guard, and confirming a
+host-left-the-battlefield attachment stays `_detach_attachments_from`'s
+job rather than double-handled). Full suite green (2,790 tests) including
+`--full-cache`.
+
+### ENG-2: `SacrificeEffect` gets a real choice (2026-07-29)
+
+RULE 701.17's "player sacrifices N permanents matching `<type>`" —
+Annihilator's "defending player sacrifices two permanents" chief among
+them — auto-picked the first matching permanent each time
+(`RulesEngine.sacrifice`), even though nothing forces the choice: with more
+matching permanents on the board than the count demands, RULE 601.2c
+entitles the sacrificing player to pick which ones go.
+
+`RulesEngine.sacrifice` now builds the candidate pool and hands it to
+`request_choose_objects(..., action="sacrifice", ...)` — the same RULE
+601.2c-style chooser Tevesh Szat's own "you may sacrifice another creature
+or planeswalker" already used (`game/effects.py`'s `ChooseObjectsEffect`),
+just reached from the *other* direction: `SacrificeEffect`'s plain path
+(no `greatest_power`) now funnels through it instead of Tevesh Szat being
+the sole consumer. `request_choose_objects` already auto-applies without a
+prompt when the pool is no bigger than the count, so the "sacrifice
+everything you have" edge case is unchanged — the pending_choice only
+appears when there's an actual decision.
+
+**Scope**: `greatest_power` (Professor Onyx's −3 — "a creature with the
+greatest power") deliberately keeps its own `max()` auto-pick among the
+tied leaders rather than routing through the chooser. It's a genuinely
+different shape: the "greatest power" set has to be recomputed after each
+removal (a creature sacrificed can change who's now the max), which
+`request_choose_objects`'s single up-front pool doesn't model, and no
+shipped card sacrifices more than one this way — so extending it there
+would be unused generality for a real correctness edge (a tie) that isn't
+reachable by any card in the pool today.
+
+**Fallout**: `RulesEngine.sacrifice` opening a `pending_choice` instead of
+resolving synchronously meant every caller that previously read the result
+of a sacrifice off the very next line had to change. Checked every call
+site: `_pay_player_cost`'s own sacrifice-cost-payment path (ward/RULE
+701.17's "sacrifice ~ unless you pay") already clears `state.pending_choice`
+before calling into it, so a nested choice opening there is architecturally
+safe (and is itself a free correctness upgrade — a "Ward—Sacrifice a
+creature." cost is no longer an auto-pick either). One test needed updating
+— `tests/test_game_engine.py`'s Annihilator test now answers the interactive
+choice (two picks from three eligible permanents) rather than asserting the
+graveyard state immediately after `resolve_until_stable()`.
+
+Tests: `tests/test_attachment_revalidation.py` unaffected; the updated
+Annihilator test in `test_game_engine.py` is the execute-level coverage,
+since `SacrificeEffect`'s own class had no dedicated test file. Full suite
+green (2,790 tests) including `--full-cache`.
+
+### ENG-3: cost-payment sacrifice/discard get the same choice shape (2026-07-29)
+
+Two auto-picks left over after ENG-2, both *cost* payment rather than an
+*effect* resolving — which matters, because cost payment is one synchronous
+call inside `cast_spell`/`activate_ability` and can't pause for a
+`request_choose_objects` `pending_choice` the way ENG-2's fix could (there's
+no "resolving" moment yet; the spell hasn't even gone on the stack). The
+existing precedent for exactly this constraint is `tap_choices`/
+`sacrifice_choice` — an activated ability's own cost choice, threaded in as
+an action parameter the caller already knows the answer to before calling,
+rather than opened as a mid-call prompt.
+
+- **A spell's own "as an additional cost to cast this spell, sacrifice/
+  discard …" (RULE 601.2b, `GameEngine._pay_additional_cast_cost`)** now
+  accepts `sacrifice_choice`/the new `discard_choices`, threaded through
+  `can_cast`/`cast_spell`/`_cast_current_face` exactly like an activated
+  ability's `sacrifice_choice` already flowed through `can_activate`/
+  `activate_ability`. `_sacrifice_candidate` already supported a
+  `chosen_id` param (built for the activated-ability path) — this is its
+  first cast-cost consumer.
+- **A plain "discard N cards" cost component** (`ActivationCost.discard`,
+  distinct from Channel/Cycling's `discard_self`, which was never an
+  auto-pick to begin with — it names a specific card) gained the
+  `_resolve_discard_cost`/`_discard_cost_pool` pair, the `_resolve_
+  tap_others` counterpart for discard: `chosen_ids` (instance ids)
+  validated against the legal pool, `None` falling back to an auto-pick of
+  the back of hand — unchanged from before for every non-interactive
+  caller. Wired into **both** places `ActivationCost.discard` is paid: the
+  additional-cast-cost path above, and an activated ability's own cost
+  (`_can_pay_activation_cost`/`_pay_activation_cost`, alongside its
+  existing `tap_choices`/`sacrifice_choice`). `DISCARD_HAND` ("discard your
+  hand") stays a plain unconditional `RulesEngine.discard` call in both —
+  there's nothing to choose when everything goes.
+- Chosen discards are applied one `RulesEngine.discard_specific` call per
+  card rather than a single `RulesEngine.discard(count=N)` — the same
+  per-card event-firing granularity `request_choose_objects`'s own
+  "discard" action already uses (`_apply_chosen_object`). No trigger
+  currently reads `EventType.DISCARD`'s `count` field, so this is a
+  no-op change in practice, not a behavioural one.
+- `_can_pay_additional_cast_cost` keeps excluding the spell itself from its
+  own discard pool (RULE 601.2b — it's still in hand at payment time but
+  isn't a legal discard candidate for its own cost), now via
+  `_resolve_discard_cost`'s own `exclude` param rather than a bespoke
+  `len(hand) - (1 if obj in hand else 0)` count.
+- `tap_for_mana` deliberately did **not** gain `discard_choices` — it
+  already threads `sacrifice_choice` for a "Sacrifice a creature: Add …"
+  mana ability (Ashnod's Altar), but no mana ability in the pool has a
+  discard cost component, so there's nothing real for it to reach yet.
+
+Tests: `tests/test_cost_payment_choices.py` (new) — an explicit choice
+honoured for both the additional-cast-cost sacrifice and discard, an
+invalid choice (wrong instance id / wrong count) making `can_cast` refuse,
+the spell excluded from its own discard pool, the `None` auto-pick
+fallback unchanged, and an activated ability's own discard-cost choice.
+Full suite green (2,797 tests) including `--full-cache`.
+
 ## Game Engine (Phase 3)
 
 `mtg_analyzer/game/game_engine.py`, tests in `test_game_engine.py`.

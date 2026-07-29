@@ -34,7 +34,10 @@ def make_engine():
 
 def _equip_robe_of_stars(eng, host, controller="p1"):
     robe = GameObject(
-        Card(id="Robe of Stars", name="Robe of Stars", type_line="Artifact — Equipment"),
+        Card(
+            id="Robe of Stars", name="Robe of Stars", type_line="Artifact — Equipment",
+            oracle_text="Equip {1}", keywords=["Equip"],
+        ),
         owner_id=controller, zone=Zone.BATTLEFIELD,
     )
     bind_from_catalogue(robe)

@@ -36,25 +36,6 @@ Plan-level sequencing lives in
 
 ## ENG — Game engine
 
-- **ENG-1 · Re-validate existing attachments every SBA pass.** RULE
-  704.5m/n also cover a host that stays on the battlefield but becomes
-  newly illegal (enchanted creature gains protection after the Aura
-  attached); only "host left the battlefield" is checked.
-  `RulesEngine._detach_attachments_from`. **Blocks [PAR-6].**
-- **ENG-2 · `SacrificeEffect` auto-picks the victim.** Annihilator's
-  "defending player sacrifices N permanents" (RULE 702.86) is still a
-  non-interactive MVP choice. Upgrade via the existing
-  `RulesEngine.request_choose_objects(..., action="sacrifice", ...)` (as
-  Tevesh Szat/Professor Onyx already do) — *not* `_sacrifice_candidate`.
-  `game/effects.py`.
-- **ENG-3 · Two cost-payment auto-picks left behind.** A spell's own "as an
-  additional cost, sacrifice a creature" (RULE 601.2b,
-  `_pay_additional_cast_cost`) still auto-picks, and any cost-payment
-  discard (`ActivationCost.discard`) still uses non-interactive
-  `RulesEngine.discard`. Cost payment is one synchronous call, so this needs
-  the `tap_choices`/`sacrifice_choice` "choice as an action parameter" shape
-  threaded into `cast_spell` — **not** a `request_choose_objects`
-  `pending_choice`, which only works mid-resolution. `game/game_engine.py`.
 - **ENG-4 · Manual trigger-ordering + a targeted/optional trigger.** A
   trigger placed via the opt-in RULE 603.3b ordering choice is placed
   directly and never pauses for its own target/"you may" choice. Both work
@@ -134,11 +115,14 @@ Plan-level sequencing lives in
   (`FLAG`-shaped, not `QUALITY`-shaped like `Protection`), so the scope is
   lost. Overprotective, never rules-illegal. Fix: give `Hexproof` a
   `QUALITY` shape. `parser/oracle/catalogue/keywords.py`'s `_ALIASES`.
-- **PAR-6 · RULE 702.16e's "This effect doesn't remove this Aura." tail.**
+- **PAR-6 · RULE 702.16n/p's "This effect doesn't remove this Aura." tail.**
   Leaves six of the eight protection-from-chosen-colour Auras UNMODELED
-  even though the grant itself is modeled. **Not safe to claim as a no-op**
-  — it only reads as one because RULE 704.5n isn't implemented. Build with
-  [ENG-1] or it becomes a silent landmine.
+  even though the grant itself is modeled. The engine side this was blocked
+  on has shipped (`RulesEngine._revalidate_attachments`, RULE 704.5m/n now
+  re-checked every SBA pass, not just on the host leaving) — an Aura that
+  grants "protection from `<colour>`" and doesn't carry this exemption would
+  now genuinely detach itself the next SBA pass, so this is real parser
+  work, not a no-op to skip.
 - **PAR-7 · Kicker `{X}`'s own paid-X variant.** Emblazoned Golem, 1 card.
 - **PAR-8 · Granting Cycling to other cards.** "Each card in your hand has
   cycling {2}" — a static-grant shape, not keyword recognition.
