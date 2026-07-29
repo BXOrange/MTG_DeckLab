@@ -5417,6 +5417,82 @@ wrong for two of the seven. Full suite green (2,797 passed, 238 skipped),
 test explicitly (`annihilator`/`afflict`/`bushido`/`soulbond`/`fading`/
 `renown`/`living_weapon`, 14 passed).
 
+### ENG-6/ENG-10: copy-of-a-copy (RULE 707.2), ENG-7: a token's own `enter_as_copy` choice, ENG-8: layer 3's second consumer (2026-07-29)
+
+Four small, related gaps in `game/copy_mechanics.py`/`game/continuous.py`/
+`game/combat.py`, closed together since ENG-6 and ENG-10 turned out to be
+the same root cause described from two angles (`CopyPermanentEffect`'s
+consumer view vs. the layer-1 architecture view), and ENG-7/ENG-8 are two
+narrow, low-risk completions of machinery this batch was already touching.
+
+**ENG-6/ENG-10 — copy of a copy.** `become_copy` (all three copy
+mechanisms — one-shot ETB, Vesuvan-style conditional/continuous, "until end
+of turn" — share it) read a copy target's copiable values off
+`target._front_card` rather than `target.card`, a simplification whose real
+purpose is RULE 712.4a's "always the front face" rule for a transformed
+DFC. The bug: `_front_card` is set once at `GameObject.__init__` and never
+updated by `become_copy` itself, so once an object *became* a copy, its own
+`_front_card` still pointed at its original printed card — RULE 707.2's
+"copy effects that apply to an object with already-changed copiable values
+are impacted by that previous effect" was silently unmet, and a copy of an
+already-copied permanent copied the pristine card underneath instead.
+Fixed with one line: `become_copy` now sets `obj._front_card = obj.card`
+right after the copy mutation, so a *later* copy of `obj` — by any of the
+three mechanisms, via any consumer (`copy_permanent`/`copy_spell`/another
+`become_copy`) — reads the current form. `snapshot_face`/`restore_face`
+(used by the conditional-copy revert and the until-end-of-turn revert)
+snapshot/restore `_front_card` alongside `card`, so reverting a copy also
+correctly un-does this bookkeeping rather than leaving it pointed at the
+now-reverted intermediate form. New tests in `test_card_structures.py`:
+a `copy_permanent` of an already-copied object, a `become_copy` chained
+three deep, and a revert-then-recheck of `_front_card`.
+
+**ENG-7 — a token's own `enter_as_copy` choice.** `create_token`'s
+`_build` loop built each token and fired `ENTERS_BATTLEFIELD` immediately,
+never consulting `enter_as_copy_effects` — unlike `resolve_top_of_stack`'s
+`_resolve_permanent_spell`, which pauses on that RULE 614.1c/614.12 choice
+*before* a cast permanent joins the battlefield. A token copy of an
+enter-as-copy creature (e.g. a token copy of Clever Impersonator, via
+`copy_permanent`/RULE 707.2) would just enter as itself, silently skipping
+its own replacement. Fixed by rewriting `_build`'s loop as a recursive
+`_next(remaining)` continuation: for a battlefield-bound token, if it
+carries `enter_as_copy_effects`, `_offer_enter_as_copy` is called with a
+continuation that finishes battlefield entry *and* recurses to the next
+token in the batch — the same continuation-passing idiom
+`_resolve_permanent_spell` already uses, just generalized to resume a
+multi-token loop rather than a single object. `_offer_enter_as_copy` still
+calls its continuation immediately when there's no legal target (RULE
+603.3c-style), so the common case — no card in the pool combines "create N
+token copies" with a second legal target at creation time — still
+completes the whole batch synchronously, unchanged from before. When a real
+choice does open, `create_token` returns `[]` right away (same documented
+contract a RULE 616.1 token-doubling choice already uses) and the rest of
+the batch resumes from `resolve_enter_as_copy_choice`. `enter_choice_effects`
+(RULE 601.2b "as ~ enters, choose a creature type/color") stays an
+acknowledged, unexercised gap — no real card in the pool ever puts that
+ability on a token. New tests in `test_tokens.py` cover the choice opening,
+declining it, the no-legal-target no-pause case, and a 2-token batch where
+resolving the first token's choice must still build the second.
+
+**ENG-8 — layer 3's second consumer.** RULE 612's word-substitution over
+`GameObject.effective_oracle_text` was read by exactly one function,
+`combat.protections_of_text` — every other oracle-text-derived quality read
+`obj.card.oracle_text` directly, so a layer-3 "text_change" static ability
+only ever flipped a permanent's protection, never anything else scanned the
+same way. `combat._landwalk_slugs` (RULE 702.14's `<type>walk` parametric
+keyword, recognized by regex over oracle text exactly like protection is)
+was the one other real candidate — same treatment, same non-goal of a full
+re-parse (bound abilities/keywords still come from the printed text once at
+bind time, unaffected either way). One-line fix: `_landwalk_slugs` now
+scans `obj.effective_oracle_text` instead of `obj.card.oracle_text`. New
+test in `test_continuous.py`: an "Islandwalk" → "Swampwalk" layer-3
+substitution (matched as one templated word, per RULE 702.14's official
+"Islandwalk" — no space — rather than a bare colour word) flips
+`landwalk_subtypes` the same way the existing protection test flips
+`is_protected_from`.
+
+Full suite green (2,807 passed, 238 skipped, +8 from this batch).
+
 ## Game Engine (Phase 3)
 
 `mtg_analyzer/game/game_engine.py`, tests in `test_game_engine.py`.

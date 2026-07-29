@@ -59,6 +59,64 @@ def test_copy_effect_end_to_end_via_registry():
     assert len(clones) == 1
 
 
+# -- Copy of a copy (RULE 707.2, ENG-6/ENG-10) -------------------------------
+# A copy effect that applies to an object whose copiable values were already
+# changed by a *previous* copy effect must see the current values, not the
+# pristine printed card underneath — regardless of which of this engine's
+# three copy mechanisms (one-shot ETB, conditional/continuous, "until end of
+# turn") produced that previous change.
+
+
+def test_copy_permanent_of_an_already_copied_object_sees_its_current_form():
+    eng = make_engine()
+    original = _put(eng, creature("Grave Titan", power=6, toughness=6, keywords=["Deathtouch"]))
+    shifted = _put(eng, creature("Vesuvan Shapeshifter", power=3, toughness=3))
+
+    from mtg_analyzer.game import copy_mechanics
+
+    copy_mechanics.become_copy(shifted, original)
+    assert shifted.card.name == "Grave Titan"
+
+    clones = eng.rules.copy_permanent("p1", shifted)
+    clone = clones[0]
+    assert clone.name == "Grave Titan"
+    assert (clone.power, clone.toughness) == (6, 6)
+
+
+def test_become_copy_chains_through_a_previous_copy():
+    eng = make_engine()
+    from mtg_analyzer.game import copy_mechanics
+
+    original = _put(eng, creature("Grave Titan", power=6, toughness=6))
+    middle = _put(eng, creature("Vesuvan Shapeshifter", power=3, toughness=3))
+    third = _put(eng, creature("Clever Impersonator", power=3, toughness=3))
+
+    copy_mechanics.become_copy(middle, original)
+    copy_mechanics.become_copy(third, middle)  # a copy of a copy
+
+    assert third.card.name == "Grave Titan"
+    assert (third.power, third.toughness) == (6, 6)
+
+
+def test_restoring_a_reverted_conditional_copy_also_restores_front_card_tracking():
+    # Reverting a conditional/continuous copy (`continuous._apply_copy_layer`)
+    # must undo the `_front_card` bookkeeping `become_copy` now keeps in sync
+    # too, or the object would misreport its copiable values afterward.
+    eng = make_engine()
+    from mtg_analyzer.game import copy_mechanics
+
+    original = _put(eng, creature("Grave Titan", power=6, toughness=6))
+    src = _put(eng, creature("Vesuvan Shapeshifter", power=3, toughness=3))
+
+    snapshot = copy_mechanics.snapshot_face(src)
+    copy_mechanics.become_copy(src, original)
+    assert src.card.name == "Grave Titan"
+
+    copy_mechanics.restore_face(src, snapshot)
+    assert src.card.name == "Vesuvan Shapeshifter"
+    assert src._front_card.name == "Vesuvan Shapeshifter"
+
+
 # -- DFC transform (RULE 712) ------------------------------------------------
 
 

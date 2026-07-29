@@ -36,25 +36,10 @@ Plan-level sequencing lives in
 
 ## ENG — Game engine
 
-- **ENG-6 · `CopyPermanentEffect` has no copy-of-a-copy.** RULE 707.2
-  copiable values interacting with other copy effects isn't modeled; it
-  copies from the printed card. `game/effects.py`.
-- **ENG-7 · A token copy never offers its own `enter_as_copy` choice.**
-  Unlike `_resolve_permanent_spell`, `create_token` skips the RULE
-  614.1c/614.12 choice. No card in the pool needs it yet.
-  `RulesEngine.create_token`.
-- **ENG-8 · Layer 3 (RULE 612) is scoped to one consumer.** Word
-  substitution over a derived `effective_oracle_text`, read *only* by
-  `combat.protections_of_text` — not a re-parse, so bound abilities and
-  keywords are unaffected by a text rewrite. `continuous.py`'s `text`
-  sublayer.
 - **ENG-9 · RULE 613.8 dependency ordering is bounded to one sublayer.**
   Only layer 2's controller-scoped `affects` is dependency-ordered. Provably
   safe for today's effect vocabulary; extend if a selector ever reads
   another object's derived state. `continuous._order_control_effects`.
-- **ENG-10 · Layer 1 "become a copy" mutates in place.** Only the
-  *conditional* copy case (Vesuvan Shapeshifter) got true per-recompute
-  layer-1 treatment. `game/copy_mechanics.py`, `game/continuous.py`.
 - **ENG-11 · A granted trigger isn't identity-scoped without an
   `instance_id`.** Layer-6-granted triggers scope per-grantee off the firing
   event's `instance_id`; an event shape carrying none isn't filtered by

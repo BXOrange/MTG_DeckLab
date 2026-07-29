@@ -22,11 +22,14 @@ This module implements every layer this engine meets:
   unified.
 * **Layer 2** — control-changing effects ("you control enchanted creature");
 * **Layer 3** — text-changing effects (RULE 612), *scoped*: word-substitution
-  over `GameObject.effective_oracle_text`, consumed today only by
-  `combat.protections_of_text` (the canonical Artificial-Evolution "protection
-  from red" → "protection from blue" case). This is **not** a full oracle-text
-  re-parse — bound abilities/keywords still come from the *printed* text once
-  at bind time, unaffected. A card that grants *another* ability to other
+  over `GameObject.effective_oracle_text`, consumed by any per-recompute
+  oracle-text scan that reads a quality off the object rather than off a
+  bound ability — `combat.protections_of_text` (the canonical
+  Artificial-Evolution "protection from red" → "protection from blue" case)
+  and `combat._landwalk_slugs` (the same word-substitution applied to a
+  "`<type>walk`" clause). This is **not** a full oracle-text re-parse — bound
+  abilities/keywords still come from the *printed* text once at bind time,
+  unaffected. A card that grants *another* ability to other
   permanents ("Elves you control have '{T}: Add {B}.'" — Tyvar Kell; "Elves
   you control have '<triggered ability>'" — Dionus, Elvish Archdruid) is
   **not** a layer-3 case despite CR 612.1's mention of "text … granted… by

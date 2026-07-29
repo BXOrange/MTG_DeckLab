@@ -700,13 +700,20 @@ def _landwalk_slugs(obj: "GameObject") -> set[str]:
     (`granted_keywords`). Landwalk is parametric (the land type is the
     parameter), so — unlike the flat combat keywords — it is tracked by the
     specific variant slug (``"islandwalk"``) rather than a bare flag.
+
+    The oracle-text scan reads ``obj.effective_oracle_text`` rather than
+    ``obj.card.oracle_text`` directly — the same RULE 612/layer-3 treatment
+    `is_protected_from`'s `protections_of_text` call already gets, so a
+    layer-3 "text_change" static ability (Artificial Evolution's "Islandwalk"
+    → "Swampwalk"-shaped word substitution) is honoured here too, not just
+    for protection.
     """
     slugs: set[str] = set()
     for kw in getattr(obj.card, "keywords", None) or []:
         slug = _normalize(str(kw))
         if slug.endswith("walk"):
             slugs.add(slug)
-    text = (getattr(obj.card, "oracle_text", "") or "").lower()
+    text = (getattr(obj, "effective_oracle_text", "") or "").lower()
     for match in re.finditer(r"\b([a-z]+)walk\b", text):
         slugs.add(match.group(1) + "walk")
     for source in ("intrinsic_keywords", "granted_keywords"):

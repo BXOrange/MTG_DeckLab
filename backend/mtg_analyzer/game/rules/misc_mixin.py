@@ -393,24 +393,44 @@ class MiscSystemsMixin:
         immediately, same as before) — if a RULE 616.1 choice opens instead,
         this returns an empty list right away and the actual tokens are
         created later, once `resolve_replacement_order_choice` finishes the
-        chain.
+        chain. A token's own `enter_as_copy_effects` choice (below) can pause
+        the very same way, for the very same reason.
 
         Known scoped gap: unlike `resolve_top_of_stack`'s `_resolve_
-        permanent_spell`, a token's own `enter_as_copy_effects` (RULE
-        614.1c/614.12 — e.g. a token copy of Clever Impersonator, via
-        `copy_permanent`) is bound but never offered here — interactively
-        pausing *inside* the ``final_count``-token creation loop is real
-        added complexity for a case no card in the pool needs (a copy of a
-        copy-effect creature). Revisit if one ever does. Same gap, same
-        reasoning, for `enter_choice_effects` (RULE 601.2b "as ~ enters,
-        choose a creature type/color") — every real card with that ability
-        in the pool is a cast permanent, never a token.
+        permanent_spell`, `enter_choice_effects` (RULE 601.2b "as ~ enters,
+        choose a creature type/color") is bound but never offered here —
+        every real card with that ability in the pool is a cast permanent,
+        never a token, so there's nothing to exercise it against yet.
         """
         from ..effect_binder import bind_from_catalogue  # function-scoped: avoid cycle
 
+        def _finish_entry(token: GameObject) -> None:
+            token.summoning_sick = True  # RULE 302.6 applies to tokens too
+            # RULE 614.1 — see the matching comment in
+            # `_resolve_permanent_spell` above.
+            token.tapped = ability_catalogue.enters_tapped(
+                token_card
+            ) or continuous.enters_tapped_from_static(self.state, token)
+            self._apply_entry_counters(token)  # a token was never cast, so X is 0
+            self.state.add_to_battlefield(token)
+            self.state.fire_event(
+                GameEvent(
+                    EventType.ENTERS_BATTLEFIELD,
+                    controller_id=controller_id,
+                    card_id=token_card.id,
+                    object=token.name,
+                    is_token=True,
+                    instance_id=token.instance_id,
+                    object_types=sorted(token.type_words),
+                )
+            )
+
         def _build(final_count: int) -> list[GameObject]:
             created: list[GameObject] = []
-            for _ in range(max(0, final_count)):
+
+            def _next(remaining: int) -> None:
+                if remaining <= 0:
+                    return
                 token = GameObject(
                     token_card,
                     owner_id=controller_id,
@@ -418,29 +438,37 @@ class MiscSystemsMixin:
                     is_token=True,
                 )
                 bind_from_catalogue(token)  # token abilities are live like any card's
-                if zone == Zone.BATTLEFIELD:
-                    token.summoning_sick = True  # RULE 302.6 applies to tokens too
-                    # RULE 614.1 — see the matching comment in
-                    # `_resolve_permanent_spell` above.
-                    token.tapped = ability_catalogue.enters_tapped(
-                        token_card
-                    ) or continuous.enters_tapped_from_static(self.state, token)
-                    self._apply_entry_counters(token)  # a token was never cast, so X is 0
-                    self.state.add_to_battlefield(token)
-                    self.state.fire_event(
-                        GameEvent(
-                            EventType.ENTERS_BATTLEFIELD,
-                            controller_id=controller_id,
-                            card_id=token_card.id,
-                            object=token.name,
-                            is_token=True,
-                            instance_id=token.instance_id,
-                            object_types=sorted(token.type_words),
-                        )
-                    )
-                else:
+                if zone != Zone.BATTLEFIELD:
                     self.state.player_by_id(controller_id).add_to_zone(token, zone)
-                created.append(token)
+                    created.append(token)
+                    _next(remaining - 1)
+                    return
+
+                def _continuation() -> None:
+                    _finish_entry(token)
+                    created.append(token)
+                    _next(remaining - 1)
+
+                if token.enter_as_copy_effects:
+                    # RULE 614.1c/614.12: a token can carry its own "you may
+                    # have this enter as a copy of target X" replacement —
+                    # e.g. a token copy of Clever Impersonator, via
+                    # `copy_permanent`/RULE 707.2 — and gets the same
+                    # pre-entry choice a cast permanent does
+                    # (`_resolve_permanent_spell`/`_offer_enter_as_copy`).
+                    # `_offer_enter_as_copy` calls `_continuation` right away
+                    # when there's no legal target to offer, so the common
+                    # case (no card in the pool combines "create N token
+                    # copies" with a *second* legal target at creation time)
+                    # still finishes this whole loop synchronously; a real
+                    # choice instead stashes `_continuation` and resumes it
+                    # from `resolve_enter_as_copy_choice`, at which point the
+                    # remaining tokens in this batch (if any) are built.
+                    self._offer_enter_as_copy(token, _continuation)
+                else:
+                    _continuation()
+
+            _next(max(0, final_count))
             return created
 
         if zone != Zone.BATTLEFIELD or count <= 0:

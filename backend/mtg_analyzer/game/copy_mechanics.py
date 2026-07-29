@@ -14,6 +14,16 @@ call them without importing `rules_engine` (which already imports
 `continuous` at module scope — the reverse import would be circular).
 `RulesEngine.become_copy`/`snapshot_face`/`restore_face` are thin delegating
 wrappers kept for backward compatibility with existing callers.
+
+RULE 707.2 "copy of a copy": `become_copy` keeps `GameObject._front_card` in
+sync with whatever ``obj`` currently is (see its docstring) rather than
+leaving it pinned to the object's pristine printed card — the one field
+`copy_permanent`/`copy_spell` (`game/rules/copies_mixin.py`) and `become_copy`
+itself already read to find a target's *copiable* values (RULE 712.4a's
+front-face simplification piggybacks on the same field). All three copy
+mechanisms above share this fix automatically: whichever one a target went
+through, a *later* copy of that target — by any of the three — sees its
+current form rather than reverting to the printed card underneath.
 """
 
 from __future__ import annotations
@@ -43,8 +53,11 @@ def snapshot_face(obj: GameObject) -> dict[str, Any]:
 
     Pairs with `restore_face` to undo a copy/face-switch — used when
     previewing or attempting a modal DFC's un-chosen face (RULE 712.10), and
-    to revert a conditional or temporary copy effect once it stops applying."""
-    snapshot: dict[str, Any] = {"card": obj.card}
+    to revert a conditional or temporary copy effect once it stops applying.
+    Includes ``_front_card`` (see `become_copy`'s matching update) so a
+    reverted copy's "current copiable card" bookkeeping is undone along with
+    everything else — not just the pre-copy `Card` itself."""
+    snapshot: dict[str, Any] = {"card": obj.card, "_front_card": obj._front_card}
     for attr in _FACE_ATTRS:
         value = getattr(obj, attr, None)
         if isinstance(value, set):
@@ -83,11 +96,22 @@ def become_copy(
     the *front* face (RULE 712.4a's "currently shown face" nuance isn't
     modeled for either). ``add_types``/``add_subtypes`` implement a copy
     effect's own "except it's a(n) X in addition to its other types" clause
-    (`Card.as_copy`)."""
+    (`Card.as_copy`).
+
+    RULE 707.2 "copy of a copy": ``target``'s copiable values are read off
+    ``target._front_card`` rather than ``target.card`` directly — normally
+    the same thing, but if ``target`` has itself already become a copy (via
+    this same function), ``target._front_card`` is what's kept in sync with
+    that (see below), so a copy of an already-copied permanent picks up its
+    *current* copiable values, not the pristine printed card underneath.
+    ``obj._front_card`` is updated the same way once ``obj`` becomes a copy,
+    so a *further* copy of ``obj`` sees this copy rather than ``obj``'s own
+    original printed card — the chain composes."""
     from .effect_binder import bind_from_catalogue  # function-scoped: avoid a cycle
 
     copiable = getattr(target, "_front_card", target.card)
     obj.card = copiable.as_copy(add_types=add_types, add_subtypes=add_subtypes)
+    obj._front_card = obj.card
 
     # A copy replaces the object's own copiable-derived abilities/keywords
     # wholesale — static/triggered/activated/replacement effects granted

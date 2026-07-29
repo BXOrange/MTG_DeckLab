@@ -426,6 +426,23 @@ def test_text_change_absent_leaves_effective_text_as_printed():
     assert src.effective_oracle_text == "Protection from red."
 
 
+def test_text_change_flips_landwalk_too():
+    # ENG-8: layer 3 isn't scoped to `protections_of_text` alone — the
+    # same word-substitution over `effective_oracle_text` also reaches
+    # `combat._landwalk_slugs`/`landwalk_subtypes`. "Islandwalk" is one
+    # printed token (RULE 702.14's official templating has no space), so
+    # the substitution has to rewrite that whole word, same as
+    # `_landwalk_slugs`'s own `<type>walk` regex expects.
+    eng = make_engine()
+    src = put(eng.state, creature("Wall", oracle_text="Islandwalk"))
+    assert combat.landwalk_subtypes(src) == frozenset({"island"})
+
+    static("text", "self", {"replace": {"islandwalk": "swampwalk"}}, src)
+    continuous.recompute(eng.state)
+    assert src.effective_oracle_text == "swampwalk"
+    assert combat.landwalk_subtypes(src) == frozenset({"swamp"})
+
+
 # -- "attached_permanent": Aura/Equipment/Fortify/Reconfigure buffs ----------
 
 

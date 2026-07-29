@@ -66,6 +66,98 @@ def test_token_keyword_is_bound_and_seen_by_combat():
     assert combat.has_flying(tok) is True
 
 
+# -- ENG-7: a token's own "enter as a copy" choice ---------------------------
+# A token copy of an enter-as-copy creature (Clever Impersonator, RULE
+# 614.1c/614.12) carries that same replacement once bound — `create_token`
+# must offer it before the token is added to the battlefield, exactly like
+# `_resolve_permanent_spell` does for a cast permanent.
+
+
+def _clever_impersonator_card():
+    return Card(
+        id="CI", name="Clever Impersonator", type_line="Creature — Illusion",
+        mana_cost_string="{5}{U}{U}", converted_mana_cost=7,
+        is_creature=True, power=3, toughness=3,
+    )
+
+
+def test_create_token_offers_its_own_enter_as_copy_choice():
+    eng = make_engine()
+    original = GameObject(
+        Card(id="GT", name="Grave Titan", type_line="Creature — Giant",
+             is_creature=True, power=6, toughness=6, keywords=["Deathtouch"]),
+        owner_id="p1", zone=Zone.BATTLEFIELD,
+    )
+    original.summoning_sick = False
+    eng.state.add_to_battlefield(original)
+
+    tokens = eng.rules.create_token("p1", _clever_impersonator_card(), 1)
+    assert tokens == []  # paused before entering as itself, same as a cast permanent
+
+    pending = eng.state.pending_choice
+    assert pending and pending["kind"] == "enter_as_copy"
+    opt = next(o for o in pending["options"] if o["id"] != "decline")
+    eng.rules.resolve_enter_as_copy_choice(opt["id"])
+
+    (token,) = [o for o in eng.state.battlefield if o.is_token]
+    assert token.card.name == "Grave Titan"
+    assert (token.power, token.toughness) == (6, 6)
+
+
+def test_create_token_declining_enter_as_copy_enters_as_itself():
+    eng = make_engine()
+    original = GameObject(
+        Card(id="GT", name="Grave Titan", type_line="Creature — Giant",
+             is_creature=True, power=6, toughness=6),
+        owner_id="p1", zone=Zone.BATTLEFIELD,
+    )
+    original.summoning_sick = False
+    eng.state.add_to_battlefield(original)
+
+    eng.rules.create_token("p1", _clever_impersonator_card(), 1)
+    eng.rules.resolve_enter_as_copy_choice("decline")
+
+    (token,) = [o for o in eng.state.battlefield if o.is_token]
+    assert token.card.name == "Clever Impersonator"
+    assert (token.power, token.toughness) == (3, 3)
+
+
+def test_create_token_with_no_legal_target_enters_without_pausing():
+    # RULE 603.3c-style: nothing to offer (no other permanent on the
+    # battlefield), so no pending choice opens at all.
+    eng = make_engine()
+    (token,) = eng.rules.create_token("p1", _clever_impersonator_card(), 1)
+    assert eng.state.pending_choice is None
+    assert token.card.name == "Clever Impersonator"
+
+
+def test_create_multiple_tokens_with_enter_as_copy_resumes_the_batch():
+    # Two token copies in one `create_token` call: each pauses on its own
+    # choice in turn, and resolving the first must still build the second
+    # rather than dropping it — the whole batch has to see completion.
+    eng = make_engine()
+    original = GameObject(
+        Card(id="GT", name="Grave Titan", type_line="Creature — Giant",
+             is_creature=True, power=6, toughness=6),
+        owner_id="p1", zone=Zone.BATTLEFIELD,
+    )
+    original.summoning_sick = False
+    eng.state.add_to_battlefield(original)
+
+    tokens = eng.rules.create_token("p1", _clever_impersonator_card(), 2)
+    assert tokens == []
+    assert eng.state.pending_choice["kind"] == "enter_as_copy"
+    eng.rules.resolve_enter_as_copy_choice("decline")
+    assert len([o for o in eng.state.battlefield if o.is_token]) == 1
+
+    assert eng.state.pending_choice["kind"] == "enter_as_copy"  # the second token's own choice
+    eng.rules.resolve_enter_as_copy_choice("decline")
+
+    toks = [o for o in eng.state.battlefield if o.is_token]
+    assert len(toks) == 2
+    assert all(t.card.name == "Clever Impersonator" for t in toks)
+
+
 # -- Ceasing to exist (RULE 704.5d) -----------------------------------------
 
 
