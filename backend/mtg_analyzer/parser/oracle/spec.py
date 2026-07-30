@@ -20,6 +20,7 @@ actually known is the binder's check, because that requires the registry.
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass, field
 from typing import Any, Optional
 
@@ -35,6 +36,12 @@ ALLOWED_ABILITY_KINDS: frozenset[str] = frozenset(
 _EFFECT_BEARING_KINDS: frozenset[str] = frozenset(
     {"spell_effect", "triggered", "activated", "enter_replacement"}
 )
+
+#: `AbilitySpec.strive_cost`'s shape: one or more brace-delimited symbols
+#: (``"{2}{U}"``, ``"{1}"``, ``"{X}"``) — mirrors `parser/oracle/catalogue/
+#: keywords.py`'s ``_COST_RUN`` (that module can't be imported here without
+#: pulling its whole keyword-table machinery in for one regex).
+_STRIVE_COST_RE = re.compile(r"(\{[^{}]+\})+")
 
 #: Hard cap on numeric effect parameters. A malformed/hostile spec must not
 #: be able to wedge a game session with an absurd loop count (e.g. "draw
@@ -69,7 +76,11 @@ _ALLOWED_CONDITION_KEYS: frozenset[str] = frozenset(
 #: this one gates a *cast/activation legality* check instead (RULE 601.3a's
 #: sorcery-speed timing / RULE 606.3's loyalty timing), so the two security
 #: boundaries stay distinct per docs/09.
-ALLOWED_CAST_CONDITION_KEYS: frozenset[str] = frozenset({"entered_this_turn"})
+#: ``"targets_a_commander"`` (Timely Ward-shaped, MEC-7) — see
+#: `condition_query.conditional_flash_holds`'s docstring for why this one
+#: alone is checked against the caster's actual chosen targets rather than
+#: purely off the object/state the way ``"entered_this_turn"`` is.
+ALLOWED_CAST_CONDITION_KEYS: frozenset[str] = frozenset({"entered_this_turn", "targets_a_commander"})
 
 #: RULE 601.2f/117.3a-adjacent: "If you control a commander, you may cast
 #: this spell without paying its mana cost." (Deadly Rollick/Deflecting
@@ -231,8 +242,11 @@ class AbilitySpec:
     #: <condition>" / "you may activate this permanent's loyalty abilities
     #: any time you could cast an instant if <condition>" (The Wandering
     #: Emperor-shaped) — a single-key dict from `ALLOWED_CAST_CONDITION_KEYS`
-    #: (today just ``{"entered_this_turn": True}``, RULE 606.3's "as long as
-    #: ~ entered the battlefield this turn"). A deliberately separate
+    #: (``{"entered_this_turn": True}``, RULE 606.3's "as long as ~ entered
+    #: the battlefield this turn", or ``{"targets_a_commander": True}``,
+    #: Timely Ward-shaped MEC-7 — the one key checked against the caster's
+    #: actual chosen targets rather than purely off the object/state, see
+    #: `condition_query.conditional_flash_holds`). A deliberately separate
     #: whitelist from `EffectSpec.condition`'s (see that constant's
     #: docstring) — this one gates *cast/activation timing*
     #: (`game/condition_query.py`, checked live off the object each time),
@@ -250,6 +264,20 @@ class AbilitySpec:
     #: ``ability_kind``" idiom — the clause is its own oracle-text line,
     #: standalone from the spell's actual effect.
     free_cast_condition: Optional[dict[str, Any]] = None
+    #: "Strive — This spell costs `<cost>` more to cast for each target
+    #: beyond the first." (MEC-4) — not a RULE 702 keyword at all (no CR
+    #: entry defines it; Scryfall's `keywords` array is the only place it's
+    #: named), so it rides as its own field rather than going through
+    #: `keywords.py`'s numbered catalogue, same "own oracle-text line,
+    #: standalone from the spell's actual effect" idiom `free_cast_condition`
+    #: uses just above. The raw mana-cost string (e.g. ``"{2}{U}"``,
+    #: ``"{1}"``) — `game/effect_binder.py`'s `attach_to_object` parses it
+    #: into a real `ManaCost` on `obj.strive_cost`; `GameEngine.
+    #: effective_cast_cost` adds one copy of it per target *beyond the
+    #: first* in the caster's actually-chosen ``targets`` (RULE 601.2c
+    #: precedes 601.2f — the total cost is calculated only after targets are
+    #: already chosen, unlike `conditional_flash`'s pre-cast timing check).
+    strive_cost: Optional[str] = None
     #: RULE 603.4-style per-firing marker: "whenever ~ deals combat damage
     #: to a player, exile the top card of *that player's* library. Until
     #: end of turn, you may cast that card." (Ragavan, Nimble Pilferer) —
@@ -374,6 +402,8 @@ class AbilitySpec:
             and not self.modes
             and not self.additional_cost
             and not self.free_cast_condition
+            and not self.conditional_flash
+            and not self.strive_cost
         ):
             raise SpecValidationError(
                 f"{self.ability_kind!r} ability must carry at least one effect"
@@ -390,6 +420,9 @@ class AbilitySpec:
 
         if self.free_cast_condition is not None:
             self._validate_free_cast_condition()
+
+        if self.strive_cost is not None:
+            self._validate_strive_cost()
 
         if self.impulsive_draw_on_combat_damage is not None:
             self._validate_impulsive_draw_on_combat_damage()
@@ -501,6 +534,8 @@ class AbilitySpec:
             raise SpecValidationError(f"unknown conditional_flash key {key!r}")
         if key == "entered_this_turn" and not isinstance(value, bool):
             raise SpecValidationError("'entered_this_turn' condition must be a bool")
+        if key == "targets_a_commander" and not isinstance(value, bool):
+            raise SpecValidationError("'targets_a_commander' condition must be a bool")
 
     def _validate_impulsive_draw_on_combat_damage(self) -> None:
         """Structural check for an ``impulsive_draw_on_combat_damage`` marker."""
@@ -561,6 +596,15 @@ class AbilitySpec:
         kind = spec.get("counter_kind", "+1/+1")
         if not isinstance(kind, str) or not kind:
             raise SpecValidationError("'counter_death_return' counter_kind must be a non-empty str")
+
+    def _validate_strive_cost(self) -> None:
+        """Structural check for a ``strive_cost`` clause: a non-empty run of
+        brace-delimited mana/generic symbols (``"{2}{U}"``, ``"{1}"``) — the
+        same shape `game/costs.py`/`ManaCost.parse` expect, checked here only
+        for well-formedness (no `game/` import at this layer's boundary)."""
+        cost = self.strive_cost
+        if not isinstance(cost, str) or not _STRIVE_COST_RE.fullmatch(cost.strip()):
+            raise SpecValidationError(f"'strive_cost' must be a run of mana symbols, got {cost!r}")
 
     def _validate_free_cast_condition(self) -> None:
         """Structural check for a ``free_cast_condition`` clause."""

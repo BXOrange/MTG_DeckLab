@@ -205,6 +205,7 @@ class CastingMixin:
         entwine: bool = False,
         sacrifice_choice: Optional[int] = None,
         discard_choices: Optional[list[int]] = None,
+        targets: Optional[list[Any]] = None,
     ) -> bool:
         """RULE 601/602.5: is this spell castable by ``player`` right now?
 
@@ -235,6 +236,11 @@ class CastingMixin:
         falls back to an auto-pick, for non-interactive callers and for
         every other caller of `can_cast` that isn't checking one specific
         choice (`legal_actions`, the mid-cast face-swap validation above).
+        ``targets``, when given, is consulted only by a `conditional_flash`
+        condition that depends on the actual chosen target (``"targets_a_
+        commander"``, MEC-7) — every offer-time caller omits it (``None``),
+        which answers that condition optimistically; `_cast_current_face`
+        passes the real chosen targets for the final, enforced check.
         """
         # A commander may be cast from the command zone as well as the
         # hand (RULE 903.6, 903.8) — commander tax (RULE 903.8, +{2} per
@@ -298,7 +304,7 @@ class CastingMixin:
         conditional_flash = getattr(obj, "conditional_flash", None)
         has_conditional_flash = (
             conditional_flash is not None
-            and condition_query.conditional_flash_holds(conditional_flash, obj, self.state)
+            and condition_query.conditional_flash_holds(conditional_flash, obj, self.state, targets=targets)
         )
         # "You may cast spells this turn as though they had flash." (Borne
         # Upon a Wind-shaped) — a temporary, player-scoped blanket flash
@@ -389,7 +395,7 @@ class CastingMixin:
         else:
             cost = self.effective_cast_cost(
                 player, obj, x, face=face, kicked=kicked, buyback=buyback, mutate=mutate,
-                entwine=entwine,
+                entwine=entwine, targets=targets,
             )
             allows_restriction = restriction_predicate_for_cast(obj, has_x=cost.has_variable)
             wildcard = self.state.mana_wildcard_permission.get(obj.instance_id)
@@ -457,6 +463,7 @@ class CastingMixin:
         buyback: bool = False,
         mutate: bool = False,
         entwine: bool = False,
+        targets: Optional[list[Any]] = None,
     ) -> "ManaCost":
         """``obj``'s mana cost after static cost adjustments (RULE 601.2f/903.8).
 
@@ -477,6 +484,13 @@ class CastingMixin:
         cast for its alternative Flashback/Escape cost *instead of* the
         printed one — a substitution, not an addition, applied before the
         reduction/tax below so those still apply on top of it as usual.
+
+        ``targets``, when given, adds one copy of ``obj.strive_cost`` per
+        target *beyond the first* (Strive, MEC-4 — RULE 601.2c precedes
+        601.2f, so unlike `conditional_flash`'s pre-cast timing check this
+        one reads the caster's actual, already-chosen targets) — omitted
+        (``None``) at every offer-time preview caller, the same "no surcharge
+        until the real cast supplies it" treatment `can_cast` gives it.
         """
         card = self._face_card(obj, face) or obj.card
         if mutate:
@@ -520,6 +534,15 @@ class CastingMixin:
             entwine_cost = self._entwine_cost(obj)
             if entwine_cost is not None:
                 cost = cost.add(entwine_cost)
+        strive_cost = getattr(obj, "strive_cost", None)
+        if strive_cost is not None and targets:
+            # "This spell costs <cost> more to cast for each target beyond
+            # the first." — the *first* target is free, every additional one
+            # adds a full copy (not just generic, unlike a battlefield
+            # anthem's tax — Strive's own cost can carry colored pips, e.g.
+            # Aerial Formation's "{2}{U} more").
+            for _ in range(max(0, len(targets) - 1)):
+                cost = cost.add(strive_cost)
         return cost
     @staticmethod
     def commander_tax(player: Player, obj: GameObject) -> int:
@@ -789,6 +812,7 @@ class CastingMixin:
                 player, obj, x, kicked=kicked, buyback=buyback, free=free,
                 mutate=mutate, bargained=bargained, entwine=entwine,
                 sacrifice_choice=sacrifice_choice, discard_choices=discard_choices,
+                targets=targets,
             ):
                 raise ValueError(f"{player.id} cannot cast {obj.name} now")
             # RULE 601.2c: a spell that requires a target can't be cast unless
@@ -837,7 +861,7 @@ class CastingMixin:
             else:
                 cost = self.effective_cast_cost(
                     player, obj, x, kicked=kicked, buyback=buyback, mutate=mutate,
-                    entwine=entwine,
+                    entwine=entwine, targets=targets,
                 )
                 result = self.rules.cast_spell(player, obj, targets, x, cost=cost, target_groups=target_groups)
             # RULE 601.2b/601.2h: an additional cost is paid as part of

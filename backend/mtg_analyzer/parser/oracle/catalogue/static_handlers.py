@@ -159,6 +159,20 @@ _SPELL_COST_TAX_RE = re.compile(
     r"(?:(?P<word>[a-z]+) )?spells cost \{(?P<n>\d+)\} (?P<dir>more|less) to cast", re.IGNORECASE
 )
 
+# "This spell costs {N} less to cast for each attacking creature [you
+# control]."  (RULE 601.2f self-scoped discount printed on the spell itself
+# — Embercleave/Ancient Stone Idol-shaped, MEC-6) — unlike `_SPELL_COST_TAX_RE`
+# above (a battlefield permanent taxing *other* spells), this is `affects=
+# "self"` with a `per` count-selector, the same "cost {N} less for each
+# <board count>" shape Delve/Affinity already exercise via `continuous.
+# self_cost_reduction_for`/`_cost_static_amount` — only the selector
+# (`attacking_creatures_you_control`/`attacking_creatures`) is new.
+_SELF_COST_REDUCTION_ATTACKING_RE = re.compile(
+    r"this spell costs \{(?P<n>\d+)\} less to cast for each attacking creature"
+    r"(?P<yours> you control)?",
+    re.IGNORECASE,
+)
+
 # "Each player can't cast more than N spell(s) each turn."  (RULE 601-area
 # prohibition, Eidolon of Rhetoric/Rule of Law/Archon of Emeria) — a flat,
 # unscoped per-player-per-turn cast cap; ``normalize`` already folds a
@@ -1579,6 +1593,10 @@ _STATIC_CONDITION_RES: list[tuple[re.Pattern[str], Any]] = [
     # -- Whose turn it is.
     (re.compile(r"it's your turn", re.I), lambda m: {"kind": "your_turn"}),
     (re.compile(r"it's not your turn", re.I), lambda m: {"kind": "not_your_turn"}),
+    # -- The controller's designations (RULE 725/726/702.131c) — MEC-12.
+    (re.compile(r"you'?re the monarch", re.I), lambda m: {"kind": "is_monarch"}),
+    (re.compile(r"you have the initiative", re.I), lambda m: {"kind": "has_initiative"}),
+    (re.compile(r"you have the city'?s blessing", re.I), lambda m: {"kind": "has_city_blessing"}),
     # -- Board counts, over `continuous.count_selector`'s own vocabulary.
     (re.compile(r"you control (?P<n>\d+) or more (?P<what>[a-z ]+)", re.I),
      lambda m: _control_count_condition(m.group("what"), int(m.group("n")))),
@@ -1881,6 +1899,16 @@ def static_effect_specs(clause: str) -> Optional[list[EffectSpec]]:
         if word:
             params["spell_type"] = word
         return [EffectSpec("cost_reduction", params)]
+
+    m = _SELF_COST_REDUCTION_ATTACKING_RE.fullmatch(text)
+    if m is not None:
+        selector = "attacking_creatures_you_control" if m.group("yours") else "attacking_creatures"
+        return [
+            EffectSpec(
+                "cost_reduction",
+                {"affects": "self", "generic": int(m.group("n")), "per": selector},
+            )
+        ]
 
     m = _CAST_LIMIT_RE.fullmatch(text)
     if m is not None:

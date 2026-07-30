@@ -63,6 +63,7 @@ from ..effects import (
     ReplacementEffect,
     ReturnSelfFromGraveyardEffect,
     SiegeDefeatedEffect,
+    ActivatedAbility,
     StaticAbility,
     StaticEffect,
     TakeInitiativeEffect,
@@ -1009,6 +1010,20 @@ class MiscSystemsMixin:
         """RULE 725.3: ``player`` becomes the monarch; whoever held it
         (possibly ``player`` themself) ceases to."""
         self.state.monarch_id = player.id
+    def get_city_blessing(self, player: Player) -> None:
+        """RULE 702.131a-c: ``player`` gets the city's blessing.
+
+        Unlike Monarch/Initiative this is a plain idempotent per-player flag
+        rather than a single shared holder — "any number of players may have
+        the city's blessing at the same time", and once granted it lasts
+        "for the rest of the game" (702.131c/d), so a second Ascend firing
+        while the player already has it is simply a no-op, same as
+        `monstrosity`'s "isn't monstrous" gate rather than `take_initiative`'s
+        unconditional re-fire.
+        """
+        if player.has_city_blessing:
+            return
+        player.has_city_blessing = True
     def take_initiative(self, player: Player) -> None:
         """RULE 726.3: ``player`` takes the initiative; whoever held it
         (possibly ``player`` themself) ceases to.
@@ -1339,10 +1354,22 @@ class MiscSystemsMixin:
         bound = bind_ability(spec, source=emblem)
         if isinstance(bound, TriggeredAbility):
             emblem.triggered_abilities.append(bound)
+        elif isinstance(bound, ActivatedAbility):
+            # RULE 114.4 — "functions in the command zone" covers an
+            # activated ability too (MEC-8); previously dropped silently
+            # since only the triggered/static branches were handled here.
+            emblem.activated_abilities.append(bound)
         elif isinstance(bound, list):
             for effect in bound:
                 if isinstance(effect, StaticAbility):
                     emblem.static_effects.append(effect)
+                elif isinstance(effect, TriggeredAbility):
+                    # The compound "~ enters or attacks"-shaped multi-event
+                    # trigger returns a *list* of `TriggeredAbility` (see
+                    # `bind_ability`'s docstring) — the same silent-drop gap
+                    # the bare-`TriggeredAbility` branch above already covers
+                    # for a single-event trigger.
+                    emblem.triggered_abilities.append(effect)
         player.emblems.append(emblem)
     def _stack_item_for(self, target: Any) -> Optional[StackItem]:
         """The `StackItem` a counter effect's ``target`` names, or ``None``.

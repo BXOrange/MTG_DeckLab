@@ -489,7 +489,7 @@ NEVER_SUPPORTED = "NEVER_SUPPORTED"
 #: "each player/opponent creates" and "creates a **tapped** …" to reach it);
 #: and a ``goaded``/``in_combat`` trigger-subject filter, snapshotted onto
 #: the DIES event since RULE 400.7 means the object is already gone.
-PARSER_VERSION = "42"
+PARSER_VERSION = "45"
 
 
 @dataclass

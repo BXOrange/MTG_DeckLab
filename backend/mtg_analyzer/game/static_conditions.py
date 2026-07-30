@@ -105,6 +105,13 @@ STATIC_CONDITION_KINDS: frozenset[str] = frozenset(
         "cards_in_hand_at_least",
         "cards_in_hand_at_most",
         "drawn_cards_at_least",  # + ``amount`` — "…you've drawn N cards this turn"
+        # -- The controller's designations (RULE 725/726/702.131c) — MEC-12.
+        # No ``of`` subject: "you" in "as long as you're the monarch" always
+        # means the static's controller, the same read `your_turn` already
+        # makes.
+        "is_monarch",  # "as long as you're the monarch"
+        "has_initiative",  # "as long as you have the initiative"
+        "has_city_blessing",  # "as long as you have the city's blessing"
     }
 )
 
@@ -280,6 +287,14 @@ def condition_holds(
         is_yours = active is not None and controller_id is not None and active.id == controller_id
         return is_yours if kind == "your_turn" else not is_yours
 
+    if kind == "is_monarch":
+        return controller_id is not None and getattr(state, "monarch_id", None) == controller_id
+    if kind == "has_initiative":
+        return controller_id is not None and getattr(state, "initiative_id", None) == controller_id
+    if kind == "has_city_blessing":
+        player = _controller(state, controller_id)
+        return bool(player is not None and player.has_city_blessing)
+
     if kind == "control_count":
         from .continuous import count_selector  # local: continuous imports this module
 
@@ -420,6 +435,12 @@ def describe(condition: Optional[dict[str, Any]]) -> str:
         return "nur in deinem Zug"
     if kind == "not_your_turn":
         return "nur außerhalb deines Zuges"
+    if kind == "is_monarch":
+        return "solange Monarch"
+    if kind == "has_initiative":
+        return "solange Initiative"
+    if kind == "has_city_blessing":
+        return "solange Segen der Stadt"
     if kind == "source_on_battlefield":
         return prefix + "im Spiel"
     if kind == "is_card_type":

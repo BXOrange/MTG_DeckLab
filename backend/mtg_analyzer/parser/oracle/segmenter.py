@@ -273,6 +273,35 @@ _DAMAGE_TRIGGER_RE = re.compile(
     re.IGNORECASE,
 )
 
+#: RULE 603.1's *recipient* side of a damage trigger (MEC-11, Enrage-shaped:
+#: "Enrage — Whenever ~ is dealt damage, …", the ability-word label already
+#: stripped by `normalize._strip_ability_words` before this ever runs) —
+#: `_DAMAGE_TRIGGER_RE`'s mirror image, same subject grammar (self/attached/
+#: group over `_GROUP_TYPE_WORDS`), opposite direction: the object *taking*
+#: the damage, not dealing it. Far more cards use this shape than print the
+#: "Enrage —" label (Boros Reckoner/Brash Taunter/Fungusaur-shaped self
+#: triggers, Rite of Passage's "a creature you control", a Sword-cycle-
+#: adjacent "equipped creature" family) — the grammar is general RULE 603.1
+#: recognition, not an Enrage-specific carve-out, so it's not gated on the
+#: label at all. No recipient-side "to a player/opponent" analogue exists
+#: (nothing prints "whenever a player is dealt damage" — that would be a
+#: player-subject condition, a different, unbuilt vocabulary — so unlike
+#: `_DAMAGE_TRIGGER_RE` there is no ``recipient`` group here to parse).
+#: The ``condition["recipient"] = True`` marker is what tells
+#: `effect_binder._subject_event_key`/`_group_controller_event_key` to read
+#: `target_id`/`target_controller_id` off the `DAMAGE` event instead of the
+#: `source_id`/`source_controller_id` the "deals damage" family above reads.
+_DAMAGE_RECIPIENT_TRIGGER_RE = re.compile(
+    r"^whenever (?:"
+    r"(?P<self>~)"
+    r"|(?P<attached>(?:enchanted|equipped) (?:creature|permanent|land|artifact))"
+    r"|(?P<article>another|an|a) (?P<type>"
+    + "|".join(_GROUP_TYPE_WORDS) + r")"
+    r"(?P<yours> you control)?"
+    r") is dealt (?P<combat>combat )?damage,\s*(?P<body>.+)$",
+    re.IGNORECASE,
+)
+
 #: RULE 500.7's "at the beginning of the [upkeep/draw/end/…] step" turn-
 #: structure trigger family — a genuinely common template distinct from
 #: RULE 603.1's object-subject "when/whenever X enters/dies/attacks/blocks"
@@ -565,6 +594,29 @@ _ADDITIONAL_COST_PAY_LIFE_RE = re.compile(r"^pay\s+(x|\d+)\s+life$", re.IGNORECA
 #: (fail-closed), matching `AbilitySpec.free_cast_condition`'s whitelist.
 _FREE_CAST_IF_COMMANDER_RE = re.compile(
     r"^if you control a commander,\s*you may cast this spell without paying its mana cost\.?\s*$",
+    re.IGNORECASE,
+)
+
+#: RULE 702.8b: "You may cast this spell as though it had flash if it
+#: targets a commander." (Timely Ward-shaped, MEC-7) — the same standalone-
+#: line wrapper shape as `_FREE_CAST_IF_COMMANDER_RE` just above, but a
+#: *timing* permission (`AbilitySpec.conditional_flash`) rather than a
+#: *cost* one (`free_cast_condition`). Only "targets a commander" is
+#: recognized today, matching `ALLOWED_CAST_CONDITION_KEYS`'s whitelist.
+_CONDITIONAL_FLASH_IF_TARGETS_COMMANDER_RE = re.compile(
+    r"^you may cast this spell as though it had flash if it targets a commander\.?\s*$",
+    re.IGNORECASE,
+)
+
+#: "Strive — This spell costs `<cost>` more to cast for each target beyond
+#: the first." (MEC-4) — not a RULE 702 keyword (no CR entry defines it, see
+#: `AbilitySpec.strive_cost`'s docstring), so it's recognized as its own
+#: standalone-line template here rather than through `keywords.py`'s
+#: numbered catalogue. ``<cost>`` is a run of brace-delimited symbols, same
+#: shape `_STRIVE_COST_RE` (`parser/oracle/spec.py`) validates.
+_STRIVE_LINE_RE = re.compile(
+    r"^strive\s*[—-]\s*this spell costs (?P<cost>(?:\{[^{}]+\})+) more to cast "
+    r"for each target beyond the first\.?\s*$",
     re.IGNORECASE,
 )
 
@@ -1014,6 +1066,76 @@ def segment_line(
         )
         return Segment(raw=raw, spec=spec, claimed=True)
 
+    damage_recipient_trig = _DAMAGE_RECIPIENT_TRIGGER_RE.match(raw)
+    if damage_recipient_trig is not None:
+        body, optional = _peel_optional(damage_recipient_trig.group("body"))
+        # "Enrage — whenever ~ is dealt damage, **it** fights …": the source
+        # is the trigger's own subject, so a bare "it" in the body is the
+        # source (`parse_effect_body`'s ``self_subject``) — same idiom as
+        # the "deals damage" family above.
+        is_self_subject = bool(damage_recipient_trig.group("self"))
+        effects = parse_effect_body(body, self_subject=is_self_subject)
+        if effects is None:
+            return Segment(raw=raw)
+        if not is_self_subject:
+            # "…a creature you control is dealt damage, put a +1/+1 counter
+            # on **it**." (Rite of Passage) — a bare "it" here means
+            # whichever group member the event actually names, *not* this
+            # ability's own source the way `self_subject` everywhere else
+            # in this module means: Rite of Passage is an Enchantment, and
+            # silently landing the counter on it instead of the damaged
+            # creature would be a wrong-but-MODELED card, strictly worse
+            # than leaving it unclaimed. `add_counters` with no explicit
+            # `target_kind` is the one shape real cards actually print this
+            # way (`AddCountersEffect.trigger_subject_key`, resolved
+            # against the same event key `_subject_event_key` uses for this
+            # trigger's own condition). Default-deny otherwise: an effect
+            # with neither a real RULE 115 ``target_kind`` nor a mass
+            # ``selector`` implicitly acts on "self" in every other
+            # context this parser builds, and there's no cached card yet
+            # to say what "self" should mean for a non-self subject here —
+            # fail closed rather than guess.
+            rewritten: list[EffectSpec] = []
+            for effect_spec in effects:
+                if effect_spec.type == "add_counters" and not effect_spec.params.get("target_kind"):
+                    params = dict(effect_spec.params)
+                    params["trigger_subject_key"] = "target_id"
+                    rewritten.append(EffectSpec(effect_spec.type, params, condition=effect_spec.condition))
+                elif effect_spec.params.get("target_kind") or effect_spec.params.get("selector"):
+                    rewritten.append(effect_spec)
+                else:
+                    return Segment(raw=raw)
+            effects = rewritten
+        damage_filter = {}
+        if damage_recipient_trig.group("combat"):
+            damage_filter["combat"] = True
+        if damage_recipient_trig.group("self"):
+            condition = {"subject": "self", "recipient": True}
+        elif damage_recipient_trig.group("attached"):
+            condition = {"subject": "attached_permanent", "recipient": True}
+        else:
+            condition = {
+                "subject": "group",
+                "type": damage_recipient_trig.group("type").lower(),
+                "other": damage_recipient_trig.group("article").lower() == "another",
+                "recipient": True,
+            }
+            if damage_recipient_trig.group("yours"):
+                condition["controller"] = "you"
+        spec = AbilitySpec(
+            "triggered",
+            effects=effects,
+            trigger={
+                "event": "DAMAGE",
+                "condition": condition,
+                "filter": damage_filter,
+            },
+            optional=optional,
+            raw_text=raw,
+            parser=provenance,
+        )
+        return Segment(raw=raw, spec=spec, claimed=True)
+
     # RULE 601.2b/604.3 additional cost — instants/sorceries only, and
     # checked before every other wrapper since it has neither a trigger word
     # nor a colon (so it can't be mistaken for one of those shapes below).
@@ -1040,6 +1162,34 @@ def segment_line(
                 "spell_effect",
                 effects=[],
                 free_cast_condition={"control_commander": True},
+                raw_text=raw,
+                parser=provenance,
+            )
+            return Segment(raw=raw, spec=spec, claimed=True)
+
+        # RULE 702.8b: "You may cast this spell as though it had flash if it
+        # targets a commander." (Timely Ward-shaped, MEC-7) — same standalone-
+        # line treatment as the free-cast condition just above.
+        if _CONDITIONAL_FLASH_IF_TARGETS_COMMANDER_RE.match(raw):
+            spec = AbilitySpec(
+                "spell_effect",
+                effects=[],
+                conditional_flash={"targets_a_commander": True},
+                raw_text=raw,
+                parser=provenance,
+            )
+            return Segment(raw=raw, spec=spec, claimed=True)
+
+        # "Strive — This spell costs <cost> more to cast for each target
+        # beyond the first." (MEC-4) — same standalone-line treatment; the
+        # cost run is whitespace-collapsed the way `_additional_cost_dict`'s
+        # neighbours already do, so ``{2} {u}`` and ``{2}{u}`` both parse.
+        strive = _STRIVE_LINE_RE.match(raw)
+        if strive is not None:
+            spec = AbilitySpec(
+                "spell_effect",
+                effects=[],
+                strive_cost=re.sub(r"\s+", "", strive.group("cost")),
                 raw_text=raw,
                 parser=provenance,
             )

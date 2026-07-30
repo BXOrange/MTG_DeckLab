@@ -20,6 +20,7 @@ from contextlib import contextmanager
 from typing import Any, Optional
 
 from ...models.card import Card
+from ...models.emblem import Emblem
 from ...models.events import EventType, GameEvent
 from ...models.game_object import GameObject, Zone
 from ...models.game_state import GameState, StackItem
@@ -99,6 +100,13 @@ class ActivationMixin:
         """
         if ability.cost.discard_self:
             if source not in player.hand or source.owner_id != player.id:
+                return False
+        elif isinstance(source, Emblem):
+            # RULE 114.4 — an emblem's own activated ability (MEC-8) "functions
+            # in the command zone": no permanent, no tap/summoning-sickness
+            # state, just membership + controller like every other emblem
+            # ability family (`continuous.py`'s static scan, `_collect_triggers`).
+            if source not in player.emblems or source.controller_id != player.id:
                 return False
         elif source not in self.state.permanents() or source.controller_id != player.id:
             return False  # RULE 702.26c: a phased-out permanent's abilities can't be activated

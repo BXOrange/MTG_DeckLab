@@ -572,6 +572,18 @@ def count_selector(
     _source_card_name = getattr(source, "name", None)
     if selector == "creatures_you_control":
         return sum(1 for o in bf if o.is_creature and o.controller_id == controller_id)
+    if selector == "attacking_creatures_you_control":
+        # "for each attacking creature you control" (Embercleave's own
+        # self-cost-reduction, MEC-6) — read live off `GameObject.attacking`
+        # (RULE 508.1), so casting after declare attackers sees the real
+        # count; before that step it's simply 0, same as any other
+        # `self_cost_reduction_for` count read at cast time.
+        return sum(1 for o in bf if o.is_creature and o.attacking and o.controller_id == controller_id)
+    if selector == "attacking_creatures":
+        # The unscoped sibling — "for each attacking creature" with no "you
+        # control" (Ancient Stone Idol/Static Snare/Stone Idol Trap) — every
+        # attacker regardless of whose.
+        return sum(1 for o in bf if o.is_creature and o.attacking)
     if selector == "lands_you_control":
         return sum(1 for o in bf if o.is_land and o.controller_id == controller_id)
     if selector.startswith("lands_you_control_of_type_"):

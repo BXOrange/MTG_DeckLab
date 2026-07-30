@@ -585,12 +585,15 @@ class GameState:
                 return player
         raise KeyError(f"no player with id {player_id!r}")
 
-    def find_object(self, instance_id: int) -> Optional[GameObject]:
+    def find_object(self, instance_id: int) -> Optional[Any]:
         """Locate a game object by its instance id across every zone.
 
         Lets an action referencing an object by id (as `legal_actions`
         reports it) be resolved back to the live `GameObject`, which is
-        essential after a rewind swaps in a fresh copy of the state.
+        essential after a rewind swaps in a fresh copy of the state. Also
+        finds a `models.emblem.Emblem` (RULE 114.4's own activated ability,
+        MEC-8) — the two never collide since `Emblem.instance_id` shares
+        `GameObject`'s own counter.
         """
         for obj in self.battlefield:
             if obj.instance_id == instance_id:
@@ -603,6 +606,13 @@ class GameState:
                 for obj in zone:
                     if obj.instance_id == instance_id:
                         return obj
+        for player in self.players:
+            # RULE 114.4: an emblem's own activated ability (MEC-8) round-trips
+            # through `legal_actions`/`activate_ability` by `instance_id` the
+            # same way a permanent's does — see `models/emblem.py`.
+            for emblem in player.emblems:
+                if emblem.instance_id == instance_id:
+                    return emblem
         return None
 
     def non_active_players(self) -> list[Player]:

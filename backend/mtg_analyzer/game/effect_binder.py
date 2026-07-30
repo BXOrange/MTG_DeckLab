@@ -19,6 +19,7 @@ from __future__ import annotations
 from typing import Any, Callable, Optional, Union
 
 from ..models.events import EventType
+from ..models.mana_cost import ManaCost
 from ..parser.oracle.catalogue.handlers import ONCE_PER_TURN_MARKER, SORCERY_SPEED_MARKER
 from ..parser.oracle.spec import AbilitySpec, EffectSpec
 from .costs import parse_activation_cost
@@ -33,6 +34,7 @@ from .effects import (
     ConditionalEffect,
     EffectRegistry,
     GameEffect,
+    GetCityBlessingEffect,
     LivingWeaponEffect,
     LoseLifeEffect,
     PumpEffect,
@@ -159,6 +161,15 @@ _SUBJECT_EVENT_KEYS: dict[str, str] = {"DAMAGE": "source_id"}
 
 
 def _subject_event_key(trigger: dict[str, Any]) -> str:
+    # RULE 603.1's *recipient*-side damage trigger (MEC-11, Enrage-shaped
+    # "whenever ~ is dealt damage" — `parser/oracle/segmenter.py`'s
+    # `_DAMAGE_RECIPIENT_TRIGGER_RE`) needs the *other* end of the same
+    # `DAMAGE` event: who was hit, not who hit them. The segmenter marks
+    # this with ``condition["recipient"] = True`` rather than a second
+    # `EventType`, since it's still the same event, just read from the
+    # other side.
+    if trigger.get("event") == "DAMAGE" and (trigger.get("condition") or {}).get("recipient"):
+        return "target_id"
     return _SUBJECT_EVENT_KEYS.get(trigger.get("event"), "instance_id")
 
 
@@ -328,7 +339,15 @@ def _build_group_ok(
     # *besides* this ability's own controller.
     wants_not_you = condition.get("controller") == "not_you"
     other_only = bool(condition.get("other"))
-    controller_key = _GROUP_CONTROLLER_EVENT_KEYS.get(trigger.get("event"), "controller_id")
+    # RULE 603.1 recipient-scoped "you control" (Rite of Passage's "a
+    # creature you control is dealt damage") needs `target_controller_id`
+    # (`RulesEngine.deal_damage`), the recipient's own controller, not
+    # `source_controller_id`'s — same ``condition["recipient"]`` marker
+    # `_subject_event_key` reads.
+    if trigger.get("event") == "DAMAGE" and condition.get("recipient"):
+        controller_key = "target_controller_id"
+    else:
+        controller_key = _GROUP_CONTROLLER_EVENT_KEYS.get(trigger.get("event"), "controller_id")
 
     def _group_ok(
         event: Any,
@@ -1145,6 +1164,9 @@ def attach_to_object(obj: Any, specs: list[AbilitySpec]) -> None:
         if spec.free_cast_condition:
             spec.validate()
             obj.free_cast_condition = spec.free_cast_condition
+        if spec.strive_cost:
+            spec.validate()
+            obj.strive_cost = ManaCost.parse(spec.strive_cost)
         if spec.impulsive_draw_on_combat_damage:
             spec.validate()
             obj.impulsive_draw_on_combat_damage = dict(spec.impulsive_draw_on_combat_damage)
@@ -1169,6 +1191,16 @@ def attach_to_object(obj: Any, specs: list[AbilitySpec]) -> None:
             if keyword_ability is not None:
                 obj.activated_abilities.append(keyword_ability)
             obj.triggered_abilities.extend(_keyword_triggered_abilities(obj, spec))
+            # RULE 702.131a: Ascend on an instant/sorcery is a one-shot spell
+            # ability ("you get the city's blessing"), checked once at
+            # resolution — unlike Ascend on a permanent (702.131b), which
+            # stays on `intrinsic_keywords` for `RulesEngine._sba_check_
+            # ascend` to watch continuously instead.
+            keyword = spec.keyword or {}
+            if str(keyword.get("name") or "") == "ascend" and (
+                getattr(obj.card, "is_instant", False) or getattr(obj.card, "is_sorcery", False)
+            ):
+                obj.spell_effects = list(getattr(obj, "spell_effects", [])) + [GetCityBlessingEffect(source=obj)]
             continue
         bound = bind_ability(spec, source=obj)
         if spec.ability_kind == "spell_effect":

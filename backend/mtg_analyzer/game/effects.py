@@ -158,6 +158,10 @@ class GameContext:
     def take_initiative(self, player: "Player") -> None:
         self.engine.take_initiative(player)
 
+    def get_city_blessing(self, player: "Player") -> None:
+        # RULE 702.131a-c.
+        self.engine.get_city_blessing(player)
+
     def create_emblem(self, player: "Player", ability: dict) -> None:
         self.engine.create_emblem(player, ability)
 
@@ -1071,6 +1075,35 @@ class TakeInitiativeEffect(GameEffect):
             context.take_initiative(player)
 
 
+class GetCityBlessingEffect(GameEffect):
+    """RULE 702.131a: Ascend's spell-ability form — "If you control ten or
+    more permanents and you don't have the city's blessing, you get the
+    city's blessing for the rest of the game." (the resolving instant/
+    sorcery's own one-shot check).
+
+    Ascend on a *permanent* (702.131b — "any time you control ten or more
+    permanents…") is a continuous check instead, since the permanent must
+    keep watching the board for as long as it's out there rather than
+    checking once at resolution — see `RulesEngine._sba_check_ascend`, swept
+    at SBA cadence like the day/night and Ring-bearer checks. This effect is
+    only the spell form; both share `RulesEngine.get_city_blessing`'s
+    idempotent flag-set (RULE 702.131c/d).
+    """
+
+    def __init__(self, player: Any = None, source: Optional["GameObject"] = None) -> None:
+        super().__init__(source)
+        self.player = player
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        from . import continuous  # avoid the continuous<->effects import cycle
+
+        player = self.player or _controller_of(self.source, context)
+        if player is None or player.has_city_blessing:
+            return
+        if continuous.count_selector(context.state, player.id, "permanents_you_control") >= 10:
+            context.get_city_blessing(player)
+
+
 class VentureIntoTheDungeonEffect(GameEffect):
     """"Venture into the dungeon." (RULE 701.49) — enter a dungeon, or move
     the venture marker one room down the one you're in.
@@ -1406,6 +1439,11 @@ class ConditionalEffect(GameEffect):
 #: sees — and can double — each hit individually, exactly as printed).
 _DAMAGE_SELECTORS: frozenset[str] = frozenset(
     {"each_creature", "each_player", "each_opponent", "each_creature_and_player",
+     # "~ deals 1 damage to each creature and each planeswalker." (MEC-11's
+     # Stalwart Speartail) — the compound-selector sibling of
+     # ``each_creature_and_player``, a creature-or-planeswalker union rather
+     # than creature-or-player.
+     "each_creature_and_planeswalker",
      # "it deals 1 damage to **you**" (Mana Vault's draw-step ping) — the
      # source's own controller, untargeted (RULE 115: "you" is never a
      # target). The single-player counterpart of "each_player" above.
@@ -1500,11 +1538,20 @@ class DealDamageEffect(GameEffect):
             if player is not None:
                 context.deal_damage(player, self.amount, self.source)
             return
-        if self.selector in ("each_creature", "each_creature_and_player"):
+        if self.selector in ("each_creature", "each_creature_and_player", "each_creature_and_planeswalker"):
             from .continuous import group_selector_objects  # avoid the continuous↔effects cycle
 
             for obj in group_selector_objects(context.state, None, "all_creatures"):
                 context.deal_damage(obj, self.amount, self.source)
+            if self.selector == "each_creature_and_planeswalker":
+                # A creature that's *also* a planeswalker (rare, but real —
+                # RULE 205.2 multi-type permanents) was already hit above;
+                # excluding ``is_creature`` here is what keeps it a single
+                # hit, not two.
+                for obj in context.state.permanents():
+                    if obj.is_planeswalker and not obj.is_creature:
+                        context.deal_damage(obj, self.amount, self.source)
+                return
             if self.selector == "each_creature":
                 return
         controller_id = getattr(self.source, "controller_id", None)
@@ -3415,9 +3462,22 @@ class AddManaEffect(GameEffect):
         amount: Optional[int] = None,
         color: str = "C",
         amount_selector: Optional[str] = None,
+        amount_from_trigger_event: Optional[str] = None,
         recipient: str = "controller",
     ) -> None:
         super().__init__(source)
+        #: "add that much {R}" (MEC-11's Raphael, Ninja Destroyer, an
+        #: Enrage sibling — "whenever ~ is dealt damage, add that much
+        #: {R}") — the event field name (``"amount"``) to read off
+        #: `GameContext.trigger_event` at resolution, `MirrorProducedManaEffect`'s
+        #: "read this firing's own payload" idiom applied to a plain
+        #: numeric amount instead of a produced-colour set. **Documented
+        #: simplification**: Raphael's own trailing "until end of turn, you
+        #: don't lose this mana as steps and phases end" isn't modeled —
+        #: `ManaPool` has no persist-past-a-step mechanism yet — so this
+        #: mana empties at the current step's end like any other (RULE
+        #: 500.4), rather than lasting the rest of the turn.
+        self.amount_from_trigger_event = amount_from_trigger_event
         #: Who the mana goes to: ``"controller"`` (the effect's own source's
         #: controller — every ordinary case) or ``"event_controller"``, the
         #: player named by the triggering event (`GameContext.trigger_event`).
@@ -3457,6 +3517,11 @@ class AddManaEffect(GameEffect):
                 context.add_mana(player, color)
         if isinstance(self.amount, int) and self.amount > 0:
             context.add_mana(player, self.color, self.amount)
+        if self.amount_from_trigger_event:
+            event = context.trigger_event
+            extra = int((event or {}).get(self.amount_from_trigger_event) or 0)
+            if extra > 0:
+                context.add_mana(player, self.color, extra)
         if self.amount_selector:
             from . import continuous  # function-scoped: avoid an import cycle
 
@@ -4746,6 +4811,18 @@ class BecomePreparedEffect(GameEffect):
             context.make_prepared(self.source)
 
 
+#: `AddCountersEffect.selector`'s closed vocabulary — a mass, untargeted
+#: "put a counter on each …" (RULE 601.2c), the group `continuous.
+#: group_selector_objects` already resolves for pump/anthem clauses.
+#: ``each_other_creature_you_control`` (MEC-11's Bellowing Aegisaur — "put a
+#: +1/+1 counter on each **other** creature you control") is the RULE 109.5
+#: "another" exclusion of the ability's own source, `group_selector_objects`'s
+#: existing ``"other_creatures_you_control"`` affects value.
+_ADD_COUNTERS_SELECTORS: frozenset[str] = frozenset(
+    {"each_creature_you_control", "each_other_creature_you_control"}
+)
+
+
 class AddCountersEffect(GameEffect):
     """Put ``amount`` +1/+1 counters on a target creature — or on the source.
 
@@ -4756,7 +4833,7 @@ class AddCountersEffect(GameEffect):
     "put a +1/+1 counter on each of up to two target creatures", the
     Support-keyword-shaped family; note ``count`` here is the *target*
     count, distinct from ``amount``, the number of counters placed on each).
-    ``selector="each_creature_you_control"`` (RULE 601.2c, Vastwood Surge's
+    ``selector`` (`_ADD_COUNTERS_SELECTORS` — RULE 601.2c, Vastwood Surge's
     "put two +1/+1 counters on each creature you control") is instead a
     mass, untargeted effect over the group `continuous.
     group_selector_objects` already resolves for pump/anthem clauses —
@@ -4779,23 +4856,43 @@ class AddCountersEffect(GameEffect):
         selector: Optional[str] = None,
         count: int = 1,
         subtypes: Optional[list[str]] = None,
+        trigger_subject_key: Optional[str] = None,
     ) -> None:
         super().__init__(source)
         self.amount = amount
         # The counter type: "+1/+1" (default) or "-1/-1" (RULE 122). Both shift
         # net P/T the same machinery, just with opposite sign.
         self.kind = kind
-        self.selector = selector if selector == "each_creature_you_control" else None
+        self.selector = selector if selector in _ADD_COUNTERS_SELECTORS else None
         self.subtypes = [s.lower() for s in subtypes] if subtypes else None
+        #: "Whenever a creature you control is dealt damage, put a +1/+1
+        #: counter on **it**." (MEC-11's Rite of Passage) — an untargeted
+        #: "it" here is *not* the ability's own source (Rite of Passage
+        #: itself, an Enchantment) the way ``target_kind=None`` everywhere
+        #: else in this class means, but whichever *group member* the
+        #: RULE 603.1 trigger actually fired for. `parser/oracle/
+        #: segmenter.py`'s group-subject damage-recipient handler sets this
+        #: to the same event key (``"target_id"``) `effect_binder.
+        #: _subject_event_key` resolves the trigger's own condition
+        #: against, so the two always agree on which object "it" is.
+        self.trigger_subject_key = trigger_subject_key
         if self.selector is None and target_kind is not None:
             self.target_spec = TargetSpec(kind=target_kind, optional=optional, count=count)
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
-        if self.selector == "each_creature_you_control":
+        if self.trigger_subject_key:
+            event = context.trigger_event
+            obj_id = (event or {}).get(self.trigger_subject_key)
+            target = context.state.find_object(obj_id) if obj_id is not None else None
+            if target is not None:
+                context.add_counters(target, self.amount, self.kind, source=self.source)
+            return
+        if self.selector in _ADD_COUNTERS_SELECTORS:
             from .continuous import group_selector_objects  # avoid the continuous↔effects cycle
 
             controller_id = getattr(self.source, "controller_id", None)
-            for obj in group_selector_objects(context.state, controller_id, "creatures_you_control"):
+            affects = "other_creatures_you_control" if self.selector == "each_other_creature_you_control" else "creatures_you_control"
+            for obj in group_selector_objects(context.state, controller_id, affects, src=self.source):
                 if self.subtypes is not None:
                     sub = obj.card.type_line.partition("—")[2].strip().lower().split()
                     if not any(s in sub for s in self.subtypes):
@@ -7327,6 +7424,53 @@ class DamageEqualToPowerEffect(GameEffect):
         ]
 
 
+class DamageEqualToCountersEffect(GameEffect):
+    """"~ deals damage equal to the number of +1/+1 counters on it to any
+    other target." (Red Hulk-shaped) — `DamageEqualToPowerEffect`'s sibling
+    for a counter-count amount rather than power (the two aren't always the
+    same number: a creature's power can be modified by other statics/pumps
+    independently of its counters).
+
+    Red Hulk's own printed shape ("put a +1/+1 counter on him. **When you
+    do**, he deals damage equal to the number of +1/+1 counters on him to
+    any other target.") is really two abilities under RULE 603.10 — a
+    reflexive trigger off the counter-placement, not a plain sequential
+    resolution. This engine has no reflexive "when you do" trigger
+    primitive yet, so the catalogue entry runs both as one triggered
+    ability's effect list instead (RULE 608.2a resolves a list in printed
+    order, and nothing has a window to intervene between them either way in
+    an automated engine) — a documented simplification, not a rules
+    difference a real game could ever observe.
+    """
+
+    def __init__(
+        self,
+        kind: str = "+1/+1",
+        target: Any = None,
+        target_kind: Optional[str] = "any",
+        optional: bool = False,
+        source: Optional["GameObject"] = None,
+    ) -> None:
+        super().__init__(source)
+        self.kind = kind
+        self.target = target
+        self.target_spec = TargetSpec(kind=target_kind, optional=optional) if target_kind else None
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        if self.source is None:
+            return
+        target = (targets[0] if targets else None) or self.target
+        if target is None:
+            return
+        amount = (
+            self.source.plus_one_counters if self.kind == "+1/+1"
+            else int((getattr(self.source, "counters", None) or {}).get(self.kind, 0) or 0)
+        )
+        if amount <= 0:
+            return
+        context.deal_damage(target, amount, self.source)
+
+
 class ChooseTargetsEffect(GameEffect):
     """"Choose target creature you control **and** target creature you don't
     control." (Ancient Animus, Coven-style fight spells) — a clause that only
@@ -7942,6 +8086,7 @@ EffectRegistry.register(
         amount=p.get("amount"),
         color=p.get("color", "C"),
         amount_selector=p.get("amount_selector"),
+        amount_from_trigger_event=p.get("amount_from_trigger_event"),
         recipient=p.get("recipient", "controller"),
     ),
 )
@@ -8041,6 +8186,17 @@ EffectRegistry.register(
         target_kind=p.get("target_kind", "any"),
         selector=p.get("selector"),
         dealer_optional=bool(p.get("dealer_optional", False)),
+        optional=bool(p.get("optional", False)),
+    ),
+)
+EffectRegistry.register(
+    # "~ deals damage equal to the number of +1/+1 counters on it to any
+    # other target." (Red Hulk) — `damage_equal_to_power`'s counter-count
+    # sibling.
+    "damage_equal_to_counters",
+    lambda p: DamageEqualToCountersEffect(
+        kind=p.get("kind", "+1/+1"),
+        target_kind=p.get("target_kind", "any"),
         optional=bool(p.get("optional", False)),
     ),
 )
@@ -8396,6 +8552,7 @@ EffectRegistry.register(
         kind=p.get("kind", "+1/+1"),
         optional=bool(p.get("optional", False)),
         selector=p.get("selector"),
+        trigger_subject_key=p.get("trigger_subject_key"),
         # A distinct key from "count"/"amount" (both already the *counter*
         # amount per card) — this is the *target* count (RULE 115.1a N>=2,
         # "put a counter on each of up to two target creatures").
@@ -9133,6 +9290,12 @@ EffectRegistry.register(
 EffectRegistry.register(
     "venture",  # "venture into the dungeon" (RULE 701.49)
     lambda p: VentureIntoTheDungeonEffect(dungeon=p.get("dungeon")),
+)
+EffectRegistry.register(
+    # RULE 702.131a: Ascend's spell-ability form — "you get the city's
+    # blessing" checked once, at resolution, against the board.
+    "get_city_blessing",
+    lambda p: GetCityBlessingEffect(),
 )
 EffectRegistry.register(
     # RULE 611 "…until <duration>" — a continuous effect created on

@@ -100,6 +100,23 @@ Plan-level sequencing lives in
   (`GameState.stats` counts *game*-wide, and `temp_*` flags are cleared
   rather than counted), so this really is new — but check again before
   building, per the batch-discipline rule.
+- **PAR-15 · "Any number of target `<X>`" targeting.** RULE 115.1a's
+  "up to N" only ever generalizes today to a *literal* N (`TargetSpec.
+  count`/`optional`) — "any number of" needs a freely-chosen, practically
+  unbounded count instead, with the effect body applying per target the same
+  "loop over the whole list" way `DestroyEffect`/`ExileEffect` already do,
+  not `GrantCombatRestrictionEffect`/`AttachEffect`-shaped effects that
+  currently only ever read `targets[0]` (grep before reusing one of those
+  families for this — several silently drop every target past the first).
+  **64 cached cards**, 0 modeled today — a genuinely new, sizeable family in
+  its own right (a damage-divided-among-targets variant is the single
+  biggest cluster: "`~` deals N damage divided as you choose among any
+  number of target creatures"), not a one-line parser widening. Found while
+  scoping MEC-4 (Strive): every one of Strive's 20 real cards pairs "Strive —
+  this spell costs `<cost>` more to cast for each target beyond the first."
+  (now modeled, `AbilitySpec.strive_cost`) with an "any number of target
+  creatures" effect body, so Strive itself shipped with **0** cards reaching
+  full `MODELED` — this ticket is the actual remaining blocker on all of them.
 - **PAR-12 · The indefinite long tail.** Strategy, current coverage, and a
   worked example: [PARSER_LONG_TAIL.md](PARSER_LONG_TAIL.md). Not a ticket
   that can be "closed" — a standing program.
@@ -122,32 +139,6 @@ Plan-level sequencing lives in
   separate, non-parser gap: [PLR-13].)
 
 ## MEC — Game mechanics
-
-- **MEC-4 · Strive** — not a RULE 702 keyword in this catalogue at all; a
-  per-extra-target cost escalation needing its own grammar.
-- **MEC-6 · Embercleave's cost reduction** — "costs {1} less for each
-  attacking creature you control" needs a board-count-*during-declare-
-  attackers* `count_selector` on the existing `self_cost_reduction_for`.
-- **MEC-7 · Timely Ward's conditional flash** — needs a
-  `"targets_a_commander"` key in `conditional_flash`'s condition whitelist.
-  `game/condition_query.py`.
-- **MEC-8 · An emblem's own activated ability.** RULE 114.4 permits one;
-  `RulesEngine.create_emblem` files only `TriggeredAbility`/`StaticAbility`
-  and would silently drop an `ActivatedAbility`. No real emblem prints one.
-- **MEC-9 · Designation inheritance.** RULE 725.4/726.4 — the monarch/
-  initiative-holder leaving the game should pass it to the active player.
-  Prohibition/cost-modification statics also remain unmodeled.
-- **MEC-11 · "Whenever ~ is dealt damage" (Enrage).** RULE 603.1's *recipient*
-  side of a damage trigger: `segmenter._DAMAGE_TRIGGER_RE` only recognizes a
-  permanent **dealing** damage, so all ~24 "Enrage —" cards fail the gate on
-  their trigger condition, however ordinary the body ("draw a card", "you
-  gain 2 life", and — found while shipping MEC-1 — "it fights up to one
-  target creature you don't control", Apex Altisaur). Needs the DAMAGE
-  event's ``target_id`` matched against the subject the way ``source_id``
-  already is (`effect_binder._build_group_ok`), plus "enrage" added to
-  `normalize._ABILITY_WORD_RE` (RULE 207.2c — no rules meaning, but the label
-  currently blocks the line on its own). Do both together: the label strip
-  alone unlocks nothing.
 
 > **Permanent non-goals** (never to be built, not gaps): Stickers (RULE 123)
 > — `gate.parse_oracle` classifies these `NEVER_SUPPORTED`, a verdict kept

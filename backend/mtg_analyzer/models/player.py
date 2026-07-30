@@ -152,6 +152,15 @@ class Player:
         #: SBA sweep when that creature stops being a creature they control.
         self.ring_bearer_id: Optional[int] = None
 
+        #: RULE 702.131c: "the city's blessing" — a onetime designation
+        #: granted by Ascend (702.131a/b), unlike Monarch/Initiative not a
+        #: single shared holder (`GameState.monarch_id`/`initiative_id`) but
+        #: a plain per-player flag: "any number of players may have the
+        #: city's blessing at the same time", and once granted it's kept
+        #: "for the rest of the game" (never cleared). Set by
+        #: `RulesEngine.get_city_blessing`.
+        self.has_city_blessing: bool = False
+
     # -- Zone accessors --------------------------------------------------
 
     @property
@@ -268,6 +277,8 @@ class Player:
             # RULE 701.51/701.52: the Ring's level (0–4) and who carries it.
             "ring_level": self.ring_level,
             "ring_bearer_id": self.ring_bearer_id,
+            # RULE 702.131c: the city's blessing designation (Ascend).
+            "has_city_blessing": self.has_city_blessing,
             "library_count": len(self.library),
             "hand_count": len(self.hand),
             "hand": [obj.to_dict() for obj in self.hand],

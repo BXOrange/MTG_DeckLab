@@ -83,6 +83,10 @@ ALLOWED_TARGET_KINDS: frozenset[str] = frozenset(
         # Ghirapur) — `player` narrowed by a per-turn damage *history*, the
         # one target kind here answered from a record rather than the board.
         "player_dealt_combat_damage_by_source",
+        # "target opponent" (MEC-11's Indoraptor-shaped, simplified from "an
+        # opponent **at random**" — see the catalogue entry) — `player`
+        # narrowed to exclude the ability's own controller.
+        "opponent",
         "creature_you_control", "land_you_control",
         # RULE 109.5's "*another* target creature you control" (Giver of
         # Runes) — `creature_you_control` minus the ability's own source.
@@ -98,6 +102,11 @@ ALLOWED_TARGET_KINDS: frozenset[str] = frozenset(
         # "target artifact or enchantment" (Archdruid's Charm) — the union of
         # the two single-type kinds, a common printed phrasing.
         "artifact_or_enchantment",
+        # "target opponent or planeswalker" (MEC-11's Enrage cluster —
+        # Frilled Deathspitter/Sun-Crowned Hunters-shaped, but a common
+        # printed phrasing well beyond just those two) — a player who isn't
+        # this ability's own controller, unioned with any planeswalker.
+        "opponent_or_planeswalker",
         # "target Aura or Equipment attached to a creature you control"
         # (Halvar, God of Battle) — `attached_equipment_you_control` widened
         # to Auras, and narrowed to hosts you control.
@@ -278,6 +287,8 @@ class TargetSpec:
             "non_human_creature_you_own": "Nicht-Mensch-Kreatur, die du besitzt",
             "creature_you_dont_control": "Kreatur, die du nicht kontrollierst",
             "artifact_or_enchantment": "Artefakt oder Verzauberung",
+            "opponent": "Gegner",
+            "opponent_or_planeswalker": "Gegner oder Planeswalker",
             "attached_aura_or_equipment_you_control":
                 "Aura oder Ausrüstung an einer Kreatur unter deiner Kontrolle",
             "land_you_control": "Land unter deiner Kontrolle",
@@ -626,6 +637,24 @@ def legal_targets(
             and not _is_human(o)
             and _targetable_by(o, source)
         ]
+    if kind in ("opponent", "opponent_or_planeswalker"):
+        # "target opponent" — a living player besides this ability's own
+        # controller. "target opponent or planeswalker" unions it with the
+        # planeswalker half, the same `artifact_or_enchantment`-style
+        # two-kind union.
+        players = [
+            {"player_id": p.id, "name": p.name}
+            for p in state.living_players()
+            if p.id != controller_id
+        ]
+        if kind == "opponent":
+            return players
+        planeswalkers = [
+            {"instance_id": o.instance_id, "name": o.name}
+            for o in state.permanents()
+            if o.is_planeswalker and o is not source and _targetable_by(o, source)
+        ]
+        return players + planeswalkers
     if kind == "artifact_or_enchantment":
         # "Exile target artifact or enchantment." (Archdruid's Charm's third
         # mode) — the union of the two single-type kinds below, which is a

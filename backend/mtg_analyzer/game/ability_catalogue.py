@@ -992,12 +992,21 @@ def _embercleave() -> list[AbilitySpec]:
     Equip {3}
 
     — Embercleave. Flash comes from the RULE 702 keyword catalogue (and is
-    now honoured for casting timing, `GameEngine.can_cast`). The attacker-
-    count cost reduction isn't modeled (no per-cast, board-state-dependent
-    discount mechanism exists yet for a card still in hand) — a documented
-    gap; it always costs its full {3}{R}{W}.
+    honoured for casting timing, `GameEngine.can_cast`). The attacker-count
+    cost reduction (MEC-6) is `cost_reduction` with `affects="self"` and
+    `per="attacking_creatures_you_control"` — the same self-scoped discount
+    shape Delve/Affinity already exercise via `continuous.
+    self_cost_reduction_for`, read live at cast time (`GameObject.attacking`,
+    RULE 508.1) so a cast after declare attackers sees the real count.
     """
     return [
+        AbilitySpec(
+            "static",
+            [EffectSpec("cost_reduction", {"affects": "self", "generic": 1,
+                                            "per": "attacking_creatures_you_control"})],
+            raw_text="Dieser Zauberspruch kostet {1} weniger, wie du für jede angreifende "
+                     "Kreatur, die du kontrollierst.",
+        ),
         AbilitySpec(
             "triggered",
             [EffectSpec("attach", {"target_kind": "creature_you_control"})],
@@ -1818,15 +1827,24 @@ def _timely_ward() -> list[AbilitySpec]:
     Enchant creature
     Enchanted creature has indestructible.
 
-    — Timely Ward. The conditional-flash clause isn't modeled (no
-    "flash if X" casting-permission mechanism exists) — a documented gap;
-    only the static indestructible grant is modeled.
+    — Timely Ward. The conditional-flash clause (MEC-7) is
+    `conditional_flash={"targets_a_commander": True}`, checked live at cast
+    time against the caster's actual chosen target
+    (`game/condition_query.py`'s `conditional_flash_holds`); the segmenter
+    recognizes this exact template too (`_CONDITIONAL_FLASH_IF_TARGETS_
+    COMMANDER_RE`), but only on the instant/sorcery `allow_spell_effect`
+    path — an Aura like this one still needs the hand-authored entry. Rides
+    on this same spec regardless of which one carries the real (attach-
+    target) effects, same "may ride on any spec" idiom `additional_cost`
+    uses.
     """
     return [
         AbilitySpec(
             "static",
             [EffectSpec("grant_keyword", {"affects": "attached_permanent", "keywords": ["indestructible"]})],
-            raw_text="Verzauberte Kreatur hat Unzerstörbarkeit.",
+            conditional_flash={"targets_a_commander": True},
+            raw_text="Du kannst diesen Zauberspruch wirken, als hätte er Blitzschlag, falls er einen Anführer als Ziel hat.\n"
+                     "Verzauberte Kreatur hat Unzerstörbarkeit.",
         )
     ]
 
@@ -6653,3 +6671,299 @@ def _delver_of_secrets() -> list[AbilitySpec]:
 
 
 register("Delver of Secrets", _delver_of_secrets)
+
+
+# ---------------------------------------------------------------------------
+# MEC-11 — the Enrage stragglers: real cards left UNMODELED after the
+# parser's own general "whenever ~ is dealt damage" recognition
+# (`parser/oracle/segmenter.py`'s `_DAMAGE_RECIPIENT_TRIGGER_RE`) closed the
+# trigger side. Each of these fails on its *effect body*, not the Enrage
+# trigger itself — a second, narrower gap per card. Several needed a small
+# new primitive (`damage_equal_to_counters`, `AddManaEffect.
+# amount_from_trigger_event`, `AddCountersEffect`/`DealDamageEffect`'s
+# widened selector vocabulary, the `opponent`/`opponent_or_planeswalker`
+# target kinds) rather than being purely bespoke — each documented at its
+# own definition in `game/effects.py`/`game/targeting.py`. Every entry below
+# also documents its own simplifications inline; none silently drops a
+# clause without saying so.
+# ---------------------------------------------------------------------------
+
+
+def _bellowing_aegisaur() -> list[AbilitySpec]:
+    """Enrage — Whenever this creature is dealt damage, put a +1/+1 counter
+    on each other creature you control.
+    """
+    return [
+        AbilitySpec(
+            "triggered",
+            [EffectSpec("add_counters", {"selector": "each_other_creature_you_control"})],
+            trigger={"event": "DAMAGE", "condition": {"subject": "self", "recipient": True}},
+            raw_text="Enrage — Immer wenn diese Kreatur Schaden zugefügt bekommt, lege "
+                     "eine +1/+1-Marke auf jede andere Kreatur unter deiner Kontrolle.",
+        ),
+    ]
+
+
+register("Bellowing Aegisaur", _bellowing_aegisaur)
+
+
+def _frilled_deathspitter() -> list[AbilitySpec]:
+    """Enrage — Whenever this creature is dealt damage, it deals 2 damage
+    to target opponent or planeswalker.
+    """
+    return [
+        AbilitySpec(
+            "triggered",
+            [EffectSpec("damage", {"amount": 2, "target_kind": "opponent_or_planeswalker"})],
+            trigger={"event": "DAMAGE", "condition": {"subject": "self", "recipient": True}},
+            raw_text="Enrage — Immer wenn diese Kreatur Schaden zugefügt bekommt, fügt sie "
+                     "einem Zielgegner oder einem Ziel-Planeswalker 2 Schadenspunkte zu.",
+        ),
+    ]
+
+
+register("Frilled Deathspitter", _frilled_deathspitter)
+
+
+def _sun_crowned_hunters() -> list[AbilitySpec]:
+    """Enrage — Whenever this creature is dealt damage, it deals 3 damage
+    to target opponent or planeswalker.
+    """
+    return [
+        AbilitySpec(
+            "triggered",
+            [EffectSpec("damage", {"amount": 3, "target_kind": "opponent_or_planeswalker"})],
+            trigger={"event": "DAMAGE", "condition": {"subject": "self", "recipient": True}},
+            raw_text="Enrage — Immer wenn diese Kreatur Schaden zugefügt bekommt, fügt sie "
+                     "einem Zielgegner oder einem Ziel-Planeswalker 3 Schadenspunkte zu.",
+        ),
+    ]
+
+
+register("Sun-Crowned Hunters", _sun_crowned_hunters)
+
+
+def _indoraptor_the_perfect_hybrid() -> list[AbilitySpec]:
+    """Bloodthirst X
+    Menace
+    Enrage — Whenever Indoraptor is dealt damage, choose an opponent at
+    random. Indoraptor deals damage equal to its power to that player
+    unless they sacrifice a nontoken creature of their choice.
+
+    Simplified: "at random" becomes an ordinary target choice — a real
+    choice instead of randomness has no rules-relevant difference here and
+    is never worse for the chosen opponent — and the "unless they
+    sacrifice a nontoken creature" escape clause isn't modeled (that would
+    need a genuinely new opponent-side interactive "unless" primitive; the
+    existing `sacrifice_unless_pay`/`request_pay_cost_then` family is
+    always about *this ability's own controller* paying, not an
+    opponent). The damage simply always happens. Bloodthirst is bind-on-
+    load from the RULE 702 keyword catalogue, not hand-authored here.
+    """
+    return [
+        AbilitySpec(
+            "triggered",
+            [EffectSpec("damage_equal_to_power", {"target_kind": "opponent"})],
+            trigger={"event": "DAMAGE", "condition": {"subject": "self", "recipient": True}},
+            raw_text="Enrage — Immer wenn Indoraptor Schaden zugefügt bekommt, fügt es "
+                     "einem Zielgegner Schaden in Höhe seiner Stärke zu.",
+        ),
+    ]
+
+
+register("Indoraptor, the Perfect Hybrid", _indoraptor_the_perfect_hybrid)
+
+
+def _polyraptor() -> list[AbilitySpec]:
+    """Enrage — Whenever this creature is dealt damage, create a token
+    that's a copy of this creature.
+    """
+    return [
+        AbilitySpec(
+            "triggered",
+            [EffectSpec("copy_permanent", {"target_kind": None})],
+            trigger={"event": "DAMAGE", "condition": {"subject": "self", "recipient": True}},
+            raw_text="Enrage — Immer wenn diese Kreatur Schaden zugefügt bekommt, erzeuge "
+                     "einen Kartenspielstein, der eine Kopie von ihr ist.",
+        ),
+    ]
+
+
+register("Polyraptor", _polyraptor)
+
+
+def _raphael_ninja_destroyer() -> list[AbilitySpec]:
+    """Raphael must be blocked if able.
+    Enrage — Whenever Raphael is dealt damage, add that much {R}. Until
+    end of turn, you don't lose this mana as steps and phases end.
+
+    Simplified: the "you don't lose this mana as steps and phases end"
+    persistence isn't modeled — `ManaPool` has no survives-a-step
+    mechanism yet, so this mana empties at the current step's end (RULE
+    500.4) like any other, rather than lasting the rest of the turn.
+    """
+    return [
+        AbilitySpec(
+            "static",
+            [EffectSpec("grant_keyword", {"keywords": ["must_be_blocked"], "affects": "self"})],
+            raw_text="Raphael muss blocken, falls möglich.",
+        ),
+        AbilitySpec(
+            "triggered",
+            [EffectSpec("add_mana", {"color": "R", "amount_from_trigger_event": "amount"})],
+            trigger={"event": "DAMAGE", "condition": {"subject": "self", "recipient": True}},
+            raw_text="Enrage — Immer wenn Raphael Schaden zugefügt bekommt, erzeuge "
+                     "entsprechend viel {R}.",
+        ),
+    ]
+
+
+register("Raphael, Ninja Destroyer", _raphael_ninja_destroyer)
+
+
+def _red_hulk() -> list[AbilitySpec]:
+    """Reach, trample
+    Enrage — Whenever Red Hulk is dealt damage, put a +1/+1 counter on
+    him. When you do, he deals damage equal to the number of +1/+1
+    counters on him to any other target.
+
+    Simplified: RULE 603.10's "when you do" is really a second, reflexive
+    triggered ability off the counter-placement — this engine has no such
+    primitive yet, so both halves run as one triggered ability's effect
+    list instead (RULE 608.2a resolves a list in printed order, and
+    nothing has a window to intervene between them either way in an
+    automated engine), which is behaviourally indistinguishable from the
+    two-trigger original. Reach/trample are bind-on-load from the RULE 702
+    keyword catalogue, not hand-authored here.
+    """
+    return [
+        AbilitySpec(
+            "triggered",
+            [
+                EffectSpec("add_counters", {}),
+                EffectSpec("damage_equal_to_counters", {"target_kind": "any"}),
+            ],
+            trigger={"event": "DAMAGE", "condition": {"subject": "self", "recipient": True}},
+            raw_text="Enrage — Immer wenn Red Hulk Schaden zugefügt bekommt, lege eine "
+                     "+1/+1-Marke auf ihn. Danach fügt er einem beliebigen anderen Ziel "
+                     "Schaden in Höhe der +1/+1-Marken auf ihm zu.",
+        ),
+    ]
+
+
+register("Red Hulk", _red_hulk)
+
+
+def _silverclad_ferocidons() -> list[AbilitySpec]:
+    """Enrage — Whenever this creature is dealt damage, each opponent
+    sacrifices a permanent of their choice.
+    """
+    return [
+        AbilitySpec(
+            "triggered",
+            [EffectSpec("sacrifice", {"selector": "each_opponent", "what": "permanent"})],
+            trigger={"event": "DAMAGE", "condition": {"subject": "self", "recipient": True}},
+            raw_text="Enrage — Immer wenn diese Kreatur Schaden zugefügt bekommt, opfert "
+                     "jeder Gegner eine bleibende Karte seiner Wahl.",
+        ),
+    ]
+
+
+register("Silverclad Ferocidons", _silverclad_ferocidons)
+
+
+def _stalwart_speartail() -> list[AbilitySpec]:
+    """Enrage — Whenever Stalwart Speartail is dealt damage, other
+    Dinosaurs you control and Dinosaur cards in your hand and library
+    perpetually get +1/+1.
+    Whenever Stalwart Speartail attacks, Stalwart Speartail deals 1 damage
+    to each creature and each planeswalker.
+
+    Simplified: only the second (attacks-trigger) ability is modeled. The
+    first is RULE 121's *perpetual* effect shape (a one-time, permanent
+    grant that outlives its source and reaches into hand/library, unlike
+    an ordinary "as long as ~ is on the battlefield" static) — genuinely
+    unsupported by this engine (`GrantUntilEffect`'s duration vocabulary,
+    `game/durations.py`, is turn/game-window-scoped, not "forever,
+    independent of the source"), so it's left out rather than
+    approximated as an always-on static, which would be a meaningfully
+    different, strictly *more* powerful card.
+    """
+    return [
+        AbilitySpec(
+            "triggered",
+            [EffectSpec("damage", {"amount": 1, "selector": "each_creature_and_planeswalker"})],
+            trigger={"event": EventType.ATTACKS, "condition": {"subject": "self"}},
+            raw_text="Immer wenn Stalwart Speartail angreift, fügt es jeder Kreatur und "
+                     "jedem Planeswalker 1 Schadenspunkt zu.",
+        ),
+    ]
+
+
+register("Stalwart Speartail", _stalwart_speartail)
+
+
+def _trapjaw_tyrant() -> list[AbilitySpec]:
+    """Enrage — Whenever this creature is dealt damage, exile target
+    creature an opponent controls until this creature leaves the
+    battlefield.
+
+    The O-Ring-shaped linked-exile pair (`ExileEffect(remember=True)` +
+    `ReturnLinkedExileEffect` on the leaves-battlefield trigger, exactly
+    `Leonin Relic-Warder`'s pattern) — the modern one-sentence "exile …
+    until ~ leaves the battlefield" templating is the same RULE 610.3-style
+    linked duration as Leonin's older two-sentence phrasing, just terser.
+    """
+    return [
+        AbilitySpec(
+            "triggered",
+            [EffectSpec("exile", {"target_kind": "creature_you_dont_control", "remember": True})],
+            trigger={"event": "DAMAGE", "condition": {"subject": "self", "recipient": True}},
+            raw_text="Enrage — Immer wenn diese Kreatur Schaden zugefügt bekommt, exiliere "
+                     "eine Zielkreatur, die ein Gegner kontrolliert, bis diese Kreatur das "
+                     "Schlachtfeld verlässt.",
+        ),
+        AbilitySpec(
+            "triggered",
+            [EffectSpec("return_linked_exile", {})],
+            trigger={"event": EventType.LEAVES_BATTLEFIELD, "condition": {"subject": "self"}},
+            raw_text="Wenn diese Kreatur das Schlachtfeld verlässt, bringe die exilierte "
+                     "Karte unter der Kontrolle ihres Besitzers auf das Schlachtfeld zurück.",
+        ),
+    ]
+
+
+register("Trapjaw Tyrant", _trapjaw_tyrant)
+
+
+def _vrondiss_rage_of_ancients() -> list[AbilitySpec]:
+    """Enrage — Whenever Vrondiss is dealt damage, you may create a 5/4
+    red and green Dragon Spirit creature token with "When this token
+    deals damage, sacrifice it."
+    Whenever you roll one or more dice, you may have Vrondiss deal 1
+    damage to itself.
+
+    Simplified: the created token's own "sacrifice it after it deals
+    damage" downside isn't modeled (no quoted-ability-grant support for a
+    created token yet — every other quoted-grant primitive in this engine
+    targets an *existing* permanent, not a token being created in the same
+    breath), so the token created here is strictly a 5/4 vanilla. The
+    dice-roll clause is skipped entirely — this engine has no dice-rolling
+    subsystem at all.
+    """
+    return [
+        AbilitySpec(
+            "triggered",
+            [EffectSpec("create_token", {
+                "count": 1, "token_name": "Dragon Spirit", "power": 5, "toughness": 4,
+                "colors": ["R", "G"], "subtypes": ["Dragon", "Spirit"],
+            })],
+            trigger={"event": "DAMAGE", "condition": {"subject": "self", "recipient": True}},
+            optional=True,
+            raw_text="Enrage — Immer wenn Vrondiss Schaden zugefügt bekommt, kannst du "
+                     "einen 5/4 roten und grünen Drachengeist-Kreaturenspielstein erzeugen.",
+        ),
+    ]
+
+
+register("Vrondiss, Rage of Ancients", _vrondiss_rage_of_ancients)

@@ -617,6 +617,15 @@ class LegalActionsMixin:
                 if self.can_activate(player, source, ability):
                     actions.append(self._activate_action(player, source, index, ability))
 
+        # RULE 114.4: an emblem's own activated ability (MEC-8) — offered off
+        # `player.emblems` the same way the battlefield loop above offers a
+        # permanent's, since `can_activate`/`_activate_action` already accept
+        # an `Emblem` source (`models/emblem.py`).
+        for emblem in player.emblems:
+            for index, ability in enumerate(emblem.activated_abilities):
+                if self.can_activate(player, emblem, ability):
+                    actions.append(self._activate_action(player, emblem, index, ability))
+
         # Channel (RULE 702.29)/Cycling (RULE 702.28): a hand-zone card's own
         # "Discard this card: <effect>" activated ability — unlike the
         # battlefield loop above, discovered off `player.hand`, since the

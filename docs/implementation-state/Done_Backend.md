@@ -7905,3 +7905,313 @@ Coverage moved 25.3% → **25.4% (8,672 / 34,209)**, PARSER_VERSION 28.
       (`{name, commanderText, mainboardText, sideboardText}`) matches
       what `POST /api/decks` / `/api/decks/save` expect. Frontend:
       `Done_Frontend.md` "Import". Tests: `test_archidekt_client.py`.
+
+## MEC-4, MEC-6, MEC-7, MEC-8, MEC-9 batch (2026-07-29)
+
+Five independent, narrowly-scoped engine gaps closed together —
+`tests/test_mec_batch_4_6_7_8_9.py`.
+
+- [x] **MEC-6 · Embercleave's own cost reduction.** The self-scoped "cost
+      {N} less to cast for each `<board count>`" primitive
+      (`continuous.self_cost_reduction_for`/`_cost_static_amount`'s `per`
+      param, `effects.py`'s `cost_reduction` factory with
+      `affects="self"`) already existed for Delve/Affinity's shape but had
+      never actually been exercised by any shipped card. Closed by adding
+      the one missing `count_selector` entry, `attacking_creatures_you_
+      control` (plus its unscoped sibling `attacking_creatures`, live off
+      `GameObject.attacking`, RULE 508.1) — Embercleave's hand-authored
+      catalogue entry now uses it instead of the previous "always costs
+      its full {3}{R}{W}" documented gap. A parser handler
+      (`static_handlers._SELF_COST_REDUCTION_ATTACKING_RE`) recognizes
+      the oracle-text template directly, which also newly models Ancient
+      Stone Idol's bare "for each attacking creature" (no "you control")
+      variant for free.
+- [x] **MEC-7 · Timely Ward's conditional flash.** `"targets_a_commander"`
+      joined `ALLOWED_CAST_CONDITION_KEYS`; unlike `"entered_this_turn"`
+      (checked purely off the object/state), this one depends on a choice
+      the caster hasn't made yet at the point `GameEngine.can_cast` first
+      needs an answer — RULE 601.2c (choose targets) comes *after* the
+      timing-permission check RULE 601.3a gates, not before. Resolved by
+      threading an optional `targets` param through `can_cast`/
+      `effective_cast_cost`: omitted (every offer-time preview caller),
+      `condition_query.conditional_flash_holds` answers optimistically
+      (legal to *offer* the flash-speed cast whenever a commander exists
+      anywhere in play or a command zone); supplied (the real cast,
+      `_cast_current_face` already has the chosen `targets` in hand),
+      it's checked and enforced for real. Timely Ward's hand-authored
+      catalogue entry now carries `conditional_flash={"targets_a_
+      commander": True}` instead of the previous documented gap. The
+      segmenter recognizes the oracle-text template too
+      (`_CONDITIONAL_FLASH_IF_TARGETS_COMMANDER_RE`), though only on the
+      instant/sorcery `allow_spell_effect` path — an Aura like Timely Ward
+      itself still needs the hand-authored entry, since `gate.py` never
+      offers a permanent's own lines that route (RULE 601.2f/702.8b
+      condition lines have so far only ever appeared on instants in
+      practice, Timely Ward being the one exception).
+- [x] **MEC-4 · Strive.** Genuinely not a RULE 702 keyword — no CR entry
+      defines it, unlike every other parametric keyword in `keywords.py`'s
+      table — so `AbilitySpec.strive_cost` rides as its own field the same
+      "own oracle-text line, standalone from the spell's actual effect"
+      way `conditional_flash`/`free_cast_condition` do, rather than going
+      through the RULE-702-numbered keyword catalogue.
+      `effect_binder.attach_to_object` parses it into a real `ManaCost` on
+      `obj.strive_cost`; `GameEngine.effective_cast_cost` gained the same
+      `targets` param MEC-7 added and adds one full copy of the cost per
+      target *beyond the first* — a full `ManaCost.add()`, not just a
+      generic delta, since real Strive costs are usually colored ("costs
+      {2}{U} more", not just "{1} more" — only 1 of the 20 real cards is
+      generic-only). Unlike MEC-6/7, this one lands with **zero** cards
+      reaching full `MODELED`: every real Strive card pairs its own line
+      with "any number of target creatures `<effect>`", a separate,
+      unmodeled targeting family (`PAR-15`, filed while scoping this
+      ticket) — Strive's own clause parses cleanly
+      (`segmenter._STRIVE_LINE_RE`) and the cost math is tested directly
+      against the engine primitive, but no real card clears the whole
+      card's fail-closed gate yet.
+- [x] **MEC-8 · An emblem's own activated ability.** RULE 114.4 permits
+      one; `RulesEngine.create_emblem`'s bind step used to route only
+      `TriggeredAbility`/`StaticAbility`, silently dropping an
+      `ActivatedAbility` returned by `bind_ability` (and, spotted in the
+      same `if`/`elif` chain, a compound multi-event trigger's *list* of
+      `TriggeredAbility` too — both fixed together). `models/emblem.py`
+      gained `activated_abilities`/`granted_activated_abilities` (the
+      latter always empty — nothing grants an emblem an ability — kept
+      only so the `source.activated_abilities + source.granted_activated_
+      abilities` idiom every activation call site already uses needs no
+      special-casing), an `instance_id` sharing `GameObject`'s own
+      counter, and a `name` ("Emblem") for the error-message/UI-label
+      formatting those call sites already do. `can_activate` gained an
+      `Emblem`-shaped branch alongside its permanent-membership check;
+      `legal_actions` offers a controlled emblem's activatable abilities
+      the same way it offers a permanent's; `GameState.find_object`
+      searches `player.emblems` after every zone, so the wire round-trip
+      (`instance_id` → dispatch → `activate_ability`) works unchanged.
+      The parser's own emblem-quote handler
+      (`catalogue/handlers.py`'s `_emblem_ability_spec`) previously hard-
+      rejected any `ability_kind == "activated"` nested spec outright
+      (`else: return None`) — widened with the same fail-closed
+      self-referential guard ("sacrifice this"/"equipped creature…" would
+      be meaningless with no host permanent) the triggered/static
+      branches already apply. No real cached card prints an emblem with
+      its own activated ability, so this is engine-primitive-level
+      coverage, proven end-to-end with a synthetic "{1}: Draw a card."
+      emblem rather than a real card.
+- [x] **MEC-9 · Designation inheritance (RULE 725.4/726.4).**
+      `RulesEngine.remove_player_from_game` (the RULE 800.4a leave-the-
+      game cleanup `GameEngine.begin_turn` runs once per turn for each
+      `GameState.pending_leave_ids` entry) now passes a departing
+      Monarch/Initiative-holder's designation to the active player before
+      clearing the rest of their board. By the time this runs,
+      `active_player_index` has already rotated for the turn about to
+      begin (`GameState.next_active_index` skips `has_lost` players,
+      which `RulesEngine.concede` sets immediately rather than deferring
+      — only the RULE 800.4a battlefield/zone cleanup is deferred), so
+      `self.state.active_player` is already guaranteed live and never the
+      departing player itself; the rule text's "active player is also
+      leaving"/"no active player" fallback (→ clear the designation) is
+      honoured rather than assumed unreachable, but never actually
+      exercised by this engine's turn order. RULE 726.4 says the active
+      player *takes* the initiative — routed through the existing
+      `RulesEngine.take_initiative` (which fires `TOOK_INITIATIVE`,
+      RULE 726.2's third inherent "ventures into Undercity" trigger)
+      rather than a bare field assignment, so the succession itself is
+      real Comprehensive-Rules behaviour, not just a state patch; RULE
+      725.4's monarch succession has no such inherent trigger, so
+      `become_monarch` (a bare field set, as it already was) is enough.
+      The "as long as you're the monarch"/"…have the initiative"
+      conditional-static family this surfaced (56 of 64 cached "monarch"
+      cards UNMODELED, mostly on exactly this shape) is a separate,
+      sizeable gap — filed as `MEC-12` rather than folded into this
+      ticket, since RULE 613.6's existing `active_if`/`static_conditions.py`
+      machinery just needs a new condition *kind*, nothing about
+      succession.
+
+## MEC-12 · Monarch/Initiative-conditioned statics, + Ascend/city's blessing (2026-07-30)
+
+- [x] **MEC-12.** `game/static_conditions.py`'s RULE 613.6 whitelist gains
+      `is_monarch`/`has_initiative` — plain reads of `GameState.monarch_id`/
+      `initiative_id` against the static's own controller, the exact shape
+      `your_turn` already had (no `of` subject: "you" always means the
+      static's controller). `parser/oracle/catalogue/static_handlers.py`'s
+      `_STATIC_CONDITION_RES` gains the matching phrases ("you're the
+      monarch"/"you have the initiative"), which is the *entire* fix —
+      both printed orders ("as long as `<cond>`, …" / "… as long as
+      `<cond>`.") already ride the existing `_conditional_static_specs`
+      wrapper with no new engine mechanism, exactly as the ticket
+      predicted. Net cached-card yield was smaller than the ticket's
+      56-card estimate once measured for real (`scripts/coverage_report.py`,
+      not just `grep`-ing for "monarch"): most of the 56 UNMODELED cards
+      turned out to be blocked on a second, unrelated gap surfaced along
+      the way — `game/parser/oracle/catalogue/static_handlers.py`'s
+      `_scope`/`_NONCREATURE_TYPES` deliberately refuses "artifact
+      creatures"/"permanents"/etc. as a group scope (a pre-existing,
+      already-documented limitation, `CLAUDE.md`'s "Notable gaps": *"non-
+      creature group scopes for the anthem/grant families"*), so
+      "as long as you're the monarch, permanents you control have
+      hexproof"-shaped cards still don't clear the whole-card gate even
+      with the condition itself now recognized. The condition machinery
+      is nonetheless real, tested directly (`static_conditions.
+      condition_holds`, both printed orders via `static_effect_specs`),
+      and immediately useful to every self- or already-supported-scope
+      static in the family.
+
+- [x] **Ascend / "the city's blessing" (RULE 702.131), built in the same
+      batch.** Previously recognized only as a bare `keyword` spec
+      (`parser/oracle/catalogue/keywords.py`'s FLAG-shape "Ascend" row)
+      with **no engine behaviour bound to it at all** — a silent no-op
+      exactly like `create_emblem`'s dropped `ActivatedAbility` was
+      before MEC-8, and the natural companion to file the new condition
+      vocabulary's third designation kind alongside (`has_city_blessing`)
+      rather than leave it dangling. Unlike Monarch/Initiative
+      (`GameState.monarch_id`/`initiative_id`, a single shared holder,
+      RULE 725/726), the city's blessing is a plain idempotent per-player
+      flag (`Player.has_city_blessing`) — RULE 702.131c: "any number of
+      players may have the city's blessing at the same time" — that,
+      once granted, is never cleared (702.131d: "for the rest of the
+      game"). `RulesEngine.get_city_blessing` is the one idempotent
+      setter both of Ascend's two printed forms share (702.131a/b give it
+      two different bodies, not two different mechanics):
+      - **On a permanent** (702.131b, "any time you control ten or more
+        permanents…") there's no event to hang a trigger off — it's a
+        live board check, so it's swept at SBA cadence exactly like the
+        day/night and Ring-bearer checks already are
+        (`RulesEngine._sba_check_ascend`, reading the keyword straight
+        off `combat.has(obj, "ascend")` — no extra binding needed beyond
+        what `attach_keyword` already does for every flag keyword; the
+        selector doing the counting is the pre-existing
+        `continuous.count_selector`'s `permanents_you_control`).
+      - **On an instant/sorcery** (702.131a) is a one-shot resolution
+        effect instead (`GetCityBlessingEffect`, registered as
+        `"get_city_blessing"`), wired in `effect_binder.
+        attach_to_object`'s existing keyword-handling branch: when the
+        keyword's name is `"ascend"` and the bound object's card is an
+        instant/sorcery, the effect is appended to `spell_effects`
+        alongside whatever `attach_keyword` already did for the flag
+        itself — the same object, two different consequences depending
+        on what kind of card it is, since a permanent's `spell_effects`
+        list is simply never read.
+      Real-card yield from `has_city_blessing` alone (measured via
+      `scripts/coverage_report.py`, PARSER_VERSION 44):
+      **coverage 9,529 → 9,536 / 34,208** (monarch +1, city's blessing
+      +6) — smaller than the 33-UNMODELED-card population the mechanic
+      touches, for the same reason as MEC-12 above: most of those cards'
+      *other* clauses (compound "if you have the city's blessing, …
+      instead" amount overrides — the already-documented "kicked …
+      instead" override-conditional gap; "activate only if you have the
+      city's blessing" — a still-unmodeled activation-legality gate,
+      a different family from RULE 613.6 statics entirely; non-creature
+      group scopes, same pre-existing limitation as above) are the real
+      remaining blockers, not Ascend or the condition itself. The
+      self-scoped case works end-to-end without any further gap — Dusk
+      Charger ("This creature gets +2/+2 as long as you have the city's
+      blessing.") parses fully `MODELED` and its anthem live-regates on
+      `Player.has_city_blessing` through the ordinary layer-engine
+      recompute, tested directly rather than assumed.
+
+## MEC-11 · "Whenever ~ is dealt damage" (Enrage) (2026-07-30)
+
+- [x] RULE 603.1's *recipient* side of a damage trigger — the mirror image
+      of `segmenter._DAMAGE_TRIGGER_RE`'s existing "deals damage" family,
+      which only ever recognized a permanent *dealing* damage. Three
+      pieces, none Enrage-specific despite the ticket's name:
+      `normalize._ABILITY_WORD_RE` gained "enrage" (RULE 207.2c — no rules
+      meaning, but the label blocks the line on its own until stripped);
+      `segmenter._DAMAGE_RECIPIENT_TRIGGER_RE` recognizes "whenever ~/a
+      `<type>` [you control]/enchanted-or-equipped `<type>` is dealt
+      [combat] damage, …", the same self/attached/group subject grammar
+      `_DAMAGE_TRIGGER_RE` already had, just the other direction, marking
+      its condition `{"recipient": True}`; `effect_binder.
+      _subject_event_key`/`_build_group_ok` read that marker to switch
+      from the `DAMAGE` event's `source_id`/`source_controller_id` (who
+      dealt it) to `target_id`/`target_controller_id` (who took it) — the
+      latter a new field `RulesEngine.deal_damage` now stamps, the direct
+      recipient-side sibling of `source_controller_id`. Since this is
+      general RULE 603.1 recognition rather than a template gated on the
+      "Enrage —" label, far more cards benefited than the ~25 that print
+      it (Boros Reckoner/Brash Taunter/Fungusaur/Stuffy Doll/Spitemare-
+      shaped self triggers, Rite of Passage's "a creature you control").
+
+- [x] **A real correctness bug surfaced and fixed on the way, not shipped
+      broken.** The existing "put a +1/+1 counter on it" handler's bare
+      "it" pronoun had always meant the ability's own source — true of
+      every prior card, since every existing family combining an implicit
+      "it" with a counter/pump effect was self-subject. The new
+      *group*-subject recipient trigger broke that assumption for the
+      first time (Rite of Passage: "a creature you control is dealt
+      damage, put a +1/+1 counter on **it**" — "it" is the *damaged*
+      creature, not Rite of Passage itself, an Enchantment). Silently
+      landing the counter on the wrong object would have been a
+      wrong-but-`MODELED` card — strictly worse than `UNMODELED` by this
+      repo's own standing rule. Fixed two ways together: `AddCountersEffect`
+      gained `trigger_subject_key` (resolves its target from `GameContext.
+      trigger_event` instead of defaulting to `self.source`, the same
+      event-key convention `_subject_event_key` uses for the trigger's own
+      condition, so the two always agree on which object "it" is); the
+      segmenter's group/attached-subject branch rewrites a bare
+      `add_counters` this way and, for every *other* effect shape,
+      default-denies (fails the clause closed) unless it already carries a
+      real RULE 115 `target_kind` or a mass `selector` — neither of which is
+      ambiguous about what "it" means. No cached card needs anything past
+      `add_counters` here yet, so nothing beyond it was guessed at.
+
+- [x] **The Enrage stragglers, hand-authored (user instruction: "do not
+      defer, author all missing cards that use enrage").** Eleven real
+      cards remained `UNMODELED` after the trigger fix alone (each blocked
+      on its own effect body, not the trigger), closing the entire ~25-card
+      Enrage population in `game/ability_catalogue.py` (one further
+      "enrage" hit, Borborygmos Enraged, doesn't actually have the
+      ability — a name-only false positive, correctly left alone). Several
+      needed a small, reusable primitive rather than being purely bespoke:
+      - `AddCountersEffect`/`DealDamageEffect` widened selector vocabulary
+        — `each_other_creature_you_control` (Bellowing Aegisaur, RULE
+        109.5's "another" exclusion) and `each_creature_and_planeswalker`
+        (Stalwart Speartail's attacks-trigger mass damage — the union
+        excludes a double-hit on a creature that's also a planeswalker by
+        construction, not by luck).
+      - `targeting.py`'s new `opponent`/`opponent_or_planeswalker` target
+        kinds (Frilled Deathspitter/Sun-Crowned Hunters/Indoraptor) — no
+        plain "an opponent" player-side target kind existed at all before
+        this (only the graveyard-scoped `opponent_graveyard_*` family did).
+      - `DamageEqualToCountersEffect` (Red Hulk) — `damage_equal_to_power`'s
+        counter-count sibling, reading `GameObject.plus_one_counters`
+        instead of power; Red Hulk's own "when you do" (RULE 603.10, a
+        genuine second reflexive trigger this engine has no primitive for)
+        is folded into one triggered ability's effect list instead — RULE
+        608.2a resolves it in printed order and nothing has a window to
+        intervene between the two halves anyway in an automated engine, so
+        the simplification has no observable effect.
+      - `AddManaEffect.amount_from_trigger_event` (Raphael, Ninja
+        Destroyer) — reads "that much" off the firing `DAMAGE` event's
+        `amount` via `GameContext.trigger_event`, `MirrorProducedManaEffect`'s
+        "read this firing's own payload" idiom applied to a plain numeric
+        amount instead of a produced-colour set; its own "you don't lose
+        this mana as steps and phases end" persistence isn't modeled
+        (`ManaPool` has no survives-a-step mechanism yet) — documented, not
+        silent.
+      - Trapjaw Tyrant reuses the existing `ExileEffect(remember=True)` +
+        `ReturnLinkedExileEffect` O-Ring-shaped pair (`Leonin Relic-
+        Warder`'s pattern) for "exile … until ~ leaves the battlefield" —
+        the modern one-sentence templating is the same linked duration as
+        Leonin's older two-sentence phrasing, just terser, so no new
+        primitive was needed at all, just recognizing the shape.
+      - Polyraptor reuses `copy_permanent`'s existing `target_kind=None`
+        self-copy mode; Silverclad Ferocidons reuses `sacrifice`'s existing
+        `selector="each_opponent"`.
+      Three further, explicitly documented simplifications where a full
+      implementation would have needed a disproportionate new subsystem for
+      a single card: Indoraptor's "at random" becomes an ordinary target
+      choice and its "unless they sacrifice a creature" escape clause isn't
+      modeled (an opponent-side interactive "unless", a different shape
+      from the existing controller-side `sacrifice_unless_pay`/
+      `request_pay_cost_then` family); Vrondiss's created token drops its
+      own "sacrifice it after it deals damage" downside (no quoted-ability-
+      grant support for a token being created in the same breath yet) and
+      its separate dice-roll clause is skipped outright (no dice-rolling
+      subsystem exists); Stalwart Speartail's Enrage clause itself (as
+      opposed to its already-shipped attacks-trigger half) is left
+      unauthored — RULE 121's *perpetual* effect shape reaching into hand
+      and library and outliving its own source, genuinely unsupported,
+      and approximating it as an always-on static would have been a
+      meaningfully more powerful card, not a faithful simplification.
+      Coverage moved **9,536 → 9,567 / 34,208** (PARSER_VERSION 45,
+      `scripts/coverage_report.py`).

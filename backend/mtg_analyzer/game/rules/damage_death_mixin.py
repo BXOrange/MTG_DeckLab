@@ -171,6 +171,16 @@ class DamageDeathMixin:
             amount=amount,
             is_player=is_player,
             target_id=target_id,
+            # RULE 603.1 recipient-scoped "a creature you control is dealt
+            # damage" (MEC-11, Rite of Passage-shaped) — the mirror of
+            # ``source_controller_id`` below, for a `"group"` condition
+            # `effect_binder._build_group_ok` marks with
+            # ``condition["recipient"]``. Only meaningful for an object
+            # target (a player has no controller); ``None`` for a player
+            # target fails the "you control" check closed rather than
+            # matching, which is correct — "you control" a permanent, not a
+            # player.
+            target_controller_id=(target.controller_id if not is_player else None),
             # Carried so a doubling/additional-damage replacement (RULE
             # 616.1, e.g. Furnace of Rath/Torbran) can filter by "a source
             # you control" / "combat damage" / "a red source" — see

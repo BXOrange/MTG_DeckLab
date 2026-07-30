@@ -16,22 +16,49 @@ hand-zone spell too, and a turn-scoped condition changes every turn.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Optional
 
 if TYPE_CHECKING:
     from ..models.game_object import GameObject
     from ..models.game_state import GameState
 
 
-def conditional_flash_holds(condition: dict[str, Any], obj: "GameObject", state: "GameState") -> bool:
+def conditional_flash_holds(
+    condition: dict[str, Any],
+    obj: "GameObject",
+    state: "GameState",
+    targets: Optional[list[Any]] = None,
+) -> bool:
     """Whether ``obj``'s `conditional_flash` condition holds right now.
 
     Fails closed on an unrecognized key (defensive — `AbilitySpec.validate`
     already rejects one at bind time).
+
+    ``"targets_a_commander"`` (Timely Ward-shaped, MEC-7) is the one key
+    that depends on a choice — RULE 601.2c targets aren't picked until
+    *after* the timing-permission check `GameEngine.can_cast` makes this
+    call for, so ``targets`` is optional: ``None`` (the offer-time call,
+    before the player has chosen anything) answers optimistically — legal to
+    *offer* the flash-speed cast whenever a commander is anywhere in play or
+    a command zone, since a legal target isn't known yet — while the real
+    cast (`_cast_current_face`, which already has the chosen ``targets`` in
+    hand) checks the actual choice and enforces it for real. A caster who
+    announces flash-speed and then doesn't actually pick a commander target
+    has this same call reject the cast at that final checkpoint, matching
+    RULE 601.2i's "the game returns to the moment before the illegal cast".
     """
     for key, value in condition.items():
         if key == "entered_this_turn":
             if bool(value) != (obj.turn_entered == state.turn_number):
+                return False
+        elif key == "targets_a_commander":
+            if targets is None:
+                has_commander = any(getattr(p, "is_commander", False) for p in state.battlefield) or any(
+                    getattr(c, "is_commander", False) for player in state.players for c in player.command
+                )
+            else:
+                has_commander = any(getattr(t, "is_commander", False) for t in targets)
+            if bool(value) != has_commander:
                 return False
         else:
             return False

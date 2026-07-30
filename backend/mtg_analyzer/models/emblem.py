@@ -26,6 +26,8 @@ from __future__ import annotations
 
 from typing import Any
 
+from .game_object import _instance_counter
+
 
 class Emblem:
     """One emblem in a player's command zone (RULE 114)."""
@@ -41,6 +43,23 @@ class Emblem:
         self.static_effects: list[Any] = []
         #: `TriggeredAbility` instances — read by `RulesEngine._collect_triggers`.
         self.triggered_abilities: list[Any] = []
+        #: RULE 114.4 also permits an emblem's own activated ability (rare —
+        #: no real emblem prints one yet, `RulesEngine.create_emblem` files
+        #: it here instead of dropping it). `instance_id` shares `GameObject`'s
+        #: own counter so `GameState.find_object`/`GameEngine.can_activate`/
+        #: `activate_ability`/`legal_actions` can treat an emblem exactly like
+        #: a permanent when offering and dispatching it.
+        self.instance_id: int = next(_instance_counter)
+        self.activated_abilities: list[Any] = []
+        #: Always empty — nothing grants an *emblem* an ability the way
+        #: Umbral Mantle grants a permanent one. Kept only so the
+        #: `source.activated_abilities + source.granted_activated_abilities`
+        #: idiom every activation call site already uses works unchanged.
+        self.granted_activated_abilities: list[Any] = []
+        #: No card frame to read a name off (RULE 114.5) — used only in the
+        #: error-message/UI-label formatting the ordinary `GameObject` paths
+        #: already do (`f"{source.name} ..."`).
+        self.name = "Emblem"
 
     def to_dict(self) -> dict[str, Any]:
         return {

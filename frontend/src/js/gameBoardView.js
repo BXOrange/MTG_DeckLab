@@ -2593,6 +2593,11 @@ export function createGameBoardView(opts = {}) {
     if (s.initiative_id === p.id) {
       bits.push('<span class="gf-pcounter gf-pcounter--designation" title="Initiative (Regel 726)">⚔️ Initiative</span>');
     }
+    if (p.has_city_blessing) {
+      // RULE 702.131c: no shared holder, unlike Monarch/Initiative above —
+      // every player who has ascended shows this, any number at once.
+      bits.push('<span class="gf-pcounter gf-pcounter--designation" title="Segen der Stadt (Regel 702.131): dauerhaft, sobald du 10+ Permanente kontrolliert hast">🏙️ Segen der Stadt</span>');
+    }
     // RULE 309: the dungeon card in this player's command zone, with the
     // room their venture marker is on and how far through they are — plus
     // every dungeon they have already completed (309.7), which is a real

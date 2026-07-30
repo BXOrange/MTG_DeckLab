@@ -2047,8 +2047,22 @@ def _emblem_ability_spec(inner: str) -> Optional[dict]:
     elif spec.ability_kind == "static":
         if any(e.params.get("affects") in _EMBLEM_UNSUPPORTED_AFFECTS for e in spec.effects):
             return None
+    elif spec.ability_kind == "activated":
+        # RULE 114.4 also permits an emblem's own activated ability (MEC-8) —
+        # `RulesEngine.create_emblem` binds it fresh against the synthetic
+        # `Emblem` source exactly like the triggered/static cases, so the
+        # same fail-closed self-referential guard applies: no real emblem
+        # prints one yet, but "sacrifice this"/"equipped creature…"-shaped
+        # effects would be meaningless with no host permanent.
+        if any(
+            e.params.get("target_kind") in _EMBLEM_UNSUPPORTED_SUBJECTS
+            or e.params.get("selector") in _EMBLEM_UNSUPPORTED_SUBJECTS
+            or e.params.get("affects") in _EMBLEM_UNSUPPORTED_AFFECTS
+            for e in spec.effects
+        ):
+            return None
     else:
-        return None  # only a static or triggered ability can live in an emblem
+        return None  # only a static/triggered/activated ability can live in an emblem
     try:
         spec.validate()
     except Exception:

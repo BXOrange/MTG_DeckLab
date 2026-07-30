@@ -185,6 +185,14 @@ class StateBasedActionsMixin:
         if self._check_day_night():
             return True
 
+        # RULE 702.131b: Ascend on a permanent is "any time you control ten
+        # or more permanents and you don't have the city's blessing, you get
+        # it" — a live board check, not an event trigger, so it's swept here
+        # rather than fired off any one zone change. (Ascend on a spell is a
+        # one-shot resolution effect instead — `GetCityBlessingEffect`.)
+        if self._sba_check_ascend():
+            return True
+
         # RULE 702.94c: a Soulbond pair breaks the moment either creature
         # leaves the battlefield, stops being a creature, or the two stop
         # sharing a controller — swept here so none of those sites has to
@@ -242,6 +250,24 @@ class StateBasedActionsMixin:
         if self._remove_stranded_tokens():
             return True
 
+        return False
+
+    def _sba_check_ascend(self) -> bool:
+        """RULE 702.131b: a permanent with ascend grants its controller the
+        city's blessing the moment they control ten or more permanents, if
+        they don't already have it. Read straight off `intrinsic_keywords`/
+        `granted_keywords` via `combat.has` — ascend carries no parameters,
+        so there's nothing to bind beyond the flag keyword `attach_keyword`
+        already docks (`effect_binder.attach_keyword`)."""
+        for obj in self.state.permanents():
+            if not combat.has(obj, "ascend"):
+                continue
+            controller = self.state.player_by_id(obj.controller_id)
+            if controller is None or controller.has_city_blessing:
+                continue
+            if continuous.count_selector(self.state, controller.id, "permanents_you_control") >= 10:
+                self.get_city_blessing(controller)
+                return True
         return False
 
     def _sba_check_player_loss(self) -> bool:
@@ -534,7 +560,36 @@ class StateBasedActionsMixin:
         anything of theirs still on the stack ceases to exist. Called by
         `GameEngine.begin_turn` for each id `concede` parked on
         `GameState.pending_leave_ids`, not directly by the concession.
+
+        RULE 725.4/726.4 (MEC-9): a departing Monarch/Initiative-holder
+        designation passes to the active player rather than simply
+        vanishing — checked here, the one place both this cleanup and the
+        rules text key off "leaves the game". By the time this runs,
+        `GameEngine.begin_turn` has already rotated `active_player_index`
+        past every departing id (`GameState.next_active_index` skips
+        `has_lost`), so `self.state.active_player` is already the correct
+        recipient and is never the player leaving — the "active player is
+        also leaving"/"no active player" fallback in both rules never
+        actually triggers in this engine, but is honoured (designation
+        simply cleared) rather than assumed away.
         """
+        if self.state.monarch_id == player.id:
+            active = self.state.active_player
+            if active.id != player.id:
+                self.become_monarch(active)
+            else:
+                self.state.monarch_id = None
+        if self.state.initiative_id == player.id:
+            active = self.state.active_player
+            # RULE 726.4 says the active player *takes* the initiative — the
+            # same verb 726.2's "whenever a player takes the initiative, that
+            # player ventures into Undercity" trigger keys off, so this goes
+            # through `take_initiative` (which fires `TOOK_INITIATIVE`)
+            # rather than setting `initiative_id` directly.
+            if active.id != player.id:
+                self.take_initiative(active)
+            else:
+                self.state.initiative_id = None
         for obj in [o for o in self.state.battlefield if o.owner_id == player.id]:
             self.state.remove_from_battlefield(obj)
         self.state.stack = [
