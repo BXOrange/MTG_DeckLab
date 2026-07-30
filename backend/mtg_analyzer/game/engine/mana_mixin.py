@@ -45,6 +45,7 @@ from ..mana_abilities import (
     restriction_predicate_for_cast,
     validate_color_split,
 )
+from .. import mana_potential
 from ..phases import GamePhase, GameStep, default_turn_sequence
 from ..rules_engine import RulesEngine
 from ..targeting import (
@@ -167,6 +168,7 @@ class ManaMixin:
             # same "applied right alongside, no stack" treatment.
             self.rules.add_player_counters(player, ability.self_rad_counters, "rad", source=source)
         self.state.record_stat(player.id, "mana", amount=sum(produced.values()))
+        mana_potential.record_mana_produced(self, player, produced)
         # RULE 605.1: a "whenever ~ is tapped for mana" trigger (Price of
         # Glory, Wild Growth, Mana Web) fires here — after the mana is in the
         # pool — off the genuine mana-ability tap, never a plain tap-cost or
@@ -226,4 +228,54 @@ class ManaMixin:
         if ability.self_rad_counters:
             self.rules.add_player_counters(player, ability.self_rad_counters, "rad", source=source)
         self.state.record_stat(player.id, "mana", amount=sum(produced.values()))
+        mana_potential.record_mana_produced(self, player, produced)
+        return produced
+    def auto_tap_for(
+        self,
+        player: Player,
+        source: Optional[GameObject] = None,
+        cost: Optional[ManaCost] = None,
+    ) -> list[dict[str, int]]:
+        """Find a tap plan (`game/mana_potential.py`'s `find_tap_plan`) for
+        ``cost`` — or, if omitted, ``source``'s own effective cast cost — and
+        actually execute it: the one real mutator this feature adds, built
+        entirely out of the existing `tap_for_mana`/`activate_hand_mana_
+        ability` calls above (RULE 605) rather than duplicating their
+        mutation logic. Raises ``ValueError`` (surfaced like any other
+        illegal action) when no plan is found.
+
+        V1 scope: only the base printed/reduced cost at ``x=0``, unkicked,
+        no buyback/entwine — an X-spell or Kicker spell's *true* cost
+        depends on a choice the caller hasn't made yet at auto-tap time
+        (see `game/mana_potential.py`'s module docstring and
+        `docs/implementation-state/BACKLOG.md`).
+        """
+        if cost is None:
+            if source is None:
+                raise ValueError("auto_tap_for needs a source or an explicit cost")
+            cost = self.effective_cast_cost(player, source)
+        plan = mana_potential.find_tap_plan(self, player, cost)
+        if plan is None:
+            raise ValueError("no untapped mana sources can pay this cost")
+        produced: list[dict[str, int]] = []
+        for step in plan.steps:
+            if step.kind == "battlefield":
+                obj = next(
+                    o for o in self.state.permanents_controlled_by(player.id)
+                    if o.instance_id == step.instance_id
+                )
+                produced.append(self.tap_for_mana(
+                    player, obj,
+                    option_index=step.option_index,
+                    ability_index=step.ability_index,
+                    color_split=step.color_split,
+                ))
+            else:
+                obj = next(o for o in player.hand if o.instance_id == step.instance_id)
+                produced.append(self.activate_hand_mana_ability(
+                    player, obj,
+                    option_index=step.option_index,
+                    ability_index=step.ability_index,
+                    color_split=step.color_split,
+                ))
         return produced

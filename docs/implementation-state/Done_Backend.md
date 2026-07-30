@@ -8215,3 +8215,92 @@ Five independent, narrowly-scoped engine gaps closed together —
       meaningfully more powerful card, not a faithful simplification.
       Coverage moved **9,536 → 9,567 / 34,208** (PARSER_VERSION 45,
       `scripts/coverage_report.py`).
+
+## Mana-Potenzial (offen/genutzt) + Auto-Tap (2026-07-30)
+
+A new, self-contained module (`game/mana_potential.py`) computes per-player
+"open" vs. "used" mana potential and drives a real, executable auto-tap —
+none of it pre-existing (a repo-wide grep for "mana potential"/"auto-tap"
+before starting turned up nothing at all). Two distinct algorithms behind
+one module, deliberately kept apart rather than sharing one code path:
+
+- **`open_potential_summary`** — a per-colour (WUBRGC) display aggregate:
+  six independent greedy maximizations (one per colour), each starting
+  from an **empty** virtual pool. Deliberately not a simultaneous joint
+  allocation across all six colours — the empty-pool seed is what keeps
+  `open + used` (the latter a new `GameState.mana_produced_this_turn`
+  counter, reset for *every* player — not just the active one, since a
+  non-active player can tap at instant speed under `interactive_priority`
+  — incremented at `tap_for_mana`/`activate_hand_mana_ability`'s existing
+  `record_stat` call sites) equal to the turn's total accessed capacity;
+  seeding from the real pool instead would double-count mana a source
+  already produced. Prefers a net-mana-positive "pay one mana, get more
+  back" converter (Selvala, Heart of the Wilds' own `{G}` cost is the one
+  real card this engine models today; filter lands are a separate,
+  pre-existing oracle-parser gap) over a plain zero-cost producer whenever
+  doing so helps the colour being maximized.
+- **`find_tap_plan`/`is_castable_via_potential`** — "can I pay *this* cost
+  right now, using anything at my disposal" — seeded from the player's
+  **real, current** pool (floating mana is genuinely spendable), DFS over
+  untapped sources with a bounded fixed-point retry (a plain producer has
+  to fire before a converter needing its output becomes payable) and a
+  node-count cap so a pathological board can't blow the pytest per-test
+  timeout. **Never spends a sacrifice- or hand-exile-cost source** (a
+  Treasure, Elvish/Simian Spirit Guide) — `_auto_tappable_candidates`
+  filters those out entirely, since consuming a resource to make mana is a
+  decision a player should make deliberately via their own explicit
+  `tap_for_mana`/`activate_hand_mana_ability` click, never spent for them
+  silently. `open_potential_summary`'s display keeps the unrestricted
+  candidate set — the two questions ("what's the true ceiling" vs. "what
+  may I silently spend") are answered separately on purpose.
+
+`GameEngine.auto_tap_for` (`game/engine/mana_mixin.py`) executes a found
+plan for real, entirely through the existing `tap_for_mana`/
+`activate_hand_mana_ability` calls — no new mutation logic. Reachable two
+ways: a standing `auto_tap_for` action (`services/game_session.py`, dispatched
+through the same generic actor/priority gate every other action already
+goes through, so it needs zero Multiplayer-specific code), and — per a
+mid-session scope refinement — **automatically**, silently, right before an
+otherwise-legal `cast_spell`/`activate_ability` would fail purely for lack
+of pool mana. That required a new `assume_mana_available` parameter on
+`can_cast`/`can_activate`/`_can_pay_activation_cost` (skips only the
+mana-pool check, every other legality requirement — timing, targets,
+additional costs — still enforced): `_auto_tap_for_cast_if_needed`/
+`_auto_tap_for_activation_if_needed` probe with it first to confirm mana is
+*the only* thing blocking the play before touching a single source, so an
+illegal play (wrong timing, no target) never triggers a silent tap. The
+same `assume_mana_available` probe also widens every `legal_actions()`
+cast/activate offer site (`_castable_now_or_via_potential`/
+`_activatable_now_or_via_potential`) to include a card that's legal except
+for mana and payable via potential — otherwise the automatic hook could
+never fire in practice, since the UI never posts an action it wasn't
+offered. `_offer_cast`'s face-down (morph/manifest) offer is deliberately
+left real-pool-only (RULE 702.37a's flat {3} cost isn't expressed through
+`effective_cast_cost`'s ordinary `face` handling) — a narrow, documented
+gap, not an oversight.
+
+Frontend (`gameBoardView.js`): a new "Mana-Potenzial" readout (open/used
+per colour) next to the mana pool, and a `castable-highlight` border class
+on a hand card the server flags `castable` (`services/game_session.py`'s
+`_annotate_castable`, computed only for the viewing player's own seat —
+RULE 400.2 covers a hand-derived number like a Spirit Guide's contribution
+just as much as the hand array itself). No separate "Auto-Tap" button was
+kept — once casting/activating auto-taps on its own, a dedicated button
+would only ever fire in the same cases the real "✨ Zaubern"/"⚡
+Aktivieren" button already covers, so it was dead weight (worse, it would
+have been a latent footgun: `castable` alone doesn't imply the play is
+otherwise legal, so a manual auto-tap trigger gated on it alone could waste
+real mana on an illegal play — the automatic hook's own `assume_mana_
+available` legality probe avoids exactly that). The pre-existing WUBRGC
+emoji glyph map was consolidated while here — three independent,
+inconsistent copies existed across `gameBoardView.js`/`cardTile.js` (the
+new readout would have needed a fourth); `cardTile.js`'s `MANA_SYMBOL_
+EMOJI` is now exported and reused everywhere.
+
+Tests: `backend/tests/test_mana_potential.py` (the simulator itself,
+including an `open + used == baseline` invariant check and a shared-
+sacrifice-fodder contention case), `backend/tests/test_auto_tap_action.py`
+(the executable action, the automatic cast/activate hook, the sacrifice/
+hand-exile exclusion, the broadened `legal_actions` offers, rollback on
+failure), plus `test_multiplayer_session.py` additions for the priority
+gate and RULE 400.2 redaction of the new `mana_potential` view block.

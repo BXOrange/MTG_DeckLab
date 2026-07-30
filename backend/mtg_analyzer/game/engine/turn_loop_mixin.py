@@ -226,6 +226,14 @@ class TurnLoopMixin:
         # RULE 700.4 history ("unless a creature died under your control this
         # turn", Bontu the Glorified) — game-wide for the same reason.
         self.state.creatures_died_this_turn.clear()
+        # Mana-potential tracking (`game/mana_potential.py`) — game-wide,
+        # not `active.id`-only like `spells_cast_this_turn` above: a
+        # non-active player can still tap mana at instant speed under
+        # `interactive_priority` (Multiplayer), and "open + used = total
+        # capacity accessed this turn" must hold for the turn now beginning
+        # regardless of whose turn it is.
+        for player in self.state.players:
+            self.state.mana_produced_this_turn[player.id] = {}
         # "Until your next turn, …" (RULE 611.2b) — a player-scoped effect
         # granted on someone's turn lapses the moment *that* player's next
         # turn begins, which is exactly now for `active`. Swept across every

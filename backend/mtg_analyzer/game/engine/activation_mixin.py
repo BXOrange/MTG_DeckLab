@@ -81,6 +81,7 @@ class ActivationMixin:
         tap_choices: Optional[list[Any]] = None,
         sacrifice_choice: Optional[int] = None,
         discard_choices: Optional[list[int]] = None,
+        assume_mana_available: bool = False,
     ) -> bool:
         """Whether ``player`` may activate ``ability`` of ``source`` right now.
 
@@ -97,6 +98,12 @@ class ActivationMixin:
         ability still uses the stack like any other (unlike the mana-ability
         shortcut `activate_hand_mana_ability` uses), so it goes through this
         same path with a hand-zone legality check instead.
+
+        ``assume_mana_available`` (default ``False``) — see `can_cast`'s
+        identical parameter: skips only the mana-pool payability check,
+        everything else about the cost (sacrifice, tap-others, life, …)
+        still enforced normally. A read-only probe, never used by
+        `activate_ability`'s own real legality gate.
         """
         if ability.cost.discard_self:
             if source not in player.hand or source.owner_id != player.id:
@@ -133,6 +140,7 @@ class ActivationMixin:
         return self._can_pay_activation_cost(
             player, source, ability.cost, x, tap_choices=tap_choices,
             sacrifice_choice=sacrifice_choice, discard_choices=discard_choices,
+            assume_mana_available=assume_mana_available,
         )
     def _sorcery_speed_ok(self, player: Player) -> bool:
         """RULE 117.1a-style sorcery-speed timing: the controller's main
@@ -290,6 +298,7 @@ class ActivationMixin:
         tap_choices: Optional[list[Any]] = None,
         sacrifice_choice: Optional[int] = None,
         discard_choices: Optional[list[int]] = None,
+        assume_mana_available: bool = False,
     ) -> bool:
         # {T} needs an untapped source; {Q} a tapped one. Either symbol also
         # needs a non-summoning-sick source unless it has haste (RULE 302.6,
@@ -306,9 +315,13 @@ class ActivationMixin:
             # modeled by requiring that many pips of `chosen_color` instead
             # of the ordinary any-colour generic solve.
             locked = self._chosen_color_locked_cost(source, mana)
-            if locked is None or not player.mana_pool.can_pay(locked, life_available=player.life):
+            if locked is None:
+                return False  # no chosen colour at all — not a mana-availability question
+            if not assume_mana_available and not player.mana_pool.can_pay(
+                locked, life_available=player.life
+            ):
                 return False
-        elif mana.symbols:
+        elif mana.symbols and not assume_mana_available:
             allows_restriction = restriction_predicate_for_activation(source, has_x=cost.mana.has_variable)
             if not player.mana_pool.can_pay(
                 mana, life_available=player.life, allows_restriction=allows_restriction
@@ -618,6 +631,46 @@ class ActivationMixin:
             # printed constant — see `ActivationCost.loyalty_is_x`.
             source.add_counters("loyalty", -x if cost.loyalty_is_x else cost.loyalty)
             source.activated_loyalty_this_turn = True
+    def _auto_tap_for_activation_if_needed(
+        self,
+        player: Player,
+        source: GameObject,
+        ability: ActivatedAbility,
+        x: int,
+        tap_choices: Optional[list[Any]] = None,
+        sacrifice_choice: Optional[int] = None,
+        discard_choices: Optional[list[int]] = None,
+    ) -> None:
+        """"Automatisches Tappen" for an ordinary activated ability's own
+        mana cost — the `activate_ability` counterpart of `CastingMixin.
+        _auto_tap_for_cast_if_needed`; see that docstring for the shared
+        reasoning (only fires when nothing but mana blocks the activation,
+        via the same ``assume_mana_available`` probe, and never spends a
+        sacrifice- or hand-exile-cost source — `game/mana_potential.py`).
+        """
+        if self.can_activate(
+            player, source, ability, x, tap_choices=tap_choices,
+            sacrifice_choice=sacrifice_choice, discard_choices=discard_choices,
+        ):
+            return
+        if not self.can_activate(
+            player, source, ability, x, tap_choices=tap_choices,
+            sacrifice_choice=sacrifice_choice, discard_choices=discard_choices,
+            assume_mana_available=True,
+        ):
+            return  # illegal for a reason other than mana — never auto-tap
+        cost = ability.cost
+        mana = cost.mana.with_x(x) if cost.mana.has_variable else cost.mana
+        mana = self._reduced_activation_mana(source, mana, cost)
+        if cost.spend_only_chosen_color:
+            locked = self._chosen_color_locked_cost(source, mana)
+            if locked is None:
+                return
+            mana = locked
+        try:
+            self.auto_tap_for(player, cost=mana)
+        except ValueError:
+            pass
     def activate_ability(
         self,
         player: Player,
@@ -666,6 +719,10 @@ class ActivationMixin:
             # see every chosen target, even when the groups are what the
             # effects actually resolve against.
             targets = [t for group in target_groups for t in group]
+        self._auto_tap_for_activation_if_needed(
+            player, source, ability, x, tap_choices=tap_choices,
+            sacrifice_choice=sacrifice_choice, discard_choices=discard_choices,
+        )
         if not self.can_activate(
             player, source, ability, x, tap_choices=tap_choices,
             sacrifice_choice=sacrifice_choice, discard_choices=discard_choices,

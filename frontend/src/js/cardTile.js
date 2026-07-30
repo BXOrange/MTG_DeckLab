@@ -8,7 +8,10 @@ import { cardImageUrl } from './api.js';
 
 // Colored mana symbols get a matching colored circle; {C} (the specific
 // colorless-mana symbol, distinct from generic cost) gets a neutral one.
-const MANA_SYMBOL_EMOJI = { W: '⚪', U: '🔵', B: '⚫', R: '🔴', G: '🟢', C: '🔘' };
+// Exported so other views (gameBoardView.js's mana pool / mana-potential
+// readout) share this one WUBRGC glyph set instead of keeping their own,
+// possibly-diverging copy.
+export const MANA_SYMBOL_EMOJI = { W: '⚪', U: '🔵', B: '⚫', R: '🔴', G: '🟢', C: '🔘' };
 
 // Keycap digit emojis, indexed by digit — used to spell out generic mana
 // (e.g. 12 -> "1️⃣2️⃣") one character at a time, so any amount works without

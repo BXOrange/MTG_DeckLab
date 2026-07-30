@@ -42,9 +42,10 @@ from typing import Any, Callable, Optional
 from mtg_analyzer.models.card import Card
 from mtg_analyzer.models.game_object import GameObject, Zone
 from mtg_analyzer.models.game_state import GameState
+from mtg_analyzer.models.mana_cost import ManaCost
 from mtg_analyzer.models.player import Player
 from mtg_analyzer.game.game_engine import GameEngine
-from mtg_analyzer.game import continuous
+from mtg_analyzer.game import continuous, mana_potential
 from mtg_analyzer.game.effect_binder import bind_from_catalogue
 from mtg_analyzer.game.top_library import may_look_at_top_of_library
 from mtg_analyzer.services import replay
@@ -241,6 +242,33 @@ def _redact_hidden_zones(
             "kind": pending.get("kind"),
             "prompt": pending.get("prompt") or pending.get("description") or "",
         }
+
+
+def _annotate_castable(state_dict: dict[str, Any], engine: GameEngine, player_ids: set[str]) -> None:
+    """Stamp a ``castable`` flag (`game/mana_potential.py`'s
+    `is_castable_via_potential`) onto every hand-card dict belonging to a
+    player in ``player_ids`` — a display-only annotation for the
+    frontend's castable-highlight border, computed only for seats whose
+    hand this view isn't already redacting (RULE 400.2 — see `view`'s own
+    call site), so a Spirit-Guide-shaped hand card never leaks another
+    player's affordability through this either.
+
+    Deliberately doesn't touch `legal_actions`' own `cast_spell` offer
+    gate (`can_cast` against the *real* pool) — see `game/mana_potential.
+    py`'s module docstring for why this stays a separate, additive signal.
+    """
+    hand_by_player_id = {p.id: p.hand for p in engine.state.players}
+    for player_dict in state_dict.get("players", []):
+        pid = player_dict.get("id")
+        if pid not in player_ids:
+            continue
+        player = engine.state.player_by_id(pid)
+        for obj, obj_dict in zip(hand_by_player_id.get(pid, []), player_dict.get("hand", [])):
+            if obj.card.is_land:
+                obj_dict["castable"] = False
+                continue
+            cost = engine.effective_cast_cost(player, obj)
+            obj_dict["castable"] = mana_potential.is_castable_via_potential(engine, player, cost)
 
 
 class GameSession:
@@ -652,6 +680,18 @@ class GameSession:
             color_split=color_split,
         )
 
+    def _dispatch_auto_tap_for(self, action: dict[str, Any], active: Player) -> None:
+        # "Mana-Potenzial" auto-tap (`game/mana_potential.py`'s
+        # `find_tap_plan`, executed via `GameEngine.auto_tap_for`): either
+        # an explicit target ``cost`` string (topping up the pool for an
+        # activated ability), or ``instance_id`` naming a hand/command-zone
+        # card whose own effective cast cost is derived and paid for.
+        raw_cost = action.get("cost")
+        if raw_cost:
+            self.engine.auto_tap_for(active, cost=ManaCost.parse(str(raw_cost)))
+        else:
+            self.engine.auto_tap_for(active, source=self._object(action))
+
     def _dispatch_cast_spell(self, action: dict[str, Any], active: Player) -> None:
         # The spell goes on the stack; it does NOT auto-resolve, so the
         # player can respond (cast an instant) or pass priority to let
@@ -775,6 +815,7 @@ class GameSession:
         "set_skip_untap": _dispatch_set_skip_untap,
         "tap_for_mana": _dispatch_tap_for_mana,
         "activate_hand_mana": _dispatch_activate_hand_mana,
+        "auto_tap_for": _dispatch_auto_tap_for,
         "cast_spell": _dispatch_cast_spell,
         "roll_planar_die": _dispatch_roll_planar_die,
         "turn_face_up": _dispatch_turn_face_up,
@@ -1456,6 +1497,22 @@ class GameSession:
             p.id: may_look_at_top_of_library(p, self.engine.state)
             for p in self.engine.state.players
         }
+        # "Mana-Potenzial" (`game/mana_potential.py`): computed only for
+        # seats whose hand this view isn't hiding — RULE 400.2 also covers
+        # a hand-derived number (Spirit Guide's contribution to open
+        # potential), not just the hand array itself. ``None`` (solo
+        # modes, and `view()`'s own pre-redaction call from
+        # `observer_view`) means every real player qualifies.
+        visible_ids = (
+            {p.id for p in self.engine.state.players if not p.is_dummy}
+            if perspective is None
+            else {perspective}
+        )
+        mana_potential_view = {
+            pid: mana_potential.player_summary(self.engine, self.engine.state.player_by_id(pid))
+            for pid in visible_ids
+        }
+        _annotate_castable(state_dict, self.engine, visible_ids)
         if perspective is not None:
             _redact_hidden_zones(state_dict, perspective, top_visible)
         return {
@@ -1492,6 +1549,13 @@ class GameSession:
             # from there is conveyed the ordinary way, through
             # ``legal_actions``' per-instance offers.
             "top_library_visible": top_visible,
+            # "Mana-Potenzial": {player_id: {"open": {...}, "used": {...}}}
+            # (WUBRGC each) — only for seats this view isn't hiding, see
+            # above. `castable` (the per-hand-card highlight flag) is
+            # embedded directly on each hand-card dict in ``state`` instead
+            # (`_annotate_castable`), since it's naturally already
+            # redacted-or-not by the same mechanism as the hand itself.
+            "mana_potential": mana_potential_view,
             # RULE 117, shared games only: who holds priority right now, who
             # has already passed in this round, and whether priority is
             # played out at all (a solo session auto-drains and never has a
@@ -1547,6 +1611,9 @@ class GameSession:
         view["perspective"] = None
         view["observer"] = True
         view["legal_actions"] = []
+        # RULE 400.2: a spectator gets nobody's hand, so no hand-derived
+        # potential numbers either (see `_annotate_castable`'s own note).
+        view["mana_potential"] = {}
         view["pending_choice"] = view["state"].get("pending_choice")
         return view
 

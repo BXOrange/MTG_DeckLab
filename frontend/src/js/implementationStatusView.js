@@ -63,6 +63,7 @@ const GROUPS = [
           {
             items: [
               ['full', 'Mana-Modell (106)'],
+              ['full', 'Mana-Potenzial (offen/genutzt) + Auto-Tap beim Zaubern/Aktivieren — tappt nie Opfer-/Exil-Manaquellen (Treasures, Spirit Guides)'],
               ['full', 'Zielwahl / Targeting (115)'],
               ['partial', 'Echte Mehrfachziele (115.1a, N≥2) — nur bei wenigen Effekten'],
               ['full', 'Zwei verschiedene Ziele in einem Zauber/einer Fähigkeit (115.1) — jede Klausel trifft ihr eigenes Ziel'],

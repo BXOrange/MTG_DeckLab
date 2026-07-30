@@ -534,6 +534,19 @@ class GameState:
         #: on every successful draw, the same shape `spells_cast_this_turn`
         #: uses for `cast_limit`.
         self.cards_drawn_this_turn: dict[str, int] = {p.id: 0 for p in players}
+        #: Mana actually produced (tapped/hand-exiled for) by each player
+        #: *this turn*, per colour (WUBRGC) — the "genutztes Potenzial" half
+        #: of `game/mana_potential.py`'s open/used split. Unlike
+        #: `spells_cast_this_turn`/`cards_drawn_this_turn` above (which reset
+        #: only the incoming active player's entry in `begin_turn`), this
+        #: resets *every* player's entry every `begin_turn` — a non-active
+        #: player can still tap mana at instant speed under
+        #: `GameEngine.interactive_priority` (Multiplayer), and the feature's
+        #: "open + used = total capacity accessed this turn" invariant must
+        #: hold for the current turn regardless of whose turn it is.
+        #: Incremented by `GameEngine.tap_for_mana`/`activate_hand_mana_
+        #: ability` right next to their existing `record_stat` calls.
+        self.mana_produced_this_turn: dict[str, dict[str, int]] = {p.id: {} for p in players}
         #: RULE 702.8b-adjacent "you may cast spells as though they had
         #: flash this turn" (Borne Upon a Wind-shaped) — ``{player_id: turn_
         #: number}``; a player may cast at flash speed while their entry

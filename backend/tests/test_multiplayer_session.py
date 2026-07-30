@@ -177,6 +177,20 @@ class TestRedaction:
         assert all(len(p["hand"]) == 7 for p in view["state"]["players"])
         assert view["perspective"] is None
 
+    def test_mana_potential_is_only_shown_for_the_viewers_own_seat(self):
+        # "Mana-Potenzial" can be derived partly from hand cards (Spirit
+        # Guide-shaped hand-exile abilities) — RULE 400.2 must cover that
+        # number too, not just the raw hand array.
+        session = make_game()
+        view = session.view(perspective="ann")
+        assert "ann" in view["mana_potential"]
+        assert "bob" not in view["mana_potential"]
+
+    def test_observer_sees_no_mana_potential(self):
+        session = make_game()
+        view = session.observer_view()
+        assert view["mana_potential"] == {}
+
 
 class TestActorScopedActions:
     def test_nobody_can_force_a_step_to_end(self):
@@ -369,6 +383,15 @@ class TestPriority:
         session = self._playing()
         with pytest.raises(GameActionError):
             session.apply_action({"type": "pass_priority"}, actor_id="bob")
+
+    def test_a_player_without_priority_cannot_auto_tap(self):
+        # "Mana-Potenzial" auto-tap (`auto_tap_for`) is an ordinary action —
+        # it must go through the same priority gate as everything else,
+        # with no multiplayer-specific carve-out.
+        session = self._playing(library=[land()] * 30)
+        assert session.engine.state.priority_player.id == "ann"
+        with pytest.raises(GameActionError):
+            session.apply_action({"type": "auto_tap_for", "cost": "{1}"}, actor_id="bob")
 
     def test_a_player_without_priority_is_offered_nothing(self):
         session = self._playing(library=[land()] * 30)

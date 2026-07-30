@@ -206,6 +206,7 @@ class CastingMixin:
         sacrifice_choice: Optional[int] = None,
         discard_choices: Optional[list[int]] = None,
         targets: Optional[list[Any]] = None,
+        assume_mana_available: bool = False,
     ) -> bool:
         """RULE 601/602.5: is this spell castable by ``player`` right now?
 
@@ -241,6 +242,13 @@ class CastingMixin:
         commander"``, MEC-7) — every offer-time caller omits it (``None``),
         which answers that condition optimistically; `_cast_current_face`
         passes the real chosen targets for the final, enforced check.
+        ``assume_mana_available`` (default ``False``) skips only the mana-
+        pool payability check above, leaving every other legality
+        requirement (timing, targets, additional costs, …) enforced as
+        normal — a read-only probe `_cast_current_face` uses to decide
+        whether an otherwise-legal cast is *just* short on mana, in which
+        case it's worth trying to auto-tap for the rest (`game/mana_
+        potential.py`) before failing for real.
         """
         # A commander may be cast from the command zone as well as the
         # hand (RULE 903.6, 903.8) — commander tax (RULE 903.8, +{2} per
@@ -392,7 +400,7 @@ class CastingMixin:
             # not optional, so no mana-pool check applies at all here.
             if player.life < card.converted_mana_cost:
                 return False
-        else:
+        elif not assume_mana_available:
             cost = self.effective_cast_cost(
                 player, obj, x, face=face, kicked=kicked, buyback=buyback, mutate=mutate,
                 entwine=entwine, targets=targets,
@@ -775,6 +783,58 @@ class CastingMixin:
             yield
         finally:
             obj.spell_effects = previous
+    def _auto_tap_for_cast_if_needed(
+        self,
+        player: Player,
+        obj: GameObject,
+        x: int,
+        kicked: int = 0,
+        buyback: bool = False,
+        free: bool = False,
+        mutate: bool = False,
+        bargained: bool = False,
+        entwine: bool = False,
+        sacrifice_choice: Optional[int] = None,
+        discard_choices: Optional[list[int]] = None,
+        targets: Optional[list[Any]] = None,
+    ) -> None:
+        """"Automatisches Tappen": best-effort, silent mana top-up right
+        before a real cast attempt — only when ``obj`` would already be
+        castable except for the real pool falling short (`can_cast`'s
+        ``assume_mana_available`` probe both proves everything *else* about
+        the cast is legal right now, and confirms this isn't already a
+        no-mana alternative cost, before a single mana source is touched).
+        Uses `auto_tap_for`/`game/mana_potential.py`'s `find_tap_plan`,
+        which never spends a sacrifice- or hand-exile-cost source (a
+        Treasure, a Spirit Guide) — only plain tap (± life) sources,
+        exactly what a player would expect "just tap what's needed" to
+        mean. A `ValueError` (no plan found even among those) is swallowed
+        here — the real `can_cast` check right after this call then fails
+        normally, with its usual error message, unchanged from before this
+        existed.
+        """
+        if free or self.can_cast(
+            player, obj, x, kicked=kicked, buyback=buyback, free=free,
+            mutate=mutate, bargained=bargained, entwine=entwine,
+            sacrifice_choice=sacrifice_choice, discard_choices=discard_choices,
+            targets=targets,
+        ):
+            return
+        if not self.can_cast(
+            player, obj, x, kicked=kicked, buyback=buyback, free=free,
+            mutate=mutate, bargained=bargained, entwine=entwine,
+            sacrifice_choice=sacrifice_choice, discard_choices=discard_choices,
+            targets=targets, assume_mana_available=True,
+        ):
+            return  # illegal for a reason other than mana — never auto-tap
+        cost = self.effective_cast_cost(
+            player, obj, x, kicked=kicked, buyback=buyback, mutate=mutate,
+            entwine=entwine, targets=targets,
+        )
+        try:
+            self.auto_tap_for(player, cost=cost)
+        except ValueError:
+            pass
     def _cast_current_face(
         self,
         player: Player,
@@ -808,6 +868,12 @@ class CastingMixin:
             if not entwine or self._entwine_cost(obj) is None:
                 raise ValueError(f"{obj.name}: 'both' requires paying the entwine cost")
         with self._mode_effects_applied(obj, mode):
+            self._auto_tap_for_cast_if_needed(
+                player, obj, x, kicked=kicked, buyback=buyback, free=free,
+                mutate=mutate, bargained=bargained, entwine=entwine,
+                sacrifice_choice=sacrifice_choice, discard_choices=discard_choices,
+                targets=targets,
+            )
             if not self.can_cast(
                 player, obj, x, kicked=kicked, buyback=buyback, free=free,
                 mutate=mutate, bargained=bargained, entwine=entwine,

@@ -698,6 +698,18 @@ textarea {
   outline-offset: -2px;
 }
 
+/* "Mana-Potenzial": this hand card could be paid for right now by tapping/
+   exiling untapped mana sources (`GameEngine.auto_tap_for`'s own dry run),
+   even if it isn't affordable from the current pool alone yet. */
+.card.castable-highlight {
+  box-shadow: 0 0 0 2px var(--ok);
+}
+
+.card.has-image.castable-highlight img {
+  outline: 2px solid var(--ok);
+  outline-offset: -2px;
+}
+
 .board-controls {
   display: flex;
   gap: 0.75rem;
@@ -1632,6 +1644,37 @@ textarea {
   border: 1px dashed var(--accent);
   border-radius: 4px;
   color: var(--accent);
+}
+
+/* "Mana-Potenzial": what's still open vs. already produced this turn —
+   a compact two-row readout next to the live mana pool. */
+.gf-mana-potential {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  margin-left: 0.5rem;
+  font-size: 0.8rem;
+}
+
+.gf-mana-potential-row {
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+  white-space: nowrap;
+}
+
+.gf-mana-potential-label {
+  font-size: 0.65rem;
+  text-transform: uppercase;
+  color: var(--text-dim);
+}
+
+.gf-mana-potential-open .gf-mana-potential-label {
+  color: var(--ok);
+}
+
+.gf-mana-potential-used .gf-mana-potential-label {
+  color: var(--text-dim);
 }
 
 .gf-life {

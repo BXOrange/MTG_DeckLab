@@ -19,6 +19,7 @@ import { getState } from './state.js';
 import { sendGameAction, rewindGame, cardImageUrl, GENERIC_TOKEN_KEY } from './api.js';
 import { getCookie, setCookie } from './cookies.js';
 import { bannerColorLabel, bannerGradients, bannerStyle } from './bannerColors.js';
+import { MANA_SYMBOL_EMOJI } from './cardTile.js';
 import {
   getAutoPassEnabled,
   getAutoPassScope,
@@ -983,6 +984,7 @@ export function createGameBoardView(opts = {}) {
           ${priorityBits ? `<div class="gf-banner-priority">${priorityBits}</div>` : ''}
           <div class="gf-banner-stats">
             ${manaPoolHtml(p.mana_pool)}
+            ${manaPotentialHtml(view.mana_potential?.[p.id])}
             ${lifeBox('Leben', p.life)}
             ${playerCountersHtml(p, s)}
           </div>
@@ -1990,6 +1992,16 @@ export function createGameBoardView(opts = {}) {
     if (o.tapped) classes.push('tapped');
     if (o.summoning_sick) classes.push('summoning-sick');
     if (o.attacking) classes.push('attacking');
+    // "Mana-Potenzial": server-computed (`services/game_session.py`'s
+    // `_annotate_castable`) — whether this hand card could be paid for by
+    // tapping/exiling untapped mana sources, purely a mana-affordability
+    // signal (it does *not* imply the play is otherwise legal right now —
+    // timing/targets can still block it). A real "✨ Zaubern"/"⚡
+    // Aktivieren" button, when `legal_actions` offers one, now silently
+    // auto-taps exactly what's missing on click (`GameEngine.cast_spell`/
+    // `activate_ability`'s own `_auto_tap_for_*_if_needed` hook) — so this
+    // highlight is a preview of that, not a separate action to trigger.
+    if (o.castable) classes.push('castable-highlight');
     const pt = o.power != null && o.toughness != null ? ` (${o.power}/${o.toughness})` : '';
     const buttons = cardActionButtons(cardActions);
     const attackBadge = o.attacking
@@ -2411,11 +2423,10 @@ export function createGameBoardView(opts = {}) {
   // hand-zone `activate_hand_mana` one).
   function colorSplitHtml(a, kind) {
     const colors = ['W', 'U', 'B', 'R', 'G'];
-    const glyph = { W: '⚪', U: '🔵', B: '⚫', R: '🔴', G: '🟢' };
     const inputs = colors
       .map(
         (c) =>
-          `<label class="gf-split-color" title="${c}">${glyph[c]}<input type="number" min="0" max="${a.combination_total}" value="0" data-split-color="${c}" /></label>`
+          `<label class="gf-split-color" title="${c}">${MANA_SYMBOL_EMOJI[c]}<input type="number" min="0" max="${a.combination_total}" value="0" data-split-color="${c}" /></label>`
       )
       .join('');
     const actionInfo = JSON.stringify({ type: kind, instance_id: a.instance_id, ability_index: a.ability_index });
@@ -2698,11 +2709,34 @@ export function createGameBoardView(opts = {}) {
 
   function manaPoolHtml(pool) {
     const order = ['W', 'U', 'B', 'R', 'G', 'C'];
-    const glyph = { W: '⚪', U: '🔵', B: '⚫', R: '🔴', G: '🟢', C: '⟡' };
-    const parts = order.filter((c) => pool[c] > 0).map((c) => `<span class="gf-mana">${glyph[c]}${pool[c]}</span>`);
-    const restrictedParts = restrictedManaHtml(pool.restricted, glyph, order);
+    const parts = order.filter((c) => pool[c] > 0).map((c) => `<span class="gf-mana">${MANA_SYMBOL_EMOJI[c]}${pool[c]}</span>`);
+    const restrictedParts = restrictedManaHtml(pool.restricted, MANA_SYMBOL_EMOJI, order);
     const empty = !parts.length && !restrictedParts.length;
     return `<div class="gf-manapool" title="Mana-Pool">${empty ? '<span class="empty-state">kein Mana</span>' : parts.join('') + restrictedParts.join('')}</div>`;
+  }
+
+  // "Mana-Potenzial": how much more mana this player could still produce
+  // this turn from untapped/unexiled sources ("offen", a live non-mutating
+  // simulation — `game/mana_potential.py`'s `open_potential_summary`), next
+  // to how much they've already actually produced this turn ("genutzt",
+  // `used_potential_summary`) — the two sum to this turn's total accessed
+  // mana capacity. ``potential`` is `view.mana_potential[player_id]`
+  // (absent for a seat this view doesn't own — RULE 400.2, same as the
+  // hand array itself).
+  function manaPotentialHtml(potential) {
+    if (!potential) return '';
+    const order = ['W', 'U', 'B', 'R', 'G', 'C'];
+    const row = (amounts, label, cls) => {
+      const parts = order
+        .filter((c) => amounts[c] > 0)
+        .map((c) => `<span class="gf-mana">${MANA_SYMBOL_EMOJI[c]}${amounts[c]}</span>`);
+      if (!parts.length) return '';
+      return `<span class="gf-mana-potential-row ${cls}"><span class="gf-mana-potential-label">${label}</span>${parts.join('')}</span>`;
+    };
+    const openRow = row(potential.open || {}, 'Offen', 'gf-mana-potential-open');
+    const usedRow = row(potential.used || {}, 'Genutzt', 'gf-mana-potential-used');
+    if (!openRow && !usedRow) return '';
+    return `<div class="gf-mana-potential" title="Mana-Potenzial: noch verfügbar (offen) + diesen Zug bereits erzeugt (genutzt)">${openRow}${usedRow}</div>`;
   }
 
   // RULE 605.3a: mana tagged "spend only on X" (`ManaPool.to_dict`'s additive

@@ -145,6 +145,22 @@ Plan-level sequencing lives in
 > out of both the coverage count and the backlog ranking — and Attractions
 > (RULE 717).
 
+- **MEC-13 · Mana-Potenzial auto-tap has two narrow, documented gaps.**
+  (1) `GameEngine.auto_tap_for`/the automatic pre-cast hook
+  (`game/engine/casting_mixin.py`'s `_auto_tap_for_cast_if_needed`) only
+  ever targets the base/unkicked, X=0 effective cost — an X-spell or
+  Kicker spell's *true* cost depends on a choice the player hasn't made
+  yet at auto-tap time, so those still need a manual tap or a follow-on
+  auto-tap once X/Kicker is chosen. (2) `legal_actions()`'s face-down
+  (morph/manifest) cast offer stays real-pool-only —
+  `_castable_now_or_via_potential` isn't applied there since RULE 702.37a's
+  flat {3} cost isn't expressed through `effective_cast_cost`'s ordinary
+  `face` handling. Neither blocks the headline feature (`game/mana_
+  potential.py`, `docs/implementation-state/Done_Backend.md` "Mana-
+  Potenzial (offen/genutzt) + Auto-Tap"); both are narrow, real cards.
+  (3)Multicolor lands and artifacts are counted multiple times, even as
+  they can only produce one mana. This makes auto-tapping potentially buggy.
+
 ## PLR — Player management
 
 - **PLR-3 · A face-down card in exile isn't redacted.**
@@ -268,3 +284,8 @@ Plan-level sequencing lives in
   sub-tabs, not replacing them. Blocked on [ANA-1].
 - **ANA-3 · Cache indicator** ("Analysis from X ago") for that LLM result.
   Blocked on [ANA-1].
+- **ANA-4 · Dynamic Analysis** plays a predefined number of goldfish matches
+  in the background (using only the backend), and records the stats along the
+  way. How many lands have actually been drawn in which step, how much mana potential + acutal mana consumption
+  has there been in which turn, how much card advantage has there been, how many tutors could be played, which was the turn the commander was on the board etc. this will need to be scaled. Apart from the number of virtual matches and turns per match the bot to use there needs to be selectable for the player.
+  The outcome of these analysis criteria will need to be provided as mean value with a standard deviations. The mana production/potential over turns shall be compared with the static analysis in a shared graph.

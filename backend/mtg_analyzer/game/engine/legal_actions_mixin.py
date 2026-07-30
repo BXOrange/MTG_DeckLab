@@ -45,6 +45,7 @@ from ..mana_abilities import (
     restriction_predicate_for_cast,
     validate_color_split,
 )
+from .. import mana_potential
 from ..phases import GamePhase, GameStep, default_turn_sequence
 from ..rules_engine import RulesEngine
 from ..targeting import (
@@ -314,6 +315,47 @@ class LegalActionsMixin:
             for size in sizes
             for combo in itertools.combinations(range(len(modes)), size)
         ]
+    def _castable_now_or_via_potential(
+        self, player: Player, obj: GameObject, face: str = "front",
+    ) -> bool:
+        """Whether a `cast_spell` action should be offered for ``obj`` right
+        now — either already payable from the real pool (`can_cast`,
+        unchanged), or legal except for mana and payable by tapping plain
+        untapped sources (`game/mana_potential.py`, never a sacrifice- or
+        hand-exile-cost one): clicking "Zaubern" then silently auto-taps
+        first (`_auto_tap_for_cast_if_needed`) instead of failing. A
+        read-only preview — never taps anything itself. Not used for
+        ``face="face_down"`` (RULE 702.37a's flat {3} morph cost isn't
+        modeled by `effective_cast_cost`'s ``face`` handling) — that offer
+        stays real-pool-only, a narrow, documented scope gap.
+        """
+        if self.can_cast(player, obj, face=face):
+            return True
+        if not self.can_cast(player, obj, face=face, assume_mana_available=True):
+            return False
+        cost = self.effective_cast_cost(player, obj, face=face)
+        return mana_potential.is_castable_via_potential(self, player, cost)
+    def _activatable_now_or_via_potential(
+        self, player: Player, source: GameObject, ability: ActivatedAbility,
+    ) -> bool:
+        """`_castable_now_or_via_potential`'s counterpart for an ordinary
+        activated ability (RULE 602) — offered once it's either really
+        payable, or legal except for mana and payable via plain untapped
+        sources (clicking it then silently auto-taps first, `Activation
+        Mixin._auto_tap_for_activation_if_needed`)."""
+        if self.can_activate(player, source, ability):
+            return True
+        if not self.can_activate(player, source, ability, assume_mana_available=True):
+            return False
+        cost = ability.cost
+        mana = cost.mana.with_x(0) if cost.mana.has_variable else cost.mana
+        mana = self._reduced_activation_mana(source, mana, cost)
+        if cost.spend_only_chosen_color:
+            locked = self._chosen_color_locked_cost(source, mana)
+            if locked is None:
+                return False
+            mana = locked
+        return mana_potential.is_castable_via_potential(self, player, mana)
     def _offer_cast(self, actions: list[dict[str, Any]], player: Player, obj: GameObject) -> None:
         """Append the right cast offer(s) for ``obj``: one `_cast_action`
         entry, or one per mode via `_modal_cast_actions` if it's modal (RULE
@@ -341,7 +383,7 @@ class LegalActionsMixin:
                 actions.append(
                     {"type": "play_land", "instance_id": obj.instance_id, "name": obj.name}
                 )
-            if self.can_cast(player, obj):
+            if self._castable_now_or_via_potential(player, obj):
                 self._offer_cast(actions, player, obj)
             # A second castable face offers its own action(s) too — a modal
             # DFC's back (RULE 712.10), a split card's other half (RULE
@@ -357,11 +399,11 @@ class LegalActionsMixin:
                             "face": "back",
                         }
                     )
-                if self.can_cast(player, obj, face="back"):
+                if self._castable_now_or_via_potential(player, obj, face="back"):
                     actions.append(self._cast_action(player, obj, face="back"))
             # A split card with Fuse offers casting both halves as one spell
             # too (RULE 709.4), for their combined cost.
-            if obj.card.fuse_face() is not None and self.can_cast(player, obj, face="fuse"):
+            if obj.card.fuse_face() is not None and self._castable_now_or_via_potential(player, obj, face="fuse"):
                 actions.append(self._cast_action(player, obj, face="fuse"))
             # RULE 702.37a/702.168a: a card with morph/disguise may instead be
             # cast **face down** for {3} — a separate offer for the same hand
@@ -380,7 +422,7 @@ class LegalActionsMixin:
                 )
 
         for obj in list(player.command):
-            if self.can_cast(player, obj):
+            if self._castable_now_or_via_potential(player, obj):
                 self._offer_cast(actions, player, obj)
             # A modal-DFC commander (RULE 712.10) gets its *castable* back
             # face offered from the command zone too — previously only the
@@ -394,7 +436,7 @@ class LegalActionsMixin:
             # lets a commander be *cast* from the command zone — playing a
             # land isn't casting a spell, so a land back face is reachable
             # this way only once the card is actually in hand.
-            if obj.card.back_face() is not None and self.can_cast(player, obj, face="back"):
+            if obj.card.back_face() is not None and self._castable_now_or_via_potential(player, obj, face="back"):
                 actions.append(self._cast_action(player, obj, face="back"))
 
         for obj in list(player.exile):
@@ -409,7 +451,7 @@ class LegalActionsMixin:
             # caller (UI or otherwise) could ever actually cast one of
             # these; found end-to-end testing Ephemerate's Rebound.
             castable = self._castable_from_exile(obj) or self._has_temp_play_permission(obj, player)
-            if castable and self.can_cast(player, obj):
+            if castable and self._castable_now_or_via_potential(player, obj):
                 self._offer_cast(actions, player, obj)
             if self._has_temp_play_permission(obj, player) and self.can_play_land(player, obj):
                 actions.append(
@@ -425,7 +467,7 @@ class LegalActionsMixin:
                 self._castable_from_graveyard(obj)
                 or self._graveyard_cast_permission(player, obj)
             )
-            if castable and self.can_cast(player, obj):
+            if castable and self._castable_now_or_via_potential(player, obj):
                 self._offer_cast(actions, player, obj)
 
         if player.library:
@@ -438,7 +480,7 @@ class LegalActionsMixin:
                 actions.append(
                     {"type": "play_land", "instance_id": top.instance_id, "name": top.name}
                 )
-            if self.can_cast(player, top):
+            if self._castable_now_or_via_potential(player, top):
                 self._offer_cast(actions, player, top)
 
         if (
@@ -614,7 +656,7 @@ class LegalActionsMixin:
         # list — both must enumerate the identical concatenation.
         for source in self.state.permanents_controlled_by(player.id):
             for index, ability in enumerate(source.activated_abilities + source.granted_activated_abilities):
-                if self.can_activate(player, source, ability):
+                if self._activatable_now_or_via_potential(player, source, ability):
                     actions.append(self._activate_action(player, source, index, ability))
 
         # RULE 114.4: an emblem's own activated ability (MEC-8) — offered off
@@ -623,7 +665,7 @@ class LegalActionsMixin:
         # an `Emblem` source (`models/emblem.py`).
         for emblem in player.emblems:
             for index, ability in enumerate(emblem.activated_abilities):
-                if self.can_activate(player, emblem, ability):
+                if self._activatable_now_or_via_potential(player, emblem, ability):
                     actions.append(self._activate_action(player, emblem, index, ability))
 
         # Channel (RULE 702.29)/Cycling (RULE 702.28): a hand-zone card's own
