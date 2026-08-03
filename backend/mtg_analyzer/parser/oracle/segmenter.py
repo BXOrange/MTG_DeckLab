@@ -20,7 +20,7 @@ import re
 from dataclasses import dataclass, field
 from typing import Any, Optional
 
-from .catalogue.handlers import match_clause
+from .catalogue.handlers import TRIGGER_ONCE_PER_TURN_MARKER, match_clause
 from .catalogue.keywords import ALIAS_DISPLAYS, KEYWORDS
 from .catalogue.replacements import replacement_clause_specs
 from .catalogue.saga import CHAPTER_LINE_RE, parse_chapter_token
@@ -197,6 +197,33 @@ _PLAYER_TRIGGER_CONDITIONS: tuple[tuple[re.Pattern[str], Any], ...] = (
 
 #: A triggered-ability wrapper: "When/Whenever/At <condition>, <body>".
 _TRIGGER_RE = re.compile(r"^(?:when|whenever|at)\b(?P<cond>[^,]*),\s*(?P<body>.+)$", re.S)
+
+#: RULE 603.2's other printed spelling of the once-per-turn cap (PAR-14) —
+#: an inline qualifier on the trigger *condition* itself ("whenever you
+#: surveil **for the first time each turn**", Whispering Snitch) rather
+#: than `TRIGGER_ONCE_PER_TURN_MARKER`'s trailing-sentence-in-the-body
+#: shape. Stripped once, right off ``cond_text``, before any of the
+#: condition-family dispatch below (self/group/player/variant) — the
+#: suffix appears across every one of those subject shapes ("~ attacks",
+#: "you gain life", "1 or more counters are put on ~", …), so catching it
+#: here means every family gets `AbilitySpec.trigger["limit"]` for free
+#: rather than needing its own copy of this regex.
+_ONCE_PER_TURN_CONDITION_SUFFIX_RE = re.compile(
+    r"^(?P<base>.+?)\s+for the first time each turn$", re.IGNORECASE
+)
+
+
+def _strip_trigger_once_per_turn_marker(effects: list[EffectSpec]) -> tuple[list[EffectSpec], bool]:
+    """Split `TRIGGER_ONCE_PER_TURN_MARKER` (PAR-14's trailing "This ability
+    triggers only once each turn." sentence) out of a parsed effect body,
+    returning the remaining real effects and whether the marker was present.
+    Mirrors `effect_binder.bind_ability`'s marker-then-strip idiom for
+    activated-ability markers, just done here since `AbilitySpec.trigger`
+    (where this one lands, as ``"limit"``) is assembled in this module, not
+    the binder.
+    """
+    remaining = [e for e in effects if e.type != TRIGGER_ONCE_PER_TURN_MARKER]
+    return remaining, len(remaining) != len(effects)
 
 #: RULE ~702.156-ish "ability word" Magecraft — "Magecraft — Whenever you
 #: cast or copy an instant or sorcery spell, <effect>." (Professor Onyx/
@@ -547,16 +574,29 @@ _PLAY_WITH_TOP_REVEALED_RE = re.compile(
 #: order when the whole body isn't a single handled clause.
 _CONNECTORS: tuple[str, ...] = (r"\.\s+", r";\s+", r",?\s+then\s+", r"\s+and\s+")
 
-#: RULE 702.33b's "If this spell was kicked, <effect>." — a *second,
-#: additional* effect gated on the spell's own ``kicker_count`` (Vastwood
-#: Surge-shaped: a base effect, then this as its own sentence). Only this
-#: "additional effect" shape is recognised; "if kicked, it deals N damage
-#: instead" (overriding an *earlier* effect's own amount — Burst Lightning/
-#: Rite of Replication-shaped) is a different, unmodeled grammar — the
-#: wrapped ``rest`` there fails `match_clause` on its own (no target/full
-#: clause of its own), so it fails closed here too rather than needing a
-#: separate check.
-_KICKED_CONDITION_RE = re.compile(r"^if this spell was kicked,\s*(?P<rest>.+)$", re.IGNORECASE)
+#: RULE 702.33b/701.x's "if `<this spell was kicked|it was kicked[
+#: twice]|this spell/it was bargained>`, `<effect>`." — a *second,
+#: additional* effect gated on an optional cost actually having been paid.
+#: "This spell" (Vastwood Surge-shaped: a base effect, then this as its own
+#: sentence) is a spell's own resolution; "it" (PAR-17, Heartstabber
+#: Mosquito/Citanul Woodreaders-shaped) is the *same* gate as a triggered
+#: ability's own — and, there, only — effect body, "it" being the
+#: ability's source rather than a spell. Three gates: bare "kicked" (Kicker
+#: paid at least once), "kicked twice" (RULE 702.34a Multikicker's own
+#: count threshold — Archangel of Wrath, ``kicked_at_least``), and
+#: "bargained" (RULE 701.x, Beseech the Mirror — `effects.
+#: ConditionalEffect._condition_holds` has supported this key since the
+#: cEDH-cube batch, but no oracle-text recognizer ever reached it until
+#: now). Only "additional effect" shapes are recognised; "if kicked, it
+#: deals N damage instead" (overriding an *earlier* effect's own amount —
+#: Burst Lightning/Rite of Replication-shaped) is a different, unmodeled
+#: grammar — the wrapped ``rest`` there fails `match_clause` on its own (no
+#: target/full clause of its own), so it fails closed here too rather than
+#: needing a separate check.
+_KICKED_CONDITION_RE = re.compile(
+    r"^if (?:this spell|it) was (?P<kind>kicked(?: twice)?|bargained),\s*(?P<rest>.+)$",
+    re.IGNORECASE,
+)
 
 #: RULE 603.4-style intervening-if keyed to a just-chosen *target*, rather
 #: than an announced-cost flag (The Ghoul, Gunslinger: "target player gets
@@ -869,7 +909,33 @@ def parse_effect_body(
         )
         if inner is None:
             return None
-        return [EffectSpec(e.type, dict(e.params), condition={"kicked": True}) for e in inner]
+        kind = kicked.group("kind").lower()
+        if kind == "bargained":
+            condition: dict[str, Any] = {"bargained": True}
+            rewrite_kicker_x = False
+        elif "twice" in kind:
+            condition = {"kicked_at_least": 2}
+            rewrite_kicker_x = True
+        else:
+            condition = {"kicked": True}
+            rewrite_kicker_x = True
+        results = []
+        for e in inner:
+            params = dict(e.params)
+            if rewrite_kicker_x:
+                # RULE 702.33b/PAR-17: an "X" mentioned inside a "was
+                # kicked" wrapper's own rest clause can only mean Kicker's
+                # own announced {X} (PAR-7's `GameObject.kicker_x_paid`,
+                # e.g. Kangee, Aerie Keeper's "put X feather counters on
+                # it") — a *different* sentinel than the ordinary "x"
+                # `RulesEngine._substitute_x` resolves against the spell's
+                # own announced X, so it's rewritten here rather than left
+                # ambiguous between the two.
+                for key, value in list(params.items()):
+                    if value == "x":
+                        params[key] = "kicker_x"
+            results.append(EffectSpec(e.type, params, condition=condition))
+        return results
 
     target_is_you = _TARGET_IS_CONTROLLER_RE.match(body)
     if target_is_you is not None:
@@ -1336,12 +1402,21 @@ def segment_line(
     trig = _TRIGGER_RE.match(raw)
     if trig is not None:
         cond_text = trig.group("cond")
+        # PAR-14: "…for the first time each turn" (Whispering Snitch-shaped)
+        # — stripped once here, before any subject-family dispatch below, so
+        # every family picks up `AbilitySpec.trigger["limit"]` for free.
+        limit_suffix_m = _ONCE_PER_TURN_CONDITION_SUFFIX_RE.match(cond_text.strip())
+        limit = limit_suffix_m is not None
+        if limit_suffix_m is not None:
+            cond_text = limit_suffix_m.group("base")
         variant_event = _variant_trigger_event(cond_text)
         if variant_event is not None:
             body, optional = _peel_optional(trig.group("body"))
             effects = parse_effect_body(body)
             if effects is None:
                 return Segment(raw=raw)
+            effects, body_limit = _strip_trigger_once_per_turn_marker(effects)
+            limit = limit or body_limit
             # One `AbilitySpec` **per firing condition**, rather than the
             # single list-valued ``event`` `_SELF_MULTI_EVENT_RE` emits: the
             # compound plane template's two halves need *different* triggers,
@@ -1356,6 +1431,8 @@ def segment_line(
                 trigger = {"event": event_name}
                 if event_name == "STEP_BEGIN":
                     trigger["filter"] = {"step": "upkeep"}
+                if limit:
+                    trigger["limit"] = True
                 variant_specs.append(
                     AbilitySpec(
                         "triggered",
@@ -1382,11 +1459,17 @@ def segment_line(
             effects = parse_effect_body(body)
             if effects is None:
                 return Segment(raw=raw)
+            effects, body_limit = _strip_trigger_once_per_turn_marker(effects)
+            limit = limit or body_limit
             player_specs = [
                 AbilitySpec(
                     "triggered",
                     effects=[EffectSpec(e.type, dict(e.params)) for e in effects],
-                    trigger={"event": event_name, "condition": {"subject": "you"}},
+                    trigger={
+                        "event": event_name,
+                        "condition": {"subject": "you"},
+                        **({"limit": True} if limit else {}),
+                    },
                     optional=optional,
                     raw_text=raw,
                     parser=provenance,
@@ -1420,10 +1503,16 @@ def segment_line(
         effects = parse_effect_body(body, self_subject=condition == {"subject": "self"})
         if effects is None:
             return Segment(raw=raw)
+        effects, body_limit = _strip_trigger_once_per_turn_marker(effects)
+        limit = limit or body_limit
         spec = AbilitySpec(
             "triggered",
             effects=effects,
-            trigger={"event": event, "condition": condition},
+            trigger={
+                "event": event,
+                "condition": condition,
+                **({"limit": True} if limit else {}),
+            },
             optional=optional,
             raw_text=raw,
             parser=provenance,

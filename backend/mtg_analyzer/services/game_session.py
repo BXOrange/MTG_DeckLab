@@ -709,6 +709,10 @@ class GameSession:
         # `legal_actions`' `has_kicker`/`kicker_multi`/`max_kicker` the
         # same way `x` round-trips from `has_x`/`max_x`.
         kicked = int(action.get("kicked", 0))
+        # RULE 702.33b/PAR-7: Kicker's own {X} (Emblazoned Golem-shaped) —
+        # round-trips from `legal_actions`' `kicker_has_x`/`kicker_max_x`
+        # the same way `kicked` round-trips from `has_kicker`/`max_kicker`.
+        kicker_x = int(action.get("kicker_x", 0))
         # The remaining optional cost toggles round-trip the same way,
         # each off the flag `GameEngine._cast_action` stamps when the
         # spell offers it: RULE 702.27 Buyback (``has_buyback``), RULE
@@ -717,7 +721,7 @@ class GameSession:
         # otherwise "choose one" block).
         self.engine.cast_spell(
             active, self._object(action), targets, x, face=face, mode=mode,
-            kicked=kicked, target_groups=target_groups,
+            kicked=kicked, kicker_x=kicker_x, target_groups=target_groups,
             buyback=bool(action.get("buyback", False)),
             mutate=bool(action.get("mutate", False)),
             mutate_under=bool(action.get("mutate_under", False)),

@@ -26,7 +26,7 @@ from ...models.game_object import GameObject, Zone
 from ...models.game_state import GameState, StackItem
 from ...models.mana_cost import ManaCost
 from ...models.player import Player
-from .. import combat, condition_query, continuous, durations, face_down, variants
+from .. import combat, condition_query, continuous, durations, face_down, static_conditions, variants
 from ...models import game_format
 from ...models.game_format import GameFormat, get_format
 from ..costs import (
@@ -108,6 +108,13 @@ class ActivationMixin:
         if ability.cost.discard_self:
             if source not in player.hand or source.owner_id != player.id:
                 return False
+        elif ability.cost.graveyard_zone:
+            # PAR-10: "Return this card from your graveyard to the
+            # battlefield[, tapped]." — activated *from* the graveyard,
+            # the same "not a battlefield permanent" carve-out `discard_self`
+            # gets for the hand.
+            if source not in player.graveyard or source.owner_id != player.id:
+                return False
         elif isinstance(source, Emblem):
             # RULE 114.4 — an emblem's own activated ability (MEC-8) "functions
             # in the command zone": no permanent, no tap/summoning-sickness
@@ -132,6 +139,14 @@ class ActivationMixin:
         if ability.cost.is_loyalty and not self._can_activate_loyalty(player, source):
             return False
         if ability.cost.sorcery_speed_only and not self._sorcery_speed_ok(player):
+            return False
+        if ability.cost.activation_condition and not static_conditions.condition_holds(
+            ability.cost.activation_condition, self.state, source=source, controller_id=player.id
+        ):
+            # PAR-10: "…and only if `<condition>`." — the same RULE 613.6
+            # whitelist a permanent's own "as long as" static is checked
+            # against, evaluated live rather than cached (Hall of Oracles'
+            # own instant/sorcery-this-turn flag can flip mid-turn).
             return False
         if ability.cost.class_level is not None and not self._can_activate_class_level(
             source, ability.cost.class_level

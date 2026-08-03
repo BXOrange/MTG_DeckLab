@@ -132,12 +132,22 @@ def _fold_self_name(text: str, name: Optional[str]) -> str:
     (the same token real cards use) lets one handler match any card. The
     front face before a comma or ``//`` is also folded, since cards self-refer
     by first name ("Nissa" for "Nissa, Who Shakes the World").
+
+    An MTG Arena "Alchemy" rebalance is named with Scryfall's own ``"A-"``
+    prefix (``"A-Thran Portal"``), but its oracle text keeps self-referring
+    by the un-prefixed base name (PAR-4 — "As A-Thran Portal enters, choose
+    a basic land type. **Thran Portal** is the chosen type…") — every form
+    above gets an ``"A-"``-stripped sibling too, so the un-prefixed spelling
+    folds to ``~`` right alongside the printed one.
     """
     if not name:
         return text
     forms = {name}
     forms.add(name.split("//")[0].strip())
     forms.add(name.split(",")[0].strip())
+    for form in list(forms):
+        if form.startswith("A-") and len(form) > 2 and form[2].isalpha():
+            forms.add(form[2:])
     for form in sorted(forms, key=len, reverse=True):  # longest first
         if form:
             text = re.sub(r"\b" + re.escape(form) + r"\b", SELF, text)

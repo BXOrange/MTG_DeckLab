@@ -299,6 +299,47 @@ class ManaPool:
 
         return None
 
+    def clone(self) -> "ManaPool":
+        """A deep-enough copy for a read-then-mutate multi-step legality
+        check — e.g. verifying a spell's printed cost is payable, then
+        checking whether what's *left* can also cover Kicker's own
+        distinct-color-capped ``{X}`` (`can_pay_distinct_colors` below,
+        PAR-7) without actually spending the real pool first."""
+        copy = ManaPool()
+        copy.pool = dict(self.pool)
+        copy.restricted = [
+            {"restriction": lot["restriction"], "amounts": dict(lot["amounts"])} for lot in self.restricted
+        ]
+        return copy
+
+    def can_pay_distinct_colors(self, n: int) -> bool:
+        """RULE 605.3a-style cap: "spend only colored mana on X. No more
+        than one mana of each color may be spent this way." (Emblazoned
+        Golem's Kicker ``{X}``, PAR-7) — whether at least ``n`` of the five
+        colors (RULE 105.1; colorless/generic never qualify) each have >=1
+        *unrestricted* mana available. Ignores any restricted lot (RULE
+        605.3a's other shape) — no card combines the two restrictions today.
+        """
+        if n <= 0:
+            return True
+        return sum(1 for c in _FIVE_COLORS if self.pool.get(c, 0) > 0) >= n
+
+    def pay_distinct_colors(self, n: int) -> None:
+        """Pay ``n`` mana of ``n`` distinct colors, one each — see
+        `can_pay_distinct_colors`. Raises if it can't be paid; call that
+        first (mirrors `pay`'s own "call `can_pay` first" contract)."""
+        if n <= 0:
+            return
+        if not self.can_pay_distinct_colors(n):
+            raise ValueError(f"cannot pay {n} distinct colors from {self.pool!r}")
+        paid = 0
+        for color in _FIVE_COLORS:
+            if paid >= n:
+                break
+            if self.pool.get(color, 0) > 0:
+                self.pool[color] -= 1
+                paid += 1
+
     def to_dict(self) -> dict[str, Any]:
         data = dict(self.pool)
         if self.restricted:

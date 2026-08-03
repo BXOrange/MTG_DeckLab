@@ -409,6 +409,114 @@ def test_choose_color_end_to_end_via_cast():
     assert chooser.chosen_color == "U"
 
 
+# ---------------------------------------------------------------------------
+# PAR-4: "As ~ enters, choose a basic land type." (Realmwright/A-Thran
+# Portal-shaped) — the basic-land-type sibling of choose-a-creature-type/
+# choose-a-color above; reuses `GameObject.chosen_type` (the grant clause
+# doesn't care which family produced it), so only the trigger recognition
+# and the offered option list are new.
+# ---------------------------------------------------------------------------
+
+
+def test_realmwright_is_fully_modeled():
+    card = _permanent(
+        "Realmwright",
+        "As this creature enters, choose a basic land type.\n"
+        "Lands you control are the chosen type in addition to their other types.",
+        type_line="Creature — Human Wizard",
+    )
+    result = parse_oracle(card)
+    assert result.coverage != UNMODELED
+    assert result.unclaimed == []
+
+
+def test_choose_a_basic_land_type_alone_is_modeled_as_enter_replacement():
+    card = _permanent("Land Type Chooser", "As ~ enters, choose a basic land type.")
+    result = parse_oracle(card)
+    assert result.unclaimed == []
+    [spec] = [s for s in result.specs if s.ability_kind == "enter_replacement"]
+    assert spec.effects[0].type == "choose_basic_land_type_on_enter"
+
+
+def test_lands_you_control_chosen_type_grant_reacts_to_the_choice():
+    engine, state, p1, p2 = _rules()
+    realmwright = _bf(
+        state,
+        _permanent(
+            "Realmwright",
+            "As this creature enters, choose a basic land type.\n"
+            "Lands you control are the chosen type in addition to their other types.",
+            type_line="Creature — Human Wizard",
+        ),
+    )
+    swamp = _bf(state, Card(id="Some Land", name="Some Land", type_line="Land", is_land=True))
+    assert not continuous.has_subtype(swamp, "Island")
+
+    realmwright.chosen_type = "Island"
+    continuous.recompute(state)
+    assert continuous.has_subtype(swamp, "Island")
+
+    realmwright.chosen_type = "Forest"
+    continuous.recompute(state)
+    assert continuous.has_subtype(swamp, "Forest")
+    assert not continuous.has_subtype(swamp, "Island")
+
+
+def test_choose_basic_land_type_end_to_end_via_cast_offers_the_five_basics():
+    card = artifact_permanent(
+        "Realmwright",
+        cost="{3}",
+        oracle_text=(
+            "As Realmwright enters, choose a basic land type.\n"
+            "Lands you control are the chosen type in addition to their other types."
+        ),
+    )
+    eng = make_engine([card], hand=1)
+    eng.begin_turn()
+    eng.state.current_step = "main1"
+    p1 = eng.state.active_player
+    p1.mana_pool.add_many({"C": 3})
+
+    realmwright = p1.hand[0]
+    bind_from_catalogue(realmwright)
+    eng.cast_spell(p1, realmwright)
+    eng.resolve_until_stable()
+
+    pending = eng.state.pending_choice
+    assert pending and pending["kind"] == "choose_basic_land_type"
+    assert realmwright not in eng.state.battlefield  # paused before entering
+    assert {o["id"] for o in pending["options"]} == {
+        "Plains", "Island", "Swamp", "Mountain", "Forest",
+    }
+
+    eng.resolve_pending_choice("Island")
+
+    assert realmwright in eng.state.battlefield
+    assert realmwright.chosen_type == "Island"
+
+
+def test_choose_basic_land_type_with_missing_answer_defaults_to_first_option():
+    card = artifact_permanent(
+        "Land Type Chooser", cost="{1}", oracle_text="As ~ enters, choose a basic land type."
+    )
+    eng = make_engine([card], hand=1)
+    eng.begin_turn()
+    eng.state.current_step = "main1"
+    p1 = eng.state.active_player
+    p1.mana_pool.add_many({"C": 1})
+
+    chooser = p1.hand[0]
+    bind_from_catalogue(chooser)
+    eng.cast_spell(p1, chooser)
+    eng.resolve_until_stable()
+
+    assert eng.state.pending_choice["kind"] == "choose_basic_land_type"
+    eng.resolve_pending_choice(None)  # no answer — mandatory choice still resolves
+
+    assert chooser in eng.state.battlefield
+    assert chooser.chosen_type == "Plains"  # first offered option
+
+
 def test_new_object_identity_forgets_the_chosen_type():
     # RULE 400.7: a new object hasn't made the choice yet either.
     card = _creature("Something", type_line="Creature — Bear")

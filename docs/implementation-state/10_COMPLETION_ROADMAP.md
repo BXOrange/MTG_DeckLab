@@ -81,9 +81,8 @@ milestone and can proceed in parallel once the backend seam exists.
 ### Closed
 
 - **M2 — parametric keyword binding.** Every parametric keyword this engine
-  models binds onto `GameObject.parametric_keywords` *and* consumes it.
-  Residue: [PAR-5] (hexproof-*from* loses its quality — overprotective,
-  never rules-illegal).
+  models binds onto `GameObject.parametric_keywords` *and* consumes it. No
+  open residue (hexproof-*from*'s lost quality closed, `Done_Backend.md`).
 - **M3 — layer system (RULE 613).** All layers implemented, no open residue
   (the former `ENG-8`/`ENG-9`/`ENG-10` deliberate scopings are all closed).
 - **M4 — permanent subsystems.** All four shipped, engine-side and UI.
@@ -167,7 +166,7 @@ M1 (parser gaps → mechanics → tail)  ── standing; the ONLY path to "most
 M6 residue ([PAR-13] card text → folds into M1's tail; [PLR-13] format switch → [PLR-14] teams)
 M5 residue ([PLR-8] bots in a pod)                              ── independent
 M7 ([ANA-1] → [ANA-2]/[ANA-3];  [PLR-9] → [PLR-10])              ── independent
-M2 / M3 / M4 ── closed; residue tracked as [PAR-5]
+M2 / M3 / M4 ── closed, no open residue
 ```
 
 **Critical path to "most decks are playable":** M1, alone. Two-player play

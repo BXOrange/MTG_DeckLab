@@ -210,6 +210,16 @@ class ActivationCost:
     #: distinct from ``discard`` (a battlefield ability's "discard N cards"),
     #: and paid from hand rather than off a battlefield permanent.
     discard_self: bool = False
+    #: PAR-10: "`<cost>`: Return this card from your graveyard to the
+    #: battlefield[, tapped]." (Dread Wanderer/Reassembling Skeleton &c) —
+    #: like `discard_self`, this is the one shape activated from a zone
+    #: other than the battlefield; unlike it, the *cost itself* is ordinary
+    #: (mana/sacrifice/tap-others/…), so it can't reuse that flag. Stamped
+    #: by `effect_binder.bind_ability` when the ability's own effect list
+    #: contains a `ReturnSelfFromGraveyardToBattlefieldEffect` — every real
+    #: card printing this shape has it as the ability's *entire* body, so
+    #: the effect and the zone always travel together.
+    graveyard_zone: bool = False
     remove_counters: Optional[tuple[str, int]] = None
     #: RULE 702.138b (Escape): how many *other* cards must be exiled from the
     #: payer's own graveyard — "Exile four other cards from your graveyard".
@@ -262,6 +272,14 @@ class ActivationCost:
     #: level-up abilities) that isn't tied to a planeswalker — see
     #: `GameEngine._sorcery_speed_ok`. Not itself a cost component.
     sorcery_speed_only: bool = False
+    #: PAR-10: "…and only if `<condition>`." stacked on (or standing in
+    #: for) sorcery-speed timing (Cabal Inquisitor/Dread Wanderer/Hall of
+    #: Oracles/Jin-Gitaxias/Potioner's Trove) — a `game/static_conditions.py`
+    #: whitelisted condition dict, checked live by `GameEngine.can_activate`
+    #: via `static_conditions.condition_holds` the same way a permanent's
+    #: own "as long as `<condition>`" static is. Not itself a cost
+    #: component, like `sorcery_speed_only` above.
+    activation_condition: Optional[dict[str, Any]] = None
     #: RULE 716.3/716.4c: this ability advances a Class to this level — legal
     #: only when the Class's current `class_level` is exactly one less. A
     #: legality precondition riding along with the cost, not something paid.

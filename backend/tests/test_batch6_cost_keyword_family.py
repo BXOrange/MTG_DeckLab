@@ -223,12 +223,16 @@ def test_kicked_scaled_condition():
     }
 
 
-def test_kicked_gated_x_amount_stays_unclaimed():
-    # Fail-closed: Kicker {X}'s own paid X (Emblazoned Golem) is a different
-    # value than a plain cast-for-X's x_paid the unconditional shape resolves
-    # against — deliberately not conflated.
+def test_kicked_gated_x_amount_is_recognized():
+    # PAR-7: Kicker {X}'s own paid X (Emblazoned Golem) is a different value
+    # than a plain cast-for-X's x_paid the unconditional shape resolves
+    # against — kept distinct via its own `kicked_x_scale` flag rather than
+    # conflated with either, and resolved against `GameObject.kicker_x_paid`
+    # (see test_par7_kicker_x.py).
     line = "if ~ was kicked, it enters with x +1/+1 counters on it."
-    assert entry_counters_condition(line) is None
+    assert entry_counters_condition(line) == {
+        "is_x": False, "counter_type": "+1/+1", "kicked_gate": True, "kicked_x_scale": True,
+    }
 
 
 def test_kicked_gated_compound_and_with_keyword_is_recognized():

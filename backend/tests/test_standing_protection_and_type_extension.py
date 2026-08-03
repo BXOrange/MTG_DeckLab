@@ -37,6 +37,7 @@ from __future__ import annotations
 from mtg_analyzer.game import continuous
 from mtg_analyzer.game.combat import is_protected_from
 from mtg_analyzer.game.effect_binder import bind_from_catalogue
+from mtg_analyzer.game.rules_engine import RulesEngine
 from mtg_analyzer.models.card import Card
 from mtg_analyzer.models.game_object import GameObject, Zone
 from mtg_analyzer.models.game_state import GameState
@@ -420,3 +421,157 @@ def test_attached_subject_damage_trigger_fires_for_the_host():
     assert eng.rules.put_triggers_on_stack() == 1
     eng.rules.resolve_top_of_stack()
     assert len(p1.hand) == 1
+
+
+# -- PAR-6: RULE 702.16n/p's "this effect doesn't remove ~" exemption --------
+# Black Ward &c grant their own host protection from a colour they themselves
+# are — without this exemption, RULE 704.5m would detach the Aura the very
+# next SBA pass. Parser side: `_PROTECTION_SELF_EXEMPT_TAIL` on the
+# attached-permanent protection rows. Engine side: a new
+# `GameObject._protection_self_exempt` flag, set on the *granting* object
+# (not its host) by `continuous.py`'s layer-6 pass, read by
+# `_attachment_legal` (shared by both initial attach and
+# `_revalidate_attachments`).
+
+
+def test_self_exempt_tail_is_recognized_on_a_bare_protection_grant():
+    (spec,) = static_effect_specs(
+        "enchanted creature has protection from black. this effect doesn't remove ~"
+    )
+    assert spec.type == "grant_protection_static"
+    assert spec.params == {
+        "affects": "attached_permanent", "protections": ["black"],
+        "exempt_own_attachment": True,
+    }
+
+
+def test_self_exempt_tail_is_recognized_on_a_compound_anthem_protection_grant():
+    # Tattoo Ward/Spectra Ward's "+N/+N and protection" shape.
+    anthem, protection = static_effect_specs(
+        "enchanted creature gets +1/+1 and has protection from enchantments. "
+        "this effect doesn't remove ~"
+    )
+    assert anthem.type == "anthem"
+    assert protection.params == {
+        "affects": "attached_permanent", "protections": ["enchantments"],
+        "exempt_own_attachment": True,
+    }
+
+
+def test_bare_protection_grant_without_the_tail_has_no_exemption():
+    # Regression: the tail is optional — an ordinary Aura with no such
+    # sentence (most of them) must not pick up the flag.
+    (spec,) = static_effect_specs("enchanted creature has protection from black")
+    assert spec.params == {"affects": "attached_permanent", "protections": ["black"]}
+
+
+def test_each_color_quality_folds_to_all_colors():
+    # Spectra Ward's own wording ("protection from each color") rather than
+    # the more common "protection from all colors".
+    anthem, protection = static_effect_specs(
+        "enchanted creature gets +2/+2 and has protection from each color. "
+        "this effect doesn't remove auras"
+    )
+    assert anthem.params["power"] == 2
+    assert protection.params["protections"] == ["all colors"]
+    assert protection.params["exempt_own_attachment"] is True
+
+
+def test_computed_quality_with_the_tail_still_stays_unclaimed():
+    # Pledge of Loyalty: "protection from the colors of permanents you
+    # control" is a per-board computed quality, not a fixed one — the tail
+    # must not make this half-modeled.
+    assert static_effect_specs(
+        "enchanted creature has protection from the colors of permanents you "
+        "control. this effect doesn't remove ~"
+    ) is None
+
+
+def test_chosen_type_protection_quality_is_recognized():
+    # Riders of Gavony's "protection from creatures of the chosen type" — the
+    # creature-type sibling of the already-shipped chosen-*colour* dynamic.
+    (spec,) = static_effect_specs(
+        "human creatures you control have protection from creatures of the chosen type"
+    )
+    assert spec.params["protection_from_chosen_type"] is True
+
+
+def test_black_ward_and_friends_are_fully_modeled():
+    for card in (
+        _card("Black Ward", "Enchantment — Aura",
+              "Enchant creature\nEnchanted creature has protection from black. "
+              "This effect doesn't remove this Aura."),
+        _card("Benevolent Blessing", "Enchantment — Aura",
+              "Flash\nEnchant creature\nAs this Aura enters, choose a color.\n"
+              "Enchanted creature has protection from the chosen color. This "
+              "effect doesn't remove Auras and Equipment you control that are "
+              "already attached to it."),
+        _card("Spectra Ward", "Enchantment — Aura",
+              "Enchant creature\nEnchanted creature gets +2/+2 and has "
+              "protection from each color. This effect doesn't remove Auras."),
+    ):
+        result = parse_oracle(card)
+        assert result.coverage != UNMODELED, card.name
+        assert result.unclaimed == [], card.name
+
+
+def test_pledge_of_loyalty_stays_unmodeled():
+    # The one real card in this family whose quality genuinely can't be
+    # expressed — confirms the tail fix didn't half-model it.
+    card = _card(
+        "Pledge of Loyalty", "Enchantment — Aura",
+        "Enchant creature\nEnchanted creature has protection from the colors "
+        "of permanents you control. This effect doesn't remove ~.",
+    )
+    result = parse_oracle(card)
+    assert result.coverage == UNMODELED
+
+
+def test_self_exempt_aura_stays_attached_when_its_own_grant_would_detach_it():
+    # Black Ward is itself black and grants its host protection from black —
+    # without RULE 702.16n's exemption, that would make Black Ward's own
+    # attachment illegal (RULE 704.5m) the very next SBA pass.
+    state, p1, p2 = _state()
+    engine = RulesEngine(state)
+    host = _bf(state, _creature("Bear"))
+    ward = _bf(
+        state,
+        _card("Black Ward", "Enchantment — Aura",
+              "Enchant creature\nEnchanted creature has protection from black. "
+              "This effect doesn't remove this Aura.",
+              color_identity=["B"]),
+    )
+    engine.attach_to_target(ward, host)
+    assert ward.attached_to == host.instance_id
+
+    continuous.recompute(state)
+    assert is_protected_from(host, ward)
+
+    assert engine.check_state_based_actions() is False
+    assert ward.attached_to == host.instance_id
+    assert ward in state.battlefield
+
+
+def test_without_the_exemption_flag_the_aura_detaches_as_normal():
+    # Same shape as above but with `exempt_own_attachment` left off — this is
+    # what RULE 704.5m does by default, and it must still fire for any Aura
+    # that doesn't carry the "doesn't remove" text.
+    state, p1, p2 = _state()
+    engine = RulesEngine(state)
+    host = _bf(state, _creature("Bear"))
+    ward = _bf(
+        state,
+        _card("Not Actually Exempt", "Enchantment — Aura",
+              "Enchant creature\nEnchanted creature has protection from black.",
+              color_identity=["B"]),
+    )
+    engine.attach_to_target(ward, host)
+    assert ward.attached_to == host.instance_id
+
+    continuous.recompute(state)
+    assert is_protected_from(host, ward)
+
+    assert engine.check_state_based_actions() is True
+    assert ward.attached_to is None
+    assert ward not in state.battlefield
+    assert ward in p1.graveyard

@@ -807,8 +807,24 @@ class TriggeredAbility(GameEffect):
         modes_at_least: bool = False,
         reflexive: bool = False,
         mana_ability: bool = False,
+        functions_from_graveyard: bool = False,
     ) -> None:
         super().__init__(source)
+        #: RULE 113.6a (PAR-16): whether this ability fires while its own
+        #: source sits in the *graveyard* rather than the battlefield — the
+        #: Eidolon/Phoenix family ("Whenever `<event>`, [you may] return
+        #: this card from your graveyard to your hand"). Inferred by
+        #: `effect_binder.bind_ability` whenever the built effects include a
+        #: `ReturnSelfFromGraveyardToHandEffect`/
+        #: `ReturnSelfFromGraveyardToBattlefieldEffect` — real printings
+        #: carry no explicit "(this ability functions from your graveyard.)"
+        #: reminder to key off instead, so the effect and the permission
+        #: always travel together, the same inference PAR-10's
+        #: `ActivationCost.graveyard_zone` already uses for the activated
+        #: half of the same family. Consulted by `RulesEngine.
+        #: _collect_triggers`'s graveyard scan, which — unlike the ordinary
+        #: `state.permanents()` scan — only fires abilities carrying this flag.
+        self.functions_from_graveyard = functions_from_graveyard
         #: RULE 605.1b/605.4: this is a **triggered mana ability** — it
         #: triggers off activating a mana ability and itself only produces
         #: mana. Such an ability never uses the stack: it resolves
@@ -1398,6 +1414,13 @@ class ConditionalEffect(GameEffect):
         if kicked is not None:
             count = getattr(self.source, "kicker_count", 0) or 0
             return (count > 0) if kicked else (count == 0)
+        kicked_at_least = self.condition.get("kicked_at_least")
+        if kicked_at_least is not None:
+            # RULE 702.34a: "if it was kicked twice, <effect>." (PAR-17,
+            # Archangel of Wrath) — Multikicker's own count threshold,
+            # distinct from the plain "was it kicked at all" gate above.
+            count = getattr(self.source, "kicker_count", 0) or 0
+            return count >= kicked_at_least
         bargained = self.condition.get("bargained")
         if bargained is not None:
             # RULE 701.x (Beseech the Mirror's "if this spell was bargained,
@@ -3277,14 +3300,20 @@ class ReturnToHandEffect(GameEffect):
     ``distinct_controllers`` (Run Away Together's "choose two target
     creatures controlled by **different players**. Return those creatures
     to their owners' hands.") is `targeting.TargetSpec.distinct_controllers`
-    — see its docstring; only meaningful with ``count >= 2``. No parser
-    front-end recognizes Run Away Together's own two-sentence "choose N
-    target X [constraint]. Verb those [referent]s." phrasing yet (a
-    different, indirect-referent grammar shape from the single-sentence
-    "destroy/exile N target X controlled by different players" `handlers.
-    _MULTI_TARGET_DISTINCT_CONTROLLERS` claims) — this param exists so the
-    engine primitive itself is complete and directly testable/hand-
-    authorable in the meantime.
+    — see its docstring; only meaningful with ``count >= 2``.
+
+    ``previous_subject=True`` (PAR-1) is Run Away Together's own two-sentence
+    "choose N target X [constraint]. Verb **those** [referent]s." shape — a
+    different, indirect-referent grammar from the single-sentence "destroy/
+    exile N target X controlled by different players" `handlers.
+    _MULTI_TARGET_DISTINCT_CONTROLLERS` claims: the *targets* are announced
+    by a preceding `ChooseTargetsEffect` (RULE 601.2c, "choose N target
+    creatures…") and read back here from `GameContext.previous_targets`
+    (the same pronoun idiom `FightEffect`'s ``previous_target``/
+    ``GrantUntilEffect.previous_subject`` use) instead of opening a fresh
+    RULE 115 choice of its own — mutually exclusive with ``target_kind``,
+    which is why it forces ``target_spec`` to ``None`` exactly like the self
+    form below.
 
     ``target_kind=None`` is the **self** form — "Return ~ to its owner's
     hand." with no RULE 115 target and no player choice, mirroring
@@ -3306,23 +3335,34 @@ class ReturnToHandEffect(GameEffect):
         optional: bool = False,
         count: int = 1,
         distinct_controllers: bool = False,
+        previous_subject: bool = False,
     ) -> None:
         super().__init__(source)
         self.target = target
+        self.previous_subject = previous_subject
         # ``target_kind=None`` is the self form — no `TargetSpec` at all, the
         # same way `TapEffect`'s own untargeted modes leave it ``None``, so
         # `RulesEngine._trigger_target_specs` doesn't count this as a
         # targeting effect and open a RULE 115 choice with nothing to pick.
+        # ``previous_subject`` is the same "nothing of its own to announce"
+        # shape, for the same reason (PAR-1) — its targets already were the
+        # preceding clause's.
         self.target_spec = (
             TargetSpec(
                 kind=target_kind, optional=optional, count=count,
                 distinct_controllers=distinct_controllers,
             )
-            if target_kind is not None
+            if target_kind is not None and not previous_subject
             else None
         )
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        if self.previous_subject:
+            # "Return those creatures to their owners' hands." (PAR-1) — the
+            # whole group the preceding "choose N target …" clause announced.
+            for target in list(context.previous_targets):
+                context.return_to_hand(target)
+            return
         if self.target_spec is None:
             # Self form — the source itself, from whatever zone it's in.
             if self.source is not None:
@@ -4707,6 +4747,57 @@ class ReturnFromGraveyardTransformedEffect(GameEffect):
         context.return_from_graveyard(self.source, "battlefield", transformed=True)
 
 
+class ReturnSelfFromGraveyardToBattlefieldEffect(GameEffect):
+    """"Return this card from your graveyard to the battlefield[, tapped]."
+    (Dread Wanderer/Bloodsoaked Champion/Drownyard Temple &c) — the plain
+    (non-transforming) sibling of `ReturnFromGraveyardTransformedEffect`:
+    untargeted, always ``self.source``, since an activated ability's/
+    triggered ability's "this card" can only ever mean the permanent whose
+    text prints it. A no-op if ``self.source`` isn't actually in a
+    graveyard when this resolves.
+
+    Named distinctly from `ReturnSelfFromGraveyardEffect` above (mill's
+    RULE 112.6a "return it to your hand", a *different* shape — a per-
+    firing ``obj``, not always ``self.source``, and to hand rather than the
+    battlefield) rather than reusing that name for an unrelated effect.
+    """
+
+    def __init__(self, tapped: bool = False, source: Optional["GameObject"] = None):
+        super().__init__(source)
+        self.tapped = tapped
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        if self.source is None or self.source.zone != Zone.GRAVEYARD:
+            return
+        destination = "battlefield_tapped" if self.tapped else "battlefield"
+        context.return_from_graveyard(self.source, destination)
+
+
+class ReturnSelfFromGraveyardToHandEffect(GameEffect):
+    """"Return this card from your graveyard to your hand." (PAR-16 —
+    Abzan Devotee/Clay Revenant/Chandra's Phoenix/Aurora Eidolon &c) — the
+    hand-destination sibling of `ReturnSelfFromGraveyardToBattlefieldEffect`
+    right above: same untargeted, always-``self.source``, no-op-unless-
+    still-in-the-graveyard shape, just a different destination (so no
+    ``tapped`` param applies here). Two real printed shapes reach it: an
+    activated ability living in the graveyard (`ActivationCost.
+    graveyard_zone`, the same inference `effect_binder.bind_ability` already
+    does for the battlefield sibling) and a *triggered* ability whose
+    source likewise sits in the graveyard when it fires (RULE 113.6a — the
+    Eidolon/Phoenix family, "Whenever `<event>`, [you may] return this card
+    from your graveyard to your hand": `TriggeredAbility.
+    functions_from_graveyard`, inferred the same way, and consulted by
+    `RulesEngine._collect_triggers`'s graveyard scan since real printings
+    carry no explicit "(this ability functions from your graveyard.)"
+    reminder to key off instead).
+    """
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        if self.source is None or self.source.zone != Zone.GRAVEYARD:
+            return
+        context.return_from_graveyard(self.source, "hand")
+
+
 class ReturnDiesAsNewPermanentEffect(GameEffect):
     """"When ~ dies, return it to the battlefield. It's a[n] <type> with
     '<ability>'. ~ loses all other abilities." (Harold and Bob, First
@@ -5667,6 +5758,26 @@ class ChooseCreatureTypeReplacement(GameEffect):
     ``subtype_from_source`` selector param (Adaptive Automaton/Arcane
     Adaptation-shaped "creatures you control of the chosen type …"/"~ is the
     chosen type in addition to its other types" lords).
+    """
+
+    def __init__(self, description: str = "") -> None:
+        super().__init__(None)
+        self.description = description
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        return None  # consulted by RulesEngine._offer_enter_choices, not applied
+
+
+class ChooseBasicLandTypeReplacement(GameEffect):
+    """"As ~ enters, choose a basic land type." (RULE 601.2b, PAR-4 —
+    Realmwright/A-Thran Portal-shaped) — the basic-land-type sibling of
+    `ChooseCreatureTypeReplacement`; see its docstring. Deliberately its own
+    class (rather than a flag on `ChooseCreatureTypeReplacement`) so
+    `RulesEngine._offer_enter_choices` can tell which fixed option list to
+    offer, but it stamps the very same `GameObject.chosen_type` field —
+    "the chosen type" grant clause (`continuous.py`'s ``subtype_from_source``
+    selector, already shipped for the creature-type family) reads a bare
+    subtype string either way and doesn't care which family produced it.
     """
 
     def __init__(self, description: str = "") -> None:
@@ -7485,13 +7596,35 @@ class ChooseTargetsEffect(GameEffect):
     so they must be part of what `targeting.spell_target_specs` reports even
     when the clause consuming them is conditional and may never happen ("if
     you control three or more snow permanents, …").
+
+    ``count``/``distinct_controllers``/``optional`` (PAR-1, only meaningful
+    with a single ``kinds`` entry) are Run Away Together's own "**choose two
+    target creatures** controlled by different players." shape — one
+    quantified requirement picking N objects of the *same* kind, unlike the
+    Ancient Animus pair above (two independent, differently-kinded single
+    choices). The whole chosen group is then read back — not by a
+    positional ``previous_target``/``previous_target_2`` pronoun, which only
+    ever names the *first*/*second* of exactly two — by a later clause's own
+    ``previous_subject`` flag (`ReturnToHandEffect`'s, for now).
     """
 
     def __init__(
-        self, kinds: Optional[list[str]] = None, source: Optional["GameObject"] = None
+        self,
+        kinds: Optional[list[str]] = None,
+        source: Optional["GameObject"] = None,
+        count: Optional[int] = None,
+        distinct_controllers: bool = False,
+        optional: bool = False,
     ) -> None:
         super().__init__(source)
-        specs = [TargetSpec(kind=kind) for kind in (kinds or [])]
+        kinds = kinds or []
+        if len(kinds) == 1 and count:
+            specs = [TargetSpec(
+                kind=kinds[0], count=count, distinct_controllers=distinct_controllers,
+                optional=optional,
+            )]
+        else:
+            specs = [TargetSpec(kind=kind) for kind in kinds]
         if specs:
             self.target_spec = specs[0]
             self.extra_target_specs = tuple(specs[1:])
@@ -8063,6 +8196,7 @@ EffectRegistry.register(
         optional=bool(p.get("optional", False)),
         count=p.get("count", 1),
         distinct_controllers=bool(p.get("distinct_controllers", False)),
+        previous_subject=bool(p.get("previous_subject", False)),
     ),
 )
 EffectRegistry.register(
@@ -8204,7 +8338,12 @@ EffectRegistry.register(
     # RULE 601.2c target announcement with no effect of its own — "choose
     # target creature you control and target creature you don't control."
     "choose_targets",
-    lambda p: ChooseTargetsEffect(kinds=list(p.get("kinds", []) or [])),
+    lambda p: ChooseTargetsEffect(
+        kinds=list(p.get("kinds", []) or []),
+        count=p.get("count"),
+        distinct_controllers=bool(p.get("distinct_controllers", False)),
+        optional=bool(p.get("optional", False)),
+    ),
 )
 EffectRegistry.register(
     # "Destroy each artifact with mana value X." (Dauntless Dismantler)
@@ -8505,6 +8644,10 @@ EffectRegistry.register(
     lambda p: ChooseColorReplacement(),
 )
 EffectRegistry.register(
+    "choose_basic_land_type_on_enter",  # "As ~ enters, choose a basic land type." (RULE 601.2b, PAR-4)
+    lambda p: ChooseBasicLandTypeReplacement(),
+)
+EffectRegistry.register(
     # "As this enters, choose <Label1> or <Label2>." (Struggle for Project
     # Purity-shaped) — hand-authored only, no oracle-text grammar yet.
     "choose_named_mode",
@@ -8695,6 +8838,20 @@ EffectRegistry.register(
     "return_from_graveyard_transformed", lambda p: ReturnFromGraveyardTransformedEffect()
 )
 EffectRegistry.register(
+    # "Return this card from your graveyard to the battlefield[, tapped]."
+    # (Dread Wanderer/Bloodsoaked Champion/Drownyard Temple &c) — the plain
+    # sibling of `return_from_graveyard_transformed` above.
+    "return_self_from_graveyard",
+    lambda p: ReturnSelfFromGraveyardToBattlefieldEffect(tapped=bool(p.get("tapped", False))),
+)
+EffectRegistry.register(
+    # "Return this card from your graveyard to your hand." (PAR-16 —
+    # Abzan Devotee/Aurora Eidolon &c) — the hand-destination sibling of
+    # `return_self_from_graveyard` right above.
+    "return_self_from_graveyard_to_hand",
+    lambda p: ReturnSelfFromGraveyardToHandEffect(),
+)
+EffectRegistry.register(
     # "return it to the battlefield. It's a[n] <type> with '<ability>'. ~
     # loses all other abilities." (Harold and Bob, First Numens) —
     # hand-authored only, no oracle-text grammar for this shape yet.
@@ -8881,6 +9038,15 @@ EffectRegistry.register(
             "protection_from_chosen_color": bool(
                 p.get("protection_from_chosen_color", False)
             ),
+            "protection_from_chosen_type": bool(
+                p.get("protection_from_chosen_type", False)
+            ),
+            # RULE 702.16n/p: "This effect doesn't remove this Aura." —
+            # exempts the *granting* object's own attachment from RULE
+            # 704.5m/n's illegal-attachment fall-off (`continuous.py`'s
+            # layer-6 pass sets `GameObject._protection_self_exempt` on the
+            # ability's source when this is set).
+            "exempt_own_attachment": bool(p.get("exempt_own_attachment", False)),
             **_selectors(p),
         },
     ),
@@ -8897,6 +9063,22 @@ EffectRegistry.register(
         "ability",
         affects=p.get("affects", "creatures_you_control"),
         params={"mana": list(p.get("mana", [])), **_selectors(p)},
+    ),
+)
+EffectRegistry.register(
+    # PAR-8: "Each [<filter>] card in your hand has cycling `<cost>`."
+    # (Jo Grant/Rhet-Tomb Mystic/Tectonic Reformation) — layer 6, but its
+    # targets are *hand* cards, a zone none of the battlefield `affects`
+    # selectors reach; `affects` is left at its unused default ("self") and
+    # `continuous._apply_hand_cycling_grants` reads ``cost``/``card_type``
+    # directly off the ability instead of going through `affected_objects`.
+    "grant_cycling_to_hand",
+    lambda p: StaticAbility(
+        "ability",
+        params={
+            "grant_cycling_cost": str(p["cost"]),
+            "card_type": p.get("card_type"),
+        },
     ),
 )
 EffectRegistry.register(

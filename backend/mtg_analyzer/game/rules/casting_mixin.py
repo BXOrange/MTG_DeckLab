@@ -43,6 +43,7 @@ from ..effects import (
     AddPlayerCountersEffect,
     BecomeMonarchEffect,
     CantBeCounteredEffect,
+    ChooseBasicLandTypeReplacement,
     ChooseColorReplacement,
     ChooseCreatureTypeReplacement,
     ChooseNamedModeReplacement,
@@ -140,6 +141,14 @@ def _creature_type_options(state: GameState, controller_id: Optional[str]) -> li
     return sorted(types)
 
 
+#: RULE 305.6's five basic land types — the fixed, always-offered option list
+#: for a "choose a basic land type" pick (PAR-4), unlike `_creature_type_
+#: options`'s open-ended board scan: there's no analogous "irrelevant to
+#: offer" case, since any of the five is always a legal, meaningful choice
+#: regardless of what's actually on the board.
+_BASIC_LAND_TYPE_OPTIONS: list[str] = ["Plains", "Island", "Swamp", "Mountain", "Forest"]
+
+
 
 
 class CastingResolutionMixin:
@@ -175,7 +184,13 @@ class CastingResolutionMixin:
             # anything that didn't just resolve off a kicked cast (a token,
             # a card reanimated/searched onto the battlefield, …).
             kicker_count = getattr(obj, "kicker_count", 0) or 0
-            if condition.get("kicked_gate"):
+            if condition.get("kicked_x_scale"):
+                # PAR-7: Kicker's own announced {X} (Emblazoned Golem), not a
+                # fixed per-kick amount — `kicker_count` is still the gate
+                # (0 unless kicked at all), but the amount comes from
+                # `kicker_x_paid` instead of `condition["count"]`.
+                amount = getattr(obj, "kicker_x_paid", 0) or 0 if kicker_count > 0 else 0
+            elif condition.get("kicked_gate"):
                 amount = condition["count"] if kicker_count > 0 else 0
             else:
                 amount = condition["count"] * kicker_count
@@ -567,13 +582,17 @@ class CastingResolutionMixin:
         kind = self._attachment_kind(obj)
         if kind is None:
             return False
-        if is_protected_from(target, obj):
+        if is_protected_from(target, obj) and not (
+            kind == "enchant" and getattr(obj, "_protection_self_exempt", False)
+        ):
             # RULE 702.16c/d: protection from ``obj``'s stated quality means
             # ``target`` can't be enchanted/equipped/fortified by it — checked
             # here rather than only at target-selection time so a permanent
             # that *gains* protection after ``obj`` is already attached is
             # caught by the RULE 704.5m/n re-validation in
-            # `_revalidate_attachments`.
+            # `_revalidate_attachments`. RULE 702.16n/p's own carve-out
+            # ("This effect doesn't remove this Aura.") is the
+            # `_protection_self_exempt` exception below it.
             return False
         if kind == "equip":
             # RULE 301.5b/702.6a: "target creature you control" — control
@@ -685,15 +704,31 @@ class CastingResolutionMixin:
         ``"half_x_up"``/``"half_x_down"`` are the division-of-X sentinels
         (Contaminated Drink's "you get half X rad counters, rounded up") —
         no real card needs a plain (non-X) division yet, so this only
-        covers the {X}-scaled case.
+        covers the {X}-scaled case. ``"kicker_x"`` (PAR-17) is a
+        *different* X — Kicker's own announced ``{X}`` (PAR-7's
+        `GameObject.kicker_x_paid`), read off the effect's own ``source``
+        rather than this stack item's ``x`` param, since a triggered
+        ability's "if it was kicked, put X counters on it" was never
+        itself cast/activated for X — only Kicker's separate cost was.
 
         Mirrors `_apply_entry_counters`'s ``is_x``-flag idiom, just generic
         over every one-shot effect's magnitude field instead of one
         hand-authored counter clause — a real int param never equals the
         literal string ``"x"``/``"-x"``, so this can't misfire on an
         unrelated ``amount``/``count``/``power``/``toughness`` value.
+
+        Unwraps a `ConditionalEffect` (RULE 702.33b's "if it was kicked, …"
+        wrapper) to reach the magnitude field on its ``inner`` effect —
+        the wrapper itself never carries one, so without this an
+        X-scaled inner effect's sentinel would never actually get
+        substituted (caught by an execute-level test, not the parse-level
+        ones: PAR-17's "if it was kicked, draw X cards" left `DrawCardEffect.
+        count` as the literal string ``"kicker_x"`` until this was added).
         """
-        for effect in effects:
+        for wrapper in effects:
+            effect = wrapper
+            while hasattr(effect, "inner"):
+                effect = effect.inner
             for attr in ("amount", "count", "power", "toughness"):
                 value = getattr(effect, attr, None)
                 if value == "x":
@@ -704,6 +739,16 @@ class CastingResolutionMixin:
                     setattr(effect, attr, -(-x // 2))  # ceiling division
                 elif value == "half_x_down":
                     setattr(effect, attr, x // 2)
+                elif value == "kicker_x":
+                    # RULE 702.33b/PAR-17: "if it was kicked, <effect scaled
+                    # by X>" (Kangee, Aerie Keeper/Verdeloth the Ancient-
+                    # shaped) — a *different* X than the spell/ability's own
+                    # ``x`` above (Emblazoned Golem's Kicker {X}, PAR-7's
+                    # `GameObject.kicker_x_paid`), read off the effect's own
+                    # source rather than this stack item's announced ``x``,
+                    # since a triggered ability was never itself "cast for
+                    # X" — only Kicker's own separate {X} was.
+                    setattr(effect, attr, getattr(effect.source, "kicker_x_paid", 0) or 0)
     def resolve_top_of_stack(self) -> Optional[StackItem]:
         """Resolve the topmost stack object (RULE 608). Returns it, or None."""
         if not self.state.stack:
@@ -1084,6 +1129,10 @@ class CastingResolutionMixin:
             kind = "choose_creature_type"
             prompt = "Kreaturentyp wählen"
             options = [{"id": t, "label": t} for t in _creature_type_options(self.state, obj.controller_id)]
+        elif isinstance(effect, ChooseBasicLandTypeReplacement):
+            kind = "choose_basic_land_type"
+            prompt = "Standard-Landtyp wählen"
+            options = [{"id": t, "label": t} for t in _BASIC_LAND_TYPE_OPTIONS]
         elif isinstance(effect, ChooseNamedModeReplacement):
             kind = "choose_named_mode"
             prompt = "Modus wählen"
@@ -1126,7 +1175,7 @@ class CastingResolutionMixin:
         """
         choice = self.state.pending_choice
         if not choice or choice.get("kind") not in (
-            "choose_creature_type", "choose_color", "choose_named_mode",
+            "choose_creature_type", "choose_color", "choose_named_mode", "choose_basic_land_type",
         ):
             raise ValueError("no pending enter-choice to resolve")
         self.state.pending_choice = None
@@ -1142,7 +1191,7 @@ class CastingResolutionMixin:
             str(options[0]["id"]) if options else None
         )
         if obj is not None and chosen is not None:
-            if choice["kind"] == "choose_creature_type":
+            if choice["kind"] in ("choose_creature_type", "choose_basic_land_type"):
                 obj.chosen_type = chosen
             elif choice["kind"] == "choose_named_mode":
                 obj.chosen_mode = chosen

@@ -122,6 +122,13 @@ class GameObject:
         #: Multikicker. Set once at cast time by `GameEngine._cast_current_face`
         #: and left on the object afterward as a record of what was paid.
         self.kicker_count: int = 0
+        #: RULE 702.33b: the value announced for Kicker's own ``{X}`` (PAR-7,
+        #: Emblazoned Golem-shaped — a Kicker cost that is itself variable,
+        #: distinct from the *spell's* own announced X `_apply_entry_counters`
+        #: reads via ``x_paid``) — 0 unless kicked with a nonzero X. Set once
+        #: at cast time by `GameEngine._cast_current_face` alongside
+        #: ``kicker_count``.
+        self.kicker_x_paid: int = 0
         #: RULE 702.27a: whether Buyback's additional cost was paid when this
         #: spell was cast — if so, `RulesEngine.resolve_top_of_stack` returns
         #: it to hand instead of the graveyard, then clears this flag.
@@ -470,6 +477,17 @@ class GameObject:
         #: than a continuously re-derived one. Reset every recompute exactly
         #: like `_granted_keywords`.
         self._granted_protections: set[str] = set()
+        #: RULE 702.16n/p: this object's *own* protection grant onto its
+        #: attached host ("Enchanted creature has protection from black.
+        #: **This effect doesn't remove this Aura.**", Black Ward &c) is
+        #: exempted from RULE 704.5m/n's normal "illegal attachment falls
+        #: off" check — without this, a black Aura granting its host
+        #: protection from black would immediately detach itself the next
+        #: SBA pass. Set on the *granting object itself* (not the host) by
+        #: `continuous.py`'s layer-6 pass, read by `_attachment_legal`/
+        #: `_revalidate_attachments`. Reset every recompute like
+        #: `_granted_protections`.
+        self._protection_self_exempt: bool = False
         #: RULE 508.1a/509.1b combat *restrictions* granted by a standing
         #: static ability that carry a parameter the synthetic flag keywords
         #: (`cant_attack`/`cant_block`/`cant_be_blocked`) can't: "can't be
@@ -690,6 +708,7 @@ class GameObject:
         self._granted_keywords = set()
         self._removed_keywords = set()
         self._granted_protections = set()
+        self._protection_self_exempt = False
         self._combat_restrictions = []
         self._goaded_by_static = set()
         self._granted_legendary = False
@@ -756,6 +775,7 @@ class GameObject:
         self.prepared = False
         self.prepared_source_id = None
         self.kicker_count = 0
+        self.kicker_x_paid = 0
         self.buyback_paid = False
         self.mana_spent_to_cast = 0
         self.sacrificed_cost_mana_value = None
@@ -1230,6 +1250,7 @@ class GameObject:
             # RULE 702.33b/27a/34a: alt-cost casting state, for the board to
             # show a kicked/bought-back/flashed-back spell's own badge.
             "kicker_count": self.kicker_count,
+            "kicker_x_paid": self.kicker_x_paid,
             "buyback_paid": self.buyback_paid,
             "cast_via_flashback": self.cast_via_flashback,
             # Types added by a layer-4 effect (e.g. "creature"), for the board.

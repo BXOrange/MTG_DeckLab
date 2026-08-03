@@ -45,12 +45,17 @@ _ENTRY_COUNTERS_RE = re.compile(
     re.IGNORECASE,
 )
 
-#: A fixed amount only — unlike `_AMOUNT` above, excludes "x": a kicked-gated
-#: clause's own "X" (Emblazoned Golem's Kicker {X}) would mean the kicker's
-#: own paid X, a different value than a plain cast-for-X's `x_paid` the
-#: unconditional shape above resolves against — deliberately left unclaimed
-#: (fail-closed) rather than conflating the two.
+#: A fixed amount only — used by the Multikicker-scaled shape below, which
+#: is always a fixed *per-kick* amount (no cache card scales that amount
+#: itself by an independently-announced Kicker {X}).
 _FIXED_AMOUNT = r"(a|an|\d+)"
+
+#: The kicked-gate shape's own amount: a fixed number, or "x" — Emblazoned
+#: Golem's Kicker {X} (PAR-7), resolved against `GameObject.kicker_x_paid`
+#: (a *different* value than a plain cast-for-X's `x_paid` the unconditional
+#: `_ENTRY_COUNTERS_RE` shape above resolves against; kept distinct rather
+#: than conflated, per the comment this replaced).
+_KICKED_GATE_AMOUNT = r"(a|an|x|\d+)"
 
 #: A small closed keyword vocabulary a "...and with <keyword>" compound
 #: kicked-counters clause plausibly names (RULE 702.33b's "...and with
@@ -79,7 +84,7 @@ _GRANT_KEYWORD_SUFFIX = rf"(?: and with (?P<kw>{'|'.join(_GRANT_KEYWORD_WORDS)})
 #: "...and with <keyword>." (`_GRANT_KEYWORD_SUFFIX`) is the same kicked
 #: gate applied to a granted keyword instead of/alongside the counters.
 _KICKED_ENTRY_COUNTERS_RE = re.compile(
-    rf"^if {_SUBJECT} was kicked, it {_ENTERS} with {_FIXED_AMOUNT} {_COUNTER_TYPE} counters? on it"
+    rf"^if {_SUBJECT} was kicked, it {_ENTERS} with {_KICKED_GATE_AMOUNT} {_COUNTER_TYPE} counters? on it"
     rf"{_GRANT_KEYWORD_SUFFIX}\.?$",
     re.IGNORECASE,
 )
@@ -117,6 +122,11 @@ def entry_counters_condition(line: str) -> Optional[dict[str, Any]]:
     - ``{"is_x": False, "count": N, "counter_type": T, "kicked_scale": True}``
       — ``N`` is a *per-kick* amount; the real total is ``N`` times
       however many times Kicker was actually paid (0 if never kicked).
+    - ``{"is_x": False, "counter_type": T, "kicked_gate": True,
+      "kicked_x_scale": True}`` — Kicker's own ``{X}`` (PAR-7, Emblazoned
+      Golem's own ``GameObject.kicker_x_paid``, not the count-of-times-paid
+      the other two kicked shapes use, and not the *spell's* own X the
+      unconditional ``is_x`` shape above uses); 0 unless Kicker was paid.
 
     Either kicked shape may also carry ``"grant_keyword": "vigilance"`` (RULE
     702.33b's "...and with `<keyword>`." tail) — a keyword granted under the
@@ -126,11 +136,15 @@ def entry_counters_condition(line: str) -> Optional[dict[str, Any]]:
     """
     match = _KICKED_ENTRY_COUNTERS_RE.match(line)
     if match is not None:
-        count = _fixed_count(match.group(1))
+        amount_raw = match.group(1).lower()
         counter_type = match.group(2).lower()
         result: dict[str, Any] = {
-            "is_x": False, "count": count, "counter_type": counter_type, "kicked_gate": True,
+            "is_x": False, "counter_type": counter_type, "kicked_gate": True,
         }
+        if amount_raw == "x":
+            result["kicked_x_scale"] = True
+        else:
+            result["count"] = _fixed_count(amount_raw)
         if match.group("kw"):
             result["grant_keyword"] = _GRANT_KEYWORD_WORDS[match.group("kw")]
         return result

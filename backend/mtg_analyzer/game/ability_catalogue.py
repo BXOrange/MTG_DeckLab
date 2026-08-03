@@ -20,7 +20,10 @@ check/fast/slow/Battlebond-land conditional shapes `GameEngine.play_land`
 resolves via `RulesEngine.enter_land_tapped` — works without being registered.
 `entry_counters(card)` is the same split for a RULE 614.1-style "enters with
 N counters" clause (`parser.oracle.catalogue.counters`), resolved by
-`RulesEngine`'s battlefield-entry paths.
+`RulesEngine`'s battlefield-entry paths. `kicker_x_mana_restriction(card)`
+is the same split again, for Kicker's own ``{X}`` payment restriction
+(`parser.oracle.catalogue.kicker_mana`, PAR-7), resolved by
+`GameEngine.can_cast`/`cast_spell`.
 """
 
 from __future__ import annotations
@@ -30,6 +33,7 @@ from typing import Any, Callable, Optional
 from ..models.events import EventType
 from ..parser.oracle.catalogue.counters import entry_counters as _entry_counters
 from ..parser.oracle.catalogue.keywords import parse_keywords
+from ..parser.oracle.catalogue.kicker_mana import kicker_x_mana_restriction as _kicker_x_mana_restriction
 from ..parser.oracle.catalogue.lands import land_tap_condition as _land_tap_condition
 from ..parser.oracle.gate import parse_oracle
 from ..parser.oracle.spec import AbilitySpec, EffectSpec
@@ -150,6 +154,22 @@ def entry_counters(card: Any) -> Optional[dict[str, Any]]:
     split `land_tap_condition` uses for tapped-entry.
     """
     return _entry_counters(card)
+
+
+def kicker_x_mana_restriction(card: Any) -> Optional[str]:
+    """``card``'s Kicker-own-``{X}`` payment restriction (RULE 605.3a-style,
+    PAR-7 — Emblazoned Golem's "Spend only colored mana on X. No more than
+    one mana of each color may be spent this way."), or ``None`` for an
+    ordinary/no-``{X}`` Kicker cost. ``"distinct_colors"`` is the one
+    recognized value today, consulted by `GameEngine.can_cast`/`cast_spell`
+    via `models.mana_pool.ManaPool.can_pay_distinct_colors`/
+    `pay_distinct_colors`.
+
+    Delegates to `parser.oracle.catalogue.kicker_mana` (the coverage gate's
+    single source of truth for this clause shape), the same split
+    `entry_counters` above uses.
+    """
+    return _kicker_x_mana_restriction(card)
 
 
 # ---------------------------------------------------------------------------

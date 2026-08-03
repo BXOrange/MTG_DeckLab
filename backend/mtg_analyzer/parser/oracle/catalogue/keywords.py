@@ -87,9 +87,23 @@ def _slug(name: str) -> str:
 # own small anchored regex (the shared cost/number builders don't apply).
 
 _SPECIAL_REGEX: dict[str, re.Pattern[str]] = {
-    # RULE 702.16 — "protection from <quality>" up to the clause end.
+    # RULE 702.16 — "protection from <quality>" up to the clause end. The
+    # trailing lookahead also stops before a reminder-text parenthetical that
+    # follows a space rather than punctuation ("Protection from black (This
+    # creature can't be...)") — without ``\s\(`` there, the non-greedy quality
+    # group swallows past the intended word looking for a stop char that
+    # never comes on the same line, and the match fails outright.
     "protection": re.compile(
-        r"protection from (?P<quality>[a-z][a-z ]*?)(?=[.,;\n)]|$| and )", re.I
+        r"protection from (?P<quality>[a-z][a-z ]*?)(?=[.,;\n)]|$| and |\s\()", re.I
+    ),
+    # RULE 702.11b — "hexproof from <quality>" (Knight of Grace's "hexproof
+    # from black", Niv-Mizzet, Guildpact's "hexproof from multicolored").
+    # Same reminder-text lookahead as protection, above. Bare "Hexproof" has
+    # no "from" clause to match, so the quality is simply omitted for it
+    # (docs/09 fail-safe — see `_extract_param`), same as any other QUALITY
+    # keyword printed without its parameter.
+    "hexproof": re.compile(
+        r"hexproof from (?P<quality>[a-z][a-z ]*?)(?=[.,;\n)]|$| and |\s\()", re.I
     ),
     # RULE 702.5 — "Enchant <what it can be attached to>". Stops before a
     # trailing controller clause ("... you control" / "... an opponent
@@ -192,7 +206,7 @@ _TABLE: list[tuple[str, KeywordShape, str]] = [
     ("Flash", _F, "702.8"),
     ("Flying", _F, "702.9"),
     ("Haste", _F, "702.10"),
-    ("Hexproof", _F, "702.11"),
+    ("Hexproof", _Q, "702.11"),
     ("Indestructible", _F, "702.12"),
     ("Intimidate", _F, "702.13"),
     ("Landwalk", _Q, "702.14"),

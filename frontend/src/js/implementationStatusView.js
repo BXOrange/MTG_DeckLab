@@ -384,7 +384,7 @@ const GROUPS = [
             items: [
               ['full', 'Rückgängig / Neustart / Rewind'],
               ['partial', 'Passiver Gegner ("Goldfisch")'],
-              ['partial', 'Gesamtabdeckung Oracle-Parser (28,0 % von ~34 000)'],
+              ['partial', 'Gesamtabdeckung Oracle-Parser (28,4 % von ~34 000)'],
               ['full', 'Interaktive Auswahl statt Automatik: welches Objekt tappen/opfern/zurücknehmen'],
               ['full', 'Unterbrochene Auflösung — mehrere Entscheidungen in einem Effekt (608.2)'],
             ],

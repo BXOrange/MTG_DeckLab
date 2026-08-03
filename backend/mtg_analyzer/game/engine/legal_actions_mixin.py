@@ -224,6 +224,12 @@ class LegalActionsMixin:
             action["kicker_cost"] = kicker_cost.raw
             action["kicker_multi"] = bool(kicker_param.get("multi"))
             action["max_kicker"] = self.max_affordable_kicker(player, obj)
+            if kicker_cost.has_variable:
+                # PAR-7: Kicker's own {X} (Emblazoned Golem) — the same
+                # "has_x/max_x" shape as the spell's own {X} above, but for
+                # the value announced *inside* Kicker's cost.
+                action["kicker_has_x"] = True
+                action["kicker_max_x"] = self.max_affordable_kicker_x(player, obj)
 
         # RULE 702.27: surface Buyback so the UI can offer a "pay to buy
         # back" toggle, locked when its own cost isn't affordable.
@@ -671,9 +677,24 @@ class LegalActionsMixin:
         # Channel (RULE 702.29)/Cycling (RULE 702.28): a hand-zone card's own
         # "Discard this card: <effect>" activated ability — unlike the
         # battlefield loop above, discovered off `player.hand`, since the
-        # card itself (not a permanent) is the ability's source.
+        # card itself (not a permanent) is the ability's source. Combined
+        # with `granted_activated_abilities` (PAR-8's "Each card in your
+        # hand has cycling `<cost>`.") the same way the battlefield loop
+        # combines the two lists — `activate_ability` always indexes into
+        # that same concatenation regardless of zone.
         for source in list(player.hand):
-            for index, ability in enumerate(source.activated_abilities):
+            combined = source.activated_abilities + source.granted_activated_abilities
+            for index, ability in enumerate(combined):
                 if ability.cost.discard_self and self.can_activate(player, source, ability):
+                    actions.append(self._activate_action(player, source, index, ability))
+
+        # PAR-10: "Return this card from your graveyard to the
+        # battlefield[, tapped]." — a graveyard-zone card's own ability,
+        # the same "discovered off the owning zone, not the battlefield"
+        # shape as Cycling above.
+        for source in list(player.graveyard):
+            combined = source.activated_abilities + source.granted_activated_abilities
+            for index, ability in enumerate(combined):
+                if ability.cost.graveyard_zone and self.can_activate(player, source, ability):
                     actions.append(self._activate_action(player, source, index, ability))
         return actions

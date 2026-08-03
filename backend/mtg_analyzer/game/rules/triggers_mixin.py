@@ -202,6 +202,7 @@ class TriggerCollectionMixin:
         self._collect_temporary_player_triggers(event)
         self._collect_counter_death_return_triggers(event)
         self._collect_mill_return_from_graveyard_triggers(event)
+        self._collect_graveyard_function_triggers(event)
     def _resolve_mana_trigger(self, ability: "TriggeredAbility", event: GameEvent) -> None:
         """Apply a triggered mana ability immediately (RULE 605.4).
 
@@ -693,14 +694,19 @@ class TriggerCollectionMixin:
     def _collect_mill_return_from_graveyard_triggers(self, event: GameEvent) -> None:
         """"Whenever an opponent mills a nonland card, if this creature is
         in your graveyard, you may return it to your hand." (RULE 112.6a,
-        Infesting Radroach, `AbilitySpec.mill_return_from_graveyard`) — the
-        only triggered ability in this catalogue that must keep firing
-        while its own source sits in a *graveyard*, not the battlefield, so
-        it can't ride the ordinary `obj.triggered_abilities` scan
-        (`_collect_triggers` only walks `state.permanents()`); scanned here
-        instead, exactly like `_collect_counter_death_return_triggers`'s
-        own "per-firing marker" style, just over every player's graveyard
-        rather than the battlefield.
+        Infesting Radroach, `AbilitySpec.mill_return_from_graveyard`) — a
+        triggered ability that must keep firing while its own source sits
+        in a *graveyard*, not the battlefield, so it can't ride the
+        ordinary `obj.triggered_abilities` scan (`_collect_triggers` only
+        walks `state.permanents()`); scanned here instead, exactly like
+        `_collect_counter_death_return_triggers`'s own "per-firing marker"
+        style, just over every player's graveyard rather than the
+        battlefield. `_collect_graveyard_function_triggers` right below is
+        this same idea's general form (PAR-16) — this one predates it and
+        is kept as its own bespoke, per-firing-marker method rather than
+        folded in, since it's keyed off a fresh `ReturnSelfFromGraveyardEffect`
+        built new every MILL_CARD event rather than an ordinary bound
+        `TriggeredAbility` already sitting on the object.
 
         "You"/"your" (RULE 108.4: a graveyard card has no controller, only
         an owner) is that graveyard's own player — so a player's *own* mill
@@ -732,6 +738,31 @@ class TriggerCollectionMixin:
                     description=f"{obj.name}: zurück auf die Hand nehmen",
                 )
                 self.pending_triggers.append((ability, event))
+    def _collect_graveyard_function_triggers(self, event: GameEvent) -> None:
+        """RULE 113.6a (PAR-16): a triggered ability whose own effect body
+        explicitly returns its source "from your graveyard" (`TriggeredAbility.
+        functions_from_graveyard`, inferred by `effect_binder.bind_ability`)
+        keeps functioning while that source sits in the graveyard — the
+        Eidolon/Phoenix family ("Whenever you cast a multicolored spell, you
+        may return this card from your graveyard to your hand." — Aurora
+        Eidolon; "Whenever a Demon you control enters, return this card from
+        your graveyard to your hand." — Blood Speaker). Unlike
+        `_collect_mill_return_from_graveyard_triggers` above, this scans the
+        object's own already-bound `triggered_abilities` — the ordinary
+        `check_trigger`/subject-condition machinery works unchanged for a
+        graveyard-sitting source (a card's `controller_id` already defaults
+        to its `owner_id` and never diverges without a control-change effect,
+        which can't reach a graveyard card), so nothing per-firing needs to
+        be rebuilt here, just fired from a different scan than
+        `_collect_triggers`'s battlefield-only one.
+        """
+        for player in self.state.players:
+            for obj in player.graveyard:
+                for ability in obj.triggered_abilities:
+                    if not getattr(ability, "functions_from_graveyard", False):
+                        continue
+                    if isinstance(ability, TriggeredAbility) and ability.check_trigger(event, self.context):
+                        self.pending_triggers.append((ability, event))
     def put_triggers_on_stack(self) -> int:
         """Move fired triggers onto the stack (RULE 603.3). Returns count.
 

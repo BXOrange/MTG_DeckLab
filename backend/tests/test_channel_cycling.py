@@ -215,3 +215,238 @@ def test_renewed_faith_cycling_gains_life():
     # Cycling's own effect is "draw a card" — the life gain is the spell's
     # own (uncast, in this test) cast mode.
     assert len(p1.hand) == hand_before  # this card left, one drawn: net unchanged
+
+
+# ---------------------------------------------------------------------------
+# PAR-9: generic Cycling execution for an *unregistered* card. Previously the
+# parser recognized a bare "Cycling {N}" keyword line well enough to satisfy
+# the coverage gate (`[keyword] []`, no unclaimed clauses — MODELED), but
+# nothing ever bound it to a real activated ability unless the card was also
+# hand-authored (Dismantling Wave/Renewed Faith above) — so an ordinary
+# cycling creature with no other text (Barkhide Mauler-shaped) was "MODELED"
+# yet never actually cyclable. `effect_binder._cycling_activated_ability`
+# closes that for the plain, type-unrestricted keyword.
+# ---------------------------------------------------------------------------
+
+
+def _unregistered_cycler(name="Not A Real Card", cost="{2}", keywords=None, oracle_text=None):
+    card = Card(
+        id=name, name=name, type_line="Creature — Beast", is_creature=True,
+        power=4, toughness=4,
+        oracle_text=oracle_text or f"Cycling {cost} ({cost}, Discard this card: Draw a card.)",
+        keywords=keywords if keywords is not None else ["Cycling"],
+    )
+    return GameObject(card, owner_id="p1", zone=Zone.HAND)
+
+
+def test_bare_cycling_on_an_unregistered_card_gets_a_real_activated_ability():
+    from mtg_analyzer.game.effect_binder import bind_from_catalogue
+
+    obj = _unregistered_cycler()
+    bind_from_catalogue(obj)
+
+    (ability,) = obj.activated_abilities
+    assert ability.cost.discard_self is True
+    assert ability.cost.mana.converted_mana_cost == 2
+
+
+def test_bare_cycling_end_to_end_draws_a_card_and_discards_itself():
+    eng = make_engine(hand=0)
+    eng.begin_turn()
+    eng.state.current_step = "main1"
+    p1 = eng.state.active_player
+    p1.mana_pool.add_many({"C": 2})
+    obj = _unregistered_cycler()
+    from mtg_analyzer.game.effect_binder import bind_from_catalogue
+    bind_from_catalogue(obj)
+    p1.add_to_zone(obj, Zone.HAND)
+    hand_before = len(p1.hand)
+
+    ability = obj.activated_abilities[0]
+    assert eng.can_activate(p1, obj, ability) is True
+    eng.activate_ability(p1, obj, 0)
+    eng.resolve_until_stable()
+
+    assert obj in p1.graveyard
+    assert len(p1.hand) == hand_before
+
+
+def test_typecycling_variant_does_not_get_the_generic_draw_ability():
+    # Ash Barrens-shaped: Scryfall's `keywords` array tags the generic
+    # parent slugs ("Landcycling", "Typecycling", "Cycling") alongside the
+    # specific one even though only "Basic landcycling" is actually
+    # printed — and the shared cost regex has no word boundary, so it would
+    # otherwise happily extract a cost out of "Basic landcycling {1}" too.
+    # A type-restricted variant searches the library, not "draw a card";
+    # never guess here — no activated ability at all is the correct,
+    # fail-closed outcome until that shape is modeled for real.
+    from mtg_analyzer.game.effect_binder import bind_from_catalogue
+
+    obj = _unregistered_cycler(
+        name="Ash Barrens", cost="{1}",
+        keywords=["Landcycling", "Basic landcycling", "Typecycling", "Cycling"],
+        oracle_text="{T}: Add {C}.\nBasic landcycling {1} ({1}, Discard this card: "
+                    "Search your library for a basic land card, reveal it, put it "
+                    "into your hand, then shuffle.)",
+    )
+    bind_from_catalogue(obj)
+
+    assert obj.activated_abilities == []
+
+
+def test_hand_authored_cycling_is_not_duplicated_by_the_generic_binder():
+    # Regression: Dismantling Wave's own hand-authored discard-self ability
+    # (destroy all artifacts/enchantments) must stay the *only* one — the
+    # generic fallback must not also bind a competing plain "draw a card"
+    # for the same cost just because `ability_catalogue.specs_for` folds in
+    # `parse_keywords`' own "cycling" spec for every card, registered or not.
+    from mtg_analyzer.game.effect_binder import bind_from_catalogue
+
+    card = Card(id="Dismantling Wave", name="Dismantling Wave", type_line="Sorcery",
+                mana_cost_string="{2}{W}", converted_mana_cost=3, is_sorcery=True)
+    obj = GameObject(card, owner_id="p1", zone=Zone.HAND)
+    bind_from_catalogue(obj)
+
+    discard_self_abilities = [a for a in obj.activated_abilities if a.cost.discard_self]
+    assert len(discard_self_abilities) == 1
+
+
+# ---------------------------------------------------------------------------
+# PAR-8: granting Cycling to *other* cards ("Each historic card in your hand
+# has cycling {2}{W}." — Jo Grant/Rhet-Tomb Mystic/Tectonic Reformation) — a
+# layer-6 static ability whose targets are hand cards, not battlefield
+# permanents. Parser: `static_handlers._HAND_CYCLING_GRANT_RE`/
+# `grant_cycling_to_hand`. Engine: `continuous._apply_hand_cycling_grants`.
+# ---------------------------------------------------------------------------
+
+
+def test_hand_cycling_grant_clause_is_recognized():
+    from mtg_analyzer.parser.oracle.catalogue.static_handlers import static_effect_specs
+
+    (spec,) = static_effect_specs("each historic card in your hand has cycling {2}{w}")
+    assert spec.type == "grant_cycling_to_hand"
+    assert spec.params == {"cost": "{2}{w}", "card_type": "historic"}
+
+
+def test_bare_hand_cycling_grant_with_no_filter_is_recognized():
+    from mtg_analyzer.parser.oracle.catalogue.static_handlers import static_effect_specs
+
+    (spec,) = static_effect_specs("each card in your hand has cycling {2}")
+    assert spec.params == {"cost": "{2}"}
+
+
+def test_rhet_tomb_mystic_and_tectonic_reformation_are_modeled():
+    from mtg_analyzer.parser.oracle.gate import UNMODELED, parse_oracle
+
+    for card in (
+        Card(id="Rhet-Tomb Mystic", name="Rhet-Tomb Mystic", type_line="Creature — Human Cleric",
+             is_creature=True, power=2, toughness=3,
+             oracle_text="Flying\nEach creature card in your hand has cycling {1}{U}."),
+        Card(id="Tectonic Reformation", name="Tectonic Reformation", type_line="Enchantment",
+             oracle_text="Each land card in your hand has cycling {R}.\n"
+                         "Cycling {2} ({2}, Discard this card: Draw a card.)"),
+    ):
+        result = parse_oracle(card)
+        assert result.coverage != UNMODELED, card.name
+        assert result.unclaimed == [], card.name
+
+
+def _hand_cycling_grantor(controller="p1", cost="{2}{W}", card_type="historic",
+                           name="Jo Grant"):
+    filter_word = f"{card_type} " if card_type else ""
+    card = Card(
+        id=name, name=name, type_line="Legendary Creature — Time Lord",
+        is_creature=True, is_legendary=True, power=2, toughness=4,
+        oracle_text=f"Each {filter_word}card in your hand has cycling {cost}.",
+    )
+    from mtg_analyzer.models.game_object import GameObject as _GO
+    obj = _GO(card, owner_id=controller, zone=Zone.BATTLEFIELD)
+    obj.summoning_sick = False
+    return obj
+
+
+def test_only_matching_hand_cards_are_granted_cycling():
+    from mtg_analyzer.game import continuous
+    from mtg_analyzer.game.effect_binder import bind_from_catalogue
+    from mtg_analyzer.models.game_state import GameState
+    from mtg_analyzer.models.player import Player
+
+    p1, p2 = Player(id="p1", life=20), Player(id="p2", life=20)
+    state = GameState(players=[p1, p2])
+    source = _hand_cycling_grantor()
+    bind_from_catalogue(source)
+    state.add_to_battlefield(source)
+
+    historic = GameObject(Card(id="Sol Ring", name="Sol Ring", type_line="Artifact"),
+                           owner_id="p1", zone=Zone.HAND)
+    mundane = GameObject(Card(id="Bear", name="Bear", type_line="Creature",
+                               is_creature=True, power=2, toughness=2),
+                          owner_id="p1", zone=Zone.HAND)
+    opponents_historic = GameObject(Card(id="Signet", name="Signet", type_line="Legendary Artifact",
+                                          is_legendary=True),
+                                     owner_id="p2", zone=Zone.HAND)
+    p1.hand.extend([historic, mundane])
+    p2.hand.append(opponents_historic)
+
+    continuous.recompute(state)
+
+    assert len(historic.granted_activated_abilities) == 1
+    assert historic.granted_activated_abilities[0].cost.discard_self is True
+    assert mundane.granted_activated_abilities == []
+    assert opponents_historic.granted_activated_abilities == []  # not this player's hand
+
+
+def test_hand_cycling_grant_disappears_when_its_source_leaves():
+    from mtg_analyzer.game import continuous
+    from mtg_analyzer.game.effect_binder import bind_from_catalogue
+    from mtg_analyzer.models.game_state import GameState
+    from mtg_analyzer.models.player import Player
+
+    p1, p2 = Player(id="p1", life=20), Player(id="p2", life=20)
+    state = GameState(players=[p1, p2])
+    source = _hand_cycling_grantor(card_type="creature", cost="{1}{U}")
+    bind_from_catalogue(source)
+    state.add_to_battlefield(source)
+
+    creature_card = GameObject(Card(id="Bear", name="Bear", type_line="Creature",
+                                     is_creature=True, power=2, toughness=2),
+                                owner_id="p1", zone=Zone.HAND)
+    p1.hand.append(creature_card)
+    continuous.recompute(state)
+    assert len(creature_card.granted_activated_abilities) == 1
+
+    state.battlefield.remove(source)
+    continuous.recompute(state)
+    assert creature_card.granted_activated_abilities == []
+
+
+def test_hand_cycling_grant_end_to_end_is_offered_and_activatable():
+    eng = make_engine(hand=0)
+    eng.begin_turn()
+    eng.state.current_step = "main1"
+    p1 = eng.state.active_player
+
+    from mtg_analyzer.game.effect_binder import bind_from_catalogue
+    source = _hand_cycling_grantor(card_type=None, cost="{2}", name="Generic Cycler")
+    source.card.type_line = "Enchantment"
+    source.card.is_creature = False
+    source.card.is_legendary = False
+    bind_from_catalogue(source)
+    eng.state.add_to_battlefield(source)
+
+    card = GameObject(Card(id="Bear2", name="Bear2", type_line="Creature",
+                            is_creature=True, power=2, toughness=2),
+                       owner_id="p1", zone=Zone.HAND)
+    p1.add_to_zone(card, Zone.HAND)
+    p1.mana_pool.add_many({"C": 2})
+    eng.recompute_continuous_effects()
+
+    actions = eng.legal_actions(p1)
+    offers = [a for a in actions if a.get("type") == "activate_ability"
+              and a.get("instance_id") == card.instance_id]
+    assert len(offers) == 1
+
+    eng.activate_ability(p1, card, offers[0]["ability_index"])
+    eng.resolve_until_stable()
+
+    assert card in p1.graveyard

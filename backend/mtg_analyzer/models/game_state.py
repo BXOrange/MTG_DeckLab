@@ -491,6 +491,15 @@ class GameState:
         #: (`clone`) but never needs its own undo handling.
         self._granted_ability_cache: dict[tuple[int, int], Any] = {}
 
+        #: PAR-8's own identity-preservation cache, kept separate from
+        #: `_granted_ability_cache` above rather than sharing it: that one's
+        #: end-of-pass pruning loop only recognizes its own 2/3-element
+        #: ``(id(ability), instance_id[, "activated"])`` key shapes, and
+        #: would delete any other shape it finds in the same dict on every
+        #: pass it doesn't also see freshly re-added first — see
+        #: `continuous._apply_hand_cycling_grants`.
+        self._hand_cycling_ability_cache: dict[tuple[int, int], Any] = {}
+
         #: Per-player play statistics + a flat event timeline, for the
         #: end-of-game review (cards drawn/played, mana curve, mana produced
         #: per turn, damage). Plain JSON-able data written by the engine
@@ -534,6 +543,17 @@ class GameState:
         #: on every successful draw, the same shape `spells_cast_this_turn`
         #: uses for `cast_limit`.
         self.cards_drawn_this_turn: dict[str, int] = {p.id: 0 for p in players}
+        #: Whether each player has cast an instant or sorcery spell *this
+        #: turn* (PAR-10 — `game/static_conditions.py`'s
+        #: ``cast_instant_or_sorcery_this_turn`` condition: Hall of Oracles/
+        #: Jin-Gitaxias's activation condition, Haunting Figment/Leapfrog/
+        #: Piston-Fist Cyclops's "as long as" statics). Reset for *every*
+        #: player each `GameEngine.begin_turn` — like `mana_produced_this_
+        #: turn` below and unlike `spells_cast_this_turn` above, since a
+        #: static condition can be read for a non-active player's permanent
+        #: too. Set by `RulesEngine._track_spell_cast` off the same
+        #: `SPELL_CAST` event.
+        self.cast_instant_or_sorcery_this_turn: dict[str, bool] = {p.id: False for p in players}
         #: Mana actually produced (tapped/hand-exiled for) by each player
         #: *this turn*, per colour (WUBRGC) — the "genutztes Potenzial" half
         #: of `game/mana_potential.py`'s open/used split. Unlike

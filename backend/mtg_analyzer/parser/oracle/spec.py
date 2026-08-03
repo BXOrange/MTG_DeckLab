@@ -66,8 +66,11 @@ _CLAMPED_PARAM_KEYS: tuple[str, ...] = (
 #: ``"bargained"`` (RULE 701.x, Beseech the Mirror's "if this spell was
 #: bargained, …") is Kicker's own ``"kicked"`` gate for a different optional
 #: additional cost — same `GameObject`-flag shape, same resolve-time check.
+#: ``"kicked_at_least"`` (PAR-17, RULE 702.34a — "if it was kicked twice,
+#: `<effect>`.", Archangel of Wrath) is Multikicker's own count threshold,
+#: an int rather than a bool (``kicker_count >= n``).
 _ALLOWED_CONDITION_KEYS: frozenset[str] = frozenset(
-    {"kicked", "bargained", "target_is_controller"}
+    {"kicked", "kicked_at_least", "bargained", "target_is_controller"}
 )
 
 #: `AbilitySpec.conditional_flash`'s whitelisted keys — see that field's
@@ -630,6 +633,9 @@ class AbilitySpec:
                 raise SpecValidationError("'kicked' condition must be a bool")
             if key == "target_is_controller" and not isinstance(value, bool):
                 raise SpecValidationError("'target_is_controller' condition must be a bool")
+            if key == "kicked_at_least":
+                if isinstance(value, bool) or not isinstance(value, int) or value < 1:
+                    raise SpecValidationError("'kicked_at_least' condition must be a positive int")
 
     @staticmethod
     def _clamp_params(params: dict[str, Any]) -> None:

@@ -70,7 +70,7 @@ const CHOICE_ICONS = {
   land_tapped: '💧', order_triggers: '🔀', trigger_target: '🎯',
   enter_as_copy: '🪞', counter_unless_pays: '🚫', ward: '🛡️',
   commander_zone: '👑', trigger_mode: '🎭', add_mana_any_color: '💎',
-  choose_creature_type: '🐾', choose_color: '🎨', read_ahead: '📜',
+  choose_creature_type: '🐾', choose_color: '🎨', choose_basic_land_type: '🗺️', read_ahead: '📜',
   scry: '🔮', surveil: '🕵️',
 };
 
@@ -1553,7 +1553,8 @@ export function createGameBoardView(opts = {}) {
         const input = root.querySelector(`[data-x-input="${xKey(iid, face)}"]`);
         const x = Math.max(0, Math.floor(Number(input?.value) || 0));
         const kicked = readKicker(iid, face);
-        act({ type: 'cast_spell', instance_id: iid, x, face, kicked });
+        const kicker_x = readKickerX(iid, face);
+        act({ type: 'cast_spell', instance_id: iid, x, face, kicked, kicker_x });
       });
     });
 
@@ -1575,9 +1576,10 @@ export function createGameBoardView(opts = {}) {
         const input = root.querySelector(`[data-x-input="${xKey(iid, info.face)}"]`);
         const x = action.has_x ? Math.max(0, Math.floor(Number(input?.value) || 0)) : 0;
         const kicked = action.has_kicker ? readKicker(iid, info.face) : 0;
+        const kicker_x = action.kicker_has_x ? readKickerX(iid, info.face) : 0;
         const send = info.type === 'activate_ability'
           ? { type: 'activate_ability', instance_id: iid, ability_index: info.ability_index, name: action.name }
-          : { type: 'cast_spell', instance_id: iid, name: action.name, face: info.face, kicked };
+          : { type: 'cast_spell', instance_id: iid, name: action.name, face: info.face, kicked, kicker_x };
         const {
           requirements, owners, groupCount, excludePicked, excludeControllers,
         } = expandMultiTargetRequirements(action.targets || []);
@@ -1717,6 +1719,13 @@ export function createGameBoardView(opts = {}) {
 
   function readKicker(instanceId, face) {
     const input = root.querySelector(`[data-kicker-input="${kickerKey(instanceId, face)}"]`);
+    return Math.max(0, Math.floor(Number(input?.value) || 0));
+  }
+
+  // Kicker's own {X} (RULE 702.33b, PAR-7 — Emblazoned Golem-shaped): a
+  // second, independent value from the spell's own X, keyed/read the same way.
+  function readKickerX(instanceId, face) {
+    const input = root.querySelector(`[data-kicker-x-input="${kickerKey(instanceId, face)}"]`);
     return Math.max(0, Math.floor(Number(input?.value) || 0));
   }
 
@@ -2241,7 +2250,17 @@ export function createGameBoardView(opts = {}) {
   function kickerFieldHtml(a) {
     if (!a.has_kicker) return '';
     const title = a.kicker_cost ? `Kicker ${a.kicker_cost}` : 'Kicker';
-    return `<input type="number" min="0" max="${a.max_kicker}" value="0" title="${escapeAttr(title)}" data-kicker-input="${kickerKey(a.instance_id, a.face)}" />`;
+    const field = `<input type="number" min="0" max="${a.max_kicker}" value="0" title="${escapeAttr(title)}" data-kicker-input="${kickerKey(a.instance_id, a.face)}" />`;
+    return field + kickerXFieldHtml(a);
+  }
+
+  // Kicker's own {X} (RULE 702.33b, PAR-7 — Emblazoned Golem's "Kicker {X}",
+  // a separately-announced value from both the spell's own X and how many
+  // times Kicker is paid); defaults to 0 like Kicker itself, for the same
+  // "an optional cost increase, not paid by default" reason.
+  function kickerXFieldHtml(a) {
+    if (!a.kicker_has_x) return '';
+    return `<input type="number" min="0" max="${a.kicker_max_x}" value="0" title="Kicker X" data-kicker-x-input="${kickerKey(a.instance_id, a.face)}" />`;
   }
 
   function cardActionButtons(cardActions) {

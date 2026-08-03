@@ -52,7 +52,7 @@ Pure regex + data — **no `game/` imports** (front-end security boundary).
 from __future__ import annotations
 
 import re
-from typing import Callable, NamedTuple, Optional
+from typing import Any, Callable, NamedTuple, Optional
 
 from ..spec import EffectSpec, ParserProvenance
 from .handlers import ONCE_PER_TURN_MARKER, SORCERY_SPEED_MARKER
@@ -79,9 +79,19 @@ _GRANTABLE_TRIGGER_EVENTS = frozenset(
 )
 
 #: Type words that are *not* creature subtypes — a scope built on one of these
-#: isn't a creature anthem/grant, so we don't claim it.
+#: isn't a creature anthem/grant, so we don't claim it. ``enchanted``/
+#: ``equipped`` belong here too (PAR-3 spot-check, Greater Auramancy's
+#: "Enchanted creatures you control have shroud."): they're a characteristic
+#: filter, not a subtype — `_has_subtype` would never see "Enchanted" on any
+#: real creature's type line, so guessing one as a subtype silently matches
+#: nothing instead of the intended creatures. The engine's own selector for
+#: this shape (`continuous.py`'s ``enchanted_or_equipped_creatures_you_
+#: control``) combines *both* qualities, which "enchanted creatures" alone
+#: would over-match — a genuinely separate, still-open parser gap, not a
+#: PAR-3 widening; fail-closed here rather than half-modeled.
 _NONCREATURE_TYPES: frozenset[str] = frozenset(
-    {"creature", "artifact", "enchantment", "land", "permanent", "planeswalker", "token"}
+    {"creature", "artifact", "enchantment", "land", "permanent", "planeswalker", "token",
+     "enchanted", "equipped"}
 )
 
 #: Colour words → their WUBRG/C symbol, for a colour-scoped anthem.
@@ -1038,6 +1048,13 @@ _CHOOSE_CREATURE_TYPE_ON_ENTER_RE = re.compile(
     r"as ~ enters, choose a creature type", re.IGNORECASE
 )
 _CHOOSE_COLOR_ON_ENTER_RE = re.compile(r"as ~ enters, choose a color", re.IGNORECASE)
+# PAR-4 — Realmwright/A-Thran Portal's "As ~ enters, choose a basic land
+# type.": a third `enter_choice_effects` sibling, alongside creature
+# type/color above. Anchored on "basic land type" specifically (never just
+# "land type" on a real card) so it can't collide with the creature-type row.
+_CHOOSE_BASIC_LAND_TYPE_ON_ENTER_RE = re.compile(
+    r"as ~ enters, choose a basic land type", re.IGNORECASE
+)
 
 
 def enter_choice_specs(clause: str) -> Optional[list[EffectSpec]]:
@@ -1053,6 +1070,8 @@ def enter_choice_specs(clause: str) -> Optional[list[EffectSpec]]:
         return [EffectSpec("choose_creature_type_on_enter", {})]
     if _CHOOSE_COLOR_ON_ENTER_RE.fullmatch(text):
         return [EffectSpec("choose_color_on_enter", {})]
+    if _CHOOSE_BASIC_LAND_TYPE_ON_ENTER_RE.fullmatch(text):
+        return [EffectSpec("choose_basic_land_type_on_enter", {})]
     return None
 
 
@@ -1347,6 +1366,15 @@ def _quoted_ability_grant_effects(inner: str) -> Optional[EffectSpec]:
 # multi-quality tails (the Sword cycle's printed form) are left to that same
 # splitter by passing the whole clause through.
 _PROTECTION_QUALITY = r"(?P<quality>the chosen colou?r|[a-z][a-z ]*?)"
+# RULE 702.16n/p's own carve-out on an attached-permanent grant — "This
+# effect doesn't remove this Aura/these Auras and Equipment." (Black Ward &c,
+# Benevolent Blessing) — an Aura whose granted protection would otherwise
+# make *itself* an illegal attachment (RULE 704.5m) the next SBA pass
+# (`RulesEngine._attachment_legal`'s `_protection_self_exempt` check). Kept
+# optional and non-capturing since it's purely a modifier on the grant, not
+# a separate effect; only the attached-permanent shape needs it — no shipped
+# card pairs this tail with the group/self forms.
+_PROTECTION_SELF_EXEMPT_TAIL = r"(?P<exempt>\. this effect doesn'?t remove [^.]*)?"
 _GROUP_PROTECTION_RE = re.compile(
     r"(?:(?P<scope>other) )?(?P<body>[a-z][a-z ]*?)(?P<yours> you control)?"
     rf"{_CHOSEN_TAIL} "
@@ -1354,7 +1382,8 @@ _GROUP_PROTECTION_RE = re.compile(
     re.IGNORECASE,
 )
 _ATTACHED_PROTECTION_RE = re.compile(
-    rf"(?P<subject>{_ATTACHED_SUBJECT_PATTERN}) has protection from {_PROTECTION_QUALITY}",
+    rf"(?P<subject>{_ATTACHED_SUBJECT_PATTERN}) has protection from {_PROTECTION_QUALITY}"
+    rf"{_PROTECTION_SELF_EXEMPT_TAIL}",
     re.IGNORECASE,
 )
 _SELF_PROTECTION_RE = re.compile(
@@ -1371,7 +1400,8 @@ _SELF_PROTECTION_RE = re.compile(
 # parameter), so that tail rejects it and fails the whole clause closed.
 _ATTACHED_ANTHEM_PROTECTION_RE = re.compile(
     rf"(?P<subject>{_ATTACHED_SUBJECT_PATTERN}) gets (?P<p>[+-]\d+)/(?P<t>[+-]\d+) "
-    rf"and has protection from {_PROTECTION_QUALITY}",
+    rf"and has protection from {_PROTECTION_QUALITY}"
+    rf"{_PROTECTION_SELF_EXEMPT_TAIL}",
     re.IGNORECASE,
 )
 _GROUP_ANTHEM_PROTECTION_RE = re.compile(
@@ -1387,20 +1417,50 @@ def _protection_params(quality: str) -> Optional[dict]:
     ``None`` for one this can't express (fail-closed).
 
     "the chosen color" (RULE 601.2b) becomes the dynamic flag the layer
-    engine re-reads off the source every pass; anything else is passed
-    through verbatim as a printed quality word for
-    `combat.protections_of_text` to normalize. Rebbec's "protection from
-    each mana value among artifacts you control" is deliberately *not*
-    expressible — a per-source computed quality, not a fixed one — and its
-    "each mana value …" text simply isn't a quality word, so it falls out
-    here rather than being mis-stored as one.
+    engine re-reads off the source every pass; "each color"/"each colour"
+    (Spectra Ward) is a fixed blanket quality — unlike Rebbec's "each mana
+    value among..." below, it names no board-dependent computation, so it
+    folds to the same "all colors" word `combat.protections_of_text`
+    already recognizes. Anything else is passed through verbatim as a
+    printed quality word for that function to normalize. Rebbec's
+    "protection from each mana value among artifacts you control" and
+    Pledge of Loyalty's "the colors of permanents you control" are
+    deliberately *not* expressible — a per-source computed quality, not a
+    fixed one — and neither is a plain quality word/phrase, so both fall out
+    here (" each "/" of ") rather than being mis-stored as one.
     """
     quality = quality.strip().rstrip(".").strip()
     if quality in ("the chosen color", "the chosen colour"):
         return {"protection_from_chosen_color": True}
-    if not quality or " each " in f" {quality} ":
+    if quality in ("each color", "each colour"):
+        return {"protections": ["all colors"]}
+    if quality == "creatures of the chosen type":
+        return {"protection_from_chosen_type": True}
+    if not quality or " each " in f" {quality} " or " of " in f" {quality} ":
         return None
     return {"protections": [q.strip() for q in re.split(r"\s+and\s+from\s+", quality)]}
+
+
+# PAR-8: "Each [<filter>] card in your hand has cycling `<cost>`." (Jo
+# Grant/Rhet-Tomb Mystic/Tectonic Reformation) — a layer-6 ability grant
+# whose *targets* are hand cards, a zone `_scope`/`_GRANT_RE`'s battlefield
+# selectors never reach; `game/continuous.py`'s dedicated
+# `_apply_hand_cycling_grants` pass is the engine side. ``filter`` is an
+# optional printed card type, or "historic" (CR glossary: legendary, an
+# artifact, or a Saga) — bare "each card in your hand" (no filter) is also
+# real wording (the ticket's own example) and simply omits the group. Never
+# collides with `_GRANT_RE`/`_ANTHEM_RE` (plural "have"/"get") or the
+# attached-subject rows (enchanted/equipped/fortified only) — this is
+# singular "has" over a subject none of those recognize.
+_HAND_CYCLING_TYPES = (
+    "creature", "land", "artifact", "enchantment", "instant", "sorcery",
+    "planeswalker", "historic",
+)
+_HAND_CYCLING_GRANT_RE = re.compile(
+    rf"each (?:(?P<filter>{'|'.join(_HAND_CYCLING_TYPES)}) )?card in your hand "
+    rf"has cycling (?P<cost>\{{[^}}]+\}}(?:\{{[^}}]+\}})*)",
+    re.IGNORECASE,
+)
 
 
 # "<equipped/enchanted/fortified subject> gets +N/+N [and has <keywords>]"
@@ -1447,6 +1507,15 @@ class _Scope(NamedTuple):
     subtype: Optional[str]  # a creature type ("Goblin"), or None for "creatures"
     tokens: bool  # True for "<…> tokens" (Intangible Virtue)
     colors: list  # WUBRG/C symbols; empty = no colour restriction (Bad Moon)
+    #: PAR-3: "Artifact creatures you control get +1/+1" (Chief of the
+    #: Foundry-shaped) — still a *creature* scope (RULE 205.2b: an artifact
+    #: creature is both types), just narrowed by the printed card type
+    #: rather than a creature subtype. Kept distinct from ``subtype``:
+    #: `continuous.py`'s ``_has_subtype`` reads the type line's text
+    #: *after* the em dash, where "Artifact" never appears (it's a type
+    #: word, not a subtype) — this instead rides the generic ``card_type``
+    #: filter param every `affected_objects` selector already supports.
+    card_type: Optional[str] = None
 
 
 def _singularize(word: str) -> str:
@@ -1492,7 +1561,14 @@ def _scope(body: str) -> Optional[_Scope]:
     if not words:
         return None
     if words[-1] == "creatures":
-        sub = _singularize(" ".join(words[:-1]))
+        prefix = words[:-1]
+        # "Artifact/Enchantment/Land/Planeswalker creatures [you control]
+        # get/have …" (PAR-3) — a single printed card-type word ahead of
+        # "creatures" narrows *which* creatures, it doesn't change the scope
+        # away from creatures the way a bare "Artifacts you control" would.
+        if len(prefix) == 1 and prefix[0] in (_CARD_TYPE_WORDS - {"creature"}):
+            return _Scope(None, tokens, colors, card_type=prefix[0])
+        sub = _singularize(" ".join(prefix))
     elif len(words) == 1:
         sub = _singularize(words[0])
     else:
@@ -1520,6 +1596,8 @@ def _scope_params(scope: _Scope, m: "re.Match[str]") -> dict:
             params["exclude_self"] = True
     if scope.subtype:
         params["subtype"] = scope.subtype
+    if scope.card_type:  # "Artifact/Enchantment/… creatures …" (PAR-3)
+        params["card_type"] = scope.card_type
     # "… of the chosen type/color …" (RULE 601.2b) — a dynamic sibling of the
     # literal subtype/colour params above, read fresh off the ability's own
     # source at recompute time (`continuous.group_selector_objects`). Only
@@ -1534,6 +1612,73 @@ def _scope_params(scope: _Scope, m: "re.Match[str]") -> dict:
         params["tokens"] = True
     if scope.colors:
         params["color"] = scope.colors
+    return params
+
+
+#: PAR-3 — a *bare* non-creature permanent-type word ("artifacts", "other
+#: enchantments"), for `_GRANT_RE`/`_QUOTED_GRANT_RE` only: word -> (the
+#: "you control" selector, the global selector). Every selector named here
+#: already exists in `game/continuous.py`'s `group_selector_objects` — PAR-3
+#: is parser-side recognition only, no new engine primitive. Deliberately
+#: never consulted by `_ANTHEM_RE`: a bare "+N/+N" clause on a non-creature
+#: permanent is never printed on a real card, so `_scope`'s `_NONCREATURE_
+#: TYPES` block-list stays in force there.
+_PERMANENT_TYPE_AFFECTS: dict[str, tuple[str, str]] = {
+    "artifact": ("artifacts_you_control", "all_permanents"),
+    "enchantment": ("permanents_you_control", "all_permanents"),
+    "land": ("lands_you_control", "all_lands"),
+    "planeswalker": ("permanents_you_control", "all_permanents"),
+    "permanent": ("permanents_you_control", "all_permanents"),
+}
+
+#: Which selector above already filters by the word on its own — everything
+#: else (enchantment/planeswalker, or the global sibling of artifact/land)
+#: is broader than the printed word and needs the generic `card_type` filter
+#: layered on top, same as the "Artifact creatures" case in `_scope_params`.
+_PERMANENT_TYPE_INHERENT: dict[str, str] = {
+    "artifacts_you_control": "artifact",
+    "lands_you_control": "land",
+    "all_lands": "land",
+}
+
+
+def _permanent_type_scope(body: str) -> Optional[str]:
+    """A bare `_PERMANENT_TYPE_AFFECTS` word ("artifacts", "other
+    enchantments") → the word itself, or ``None`` for anything `_scope`
+    should own instead (a creature scope) or that this deliberately doesn't
+    guess (a compound "artifacts and enchantments" — no engine selector
+    ORs two card types yet; colour/subtype narrowing — no real card
+    combines them with a non-creature scope).
+    """
+    words = body.split()
+    while words and words[0] in ("all", "each"):
+        words = words[1:]
+    if len(words) != 1:
+        return None
+    word = _singularize(words[0])
+    return word if word in _PERMANENT_TYPE_AFFECTS else None
+
+
+def _permanent_scope_params(word: str, m: "re.Match[str]") -> dict:
+    """The `affects`(+``card_type``) params for a `_permanent_type_scope`
+    word — the non-creature sibling of `_scope_params`'s "you control"/
+    "other"/global logic, over `_PERMANENT_TYPE_AFFECTS`'s selectors.
+
+    Unlike the creature family (which has a dedicated "other_creatures_you_
+    control" selector), there's no "other_enchantments_you_control" here —
+    "other" always goes through the general `exclude_self` filter instead,
+    in *both* the "you control" and global cases ("Other enchantments **you
+    control** have shroud." — Sterling Grove; "Other enchantments have
+    '…'." — Aura Flux).
+    """
+    other = bool(m.group("scope"))
+    yours = bool(m.group("yours"))
+    you_control_sel, global_sel = _PERMANENT_TYPE_AFFECTS[word]
+    params: dict = {"affects": you_control_sel if yours else global_sel}
+    if other:
+        params["exclude_self"] = True
+    if _PERMANENT_TYPE_INHERENT.get(params["affects"]) != word:
+        params["card_type"] = word
     return params
 
 
@@ -1628,6 +1773,13 @@ _STATIC_CONDITION_RES: list[tuple[re.Pattern[str], Any]] = [
         r"an opponent has (?P<n>\d+) or more cards in (?:their|his or her) graveyard", re.I),
      lambda m: {"kind": "opponent_count", "selector": "cards_in_your_graveyard",
                 "min": int(m.group("n"))}),
+    # PAR-10: "as long as you've cast an instant or sorcery spell this
+    # turn" (Haunting Figment/Leapfrog/Piston-Fist Cyclops) — the same
+    # `cast_instant_or_sorcery_this_turn` condition kind
+    # `catalogue.handlers`'s activation-condition family reuses for Hall of
+    # Oracles/Jin-Gitaxias's "Activate only … and only if …" shape.
+    (re.compile(r"you'?ve cast an instant or sorcery spell this turn", re.I),
+     lambda m: {"kind": "cast_instant_or_sorcery_this_turn"}),
 ]
 
 #: The characteristic words an "as long as `<attached subject>` is `<word>`"
@@ -1724,13 +1876,16 @@ def _flag_keywords(text: str) -> Optional[list[str]]:
     e.g. "ward {2}", need behaviour the grant can't express yet).
 
     Almost every entry must be a parameterless FLAG keyword ("flying",
-    "trample"). The one parametric exception: a landwalk variant
-    ("forestwalk", "islandwalk", …) — RULE 702.14's land type lives in the
-    slug itself, and `combat._landwalk_slugs` already matches any
-    ``granted_keywords`` entry ending in "walk" directly, so the grant
-    mechanism needs no separate quality param the way "protection from
-    <color>" would. A bare "landwalk" with no type (never printed on a real
-    card) still fails closed.
+    "trample"). Two parametric exceptions: a landwalk variant ("forestwalk",
+    "islandwalk", …) — RULE 702.14's land type lives in the slug itself, and
+    `combat._landwalk_slugs` already matches any ``granted_keywords`` entry
+    ending in "walk" directly, so the grant mechanism needs no separate
+    quality param the way "protection from <color>" would — and a *bare*
+    "hexproof" (RULE 702.11b's QUALITY shape, PAR-5, exists for the scoped
+    "hexproof from <colour>" variant; unscoped "hexproof" is still its own
+    complete keyword and grants exactly like a FLAG one). A bare "landwalk"
+    with no type, or a real "hexproof from <colour>" scope (whose slug never
+    resolves via `keyword_slug` to bare "hexproof"), still fails closed.
     """
     slugs: list[str] = []
     for part in re.split(r",|\band\b", text):
@@ -1739,7 +1894,7 @@ def _flag_keywords(text: str) -> Optional[list[str]]:
             continue
         slug = keyword_slug(part)
         kdef = KEYWORDS.get(slug)
-        if kdef is not None and kdef.shape is KeywordShape.FLAG:
+        if kdef is not None and (kdef.shape is KeywordShape.FLAG or kdef.slug == "hexproof"):
             slugs.append(kdef.slug)
             continue
         resolved = resolve_keyword(slug)
@@ -2013,6 +2168,8 @@ def static_effect_specs(clause: str) -> Optional[list[EffectSpec]]:
         params = _protection_params(m.group("quality"))
         if params is None:
             return None
+        if m.group("exempt"):
+            params["exempt_own_attachment"] = True
         return [
             EffectSpec("anthem", {"power": int(m.group("p")), "toughness": int(m.group("t")),
                                    "affects": "attached_permanent"}),
@@ -2047,6 +2204,8 @@ def static_effect_specs(clause: str) -> Optional[list[EffectSpec]]:
         params = _protection_params(m.group("quality"))
         if params is None:
             return None
+        if m.group("exempt"):
+            params["exempt_own_attachment"] = True
         return [EffectSpec("grant_protection_static", {"affects": "attached_permanent", **params})]
 
     m = _GROUP_PROTECTION_RE.fullmatch(text)
@@ -2321,22 +2480,45 @@ def static_effect_specs(clause: str) -> Optional[list[EffectSpec]]:
     m = _QUOTED_GRANT_RE.fullmatch(text)
     if m is not None:
         scope = _scope(m.group("body"))
-        if scope is None:
-            return None
+        if scope is not None:
+            scope_params = _scope_params(scope, m)
+        else:
+            # PAR-3: a bare non-creature scope ("Other enchantments have
+            # '…'", Aura Flux) — `_scope` deliberately stays creature-only
+            # (kept for `_ANTHEM_RE`), so a grant family falls back to the
+            # permanent-type sibling instead of failing closed.
+            word = _permanent_type_scope(m.group("body"))
+            if word is None:
+                return None
+            scope_params = _permanent_scope_params(word, m)
         grant = _quoted_ability_grant_effects(m.group("inner"))
         if grant is None:
             return None
-        grant.params.update(_scope_params(scope, m))
+        grant.params.update(scope_params)
         return [grant]
 
     m = _GRANT_RE.fullmatch(text)
     if m is not None:
         scope = _scope(m.group("body"))
-        if scope is None:
-            return None
+        if scope is not None:
+            scope_params = _scope_params(scope, m)
+        else:
+            # PAR-3, same fallback as `_QUOTED_GRANT_RE` above — "Artifacts
+            # you control have hexproof." (Leonin Abunas-shaped).
+            word = _permanent_type_scope(m.group("body"))
+            if word is None:
+                return None
+            scope_params = _permanent_scope_params(word, m)
         keywords = _flag_keywords(m.group("kw"))
         if keywords is None:
             return None
-        return [EffectSpec("grant_keyword", {"keywords": keywords, **_scope_params(scope, m)})]
+        return [EffectSpec("grant_keyword", {"keywords": keywords, **scope_params})]
+
+    m = _HAND_CYCLING_GRANT_RE.fullmatch(text)
+    if m is not None:
+        params: dict[str, Any] = {"cost": m.group("cost")}
+        if m.group("filter"):
+            params["card_type"] = m.group("filter").lower()
+        return [EffectSpec("grant_cycling_to_hand", params)]
 
     return None

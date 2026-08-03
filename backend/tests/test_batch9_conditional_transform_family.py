@@ -139,11 +139,13 @@ def test_gendered_pronoun_variants_are_modeled():
         assert [e.type for e in activated.effects] == ["exile_return_transformed", "sorcery_speed_marker"], pronoun
 
 
-def test_jin_gitaxias_shaped_extra_condition_stays_unclaimed():
-    """Fail-closed regression guard: a trailing "and only if you control
-    seven or more cards in hand" condition on the sorcery-speed marker isn't
-    modeled, so the whole clause (and card) stays unclaimed rather than
-    silently dropping the condition."""
+def test_jin_gitaxias_shaped_extra_condition_is_now_modeled():
+    """PAR-10 closed this: "activate only as a sorcery and only if you have
+    seven or more cards in hand" is a recognized compound activation
+    condition (`catalogue.handlers.ACTIVATION_CONDITION_MARKER`), so the
+    trailing condition on the sorcery-speed marker no longer drops the
+    whole clause. Was a fail-closed regression guard before PAR-10; now
+    guards the opposite direction — this must stay modeled."""
     card = Card(
         id="Jin Test", name="Jin Test", type_line="Legendary Creature — Phyrexian",
         is_creature=True, power=1, toughness=1,
@@ -155,7 +157,8 @@ def test_jin_gitaxias_shaped_extra_condition_stays_unclaimed():
         back_power=7, back_toughness=7,
     )
     result = parse_oracle(card)
-    assert result.coverage == UNMODELED
+    assert result.coverage != UNMODELED
+    assert result.unclaimed == []
 
 
 def test_legacy_werewolf_no_spells_cast_stays_unclaimed():

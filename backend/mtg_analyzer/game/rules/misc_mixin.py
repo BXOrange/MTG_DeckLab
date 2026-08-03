@@ -513,7 +513,11 @@ class MiscSystemsMixin:
         """Tally `SPELL_CAST` toward RULE 731.2's "spells cast this turn"
         count — both a paid `cast_spell` and a free `cast_without_paying`
         fire that event, so subscribing here (rather than incrementing at
-        each call site) covers every cast path from one place."""
+        each call site) covers every cast path from one place. Also flips
+        PAR-10's `cast_instant_or_sorcery_this_turn` off the same event's
+        ``object_types`` — the front-end front for Hall of Oracles/Jin-
+        Gitaxias's activation condition and Haunting Figment/Leapfrog/
+        Piston-Fist Cyclops's "as long as" statics."""
         if event.type != EventType.SPELL_CAST:
             return
         player_id = event.get("player_id")
@@ -521,6 +525,9 @@ class MiscSystemsMixin:
             return
         counts = self.state.spells_cast_this_turn
         counts[player_id] = counts.get(player_id, 0) + 1
+        object_types = event.get("object_types") or []
+        if "instant" in object_types or "sorcery" in object_types:
+            self.state.cast_instant_or_sorcery_this_turn[player_id] = True
     def _track_creature_death(self, event: GameEvent) -> None:
         """Tally `DIES` toward `GameState.creatures_died_this_turn` (RULE
         700.4). Subscribed rather than incremented at `_move_to_graveyard`,

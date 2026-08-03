@@ -299,17 +299,20 @@ class TestScrySurveilTriggers:
         # Each ability gets its *own* effect instances, never a shared list.
         assert res.specs[0].effects[0] is not res.specs[1].effects[0]
 
-    def test_a_once_per_turn_qualifier_fails_closed(self):
-        """Whispering Snitch's "for the first time each turn" is a limit the
-        engine can't express — so the card must stay UNMODELED rather than
-        bind a trigger that fires on every surveil."""
+    def test_a_once_per_turn_qualifier_is_now_modeled(self):
+        """Whispering Snitch's "for the first time each turn" (PAR-14)
+        folds into `AbilitySpec.trigger["limit"]`, backed by the
+        pre-existing `TriggeredAbility.once_per_turn`/`_last_triggered_turn`
+        mechanism (built for Dionus, Elvish Archdruid's granted ability) —
+        see test_par14_trigger_once_per_turn.py for the engine-level
+        "fires once per turn, not once per firing" behavior."""
         res = self.parse(
             "Whispering Snitch", "Creature — Vampire",
             "Whenever you surveil for the first time each turn, this creature "
             "deals 1 damage to each opponent and you gain 1 life.",
         )
-        assert res.coverage == "UNMODELED"
-        assert res.specs == []
+        assert res.coverage == "MODELED"
+        assert res.specs[0].trigger["limit"] is True
 
     def test_the_trigger_fires_for_its_own_controller(self):
         engine = make_engine(["deep", "b", "a"])

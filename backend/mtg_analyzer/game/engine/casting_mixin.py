@@ -25,7 +25,7 @@ from ...models.game_object import GameObject, Zone
 from ...models.game_state import GameState, StackItem
 from ...models.mana_cost import ManaCost
 from ...models.player import Player
-from .. import combat, condition_query, continuous, durations, face_down, variants
+from .. import ability_catalogue, combat, condition_query, continuous, durations, face_down, variants
 from ...models import game_format
 from ...models.game_format import GameFormat, get_format
 from ..costs import (
@@ -198,6 +198,7 @@ class CastingMixin:
         x: int = 0,
         face: str = "front",
         kicked: int = 0,
+        kicker_x: int = 0,
         buyback: bool = False,
         free: bool = False,
         mutate: bool = False,
@@ -220,6 +221,10 @@ class CastingMixin:
         (the default), or a value validated against the object's own
         ``kicker`` parametric keyword (see `_kicker_cost`): any nonzero value
         without one is illegal, and only Multikicker permits more than 1.
+        ``kicker_x`` (PAR-7) is the value announced for Kicker's *own*
+        ``{X}`` when ``obj``'s Kicker cost is itself variable (Emblazoned
+        Golem-shaped — a wholly separate announced value from the spell's
+        own ``x`` above); ignored otherwise. See `max_affordable_kicker_x`.
         ``buyback`` is whether Buyback's own additional cost (RULE 702.27)
         would also be paid — illegal (``False``) for an object with no
         ``buyback`` parametric keyword. ``free=True`` checks the RULE
@@ -402,8 +407,8 @@ class CastingMixin:
                 return False
         elif not assume_mana_available:
             cost = self.effective_cast_cost(
-                player, obj, x, face=face, kicked=kicked, buyback=buyback, mutate=mutate,
-                entwine=entwine, targets=targets,
+                player, obj, x, face=face, kicked=kicked, kicker_x=kicker_x, buyback=buyback,
+                mutate=mutate, entwine=entwine, targets=targets,
             )
             allows_restriction = restriction_predicate_for_cast(obj, has_x=cost.has_variable)
             wildcard = self.state.mana_wildcard_permission.get(obj.instance_id)
@@ -411,6 +416,17 @@ class CastingMixin:
                 cost, life_available=player.life, allows_restriction=allows_restriction, wildcard=wildcard
             ):
                 return False
+            if kicked and kicker_x > 0 and self._kicker_x_distinct_colors(obj):
+                # PAR-7: Kicker's own distinct-color-capped {X} is excluded
+                # from ``cost`` above (see `effective_cast_cost`) and paid
+                # separately, so it must also be checked separately — against
+                # whatever the pool has *left* once the rest of the cost is
+                # paid, not the pool as a whole (the same mana can't cover
+                # both). A clone keeps this a pure read.
+                remaining = player.mana_pool.clone()
+                remaining.pay(cost, life_available=player.life, allows_restriction=allows_restriction, wildcard=wildcard)
+                if not remaining.can_pay_distinct_colors(kicker_x):
+                    return False
         # RULE 601.2b: an "as an additional cost to cast this spell, …"
         # clause is a separate legality gate from the mana cost above — a
         # sacrifice/discard/life payment that isn't payable makes the spell
@@ -444,13 +460,23 @@ class CastingMixin:
         if not param or not param.get("cost"):
             return None
         return ManaCost.parse(str(param["cost"]))
+    @staticmethod
+    def _kicker_x_distinct_colors(obj: GameObject) -> bool:
+        """PAR-7: whether ``obj``'s Kicker ``{X}`` carries the "spend only
+        colored mana on X. No more than one mana of each color may be spent
+        this way." restriction (Emblazoned Golem) — see
+        `ability_catalogue.kicker_x_mana_restriction`. Read off the printed
+        card fresh each call rather than cached onto the object, the same
+        "recomputed from raw text" treatment `entry_counters` gets."""
+        return ability_catalogue.kicker_x_mana_restriction(obj.card) == "distinct_colors"
     def max_affordable_kicker(self, player: Player, obj: GameObject) -> int:
         """The highest number of times ``player`` could pay Kicker and still
         cast ``obj`` (RULE 702.33) — 0 or 1 for a plain Kicker, 0..N for
         Multikicker. Mirrors `max_affordable_x`'s "scan down from an upper
-        bound" shape; the interaction with an independently announced ``{X}``
-        isn't modeled (an MVP simplification — no card needs both solved
-        jointly today).
+        bound" shape. Doesn't itself account for an independently announced
+        Kicker ``{X}`` (`max_affordable_kicker_x`) — checked with
+        ``kicker_x=0``, so a Kicker payable at all (any X, even 0) still
+        reports 1 here; the two are meant to be read together.
         """
         kicker_cost = self._kicker_cost(obj)
         if kicker_cost is None:
@@ -461,6 +487,21 @@ class CastingMixin:
             if self.can_cast(player, obj, kicked=kicked):
                 return kicked
         return 0
+    def max_affordable_kicker_x(self, player: Player, obj: GameObject) -> int:
+        """The highest X ``player`` could announce for Kicker's *own*
+        ``{X}`` (RULE 702.33b, PAR-7 — Emblazoned Golem-shaped) and still
+        cast ``obj`` kicked once. `max_affordable_x`'s sibling for an
+        announced value living in Kicker's cost rather than the spell's own;
+        0 if ``obj``'s Kicker cost has no ``{X}`` at all.
+        """
+        kicker_cost = self._kicker_cost(obj)
+        if kicker_cost is None or not kicker_cost.has_variable:
+            return 0
+        bound = player.mana_pool.total()
+        for kicker_x in range(bound, -1, -1):
+            if self.can_cast(player, obj, kicked=1, kicker_x=kicker_x):
+                return kicker_x
+        return 0
     def effective_cast_cost(
         self,
         player: Player,
@@ -468,6 +509,7 @@ class CastingMixin:
         x: int = 0,
         face: str = "front",
         kicked: int = 0,
+        kicker_x: int = 0,
         buyback: bool = False,
         mutate: bool = False,
         entwine: bool = False,
@@ -485,7 +527,13 @@ class CastingMixin:
         cost (RULE 702.33b) once per time paid, and ``buyback`` adds
         Buyback's own cost once (RULE 702.27), both via `ManaCost.add` — not
         subject to the generic-only reduction above, since each is a
-        distinct additional cost, not part of the printed one.
+        distinct additional cost, not part of the printed one. When Kicker's
+        own cost is itself variable (PAR-7), ``kicker_x`` resolves it — unless
+        `_kicker_x_distinct_colors` flags it as paid separately (Emblazoned
+        Golem's "spend only colored mana on X" cap), in which case it's
+        zeroed here so it isn't double-counted; `can_cast`/`cast_spell` check
+        and pay that portion themselves via `ManaPool.can_pay_distinct_colors`/
+        `pay_distinct_colors`.
 
         RULE 601.2b/702.34b: a card actually sitting in ``player``'s
         graveyard (only reachable at all via `_castable_from_graveyard`) is
@@ -530,6 +578,9 @@ class CastingMixin:
         if kicked:
             kicker_cost = self._kicker_cost(obj)
             if kicker_cost is not None:
+                if kicker_cost.has_variable:
+                    resolved_x = 0 if self._kicker_x_distinct_colors(obj) else kicker_x
+                    kicker_cost = kicker_cost.with_x(resolved_x)
                 for _ in range(kicked):
                     cost = cost.add(kicker_cost)
         if buyback:
@@ -598,6 +649,7 @@ class CastingMixin:
         face: str = "front",
         mode: Optional[Any] = None,
         kicked: int = 0,
+        kicker_x: int = 0,
         buyback: bool = False,
         target_groups: Optional[list[list[Any]]] = None,
         free: bool = False,
@@ -634,7 +686,9 @@ class CastingMixin:
 
         ``kicked`` is how many times to pay Kicker (RULE 702.33b) — see
         `can_cast`/`effective_cast_cost`; recorded on ``obj.kicker_count``
-        once the cast succeeds. ``buyback`` is whether to pay Buyback's
+        once the cast succeeds. ``kicker_x`` (PAR-7) is the value announced
+        for Kicker's own ``{X}`` when it's variable; recorded on
+        ``obj.kicker_x_paid``. ``buyback`` is whether to pay Buyback's
         additional cost (RULE 702.27) — recorded on ``obj.buyback_paid``,
         consulted by `RulesEngine.resolve_top_of_stack` to route the spell
         back to hand instead of the graveyard.
@@ -681,7 +735,7 @@ class CastingMixin:
             self.rules.switch_to_face(obj, alt)
             try:
                 result = self._cast_current_face(
-                    player, obj, targets, x, mode=mode, kicked=kicked, buyback=buyback,
+                    player, obj, targets, x, mode=mode, kicked=kicked, kicker_x=kicker_x, buyback=buyback,
                     target_groups=target_groups, free=free, mutate=mutate,
                     mutate_under=mutate_under, bargained=bargained, entwine=entwine,
                     sacrifice_choice=sacrifice_choice, discard_choices=discard_choices,
@@ -693,7 +747,7 @@ class CastingMixin:
                 obj.adventure_snapshot = snapshot
             return result
         return self._cast_current_face(
-            player, obj, targets, x, mode=mode, kicked=kicked, buyback=buyback,
+            player, obj, targets, x, mode=mode, kicked=kicked, kicker_x=kicker_x, buyback=buyback,
             target_groups=target_groups, free=free, mutate=mutate,
             mutate_under=mutate_under, bargained=bargained, entwine=entwine,
             sacrifice_choice=sacrifice_choice, discard_choices=discard_choices,
@@ -843,6 +897,7 @@ class CastingMixin:
         x: int,
         mode: Optional[Any] = None,
         kicked: int = 0,
+        kicker_x: int = 0,
         buyback: bool = False,
         target_groups: Optional[list[list[Any]]] = None,
         free: bool = False,
@@ -875,7 +930,7 @@ class CastingMixin:
                 targets=targets,
             )
             if not self.can_cast(
-                player, obj, x, kicked=kicked, buyback=buyback, free=free,
+                player, obj, x, kicked=kicked, kicker_x=kicker_x, buyback=buyback, free=free,
                 mutate=mutate, bargained=bargained, entwine=entwine,
                 sacrifice_choice=sacrifice_choice, discard_choices=discard_choices,
                 targets=targets,
@@ -926,10 +981,17 @@ class CastingMixin:
                 self.rules.lose_life(player, obj.card.converted_mana_cost, cause="cost")
             else:
                 cost = self.effective_cast_cost(
-                    player, obj, x, kicked=kicked, buyback=buyback, mutate=mutate,
+                    player, obj, x, kicked=kicked, kicker_x=kicker_x, buyback=buyback, mutate=mutate,
                     entwine=entwine, targets=targets,
                 )
                 result = self.rules.cast_spell(player, obj, targets, x, cost=cost, target_groups=target_groups)
+                if kicked and kicker_x > 0 and self._kicker_x_distinct_colors(obj):
+                    # PAR-7: Kicker's own distinct-color-capped {X} was
+                    # excluded from ``cost`` above (`effective_cast_cost`) and
+                    # is paid here instead, against whatever `cost` left in
+                    # the pool — `can_cast` already verified this sequence is
+                    # payable.
+                    player.mana_pool.pay_distinct_colors(kicker_x)
             # RULE 601.2b/601.2h: an additional cost is paid as part of
             # casting, not resolving — so it stays paid even if the spell is
             # later countered. Paid *after* the mana cost (just above) so a
@@ -943,6 +1005,11 @@ class CastingMixin:
             # resolve-time effect that reads "if this spell was kicked" (a
             # follow-up, not yet parsed) has something to consult.
             obj.kicker_count = kicked
+            # RULE 702.33b/PAR-7: record Kicker's own announced {X}, when it
+            # has one — consulted by `_apply_entry_counters`'s
+            # ``kicked_x_scale`` shape (Emblazoned Golem's "it enters with X
+            # +1/+1 counters on it").
+            obj.kicker_x_paid = kicker_x if kicked else 0
             # RULE 702.27a: record whether Buyback was paid — consulted by
             # `RulesEngine.resolve_top_of_stack` to route the spell back to
             # hand instead of the graveyard.

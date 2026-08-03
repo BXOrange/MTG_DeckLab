@@ -25,6 +25,7 @@ from typing import Any, Optional
 
 from .catalogue.counters import entry_counters_condition
 from .catalogue.keywords import parse_keywords
+from .catalogue.kicker_mana import kicker_x_mana_restriction_condition
 from .catalogue.lands import tap_clause_condition
 from .catalogue.levels import (
     CLASS_BECOMES_LEVEL_RE,
@@ -489,7 +490,99 @@ NEVER_SUPPORTED = "NEVER_SUPPORTED"
 #: "each player/opponent creates" and "creates a **tapped** …" to reach it);
 #: and a ``goaded``/``in_combat`` trigger-subject filter, snapshotted onto
 #: the DIES event since RULE 400.7 means the object is already gone.
-PARSER_VERSION = "45"
+#: "47" (2026-08-03): the PAR-6..10 batch. PAR-6: RULE 702.16n/p's "This
+#: effect doesn't remove ~" exemption on an attached-permanent protection
+#: grant (`GameObject._protection_self_exempt`, read by `_attachment_legal`)
+#: — plus a "protection from each color" quality fold and a new
+#: "protection from creatures of the chosen type" dynamic (Riders of
+#: Gavony), the latter found while fixing two other cards' pre-existing,
+#: unrelated "protection from the colors of permanents you control"
+#: mis-modeling (a computed quality now correctly rejected, not silently
+#: stored as a literal string). PAR-7 investigated and re-scoped in
+#: BACKLOG.md rather than closed: Emblazoned Golem needs both a Kicker-
+#: cost-with-its-own-{X} primitive *and* a novel per-color-capped mana
+#: spend restriction, for one card. PAR-8: "Each [<filter>] card in your
+#: hand has cycling `<cost>`." (`grant_cycling_to_hand`,
+#: `continuous._apply_hand_cycling_grants` — a layer-6 grant reaching the
+#: hand zone, which no existing selector touched) — exposed and fixed a
+#: real gap where a hand-zone *granted* activated ability was never
+#: offered by `legal_actions` at all. PAR-9: a bare, unregistered "Cycling
+#: `<cost>`" keyword was already claimed for coverage but bound to no real
+#: activated ability (`effect_binder._cycling_activated_ability`), guarded
+#: against the type-restricted `<type>cycling` aliasing onto the same slug.
+#: PAR-10: "Activate only as a sorcery and only if `<condition>`."/"Activate
+#: only if `<condition>`." (`ACTIVATION_CONDITION_MARKER`,
+#: `ActivationCost.activation_condition`, checked by `can_activate` via
+#: `static_conditions.condition_holds`) plus a new
+#: ``cast_instant_or_sorcery_this_turn`` condition kind (picked up for free
+#: by the existing "as long as" family); and a same-session discovery while
+#: sizing Dread Wanderer — "Return this card from your graveyard to the
+#: battlefield[, tapped]" was entirely unrecognized (69+ cache cards),
+#: closed generally (`ReturnSelfFromGraveyardToBattlefieldEffect`) along
+#: with the `can_activate`/`legal_actions` graveyard-zone activation gap it
+#: exposed (a "MODELED but never actually offered" ability, the same
+#: anti-pattern PAR-9's Cycling fix caught).
+#: "48" (2026-08-03): PAR-7, previously re-scoped rather than closed —
+#: Emblazoned Golem. Kicker's own ``{X}`` is now a real announced value
+#: (`GameEngine`'s new ``kicker_x`` parameter on `can_cast`/
+#: `effective_cast_cost`/`cast_spell`, `max_affordable_kicker_x`,
+#: `GameObject.kicker_x_paid`), and its "spend only colored mana on X. No
+#: more than one mana of each color may be spent this way." payment
+#: restriction is a new general `ManaPool` primitive
+#: (`can_pay_distinct_colors`/`pay_distinct_colors`/`clone`, RULE
+#: 605.3a-shaped but capped by color-diversity rather than by what the mana
+#: is spent on) rather than a card-specific hack — paid as a second step
+#: after the printed cost, on whatever the pool has *left*, so the two
+#: never double-claim the same mana. `counters.py`'s kicked-gate "enters
+#: with N counters" shape now also accepts "X" as the amount
+#: (``kicked_x_scale``, resolved against ``kicker_x_paid`` rather than a
+#: fixed count or `x_paid`), and a new `catalogue/kicker_mana.py`
+#: recognizes the restriction clause — both claimed the same
+#: "engine reads the card directly, no spec" way `entry_counters`/
+#: tapped-entry already are, since resolution needs live cast-time state a
+#: precomputed spec can't carry.
+#: "49" (2026-08-03): PAR-16, PAR-17, PAR-14, PAR-15 in one batch.
+#: PAR-16: "`<cost>`: Return this card from your graveyard to your hand."
+#: (`ReturnSelfFromGraveyardToHandEffect`) and its triggered sibling
+#: "Whenever `<event>`, [you may] return this card from your graveyard to
+#: your hand." (RULE 113.6a — `TriggeredAbility.functions_from_graveyard`,
+#: inferred the same way PAR-10's `graveyard_zone` is, consulted by a new
+#: `RulesEngine._collect_graveyard_function_triggers` scan alongside the
+#: older mill-only one). PAR-17: a triggered ability's own "if it was
+#: kicked, `<effect>`." gate (`_KICKED_CONDITION_RE` widened from "this
+#: spell" to also accept "it"), plus two siblings: "if it was kicked
+#: **twice**" (RULE 702.34a Multikicker's own count threshold — a new
+#: `kicked_at_least` condition) and "if `<this spell|it>` was
+#: **bargained**" (the engine already supported this key; only the oracle-
+#: text recognizer was missing). An "X" inside a kicked-wrapper's rest
+#: clause is rewritten to a new `"kicker_x"` sentinel `RulesEngine.
+#: _substitute_x` resolves against `kicker_x_paid` — caught a real bug on
+#: the way: the substitution never reached through a `ConditionalEffect`
+#: wrapper to its `inner` effect, so this sentinel would have shipped
+#: broken (crashed at resolve time) without an execute-level test. PAR-14:
+#: RULE 603.2's once-per-turn trigger limiter, in both printed spellings —
+#: a trailing "This ability triggers only once each turn." sentence
+#: (`TRIGGER_ONCE_PER_TURN_MARKER`) and the inline "…for the first time
+#: each turn" condition suffix (stripped once, before any subject-family
+#: dispatch, so every trigger family picks it up for free) — both folding
+#: into the same `AbilitySpec.trigger["limit"]` flag, consumed by the
+#: `TriggeredAbility.once_per_turn`/`_last_triggered_turn` mechanism that
+#: already existed (built for Dionus, Elvish Archdruid's granted ability)
+#: but had no oracle-text path reaching it. PAR-15: RULE 115.1a's "any
+#: number of target `<X>`" — `_MULTI_TARGET_QUANTIFIER` widened with a
+#: third alternative alongside literal-N/"up to N", capped at
+#: `_ANY_NUMBER_TARGET_CAP` (10, the same convention the one pre-existing
+#: hand-authored example already used) rather than a live legal-target
+#: count, since the existing round-by-round gathering machinery already
+#: stops early or when targets run out; embedded in ~9 existing handler
+#: regexes so all of them gain it at once. Plus a genuinely new
+#: recognizer, `_DIVIDED_DAMAGE_RE`/`_divided_damage`, for the ticket's own
+#: named biggest cluster (RULE 601.2d "deals N/X damage divided as you
+#: choose among any number of target(s)/target creatures") — the
+#: `DealDamageEffect(divided=True)` engine primitive already existed
+#: (Shatterskull Smashing/Fire Covenant, hand-authored) but had no
+#: oracle-text recognizer either.
+PARSER_VERSION = "49"
 
 
 @dataclass
@@ -738,6 +831,13 @@ def _parse_oracle_uncached(card: Any) -> ParseResult:
         # entry_counters` (`RulesEngine`'s battlefield-entry resolution),
         # not an effect spec.
         if entry_counters_condition(line) is not None:
+            return
+        # RULE 702.33b Kicker's own "{X}" payment restriction ("Spend only
+        # colored mana on X. No more than one mana of each color may be
+        # spent this way.", PAR-7): same split as the two clauses above —
+        # covered by `game/ability_catalogue.kicker_x_mana_restriction`
+        # (`GameEngine.can_cast`/`cast_spell`), not an effect spec.
+        if kicker_x_mana_restriction_condition(line) is not None:
             return
         # RULE 903.3 "~ can be your commander." — a deck-legality permission
         # with no in-game behavioral effect (see `commander_eligibility_line`'s

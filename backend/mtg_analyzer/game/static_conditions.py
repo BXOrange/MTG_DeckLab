@@ -105,6 +105,15 @@ STATIC_CONDITION_KINDS: frozenset[str] = frozenset(
         "cards_in_hand_at_least",
         "cards_in_hand_at_most",
         "drawn_cards_at_least",  # + ``amount`` — "…you've drawn N cards this turn"
+        # "…you've cast an instant or sorcery spell this turn" (PAR-10) —
+        # `GameState.cast_instant_or_sorcery_this_turn`, reset for *every*
+        # player each `begin_turn` (unlike `spells_cast_this_turn`'s
+        # active-player-only reset) since this is read for a non-active
+        # controller too (Leapfrog's granted flying, Haunting Figment's
+        # evasion) as well as the always-active-player activation-condition
+        # use (Hall of Oracles/Jin-Gitaxias — only reachable at sorcery speed
+        # anyway, but the state itself must stay correct regardless).
+        "cast_instant_or_sorcery_this_turn",
         # -- The controller's designations (RULE 725/726/702.131c) — MEC-12.
         # No ``of`` subject: "you" in "as long as you're the monarch" always
         # means the static's controller, the same read `your_turn` already
@@ -366,6 +375,9 @@ def condition_holds(
         # counter.
         drawn = getattr(state, "cards_drawn_this_turn", None) or {}
         return int(drawn.get(controller_id, 0) or 0) >= int(condition.get("amount", 0))
+    if kind == "cast_instant_or_sorcery_this_turn":
+        cast = getattr(state, "cast_instant_or_sorcery_this_turn", None) or {}
+        return bool(cast.get(controller_id, False))
     return False
 
 

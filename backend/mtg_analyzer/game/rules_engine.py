@@ -311,7 +311,7 @@ class RulesEngine(
         #: remove once the amount is settled and a per-kind choice is
         #: underway — populated only while one of those choices is pending;
         #: see `request_remove_counters_choice`/`_continue_remove_counters`.
-        self._pending_remove_counters_target: Optional[GameObject] = None
+        self._pending_remove_counters_target: Optional[Union[GameObject, Player]] = None
         self._pending_remove_counters_remaining: int = 0
         # Collect triggers for every event the game fires.
         state.subscribe(self._collect_triggers)

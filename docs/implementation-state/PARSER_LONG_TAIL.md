@@ -13,7 +13,7 @@ Tracked in the backlog as a single standing entry, `PAR-12`.
 Measured by `scripts/coverage_report.py` (ledger-backed via
 `services/coverage_db.py`), against the full ~34k-card Oracle universe:
 
-**28.0% covered — 9,567 / 34,208 — as of 2026-07-30, PARSER_VERSION 45.**
+**28.4% covered — 9,731 / 34,208 — as of 2026-08-03, PARSER_VERSION 49.**
 
 "Covered" = parser-`MODELED` **or** hand-`AUTHORED`. Re-run the report rather
 than trusting a figure quoted here, in `CLAUDE.md`, or in the Engine-Status
@@ -102,6 +102,31 @@ Each was paid for once; re-reading them is cheaper than re-learning them.
   with an already-shipped constraint (`distinct_controllers`) doing the rest.
   Measuring the *mechanism* rather than the quoted phrase turned a
   one-card item into a five-card one at no extra cost.
+- **"Coverage" and "actually playable" are two different claims — check
+  both.** Three separate PAR-6..10 (2026-08-03) cards were already
+  `MODELED` (the coverage gate satisfied) while being functionally inert: a
+  bare Cycling keyword was claimed but bound to no real activated ability
+  (PAR-9); a layer-6 grant reaching the *hand* zone populated
+  `granted_activated_abilities` correctly, but `legal_actions`' hand-zone
+  loop only ever scanned `activated_abilities`, so the granted one was
+  never offered (PAR-8); and `can_activate` had no branch at all for an
+  ability sourced from the *graveyard* zone, so a new "return this card
+  from your graveyard to the battlefield" effect would have been unusable
+  the moment it shipped (PAR-10). None of these show up in a coverage
+  diff — only playing the card (or writing an execute-level test that
+  calls `legal_actions`/`can_activate`, not just `bind_from_catalogue`)
+  catches them. Grep for the *offering* code path, not just the binding
+  one, whenever a new effect targets a zone/ability-list combination
+  nothing has used yet.
+- **A ticket's own example can be hiding a much bigger, unrelated family
+  one clause away.** PAR-10 was framed as "Jin-Gitaxias's compound
+  activation condition" (a handful of cards). Sizing its SOLO list turned
+  up Dread Wanderer blocked on a *second*, wholly unrelated clause: "Return
+  this card from your graveyard to the battlefield[, tapped]." was
+  entirely unrecognized — 69+ cache cards, by far the batch's biggest win,
+  found only by running `blocked` on the literal phrase inside a
+  "ALSO BLOCKED" card's *other* unclaimed line rather than stopping once
+  the ticket's own named clause was handled.
 
 ## Worked example: the battle pool (RULE 310)
 

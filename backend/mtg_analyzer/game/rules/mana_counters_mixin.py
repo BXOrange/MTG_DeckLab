@@ -140,6 +140,23 @@ def _creature_type_options(state: GameState, controller_id: Optional[str]) -> li
     return sorted(types)
 
 
+def _counter_totals(target: Union[GameObject, Player]) -> dict[str, int]:
+    """The ``{kind: amount}`` counters ``target`` currently carries.
+
+    A `GameObject`'s own `counters` dict, or (PAR-2 — Price of Betrayal's
+    "target artifact, creature, planeswalker, or **opponent**") a `Player`'s
+    poison folded in alongside their generic `counters` dict: RULE 122.5
+    lets "remove counters" name a player's poison/energy/experience just as
+    freely as a permanent's +1/+1s, but `Player.poison` is its own attribute
+    (`Player.add_counters`), not part of `Player.counters`.
+    """
+    if isinstance(target, Player):
+        totals = dict(target.counters)
+        if target.poison:
+            totals["poison"] = target.poison
+        return totals
+    return dict(target.counters)
+
 
 
 class ManaCountersMixin:
@@ -411,14 +428,16 @@ class ManaCountersMixin:
 
         self.apply_replacements(event, on_resolved=_finish)
     def request_remove_counters_choice(
-        self, target: GameObject, max_count: int, chooser: Player
+        self, target: Union[GameObject, Player], max_count: int, chooser: Player
     ) -> None:
         """Open the "how many counters to remove" choice for ``target``.
 
         A no-op if ``target`` carries no counters at all — nothing to
-        choose, same as an empty-eligible `request_search`.
+        choose, same as an empty-eligible `request_search`. ``target`` may
+        be a `Player` (PAR-2's "…or opponent" compound target) as freely as
+        a permanent — see `_counter_totals`.
         """
-        total = sum(v for v in target.counters.values() if v > 0)
+        total = sum(v for v in _counter_totals(target).values() if v > 0)
         if total <= 0:
             return
         upper = min(max_count, total)
@@ -457,19 +476,31 @@ class ManaCountersMixin:
         if amount <= 0 or target is None:
             return
         self._continue_remove_counters(target, amount)
-    def _continue_remove_counters(self, target: GameObject, remaining: int) -> None:
-        kinds = sorted(k for k, v in target.counters.items() if v > 0)
+    def _remove_target_counters(self, target: Union[GameObject, Player], amount: int, kind: str) -> None:
+        """Remove ``-amount`` counters of ``kind`` from ``target`` — routes a
+        `Player` target (PAR-2) through `add_player_counters` instead of the
+        permanent-only `add_counters`."""
+        if isinstance(target, Player):
+            self.add_player_counters(target, amount, kind)
+        else:
+            self.add_counters(target, amount, kind)
+
+    def _continue_remove_counters(self, target: Union[GameObject, Player], remaining: int) -> None:
+        totals = _counter_totals(target)
+        kinds = sorted(k for k, v in totals.items() if v > 0)
         if not kinds or remaining <= 0:
             return
         if len(kinds) == 1:
-            take = min(remaining, target.counters.get(kinds[0], 0))
-            self.add_counters(target, -take, kinds[0])
+            take = min(remaining, totals.get(kinds[0], 0))
+            self._remove_target_counters(target, -take, kinds[0])
             return
         self._pending_remove_counters_target = target
         self._pending_remove_counters_remaining = remaining
         self.state.pending_choice = {
             "kind": "remove_counters_kind",
-            "player_id": target.controller_id,
+            # RULE 101.4c: with no instruction otherwise, the choice is made
+            # by whoever controls the target — a player controls themselves.
+            "player_id": target.controller_id if isinstance(target, GameObject) else target.id,
             "prompt": f"Von welcher Markerart einen entfernen? (noch {remaining})",
             "options": [{"id": kind, "label": kind} for kind in kinds],
         }
@@ -494,6 +525,6 @@ class ManaCountersMixin:
         )
         if target is None or kind is None:
             return
-        self.add_counters(target, -1, kind)
+        self._remove_target_counters(target, -1, kind)
         if remaining > 1:
             self._continue_remove_counters(target, remaining - 1)

@@ -8304,3 +8304,612 @@ sacrifice-fodder contention case), `backend/tests/test_auto_tap_action.py`
 hand-exile exclusion, the broadened `legal_actions` offers, rollback on
 failure), plus `test_multiplayer_session.py` additions for the priority
 gate and RULE 400.2 redaction of the new `mana_potential` view block.
+
+## PAR-1 – PAR-5 batch (2026-08-03)
+
+Five independent parser tickets, closed together (28.0% → 28.1%, 9,567 →
+9,608 / 34,208, PARSER_VERSION 45 → 46). Order below is easiest-first, not
+ticket-number order, since PAR-5's fix uncovered an unrelated bug PAR-3
+later collided with again.
+
+- [x] **PAR-5 · Hexproof-from-`<quality>`.** `keywords.py`'s `Hexproof` row
+      moved from `FLAG` to `QUALITY` (mirroring `Protection`'s shape and
+      hand-written extractor regex exactly), so "Hexproof from black"
+      (Knight of Grace) keeps its colour instead of collapsing to blanket
+      hexproof. The engine still treats hexproof as an unscoped boolean
+      (`combat.has_hexproof`) — recorded for future use, matching how
+      several other params already outrun the engine's own consumption of
+      them — so this is enrichment, not a coverage change on its own.
+      **Two bugs found and fixed on the way, not shipped broken:**
+      `_SPECIAL_REGEX`'s protection/hexproof extractor stopped at a
+      trailing `.,;)`/" and ", but a printed reminder-text parenthetical
+      right after the quality ("Protection from black **(This creature
+      can't be...**") starts with a bare space, so the regex failed outright
+      on any keyword-line card whose reminder text immediately follows —
+      added a `\s\(` alternative to the stop-lookahead, fixing this for
+      *both* Protection and the new Hexproof row. And `_token_keywords`/
+      `_flag_keywords` (the "create a token with `<keywords>`"/"`<X>` you
+      control have `<keywords>`" grant families) both hard-require
+      `KeywordShape.FLAG`, which silently broke every card granting *bare*
+      hexproof ("gets +2/+2 and gains hexproof until end of turn",
+      Blossoming Defense-shaped — 45 real cards) the moment Hexproof
+      stopped being a FLAG shape; both now special-case `slug == "hexproof"`
+      as an honorary FLAG for granting purposes (a real quality-suffixed
+      grant like "hexproof from black" never reaches that branch at all,
+      since `keyword_slug` only resolves the bare "hexproof"/"hexproof
+      from" spellings, so it still fails closed correctly).
+      Tests: `test_keyword_catalogue.py`.
+
+- [x] **PAR-4 · "As ~ enters, choose a basic land type."** A third
+      `enter_choice_effects` sibling alongside creature-type/colour
+      (`ChooseBasicLandTypeReplacement`, `game/effects.py`) — stamps the
+      very same `GameObject.chosen_type` field the creature-type family
+      uses (a land type is just another subtype string to the "is the
+      chosen type in addition to its other types" grant clause, which
+      doesn't care which family produced it), so no `continuous.py` change
+      was needed at all. New pieces: `static_handlers.
+      _CHOOSE_BASIC_LAND_TYPE_ON_ENTER_RE`, the fixed five-option list
+      (`casting_mixin._BASIC_LAND_TYPE_OPTIONS` — RULE 305.6, always all
+      five, unlike creature-type's open board-scan), a `choose_basic_
+      land_type` `pending_choice` kind wired through `_offer_enter_choices`/
+      `resolve_enter_choice`/`effect_binder`'s `enter_choice_effects`
+      routing/`GameEngine._dispatch` (the last of these was the one actual
+      *engine-loop* gap — the other three families already branched
+      generically enough to need only a new `elif`). Realmwright is fully
+      modeled on this alone.
+      **A second, unrelated bug found via A-Thran Portal, fixed
+      alongside:** it stayed `UNMODELED` even after the enter-choice fix,
+      because its own "Thran Portal is the chosen type…" self-reference
+      names the card's *un-prefixed* base name — Scryfall's MTG Arena
+      "Alchemy" rebalance convention prefixes the printed name with `A-`,
+      but the oracle text itself keeps self-referring by the original,
+      un-prefixed spelling. `normalize._fold_self_name` now also folds an
+      `A-`-stripped sibling of every name form it already tries, which
+      fixed 16 more Alchemy cards beyond A-Thran Portal itself (A-Circuit
+      Mender, A-Find the Path, …) for free — a pre-existing, general gap
+      this ticket happened to trip over, not something A-Thran-specific.
+      Tests: `test_batch7_chosen_type_color_family.py`, two new
+      `normalize` tests in `test_oracle_pipeline.py`.
+
+- [x] **PAR-3 · Non-creature group scopes.** `static_handlers._scope`
+      stays creature-only for `_ANTHEM_RE` (a bare "+N/+N" on a
+      non-creature permanent is never printed on a real card — the
+      ticket's own instruction), but the keyword-grant/quoted-grant
+      families (`_GRANT_RE`/`_QUOTED_GRANT_RE`) now fall back to a new
+      sibling, `_permanent_type_scope`/`_permanent_scope_params`, for a
+      *bare* card-type word ("Artifacts you control have hexproof." —
+      Leonin Abunas; "Other enchantments have '…'." — Aura Flux) — parser-
+      side only, exactly as scoped: every selector it produces
+      (`artifacts_you_control`/`permanents_you_control`/`lands_you_
+      control`/`all_permanents`/`all_lands`, plus the pre-existing generic
+      `card_type` filter for the two words with no dedicated selector,
+      enchantment/planeswalker) already existed in `game/continuous.py`.
+      Deliberately narrow: a compound "artifacts **and** enchantments you
+      control" (Fountain Watch) stays unclaimed rather than guessed, since
+      no selector ORs two card types yet.
+      **A real bug caught before shipping, not after:** the first cut of
+      `_permanent_scope_params` only special-cased the *global* "other"
+      case (`exclude_self`), missing that the "you control" case has no
+      dedicated "other_enchantments_you_control" selector either — Sterling
+      Grove's "**Other** enchantments **you control** have shroud." would
+      have granted itself shroud too. Fixed by applying `exclude_self`
+      whenever "other" is present, independent of "you control" vs global.
+      **A second, separate `_scope` widening rides along:** "Artifact
+      creatures you control get +1/+1" (Chief of the Foundry, 5 SOLO real
+      cards + several more blocked on other clauses) was *also* broken
+      before this batch, for an unrelated reason — `_scope`'s "`<word>`
+      creatures" branch treated "Artifact" as a guessed creature *subtype*,
+      which `_has_subtype` would never match (it's a card type, not a
+      subtype printed after the type line's em dash), so the anthem
+      silently boosted nothing. `_Scope` gained a `card_type` field for
+      exactly this shape (still creature-scoped — `affects` stays
+      `creatures_you_control`/`all_creatures` — just filtered further by
+      the generic `card_type` param, the same one the bare-scope fallback
+      above uses).
+      **A third bug found by spot-checking newly-covered cards for
+      correctness, not just coverage (the skill's own stated discipline):**
+      Greater Auramancy's second clause, "**Enchanted** creatures you
+      control have shroud.", hit the exact same `_scope` guessed-subtype
+      trap ("Enchanted" is a characteristic, not a subtype) — invisible
+      before this batch since the card never reached `MODELED` at all, but
+      would have shipped silently-wrong (shroud granted to nothing) the
+      moment the first clause started parsing. `enchanted`/`equipped`
+      added to `_NONCREATURE_TYPES` so this shape fails closed instead;
+      the real fix (a dedicated "creatures you control that are enchanted/
+      equipped" selector, narrower than the existing combined
+      `enchanted_or_equipped_creatures_you_control`) is real, separate,
+      un-ticketed work, affecting 23 real cards — flagged here rather than
+      silently dropped.
+      Tests: `test_oracle_pipeline.py`.
+
+- [x] **PAR-2 · Compound target-kind unions.** A new `targeting.
+      ALLOWED_TARGET_KINDS` member, `artifact_creature_planeswalker_or_
+      opponent` (Price of Betrayal's "target artifact, creature,
+      planeswalker, or opponent" — three permanent types unioned with a
+      player, wider than `any`, which RULE 115.9c excludes bare artifacts
+      from), plus its `_TARGET_ROWS` row and `legal_targets` branch,
+      following the existing `artifact_or_enchantment`/`opponent_or_
+      planeswalker` two-kind-union idiom. `handlers._REMOVE_COUNTERS_
+      CHOICE_RE` was rewritten to embed the shared `TARGET` macro instead
+      of its old hand-rolled `permanent|creature` alternation, so the new
+      kind (and any future TARGET row) reaches it for free.
+      **The real work was engine-side, not parser-side, despite the
+      ticket's framing:** `RemoveCountersEffect`'s interactive "how many/
+      which kind" choice chain (`request_remove_counters_choice`/
+      `_continue_remove_counters`/`resolve_remove_counters_kind_choice`,
+      `game/rules/mana_counters_mixin.py`) was hard-typed to a
+      `GameObject`'s own `counters` dict — targeting a player (RULE 122.5
+      lets "remove counters" name a player's poison/energy/experience,
+      not just a permanent's +1/+1s) would have opened a choice that then
+      crashed or silently removed nothing, exactly the "resolves to
+      nothing" failure mode this repo's conventions call out as worse than
+      staying `UNMODELED`. Fixed generically rather than special-cased to
+      Price of Betrayal: a new `_counter_totals(target)` helper reads
+      either a `GameObject.counters` dict or (for a `Player`) that dict
+      folded together with the separate `Player.poison` attribute (RULE
+      122's poison isn't stored in the generic counters dict), and
+      `_remove_target_counters` dispatches removal through the
+      already-existing `add_player_counters` for a `Player` instead of the
+      permanent-only `add_counters`. No new removal primitive was needed —
+      `add_player_counters` already handled negative (removal) amounts
+      correctly for a different card family; only the `remove_counters`
+      chain hadn't been taught to call it.
+      Tests: `test_remove_counters_choice.py`.
+
+- [x] **PAR-1 · Cross-target indirect referents.** Run Away Together's
+      two-sentence "Choose two target creatures controlled by different
+      players. Return those creatures to their owners' hands." — a
+      genuinely different shape from the single-sentence "destroy/exile N
+      target X controlled by different players" `_MULTI_TARGET_DISTINCT_
+      CONTROLLERS` already claims (`handlers.destroy_multi_target`/
+      `exile_multi_target`): here the *choosing* and the *acting* are two
+      separate clauses, joined only by the pronoun "those creatures".
+      Reused the existing "announce, then read back" machinery
+      (`ChooseTargetsEffect`/`GameContext.previous_targets`, built for
+      Ancient Animus's fight pair) rather than inventing a parallel one:
+      `ChooseTargetsEffect` gained `count`/`distinct_controllers`/
+      `optional`, producing one *quantified* `TargetSpec` of a single kind
+      (count=2) instead of two independently-kinded single picks, when
+      given exactly one `kinds` entry; `ReturnToHandEffect` gained
+      `previous_subject=True` (the same flag name/shape `GrantUntilEffect`
+      already uses for its own "Tap target land. It doesn't untap…"
+      pronoun), which reads the *whole* announced group off `previous_
+      targets` instead of opening a fresh RULE 115 choice — `Return
+      ToHandEffect`'s docstring had literally been carrying a "this param
+      exists so the engine primitive is complete… no parser front-end
+      recognizes this yet" note since it was written, exactly describing
+      this gap. Parser side: `_choose_targets_group` (a `previous_subject_
+      only`-*unlocking* row reusing `_multi_target_params`, the same
+      quantifier/distinct-controllers grammar `destroy_multi_target`
+      already has) and `_return_previous_group` (a `previous_subject_
+      only`-*gated* row for "return those creatures/them to their owners'
+      hands"), wired through the segmenter's existing `_announces_
+      creature_target` gate with no changes to it — `choose_targets`'s
+      `kinds` list already included plain `"creature"`, already in
+      `_CREATURE_TARGET_KINDS`.
+      Tests: `test_fight.py` (alongside the pre-existing Ancient Animus
+      pair-fight tests, since both are the same `previous_targets` pronoun
+      family).
+
+Coverage re-measured with `scripts/coverage_report.py`: **28.1% — 9,608 /
+34,208 — PARSER_VERSION 46** (synced across `CLAUDE.md`,
+`PARSER_LONG_TAIL.md`, `implementationStatusView.js`).
+
+## PAR-6, PAR-8, PAR-9, PAR-10 batch (2026-08-03)
+
+Four tickets closed (28.1% → 28.2%, 9,608 → 9,654 / 34,208, PARSER_VERSION
+46 → 47); PAR-7 investigated and re-scoped rather than closed (stays open,
+BACKLOG.md). Two of the four uncovered real functional gaps beyond their
+own parser recognition — a card can be `MODELED` and still be unplayable if
+nothing ever offers the ability `legal_actions`-side, which coverage alone
+never catches (see `PARSER_LONG_TAIL.md`'s new lesson on this).
+
+- [x] **PAR-6 · RULE 702.16n/p's "This effect doesn't remove this Aura."
+      tail.** `_PROTECTION_SELF_EXEMPT_TAIL`, an optional trailing group on
+      `_ATTACHED_PROTECTION_RE`/`_ATTACHED_ANTHEM_PROTECTION_RE`, sets
+      `exempt_own_attachment` on the `grant_protection_static` spec. Engine
+      side (the real reason this was gated on other work first): a new
+      per-*source* `GameObject._protection_self_exempt` flag, stamped by
+      `continuous.py`'s layer-6 pass and read by `_attachment_legal` (shared
+      by initial attach and `_revalidate_attachments`) — without it, Black
+      Ward and eleven siblings would genuinely detach themselves the very
+      next SBA pass, since each grants its own host protection from a
+      colour the Aura itself is. Closed 11 cards outright (Benevolent
+      Blessing, Black/Blue/Green/Pentarch/Red/White Ward, Cho-Manno's
+      Blessing, Flickering Ward, Spectra Ward, Tattoo Ward) plus two side
+      fixes found on the way: "protection from each color" (Spectra Ward)
+      folds to the existing "all colors" quality instead of tripping the
+      generic `" each "` computed-quality guard, and a new
+      `protection_from_chosen_type` dynamic (Riders of Gavony's "protection
+      from creatures of the chosen type"), the creature-type sibling of the
+      already-shipped `protection_from_chosen_color`. The latter surfaced a
+      **pre-existing, unrelated correctness bug**: Empty-Shrine Kannushi's
+      "protection from the colors of permanents you control" was being
+      silently stored as a literal (nonsense) quality string that could
+      never match anything — confirmed present before this session even
+      started (`git show HEAD:…`) — now correctly rejected (the same
+      `" of "` guard that also keeps Pledge of Loyalty's identical
+      computed-quality shape fail-closed, not half-modeled).
+      Tests: `test_standing_protection_and_type_extension.py`.
+- [x] **PAR-8 · Granting Cycling to other cards.** "Each `[<filter>]` card
+      in your hand has cycling `<cost>`." (Jo Grant/Rhet-Tomb Mystic/
+      Tectonic Reformation) — a layer-6 ability grant whose *targets* are
+      hand cards, a zone no existing `affects` selector reaches (RULE 613
+      selectors are all battlefield-scoped). Parser:
+      `_HAND_CYCLING_GRANT_RE`/`grant_cycling_to_hand`, `card_type` an
+      optional printed type or "historic" (CR glossary: legendary, an
+      artifact, or a Saga). Engine: a dedicated `continuous.
+      _apply_hand_cycling_grants` pass (mirroring `_apply_off_battlefield_
+      types`'s "track what was stamped, clear it, re-derive" shape) plus its
+      own `GameState._hand_cycling_ability_cache` — kept separate from the
+      ordinary layer-6 `_granted_ability_cache` rather than sharing it,
+      since that dict's own end-of-pass pruning loop only recognizes its
+      own key shapes and would silently evict any other shape sharing the
+      dict. Found and fixed on the way: `legal_actions_mixin.py`'s hand-zone
+      Cycling loop only ever scanned `source.activated_abilities`, never
+      `granted_activated_abilities` — so a granted hand-zone ability was
+      correctly *bound* but never actually *offered* to the player, a real
+      pre-existing gap this ticket's own feature was the first thing to
+      exercise. Closed Rhet-Tomb Mystic/Tectonic Reformation (Jo Grant stays
+      UNMODELED — its own "whenever you cycle a card" trigger and "Doctor's
+      companion" line are separate, unrelated gaps).
+      Tests: `test_channel_cycling.py`.
+- [x] **PAR-9 · Generic Cycling execution for unregistered cards.** A bare,
+      unregistered "Cycling `<cost>`" keyword line was already claimed for
+      the coverage gate (`[keyword] []`) but bound to nothing — Barkhide
+      Mauler and seven siblings were reported `MODELED` while genuinely
+      uncyclable. `effect_binder._cycling_activated_ability` (called from
+      the existing `_keyword_activated_ability` hook, alongside Equip/
+      Fortify/Reconfigure) binds a real `{cost}, Discard this card: Draw a
+      card.` `ActivatedAbility`, guarded two ways: the card's own *raw*
+      Scryfall `keywords` list must carry no other "…cycling" entry
+      (`keywords.keyword_slug` aliases every `<type>cycling` spelling onto
+      the same "cycling" slug, and the shared cost-extraction regex has no
+      word boundary — it matches "Landcycling {1}" as a substring just as
+      happily as a real "Cycling {1}" line, so the spec alone can't
+      distinguish them); and a card already carrying a `discard_self`-cost
+      ability (Dismantling Wave/Renewed Faith's own hand-authored one,
+      bound earlier in the same pass) is left alone rather than given a
+      second, competing "just draw a card" ability for the same cost.
+      Tests: `test_channel_cycling.py`.
+- [x] **PAR-10 · Jin-Gitaxias-style compound activation condition,** plus a
+      much larger discovery made while sizing it. Two independent halves:
+      - **The compound condition itself.** "Activate only as a sorcery and
+        only if `<condition>`."/"Activate only if `<condition>`." (Cabal
+        Inquisitor/Dread Wanderer/Hall of Oracles/Potioner's Trove/Jin-
+        Gitaxias // The Great Synthesis) — a new `ACTIVATION_CONDITION_
+        MARKER`, stripped and folded into a new `ActivationCost.
+        activation_condition` field the same way `SORCERY_SPEED_MARKER`
+        already folds into `sorcery_speed_only`, checked live by
+        `GameEngine.can_activate` via `game/static_conditions.
+        condition_holds` — the *same* RULE 613.6 whitelist a permanent's own
+        "as long as `<condition>`" static already uses, so a condition
+        recognized for one reads identically for both. Deliberately a
+        **small, independent** condition-phrase table in `handlers.py`
+        (`_ACTIVATION_CONDITION_RES`), not an import of `static_handlers.
+        static_condition` — that module already imports `handlers.py`
+        (`SORCERY_SPEED_MARKER`), so the reverse import would cycle. Covers
+        only the phrasings real cards actually pair with an activation
+        condition today (hand/graveyard counts, an opponent's graveyard
+        count, "cast an instant or sorcery spell this turn"); a full-cache
+        scan turned up **~150 other** "Activate only if …" phrasings
+        (`you control a Plains`, `this creature is attacking`, `a creature
+        died this turn`, …) — real, standing PAR-12 tail work, correctly
+        left fail-closed rather than guessed at.
+        New condition kind: `cast_instant_or_sorcery_this_turn`
+        (`GameState.cast_instant_or_sorcery_this_turn`, set by
+        `RulesEngine._track_spell_cast` off the same `SPELL_CAST` event
+        `spells_cast_this_turn` already tallies) — reset for *every*
+        player each `begin_turn`, unlike `spells_cast_this_turn`'s
+        active-player-only reset, since a non-active player's own static
+        condition (Leapfrog's granted flying, Haunting Figment's evasion)
+        must read correctly too. The existing "as long as" conditional-
+        static family picks this up for free via one new
+        `_STATIC_CONDITION_RES` row — Haunting Figment/Leapfrog/
+        Piston-Fist Cyclops all became `MODELED` with no dedicated parser
+        work of their own.
+      - **The discovery: "Return this card from your graveyard to the
+        battlefield[, tapped]."** Found while confirming Dread Wanderer's
+        SOLO-blocker status — its *other* clause was this, entirely
+        unrecognized. A full-cache scan found **69+ cards**, by far the
+        batch's biggest win — Reassembling Skeleton, Cauldron Familiar,
+        Bloodsoaked Champion, Drownyard Temple, Scrapheap Scrounger, and
+        dozens more. `game/effects.py`'s
+        `ReturnSelfFromGraveyardToBattlefieldEffect` mirrors the existing
+        `ReturnFromGraveyardTransformedEffect` exactly (untargeted, always
+        `self.source`, a no-op if it's left the graveyard by resolution
+        time) minus the forced flip, reusing `RulesEngine.
+        return_from_graveyard`'s pre-existing `"battlefield_tapped"`
+        destination for the tapped variant — no new zone-change primitive
+        needed. Named to avoid colliding with the *pre-existing*
+        `ReturnSelfFromGraveyardEffect` (RULE 112.6a mill-return-to-hand,
+        a per-firing `obj` rather than always `self.source`) — an earlier
+        draft reused that name and silently shadowed it in the same module,
+        breaking the mill-trigger family's own tests until caught.
+        This shape exposed a **second** real "MODELED but unplayable" gap,
+        the same one PAR-8 found: `can_activate` had no branch at all for
+        an ability sourced from the *graveyard* zone (only the battlefield,
+        an Emblem, or `discard_self`'s hand-zone carve-out) — a new
+        `ActivationCost.graveyard_zone` flag (stamped by `effect_binder.
+        bind_ability` whenever the built effects include a
+        `ReturnSelfFromGraveyardToBattlefieldEffect`, the same "the effect
+        and the zone always travel together" inference `discard_self`
+        already relies on for Cycling) closes it in both `can_activate` and
+        `legal_actions`' new graveyard-scanning loop.
+      Tests: `test_par10_activation_conditions.py` (new file),
+      `test_batch9_conditional_transform_family.py` (one pre-existing
+      fail-closed regression guard flipped to its new, correct MODELED
+      assertion now that the compound condition it guarded against is
+      genuinely supported).
+
+Coverage re-measured with `scripts/coverage_report.py`: **28.2% — 9,654 /
+34,208 — PARSER_VERSION 47** (synced across `CLAUDE.md`,
+`PARSER_LONG_TAIL.md`, `implementationStatusView.js`). PAR-7 stays open in
+BACKLOG.md with its real scope (two disproportionate new primitives for one
+card); a new PAR-16 tracks the "…to your hand" sibling of PAR-10's
+graveyard-reanimation discovery (20 cache cards, likely near-free by
+reusing the pre-existing `ReturnSelfFromGraveyardEffect`).
+
+## PAR-7 batch (2026-08-03)
+
+Closed the ticket the same session's PAR-6..10 batch had left open after
+sizing it as disproportionate — Emblazoned Golem, the cache's one card with
+a Kicker cost that is itself variable ("Kicker {X}"). Both primitives the
+earlier scoping note called out were built, each general rather than
+Emblazoned-Golem-specific:
+
+- **Kicker's own announced `{X}`** (RULE 702.33b). `GameEngine.can_cast`/
+  `effective_cast_cost`/`cast_spell`/`_cast_current_face` all gained a
+  `kicker_x` parameter, a wholly separate announced value from the spell's
+  own `x` (the two are independent RULE 601.2b announcements — no card
+  needs both today, but they're no longer implicitly conflated the way the
+  old `max_affordable_kicker` docstring flagged as fragile).
+  `max_affordable_kicker_x` mirrors `max_affordable_x`'s "scan down from the
+  pool total" shape, scoped to `kicked=1`. `GameObject.kicker_x_paid`
+  records what was actually paid, the same "set once at cast time, read at
+  resolution" treatment `kicker_count` already gets — a different field
+  from both `kicker_count` (times Kicker was paid) and the ordinary
+  `x_paid` the ordinary "enters with X counters" shape reads, kept
+  distinct rather than conflated per the original PAR-6..10 scoping note's
+  own warning. `legal_actions`' `_cast_action` surfaces `kicker_has_x`/
+  `kicker_max_x`, the same shape `has_x`/`max_x` already uses for the
+  spell's own X; `services/game_session.py`'s `_dispatch_cast_spell` and
+  `frontend/src/js/gameBoardView.js` (`kickerXFieldHtml`/`readKickerX`, a
+  third number input alongside the existing X/Kicker-count fields, wired
+  into both the immediate-cast and the target-picking cast paths) round-trip
+  it end to end — this is playable from the actual Goldfisch/Replay board,
+  not just from Python.
+- **The "spend only colored mana on X. No more than one mana of each color
+  may be spent this way." payment restriction** (RULE 605.3a-shaped, but
+  capping *which* colours rather than *what the mana is spent on* — no
+  existing spend restriction did this). Built as two new general
+  `models.mana_pool.ManaPool` methods rather than a new `ManaCost` symbol
+  kind: `can_pay_distinct_colors(n)`/`pay_distinct_colors(n)` (at least `n`
+  of the five colours each having >=1 unrestricted mana — colourless and
+  raw mana *count* never qualify, only colour *diversity* does), plus a
+  `clone()` used only for the read-only legality check. The two-step
+  payment this requires — pay the printed/fixed portion of the cost first,
+  *then* check/pay Kicker's distinct-colour X against whatever the pool has
+  left — matters for correctness, not just style: checking both
+  requirements independently against the same starting pool would let a
+  card with exactly enough colored mana for one requirement wrongly satisfy
+  both (a case a dedicated regression test,
+  `test_can_cast_kicked_refuses_when_printed_cost_and_kicker_x_would_share_mana`,
+  pins down). `effective_cast_cost` zeroes Kicker's `{X}` symbol out of the
+  merged `ManaCost` entirely when this restriction applies (`with_x(0)`,
+  read via the new `ability_catalogue.kicker_x_mana_restriction`/
+  `GameEngine._kicker_x_distinct_colors`) so it's never double-counted
+  against the ordinary solver, and `cast_spell` pays the distinct-colour
+  portion as a separate step right after `RulesEngine.cast_spell` pays the
+  rest — ordering that happens to be optimal for this card for free, since
+  `ManaPool._spend_generic`'s colourless-first order preserves colour
+  diversity for whatever needs it next.
+- **The counters payoff**: "If this creature was kicked, it enters with X
+  +1/+1 counters on it." — X being Kicker's own paid amount, not a fixed
+  count or the spell's own `x_paid` — was the original PAR-6..10 batch's
+  own deliberate fail-closed gap (`counters.py`'s `_FIXED_AMOUNT`
+  explicitly excluded "x" with a comment naming exactly this ambiguity).
+  Resolved by widening the kicked-gate regex's amount group to also accept
+  "x" (`_KICKED_GATE_AMOUNT`, kept separate from the Multikicker-scaled
+  regex's own `_FIXED_AMOUNT`, since no card scales a per-kick amount by an
+  announced X) and tagging the result with a new `kicked_x_scale` flag,
+  read by `_apply_entry_counters` off `kicker_x_paid` instead of a literal
+  count.
+- **The restriction clause's own recognition**: a new
+  `parser/oracle/catalogue/kicker_mana.py`, mirroring `counters.py`'s
+  "recognized directly, engine reads via `ability_catalogue`, no spec"
+  split — the restriction is cast-time payment logic the binder has no
+  spec shape for, the same reason entry-counters/tapped-entry bypass specs.
+  Claimed in `gate.py` the same "if `<recognizer>`(line) is not None:
+  return" way as those two.
+
+Emblazoned Golem is now fully `MODELED` with zero unclaimed clauses.
+Coverage: **28.2% — 9,655 / 34,208 — PARSER_VERSION 48** (synced across
+`CLAUDE.md`, `PARSER_LONG_TAIL.md`; `implementationStatusView.js`'s rounded
+percentage was already correct at 28.2% and needed no edit). Tests:
+`test_par7_kicker_x.py` (new file — parser recognition, the `ManaPool`
+primitives in isolation, `can_cast`/`max_affordable_kicker_x`/
+`legal_actions` offer fields, and two full cast→resolve engine tests
+confirming both the mana actually spent and the counters that land);
+`test_batch6_cost_keyword_family.py`'s pre-existing
+`test_kicked_gated_x_amount_stays_unclaimed` fail-closed regression guard
+flipped to `test_kicked_gated_x_amount_is_recognized` now that the shape it
+guarded against is genuinely supported (the same "un-stale a superseded
+fail-closed test" pattern the PAR-6..10 batch hit with Jin-Gitaxias).
+
+While re-verifying the ticket's "Emblazoned Golem is the only card with a
+variable Kicker cost" claim (a fresh full-cache scan, not just trusting the
+earlier note), three more turned up — Kangee, Aerie Keeper/Thieving
+Skydiver/Verdeloth the Ancient — each using a *triggered* "When ~ enters, if
+it was kicked, `<effect scaled by X>`." shape rather than the RULE 614.1
+entry-counters one this batch closed. Chasing that down further surfaced a
+much bigger, unrelated sibling family — a triggered ability's own "if it was
+kicked, `<effect>`." gate has no parser support at all (65 SOLO blockers, 79
+total) — tracked as **PAR-17** rather than folded into this session, since
+it's a genuinely separate segmenter feature, not a natural extension of
+either primitive this batch built.
+
+## PAR-16, PAR-17, PAR-14, PAR-15 batch (2026-08-03)
+
+Closed the PAR-17 discovery from the batch above, plus two independently
+sized tickets (PAR-14, PAR-15), in one session — user instruction: resolve
+all four, no deferring. Coverage: **28.2% → 28.4% (9,655 → 9,731 / 34,208),
+PARSER_VERSION 48 → 49**, full suite 3,060 passed (was 3,005), zero
+regressions across the whole batch.
+
+**PAR-16 · "Return this card from your graveyard to your hand."** The
+hand-destination sibling of PAR-10's "…to the battlefield[, tapped]."
+(`ReturnSelfFromGraveyardToBattlefieldEffect`). Re-verifying the ticket's
+own "20 cache cards" estimate with a fresh `python scripts/parser_probe.py
+blocked` run found **70 SOLO blockers** instead — the estimate had been the
+ledger's *stale-blocker* ranking, not a live re-count. Two shapes, both
+real:
+
+- A new `ReturnSelfFromGraveyardToHandEffect` (self-only, untargeted, a
+  no-op unless still in the graveyard — the same shape as its battlefield
+  sibling, just no `tapped` param) plus one merged regex
+  (`_RETURN_SELF_FROM_GRAVEYARD_RE`, a named ``hand``/``tapped``
+  alternation) instead of a near-duplicate second handler.
+- **The triggered half needed a genuinely new engine primitive**, not just
+  a spec: Aurora Eidolon/Chandra's Phoenix/Blood Speaker-shaped cards say
+  "Whenever `<event>`, [you may] return this card from your graveyard to
+  your hand." — a triggered ability that must keep firing while its own
+  source sits in the *graveyard* (RULE 113.6a). `_collect_triggers` only
+  ever scanned `state.permanents()`; the only precedent was
+  `_collect_mill_return_from_graveyard_triggers`, a bespoke per-firing
+  marker built solely for RULE 112.6a mill-return and not reusable here.
+  Generalized instead of duplicated: `TriggeredAbility.
+  functions_from_graveyard` (inferred by `effect_binder.bind_ability`
+  straight off the effect list — the same "effect and permission always
+  travel together" inference `ActivationCost.graveyard_zone` already uses
+  for the activated half) plus a new `RulesEngine.
+  _collect_graveyard_function_triggers` scan, run alongside the older
+  mill-only one rather than replacing it. The ordinary `check_trigger`/
+  subject-condition machinery needed no changes at all — a graveyard
+  card's `controller_id` already defaults to `owner_id` and never diverges
+  without a control-change effect, which can't reach a graveyard card.
+  Tests confirm both a "you may" decline and the "an opponent's Demon
+  entering doesn't trigger your own graveyard card" `controller="you"`
+  scoping.
+
+**PAR-17 · A triggered ability's own "if it was kicked, `<effect>`."
+gate**, generalized per this session's explicit instruction to also cover
+Bargain and Multikicker while at it:
+
+- `_KICKED_CONDITION_RE` widened from "if this spell was kicked" (spell-
+  only) to `if (this spell|it) was (kicked(?: twice)?|bargained)` — "it"
+  reaches a triggered ability's own body (Heartstabber Mosquito/Josu Vess,
+  Lich Knight-shaped); "twice" is RULE 702.34a Multikicker's own count
+  threshold, a new `kicked_at_least` condition key (`ConditionalEffect.
+  _condition_holds`); "bargained" reaches a `ConditionalEffect` condition
+  key (`{"bargained": True}`) that the engine has supported since the
+  cEDH-cube batch but that **no oracle-text recognizer had ever reached**
+  — Beseech the Mirror was hand-authored, and nothing else used the words.
+- An "X" inside a kicked-wrapper's own rest clause is rewritten to a new
+  `"kicker_x"` sentinel (distinct from the ordinary `"x"`, since it must
+  read PAR-7's `GameObject.kicker_x_paid` rather than the spell's own
+  `x_paid`) — resolved by a new branch in `RulesEngine._substitute_x`.
+  **A real bug caught by the execute-level test, not the parse-level
+  ones**: `_substitute_x` iterates a `TriggeredAbility`'s own `effects`
+  list, but a kicked-wrapped effect is a `ConditionalEffect`, which has no
+  `amount`/`count` attribute of its own — only its `.inner` does. Without
+  unwrapping through `.inner`, "if it was kicked, draw x cards" left
+  `DrawCardEffect.count` as the literal string `"kicker_x"` forever,
+  crashing at `range(count)` the moment it resolved. Fixed by walking the
+  `.inner` chain before checking the magnitude attrs. Verified against a
+  synthetic card rather than a real one — both real cache examples
+  (Kangee, Aerie Keeper/Verdeloth the Ancient) are blocked on a *different*,
+  pre-existing gap instead (`_add_counters`/`_create_token` neither accept
+  an "X" amount nor, for Kangee, a named "feather" counter type) — the
+  mechanism is real and tested, just not yet reachable from either real
+  card.
+- Sizing this ticket (re-verifying "Emblazoned Golem is the only card with
+  a variable Kicker cost" from the prior PAR-7 batch) surfaced **PAR-17
+  itself** as a discovery, and sizing *that* surfaced one more: a fresh
+  `blocked "if it was kicked"` scan went 65 → 50 unclaimed after this
+  batch's fix, confirming the wrapper itself now works — the remaining 50
+  are ordinary unrelated effect-body gaps (search, discard, return-with-a-
+  qualifier), correctly left for PAR-12 tail work rather than chased here.
+
+**PAR-14 · RULE 603.2's once-per-turn trigger limiter**, in both printed
+spellings. The ticket's own "needs a genuine new mechanism" framing was
+**wrong** — `TriggeredAbility.once_per_turn`/`_last_triggered_turn`
+already existed, built for Dionus, Elvish Archdruid's *granted* ability,
+but no oracle-text path had ever set it for an ordinary printed card. Pure
+parser wiring once found:
+
+- A trailing-sentence marker (`TRIGGER_ONCE_PER_TURN_MARKER`, "This
+  ability triggers only once each turn.") stripped out of the parsed
+  effect body, mirroring `ONCE_PER_TURN_MARKER`'s existing shape for
+  *activated* abilities exactly, just for a triggered one.
+- An inline condition suffix ("…for the first time each turn") stripped
+  once, at the single `cond_text = trig.group("cond")` choke point in
+  `segmenter.segment_line`, *before* any subject-family dispatch (self/
+  group/player/variant) — since real cards print this suffix across every
+  one of those families ("~ attacks for the first time each turn", "you
+  gain life for the first time each turn", "1 or more counters are put on
+  ~ for the first time each turn"), catching it in one shared place means
+  every family gets `AbilitySpec.trigger["limit"]` for free rather than
+  needing its own copy.
+- Both fold into the same `trigger["limit"]` flag, read once by
+  `effect_binder.bind_ability`'s triggered branch as
+  `TriggeredAbility(once_per_turn=...)`. A pre-existing fail-closed
+  regression guard (`test_scry_surveil_vancouver.py`'s own "for the first
+  time each turn" test) flipped from asserting `UNMODELED` to asserting
+  the new `MODELED`+`limit` behavior — the same "un-stale a superseded
+  regression guard" pattern this repo hits almost every batch.
+
+**PAR-15 · RULE 115.1a's "any number of target `<X>`" targeting.** The
+ticket's own count (64 cards) undercounted badly — a fresh
+`engine_bench.py cards` scan found 167 UNMODELED cards mentioning the
+phrase, across a dozen-plus distinct clause families. Shipped the core
+mechanism plus the ticket's own named biggest cluster, left the rest as a
+narrowed PAR-15 residue (see `BACKLOG.md`) rather than chase every
+cluster in one sitting:
+
+- `catalogue.handlers._MULTI_TARGET_QUANTIFIER` (the shared quantifier
+  embedded in **nine** existing handler regexes — destroy/exile/tap-untap/
+  return-to-hand/"can't block"/damage-to-each-of/"choose"-for-search/
+  graveyard-return) gained a third alternative, "any number of ", capped
+  at `_ANY_NUMBER_TARGET_CAP` (10) with `optional=True` always implied.
+  The cap is a fixed constant, not a live `legal_targets` count, matching
+  the one pre-existing hand-authored precedent (`ability_catalogue.
+  _fire_covenant`'s own "any number of target creatures" already used
+  `count=10` with the same reasoning: "a real board never has X-1's worth
+  of relevant creatures beyond that") — safe because the existing
+  round-by-round target-gathering machinery (`RulesEngine.
+  _continue_trigger_multi_target`) already stops early, either when the
+  player explicitly says "stop" or when it runs out of legal candidates,
+  regardless of how high the nominal cap is. One shared-grammar edit,
+  nine families gained it at once — including "any number of target
+  creatures can't block this turn," one of the ticket's own named
+  examples, for free.
+- **The named biggest cluster** — RULE 601.2d's "`~` deals N/X damage
+  divided as you choose among any number of target(s)/target creatures."
+  — needed a genuinely new recognizer, `_DIVIDED_DAMAGE_RE`/
+  `_divided_damage`, but *not* a new engine primitive:
+  `DealDamageEffect(divided=True)` (RULE 601.2d) already existed from the
+  cEDH-cube batch, reachable only through two hand-authored cards
+  (Shatterskull Smashing, Fire Covenant) with zero oracle-text path in.
+  Real cards newly covered end to end: Bogardan Hellkite, Rolling Thunder,
+  Boulderfall, Magma Opus, Pyrotechnics, Spreading Flames, Violent
+  Eruption, Volley of Boulders, Blinding Flare (a Strive card — see
+  below), Consign to Dust, Kiora's Dismissal.
+- **Every one of Strive's 20 real cards was blocked on this family**,
+  confirming the original ticket's own note: MEC-4 (Strive) shipped with
+  *zero* fully-`MODELED` cards, since every Strive card pairs its now-
+  modeled `strive_cost` with an "any number of target creatures" effect
+  body. Blinding Flare is now the first Strive card to reach `MODELED`.
+- Left open, written up as a narrowed PAR-15 in `BACKLOG.md`: a `divided`
+  mode for `PreventDamageEffect` (the same shape as `DealDamageEffect`'s,
+  2 cards), two new graveyard-recursion destinations ("…on top of your
+  library"/"…shuffle into your library", 6 cards combined), and the
+  distribute-counters/mass-pump clusters (untouched). None of these need
+  a new *targeting* primitive — `_ANY_NUMBER_TARGET_CAP`/`optional=True`
+  already generalizes — only new or widened effect-body recognizers.
+
+Tests: `test_par16_graveyard_to_hand.py` (10), `test_par17_kicked_trigger_
+gate.py` (20), `test_par14_trigger_once_per_turn.py` (9),
+`test_par15_any_number_of_targets.py` (16) — all new files, parse+execute
+style throughout (each ticket's engine-level behavior, not just its
+coverage verdict, is asserted).

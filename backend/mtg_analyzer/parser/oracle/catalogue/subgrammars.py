@@ -34,6 +34,13 @@ _TARGET_ROWS: list[tuple[str, str]] = [
     (r"any target", "any"),
     (r"target creature or player", "any"),
     (r"target creature, player,? or planeswalker", "any"),
+    # "target artifact, creature, planeswalker, or opponent" (PAR-2, Price
+    # of Betrayal) — three permanent types unioned with a player. Genuinely
+    # wider than ``any`` (which excludes non-creature artifacts, RULE
+    # 115.9c), so it gets its own kind rather than collapsing onto ``any``
+    # the way the two rows above do.
+    (r"target artifact, creature, planeswalker,? or opponent",
+     "artifact_creature_planeswalker_or_opponent"),
     # "target creature or planeswalker you don't control" (Bite Down) — the
     # controller-scoped sibling of the bare row just below, and above it by
     # the longest-first convention. Both drop the planeswalker half (this

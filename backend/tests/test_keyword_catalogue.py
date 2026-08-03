@@ -157,6 +157,35 @@ class TestQualityKeywords:
         specs = parse_keywords(_card(["Protection"], "Protection from red"))
         assert specs[0].keyword == {"name": "protection", "quality": "red"}
 
+    def test_protection_extracts_colour_before_reminder_text(self):
+        specs = parse_keywords(_card(
+            ["Protection"],
+            "Protection from black (This creature can't be blocked, targeted, "
+            "dealt damage, enchanted, or equipped by anything black.)",
+        ))
+        assert specs[0].keyword == {"name": "protection", "quality": "black"}
+
+    def test_hexproof_from_extracts_quality(self):
+        # Scryfall's keywords array names this variant "Hexproof from" (PAR-5)
+        # — both it and the bare "Hexproof" entry alias onto one slug and
+        # de-dupe, so only one spec should come out, carrying the quality.
+        specs = parse_keywords(_card(["Hexproof from", "Hexproof"], "Hexproof from black"))
+        assert [s.keyword for s in specs if s.keyword["name"] == "hexproof"] == [
+            {"name": "hexproof", "quality": "black"}
+        ]
+
+    def test_hexproof_from_extracts_quality_before_reminder_text(self):
+        specs = parse_keywords(_card(
+            ["Hexproof from", "Hexproof"],
+            "Hexproof from monocolored (This creature can't be the target of "
+            "monocolored spells or abilities your opponents control.)",
+        ))
+        assert specs[0].keyword == {"name": "hexproof", "quality": "monocolored"}
+
+    def test_bare_hexproof_has_no_quality(self):
+        specs = parse_keywords(_card(["Hexproof"], "Hexproof"))
+        assert specs[0].keyword == {"name": "hexproof"}
+
     def test_enchant_extracts_what_it_attaches_to(self):
         specs = parse_keywords(_card(["Enchant"], "Enchant creature\nEnchanted creature gets +1/+1."))
         assert specs[0].keyword == {"name": "enchant", "quality": "creature"}

@@ -383,6 +383,32 @@ def test_a_chosen_pair_fights_each_other():
     assert mine.damage_marked == 2
 
 
+def test_a_chosen_group_is_returned_to_hand():
+    """Run Away Together-shaped (PAR-1): "Choose two target creatures
+    controlled by different players. Return those creatures to their
+    owners' hands." — the return clause announces no requirement of its
+    own, unlike `test_a_chosen_pair_fights_each_other`'s two independently-
+    kinded picks: this is one *quantified* group of the same kind."""
+    from mtg_analyzer.game.effects import (
+        ChooseTargetsEffect, GameContext, ReturnToHandEffect, _apply_effects_partitioned,
+    )
+    from mtg_analyzer.models.game_object import Zone
+
+    engine, state, _, _ = _engine()
+    mine = _creature(state, "Mine", 3, 3)
+    theirs = _creature(state, "Theirs", 2, 4, controller="p2")
+
+    chooser = ChooseTargetsEffect(kinds=["creature"], count=2, distinct_controllers=True)
+    returner = ReturnToHandEffect(previous_subject=True)
+    _apply_effects_partitioned(
+        [chooser, returner], GameContext(state, engine.rules), None,
+        [[mine, theirs]],
+    )
+
+    assert mine.zone == Zone.HAND
+    assert theirs.zone == Zone.HAND
+
+
 def test_another_target_creature_cannot_be_the_same_creature():
     """RULE 109.5's resolve-time backstop — the offer-time exclusion lives in
     `gameBoardView.js`, but a hand-posted action can't sneak past it."""
@@ -578,3 +604,61 @@ def test_a_pronoun_needs_a_creature_antecedent_to_claim_anything():
     assert parse_effect_body(
         "draw a card. it fights target creature you don't control"
     ) is None
+
+
+# ---------------------------------------------------------------------------
+# PAR-1: "choose N target creatures [+constraint]. Verb those creatures…" —
+# the quantified-group sibling of the pair-pronoun family above (Run Away
+# Together-shaped), sharing its "announce, then read back by pronoun"
+# machinery but with one group instead of two independently-kinded picks.
+# ---------------------------------------------------------------------------
+
+
+def test_choose_targets_group_clause_is_recognized():
+    from mtg_analyzer.parser.oracle.segmenter import parse_effect_body
+    from mtg_analyzer.parser.oracle.spec import EffectSpec
+
+    specs = parse_effect_body("choose 2 target creatures controlled by different players")
+    assert specs == [
+        EffectSpec("choose_targets", {"kinds": ["creature"], "count": 2, "distinct_controllers": True})
+    ]
+
+
+def test_choose_targets_group_without_constraint_is_recognized():
+    from mtg_analyzer.parser.oracle.segmenter import parse_effect_body
+    from mtg_analyzer.parser.oracle.spec import EffectSpec
+
+    specs = parse_effect_body("choose 2 target creatures")
+    assert specs == [EffectSpec("choose_targets", {"kinds": ["creature"], "count": 2})]
+
+
+def test_return_previous_group_needs_a_group_antecedent():
+    """Same `_announces_creature_target` gate as the fight/pump pronoun
+    family — a "return those creatures" clause with no preceding "choose N
+    target creatures" clause stays unclaimed rather than pointing at
+    nothing."""
+    from mtg_analyzer.parser.oracle.segmenter import parse_effect_body
+
+    assert parse_effect_body(
+        "choose 2 target creatures controlled by different players. "
+        "return those creatures to their owners' hands"
+    ) is not None
+    assert parse_effect_body(
+        "draw a card. return those creatures to their owners' hands"
+    ) is None
+
+
+def test_run_away_together_is_fully_modeled():
+    from mtg_analyzer.parser.oracle import UNMODELED, parse_oracle
+
+    card = _card(
+        "Run Away Together Shaped",
+        type_line="Instant",
+        oracle_text=(
+            "Choose two target creatures controlled by different players. "
+            "Return those creatures to their owners' hands."
+        ),
+    )
+    result = parse_oracle(card)
+    assert result.coverage != UNMODELED
+    assert result.unclaimed == []

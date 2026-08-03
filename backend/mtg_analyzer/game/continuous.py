@@ -737,6 +737,11 @@ def _protection_qualities(ability: StaticAbility) -> set[str]:
     source every pass — the same live re-read the ``color_from_source``/
     ``subtype_from_source`` selectors do — so re-choosing in Replay/Puzzle
     mode updates the board rather than baking the choice in once.
+    ``protection_from_chosen_type`` is the same idea for a chosen *creature
+    type* ("protection from creatures of **the chosen type**", Riders of
+    Gavony) — `GameObject.chosen_type` is already a bare subtype word
+    (`_quality_matches_type` matches it against a card's subtypes verbatim,
+    no colour-style normalization needed).
     """
     from . import combat  # function-scoped: combat imports this module
 
@@ -752,6 +757,10 @@ def _protection_qualities(ability: StaticAbility) -> set[str]:
         chosen = getattr(ability.source, "chosen_color", None)
         if chosen:
             quals.add(str(chosen).upper())
+    if ability.params.get("protection_from_chosen_type"):
+        chosen_type = getattr(ability.source, "chosen_type", None)
+        if chosen_type:
+            quals.add(str(chosen_type).lower())
     return quals
 
 
@@ -1187,6 +1196,12 @@ def _apply_layer_6_ability(state: "GameState", abilities: list) -> None:
         # `combat.protections_of_text`'s own vocabulary here, once per
         # ability rather than once per affected object.
         protections = _protection_qualities(ability)
+        if protections and ability.params.get("exempt_own_attachment"):
+            # RULE 702.16n/p — a per-*source* flag (the Aura, not its host),
+            # since the exemption is about this specific grant not causing
+            # its own attachment to fall off, not about the host's
+            # protection generally.
+            ability.source._protection_self_exempt = True
         for obj in affected_objects(state, ability):
             if lose_all:
                 # RULE 613.7f (Humility, Dress Down): strip *every* ability —
@@ -1295,6 +1310,84 @@ def _apply_layer_6_ability(state: "GameState", abilities: list) -> None:
             if residual:
                 _trace(obj, 6, "Until-EOT", "gains " + ", ".join(sorted(residual)),
                        duration="end_of_turn")
+
+    # Still layer 6, but reaching *hand* cards rather than battlefield
+    # permanents (PAR-8) — see `_apply_hand_cycling_grants`.
+    _apply_hand_cycling_grants(state, abilities)
+
+
+def _apply_hand_cycling_grants(state: "GameState", abilities: list[StaticAbility]) -> None:
+    """RULE 702.28 Cycling granted onto cards in hand ("Each historic card
+    in your hand has cycling {2}{W}." — Jo Grant/Rhet-Tomb Mystic/Tectonic
+    Reformation), a layer-6 ability grant whose *targets* are hand cards — a
+    zone `affected_objects`/`group_selector_objects` never reach (RULE 613
+    selectors are all battlefield-scoped). Mirrors `_apply_off_battlefield_
+    types`'s "track what was stamped last pass, clear it, re-derive" shape,
+    and the ordinary layer-6 ``activated_cost`` grant's `state.
+    _granted_ability_cache` identity-preservation (a fresh `ActivatedAbility`
+    instance every recompute would be harmless today — Cycling carries no
+    per-instance state — but keeping the same shape as every other grant in
+    this layer costs nothing and avoids a future footgun if one ever does).
+
+    ``card_type`` is an optional printed-type filter (`_has_card_type`'s
+    vocabulary) or ``"historic"`` (CR glossary: legendary, an artifact, or a
+    Saga) — ``None`` grants to every card in hand, the ticket's own "Each
+    card in your hand has cycling {2}" example.
+    """
+    previous = getattr(state, "_hand_cycling_granted", None) or []
+    for obj in previous:
+        obj._granted_activated_abilities = [
+            a for a in obj._granted_activated_abilities
+            if not getattr(a, "_hand_cycling_grant", False)
+        ]
+    stamped: list[Any] = []
+    live_keys: set[tuple[int, int]] = set()
+
+    for ability in _in_layer(abilities, "ability"):
+        cost_text = ability.params.get("grant_cycling_cost")
+        if not cost_text:
+            continue
+        controller_id = getattr(ability.source, "controller_id", None)
+        player = next((p for p in state.players if p.id == controller_id), None)
+        if player is None:
+            continue
+        card_type = ability.params.get("card_type")
+        for obj in list(player.hand):
+            if card_type and not _hand_card_matches_type(obj, card_type):
+                continue
+            key = (id(ability), obj.instance_id)
+            live_keys.add(key)
+            granted = state._hand_cycling_ability_cache.get(key)
+            if granted is None:
+                granted = ActivatedAbility(
+                    effects=[EffectRegistry.create("draw", {"count": 1})],
+                    cost=parse_activation_cost(f"{cost_text}, Discard this card"),
+                    source=obj,
+                    description=f"Cycling {cost_text}",
+                )
+                granted._hand_cycling_grant = True
+                state._hand_cycling_ability_cache[key] = granted
+            obj._granted_activated_abilities.append(granted)
+            _trace(obj, 6, _source_name(ability), f"gains cycling {cost_text}")
+            stamped.append(obj)
+
+    for key in list(state._hand_cycling_ability_cache):
+        if key not in live_keys:
+            del state._hand_cycling_ability_cache[key]
+
+    state._hand_cycling_granted = stamped
+
+
+def _hand_card_matches_type(obj: "GameObject", card_type: str) -> bool:
+    """RULE-glossary "historic" (legendary, an artifact, or a Saga), or an
+    ordinary `_has_card_type` printed-type filter for everything else."""
+    if card_type == "historic":
+        return bool(
+            getattr(obj.card, "is_legendary", False)
+            or getattr(obj.card, "is_artifact", False)
+            or "saga" in (getattr(obj.card, "type_line", "") or "").lower()
+        )
+    return _has_card_type(obj, card_type)
 
 
 def _apply_layer_7_pt(

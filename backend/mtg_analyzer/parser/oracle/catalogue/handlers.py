@@ -21,7 +21,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
-from typing import Callable, Optional
+from typing import Any, Callable, Optional
 
 from ..normalize import SELF
 from ..spec import EffectSpec, ParserProvenance
@@ -153,8 +153,22 @@ def _multi_target_kind(phrase: str) -> Optional[str]:
 #: mandatory count — RULE 601.2c needs that many legal targets to even be
 #: castable) or "up to two "/"up to three " (optional, 0..N — never locks
 #: casting, same as "up to one"). Digits only — `normalize.py` already
-#: folds spelled-out numbers up to twelve.
-_MULTI_TARGET_QUANTIFIER = r"(?P<up_to>up to )?(?P<count>\d+) "
+#: folds spelled-out numbers up to twelve. PAR-15's "any number of" is a
+#: third alternative — RULE 115.1a's genuinely unbounded, freely-chosen
+#: count (0..however many are legal), modeled the same way this codebase's
+#: one pre-existing hand-authored example already did (`ability_catalogue.
+#: _fire_covenant`'s own comment: "a real board never has X-1's worth of
+#: relevant creatures beyond that") — a generous fixed cap
+#: (`_ANY_NUMBER_TARGET_CAP`) rather than a live `legal_targets` count,
+#: since the existing "up to N, offered one at a time, stop early" round-
+#: gathering machinery (`RulesEngine._continue_trigger_multi_target`)
+#: already handles running out of legal targets *or* the player stopping
+#: voluntarily before the cap — the cap only needs to never be the *true*
+#: bottleneck.
+_ANY_NUMBER_TARGET_CAP = 10
+_MULTI_TARGET_QUANTIFIER = (
+    r"(?:(?P<any_number>any number of )|(?P<up_to>up to )?(?P<count>\d+) )"
+)
 
 
 #: An optional trailing "controlled by different players/controllers"
@@ -171,16 +185,21 @@ def _multi_target_params(m: re.Match[str]) -> Optional[dict]:
     ``None`` if the target phrase isn't recognized or the count is < 2 (the
     N=1 "up to one"/bare-target case is the existing singular handler's
     job, not this one's — a count of exactly 1 here would just be a
-    confusing duplicate route to the same effect)."""
+    confusing duplicate route to the same effect). PAR-15's "any number of"
+    always carries ``optional=True`` (RULE 115.1a — 0 is always a legal
+    choice) and a capped ``count`` (`_ANY_NUMBER_TARGET_CAP`)."""
     kind = _multi_target_kind(m.group("target"))
     if kind is None:
         return None
-    count = int(m.group("count"))
-    if count < 2:
-        return None
-    params: dict = {"target_kind": kind, "count": count}
-    if m.groupdict().get("up_to"):
-        params["optional"] = True
+    if m.groupdict().get("any_number"):
+        params: dict = {"target_kind": kind, "count": _ANY_NUMBER_TARGET_CAP, "optional": True}
+    else:
+        count = int(m.group("count"))
+        if count < 2:
+            return None
+        params = {"target_kind": kind, "count": count}
+        if m.groupdict().get("up_to"):
+            params["optional"] = True
     if m.groupdict().get("dc"):
         params["distinct_controllers"] = True
     return params
@@ -198,6 +217,31 @@ def _damage_each_multi_target(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     if params is None:
         return None
     return [EffectSpec("damage", {"amount": int(m.group("amount")), **params})]
+
+
+#: RULE 601.2d's "divided as you choose among any number of target(s)"
+#: (PAR-15's own named biggest cluster — Fire Covenant/Aurelia's Fury/
+#: Avacyn's Judgment/Bogardan Hellkite-shaped) — a *split* total, not the
+#: full amount to every chosen target the way `_damage_each_multi_target`
+#: above is. `DealDamageEffect(divided=True)` (RULE 601.2d) already existed
+#: as an engine primitive — Shatterskull Smashing/Fire Covenant, both
+#: hand-authored (`game/ability_catalogue.py`, cEDH-cube batch 19) — but no
+#: oracle-text recognizer had ever reached it; this is that recognizer, not
+#: a new primitive. "targets" (unqualified, RULE 115.4 "any target") vs.
+#: "target creatures" are the only two real phrasings.
+_DIVIDED_DAMAGE_RE = _c(
+    rf"(?:(?:~|it|this creature|this land|this permanent) )?"
+    rf"deals? {COUNT_X} damage divided as you choose among any number of "
+    r"(?P<target>targets|target creatures)"
+)
+
+
+def _divided_damage(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    kind = "creature" if m.group("target") == "target creatures" else "any"
+    return [EffectSpec("damage", {
+        "amount": count_or_x_of(m.group("n")), "target_kind": kind,
+        "count": _ANY_NUMBER_TARGET_CAP, "optional": True, "divided": True,
+    })]
 
 
 #: "~ deals N damage to each creature/player/opponent" — a *mass* effect
@@ -714,6 +758,22 @@ def _return_to_hand_multi_target(m: re.Match[str]) -> Optional[list[EffectSpec]]
     if params is None or params["target_kind"] not in _RETURN_TO_HAND_KINDS:
         return None
     return [EffectSpec("return_to_hand", params)]
+
+
+#: "Return those creatures to their owners' hands." (PAR-1, Run Away
+#: Together) — the indirect-referent sibling of `_return_to_hand_multi_
+#: target`: the group was already announced (and, for "controlled by
+#: different players", already constrained) by the preceding "choose N
+#: target creatures …" clause (`_choose_targets_group`), so this clause
+#: names no target of its own at all — only offered when that preceding
+#: clause actually chose one (`EffectHandler.previous_subject_only`).
+_RETURN_PREVIOUS_GROUP_RE = _c(
+    r"(?:then )?return (?:those creatures|them) to their owners'? hands?"
+)
+
+
+def _return_previous_group(m: re.Match[str]) -> list[EffectSpec]:
+    return [EffectSpec("return_to_hand", {"previous_subject": True})]
 
 
 #: A graveyard clause's card-*type* word, right before "card" — "target
@@ -1233,6 +1293,23 @@ def _choose_targets(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     return [EffectSpec("choose_targets", {"kinds": [first, second]})]
 
 
+def _choose_targets_group(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    """"Choose two target creatures controlled by different players." (PAR-1,
+    Run Away Together) — the quantified-*group* sibling of `_choose_targets`
+    just above: one requirement picking N objects of the *same* kind (the
+    `_multi_target_params` shape `destroy`/`exile`'s own multi-target rows
+    already use) rather than two independently-kinded single picks. Still an
+    announcement only — see `effects.ChooseTargetsEffect`'s ``count``/
+    ``distinct_controllers`` widening and `_return_previous_group`, the
+    "Return those creatures…" clause that reads the group back.
+    """
+    params = _multi_target_params(m)
+    if params is None:
+        return None
+    kind = params.pop("target_kind")
+    return [EffectSpec("choose_targets", {"kinds": [kind], **params})]
+
+
 #: "you may **have** it fight …" — `_peel_optional` strips the "you may",
 #: leaving the causative "have <subject> fight" (uninflected verb), so both
 #: inflections are accepted in one row. A leading "then " survives the
@@ -1252,6 +1329,14 @@ _FIGHT_PREVIOUS_PAIR_RE = _c(
     rf"{_THEN}(?:those|the chosen) creatures fight each other"
 )
 _CHOOSE_TARGETS_RE = _c(rf"choose {TARGET} and {_TARGET_B}")
+#: "choose two target creatures [controlled by different players]." (PAR-1)
+#: — the `_MULTI_TARGET_QUANTIFIER`/`_MULTI_TARGET_ALT`/`_MULTI_TARGET_
+#: DISTINCT_CONTROLLERS` grammar `destroy`/`exile`'s own multi-target rows
+#: use, repurposed as a bare announcement (see `_choose_targets_group`).
+_CHOOSE_TARGETS_GROUP_RE = _c(
+    rf"choose {_MULTI_TARGET_QUANTIFIER}(?P<target>{_MULTI_TARGET_ALT})"
+    rf"{_MULTI_TARGET_DISTINCT_CONTROLLERS}"
+)
 
 
 # --- The one-sided fight ("deals damage equal to its power") ----------------
@@ -1435,6 +1520,29 @@ def _return_from_graveyard_transformed(m: re.Match[str]) -> list[EffectSpec]:
     return [EffectSpec("return_from_graveyard_transformed", {})]
 
 
+# "Return this card from your graveyard to the battlefield[, tapped]."/"…to
+# your hand." — an activated/triggered ability's own untargeted self-
+# reanimation (Dread Wanderer/Bloodsoaked Champion/Drownyard Temple, PAR-10's
+# discovery: 69+ cache cards) or self-recursion (Abzan Devotee/Aurora
+# Eidolon/Chandra's Phoenix, PAR-16: 70+ more). Unlike
+# `_RETURN_FROM_GRAVEYARD_TRANSFORMED_RE` above, real printed text says
+# "this card" here, not "it"/"~" — there's no antecedent pronoun to fold
+# onto, since this is the clause's own opening subject rather than a
+# dies-trigger's continuation of "When ~ dies, …". One regex, two
+# destinations (a named ``hand`` group rather than two near-duplicate
+# regex/handler pairs) since only the tail differs.
+_RETURN_SELF_FROM_GRAVEYARD_RE = _c(
+    r"return this card from your graveyard to "
+    r"(?:the battlefield(?P<tapped> tapped)?|(?P<hand>your hand))"
+)
+
+
+def _return_self_from_graveyard(m: re.Match[str]) -> list[EffectSpec]:
+    if m.group("hand"):
+        return [EffectSpec("return_self_from_graveyard_to_hand", {})]
+    return [EffectSpec("return_self_from_graveyard", {"tapped": bool(m.group("tapped"))})]
+
+
 def _become_prepared(m: re.Match[str]) -> list[EffectSpec]:
     return [EffectSpec("become_prepared", {})]
 
@@ -1467,6 +1575,26 @@ def _once_per_turn(m: re.Match[str]) -> list[EffectSpec]:
     return [EffectSpec(ONCE_PER_TURN_MARKER, {})]
 
 
+#: RULE 603.2's own once-per-turn limiter, PAR-14 — "This ability triggers
+#: only once each turn." (Chance-Met Elves/Prudent Fateseer-shaped) — a
+#: trailing sentence in a *triggered* ability's own body, the exact same
+#: "claim the clause, emit a marker, let the binder fold it into a flag"
+#: shape `ONCE_PER_TURN_MARKER` above uses for an *activated* ability, but
+#: textually distinct ("this ability triggers", not "activate"), so its own
+#: row rather than widening that one. `segmenter.segment_line`'s "triggered"
+#: dispatch strips this marker from the parsed body and folds it into
+#: `AbilitySpec.trigger["limit"]`, consumed by `effect_binder.bind_ability`
+#: as `TriggeredAbility.once_per_turn` — a primitive that already existed
+#: (built for Dionus, Elvish Archdruid's *granted* ability) but no
+#: oracle-text recognizer had ever reached from an ordinary printed card.
+TRIGGER_ONCE_PER_TURN_MARKER = "trigger_once_per_turn_marker"
+_TRIGGER_ONCE_PER_TURN_RE = _c(r"this ability triggers only once each turn")
+
+
+def _trigger_once_per_turn(m: re.Match[str]) -> list[EffectSpec]:
+    return [EffectSpec(TRIGGER_ONCE_PER_TURN_MARKER, {})]
+
+
 #: RULE 602.5d timing restriction: "Activate only as a sorcery." (older
 #: template) / "Activate this ability only any time you could cast a sorcery."
 #: (current) — like `ONCE_PER_TURN_MARKER`, a trailing sentence in the
@@ -1492,12 +1620,97 @@ def _sorcery_speed(m: re.Match[str]) -> list[EffectSpec]:
     return [EffectSpec(SORCERY_SPEED_MARKER, {})]
 
 
+# PAR-10: "Activate only as a sorcery and only if `<condition>`." (Cabal
+# Inquisitor/Dread Wanderer/Hall of Oracles/Jin-Gitaxias // The Great
+# Synthesis) and its bare sibling "Activate only if `<condition>`."
+# (Potioner's Trove) — RULE 602.5d timing stacked with (or standing in for)
+# an activation-legality board condition, a second marker `effect_binder.
+# bind_ability`'s "activated" branch folds into `ActivationCost.
+# activation_condition`, checked by `GameEngine.can_activate` via
+# `game/static_conditions.condition_holds` — the same RULE 613.6 whitelist a
+# permanent's own "as long as `<condition>`" static already uses, so a
+# condition recognized for one is recognized (and evaluated identically) for
+# both.
+#
+# `game/static_conditions.py`'s full vocabulary lives behind
+# `catalogue.static_handlers.static_condition` — which this module can't
+# import (`static_handlers` already imports `SORCERY_SPEED_MARKER` from
+# *here*, so the reverse import would cycle). This is deliberately a small,
+# independent subset covering only the phrasings real cards actually pair
+# with an activation condition today: hand/graveyard card counts and "cast
+# an instant or sorcery spell this turn" (`cast_instant_or_sorcery_this_
+# turn` is new — see `static_conditions.py` and `static_handlers.py`'s own
+# `_STATIC_CONDITION_RES` row, which picks up the same phrase for free for
+# the "created" ~250-clause "as long as" family: Haunting Figment/Leapfrog/
+# Piston-Fist Cyclops). Every one of the ~150 *other* "Activate only if …"
+# phrasings in the cache (`you control a Plains`, `this creature is
+# attacking`, `a creature died this turn`, …) is real, standing PAR-12 tail
+# work, not part of this ticket — fail-closed here, same as everywhere else.
+ACTIVATION_CONDITION_MARKER = "activation_condition_marker"
+_ACTIVATION_CONDITION_RES: list[tuple[re.Pattern[str], Callable[[re.Match[str]], dict]]] = [
+    (re.compile(r"you have (?P<n>\d+) or more cards in hand", re.I),
+     lambda m: {"kind": "cards_in_hand_at_least", "amount": int(m.group("n"))}),
+    (re.compile(r"you have (?P<n>\d+) or fewer cards in hand", re.I),
+     lambda m: {"kind": "cards_in_hand_at_most", "amount": int(m.group("n"))}),
+    (re.compile(r"there are (?P<n>\d+) or more cards in your graveyard", re.I),
+     lambda m: {"kind": "control_count", "selector": "cards_in_your_graveyard",
+                "min": int(m.group("n"))}),
+    (re.compile(r"an opponent has (?P<n>\d+) or more cards in (?:their|his or her) graveyard", re.I),
+     lambda m: {"kind": "opponent_count", "selector": "cards_in_your_graveyard",
+                "min": int(m.group("n"))}),
+    (re.compile(r"you'?ve cast an instant or sorcery spell this turn", re.I),
+     lambda m: {"kind": "cast_instant_or_sorcery_this_turn"}),
+]
+
+
+def _activation_condition_dict(text: str) -> Optional[dict[str, Any]]:
+    stripped = text.strip().rstrip(".").strip()
+    for pattern, build in _ACTIVATION_CONDITION_RES:
+        match = pattern.fullmatch(stripped)
+        if match is not None:
+            return build(match)
+    return None
+
+
+_SORCERY_SPEED_AND_CONDITION_RE = _c(
+    r"activate (?:this ability )?only as a sorcery and only if (?P<cond>.+)"
+)
+
+
+def _sorcery_speed_and_condition(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    condition = _activation_condition_dict(m.group("cond"))
+    if condition is None:
+        return None
+    return [
+        EffectSpec(SORCERY_SPEED_MARKER, {}),
+        EffectSpec(ACTIVATION_CONDITION_MARKER, {"condition": condition}),
+    ]
+
+
+_ACTIVATE_ONLY_IF_RE = _c(r"activate (?:this ability )?only if (?P<cond>.+)")
+
+
+def _activate_only_if(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    condition = _activation_condition_dict(m.group("cond"))
+    if condition is None:
+        return None
+    return [EffectSpec(ACTIVATION_CONDITION_MARKER, {"condition": condition})]
+
+
 def _token_keywords(text: str) -> Optional[list[str]]:
     """Validate a token's "with <keywords>" clause → flag-keyword slugs, or None.
 
     Fail-closed: if any listed ability isn't a parameterless (flag) keyword, the
     whole token clause is left unclaimed rather than dropping the ability
-    (a token that silently lacks "flying" would be a wrong game state).
+    (a token that silently lacks "flying" would be a wrong game state). The
+    one parametric exception is a *bare* "hexproof" — RULE 702.11b's
+    QUALITY shape (PAR-5) exists for the scoped "hexproof from <colour>"
+    variant, but plain "hexproof" with no "from" is still its own complete,
+    unscoped keyword (the shape it had before PAR-5), so it's granted here
+    exactly like a FLAG keyword. A scoped "hexproof from black" never
+    reaches this branch: `keyword_slug` only resolves the bare "hexproof"/
+    "hexproof from" spellings, so a real quality suffix keeps `kdef` ``None``
+    and still fails closed below.
     """
     slugs: list[str] = []
     for part in re.split(r",|\band\b", text):
@@ -1505,7 +1718,7 @@ def _token_keywords(text: str) -> Optional[list[str]]:
         if not part:
             continue
         kdef = KEYWORDS.get(keyword_slug(part))
-        if kdef is None or kdef.shape is not KeywordShape.FLAG:
+        if kdef is None or (kdef.shape is not KeywordShape.FLAG and kdef.slug != "hexproof"):
             return None
         slugs.append(kdef.slug)
     return slugs
@@ -1814,22 +2027,28 @@ def _remove_counters_target(m: re.Match[str]) -> list[EffectSpec]:
     return [EffectSpec("remove_counters", {"target_kind": "permanent"})]
 
 
-#: "remove up to N counters from target permanent/creature" (Glissa
+#: "remove up to N counters from target permanent/creature/…" (Glissa
 #: Sunslayer/Heartless Act/Render Inert-shaped) — a genuinely different,
 #: interactive chosen-*amount* shape from the bare "remove all counters"
 #: above (`RemoveCountersEffect`'s ``max_count``). Digits only —
 #: `normalize.py` already folds spelled-out numbers ("up to three" → "up to
-#: 3"). Restricted to "permanent"/"creature" (the two real shapes found);
-#: Price of Betrayal's "target artifact, creature, planeswalker, or
-#: opponent" compound target (including a player) stays unclaimed.
+#: 3"). Embeds the shared `TARGET` sub-grammar (PAR-2) rather than a
+#: hand-rolled "permanent|creature" alternation, so Price of Betrayal's
+#: "target artifact, creature, planeswalker, or opponent" — a player
+#: alongside three permanent types, `targeting.
+#: artifact_creature_planeswalker_or_opponent` — is claimed the same way
+#: any other TARGET-shaped clause is.
 _REMOVE_COUNTERS_CHOICE_RE = _c(
-    r"remove up to (?P<n>\d+) counters? from target (?P<kind>permanent|creature)"
+    rf"remove up to (?P<n>\d+) counters? from {TARGET}"
 )
 
 
-def _remove_counters_choice(m: re.Match[str]) -> list[EffectSpec]:
+def _remove_counters_choice(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    kind = resolve_target_kind(m.group("target"))
+    if kind is None:
+        return None
     return [EffectSpec(
-        "remove_counters", {"target_kind": m.group("kind"), "max_count": int(m.group("n"))},
+        "remove_counters", {"target_kind": kind, "max_count": int(m.group("n"))},
     )]
 
 
@@ -2285,6 +2504,13 @@ HANDLERS: list[EffectHandler] = [
         ),
         _damage_each_multi_target,
     ),
+    # RULE 601.2d "divided as you choose among any number of target(s)"
+    # (PAR-15) — a split total, not the "each of N" full-amount shape above.
+    EffectHandler(
+        "divided_damage",
+        _DIVIDED_DAMAGE_RE,
+        _divided_damage,
+    ),
     # "~ deals 2 damage to each creature" / "… to each player" / "… to each
     # opponent" — a mass effect (RULE 601.2c), not RULE 115 targeting.
     EffectHandler(
@@ -2575,6 +2801,15 @@ HANDLERS: list[EffectHandler] = [
         _c(rf"return {_MULTI_TARGET_QUANTIFIER}(?:other )?(?P<target>{_MULTI_TARGET_ALT}) to their owners'? hands?"),
         _return_to_hand_multi_target,
     ),
+    # "Return those creatures to their owners' hands." (PAR-1, Run Away
+    # Together) — the indirect-referent sibling of `return_to_hand_multi_
+    # target`; only offered when a preceding "choose N target creatures …"
+    # clause actually announced the group (`EffectHandler.
+    # previous_subject_only`, `_choose_targets_group`).
+    EffectHandler(
+        "return_previous_group", _RETURN_PREVIOUS_GROUP_RE, _return_previous_group,
+        previous_subject_only=True,
+    ),
     # "return target [type] card from [scope] graveyard to the
     # battlefield/your hand/its owner's hand" / "put target [type] card
     # from [scope] graveyard onto the battlefield under its owner's
@@ -2698,6 +2933,10 @@ HANDLERS: list[EffectHandler] = [
     # "Choose target creature you control and target creature you don't
     # control." — the target announcement those pair clauses read back.
     EffectHandler("choose_targets", _CHOOSE_TARGETS_RE, _choose_targets),
+    # "Choose two target creatures controlled by different players." (PAR-1)
+    # — the quantified-group announcement `_return_previous_group` (below)
+    # reads back via "those creatures".
+    EffectHandler("choose_targets_group", _CHOOSE_TARGETS_GROUP_RE, _choose_targets_group),
     # The one-sided fight (RULE 701.14's shape minus the damage back):
     # "target creature you control deals damage equal to its power to target
     # creature you don't control" and its four implicit-dealer siblings.
@@ -2779,6 +3018,13 @@ HANDLERS: list[EffectHandler] = [
         _RETURN_FROM_GRAVEYARD_TRANSFORMED_RE,
         _return_from_graveyard_transformed,
     ),
+    # "Return this card from your graveyard to the battlefield[, tapped]."
+    # (PAR-10 discovery) — the plain, non-transforming sibling just above.
+    EffectHandler(
+        "return_self_from_graveyard",
+        _RETURN_SELF_FROM_GRAVEYARD_RE,
+        _return_self_from_graveyard,
+    ),
     # "~ becomes prepared" / "it becomes prepared" / "this permanent"/
     # "this creature becomes prepared" (RULE 722.3a) — a preparation card's
     # own "whenever X, ~ becomes prepared" trigger; the self-only shape
@@ -2796,6 +3042,15 @@ HANDLERS: list[EffectHandler] = [
         _ONCE_PER_TURN_RE,
         _once_per_turn,
     ),
+    # "This ability triggers only once each turn." (PAR-14) — a triggered
+    # ability's own once-per-turn cap, not a real effect; see
+    # `TRIGGER_ONCE_PER_TURN_MARKER`'s docstring for how `segment_line`
+    # strips it into `AbilitySpec.trigger["limit"]`.
+    EffectHandler(
+        "trigger_once_per_turn",
+        _TRIGGER_ONCE_PER_TURN_RE,
+        _trigger_once_per_turn,
+    ),
     # "Activate only as a sorcery." / "… only any time you could cast a
     # sorcery." — a RULE 602.5d timing restriction, not a real effect; see
     # `SORCERY_SPEED_MARKER`'s docstring for how the binder folds it into the
@@ -2804,6 +3059,22 @@ HANDLERS: list[EffectHandler] = [
         "sorcery_speed",
         _SORCERY_SPEED_RE,
         _sorcery_speed,
+    ),
+    # PAR-10: "Activate only as a sorcery and only if `<condition>`." — tried
+    # before the bare `_SORCERY_SPEED_RE`/`_ACTIVATE_ONLY_IF_RE` rows since a
+    # `fullmatch` against the *whole* compound sentence is what makes this
+    # one, not either of them, the actual match.
+    EffectHandler(
+        "sorcery_speed_and_condition",
+        _SORCERY_SPEED_AND_CONDITION_RE,
+        _sorcery_speed_and_condition,
+    ),
+    # "Activate only if `<condition>`." (no sorcery-speed restriction) —
+    # Potioner's Trove-shaped.
+    EffectHandler(
+        "activate_only_if",
+        _ACTIVATE_ONLY_IF_RE,
+        _activate_only_if,
     ),
     # "if your library has no cards in it, you win the game" (Jace, Wielder
     # of Mysteries' -8 tail).

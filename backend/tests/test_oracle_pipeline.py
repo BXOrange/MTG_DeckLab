@@ -10,7 +10,7 @@ import pytest
 from mtg_analyzer.models.card import Card
 from mtg_analyzer.models.events import EventType
 from mtg_analyzer.models.game_object import GameObject, Zone
-from mtg_analyzer.game import ability_catalogue
+from mtg_analyzer.game import ability_catalogue, combat, continuous
 from mtg_analyzer.game.effect_binder import bind_from_catalogue
 from mtg_analyzer.game.effects import DealDamageEffect, DrawCardEffect
 from mtg_analyzer.game.game_engine import GameEngine
@@ -21,7 +21,7 @@ from mtg_analyzer.parser.oracle.catalogue.subgrammars import (
     count_of,
     resolve_target_kind,
 )
-from mtg_analyzer.parser.oracle.normalize import SELF, normalize
+from mtg_analyzer.parser.oracle.normalize import SELF, _fold_self_name, normalize
 from mtg_analyzer.parser.oracle.segmenter import (
     _TRIGGER_EVENTS,
     is_keyword_line,
@@ -71,6 +71,27 @@ def test_normalize_folds_only_short_number_words():
     assert normalize("draw seven cards") == "draw 7 cards"
     # "a"/"an" are NOT folded (too many non-numeric uses) — handled per-handler.
     assert normalize("draw a card") == "draw a card"
+
+
+def test_normalize_folds_alchemy_a_prefix_self_reference():
+    # PAR-4: an MTG Arena "Alchemy" rebalance is named with Scryfall's own
+    # "A-" prefix, but its own oracle text keeps self-referring by the
+    # un-prefixed base name (A-Thran Portal's "Thran Portal is the chosen
+    # type...") — both the printed and the un-prefixed form must fold.
+    text = "As A-Thran Portal enters, choose a basic land type.\nThran Portal is the chosen type."
+    out = normalize(text, "A-Thran Portal")
+    assert "thran portal" not in out
+    assert out.count(SELF) == 2
+
+
+def test_fold_self_name_does_not_strip_a_prefix_when_next_char_not_a_letter():
+    # Guard against a name that merely starts with "A-" followed by
+    # something that isn't the Alchemy rebalance convention (a digit) —
+    # no real card does this, but the stripped form should never be
+    # produced from garbage input: "1" alone must stay untouched even
+    # though the full name "A- 1" still folds.
+    out = _fold_self_name("A- 1 is great, unlike 1.", "A- 1")
+    assert out == f"{SELF} is great, unlike 1."
 
 
 # ---------------------------------------------------------------------------
@@ -290,9 +311,154 @@ def test_static_global_keyword_grant():
 
 
 def test_static_noncreature_scope_is_unclaimed():
-    # "Artifacts you control get +1/+1" isn't a creature anthem → fail-closed.
+    # "Artifacts you control get +1/+1" isn't a creature anthem → fail-closed
+    # (PAR-3 deliberately keeps `_ANTHEM_RE` creature-only — a bare "+N/+N"
+    # on a non-creature permanent is never printed on a real card).
     r, statics = _static_specs("Artifacts you control get +1/+1.")
     assert statics == [] and r.coverage == UNMODELED
+
+
+# --- PAR-3: non-creature group scopes (keyword-grant/quoted-grant only) ----
+
+
+def test_static_card_type_narrowed_creature_anthem():
+    # "Other artifact creatures you control get +1/+1." (Chief of the
+    # Foundry) — still a *creature* scope (RULE 205.2b), just narrowed by
+    # the printed card type rather than a creature subtype: `card_type`,
+    # not `subtype` ("Artifact" is never a subtype `_has_subtype` would see).
+    _, statics = _static_specs(
+        "Other artifact creatures you control get +1/+1.", tl="Artifact Creature", creature=True,
+    )
+    e = statics[0].effects[0]
+    assert e.type == "anthem"
+    assert e.params["affects"] == "other_creatures_you_control"
+    assert e.params["card_type"] == "artifact"
+    assert "subtype" not in e.params
+
+
+def test_static_bare_artifact_scope_keyword_grant():
+    # "Artifacts you control have hexproof." (Leonin Abunas) — a bare
+    # non-creature scope; `artifacts_you_control` already filters by type on
+    # its own, so no extra `card_type` param is needed.
+    _, statics = _static_specs("Artifacts you control have hexproof.")
+    e = statics[0].effects[0]
+    assert e.type == "grant_keyword" and e.params["keywords"] == ["hexproof"]
+    assert e.params["affects"] == "artifacts_you_control"
+    assert "card_type" not in e.params
+
+
+def test_static_bare_enchantment_scope_needs_card_type_filter():
+    # "enchantments" has no dedicated selector, unlike artifacts/lands — it
+    # rides the broader `permanents_you_control`, narrowed by `card_type`.
+    _, statics = _static_specs("Other enchantments you control have shroud.")
+    e = statics[0].effects[0]
+    assert e.params["affects"] == "permanents_you_control"
+    assert e.params["card_type"] == "enchantment"
+
+
+def test_static_global_noncreature_scope_quoted_grant_excludes_self():
+    # "Other enchantments have '…'" (Aura Flux) — global (no "you control"),
+    # "other" excludes just the source, same treatment `_scope_params` gives
+    # a global "Other creatures …" anthem.
+    _, statics = _static_specs(
+        'Other enchantments have "At the beginning of your upkeep, '
+        'sacrifice this enchantment unless you pay {2}."'
+    )
+    e = statics[0].effects[0]
+    assert e.params["affects"] == "all_permanents"
+    assert e.params["card_type"] == "enchantment"
+    assert e.params["exclude_self"] is True
+
+
+def test_static_bare_land_scope_uses_dedicated_selector():
+    _, statics = _static_specs("Lands you control have \"{T}: Add {C}.\"")
+    e = statics[0].effects[0]
+    assert e.params["affects"] == "lands_you_control"
+    assert "card_type" not in e.params
+
+
+def test_static_compound_noncreature_scope_stays_unclaimed():
+    # "Artifacts and enchantments you control have shroud." (Fountain Watch)
+    # — no engine selector ORs two card types yet, so this deliberately
+    # stays fail-closed rather than guessing (PAR-3 is single-word only).
+    r, statics = _static_specs("Artifacts and enchantments you control have shroud.")
+    assert statics == [] and r.coverage == UNMODELED
+
+
+def test_static_enchanted_creatures_group_scope_stays_unclaimed():
+    # "Enchanted creatures you control get +2/+2." (A Tale for the Ages) —
+    # a characteristic filter, not a subtype; guessing one ("Enchanted")
+    # would silently match no real creature's type line, so this stays
+    # fail-closed instead of half-modeled (PAR-3 spot-check finding).
+    r, statics = _static_specs("Enchanted creatures you control get +2/+2.")
+    assert statics == [] and r.coverage == UNMODELED
+
+
+def test_noncreature_scope_grant_applies_to_real_battlefield_objects():
+    # End-to-end (docs/09's "parse-only has masked runtime bugs" lesson):
+    # a Leonin Abunas-shaped card actually grants hexproof to artifacts on a
+    # real battlefield, and leaves non-artifacts untouched.
+    from mtg_analyzer.models.game_state import GameState
+    from mtg_analyzer.models.player import Player
+
+    lord_card = Card(
+        id="Leonin Abunas Shaped", name="Leonin Abunas Shaped", type_line="Creature — Cat Cleric",
+        is_creature=True, power=1, toughness=2,
+        oracle_text="Artifacts you control have hexproof.",
+    )
+    artifact_card = Card(id="Some Artifact", name="Some Artifact", type_line="Artifact")
+    bear_card = Card(
+        id="Some Bear", name="Some Bear", type_line="Creature — Bear",
+        is_creature=True, power=2, toughness=2,
+    )
+
+    state = GameState(players=[Player(id="p1", life=20), Player(id="p2", life=20)])
+
+    def put(card):
+        obj = GameObject(card, owner_id="p1", zone=Zone.BATTLEFIELD)
+        obj.summoning_sick = False
+        bind_from_catalogue(obj)
+        state.add_to_battlefield(obj)
+        return obj
+
+    put(lord_card)
+    artifact = put(artifact_card)
+    bear = put(bear_card)
+
+    continuous.recompute(state)
+    assert combat.has_hexproof(artifact)
+    assert not combat.has_hexproof(bear)
+
+
+def test_global_noncreature_scope_grant_excludes_the_source():
+    # An Aura-Flux-shaped card granting to "other enchantments" (global,
+    # no "you control") must not grant to itself.
+    from mtg_analyzer.models.game_state import GameState
+    from mtg_analyzer.models.player import Player
+
+    aura_flux_shaped = Card(
+        id="Aura Flux Shaped", name="Aura Flux Shaped", type_line="Enchantment",
+        oracle_text='Other enchantments have "{T}: Add {C}."',
+    )
+    other_enchantment = Card(id="Other Enchantment", name="Other Enchantment", type_line="Enchantment")
+
+    state = GameState(players=[Player(id="p1", life=20), Player(id="p2", life=20)])
+
+    def put(card, controller="p1"):
+        obj = GameObject(card, owner_id=controller, zone=Zone.BATTLEFIELD)
+        obj.summoning_sick = False
+        bind_from_catalogue(obj)
+        state.add_to_battlefield(obj)
+        return obj
+
+    source = put(aura_flux_shaped)
+    other = put(other_enchantment, controller="p2")
+
+    continuous.recompute(state)
+    from mtg_analyzer.game.mana_abilities import mana_abilities_for
+
+    assert mana_abilities_for(other)
+    assert not mana_abilities_for(source)
 
 
 def test_static_granted_landwalk_is_claimed_via_its_raw_variant_slug():

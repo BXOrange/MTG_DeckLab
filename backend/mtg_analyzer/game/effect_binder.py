@@ -20,7 +20,11 @@ from typing import Any, Callable, Optional, Union
 
 from ..models.events import EventType
 from ..models.mana_cost import ManaCost
-from ..parser.oracle.catalogue.handlers import ONCE_PER_TURN_MARKER, SORCERY_SPEED_MARKER
+from ..parser.oracle.catalogue.handlers import (
+    ACTIVATION_CONDITION_MARKER,
+    ONCE_PER_TURN_MARKER,
+    SORCERY_SPEED_MARKER,
+)
 from ..parser.oracle.spec import AbilitySpec, EffectSpec
 from .costs import parse_activation_cost
 from .effects import (
@@ -28,6 +32,7 @@ from .effects import (
     AttachEffect,
     RemoveCounterOrSacrificeEffect,
     SoulbondPairEffect,
+    ChooseBasicLandTypeReplacement,
     ChooseColorReplacement,
     ChooseCreatureTypeReplacement,
     ChooseNamedModeReplacement,
@@ -41,6 +46,8 @@ from .effects import (
     RenownEffect,
     ReplacementEffect,
     ReplacementRegistry,
+    ReturnSelfFromGraveyardToBattlefieldEffect,
+    ReturnSelfFromGraveyardToHandEffect,
     SacrificeEffect,
     StaticAbility,
     TriggeredAbility,
@@ -698,18 +705,27 @@ def bind_ability(
     # (mirroring `TriggeredAbility.once_per_turn`'s RULE 603.2 stamp).
     once_per_turn = False
     sorcery_speed_only = False
+    activation_condition: Optional[dict[str, Any]] = None
     effect_specs = spec.effects
     if spec.ability_kind == "activated":
         if any(e.type == ONCE_PER_TURN_MARKER for e in effect_specs):
             once_per_turn = True
         if any(e.type == SORCERY_SPEED_MARKER for e in effect_specs):
             sorcery_speed_only = True
-        # Strip both timing/cap markers before building real effects (RULE
-        # 602.5d / 603.2) — each is folded into the ActivatedAbility/cost, not
-        # a GameEffect.
+        # PAR-10: "…and only if `<condition>`." — the same marker-then-strip
+        # shape as the two above, folded into `ActivationCost.
+        # activation_condition` instead of a flag.
+        condition_marker = next(
+            (e for e in effect_specs if e.type == ACTIVATION_CONDITION_MARKER), None
+        )
+        if condition_marker is not None:
+            activation_condition = dict(condition_marker.params.get("condition") or {})
+        # Strip every timing/cap/condition marker before building real
+        # effects (RULE 602.5d / 603.2) — each is folded into the
+        # ActivatedAbility/cost, not a GameEffect.
         effect_specs = [
             e for e in effect_specs
-            if e.type not in (ONCE_PER_TURN_MARKER, SORCERY_SPEED_MARKER)
+            if e.type not in (ONCE_PER_TURN_MARKER, SORCERY_SPEED_MARKER, ACTIVATION_CONDITION_MARKER)
         ]
 
     effects = build_effects(effect_specs, source)
@@ -746,6 +762,21 @@ def bind_ability(
                 # immediately instead of using the stack (Wild Growth,
                 # Kinnan) — see `TriggeredAbility.mana_ability`.
                 mana_ability=bool(spec.trigger.get("mana_ability", False)),
+                # RULE 603.2/PAR-14: "This ability triggers only once each
+                # turn."/"…for the first time each turn." — both printed
+                # spellings fold to the same `AbilitySpec.trigger["limit"]`
+                # flag in `segmenter.segment_line`; the `once_per_turn`/
+                # `_last_triggered_turn` mechanism itself already existed
+                # (built for Dionus, Elvish Archdruid's granted ability),
+                # this is the first oracle-text path that reaches it.
+                once_per_turn=bool(spec.trigger.get("limit", False)),
+                # RULE 113.6a/PAR-16: inferred straight off the effect list,
+                # the same "effect and permission always travel together"
+                # shape `graveyard_zone` uses below for the activated half.
+                functions_from_graveyard=any(
+                    isinstance(e, (ReturnSelfFromGraveyardToBattlefieldEffect, ReturnSelfFromGraveyardToHandEffect))
+                    for e in own_effects
+                ),
             )
 
         if isinstance(trigger_event, list):
@@ -775,6 +806,17 @@ def bind_ability(
         # RULE 602.5d — the "Activate only as a sorcery" body marker folds into
         # the cost's timing flag (`can_activate` already enforces it).
         cost.sorcery_speed_only = True
+    if activation_condition:
+        cost.activation_condition = activation_condition
+    if any(
+        isinstance(e, (ReturnSelfFromGraveyardToBattlefieldEffect, ReturnSelfFromGraveyardToHandEffect))
+        for e in effects
+    ):
+        # PAR-10/PAR-16: "Return this card from your graveyard to the
+        # battlefield[, tapped]/to your hand." is always this ability's
+        # entire body on a real card — the ability lives in the graveyard,
+        # not the battlefield (`can_activate`'s `graveyard_zone` branch).
+        cost.graveyard_zone = True
     return ActivatedAbility(
         effects=effects,
         cost=cost,
@@ -826,9 +868,12 @@ def attach_keyword(obj: Any, spec: AbilitySpec) -> bool:
 
 
 def _keyword_activated_ability(obj: Any, spec: AbilitySpec) -> Optional[ActivatedAbility]:
-    """Create a live activated ability for attach-style keywords like Equip."""
+    """Create a live activated ability for attach-style keywords like Equip,
+    and for a card's own bare RULE 702.28/702.29 Cycling (PAR-9)."""
     keyword = spec.keyword or {}
     name = str(keyword.get("name") or "")
+    if name == "cycling":
+        return _cycling_activated_ability(obj, spec, keyword)
     if name not in {"equip", "fortify", "reconfigure"}:
         return None
 
@@ -844,6 +889,51 @@ def _keyword_activated_ability(obj: Any, spec: AbilitySpec) -> Optional[Activate
         cost=cost,
         source=obj,
         description=spec.raw_text or f"{name}"
+    )
+
+
+def _cycling_activated_ability(
+    obj: Any, spec: AbilitySpec, keyword: dict[str, Any]
+) -> Optional[ActivatedAbility]:
+    """RULE 702.28/702.29: "Cycling `<cost>`" — "`<cost>`, Discard this
+    card: Draw a card." The `discard_self` cost primitive (`game/costs.py`)
+    already existed; only Dismantling Wave/Renewed Faith-shaped cards ever
+    got a real activatable ability out of it, hand-authored per card
+    (`game/ability_catalogue.py`) — an *unregistered* card's plain Cycling
+    was recognized by the parser (satisfying the coverage gate) but bound to
+    nothing, so it never became an offered action (PAR-9).
+
+    Two guards keep this from mis-firing:
+
+    * `keywords.keyword_slug` aliases every "`<type>`cycling" spelling
+      ("Landcycling", "Typecycling", "Islandcycling", …) onto this same
+      "cycling" slug, and the shared cost-extraction regex has no word
+      boundary — it matches "Landcycling {1}" as a substring just as
+      happily as a real "Cycling {1}" line. A type-restricted variant
+      searches the library instead of drawing, a different (unmodeled)
+      effect — so this only fires when the card's own *raw* Scryfall
+      keyword list carries no other "…cycling" entry alongside the plain
+      one.
+    * A card already carrying a `discard_self`-cost activated ability
+      (Dismantling Wave/Renewed Faith's own hand-authored one, bound
+      earlier in this same pass — `ability_catalogue.specs_for` puts
+      hand-authored specs first) defines its *own* Cycling behaviour;
+      don't compete with it for the same cost.
+    """
+    cost_text = keyword.get("cost")
+    if not cost_text:
+        return None
+    raw_names = [str(k).strip().lower() for k in (getattr(obj.card, "keywords", None) or [])]
+    if any(n != "cycling" and "cycling" in n for n in raw_names):
+        return None
+    if any(getattr(a.cost, "discard_self", False) for a in obj.activated_abilities):
+        return None
+    cost = parse_activation_cost(f"{cost_text}, Discard this card")
+    return ActivatedAbility(
+        effects=build_effects([EffectSpec("draw", {"count": 1})], source=obj),
+        cost=cost,
+        source=obj,
+        description=spec.raw_text or "Cycling",
     )
 
 
@@ -1232,7 +1322,13 @@ def attach_to_object(obj: Any, specs: list[AbilitySpec]) -> None:
             # permanent_spell` offers both in turn before battlefield entry.
             for effect in bound:
                 if isinstance(
-                    effect, (ChooseCreatureTypeReplacement, ChooseColorReplacement, ChooseNamedModeReplacement)
+                    effect,
+                    (
+                        ChooseCreatureTypeReplacement,
+                        ChooseColorReplacement,
+                        ChooseNamedModeReplacement,
+                        ChooseBasicLandTypeReplacement,
+                    ),
                 ):
                     obj.enter_choice_effects.append(effect)
                 else:

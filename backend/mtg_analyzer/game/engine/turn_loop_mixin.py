@@ -234,6 +234,12 @@ class TurnLoopMixin:
         # regardless of whose turn it is.
         for player in self.state.players:
             self.state.mana_produced_this_turn[player.id] = {}
+        # PAR-10 (`static_conditions.py`'s `cast_instant_or_sorcery_this_
+        # turn`) — game-wide for the same reason as `mana_produced_this_
+        # turn` above: a non-active player's static condition must read
+        # correctly too, not just the active player's own activation check.
+        for player in self.state.players:
+            self.state.cast_instant_or_sorcery_this_turn[player.id] = False
         # "Until your next turn, …" (RULE 611.2b) — a player-scoped effect
         # granted on someone's turn lapses the moment *that* player's next
         # turn begins, which is exactly now for `active`. Swept across every
@@ -870,13 +876,16 @@ class TurnLoopMixin:
             # RULE 614.1c/614.12: the option id is a permanent's instance id,
             # or decline to enter as itself.
             self.rules.resolve_enter_as_copy_choice(None if declined else str(answer))
-        elif kind in ("choose_creature_type", "choose_color", "choose_named_mode"):
+        elif kind in (
+            "choose_creature_type", "choose_color", "choose_named_mode", "choose_basic_land_type",
+        ):
             # RULE 601.2b(-adjacent): a mandatory pick (no "decline" option
             # is ever offered) — the option id is a creature-type name, a
-            # WUBRG colour letter, or (``choose_named_mode``) a lowercase
-            # mode slug (Struggle for Project Purity's "choose Brotherhood
-            # or Enclave"); `resolve_enter_choice` defaults an
-            # unrecognized/missing answer to the first offered option.
+            # WUBRG colour letter, (``choose_named_mode``) a lowercase mode
+            # slug (Struggle for Project Purity's "choose Brotherhood or
+            # Enclave"), or (``choose_basic_land_type``, PAR-4) a basic land
+            # type name; `resolve_enter_choice` defaults an unrecognized/
+            # missing answer to the first offered option.
             self.rules.resolve_enter_choice(None if declined else str(answer))
         elif kind == "choose_protector":
             # RULE 310.8a/310.11a: which player protects an entering battle —

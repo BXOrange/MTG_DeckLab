@@ -36,87 +36,32 @@ Plan-level sequencing lives in
 
 ## PAR — Parser
 
-- **PAR-1 · Cross-target indirect referents.** Run Away Together's "Choose
-  two target creatures controlled by different players. Return those
-  creatures…" — the two-sentence "choose target(s) [+constraint]. Verb those
-  [referent]s" shape has no recognition at all, though
-  `ReturnToHandEffect` already accepts `distinct_controllers`. The
-  single-sentence form *is* claimed for `destroy`/`exile`.
-- **PAR-2 · Compound target-kind unions.** Price of Betrayal's "target
-  artifact, creature, planeswalker, **or opponent**" — a player alongside
-  three permanent types. Wider than the shipped
-  `RemoveCountersEffect.max_count` shape, which already covers plain
-  "target permanent"/"target creature".
-- **PAR-3 · Non-creature group scopes.** `static_handlers._scope` only
-  claims *creature* scopes, so every anthem/keyword-grant/quoted-grant
-  family fails closed on "Other **enchantments** have '…'" (Aura Flux),
-  "**Artifacts** you control get …". **Parser-side only** — the layer engine
-  already has `artifacts_you_control`/`permanents_you_control`/
-  `nonland_permanents_you_control`/`all_permanents`/`all_lands`. Keep the
-  `_NONCREATURE_TYPES` block-list for the *anthem* family only (a "+N/+N"
-  clause really is creature-only).
-- **PAR-4 · "As ~ enters, choose a *basic land* type."** (RULE 601.2b) Needs
-  its own option list in `RulesEngine._offer_enter_choices`; the creature-
-  type and colour siblings are the only two shapes today. Blocks Realmwright
-  and A-Thran Portal, whose type-grant halves are otherwise modeled.
-- **PAR-5 · Hexproof-from-`<quality>` collapses to blanket hexproof.** RULE
-  702.11b "Hexproof from red" is aliased onto the plain `hexproof` slug
-  (`FLAG`-shaped, not `QUALITY`-shaped like `Protection`), so the scope is
-  lost. Overprotective, never rules-illegal. Fix: give `Hexproof` a
-  `QUALITY` shape. `parser/oracle/catalogue/keywords.py`'s `_ALIASES`.
-- **PAR-6 · RULE 702.16n/p's "This effect doesn't remove this Aura." tail.**
-  Leaves six of the eight protection-from-chosen-colour Auras UNMODELED
-  even though the grant itself is modeled. The engine side this was blocked
-  on has shipped (`RulesEngine._revalidate_attachments`, RULE 704.5m/n now
-  re-checked every SBA pass, not just on the host leaving) — an Aura that
-  grants "protection from `<colour>`" and doesn't carry this exemption would
-  now genuinely detach itself the next SBA pass, so this is real parser
-  work, not a no-op to skip.
-- **PAR-7 · Kicker `{X}`'s own paid-X variant.** Emblazoned Golem, 1 card.
-- **PAR-8 · Granting Cycling to other cards.** "Each card in your hand has
-  cycling {2}" — a static-grant shape, not keyword recognition.
-- **PAR-9 · Generic Cycling execution for unregistered cards.** The
-  `discard_self` primitive exists; binding a bare oracle-recognized
-  "cycling" spec into a real activatable ability is hand-authored per-card.
-- **PAR-10 · Jin-Gitaxias-style compound activation condition.** "…and only
-  if you have seven or more cards in hand" stacked on sorcery-speed timing;
-  the whole clause fails closed rather than dropping the second condition.
-- **PAR-14 · "This ability triggers only once each turn."** RULE 603.1's
-  once-per-turn limiter, in both its printed spellings — the trailing
-  sentence ("…put a +1/+1 counter on this creature. **This ability triggers
-  only once each turn.**", Chance-Met Elves/Prudent Fateseer) and the
-  in-condition one ("whenever you surveil **for the first time each turn**",
-  Whispering Snitch). **182 cards** mention one, and every one of them fails
-  the coverage gate as a whole today, however ordinary the rest of the card
-  is — which is what makes this a ranked ticket rather than tail work: it's
-  a *qualifier* blocking otherwise-modeled cards, not an unmodeled effect.
-  Found while closing the scry/surveil trigger family (2026-07-28), where it
-  is the single biggest blocker: 5 of those 25 cards are MODELED, and the
-  limiter is why two of the near misses aren't.
-  Needs a genuine new mechanism, not just a parser handler — a per-turn
-  fired-count on the `TriggeredAbility` (reset at cleanup, RULE 514.2's
-  neighbourhood) plus a `trigger["limit"]` the segmenter can emit. Grep
-  first: nothing in `game/effects.py` counts firings per turn today
-  (`GameState.stats` counts *game*-wide, and `temp_*` flags are cleared
-  rather than counted), so this really is new — but check again before
-  building, per the batch-discipline rule.
-- **PAR-15 · "Any number of target `<X>`" targeting.** RULE 115.1a's
-  "up to N" only ever generalizes today to a *literal* N (`TargetSpec.
-  count`/`optional`) — "any number of" needs a freely-chosen, practically
-  unbounded count instead, with the effect body applying per target the same
-  "loop over the whole list" way `DestroyEffect`/`ExileEffect` already do,
-  not `GrantCombatRestrictionEffect`/`AttachEffect`-shaped effects that
-  currently only ever read `targets[0]` (grep before reusing one of those
-  families for this — several silently drop every target past the first).
-  **64 cached cards**, 0 modeled today — a genuinely new, sizeable family in
-  its own right (a damage-divided-among-targets variant is the single
-  biggest cluster: "`~` deals N damage divided as you choose among any
-  number of target creatures"), not a one-line parser widening. Found while
-  scoping MEC-4 (Strive): every one of Strive's 20 real cards pairs "Strive —
-  this spell costs `<cost>` more to cast for each target beyond the first."
-  (now modeled, `AbilitySpec.strive_cost`) with an "any number of target
-  creatures" effect body, so Strive itself shipped with **0** cards reaching
-  full `MODELED` — this ticket is the actual remaining blocker on all of them.
+- **PAR-15 · "Any number of target `<X>`" targeting — residue.** The core
+  mechanism and the ticket's own named biggest cluster shipped 2026-08-03
+  (see `Done_Backend.md`): `catalogue.handlers._MULTI_TARGET_QUANTIFIER`
+  gained a third "any number of " alternative (capped at
+  `_ANY_NUMBER_TARGET_CAP`, 10), and `_DIVIDED_DAMAGE_RE`/`_divided_damage`
+  newly recognizes RULE 601.2d's "`~` deals N/X damage divided as you
+  choose among any number of target(s)/target creatures." What's left,
+  per `python scripts/coverage_report.py`'s backlog ranking (re-measure
+  before trusting the counts, per usual): **"prevent the next N damage
+  that would be dealt this turn to any number of targets, divided as you
+  choose."** (2 cards) — `PreventDamageEffect` never gained the sibling
+  `divided` mode `DealDamageEffect` did; **"put any number of target
+  creature cards from your graveyard on top of your library."** (4) and
+  **"shuffle any number of target `<cards>` from your graveyard into your
+  library."** (2) — new destinations for the targeted graveyard-recursion
+  family (`ReturnFromGraveyardEffect`'s `destination`), not yet
+  "top of library"/"library" shuffle; **"distribute N +1/+1 counters
+  among any number of target creatures."** (Blessings of Nature-shaped)
+  and **"any number of target creatures each get +1/+1 and gain
+  `<keyword>` until end of turn."** (Aerial Formation/Ajani's Presence-
+  shaped) — both untouched, though `_multi_target_params`'s widening may
+  already reach the pump one if a handler is built to call it (check
+  before assuming a new primitive). None of these need a new *targeting*
+  primitive — `_ANY_NUMBER_TARGET_CAP`/`optional=True` already generalizes
+  — only new/widened effect-body recognizers per destination or effect
+  family.
 - **PAR-12 · The indefinite long tail.** Strategy, current coverage, and a
   worked example: [PARSER_LONG_TAIL.md](PARSER_LONG_TAIL.md). Not a ticket
   that can be "closed" — a standing program.
