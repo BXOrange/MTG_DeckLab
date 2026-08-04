@@ -219,6 +219,12 @@ class RulesEngine(
         #: opponent {2}); see `request_pay_cost_then`/
         #: `resolve_pay_cost_then_choice`.
         self._pending_pay_cost_then: Optional[dict[str, Any]] = None
+        #: Backing state for a `request_each_player_pay_or` mass sweep
+        #: (PAR-13's "each player loses N life unless they `<pay cost>`" —
+        #: Bellowing Mauler/Lim-Dûl's Hex/Tomb of Annihilation's own two
+        #: dungeon rooms): the still-to-ask player ids, chained one
+        #: `pay_cost_then` choice at a time; see `_advance_each_player_pay_or`.
+        self._pending_each_player_pay_or: Optional[dict[str, Any]] = None
         #: Backing state for a `name_card` `pending_choice` (Demonic
         #: Consultation's "choose a card name") — the follow-up effects the
         #: chosen name gets substituted into; see `request_name_card`/

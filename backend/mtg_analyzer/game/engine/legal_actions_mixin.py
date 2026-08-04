@@ -330,10 +330,11 @@ class LegalActionsMixin:
         untapped sources (`game/mana_potential.py`, never a sacrifice- or
         hand-exile-cost one): clicking "Zaubern" then silently auto-taps
         first (`_auto_tap_for_cast_if_needed`) instead of failing. A
-        read-only preview — never taps anything itself. Not used for
-        ``face="face_down"`` (RULE 702.37a's flat {3} morph cost isn't
-        modeled by `effective_cast_cost`'s ``face`` handling) — that offer
-        stays real-pool-only, a narrow, documented scope gap.
+        read-only preview — never taps anything itself. Works for
+        ``face="face_down"`` too (MEC-13, fixed 2026-08-04) — RULE
+        702.37a's flat {3} morph/disguise cost, which `effective_cast_cost`
+        already resolves correctly via `_face_card` on its own, without
+        needing ``obj`` to already be turned face down.
         """
         if self.can_cast(player, obj, face=face):
             return True
@@ -414,8 +415,14 @@ class LegalActionsMixin:
             # RULE 702.37a/702.168a: a card with morph/disguise may instead be
             # cast **face down** for {3} — a separate offer for the same hand
             # card, like the second-face ones above, and the only way a
-            # face-down spell ever reaches the stack.
-            if face_down.cast_face_down_kind(obj) and self.can_cast(player, obj, face="face_down"):
+            # face-down spell ever reaches the stack. MEC-13: potential-
+            # aware like every other offer above (an untapped-lands-only {3}
+            # is exactly the common case) — `cast_spell`'s own `face_down`
+            # branch now auto-taps for it too, so the click this offers
+            # actually succeeds.
+            if face_down.cast_face_down_kind(obj) and self._castable_now_or_via_potential(
+                player, obj, face="face_down"
+            ):
                 actions.append(
                     {
                         "type": "cast_spell",

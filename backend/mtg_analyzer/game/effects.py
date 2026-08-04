@@ -267,6 +267,9 @@ class GameContext:
     def prevent_damage_to_player(self, player: "Player", amount: Union[int, str] = "all") -> None:
         self.engine.prevent_damage_to_player(player, amount)
 
+    def prevent_damage_to_target(self, target: Any, amount: Union[int, str] = "all") -> None:
+        self.engine.prevent_damage_to_target(target, amount)
+
     def lose_life(self, player: "Player", amount: int, cause: str = "effect") -> None:
         self.engine.lose_life(player, amount, cause=cause)
 
@@ -1932,20 +1935,64 @@ class PreventDamageEffect(GameEffect):
     for the rest of the turn; an int prevents a cumulative bank of that
     many points total (Thought Lash's activated ability can be paid
     multiple times, each adding to the same turn's bank).
+
+    PAR-15's targeted sibling ("prevent the next N damage that would be
+    dealt this turn to any number of targets, divided as you choose" —
+    Embolden/Remedy/Angel of Salvation) sets ``target_kind`` — the pool is
+    then divided (RULE 601.2d-shaped, `DealDamageEffect(divided=True)`'s
+    same as-evenly-as-possible split) among whichever targets were chosen
+    and each gets its own `RulesEngine.prevent_damage_to_target` shield,
+    rather than the single fixed "you" shield the untargeted shape above
+    grants. ``amount_if_kicked`` is Pollen Remedy's own trailing "if this
+    spell was kicked, prevent the next N damage this way instead" —
+    an *override*, not an addition, so it's a param on this effect rather
+    than a generic kicked-conditional wrapper (RULE 702.33b already covers
+    the additive "if kicked, `<effect>`" shape via `ConditionalEffect`;
+    this is the narrower override some cards use instead).
     """
 
     def __init__(
         self,
         amount: Union[int, str] = "all",
         source: Optional["GameObject"] = None,
+        target_kind: Optional[str] = None,
+        target: Any = None,
+        count: int = 1,
+        optional: bool = False,
+        divided: bool = False,
+        amount_if_kicked: Optional[Union[int, str]] = None,
     ) -> None:
         super().__init__(source)
         self.amount = amount
+        self.amount_if_kicked = amount_if_kicked
+        self.divided = divided
+        self.target = target
+        self.target_spec = (
+            TargetSpec(kind=target_kind, optional=optional, count=count)
+            if target_kind is not None
+            else None
+        )
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
-        player = _controller_of(self.source, context)
-        if player is not None:
-            context.prevent_damage_to_player(player, self.amount)
+        kicker_count = getattr(self.source, "kicker_count", 0) or 0
+        amount = self.amount_if_kicked if (self.amount_if_kicked is not None and kicker_count > 0) else self.amount
+        if self.target_spec is None:
+            player = _controller_of(self.source, context)
+            if player is not None:
+                context.prevent_damage_to_player(player, amount)
+            return
+        chosen = _chosen_targets(targets, self.target_spec.count, self.target)
+        if not chosen:
+            return
+        if self.divided:
+            total = amount if isinstance(amount, int) else 0
+            base, extra = divmod(total, len(chosen))
+            shares = [base + (1 if i < extra else 0) for i in range(len(chosen))]
+        else:
+            shares = [amount] * len(chosen)
+        for target, share in zip(chosen, shares):
+            if share == "all" or (isinstance(share, int) and share > 0):
+                context.prevent_damage_to_target(target, share)
 
 
 class ExtraLandPlayEffect(GameEffect):
@@ -2279,6 +2326,43 @@ class SacrificeUnlessPayEffect(GameEffect):
             # hand-authored entry, not a path real oracle text reaches.)
             return
         context.engine.request_sacrifice_unless_pay(player, cost, source)
+
+
+class EachPlayerPayOrEffect(GameEffect):
+    """RULE 101.4's APNAP mass "unless" (PAR-13 — "Each player loses N life
+    unless they discard a card."/"...unless they sacrifice a creature,
+    artifact, or land of their choice." — Bellowing Mauler/Lim-Dûl's Hex/
+    Tomb of Annihilation's own two dungeon rooms), the *mass* sibling of
+    `SacrificeUnlessPayEffect`: every living player is asked in turn order,
+    and ``effects`` lands on whoever doesn't (or can't) pay — never the
+    ability's own controller, unlike that class's single fixed subject.
+
+    ``cost`` is printed cost text exactly like `SacrificeUnlessPayEffect`'s
+    own; ``effects`` are serialized `EffectSpec` dicts applied with the
+    declining player as the sole target (`RulesEngine.
+    request_each_player_pay_or` passes ``targets=[player]`` through to
+    `request_pay_cost_then`), so a spec here should carry a matching
+    ``target_kind`` (``"player"`` for `lose_life`/`discard`/etc.) rather
+    than relying on an untargeted default.
+    """
+
+    def __init__(
+        self,
+        cost: str = "",
+        effects: Optional[list[dict[str, Any]]] = None,
+        source: Optional["GameObject"] = None,
+    ) -> None:
+        super().__init__(source)
+        self.cost_text = str(cost or "")
+        self.inner_specs = list(effects or [])
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        from .costs import parse_activation_cost  # function-scoped: costs↔effects cycle
+
+        cost = parse_activation_cost(self.cost_text)
+        if cost.is_free:
+            return  # see SacrificeUnlessPayEffect's identical guard
+        context.engine.request_each_player_pay_or(cost, self.inner_specs, self.source)
 
 
 class CounterSpellEffect(GameEffect):
@@ -3414,6 +3498,7 @@ class ReturnFromGraveyardEffect(GameEffect):
         optional: bool = False,
         lose_life_equal_mv: bool = False,
         count: int = 1,
+        shuffle_after: bool = False,
     ) -> None:
         super().__init__(source)
         self.target = target
@@ -3423,6 +3508,17 @@ class ReturnFromGraveyardEffect(GameEffect):
         # value." (Reanimate) — read off the returned card, paid by the
         # effect's own controller, after the return resolves.
         self.lose_life_equal_mv = lose_life_equal_mv
+        # PAR-15: "shuffle target card(s) from your graveyard into your
+        # library" (Piper's Melody/Renewing Touch/Perpetual Timepiece) —
+        # RULE 701.3's own recursion, just with an unknown final position
+        # rather than a fixed top/bottom; modeled as "put on the bottom,
+        # then shuffle" (the position `_put_searched_card`'s
+        # ``"library_bottom"`` gives it is immediately randomized away, so
+        # the result is exactly "shuffled into the library") rather than a
+        # third `_DESTINATIONS` entry, mirroring how `SearchLibraryEffect`
+        # already treats a shuffle destination as a placement + a follow-up
+        # `shuffle_library` call rather than its own zone.
+        self.shuffle_after = shuffle_after
         self.target_spec = TargetSpec(kind=target_kind, optional=optional, count=count)
 
     def _apply_one(self, context: GameContext, target: Any) -> None:
@@ -3431,7 +3527,11 @@ class ReturnFromGraveyardEffect(GameEffect):
             player = _controller_of(self.source, context)
             controller_id = player.id if player is not None else None
         mv = getattr(getattr(target, "card", None), "converted_mana_cost", 0) or 0
+        owner_id = getattr(target, "owner_id", None)
         context.return_from_graveyard(target, self.destination, controller_id=controller_id)
+        if self.shuffle_after and owner_id is not None:
+            owner = context.state.player_by_id(owner_id)
+            context.shuffle_library(owner)
         if self.lose_life_equal_mv and mv:
             player = _controller_of(self.source, context)
             if player is not None:
@@ -4323,6 +4423,13 @@ class TapEffect(GameEffect):
     ``count`` > 1 targets several independent objects (RULE 115.1a
     generalized to N>=2, the same shape `DestroyEffect.count` uses) — "untap
     up to two target lands" (Snap-shaped).
+
+    ``previous_subject=True`` (PAR-15's "Untap those creatures." — Colossal
+    Heroics' own trailing sentence, following "Any number of target
+    creatures each get +2/+2 until end of turn.") is `ReturnToHandEffect`'s
+    same pronoun shape: no target of its own, acting on whatever the
+    preceding clause's own multi-target group was (`GameContext.
+    previous_targets`).
     """
 
     def __init__(
@@ -4334,19 +4441,25 @@ class TapEffect(GameEffect):
         optional: bool = False,
         selector: Optional[str] = None,
         count: int = 1,
+        previous_subject: bool = False,
     ) -> None:
         super().__init__(source)
         self.target = target
         self.untap = untap
         self.selector = selector if selector in _TAP_SELECTORS else None
         self._attached_mode = target_kind == "attached_permanent"
+        self.previous_subject = previous_subject
         self.target_spec = (
             TargetSpec(kind=target_kind, optional=optional, count=count)
-            if target_kind is not None and not self._attached_mode and self.selector is None
+            if target_kind is not None and not self._attached_mode and self.selector is None and not previous_subject
             else None
         )
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        if self.previous_subject:
+            for one in list(context.previous_targets):
+                context.set_tapped(one, tapped=not self.untap)
+            return
         if self.selector is not None:
             from .continuous import group_selector_objects  # avoid the continuous↔effects cycle
 
@@ -4948,9 +5061,19 @@ class AddCountersEffect(GameEffect):
         count: int = 1,
         subtypes: Optional[list[str]] = None,
         trigger_subject_key: Optional[str] = None,
+        divided: bool = False,
     ) -> None:
         super().__init__(source)
         self.amount = amount
+        # PAR-15: "distribute N +1/+1 counters among any number of target
+        # creatures" (Blessings of Nature/Jugan, the Rising Star/Verdurous
+        # Gearhulk) — ``amount`` is then a *pool* split across whichever
+        # targets were chosen (as evenly as possible, no explicit
+        # ``division`` list — same documented simplification
+        # `DealDamageEffect.divided`/`_apply_divided` uses for "damage
+        # divided as you choose"), unlike the plain ``count`` > 1 shape
+        # above where every target gets the *full* ``amount`` independently.
+        self.divided = divided
         # The counter type: "+1/+1" (default) or "-1/-1" (RULE 122). Both shift
         # net P/T the same machinery, just with opposite sign.
         self.kind = kind
@@ -4992,8 +5115,17 @@ class AddCountersEffect(GameEffect):
             return
         if self.target_spec is not None and self.target_spec.count != 1:
             chosen = _chosen_targets(targets, self.target_spec.count)
-            for target in chosen:
-                context.add_counters(target, self.amount, self.kind, source=self.source)
+            if not chosen:
+                return
+            if self.divided:
+                total = self.amount if isinstance(self.amount, int) else 0
+                base, extra = divmod(total, len(chosen))
+                shares = [base + (1 if i < extra else 0) for i in range(len(chosen))]
+            else:
+                shares = [self.amount] * len(chosen)
+            for target, share in zip(chosen, shares):
+                if share > 0:
+                    context.add_counters(target, share, self.kind, source=self.source)
             return
         if self.target_spec is not None:
             target = targets[0] if targets else None
@@ -5447,6 +5579,8 @@ class PumpEffect(GameEffect):
         selector: Optional[str] = None,
         unblockable: bool = False,
         source: Optional["GameObject"] = None,
+        count: int = 1,
+        optional: bool = False,
     ) -> None:
         super().__init__(source)
         self.power = power
@@ -5456,7 +5590,14 @@ class PumpEffect(GameEffect):
         self.unblockable = unblockable
         self._attached_mode = target_kind == "attached_permanent"
         if target_kind is not None and not self._attached_mode:
-            self.target_spec = TargetSpec(kind=target_kind)
+            # PAR-15: "any number of target creatures each get +N/+N [and
+            # gain `<keyword>`] until end of turn" (Aerial Formation/Ajani's
+            # Presence/Colossal Heroics-shaped) — ``count`` > 1 is the same
+            # "each of N gets the *full* amount" shape `AddCountersEffect`'s
+            # own N>=2 mode uses (as opposed to a *divided* pool), since a
+            # pump spell's whole point is every chosen creature getting the
+            # stated boost independently.
+            self.target_spec = TargetSpec(kind=target_kind, optional=optional, count=count)
 
     def _pump_one(self, obj: "GameObject") -> None:
         obj.temp_power += self.power
@@ -5490,6 +5631,15 @@ class PumpEffect(GameEffect):
             host_id = getattr(self.source, "attached_to", None)
             target = context.state.find_object(host_id) if host_id is not None else None
         elif self.target_spec is not None:
+            if self.target_spec.count != 1:
+                chosen = _chosen_targets(targets, self.target_spec.count)
+                for obj in chosen:
+                    self._pump_one(obj)
+                if chosen:
+                    # Re-derive P/T now so a lethal -X/-X is caught by the
+                    # SBA pass the caller runs right after this resolution.
+                    context.recompute()
+                return
             target = targets[0] if targets else None
         else:
             target = self.source
@@ -5613,6 +5763,7 @@ class CreateTokenEffect(GameEffect):
         count_selector: Optional[str] = None,
         creators: str = "you",
         tapped: bool = False,
+        legendary: bool = False,
     ) -> None:
         super().__init__(source)
         self.count = count
@@ -5625,6 +5776,7 @@ class CreateTokenEffect(GameEffect):
         self.count_selector = count_selector
         self.creators = creators if creators in self._CREATORS else "you"
         self.tapped = bool(tapped)
+        self.legendary = bool(legendary)
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
         from ..services.token_database import default_token_database, synthesize_token_card
@@ -5642,6 +5794,7 @@ class CreateTokenEffect(GameEffect):
                 colors=self.colors,
                 subtypes=self.subtypes,
                 keywords=self.keywords,
+                legendary=self.legendary,
             )
         controller_id = (
             self.source.controller_id if self.source is not None
@@ -6088,6 +6241,38 @@ class ImpulsiveDrawEffect(GameEffect):
             player, self.count, source_name=source_name,
             permission_player=permission_player, same_turn_only=self.same_turn_only,
         )
+
+
+class DrawRevealCastOneFreeEffect(GameEffect):
+    """"Draw N cards and reveal them. You may cast one of them without
+    paying its mana cost." (RULE 121/601.3b combo — Dungeon of the Mad
+    Mage's own "Mad Wizard's Lair" room, PAR-13).
+
+    Reveal is purely informational (RULE 701.28 — no hidden-zone state to
+    model, since `services/game_session.py`'s own redaction already keeps
+    a hand private otherwise), so this only draws, then offers
+    `RulesEngine.request_choose_objects`'s ``"cast_free"`` action over
+    *exactly* the cards this draw put into hand (never the rest of the
+    hand) — snapshotting the hand before/after rather than assuming a
+    fixed append count, since a draw can be redirected (RULE 121.5's
+    replacement family) or silently capped (a draw-limit static).
+    """
+
+    def __init__(self, count: int = 1, source: Optional["GameObject"] = None) -> None:
+        super().__init__(source)
+        self.count = count
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        player = _controller_of(self.source, context)
+        if player is None or self.count <= 0:
+            return
+        before = list(player.hand)
+        context.draw(player, self.count)
+        drawn = [c for c in player.hand if c not in before]
+        if drawn:
+            context.choose_objects(
+                player, drawn, "cast_free", count=1, optional=True, source=self.source,
+            )
 
 
 class ReturnRemainingExiledEffect(GameEffect):
@@ -7968,7 +8153,15 @@ EffectRegistry.register(
     # to you this turn" (Riot Control/Thought Lash) — NOT the standing-
     # permanent shape; see `ReplacementRegistry`'s own unrelated
     # `"prevent_damage"` factory below for that (still uncarded/unused).
-    lambda p: PreventDamageEffect(amount=p.get("amount", "all")),
+    lambda p: PreventDamageEffect(
+        amount=p.get("amount", "all"),
+        target_kind=p.get("target_kind"),
+        target=p.get("target"),
+        count=p.get("count", 1),
+        optional=bool(p.get("optional", False)),
+        divided=bool(p.get("divided", False)),
+        amount_if_kicked=p.get("amount_if_kicked"),
+    ),
 )
 EffectRegistry.register(
     "extra_land_play",
@@ -8031,6 +8224,12 @@ EffectRegistry.register(
     # `ActivationCost` at resolution.
     "sacrifice_unless_pay",
     lambda p: SacrificeUnlessPayEffect(cost=p.get("cost", "")),
+)
+EffectRegistry.register(
+    # PAR-13: "Each player loses N life unless they `<pay cost>`." — the
+    # APNAP mass sibling of `sacrifice_unless_pay` above.
+    "each_player_pay_or",
+    lambda p: EachPlayerPayOrEffect(cost=p.get("cost", ""), effects=list(p.get("effects", []))),
 )
 EffectRegistry.register(
     "exile",
@@ -8211,6 +8410,7 @@ EffectRegistry.register(
         optional=bool(p.get("optional", False)),
         lose_life_equal_mv=bool(p.get("lose_life_equal_mv", False)),
         count=p.get("count", 1),
+        shuffle_after=bool(p.get("shuffle_after", False)),
     ),
 )
 EffectRegistry.register(
@@ -8559,6 +8759,7 @@ EffectRegistry.register(
         optional=bool(p.get("optional", False)),
         selector=p.get("selector"),
         count=int(p.get("count", 1)),
+        previous_subject=bool(p.get("previous_subject", False)),
     ),
 )
 EffectRegistry.register(
@@ -8701,6 +8902,7 @@ EffectRegistry.register(
         # "put a counter on each of up to two target creatures").
         count=p.get("target_count", 1),
         subtypes=p.get("subtypes"),
+        divided=bool(p.get("divided", False)),
     ),
 )
 EffectRegistry.register(
@@ -8716,6 +8918,8 @@ EffectRegistry.register(
         target_kind=p.get("target_kind"),
         selector=p.get("selector"),
         unblockable=bool(p.get("unblockable", False)),
+        count=p.get("target_count", 1),
+        optional=bool(p.get("optional", False)),
     ),
 )
 EffectRegistry.register(
@@ -8768,6 +8972,7 @@ EffectRegistry.register(
         count_selector=p.get("count_selector"),
         creators=p.get("creators", "you"),
         tapped=bool(p.get("tapped", False)),
+        legendary=bool(p.get("legendary", False)),
     ),
 )
 EffectRegistry.register(
@@ -8807,7 +9012,13 @@ EffectRegistry.register(
 )
 EffectRegistry.register(
     "impulsive_draw",
-    lambda p: ImpulsiveDrawEffect(count=p.get("count", 1)),
+    lambda p: ImpulsiveDrawEffect(
+        count=p.get("count", 1), same_turn_only=bool(p.get("same_turn_only", False)),
+    ),
+)
+EffectRegistry.register(
+    "draw_reveal_cast_one_free",
+    lambda p: DrawRevealCastOneFreeEffect(count=p.get("count", 1)),
 )
 EffectRegistry.register(
     "exile_opponents_graveyards_impulsive_cast",  # Mnemonic Betrayal

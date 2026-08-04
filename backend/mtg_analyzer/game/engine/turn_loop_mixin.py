@@ -626,6 +626,15 @@ class TurnLoopMixin:
                 obj.replacement_effects = [
                     e for e in obj.replacement_effects if not getattr(e, "regeneration_shield", False)
                 ]
+            # RULE 514.2 analogue for a permanent-targeted damage-prevention
+            # shield (`RulesEngine.prevent_damage_to_target`, PAR-15) — the
+            # object-scoped sibling of the `player.player_effects` sweep
+            # below, since "prevent the next N damage ... to any number of
+            # targets" can allot a share to a creature, not just a player.
+            if any(getattr(e, "damage_prevention_shield", False) for e in obj.replacement_effects):
+                obj.replacement_effects = [
+                    e for e in obj.replacement_effects if not getattr(e, "damage_prevention_shield", False)
+                ]
         # RULE 514.2 again, for the RULE 611 floating statics: "until end of
         # turn" ends here too, in the same window as every ``temp_*`` field
         # above — the difference is only *where* the effect was stored, not

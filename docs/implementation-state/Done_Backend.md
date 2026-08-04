@@ -8913,3 +8913,279 @@ gate.py` (20), `test_par14_trigger_once_per_turn.py` (9),
 `test_par15_any_number_of_targets.py` (16) — all new files, parse+execute
 style throughout (each ticket's engine-level behavior, not just its
 coverage verdict, is asserted).
+
+## PAR-15 residue + PAR-13 batch (2026-08-04)
+
+PARSER_VERSION 49 → 50, coverage 28.51% → 28.6% (9,754 → 9,778 / 34,208).
+Closed PAR-15's own re-scoped residue ticket in full, and PAR-13 (dungeon
+room/plane/scheme effect bodies) substantially — 8 of its 9 unmodeled
+dungeon rooms, with the Planechase/Archenemy half re-confirmed as PAR-12's
+own tail rather than a distinct gap (13/309 plane/scheme cards measured
+modeled, unchanged in kind from before this batch).
+
+**PAR-15 residue** — the four small clusters left after the 2026-08-03
+batch, none needing a new *targeting* primitive (`_ANY_NUMBER_TARGET_CAP`/
+`optional=True` already generalized that):
+
+- **RULE 615's targeted/divided prevention** ("prevent the next N damage
+  that would be dealt this turn to any number of targets, divided as you
+  choose" — Embolden/Remedy/Angel of Salvation, 5 cards incl. Pollen
+  Remedy's own kicked override). `PreventDamageEffect` gained a
+  `target_kind`/`divided`/`amount_if_kicked` mode alongside its existing
+  untargeted "prevent all/N damage to you" shape, and a new engine
+  primitive, `RulesEngine.prevent_damage_to_target` (the any-target sibling
+  of the existing player-only `prevent_damage_to_player`, sharing its
+  cumulative-bank shield semantics and cleanup sweep — extended to also
+  sweep a permanent's own `replacement_effects`, not just a player's).
+  `amount_if_kicked` is a narrow override param on this one effect class
+  (not a generic kicked-override mechanism — RULE 702.33b's *additive*
+  "if kicked, `<effect>`" shape already exists via `ConditionalEffect`;
+  this is the rarer override shape a couple of cards use instead). Sex
+  Appeal (an Unhinged silver-border joke card whose "override" condition
+  is literally about people in the room) stays UNMODELED — not a real gap.
+- **Two new `ReturnFromGraveyardEffect` destinations** — "put any number
+  of target creature cards from your graveyard on top of your library."
+  (Bone Harvest/Footbottom Feast/Forever Young/Gravepurge) used the
+  already-supported `destination="library_top"`; "shuffle any number of
+  target `<cards>` from your graveyard into your library." (Piper's
+  Melody/Renewing Touch/Perpetual Timepiece/The Bath Song) is modeled as
+  "put on the bottom, then shuffle" (`shuffle_after`), since the position
+  `library_bottom` gives it is immediately randomized away by the shuffle.
+- **`AddCountersEffect.divided`** — "distribute N +1/+1 counters among any
+  number of target creatures[ you control]" (Blessings of Nature/Jugan,
+  the Rising Star/Verdurous Gearhulk) — the same evenly-split-pool shape
+  `DealDamageEffect.divided` already established, now shared.
+- **`PumpEffect.target_count`** (a genuinely new N>=2 mode for a class
+  that was single-target-only) + **`TapEffect.previous_subject`**
+  (mirroring `ReturnToHandEffect`'s existing pronoun) — "any number of
+  target creatures each get +N/+N [and gain `<keyword>`] until end of
+  turn. Untap those creatures." (Aerial Formation/Ajani's Presence/Cruel
+  Feeding/Desperate Stand/Rouse the Mob/Colossal Heroics — 6 of 7 named
+  cards; Setessan Tactics' own trailing "gain a granted activated ability"
+  clause is a materially different, harder shape and stays UNMODELED).
+
+**PAR-13** — the RULE 309 dungeon engine and all four room graphs
+(`game/dungeons.py`) were already complete; `room_effect_specs` runs a
+room's printed effect through the *same* `segmenter.parse_effect_body` a
+card's own text uses, so a room with no matching handler simply resolves
+with no effect (fail-closed) rather than breaking the graph. Was 21/30
+rooms bound (re-measured; the ticket's own "20 of 30" was stale), now
+29/30, via six pieces:
+
+- **`grant_until`'s new P/T-delta route** (`_pump_until`, riding the
+  already-general `anthem` layer-7c static) and **its "can't
+  attack/block until `<duration>`" sibling** (`_cant_attack_or_block_until`,
+  the resolve-time-grant cousin of the permanent-static `combat_
+  restriction` family's synthetic `grant_keyword` flags) — Fungi Cavern
+  ("-4/-0 until your next turn")/Twisted Caverns ("can't attack until your
+  next turn"). Also widened `_GROUP`/`_GROUP_SELECTORS` with two new
+  phrasings ("creatures your opponents control"/"creatures you don't
+  control", both `continuous`'s existing `creatures_opponents_control`
+  selector) — which is what also picked up real non-dungeon cards
+  (A-Binding Geist, Hag of Inner Weakness, Mouth of the Storm).
+- **A whole-clause compound-cost handler** (one `discard` + three
+  independent `choose_objects` sacrifices, each its own type) for
+  Oubliette's "Discard a card and sacrifice a creature, an artifact, and a
+  land." — deliberately a dedicated row rather than relying on the generic
+  `" and "` connector split (`segmenter._CONNECTORS`), which would also
+  have split the sacrifice's own internal "a creature, an artifact, **and**
+  a land" list. No new engine primitive; `ChooseObjectsEffect` already
+  resolves with no prompt when there's nothing to choose between and as a
+  no-op when a type has no legal candidate.
+- **A legendary named token** for Cradle of the Death God's "Create The
+  Atropal, a legendary 4/4 black God Horror creature token with
+  deathtouch." — `CreateTokenEffect`/`synthesize_token_card` gained a
+  `legendary` param setting `Card.is_legendary` directly (this builder
+  constructs a `Card` from parts, not through the scryfall-data reader
+  that normally derives it from the type line), with "Legendary" folded
+  into the synthesized type line right after "Token" so `Card.is_token`'s
+  own "starts with Token" contract still holds. A parallel plain
+  `legendary` flag was added to the ordinary inline-stats `create_token`
+  regex too (no real non-dungeon card needs it yet, but the primitive is
+  now there for one that does).
+- **`ImpulsiveDrawEffect`'s first oracle-text route** — the effect existed
+  hand-authored-only (Light Up the Stage) since PAR-8/9-era work; this
+  batch's `_exile_top_play` is the first parser handler to reach it, for
+  Runestone Caverns' "Exile the top two cards of your library. You may
+  play them." (bare, no duration — defaults to the effect's own "until the
+  end of your next turn") — also closing Bonehoard Dracosaur/Painter's
+  Studio's own "this turn"/"until the end of your next turn" variants.
+- **A new one-shot effect, `DrawRevealCastOneFreeEffect`, plus a new
+  `RulesEngine.request_choose_objects` action, `"cast_free"`** (every
+  existing action was a battlefield pick; this is the first hand-zone one,
+  cast through the ordinary `RulesEngine.cast_without_paying` free-cast
+  path) — for Mad Wizard's Lair's "Draw three cards and reveal them. You
+  may cast one of them without paying its mana cost." (reveal itself
+  carries no mechanical weight to model, RULE 701.28).
+- **A new mass-interactive primitive, `RulesEngine.
+  request_each_player_pay_or`** (RULE 101.4's APNAP "unless", chained as a
+  sequence of the existing single-player `request_pay_cost_then` choices —
+  `resolve_pay_cost_then_choice` now advances to the next queued player
+  when `_pending_each_player_pay_or` is set, a no-op for every ordinary
+  single-player caller) for "Each player loses N life unless they `<pay
+  cost>`." — Veils of Fear ("…discard a card")/Sandfall Cell ("…sacrifice
+  a creature, artifact, or land of their choice"). Sandfall Cell's own
+  cost also needed a new compound `ActivationCost.sacrifice` value,
+  `creature_artifact_or_land` (checked ahead of the plain single-word
+  `_SACRIFICE_RE`, in the two `_matches_permanent_type`/cost-payment
+  modules that actually consult it), since "a creature, artifact, or land"
+  is an OR of three types the existing single-word grammar can't express.
+
+**Throne of the Dead Three** ("Reveal the top ten cards of your library.
+Put a creature card from among them onto the battlefield with three +1/+1
+counters on it. It gains hexproof until your next turn. Then shuffle.")
+stays UNMODELED — confirmed zero non-dungeon cache siblings for this exact
+"reveal top N, choose one, place with counters, shuffle the rest back"
+shape, so building it would be genuinely new engine work paying for
+exactly one room. Documented as a residual gap (`test_dungeons.py`'s own
+fail-closed test now points at it instead of the now-modeled Twisted
+Caverns) rather than forced, matching how the battle-pool worked example
+in `PARSER_LONG_TAIL.md` treats its own one-card bespoke-tail entries.
+
+Tests: `test_par15_residue.py` (26), `test_par13_dungeons_and_variants.py`
+(30) — both new files, parse+execute+end-to-end throughout (including a
+two-player sequencing test for `request_each_player_pay_or` and a
+dungeon-room-by-room coverage assertion pinned at 29/30).
+
+## MEC-13 · Mana-Potenzial auto-tap's three gaps (2026-08-04)
+
+All three of the ticket's own items turned out real, but not quite where
+its own wording placed them — each was verified empirically (running the
+real engine, not just reading the code) before being fixed, and one item
+led to a genuine bug the ticket hadn't described at all.
+
+**(1) X-spell/Kicker auto-tap.** The ticket read as if `auto_tap_for`
+itself couldn't handle a chosen X/Kicker value. It already could —
+`_auto_tap_for_cast_if_needed` had threaded a real `x`/`kicked` through to
+`effective_cast_cost` since the feature shipped (2026-07-30). The actual
+gap was one level up: `max_affordable_x`/`max_affordable_kicker`/
+`max_affordable_kicker_x` (which `legal_actions` uses to populate
+`max_x`/`max_kicker`/`kicker_max_x`, driving the frontend's X/Kicker input
+widgets) bounded their search by `player.mana_pool.total()` alone — a
+player with four untapped Mountains and an empty pool was never even
+*offered* X=3 for a `{X}{R}` spell, though casting with x=3 once chosen
+would already have auto-tapped correctly. Fixed by bounding the search
+with a new `mana_potential.max_potential_total` (every untapped source's
+best single-tap production, summed, colour-blind — a safe ceiling since
+X/Kicker's own `{X}` are always generic costs, RULE 107.3c) and checking
+each candidate value via `is_castable_via_potential` instead of the real
+pool alone. `_kicker_x_distinct_colors`'s "spend only colored mana on X,
+no more than one of each colour" restriction (Emblazoned Golem-shaped,
+PAR-7) has no mana-potential equivalent — auto-tapping doesn't know to
+diversify colours for it — so a card carrying it keeps the original
+real-pool-only search in `max_affordable_kicker_x` rather than risk
+answering "yes" for an X only reachable by spending two of the same
+colour.
+
+While verifying this, a **second, real execution-time bug** surfaced that
+the ticket never mentioned: `_cast_current_face` calls `_auto_tap_for_
+cast_if_needed` with every other real cast parameter but had never
+threaded `kicker_x` through at all — so a Kicker spell with its own
+variable `{X}` (PAR-7) always auto-tapped for `kicker_x=0` regardless of
+what was actually announced, silently under-tapping and then failing the
+real, correctly-costed `can_cast` right after. Fixed by adding `kicker_x`
+to `_auto_tap_for_cast_if_needed`'s signature and threading it through to
+`can_cast`/`effective_cast_cost`, zeroed under `_kicker_x_distinct_colors`
+exactly as `effective_cast_cost` itself already zeroes it (that portion is
+paid separately, via `ManaPool.pay_distinct_colors`, never through
+auto-tap). `GameEngine.auto_tap_for`'s own public signature also gained
+optional `x`/`kicked`/`kicker_x` (threaded into `services/game_session.py`'s
+`_dispatch_auto_tap_for` from the action dict) for the manual "top up mana"
+button, which previously always tapped for the base cost only.
+
+**(2) The face-down (morph/disguise) cast offer.** The ticket's own
+docstring claim — "RULE 702.37a's flat {3} cost isn't expressed through
+`effective_cast_cost`'s ordinary `face` handling" — was checked against
+the live code and found **false**: `game/face_down.py`'s `face_down_card`
+already carries the flat {3} as an ordinary `mana_cost_string`, and
+`effective_cast_cost(face="face_down")` already resolves it correctly via
+`_face_card`, with no swap needed first. The real gap was narrower:
+`legal_actions()`'s face-down offer used a bare `can_cast(face=
+"face_down")` (real pool only) instead of `_castable_now_or_via_potential`,
+so the offer itself never appeared unless mana was already floating.
+Fixing just that uncovered a **second, deeper bug**: `cast_spell`'s own
+`face_down` branch ran its legality gate (`can_cast`) *before* any
+auto-tap attempt at all — unlike the ordinary front-face path, where
+`_cast_current_face` auto-taps first — so even after the offer correctly
+appeared, clicking it would still fail whenever the {3} was payable only
+by tapping untapped lands. Fixed by making `_auto_tap_for_cast_if_needed`
+`face`-aware (threaded into its own `can_cast`/`effective_cast_cost`
+calls) and calling it from the `face_down` branch before the gate — using
+`face="face_down"` deliberately preserves `can_cast`'s own face_down-
+specific timing gate and its "no additional cost — a face-down spell has
+no text" override, both of which a naive "swap first, then call the
+ordinary post-swap path" fix would have silently dropped.
+
+**(3) "Multicolor lands and artifacts are counted multiple times."**
+Investigated empirically against `find_tap_plan`/`_Commitment` — the
+actual auto-tap decision path — with three real shapes: a dual land (one
+`ManaAbility`, multiple `options`), a land granted an *additional* basic
+land type (RULE 305.6, two separate `ManaAbility` entries on one object —
+a printed one plus a derived one), and a "{T}: Add one mana of any
+colour" artifact. All three correctly refused a 2-pip cost from a single
+copy: `_Commitment.tapped` blocks a second ability on an already-tapped
+object regardless of how many distinct `ManaAbility` entries `mana_
+abilities_for` returns for it. No bug found in the described shape. The
+one place a multicolour source genuinely gets counted more than once is
+`open_potential_summary`'s six *independent* per-colour maximizations (a
+dual land can appear in both its W-run and its U-run) — already
+documented as a deliberate, display-only approximation in `mana_
+potential.py`'s own module docstring, and never consumed by auto-tap.
+
+Investigating this *did* turn up a real, different bug in the same
+neighbourhood: `_choose_option`'s colour preference was a **static** set
+computed once from the cost (`_needed_colors`), never updated as the
+search actually filled pips — so two *different* untapped dual lands
+(each "{T}: Add {U} or {B}.") searching for a `{U}{B}` cost would both
+greedily pick the first colour that matched, producing `{U}{U}` and never
+finding the obviously-available plan. Fixed with a new `mana_potential.
+_still_short_colors(cost, pool)`, recomputed fresh before every tap
+attempt in `find_tap_plan`'s round loop, steering each flexible source
+toward whatever the pool is still short on rather than repeating an
+already-satisfied colour.
+
+Tests: `test_mec13_auto_tap_gaps.py` (15) — parse+execute+end-to-end
+throughout, including the three empirical "does this actually
+double-count" checks for item (3) and a positive control proving two
+*different* dual lands genuinely can cover a two-colour cost together.
+
+## PLR-3 · Face-down-in-exile redaction (2026-08-04)
+
+`_redact_hidden_zones` (`services/game_session.py`) already stripped whole
+*zones* per RULE 400.2 — an opponent's hand and library never left the
+server — but a card exiled face down (RULE 701.20a, `GameObject.
+face_down_in_exile`, Beseech the Mirror-shaped) is a *zone* nobody's hand
+is (exile is otherwise public), so the gap was different in kind: the
+object itself should stay visible (something is sitting there face down),
+only its identity shouldn't. `GameObject.to_dict()`'s own comment even
+said so explicitly — "the name/type stay in the payload: this app's
+goldfish/Replay views are all shown to the card's own owner" — true for
+solo modes, never checked against a multiplayer *opponent's* view.
+
+Fixed with a new `_redact_face_down_exile`, called from `_redact_hidden_
+zones` (so both its call sites — `GameSession.view(perspective=...)` and
+`observer_view`'s explicit `perspective=None` fixup — cover it for free):
+for every player who isn't the requested `perspective`, any `face_down_
+in_exile` object in their exile zone has a fixed set of identity/
+characteristic fields (`card_id`, `name`, `type_line`, every `is_*` type
+flag, `power`/`toughness`/`loyalty`/`defense`, …) reset to an "unknown
+card" placeholder — `instance_id`/`zone`/`face_down_in_exile` itself stay
+real, so the board still renders a card-back tile in the right place.
+`face_down` (RULE 708.2, morph/disguise/manifest/cloak) needed no
+equivalent list: that shape's `self.card` is already swapped to the
+synthetic blank 2/2 (`game/face_down.py`), so `to_dict()` never had a real
+identity to leak in the first place — the redaction gap was specific to
+the one face-down shape that keeps its real card underneath. Solo modes
+(`GameSession.view()`'s own default `perspective=None`) never call
+`_redact_hidden_zones` at all, so a goldfish/Replay board is completely
+unaffected — confirmed with a dedicated test, not just inferred from the
+call graph.
+
+Tests: `test_plr3_face_down_exile_redaction.py` (5) — owner keeps the real
+card, an opponent and an observer both see nothing, a solo view is
+unredacted, and an ordinary (non-face-down) exiled card is unaffected —
+built by injecting a `face_down_in_exile` `GameObject` directly into a
+real two-seat `GameSession` rather than driving the full Beseech the
+Mirror cast (already covered end-to-end at the engine level by
+`test_cedh_cube_completion.py`), keeping this file's own scope to the
+session-view redaction the ticket was actually about.

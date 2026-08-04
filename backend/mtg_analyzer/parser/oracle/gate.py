@@ -582,7 +582,45 @@ NEVER_SUPPORTED = "NEVER_SUPPORTED"
 #: `DealDamageEffect(divided=True)` engine primitive already existed
 #: (Shatterskull Smashing/Fire Covenant, hand-authored) but had no
 #: oracle-text recognizer either.
-PARSER_VERSION = "49"
+#:
+#: v50 (2026-08-04) — PAR-15's residue (four small clusters left after v49):
+#: RULE 615's targeted/divided prevention sibling of divided damage
+#: (`PreventDamageEffect`'s new `target_kind`/`divided`/`amount_if_kicked`
+#: modes + a new `RulesEngine.prevent_damage_to_target` any-target engine
+#: primitive); two new `ReturnFromGraveyardEffect` destinations ("on top
+#: of your library", already supported; "into your library", modeled as
+#: "bottom, then shuffle" via the new `shuffle_after` param);
+#: `AddCountersEffect.divided` (a counter pool split across a chosen
+#: group, the same shape `DealDamageEffect.divided` already had); and
+#: `PumpEffect.target_count` (a new N>=2 mode) + `TapEffect.
+#: previous_subject` (mirroring `ReturnToHandEffect`'s pronoun) for "any
+#: number of target creatures each get +N/+N … until end of turn.
+#: Untap those creatures."
+#:
+#: Also PAR-13 (dungeon room/plane/scheme effect bodies): 8 of the 9
+#: previously-unmodeled dungeon rooms now bind (`game/dungeons.py`'s
+#: `room_effect_specs`, same grammar as a card) — `grant_until`'s new P/T
+#: route (`_pump_until`, riding the `anthem` static) and its "can't
+#: attack/block until `<duration>`" sibling (the synthetic `grant_keyword`
+#: flag family's first resolve-time-grant route), widened with two new
+#: `_GROUP` phrasings ("creatures your opponents control"/"creatures you
+#: don't control"); a whole-clause compound-cost handler (discard + three
+#: `choose_objects` sacrifices, Oubliette-shaped); a legendary named token
+#: (`CreateTokenEffect.legendary`, `Card.is_legendary` threaded through
+#: `synthesize_token_card`); `ImpulsiveDrawEffect`'s first oracle-text
+#: route (previously hand-authored-only); a new `DrawRevealCastOneFreeEffect`
+#: + `request_choose_objects`'s new `"cast_free"` action (a hand-zone pick);
+#: and a new mass-interactive primitive, `RulesEngine.
+#: request_each_player_pay_or` (RULE 101.4 APNAP, chained off the existing
+#: single-player `request_pay_cost_then`) plus a new compound
+#: `ActivationCost.sacrifice` value (`creature_artifact_or_land`) for
+#: "each player loses N life unless they `<pay cost>`." Throne of the Dead
+#: Three is the one dungeon room left genuinely unmodeled (a "reveal top
+#: N, choose one, place with counters, shuffle the rest back" shape no
+#: other cached card needs). Planechase/Archenemy plane/scheme card text
+#: (13/309 modeled) remains PAR-12's own indefinite tail, not newly
+#: regressed.
+PARSER_VERSION = "50"
 
 
 @dataclass

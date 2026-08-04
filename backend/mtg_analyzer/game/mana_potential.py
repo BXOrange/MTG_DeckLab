@@ -485,6 +485,27 @@ def open_potential_summary(engine: Any, player: Player) -> dict[str, int]:
     return {color: _maximize_color(engine, player, color) for color in _ALL_TYPES}
 
 
+def max_potential_total(engine: Any, player: Player) -> int:
+    """A safe (possibly generous) **upper bound** on how much mana
+    ``player`` could produce this turn from every untapped/unexiled,
+    plain-tap source combined — used only to bound a "how high could X/
+    Kicker go" search (`GameEngine.max_affordable_x`/`max_affordable_
+    kicker`/`max_affordable_kicker_x`, MEC-13), never as a castability
+    claim on its own. Deliberately simpler than `open_potential_summary`'s
+    six per-colour maximizations: any colour of mana pays a generic cost
+    (RULE 107.3c, what X and Kicker's own `{X}` always are), so the bound
+    only needs "how much mana, in total, ignoring colour" — each
+    candidate's own best single-tap production, summed, with no netting
+    of a converter's own cost against what it produces (an overestimate
+    is fine here; the real per-value payability check downstream is what
+    actually gates the answer)."""
+    candidates = _auto_tappable_candidates(engine, player)
+    return sum(
+        max((sum(opt.values()) for opt in c.ability.options), default=0)
+        for c in candidates
+    )
+
+
 def used_potential_summary(engine: Any, player: Player) -> dict[str, int]:
     """Mana already produced (real taps/hand-exiles) this turn, per colour
     — a thin read of `GameState.mana_produced_this_turn`, reset every
@@ -560,6 +581,34 @@ def _needed_colors(cost: ManaCost) -> set:
     return needed
 
 
+def _still_short_colors(cost: ManaCost, pool: ManaPool) -> set:
+    """MEC-13: which of ``cost``'s named colour requirements ``pool``
+    doesn't cover *yet* — steers a flexible/multi-option source's colour
+    choice (`_choose_option`'s ``preferred_colors``) toward whatever's
+    still missing, recomputed fresh before each tap, rather than
+    `_needed_colors`'s one static set for the whole search.
+
+    Without this, two untapped dual lands (each "{T}: Add {U} or {B}.")
+    searching for a `{U}{B}` cost would both greedily prefer the *first*
+    colour in the cost's needed set that matches one of their own options
+    — the same colour, every time — producing {U}{U} or {B}{B} and never
+    finding the real, obviously-available plan. A colour already at or
+    past its required count is dropped from the preference so the next
+    flexible source tried gets steered at whatever's actually still short
+    (a slight overcount for a hybrid symbol's *other* half is harmless —
+    it only means that colour stays "wanted" a little longer than
+    strictly necessary, never that a real shortfall gets missed).
+    """
+    required: dict[str, int] = {}
+    for symbol in cost.symbols:
+        if symbol.kind == "colorless":
+            required["C"] = required.get("C", 0) + 1
+            continue
+        for color in symbol.colors:
+            required[color] = required.get(color, 0) + 1
+    return {color for color, amount in required.items() if pool.pool.get(color, 0) < amount}
+
+
 def _sorted_candidates(candidates: list[_Candidate], needed_colors: set) -> list[_Candidate]:
     def key(c: _Candidate) -> tuple:
         converter = _is_net_positive_converter(c.ability)
@@ -604,7 +653,10 @@ def find_tap_plan(
         progressed = False
         still_remaining: list[_Candidate] = []
         for candidate in remaining:
-            step = _try_activate(engine, player, candidate, commitment, pool, needed)
+            # MEC-13: recomputed fresh before each tap (not the static
+            # ``needed`` the initial sort used) — see `_still_short_colors`.
+            preferred = _still_short_colors(cost, pool) or needed
+            step = _try_activate(engine, player, candidate, commitment, pool, preferred)
             if step is None:
                 still_remaining.append(candidate)
                 continue

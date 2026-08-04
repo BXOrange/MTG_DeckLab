@@ -104,6 +104,12 @@ def _matches_permanent_type(obj: GameObject, what: str) -> bool:
         # RULE 306/302: Tevesh Szat's "another creature or planeswalker" —
         # the one compound word any shipped card needs.
         return obj.is_creature or obj.card.is_planeswalker
+    if what == "creature_artifact_or_land":
+        # PAR-13: "sacrifice a creature, artifact, or land of their choice"
+        # (Tomb of Annihilation's "Sandfall Cell" dungeon room) — the
+        # payer's own choice of *type*, not "any permanent" (which would
+        # wrongly also license sacrificing an enchantment/planeswalker).
+        return obj.is_creature or obj.card.is_artifact or obj.is_land
     return True  # unknown type word → any permanent, so the cost is payable
 
 
@@ -260,9 +266,77 @@ class MiscSystemsMixin:
         if answer != "pay" or not self._can_pay_player_cost(player, pending["cost"]):
             # Re-checked: the board can have changed since the offer was made.
             self._apply_effect_specs(pending["else_effect_specs"], pending["source"], targets)
+        else:
+            self._pay_player_cost(player, pending["cost"])
+            self._apply_effect_specs(pending["effect_specs"], pending["source"], targets)
+        # PAR-13: if this single-player choice is one leg of a mass
+        # `request_each_player_pay_or` sweep, move on to whoever's next —
+        # a no-op for every ordinary (non-mass) `pay_cost_then` caller,
+        # since that dict is only ever populated by the mass primitive.
+        if self._pending_each_player_pay_or is not None:
+            self._advance_each_player_pay_or()
+    def request_each_player_pay_or(
+        self,
+        cost: "ActivationCost",
+        effect_specs: list[dict[str, Any]],
+        source: Optional[GameObject],
+    ) -> None:
+        """RULE 101.4's APNAP mass "unless" (PAR-13 — "Each player loses N
+        life unless they `<pay cost>`.", Bellowing Mauler/Lim-Dûl's Hex/
+        Tomb of Annihilation's "Veils of Fear"/"Sandfall Cell" dungeon
+        rooms): every living player, starting with the active player and
+        proceeding in turn order, is asked in turn whether to pay ``cost``;
+        anyone who doesn't (or can't) gets ``effect_specs`` applied to
+        *them* — not the ability's controller, which is why ``targets``
+        (not the effects' own untargeted-controller default) carries each
+        player through `request_pay_cost_then`.
+
+        Built as a chain of ordinary single-player `request_pay_cost_then`
+        choices rather than a new chooser: each one either opens a real
+        `pending_choice` (this method returns, and `resolve_pay_cost_then_
+        choice` calls `_advance_each_player_pay_or` again once it's
+        answered) or resolves synchronously because that player can't pay
+        at all — the same "don't stall on a choice nobody can act on"
+        shortcut every other pay-or-lose-it chooser takes, which is what
+        lets this loop keep going without a choice for every player who
+        has no way to pay.
+        """
+        start = self.state.active_player_index
+        n = len(self.state.players)
+        order = [
+            self.state.players[(start + i) % n].id
+            for i in range(n)
+            if not self.state.players[(start + i) % n].has_lost
+        ]
+        self._pending_each_player_pay_or = {
+            "remaining_ids": order,
+            "cost": cost,
+            "effect_specs": [dict(d) for d in effect_specs],
+            "source": source,
+        }
+        self._advance_each_player_pay_or()
+    def _advance_each_player_pay_or(self) -> None:
+        """Ask the next still-pending player in a `request_each_player_pay_or`
+        sweep, or clear it once everyone has answered."""
+        pending = self._pending_each_player_pay_or
+        if pending is None:
             return
-        self._pay_player_cost(player, pending["cost"])
-        self._apply_effect_specs(pending["effect_specs"], pending["source"], targets)
+        remaining: list[str] = pending["remaining_ids"]
+        while remaining:
+            player_id = remaining.pop(0)
+            try:
+                player = self.state.player_by_id(player_id)
+            except (KeyError, ValueError):
+                continue
+            if player.has_lost:
+                continue
+            self.request_pay_cost_then(
+                player, pending["cost"], [], pending["source"],
+                else_effect_specs=pending["effect_specs"], targets=[player],
+            )
+            if self.state.pending_choice is not None:
+                return  # a real choice opened — resumed via resolve_pay_cost_then_choice
+        self._pending_each_player_pay_or = None
     def _apply_effect_specs(
         self,
         effect_specs: list[dict],
@@ -1054,7 +1128,17 @@ class MiscSystemsMixin:
     #: this replaced the "auto-pick the first candidate" convention rather
     #: than passing a continuation closure around.
     CHOOSE_OBJECT_ACTIONS = frozenset(
-        {"tap", "sacrifice", "return_to_hand", "soulbond_pair", "library_top", "discard"}
+        {
+            "tap", "sacrifice", "return_to_hand", "soulbond_pair", "library_top", "discard",
+            # PAR-13 (Dungeon of the Mad Mage's "Mad Wizard's Lair" — "Draw
+            # three cards and reveal them. You may cast one of them without
+            # paying its mana cost."): a hand-zone pick, unlike every other
+            # action above (all battlefield picks), cast through the
+            # ordinary free-cast path (`RulesEngine.cast_without_paying`) —
+            # general enough for any future "reveal some cards, cast one
+            # free" template to reuse rather than a one-off.
+            "cast_free",
+        }
     )
     def request_choose_objects(
         self,
@@ -1268,6 +1352,8 @@ class MiscSystemsMixin:
             owner = self.state.player_by_id(obj.owner_id) or player
             self._remove_from_current_zone(owner, obj)
             owner.add_to_zone(obj, Zone.LIBRARY)
+        elif action == "cast_free":
+            self.cast_without_paying(player, obj)
     def the_ring_tempts_you(self, player: Player) -> None:
         """RULE 701.51a: the Ring tempts ``player``.
 

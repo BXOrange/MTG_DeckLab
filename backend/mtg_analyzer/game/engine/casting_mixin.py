@@ -25,7 +25,9 @@ from ...models.game_object import GameObject, Zone
 from ...models.game_state import GameState, StackItem
 from ...models.mana_cost import ManaCost
 from ...models.player import Player
-from .. import ability_catalogue, combat, condition_query, continuous, durations, face_down, variants
+from .. import (
+    ability_catalogue, combat, condition_query, continuous, durations, face_down, mana_potential, variants,
+)
 from ...models import game_format
 from ...models.game_format import GameFormat, get_format
 from ..costs import (
@@ -473,33 +475,60 @@ class CastingMixin:
         """The highest number of times ``player`` could pay Kicker and still
         cast ``obj`` (RULE 702.33) — 0 or 1 for a plain Kicker, 0..N for
         Multikicker. Mirrors `max_affordable_x`'s "scan down from an upper
-        bound" shape. Doesn't itself account for an independently announced
-        Kicker ``{X}`` (`max_affordable_kicker_x`) — checked with
-        ``kicker_x=0``, so a Kicker payable at all (any X, even 0) still
-        reports 1 here; the two are meant to be read together.
+        bound" shape, and the same MEC-13 mana-potential awareness (the
+        bound and each candidate's payability go through `game/mana_
+        potential.py` rather than the real pool alone). Doesn't itself
+        account for an independently announced Kicker ``{X}``
+        (`max_affordable_kicker_x`) — checked with ``kicker_x=0``, so a
+        Kicker payable at all (any X, even 0) still reports 1 here; the two
+        are meant to be read together.
         """
         kicker_cost = self._kicker_cost(obj)
         if kicker_cost is None:
             return 0
         kicker_param = (getattr(obj, "parametric_keywords", None) or {}).get("kicker") or {}
-        upper = player.mana_pool.total() if kicker_param.get("multi") else 1
+        potential_total = player.mana_pool.total() + mana_potential.max_potential_total(self, player)
+        upper = potential_total if kicker_param.get("multi") else 1
         for kicked in range(upper, -1, -1):
-            if self.can_cast(player, obj, kicked=kicked):
+            if not self.can_cast(player, obj, kicked=kicked, assume_mana_available=True):
+                continue
+            cost = self.effective_cast_cost(player, obj, kicked=kicked)
+            if mana_potential.is_castable_via_potential(self, player, cost):
                 return kicked
         return 0
     def max_affordable_kicker_x(self, player: Player, obj: GameObject) -> int:
         """The highest X ``player`` could announce for Kicker's *own*
         ``{X}`` (RULE 702.33b, PAR-7 — Emblazoned Golem-shaped) and still
         cast ``obj`` kicked once. `max_affordable_x`'s sibling for an
-        announced value living in Kicker's cost rather than the spell's own;
-        0 if ``obj``'s Kicker cost has no ``{X}`` at all.
+        announced value living in Kicker's cost rather than the spell's own
+        (same MEC-13 mana-potential awareness); 0 if ``obj``'s Kicker cost
+        has no ``{X}`` at all.
+
+        `_kicker_x_distinct_colors`'s own "no more than one mana of each
+        colour spent on X" restriction (Emblazoned Golem) is a real-pool
+        *shape* check `can_cast` only runs with ``assume_mana_available=
+        False`` — `game/mana_potential.py`'s tap-plan search has no concept
+        of it (auto-tapping doesn't know to diversify colours for one
+        narrow restriction), so a card carrying it falls back to the
+        original real-pool-only search rather than risk answering "yes"
+        for an X that potential mana could reach in total but not in the
+        colour spread this restriction actually demands.
         """
         kicker_cost = self._kicker_cost(obj)
         if kicker_cost is None or not kicker_cost.has_variable:
             return 0
-        bound = player.mana_pool.total()
+        if self._kicker_x_distinct_colors(obj):
+            bound = player.mana_pool.total()
+            for kicker_x in range(bound, -1, -1):
+                if self.can_cast(player, obj, kicked=1, kicker_x=kicker_x):
+                    return kicker_x
+            return 0
+        bound = player.mana_pool.total() + mana_potential.max_potential_total(self, player)
         for kicker_x in range(bound, -1, -1):
-            if self.can_cast(player, obj, kicked=1, kicker_x=kicker_x):
+            if not self.can_cast(player, obj, kicked=1, kicker_x=kicker_x, assume_mana_available=True):
+                continue
+            cost = self.effective_cast_cost(player, obj, kicked=1, kicker_x=kicker_x)
+            if mana_potential.is_castable_via_potential(self, player, cost):
                 return kicker_x
         return 0
     def effective_cast_cost(
@@ -631,13 +660,26 @@ class CastingMixin:
     def max_affordable_x(self, player: Player, obj: GameObject) -> int:
         """The highest X ``player`` could announce and still pay for ``obj``.
 
-        Only meaningful when the cost has ``{X}``; scans down from the
-        pool's total mana (X can never exceed that) to the first payable
-        value, 0 if even X=0 doesn't work.
+        MEC-13: mana-potential-aware, not real-pool-only — a player with
+        four untapped Mountains and an empty pool can still announce X=3
+        for a `{X}{R}` spell (`GameEngine.auto_tap_for`/`_auto_tap_for_
+        cast_if_needed` already handles the *execution* of any X the
+        caller supplies correctly; this is the offer-time hint that used
+        to undersell it). The search bound and each candidate's
+        payability both go through `game/mana_potential.py`: the bound is
+        real pool total plus `max_potential_total`'s colour-blind ceiling
+        (safe here since X is always a generic cost, RULE 107.3c), and
+        each candidate ``x`` is accepted once it's legal apart from mana
+        (``assume_mana_available``) and its own effective cost is payable
+        via `mana_potential.is_castable_via_potential`. Scans down to the
+        first payable value, 0 if even X=0 doesn't work.
         """
-        bound = player.mana_pool.total()
+        bound = player.mana_pool.total() + mana_potential.max_potential_total(self, player)
         for x in range(bound, -1, -1):
-            if self.can_cast(player, obj, x):
+            if not self.can_cast(player, obj, x, assume_mana_available=True):
+                continue
+            cost = self.effective_cast_cost(player, obj, x)
+            if mana_potential.is_castable_via_potential(self, player, cost):
                 return x
         return 0
     def cast_spell(
@@ -711,6 +753,16 @@ class CastingMixin:
             # body runs — the same order (and the same rollback-on-failure
             # discipline) as the second-face branch below, so a rejected
             # cast never leaves the card stuck face down in hand.
+            #
+            # MEC-13: auto-tap for the flat {3} *before* the legality gate
+            # below — `_cast_current_face` (reached only after the swap)
+            # can't do this itself, since by then ``face`` is gone (it
+            # reads whatever `obj.card` currently is), so a face-down cast
+            # payable only by tapping untapped lands used to be rejected
+            # here outright, `legal_actions` never even offering it (see
+            # `_castable_now_or_via_potential`'s own docstring, since fixed
+            # to use it here for face_down too).
+            self._auto_tap_for_cast_if_needed(player, obj, x, face=face)
             if not self.can_cast(player, obj, x, face=face):
                 raise ValueError(f"{player.id} cannot cast {obj.name} face down now")
             kind = face_down.cast_face_down_kind(obj)
@@ -842,7 +894,9 @@ class CastingMixin:
         player: Player,
         obj: GameObject,
         x: int,
+        face: str = "front",
         kicked: int = 0,
+        kicker_x: int = 0,
         buyback: bool = False,
         free: bool = False,
         mutate: bool = False,
@@ -866,23 +920,43 @@ class CastingMixin:
         here — the real `can_cast` check right after this call then fails
         normally, with its usual error message, unchanged from before this
         existed.
+
+        ``face`` (MEC-13) is threaded through to `can_cast`/`effective_
+        cast_cost` so this also runs for a `face="face_down"` cast — RULE
+        702.37a's flat {3} morph/disguise cost, which `effective_cast_cost`
+        already resolves correctly via `_face_card` (it doesn't need
+        ``obj`` to already be turned face down to compute it); the
+        `cast_spell` `face_down` branch calls this *before* the actual
+        face-down swap for exactly that reason.
+
+        ``kicker_x`` (MEC-13, PAR-7 — Emblazoned Golem-shaped) was missing
+        here entirely before this fix: `_cast_current_face` calls this with
+        every *other* real cast parameter (``x``, ``kicked``, …) but had
+        never threaded a caller-announced Kicker-{X} through, so a Kicker
+        spell whose own cost is variable always auto-tapped for
+        ``kicker_x=0`` regardless of what was actually announced —
+        silently under-tapping (or auto-tapping just fine for a value that
+        then failed the real, correctly-costed `can_cast` right after).
+        Zeroed under `_kicker_x_distinct_colors` exactly as `effective_
+        cast_cost` itself zeroes it, since that portion is paid separately
+        (`ManaPool.pay_distinct_colors`), never through auto-tap.
         """
         if free or self.can_cast(
-            player, obj, x, kicked=kicked, buyback=buyback, free=free,
+            player, obj, x, face=face, kicked=kicked, kicker_x=kicker_x, buyback=buyback, free=free,
             mutate=mutate, bargained=bargained, entwine=entwine,
             sacrifice_choice=sacrifice_choice, discard_choices=discard_choices,
             targets=targets,
         ):
             return
         if not self.can_cast(
-            player, obj, x, kicked=kicked, buyback=buyback, free=free,
+            player, obj, x, face=face, kicked=kicked, kicker_x=kicker_x, buyback=buyback, free=free,
             mutate=mutate, bargained=bargained, entwine=entwine,
             sacrifice_choice=sacrifice_choice, discard_choices=discard_choices,
             targets=targets, assume_mana_available=True,
         ):
             return  # illegal for a reason other than mana — never auto-tap
         cost = self.effective_cast_cost(
-            player, obj, x, kicked=kicked, buyback=buyback, mutate=mutate,
+            player, obj, x, face=face, kicked=kicked, kicker_x=kicker_x, buyback=buyback, mutate=mutate,
             entwine=entwine, targets=targets,
         )
         try:
@@ -924,7 +998,7 @@ class CastingMixin:
                 raise ValueError(f"{obj.name}: 'both' requires paying the entwine cost")
         with self._mode_effects_applied(obj, mode):
             self._auto_tap_for_cast_if_needed(
-                player, obj, x, kicked=kicked, buyback=buyback, free=free,
+                player, obj, x, kicked=kicked, kicker_x=kicker_x, buyback=buyback, free=free,
                 mutate=mutate, bargained=bargained, entwine=entwine,
                 sacrifice_choice=sacrifice_choice, discard_choices=discard_choices,
                 targets=targets,

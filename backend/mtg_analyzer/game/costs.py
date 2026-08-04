@@ -48,6 +48,14 @@ _PAY_ENERGY_WORD_RE = re.compile(
 _SACRIFICE_RE = re.compile(
     r"sacrifice\s+(this\s+\w+|~|an?\s+(\w+)|another\s+(\w+))", re.IGNORECASE
 )
+#: PAR-13's compound sacrifice cost — see its check-site below. Real
+#: printings vary on whether "artifact"/"land" repeat their own article
+#: ("a creature, an artifact, or a land" vs. "a creature, artifact, or
+#: land") — both are accepted.
+_SACRIFICE_CREATURE_ARTIFACT_OR_LAND_RE = re.compile(
+    r"sacrifice a creature,\s*(?:an?\s+)?artifact,?\s*(?:or|and)\s*(?:an?\s+)?land",
+    re.IGNORECASE,
+)
 _PAY_LIFE_RE = re.compile(r"pay\s+(\d+)\s+life", re.IGNORECASE)
 _DISCARD_RE = re.compile(
     r"discard\s+(your\s+hand|a\s+card|\d+\s+cards?|[a-z]+\s+cards?)", re.IGNORECASE
@@ -353,7 +361,12 @@ class ActivationCost:
         if self.untaps_self:
             parts.append("{Q}")
         if self.sacrifice:
-            what = "~" if self.sacrifice == "self" else f"a {self.sacrifice}"
+            if self.sacrifice == "self":
+                what = "~"
+            elif self.sacrifice == "creature_artifact_or_land":
+                what = "a creature, artifact, or land"
+            else:
+                what = f"a {self.sacrifice}"
             parts.append(f"Sacrifice {what}")
         if self.pay_life:
             parts.append("Pay X life" if self.pay_life == PAY_LIFE_X else f"Pay {self.pay_life} life")
@@ -536,13 +549,21 @@ def _parse_text(text: str) -> ActivationCost:
                 selector_match.group("phrase").strip().lower()
             )
 
-    sac = _SACRIFICE_RE.search(cost_text)
-    if sac:
-        whole = sac.group(1).lower()
-        if whole.startswith("this") or whole == "~":
-            cost.sacrifice = "self"
-        else:
-            cost.sacrifice = (sac.group(2) or sac.group(3) or "permanent").lower()
+    if _SACRIFICE_CREATURE_ARTIFACT_OR_LAND_RE.search(cost_text):
+        # PAR-13: "Sacrifice a creature, artifact, or land [of your/their
+        # choice]." (Tomb of Annihilation's "Sandfall Cell") — the one
+        # compound-type sacrifice cost any shipped card needs, ahead of the
+        # generic single-word `_SACRIFICE_RE` below (which would otherwise
+        # only see "a creature" and drop the rest of the list).
+        cost.sacrifice = "creature_artifact_or_land"
+    else:
+        sac = _SACRIFICE_RE.search(cost_text)
+        if sac:
+            whole = sac.group(1).lower()
+            if whole.startswith("this") or whole == "~":
+                cost.sacrifice = "self"
+            else:
+                cost.sacrifice = (sac.group(2) or sac.group(3) or "permanent").lower()
 
     life = _PAY_LIFE_RE.search(cost_text)
     if life:

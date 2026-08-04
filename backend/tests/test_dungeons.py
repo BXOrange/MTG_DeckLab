@@ -74,9 +74,14 @@ def test_a_room_effect_binds_through_the_ordinary_effect_grammar():
 
 def test_an_unmodeled_room_effect_fails_closed():
     """A room whose text the parser doesn't model keeps its place in the
-    graph but resolves with no effect — never a guessed one."""
-    dungeon = dungeons.dungeon_by_name("Dungeon of the Mad Mage")
-    assert dungeons.room_effect_specs(dungeon.room("Twisted Caverns")) == []
+    graph but resolves with no effect — never a guessed one. PAR-13
+    (2026-08-04) closed 8 of the then-9 unmodeled rooms (including this
+    test's original example, Twisted Caverns); Throne of the Dead Three is
+    the one genuine remaining gap — see test_par13_dungeons_and_variants.py
+    for why (a "reveal top N, choose one, place with counters, shuffle the
+    rest back" shape no other cached card needs)."""
+    dungeon = dungeons.dungeon_by_name("Undercity")
+    assert dungeons.room_effect_specs(dungeon.room("Throne of the Dead Three")) == []
 
 
 # -- Venturing (RULE 701.49) -------------------------------------------------

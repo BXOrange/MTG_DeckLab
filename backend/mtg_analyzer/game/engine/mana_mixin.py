@@ -235,6 +235,9 @@ class ManaMixin:
         player: Player,
         source: Optional[GameObject] = None,
         cost: Optional[ManaCost] = None,
+        x: int = 0,
+        kicked: int = 0,
+        kicker_x: int = 0,
     ) -> list[dict[str, int]]:
         """Find a tap plan (`game/mana_potential.py`'s `find_tap_plan`) for
         ``cost`` — or, if omitted, ``source``'s own effective cast cost — and
@@ -244,16 +247,18 @@ class ManaMixin:
         mutation logic. Raises ``ValueError`` (surfaced like any other
         illegal action) when no plan is found.
 
-        V1 scope: only the base printed/reduced cost at ``x=0``, unkicked,
-        no buyback/entwine — an X-spell or Kicker spell's *true* cost
-        depends on a choice the caller hasn't made yet at auto-tap time
-        (see `game/mana_potential.py`'s module docstring and
-        `docs/implementation-state/BACKLOG.md`).
+        MEC-13: ``x``/``kicked``/``kicker_x`` (all ignored when an explicit
+        ``cost`` is given, or when ``source`` is omitted) let a caller who
+        *has* already chosen an X/Kicker value — a manual "top up mana for
+        this announced X" click, mirroring what `_auto_tap_for_cast_if_
+        needed` already does automatically once `cast_spell` itself is
+        called with those values — get the true effective cost auto-tapped
+        for, rather than always only the base X=0/unkicked one.
         """
         if cost is None:
             if source is None:
                 raise ValueError("auto_tap_for needs a source or an explicit cost")
-            cost = self.effective_cast_cost(player, source)
+            cost = self.effective_cast_cost(player, source, x, kicked=kicked, kicker_x=kicker_x)
         plan = mana_potential.find_tap_plan(self, player, cost)
         if plan is None:
             raise ValueError("no untapped mana sources can pay this cost")

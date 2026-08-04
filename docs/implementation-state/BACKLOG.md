@@ -36,52 +36,14 @@ Plan-level sequencing lives in
 
 ## PAR — Parser
 
-- **PAR-15 · "Any number of target `<X>`" targeting — residue.** The core
-  mechanism and the ticket's own named biggest cluster shipped 2026-08-03
-  (see `Done_Backend.md`): `catalogue.handlers._MULTI_TARGET_QUANTIFIER`
-  gained a third "any number of " alternative (capped at
-  `_ANY_NUMBER_TARGET_CAP`, 10), and `_DIVIDED_DAMAGE_RE`/`_divided_damage`
-  newly recognizes RULE 601.2d's "`~` deals N/X damage divided as you
-  choose among any number of target(s)/target creatures." What's left,
-  per `python scripts/coverage_report.py`'s backlog ranking (re-measure
-  before trusting the counts, per usual): **"prevent the next N damage
-  that would be dealt this turn to any number of targets, divided as you
-  choose."** (2 cards) — `PreventDamageEffect` never gained the sibling
-  `divided` mode `DealDamageEffect` did; **"put any number of target
-  creature cards from your graveyard on top of your library."** (4) and
-  **"shuffle any number of target `<cards>` from your graveyard into your
-  library."** (2) — new destinations for the targeted graveyard-recursion
-  family (`ReturnFromGraveyardEffect`'s `destination`), not yet
-  "top of library"/"library" shuffle; **"distribute N +1/+1 counters
-  among any number of target creatures."** (Blessings of Nature-shaped)
-  and **"any number of target creatures each get +1/+1 and gain
-  `<keyword>` until end of turn."** (Aerial Formation/Ajani's Presence-
-  shaped) — both untouched, though `_multi_target_params`'s widening may
-  already reach the pump one if a handler is built to call it (check
-  before assuming a new primitive). None of these need a new *targeting*
-  primitive — `_ANY_NUMBER_TARGET_CAP`/`optional=True` already generalizes
-  — only new/widened effect-body recognizers per destination or effect
-  family.
-- **PAR-12 · The indefinite long tail.** Strategy, current coverage, and a
-  worked example: [PARSER_LONG_TAIL.md](PARSER_LONG_TAIL.md). Not a ticket
-  that can be "closed" — a standing program.
-- **PAR-13 · Dungeon room, plane and scheme effect bodies.** The bounded,
-  enumerable corner of the tail, called out separately only because a
-  *shipped* subsystem is waiting on it: the RULE 309 dungeon engine and all
-  four room graphs are built, but a room whose printed effect the grammar
-  doesn't model resolves with no effect (fail-closed, `game/dungeons.py`'s
-  `room_effect_specs`) — 20 of 30 rooms bind today, the rest are ordinary
-  effect-body grammar ("each player loses 2 life unless they discard a
-  card", "exile the top two cards of your library. You may play them").
-  Planechase (901) and Archenemy (904) are the same one level up: their
-  *trigger conditions* are recognized ("whenever chaos ensues", "when you
-  set this scheme in motion", "when you planeswalk to ~"), but the bodies
-  are exotic even by tail standards ("creatures can't attack you until a
-  player planeswalks", "time travel"), so almost every real plane/scheme
-  still fails the coverage gate as a whole. Nothing dungeon- or
-  variant-specific is missing in either case — this is [PAR-12] work with a
-  known card list. (Reaching a Planechase/Archenemy table at all is a
-  separate, non-parser gap: [PLR-13].)
+- **PAR-12 · The indefinite long tail.** Strategy, current coverage, and
+  worked examples: [PARSER_LONG_TAIL.md](PARSER_LONG_TAIL.md). Not a ticket
+  that can be "closed" — a standing program. Planechase (901)/Archenemy
+  (904) plane/scheme card *bodies* live here too (13/309 measured
+  2026-08-04) — their trigger conditions are recognized, but the bodies are
+  exotic even by tail standards, so this is ordinary long-tail work with a
+  known card list, not a distinct gap. (Reaching a Planechase/Archenemy
+  table at all is a separate, non-parser gap: [PLR-13].)
 
 ## MEC — Game mechanics
 
@@ -90,28 +52,8 @@ Plan-level sequencing lives in
 > out of both the coverage count and the backlog ranking — and Attractions
 > (RULE 717).
 
-- **MEC-13 · Mana-Potenzial auto-tap has two narrow, documented gaps.**
-  (1) `GameEngine.auto_tap_for`/the automatic pre-cast hook
-  (`game/engine/casting_mixin.py`'s `_auto_tap_for_cast_if_needed`) only
-  ever targets the base/unkicked, X=0 effective cost — an X-spell or
-  Kicker spell's *true* cost depends on a choice the player hasn't made
-  yet at auto-tap time, so those still need a manual tap or a follow-on
-  auto-tap once X/Kicker is chosen. (2) `legal_actions()`'s face-down
-  (morph/manifest) cast offer stays real-pool-only —
-  `_castable_now_or_via_potential` isn't applied there since RULE 702.37a's
-  flat {3} cost isn't expressed through `effective_cast_cost`'s ordinary
-  `face` handling. Neither blocks the headline feature (`game/mana_
-  potential.py`, `docs/implementation-state/Done_Backend.md` "Mana-
-  Potenzial (offen/genutzt) + Auto-Tap"); both are narrow, real cards.
-  (3)Multicolor lands and artifacts are counted multiple times, even as
-  they can only produce one mana. This makes auto-tapping potentially buggy.
-
 ## PLR — Player management
 
-- **PLR-3 · A face-down card in exile isn't redacted.**
-  `_redact_hidden_zones` works zone by zone; `GameObject.face_down_in_exile`
-  needs per-card characteristic redaction. No multiplayer card makes one
-  today.
 - **PLR-4 · Names are the identity, unauthenticated.** Two people picking
   the same name share a seat; the second to connect takes over. Fine for a
   LAN table, not for anything public — needs [PLR-9].

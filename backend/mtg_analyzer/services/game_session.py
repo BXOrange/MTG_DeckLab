@@ -198,6 +198,58 @@ def build_multiplayer_engine(
     return engine
 
 
+#: PLR-3: the `GameObject.to_dict()` fields that reveal a face-down-in-
+#: exile card's real identity/characteristics — reset to an "unknown card"
+#: placeholder for every viewer but its owner. `face_down` (RULE 708.2,
+#: morph/disguise/manifest/cloak) needs no such list: its `self.card` is
+#: already swapped to the synthetic blank face, so `to_dict()` never had
+#: the real identity to leak in the first place. A face-down-in-exile card
+#: (RULE 701.20a, Beseech the Mirror-shaped) is different — the object
+#: still holds its true `Card`, since its own *owner* must be able to cast
+#: it later — so the wire payload has to be scrubbed here instead.
+_FACE_DOWN_IN_EXILE_HIDDEN_FIELDS: dict[str, Any] = {
+    "card_id": None,
+    "name": "",
+    "type_line": "",
+    "has_back_face": False,
+    "is_creature": False,
+    "is_land": False,
+    "is_artifact": False,
+    "is_enchantment": False,
+    "is_planeswalker": False,
+    "is_battle": False,
+    "is_saga": False,
+    "is_token": False,
+    "power": None,
+    "toughness": None,
+    "loyalty": None,
+    "defense": None,
+    "saga_final_chapter": None,
+    "adventure_castable": False,
+    "prepared_copy": False,
+}
+
+
+def _redact_face_down_exile(state_dict: dict[str, Any], perspective: Optional[str]) -> None:
+    """RULE 701.20a: scrub every `GameObject.face_down_in_exile` card's
+    identity out of ``state_dict``, for every player except its own owner.
+
+    The frontend already renders a face-down-in-exile card as a card back
+    (`gameBoardView.js`'s `resolveImageUrl`, checked ahead of everything
+    else) regardless of viewer — but only the *image* choice, not the wire
+    payload: `name`/`card_id`/`type_line`/derived characteristics were
+    still shipped in full, since this app's other views (goldfish/Replay)
+    are always shown to the card's own owner, exactly who *may* look
+    (RULE 708.5-adjacent). A multiplayer opponent is not that owner.
+    """
+    for player in state_dict.get("players", []):
+        if player.get("id") == perspective:
+            continue
+        for obj in player.get("exile", []):
+            if obj.get("face_down_in_exile"):
+                obj.update(_FACE_DOWN_IN_EXILE_HIDDEN_FIELDS)
+
+
 def _redact_hidden_zones(
     state_dict: dict[str, Any],
     perspective: Optional[str],
@@ -216,11 +268,10 @@ def _redact_hidden_zones(
     left unrendered. ``library_count``/``hand_count`` are untouched, so the
     board can still draw the right number of face-down cards.
 
-    Not yet redacted: a face-down card in exile (RULE 701.20a,
-    `GameObject.face_down_in_exile`) still ships its identity — no card in
-    the multiplayer path produces one today, and doing it properly means
-    redacting a *card's* characteristics rather than a whole zone (see
-    docs/implementation-state/BACKLOG.md).
+    Also redacts a face-down card sitting in exile (RULE 701.20a) via
+    `_redact_face_down_exile` — a *card's* characteristics rather than a
+    whole zone, since the object itself (and the fact that something is
+    exiled face down) stays visible, only its identity is hidden.
     """
     for player in state_dict.get("players", []):
         own = perspective is not None and player.get("id") == perspective
@@ -230,6 +281,8 @@ def _redact_hidden_zones(
         # draw order); only a card an effect actually reveals is kept.
         top_visible = own and (top_library_visible or {}).get(player.get("id"))
         player["library"] = player["library"][-1:] if top_visible and player["library"] else []
+
+    _redact_face_down_exile(state_dict, perspective)
 
     # A pending choice is answered by exactly one player; nobody else may
     # see its options (they can name cards in a hidden zone). Everyone else
@@ -686,11 +739,21 @@ class GameSession:
         # an explicit target ``cost`` string (topping up the pool for an
         # activated ability), or ``instance_id`` naming a hand/command-zone
         # card whose own effective cast cost is derived and paid for.
+        # MEC-13: ``x``/``kicked``/``kicker_x``, when the caller has already
+        # settled on one (the board's X/Kicker input already showed the
+        # potential-aware max via `legal_actions`' own `max_x`/`max_kicker`/
+        # `kicker_max_x`), so a manual top-up taps for the *announced*
+        # amount rather than always the base cost.
         raw_cost = action.get("cost")
         if raw_cost:
             self.engine.auto_tap_for(active, cost=ManaCost.parse(str(raw_cost)))
         else:
-            self.engine.auto_tap_for(active, source=self._object(action))
+            self.engine.auto_tap_for(
+                active, source=self._object(action),
+                x=int(action.get("x", 0) or 0),
+                kicked=int(action.get("kicked", 0) or 0),
+                kicker_x=int(action.get("kicker_x", 0) or 0),
+            )
 
     def _dispatch_cast_spell(self, action: dict[str, Any], active: Player) -> None:
         # The spell goes on the stack; it does NOT auto-resolve, so the

@@ -103,6 +103,12 @@ def _matches_permanent_type(obj: GameObject, what: str) -> bool:
         # RULE 306/302: Tevesh Szat's "another creature or planeswalker" —
         # the one compound word any shipped card needs.
         return obj.is_creature or obj.card.is_planeswalker
+    if what == "creature_artifact_or_land":
+        # PAR-13: "sacrifice a creature, artifact, or land of their choice"
+        # (Tomb of Annihilation's "Sandfall Cell" dungeon room) — the
+        # payer's own choice of *type*, not "any permanent" (which would
+        # wrongly also license sacrificing an enchantment/planeswalker).
+        return obj.is_creature or obj.card.is_artifact or obj.is_land
     return True  # unknown type word → any permanent, so the cost is payable
 
 
@@ -710,6 +716,48 @@ class DamageDeathMixin:
 
         effect.replacement_fn = _replace
         player.player_effects.append(effect)
+
+    def prevent_damage_to_target(self, target: Any, amount: Union[int, str] = "all") -> None:
+        """RULE 615, the *any-target* sibling of `prevent_damage_to_player`
+        (PAR-15's "prevent the next N damage ... to any number of targets,
+        divided as you choose" — Embolden/Remedy/Angel of Salvation): a
+        turn-scoped shield for whichever single target (player *or*
+        permanent) a divided prevention pool was allotted to.
+
+        ``target`` may be a `Player` (shield lives on `Player.player_effects`,
+        swept by `GameEngine._step_cleanup`'s existing `damage_prevention_
+        shield` pass) or a `GameObject` (shield lives on its own
+        `replacement_effects`, swept by that same method's per-permanent
+        loop — see the `regeneration_shield` sweep it sits beside). Same
+        cumulative-bank semantics as the player-only method.
+        """
+        is_player = isinstance(target, Player)
+        target_id = target.id if is_player else target.instance_id
+        remaining = None if amount == "all" else int(amount)
+        effect = ReplacementEffect(
+            event_type=EventType.DAMAGE,
+            replacement_fn=lambda e, c: e,  # replaced below once `effect` exists
+            condition=lambda e, c: bool(e.get("is_player")) == is_player and e.get("target_id") == target_id,
+            description="Schadensverhinderung",
+        )
+        effect.damage_prevention_shield = True
+        holder = target.player_effects if is_player else target.replacement_effects
+
+        def _replace(event: GameEvent, _context: Any) -> Optional[GameEvent]:
+            nonlocal remaining
+            dealt = int(event.get("amount", 0) or 0)
+            if remaining is None:
+                return None  # "all" — every point prevented, shield persists
+            prevented = min(remaining, dealt)
+            remaining -= prevented
+            if remaining <= 0 and effect in holder:
+                holder.remove(effect)
+            new_amount = dealt - prevented
+            return event.copy_with(amount=new_amount) if new_amount > 0 else None
+
+        effect.replacement_fn = _replace
+        holder.append(effect)
+
     def _move_to_graveyard(self, obj: GameObject, cause: Optional[str] = None) -> None:
         """Put ``obj`` into its owner's graveyard (RULE 704.5), firing the
         leave/dies triggers. ``cause="sacrifice"`` additionally fires

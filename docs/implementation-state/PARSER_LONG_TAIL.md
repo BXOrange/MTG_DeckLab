@@ -13,7 +13,7 @@ Tracked in the backlog as a single standing entry, `PAR-12`.
 Measured by `scripts/coverage_report.py` (ledger-backed via
 `services/coverage_db.py`), against the full ~34k-card Oracle universe:
 
-**28.4% covered — 9,731 / 34,208 — as of 2026-08-03, PARSER_VERSION 49.**
+**28.6% covered — 9,778 / 34,208 — as of 2026-08-04, PARSER_VERSION 50.**
 
 "Covered" = parser-`MODELED` **or** hand-`AUTHORED`. Re-run the report rather
 than trusting a figure quoted here, in `CLAUDE.md`, or in the Engine-Status
@@ -172,3 +172,37 @@ battles as a type. Grouped by what each actually needs, most-cards-first:
 moved the pool 0 → 12, while the *card type* work itself moved it zero. The
 gains that matter are almost always in shared grammar, and a fully
 implemented mechanic is no guarantee its cards parse.
+
+## Worked example: dungeon rooms (RULE 309)
+
+Same lesson from the other direction: the RULE 309 dungeon engine and all
+four room graphs (`game/dungeons.py`) were fully built while sitting at
+21/30 modeled rooms — nothing dungeon-specific was missing, only ordinary
+effect-body grammar (`room_effect_specs` runs the exact same
+`segmenter.parse_effect_body` a card's own text does). PAR-13 (2026-08-04)
+closed 8 of the 9 gaps: a P/T-delta route for `grant_until` plus its
+"can't attack/block until `<duration>`" sibling (Fungi Cavern/Twisted
+Caverns — both also picked up real non-dungeon cards via two new `_GROUP`
+phrasings); a mandatory compound discard-then-triple-sacrifice handler
+(Oubliette); a legendary named token (Cradle of the Death God — the first
+`Card.is_legendary` a synthesized token ever carried); `ImpulsiveDrawEffect`'s
+first oracle-text route, previously hand-authored-only (Runestone Caverns);
+a new `DrawRevealCastOneFreeEffect` + a `"cast_free"` `choose_objects`
+action, the first hand-zone pick that chooser ever offered (Mad Wizard's
+Lair); and a new mass-interactive primitive, `RulesEngine.
+request_each_player_pay_or` (RULE 101.4 APNAP, chained off the existing
+single-player `request_pay_cost_then`) for "each player loses N life
+unless they `<pay cost>`." (Veils of Fear/Sandfall Cell — the latter also
+needed a new compound `ActivationCost.sacrifice` value,
+`creature_artifact_or_land`, since the plain single-word sacrifice grammar
+can't express an OR of three types).
+
+**Throne of the Dead Three** ("Reveal the top ten cards of your library.
+Put a creature card from among them onto the battlefield with three +1/+1
+counters on it. It gains hexproof until your next turn. Then shuffle.")
+is the one room left unmodeled — a genuine "reveal top N, choose one
+matching a filter, place it with counters, shuffle the rest back" shape,
+confirmed to have zero non-dungeon cache siblings (unlike every other gap
+above, so there's no shared-grammar win waiting behind it). Left as an
+honest residual rather than forced, the same call this document already
+makes for the battle pool's own bespoke-tail cards.

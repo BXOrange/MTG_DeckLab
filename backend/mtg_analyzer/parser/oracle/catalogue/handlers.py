@@ -244,6 +244,33 @@ def _divided_damage(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     })]
 
 
+#: RULE 615's targeted divided-prevention sibling of `_DIVIDED_DAMAGE_RE`
+#: (PAR-15's own "prevent-divided" residue cluster — Embolden/Remedy/Angel
+#: of Salvation): "prevent the next N damage that would be dealt this turn
+#: to any number of targets, divided as you choose." `PreventDamageEffect`
+#: already existed as the untargeted "prevent all/N damage to you" shield
+#: (Riot Control/Thought Lash, hand-authored); this recognizer — and the
+#: targeted/divided mode it drives — is new. The optional trailing group is
+#: Pollen Remedy's own "if this spell was kicked, prevent the next N damage
+#: this way instead" *override* (`PreventDamageEffect.amount_if_kicked`),
+#: distinct from RULE 702.33b's additive kicked-conditional shape.
+_PREVENT_DIVIDED_DAMAGE_RE = _c(
+    r"prevent the next (?P<n>\d+) damage that would be dealt this turn to "
+    r"any number of targets, divided as you choose"
+    r"(?:\. if this spell was kicked, prevent the next (?P<n2>\d+) damage this way instead)?"
+)
+
+
+def _prevent_divided_damage(m: re.Match[str]) -> list[EffectSpec]:
+    params: dict = {
+        "amount": int(m.group("n")), "target_kind": "any",
+        "count": _ANY_NUMBER_TARGET_CAP, "optional": True, "divided": True,
+    }
+    if m.group("n2") is not None:
+        params["amount_if_kicked"] = int(m.group("n2"))
+    return [EffectSpec("prevent_damage_shield", params)]
+
+
 #: "~ deals N damage to each creature/player/opponent" — a *mass* effect
 #: (RULE 601.2c), not RULE 115 targeting, so it's a dedicated regex rather
 #: than a `TARGET` row (see `subgrammars._TARGET_ROWS`'s note on why "each
@@ -286,6 +313,42 @@ def _draw_next_upkeep(m: re.Match[str]) -> list[EffectSpec]:
     })]
 
 
+#: RULE 601.3b's "impulsive draw" shape (PAR-13, Dungeon of the Mad Mage's
+#: "Runestone Caverns" — "Exile the top two cards of your library. You may
+#: play them."; also Bonehoard Dracosaur/Painter's Studio's own trailing
+#: duration variants) — `ImpulsiveDrawEffect` already existed as a
+#: hand-authored-only primitive (Light Up the Stage); this is the first
+#: oracle-text recognizer to reach it. A bare, undurationed "you may play
+#: them" (the dungeon room's own phrasing, with no explicit window at all)
+#: defaults to the effect's own "until the end of your next turn" — the
+#: more common real-card convention for an unqualified "you may play them".
+_EXILE_TOP_PLAY_RE = _c(
+    r"exile the top (?P<n>\d+) cards? of your library\. you may play (?:them|it)"
+    r"(?: (?P<dur>this turn|until the end of your next turn))?"
+)
+
+
+def _exile_top_play(m: re.Match[str]) -> list[EffectSpec]:
+    same_turn_only = (m.groupdict().get("dur") or "").strip() == "this turn"
+    return [EffectSpec("impulsive_draw", {
+        "count": int(m.group("n")), "same_turn_only": same_turn_only,
+    })]
+
+
+#: "Draw N cards and reveal them. You may cast one of them without paying
+#: its mana cost." (PAR-13, Dungeon of the Mad Mage's own "Mad Wizard's
+#: Lair") — `DrawRevealCastOneFreeEffect`'s only oracle-text route; reveal
+#: itself carries no mechanical weight to model (RULE 701.28).
+_DRAW_REVEAL_CAST_FREE_RE = _c(
+    r"draw (?P<n>\d+) cards? and reveal (?:them|it)\. you may cast (?:\d+|a) of "
+    r"them without paying its mana cost"
+)
+
+
+def _draw_reveal_cast_free(m: re.Match[str]) -> list[EffectSpec]:
+    return [EffectSpec("draw_reveal_cast_one_free", {"count": int(m.group("n"))})]
+
+
 def _discard(m: re.Match[str]) -> list[EffectSpec]:
     # "you discard"/bare "discard" is the controller (untargeted); "target
     # player/opponent discards" is a real RULE 115 target; "each player/
@@ -302,6 +365,55 @@ def _discard(m: re.Match[str]) -> list[EffectSpec]:
     elif who == "each opponent":
         params["scope"] = "each_opponent"
     return [EffectSpec("discard", params)]
+
+
+#: "Each player loses N life unless they discard a card."/"...unless they
+#: sacrifice a creature, artifact, or land of their choice." (PAR-13, Tomb
+#: of Annihilation's "Veils of Fear"/"Sandfall Cell" dungeon rooms) — RULE
+#: 101.4's APNAP mass "unless", `RulesEngine.request_each_player_pay_or`'s
+#: only oracle-text route. Only these two cost phrasings (the ones real
+#: cards in the pool actually print for this shape) — a compound sacrifice
+#: cost the plain-word `_SACRIFICE_RE`/`ActivationCost.sacrifice` vocabulary
+#: doesn't otherwise reach (`costs._SACRIFICE_CREATURE_ARTIFACT_OR_LAND_RE`).
+_EACH_PLAYER_LOSE_LIFE_UNLESS_RE = _c(
+    r"each player loses (?P<n>\d+) life unless they "
+    r"(?P<cost>discard a card|"
+    r"sacrifice a creature,\s*(?:an?\s+)?artifact,?\s*(?:or|and)\s*(?:an?\s+)?land of their choice)"
+)
+
+
+def _each_player_lose_life_unless(m: re.Match[str]) -> list[EffectSpec]:
+    return [EffectSpec("each_player_pay_or", {
+        "cost": m.group("cost"),
+        "effects": [{
+            "type": "lose_life",
+            "params": {"amount": int(m.group("n")), "target_kind": "player"},
+        }],
+    })]
+
+
+#: "Discard a card and sacrifice a creature, an artifact, and a land."
+#: (PAR-13, Dungeon of the Mad Mage's "Oubliette" room) — a mandatory
+#: compound cost-shaped punishment, not an "unless" choice: one `discard`
+#: plus three independent `choose_objects` sacrifices (the payer's own
+#: pick within each type, RULE 701.17a — `ChooseObjectsEffect` already
+#: resolves with no prompt when there's nothing to choose between, and as a
+#: no-op when a type has no legal candidate at all). A standalone whole-
+#: clause row rather than relying on the generic `" and "` connector split
+#: (`segmenter._CONNECTORS`), since that would also split the sacrifice's
+#: own internal "a creature, an artifact, **and** a land" list.
+_DISCARD_AND_SACRIFICE_TRIPLE_RE = _c(
+    r"discard a card and sacrifice a creature, an artifact, and a land"
+)
+
+
+def _discard_and_sacrifice_triple(m: re.Match[str]) -> list[EffectSpec]:
+    return [
+        EffectSpec("discard", {"count": 1}),
+        EffectSpec("choose_objects", {"action": "sacrifice", "what": "creature", "count": 1}),
+        EffectSpec("choose_objects", {"action": "sacrifice", "what": "artifact", "count": 1}),
+        EffectSpec("choose_objects", {"action": "sacrifice", "what": "land", "count": 1}),
+    ]
 
 
 def _gain_life(m: re.Match[str]) -> list[EffectSpec]:
@@ -882,6 +994,46 @@ def _reanimate_under_your_control(m: re.Match[str]) -> Optional[list[EffectSpec]
     if m.groupdict().get("up_to_one"):
         params["optional"] = True
     return [EffectSpec("return_from_graveyard", params)]
+
+
+#: PAR-15's "any number of" siblings of the two shapes above — always "your
+#: own graveyard" on every real card using either ("put ... on top of your
+#: library": Bone Harvest/Footbottom Feast/Forever Young/Gravepurge; "shuffle
+#: ... into your library": Piper's Melody/Renewing Touch/Perpetual Timepiece/
+#: The Bath Song), so unlike `_RETURN_FROM_GRAVEYARD_RE` neither needs the
+#: full opponent/any-graveyard scope vocabulary. The shuffle shape is
+#: modeled as "put on the bottom, then shuffle" — see `ReturnFromGraveyard
+#: Effect.shuffle_after` — since the position `library_bottom` gives it is
+#: immediately randomized away by the shuffle, matching "shuffled into your
+#: library" exactly.
+_RETURN_FROM_GRAVEYARD_TOP_ANY_RE = _c(
+    rf"put any number of target (?:(?P<type>{_GRAVEYARD_TYPE_WORD}) )?cards from "
+    r"your graveyard on top of your library"
+)
+_RETURN_FROM_GRAVEYARD_SHUFFLE_ANY_RE = _c(
+    rf"shuffle any number of target (?:(?P<type>{_GRAVEYARD_TYPE_WORD}) )?cards from "
+    r"your graveyard into your library"
+)
+
+
+def _return_from_graveyard_top_any(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    kind = _graveyard_target_kind(m.groupdict().get("type"), "your")
+    if kind is None:
+        return None
+    return [EffectSpec("return_from_graveyard", {
+        "target_kind": kind, "destination": "library_top",
+        "count": _ANY_NUMBER_TARGET_CAP, "optional": True,
+    })]
+
+
+def _return_from_graveyard_shuffle_any(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    kind = _graveyard_target_kind(m.groupdict().get("type"), "your")
+    if kind is None:
+        return None
+    return [EffectSpec("return_from_graveyard", {
+        "target_kind": kind, "destination": "library_bottom", "shuffle_after": True,
+        "count": _ANY_NUMBER_TARGET_CAP, "optional": True,
+    })]
 
 
 #: "exile target [type] card from [scope] graveyard" (RULE 701.5a) — the
@@ -1750,6 +1902,8 @@ def _create_token(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     }
     if subtypes:
         params["token_name"] = " ".join(subtypes)
+    if m.groupdict().get("legendary"):
+        params["legendary"] = True
     # "**Each player** creates …" / "**each opponent** creates …" — everyone
     # gets their own ``count`` tokens under their own control, rather than
     # the effect's controller getting them all.
@@ -1759,6 +1913,45 @@ def _create_token(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     if m.groupdict().get("tapped"):  # RULE 110.5a — enters tapped, not tapped after
         params["tapped"] = True
     return [EffectSpec("create_token", params)]
+
+
+#: "Create <Name>, a legendary N/N ... creature token [with <keywords>]."
+#: (PAR-13, Dungeon of the Mad Mage's "Cradle of the Death God" — "Create
+#: The Atropal, a legendary 4/4 black God Horror creature token with
+#: deathtouch.") — the named-legendary sibling of `_create_token`'s bare
+#: inline-stats grammar: a real proper name up front (unlike `_create_
+#: named_token`'s closed Treasure/Clue/Food vocabulary, this name is
+#: whatever the clause prints, always legendary, always with inline stats)
+#: rather than a curated `TokenDatabase` lookup, since a card's own unique
+#: token needs no shared ability the database would otherwise supply.
+_CREATE_NAMED_LEGENDARY_TOKEN_RE = _c(
+    r"create (?P<name>[a-z][a-z' ]*), a legendary (?P<p>\d+)/(?P<t>\d+) "
+    r"(?P<mid>[a-z ]*?)creature tokens?"
+    r"(?: with (?P<kw>[a-z, ]+))?"
+)
+
+
+def _create_named_legendary_token(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    colors: list[str] = []
+    subtypes: list[str] = []
+    for word in (m.group("mid") or "").split():
+        if word in _COLOR_WORDS:
+            colors.append(_COLOR_WORDS[word])
+        elif word in _TOKEN_NOISE_WORDS:
+            continue
+        else:
+            subtypes.append(word.capitalize())
+    keywords: list[str] = []
+    if m.groupdict().get("kw"):
+        parsed = _token_keywords(m.group("kw"))
+        if parsed is None:
+            return None
+        keywords = parsed
+    return [EffectSpec("create_token", {
+        "count": 1, "power": int(m.group("p")), "toughness": int(m.group("t")),
+        "colors": colors, "subtypes": subtypes, "keywords": keywords,
+        "token_name": m.group("name").strip().title(), "legendary": True,
+    })]
 
 
 #: A closed vocabulary of the popular colourless "named" artifact tokens
@@ -1834,6 +2027,27 @@ def _add_counters_multi_target(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     return [EffectSpec("add_counters", params)]
 
 
+#: PAR-15's "distribute N +1/+1 counters among any number of target
+#: creatures[ you control]" (Blessings of Nature/Jugan, the Rising Star/
+#: Verdurous Gearhulk) — the *divided pool* sibling of `_add_counters_
+#: multi_target`'s "each of up to N" full-amount-per-target shape, mirroring
+#: `_divided_damage`'s relationship to `_damage_each_multi_target`
+#: (`AddCountersEffect.divided`).
+_DISTRIBUTE_COUNTERS_RE = _c(
+    r"distribute (?P<n>\d+) (?P<ckind>\+1/\+1|-1/-1|−1/−1) counters among any number "
+    r"of target creatures(?P<yc> you control)?"
+)
+
+
+def _distribute_counters(m: re.Match[str]) -> list[EffectSpec]:
+    ckind = "-1/-1" if m.group("ckind")[0] in "-−" else "+1/+1"
+    kind = "creature_you_control" if m.groupdict().get("yc") else "creature"
+    return [EffectSpec("add_counters", {
+        "count": int(m.group("n")), "kind": ckind, "target_kind": kind,
+        "target_count": _ANY_NUMBER_TARGET_CAP, "optional": True, "divided": True,
+    })]
+
+
 #: "put N +1/+1 counters on each creature you control" (RULE 601.2c mass
 #: effect, Vastwood Surge-shaped) — a genuinely different shape from
 #: `_add_counters`'s RULE 115 target/self forms, so its own handler row
@@ -1859,7 +2073,7 @@ def _pump_target(m: re.Match[str]) -> Optional[tuple[Optional[str], Optional[str
     if groupdict.get("selfref"):
         return (None, None)  # untargeted self-pump (an activated "~ gets +1/+0 …")
     if groupdict.get("group"):
-        return (None, _GROUP_SELECTORS[groupdict["group"]])
+        return (None, _GROUP_SELECTORS[re.sub(r"'", "", groupdict["group"])])
     if groupdict.get("attached"):
         return ("attached_permanent", None)  # "enchanted creature gains …" (Aura activated ability)
     kind = resolve_target_kind(m.group("target"))
@@ -1955,6 +2169,61 @@ def _grant_until(m: re.Match[str]) -> Optional[list[EffectSpec]]:
         params["target_kind"] = None
         static["params"]["affects"] = selector
     return [EffectSpec("grant_until", params)]
+
+
+#: PAR-13's P/T sibling of `_grant_until` — "target creature gets -4/-0
+#: until your next turn" (Fungi Cavern/A-Binding Geist/Hag of Inner
+#: Weakness/Wasp, Shrinking Savior-shaped; "creatures your opponents
+#: control get -3/-0 until your next turn" — Mouth of the Storm — via the
+#: same widened `_GROUP`). The `anthem` static (layer 7c) is already the
+#: general P/T-delta static every plain pump uses; this is the first
+#: oracle-text route to it with a non-end-of-turn duration.
+def _pump_until(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    subject = _pump_target(m)
+    if subject is None:
+        return None
+    target_kind, selector = subject
+    duration = _GRANT_DURATIONS.get(m.group("dur").strip().lower())
+    if duration is None:
+        return None
+    static: dict = {
+        "type": "anthem",
+        "params": {"power": _signed_int(m.group("p")), "toughness": _signed_int(m.group("t"))},
+    }
+    params: dict = {"static": static, "duration": duration}
+    if target_kind:
+        params["target_kind"] = target_kind
+    else:
+        params["target_kind"] = None
+        static["params"]["affects"] = selector
+    return [EffectSpec("grant_until", params)]
+
+
+#: PAR-13's "can't attack"/"can't block" sibling — "target creature can't
+#: attack until your next turn" (Dungeon of the Mad Mage's own Twisted
+#: Caverns). The plain, unqualified restriction rides the same synthetic
+#: `grant_keyword` flag (`cant_attack`/`cant_block`) its permanent-static
+#: cousin uses (`combat_restriction`'s own docstring) — not `_token_
+#: keywords`, since these verbs aren't real RULE 702 keyword names.
+_CANT_ATTACK_OR_BLOCK_UNTIL_RE = _c(
+    rf"{TARGET} can'?t (?P<verb>attack|block) "
+    r"(?P<dur>until (?:your next turn|the end of combat|end of combat|"
+    r"the beginning of the next end step))"
+)
+
+
+def _cant_attack_or_block_until(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    kind = resolve_target_kind(m.group("target"))
+    if kind not in ("creature", "permanent"):
+        return None
+    duration = _GRANT_DURATIONS.get(m.group("dur").strip().lower())
+    if duration is None:
+        return None
+    flag = "cant_attack" if m.group("verb") == "attack" else "cant_block"
+    return [EffectSpec("grant_until", {
+        "static": {"type": "grant_keyword", "params": {"keywords": [flag]}},
+        "duration": duration, "target_kind": kind,
+    })]
 
 
 #: The lock-down family's own "for as long as <cond>" durations (PAR-11),
@@ -2305,7 +2574,15 @@ def _create_emblem(m: re.Match[str]) -> Optional[list[EffectSpec]]:
 # the common Saga-chapter/anthem-spell shape, or the board-wide "all
 # creatures get -N/-N until end of turn" mass-removal shape, Infest/Blight
 # Grenade-shaped). Shared by the pump handlers.
-_GROUP = r"(?P<group>other creatures you control|creatures you control|all creatures)"
+#: PAR-13's own two additions — "creatures your opponents control"/
+#: "creatures you don't control" (Mouth of the Storm/Behold the
+#: Unspeakable-shaped mass debuffs) — both the same `continuous.
+#: group_selector_objects` selector as each other (every creature not
+#: yours, the plain-English reading of either phrasing).
+_GROUP = (
+    r"(?P<group>other creatures you control|creatures you control|all creatures"
+    r"|creatures your opponents control|creatures you don'?t control)"
+)
 _SUBJECT = (
     rf"(?:{TARGET}|(?P<selfref>{re.escape(SELF)})|{_GROUP}|(?P<attached>{_ATTACHED_SUBJECT}))"
 )
@@ -2314,9 +2591,47 @@ _GROUP_SELECTORS: dict[str, str] = {
     "creatures you control": "creatures_you_control",
     "other creatures you control": "other_creatures_you_control",
     "all creatures": "all_creatures",
+    "creatures your opponents control": "creatures_opponents_control",
+    "creatures you dont control": "creatures_opponents_control",
 }
 #: A signed P/T delta, "+3/+3" / "-2/-2" / "+0/-1" (ASCII or unicode minus).
 _PT_DELTA = r"(?P<p>[+\-−]\d+)/(?P<t>[+\-−]\d+)"
+
+#: PAR-15's "any number of target creatures each get +N/+N [and gain
+#: `<keyword>`] until end of turn" (Aerial Formation/Ajani's Presence/Cruel
+#: Feeding/Desperate Stand/Rouse the Mob-shaped) — the pump-family sibling of
+#: `_add_counters_multi_target`'s "each of up to N" shape: every chosen
+#: creature gets the *full* stated boost (`PumpEffect`'s ``target_count``,
+#: not a divided pool).
+_PUMP_MULTI_TARGET_RE = _c(
+    rf"any number of target creatures each get {_PT_DELTA}"
+    rf"(?: and gains? (?P<kw>[a-z, ]+?))? until end of turn"
+)
+
+
+def _pump_multi_target(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    params: dict = {
+        "power": _signed_int(m.group("p")), "toughness": _signed_int(m.group("t")),
+        "target_kind": "creature", "target_count": _ANY_NUMBER_TARGET_CAP, "optional": True,
+    }
+    if m.groupdict().get("kw"):
+        keywords = _token_keywords(m.group("kw"))
+        if keywords is None:
+            return None  # unmodeled granted ability → fail-closed
+        params["keywords"] = keywords
+    return [EffectSpec("pump", params)]
+
+
+#: "Untap those creatures." (Colossal Heroics' own trailing sentence,
+#: following "Any number of target creatures each get +2/+2 until end of
+#: turn.") — the tap-family sibling of `_return_previous_group`: no target
+#: of its own, only offered when a preceding multi-target clause actually
+#: chose a group (`EffectHandler.previous_subject_only`).
+_UNTAP_PREVIOUS_GROUP_RE = _c(r"(?:then )?untap (?:those creatures|them)")
+
+
+def _untap_previous_group(m: re.Match[str]) -> list[EffectSpec]:
+    return [EffectSpec("tap", {"previous_subject": True, "untap": True})]
 
 #: "target creature gets +1/+0 until end of turn and can't be blocked this
 #: turn" (You Come to a River-shaped) — the P/T-then-unblockable ordering
@@ -2511,6 +2826,13 @@ HANDLERS: list[EffectHandler] = [
         _DIVIDED_DAMAGE_RE,
         _divided_damage,
     ),
+    # RULE 615's divided-prevention sibling (PAR-15) — Embolden/Remedy/
+    # Angel of Salvation.
+    EffectHandler(
+        "prevent_divided_damage",
+        _PREVENT_DIVIDED_DAMAGE_RE,
+        _prevent_divided_damage,
+    ),
     # "~ deals 2 damage to each creature" / "… to each player" / "… to each
     # opponent" — a mass effect (RULE 601.2c), not RULE 115 targeting.
     EffectHandler(
@@ -2534,6 +2856,21 @@ HANDLERS: list[EffectHandler] = [
         _c(rf"(?:you )?draws? {COUNT} cards? at the beginning of the next turn's upkeep"),
         _draw_next_upkeep,
     ),
+    # PAR-13: "exile the top N cards of your library. you may play them
+    # [this turn/until the end of your next turn]." — RULE 601.3b impulsive
+    # draw (Runestone Caverns/Bonehoard Dracosaur/Painter's Studio-shaped).
+    EffectHandler(
+        "exile_top_play",
+        _EXILE_TOP_PLAY_RE,
+        _exile_top_play,
+    ),
+    # PAR-13: "draw N cards and reveal them. you may cast one of them
+    # without paying its mana cost." — Mad Wizard's Lair's own room.
+    EffectHandler(
+        "draw_reveal_cast_free",
+        _DRAW_REVEAL_CAST_FREE_RE,
+        _draw_reveal_cast_free,
+    ),
     # "you discard a card" / "discard 2 cards" / "target player discards a card"
     EffectHandler(
         "discard",
@@ -2542,6 +2879,21 @@ HANDLERS: list[EffectHandler] = [
             rf"discards? {COUNT} cards?"
         ),
         _discard,
+    ),
+    # PAR-13: "each player loses N life unless they discard a card/sacrifice
+    # a creature, artifact, or land of their choice." — Veils of Fear/
+    # Sandfall Cell's own APNAP mass "unless".
+    EffectHandler(
+        "each_player_lose_life_unless",
+        _EACH_PLAYER_LOSE_LIFE_UNLESS_RE,
+        _each_player_lose_life_unless,
+    ),
+    # PAR-13: "discard a card and sacrifice a creature, an artifact, and a
+    # land." — Oubliette's own compound mandatory punishment.
+    EffectHandler(
+        "discard_and_sacrifice_triple",
+        _DISCARD_AND_SACRIFICE_TRIPLE_RE,
+        _discard_and_sacrifice_triple,
     ),
     # "you gain 3 life" / "gain 5 life" / "target player gains 3 life"
     EffectHandler(
@@ -2842,6 +3194,19 @@ HANDLERS: list[EffectHandler] = [
         _REANIMATE_UNDER_YOUR_CONTROL_RE,
         _reanimate_under_your_control,
     ),
+    # PAR-15's "any number of" graveyard-recursion siblings — new
+    # destinations (library top / shuffle into library) rather than a new
+    # targeting primitive.
+    EffectHandler(
+        "return_from_graveyard_top_any",
+        _RETURN_FROM_GRAVEYARD_TOP_ANY_RE,
+        _return_from_graveyard_top_any,
+    ),
+    EffectHandler(
+        "return_from_graveyard_shuffle_any",
+        _RETURN_FROM_GRAVEYARD_SHUFFLE_ANY_RE,
+        _return_from_graveyard_shuffle_any,
+    ),
     # "exile target [type] card from [scope] graveyard" (RULE 701.5a,
     # Deathrite Shaman/Scavenging Ooze/Lion Sash-shaped graveyard hate).
     EffectHandler(
@@ -3106,6 +3471,13 @@ HANDLERS: list[EffectHandler] = [
         ),
         _add_counters_multi_target,
     ),
+    # PAR-15: "distribute N +1/+1 counters among any number of target
+    # creatures[ you control]" — a divided pool, not "each of N" full-amount.
+    EffectHandler(
+        "distribute_counters",
+        _DISTRIBUTE_COUNTERS_RE,
+        _distribute_counters,
+    ),
     # "put N +1/+1 counters on each creature you control" (RULE 601.2c mass
     # effect, Vastwood Surge-shaped).
     EffectHandler(
@@ -3182,6 +3554,22 @@ HANDLERS: list[EffectHandler] = [
         ),
         _pump,
     ),
+    # PAR-15: "any number of target creatures each get +N/+N [and gain
+    # `<keyword>`] until end of turn" — every chosen creature gets the full
+    # boost, not a divided pool.
+    EffectHandler(
+        "pump_multi_target",
+        _PUMP_MULTI_TARGET_RE,
+        _pump_multi_target,
+    ),
+    # "Untap those creatures." (Colossal Heroics) — the previous clause's own
+    # multi-target group, read back the same way `return_previous_group` does.
+    EffectHandler(
+        "untap_previous_group",
+        _UNTAP_PREVIOUS_GROUP_RE,
+        _untap_previous_group,
+        previous_subject_only=True,
+    ),
     # "target creature gains flying until end of turn" (keyword-only pump) /
     # "creatures you control gain flying until end of turn".
     EffectHandler(
@@ -3212,6 +3600,25 @@ HANDLERS: list[EffectHandler] = [
             r"the beginning of the next end step))"
         ),
         _grant_until,
+    ),
+    # PAR-13: the P/T sibling of the row above — "target creature gets
+    # -4/-0 until your next turn"/"creatures your opponents control get
+    # -3/-0 until your next turn".
+    EffectHandler(
+        "pump_until",
+        _c(
+            rf"{_SUBJECT} gets? {_PT_DELTA} "
+            r"(?P<dur>until (?:your next turn|the end of combat|end of combat|"
+            r"the beginning of the next end step))"
+        ),
+        _pump_until,
+    ),
+    # PAR-13: "target creature can't attack/block until <duration>" — the
+    # resolve-time-grant sibling of the permanent-static "~ can't attack."
+    EffectHandler(
+        "cant_attack_or_block_until",
+        _CANT_ATTACK_OR_BLOCK_UNTIL_RE,
+        _cant_attack_or_block_until,
     ),
     # "scry 2" (a self effect — the controller scries; RULE 701.18).
     EffectHandler(
@@ -3384,11 +3791,18 @@ HANDLERS: list[EffectHandler] = [
         "create_token",
         _c(
             rf"(?:(?P<who>you|each player|each opponent) )?creates? {COUNT} "
-            rf"(?P<tapped>tapped )?(?P<p>\d+)/(?P<t>\d+) "
+            rf"(?P<tapped>tapped )?(?P<legendary>legendary )?(?P<p>\d+)/(?P<t>\d+) "
             rf"(?P<mid>[a-z ]*?)creature tokens?"
             rf"(?: with (?P<kw>[a-z, ]+))?"
         ),
         _create_token,
+    ),
+    # PAR-13: "Create <Name>, a legendary N/N ... creature token [with
+    # <keywords>]." — Cradle of the Death God's own unique Atropal token.
+    EffectHandler(
+        "create_named_legendary_token",
+        _CREATE_NAMED_LEGENDARY_TOKEN_RE,
+        _create_named_legendary_token,
     ),
     # "create a Treasure token" / "create two Clue tokens" — named,
     # non-creature artifact tokens (`_NAMED_TOKEN_WORDS`, kept in sync with
