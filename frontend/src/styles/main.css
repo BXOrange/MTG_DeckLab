@@ -475,7 +475,8 @@ textarea {
   gap: 0.5rem;
 }
 
-.save-deck-controls input[type="text"] {
+.save-deck-controls input[type="text"],
+.save-deck-controls select {
   flex: 1 1 140px;
   background: var(--bg);
   color: var(--text);
@@ -1145,6 +1146,34 @@ textarea {
   margin: 0 0 0.3rem;
 }
 
+/* ANA-4: the Simulation sub-tab's "run N matches" form */
+
+.analyze-sim-form {
+  display: flex;
+  align-items: flex-end;
+  gap: 0.8rem;
+  flex-wrap: wrap;
+  margin: 0.6rem 0;
+}
+
+.analyze-sim-form label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  color: var(--text-dim);
+  font-size: 0.8rem;
+}
+
+.analyze-sim-form input[type="number"],
+.analyze-sim-form select {
+  padding: 0.35rem 0.5rem;
+  background: var(--panel-alt);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  min-width: 7rem;
+}
+
 /* Summary stat tiles */
 
 .analyze-stat-grid {
@@ -1362,6 +1391,9 @@ textarea {
 .chart-dot--accent { fill: var(--accent); }
 .chart-dot--info { fill: var(--info); }
 
+/* ANA-4: the ± stddev band behind a simulated-mean line (dynamicAnalysisPanel.js) */
+.chart-band--accent { fill: var(--accent); opacity: 0.15; }
+
 /* Color pips: card requirements vs. mana sources */
 
 .pip-compare-chart {
@@ -1525,8 +1557,15 @@ textarea {
 
 .saved-deck-actions {
   display: flex;
-  gap: 0.5rem;
+  flex-direction: column;
+  gap: 0.4rem;
   flex-shrink: 0;
+  align-items: flex-end;
+}
+
+.saved-deck-actions-row {
+  display: flex;
+  gap: 0.5rem;
   flex-wrap: wrap;
   justify-content: flex-end;
 }

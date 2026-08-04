@@ -15,6 +15,7 @@ from mtg_analyzer.config import DB_PATH, DECKS_DB_PATH, IMAGE_CACHE_DIR, PLAYER_
 from mtg_analyzer.services.archidekt_client import ArchidektClient
 from mtg_analyzer.services.card_database import CardDatabase
 from mtg_analyzer.services.deck_database import DeckDatabase
+from mtg_analyzer.services.dynamic_analysis import DynamicAnalysisJobs
 from mtg_analyzer.services.game_session import GameSessionManager
 from mtg_analyzer.services.image_cache import ImageCache
 from mtg_analyzer.services.lazy_card_loader import LazyCardLoader
@@ -67,6 +68,13 @@ def _archidekt_client() -> ArchidektClient:
     return ArchidektClient()
 
 
+@lru_cache(maxsize=1)
+def _dynamic_analysis_jobs() -> DynamicAnalysisJobs:
+    # In-memory, process-wide, like the session manager above (ANA-4):
+    # a running/finished simulation job has no meaning across a restart.
+    return DynamicAnalysisJobs()
+
+
 def get_card_database() -> CardDatabase:
     return _database()
 
@@ -97,3 +105,7 @@ def get_player_asset_store() -> PlayerAssetStore:
 
 def get_archidekt_client() -> ArchidektClient:
     return _archidekt_client()
+
+
+def get_dynamic_analysis_jobs() -> DynamicAnalysisJobs:
+    return _dynamic_analysis_jobs()

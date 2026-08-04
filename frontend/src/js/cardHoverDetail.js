@@ -17,7 +17,7 @@
 
 import { getResolvedCard, resolveCardImages, isConfirmedNotFound } from './cardImages.js';
 import { cardImageUrl } from './api.js';
-import { renderManaCost, escapeHtml } from './cardTile.js';
+import { renderManaCost, renderOracleText, escapeHtml } from './cardTile.js';
 
 let tooltipEl = null;
 let activeName = null;
@@ -90,7 +90,7 @@ function renderTooltipContent(card, fallbackName) {
         <p class="card-tile-type">${escapeHtml(view.type_line || '')}</p>
         ${manaCost ? `<p class="card-tile-cost">${manaCost}</p>` : ''}
         ${powerToughness ? `<p class="card-tile-pt">${escapeHtml(powerToughness)}</p>` : ''}
-        ${view.oracle_text ? `<p class="card-tile-text">${escapeHtml(view.oracle_text)}</p>` : ''}
+        ${view.oracle_text ? `<p class="card-tile-text">${renderOracleText(view.oracle_text)}</p>` : ''}
         ${card.keywords?.length ? `<p class="card-tile-keywords">${escapeHtml(card.keywords.join(', '))}</p>` : ''}
         ${flipHint}
       </div>

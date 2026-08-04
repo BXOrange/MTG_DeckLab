@@ -10,7 +10,8 @@ import {
 } from './parser.js';
 import { setState } from './state.js';
 import { resolveCardImages, getResolvedCard, isConfirmedNotFound } from './cardImages.js';
-import { submitDeck, saveDeck } from './api.js';
+import { submitDeck, saveDeck, listSleeves } from './api.js';
+import { getPlayerName } from './settings.js';
 import { renderCardTile, renderCardTilePlaceholder, renderCardTileNotFound, escapeHtml } from './cardTile.js';
 
 /**
@@ -64,6 +65,9 @@ export function renderDeckImportView(container, { onDeckLoaded } = {}) {
             <label class="deck-cube-toggle" title="Kartensammlung statt echtes Deck: 100-Karten-/Singleton-Regel und Commander-Legalität (Bannliste, Farbidentität) werden nicht geprüft.">
               <input id="deck-cube-checkbox" type="checkbox" /> Als Collection behandeln
             </label>
+            <select id="deck-sleeve-select" title="Karten-Sleeve für dieses Deck">
+              <option value="">Kein Sleeve</option>
+            </select>
           </div>
           <p class="server-status" id="save-status"></p>
         </div>
@@ -80,8 +84,25 @@ export function renderDeckImportView(container, { onDeckLoaded } = {}) {
   const nameInput = container.querySelector('#deck-name-input');
   const authorInput = container.querySelector('#deck-author-input');
   const cubeCheckbox = container.querySelector('#deck-cube-checkbox');
+  const sleeveSelect = container.querySelector('#deck-sleeve-select');
   const saveStatusEl = container.querySelector('#save-status');
   const resultEl = container.querySelector('#import-result');
+
+  // Sleeve list is re-fetched whenever this tab becomes visible (cheap
+  // call, keeps a sleeve just uploaded in Einstellungen selectable right
+  // away) while preserving whatever the select currently has chosen.
+  async function refreshSleeveOptions(preserveSelectedId) {
+    const selectedId = preserveSelectedId !== undefined ? preserveSelectedId : sleeveSelect.value;
+    const playerName = getPlayerName();
+    const sleeves = playerName ? await listSleeves(playerName) : [];
+    const options = ['<option value="">Kein Sleeve</option>'];
+    for (const s of sleeves || []) {
+      const selected = s.sleeve_id === selectedId ? ' selected' : '';
+      options.push(`<option value="${escapeHtml(s.sleeve_id)}"${selected}>${escapeHtml(s.label)}</option>`);
+    }
+    sleeveSelect.innerHTML = options.join('');
+  }
+  container.addEventListener('view-shown', () => refreshSleeveOptions());
 
   // Set once a deck has been saved/loaded. "Aktualisieren" overwrites
   // that saved deck; "Als neues speichern" always creates a fresh deck
@@ -214,6 +235,7 @@ export function renderDeckImportView(container, { onDeckLoaded } = {}) {
     nameInput.value = '';
     authorInput.value = '';
     cubeCheckbox.checked = false;
+    sleeveSelect.value = '';
     saveStatusEl.textContent = '';
     saveStatusEl.className = 'server-status';
   });
@@ -269,6 +291,7 @@ export function renderDeckImportView(container, { onDeckLoaded } = {}) {
       name: nameInput.value,
       author: authorInput.value.trim() || null,
       isCube: cubeCheckbox.checked,
+      sleeveId: sleeveSelect.value || null,
       ...currentSections(),
     });
 
@@ -293,6 +316,7 @@ export function renderDeckImportView(container, { onDeckLoaded } = {}) {
     nameInput.value = savedDeck.name || '';
     authorInput.value = savedDeck.author || '';
     cubeCheckbox.checked = !!savedDeck.isCube;
+    refreshSleeveOptions(savedDeck.sleeveId || '');
     commanderTextarea.value = savedDeck.commanderText || '';
     mainboardTextarea.value = savedDeck.mainboardText || '';
     sideboardTextarea.value = savedDeck.sideboardText || '';

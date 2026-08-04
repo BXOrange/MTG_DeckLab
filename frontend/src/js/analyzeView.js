@@ -20,6 +20,7 @@ import { parseDeckSections } from './parser.js';
 import { resolveCardImages } from './cardImages.js';
 import { analyzeDeck } from './deckAnalysis.js';
 import { escapeHtml } from './cardTile.js';
+import { renderDynamicAnalysisPanel } from './dynamicAnalysisPanel.js';
 
 function escapeAttr(str) {
   return String(str).replace(/'/g, '&#39;').replace(/"/g, '&quot;');
@@ -32,16 +33,6 @@ function escapeAttr(str) {
 function cardNameHtml(name, qty = 1) {
   return `<span class="analyze-card-name" data-hover-card="${escapeHtml(name)}">${escapeHtml(name)}</span>${qty > 1 ? ` ×${qty}` : ''}`;
 }
-
-const DYNAMIC_ANALYSIS_HTML = `
-  <section class="analyze-section">
-    <h3>Dynamische Analyse</h3>
-    <p class="empty-state">
-      Die automatische Deck-Analyse (Gewinnstrategien, Archetyp, Synergien,
-      Kohärenz-Score) ist noch nicht implementiert.
-    </p>
-  </section>
-`;
 
 const COLOR_NAMES = { W: 'Weiß', U: 'Blau', B: 'Schwarz', R: 'Rot', G: 'Grün' };
 const COLOR_CLASS = { W: 'w', U: 'u', B: 'b', R: 'r', G: 'g' };
@@ -71,6 +62,21 @@ export function renderAnalyzeView(container) {
       const stats = analyzeDeck(parsed.commanders, parsed.mainDeck, resolved);
       container.innerHTML = resultShellHtml(savedDeck.name, stats);
       wireAnalyzeTabs(container);
+      // ANA-4: mounted post-innerHTML like `wireAnalyzeTabs` above — the
+      // panel wires its own live DOM listeners/polling, which a plain HTML
+      // string builder (`resultShellHtml`) can't do.
+      const simRoot = container.querySelector('#analyze-simulation-root');
+      if (simRoot) {
+        renderDynamicAnalysisPanel(
+          simRoot,
+          {
+            commanderText: savedDeck.commanderText,
+            mainboardText: savedDeck.mainboardText,
+            sideboardText: savedDeck.sideboardText,
+          },
+          stats.expectedManaCurve
+        );
+      }
     });
   }
 
@@ -182,7 +188,7 @@ function resultShellHtml(deckName, stats) {
       </div>
 
       <div class="analyze-subtab-panel" data-subtab-panel="dynamic">
-        ${DYNAMIC_ANALYSIS_HTML}
+        <div id="analyze-simulation-root"></div>
       </div>
 
       <div class="analyze-subtab-panel" data-subtab-panel="bracket">

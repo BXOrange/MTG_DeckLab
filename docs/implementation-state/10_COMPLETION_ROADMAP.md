@@ -91,7 +91,7 @@ milestone and can proceed in parallel once the backend seam exists.
   and that is **correct, not a gap** — it is the superseded seat-less entry
   point; the live surface is `/api/multiplayer/*` plus `/ws/lobby`. Residue,
   all narrow: [PLR-8] (bots in a pod), [PLR-3], [PLR-5],
-  [PLR-6], [PLR-7], and UI polish [VIS-5] [VIS-6] [VIS-7]. Subset attacker
+  [PLR-6], [PLR-7]. Subset attacker
   declaration (ENG-15/VIS-3) turned out to already be shipped — closed,
   `Done_Backend.md`/`Done_Frontend.md`.
 
@@ -159,8 +159,7 @@ intuition, and bump `PARSER_VERSION` in the same session you add a handler.
 - **Auth & persistence:** [PLR-9] accounts (saved decks are unscoped until
   this exists) → [PLR-10] game history.
 - **Bot AI (UC5):** seats are filled and playing; what's open is judgment —
-  [PLR-7] a bot that weighs lines rather than taking the first legal offer —
-  and [VIS-7] making a bot's turn watchable.
+  [PLR-7] a bot that weighs lines rather than taking the first legal offer.
 
 ---
 

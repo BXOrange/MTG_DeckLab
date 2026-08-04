@@ -1140,3 +1140,96 @@ into `BACKLOG.md`, and those mentions have been repointed there.
       loading screen uses. Verified live: goldfish's own board (which
       shares `gameBoardView.js`/`cardImages.js` with this code path)
       rendered a full board with zero pop-in and zero console errors.
+
+## Oracle-text mana icons + VIS-7 + ANA-4 UI (2026-08-04)
+
+- [x] **Mana symbols in oracle-text info boxes.** `cardTile.js`'s
+      `renderManaCost` (the cost-line emoji renderer) was never applied to
+      oracle text itself, so an activation cost or "Add {G}" inside a
+      card's rules text still showed literal `{T}`/`{1}{G}` braces in every
+      "info box" that renders it — the card-cache/deck-import tile
+      (`cardTile.js:195`) and the global hover tooltip (`cardHoverDetail.
+      js:93`, including a transformed permanent's back face via
+      `faceView`). New `renderOracleText(text)` (`cardTile.js`) splits on
+      the same `{...}` token regex as the cost line, escaping every
+      plain-text segment (`escapeHtml`) and running each token through the
+      existing `renderManaToken` — both call sites now use it in place of
+      a bare `escapeHtml(oracle_text)`. **Caught and fixed live** (real
+      browser check, `chromium`/Playwright against a real 3k-card cache):
+      the first cut wrapped the already-one-capture-group `MANA_TOKEN_RE`
+      in a second `(...)` for `.split()`, and `.split()` inserts *every*
+      capture group's text into its result — so each token's bare content
+      (without braces) landed as its own extra array entry right after the
+      token, duplicating it post-emoji (Vivi Ornitier's "{0}:" rendered as
+      "0️⃣0:", "{U}" as "🔵U"). Fixed by giving the split its own single
+      wrapping group (`MANA_TOKEN_SPLIT_RE = /(\{[^}]+\})/g`) instead of
+      reusing `MANA_TOKEN_RE`'s source nested inside another group;
+      re-verified against the same 3k-card cache and the same real card
+      with a regex sweep for the duplication pattern — zero hits.
+- [x] **VIS-7 · Pace a bot's batched moves in the move feed, with a speed
+      control.** A bot's whole turn arrives as one pushed view (`run_bots`
+      answers it to completion in `api/multiplayer.py`'s `_after_move`
+      before ever broadcasting), so VIS-5's move feed (above) showed a
+      whole bot turn's toasts appear simultaneously instead of one at a
+      time. Deliberately **not** a server-push-per-ply change (the
+      ticket's own wording treats "the client replays the move log at a
+      chosen speed" as a sufficient fix on its own, and it reuses data
+      VIS-5 already computes) — `gameBoardView.js`'s `applyView` now
+      staggers each new-tail-entry's `pushMoveFeed` call via `setTimeout`,
+      offset by its position *within that batch* (`revealIndex *
+      botSpeedMs`; the batch's first entry — an ordinary single human move
+      almost always — still fires immediately). A `stopped` flag (set in
+      `stop()`, cleared in `start()`) guards a still-pending timeout from
+      painting into a board that's since been torn down. The pace itself
+      is `settings.js`'s new `getBotSpeedMs()`/`BOT_SPEED_MS_OPTIONS`
+      (`[0, 900, 2000]` — Sofort/Normal/Langsam, same cookie-persisted
+      pattern as `autoPassSeconds`), adjustable live via a `<select>`
+      (`botSpeedControlHtml`) sitting right next to the auto-pass controls
+      in the shared board's toolbar — on-board only, deliberately not
+      duplicated into Einstellungen (a much narrower, cosmetic preference
+      than auto-pass). True per-ply *board* animation (watching permanents
+      change one at a time) stays out of scope either way: no intermediate
+      board states exist anywhere to replay, only the move-log labels.
+- [x] **ANA-4 · The "Dynamische Analyse" sub-tab is the simulation**
+      (`dynamicAnalysisPanel.js`, new module, mounted by `analyzeView.js`
+      into the existing "Dynamische Analyse" sub-tab — replacing its old
+      "noch nicht implementiert" placeholder outright, not sitting beside
+      it as a separate "Simulation" tab. An earlier cut shipped it as a
+      fourth tab of its own on the theory that "Dynamische Analyse" was
+      reserved for the unrelated LLM-narrative ANA-2 — corrected on
+      request: a second, still-empty tab immediately next to a working one
+      read as broken, not as "reserved for later". If ANA-2 ever ships, its
+      own UI placement is that ticket's call, not assumed here). A form
+      (match count/max turns/bot,
+      the last fed by the already-existing `GET /api/multiplayer/bots`
+      via `fetchBotKinds`) starts a background job
+      (`POST /api/analysis/dynamic`, Done_Backend.md) and polls
+      `GET /api/analysis/dynamic/{id}` every second, showing a progress
+      bar (reusing the static tab's `bar-row`/`bar-row-track`/
+      `bar-row-fill` classes) while `status === "running"`. On completion:
+      stat tiles for the scalar totals (library searches, one tile per
+      commander's mean turn-on-board), and an SVG chart — same
+      padding/gridline/polyline shape as the static tab's
+      `expectedCurveSvg`, not a shared function (the series shapes differ
+      enough — a mean ± stddev band plus a dashed static-reference line —
+      that forcing one function over both would've been more contortion
+      than the ~40 duplicate lines) — plotting the simulated mana
+      potential/production mean (± stddev, as a new
+      `.chart-band--accent`-styled filled polygon) against the *static*
+      tab's already-computed `withRampRealistic` series, satisfying the
+      ticket's "shared graph" ask without a second network round-trip
+      (the static curve is passed straight through from `analyzeDeck`'s
+      already-resolved `stats.expectedManaCurve`). Lands-drawn and
+      card-advantage get their own small per-turn bar charts (reusing
+      `bar-chart--columns`/`bar-col` from the static tab's mana-curve
+      chart). If any matches hit the backend's infinite-mana guard
+      (`Done_Backend.md`), a warning line reports how many, so a deck with
+      a genuine combo reads as "flagged", not as a quietly-shorter game. A
+      live-DOM `isLive()` check (`document.body.contains(root)`)
+      guards every async callback (bot-kind fetch, poll tick, submit)
+      against painting into a panel a later `loadDeck()` call has since
+      replaced. Verified end-to-end in a real browser against a real
+      41-saved-deck library: form → progress bar → rendered results with
+      zero console errors (backend half — the harness, the metric
+      definitions/simplifications, the job registry — in
+      Done_Backend.md).

@@ -2,14 +2,13 @@
 // POST /api/decks/save (mtg_analyzer DeckDatabase). Lazy by design, same
 // as cachedCardsView.js: nothing is fetched until the tab is opened.
 //
-// The deck's author is edited only in the "Deck editieren" tab
-// (deckImportView.js) — this view only displays it, matching the
-// read-only treatment of colorIdentity/commanders here (both computed
+// The deck's author and sleeve are edited only in the "Deck editieren"
+// tab (deckImportView.js) — this view only displays the author, matching
+// the read-only treatment of colorIdentity/commanders here (both computed
 // elsewhere too). Filtering (color/legality) is client-side over the
 // already-fetched list, same pattern as cachedCardsView.js's filters.
 
-import { listSavedDecks, getSavedDeck, deleteSavedDeck, getDeckValidation, listSleeves, saveDeck } from './api.js';
-import { getPlayerName } from './settings.js';
+import { listSavedDecks, getSavedDeck, deleteSavedDeck, getDeckValidation, saveDeck } from './api.js';
 import { escapeHtml } from './cardTile.js';
 
 const COLOR_FILTER_OPTIONS = [
@@ -137,11 +136,7 @@ export function renderSavedDecksView(container, { onLoadDeck, onAnalyzeDeck } = 
     resultEl.innerHTML = '<p class="empty-state">Lade gespeicherte Decks …</p>';
     countEl.textContent = '';
 
-    const playerName = getPlayerName();
-    const [decks, sleeves] = await Promise.all([
-      listSavedDecks(),
-      playerName ? listSleeves(playerName) : Promise.resolve([]),
-    ]);
+    const decks = await listSavedDecks();
     if (requestId !== latestRequestId) return; // superseded by a later refresh click
 
     if (decks === null) {
@@ -159,18 +154,8 @@ export function renderSavedDecksView(container, { onLoadDeck, onAnalyzeDeck } = 
       return;
     }
 
-    resultEl.innerHTML = decks.map((deck) => renderDeckRow(deck, sleeves || [])).join('');
+    resultEl.innerHTML = decks.map((deck) => renderDeckRow(deck)).join('');
     applyFilters();
-
-    resultEl.querySelectorAll('.saved-deck-sleeve-select').forEach((select) => {
-      select.addEventListener('change', async () => {
-        const deck = decks.find((d) => d.id === select.dataset.deckId);
-        if (!deck) return;
-        select.disabled = true;
-        await saveDeck({ ...deck, sleeveId: select.value || null });
-        select.disabled = false;
-      });
-    });
 
     // Legality is computed server-side (resolves cards), so fetch it per
     // deck and fill each row's badge as answers arrive. Illegal decks get
@@ -215,8 +200,8 @@ export function renderSavedDecksView(container, { onLoadDeck, onAnalyzeDeck } = 
 
     // VIS-2: rename in place (same id, new name) and duplicate-as-new
     // (no id — the server generates a fresh one, same as a brand-new
-    // save). Both go through the same `saveDeck` endpoint the sleeve
-    // picker above already uses; no dedicated backend route needed.
+    // save). Both go through the same `saveDeck` endpoint used for
+    // saving edits; no dedicated backend route needed.
     resultEl.querySelectorAll('.rename-deck-btn').forEach((btn) => {
       btn.addEventListener('click', async () => {
         const deck = decks.find((d) => d.id === btn.dataset.deckId);
@@ -306,7 +291,7 @@ export function renderSavedDecksView(container, { onLoadDeck, onAnalyzeDeck } = 
   });
 }
 
-function renderDeckRow(deck, sleeves) {
+function renderDeckRow(deck) {
   const created = formatTimestamp(deck.createdAt);
   const name = deck.name?.trim() || 'Unbenanntes Deck';
 
@@ -323,14 +308,15 @@ function renderDeckRow(deck, sleeves) {
           : `<span class="saved-deck-legality checking" data-deck-id="${escapeHtml(deck.id)}">Prüfe Legalität …</span>`}
       </div>
       <div class="saved-deck-actions">
-        <select class="saved-deck-sleeve-select" data-deck-id="${escapeHtml(deck.id)}" title="Karten-Sleeve für dieses Deck">
-          ${sleeveOptionsHtml(sleeves, deck.sleeveId)}
-        </select>
-        <button type="button" class="load-deck-btn" data-deck-id="${deck.id}">Deck editieren</button>
-        <button type="button" class="analyze-deck-btn" data-deck-id="${deck.id}">Deck analysieren</button>
-        <button type="button" class="rename-deck-btn" data-deck-id="${deck.id}" data-deck-name="${escapeHtml(name)}">Umbenennen</button>
-        <button type="button" class="duplicate-deck-btn" data-deck-id="${deck.id}">Duplizieren</button>
-        <button type="button" class="delete-deck-btn" data-deck-id="${deck.id}" data-deck-name="${escapeHtml(name)}">Löschen</button>
+        <div class="saved-deck-actions-row">
+          <button type="button" class="load-deck-btn" data-deck-id="${deck.id}">Deck editieren</button>
+          <button type="button" class="analyze-deck-btn" data-deck-id="${deck.id}">Deck analysieren</button>
+        </div>
+        <div class="saved-deck-actions-row">
+          <button type="button" class="rename-deck-btn" data-deck-id="${deck.id}" data-deck-name="${escapeHtml(name)}">Umbenennen</button>
+          <button type="button" class="duplicate-deck-btn" data-deck-id="${deck.id}">Duplizieren</button>
+          <button type="button" class="delete-deck-btn" data-deck-id="${deck.id}" data-deck-name="${escapeHtml(name)}">Löschen</button>
+        </div>
       </div>
     </div>
   `;
@@ -380,15 +366,6 @@ function colorIdentityHtml(colorIdentity) {
     .map((p) => `<span class="color-pip color-pip--${p.className}" title="${p.label}">${p.code}</span>`)
     .join('');
   return ` · <span class="color-identity">${pips}</span>`;
-}
-
-function sleeveOptionsHtml(sleeves, selectedSleeveId) {
-  const options = ['<option value="">Kein Sleeve</option>'];
-  for (const s of sleeves) {
-    const selected = s.sleeve_id === selectedSleeveId ? ' selected' : '';
-    options.push(`<option value="${escapeHtml(s.sleeve_id)}"${selected}>${escapeHtml(s.label)}</option>`);
-  }
-  return options.join('');
 }
 
 // Deck ids are server-generated UUIDs (no quotes/backslashes), so a

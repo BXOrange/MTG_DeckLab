@@ -25,8 +25,10 @@ import {
   getAutoPassScope,
   getAutoPassSeconds,
   getAutoSkipEmpty,
+  getBotSpeedMs,
   getShowOpponentHand,
   saveSettings,
+  BOT_SPEED_MS_OPTIONS,
   MAX_AUTO_PASS_SECONDS,
   MIN_AUTO_PASS_SECONDS,
 } from './settings.js';
@@ -366,6 +368,16 @@ export function createGameBoardView(opts = {}) {
   let moveFeed = [];
   const MOVE_FEED_LIFETIME_MS = 6000;
   const MOVE_FEED_MAX_ITEMS = 3;
+  // VIS-7: how long to wait between revealing consecutive new move-log
+  // entries from the same view (almost always a bot's whole batched turn —
+  // see `run_bots`/`_after_move` in api/multiplayer.py, which answer a bot
+  // to completion before ever broadcasting) — 0 reproduces the old
+  // "all at once" behaviour. Adjustable live via `botSpeedControlHtml`.
+  let botSpeedMs = getBotSpeedMs();
+  // Guards a staggered `pushMoveFeed` callback from firing into a board
+  // that has since been torn down (`stop()`) — a `setTimeout` outlives the
+  // view switch that scheduled it.
+  let stopped = false;
 
   function pushMoveFeed(text) {
     const key = `${Date.now()}-${Math.random()}`;
@@ -475,6 +487,7 @@ export function createGameBoardView(opts = {}) {
   /** Begin driving `sessionId`, rendering `initialView` immediately. */
   function start(sid, initialView) {
     sessionId = sid;
+    stopped = false;
     applyView(initialView);
     restoreUiDraft(initialView);
   }
@@ -522,10 +535,27 @@ export function createGameBoardView(opts = {}) {
     ) {
       const labels = data.move_log.slice(prevLen, newLen);
       const actors = data.move_actors.slice(prevLen, newLen);
+      // VIS-7: stagger a batch of 2+ new entries (almost always a bot's
+      // whole turn, run to completion before the single broadcast that
+      // carries it — see `run_bots` in services/bots.py) instead of
+      // revealing them all in the same tick. Offset is *within this batch*
+      // only (index 0 fires immediately), so an ordinary single human move
+      // is never delayed.
+      let revealIndex = 0;
       labels.forEach((label, i) => {
         const actorId = actors[i];
         if (!actorId || actorId === data.perspective) return;
-        pushMoveFeed(`${playerName(actorId)} ${describeMoveLabel(label)}`);
+        const delay = revealIndex * botSpeedMs;
+        revealIndex += 1;
+        const text = `${playerName(actorId)} ${describeMoveLabel(label)}`;
+        if (delay <= 0) {
+          pushMoveFeed(text);
+        } else {
+          setTimeout(() => {
+            if (stopped) return;
+            pushMoveFeed(text);
+          }, delay);
+        }
       });
     }
     onViewChange(data);
@@ -974,6 +1004,25 @@ export function createGameBoardView(opts = {}) {
       <label class="gf-autopass" title="Wie der ⏭-Knopf, aber dauerhaft ein: Sobald dir wirklich nichts anderes als 'Passen' offensteht (z. B. während des gegnerischen Zugs, wenn du kein Instant in der Hand hast), passt der Client sofort für dich – ohne Countdown, weil es nichts zu entscheiden gibt. Sobald irgendeine echte Aktion angeboten wird (eine Karte spielen/zaubern, angreifen, blocken …), greift das nicht mehr und du bist wieder am Zug.">
         <input type="checkbox" id="gf-skip-empty-toggle" ${getAutoSkipEmpty() ? 'checked' : ''} />
         Leere Fenster automatisch überspringen
+      </label>
+      ${botSpeedControlHtml()}`;
+  }
+
+  // VIS-7: a bot's whole turn arrives as one pushed view (`run_bots` answers
+  // it to completion before the single broadcast), so without this its
+  // moves would all show up in the feed at once. Lets a player watching a
+  // bot opponent choose how spread out the "Bot hat X gespielt" reveals
+  // should be — 0 keeps the old instant behaviour.
+  const BOT_SPEED_LABELS = { 0: 'Sofort', 900: 'Normal', 2000: 'Langsam' };
+
+  function botSpeedControlHtml() {
+    const options = BOT_SPEED_MS_OPTIONS.map(
+      (ms) => `<option value="${ms}" ${ms === botSpeedMs ? 'selected' : ''}>${BOT_SPEED_LABELS[ms] || `${ms} ms`}</option>`
+    ).join('');
+    return `
+      <label class="gf-autopass" title="Wie schnell die Aktionen eines Bots nacheinander im Verlauf/Feed auftauchen, statt alle auf einmal (der ganze Bot-Zug kommt als eine Antwort vom Server).">
+        Bot-Tempo
+        <select id="gf-bot-speed">${options}</select>
       </label>`;
   }
 
@@ -1511,6 +1560,10 @@ export function createGameBoardView(opts = {}) {
     root.querySelector('#gf-skip-empty-toggle')?.addEventListener('change', (e) => {
       saveSettings({ autoSkipEmpty: e.target.checked });
       render();
+    });
+    root.querySelector('#gf-bot-speed')?.addEventListener('change', (e) => {
+      const saved = saveSettings({ botSpeedMs: e.target.value });
+      botSpeedMs = saved.botSpeedMs;
     });
     // Fold an opponent's board away at a table of 3+ (see `collapsedBoards`).
     root.querySelectorAll('[data-fold-board]').forEach((el) => {
@@ -3107,6 +3160,7 @@ export function createGameBoardView(opts = {}) {
     sessionId = null;
     view = null;
     moveFeed = [];
+    stopped = true;
   }
 
   return { mount, start, refresh, setAssets, stop };

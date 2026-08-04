@@ -9496,3 +9496,141 @@ Archenemy pick, one defaulting to the host); `TestGameFormats` +
 `TestFavoriteDecksApi` (new `test_player_assets.py`, 8 — the first test
 file for `services/player_assets.py`, sleeves/token-images had none
 either).
+
+## ANA-4 · Dynamic (simulated) deck analysis (2026-08-04)
+
+New `services/dynamic_analysis.py`: run N solo goldfish matches headlessly
+against a `services/bots.py` `Bot`, aggregate turn-by-turn stats as
+mean ± population stddev (`statistics.mean`/`pstdev`), as a background job
+(`DynamicAnalysisJobs`) polled through a new `api/dynamic_analysis.py`
+router (`POST`/`GET /api/analysis/dynamic[/{id}]`).
+
+**`Bot` × goldfish is a new combination, and the obvious approach doesn't
+work.** `Bot` has only ever driven a multiplayer seat, where
+`GameSession.interactive_priority` is on and RULE 117 priority genuinely
+passes around the table. A goldfish session runs with that flag *off*
+(`_run_step` auto-drains the stack), and `bots.py`'s own "nothing to do"
+fallback — `{"type": "pass_priority"}`, exactly what `_one_bot_action`
+sends — is a dead end there: `GameEngine.pass_priority()` called with no
+player only ever resolves the top of an *already non-empty* stack; on an
+empty stack (the common case — nothing on it, nothing to do) it's a no-op,
+so reusing `run_bots`/`_one_bot_action` unmodified spins forever on turn 1,
+confirmed empirically (a `GoldfishBot` looping 300 straight
+`pass_priority`s, `turn_number` never leaving 1) before writing anything
+else. The fix: `run_one_match`'s own drive loop falls back to
+`{"type": "advance_to_decision"}` instead — the goldfish UI's own "Nächste
+Entscheidung" button (`GameSession._apply_advance_to_decision`), which
+fast-forwards through steps until the active player has a real decision
+(a main phase always qualifies, `_step_has_interaction`) — the primitive
+that actually moves a solo game forward between real choices. With that
+swap, a `GoldfishBot` reaches turn 9 in ~60 actions and a `GreedyBot`
+correctly attacks/casts/plays its commander; `test_dynamic_analysis.py`'s
+`test_stops_at_max_turns_without_hanging` pins the regression down.
+
+**Metrics not already tracked anywhere** are computed by the harness
+itself rather than by touching `GameState.stats` (which every *real* game
+would then pay for) — safe here because a solo simulation has no RULE
+400.2 concern, so `run_one_match` reads `engine.state` directly:
+
+- **Lands drawn per turn** — `record_stat("draw", amount=N)` only counts
+  total cards, not by type. Derived per turn as `total lands in the
+  shuffled library at match start − lands still in the library`, sampled
+  once per turn (the first time that turn reaches `main2` — guaranteed to
+  happen every turn per `_step_has_interaction`, and late enough that the
+  turn's land drop has already happened).
+- **Mana potential per turn** — `game/mana_potential.py`'s
+  `max_potential_total(engine, player)` (the safe upper-bound total, not
+  `open_potential_summary`'s six *independent* per-colour maximizations —
+  summing those would double-count a single source's mana across multiple
+  colours), sampled at the same `main2` checkpoint.
+- **Card advantage per turn** — no existing definition (the concept
+  normally compares two players' resources; a goldfish has none). Defined
+  as cumulative cards drawn so far minus `max(0, turn − 1)` — RULE 103.7a's
+  "the starting player skips their first draw" baseline, so a perfectly
+  ordinary game with no draw effects reads as a constant 0 rather than a
+  constant −1 (caught by first writing the naive `turn` baseline, seeing
+  every all-basics smoke-test deck sit at exactly −1 every turn, and
+  fixing the baseline rather than shrugging it off as "just how the metric
+  works" — `test_a_normal_game_reads_zero_card_advantage` pins it down).
+- **Library searches (tutors) resolved** / **turn a commander entered the
+  battlefield** — `state.subscribe` (already-public event-bus hook) against
+  one match's own event stream: `EventType.LIBRARY_SEARCHED` (fires for
+  *every* library search, so this is a superset of "tutors" in the strict
+  sense — also counts fetch lands, documented as such rather than silently
+  narrowed) and the first `EventType.ENTERS_BATTLEFIELD` whose
+  `state.find_object(instance_id)` has `is_commander=True`, keyed by name
+  (a deck with 2+ commanders — Partner — gets one turn-tracked per name).
+- **Mana produced per turn** is the one metric already tracked
+  (`GameSession.analysis()`'s `mana_per_turn`) — read back rather than
+  re-derived.
+
+**Infinite-mana guard, added on request after the first cut shipped.** A
+`GreedyBot` against a deck with a genuine infinite-mana combo (an untap
+effect feeding a mana ability, say) would otherwise tap forever without the
+turn ever ending — eating the whole per-match `action_budget` for nothing,
+and reporting a `mana_produced` figure for that turn that dwarfs every
+other match's, dragging that turn's mean far past what the deck actually
+does. `run_one_match` checks `GameState.mana_produced_this_turn["p1"]`
+after every action (it already resets every `begin_turn`, so the sum is
+genuinely "this turn's" production, never a running total that would
+eventually cross the threshold in any long-but-finite game) and aborts the
+match the moment it crosses `INFINITE_MANA_THRESHOLD` (1000 — generous
+enough that no real, non-looping turn should ever cross it). The turn the
+loop was caught on has its whole snapshot dropped (its own
+`mana_produced` reading *is* the runaway number, nothing to salvage);
+every earlier turn's data, sampled before the loop started, stays in the
+aggregate untouched. Counted separately
+(`DynamicAnalysisResult.matches_aborted_infinite_mana` /
+`MatchResult.aborted_infinite_mana`) rather than silently folded into a
+lower `matches_run`, so a deck with a real combo shows up as "flagged",
+not as a normal-looking result with a few quietly-missing turns — the
+frontend surfaces the count as a warning (`Done_Frontend.md`). Verified
+against the real detection path (not a synthetic hook) by lowering the
+threshold and letting an ordinary land deck's `GreedyBot` legitimately
+cross it in a few turns (`test_infinite_mana_guard_aborts_the_match`).
+
+**Aggregation & the background job.** `run_dynamic_analysis` loops
+`run_one_match` `num_matches` times (a fresh `random.shuffle`d library copy
+per match, same convention `api/game.py`/`api/multiplayer.py` already use),
+catching a single match's exception rather than losing the whole batch
+(mirrors `run_bots`'s "one bad action shouldn't wedge the table"). Bounds
+(`MAX_NUM_MATCHES=200`, `MAX_MAX_TURNS=30`) are enforced both here and in
+the request schema, since a direct caller (a test) can bypass the schema.
+`DynamicAnalysisJobs` is a small in-memory, FIFO-capped (20) registry —
+no existing async-job pattern exists anywhere in this codebase to plug
+into (checked: only the `GameSessionManager`/`Lobby` process-wide
+singletons), so each job is one `threading.Thread` (the engine is
+synchronous CPU-bound Python; a thread is simpler than wiring an executor
+for the same effect in a single-process, local-dev-scale app) reporting
+progress via a plain `on_progress(completed, total)` callback the API
+layer's `GET` polls. **Known cost, not a bug:** `apply_action` snapshots a
+full `GameState.clone()` (deep copy) per action for undo/rewind support
+that a one-shot simulation never uses — a realistic request (20 matches ×
+10 turns, the schema's defaults) takes roughly 20-30s wall-clock, scaling
+with `numMatches × maxTurns`; acceptable given the ticket's own "runs in
+the background" framing and the frontend's progress bar
+(`Done_Frontend.md`), but worth knowing before requesting the 200×30
+ceiling.
+
+`api/dynamic_analysis.py`'s `POST /api/analysis/dynamic` resolves the deck
+through the exact same pipeline `api/game.py`'s `start_goldfish` does
+(`parse_deck_sections` → `LazyCardLoader.load_cards` → `apply_legality` →
+`expand_entries`, reusing `api/game.py`'s own `expand_entries` rather than
+duplicating it) and rejects an illegal deck or unknown `botKind` before a
+job is ever started, so nothing gets simulated that couldn't also be
+played as a real goldfish game.
+
+Tests: `test_dynamic_analysis.py` — `TestRunOneMatch` (4: a `GoldfishBot`
+plays a land every turn, a `GreedyBot` casts its commander, the max-turns
+regression guard above, the infinite-mana guard), `TestRunDynamicAnalysis`
+(4: mean/stddev shape, the zero-baseline card-advantage check, an unknown
+bot kind raises, request
+clamping — the clamp test lowers `MAX_NUM_MATCHES`/`MAX_MAX_TURNS` via
+`monkeypatch` rather than actually running 200×30 matches, which is
+genuinely slow per the cost note above), `TestDynamicAnalysisJobs` (2:
+background completion, unknown job id), `TestDynamicAnalysisApi` (4: full
+start-and-poll round trip, illegal deck rejected before a job starts,
+unknown bot kind rejected, unknown job id 404s). Also verified live in a
+real browser (Playwright) against a real 41-saved-deck library and the
+full ~34k-card cache — see `Done_Frontend.md`'s "Simulation" sub-tab entry
+for the frontend half and that end-to-end check.

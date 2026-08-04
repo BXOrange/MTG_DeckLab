@@ -107,10 +107,6 @@ Plan-level sequencing lives in
 - **VIS-1 · Error/loading states** for network calls (spinner, retry,
   offline message). docs/04 C4.
 - **VIS-4 · Chat / emotes at the table.**
-- **VIS-7 · Visualize bot actions in real time, with a speed control.** A
-  bot's whole turn arrives as one pushed view (the server runs it before
-  broadcasting), so there is nothing to watch. Needs the server to push
-  between plies, or the client to replay the move log at a chosen speed.
 - **VIS-8 · Keyboard shortcuts.** docs/05 PART 9.
 - **VIS-9 · Accessibility** — alt-text on cards, tab navigation,
   high-contrast mode. docs/05 PART 10.
@@ -158,8 +154,3 @@ Plan-level sequencing lives in
   sub-tabs, not replacing them. Blocked on [ANA-1].
 - **ANA-3 · Cache indicator** ("Analysis from X ago") for that LLM result.
   Blocked on [ANA-1].
-- **ANA-4 · Dynamic Analysis** plays a predefined number of goldfish matches
-  in the background (using only the backend), and records the stats along the
-  way. How many lands have actually been drawn in which step, how much mana potential + acutal mana consumption
-  has there been in which turn, how much card advantage has there been, how many tutors could be played, which was the turn the commander was on the board etc. this will need to be scaled. Apart from the number of virtual matches and turns per match the bot to use there needs to be selectable for the player.
-  The outcome of these analysis criteria will need to be provided as mean value with a standard deviations. The mana production/potential over turns shall be compared with the static analysis in a shared graph.

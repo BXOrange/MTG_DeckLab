@@ -13,6 +13,7 @@ const AUTO_PASS_COOKIE = 'mtg_auto_pass';
 const AUTO_PASS_SECONDS_COOKIE = 'mtg_auto_pass_seconds';
 const AUTO_PASS_SCOPE_COOKIE = 'mtg_auto_pass_scope';
 const AUTO_SKIP_EMPTY_COOKIE = 'mtg_auto_skip_empty';
+const BOT_SPEED_MS_COOKIE = 'mtg_bot_speed_ms';
 const SHOW_OPPONENT_HAND_COOKIE = 'mtg_show_opponent_hand';
 //: PLR-13 + "Player Settings" defaults for a *newly created* multiplayer
 //: table (Profil tab) — applied once, right after `POST /api/multiplayer/games`
@@ -40,6 +41,15 @@ export const MAX_AUTO_PASS_SECONDS = 60;
 //: means in every Magic client. ``always`` also runs it on your own turn,
 //: for players who want the game to move at a fixed pace throughout.
 export const AUTO_PASS_SCOPES = ['opponent', 'always'];
+
+//: VIS-7: how long the shared board waits between revealing consecutive
+//: `move_log` entries that arrived in the same view (almost always a bot's
+//: whole turn, batched by `run_bots` before the broadcast — see
+//: gameBoardView.js's `applyView`). ``0`` reproduces the old "all at once"
+//: behaviour. Only three presets — this is a pacing preference, not a
+//: value worth fine-tuning.
+export const DEFAULT_BOT_SPEED_MS = 900;
+export const BOT_SPEED_MS_OPTIONS = [0, 900, 2000];
 
 //: Same default/override convention as the rest of the frontend (see
 //: api.js) — set window.MTG_API_BASE_URL before app.js loads (e.g. in
@@ -101,6 +111,14 @@ export function getShowOpponentHand() {
   return getCookie(SHOW_OPPONENT_HAND_COOKIE) === '1';
 }
 
+/** VIS-7: the configured delay (ms) between staggered move-feed reveals. */
+export function getBotSpeedMs() {
+  const raw = getCookie(BOT_SPEED_MS_COOKIE);
+  if (raw === null) return DEFAULT_BOT_SPEED_MS;
+  const value = Number(raw);
+  return BOT_SPEED_MS_OPTIONS.includes(value) ? value : DEFAULT_BOT_SPEED_MS;
+}
+
 //: Seats a newly created table opens with, absent a saved preference —
 //: same default `multiplayerView.js`'s "Neues Spiel" form already used.
 export const DEFAULT_MP_SEATS = 2;
@@ -140,6 +158,7 @@ export function getSettings() {
     autoPassScope: getAutoPassScope(),
     autoSkipEmpty: getAutoSkipEmpty(),
     showOpponentHand: getShowOpponentHand(),
+    botSpeedMs: getBotSpeedMs(),
     mpDefaultFormat: getMpDefaultFormat(),
     mpDefaultMulliganStyle: getMpDefaultMulliganStyle(),
     mpDefaultSeats: getMpDefaultSeats(),
@@ -153,6 +172,7 @@ export function getSettings() {
  * @param {{serverUrl?: string, playerName?: string, autoPass?: boolean,
  *          autoPassSeconds?: number, autoPassScope?: string,
  *          autoSkipEmpty?: boolean, showOpponentHand?: boolean,
+ *          botSpeedMs?: number,
  *          mpDefaultFormat?: string, mpDefaultMulliganStyle?: string,
  *          mpDefaultSeats?: number, mpDefaultTakebacks?: number,
  *          mpDefaultRandomizeSeating?: boolean,
@@ -183,6 +203,12 @@ export function saveSettings(patch) {
   }
   if (patch.showOpponentHand !== undefined) {
     setCookie(SHOW_OPPONENT_HAND_COOKIE, patch.showOpponentHand ? '1' : '0', COOKIE_MAX_AGE_DAYS);
+  }
+  if (patch.botSpeedMs !== undefined) {
+    const speed = BOT_SPEED_MS_OPTIONS.includes(Number(patch.botSpeedMs))
+      ? Number(patch.botSpeedMs)
+      : DEFAULT_BOT_SPEED_MS;
+    setCookie(BOT_SPEED_MS_COOKIE, String(speed), COOKIE_MAX_AGE_DAYS);
   }
   if (patch.mpDefaultFormat !== undefined) {
     setCookie(MP_DEFAULT_FORMAT_COOKIE, patch.mpDefaultFormat, COOKIE_MAX_AGE_DAYS);

@@ -84,6 +84,33 @@ export function renderManaCost(card) {
 }
 
 /**
+ * Oracle/reminder text with every `{...}` mana symbol (activation costs,
+ * "Add {G}", etc.) swapped for the same emoji `renderManaCost` uses for the
+ * cost line — everything else is escaped exactly like plain `escapeHtml`
+ * would. Splitting on `MANA_TOKEN_RE` with a capture group keeps the
+ * delimiters in the result, so the plain-text segments between symbols are
+ * escaped individually rather than the icons getting escaped along with them.
+ */
+// One capture group only, deliberately not reusing `MANA_TOKEN_RE.source`
+// wrapped in another `(...)` — that regex already has its own inner group
+// (for the trimmed symbol name), and split() inserts *every* captured
+// group's text into the result, so nesting a second group around it left
+// each token's bare content duplicated right after its own emoji (e.g.
+// "{0}" rendering as "0️⃣0").
+const MANA_TOKEN_SPLIT_RE = /(\{[^}]+\})/g;
+const MANA_TOKEN_WHOLE_RE = /^\{([^}]+)\}$/;
+
+export function renderOracleText(text) {
+  return String(text)
+    .split(MANA_TOKEN_SPLIT_RE)
+    .map((part) => {
+      const m = MANA_TOKEN_WHOLE_RE.exec(part);
+      return m ? renderManaToken(m[1]) : escapeHtml(part);
+    })
+    .join('');
+}
+
+/**
  * Scryfall's exact-name search redirects straight to the card's page
  * when the name is unambiguous (verified by hand: a 303 to
  * /card/<set>/<number>/<slug>), so this needs no card id/set from the
@@ -192,7 +219,7 @@ export function renderCardTile(card, { qty, illegalReason } = {}) {
         <p class="card-tile-type">${escapeHtml(card.type_line)}</p>
         ${manaCost ? `<p class="card-tile-cost">${manaCost}</p>` : ''}
         ${powerToughness ? `<p class="card-tile-pt">${escapeHtml(powerToughness)}</p>` : ''}
-        ${card.oracle_text ? `<p class="card-tile-text">${escapeHtml(card.oracle_text)}</p>` : ''}
+        ${card.oracle_text ? `<p class="card-tile-text">${renderOracleText(card.oracle_text)}</p>` : ''}
         ${card.keywords?.length ? `<p class="card-tile-keywords">${escapeHtml(card.keywords.join(', '))}</p>` : ''}
         ${metaParts.length ? `<p class="card-tile-meta">${escapeHtml(metaParts.join(' · '))}</p>` : ''}
         ${renderTileFooter(renderCoverageBadge(card.coverage), scryfallUrl(card.name), 'Auf Scryfall ansehen')}

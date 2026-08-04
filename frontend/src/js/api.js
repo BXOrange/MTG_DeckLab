@@ -343,6 +343,33 @@ export async function fetchGameFormats() {
   return gameRequest('GET', '/api/game/formats');
 }
 
+// --- ANA-4: dynamic (simulated) deck analysis -----------------------------
+// Backend: mtg_analyzer/api/dynamic_analysis.py. A simulation runs as a
+// background job (it can take tens of seconds) — start it, then poll
+// getDynamicAnalysisJob until `status` is no longer "running".
+
+/**
+ * Start a headless goldfish-simulation job. Same deck-source shape as
+ * `startGoldfish` (a saved `deckId` or decklist text), plus which bot
+ * drives the matches and how many to run.
+ * @param {{deckId?: string, commanderText?: string, mainboardText?: string,
+ *          sideboardText?: string, botKind: string, numMatches: number,
+ *          maxTurns: number}} payload
+ * @returns {Promise<{ok: boolean, status: number, data: {jobId: string}|null}>}
+ */
+export async function startDynamicAnalysis(payload) {
+  return gameRequest('POST', '/api/analysis/dynamic', payload);
+}
+
+/**
+ * Poll a simulation job's status/progress/result.
+ * @param {string} jobId
+ * @returns {Promise<{ok: boolean, status: number, data: {status: string, completed: number, total: number, result: object|null, error: string|null}|null}>}
+ */
+export async function getDynamicAnalysisJob(jobId) {
+  return gameRequest('GET', `/api/analysis/dynamic/${encodeURIComponent(jobId)}`);
+}
+
 // --- Multiplayer lobby + shared games (UC4) -------------------------------
 // Backend: mtg_analyzer/api/multiplayer.py. Same {ok, status, data} shape as
 // the game-session helpers above. Every call identifies the caller by the

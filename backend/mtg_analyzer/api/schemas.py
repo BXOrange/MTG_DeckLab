@@ -91,6 +91,31 @@ class DeckTokensRequest(BaseModel):
     sideboard_text: str = Field(default="", alias="sideboardText")
 
 
+class DynamicAnalysisRequest(BaseModel):
+    """Request body for POST /api/analysis/dynamic (ANA-4).
+
+    Same deck-source shape as `StartGoldfishRequest` (a saved `deckId` or
+    decklist text), plus which bot drives the simulated matches and how
+    many to run. `numMatches`/`maxTurns` are clamped again in
+    `services/dynamic_analysis.py` (`MAX_NUM_MATCHES`/`MAX_MAX_TURNS`) —
+    the bounds here just reject an obviously-bad request before it starts a
+    background job at all.
+    """
+
+    model_config = ConfigDict(populate_by_name=True)
+
+    deck_id: Optional[str] = Field(default=None, alias="deckId")
+    commander_text: str = Field(default="", alias="commanderText")
+    mainboard_text: str = Field(default="", alias="mainboardText")
+    sideboard_text: str = Field(default="", alias="sideboardText")
+    bot_kind: str = Field(default="goldfish", alias="botKind")
+    num_matches: int = Field(default=20, ge=1, le=200, alias="numMatches")
+    max_turns: int = Field(default=10, ge=1, le=30, alias="maxTurns")
+    starting_life: int = Field(default=40, alias="startingLife")
+    starting_hand: int = Field(default=7, alias="startingHand")
+    game_format: Optional[str] = Field(default=None, alias="gameFormat")
+
+
 class StartReplayRequest(BaseModel):
     """Request body for POST /api/game/replay (Replay / Puzzle mode).
 
