@@ -535,6 +535,28 @@ class GameEffect(ABC):
         """Whether the effect can apply right now (default: always)."""
         return True
 
+    def target_polarity(self) -> Optional[str]:
+        """Best-effort "is this effect's target on the receiving end of
+        something good or bad" — ``"harmful"``, ``"beneficial"``, or
+        ``None`` for no opinion (the default, and every effect not
+        overriding this below).
+
+        Not rules data: nothing in the engine reads this, and it is never
+        consulted while actually resolving anything. It exists purely so
+        `targeting.spell_target_specs`/`ability_target_specs` can stamp a
+        `TargetSpec.polarity` hint onto the offer a `cast_spell`/
+        `activate_ability` action carries, which `services/bots.py`'s
+        `GreedyBot` reads to point a removal spell at an opponent's
+        permanent and a pump spell at its own, instead of always preferring
+        an opponent's stuff regardless of what the spell actually does to
+        it. Deliberately conservative: an effect whose sign genuinely
+        depends on its own parameters (a "-N/-N" `PumpEffect`, a "-1/-1"
+        `AddCountersEffect`) overrides this to inspect them; anything not
+        listed below (a bounce, a granted keyword, a counter-removal of
+        unknown sign, …) stays ``None`` rather than guessing.
+        """
+        return None
+
 
 def _apply_effects_partitioned(
     effects: list["GameEffect"],
@@ -971,6 +993,7 @@ class ActivatedAbility(GameEffect):
         source: Optional["GameObject"] = None,
         description: str = "",
         once_per_turn: bool = False,
+        attach_kind: Optional[str] = None,
     ) -> None:
         super().__init__(source)
         self.effects = effects
@@ -983,6 +1006,15 @@ class ActivatedAbility(GameEffect):
         self.description = description
         self.once_per_turn = once_per_turn
         self._last_activated_turn: Optional[int] = None
+        #: Which RULE 301/303/704 attachment keyword generated this ability
+        #: — ``"equip"``/``"fortify"``/``"reconfigure"`` (`effect_binder.
+        #: _keyword_activated_ability`), or ``None`` for an ordinary
+        #: activated ability. Surfaced on the `activate_ability` action
+        #: (`legal_actions_mixin._activate_action`) purely so
+        #: `services/bots.py`'s `GreedyBot` can deprioritize equipping —
+        #: better spent mana on casting something else first — without
+        #: guessing from the ability's description text.
+        self.attach_kind = attach_kind
 
     @property
     def mana_cost(self) -> ManaCost:
@@ -1527,6 +1559,9 @@ class DealDamageEffect(GameEffect):
             # applies to *every* chosen target, not divided among them.
             self.target_spec = TargetSpec(kind=target_kind, optional=optional, count=count)
 
+    def target_polarity(self) -> Optional[str]:
+        return "harmful"
+
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
         if self.selector is not None:
             self._apply_selector(context)
@@ -1695,6 +1730,9 @@ class DiscardEffect(GameEffect):
         self.target_spec = TargetSpec(kind=target_kind) if target_kind is not None else None
         self.scope = scope
 
+    def target_polarity(self) -> Optional[str]:
+        return "harmful"
+
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
         if self.scope:
             controller = _controller_of(self.source, context)
@@ -1842,6 +1880,9 @@ class DestroyEffect(GameEffect):
                 distinct_controllers=distinct_controllers,
             )
 
+    def target_polarity(self) -> Optional[str]:
+        return "harmful"
+
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
         if self.selector is not None:
             for obj in _mass_selector_objects(context, self.selector, self.filter):
@@ -1869,6 +1910,9 @@ class RegenerateEffect(GameEffect):
         super().__init__(source)
         self.target = target
         self.target_spec = TargetSpec(kind=target_kind) if target_kind is not None else None
+
+    def target_polarity(self) -> Optional[str]:
+        return "beneficial"
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
         target = (targets[0] if targets else None) or self.target
@@ -1905,6 +1949,9 @@ class GainLifeEffect(GameEffect):
         self.player = player
         self.target_spec = TargetSpec(kind=target_kind) if target_kind is not None else None
         self.count_selector = count_selector
+
+    def target_polarity(self) -> Optional[str]:
+        return "beneficial"
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
         player = self.player
@@ -2067,6 +2114,9 @@ class LoseLifeEffect(GameEffect):
         # only, so every existing untargeted/selector caller keeps reading
         # no shared ``targets`` list at all (see the class docstring).
         self.target_spec = TargetSpec(kind=target_kind) if target_kind is not None else None
+
+    def target_polarity(self) -> Optional[str]:
+        return "harmful"
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
         if self.selector in _LOSE_LIFE_SELECTORS:
@@ -2402,6 +2452,9 @@ class CounterSpellEffect(GameEffect):
             spell_filter["color"] = color
         self.target_spec = TargetSpec(kind="spell", spell_filter=spell_filter or None)
 
+    def target_polarity(self) -> Optional[str]:
+        return "harmful"
+
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
         target = (targets[0] if targets else None) or self.target
         if target is not None:
@@ -2489,6 +2542,9 @@ class CounterCreateTokenEffect(GameEffect):
         self.token_name = token_name or (subtypes[0] if subtypes else "Token")
         self.count = count
         self.keywords = keywords or []
+
+    def target_polarity(self) -> Optional[str]:
+        return "harmful"
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
         from ..services.token_database import synthesize_token_card
@@ -2583,6 +2639,9 @@ class MillEffect(GameEffect):
         if target_kind is not None:
             self.target_spec = TargetSpec(kind=target_kind)
 
+    def target_polarity(self) -> Optional[str]:
+        return "harmful"
+
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
         if self.target_spec is not None:
             player = targets[0] if targets else None
@@ -2644,6 +2703,9 @@ class ExileEffect(GameEffect):
                 distinct_controllers=distinct_controllers,
             )
 
+    def target_polarity(self) -> Optional[str]:
+        return "harmful"
+
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
         if self.selector is not None:
             for obj in _mass_selector_objects(context, self.selector, self.filter):
@@ -2685,6 +2747,9 @@ class ExileGainLifeToControllerEffect(GameEffect):
         super().__init__(source)
         self.target = target
         self.target_spec = TargetSpec(kind=target_kind, optional=optional)
+
+    def target_polarity(self) -> Optional[str]:
+        return "harmful"
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
         target = (targets[0] if targets else None) or self.target
@@ -2821,6 +2886,9 @@ class DestroyLoseLifeEqualManaValueEffect(GameEffect):
         self.target = target
         self.target_spec = TargetSpec(kind=target_kind)
 
+    def target_polarity(self) -> Optional[str]:
+        return "harmful"
+
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
         target = (targets[0] if targets else None) or self.target
         if target is None:
@@ -2862,6 +2930,9 @@ class ExileCreateTokenEffect(GameEffect):
         self.colors = colors or []
         self.subtypes = subtypes or []
         self.token_name = token_name or (subtypes[0] if subtypes else "Token")
+
+    def target_polarity(self) -> Optional[str]:
+        return "harmful"
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
         from ..services.token_database import synthesize_token_card
@@ -2910,6 +2981,9 @@ class DestroyCreateTokenEffect(GameEffect):
         self.token_name = token_name or (subtypes[0] if subtypes else "Token")
         self.can_be_regenerated = can_be_regenerated
 
+    def target_polarity(self) -> Optional[str]:
+        return "harmful"
+
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
         from ..services.token_database import synthesize_token_card
 
@@ -2951,6 +3025,9 @@ class DestroyGainLifeToControllerEffect(GameEffect):
         self.target_spec = TargetSpec(kind=target_kind)
         self.amount = amount
         self.can_be_regenerated = can_be_regenerated
+
+    def target_polarity(self) -> Optional[str]:
+        return "harmful"
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
         target = (targets[0] if targets else None) or self.target
@@ -3001,6 +3078,9 @@ class GainControlUntilEndOfTurnEffect(GameEffect):
         self.target = target
         self.target_spec = TargetSpec(kind=target_kind)
         self.haste = haste
+
+    def target_polarity(self) -> Optional[str]:
+        return "harmful"
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
         target = (targets[0] if targets else None) or self.target
@@ -4363,6 +4443,9 @@ class GrantProtectionEffect(GameEffect):
         self.allow_colorless = allow_colorless
         self.target_spec = TargetSpec(kind=target_kind)
 
+    def target_polarity(self) -> Optional[str]:
+        return "beneficial"
+
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
         target = targets[0] if targets else None
         if target is None:
@@ -4454,6 +4537,12 @@ class TapEffect(GameEffect):
             if target_kind is not None and not self._attached_mode and self.selector is None and not previous_subject
             else None
         )
+
+    def target_polarity(self) -> Optional[str]:
+        # Untapping is a favour (untap your own blocker/attacker); tapping
+        # down is a combat trick against whoever's permanent it is (usually
+        # an opponent's would-be blocker or attacker).
+        return "beneficial" if self.untap else "harmful"
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
         if self.previous_subject:
@@ -5093,6 +5182,12 @@ class AddCountersEffect(GameEffect):
         if self.selector is None and target_kind is not None:
             self.target_spec = TargetSpec(kind=target_kind, optional=optional, count=count)
 
+    def target_polarity(self) -> Optional[str]:
+        # "-1/-1"/"stun" counters are a downgrade for whoever's stuck with
+        # them; every other kind this class ever places (+1/+1 chief among
+        # them) is a buff.
+        return "harmful" if self.kind in ("-1/-1", "stun") else "beneficial"
+
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
         if self.trigger_subject_key:
             event = context.trigger_event
@@ -5355,6 +5450,9 @@ class GoadEffect(GameEffect):
             else None
         )
 
+    def target_polarity(self) -> Optional[str]:
+        return "harmful"
+
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
         goader_id = getattr(self.source, "controller_id", None)
         if goader_id is None:
@@ -5598,6 +5696,9 @@ class PumpEffect(GameEffect):
             # pump spell's whole point is every chosen creature getting the
             # stated boost independently.
             self.target_spec = TargetSpec(kind=target_kind, optional=optional, count=count)
+
+    def target_polarity(self) -> Optional[str]:
+        return "harmful" if (self.power < 0 or self.toughness < 0) else "beneficial"
 
     def _pump_one(self, obj: "GameObject") -> None:
         obj.temp_power += self.power
@@ -6730,6 +6831,9 @@ class ExchangeControlEffect(GameEffect):
         super().__init__(source)
         self.target_spec = TargetSpec(kind=target_kind, optional=True)
         self.sacrifice_self_if_no_exchange = sacrifice_self_if_no_exchange
+
+    def target_polarity(self) -> Optional[str]:
+        return "harmful"
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
         mine = self.source

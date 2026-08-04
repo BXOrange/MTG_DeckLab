@@ -280,6 +280,15 @@ class TargetSpec:
     #: See `TARGET_COUNT_SELECTORS`. ``None`` (the common case) keeps
     #: ``count`` exactly as printed.
     count_selector: Optional[str] = None
+    #: Best-effort "is this target on the receiving end of something good or
+    #: bad" hint — ``"harmful"``/``"beneficial"``/``None`` (no opinion).
+    #: Not rules data and never read by the engine itself: stamped by
+    #: `spell_target_specs`/`ability_target_specs` from the owning
+    #: `GameEffect.target_polarity()` (see `game/effects.py`) purely so
+    #: `services/bots.py`'s `GreedyBot` can point a removal spell at an
+    #: opponent's permanent and a pump spell at its own — see that method's
+    #: docstring for the classification and its documented blind spots.
+    polarity: Optional[str] = None
 
     def label(self) -> str:
         return self.description or _graveyard_label(self.kind) or {
@@ -329,10 +338,54 @@ def spell_target_specs(obj: GameObject) -> list[TargetSpec]:
         # `target_specs` (not ``target_spec``) so an effect that genuinely
         # needs two differently-typed targets in one clause announces both
         # — see `game/effects.py`'s `GameEffect.extra_target_specs`.
-        specs.extend(getattr(effect, "target_specs", None) or [])
+        polarity = effect.target_polarity()
+        specs.extend(_with_polarity(spec, polarity) for spec in (getattr(effect, "target_specs", None) or []))
     if not specs and "enchant" in (getattr(obj, "parametric_keywords", None) or {}):
-        specs.append(TargetSpec(kind="permanent", description="zu verzauberndes Ziel"))
+        specs.append(
+            TargetSpec(
+                kind="permanent",
+                description="zu verzauberndes Ziel",
+                polarity=_aura_enchant_polarity(obj),
+            )
+        )
     return specs
+
+
+def _with_polarity(spec: TargetSpec, polarity: Optional[str]) -> TargetSpec:
+    """``spec``, tagged with ``polarity`` unless it already carries its own
+    (none currently do — every `TargetSpec` is built without one and picks
+    it up here from its owning effect — but a future one that sets it
+    explicitly should win)."""
+    if polarity is None or spec.polarity is not None:
+        return spec
+    return replace(spec, polarity=polarity)
+
+
+def _aura_enchant_polarity(obj: GameObject) -> Optional[str]:
+    """Best-effort polarity for an Aura's synthesized "enchant" target (the
+    branch above this fires for an Aura whose whole ability is a static —
+    Rancor, Pacifism — so there's no `EffectSpec`/`GameEffect` clause to ask
+    `target_polarity()`). Reads the Aura's own bound layer-7 P/T static on
+    ``attached_permanent`` (bound at load time regardless of zone, so this
+    works before the Aura is even cast): a positive P/T grant is a buff
+    (beneficial to whatever it's attached to), a negative one a curse
+    (harmful). An Aura with no P/T clause at all (Pacifism-shaped
+    keyword-only curses) reads ``None`` — which leaves `GreedyBot`'s
+    existing "prefer an opponent's permanent" default in place, and that
+    default happens to be right for exactly this case.
+    """
+    for effect in getattr(obj, "static_effects", None) or []:
+        if getattr(effect, "affects", None) != "attached_permanent":
+            continue
+        if effect.layer not in ("pt_set", "pt_mod", "pt_cda"):
+            continue
+        power = effect.params.get("power", 0) or 0
+        toughness = effect.params.get("toughness", 0) or 0
+        if power < 0 or toughness < 0:
+            return "harmful"
+        if power > 0 or toughness > 0:
+            return "beneficial"
+    return None
 
 
 def _is_human(obj: "GameObject") -> bool:
@@ -890,11 +943,11 @@ def ability_target_specs(ability: Any) -> list[TargetSpec]:
     the same `GameEffect.target_specs` read `RulesEngine._trigger_target_specs`
     does (so a *single* effect wanting two differently-typed targets announces
     both)."""
-    return [
-        spec
-        for effect in (getattr(ability, "effects", None) or [])
-        for spec in (getattr(effect, "target_specs", None) or [])
-    ]
+    specs: list[TargetSpec] = []
+    for effect in getattr(ability, "effects", None) or []:
+        polarity = effect.target_polarity()
+        specs.extend(_with_polarity(spec, polarity) for spec in (getattr(effect, "target_specs", None) or []))
+    return specs
 
 
 def requirements_with_targets(
@@ -914,6 +967,7 @@ def requirements_with_targets(
                 "options": legal_targets(state, controller_id, spec, source=obj),
                 "distinct_controllers": spec.distinct_controllers,
                 "distinct_from_others": spec.distinct_from_others,
+                "polarity": spec.polarity,
             }
         )
     return out

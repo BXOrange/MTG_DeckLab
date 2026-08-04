@@ -8,8 +8,24 @@
 // elsewhere too). Filtering (color/legality) is client-side over the
 // already-fetched list, same pattern as cachedCardsView.js's filters.
 
-import { listSavedDecks, getSavedDeck, deleteSavedDeck, getDeckValidation, saveDeck } from './api.js';
+import { listSavedDecks, getSavedDeck, deleteSavedDeck, getDeckValidation, saveDeck, listArchetypes } from './api.js';
 import { escapeHtml } from './cardTile.js';
+
+// Archetype id -> label lookup (mtg_analyzer/data/archetypes.json via GET
+// /api/archetypes), fetched once and cached module-wide — the same static,
+// player-independent catalogue deckImportView.js's edit-mode picker uses.
+// `null` means "not fetched yet"; a badge just renders the raw id in that
+// narrow window rather than blocking the deck list on it.
+let archetypeLabels = null;
+async function ensureArchetypeLabels() {
+  if (archetypeLabels) return archetypeLabels;
+  const res = await listArchetypes();
+  archetypeLabels = {};
+  for (const entry of res.ok ? res.data || [] : []) {
+    archetypeLabels[entry.id] = entry.label;
+  }
+  return archetypeLabels;
+}
 
 const COLOR_FILTER_OPTIONS = [
   { key: 'W', label: '⚪ Weiß' },
@@ -136,7 +152,7 @@ export function renderSavedDecksView(container, { onLoadDeck, onAnalyzeDeck } = 
     resultEl.innerHTML = '<p class="empty-state">Lade gespeicherte Decks …</p>';
     countEl.textContent = '';
 
-    const decks = await listSavedDecks();
+    const [decks] = await Promise.all([listSavedDecks(), ensureArchetypeLabels()]);
     if (requestId !== latestRequestId) return; // superseded by a later refresh click
 
     if (decks === null) {
@@ -302,6 +318,7 @@ function renderDeckRow(deck) {
         ${cubeHtml(deck.isCube)}
         ${commanderHtml(deck.commanders)}
         ${authorHtml(deck.author)}
+        ${archetypeHtml(deck.archetypes)}
         <span class="saved-deck-meta">Gespeichert: ${escapeHtml(created)}${colorIdentityHtml(deck.colorIdentity)}</span>
         ${deck.isCube
           ? '<span class="saved-deck-legality cube">🧊 Collection – keine Legalitätsprüfung</span>'
@@ -352,6 +369,15 @@ function cubeHtml(isCube) {
 function authorHtml(author) {
   if (!author) return '';
   return `<span class="saved-deck-author">✍️ ${escapeHtml(author)}</span>`;
+}
+
+// The deck's archetype tags, shown read-only here — editable only in
+// "Deck editieren". Falls back to the raw id if the label lookup hasn't
+// resolved yet (see `ensureArchetypeLabels`) rather than rendering nothing.
+function archetypeHtml(archetypes) {
+  if (!archetypes || !archetypes.length) return '';
+  const labels = archetypes.map((id) => (archetypeLabels && archetypeLabels[id]) || id);
+  return `<span class="saved-deck-archetypes">🎭 ${escapeHtml(labels.join(' · '))}</span>`;
 }
 
 // Color-identity pips (WUBRG order), or a colorless "C" pip for an empty

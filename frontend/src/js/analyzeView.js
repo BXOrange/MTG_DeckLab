@@ -21,6 +21,8 @@ import { resolveCardImages } from './cardImages.js';
 import { analyzeDeck } from './deckAnalysis.js';
 import { escapeHtml } from './cardTile.js';
 import { renderDynamicAnalysisPanel } from './dynamicAnalysisPanel.js';
+import { analyzeArchetypes, listSavedDecks, listFavoriteDecks } from './api.js';
+import { getPlayerName } from './settings.js';
 
 function escapeAttr(str) {
   return String(str).replace(/'/g, '&#39;').replace(/"/g, '&quot;');
@@ -38,18 +40,107 @@ const COLOR_NAMES = { W: 'Weiß', U: 'Blau', B: 'Schwarz', R: 'Rot', G: 'Grün' 
 const COLOR_CLASS = { W: 'w', U: 'u', B: 'b', R: 'r', G: 'g' };
 
 /**
- * @returns {{loadDeck: (savedDeck: object) => void}} lets savedDecksView.js
- *   hand a saved deck over (id/name/commanderText/mainboardText) when its
- *   "Deck analysieren" button is clicked.
+ * @returns {{loadDeck: (savedDeck: object) => void, onShown: () => void}}
+ *   lets savedDecksView.js hand a saved deck over (id/name/commanderText/
+ *   mainboardText) when its "Deck analysieren" button is clicked; `onShown`
+ *   lazy-loads the deck picker (own dropdown, see `deckPickerHtml` below)
+ *   the first time this tab is actually opened.
  */
 export function renderAnalyzeView(container) {
-  container.innerHTML = emptyShellHtml();
-
   let requestId = 0;
+
+  // Deck picker state (own dropdown, mirroring goldfishView.js's start-panel
+  // picker) — lets this page pick a deck directly instead of only being
+  // reachable via "Decks verwalten"'s "Deck analysieren" button.
+  let savedDecks = null; // null = not loaded yet
+  let decksLoading = false;
+  let favoriteDeckIds = new Set();
+  let currentDeckId = ''; // id of the deck currently shown/loading, '' if none
+
+  container.innerHTML = emptyShellHtml();
+  wireDeckPicker();
+
+  async function loadDecks() {
+    decksLoading = true;
+    updatePickerUI();
+    const playerName = getPlayerName();
+    const [decks, favorites] = await Promise.all([
+      listSavedDecks(),
+      playerName ? listFavoriteDecks(playerName) : Promise.resolve([]),
+    ]);
+    decksLoading = false;
+    savedDecks = decks || [];
+    favoriteDeckIds = new Set(favorites || []);
+    updatePickerUI();
+  }
+
+  function onShown() {
+    if (savedDecks === null) loadDecks();
+  }
+
+  // Favorites (Profil tab) first, alphabetical order preserved within each
+  // group — matches goldfishView.js's `decksFavoritesFirst`.
+  function decksFavoritesFirst() {
+    if (!savedDecks) return [];
+    return [...savedDecks].sort(
+      (a, b) => (favoriteDeckIds.has(b.id) ? 1 : 0) - (favoriteDeckIds.has(a.id) ? 1 : 0)
+    );
+  }
+
+  function deckPickerOptionsHtml() {
+    if (decksLoading && savedDecks === null) return '<option>Lädt …</option>';
+    if (!savedDecks || !savedDecks.length) {
+      return '<option value="">— keine gespeicherten Decks —</option>';
+    }
+    const options = ['<option value="">— Deck wählen —</option>'];
+    for (const d of decksFavoritesFirst()) {
+      const name = (d.name || '').trim() || 'Unbenanntes Deck';
+      const label = favoriteDeckIds.has(d.id) ? `★ ${name}` : name;
+      const selected = d.id === currentDeckId ? ' selected' : '';
+      options.push(`<option value="${escapeHtml(d.id)}"${selected}>${escapeHtml(label)}</option>`);
+    }
+    return options.join('');
+  }
+
+  function deckPickerHtml() {
+    return `
+      <div class="gf-deck-picker">
+        <label for="analyze-deck-select">Deck</label>
+        <select id="analyze-deck-select" ${decksLoading ? 'disabled' : ''}>${deckPickerOptionsHtml()}</select>
+        <button id="analyze-deck-refresh" type="button" title="Deckliste neu laden">⟳</button>
+      </div>
+    `;
+  }
+
+  // Called once right after every full `container.innerHTML` swap (the
+  // select element itself is destroyed each time, so listeners don't
+  // survive) — a plain `<select>`, not part of the `.analyze-subtab`
+  // show/hide mechanism, since it must stay visible across every state.
+  function wireDeckPicker() {
+    const select = container.querySelector('#analyze-deck-select');
+    select?.addEventListener('change', (e) => {
+      const deckId = e.target.value;
+      if (!deckId) return;
+      const deck = savedDecks?.find((d) => d.id === deckId);
+      if (deck) loadDeck(deck);
+    });
+    container.querySelector('#analyze-deck-refresh')?.addEventListener('click', loadDecks);
+  }
+
+  // Refreshes just the picker's options in place (no full re-render), so a
+  // deck-list reload never wipes an already-displayed analysis.
+  function updatePickerUI() {
+    const select = container.querySelector('#analyze-deck-select');
+    if (!select) return;
+    select.innerHTML = deckPickerOptionsHtml();
+    select.disabled = decksLoading;
+  }
 
   function loadDeck(savedDeck) {
     const myRequestId = ++requestId;
+    currentDeckId = savedDeck.id || '';
     container.innerHTML = loadingShellHtml(savedDeck.name);
+    wireDeckPicker();
 
     const parsed = parseDeckSections({
       commanderText: savedDeck.commanderText,
@@ -60,8 +151,18 @@ export function renderAnalyzeView(container) {
     resolveCardImages(names).then((resolved) => {
       if (myRequestId !== requestId) return; // superseded by a later loadDeck() call
       const stats = analyzeDeck(parsed.commanders, parsed.mainDeck, resolved);
-      container.innerHTML = resultShellHtml(savedDeck.name, stats);
+      container.innerHTML = resultShellHtml(savedDeck.name, stats, deckPickerHtml());
+      wireDeckPicker();
       wireAnalyzeTabs(container);
+
+      const deckSource = savedDeck.id
+        ? { deckId: savedDeck.id }
+        : {
+            commanderText: savedDeck.commanderText,
+            mainboardText: savedDeck.mainboardText,
+            sideboardText: savedDeck.sideboardText,
+          };
+
       // ANA-4: mounted post-innerHTML like `wireAnalyzeTabs` above — the
       // panel wires its own live DOM listeners/polling, which a plain HTML
       // string builder (`resultShellHtml`) can't do.
@@ -73,36 +174,59 @@ export function renderAnalyzeView(container) {
             commanderText: savedDeck.commanderText,
             mainboardText: savedDeck.mainboardText,
             sideboardText: savedDeck.sideboardText,
+            favoriteCards: savedDeck.favoriteCards || [],
           },
           stats.expectedManaCurve
         );
       }
+
+      // Playstyle/archetype suggestions come from the backend
+      // (POST /api/archetypes/analyze — the catalogue + scoring both live
+      // server-side, see api/archetypes.py) rather than being computed
+      // here like the rest of the static tab, so it's a one-shot async
+      // fetch into a placeholder rather than part of `stats`.
+      const playstyleRoot = container.querySelector('#toc-playstyle-content');
+      if (playstyleRoot) loadArchetypeSuggestions(playstyleRoot, deckSource, myRequestId);
     });
   }
 
-  return { loadDeck };
-}
+  function loadArchetypeSuggestions(root, deckSource, myRequestId) {
+    root.innerHTML = '<p class="empty-state">Lädt …</p>';
+    analyzeArchetypes(deckSource).then((res) => {
+      if (myRequestId !== requestId || !document.body.contains(root)) return;
+      if (!res.ok || !res.data) {
+        root.innerHTML = '<p class="issue-list">🛑 Spielstil-Analyse konnte nicht geladen werden.</p>';
+        return;
+      }
+      root.innerHTML = archetypeSuggestionsHtml(res.data);
+    });
+  }
 
-function emptyShellHtml() {
-  return `
-    <div class="analyze-panel">
-      <h2>Deck analysieren</h2>
-      <p class="empty-state">
-        Kein Deck geladen – in "Decks verwalten" ein Deck auswählen und auf
-        "Deck analysieren" klicken.
-      </p>
-    </div>
-  `;
-}
+  return { loadDeck, onShown };
 
-function loadingShellHtml(deckName) {
-  return `
-    <div class="analyze-panel">
-      <h2>Deck analysieren</h2>
-      <p class="analyze-deck-name">${escapeHtml(deckName?.trim() || 'Unbenanntes Deck')}</p>
-      <p class="empty-state">Lädt Kartendaten …</p>
-    </div>
-  `;
+  function emptyShellHtml() {
+    return `
+      <div class="analyze-panel">
+        <h2>Deck analysieren</h2>
+        ${deckPickerHtml()}
+        <p class="empty-state">
+          Oben ein Deck auswählen, oder in "Decks verwalten" ein Deck
+          auswählen und auf "Deck analysieren" klicken.
+        </p>
+      </div>
+    `;
+  }
+
+  function loadingShellHtml(deckName) {
+    return `
+      <div class="analyze-panel">
+        <h2>Deck analysieren</h2>
+        ${deckPickerHtml()}
+        <p class="analyze-deck-name">${escapeHtml(deckName?.trim() || 'Unbenanntes Deck')}</p>
+        <p class="empty-state">Lädt Kartendaten …</p>
+      </div>
+    `;
+  }
 }
 
 // --- Sub-tabs (Statische/Dynamische/Bracket-Analyse) -----------------------
@@ -142,6 +266,7 @@ const TOC_ENTRIES = [
   { id: 'toc-opening-hand', label: 'Starthand & Landziehungen' },
   { id: 'toc-accelerants', label: 'Erkannte Beschleuniger' },
   { id: 'toc-command-zone', label: 'Funktionale Kategorien' },
+  { id: 'toc-playstyle', label: 'Spielstil-Analyse' },
 ];
 
 function tableOfContentsHtml() {
@@ -154,10 +279,11 @@ function tableOfContentsHtml() {
   `;
 }
 
-function resultShellHtml(deckName, stats) {
+function resultShellHtml(deckName, stats, pickerHtml) {
   return `
     <div class="analyze-panel">
       <h2>Deck analysieren</h2>
+      ${pickerHtml}
       <p class="analyze-deck-name">${escapeHtml(deckName?.trim() || 'Unbenanntes Deck')}</p>
       ${commanderLineHtml(stats.commanders)}
       ${unresolvedWarningHtml(stats.unresolvedNames)}
@@ -184,6 +310,7 @@ function resultShellHtml(deckName, stats) {
           <div id="toc-opening-hand">${openingHandSectionHtml(stats)}</div>
           <div id="toc-accelerants">${accelerantsSectionHtml(stats)}</div>
           <div id="toc-command-zone">${commandZoneSectionHtml(stats)}</div>
+          <div id="toc-playstyle"><div id="toc-playstyle-content"></div></div>
         </section>
       </div>
 
@@ -717,6 +844,51 @@ function commandZoneSectionHtml(stats) {
       ${subKindTable('Targeted Disruption – Details', targetedDisruption)}
       ${subKindTable('Mass Disruption – Details', massDisruption)}
       ${tutorListHtml(tutors)}
+    </div>
+  `;
+}
+
+// --- Playstyle / archetype-likelihood suggestions (backend-scored) --------
+// Named "Spielstil-Analyse" rather than "Archetyp-Analyse" to avoid reading
+// as the same thing as "Land-Archetypen" above (an unrelated land/ramp
+// categorization) — see docs/implementation-state/BACKLOG.md.
+
+function archetypeSuggestionsHtml({ suggestions = [], typalSignals = [] }) {
+  const bars = suggestions
+    .map(
+      (s) => `
+        <div class="bar-row">
+          <span class="bar-row-label" title="${escapeAttr(s.description || '')}">${escapeHtml(s.label)}</span>
+          <div class="bar-row-track">
+            <div class="bar-row-fill" style="width:${s.percent}%"></div>
+          </div>
+          <span class="bar-row-value">${s.percent}%</span>
+        </div>
+      `
+    )
+    .join('');
+
+  const typalItems = typalSignals
+    .map(
+      (t) =>
+        `<li>${escapeHtml(t.creatureType)} — ${t.count} Kreaturen (${Math.round(t.share * 100)}% der Kreaturen)</li>`
+    )
+    .join('');
+
+  return `
+    <div class="analyze-chart-card">
+      <h4>Spielstil-Analyse</h4>
+      <p class="hint">
+        Heuristischer Abgleich der Deckliste gegen einen kuratierten
+        Archetyp-Katalog (Signalkarten + Textmuster,
+        server-seitig ausgewertet) — keine Bewertung von Stärke, nur
+        Ähnlichkeit zu bekannten Archetypen (Aristocrats, Voltron, Stax, …).
+        Mehrere Archetypen können gleichzeitig hoch bewertet werden; ein
+        passender Archetyp lässt sich im Bearbeiten-Modus als Deck-Archetyp
+        übernehmen.
+      </p>
+      ${bars ? `<div class="bar-chart bar-chart--rows">${bars}</div>` : '<p class="empty-state">Keine Archetyp-Signale erkannt.</p>'}
+      ${typalItems ? `<h5>Typal-Signale</h5><ul class="card-list">${typalItems}</ul>` : ''}
     </div>
   `;
 }

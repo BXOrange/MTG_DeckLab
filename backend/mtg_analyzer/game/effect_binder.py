@@ -888,7 +888,8 @@ def _keyword_activated_ability(obj: Any, spec: AbilitySpec) -> Optional[Activate
         effects=[AttachEffect(target_kind=target_kind)],
         cost=cost,
         source=obj,
-        description=spec.raw_text or f"{name}"
+        description=spec.raw_text or f"{name}",
+        attach_kind=name,
     )
 
 

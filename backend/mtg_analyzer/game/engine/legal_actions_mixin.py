@@ -128,6 +128,11 @@ class LegalActionsMixin:
             "cost_label": ability.cost.label(),
             "description": ability.description or "",
         }
+        if getattr(ability, "attach_kind", None):
+            # RULE 301.5c/702.6a/702.151b: which attachment keyword this
+            # ability is (equip/fortify/reconfigure) — see `ActivatedAbility.
+            # attach_kind`'s docstring for why a bot wants to know.
+            action["attach_kind"] = ability.attach_kind
         mana = ability.cost.mana
         remove_counters_x = ability.cost.remove_counters is not None and ability.cost.remove_counters[1] in (
             REMOVE_COUNTERS_X, REMOVE_COUNTERS_ANY,
@@ -149,6 +154,27 @@ class LegalActionsMixin:
             # the player's own choice — offer the pool so the UI can prompt
             # instead of the engine auto-picking (see `_sacrifice_candidate`).
             action["sacrifice_cost"] = self._sacrifice_cost_choice(player, ability.cost)
+        return action
+    def _land_action(
+        self, obj: GameObject, face: Optional[str] = None
+    ) -> dict[str, Any]:
+        """A ``play_land`` legal-action entry, tagging RULE 614.1's tapped-
+        entry prediction (`RulesEngine.predict_land_tapped`) as
+        ``enters_tapped`` so a client — `services/bots.py`'s `GreedyBot`,
+        chiefly — can prefer an untapped land when it has a choice, without
+        actually playing anything to find out. ``face="back"`` previews a
+        modal DFC's back face (the same face a `play_land` action carrying
+        ``face="back"`` actually plays).
+        """
+        card = self._face_card(obj, face) if face is not None else obj.card
+        action: dict[str, Any] = {
+            "type": "play_land",
+            "instance_id": obj.instance_id,
+            "name": card.name if card is not None else obj.name,
+            "enters_tapped": self.rules.predict_land_tapped(obj, card=card),
+        }
+        if face is not None:
+            action["face"] = face
         return action
     def _cast_action(
         self,
@@ -387,9 +413,7 @@ class LegalActionsMixin:
 
         for obj in list(player.hand):
             if self.can_play_land(player, obj):
-                actions.append(
-                    {"type": "play_land", "instance_id": obj.instance_id, "name": obj.name}
-                )
+                actions.append(self._land_action(obj))
             if self._castable_now_or_via_potential(player, obj):
                 self._offer_cast(actions, player, obj)
             # A second castable face offers its own action(s) too — a modal
@@ -398,14 +422,7 @@ class LegalActionsMixin:
             # a second, independently-gated action for the same hand card.
             if obj.card.back_face() is not None:
                 if self.can_play_land(player, obj, face="back"):
-                    actions.append(
-                        {
-                            "type": "play_land",
-                            "instance_id": obj.instance_id,
-                            "name": obj.card.back_face().name,
-                            "face": "back",
-                        }
-                    )
+                    actions.append(self._land_action(obj, face="back"))
                 if self._castable_now_or_via_potential(player, obj, face="back"):
                     actions.append(self._cast_action(player, obj, face="back"))
             # A split card with Fuse offers casting both halves as one spell
@@ -467,9 +484,7 @@ class LegalActionsMixin:
             if castable and self._castable_now_or_via_potential(player, obj):
                 self._offer_cast(actions, player, obj)
             if self._has_temp_play_permission(obj, player) and self.can_play_land(player, obj):
-                actions.append(
-                    {"type": "play_land", "instance_id": obj.instance_id, "name": obj.name}
-                )
+                actions.append(self._land_action(obj))
 
         for obj in list(player.graveyard):
             # RULE 702.34 / 702.138: Flashback/Escape let a card be cast
@@ -490,9 +505,7 @@ class LegalActionsMixin:
             # card itself is ever offered.
             top = player.library[-1]
             if self.can_play_land(player, top):
-                actions.append(
-                    {"type": "play_land", "instance_id": top.instance_id, "name": top.name}
-                )
+                actions.append(self._land_action(top))
             if self._castable_now_or_via_potential(player, top):
                 self._offer_cast(actions, player, top)
 

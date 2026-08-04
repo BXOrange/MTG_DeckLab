@@ -1206,7 +1206,12 @@ into `BACKLOG.md`, and those mentions have been repointed there.
       (`POST /api/analysis/dynamic`, Done_Backend.md) and polls
       `GET /api/analysis/dynamic/{id}` every second, showing a progress
       bar (reusing the static tab's `bar-row`/`bar-row-track`/
-      `bar-row-fill` classes) while `status === "running"`. On completion:
+      `bar-row-fill` classes) while `status === "running"` — and, since the
+      2026-08-04 bounded-worker-pool follow-up (Done_Backend.md), while
+      `status === "queued"` too, with its own "Wartet auf freien Worker …"
+      label so a job waiting behind the backend's fixed-size pool doesn't
+      read as stuck; the form stays disabled and keeps polling across both
+      states identically. On completion:
       stat tiles for the scalar totals (library searches, one tile per
       commander's mean turn-on-board), and an SVG chart — same
       padding/gridline/polyline shape as the static tab's

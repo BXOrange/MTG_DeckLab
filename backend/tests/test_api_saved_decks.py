@@ -157,6 +157,107 @@ class TestSaveDeck:
 
         assert updated["isCube"] is True
 
+    def test_save_with_archetypes_persists_them(self):
+        _override_database()
+        client = TestClient(app)
+
+        created = client.post(
+            "/api/decks/save", json={"name": "Sac Deck", "archetypes": ["aristocrats", "tokens"]}
+        ).json()
+
+        assert created["archetypes"] == ["aristocrats", "tokens"]
+
+    def test_save_with_unknown_archetype_id_drops_it(self):
+        _override_database()
+        client = TestClient(app)
+
+        created = client.post(
+            "/api/decks/save", json={"name": "Sac Deck", "archetypes": ["aristocrats", "not-a-real-archetype"]}
+        ).json()
+
+        assert created["archetypes"] == ["aristocrats"]
+
+    def test_save_with_more_than_two_archetypes_is_capped(self):
+        _override_database()
+        client = TestClient(app)
+
+        created = client.post(
+            "/api/decks/save",
+            json={"name": "Sac Deck", "archetypes": ["aristocrats", "tokens", "stax"]},
+        ).json()
+
+        assert created["archetypes"] == ["aristocrats", "tokens"]
+
+    def test_update_preserves_archetypes_when_omitted(self):
+        _override_database()
+        client = TestClient(app)
+
+        created = client.post(
+            "/api/decks/save", json={"name": "Sac Deck", "archetypes": ["aristocrats"]}
+        ).json()
+
+        updated = client.post(
+            "/api/decks/save",
+            json={"id": created["id"], "name": "Sac Deck v2", "mainboardText": "1 Sol Ring\n"},
+        ).json()
+
+        assert updated["archetypes"] == ["aristocrats"]
+
+    def test_update_can_explicitly_clear_archetypes(self):
+        _override_database()
+        client = TestClient(app)
+
+        created = client.post(
+            "/api/decks/save", json={"name": "Sac Deck", "archetypes": ["aristocrats"]}
+        ).json()
+
+        updated = client.post(
+            "/api/decks/save",
+            json={"id": created["id"], "name": "Sac Deck", "archetypes": []},
+        ).json()
+
+        assert updated["archetypes"] == []
+
+    def test_save_with_favorite_cards_persists_them(self):
+        _override_database()
+        client = TestClient(app)
+
+        created = client.post(
+            "/api/decks/save", json={"name": "Sac Deck", "favoriteCards": ["Blood Artist", "Sol Ring"]}
+        ).json()
+
+        assert created["favoriteCards"] == ["Blood Artist", "Sol Ring"]
+
+    def test_update_preserves_favorite_cards_when_omitted(self):
+        _override_database()
+        client = TestClient(app)
+
+        created = client.post(
+            "/api/decks/save", json={"name": "Sac Deck", "favoriteCards": ["Sol Ring"]}
+        ).json()
+
+        updated = client.post(
+            "/api/decks/save",
+            json={"id": created["id"], "name": "Sac Deck v2", "mainboardText": "1 Sol Ring\n"},
+        ).json()
+
+        assert updated["favoriteCards"] == ["Sol Ring"]
+
+    def test_update_can_explicitly_clear_favorite_cards(self):
+        _override_database()
+        client = TestClient(app)
+
+        created = client.post(
+            "/api/decks/save", json={"name": "Sac Deck", "favoriteCards": ["Sol Ring"]}
+        ).json()
+
+        updated = client.post(
+            "/api/decks/save",
+            json={"id": created["id"], "name": "Sac Deck", "favoriteCards": []},
+        ).json()
+
+        assert updated["favoriteCards"] == []
+
 
 class TestListDecks:
     def teardown_method(self):

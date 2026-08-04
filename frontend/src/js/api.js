@@ -354,7 +354,9 @@ export async function fetchGameFormats() {
  * drives the matches and how many to run.
  * @param {{deckId?: string, commanderText?: string, mainboardText?: string,
  *          sideboardText?: string, botKind: string, numMatches: number,
- *          maxTurns: number}} payload
+ *          maxTurns: number, favoriteCards?: string[]}} payload
+ *   `favoriteCards` falls back to the saved deck's own `favoriteCards` when
+ *   `deckId` is given and this is omitted (`api/dynamic_analysis.py`).
  * @returns {Promise<{ok: boolean, status: number, data: {jobId: string}|null}>}
  */
 export async function startDynamicAnalysis(payload) {
@@ -368,6 +370,33 @@ export async function startDynamicAnalysis(payload) {
  */
 export async function getDynamicAnalysisJob(jobId) {
   return gameRequest('GET', `/api/analysis/dynamic/${encodeURIComponent(jobId)}`);
+}
+
+// --- Archetype catalogue + likelihood analysis ----------------------------
+// Backend: mtg_analyzer/api/archetypes.py, mtg_analyzer/data/archetypes
+// .json. The catalogue (labels/descriptions/etc.) and the scoring logic
+// both live server-side — this module only renders what it fetches, no
+// archetype data or scoring math on the frontend.
+
+/**
+ * The full archetype catalogue (id/label/description/...), for the
+ * deck-edit archetype picker and for label lookups elsewhere (saved-decks
+ * badges).
+ * @returns {Promise<{ok: boolean, status: number, data: object[]|null}>}
+ */
+export async function listArchetypes() {
+  return gameRequest('GET', '/api/archetypes');
+}
+
+/**
+ * Score a deck against the archetype catalogue. Same deck-source shape as
+ * `startDynamicAnalysis` (a saved `deckId` or decklist text).
+ * @param {{deckId?: string, commanderText?: string, mainboardText?: string,
+ *          sideboardText?: string}} payload
+ * @returns {Promise<{ok: boolean, status: number, data: {suggestions: object[], typalSignals: object[]}|null}>}
+ */
+export async function analyzeArchetypes(payload) {
+  return gameRequest('POST', '/api/archetypes/analyze', payload);
 }
 
 // --- Multiplayer lobby + shared games (UC4) -------------------------------

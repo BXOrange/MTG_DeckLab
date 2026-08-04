@@ -20,6 +20,7 @@ from mtg_analyzer.services.bots import (
     Bot,
     GoldfishBot,
     GreedyBot,
+    ManaMaximizerBot,
     bot_catalogue,
     create_bot,
     run_bots,
@@ -102,10 +103,10 @@ def run_to_turn(session, bots, turn, human_ids=(), limit=4000):
 
 
 class TestRegistry:
-    def test_both_bots_are_registered_and_described(self):
-        assert set(BOT_TYPES) == {"goldfish", "greedy"}
+    def test_all_bots_are_registered_and_described(self):
+        assert set(BOT_TYPES) == {"goldfish", "greedy", "mana_maximizer"}
         catalogue = bot_catalogue()
-        assert {b["kind"] for b in catalogue} == {"goldfish", "greedy"}
+        assert {b["kind"] for b in catalogue} == {"goldfish", "greedy", "mana_maximizer"}
         assert all(b["label"] and b["description"] for b in catalogue)
 
     def test_create_bot_rejects_an_unknown_kind(self):
@@ -160,6 +161,34 @@ class TestGoldfishBot:
         assert goldfish.blocks(view, [{"instance_id": 2, "legal_attackers": [{"instance_id": 1}]}]) == []
 
 
+class TestManaMaximizerBot:
+    def test_plays_lands_and_taps_them_but_never_casts(self):
+        # A one-drop it could easily afford — the whole point of this bot
+        # is that it never reaches for it.
+        deck = [land(), bear("Llanowar Elves", "{G}", 1, 1, 1)] * 15
+        session = make_game(ann_deck=deck, bob_deck=[land()] * 30)
+        bots = {"ann": ManaMaximizerBot("ann")}
+        keep(session, "bob")
+        drive(session, bots, human_ids=("bob",))
+        ann = session.engine.state.player_by_id("ann")
+        board = session.engine.state.permanents_controlled_by("ann")
+        assert board, "should at least have played its lands"
+        assert all(o.card.is_land for o in board), "it cast something"
+        assert all(o.tapped for o in board), "every land should be tapped for mana"
+        assert any(not o.card.is_land for o in ann.hand), "it should still hold its spells"
+
+    def test_never_attacks_or_blocks(self):
+        session = make_game()
+        bot = ManaMaximizerBot("bob")
+        view = {
+            "state": {"active_player_id": "bob", "current_step": "declare_attackers"},
+            "setup": {"complete": True},
+        }
+        attack = {"type": "attack", "instance_id": 1, "legal_defenders": []}
+        assert bot.play(view, [attack]) is None
+        assert bot.blocks(view, [{"instance_id": 2, "legal_attackers": [{"instance_id": 1}]}]) == []
+
+
 class TestGreedyBot:
     def test_plays_a_land_taps_it_and_casts(self):
         # A one-drop so the very first turn is enough to see the whole line.
@@ -192,6 +221,53 @@ class TestGreedyBot:
         assert action["type"] == "attack"
         assert action["instance_ids"] == [1, 2]
         assert action["defender"]["kind"] == "player"
+
+    def test_in_a_pod_it_attacks_whoever_is_closest_to_dead(self):
+        """PLR-8: at a table of 3+ there are multiple *player* defenders on
+        offer, and the old code just took whichever the engine happened to
+        list first — not a decision. Life total (already in the view) is a
+        real, zero-lookahead tie-break."""
+        greedy = GreedyBot("ann")
+        view = {
+            "state": {
+                "active_player_id": "ann",
+                "current_step": "declare_attackers",
+                "players": [
+                    {"id": "ann", "life": 20},
+                    {"id": "bob", "life": 14},
+                    {"id": "cate", "life": 3},
+                ],
+            },
+            "setup": {"complete": True},
+        }
+        defenders = [
+            {"kind": "player", "id": "bob", "label": "Bob"},
+            {"kind": "player", "id": "cate", "label": "Cate"},
+        ]
+        action = greedy.play(
+            view,
+            [{"type": "attack", "instance_id": 1, "name": "A", "legal_defenders": defenders}],
+        )
+        assert action["defender"]["id"] == "cate"
+
+    def test_falls_back_to_the_first_defender_without_life_totals(self):
+        """A caller that hands `play` a minimal state (no ``players`` list,
+        the shape `test_attacks_with_everything_at_a_player` above uses)
+        still gets a legal answer rather than an error."""
+        greedy = GreedyBot("ann")
+        view = {
+            "state": {"active_player_id": "ann", "current_step": "declare_attackers"},
+            "setup": {"complete": True},
+        }
+        defenders = [
+            {"kind": "player", "id": "bob", "label": "Bob"},
+            {"kind": "player", "id": "cate", "label": "Cate"},
+        ]
+        action = greedy.play(
+            view,
+            [{"type": "attack", "instance_id": 1, "name": "A", "legal_defenders": defenders}],
+        )
+        assert action["defender"]["id"] == "bob"
 
     def test_blocks_spread_over_attackers_before_doubling_up(self):
         greedy = GreedyBot("bob")
@@ -283,6 +359,106 @@ class TestGreedyBot:
         )
         assert action["option_index"] == 1
 
+    def test_prefers_playing_a_land_that_enters_untapped(self):
+        greedy = GreedyBot("ann")
+        view = {
+            "state": {
+                "active_player_id": "ann",
+                "current_step": "main1",
+                "stack": [],
+                "players": [{"id": "ann", "mana_pool": {}}],
+            },
+            "setup": {"complete": True},
+        }
+        chosen = greedy.play(
+            view,
+            [
+                {"type": "play_land", "instance_id": 1, "name": "Bojuka Bog", "enters_tapped": True},
+                {"type": "play_land", "instance_id": 2, "name": "Forest", "enters_tapped": False},
+                {"type": "play_land", "instance_id": 3, "name": "Shockland", "enters_tapped": None},
+            ],
+        )
+        assert chosen["instance_id"] == 2
+
+    def test_still_plays_a_tapped_land_when_thats_the_only_option(self):
+        greedy = GreedyBot("ann")
+        view = {
+            "state": {
+                "active_player_id": "ann",
+                "current_step": "main1",
+                "stack": [],
+                "players": [{"id": "ann", "mana_pool": {}}],
+            },
+            "setup": {"complete": True},
+        }
+        chosen = greedy.play(
+            view,
+            [{"type": "play_land", "instance_id": 1, "name": "Bojuka Bog", "enters_tapped": True}],
+        )
+        assert chosen["instance_id"] == 1
+
+    def test_casts_instead_of_manually_tapping_mana_first(self):
+        """A `cast_spell` offer is only ever made once mana-potential can pay
+        for it (`_castable_now_or_via_potential`), which auto-taps for the
+        exact cost on cast — so a bot that taps a source manually first,
+        ahead of casting, can only strand the wrong colour. `_develop_board`
+        tries casting before falling back to a manual tap."""
+        greedy = GreedyBot("ann")
+        view = {
+            "state": {
+                "active_player_id": "ann",
+                "current_step": "main1",
+                "stack": [],
+                "players": [{"id": "ann", "mana_pool": {}}],
+            },
+            "setup": {"complete": True},
+        }
+        chosen = greedy.play(
+            view,
+            [
+                {"type": "tap_for_mana", "instance_id": 1, "ability_index": 0, "options": [{"index": 0, "mana": {"G": 1}}]},
+                {"type": "cast_spell", "instance_id": 2, "mana_value": 1},
+            ],
+        )
+        assert chosen["type"] == "cast_spell"
+
+    def test_orders_equip_after_other_abilities(self):
+        greedy = GreedyBot("ann")
+        view = {
+            "state": {
+                "active_player_id": "ann",
+                "current_step": "main1",
+                "stack": [],
+                "players": [{"id": "ann", "mana_pool": {}}],
+            },
+            "setup": {"complete": True},
+        }
+        chosen = greedy.play(
+            view,
+            [
+                {"type": "activate_ability", "instance_id": 1, "ability_index": 0, "attach_kind": "equip"},
+                {"type": "activate_ability", "instance_id": 2, "ability_index": 0},
+            ],
+        )
+        assert chosen["instance_id"] == 2
+
+    def test_still_equips_when_nothing_else_is_offered(self):
+        greedy = GreedyBot("ann")
+        view = {
+            "state": {
+                "active_player_id": "ann",
+                "current_step": "main1",
+                "stack": [],
+                "players": [{"id": "ann", "mana_pool": {}}],
+            },
+            "setup": {"complete": True},
+        }
+        chosen = greedy.play(
+            view,
+            [{"type": "activate_ability", "instance_id": 1, "ability_index": 0, "attach_kind": "equip"}],
+        )
+        assert chosen["instance_id"] == 1
+
     def test_skips_an_x_spell_it_could_only_cast_for_zero(self):
         greedy = GreedyBot("ann")
         view = {
@@ -360,6 +536,30 @@ class TestTargeting:
         action = greedy.play(self._view(), [bolt])
         assert action["targets"] == [{"instance_id": 2, "name": "Theirs"}]
         assert "requires_target" not in action or action["targets"]
+
+    def test_a_beneficial_effect_points_at_its_own_things_first(self):
+        """PLR-7: `polarity="beneficial"` (a pump/protection spell's own
+        `targeting.TargetSpec.polarity`, threaded onto the requirement by
+        `game/targeting.py`) reverses the default — pointing a buff at an
+        opponent's creature would be self-sabotage, not just unambitious."""
+        greedy = GreedyBot("ann")
+        growth = {
+            "type": "cast_spell",
+            "instance_id": 5,
+            "mana_value": 1,
+            "requires_target": True,
+            "targets": [
+                {
+                    "kind": "creature",
+                    "count": 1,
+                    "optional": False,
+                    "polarity": "beneficial",
+                    "options": [{"instance_id": 1, "name": "Mine"}, {"instance_id": 2, "name": "Theirs"}],
+                }
+            ],
+        }
+        action = greedy.play(self._view(), [growth])
+        assert action["targets"] == [{"instance_id": 1, "name": "Mine"}]
 
     def test_a_player_target_is_never_the_bot_itself(self):
         greedy = GreedyBot("ann")

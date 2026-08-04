@@ -42,6 +42,7 @@ def start_dynamic_analysis(
     commander_text = request.commander_text
     mainboard_text = request.mainboard_text
     sideboard_text = request.sideboard_text
+    favorite_cards = request.favorite_cards
 
     if request.deck_id:
         deck = decks.get_deck(request.deck_id)
@@ -50,6 +51,8 @@ def start_dynamic_analysis(
         commander_text = deck.commander_text
         mainboard_text = deck.mainboard_text
         sideboard_text = deck.sideboard_text
+        if not favorite_cards:
+            favorite_cards = deck.favorite_cards or []
 
     parsed = parse_deck_sections(commander_text, mainboard_text, sideboard_text)
     resolved = loader.load_cards([e.name for e in parsed.commanders] + [e.name for e in parsed.all_cards])
@@ -81,6 +84,7 @@ def start_dynamic_analysis(
         starting_life=request.starting_life,
         starting_hand=request.starting_hand,
         game_format=request.game_format,
+        favorite_card_names=set(favorite_cards),
     )
     return {"jobId": job_id}
 

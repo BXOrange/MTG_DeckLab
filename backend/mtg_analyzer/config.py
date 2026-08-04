@@ -27,6 +27,8 @@ Env vars (all optional; defaults reproduce the pre-config-module paths):
     priority without acting before the server drops their connection
   MTG_MULTIPLAYER_DISCONNECT_GRACE — seconds a disconnected player's seat
     is held open for them to reconnect into
+  MTG_DYNAMIC_ANALYSIS_WORKERS — size of the dynamic-analysis job worker
+    pool (services/dynamic_analysis.py)
 """
 
 from __future__ import annotations
@@ -118,3 +120,27 @@ MULTIPLAYER_IDLE_TIMEOUT_SECONDS = _env_seconds("MTG_MULTIPLAYER_IDLE_TIMEOUT", 
 #: for them (RULE 104.3a), because a seat nobody is sitting in can't be
 #: waited on forever. 0 disables the sweep, holding the seat indefinitely.
 MULTIPLAYER_DISCONNECT_GRACE_SECONDS = _env_seconds("MTG_MULTIPLAYER_DISCONNECT_GRACE", 90)
+
+
+def _env_positive_int(name: str, default: int) -> int:
+    """A worker/pool-size style count from the environment; always >= 1."""
+    try:
+        value = int(os.environ.get(name, default))
+    except ValueError:
+        return default
+    return max(1, value)
+
+
+#: Size of the `services/dynamic_analysis.py` job worker pool — how many
+#: `DynamicAnalysisJob`s (headless goldfish-match batches, each CPU-bound
+#: synchronous Python) may run at once. Each match is plain Python bytecode,
+#: so the GIL serializes the actual work regardless of thread count — this
+#: knob isn't about running jobs faster, it's about capping how many
+#: concurrent analysis *requests* the server takes on at once so a burst of
+#: them can't pile up unboundedly many OS threads fighting the GIL (and the
+#: rest of the process, including ordinary request handling) into the
+#: ground. Extra jobs past this count simply wait their turn in the pool's
+#: queue rather than starting immediately. Default of 4 is a conservative
+#: number for this single-process, local-dev-scale app; raise it on beefier
+#: hardware/deployments via the env var.
+DYNAMIC_ANALYSIS_WORKERS = _env_positive_int("MTG_DYNAMIC_ANALYSIS_WORKERS", 4)

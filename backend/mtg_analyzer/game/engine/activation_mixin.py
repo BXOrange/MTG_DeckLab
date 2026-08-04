@@ -214,6 +214,7 @@ class ActivationMixin:
                     "options": legal_targets(self.state, player.id, spec, source=source),
                     "distinct_controllers": spec.distinct_controllers,
                     "distinct_from_others": spec.distinct_from_others,
+                    "polarity": spec.polarity,
                 }
             )
         return out

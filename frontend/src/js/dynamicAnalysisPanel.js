@@ -28,7 +28,7 @@ function escapeAttr(str) {
 
 /**
  * @param {HTMLElement} root A mount point already attached to the page.
- * @param {{commanderText?: string, mainboardText?: string, sideboardText?: string}} deckSource
+ * @param {{commanderText?: string, mainboardText?: string, sideboardText?: string, favoriteCards?: string[]}} deckSource
  * @param {{turn: number, withRampRealistic: number}[]} expectedManaCurve
  *   The static tab's already-computed curve (`analyzeDeck`'s
  *   `stats.expectedManaCurve`) — its `withRampRealistic` series is the
@@ -77,8 +77,11 @@ export function renderDynamicAnalysisPanel(root, deckSource, expectedManaCurve) 
     const options = (botKinds || [])
       .map((b) => `<option value="${escapeAttr(b.kind)}" ${b.kind === botKind ? 'selected' : ''}>${escapeHtml(b.label)}</option>`)
       .join('');
-    const running = job && job.status === 'running';
-    const disabled = starting || running;
+    // "queued": the backend's bounded worker pool (config.py's
+    // MTG_DYNAMIC_ANALYSIS_WORKERS) hasn't picked this job up yet — still
+    // in progress from the UI's perspective, just not running matches yet.
+    const inProgress = job && (job.status === 'running' || job.status === 'queued');
+    const disabled = starting || inProgress;
     return `
       <form class="analyze-sim-form">
         <label>Anzahl Partien
@@ -91,7 +94,7 @@ export function renderDynamicAnalysisPanel(root, deckSource, expectedManaCurve) 
           <select id="sim-bot-kind" ${disabled ? 'disabled' : ''}>${options}</select>
         </label>
         <button type="submit" class="primary" ${disabled ? 'disabled' : ''}>
-          ${running ? 'Simulation läuft …' : 'Simulation starten'}
+          ${job && job.status === 'queued' ? 'Wartet auf freien Worker …' : inProgress ? 'Simulation läuft …' : 'Simulation starten'}
         </button>
         ${startError ? `<p class="issue-list">🛑 ${escapeHtml(startError)}</p>` : ''}
       </form>
@@ -101,7 +104,12 @@ export function renderDynamicAnalysisPanel(root, deckSource, expectedManaCurve) 
   function progressHtml() {
     const total = Math.max(1, job.total || 1);
     const pct = Math.min(100, Math.round(((job.completed || 0) / total) * 100));
-    const label = job.status === 'running' ? `${job.completed || 0} / ${job.total} Partien …` : `${job.total} Partien abgeschlossen`;
+    const label =
+      job.status === 'queued'
+        ? 'Wartet auf freien Worker …'
+        : job.status === 'running'
+          ? `${job.completed || 0} / ${job.total} Partien …`
+          : `${job.total} Partien abgeschlossen`;
     return `
       <div class="bar-row">
         <span class="bar-row-label">${escapeHtml(label)}</span>
@@ -126,7 +134,7 @@ export function renderDynamicAnalysisPanel(root, deckSource, expectedManaCurve) 
     return `
       <p class="hint">${result.matchesRun} von ${result.matchesRequested} Partien ausgewertet
         (Bot: ${escapeHtml(botLabel(result.botKind))}).</p>
-      ${aborted > 0 ? infiniteManaWarningHtml(aborted, result.matchesRun) : ''}
+      ${aborted > 0 ? infiniteManaWarningHtml(aborted, result.matchesRun, result.infiniteManaTurn) : ''}
       <div class="analyze-stat-grid">
         <div class="analyze-stat-tile">
           <span class="analyze-stat-value">${fmt(tutors.mean)} ± ${fmt(tutors.stddev)}</span>
@@ -135,6 +143,8 @@ export function renderDynamicAnalysisPanel(root, deckSource, expectedManaCurve) 
         </div>
         ${commanderTiles}
       </div>
+
+      ${favoriteCardsHtml(result.favoriteCards)}
 
       <h4>Mana-Potenzial &amp; -Produktion vs. statische Schätzung</h4>
       <p class="hint">
@@ -158,6 +168,47 @@ export function renderDynamicAnalysisPanel(root, deckSource, expectedManaCurve) 
     `;
   }
 
+  // Favorite cards are starred in Deck-Edit-Mode (deckImportView.js,
+  // Deck.favoriteCards) and threaded into `startDynamicAnalysis`'s request
+  // via `deckSource.favoriteCards` (see analyzeView.js's `loadDeck`); the
+  // backend tracks per-match drawn/cast/castable turns
+  // (services/dynamic_analysis.py) and this renders the aggregated
+  // fractions. Empty when the deck has no starred cards.
+  function favoriteCardsHtml(favoriteCards) {
+    const entries = Object.entries(favoriteCards || {});
+    if (!entries.length) return '';
+    const rows = entries
+      .map(([name, stat]) => {
+        const castLabel = stat.castTurn?.n
+          ? `${Math.round(stat.castFraction * 100)}% (⌀ Zug ${fmt(stat.castTurn.mean)})`
+          : `${Math.round(stat.castFraction * 100)}%`;
+        return `
+          <tr>
+            <td data-hover-card="${escapeAttr(name)}">${escapeHtml(name)}</td>
+            <td>${Math.round(stat.drawnFraction * 100)}%</td>
+            <td>${castLabel}</td>
+            <td>${Math.round(stat.castableButNeverCastFraction * 100)}%</td>
+          </tr>
+        `;
+      })
+      .join('');
+    return `
+      <h4>Lieblingskarten</h4>
+      <p class="hint">
+        Wie oft eine im Bearbeiten-Modus markierte Lieblingskarte über alle
+        Partien gezogen, tatsächlich gespielt, oder spielbar war (Mana
+        vorhanden, aber nicht gespielt). "Spielbar, nicht gespielt" ist nur
+        mit dem Greedy-Bot aussagekräftig – der Goldfisch-Bot spielt
+        grundsätzlich keine Nicht-Land-Zauber, daher liest jede
+        Nichtland-Lieblingskarte dort immer als "spielbar, nicht gespielt".
+      </p>
+      <table class="analyze-table">
+        <thead><tr><th>Karte</th><th>Gezogen</th><th>Gespielt</th><th>Spielbar, nicht gespielt</th></tr></thead>
+        <tbody>${rows}</tbody>
+      </table>
+    `;
+  }
+
   function botLabel(kind) {
     return (botKinds || []).find((b) => b.kind === kind)?.label || kind;
   }
@@ -166,13 +217,19 @@ export function renderDynamicAnalysisPanel(root, deckSource, expectedManaCurve) 
   // THRESHOLD`): a match that starts producing implausible amounts of mana
   // in one turn (an infinite combo) is cut short rather than run to
   // max_turns — surfaced here so a deck with a real combo doesn't just
-  // read as "normal" with a few missing turns.
-  function infiniteManaWarningHtml(aborted, matchesRun) {
+  // read as "normal" with a few missing turns. `infiniteManaTurn` (mean ±
+  // stddev across just the aborted matches) turns that into "usually goes
+  // off around turn N" rather than a bare yes/no.
+  function infiniteManaWarningHtml(aborted, matchesRun, infiniteManaTurn) {
+    const turnHint =
+      infiniteManaTurn && infiniteManaTurn.n > 0
+        ? ` Im Schnitt steht die Kombination ab Zug ${fmt(infiniteManaTurn.mean)} (± ${fmt(infiniteManaTurn.stddev)}).`
+        : '';
     return `
       <p class="issue-list">
         ⚠️ ${aborted} von ${matchesRun} Partien wurden vorzeitig abgebrochen — das Deck hat
-        offenbar eine Kombination, die unbegrenzt Mana produziert. Die abgebrochenen Züge
-        selbst fehlen in der Auswertung, alle vorherigen Züge derselben Partie zählen weiter.
+        offenbar eine Kombination, die unbegrenzt Mana produziert.${turnHint} Die abgebrochenen
+        Züge selbst fehlen in der Auswertung, alle vorherigen Züge derselben Partie zählen weiter.
       </p>
     `;
   }
@@ -295,7 +352,7 @@ export function renderDynamicAnalysisPanel(root, deckSource, expectedManaCurve) 
     }
     job = res.data;
     render();
-    if (job.status === 'running') {
+    if (job.status === 'running' || job.status === 'queued') {
       setTimeout(() => poll(jobId), POLL_INTERVAL_MS);
     }
   }
@@ -312,7 +369,9 @@ export function renderDynamicAnalysisPanel(root, deckSource, expectedManaCurve) 
       render();
       return;
     }
-    job = { status: 'running', completed: 0, total: numMatches, result: null, error: null };
+    // Optimistic initial state — the real status (possibly still "queued"
+    // behind the backend's bounded worker pool) arrives on the first poll.
+    job = { status: 'queued', completed: 0, total: numMatches, result: null, error: null };
     render();
     setTimeout(() => poll(res.data.jobId), POLL_INTERVAL_MS);
   }

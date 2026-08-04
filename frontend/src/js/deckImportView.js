@@ -10,7 +10,7 @@ import {
 } from './parser.js';
 import { setState } from './state.js';
 import { resolveCardImages, getResolvedCard, isConfirmedNotFound } from './cardImages.js';
-import { submitDeck, saveDeck, listSleeves } from './api.js';
+import { submitDeck, saveDeck, listSleeves, listArchetypes } from './api.js';
 import { getPlayerName } from './settings.js';
 import { renderCardTile, renderCardTilePlaceholder, renderCardTileNotFound, escapeHtml } from './cardTile.js';
 
@@ -68,6 +68,12 @@ export function renderDeckImportView(container, { onDeckLoaded } = {}) {
             <select id="deck-sleeve-select" title="Karten-Sleeve für dieses Deck">
               <option value="">Kein Sleeve</option>
             </select>
+            <select id="deck-archetype-1-select" title="Archetyp 1 (optional)">
+              <option value="">Kein Archetyp</option>
+            </select>
+            <select id="deck-archetype-2-select" title="Archetyp 2 (optional)">
+              <option value="">Kein Archetyp</option>
+            </select>
           </div>
           <p class="server-status" id="save-status"></p>
         </div>
@@ -85,6 +91,8 @@ export function renderDeckImportView(container, { onDeckLoaded } = {}) {
   const authorInput = container.querySelector('#deck-author-input');
   const cubeCheckbox = container.querySelector('#deck-cube-checkbox');
   const sleeveSelect = container.querySelector('#deck-sleeve-select');
+  const archetype1Select = container.querySelector('#deck-archetype-1-select');
+  const archetype2Select = container.querySelector('#deck-archetype-2-select');
   const saveStatusEl = container.querySelector('#save-status');
   const resultEl = container.querySelector('#import-result');
 
@@ -103,6 +111,56 @@ export function renderDeckImportView(container, { onDeckLoaded } = {}) {
     sleeveSelect.innerHTML = options.join('');
   }
   container.addEventListener('view-shown', () => refreshSleeveOptions());
+
+  // The archetype catalogue (mtg_analyzer/data/archetypes.json, served via
+  // GET /api/archetypes) is static reference data, not player-scoped like
+  // sleeves — fetched once rather than on every 'view-shown'. `loadDeck`
+  // may run before this resolves (or the reverse), so the two selects'
+  // desired values are tracked separately from the options list itself and
+  // (re-)applied from `pendingArchetypeSelection` whichever finishes last.
+  let pendingArchetypeSelection = ['', ''];
+  function applyArchetypeSelection([a1, a2]) {
+    pendingArchetypeSelection = [a1 || '', a2 || ''];
+    archetype1Select.value = pendingArchetypeSelection[0];
+    archetype2Select.value = pendingArchetypeSelection[1];
+  }
+  async function loadArchetypeCatalogue() {
+    const res = await listArchetypes();
+    const catalogue = res.ok ? res.data || [] : [];
+    const options = ['<option value="">Kein Archetyp</option>']
+      .concat(catalogue.map((a) => `<option value="${escapeHtml(a.id)}">${escapeHtml(a.label)}</option>`))
+      .join('');
+    archetype1Select.innerHTML = options;
+    archetype2Select.innerHTML = options;
+    applyArchetypeSelection(pendingArchetypeSelection);
+  }
+  loadArchetypeCatalogue();
+
+  // Card names the user starred in the detail-view card grid
+  // (Deck.favoriteCards) — kept here rather than in cardTile.js, which only
+  // owns each tile's own DOM state (see its `card-tile-favorite-toggle`
+  // event). Seeded from a loaded deck, reset on "Beispieldeck laden".
+  let favoriteCards = new Set();
+  resultEl.addEventListener('card-tile-favorite-toggle', (event) => {
+    const { name, favorite } = event.detail || {};
+    if (!name) return;
+    if (favorite) favoriteCards.add(name);
+    else favoriteCards.delete(name);
+  });
+  // The plain-text list view (detailMode off) has no per-tile DOM to
+  // delegate a toggle through like cardTile.js's tiles do, so its star
+  // button just flips the shared `favoriteCards` set directly and
+  // re-renders — see the `.card-list-favorite` button built in
+  // `renderCards` below.
+  resultEl.addEventListener('click', (event) => {
+    const button = event.target.closest('.card-list-favorite');
+    if (!button) return;
+    const name = button.dataset.favoriteCard;
+    if (!name) return;
+    if (favoriteCards.has(name)) favoriteCards.delete(name);
+    else favoriteCards.add(name);
+    refreshResult();
+  });
 
   // Set once a deck has been saved/loaded. "Aktualisieren" overwrites
   // that saved deck; "Als neues speichern" always creates a fresh deck
@@ -127,6 +185,11 @@ export function renderDeckImportView(container, { onDeckLoaded } = {}) {
   let lastDeck = null;
   let lastMeta = {};
   let detailMode = false;
+  // How large the detail-view card tiles render (`.card-tile-grid`'s zoom
+  // modifier class, see main.css) — starts compact so a big deck's
+  // "Hauptdeck" grid doesn't force endless scrolling; a zoom step up is
+  // still one click away.
+  let tileZoom = 'compact';
 
   // Foil/star markers ("Sol Ring ★") aren't part of a card name and break
   // resolution. Strip them from the entered text so what we parse, submit,
@@ -156,6 +219,8 @@ export function renderDeckImportView(container, { onDeckLoaded } = {}) {
       onDeckLoaded,
       meta,
       detailMode,
+      tileZoom,
+      isFavorite: (name) => favoriteCards.has(name),
       onToggleDetailMode: (checked) => {
         detailMode = checked;
         // Re-render via showResult (not a direct renderResult call) so
@@ -171,6 +236,10 @@ export function renderDeckImportView(container, { onDeckLoaded } = {}) {
         // scrolled past the now-shorter/taller content, looking like
         // the toggle "didn't do anything" even though it re-rendered.
         resultEl.scrollIntoView({ block: 'start', behavior: 'smooth' });
+      },
+      onZoomChange: (level) => {
+        tileZoom = level;
+        if (lastDeck) showResult(lastDeck, lastMeta);
       },
     });
   }
@@ -236,6 +305,8 @@ export function renderDeckImportView(container, { onDeckLoaded } = {}) {
     authorInput.value = '';
     cubeCheckbox.checked = false;
     sleeveSelect.value = '';
+    applyArchetypeSelection(['', '']);
+    favoriteCards = new Set();
     saveStatusEl.textContent = '';
     saveStatusEl.className = 'server-status';
   });
@@ -292,6 +363,8 @@ export function renderDeckImportView(container, { onDeckLoaded } = {}) {
       author: authorInput.value.trim() || null,
       isCube: cubeCheckbox.checked,
       sleeveId: sleeveSelect.value || null,
+      archetypes: [archetype1Select.value, archetype2Select.value].filter(Boolean),
+      favoriteCards: [...favoriteCards],
       ...currentSections(),
     });
 
@@ -317,6 +390,8 @@ export function renderDeckImportView(container, { onDeckLoaded } = {}) {
     authorInput.value = savedDeck.author || '';
     cubeCheckbox.checked = !!savedDeck.isCube;
     refreshSleeveOptions(savedDeck.sleeveId || '');
+    applyArchetypeSelection(savedDeck.archetypes || []);
+    favoriteCards = new Set(savedDeck.favoriteCards || []);
     commanderTextarea.value = savedDeck.commanderText || '';
     mainboardTextarea.value = savedDeck.mainboardText || '';
     sideboardTextarea.value = savedDeck.sideboardText || '';
@@ -328,7 +403,30 @@ export function renderDeckImportView(container, { onDeckLoaded } = {}) {
   return { loadDeck };
 }
 
-function renderResult(resultEl, deck, { onDeckLoaded, meta = {}, detailMode, onToggleDetailMode }) {
+//: Card-tile grid sizes for the detail view's zoom control — id -> the
+//: `.card-tile-grid` modifier class (main.css) and its select label.
+//: "compact" is the default (see `tileZoom` above): a 220px minimum tile
+//: fits far fewer columns than the art actually needs, so bigger decks
+//: forced a lot of scrolling before this existed.
+const TILE_ZOOM_LEVELS = [
+  { id: 'compact', label: 'Kompakt' },
+  { id: 'medium', label: 'Mittel' },
+  { id: 'large', label: 'Groß' },
+];
+
+function zoomControlHtml(tileZoom) {
+  const options = TILE_ZOOM_LEVELS
+    .map((l) => `<option value="${l.id}" ${l.id === tileZoom ? 'selected' : ''}>${l.label}</option>`)
+    .join('');
+  return `
+    <label class="zoom-toggle">
+      Kartengröße
+      <select id="tile-zoom-select">${options}</select>
+    </label>
+  `;
+}
+
+function renderResult(resultEl, deck, { onDeckLoaded, meta = {}, detailMode, tileZoom = 'compact', onToggleDetailMode, onZoomChange, isFavorite }) {
   const { commanders, mainDeck, sideboard, totalCount, parseErrors, validation } = deck;
 
   const statusClass = meta.isCube ? 'status-ok' : validation.isLegal ? 'status-ok' : 'status-error';
@@ -375,7 +473,11 @@ function renderResult(resultEl, deck, { onDeckLoaded, meta = {}, detailMode, onT
               ? ` title="${escapeHtml(ILLEGAL_TITLES[reason])}"`
               : '';
           const marker = notFound ? '🛑 ' : reason ? '❗ ' : '';
-          return `<li data-hover-card="${escapeHtml(c.name)}"${cls}${title}><span class="qty">${c.qty}x</span> ${marker}${escapeHtml(c.name)}</li>`;
+          const isFav = isFavorite ? isFavorite(c.name) : false;
+          const favButton = `<button type="button" class="card-list-favorite${isFav ? ' is-favorite' : ''}"
+             data-favorite-card="${escapeHtml(c.name)}" aria-pressed="${isFav}"
+             title="Favorit markieren/entfernen" aria-label="Favorit markieren/entfernen">${isFav ? '★' : '☆'}</button>`;
+          return `<li data-hover-card="${escapeHtml(c.name)}"${cls}${title}>${favButton}<span class="qty">${c.qty}x</span> ${marker}${escapeHtml(c.name)}</li>`;
         })
         .join('');
       return `<ul class="card-list">${items}</ul>`;
@@ -384,12 +486,18 @@ function renderResult(resultEl, deck, { onDeckLoaded, meta = {}, detailMode, onT
     const tiles = sorted
       .map((c) => {
         const card = getResolvedCard(c.name);
-        if (card) return renderCardTile(card, { qty: c.qty, illegalReason: illegalReason(c.name) });
+        if (card) {
+          return renderCardTile(card, {
+            qty: c.qty,
+            illegalReason: illegalReason(c.name),
+            favorite: isFavorite ? isFavorite(c.name) : false,
+          });
+        }
         if (isConfirmedNotFound(c.name)) return renderCardTileNotFound(c.name, { qty: c.qty });
         return renderCardTilePlaceholder(c.name, { qty: c.qty });
       })
       .join('');
-    return `<div class="card-tile-grid">${tiles}</div>`;
+    return `<div class="card-tile-grid zoom-${tileZoom}">${tiles}</div>`;
   };
 
   // The scroll box's own height adapts to viewport size (see .scrollable
@@ -425,10 +533,13 @@ function renderResult(resultEl, deck, { onDeckLoaded, meta = {}, detailMode, onT
     <div class="deck-summary">
       <div class="deck-summary-header">
         <h2>Deck-Übersicht</h2>
-        <label class="detail-toggle">
-          <input type="checkbox" id="detail-mode-checkbox" ${detailMode ? 'checked' : ''} />
-          Detailansicht (Bilder &amp; Eigenschaften)
-        </label>
+        <div class="deck-summary-header-controls">
+          <label class="detail-toggle">
+            <input type="checkbox" id="detail-mode-checkbox" ${detailMode ? 'checked' : ''} />
+            Detailansicht (Bilder &amp; Eigenschaften)
+          </label>
+          ${detailMode ? zoomControlHtml(tileZoom) : ''}
+        </div>
       </div>
       ${serverStatusHtml}
       <p><strong>${totalCount}</strong> Karten gesamt · Status:
@@ -464,6 +575,10 @@ function renderResult(resultEl, deck, { onDeckLoaded, meta = {}, detailMode, onT
 
   resultEl.querySelector('#detail-mode-checkbox').addEventListener('change', (event) => {
     onToggleDetailMode?.(event.target.checked);
+  });
+
+  resultEl.querySelector('#tile-zoom-select')?.addEventListener('change', (event) => {
+    onZoomChange?.(event.target.value);
   });
 
   // Belt-and-suspenders against scroll anchoring: these are fresh DOM

@@ -33,6 +33,13 @@ class SaveDeckRequest(BaseModel):
     # Same preserve-on-omission treatment as sleeve_id/author: None means
     # "leave whatever this deck already had" rather than "set to False".
     is_cube: Optional[bool] = Field(default=None, alias="isCube")
+    # Same preserve-on-omission treatment: None means "leave whatever this
+    # deck already had". Must stay None-default, not a mutable/empty-list
+    # default — the latter would make "omitted" indistinguishable from
+    # "explicitly cleared" and silently wipe the field on every unrelated
+    # re-save (e.g. renaming a deck would also erase its archetypes).
+    archetypes: Optional[list[str]] = Field(default=None, alias="archetypes")
+    favorite_cards: Optional[list[str]] = Field(default=None, alias="favoriteCards")
 
 
 class DeckSubmission(BaseModel):
@@ -114,6 +121,28 @@ class DynamicAnalysisRequest(BaseModel):
     starting_life: int = Field(default=40, alias="startingLife")
     starting_hand: int = Field(default=7, alias="startingHand")
     game_format: Optional[str] = Field(default=None, alias="gameFormat")
+    # A per-request simulation input, not a persisted field — empty-list
+    # default is fine here (unlike SaveDeckRequest's archetypes/
+    # favorite_cards, there's no "omitted vs. explicitly cleared"
+    # distinction to preserve for a one-shot simulation run). When
+    # `deck_id` is given and this is empty, `api/dynamic_analysis.py` falls
+    # back to that deck's own saved `favorite_cards`.
+    favorite_cards: list[str] = Field(default_factory=list, alias="favoriteCards")
+
+
+class ArchetypeAnalysisRequest(BaseModel):
+    """Request body for POST /api/archetypes/analyze.
+
+    Same deck-source shape as `DynamicAnalysisRequest`/`StartGoldfishRequest`
+    (a saved `deckId`, or decklist text directly).
+    """
+
+    model_config = ConfigDict(populate_by_name=True)
+
+    deck_id: Optional[str] = Field(default=None, alias="deckId")
+    commander_text: str = Field(default="", alias="commanderText")
+    mainboard_text: str = Field(default="", alias="mainboardText")
+    sideboard_text: str = Field(default="", alias="sideboardText")
 
 
 class StartReplayRequest(BaseModel):

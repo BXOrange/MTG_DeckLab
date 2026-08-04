@@ -60,12 +60,17 @@ aborts the match once it crosses `INFINITE_MANA_THRESHOLD`, dropping that
 one turn's snapshot (its `mana_produced` reading *is* the runaway number)
 but keeping every earlier turn's real data in the aggregate. Counted
 separately (`DynamicAnalysisResult.matches_aborted_infinite_mana`) rather
-than silently folded into a lower `matches_run`, so the UI can say why.
+than silently folded into a lower `matches_run`, so the UI can say why —
+alongside the mean/stddev turn the abort happened on
+(`DynamicAnalysisResult.infinite_mana_turn`), since "the deck has an
+infinite combo" is a lot more useful to a deckbuilder alongside "and it
+usually comes online around turn N" than as a bare yes/no.
 """
 
 from __future__ import annotations
 
 import logging
+import queue
 import random
 import statistics
 import threading
@@ -75,6 +80,7 @@ from collections import OrderedDict
 from dataclasses import dataclass, field
 from typing import Any, Callable, Optional
 
+from mtg_analyzer import config
 from mtg_analyzer.game import mana_potential
 from mtg_analyzer.models.card import Card
 from mtg_analyzer.models.events import EventType, GameEvent
@@ -106,6 +112,23 @@ _ACTIONS_PER_TURN_BUDGET = 80
 #: `run_one_match` aborts that match right there instead of grinding on.
 INFINITE_MANA_THRESHOLD = 1000
 
+#: The dummy "Goldfisch" opponent's life total for this module's matches
+#: specifically (`build_goldfish_engine`'s ``dummy_starting_life``) — much
+#: higher than a real game's 40, so combat damage essentially never ends a
+#: match early. This harness reports turn-by-turn mana/land development,
+#: not who wins; a `GreedyBot` attacking every turn otherwise kills a real
+#: 40-life dummy within a handful of turns for any reasonably aggressive
+#: deck, which truncates that match's per-turn samples right there. Averaged
+#: across many matches, that's not just fewer samples — it's a
+#: survivorship-bias artifact: the matches still contributing to a later
+#: turn's mean are disproportionately the ones that developed *slower*,
+#: which drags metrics like "lands drawn" down turn over turn even though
+#: every individual match's own count only ever goes up. High enough that
+#: no real deck deals this much damage within `MAX_MAX_TURNS`, without
+#: being unbounded (a genuine infinite-damage combo still hits
+#: `INFINITE_MANA_THRESHOLD` or the action budget first).
+DUMMY_ANALYSIS_LIFE = 100_000
+
 #: Per-turn metrics this module samples/derives. Kept as one tuple so the
 #: match loop, the aggregator, and the job result shape can't drift apart.
 PER_TURN_METRICS = ("mana_potential", "lands_drawn", "cards_drawn", "card_advantage", "mana_produced")
@@ -125,6 +148,16 @@ class MatchResult:
     #: past the abort are missing (fewer samples for those, same as a match
     #: that reached `game_over` early).
     aborted_infinite_mana: bool = False
+    #: The turn `aborted_infinite_mana` happened on — `None` unless it did.
+    #: Aggregated across matches into `DynamicAnalysisResult.
+    #: infinite_mana_turn` so a deck with a real combo reads as "goes
+    #: infinite around turn N" rather than just "some matches were cut
+    #: short".
+    aborted_turn: Optional[int] = None
+    #: Per favorite card name: {"drawn_turn"/"cast_turn"/"castable_turn":
+    #: <turn or None>}. Empty when `run_one_match` wasn't given any
+    #: favorite card names.
+    favorite_cards: dict[str, dict[str, Optional[int]]] = field(default_factory=dict)
 
 
 def run_one_match(
@@ -136,6 +169,7 @@ def run_one_match(
     starting_hand: int = 7,
     game_format: Optional[str] = None,
     max_turns: int = 10,
+    favorite_card_names: Optional[set[str]] = None,
 ) -> MatchResult:
     """Play one solo goldfish game to completion (or `max_turns`), with
     `bot` driving the only real seat (id ``"p1"`` — `build_goldfish_engine`
@@ -153,6 +187,7 @@ def run_one_match(
         starting_hand=starting_hand,
         with_dummy=True,
         game_format=game_format,
+        dummy_starting_life=DUMMY_ANALYSIS_LIFE,
     )
     session = GameSession(engine, mode=GOLDFISH, starting_hand=starting_hand, require_setup=True)
     state = engine.state
@@ -160,9 +195,17 @@ def run_one_match(
 
     total_lands = sum(1 for c in library if c.is_land)
     commander_names = {c.name for c in (commanders or [])}
+    favorite_names = favorite_card_names or set()
 
     tutors_resolved = 0
     commander_turns: dict[str, int] = {}
+    #: Per favorite card: first turn seen in the sampled hand / first turn
+    #: actually cast / first turn a legal (unlocked) cast action for it
+    #: existed while in hand — `None` until that happens, see
+    #: `MatchResult.favorite_cards`.
+    favorite_drawn_turn: dict[str, Optional[int]] = {name: None for name in favorite_names}
+    favorite_cast_turn: dict[str, Optional[int]] = {name: None for name in favorite_names}
+    favorite_castable_turn: dict[str, Optional[int]] = {name: None for name in favorite_names}
 
     def on_event(event: GameEvent) -> None:
         nonlocal tutors_resolved
@@ -175,6 +218,13 @@ def run_one_match(
             name = getattr(obj, "name", None)
             if name in commander_names and name not in commander_turns:
                 commander_turns[name] = state.turn_number
+        elif event.type == EventType.SPELL_CAST:
+            name = event.get("spell")
+            # A countered spell was still cast (RULE 601.2i) — SPELL_CAST
+            # fires at cast time, before resolution, which is exactly the
+            # "was it played" semantics wanted here, not "did it resolve".
+            if name in favorite_names and favorite_cast_turn.get(name) is None:
+                favorite_cast_turn[name] = state.turn_number
 
     state.subscribe(on_event)
 
@@ -217,6 +267,25 @@ def run_one_match(
         actions = session.legal_actions()
         if not actions:
             break
+        if favorite_names:
+            # Checked every iteration, not just once per turn like
+            # `maybe_sample()` — a `GreedyBot` can draw-then-cast a favorite
+            # card within the very same turn, before that turn's single
+            # main2 snapshot would ever see it still in hand.
+            hand_names = {o.name for o in player.hand}
+            for name in favorite_names:
+                if name in hand_names and favorite_drawn_turn.get(name) is None:
+                    favorite_drawn_turn[name] = state.turn_number
+            # Reuses the engine's own affordability/legality check (an
+            # offered, unlocked cast_spell action already means "this can be
+            # paid and cast right now") rather than recomputing mana
+            # potential against the card's cost separately.
+            for action in actions:
+                if action.get("type") != "cast_spell" or action.get("locked"):
+                    continue
+                name = action.get("name")
+                if name in favorite_names and favorite_castable_turn.get(name) is None:
+                    favorite_castable_turn[name] = state.turn_number
         view = session.view()
         action = bot.decide(view, actions)
         if action is None:
@@ -244,12 +313,14 @@ def run_one_match(
             aborted_infinite_mana = True
             break
 
+    aborted_turn: Optional[int] = None
     if aborted_infinite_mana:
         # The turn the loop was caught on has a `mana_produced` reading
         # that's exactly the runaway number that triggered the abort — drop
         # its whole snapshot rather than let that one turn's aggregate mean
         # get dragged along with it. Every earlier turn's data is unaffected
         # (sampled before the loop started) and stays in.
+        aborted_turn = state.turn_number
         per_turn.pop(state.turn_number, None)
 
     # Mana actually produced is already tracked per turn — read it back
@@ -258,12 +329,23 @@ def run_one_match(
     for turn, snapshot in per_turn.items():
         snapshot["mana_produced"] = float(mana_per_turn.get(turn, 0))
 
+    favorite_result = {
+        name: {
+            "drawn_turn": favorite_drawn_turn[name],
+            "cast_turn": favorite_cast_turn[name],
+            "castable_turn": favorite_castable_turn[name],
+        }
+        for name in favorite_names
+    }
+
     return MatchResult(
         turns_reached=min(state.turn_number, max_turns),
         per_turn=per_turn,
         tutors_resolved=tutors_resolved,
         commander_turns=commander_turns,
         aborted_infinite_mana=aborted_infinite_mana,
+        aborted_turn=aborted_turn,
+        favorite_cards=favorite_result,
     )
 
 
@@ -281,6 +363,35 @@ def _mean_stddev(values: list[float]) -> dict[str, float]:
 
 
 @dataclass
+class FavoriteCardStats:
+    """Aggregated across every match that ran (`matches_run`), not just the
+    ones where the card actually showed up — a fraction, not a mean over a
+    filtered subset, so "never drawn in 20/20 matches" reads as 0.0 rather
+    than being silently absent."""
+
+    drawn_fraction: float
+    cast_fraction: float
+    #: mean/stddev/n turn among only the matches where it *was* cast
+    #: (`_mean_stddev` shape) — turn-of-play is meaningless to average over
+    #: matches where it never happened.
+    cast_turn: dict[str, float]
+    #: Fraction of matches where a legal, unlocked cast action for this
+    #: card existed at some point while it was in hand, but it was never
+    #: actually cast that match. See `run_one_match`'s docstring on the
+    #: `GoldfishBot` caveat — this number is only meaningful with a bot that
+    #: actually casts spells.
+    castable_but_never_cast_fraction: float
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "drawnFraction": self.drawn_fraction,
+            "castFraction": self.cast_fraction,
+            "castTurn": self.cast_turn,
+            "castableButNeverCastFraction": self.castable_but_never_cast_fraction,
+        }
+
+
+@dataclass
 class DynamicAnalysisResult:
     matches_requested: int
     matches_run: int
@@ -295,6 +406,15 @@ class DynamicAnalysisResult:
     #: aborted_infinite_mana`) — surfaced separately so the UI can flag it
     #: rather than a deck with a real combo silently reading as "normal".
     matches_aborted_infinite_mana: int = 0
+    #: Mean/stddev/n (see `_mean_stddev`) of the turn `matches_aborted_
+    #: infinite_mana` matches were cut short on — i.e. roughly how many
+    #: turns the deck needs to reliably assemble its infinite-mana combo.
+    #: `n` is 0 (mean/stddev 0.0) whenever no match aborted, distinct from
+    #: a combo that always goes off turn 1.
+    infinite_mana_turn: dict[str, float] = field(default_factory=lambda: {"mean": 0.0, "stddev": 0.0, "n": 0})
+    #: Keyed by card name — see `FavoriteCardStats`. Empty unless the
+    #: caller passed favorite card names in.
+    favorite_cards: dict[str, FavoriteCardStats] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -306,6 +426,8 @@ class DynamicAnalysisResult:
             "tutorsResolved": self.tutors_resolved,
             "commanderTurns": self.commander_turns,
             "matchesAbortedInfiniteMana": self.matches_aborted_infinite_mana,
+            "infiniteManaTurn": self.infinite_mana_turn,
+            "favoriteCards": {name: stats.to_dict() for name, stats in self.favorite_cards.items()},
         }
 
 
@@ -320,6 +442,7 @@ def run_dynamic_analysis(
     starting_hand: int = 7,
     game_format: Optional[str] = None,
     on_progress: Optional[Callable[[int, int], None]] = None,
+    favorite_card_names: Optional[set[str]] = None,
 ) -> DynamicAnalysisResult:
     """Run `num_matches` independent `run_one_match` calls (a fresh library
     shuffle each time) and aggregate every metric into mean/stddev.
@@ -340,9 +463,15 @@ def run_dynamic_analysis(
     }
     tutor_values: list[float] = []
     commander_turn_values: dict[str, list[float]] = {}
+    favorite_names = favorite_card_names or set()
+    favorite_drawn_count: dict[str, int] = {name: 0 for name in favorite_names}
+    favorite_cast_count: dict[str, int] = {name: 0 for name in favorite_names}
+    favorite_cast_turn_values: dict[str, list[float]] = {name: [] for name in favorite_names}
+    favorite_castable_never_cast_count: dict[str, int] = {name: 0 for name in favorite_names}
 
     matches_run = 0
     matches_aborted_infinite_mana = 0
+    infinite_mana_turn_values: list[float] = []
     for i in range(num_matches):
         shuffled = list(library)
         random.shuffle(shuffled)
@@ -356,6 +485,7 @@ def run_dynamic_analysis(
                 starting_hand=starting_hand,
                 game_format=game_format,
                 max_turns=max_turns,
+                favorite_card_names=favorite_names,
             )
         except Exception:  # pragma: no cover - defensive, see docstring
             logger.exception("dynamic analysis: match %d/%d failed, skipping", i + 1, num_matches)
@@ -366,6 +496,8 @@ def run_dynamic_analysis(
         matches_run += 1
         if result.aborted_infinite_mana:
             matches_aborted_infinite_mana += 1
+            if result.aborted_turn is not None:
+                infinite_mana_turn_values.append(float(result.aborted_turn))
         for turn, snapshot in result.per_turn.items():
             bucket = per_turn_values.get(turn)
             if bucket is None:
@@ -375,6 +507,14 @@ def run_dynamic_analysis(
         tutor_values.append(float(result.tutors_resolved))
         for name, turn in result.commander_turns.items():
             commander_turn_values.setdefault(name, []).append(float(turn))
+        for name, card_result in result.favorite_cards.items():
+            if card_result["drawn_turn"] is not None:
+                favorite_drawn_count[name] += 1
+            if card_result["cast_turn"] is not None:
+                favorite_cast_count[name] += 1
+                favorite_cast_turn_values[name].append(float(card_result["cast_turn"]))
+            elif card_result["castable_turn"] is not None:
+                favorite_castable_never_cast_count[name] += 1
         if on_progress:
             on_progress(i + 1, num_matches)
 
@@ -384,6 +524,19 @@ def run_dynamic_analysis(
     ]
     commander_turns = {
         name: _mean_stddev(turns) for name, turns in commander_turn_values.items()
+    }
+    # Fraction denominators are matches_run, not num_matches — a match that
+    # raised and was skipped never contributed a favorite_cards entry
+    # either, same as every other metric above.
+    denominator = max(1, matches_run)
+    favorite_cards = {
+        name: FavoriteCardStats(
+            drawn_fraction=favorite_drawn_count[name] / denominator,
+            cast_fraction=favorite_cast_count[name] / denominator,
+            cast_turn=_mean_stddev(favorite_cast_turn_values[name]),
+            castable_but_never_cast_fraction=favorite_castable_never_cast_count[name] / denominator,
+        )
+        for name in favorite_names
     }
 
     return DynamicAnalysisResult(
@@ -395,6 +548,8 @@ def run_dynamic_analysis(
         tutors_resolved=_mean_stddev(tutor_values),
         commander_turns=commander_turns,
         matches_aborted_infinite_mana=matches_aborted_infinite_mana,
+        infinite_mana_turn=_mean_stddev(infinite_mana_turn_values),
+        favorite_cards=favorite_cards,
     )
 
 
@@ -404,7 +559,7 @@ def run_dynamic_analysis(
 @dataclass
 class DynamicAnalysisJob:
     id: str
-    status: str = "running"  # "running" | "done" | "error"
+    status: str = "queued"  # "queued" | "running" | "done" | "error"
     total: int = 0
     completed: int = 0
     result: Optional[dict[str, Any]] = None
@@ -422,25 +577,59 @@ class DynamicAnalysisJob:
         }
 
 
-class DynamicAnalysisJobs:
-    """In-memory registry of running/finished simulation jobs (ANA-4).
+class _JobWorkerPool:
+    """A fixed-size pool of daemon threads pulling job callables off a FIFO
+    `queue.Queue`, sized by `config.DYNAMIC_ANALYSIS_WORKERS`.
 
-    The ticket asks for this to run "in the background". There's no
-    existing async-job pattern in this codebase to plug into (checked —
-    only the `GameSessionManager`/`Lobby` in-memory singletons), so this is
-    new: one `threading.Thread` per job. The engine is synchronous
-    CPU-bound Python and this is a single-process, local-dev-scale app, so a
-    thread is simpler than wiring an executor for what amounts to the same
-    thing. Jobs live in a small FIFO-capped dict — no persistence, no
+    Replaces the previous "one `threading.Thread` per job" approach: that
+    let concurrent dynamic-analysis requests spawn an unbounded number of OS
+    threads, all CPU-bound and all fighting the GIL (and the rest of the
+    process, including ordinary request handling) at once — the more
+    requests piled up, the worse *every* one of them got, with no cap.
+    Here, at most `num_workers` jobs ever run at the same time; anything
+    past that just waits in the queue as a `"queued"` job (see
+    `DynamicAnalysisJob.status`) until a worker frees up. Workers are
+    daemon threads that block on `queue.get()` forever — same lifetime
+    convention as every other background thread in this module, so the
+    process still exits cleanly without an explicit shutdown hook.
+    """
+
+    def __init__(self, num_workers: int) -> None:
+        self.num_workers = num_workers
+        self._queue: "queue.Queue[Callable[[], None]]" = queue.Queue()
+        for i in range(num_workers):
+            threading.Thread(target=self._worker_loop, name=f"dynamic-analysis-worker-{i}", daemon=True).start()
+
+    def _worker_loop(self) -> None:
+        while True:
+            task = self._queue.get()
+            try:
+                task()
+            except Exception:  # pragma: no cover - defensive, a task itself already catches
+                logger.exception("dynamic analysis worker: task raised")
+            finally:
+                self._queue.task_done()
+
+    def submit(self, task: Callable[[], None]) -> None:
+        self._queue.put(task)
+
+
+class DynamicAnalysisJobs:
+    """In-memory registry of queued/running/finished simulation jobs (ANA-4),
+    backed by a shared `_JobWorkerPool` so a burst of requests can't
+    overload the server (see that class's docstring).
+
+    Jobs live in a small FIFO-capped dict — no persistence, no
     cross-restart resumption, the same as every other in-memory service
     here (`GameSessionManager._sessions`, `Lobby`'s tables).
     """
 
     _MAX_JOBS = 20
 
-    def __init__(self) -> None:
+    def __init__(self, num_workers: Optional[int] = None) -> None:
         self._jobs: "OrderedDict[str, DynamicAnalysisJob]" = OrderedDict()
         self._lock = threading.Lock()
+        self._pool = _JobWorkerPool(num_workers if num_workers is not None else config.DYNAMIC_ANALYSIS_WORKERS)
 
     def start(
         self,
@@ -453,6 +642,7 @@ class DynamicAnalysisJobs:
         starting_life: int = 40,
         starting_hand: int = 7,
         game_format: Optional[str] = None,
+        favorite_card_names: Optional[set[str]] = None,
     ) -> str:
         total = max(1, min(MAX_NUM_MATCHES, int(num_matches)))
         job = DynamicAnalysisJob(id=str(uuid.uuid4()), total=total)
@@ -465,6 +655,7 @@ class DynamicAnalysisJobs:
             job.completed = completed
 
         def run() -> None:
+            job.status = "running"
             try:
                 result = run_dynamic_analysis(
                     library,
@@ -476,6 +667,7 @@ class DynamicAnalysisJobs:
                     starting_hand=starting_hand,
                     game_format=game_format,
                     on_progress=on_progress,
+                    favorite_card_names=favorite_card_names,
                 )
                 job.result = result.to_dict()
                 job.status = "done"
@@ -484,7 +676,7 @@ class DynamicAnalysisJobs:
                 job.error = str(exc)
                 job.status = "error"
 
-        threading.Thread(target=run, name=f"dynamic-analysis-{job.id}", daemon=True).start()
+        self._pool.submit(run)
         return job.id
 
     def get(self, job_id: str) -> Optional[DynamicAnalysisJob]:

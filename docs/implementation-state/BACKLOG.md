@@ -77,16 +77,6 @@ Plan-level sequencing lives in
 - **PLR-4 · Names are the identity, unauthenticated.** Two people picking
   the same name share a seat; the second to connect takes over. Fine for a
   LAN table, not for anything public — needs [PLR-9].
-- **PLR-7 · A bot that weighs lines.** `GreedyBot`'s `rank_targets`/`play`
-  are the intended override points — the base class was split for exactly
-  this — but nothing subclasses them; bots take the first legal offer.
-- **PLR-8 · Bots at tables of 3+.** Now reachable, since the lobby opens
-  tables of up to four: `Bot.rank_targets` takes options as offered and
-  `GreedyBot._attack` swings at the first *player* defender in the list, so
-  a bot in a pod hits whoever happens to be listed first every turn rather
-  than choosing an opponent. Legal, and a bot pod plays out — it just isn't
-  a decision. Shares its fix with [PLR-7]: `rank_targets` is the override
-  point in both cases.
 - **PLR-9 · User accounts.** Login/signup (docs/04 PART 4), auth token
   storage + attachment to API/WebSocket calls, browser-refresh reconnect
   flow (docs/04 S1), and login/signup pages. Saved decks are unscoped until

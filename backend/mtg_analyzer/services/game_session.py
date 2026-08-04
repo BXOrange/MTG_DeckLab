@@ -125,6 +125,7 @@ def build_goldfish_engine(
     starting_hand: int = 7,
     with_dummy: bool = False,
     game_format: Optional[str] = None,
+    dummy_starting_life: Optional[int] = None,
 ) -> GameEngine:
     """Build a goldfish `GameEngine` and deal an opening hand (UC3).
 
@@ -140,6 +141,21 @@ def build_goldfish_engine(
     Off by default so the low-level builder stays a pure solo engine for
     tests that assert single-player behavior; `GameSessionManager.create_goldfish`
     turns it on for real games.
+
+    ``dummy_starting_life`` overrides the dummy's own life total
+    independently of the real player's ``starting_life`` — defaults to
+    ``starting_life`` (the historical behaviour: same life on both sides).
+    `services/dynamic_analysis.py`'s ANA-4 harness is the one caller that
+    sets this to something much higher: that module cares about a deck's
+    turn-by-turn mana/land development, not whether it can race a 40-life
+    opponent, and a `GreedyBot` attacking every turn otherwise kills the
+    dummy in a handful of turns for any reasonably aggressive deck — ending
+    *that* match's data collection right there. Averaged across many
+    matches, that's a survivorship-bias artifact, not noise: the matches
+    that keep contributing to a later turn's mean are disproportionately
+    the ones that *didn't* develop quickly, systematically dragging metrics
+    like "lands drawn" down turn over turn even though every single match's
+    own count only ever goes up.
 
     ``game_format`` (PLR-13, `models/game_format.py`) picks a RULE 8/9
     format instead of the bare life/hand numbers above, and sets up its
@@ -163,7 +179,8 @@ def build_goldfish_engine(
 
     players = [player]
     if with_dummy:
-        players.append(_build_dummy_player(starting_life, starting_hand))
+        dummy_life = dummy_starting_life if dummy_starting_life is not None else starting_life
+        players.append(_build_dummy_player(dummy_life, starting_hand))
 
     state = GameState(players=players)
     engine = GameEngine(state)

@@ -836,6 +836,15 @@ English and German.
 - **Security**: nothing derived from card text becomes code. Effects are a
   whitelisted `type` string + clamped params (`spec.py`); the binder is the only
   thing that turns specs into behaviour.
+- **No magic numbers**: a numeric literal whose meaning isn't obvious from
+  its immediate context (a threshold, weight, cap, timeout, percentage,
+  scoring constant, …) must be a named module- or class-level constant with
+  a short comment stating what it represents — and, when the value is a
+  judgment call rather than a rule-derived fact, *why* that value — not
+  inlined at the call site. `services/dynamic_analysis.py`'s
+  `INFINITE_MANA_THRESHOLD` is the pattern: named, with a comment
+  explaining the reasoning behind the exact number. Applies project-wide,
+  backend and frontend.
 - **Configuration**: on-disk paths and a few runtime constants (cache/data
   dirs, Scryfall User-Agent/rate limit) live in `mtg_analyzer/config.py`,
   overridable via `MTG_CACHE_DIR`/`MTG_DATA_DIR`/`MTG_USER_AGENT`/

@@ -9,17 +9,36 @@ endpoints), docs/implementation-state/Done_Backend.md "Deck persistence".
 
 from __future__ import annotations
 
+from typing import Optional
+
 from fastapi import APIRouter, Depends, HTTPException
 
 from mtg_analyzer.api.dependencies import get_deck_database, get_lazy_card_loader
 from mtg_analyzer.api.schemas import SaveDeckRequest
 from mtg_analyzer.models.deck import Deck
 from mtg_analyzer.parser.deckliste_parser import parse_deck_sections
+from mtg_analyzer.services.archetype_database import default_archetype_database
 from mtg_analyzer.services.deck_database import DeckDatabase
 from mtg_analyzer.services.deck_validation import compute_deck_identity, validate_deck_sections
 from mtg_analyzer.services.lazy_card_loader import LazyCardLoader
 
 router = APIRouter(prefix="/api/decks", tags=["decks"])
+
+#: A deck may describe itself with at most this many archetypes — the
+#: deck-edit UI offers exactly two `<select>`s, so this is a defensive
+#: server-side cap rather than a load-bearing check (see CLAUDE.md "No
+#: magic numbers").
+MAX_DECK_ARCHETYPES = 2
+
+
+def _clean_archetypes(archetypes: Optional[list[str]]) -> Optional[list[str]]:
+    """Drop any id not in the archetype catalogue and cap at
+    `MAX_DECK_ARCHETYPES`, preserving the caller's order."""
+    if archetypes is None:
+        return None
+    db = default_archetype_database()
+    known = [a for a in archetypes if db.get(a) is not None]
+    return known[:MAX_DECK_ARCHETYPES]
 
 
 def _ensure_identity(deck: Deck, database: DeckDatabase, loader: LazyCardLoader) -> Deck:
@@ -75,6 +94,16 @@ def save_deck(
         commanders=None if text_changed else existing.commanders,
         # Same preserve-on-omission treatment as sleeve_id/author above.
         is_cube=request.is_cube if request.is_cube is not None else (existing.is_cube if existing else False),
+        # Same preserve-on-omission treatment, plus catalogue validation/cap
+        # (see `_clean_archetypes`) — applied on every save, not just when
+        # the caller sends a fresh value, so a stale/renamed catalogue id
+        # from an old save can't linger forever.
+        archetypes=_clean_archetypes(
+            request.archetypes if request.archetypes is not None else (existing.archetypes if existing else None)
+        ),
+        favorite_cards=(
+            request.favorite_cards if request.favorite_cards is not None else (existing.favorite_cards if existing else None)
+        ),
     )
     database.save_deck(deck)
     return deck.to_dict()

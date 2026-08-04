@@ -298,6 +298,74 @@ class CastingResolutionMixin:
             # a shock land's pending pay-life choice already defaults tapped
             # above, so this only ever adds a tap, never removes the choice.
             obj.tapped = continuous.enters_tapped_from_static(self.state, obj)
+    def predict_land_tapped(self, obj: GameObject, card: Optional[Card] = None) -> Optional[bool]:
+        """Read-only preview of `enter_land_tapped`'s RULE 614.1 outcome for
+        ``obj`` as it currently sits — before it's actually played, and
+        without mutating anything. Backs a `play_land` action's
+        ``enters_tapped`` hint (`legal_actions_mixin._land_action`), which
+        `services/bots.py`'s `GreedyBot` reads to prefer an untapped land
+        when it has a choice.
+
+        Mirrors every *deterministic* branch of `enter_land_tapped` (the
+        check/fast/slow/Battlebond conditional shapes, read off the board
+        exactly as playing the land would). The two genuine payment-choice
+        kinds — a shock land's "you may pay N life", Mariposa Military
+        Base's mirror-image "you may enter tapped for rad counters" — have
+        no single answer before the choice is made, so those read as
+        ``None`` rather than guessing; a client is free to treat that as
+        "tied" against a known-untapped land.
+
+        ``card`` previews a specific face (a modal DFC's back, `_face_card`)
+        rather than ``obj.card`` — the same "rebind read-only" idiom
+        `_cast_action`'s own ``face="back"`` preview uses.
+        """
+        card = card or obj.card
+        condition = ability_catalogue.land_tap_condition(card)
+        kind = condition["kind"]
+        if kind == "unless_types":
+            types = condition["types"]
+            controlled = [
+                o for o in self.state.battlefield
+                if o.is_land and o.controller_id == obj.controller_id
+            ]
+            tapped = not any(
+                any(t in o.card.type_line.lower() for t in types) for o in controlled
+            )
+        elif kind == "unless_count":
+            if condition.get("basic"):
+                other_lands = sum(
+                    1 for o in self.state.battlefield
+                    if o.is_land and o.controller_id == obj.controller_id
+                    and "basic" in o.card.type_line.lower()
+                )
+            else:
+                other_lands = sum(
+                    1 for o in self.state.battlefield
+                    if o.is_land and o.controller_id == obj.controller_id
+                )
+            tapped = not (
+                other_lands <= condition["count"] if condition["cmp"] == "le"
+                else other_lands >= condition["count"]
+            )
+        elif kind == "unless_opponents":
+            opponents = [p for p in self.state.living_players() if p.id != obj.controller_id]
+            tapped = not (len(opponents) >= condition["count"])
+        elif kind == "unless_opponents_count":
+            opponent_lands = sum(
+                1 for o in self.state.battlefield
+                if o.is_land and o.controller_id != obj.controller_id
+            )
+            tapped = not (
+                opponent_lands <= condition["count"] if condition["cmp"] == "le"
+                else opponent_lands >= condition["count"]
+            )
+        elif kind in ("pay_life", "optional_bonus_rad"):
+            return None
+        else:
+            tapped = kind == "always"
+        if not tapped:
+            tapped = continuous.enters_tapped_from_static(self.state, obj)
+        return tapped
     def _land_tapped_choice(self, obj: GameObject, amount: int) -> dict[str, Any]:
         """Build the `pending_choice` for a shock land's pay-life decision."""
         return {

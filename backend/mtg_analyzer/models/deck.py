@@ -49,6 +49,21 @@ class Deck:
     errors. Defaults to `False` so every existing/ordinary deck keeps full
     validation.
 
+    `archetypes` is 0-2 ids into the archetype catalogue
+    (`services/archetype_database.py`, `data/archetypes.json`) the deck's
+    owner has picked to describe its playstyle (Aristocrats, Voltron, ...) —
+    purely descriptive, set from the deck-edit form. `None` means never
+    set; `api/saved_decks.py`'s `save_deck` validates ids against the
+    catalogue and caps the list at 2, same preserve-on-omission treatment
+    as `sleeve_id`/`author`/`is_cube`.
+
+    `favorite_cards` is a list of card names (not ids — no stable per-card
+    id exists below deck level, matching `parser/deckliste_parser.py`'s
+    `CardEntry.name` granularity) the owner starred in the deck-edit card
+    grid. Feeds the dynamic-analysis "was this card drawn/cast/castable"
+    breakdown (`services/dynamic_analysis.py`). Same preserve-on-omission
+    treatment as the fields above.
+
     `color_identity`/`commanders` are derived from the decklist text (RULE
     903.4 for the color-identity definition) but, unlike everything else on
     this model, cached rather than re-derived on every read: computing them
@@ -76,6 +91,8 @@ class Deck:
         color_identity: Optional[list[str]] = None,
         commanders: Optional[list[str]] = None,
         is_cube: bool = False,
+        archetypes: Optional[list[str]] = None,
+        favorite_cards: Optional[list[str]] = None,
     ) -> None:
         self.id = id or str(uuid.uuid4())
         self.name = name
@@ -89,6 +106,8 @@ class Deck:
         self.color_identity = color_identity
         self.commanders = commanders
         self.is_cube = is_cube
+        self.archetypes = archetypes
+        self.favorite_cards = favorite_cards
 
     def to_dict(self) -> dict[str, Any]:
         """Serialize this deck to a JSON-compatible dict (camelCase, like ParsedDeck)."""
@@ -105,6 +124,8 @@ class Deck:
             "colorIdentity": self.color_identity,
             "commanders": self.commanders,
             "isCube": self.is_cube,
+            "archetypes": self.archetypes,
+            "favoriteCards": self.favorite_cards,
         }
 
     @classmethod
@@ -123,6 +144,8 @@ class Deck:
             color_identity=data.get("colorIdentity"),
             commanders=data.get("commanders"),
             is_cube=data.get("isCube", False),
+            archetypes=data.get("archetypes"),
+            favorite_cards=data.get("favoriteCards"),
         )
 
     def __repr__(self) -> str:

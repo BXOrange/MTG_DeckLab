@@ -9599,11 +9599,9 @@ the request schema, since a direct caller (a test) can bypass the schema.
 `DynamicAnalysisJobs` is a small in-memory, FIFO-capped (20) registry —
 no existing async-job pattern exists anywhere in this codebase to plug
 into (checked: only the `GameSessionManager`/`Lobby` process-wide
-singletons), so each job is one `threading.Thread` (the engine is
-synchronous CPU-bound Python; a thread is simpler than wiring an executor
-for the same effect in a single-process, local-dev-scale app) reporting
-progress via a plain `on_progress(completed, total)` callback the API
-layer's `GET` polls. **Known cost, not a bug:** `apply_action` snapshots a
+singletons). Each job reports progress via a plain
+`on_progress(completed, total)` callback the API layer's `GET` polls.
+**Known cost, not a bug:** `apply_action` snapshots a
 full `GameState.clone()` (deep copy) per action for undo/rewind support
 that a one-shot simulation never uses — a realistic request (20 matches ×
 10 turns, the schema's defaults) takes roughly 20-30s wall-clock, scaling
@@ -9611,6 +9609,29 @@ with `numMatches × maxTurns`; acceptable given the ticket's own "runs in
 the background" framing and the frontend's progress bar
 (`Done_Frontend.md`), but worth knowing before requesting the 200×30
 ceiling.
+
+**Bounded worker pool (2026-08-04 follow-up).** Each job originally got its
+own bare `threading.Thread` — simple, but a burst of concurrent requests
+(or a user mashing "Simulation starten") could spin up an unbounded number
+of OS threads, all CPU-bound and fighting the GIL (and the rest of the
+process, including ordinary request handling) at once with no cap.
+`DynamicAnalysisJobs` now owns one `_JobWorkerPool` — a fixed set of daemon
+worker threads (`config.DYNAMIC_ANALYSIS_WORKERS`, default 4, env
+`MTG_DYNAMIC_ANALYSIS_WORKERS`) pulling job callables off a `queue.Queue`.
+A job that arrives with every worker busy sits as a new `"queued"` status
+(`DynamicAnalysisJob.status`: `"queued" | "running" | "done" | "error"`,
+where it used to start straight at `"running"`) until a worker frees up —
+matches-per-second for whichever jobs *are* running stays the same however
+many requests pile up, they just take their turn instead of all degrading
+together. Since the GIL serializes this module's pure-Python simulation
+work regardless of thread count, the pool isn't about running any single
+job faster — sizing it up only helps once real hardware parallelism (a
+future multi-process/async rewrite) exists to use it, so the modest default
+matches this app's single-process, local-dev scale rather than trying to
+predict that. The frontend (`dynamicAnalysisPanel.js`, `Done_Frontend.md`)
+polls through the new state exactly like `"running"` (same disabled form,
+same "still going" treatment) with its own "Wartet auf freien Worker …"
+label so a queued job doesn't read as stuck.
 
 `api/dynamic_analysis.py`'s `POST /api/analysis/dynamic` resolves the deck
 through the exact same pipeline `api/game.py`'s `start_goldfish` does
@@ -9627,10 +9648,174 @@ regression guard above, the infinite-mana guard), `TestRunDynamicAnalysis`
 bot kind raises, request
 clamping — the clamp test lowers `MAX_NUM_MATCHES`/`MAX_MAX_TURNS` via
 `monkeypatch` rather than actually running 200×30 matches, which is
-genuinely slow per the cost note above), `TestDynamicAnalysisJobs` (2:
-background completion, unknown job id), `TestDynamicAnalysisApi` (4: full
+genuinely slow per the cost note above), `TestDynamicAnalysisJobs` (5:
+background completion, unknown job id, a single-worker pool proving a
+second job stays `"queued"` while the first is `"running"`, the default
+and an explicit worker count both landing on `_JobWorkerPool.num_workers`),
+`TestDynamicAnalysisApi` (4: full
 start-and-poll round trip, illegal deck rejected before a job starts,
 unknown bot kind rejected, unknown job id 404s). Also verified live in a
 real browser (Playwright) against a real 41-saved-deck library and the
 full ~34k-card cache — see `Done_Frontend.md`'s "Simulation" sub-tab entry
 for the frontend half and that end-to-end check.
+
+### ANA-4 follow-up · a survivorship-bias fix + a mana-maximizer bot (2026-08-04)
+
+Found while eyeballing the "Dynamische Analyse" chart for a real deck: the
+per-turn "lands drawn"/"mana potential"/"mana produced" means sometimes
+*dropped* from one turn to the next, even though each individual match's
+own numbers only ever go up. Root cause was survivorship bias, not a math
+bug — `run_one_match` builds its dummy "Goldfisch" opponent at the same
+life as the real player (`build_goldfish_engine`'s `starting_life`,
+40 by default), and a `GreedyBot` attacking every turn kills a real
+40-life dummy within a handful of turns for any reasonably aggressive
+deck, ending that match's data collection right there. Averaged across
+many matches, the matches still contributing to a *later* turn's mean are
+disproportionately the ones that developed *slower* (a faster deck
+finishes and drops out sooner) — dragging every per-turn metric down turn
+over turn. Reproduced empirically before the fix: an aggressive 60-card
+synthetic deck (38 lands / 22 big creatures), 40 `GreedyBot` matches,
+turn 6 had `n=8` (down from `n=40` at turn 1) and the "lands drawn" mean
+fell from turn 6 to turn 7.
+
+Fixed by decoupling the dummy's life from the real player's:
+`build_goldfish_engine` gained an optional `dummy_starting_life` param
+(defaults to `starting_life`, so every other caller — the real Goldfisch
+UI, multiplayer — is unaffected); `dynamic_analysis.py`'s `run_one_match`
+passes a new named constant, `DUMMY_ANALYSIS_LIFE = 100_000`, high enough
+that no real deck deals lethal within `MAX_MAX_TURNS` (30) without
+tripping the pre-existing `INFINITE_MANA_THRESHOLD`/action-budget guards
+first. This harness reports mana/land development, not who wins, so the
+dummy's life was never meaningful data to begin with — after the fix,
+every match runs the full `max_turns` and every turn's sample size stays
+at `matches_run`.
+
+Separately, the same investigation surfaced that "mana potential"
+(`game/mana_potential.py`'s `max_potential_total`, a battlefield-only
+figure) and "mana produced" (whatever a bot actually tapped) both
+naturally trail "lands drawn" (hand + battlefield + graveyard, cumulative)
+— expected, not a bug: RULE 305.2's one-land-per-turn drop means a player
+who draws lands faster than they can play them accumulates a gap between
+"lands seen" and "lands in play" by design. But neither existing bot made
+that gap easy to *read past*: `GoldfishBot` never taps for mana at all,
+and `GreedyBot` only taps for whatever it's about to cast, so "mana
+produced" was bottlenecked by bot policy, not the board's real capacity.
+New `ManaMaximizerBot` (`services/bots.py`) closes that gap directly: it
+plays a land every turn and taps every remaining land/artifact mana
+source dry, but never casts anything or attacks — a diagnostic bot, not a
+real opponent, that makes "mana produced" read as the board's true
+per-turn ceiling, directly comparable to "mana potential". Registered in
+the shared `BOT_TYPES` registry, so it's automatically offered everywhere
+a bot kind is picked from (`GET /api/multiplayer/bots`, both the dynamic-
+analysis panel's and the multiplayer lobby's bot pickers) with no frontend
+changes needed.
+
+Tests: `test_dynamic_analysis.py` gained
+`test_aggressive_deck_does_not_end_the_match_early` (single match reaches
+`max_turns` against an aggressive deck), `test_mana_maximizer_bot_taps_out_
+without_casting`, and the direct regression test,
+`test_aggressive_deck_does_not_lose_later_turn_samples` (asserts every
+turn's sample size stays at `matches_run` and the "lands drawn" mean never
+decreases turn-over-turn — reproduces the pre-fix bug at a smaller,
+pytest-timeout-friendly scale if `DUMMY_ANALYSIS_LIFE` regresses).
+`test_bots.py` gained `TestManaMaximizerBot` (plays lands, taps every one
+for mana, never casts an affordable spell, never attacks/blocks) and both
+bot-catalogue tests (`test_bots.py`, `test_api_multiplayer.py`) now expect
+three registered kinds.
+
+## PLR-7, PLR-8 · A `GreedyBot` that weighs lines + attacks a real opponent (2026-08-04)
+
+`services/bots.py`, `game/targeting.py`, `game/effects.py`,
+`game/effect_binder.py`, `game/engine/legal_actions_mixin.py`,
+`game/engine/activation_mixin.py`, `game/rules/casting_mixin.py`; tests in
+`test_bots.py` (31, up from 23) and `test_targeting.py` (20, up from 14).
+
+Closes both open bot-AI tickets at once, since PLR-8 was always "share
+PLR-7's fix" — `rank_targets`/`play` were the intended override points and
+nothing used them.
+
+- [x] **The main-phase loop is now explicit, not incidental.**
+      `GreedyBot._develop_board` (called from `play()` for both `main1` and
+      `main2`) tries a land, then `_cast_or_activate`, falling back to a
+      manual `tap_for_mana` only once neither offered anything — see below
+      for why that order flipped. `run_bots`/`_one_bot_action` already
+      re-read `legal_actions` fresh after every single action, so an extra
+      land drop a static ability just granted, or a mana ability a cast
+      just unlocked, simply shows back up as a fresh offer on the next
+      call; no separate "re-check" step was needed. Once nothing is left
+      to develop, the turn structure itself moves to combat, which is why
+      "attack once there are no more options" needed no code of its own —
+      `attack` is never offered outside `declare_attackers` in the first
+      place.
+- [x] **Casting now leans on mana-potential auto-tap instead of manually
+      pre-tapping.** A `cast_spell`/`activate_ability` offer is *only* ever
+      made once real pool or potential (`_castable_now_or_via_potential`)
+      can pay for it, and applying it auto-taps the exact sources needed
+      (`game/mana_potential.py`, "Mana-Potenzial", shipped 2026-07-30). The
+      bot's old behaviour — tap every source before ever trying to cast —
+      predates that feature and could only strand the wrong colour, the
+      same mistake a human clicking lands one at a time makes. `_develop_board`
+      now tries casting/activating *first*; manual `tap_for_mana` is a
+      last resort with nothing better to do (kept, not deleted — a
+      land-only deck with nothing to cast still exercises it, and
+      `test_infinite_mana_guard_aborts_the_match`'s "let a real `GreedyBot`
+      legitimately cross the threshold" relies on exactly that fallback).
+- [x] **Equip/Fortify/Reconfigure sort last among activated abilities.**
+      `ActivatedAbility` gained an `attach_kind` field (set by
+      `effect_binder._keyword_activated_ability`, surfaced on the
+      `activate_ability` action by `legal_actions_mixin._activate_action`)
+      so `_cast_or_activate` can push an equip offer behind every other
+      ability without guessing from its description text — mana is better
+      spent developing the board first, and whatever's left can still
+      equip.
+- [x] **Lands prefer entering untapped.** `RulesEngine.predict_land_tapped`
+      is a read-only preview of `enter_land_tapped`'s RULE 614.1 outcome —
+      every deterministic check/fast/slow/Battlebond shape, read off the
+      board exactly as playing the land would, with the two genuine
+      payment-choice kinds (a shock land, Mariposa Military Base's mirror)
+      reading `None` rather than guessing. `legal_actions_mixin._land_action`
+      threads it onto every `play_land` offer as `enters_tapped`;
+      `GreedyBot._pick_land` sorts `False` (known untapped) ahead of `None`
+      ahead of `True`.
+- [x] **Targeting is now polarity-aware, not just "opponent first".**
+      The old blanket "prefer the opponent's stuff" rule is actively wrong
+      for a beneficial effect (a pump/protection spell reaching for an
+      opponent's creature is self-sabotage, not merely unambitious).
+      `GameEffect.target_polarity()` (`game/effects.py`, default `None`) is
+      a best-effort, non-rules classification — `"harmful"` for
+      damage/destroy/exile/discard/mill/counter-spell/goad/steal-control/
+      tap-down/lose-life-family effects, `"beneficial"` for gain-life/
+      regenerate/grant-protection, and sign-aware for the two effects whose
+      polarity depends on their own params (`PumpEffect`'s `power`/
+      `toughness`, `AddCountersEffect`'s `kind`, `TapEffect`'s `untap`
+      flag). `targeting.spell_target_specs`/`ability_target_specs` stamp
+      it onto each `TargetSpec.polarity` from the owning effect, including
+      a synthesized Aura "enchant" requirement (no `EffectSpec` of its own
+      to ask) via `_aura_enchant_polarity`, which reads the Aura's own
+      bound layer-7 P/T static on `attached_permanent` — a curse with no
+      P/T clause (Pacifism-shaped) stays `None`, which is exactly right
+      since the old "prefer an opponent's permanent" default already
+      handles it correctly. `requirements_with_targets`/
+      `_ability_target_requirements` thread `polarity` onto the wire
+      requirement dict; `Bot.rank_targets` gained a `polarity` parameter
+      (default `None`, ignored by the base no-op), and `GreedyBot.
+      rank_targets` reverses its own "opponent's things first" order for
+      `"beneficial"`, keeping it for `"harmful"` and the unclassified
+      default. Deliberately not exhaustive — an effect this doesn't cover
+      (a bounce, a counter-removal of unknown sign, …) stays `None`, never
+      guessed.
+- [x] **A pod of 3+ picks an actual opponent, not whoever's listed first.**
+      `GreedyBot._attack` used to take the first *player*-kind defender in
+      whatever order `legal_defenders_for` happened to return them — legal
+      in a two-player game (there's only one), but not a decision once the
+      lobby seats up to four. `_weakest_defender` breaks the tie by life
+      total, already present in the view (`Player.to_dict`'s `"life"`) —
+      no new server-side plumbing needed. Falls back to the first offered
+      defender if life totals aren't in the view at all (a caller handing
+      `play` a minimal state) or every candidate is tied.
+
+Notable gap this batch didn't close: `RemoveCountersEffect`'s polarity is
+genuinely ambiguous by class alone (stripping an opponent's +1/+1 counters
+is good, stripping your own -1/-1 counters is also good) and was left
+unclassified rather than guessed — see `GameEffect.target_polarity`'s
+docstring for the "don't guess" rule this follows.

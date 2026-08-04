@@ -827,7 +827,7 @@ class TestBots:
     def test_the_catalogue_lists_every_bot_kind(self, env):
         bots = env["client"].get("/api/multiplayer/bots").json()["bots"]
         kinds = {b["kind"]: b for b in bots}
-        assert set(kinds) == {"goldfish", "greedy"}
+        assert set(kinds) == {"goldfish", "greedy", "mana_maximizer"}
         assert kinds["goldfish"]["label"] and kinds["goldfish"]["description"]
 
     def test_the_host_can_seat_a_bot(self, env):

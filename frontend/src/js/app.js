@@ -120,6 +120,7 @@ views.mpBoard.addEventListener('view-shown', () => multiplayer.onShown('board'))
 
 renderCachedCardsView(views.cache);
 const analyzeView = renderAnalyzeView(views.analyze);
+views.analyze.addEventListener('view-shown', () => analyzeView.onShown());
 renderSavedDecksView(views.savedDecks, {
   onLoadDeck: (deck) => {
     importView.loadDeck(deck);
