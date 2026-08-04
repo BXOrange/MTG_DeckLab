@@ -417,6 +417,29 @@ textarea {
   border: 1px solid var(--border);
 }
 
+/* Profil tab: the saved-deck checklist that toggles Deck.id favorites. */
+.profile-favorite-deck-list {
+  list-style: none;
+  margin: 0.5rem 0 0;
+  padding: 0;
+  max-height: 16rem;
+  overflow-y: auto;
+}
+
+.profile-favorite-deck-list li {
+  padding: 0.2rem 0;
+}
+
+.profile-favorite-deck-list label {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  color: var(--text);
+  font-size: 0.9rem;
+  text-transform: none;
+  cursor: pointer;
+}
+
 .player-asset-tile span {
   overflow-wrap: anywhere;
 }

@@ -35,7 +35,11 @@ from .catalogue.levels import (
     split_leveler_blocks,
 )
 from .catalogue.modal import MODAL_HEADER_RE, collect_mode_bodies, split_modal_block
-from .catalogue.opening_hand import opening_hand_battlefield_permission_line
+from .catalogue.opening_hand import (
+    opening_hand_battlefield_conditional_permission_line,
+    opening_hand_battlefield_permission_line,
+    opening_hand_graveyard_permission_line,
+)
 from .catalogue.static_handlers import commander_eligibility_line
 from .normalize import normalize
 from .segmenter import (
@@ -621,7 +625,11 @@ NEVER_SUPPORTED = "NEVER_SUPPORTED"
 #: other cached card needs). Planechase/Archenemy plane/scheme card text
 #: (13/309 modeled) remains PAR-12's own indefinite tail, not newly
 #: regressed.
-PARSER_VERSION = "51"
+#: "52": PLR-11's own deliberately-deferred residue — Gemstone Caverns'
+#: conditional/costed/counter-bearing RULE 103.6a battlefield permission
+#: and Buried Ogre's graveyard-destination RULE 103.6 permission
+#: (`catalogue.opening_hand.pregame_setup_permission`, +2 cards).
+PARSER_VERSION = "52"
 
 
 @dataclass
@@ -892,6 +900,14 @@ def _parse_oracle_uncached(card: Any) -> ParseResult:
         # (`services/game_session.py`'s opening-hand handling), not an
         # effect spec.
         if opening_hand_battlefield_permission_line(line):
+            return
+        # Gemstone Caverns' conditional/costed/counter-bearing sibling of
+        # the clause above, and Buried Ogre's graveyard-destination one —
+        # same split, covered by `game/ability_catalogue.
+        # pregame_setup_permission` instead.
+        if opening_hand_battlefield_conditional_permission_line(line):
+            return
+        if opening_hand_graveyard_permission_line(line):
             return
         seg: Segment = segment_line(
             line, allow_spell_effect=allow_spell_effect, provenance=provenance, is_saga=is_saga

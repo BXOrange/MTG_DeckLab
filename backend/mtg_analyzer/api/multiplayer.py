@@ -74,6 +74,7 @@ from mtg_analyzer.api.schemas import (
     MultiplayerPlayerRequest,
     MultiplayerReadyRequest,
 )
+from mtg_analyzer.models.game_format import FORMATS
 from mtg_analyzer.parser.deckliste_parser import parse_deck_sections
 from mtg_analyzer.services.bots import BOT_TYPES, bot_catalogue, bots_for_game, run_bots
 from mtg_analyzer.services.deck_database import DeckDatabase
@@ -259,6 +260,16 @@ async def remove_bot(
 async def set_options(
     game_id: str, request: MultiplayerOptionsRequest, lobby: Lobby = Depends(get_lobby)
 ) -> dict[str, Any]:
+    """Host-only table settings (PLR-13 adds ``gameFormat``/``archenemyId``).
+
+    The format name is validated here rather than in the lobby (which keeps
+    every option it stores opaque, same treatment as `mulligan_style`) —
+    an unknown name is rejected outright instead of silently falling back
+    to Commander, since a rejected *setting* is something the host can fix
+    before the table ever starts, unlike a stale saved game.
+    """
+    if request.game_format is not None and request.game_format not in FORMATS:
+        raise HTTPException(400, f'Unknown format "{request.game_format}"')
     game = _guard(
         lambda: lobby.set_options(
             game_id,
@@ -268,6 +279,8 @@ async def set_options(
             request.takebacks_per_player,
             request.randomize_seating,
             request.random_starting_player,
+            request.game_format,
+            request.archenemy_id,
         )
     )
     return await _game_response(lobby, game)
@@ -329,7 +342,18 @@ async def start_game(
         )
 
     session = sessions.create_multiplayer(
-        seats, mulligan_style=game.mulligan_style, takebacks_per_player=game.takebacks_per_player
+        seats,
+        mulligan_style=game.mulligan_style,
+        takebacks_per_player=game.takebacks_per_player,
+        game_format=game.game_format,
+        # RULE 904: the host is the Archenemy unless another seat was
+        # explicitly picked — `Lobby` stores `None` for "not chosen", the
+        # same convention `build_multiplayer_engine`/`_setup_variants`
+        # already fall back on via `state.players[0]`, but the *lobby's*
+        # seat order (join order) and the engine's `seating_order()` (which
+        # `randomize_seating` may have reshuffled) aren't the same list, so
+        # the default is resolved here against the host explicitly instead.
+        archenemy_id=game.archenemy_id or game.host_id,
     )
     game = _guard(lambda: lobby.start(game_id, session.id))
     # Bots keep their opening hands (and, if one is on the play, take their

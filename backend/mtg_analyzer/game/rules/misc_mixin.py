@@ -436,55 +436,97 @@ class MiscSystemsMixin:
         if source is not None and source in self.state.battlefield:
             self.put_into_graveyard(source)
     def offer_opening_hand_battlefield_choice(self, player: Player, obj: GameObject) -> None:
-        """RULE 103.6a: a card printing "you may begin the game with it on
-        the battlefield" (the Leyline cycle,
-        `game/ability_catalogue.opening_hand_battlefield_permission`)
-        offers ``player`` the choice for one such card still in their
-        opening hand. `services/game_session.py` walks every seat's
-        qualifying cards one at a time once the whole table has kept,
+        """RULE 103.6: a card printing a pregame setup permission
+        (`game/ability_catalogue.pregame_setup_permission`) offers
+        ``player`` the choice for one such card still in their opening
+        hand — RULE 103.6a's plain "you may begin the game with it on the
+        battlefield." (the Leyline cycle), or one of the two conditional/
+        costed shapes the same module also recognises (Gemstone Caverns'
+        "...and you're not the starting player...with a luck counter on
+        it. If you do, exile a card from your hand."; Buried Ogre's
+        "...in your graveyard. If you do, you lose N life."). `services/
+        game_session.py` walks every seat's qualifying cards one at a
+        time once the whole table has kept — and, for the conditional
+        shape, only once it has confirmed the "not the starting player"
+        condition holds, so an unmet condition is never even offered —
         the same queued-`pending_choice` shape Vancouver's post-keep
         scry uses (`_open_next_vancouver_scry`).
         """
+        permission = ability_catalogue.pregame_setup_permission(obj.card)
+        assert permission is not None  # game_session only queues qualifying cards
         self._pending_opening_hand_obj = obj
+        if permission.destination == "battlefield":
+            prompt = f"{obj.name}: mit ihr auf dem Schlachtfeld statt in der Hand beginnen?"
+            accept_label = "Auf das Schlachtfeld legen"
+        else:
+            prompt = f"{obj.name}: mit ihr im Friedhof statt in der Hand beginnen?"
+            accept_label = "In den Friedhof legen"
         self.state.pending_choice = {
             "kind": "opening_hand_battlefield",
             "player_id": player.id,
-            "prompt": f"{obj.name}: mit ihr auf dem Schlachtfeld statt in der Hand beginnen?",
+            "prompt": prompt,
             "options": [
-                {"id": "battlefield", "label": "Auf das Schlachtfeld legen"},
+                {"id": permission.destination, "label": accept_label},
                 {"id": "decline", "label": "In der Hand behalten"},
             ],
         }
     def resolve_opening_hand_battlefield_choice(self, answer: Optional[str]) -> None:
-        """Answer a pending `opening_hand_battlefield` choice (RULE 103.6a).
-        ``answer == "battlefield"`` puts the card onto the battlefield
-        straight from the opening hand (untapped, summoning sick — the same
-        default a search-to-battlefield hit gets); anything else leaves it
-        in hand."""
+        """Answer a pending `opening_hand_battlefield` `pending_choice`
+        (RULE 103.6). Accepting — ``answer`` equal to the permission's own
+        `PregameSetupPermission.destination`, "battlefield" or "graveyard"
+        — moves the card there straight from the opening hand (a
+        battlefield entry is untapped, summoning sick, the same default a
+        search-to-battlefield hit gets; a graveyard one fires no zone-
+        change event of its own, since it isn't a discard, a death, or a
+        mill, and nothing can be on the battlefield yet with a trigger
+        that would care) and applies whatever the clause promises along
+        with it: RULE 614.1-style entry counters first (Gemstone Caverns'
+        luck counter — the same direct `GameObject.add_counters` call
+        `_apply_entry_counters` uses, not routed through replacement
+        doubling), then the mandatory "if you do" tail — `lose_life`, or
+        an interactive `exile` `choose_objects` pick, since *which* hand
+        card is exiled is the player's choice (RULE 601.2c); nothing
+        happens if the hand is already empty. Anything else (including the
+        card having somehow already left hand) leaves it untouched."""
         choice = self.state.pending_choice
         if not choice or choice.get("kind") != "opening_hand_battlefield":
             raise ValueError("no pending opening-hand-battlefield choice to resolve")
         self.state.pending_choice = None
         obj = self._pending_opening_hand_obj
         self._pending_opening_hand_obj = None
-        if obj is None or answer != "battlefield":
+        if obj is None:
+            return
+        permission = ability_catalogue.pregame_setup_permission(obj.card)
+        if permission is None or answer != permission.destination:
             return
         player = self.state.player_by_id(choice["player_id"])
         if obj not in player.hand:
             return  # defensive: shouldn't happen, nothing else touches hands here
         player.remove_from_zone(obj, Zone.HAND)
-        obj.zone = Zone.BATTLEFIELD
-        obj.summoning_sick = True
-        self.state.add_to_battlefield(obj)
-        self.state.fire_event(
-            GameEvent(
-                EventType.ENTERS_BATTLEFIELD,
-                controller_id=player.id,
-                object=obj.name,
-                instance_id=obj.instance_id,
-                object_types=sorted(obj.type_words),
+        if permission.destination == "battlefield":
+            obj.zone = Zone.BATTLEFIELD
+            obj.summoning_sick = True
+            self.state.add_to_battlefield(obj)
+            if permission.counter_type and permission.counter_count:
+                obj.add_counters(permission.counter_type, permission.counter_count)
+            self.state.fire_event(
+                GameEvent(
+                    EventType.ENTERS_BATTLEFIELD,
+                    controller_id=player.id,
+                    object=obj.name,
+                    instance_id=obj.instance_id,
+                    object_types=sorted(obj.type_words),
+                )
             )
-        )
+        else:
+            player.add_to_zone(obj, Zone.GRAVEYARD)
+        if permission.cost_kind == "lose_life":
+            self.lose_life(player, permission.cost_amount, cause="cost")
+        elif permission.cost_kind == "exile_hand_card":
+            self.request_choose_objects(
+                player, list(player.hand), "exile", count=1,
+                prompt="Wähle eine Karte aus deiner Hand zum Exilieren",
+            )
     def create_token(
         self,
         controller_id: str,
@@ -1188,6 +1230,11 @@ class MiscSystemsMixin:
             # general enough for any future "reveal some cards, cast one
             # free" template to reuse rather than a one-off.
             "cast_free",
+            # Gemstone Caverns' "if you do, exile a card from your hand"
+            # pregame-setup tail (`offer_opening_hand_battlefield_choice`) —
+            # another hand-zone pick, general enough for any future "exile a
+            # card from your hand" cost/effect to reuse.
+            "exile",
         }
     )
     def request_choose_objects(
@@ -1394,6 +1441,8 @@ class MiscSystemsMixin:
             self.return_to_hand(obj)
         elif action == "discard":
             self.discard_specific(obj)
+        elif action == "exile":
+            self.exile(obj)
         elif action == "soulbond_pair" and source is not None:
             # RULE 702.94a: the pairing is recorded on both creatures.
             source.paired_with = obj.instance_id

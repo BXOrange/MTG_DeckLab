@@ -9316,6 +9316,89 @@ class in `test_game_session.py` (6 — offered after keep, accept moves it,
 decline leaves it, a hand with none opens nothing, two qualifying cards
 walk one at a time, a Gemstone-Caverns-shaped near-miss stays unclaimed).
 
+## PLR-11 follow-up · Gemstone Caverns / Buried Ogre's pregame-setup shapes (2026-08-04)
+
+The two shapes PLR-11 deliberately left unclaimed rather than silently
+drop their extra condition/counter/cost: Gemstone Caverns' RULE 103.6a
+battlefield permission gated on "and you're not the starting player",
+entering with a luck counter, and a trailing mandatory "if you do, exile
+a card from your hand."; and Buried Ogre's RULE 103.6 permission for a
+*graveyard* destination instead of the battlefield (RULE 103.6a has no
+sub-letter for a non-battlefield destination — Buried Ogre falls under
+103.6's general "some cards allow a player to take actions with them from
+their opening hand" umbrella instead), with its own mandatory "if you do,
+you lose N life." Both real cache cards now MODELED; PARSER_VERSION 51→52,
+28.6% = 9,786/34,208.
+
+`parser/oracle/catalogue/opening_hand.py` gained a `PregameSetupPermission`
+dataclass (`destination`, `condition`, `counter_type`/`counter_count`,
+`cost_kind`/`cost_amount`) and `pregame_setup_permission(card)`, the
+general card-level entry point covering all three shapes side by side with
+the original narrowly-scoped `opening_hand_battlefield_permission`
+(kept as-is — still what the coverage gate uses to claim the plain-shape
+line specifically, and it correctly still doesn't claim either new shape,
+same as before). Two new line regexes join the original: Gemstone
+Caverns' and Buried Ogre's own printed text both name themselves directly
+("...with Gemstone Caverns on the battlefield...") rather than using a
+pronoun the way the Leyline cycle's "if this card is in your opening
+hand, you may begin the game with **it**..." does — folded to `~` by
+`normalize`, so both new regexes accept `~` alongside the original's
+`it`/`him`/`her`/`them`. `game/ability_catalogue.py` got the matching
+`pregame_setup_permission(card)` delegate; `gate.py` claims both new
+lines without emitting a spec, same split as the plain shape.
+
+Engine side, `services/game_session.py`'s `_start_opening_hand_choices`
+now reads `pregame_setup_permission` instead of the plain boolean, and
+checks a permission's own `condition` ("not_starting_player") against
+`GameState.starting_player_id` before ever queuing the card — an unmet
+condition means the choice was never offered at all, not offered-and-
+expected-to-decline, matching the printed "and you're not the starting
+player" gate exactly. `starting_player_id` is normally still unset this
+early (turn 1 hasn't begun — `turn_loop_mixin` is what first stamps it),
+so this falls back to `state.players[state.active_player_index]`, which
+already equals the starting player at this point in both
+`build_goldfish_engine`/`build_multiplayer_engine` (seat order is turn
+order, PLR-11's own convention).
+
+`offer_opening_hand_battlefield_choice`/`resolve_opening_hand_battlefield_
+choice` (`game/rules/misc_mixin.py`) generalized in place rather than
+growing siblings: the offered `pending_choice`'s accept option id is now
+the permission's own `destination` ("battlefield" or "graveyard") instead
+of a hardcoded "battlefield" string, so a plain Leyline's wire shape is
+completely unchanged (still `{"id": "battlefield", ...}`) while a Buried
+Ogre gets `{"id": "graveyard", ...}` for free — the frontend's
+`simpleChoiceButtonsHtml` fallback (`gameBoardView.js`) already renders
+any option id generically, so no frontend change was needed at all, not
+even a new `CHOICE_ICONS` entry. Accepting applies the permission's own
+`counter_type`/`counter_count` (Gemstone Caverns' luck counter) the same
+direct-`GameObject.add_counters` way `_apply_entry_counters` applies RULE
+614.1 entry counters — deliberately *not* routed through `RulesEngine.
+add_counters`'s replacement-doubling (Doubling Season etc.), matching
+that existing convention rather than introducing a one-off inconsistency
+— then the mandatory "if you do" tail: `lose_life` is a direct
+`RulesEngine.lose_life` call (no interactivity — the amount is fixed,
+there's nothing to choose), `exile_hand_card` opens a real interactive
+choice, since *which* hand card gets exiled is the player's own pick
+(RULE 601.2c). That reused `RulesEngine.request_choose_objects` rather
+than inventing a new `pending_choice` kind: `CHOOSE_OBJECT_ACTIONS`
+gained an `"exile"` entry (`_apply_chosen_object` → `self.exile(obj)`),
+general enough for any future "exile a card from your hand" cost/effect
+to reuse, not just this one. A graveyard destination fires no zone-change
+event of its own (unlike the battlefield branch's `ENTERS_BATTLEFIELD`) —
+it isn't a discard, a death, or a mill, no existing `EventType` describes
+"began the game here", and nothing can be on the battlefield yet with a
+trigger that would care.
+
+Tests: `test_oracle_opening_hand.py` gained the two new line regexes'
+recognition tests, `pregame_setup_permission`'s three shapes, and both
+real cards' MODELED coverage (23 total, up from 11); a new
+`TestPregameSetupPermission` class in `test_game_session.py` (6 — Buried
+Ogre's graveyard+life-loss accept/decline in a solo goldfish game since
+its permission is unconditional; a 2-seat multiplayer game for Gemstone
+Caverns' condition — offered to the non-starting seat, withheld from the
+starting one, counter+exile-choice on accept, decline leaves it
+untouched).
+
 ## VIS-5 · A move/priority feed — `move_actors` (2026-08-04)
 
 The board already had `move_log` (labels only — "cast_spell: Lightning
@@ -9336,3 +9419,80 @@ site — reading the existing invariant was the whole fix. Tests: a new
 `TestMoveFeed` class in `test_multiplayer_session.py` (3 — parallel
 length + correct actor, stays aligned after a `take_back`, a concede is
 attributed to the conceding player).
+
+## PLR-13 · A format switch reaches the API (2026-08-04)
+
+`GameEngine.new_game` already understood `game_format`/`archenemy_id`
+(`models/game_format.py`, `GameEngine._setup_variants`), but neither
+`api/game.py` nor `api/multiplayer.py` ever passed one through — Planechase,
+Archenemy and Vanguard were engine-complete and reachable only from Python.
+Closed the goldfish and multiplayer halves; the two still-open pieces (a
+per-seat Vanguard avatar picker, and card *text* for the RULE 9 pool) stay
+open as the narrowed `PLR-13`/`PAR-13` in `BACKLOG.md`.
+
+`build_goldfish_engine`/`build_multiplayer_engine`
+(`services/game_session.py`) hadn't gone through `new_game` at all — they
+build a `GameState`/`GameEngine` directly (bind-on-load via
+`bind_from_catalogue`, which `new_game` skips, since it's a test/bot
+builder) — so both gained their own `game_format` handling instead:
+`get_format(game_format)` overrides the bare `starting_life`/`starting_hand`
+arguments, then `engine._setup_variants(fmt, archenemy_id)` runs *before*
+the opening hand is drawn (a Vanguard avatar's `hand_size_modifier` has to
+be settled first — the same ordering constraint `new_game` already had).
+`build_multiplayer_engine` also takes `archenemy_id`; the goldfish builder
+doesn't expose one, since the human is the only candidate a solo game has
+(`_setup_variants`'s own `archenemy_id=None` fallback already lands on
+`state.players[0]`). Neither builder's no-format call site changed
+behaviour — `fmt is None` skips every new branch.
+
+`GET /api/game/formats` (`models/game_format.FORMATS`, as
+`{name, label, starting_life, starting_hand, singleton, variants}`) backs
+the picker on both the Goldfisch start screen and the Multiplayer Setup
+table options — one endpoint, since a format is the same choice either way.
+`StartGoldfishRequest.gameFormat` threads straight to
+`GameSessionManager.create_goldfish`. Multiplayer needed a genuine table
+setting instead: `LobbyGame.game_format`/`archenemy_id` (`services/
+lobby.py`), set through the existing host-only `POST .../options` route
+(`MultiplayerOptionsRequest.gameFormat`/`archenemyId`) — the lobby stores
+`game_format` as an opaque string (its own module docstring insists on
+staying rules-free, the same treatment `mulligan_style` already got);
+`api/multiplayer.py`'s `set_options` is what validates it against
+`FORMATS` and 400s on an unknown name, since a table setting can be
+rejected before the game exists, unlike a stale saved one `get_format`
+has to fall back safely from. `start_game` resolves `archenemy_id`'s
+`None` ("not chosen") to the host explicitly, rather than relying on
+`_setup_variants`'s own `state.players[0]` default — the lobby's seat
+list (join order) and the engine's `seating_order()` (which
+`randomize_seating` may have reshuffled) aren't the same list, so "the
+host" has to be named by id, not by position.
+
+Also added, alongside the format picker, the **favorite decks** and
+**multiplayer default settings** the Profil tab picked up in the same
+pass (frontend-driven, but both needed a small backend of their own):
+`services/player_assets.py` gained a third per-player table
+(`favorite_decks`, same `player_name`-keyed shape as sleeves/token
+images — decks aren't owned in this app, one shared `DeckDatabase`, so a
+"favorite" flag can't live on `Deck` itself without two players'
+favorites colliding) with `GET/POST /api/players/{name}/favorite-decks`
+and `DELETE .../favorite-decks/{deck_id}`; goldfishView.js's and
+multiplayerView.js's deck pickers now list favorites first (`Array.
+prototype.sort`'s stability keeps everything else in server order). The
+multiplayer defaults themselves (format, mulligan style, takebacks,
+RULE 103.1/103.2 randomization) are purely client-side (settings.js
+cookies, same convention as auto-pass) — `multiplayerView.js`'s
+`createGame()` applies them via one `setMultiplayerOptions` call right
+after `POST /api/multiplayer/games`, the same host-only route the table
+option rows already use, so nothing new had to be taught to validate them.
+
+Tests: `TestGameFormatThreading` (`test_game_session.py`, 4 — goldfish/
+multiplayer each with and without a format, life/planar-deck/scheme-deck/
+archenemy-life assertions); `TestGameFormatOptions`
+(`test_api_multiplayer.py`, 5 — unknown format 400s, round-trips through
+`/options`, host-only, and two full `/start` runs asserting the *finished*
+session's `state.format`/`state.archenemy_id` — one with an explicit
+Archenemy pick, one defaulting to the host); `TestGameFormats` +
+`TestStartGoldfish.test_game_format_reaches_the_session`
+(`test_api_game.py`, 2); `TestPlayerAssetStoreFavoriteDecks` +
+`TestFavoriteDecksApi` (new `test_player_assets.py`, 8 — the first test
+file for `services/player_assets.py`, sleeves/token-images had none
+either).

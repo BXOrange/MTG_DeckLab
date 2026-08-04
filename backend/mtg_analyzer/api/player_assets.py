@@ -1,4 +1,4 @@
-"""Per-player custom art: token images + card-back "sleeves".
+"""Per-player custom art + preferences: token images, sleeves, favorite decks.
 
 Reference: `services/player_assets.py` module docstring for the storage
 model and why these are keyed by `player_name` rather than a session.
@@ -7,6 +7,8 @@ model and why these are keyed by `player_name` rather than a session.
   ``DELETE .../token-images?token_name=``
 * ``GET/POST/DELETE /api/players/{name}/sleeves[/{sleeve_id}]``
 * ``GET /api/players/{name}/sleeves/{sleeve_id}/image`` — bytes
+* ``GET/POST /api/players/{name}/favorite-decks``,
+  ``DELETE /api/players/{name}/favorite-decks/{deck_id}``
 
 Token names are free text a player chooses (matching a token's display
 name, e.g. "Soldier 1/1") and can contain a literal ``/`` — a path
@@ -27,6 +29,7 @@ import uuid
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 from fastapi.responses import Response
+from pydantic import BaseModel, ConfigDict, Field
 
 from mtg_analyzer.api.dependencies import get_player_asset_store
 from mtg_analyzer.services.player_assets import PlayerAssetStore
@@ -138,4 +141,41 @@ def delete_sleeve(
 ) -> dict[str, bool]:
     if not store.delete_sleeve(player_name, sleeve_id):
         raise HTTPException(404, f'No sleeve "{sleeve_id}" for player "{player_name}"')
+    return {"deleted": True}
+
+
+# -- Favorite decks ------------------------------------------------------
+
+
+class _FavoriteDeckRequest(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    deck_id: str = Field(alias="deckId")
+
+
+@router.get("/{player_name}/favorite-decks")
+def list_favorite_decks(
+    player_name: str, store: PlayerAssetStore = Depends(get_player_asset_store)
+) -> list[str]:
+    return store.list_favorite_decks(player_name)
+
+
+@router.post("/{player_name}/favorite-decks")
+def add_favorite_deck(
+    player_name: str,
+    request: _FavoriteDeckRequest,
+    store: PlayerAssetStore = Depends(get_player_asset_store),
+) -> dict[str, str]:
+    deck_id = request.deck_id.strip()
+    if not deck_id:
+        raise HTTPException(400, "deck_id must not be empty")
+    store.add_favorite_deck(player_name, deck_id)
+    return {"deck_id": deck_id}
+
+
+@router.delete("/{player_name}/favorite-decks/{deck_id}")
+def remove_favorite_deck(
+    player_name: str, deck_id: str, store: PlayerAssetStore = Depends(get_player_asset_store)
+) -> dict[str, bool]:
+    store.remove_favorite_deck(player_name, deck_id)
     return {"deleted": True}

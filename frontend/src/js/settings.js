@@ -14,6 +14,15 @@ const AUTO_PASS_SECONDS_COOKIE = 'mtg_auto_pass_seconds';
 const AUTO_PASS_SCOPE_COOKIE = 'mtg_auto_pass_scope';
 const AUTO_SKIP_EMPTY_COOKIE = 'mtg_auto_skip_empty';
 const SHOW_OPPONENT_HAND_COOKIE = 'mtg_show_opponent_hand';
+//: PLR-13 + "Player Settings" defaults for a *newly created* multiplayer
+//: table (Profil tab) — applied once, right after `POST /api/multiplayer/games`
+//: (see multiplayerView.js's createGame), not read by the engine itself.
+const MP_DEFAULT_FORMAT_COOKIE = 'mtg_mp_default_format';
+const MP_DEFAULT_MULLIGAN_COOKIE = 'mtg_mp_default_mulligan';
+const MP_DEFAULT_SEATS_COOKIE = 'mtg_mp_default_seats';
+const MP_DEFAULT_TAKEBACKS_COOKIE = 'mtg_mp_default_takebacks';
+const MP_DEFAULT_RANDOM_SEATING_COOKIE = 'mtg_mp_default_random_seating';
+const MP_DEFAULT_RANDOM_START_COOKIE = 'mtg_mp_default_random_start';
 const COOKIE_MAX_AGE_DAYS = 365;
 
 //: Multiplayer auto-pass (RULE 117): how long you get to decide whether to
@@ -92,6 +101,36 @@ export function getShowOpponentHand() {
   return getCookie(SHOW_OPPONENT_HAND_COOKIE) === '1';
 }
 
+//: Seats a newly created table opens with, absent a saved preference —
+//: same default `multiplayerView.js`'s "Neues Spiel" form already used.
+export const DEFAULT_MP_SEATS = 2;
+
+export function getMpDefaultFormat() {
+  return getCookie(MP_DEFAULT_FORMAT_COOKIE) || 'commander';
+}
+
+export function getMpDefaultMulliganStyle() {
+  return getCookie(MP_DEFAULT_MULLIGAN_COOKIE) || 'london';
+}
+
+export function getMpDefaultSeats() {
+  const value = Math.floor(Number(getCookie(MP_DEFAULT_SEATS_COOKIE)));
+  return Number.isFinite(value) && value >= 2 && value <= 4 ? value : DEFAULT_MP_SEATS;
+}
+
+export function getMpDefaultTakebacks() {
+  const value = Math.floor(Number(getCookie(MP_DEFAULT_TAKEBACKS_COOKIE)));
+  return Number.isFinite(value) && value >= 0 ? Math.min(value, 20) : 0;
+}
+
+export function getMpDefaultRandomizeSeating() {
+  return getCookie(MP_DEFAULT_RANDOM_SEATING_COOKIE) === '1';
+}
+
+export function getMpDefaultRandomStartingPlayer() {
+  return getCookie(MP_DEFAULT_RANDOM_START_COOKIE) === '1';
+}
+
 export function getSettings() {
   return {
     serverUrl: getServerUrl(),
@@ -101,13 +140,23 @@ export function getSettings() {
     autoPassScope: getAutoPassScope(),
     autoSkipEmpty: getAutoSkipEmpty(),
     showOpponentHand: getShowOpponentHand(),
+    mpDefaultFormat: getMpDefaultFormat(),
+    mpDefaultMulliganStyle: getMpDefaultMulliganStyle(),
+    mpDefaultSeats: getMpDefaultSeats(),
+    mpDefaultTakebacks: getMpDefaultTakebacks(),
+    mpDefaultRandomizeSeating: getMpDefaultRandomizeSeating(),
+    mpDefaultRandomStartingPlayer: getMpDefaultRandomStartingPlayer(),
   };
 }
 
 /**
  * @param {{serverUrl?: string, playerName?: string, autoPass?: boolean,
  *          autoPassSeconds?: number, autoPassScope?: string,
- *          autoSkipEmpty?: boolean, showOpponentHand?: boolean}} patch
+ *          autoSkipEmpty?: boolean, showOpponentHand?: boolean,
+ *          mpDefaultFormat?: string, mpDefaultMulliganStyle?: string,
+ *          mpDefaultSeats?: number, mpDefaultTakebacks?: number,
+ *          mpDefaultRandomizeSeating?: boolean,
+ *          mpDefaultRandomStartingPlayer?: boolean}} patch
  */
 export function saveSettings(patch) {
   if (patch.serverUrl !== undefined) {
@@ -134,6 +183,26 @@ export function saveSettings(patch) {
   }
   if (patch.showOpponentHand !== undefined) {
     setCookie(SHOW_OPPONENT_HAND_COOKIE, patch.showOpponentHand ? '1' : '0', COOKIE_MAX_AGE_DAYS);
+  }
+  if (patch.mpDefaultFormat !== undefined) {
+    setCookie(MP_DEFAULT_FORMAT_COOKIE, patch.mpDefaultFormat, COOKIE_MAX_AGE_DAYS);
+  }
+  if (patch.mpDefaultMulliganStyle !== undefined) {
+    setCookie(MP_DEFAULT_MULLIGAN_COOKIE, patch.mpDefaultMulliganStyle, COOKIE_MAX_AGE_DAYS);
+  }
+  if (patch.mpDefaultSeats !== undefined) {
+    const seats = Math.min(4, Math.max(2, Math.floor(Number(patch.mpDefaultSeats)) || DEFAULT_MP_SEATS));
+    setCookie(MP_DEFAULT_SEATS_COOKIE, String(seats), COOKIE_MAX_AGE_DAYS);
+  }
+  if (patch.mpDefaultTakebacks !== undefined) {
+    const takebacks = Math.min(20, Math.max(0, Math.floor(Number(patch.mpDefaultTakebacks)) || 0));
+    setCookie(MP_DEFAULT_TAKEBACKS_COOKIE, String(takebacks), COOKIE_MAX_AGE_DAYS);
+  }
+  if (patch.mpDefaultRandomizeSeating !== undefined) {
+    setCookie(MP_DEFAULT_RANDOM_SEATING_COOKIE, patch.mpDefaultRandomizeSeating ? '1' : '0', COOKIE_MAX_AGE_DAYS);
+  }
+  if (patch.mpDefaultRandomStartingPlayer !== undefined) {
+    setCookie(MP_DEFAULT_RANDOM_START_COOKIE, patch.mpDefaultRandomStartingPlayer ? '1' : '0', COOKIE_MAX_AGE_DAYS);
   }
   return getSettings();
 }

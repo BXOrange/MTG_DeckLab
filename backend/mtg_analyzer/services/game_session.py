@@ -41,6 +41,7 @@ import uuid
 from typing import Any, Callable, Optional
 
 from mtg_analyzer.models.card import Card
+from mtg_analyzer.models.game_format import get_format
 from mtg_analyzer.models.game_object import GameObject, Zone
 from mtg_analyzer.models.game_state import GameState
 from mtg_analyzer.models.mana_cost import ManaCost
@@ -123,6 +124,7 @@ def build_goldfish_engine(
     starting_life: int = 40,
     starting_hand: int = 7,
     with_dummy: bool = False,
+    game_format: Optional[str] = None,
 ) -> GameEngine:
     """Build a goldfish `GameEngine` and deal an opening hand (UC3).
 
@@ -138,7 +140,17 @@ def build_goldfish_engine(
     Off by default so the low-level builder stays a pure solo engine for
     tests that assert single-player behavior; `GameSessionManager.create_goldfish`
     turns it on for real games.
+
+    ``game_format`` (PLR-13, `models/game_format.py`) picks a RULE 8/9
+    format instead of the bare life/hand numbers above, and sets up its
+    RULE 9 variants (`GameEngine._setup_variants`) — the human is the
+    Archenemy (there's nobody else to be it) and gets the Vanguard avatar
+    when one applies. Applied *before* the opening hand is drawn, since a
+    Vanguard avatar's hand-size modifier has to be settled first.
     """
+    fmt = get_format(game_format) if game_format else None
+    if fmt is not None:
+        starting_life, starting_hand = fmt.starting_life, fmt.starting_hand
     player = Player(id="p1", name=player_name, life=starting_life)
     for card in library:
         obj = GameObject(card, owner_id="p1", zone=Zone.LIBRARY)
@@ -155,7 +167,10 @@ def build_goldfish_engine(
 
     state = GameState(players=players)
     engine = GameEngine(state)
-    player.draw(starting_hand)
+    if fmt is not None:
+        state.format_name = fmt.name
+        engine._setup_variants(fmt, archenemy_id=None)
+    player.draw(max(0, starting_hand + player.hand_size_modifier))
     engine.start()
     return engine
 
@@ -164,6 +179,8 @@ def build_multiplayer_engine(
     seats: list[dict[str, Any]],
     starting_life: int = 40,
     starting_hand: int = 7,
+    game_format: Optional[str] = None,
+    archenemy_id: Optional[str] = None,
 ) -> GameEngine:
     """Build an N-real-player `GameEngine` and deal every opening hand (UC4).
 
@@ -176,7 +193,18 @@ def build_multiplayer_engine(
     Seat order is turn order; the first seat is the starting player (RULE
     103.2 — who goes first is decided in the lobby, by seat order, rather
     than by a die roll the server would have to arbitrate).
+
+    ``game_format``/``archenemy_id`` (PLR-13) mirror `GameEngine.new_game`:
+    a named format overrides the bare life/hand numbers and puts its RULE 9
+    variant state in place (`GameEngine._setup_variants`) — Planechase's
+    shared planar deck, the archenemy's scheme deck (``archenemy_id``
+    names which seat, defaulting to the first/host seat), a Vanguard avatar
+    per seat. Applied before hands are drawn, same reason as the goldfish
+    builder above.
     """
+    fmt = get_format(game_format) if game_format else None
+    if fmt is not None:
+        starting_life, starting_hand = fmt.starting_life, fmt.starting_hand
     players: list[Player] = []
     for seat in seats:
         player = Player(id=str(seat["player_id"]), name=str(seat.get("name") or seat["player_id"]),
@@ -193,8 +221,11 @@ def build_multiplayer_engine(
 
     state = GameState(players=players)
     engine = GameEngine(state)
+    if fmt is not None:
+        state.format_name = fmt.name
+        engine._setup_variants(fmt, archenemy_id)
     for player in players:
-        player.draw(starting_hand)
+        player.draw(max(0, starting_hand + player.hand_size_modifier))
     engine.start()
     return engine
 
@@ -420,12 +451,11 @@ class GameSession:
         #: answered: the scries are queued rather than opened at once because
         #: `GameState` holds exactly one `pending_choice` at a time.
         self._pending_scries: list[str] = []
-        #: RULE 103.6a: every ``(player_id, instance_id)`` opening-hand card
-        #: still owed its "begin the game on the battlefield?" choice
-        #: (`game/ability_catalogue.opening_hand_battlefield_permission`),
-        #: in turn order — same queued-one-at-a-time shape as
-        #: `_pending_scries`, and resolved *before* it (RULE 103.6 precedes
-        #: Vancouver's scry).
+        #: RULE 103.6: every ``(player_id, instance_id)`` opening-hand card
+        #: still owed its "begin the game somewhere else?" choice
+        #: (`game/ability_catalogue.pregame_setup_permission`), in turn
+        #: order — same queued-one-at-a-time shape as `_pending_scries`,
+        #: and resolved *before* it (RULE 103.6 precedes Vancouver's scry).
         self._pending_opening_hand: list[tuple[str, int]] = []
         #: Whether the first RULE 117 priority window is still owed because a
         #: setup-time choice (a Vancouver scry) was open when setup finished.
@@ -1246,20 +1276,36 @@ class GameSession:
         self._advance_to_priority_window()
 
     def _start_opening_hand_choices(self) -> None:
-        """Queue RULE 103.6a's "begin the game on the battlefield?" choice
-        for every opening-hand card that offers it, in turn order.
+        """Queue RULE 103.6's "begin the game somewhere other than your
+        hand?" choice for every opening-hand card that offers it, in turn
+        order.
 
-        Snapshotted once, right after the last keep — a card that's put
-        onto the battlefield this way is simply no longer in that hand for
-        the rest of the queue to reconsider (`_open_next_opening_hand_
-        choice` looks each one up fresh and skips anything that's moved).
+        Snapshotted once, right after the last keep — a card that's moved
+        this way is simply no longer in that hand for the rest of the queue
+        to reconsider (`_open_next_opening_hand_choice` looks each one up
+        fresh and skips anything that's moved). A permission whose own
+        `PregameSetupPermission.condition` is ``"not_starting_player"``
+        (Gemstone Caverns) is checked against `GameState.starting_player_id`
+        here — unmet, the card is left out of the queue entirely rather
+        than offered-and-expected-to-decline, since the printed condition
+        gates whether the choice exists at all, not just its answer.
+        `starting_player_id` is usually still unset this early (turn 1
+        hasn't begun — `turn_loop_mixin` only stamps it there), so this
+        falls back to `active_player_index`'s own default of the first
+        seat, matching `build_goldfish_engine`/`build_multiplayer_engine`'s
+        "seat order is turn order" convention.
         """
+        state = self.engine.state
+        starting_id = state.starting_player_id
+        if starting_id is None and state.players:
+            starting_id = state.players[state.active_player_index].id
         self._pending_opening_hand = [
             (p.id, obj.instance_id)
-            for p in self.engine.state.players
+            for p in state.players
             if not p.is_dummy
             for obj in list(p.hand)
-            if ability_catalogue.opening_hand_battlefield_permission(obj.card)
+            if (permission := ability_catalogue.pregame_setup_permission(obj.card)) is not None
+            if permission.condition != "not_starting_player" or p.id != starting_id
         ]
         self._open_next_opening_hand_choice()
 
@@ -1802,9 +1848,11 @@ class GameSessionManager:
         starting_life: int = 40,
         starting_hand: int = 7,
         mulligan_style: str = "london",
+        game_format: Optional[str] = None,
     ) -> GameSession:
         engine = build_goldfish_engine(
-            library, commanders, player_name, starting_life, starting_hand, with_dummy=True
+            library, commanders, player_name, starting_life, starting_hand,
+            with_dummy=True, game_format=game_format,
         )
         session = GameSession(
             engine,
@@ -1836,6 +1884,8 @@ class GameSessionManager:
         starting_hand: int = 7,
         mulligan_style: str = "london",
         takebacks_per_player: int = 0,
+        game_format: Optional[str] = None,
+        archenemy_id: Optional[str] = None,
     ) -> GameSession:
         """Start an N-real-player game (UC4), one seat per human.
 
@@ -1845,7 +1895,9 @@ class GameSessionManager:
         """
         if len(seats) < 2:
             raise MultiplayerNotImplementedError("a multiplayer game needs at least two seats")
-        engine = build_multiplayer_engine(seats, starting_life, starting_hand)
+        engine = build_multiplayer_engine(
+            seats, starting_life, starting_hand, game_format=game_format, archenemy_id=archenemy_id
+        )
         session = GameSession(
             engine,
             mode=MULTIPLAYER,

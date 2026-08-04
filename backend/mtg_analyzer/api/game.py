@@ -134,10 +134,27 @@ def start_goldfish(
         commanders=commanders,
         starting_life=request.starting_life,
         starting_hand=request.starting_hand,
+        game_format=request.game_format,
     )
     view = session.view()
     view["notFound"] = sorted(set(missing) | set(resolved.not_found))
     return view
+
+
+@router.get("/formats")
+def list_formats() -> dict[str, object]:
+    """The RULE 8/9 formats a game can be started in (PLR-13).
+
+    Backs the format picker on both the Goldfisch start screen and the
+    Multiplayer Setup table options — one endpoint, since a format is the
+    same choice either way (`models/game_format.py`'s `FORMATS`).
+    """
+    from mtg_analyzer.models.game_format import DEFAULT_FORMAT, FORMATS
+
+    return {
+        "formats": [fmt.to_dict() for fmt in FORMATS.values()],
+        "default": DEFAULT_FORMAT,
+    }
 
 
 @router.get("/tokens")

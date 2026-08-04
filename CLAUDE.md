@@ -169,6 +169,20 @@ DFCs keep their genuine Scryfall back-face art, so the sleeve fallback
 has no visible effect yet until a face-down permanent state
 (morph/manifest, not yet modeled) can reach that branch.
 
+The **Profil** tab also carries two smaller per-player preferences
+alongside the player name: **favorite decks** — a starred subset of the
+saved-decks list (`services/player_assets.py`'s third table,
+`favorite_decks`, same `player_name`-keyed storage as sleeves/token
+art — decks aren't owned in this single shared `DeckDatabase`, so the
+star can't live on `Deck` itself) that `goldfishView.js`'s and
+`multiplayerView.js`'s deck pickers list first; and **multiplayer
+default settings** (format, mulligan style, takebacks, RULE 103.1/103.2
+randomization) — purely client-side cookies (`settings.js`, same
+convention as auto-pass in Einstellungen), applied once by
+`multiplayerView.js`'s `createGame()` via the same host-only
+`setMultiplayerOptions` call the table's own option rows use, right
+after a table is created.
+
 A saved `Deck` also carries a free-text, optional `author` field (a
 descriptive credit, not an owner/auth concept — this app still has no user
 accounts) — set on the deck-import/edit tab and shown read-only in the
@@ -551,7 +565,7 @@ on every copy/every game. `parser/oracle/processing_list.py` tracks
 cache-wide coverage and ranks the next handlers worth building. The cache is
 now bulk-loaded with the **full ~34k-card Oracle universe**
 (`scripts/import_bulk.py`), so coverage is measured against that: **28.6%
-covered (9,784 / 34,208) as of 2026-08-04, PARSER_VERSION 51** (parser-`MODELED` **or**
+covered (9,786 / 34,208) as of 2026-08-04, PARSER_VERSION 52** (parser-`MODELED` **or**
 hand-`AUTHORED`).
 Re-measure with `scripts/coverage_report.py` (ledger-backed — see
 `services/coverage_db.py`) before trusting this number; Batches 1–10 are all
@@ -724,10 +738,22 @@ the dungeon idea of a command-zone pool that begins outside the game
 (`game/variants.py`, `services/variant_card_database.py`). The RULE
 809/810/811 **team** variants are deliberately out: they change the turn
 structure itself, so they're a turn-loop/seats project, tracked as `PLR-14`
-rather than as a card type. Note that no API or lobby path passes a
-`game_format` yet, so the RULE 9 variants are engine-complete but reachable
-only from Python (`PLR-13`), and their card *texts* are ordinary parser-tail
-work (`PAR-13`).
+rather than as a card type. A format picker (Commander/Constructed/
+Planechase/Archenemy/Vanguard/Planechase Commander) reaches both the
+Multiplayer **Setup** table options (`LobbyGame.game_format`, host-only,
+`api/multiplayer.py`'s `POST .../options`, plus a host-only RULE 904
+Archenemy seat picker once the format has that variant) and the Goldfisch
+start screen (`StartGoldfishRequest.gameFormat`) — `GET /api/game/formats`
+backs both pickers off the one `models/game_format.FORMATS` catalogue.
+`build_goldfish_engine`/`build_multiplayer_engine` (`services/
+game_session.py`) apply it via `GameEngine._setup_variants`, same as
+`GameEngine.new_game`. A per-seat **Vanguard avatar** picker (every
+Vanguard seat just gets a random avatar) and its avatars' rules text
+beyond the hand-size/life-total modifiers already applied are a
+**permanent non-goal**, not an open ticket — see `docs/implementation-
+state/BACKLOG.md`'s MEC callout: `scripts/import_bulk.py` already drops
+the Scryfall `vanguard` layout from the card cache entirely, so avatar
+text can never reach the parser's coverage ranking regardless.
 
 **Notable gaps** (see `docs/implementation-state/BACKLOG.md` for the full list with exact
 scope on each): a kicked spell's "if kicked, ... instead" *override* conditional (as opposed to the

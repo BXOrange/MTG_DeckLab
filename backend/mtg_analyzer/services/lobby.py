@@ -261,6 +261,15 @@ class LobbyGame:
     #: it, once, when the game is built.
     randomize_seating: bool = False
     random_starting_player: bool = False
+    #: PLR-13: a `models/game_format.py` name — an opaque string here (this
+    #: module is rules-free, same treatment as `mulligan_style`); the API
+    #: layer validates it against `FORMATS` before it ever reaches here.
+    game_format: str = "commander"
+    #: RULE 904: which seat is the Archenemy when `game_format` has that
+    #: variant — a player id, or None for "the host" (`api/multiplayer.py`'s
+    #: `start_game` resolves that default, since this module doesn't know
+    #: which seat is the host beyond `host_id` itself).
+    archenemy_id: Optional[str] = None
     status: str = SETUP
     seats: list[Seat] = field(default_factory=list)
     #: Watchers (RULE-irrelevant): they see the public board and no hands.
@@ -329,6 +338,8 @@ class LobbyGame:
             "takebacks_per_player": self.takebacks_per_player,
             "randomize_seating": self.randomize_seating,
             "random_starting_player": self.random_starting_player,
+            "game_format": self.game_format,
+            "archenemy_id": self.archenemy_id,
             "status": self.status,
             "seats": [s.to_dict() for s in self.seats],
             "observer_ids": list(self.observer_ids),
@@ -736,6 +747,8 @@ class Lobby:
         takebacks_per_player: Optional[int] = None,
         randomize_seating: Optional[bool] = None,
         random_starting_player: Optional[bool] = None,
+        game_format: Optional[str] = None,
+        archenemy_id: Optional[str] = None,
     ) -> LobbyGame:
         """Change the table's shared settings. Host only — everyone else
         accepts them by readying up."""
@@ -756,6 +769,12 @@ class Lobby:
             )
         if takebacks_per_player is not None:
             game.takebacks_per_player = max(0, min(int(takebacks_per_player), MAX_TAKEBACKS_PER_PLAYER))
+        if game_format is not None:
+            game.game_format = game_format
+        if archenemy_id is not None:
+            # "" clears back to the default (the host) — same convention
+            # `set_banner_color` uses None for "not chosen".
+            game.archenemy_id = archenemy_id or None
         self._unready(game)
         return game
 

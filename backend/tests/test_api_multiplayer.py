@@ -270,6 +270,84 @@ class TestLobby:
         assert response.status_code == 404
 
 
+class TestGameFormatOptions:
+    """PLR-13: the format (+ Archenemy seat) picker in Multiplayer Setup."""
+
+    def test_unknown_format_is_rejected(self, env):
+        client = env["client"]
+        ann, bob = _connect(client, "Ann"), _connect(client, "Bob")
+        gid = client.post("/api/multiplayer/games", json={"playerId": ann}).json()["game"]["id"]
+        client.post(f"/api/multiplayer/games/{gid}/join", json={"playerId": bob})
+        response = client.post(
+            f"/api/multiplayer/games/{gid}/options",
+            json={"playerId": ann, "gameFormat": "nonsense"},
+        )
+        assert response.status_code == 400
+
+    def test_format_and_archenemy_round_trip(self, env):
+        client = env["client"]
+        ann, bob = _connect(client, "Ann"), _connect(client, "Bob")
+        gid = client.post("/api/multiplayer/games", json={"playerId": ann}).json()["game"]["id"]
+        client.post(f"/api/multiplayer/games/{gid}/join", json={"playerId": bob})
+        body = client.post(
+            f"/api/multiplayer/games/{gid}/options",
+            json={"playerId": ann, "gameFormat": "archenemy", "archenemyId": bob},
+        ).json()
+        assert body["game"]["game_format"] == "archenemy"
+        assert body["game"]["archenemy_id"] == bob
+
+    def test_only_the_host_can_change_the_format(self, env):
+        client = env["client"]
+        ann, bob = _connect(client, "Ann"), _connect(client, "Bob")
+        gid = client.post("/api/multiplayer/games", json={"playerId": ann}).json()["game"]["id"]
+        client.post(f"/api/multiplayer/games/{gid}/join", json={"playerId": bob})
+        response = client.post(
+            f"/api/multiplayer/games/{gid}/options",
+            json={"playerId": bob, "gameFormat": "planechase"},
+        )
+        assert response.status_code == 400
+
+    def test_starting_an_archenemy_table_applies_it_to_the_real_session(self, env):
+        """The seam PLR-13 actually closes: a lobby setting reaching the
+        engine, not just `build_multiplayer_engine` in isolation (see
+        test_game_session.py's `TestGameFormatThreading` for that half)."""
+        client, decks = env["client"], env["decks"]
+        ann, bob = _connect(client, "Ann"), _connect(client, "Bob")
+        deck = _legal_deck(decks)
+        gid = client.post("/api/multiplayer/games", json={"playerId": ann}).json()["game"]["id"]
+        client.post(f"/api/multiplayer/games/{gid}/join", json={"playerId": bob})
+        client.post(
+            f"/api/multiplayer/games/{gid}/options",
+            json={"playerId": ann, "gameFormat": "archenemy", "archenemyId": bob},
+        )
+        for pid in (ann, bob):
+            client.post(f"/api/multiplayer/games/{gid}/deck", json={"playerId": pid, "deckId": deck.id})
+        for pid in (ann, bob):
+            client.post(f"/api/multiplayer/games/{gid}/ready", json={"playerId": pid})
+        body = client.post(f"/api/multiplayer/games/{gid}/start", json={"playerId": ann}).json()
+        state = body["view"]["state"]
+        assert state["format"] == "archenemy"
+        assert state["archenemy_id"] == bob
+        bob_player = next(p for p in state["players"] if p["id"] == bob)
+        assert bob_player["life"] == 40  # RULE 904.4
+
+    def test_archenemy_defaults_to_the_host_when_not_chosen(self, env):
+        client, decks = env["client"], env["decks"]
+        ann, bob = _connect(client, "Ann"), _connect(client, "Bob")
+        deck = _legal_deck(decks)
+        gid = client.post("/api/multiplayer/games", json={"playerId": ann}).json()["game"]["id"]
+        client.post(f"/api/multiplayer/games/{gid}/join", json={"playerId": bob})
+        client.post(
+            f"/api/multiplayer/games/{gid}/options", json={"playerId": ann, "gameFormat": "archenemy"}
+        )
+        for pid in (ann, bob):
+            client.post(f"/api/multiplayer/games/{gid}/deck", json={"playerId": pid, "deckId": deck.id})
+        for pid in (ann, bob):
+            client.post(f"/api/multiplayer/games/{gid}/ready", json={"playerId": pid})
+        body = client.post(f"/api/multiplayer/games/{gid}/start", json={"playerId": ann}).json()
+        assert body["view"]["state"]["archenemy_id"] == ann  # Ann is the host
+
+
 class TestBannerColors:
     """A seat's cosmetic banner colour (`Seat.banner_color`, UC4 Setup)."""
 

@@ -334,6 +334,15 @@ export async function endGame(sessionId) {
   return gameRequest('DELETE', `/api/game/${encodeURIComponent(sessionId)}`);
 }
 
+/**
+ * The RULE 8/9 formats a game can be started in (PLR-13) — shared by the
+ * Goldfisch start screen and the Multiplayer Setup table options.
+ * @returns {Promise<{ok: boolean, status: number, data: {formats: Array<{name, label, starting_life, starting_hand, singleton, variants}>, default: string}|null}>}
+ */
+export async function fetchGameFormats() {
+  return gameRequest('GET', '/api/game/formats');
+}
+
 // --- Multiplayer lobby + shared games (UC4) -------------------------------
 // Backend: mtg_analyzer/api/multiplayer.py. Same {ok, status, data} shape as
 // the game-session helpers above. Every call identifies the caller by the
@@ -576,6 +585,38 @@ export async function uploadSleeve(playerName, label, file) {
 /** @returns {Promise<boolean>} whether it was actually deleted */
 export async function deleteSleeve(playerName, sleeveId) {
   return deleteRequest(`/api/players/${encodeURIComponent(playerName)}/sleeves/${encodeURIComponent(sleeveId)}`);
+}
+
+// -- Favorite decks (Profil tab) ---------------------------------------------
+// Starred `Deck.id`s, per player name — read by savedDecksView.js's siblings
+// (goldfishView.js/multiplayerView.js) to list favorites first.
+
+/** @returns {Promise<string[] | null>} deck ids, null on failure */
+export async function listFavoriteDecks(playerName) {
+  let response;
+  try {
+    response = await fetch(`${getServerUrl()}/api/players/${encodeURIComponent(playerName)}/favorite-decks`);
+  } catch {
+    return null;
+  }
+  if (!response.ok) return null;
+  try {
+    return await response.json();
+  } catch {
+    return null;
+  }
+}
+
+/** @returns {Promise<{ok: boolean, status: number, data: object|null}>} */
+export async function addFavoriteDeck(playerName, deckId) {
+  return gameRequest('POST', `/api/players/${encodeURIComponent(playerName)}/favorite-decks`, { deckId: deckId });
+}
+
+/** @returns {Promise<boolean>} whether it was actually removed */
+export async function removeFavoriteDeck(playerName, deckId) {
+  return deleteRequest(
+    `/api/players/${encodeURIComponent(playerName)}/favorite-decks/${encodeURIComponent(deckId)}`
+  );
 }
 
 async function uploadRequest(path, form) {

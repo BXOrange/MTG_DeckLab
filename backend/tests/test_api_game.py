@@ -120,6 +120,36 @@ class TestStartGoldfish:
         assert response.status_code == 422
         assert "Forest" in response.json()["detail"]["notFound"]
 
+    def test_game_format_reaches_the_session(self):
+        # PLR-13: a goldfish game can start in a RULE 9 variant format, not
+        # just Commander — Planechase Commander's 40 life plus a face-up
+        # plane is the visible sign the format actually applied.
+        _setup()
+        client = TestClient(app)
+        response = client.post(
+            "/api/game/goldfish", json={**LEGAL_DECK, "gameFormat": "planechase_commander"}
+        )
+        assert response.status_code == 200
+        state = response.json()["state"]
+        assert state["format"] == "planechase_commander"
+        assert state["players"][0]["life"] == 40
+        assert state["planar_deck_count"] > 0
+
+
+class TestGameFormats:
+    def teardown_method(self):
+        _teardown()
+
+    def test_lists_the_format_catalogue(self):
+        _setup()
+        client = TestClient(app)
+        response = client.get("/api/game/formats")
+        assert response.status_code == 200
+        body = response.json()
+        assert body["default"] == "commander"
+        names = {f["name"] for f in body["formats"]}
+        assert {"commander", "planechase", "archenemy", "vanguard"} <= names
+
 
 class TestDeckTokens:
     def teardown_method(self):

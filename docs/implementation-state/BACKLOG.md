@@ -42,15 +42,35 @@ Plan-level sequencing lives in
   (904) plane/scheme card *bodies* live here too (13/309 measured
   2026-08-04) — their trigger conditions are recognized, but the bodies are
   exotic even by tail standards, so this is ordinary long-tail work with a
-  known card list, not a distinct gap. (Reaching a Planechase/Archenemy
-  table at all is a separate, non-parser gap: [PLR-13].)
+  known card list, not a distinct gap. (Reaching a Planechase/Archenemy/
+  Vanguard table at all is wired up end to end — Setup's format picker,
+  `services/lobby.py`, `api/multiplayer.py`/`api/game.py` — see
+  Done_Backend.md "PLR-13". Vanguard's own remaining piece — a per-seat
+  avatar picker, and its avatars' card text — is a permanent non-goal, not
+  a queued gap; see the MEC callout below.)
 
 ## MEC — Game mechanics
 
-> **Permanent non-goals** (never to be built, not gaps): Stickers (RULE 123)
-> — `gate.parse_oracle` classifies these `NEVER_SUPPORTED`, a verdict kept
-> out of both the coverage count and the backlog ranking — and Attractions
-> (RULE 717).
+> **Permanent non-goals** (never to be built, not gaps): Stickers (RULE
+> 123) and Attractions (RULE 717) — `gate.parse_oracle` classifies mentions
+> of the former `NEVER_SUPPORTED`, a verdict kept out of both the coverage
+> count and the backlog ranking. **Vanguard (RULE 902) beyond its already-
+> shipped hand-size/life-total modifiers** — its ~107 avatars are a small,
+> long-retired supplemental-product pool (not a real deck, no set is
+> designed around it today), so neither a per-seat avatar picker (every
+> seat just gets a random avatar — the modifiers apply regardless of which
+> one) nor parser handlers for individual avatars' extra rules text will be
+> built. Structurally enforced already, not just documented:
+> `scripts/import_bulk.py`'s `_SKIP_LAYOUTS` drops the Scryfall `vanguard`
+> layout from `cache/db/cards.db` entirely (0 of the 34,208 cached cards),
+> so avatar text can never surface in `coverage_report.py`/
+> `processing_list.py`'s ranking in the first place — the committed
+> `services/variant_card_database.py` pool they live in instead is never
+> read by either. `game/effect_binder.bind_from_catalogue` still binds
+> whatever a general-purpose handler happens to already recognize when an
+> avatar is actually boarded (RULE 902.2), same as any other unregistered
+> card — that's ordinary runtime behavior, not scheduled work, and needs no
+> special-casing to stay that way.
 
 ## PLR — Player management
 
@@ -71,17 +91,6 @@ Plan-level sequencing lives in
   storage + attachment to API/WebSocket calls, browser-refresh reconnect
   flow (docs/04 S1), and login/signup pages. Saved decks are unscoped until
   this exists — anyone hitting the API sees every deck.
-- **PLR-13 · No format switch at the table.** `GameEngine.new_game` takes a
-  `game_format=` (`models/game_format.py`, `game/variants.py`), but nothing
-  in `api/` or `services/` ever passes one — so Planechase, Archenemy and
-  Vanguard are engine-complete and *unreachable from the UI*, playable only
-  from Python. Needs a format picker in the Multiplayer **Setup** lobby
-  (`LobbyGame`, alongside the mulligan style — plus per-seat avatar choice
-  for Vanguard and who's the archenemy for 904) threaded through
-  `api/multiplayer.py`'s session build, and the same switch on the goldfish
-  side. Frontend halves: the board's Planechase strip and the variant
-  badges already exist and render off the session view. Card *text* for
-  those formats is a separate, parser-side gap: [PAR-13].
 - **PLR-14 · Team variants (RULE 809/810/811).** Two-Headed Giant, Emperor
   and Grand Melee are the part of CR 8 that `models/game_format.py`
   deliberately doesn't model: unlike the RULE 9 variants (which add a card
@@ -90,7 +99,8 @@ Plan-level sequencing lives in
   team" in combat, RULE 810.8's shared damage assignment. That's a turn-loop
   and combat project, not a format record. The seats it needs exist now (a
   table opens for up to four), so what's left is genuinely the turn loop;
-  [PLR-13] to be selectable once built.
+  reaching it from the UI follows the same already-shipped format-picker
+  pattern the RULE 9 variants use (Done_Backend.md "PLR-13").
 
 ## VIS — Visuals
 

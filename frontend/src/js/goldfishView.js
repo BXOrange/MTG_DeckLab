@@ -22,6 +22,8 @@ import {
   listTokenImages,
   tokenImageUrl,
   sleeveImageUrl,
+  fetchGameFormats,
+  listFavoriteDecks,
 } from './api.js';
 import { getPlayerName } from './settings.js';
 import { preloadCardImages, cacheResolvedCard } from './cardImages.js';
@@ -67,6 +69,14 @@ export function createGoldfishView() {
   let selectedDeckId = '';
   let selectedValidation = null; // {isLegal, errors, ...} | null
   let validating = false;
+  //: This player's starred deck ids (Profil tab) — sorts the picker above,
+  //: favorites first. Fetched alongside the deck list; empty when no player
+  //: name is set (there's nothing to key favorites by).
+  let favoriteDeckIds = new Set();
+  //: PLR-13: the RULE 8/9 format this goldfish game starts in (GET
+  //: /api/game/formats), 'commander' until the catalogue has loaded.
+  let gameFormats = null; // null = not loaded yet
+  let selectedFormat = 'commander';
 
   // The shared interactive board (advance/cast/attack/tap/stack/rewind).
   // "Neu starten" isn't one of its built-ins — a goldfish restart can land
@@ -98,6 +108,7 @@ export function createGoldfishView() {
     root = el;
     board.mount(el);
     if (!view && savedDecks === null) loadDecks();
+    if (!view && gameFormats === null) loadFormats();
     render();
   }
 
@@ -105,6 +116,7 @@ export function createGoldfishView() {
   // so newly-saved decks appear, but don't disturb a running game.
   function onShown() {
     if (!view) loadDecks();
+    if (!view && gameFormats === null) loadFormats();
   }
 
   function setStatus(text, kind = '') {
@@ -117,14 +129,28 @@ export function createGoldfishView() {
   async function loadDecks() {
     decksLoading = true;
     render();
-    const decks = await listSavedDecks();
+    const playerName = getPlayerName();
+    const [decks, favorites] = await Promise.all([
+      listSavedDecks(),
+      playerName ? listFavoriteDecks(playerName) : Promise.resolve([]),
+    ]);
     decksLoading = false;
     savedDecks = decks || [];
+    favoriteDeckIds = new Set(favorites || []);
     // Keep a valid selection; validate it if still present.
     if (selectedDeckId && !savedDecks.some((d) => d.id === selectedDeckId)) {
       selectedDeckId = '';
       selectedValidation = null;
     }
+    render();
+  }
+
+  // PLR-13: the format catalogue for the picker (GET /api/game/formats) —
+  // deck-independent, fetched once per mount like `loadDecks`.
+  async function loadFormats() {
+    const res = await fetchGameFormats();
+    gameFormats = res.ok ? res.data?.formats || [] : [];
+    if (res.ok && res.data?.default) selectedFormat = res.data.default;
     render();
   }
 
@@ -179,7 +205,7 @@ export function createGoldfishView() {
     await loadPlayerAssets(deck);
 
     await withBusy('Spiel wird gestartet …', async () => {
-      const res = await startGoldfish({ deckId: selectedDeckId, shuffle: true });
+      const res = await startGoldfish({ deckId: selectedDeckId, shuffle: true, gameFormat: selectedFormat });
       if (res.ok) {
         applyView(res.data);
         const notFound = res.data.notFound || [];
@@ -459,6 +485,13 @@ export function createGoldfishView() {
           <button id="gf-refresh-decks" type="button" title="Deckliste neu laden">⟳</button>
         </div>
 
+        <div class="gf-deck-picker">
+          <label for="gf-format-select">Format</label>
+          <select id="gf-format-select" ${gameFormats === null ? 'disabled' : ''}>
+            ${formatOptionsHtml()}
+          </select>
+        </div>
+
         ${deckLegalityHtml()}
 
         <button id="gf-start-btn" type="button" class="primary" ${canStart ? '' : 'disabled'}>
@@ -470,7 +503,20 @@ export function createGoldfishView() {
     const select = root.querySelector('#gf-deck-select');
     select?.addEventListener('change', (e) => selectDeck(e.target.value));
     root.querySelector('#gf-refresh-decks')?.addEventListener('click', loadDecks);
+    root.querySelector('#gf-format-select')?.addEventListener('change', (e) => {
+      selectedFormat = e.target.value;
+    });
     root.querySelector('#gf-start-btn')?.addEventListener('click', start);
+  }
+
+  // Favorites (Profil tab) first, alphabetical order preserved within each
+  // group — `Array.prototype.sort` is stable, so ties keep the server's
+  // original order rather than being re-sorted by name.
+  function decksFavoritesFirst() {
+    if (!savedDecks) return [];
+    return [...savedDecks].sort(
+      (a, b) => (favoriteDeckIds.has(b.id) ? 1 : 0) - (favoriteDeckIds.has(a.id) ? 1 : 0),
+    );
   }
 
   function deckOptionsHtml() {
@@ -479,12 +525,21 @@ export function createGoldfishView() {
       return '<option value="">— keine gespeicherten Decks —</option>';
     }
     const options = ['<option value="">— Deck wählen —</option>'];
-    for (const d of savedDecks) {
+    for (const d of decksFavoritesFirst()) {
       const name = (d.name || '').trim() || 'Unbenanntes Deck';
+      const label = favoriteDeckIds.has(d.id) ? `★ ${name}` : name;
       const selected = d.id === selectedDeckId ? ' selected' : '';
-      options.push(`<option value="${escapeHtml(d.id)}"${selected}>${escapeHtml(name)}</option>`);
+      options.push(`<option value="${escapeHtml(d.id)}"${selected}>${escapeHtml(label)}</option>`);
     }
     return options.join('');
+  }
+
+  function formatOptionsHtml() {
+    if (gameFormats === null) return '<option>Lädt …</option>';
+    if (!gameFormats.length) return '<option value="commander">Commander</option>';
+    return gameFormats
+      .map((f) => `<option value="${escapeHtml(f.name)}"${f.name === selectedFormat ? ' selected' : ''}>${escapeHtml(f.label)}</option>`)
+      .join('');
   }
 
   function deckLegalityHtml() {

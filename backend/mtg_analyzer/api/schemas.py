@@ -69,6 +69,10 @@ class StartGoldfishRequest(BaseModel):
     starting_life: int = Field(default=40, alias="startingLife")
     starting_hand: int = Field(default=7, alias="startingHand")
     shuffle: bool = True
+    #: PLR-13: a `models/game_format.py` name (Commander/Planechase/…).
+    #: Overrides startingLife/startingHand and sets up that format's RULE 9
+    #: variant state; omitted/unknown falls back to Commander.
+    game_format: Optional[str] = Field(default=None, alias="gameFormat")
 
 
 class DeckTokensRequest(BaseModel):
@@ -214,6 +218,12 @@ class MultiplayerOptionsRequest(MultiplayerPlayerRequest):
     #: RULE 103.1/103.2 — see `LobbyGame.seating_order`.
     randomize_seating: Optional[bool] = Field(default=None, alias="randomizeSeating")
     random_starting_player: Optional[bool] = Field(default=None, alias="randomStartingPlayer")
+    #: PLR-13: a `models/game_format.py` name — validated against `FORMATS`
+    #: here (unlike the lobby, which stores it as an opaque string).
+    game_format: Optional[str] = Field(default=None, alias="gameFormat")
+    #: RULE 904: which seat is the Archenemy, when the format has that
+    #: variant. A player id, or None for "the host" (`LobbyGame`'s default).
+    archenemy_id: Optional[str] = Field(default=None, alias="archenemyId")
 
 
 class MultiplayerReadyRequest(MultiplayerPlayerRequest):

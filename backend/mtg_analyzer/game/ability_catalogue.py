@@ -27,7 +27,8 @@ is the same split again, for Kicker's own ``{X}`` payment restriction
 (card)` is the same split for RULE 103.6a's "you may begin the game with
 it on the battlefield" pregame permission (`parser.oracle.catalogue.
 opening_hand`, PLR-11), resolved by `services/game_session.py`'s
-opening-hand handling.
+opening-hand handling; `pregame_setup_permission(card)` generalizes it to
+that module's conditional/graveyard shapes (Gemstone Caverns/Buried Ogre).
 """
 
 from __future__ import annotations
@@ -41,6 +42,8 @@ from ..parser.oracle.catalogue.kicker_mana import kicker_x_mana_restriction as _
 from ..parser.oracle.catalogue.lands import land_tap_condition as _land_tap_condition
 from ..parser.oracle.catalogue.opening_hand import (
     opening_hand_battlefield_permission as _opening_hand_battlefield_permission,
+    PregameSetupPermission,
+    pregame_setup_permission as _pregame_setup_permission,
 )
 from ..parser.oracle.gate import parse_oracle
 from ..parser.oracle.spec import AbilitySpec, EffectSpec
@@ -177,6 +180,25 @@ def opening_hand_battlefield_permission(card: Any) -> bool:
     `land_tap_condition`/`entry_counters` use.
     """
     return _opening_hand_battlefield_permission(card)
+
+
+def pregame_setup_permission(card: Any) -> Optional[PregameSetupPermission]:
+    """``card``'s RULE 103.6 pregame setup permission, generalizing
+    `opening_hand_battlefield_permission` above to the two conditional/
+    costed shapes it deliberately left unclaimed: Gemstone Caverns'
+    "...and you're not the starting player...with a luck counter on it. If
+    you do, exile a card from your hand." and Buried Ogre's "...in your
+    graveyard. If you do, you lose N life." — or ``None`` if ``card`` has
+    no pregame setup permission at all.
+
+    Delegates to `parser.oracle.catalogue.opening_hand` (the coverage
+    gate's single source of truth for these clause shapes), the same split
+    `land_tap_condition`/`entry_counters` use. `services/game_session.py`'s
+    opening-hand handling reads this instead of the plain boolean above so
+    it can check a permission's own `PregameSetupPermission.condition`
+    against who the starting player is before ever queuing the choice.
+    """
+    return _pregame_setup_permission(card)
 
 
 def kicker_x_mana_restriction(card: Any) -> Optional[str]:

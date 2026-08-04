@@ -141,9 +141,14 @@ intuition, and bump `PARSER_VERSION` in the same session you add a handler.
   engine takes a `game_format`, no UI passes one). The RULE 809/810/811
   **team** variants are likewise a seats-and-turn-loop project, [PLR-14],
   wanting [PLR-13] first.
-- **Permanent non-goals, not gaps:** Stickers (123) and Attractions (717).
-  Neither will be implemented; stickers are enforced at the parser level as
-  a `NEVER_SUPPORTED` verdict distinct from `UNMODELED`.
+- **Permanent non-goals, not gaps:** Stickers (123) and Attractions (717) —
+  neither will be implemented; stickers are enforced at the parser level as
+  a `NEVER_SUPPORTED` verdict distinct from `UNMODELED`. Vanguard (902)
+  beyond its already-shipped hand-size/life-total modifiers — no per-seat
+  avatar picker, no parser handlers for individual avatars' rules text;
+  its ~107 avatars are already excluded from the card cache entirely
+  (`scripts/import_bulk.py`'s `_SKIP_LAYOUTS`), so they can't reach the
+  parser's coverage ranking regardless. See BACKLOG.md's MEC callout.
 
 ### M7 — Product features (parallel track, no rules-engine dependency)
 

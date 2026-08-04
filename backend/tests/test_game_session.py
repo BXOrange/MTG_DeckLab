@@ -406,6 +406,160 @@ class TestOpeningHandBattlefieldPermission:
         assert view["pending_choice"] is None
 
 
+def gemstone_caverns_card(name="Test Gemstone Caverns"):
+    """Gemstone Caverns' shape: conditional ("not the starting player"),
+    battlefield + a named counter, and a mandatory "if you do, exile a
+    card from your hand" tail."""
+    return Card(
+        id=name,
+        name=name,
+        type_line="Land",
+        oracle_text=(
+            f"If this card is in your opening hand and you're not the "
+            f"starting player, you may begin the game with {name} on the "
+            f"battlefield with a luck counter on it. If you do, exile a "
+            f"card from your hand."
+        ),
+    )
+
+
+def buried_ogre_card(name="Test Buried Ogre"):
+    """Buried Ogre's shape: unconditional, graveyard-destination, with a
+    mandatory "if you do, you lose N life" tail."""
+    return Card(
+        id=name,
+        name=name,
+        type_line="Creature — Ogre",
+        mana_cost_string="{3}{B}",
+        converted_mana_cost=4,
+        is_creature=True,
+        power=4,
+        toughness=2,
+        oracle_text=(
+            f"You may begin the game with {name} in your graveyard. "
+            f"If you do, you lose 1 life."
+        ),
+    )
+
+
+class TestPregameSetupPermission:
+    """PLR-11's own follow-up: the two conditional/costed pregame-setup
+    shapes deliberately left unclaimed at the time — Gemstone Caverns
+    (conditional battlefield entry + counter + exile cost) and Buried
+    Ogre (graveyard destination + life-loss cost).
+    """
+
+    def test_graveyard_destination_moves_it_there(self):
+        # Unconditional (no starting-player gate), so a solo goldfish game
+        # — where the lone human is always the starting player — still
+        # offers it.
+        manager = GameSessionManager()
+        library = [land()] * 29 + [buried_ogre_card()]
+        session = manager.create_goldfish(library=library)
+        session.apply_action({"type": "keep_hand", "bottom_instance_ids": []})
+        player = session.engine.state.active_player
+        ogre = next(o for o in player.hand if o.card.name == "Test Buried Ogre")
+        life_before = player.life
+        view = session.apply_action({"type": "choose", "option_id": "graveyard"})
+        assert view["pending_choice"] is None
+        assert ogre not in player.hand
+        assert ogre in player.graveyard
+        assert ogre not in session.engine.state.battlefield
+        assert player.life == life_before - 1
+
+    def test_graveyard_decline_leaves_it_in_hand_at_full_life(self):
+        manager = GameSessionManager()
+        library = [land()] * 29 + [buried_ogre_card()]
+        session = manager.create_goldfish(library=library)
+        session.apply_action({"type": "keep_hand", "bottom_instance_ids": []})
+        player = session.engine.state.active_player
+        life_before = player.life
+        view = session.apply_action({"type": "decline"})
+        assert view["pending_choice"] is None
+        assert any(o.card.name == "Test Buried Ogre" for o in player.hand)
+        assert player.life == life_before
+
+    def _multiplayer(self, bob_extra_cards):
+        """Ann seated first (the starting player, RULE 103.2 — "seat order
+        is turn order"), Bob second — so a Gemstone-Caverns-shaped card in
+        Bob's hand qualifies for the "not the starting player" condition
+        while the identical card would not in Ann's."""
+        manager = GameSessionManager()
+        ann_library = [land()] * 30
+        bob_library = [land()] * (30 - len(bob_extra_cards)) + list(bob_extra_cards)
+        session = manager.create_multiplayer(
+            [
+                {"player_id": "ann", "name": "Ann", "library": ann_library},
+                {"player_id": "bob", "name": "Bob", "library": bob_library},
+            ],
+        )
+        session.apply_action({"type": "keep_hand", "bottom_instance_ids": []}, actor_id="ann")
+        session.apply_action({"type": "keep_hand", "bottom_instance_ids": []}, actor_id="bob")
+        return session
+
+    def test_conditional_battlefield_offered_to_non_starting_player_only(self):
+        session = self._multiplayer([gemstone_caverns_card()])
+        state = session.engine.state
+        assert state.starting_player_id in (None, "ann")  # Ann is seat 0
+        choice = state.pending_choice
+        assert choice is not None
+        assert choice["kind"] == "opening_hand_battlefield"
+        assert choice["player_id"] == "bob"
+        assert {o["id"] for o in choice["options"]} == {"battlefield", "decline"}
+
+    def test_conditional_battlefield_not_offered_to_the_starting_player(self):
+        # The identical card, in Ann's (the starting player's) hand
+        # instead — RULE 103.6a's own "and you're not the starting player"
+        # condition means it's never queued at all, not offered-then-
+        # expected-to-decline.
+        manager = GameSessionManager()
+        ann_library = [land()] * 29 + [gemstone_caverns_card()]
+        bob_library = [land()] * 30
+        session = manager.create_multiplayer(
+            [
+                {"player_id": "ann", "name": "Ann", "library": ann_library},
+                {"player_id": "bob", "name": "Bob", "library": bob_library},
+            ],
+        )
+        session.apply_action({"type": "keep_hand", "bottom_instance_ids": []}, actor_id="ann")
+        session.apply_action({"type": "keep_hand", "bottom_instance_ids": []}, actor_id="bob")
+        assert session.engine.state.pending_choice is None
+
+    def test_accepting_enters_with_the_counter_then_asks_which_card_to_exile(self):
+        session = self._multiplayer([gemstone_caverns_card()])
+        bob = session.engine.state.player_by_id("bob")
+        gemstone = next(o for o in bob.hand if o.card.name == "Test Gemstone Caverns")
+        other_hand_card = next(o for o in bob.hand if o is not gemstone)
+        view = session.apply_action(
+            {"type": "choose", "option_id": "battlefield"}, actor_id="bob"
+        )
+        assert gemstone not in bob.hand
+        assert gemstone in session.engine.state.battlefield
+        assert gemstone.counters.get("luck") == 1
+        # The mandatory "if you do, exile a card from your hand" tail opened
+        # its own interactive choice — which card is Bob's to pick.
+        choice = view["pending_choice"]
+        assert choice["kind"] == "choose_objects"
+        assert choice["action"] == "exile"
+        option_ids = {o["id"] for o in choice["options"]}
+        assert str(other_hand_card.instance_id) in option_ids
+        assert str(gemstone.instance_id) not in option_ids
+        view = session.apply_action(
+            {"type": "choose", "instance_id": other_hand_card.instance_id}, actor_id="bob"
+        )
+        assert view["pending_choice"] is None
+        assert other_hand_card not in bob.hand
+        assert other_hand_card in bob.exile
+
+    def test_declining_leaves_it_in_hand_with_no_exile(self):
+        session = self._multiplayer([gemstone_caverns_card()])
+        bob = session.engine.state.player_by_id("bob")
+        hand_before = set(bob.hand)
+        view = session.apply_action({"type": "decline"}, actor_id="bob")
+        assert view["pending_choice"] is None
+        assert set(bob.hand) == hand_before
+
+
 class TestActions:
     def _advance_to_main1(self, session):
         advance_until(session, step="main1")
@@ -728,3 +882,55 @@ class TestManager:
         manager = GameSessionManager()
         with pytest.raises(MultiplayerNotImplementedError):
             manager.create_multiplayer([])
+
+
+class TestGameFormatThreading:
+    """PLR-13: `create_goldfish`/`create_multiplayer` reach `GameEngine.
+    _setup_variants` through their own `build_*_engine` (which don't go
+    through `GameEngine.new_game`), not just through it."""
+
+    def test_goldfish_no_format_is_unchanged(self):
+        manager = GameSessionManager()
+        session = manager.create_goldfish(library=[land()] * 30)
+        assert session.engine.state.format_name == "commander"
+        assert session.engine.state.planar_deck == []
+
+    def test_goldfish_planechase_commander_sets_life_and_planar_deck(self):
+        manager = GameSessionManager()
+        session = manager.create_goldfish(
+            library=[land()] * 40, game_format="planechase_commander"
+        )
+        state = session.engine.state
+        assert state.format_name == "planechase_commander"
+        me = next(p for p in state.players if not p.is_dummy)
+        assert me.life == 40
+        assert len(state.planar_deck) > 0
+
+    def test_multiplayer_archenemy_sets_the_named_seat(self):
+        manager = GameSessionManager()
+        session = manager.create_multiplayer(
+            [
+                {"player_id": "ann", "name": "Ann", "library": [land()] * 30},
+                {"player_id": "bob", "name": "Bob", "library": [land()] * 30},
+            ],
+            game_format="archenemy",
+            archenemy_id="bob",
+        )
+        state = session.engine.state
+        assert state.archenemy_id == "bob"
+        bob = next(p for p in state.players if p.id == "bob")
+        ann = next(p for p in state.players if p.id == "ann")
+        assert bob.life == 40  # RULE 904.4
+        assert ann.life == 20
+        assert len(bob.scheme_deck) > 0
+
+    def test_multiplayer_no_format_is_unchanged(self):
+        manager = GameSessionManager()
+        session = manager.create_multiplayer(
+            [
+                {"player_id": "ann", "name": "Ann", "library": [land()] * 30},
+                {"player_id": "bob", "name": "Bob", "library": [land()] * 30},
+            ],
+        )
+        assert session.engine.state.format_name == "commander"
+        assert session.engine.state.archenemy_id is None

@@ -24,9 +24,11 @@ import {
   createMultiplayerGame,
   exportReplay,
   fetchBotKinds,
+  fetchGameFormats,
   fetchMultiplayerGame,
   joinMultiplayerGame,
   leaveMultiplayerGame,
+  listFavoriteDecks,
   listSavedDecks,
   observeMultiplayerGame,
   removeMultiplayerBot,
@@ -42,7 +44,15 @@ import {
   sleeveImageUrl,
 } from './api.js';
 import { connectLobbySocket } from './lobbySocket.js';
-import { getPlayerName } from './settings.js';
+import {
+  getPlayerName,
+  getMpDefaultFormat,
+  getMpDefaultMulliganStyle,
+  getMpDefaultSeats,
+  getMpDefaultTakebacks,
+  getMpDefaultRandomizeSeating,
+  getMpDefaultRandomStartingPlayer,
+} from './settings.js';
 import { createGameBoardView } from './gameBoardView.js';
 import { analysisHtml } from './gameStats.js';
 import { getState, setState } from './state.js';
@@ -92,10 +102,16 @@ export function createMultiplayerView(hooks = {}) {
   /** The latest session view for this seat — already redacted server-side. */
   let view = null;
   let savedDecks = null;
+  //: This player's starred deck ids (Profil tab) — deckOptionsHtml() lists
+  //: them first, same convention as goldfishView.js's picker.
+  let favoriteDeckIds = new Set();
   //: The bot kinds the server offers (GET /api/multiplayer/bots), fetched
   //: once — they're a property of the backend, not of this table.
   let botKinds = null;
   let botKindToAdd = '';
+  //: PLR-13: the RULE 8/9 format catalogue (GET /api/game/formats), fetched
+  //: once like `botKinds` — a property of the backend, not of this table.
+  let gameFormats = null;
   //: Which seat's banner-colour picker is currently unfolded (a seat's
   //: `player_id`, or null). Only one at a time, and never persisted — it's
   //: a disclosure toggle on a row, not a setting.
@@ -104,9 +120,9 @@ export function createMultiplayerView(hooks = {}) {
   let statusKind = '';
   let busy = false;
   let newGameName = '';
-  //: Seats the "Spiel erstellen" form asks for (2-4). Two by default, which
-  //: is what a quick game between two people wants.
-  let newGameSeats = 2;
+  //: Seats the "Spiel erstellen" form asks for (2-4) — this player's saved
+  //: default (Profil tab) until they change it for one particular table.
+  let newGameSeats = getMpDefaultSeats();
   //: Notes about *this* client's connection and about the other players',
   //: shown as banners. Kept apart because they mean different things: one
   //: is "you dropped", the other "someone else did, keep playing".
@@ -280,6 +296,7 @@ export function createMultiplayerView(hooks = {}) {
     socket?.setPresence('available');
     if (savedDecks === null) loadDecks();
     if (botKinds === null) loadBotKinds();
+    if (gameFormats === null) loadFormats();
     // At a running table with nothing to draw — the pushes for it went to a
     // connection we no longer have (a reload), or the socket dropped and
     // reconnected. Pull the current position once instead of sitting on an
@@ -397,7 +414,13 @@ export function createMultiplayerView(hooks = {}) {
   }
 
   async function loadDecks() {
-    savedDecks = (await listSavedDecks()) || [];
+    const name = getPlayerName();
+    const [decks, favorites] = await Promise.all([
+      listSavedDecks(),
+      name ? listFavoriteDecks(name) : Promise.resolve([]),
+    ]);
+    savedDecks = decks || [];
+    favoriteDeckIds = new Set(favorites || []);
     renderSetup();
   }
 
@@ -406,6 +429,14 @@ export function createMultiplayerView(hooks = {}) {
     const res = await fetchBotKinds();
     botKinds = res.ok ? res.data?.bots || [] : [];
     if (!botKindToAdd && botKinds.length) botKindToAdd = botKinds[0].kind;
+    renderSetup();
+  }
+
+  // PLR-13: the format catalogue for the table-options picker.
+  async function loadFormats() {
+    gameFormats = []; // don't re-fetch while this one is in flight
+    const res = await fetchGameFormats();
+    gameFormats = res.ok ? res.data?.formats || [] : [];
     renderSetup();
   }
 
@@ -467,11 +498,24 @@ export function createMultiplayerView(hooks = {}) {
   async function createGame() {
     if (!playerId) return;
     await withBusy('Spiel wird erstellt …', async () => {
-      applyLobbyResult(
+      const created = applyLobbyResult(
         await createMultiplayerGame(playerId, newGameName, newGameSeats),
         'Spiel erstellt.',
       );
       newGameName = '';
+      // PLR-13 + Profil "Mehrspieler-Standardeinstellungen": apply this
+      // host's saved table defaults right away, one host-only options call
+      // — the same route the Setup screen's own option rows already use,
+      // so nothing here needs to duplicate their validation.
+      if (created && game) {
+        await setMultiplayerOptions(game.id, playerId, {
+          gameFormat: getMpDefaultFormat(),
+          mulliganStyle: getMpDefaultMulliganStyle(),
+          takebacksPerPlayer: getMpDefaultTakebacks(),
+          randomizeSeating: getMpDefaultRandomizeSeating(),
+          randomStartingPlayer: getMpDefaultRandomStartingPlayer(),
+        }).then((res) => applyLobbyResult(res));
+      }
     });
   }
 
@@ -563,6 +607,25 @@ export function createMultiplayerView(hooks = {}) {
     if (!game) return;
     await withBusy('Einstellung wird gespeichert …', async () => {
       applyLobbyResult(await setMultiplayerOptions(game.id, playerId, { mulliganStyle: style }));
+    });
+  }
+
+  // PLR-13: the table's format (Planechase/Archenemy/Vanguard/…). Clearing
+  // to Commander also clears any Archenemy pick — it only means anything
+  // once the format actually has that variant.
+  async function changeGameFormat(name) {
+    if (!game) return;
+    await withBusy('Einstellung wird gespeichert …', async () => {
+      applyLobbyResult(await setMultiplayerOptions(game.id, playerId, { gameFormat: name }));
+    });
+  }
+
+  // RULE 904: which seat is the Archenemy. `''` clears back to the
+  // server's own default (the host — `api/multiplayer.py`'s `start_game`).
+  async function changeArchenemy(seatPlayerId) {
+    if (!game) return;
+    await withBusy('Einstellung wird gespeichert …', async () => {
+      applyLobbyResult(await setMultiplayerOptions(game.id, playerId, { archenemyId: seatPlayerId }));
     });
   }
 
@@ -826,6 +889,14 @@ export function createMultiplayerView(hooks = {}) {
             </select>
             ${isHost ? '' : '<span class="hint">Nur der Host kann das ändern.</span>'}
           </div>
+          <div class="mp-option-row" title="Regel 8/9: Planechase, Archenemy und Vanguard bringen eine eigene Kartenzone mit (Planarkarten/Schema-Decks/Avatar). Wirkt sich erst auf das nächste gestartete Spiel aus.">
+            <label for="mp-format">Format</label>
+            <select id="mp-format" ${isHost && !busy ? '' : 'disabled'}>
+              ${formatOptionsHtml(game.game_format)}
+            </select>
+            ${isHost ? '' : '<span class="hint">Nur der Host kann das ändern.</span>'}
+          </div>
+          ${archenemyRowHtml(isHost)}
           <div class="mp-option-row" title="Regel 103.1/103.2: Wer sitzt wo, und wer fängt an? Ohne Haken bleibt es bei der Reihenfolge, in der ihr euch gesetzt habt – der Host beginnt.">
             <label>Auslosen</label>
             <label class="mp-option-check">
@@ -976,13 +1047,51 @@ export function createMultiplayerView(hooks = {}) {
   function deckOptionsHtml(selectedId) {
     if (savedDecks === null) return '<option>Lädt …</option>';
     if (!savedDecks.length) return '<option value="">— keine gespeicherten Decks —</option>';
+    // Favorites (Profil tab) first, stable otherwise — same convention as
+    // goldfishView.js's picker.
+    const ordered = [...savedDecks].sort(
+      (a, b) => (favoriteDeckIds.has(b.id) ? 1 : 0) - (favoriteDeckIds.has(a.id) ? 1 : 0),
+    );
     return [
       '<option value="">— Deck wählen —</option>',
-      ...savedDecks.map(
-        (d) =>
-          `<option value="${escapeAttr(d.id)}"${d.id === selectedId ? ' selected' : ''}>${escapeHtml(d.name || 'Unbenanntes Deck')}</option>`,
-      ),
+      ...ordered.map((d) => {
+        const name = d.name || 'Unbenanntes Deck';
+        const label = favoriteDeckIds.has(d.id) ? `★ ${name}` : name;
+        return `<option value="${escapeAttr(d.id)}"${d.id === selectedId ? ' selected' : ''}>${escapeHtml(label)}</option>`;
+      }),
     ].join('');
+  }
+
+  // PLR-13: the format <select>'s options (GET /api/game/formats).
+  function formatOptionsHtml(selectedName) {
+    if (!gameFormats || !gameFormats.length) {
+      return `<option value="commander"${!selectedName || selectedName === 'commander' ? ' selected' : ''}>Commander</option>`;
+    }
+    return gameFormats
+      .map((f) => `<option value="${escapeAttr(f.name)}"${f.name === selectedName ? ' selected' : ''}>${escapeHtml(f.label)}</option>`)
+      .join('');
+  }
+
+  // RULE 904: only shown once the table's format actually has the
+  // Archenemy variant — an empty seat picker for every other format would
+  // just be noise.
+  function archenemyRowHtml(isHost) {
+    const fmt = (gameFormats || []).find((f) => f.name === game.game_format);
+    if (!fmt || !(fmt.variants || []).includes('archenemy')) return '';
+    const current = game.archenemy_id || game.host_id;
+    return `
+      <div class="mp-option-row" title="Regel 904: Der Archenemy spielt gegen den Rest des Tisches, mit eigenem Schema-Deck und 40 Leben.">
+        <label for="mp-archenemy">Archenemy</label>
+        <select id="mp-archenemy" ${isHost && !busy ? '' : 'disabled'}>
+          ${game.seats
+            .map(
+              (s) =>
+                `<option value="${escapeAttr(s.player_id)}"${s.player_id === current ? ' selected' : ''}>${escapeHtml(s.name)}</option>`,
+            )
+            .join('')}
+        </select>
+        ${isHost ? '' : '<span class="hint">Nur der Host kann das ändern.</span>'}
+      </div>`;
   }
 
   function wireSetup() {
@@ -1007,6 +1116,12 @@ export function createMultiplayerView(hooks = {}) {
     setupRoot
       .querySelector('#mp-mulligan')
       ?.addEventListener('change', (e) => changeMulliganStyle(e.target.value));
+    setupRoot
+      .querySelector('#mp-format')
+      ?.addEventListener('change', (e) => changeGameFormat(e.target.value));
+    setupRoot
+      .querySelector('#mp-archenemy')
+      ?.addEventListener('change', (e) => changeArchenemy(e.target.value));
     setupRoot
       .querySelector('#mp-takebacks')
       ?.addEventListener('change', (e) => changeTakebacksPerPlayer(e.target.value));
