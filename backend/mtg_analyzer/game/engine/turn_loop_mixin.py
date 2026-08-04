@@ -824,6 +824,14 @@ class TurnLoopMixin:
             # rather than dropping it (`resolve_trigger_mode_choice` defaults
             # an unrecognized/missing answer the same way).
             self.rules.resolve_trigger_mode_choice(None if declined else str(answer))
+        elif kind == "opening_hand_battlefield":
+            # RULE 103.6a: "you may begin the game with it on the
+            # battlefield" (the Leyline cycle) — "battlefield" moves the
+            # card there straight from the opening hand, anything else
+            # leaves it in hand.
+            self.rules.resolve_opening_hand_battlefield_choice(
+                None if declined else str(answer)
+            )
         elif kind == "land_tapped":
             # RULE 614.1: a shock land's "pay life to stay untapped" choice.
             self.rules.resolve_land_tapped_choice(None if declined else str(answer))

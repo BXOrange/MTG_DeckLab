@@ -36,6 +36,7 @@ active.
 
 from __future__ import annotations
 
+import json
 import uuid
 from typing import Any, Callable, Optional
 
@@ -45,7 +46,7 @@ from mtg_analyzer.models.game_state import GameState
 from mtg_analyzer.models.mana_cost import ManaCost
 from mtg_analyzer.models.player import Player
 from mtg_analyzer.game.game_engine import GameEngine
-from mtg_analyzer.game import continuous, mana_potential
+from mtg_analyzer.game import ability_catalogue, continuous, mana_potential
 from mtg_analyzer.game.effect_binder import bind_from_catalogue
 from mtg_analyzer.game.top_library import may_look_at_top_of_library
 from mtg_analyzer.services import replay
@@ -373,6 +374,14 @@ class GameSession:
         self._history: list[tuple[str, GameState, int, Optional[str]]] = []
         #: Human-readable labels of applied actions, for the UI.
         self.move_log: list[str] = []
+        #: PLR-6: opaque, non-committing UI scratch state — a not-yet-
+        #: submitted targeting/block selection, mirrored here so a genuine
+        #: reconnect (new tab, same player) can rebuild the modal instead of
+        #: just losing it. Keyed by player id; never touches rules,
+        #: `_history`, or `move_log` — it carries no game meaning, and is
+        #: dropped as soon as that player's own real action supersedes it
+        #: (`apply_action`/`concede`). See `set_ui_draft`.
+        self._ui_drafts: dict[str, dict[str, Any]] = {}
 
         #: Whether a mulligan/keep-hand setup phase gates play (only real
         #: goldfish sessions from `GameSessionManager.create_goldfish` set
@@ -411,6 +420,13 @@ class GameSession:
         #: answered: the scries are queued rather than opened at once because
         #: `GameState` holds exactly one `pending_choice` at a time.
         self._pending_scries: list[str] = []
+        #: RULE 103.6a: every ``(player_id, instance_id)`` opening-hand card
+        #: still owed its "begin the game on the battlefield?" choice
+        #: (`game/ability_catalogue.opening_hand_battlefield_permission`),
+        #: in turn order — same queued-one-at-a-time shape as
+        #: `_pending_scries`, and resolved *before* it (RULE 103.6 precedes
+        #: Vancouver's scry).
+        self._pending_opening_hand: list[tuple[str, int]] = []
         #: Whether the first RULE 117 priority window is still owed because a
         #: setup-time choice (a Vancouver scry) was open when setup finished.
         self._priority_window_pending = False
@@ -437,6 +453,7 @@ class GameSession:
         # so this keeps `vancouver` exactly as good as `london` there, no
         # worse.)
         self._pending_scries.clear()
+        self._pending_opening_hand.clear()
         self._priority_window_pending = False
 
     @property
@@ -556,6 +573,10 @@ class GameSession:
             self._restore(snapshot, cursor)
             raise GameActionError(str(exc)) from exc
         self.move_log.append(label)
+        # A real, committed action always supersedes whatever in-progress UI
+        # selection led to it (PLR-6) — drop it rather than let a stale
+        # targeting/block draft resurface on a later reconnect.
+        self._ui_drafts.pop(actor.id, None)
         return self.view()
 
     def _actor(self, actor_id: Optional[str]) -> Player:
@@ -584,7 +605,27 @@ class GameSession:
         # opening hand yet must stop blocking the rest of the table.
         self._setup_pending.discard(player.id)
         self.move_log.append(f"concede: {player.name}")
+        self._ui_drafts.pop(player.id, None)
         return self.view()
+
+    def set_ui_draft(self, player_id: Optional[str], draft: Optional[dict[str, Any]]) -> None:
+        """PLR-6: store (or, ``draft=None``, clear) ``player_id``'s in-progress,
+        not-yet-submitted UI selection (a mid-cast targeting sequence, a
+        half-assembled block) so a reconnect can rebuild it instead of just
+        losing it. Opaque and unvalidated — this is UI scratch data, not a
+        game action, so it never touches rules, `_history`, or `move_log`.
+        """
+        player = self._actor(player_id)
+        if draft is None:
+            self._ui_drafts.pop(player.id, None)
+            return
+        if not isinstance(draft, dict):
+            raise GameActionError("draft must be a JSON object")
+        # A generous but real cap — this is untrusted client data held in
+        # server memory for as long as the session lives.
+        if len(json.dumps(draft)) > 20_000:
+            raise GameActionError("draft too large")
+        self._ui_drafts[player.id] = draft
 
     def _dispatch(self, action: dict[str, Any], actor: Optional[Player] = None) -> None:
         state = self.engine.state
@@ -1182,10 +1223,12 @@ class GameSession:
         self._setup_pending.discard(player.id)
         if self._setup_pending:
             return
-        # Everyone has kept. Vancouver's scries happen now, after the last
-        # keep rather than at each one (RULE 103.4's old wording: "after all
-        # players have kept, each player who mulliganed scries 1"), which is
-        # also the only timing a single shared `pending_choice` allows.
+        # Everyone has kept. RULE 103.6a's opening-hand "begin the game on
+        # the battlefield?" choices go first (RULE 103.6 precedes the old
+        # RULE 103.4 scry wording), then Vancouver's scries — both queued
+        # rather than opened at once, the only timing a single shared
+        # `pending_choice` allows.
+        self._start_opening_hand_choices()
         if self.mulligan_style == "vancouver":
             self._start_vancouver_scries()
         if not self.interactive_priority:
@@ -1201,6 +1244,35 @@ class GameSession:
         # players pass, and nobody can pass before somebody holds priority in
         # the first place.
         self._advance_to_priority_window()
+
+    def _start_opening_hand_choices(self) -> None:
+        """Queue RULE 103.6a's "begin the game on the battlefield?" choice
+        for every opening-hand card that offers it, in turn order.
+
+        Snapshotted once, right after the last keep — a card that's put
+        onto the battlefield this way is simply no longer in that hand for
+        the rest of the queue to reconsider (`_open_next_opening_hand_
+        choice` looks each one up fresh and skips anything that's moved).
+        """
+        self._pending_opening_hand = [
+            (p.id, obj.instance_id)
+            for p in self.engine.state.players
+            if not p.is_dummy
+            for obj in list(p.hand)
+            if ability_catalogue.opening_hand_battlefield_permission(obj.card)
+        ]
+        self._open_next_opening_hand_choice()
+
+    def _open_next_opening_hand_choice(self) -> None:
+        """Open the next queued opening-hand-battlefield choice, if any."""
+        state = self.engine.state
+        while self._pending_opening_hand and not state.pending_choice:
+            player_id, instance_id = self._pending_opening_hand.pop(0)
+            player = state.player_by_id(player_id)
+            obj = next((o for o in player.hand if o.instance_id == instance_id), None)
+            if obj is None:
+                continue  # left the hand some other way already
+            self.engine.rules.offer_opening_hand_battlefield_choice(player, obj)
 
     def _start_vancouver_scries(self) -> None:
         """Queue the ``vancouver`` scry-1 for every seat that mulliganed.
@@ -1226,10 +1298,15 @@ class GameSession:
     def _after_choice(self) -> None:
         """Follow-up owed once a `pending_choice` has been answered.
 
-        Only setup-time work: walk the Vancouver scry queue, and open the
-        first RULE 117 priority window once the last of them is done. During
-        the game proper both are empty and this does nothing.
+        Only setup-time work: walk the opening-hand-battlefield queue, then
+        the Vancouver scry queue, then open the first RULE 117 priority
+        window once both are done. During the game proper all three are
+        empty and this does nothing.
         """
+        if self._pending_opening_hand:
+            self._open_next_opening_hand_choice()
+        if self.engine.state.pending_choice or self._pending_opening_hand:
+            return
         if self._pending_scries:
             self._open_next_vancouver_scry()
         if self.engine.state.pending_choice or self._pending_scries:
@@ -1446,6 +1523,12 @@ class GameSession:
         kind = action["type"]
         return f"{kind}: {name}" if name else kind
 
+    def _move_actors(self) -> list[Optional[str]]:
+        """`move_log`-parallel actor ids, tail-aligned against `_history`."""
+        n = len(self.move_log)
+        tail = [entry[3] for entry in self._history[-n:]] if n else []
+        return [None] * (n - len(tail)) + tail
+
     # -- Views ---------------------------------------------------------
 
     def legal_actions(self, perspective: Optional[str] = None) -> list[dict[str, Any]]:
@@ -1589,12 +1672,32 @@ class GameSession:
             "state": state_dict,
             "legal_actions": self.legal_actions(perspective),
             "pending_choice": state_dict.get("pending_choice"),
+            # PLR-6: the caller's own in-progress, not-yet-submitted UI
+            # selection (`set_ui_draft`) — never anyone else's, though
+            # there's no RULE 400.2 secrecy concern either way, since a
+            # targeting/block draft isn't hidden game information.
+            "ui_draft": (
+                self._ui_drafts.get(perspective)
+                if perspective is not None
+                else next(iter(self._ui_drafts.values()), None)
+            ),
             "can_rewind": self.can_rewind,
             # Not hidden information (RULE 400.2 doesn't apply — a real
             # table can see how many take-backs everyone still has), so
             # the whole per-seat budget is shown, not just the caller's own.
             "takebacks_remaining": dict(self.takebacks_remaining),
             "move_log": list(self.move_log),
+            # VIS-5: which player made each `move_log` entry, so a shared
+            # board can build a short "Bob hat X gespielt" feed instead of
+            # making everyone read the anonymous "Verlauf" list. Aligned
+            # from the *tail* — `_history` and `move_log` are always
+            # appended/trimmed together (`apply_action`/`concede`/`rewind`/
+            # `take_back`), it's only `_history`'s *head* that `MAX_HISTORY`
+            # ever drops, so the most recent entries stay lined up even once
+            # the two lists' lengths diverge. `None` for an entry with no
+            # actor (`_apply_advance_to_decision`'s own "advance_step" steps)
+            # or one old enough to have fallen off `_history` already.
+            "move_actors": self._move_actors(),
             # Every static ability in play, for the UI's optional layer panel.
             "static_effects": continuous.active_static_abilities(self.engine.state),
             # RULE 603.7 delayed triggered abilities armed but not yet fired

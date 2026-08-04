@@ -9189,3 +9189,150 @@ real two-seat `GameSession` rather than driving the full Beseech the
 Mirror cast (already covered end-to-end at the engine level by
 `test_cedh_cube_completion.py`), keeping this file's own scope to the
 session-view redaction the ticket was actually about.
+
+## PLR-6 · In-progress UI selection survives a reconnect (2026-08-04)
+
+"A targeting modal or half-assembled block is rebuilt from the pushed
+view, which carries only committed state" was literal: a mid-cast
+targeting sequence or a block being assembled (RULE 115/509.1a) lives
+entirely in the frontend's local `gameBoardView.js` state until the one
+final action is sent — the server never saw any of it, so it had nothing
+to rebuild from on a genuine reconnect (a new tab, walking back into the
+same seat by name). Fixed on the backend by giving `GameSession` a small
+place to hold it: `_ui_drafts: dict[player_id, dict]` (opaque,
+unvalidated JSON, size-capped at ~20 KB) plus `set_ui_draft`, surfaced in
+`view()` as `ui_draft` (only the caller's own — no RULE 400.2 concern,
+just no reason to leak someone else's) and a new, deliberately quiet
+`POST /api/game/{id}/ui-draft` (generic on session id, like
+`replay-export` — works for goldfish/Replay/Multiplayer alike). "Quiet"
+matters: it does *not* go through `api/multiplayer.py`'s
+`_after_move`/broadcast path, or autosaving your own in-progress pick as
+it's built would spam a fresh view at the whole table on every click —
+exactly the bug being fixed. A draft is dropped as a side effect of that
+same player's own next real action succeeding (`apply_action`/`concede`
+pop it) — no separate "clear" endpoint needed for the common case.
+
+Investigating this also found the more common way the bug actually bites
+in Multiplayer: `applyView` in `gameBoardView.js` was unconditionally
+wiping the local draft on *every* pushed view, including one that
+changed nothing about the committed position — e.g. another player's
+socket merely reconnecting (`api/multiplayer_ws.py`'s `subscribe_game`
+handler broadcasts a fresh view to the *whole* table on every resubscribe,
+not just the requester). One player's wifi blip was silently nuking
+everyone else's in-progress block/targeting. Frontend half in the
+sibling Done_Frontend.md entry.
+
+Verified live against a running server (not just pytest): a plain `GET`
+never grows `move_log` (the exact invariant the frontend's guard relies
+on to tell "a reconnect refresh" from "a real move happened"), a saved
+draft round-trips through `view()` untouched by that GET, and a real
+action both grows `move_log` and clears the draft.
+
+## Replay/Puzzle mode: 3-4 player pods (2026-08-04)
+
+`services/replay.py`'s `blank_replay` was capped at 2 players ("solo
+puzzle, or with an opponent") even though the turn engine has been
+N-player throughout and Multiplayer already seats up to 4
+(`services/lobby.py`'s `MAX_SEATS`). Raised the cap to match — `blank_
+replay(num_players)` now clamps to `[1, 4]` and names blank seats `["Du",
+"Gegner 1", "Gegner 2", "Gegner 3"]` for 3-4 (unchanged `["Du", "Gegner"]`
+for the existing 1-2 case). No `api/schemas.py` change needed — `num_
+players` was never bounded there, only inside `blank_replay` itself. The
+play-mode board needed no engine or session changes at all: it's the same
+`gameBoardView.js`/`GameSession` Multiplayer already runs at 3-4 seats.
+Frontend half (the puzzle editor's own pod-grid layout) in Done_Frontend.md.
+
+## PLR-5 · A `ping` counts as liveness too (2026-08-04)
+
+The idle watchdog (`api/multiplayer_ws.sweep_once`) only ever reset a
+player's `last_action_at` from a real game action
+(`api/multiplayer.py`'s `apply_action` → `Lobby.touch`) — a player who
+was genuinely still at the table but just thinking a move over past
+`MTG_MULTIPLAYER_IDLE_TIMEOUT` (default 120s) got disconnected and
+immediately auto-reconnected (the seat is held by name, RULE-free), a
+visible flicker for no real absence. `/ws/lobby` already had a `ping` →
+`pong` message pair (round-trip keepalive), it just didn't touch
+liveness; `_handle`'s `ping` branch now calls `lobby.touch(player_id)`
+before replying, exactly the same call `apply_action` already made.
+Frontend half (the periodic ping sender) in Done_Frontend.md. Test:
+`test_api_multiplayer.py::TestWatchdog::test_a_ping_also_resets_the_idle_timer`
+(a real `/ws/lobby` connection, not a call into `_handle` directly).
+
+## PLR-11 · Leyline's opening-hand permission (2026-08-04)
+
+RULE 103.6a: "If this card is in your opening hand, you may begin the
+game with it on the battlefield." (the Leyline cycle, 18 real cache
+cards using the exact shape) is a **pregame setup permission**, not a
+static or resolve-time effect — there's no permanent yet to bind an
+`EffectRegistry` ability onto; the card is still sitting in a player's
+hand. Same split `game/ability_catalogue.py` already uses for RULE
+614.1 tapped-entry/entry-counters: `parser/oracle/catalogue/
+opening_hand.py` is the single source of truth for recognising the
+clause (`_OPENING_HAND_BATTLEFIELD_RE`, matching "this card"/a folded
+self-name `~`, and "it"/"him"/"her"/"them" — Quicksilver, Brash Blur's
+own name folds to `~` and uses "him"), claimed-without-a-spec by
+`gate._process_line` (so the rest of a Leyline's real text — an anthem,
+a granted keyword, whatever — still parses normally on its own lines),
+and read directly off the card by `game/ability_catalogue.
+opening_hand_battlefield_permission`. Deliberately narrow: Gemstone
+Caverns' "…and you're not the starting player…with a luck counter on
+it. If you do, exile a card from your hand." and Buried Ogre's
+graveyard-destination variant are genuinely different, conditional/
+costed shapes and stay unclaimed rather than silently dropping the
+condition/cost. PARSER_VERSION 50→51; +6 cards flipped UNMODELED→
+MODELED (the rest of the ~18 were already blocked on an unrelated
+line) — 28.6% = 9,784/34,208.
+
+The engine half mirrors the *existing* Vancouver-scry queue almost
+exactly, since both are "every seat gets one interactive pregame
+decision, one at a time, because `GameState` holds exactly one
+`pending_choice`": `GameSession._start_opening_hand_choices`/
+`_open_next_opening_hand_choice` walk a `(player_id, instance_id)`
+queue built the moment the whole table has kept (before Vancouver's
+scry — RULE 103.6 precedes it), each entry resolved by a new
+`opening_hand_battlefield` `pending_choice` kind (`GameEngine.
+resolve_pending_choice` → `RulesEngine.offer_opening_hand_battlefield_
+choice`/`resolve_opening_hand_battlefield_choice`). Accepting moves the
+card hand → battlefield the same way a search-to-battlefield hit does
+(`search_mixin._put_searched_card`'s "battlefield" branch): untapped,
+`summoning_sick = True`, `state.add_to_battlefield` +
+`EventType.ENTERS_BATTLEFIELD` so an ETB trigger (none of the 18 real
+cards have one, but the primitive doesn't assume that) and the layer
+engine both see it on the very next `resolve_until_stable()` pass —
+which is also what turns "You have hexproof."-style static clauses on
+the instant the choice resolves, with zero special-casing needed.
+Deliberately does *not* call `_offer_enter_choices` (RULE 601.2b's
+"enter as a copy"/"choose a type" family) — a search-to-battlefield hit
+doesn't either; no cache card needs both at once, and adding it would
+be scope no ticket asked for. Frontend needed one line (a `❔` →
+`🌅` icon-map entry in `CHOICE_ICONS`, `gameBoardView.js`) — the
+2-option "battlefield"/"decline" choice already renders through the
+existing generic `simpleChoiceButtonsHtml` fallback every other binary
+`pending_choice` kind uses.
+
+Tests: `test_oracle_opening_hand.py` (11, clause recognition +
+coverage-gate integration) and a new `TestOpeningHandBattlefieldPermission`
+class in `test_game_session.py` (6 — offered after keep, accept moves it,
+decline leaves it, a hand with none opens nothing, two qualifying cards
+walk one at a time, a Gemstone-Caverns-shaped near-miss stays unclaimed).
+
+## VIS-5 · A move/priority feed — `move_actors` (2026-08-04)
+
+The board already had `move_log` (labels only — "cast_spell: Lightning
+Bolt", "pass_priority", …), but nothing said *who* made each entry, so a
+shared-board feed of "Bob hat X gespielt" (the frontend half, Done_
+Frontend.md) had nothing to build from. `GameSession.view()` gained a
+parallel `move_actors` list rather than a new tracking structure:
+`_history` already carries an `actor_id` per entry (`_snapshot`), and
+`_history`/`move_log` are always appended/trimmed together at every one
+of their four call sites (`apply_action`, `concede`, `rewind`,
+`take_back`) — only `_history`'s *head* is ever dropped early (past
+`MAX_HISTORY`), so the two stay aligned from the *tail*, which is all a
+"most recent move" feed ever needs. `_move_actors()` zips `move_log[-n:]`
+against `_history[-n:]`, padding the untracked prefix (older than
+`MAX_HISTORY`, or `_apply_advance_to_decision`'s own actor-less
+"advance_step" steps) with `None`. No new bookkeeping at any append/trim
+site — reading the existing invariant was the whole fix. Tests: a new
+`TestMoveFeed` class in `test_multiplayer_session.py` (3 — parallel
+length + correct actor, stays aligned after a `take_back`, a concede is
+attributed to the conceding player).

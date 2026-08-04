@@ -213,6 +213,46 @@ export function renderSavedDecksView(container, { onLoadDeck, onAnalyzeDeck } = 
       });
     });
 
+    // VIS-2: rename in place (same id, new name) and duplicate-as-new
+    // (no id — the server generates a fresh one, same as a brand-new
+    // save). Both go through the same `saveDeck` endpoint the sleeve
+    // picker above already uses; no dedicated backend route needed.
+    resultEl.querySelectorAll('.rename-deck-btn').forEach((btn) => {
+      btn.addEventListener('click', async () => {
+        const deck = decks.find((d) => d.id === btn.dataset.deckId);
+        if (!deck) return;
+        const currentName = btn.dataset.deckName || '';
+        const newName = window.prompt('Neuer Name:', currentName);
+        if (newName === null) return; // cancelled
+        const trimmed = newName.trim();
+        if (!trimmed || trimmed === currentName) return;
+        btn.disabled = true;
+        const saved = await saveDeck({ ...deck, name: trimmed });
+        if (!saved) {
+          btn.disabled = false;
+          window.alert('Umbenennen fehlgeschlagen – Server nicht erreichbar.');
+          return;
+        }
+        load();
+      });
+    });
+
+    resultEl.querySelectorAll('.duplicate-deck-btn').forEach((btn) => {
+      btn.addEventListener('click', async () => {
+        const deck = decks.find((d) => d.id === btn.dataset.deckId);
+        if (!deck) return;
+        btn.disabled = true;
+        const baseName = deck.name?.trim() || 'Unbenanntes Deck';
+        const saved = await saveDeck({ ...deck, id: null, name: `${baseName} (Kopie)` });
+        if (!saved) {
+          btn.disabled = false;
+          window.alert('Duplizieren fehlgeschlagen – Server nicht erreichbar.');
+          return;
+        }
+        load();
+      });
+    });
+
     resultEl.querySelectorAll('.delete-deck-btn').forEach((btn) => {
       btn.addEventListener('click', async () => {
         const name = btn.dataset.deckName || 'dieses Deck';
@@ -288,6 +328,8 @@ function renderDeckRow(deck, sleeves) {
         </select>
         <button type="button" class="load-deck-btn" data-deck-id="${deck.id}">Deck editieren</button>
         <button type="button" class="analyze-deck-btn" data-deck-id="${deck.id}">Deck analysieren</button>
+        <button type="button" class="rename-deck-btn" data-deck-id="${deck.id}" data-deck-name="${escapeHtml(name)}">Umbenennen</button>
+        <button type="button" class="duplicate-deck-btn" data-deck-id="${deck.id}">Duplizieren</button>
         <button type="button" class="delete-deck-btn" data-deck-id="${deck.id}" data-deck-name="${escapeHtml(name)}">Löschen</button>
       </div>
     </div>

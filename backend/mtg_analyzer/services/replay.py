@@ -316,9 +316,15 @@ def build_replay_engine(
 
 
 def blank_replay(num_players: int = 1) -> dict[str, Any]:
-    """An empty descriptor: 1 player (solo puzzle) or 2 (with an opponent)."""
-    num = max(1, min(2, num_players))
-    names = ["Du", "Gegner"]
+    """An empty descriptor: 1 player (solo puzzle) up to 4 (a full pod).
+
+    Capped at 4 to match `services/lobby.py`'s `MAX_SEATS` — the same
+    ceiling Multiplayer tables use, since the play-mode board
+    (`gameBoardView.js`) and its 2x2 pod layout are shared with Multiplayer
+    and only have placement rules for up to 4 seats.
+    """
+    num = max(1, min(4, num_players))
+    names = ["Du", "Gegner"] if num <= 2 else ["Du", "Gegner 1", "Gegner 2", "Gegner 3"]
     players = [
         {
             "id": f"p{i + 1}",

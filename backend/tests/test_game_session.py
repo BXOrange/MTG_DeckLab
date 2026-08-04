@@ -304,6 +304,108 @@ class TestMulligan:
         assert len(player.hand) == 7
 
 
+def leyline_card(name="Test Leyline"):
+    """The Leyline cycle's shared shape: RULE 103.6a's opening-hand
+    battlefield permission on its own line (PLR-11)."""
+    return Card(
+        id=name,
+        name=name,
+        type_line="Enchantment",
+        mana_cost_string="{2}{W}",
+        converted_mana_cost=3,
+        oracle_text=(
+            "If this card is in your opening hand, you may begin the game "
+            "with it on the battlefield."
+        ),
+    )
+
+
+class TestOpeningHandBattlefieldPermission:
+    """PLR-11 / RULE 103.6a: "you may begin the game with it on the
+    battlefield" — a pregame setup choice offered once every seat has kept,
+    walked one card at a time the same way Vancouver's post-keep scry is.
+    """
+
+    def _start(self, extra_hand_cards=None, mulligan_style="london"):
+        manager = GameSessionManager()
+        # The opening hand draws from the *end* of the library list
+        # (`Player.draw` pops the top; `build_goldfish_engine` appends "as
+        # given", so the last entries become the top) — put the card(s)
+        # under test last so they're guaranteed to be drawn.
+        library = [land()] * (30 - len(extra_hand_cards or [])) + list(extra_hand_cards or [])
+        return manager.create_goldfish(library=library, mulligan_style=mulligan_style)
+
+    def test_offered_after_the_opening_hand_is_kept(self):
+        session = self._start([leyline_card()])
+        view = session.apply_action({"type": "keep_hand", "bottom_instance_ids": []})
+        assert view["pending_choice"]["kind"] == "opening_hand_battlefield"
+        option_ids = {o["id"] for o in view["pending_choice"]["options"]}
+        assert option_ids == {"battlefield", "decline"}
+
+    def test_choosing_battlefield_moves_it_there(self):
+        session = self._start([leyline_card()])
+        session.apply_action({"type": "keep_hand", "bottom_instance_ids": []})
+        player = session.engine.state.active_player
+        leyline = next(o for o in player.hand if o.card.name == "Test Leyline")
+        view = session.apply_action({"type": "choose", "option_id": "battlefield"})
+        assert view["pending_choice"] is None
+        assert leyline not in player.hand
+        assert leyline in session.engine.state.battlefield
+        assert leyline.controller_id == player.id
+
+    def test_declining_leaves_it_in_hand(self):
+        session = self._start([leyline_card()])
+        session.apply_action({"type": "keep_hand", "bottom_instance_ids": []})
+        player = session.engine.state.active_player
+        leyline = next(o for o in player.hand if o.card.name == "Test Leyline")
+        view = session.apply_action({"type": "decline"})
+        assert view["pending_choice"] is None
+        assert leyline in player.hand
+        assert leyline not in session.engine.state.battlefield
+
+    def test_a_hand_with_no_such_card_opens_no_choice(self):
+        session = self._start()
+        view = session.apply_action({"type": "keep_hand", "bottom_instance_ids": []})
+        assert view["pending_choice"] is None
+        assert view["setup"]["complete"] is True
+
+    def test_two_qualifying_cards_are_offered_one_at_a_time(self):
+        session = self._start([leyline_card("Test Leyline A"), leyline_card("Test Leyline B")])
+        view = session.apply_action({"type": "keep_hand", "bottom_instance_ids": []})
+        assert view["pending_choice"]["kind"] == "opening_hand_battlefield"
+        first_prompt = view["pending_choice"]["prompt"]
+        view = session.apply_action({"type": "choose", "option_id": "battlefield"})
+        assert view["pending_choice"]["kind"] == "opening_hand_battlefield"
+        assert view["pending_choice"]["prompt"] != first_prompt
+        view = session.apply_action({"type": "decline"})
+        assert view["pending_choice"] is None
+        # One was put on the battlefield, the other stayed in hand — which
+        # is which isn't rules-significant (RULE 103.6: "any order").
+        battlefield_names = {o.card.name for o in session.engine.state.battlefield}
+        hand_names = {o.card.name for o in session.engine.state.active_player.hand}
+        both = {"Test Leyline A", "Test Leyline B"}
+        assert len(battlefield_names & both) == 1
+        assert (both - battlefield_names) == (hand_names & both)
+
+    def test_unaffected_by_a_card_that_only_looks_similar(self):
+        # Gemstone Caverns' extra conditions/costs are a genuinely different
+        # shape and must stay unclaimed by the plain Leyline-cycle clause.
+        near_miss = Card(
+            id="Near Miss",
+            name="Near Miss",
+            type_line="Land",
+            oracle_text=(
+                "If this card is in your opening hand and you're not the "
+                "starting player, you may begin the game with Near Miss on "
+                "the battlefield with a luck counter on it. If you do, "
+                "exile a card from your hand."
+            ),
+        )
+        session = self._start([near_miss])
+        view = session.apply_action({"type": "keep_hand", "bottom_instance_ids": []})
+        assert view["pending_choice"] is None
+
+
 class TestActions:
     def _advance_to_main1(self, session):
         advance_until(session, step="main1")

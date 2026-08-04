@@ -3596,6 +3596,23 @@ textarea {
 
 .replay-players { display: grid; gap: 0.8rem; grid-template-columns: 1fr; }
 @media (min-width: 1100px) { .replay-players.two { grid-template-columns: 1fr 1fr; } }
+
+/* 3-4 player puzzles: the same clockwise 2x2 pod arrangement as
+   Multiplayer's board (`.gf-pod-grid` above — placement rule, odd-seat
+   full-row rule and the `minmax(0, 1fr)` reasoning are all identical,
+   mirrored here rather than shared outright since `.replay-player`'s own
+   box styling has nothing to do with `.gf-player-board`'s). Same
+   narrow-screen fallback as `.two`: below the breakpoint it stays a single
+   column instead of squeezing four editable boards side by side. */
+@media (min-width: 1100px) {
+  .replay-players.pod { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .replay-players.pod > .replay-player:nth-child(1) { grid-area: 1 / 1; }
+  .replay-players.pod > .replay-player:nth-child(2) { grid-area: 1 / 2; }
+  .replay-players.pod > .replay-player:nth-child(3) { grid-area: 2 / 2; }
+  .replay-players.pod > .replay-player:nth-child(4) { grid-area: 2 / 1; }
+  .replay-players.pod > .replay-player:last-child:nth-child(odd) { grid-column: 1 / -1; }
+}
+
 .replay-player {
   border: 1px solid var(--border);
   border-radius: 8px;
@@ -4397,6 +4414,40 @@ textarea {
 .gf-banner-skip {
   padding: 0.25rem 0.7rem;
   font-size: 0.82rem;
+}
+
+/* VIS-5: a short-lived "Bob hat X gespielt" feed of the opponent's most
+   recent moves, so the auto-pass response window isn't a silent surprise.
+   Fixed near the top of the viewport so it's visible over whichever part
+   of the board you're looking at when it appears. */
+.gf-move-feed {
+  position: fixed;
+  top: 4.5rem;
+  right: 1rem;
+  z-index: 40;
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  pointer-events: none;
+  max-width: 20rem;
+}
+
+.gf-move-feed-item {
+  padding: 0.4rem 0.7rem;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: var(--panel-alt);
+  color: var(--text);
+  font-size: 0.85rem;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.35);
+  animation: gf-move-feed-fade 6s ease-out forwards;
+}
+
+@keyframes gf-move-feed-fade {
+  0% { opacity: 0; transform: translateY(-6px); }
+  8% { opacity: 1; transform: translateY(0); }
+  80% { opacity: 1; }
+  100% { opacity: 0; }
 }
 
 /* Mana pool, life and player counters as one right-aligned group. Grouping

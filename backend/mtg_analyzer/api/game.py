@@ -37,6 +37,7 @@ from mtg_analyzer.api.schemas import (
     DeckTokensRequest,
     GameActionRequest,
     RewindRequest,
+    SaveUiDraftRequest,
     StartGoldfishRequest,
     StartReplayRequest,
 )
@@ -227,7 +228,7 @@ def start_replay(
 
     Pass a full ``replay`` descriptor (as produced by the export endpoint)
     to load it, or omit it for a blank board with ``num_players`` (1 = solo
-    puzzle, 2 = with an opponent). The board is editable via ``edit_*`` actions.
+    puzzle, 2-4 = with opponents). The board is editable via ``edit_*`` actions.
     """
     descriptor = request.replay or blank_replay(request.num_players)
     session = sessions.create_replay(descriptor, loader)
@@ -269,6 +270,26 @@ def export_replay(
     be downloaded and re-opened in Replay mode.
     """
     return serialize_replay(_session(sessions, session_id).engine.state)
+
+
+@router.post("/{session_id}/ui-draft")
+def save_ui_draft(
+    session_id: str,
+    request: SaveUiDraftRequest,
+    sessions: GameSessionManager = Depends(get_game_session_manager),
+) -> dict[str, object]:
+    """PLR-6: store (or clear) the caller's in-progress UI selection.
+
+    Deliberately a quiet, unicast write — unlike `/action`, this never
+    broadcasts (multiplayer's push channel is driven from `api/
+    multiplayer.py`'s own `_after_move`, not from here), so autosaving a
+    draft as it's built can't spam a fresh view at the rest of the table.
+    """
+    try:
+        _session(sessions, session_id).set_ui_draft(request.player_id, request.draft)
+    except GameActionError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return {"ok": True}
 
 
 @router.post("/{session_id}/action")

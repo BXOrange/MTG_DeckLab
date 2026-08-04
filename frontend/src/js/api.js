@@ -472,6 +472,22 @@ export async function exportReplay(sessionId) {
   return gameRequest('GET', `/api/game/${encodeURIComponent(sessionId)}/replay-export`);
 }
 
+/**
+ * PLR-6: store (or, `draft: null`, clear) the caller's in-progress,
+ * not-yet-submitted UI selection (mid-cast targeting, a half-assembled
+ * block) so it survives a reconnect instead of just being lost. Quiet —
+ * this never triggers a broadcast to other players (see gameBoardView.js).
+ * @param {string} sessionId
+ * @param {string|null} playerId omit for solo modes (the one real player)
+ * @param {object|null} draft
+ */
+export async function saveUiDraft(sessionId, playerId, draft) {
+  return gameRequest('POST', `/api/game/${encodeURIComponent(sessionId)}/ui-draft`, {
+    playerId: playerId ?? undefined,
+    draft,
+  });
+}
+
 // --- Per-player custom art: token images + card-back "sleeves" ------------
 // Backend: mtg_analyzer/api/player_assets.py. Keyed by player name (see
 // settings.js getPlayerName()) rather than a session, so any client asking

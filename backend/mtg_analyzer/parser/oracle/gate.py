@@ -35,6 +35,7 @@ from .catalogue.levels import (
     split_leveler_blocks,
 )
 from .catalogue.modal import MODAL_HEADER_RE, collect_mode_bodies, split_modal_block
+from .catalogue.opening_hand import opening_hand_battlefield_permission_line
 from .catalogue.static_handlers import commander_eligibility_line
 from .normalize import normalize
 from .segmenter import (
@@ -620,7 +621,7 @@ NEVER_SUPPORTED = "NEVER_SUPPORTED"
 #: other cached card needs). Planechase/Archenemy plane/scheme card text
 #: (13/309 modeled) remains PAR-12's own indefinite tail, not newly
 #: regressed.
-PARSER_VERSION = "50"
+PARSER_VERSION = "51"
 
 
 @dataclass
@@ -882,6 +883,15 @@ def _parse_oracle_uncached(card: Any) -> ParseResult:
         # docstring): claim the line, contribute nothing, same split as the
         # two tapped-entry/counter checks above.
         if commander_eligibility_line(line):
+            return
+        # RULE 103.6a "If this card is in your opening hand, you may begin
+        # the game with it on the battlefield." (the Leyline cycle) — a
+        # pregame setup permission, not an in-game behavioral effect: same
+        # split as the three clauses above, covered by `game/
+        # ability_catalogue.opening_hand_battlefield_permission`
+        # (`services/game_session.py`'s opening-hand handling), not an
+        # effect spec.
+        if opening_hand_battlefield_permission_line(line):
             return
         seg: Segment = segment_line(
             line, allow_spell_effect=allow_spell_effect, provenance=provenance, is_saga=is_saga

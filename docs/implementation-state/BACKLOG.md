@@ -57,13 +57,6 @@ Plan-level sequencing lives in
 - **PLR-4 · Names are the identity, unauthenticated.** Two people picking
   the same name share a seat; the second to connect takes over. Fine for a
   LAN table, not for anything public — needs [PLR-9].
-- **PLR-5 · The idle watchdog measures silence from the last *action*.** A
-  player thinking longer than `MTG_MULTIPLAYER_IDLE_TIMEOUT` is disconnected
-  and immediately reconnects (reclaiming by name). Self-healing, but a
-  `ping` counted as liveness would remove the flicker.
-- **PLR-6 · Mid-interaction state is lost on reconnect.** A targeting modal
-  or half-assembled block is rebuilt from the pushed view, which carries
-  only committed state. (Backend + frontend halves of one gap.)
 - **PLR-7 · A bot that weighs lines.** `GreedyBot`'s `rank_targets`/`play`
   are the intended override points — the base class was split for exactly
   this — but nothing subclasses them; bots take the first legal offer.
@@ -78,14 +71,6 @@ Plan-level sequencing lives in
   storage + attachment to API/WebSocket calls, browser-refresh reconnect
   flow (docs/04 S1), and login/signup pages. Saved decks are unscoped until
   this exists — anyone hitting the API sees every deck.
-- **PLR-10 · Game history / session persistence.**
-- **PLR-11 · Leyline's opening-hand permission.** "As long as this card is
-  in your opening hand, you may begin the game with it on the battlefield" —
-  a pregame setup permission, not a static or a resolve-time effect, so it
-  doesn't fit the `EffectRegistry`/binder pipeline at all. Needs a new
-  "opening hand → battlefield" step in `game_session.py`'s
-  `_mulligan`/`keep_hand`.
-- **PLR-12 · A bot opponent in Goldfisch mode.** There will be no bot implementation. The goldfish mode still counts additional cards being drawn by the goldfish or discarded cards by the goldfish as a stat.
 - **PLR-13 · No format switch at the table.** `GameEngine.new_game` takes a
   `game_format=` (`models/game_format.py`, `game/variants.py`), but nothing
   in `api/` or `services/` ever passes one — so Planechase, Archenemy and
@@ -111,15 +96,7 @@ Plan-level sequencing lives in
 
 - **VIS-1 · Error/loading states** for network calls (spinner, retry,
   offline message). docs/04 C4.
-- **VIS-2 · Saved decks: no rename/duplicate-as-new.** Only save
-  (create/update via the tracked id) and delete.
 - **VIS-4 · Chat / emotes at the table.**
-- **VIS-5 · A move/priority feed.** The board has `move_log`, but in a
-  shared game it's hard to see what the opponent just did before your
-  response window — a short "Bob hat X gespielt" feed would make the
-  3-second auto-pass window usable instead of startling.
-- **VIS-6 · Preload the opponent's card art.** Only your own deck is
-  preloaded, so an opponent's first play of a card pops in.
 - **VIS-7 · Visualize bot actions in real time, with a speed control.** A
   bot's whole turn arrives as one pushed view (the server runs it before
   broadcasting), so there is nothing to watch. Needs the server to push

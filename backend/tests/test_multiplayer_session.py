@@ -632,3 +632,43 @@ class TestTakeBack:
         keep_all(session)
         view = session.view(perspective="ann")
         assert view["takebacks_remaining"] == {"ann": 3, "bob": 3}
+
+
+class TestMoveFeed:
+    """VIS-5: `move_actors` is `move_log`'s tail-aligned parallel — who made
+    each entry, so a shared board can build a short "Bob hat X gespielt"
+    feed instead of relying on the anonymous "Verlauf" list alone.
+    """
+
+    def test_parallel_to_move_log_and_matches_actors(self):
+        session = make_game()
+        keep_all(session)
+        advance_until(session, step="main1")
+        holder = session.engine.state.priority_player.id
+        session.apply_action({"type": "pass_priority"}, actor_id=holder)
+        view = session.view(perspective="ann")
+        assert len(view["move_actors"]) == len(view["move_log"])
+        assert view["move_actors"][-1] == holder
+
+    def test_stays_aligned_after_a_take_back(self):
+        session = make_game(takebacks_per_player=1)
+        keep_all(session)
+        advance_until(session, step="main1")
+        session.apply_action({"type": "pass_priority"}, actor_id="ann")
+        session.apply_action({"type": "pass_priority"}, actor_id="bob")
+        session.take_back("ann")
+        view = session.view()
+        assert len(view["move_actors"]) == len(view["move_log"])
+        # ann's take-back discards her own pass and bob's later one too
+        # (TestTakeBack.test_undoes_past_a_later_players_move_too), leaving
+        # ann herself holding priority again with nothing of hers left to
+        # undo a second time.
+        assert view["state"]["priority_player_id"] == "ann"
+
+    def test_concede_is_attributed_to_the_conceding_player(self):
+        session = make_game()
+        keep_all(session)
+        session.concede("bob")
+        view = session.view()
+        assert view["move_log"][-1] == "concede: Bob"
+        assert view["move_actors"][-1] == "bob"

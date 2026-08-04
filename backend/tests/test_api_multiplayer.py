@@ -1110,3 +1110,22 @@ class TestWatchdog:
             json={"playerId": ann, "action": {"type": "pass_priority"}},
         )
         assert env["lobby"].player(ann).last_action_at > before
+
+    def test_a_ping_also_resets_the_idle_timer(self, env):
+        # PLR-5: a `ping` over `/ws/lobby` is liveness too, not just a real
+        # game action — the whole point is to remove the flicker of a
+        # player who is genuinely still there but just thinking a move
+        # over.
+        client = env["client"]
+        _gid, ann, _bob = self._running(env)
+        before = env["lobby"].player(ann).last_action_at
+
+        import time
+
+        time.sleep(0.01)
+        with client.websocket_connect(f"/ws/lobby?name=Ann&player_id={ann}") as socket:
+            socket.receive_json()  # welcome
+            socket.send_json({"type": "ping"})
+            pong = _drain_until(socket, "pong")
+            assert pong == {"type": "pong"}
+        assert env["lobby"].player(ann).last_action_at > before

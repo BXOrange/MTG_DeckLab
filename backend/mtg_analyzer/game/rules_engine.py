@@ -308,6 +308,11 @@ class RulesEngine(
         #: can be pending at a time (like every other `pending_choice`); a
         #: second upkeep trigger simply waits its turn on the stack.
         self._pending_sacrifice_unless_pay: Optional[dict[str, Any]] = None
+        #: RULE 103.6a: the opening-hand card awaiting a "begin the game on
+        #: the battlefield" answer (`offer_opening_hand_battlefield_choice`/
+        #: `resolve_opening_hand_battlefield_choice`) — only one can be
+        #: pending at a time, same as every other `pending_choice`.
+        self._pending_opening_hand_obj: Optional[GameObject] = None
         self._pending_ward_item: Optional[StackItem] = None
         self._pending_ward_caster_id: Optional[str] = None
         self._pending_ward_cost: Optional[ActivationCost] = None

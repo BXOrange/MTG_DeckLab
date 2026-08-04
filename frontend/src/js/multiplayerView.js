@@ -22,6 +22,7 @@ import {
   addMultiplayerBot,
   concedeMultiplayerGame,
   createMultiplayerGame,
+  exportReplay,
   fetchBotKinds,
   fetchMultiplayerGame,
   joinMultiplayerGame,
@@ -164,6 +165,23 @@ export function createMultiplayerView(hooks = {}) {
     },
   });
 
+  // PLR-10: the same "save the current position as a Replay file" affordance
+  // goldfishView.js has, ported here — a shared game's board can be
+  // downloaded and re-opened in the Replay tab exactly like a goldfish
+  // position can (the export endpoint is already generic on session id). A
+  // function, not a plain object, so `disabled` reflects the *current*
+  // `busy` at each call — like every other control below, it's rebuilt on
+  // every `seatControls()` call rather than captured once.
+  function exportControl() {
+    return {
+      id: 'export',
+      label: '⬇ Als Replay speichern',
+      title: 'Diesen Spielzustand als Replay-Datei speichern (im Replay-Tab wieder ladbar)',
+      disabled: busy,
+      onClick: exportReplayFile,
+    };
+  }
+
   function seatControls() {
     // Once it's over there is nothing left to concede — the buttons become
     // "look at the digest" and "close this table for good".
@@ -178,6 +196,7 @@ export function createMultiplayerView(hooks = {}) {
             renderBoard();
           },
         },
+        exportControl(),
         {
           id: 'close',
           label: '✖ Spiel schließen',
@@ -195,6 +214,7 @@ export function createMultiplayerView(hooks = {}) {
         disabled: busy,
         onClick: concede,
       },
+      exportControl(),
     ];
     // Only shown at all when the host configured a budget (an empty
     // `takebacks_remaining` means the table has none) — otherwise there's
@@ -210,6 +230,28 @@ export function createMultiplayerView(hooks = {}) {
       });
     }
     return controls;
+  }
+
+  // Same download-as-file pattern as goldfishView.js's `exportReplayFile`.
+  async function exportReplayFile() {
+    if (!game?.session_id) return;
+    const res = await exportReplay(game.session_id);
+    if (!res.ok || !res.data) {
+      setStatus(`Export fehlgeschlagen (${res.status}).`, 'warning');
+      renderBoard();
+      return;
+    }
+    const blob = new Blob([JSON.stringify(res.data, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'replay.json';
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+    setStatus('Als Replay gespeichert.', 'ok');
+    renderBoard();
   }
 
   function observerControls() {
@@ -343,6 +385,10 @@ export function createMultiplayerView(hooks = {}) {
       enteredBoardFor = fresh.session_id;
       hooks.onBoardAvailable?.(true);
       hooks.onEnterBoard?.();
+      // VIS-6: warm every seat's art now, not just this client's own deck
+      // (`preloadOwnDeck`, run earlier at deck-pick time) — otherwise an
+      // opponent's first play pops in.
+      preloadAllDecksArt();
     }
     if (fresh.state?.game_over && !summary) {
       summary = { analysis: fresh.analysis, state: fresh.state };
@@ -604,6 +650,29 @@ export function createMultiplayerView(hooks = {}) {
     if (!deck) return;
     const names = parseDeckSections(deck).allCards.map((c) => c.name);
     const resolved = await preloadCardImages(names);
+    const merged = new Map(getState().imageCache);
+    for (const [name, entry] of resolved) merged.set(name, entry);
+    setState({ imageCache: merged });
+  }
+
+  // VIS-6: every seat's deck, not just this client's own — an opponent's
+  // saved deck is readable the same way `mySavedDeck()` reads yours (this
+  // app has no accounts, so `listSavedDecks()` is already unscoped), so
+  // there's no reason their first play should pop in art nobody warmed.
+  // Called once, when the table's first view arrives (deck picks are
+  // locked in by then).
+  async function preloadAllDecksArt() {
+    if (!game) return;
+    if (savedDecks === null) await loadDecks();
+    const decks = (game.seats || [])
+      .map((seat) => (savedDecks || []).find((d) => d.id === seat.deck_id))
+      .filter(Boolean);
+    const names = new Set();
+    for (const deck of decks) {
+      for (const card of parseDeckSections(deck).allCards) names.add(card.name);
+    }
+    if (!names.size) return;
+    const resolved = await preloadCardImages(Array.from(names));
     const merged = new Map(getState().imageCache);
     for (const [name, entry] of resolved) merged.set(name, entry);
     setState({ imageCache: merged });

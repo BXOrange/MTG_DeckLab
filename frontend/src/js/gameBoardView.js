@@ -16,7 +16,7 @@
 // you switch back to it).
 
 import { getState } from './state.js';
-import { sendGameAction, rewindGame, cardImageUrl, GENERIC_TOKEN_KEY } from './api.js';
+import { sendGameAction, rewindGame, cardImageUrl, saveUiDraft, GENERIC_TOKEN_KEY } from './api.js';
 import { getCookie, setCookie } from './cookies.js';
 import { bannerColorLabel, bannerGradients, bannerStyle } from './bannerColors.js';
 import { MANA_SYMBOL_EMOJI } from './cardTile.js';
@@ -71,7 +71,7 @@ const CHOICE_ICONS = {
   enter_as_copy: '🪞', counter_unless_pays: '🚫', ward: '🛡️',
   commander_zone: '👑', trigger_mode: '🎭', add_mana_any_color: '💎',
   choose_creature_type: '🐾', choose_color: '🎨', choose_basic_land_type: '🗺️', read_ahead: '📜',
-  scry: '🔮', surveil: '🕵️',
+  scry: '🔮', surveil: '🕵️', opening_hand_battlefield: '🌅',
 };
 
 /**
@@ -349,6 +349,54 @@ export function createGameBoardView(opts = {}) {
   // A targeting spell/ability (RULE 115) mid-cast: `{ instanceId, requirements,
   // reqIndex, targets: [], x, send }` or null. See `castTargetHtml`.
   let castTargeting = null;
+  // PLR-6: `move_log.length` (+ session id) from the last view `blockDraft`/
+  // `castTargeting` were invalidated against, so `applyView` can tell "a
+  // real move happened, these may no longer be valid" apart from "a view
+  // merely arrived" (e.g. another player's socket reconnecting rebroadcasts
+  // the *same* committed position to the whole table) — only the former
+  // should wipe an in-progress draft. `null` means "not established yet",
+  // which always counts as changed (a fresh `start()`).
+  let lastDraftMoveLogLen = null;
+  let lastDraftSessionId = null;
+  // VIS-5: a short-lived feed of the opponent's most recent moves ("Bob hat
+  // X gespielt"), newest last — built off the exact same "did move_log
+  // actually grow" signal above, so a reconnect rebroadcast of the same
+  // committed position never spams it. Solo modes (`view.perspective` is
+  // null — nobody else to report on) never populate it.
+  let moveFeed = [];
+  const MOVE_FEED_LIFETIME_MS = 6000;
+  const MOVE_FEED_MAX_ITEMS = 3;
+
+  function pushMoveFeed(text) {
+    const key = `${Date.now()}-${Math.random()}`;
+    moveFeed = [...moveFeed.slice(-(MOVE_FEED_MAX_ITEMS - 1)), { key, text }];
+    setTimeout(() => {
+      moveFeed = moveFeed.filter((entry) => entry.key !== key);
+      render();
+    }, MOVE_FEED_LIFETIME_MS);
+  }
+
+  // Turns a raw `move_log` label ("cast_spell: Lightning Bolt",
+  // "pass_priority", "declare_attackers") into a short German verb phrase.
+  // Anything not in the table falls back to the raw label — same as the
+  // "Verlauf" panel already shows it, just prefixed by who did it.
+  function describeMoveLabel(label) {
+    const sep = label.indexOf(': ');
+    const kind = sep === -1 ? label : label.slice(0, sep);
+    const name = sep === -1 ? '' : label.slice(sep + 2);
+    const templates = {
+      play_land: `hat ${name || 'ein Land'} gespielt`,
+      cast_spell: `hat ${name || 'einen Zauberspruch'} gewirkt`,
+      activate_ability: `hat eine Fähigkeit${name ? ` von ${name}` : ''} aktiviert`,
+      pass_priority: 'hat gepasst',
+      declare_attackers: 'hat Angreifer erklärt',
+      declare_blockers: 'hat Blocker erklärt',
+      keep_hand: 'hat die Starthand behalten',
+      mulligan: 'hat einen Mulligan genommen',
+    };
+    if (kind === 'concede' || kind.startsWith('concede:')) return 'hat aufgegeben';
+    return templates[kind] || `hat "${label}" gespielt`;
+  }
   // A single requirement with `count > 1` (RULE 115.1a generalized to N>=2 —
   // "destroy two target creatures"/"up to two target artifacts") is expanded
   // into `count` synthetic one-per-round requirements sharing the same
@@ -428,6 +476,7 @@ export function createGameBoardView(opts = {}) {
   function start(sid, initialView) {
     sessionId = sid;
     applyView(initialView);
+    restoreUiDraft(initialView);
   }
 
   /** Feed in a view obtained some other way (rare — actions normally do this themselves). */
@@ -442,12 +491,98 @@ export function createGameBoardView(opts = {}) {
 
   function applyView(data) {
     view = data;
-    castTargeting = null;
-    // A fresh position invalidates any half-assembled block — the attackers
-    // it referred to may not even be attacking any more.
-    blockDraft = new Map();
+    // PLR-6: only a *real* move — this session's `move_log` actually grew
+    // (or shrank, e.g. a take-back) since the last view we invalidated
+    // against, or we've switched sessions entirely — invalidates a
+    // half-assembled block/targeting selection. A view that merely arrived
+    // (a reconnect resending the same committed position — see
+    // multiplayer_ws.py's `subscribe_game` broadcast) must not wipe it, or
+    // any other player's socket blipping would nuke everyone's in-progress
+    // picks.
+    const newLen = data?.move_log?.length ?? null;
+    const prevLen = lastDraftMoveLogLen;
+    const samePriorSession = sessionId === lastDraftSessionId;
+    const changed = !samePriorSession || lastDraftMoveLogLen === null || newLen !== lastDraftMoveLogLen;
+    lastDraftSessionId = sessionId;
+    lastDraftMoveLogLen = newLen;
+    if (changed) {
+      castTargeting = null;
+      blockDraft = new Map();
+    }
+    // VIS-5: feed the opponent's newest moves in on the same "move_log
+    // actually grew" signal above (never on a reconnect rebroadcast of the
+    // unchanged position, and never across a session switch).
+    if (
+      data?.perspective &&
+      samePriorSession &&
+      prevLen !== null &&
+      newLen !== null &&
+      newLen > prevLen &&
+      Array.isArray(data.move_actors)
+    ) {
+      const labels = data.move_log.slice(prevLen, newLen);
+      const actors = data.move_actors.slice(prevLen, newLen);
+      labels.forEach((label, i) => {
+        const actorId = actors[i];
+        if (!actorId || actorId === data.perspective) return;
+        pushMoveFeed(`${playerName(actorId)} ${describeMoveLabel(label)}`);
+      });
+    }
     onViewChange(data);
     render();
+  }
+
+  // --- PLR-6: in-progress UI selection persistence ------------------------
+  // Mirrors `blockDraft`/`castTargeting` server-side as they're built (see
+  // `set_ui_draft`/`GameSession._ui_drafts`) so a genuine reconnect — a new
+  // tab, not just a socket blip — can rebuild the modal instead of losing
+  // it outright, since neither was ever otherwise sent to the server.
+  // Fire-and-forget: these are UI conveniences, not game actions, so a
+  // failed save just means a worse reconnect experience, not a broken game.
+
+  function persistBlockDraft() {
+    if (!sessionId) return;
+    const assignments = Array.from(blockDraft, ([blocker, attacker]) => ({ blocker, attacker }));
+    saveUiDraft(sessionId, view?.perspective ?? null, assignments.length ? { kind: 'block', assignments } : null);
+  }
+
+  function persistCastTargetingDraft() {
+    if (!sessionId) return;
+    saveUiDraft(sessionId, view?.perspective ?? null, castTargeting ? { kind: 'cast', castTargeting } : null);
+  }
+
+  // Best-effort rehydration on `start()`: only accepts the saved draft if
+  // it still lines up with what the fresh view actually offers — an
+  // attacker/blocker pairing whose creatures are gone, or a cast whose
+  // target requirements changed shape, is silently dropped rather than
+  // risking a confusing half-restored modal (the eventual submit, if any,
+  // is still validated server-side regardless).
+  function restoreUiDraft(v) {
+    const draft = v?.ui_draft;
+    if (!draft) return;
+    if (draft.kind === 'block' && Array.isArray(draft.assignments)) {
+      const offers = new Map(
+        (v.legal_actions || [])
+          .filter((a) => a.type === 'declare_blockers')
+          .map((a) => [a.instance_id, new Set((a.legal_attackers || []).map((x) => x.instance_id))]),
+      );
+      const restored = new Map();
+      for (const entry of draft.assignments) {
+        const attackers = offers.get(entry?.blocker);
+        if (attackers && attackers.has(entry?.attacker)) restored.set(entry.blocker, entry.attacker);
+      }
+      if (restored.size) blockDraft = restored;
+    } else if (draft.kind === 'cast' && draft.castTargeting?.send) {
+      const ct = draft.castTargeting;
+      const action = findTargetableAction(ct.instanceId, ct.send.type, ct.send.ability_index, ct.send.face);
+      if (action) {
+        const expanded = expandMultiTargetRequirements(action.targets || []);
+        const sameShape = ct.isTapChoice || ct.isSacrificeChoice
+          ? Array.isArray(ct.requirements)
+          : expanded.requirements.length === (ct.requirements || []).length;
+        if (sameShape && Number.isInteger(ct.reqIndex)) castTargeting = ct;
+      }
+    }
   }
 
   async function withBusy(fn) {
@@ -529,6 +664,7 @@ export function createGameBoardView(opts = {}) {
 
     root.innerHTML = `
       <div class="goldfish${pending || castTargeting ? ' choosing' : ''}">
+        ${moveFeedHtml()}
         <div class="gf-topbar">
           <div class="gf-turninfo">
             <span class="gf-turn" title="Regel 500.1 zählt jeden Spielerzug einzeln – das ist Spielzug ${s.turn_number}.">Zug ${s.round_number || s.turn_number}</span>
@@ -1430,12 +1566,14 @@ export function createGameBoardView(opts = {}) {
         const attacker = Number(el.value);
         if (attacker) blockDraft.set(blocker, attacker);
         else blockDraft.delete(blocker);
+        persistBlockDraft();
         render();
       });
     });
     root.querySelector('#gf-submit-blocks')?.addEventListener('click', submitBlocks);
     root.querySelector('#gf-clear-blocks')?.addEventListener('click', () => {
       blockDraft = new Map();
+      persistBlockDraft();
       render();
     });
 
@@ -1616,6 +1754,7 @@ export function createGameBoardView(opts = {}) {
     root.querySelectorAll('[data-cast-target-cancel]').forEach((el) => {
       el.addEventListener('click', () => {
         castTargeting = null;
+        persistCastTargetingDraft();
         render();
       });
     });
@@ -1763,7 +1902,12 @@ export function createGameBoardView(opts = {}) {
       } else {
         act({ ...send, targets, x });
       }
+      // Submitted (or about to be, via `act`) — the backend drops any saved
+      // draft as a side effect of the real action succeeding, but clear it
+      // here too so a failed submission doesn't leave a stale one behind.
+      persistCastTargetingDraft();
     } else {
+      persistCastTargetingDraft();
       render();
     }
   }
@@ -2805,6 +2949,14 @@ export function createGameBoardView(opts = {}) {
     return `<div class="gf-movelog"><h4>Verlauf</h4><ol>${recent.map((m) => `<li>${escapeHtml(m)}</li>`).join('')}</ol></div>`;
   }
 
+  // VIS-5: the transient "Bob hat X gespielt" toasts `pushMoveFeed` queues.
+  function moveFeedHtml() {
+    if (!moveFeed.length) return '';
+    return `<div class="gf-move-feed" aria-live="polite">${moveFeed
+      .map((entry) => `<div class="gf-move-feed-item">${escapeHtml(entry.text)}</div>`)
+      .join('')}</div>`;
+  }
+
   // The optional static-effects panel (RULE 613): (1) every active static
   // ability in play and (2) the layer-by-layer derivation of each permanent
   // whose characteristics a static effect changed.
@@ -2954,6 +3106,7 @@ export function createGameBoardView(opts = {}) {
     autoPassWindowKey = null;
     sessionId = null;
     view = null;
+    moveFeed = [];
   }
 
   return { mount, start, refresh, setAssets, stop };

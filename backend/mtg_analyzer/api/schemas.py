@@ -92,7 +92,7 @@ class StartReplayRequest(BaseModel):
 
     Provide a full ``replay`` descriptor to load a saved/exported board, or
     omit it to start from a blank board with ``num_players`` (1 = solo puzzle,
-    2 = with an opponent; capped at 2 for now).
+    2-4 = with opponents; capped at 4, same as Multiplayer's `MAX_SEATS`).
     """
 
     model_config = ConfigDict(populate_by_name=True)
@@ -117,6 +117,21 @@ class RewindRequest(BaseModel):
     """Request body for POST /api/game/{id}/rewind."""
 
     steps: int = 1
+
+
+class SaveUiDraftRequest(BaseModel):
+    """Request body for POST /api/game/{id}/ui-draft (PLR-6).
+
+    ``playerId`` names whose draft this is — required in multiplayer
+    (several real players share one session), omitted in solo modes (the
+    one real human). ``draft`` is opaque, caller-defined JSON; ``None``
+    clears whatever was stored.
+    """
+
+    model_config = ConfigDict(populate_by_name=True)
+
+    player_id: Optional[str] = Field(default=None, alias="playerId")
+    draft: Optional[dict] = None
 
 
 # -- Multiplayer (api/multiplayer.py, services/lobby.py) -------------------

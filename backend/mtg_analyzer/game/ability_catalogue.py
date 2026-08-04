@@ -23,7 +23,11 @@ N counters" clause (`parser.oracle.catalogue.counters`), resolved by
 `RulesEngine`'s battlefield-entry paths. `kicker_x_mana_restriction(card)`
 is the same split again, for Kicker's own ``{X}`` payment restriction
 (`parser.oracle.catalogue.kicker_mana`, PAR-7), resolved by
-`GameEngine.can_cast`/`cast_spell`.
+`GameEngine.can_cast`/`cast_spell`. `opening_hand_battlefield_permission
+(card)` is the same split for RULE 103.6a's "you may begin the game with
+it on the battlefield" pregame permission (`parser.oracle.catalogue.
+opening_hand`, PLR-11), resolved by `services/game_session.py`'s
+opening-hand handling.
 """
 
 from __future__ import annotations
@@ -35,6 +39,9 @@ from ..parser.oracle.catalogue.counters import entry_counters as _entry_counters
 from ..parser.oracle.catalogue.keywords import parse_keywords
 from ..parser.oracle.catalogue.kicker_mana import kicker_x_mana_restriction as _kicker_x_mana_restriction
 from ..parser.oracle.catalogue.lands import land_tap_condition as _land_tap_condition
+from ..parser.oracle.catalogue.opening_hand import (
+    opening_hand_battlefield_permission as _opening_hand_battlefield_permission,
+)
 from ..parser.oracle.gate import parse_oracle
 from ..parser.oracle.spec import AbilitySpec, EffectSpec
 
@@ -154,6 +161,22 @@ def entry_counters(card: Any) -> Optional[dict[str, Any]]:
     split `land_tap_condition` uses for tapped-entry.
     """
     return _entry_counters(card)
+
+
+def opening_hand_battlefield_permission(card: Any) -> bool:
+    """Whether ``card`` may begin the game on the battlefield straight from
+    a kept opening hand (RULE 103.6a — "If this card is in your opening
+    hand, you may begin the game with it on the battlefield.", the Leyline
+    cycle). A pregame setup permission, not a static or resolve-time
+    effect, so it doesn't go through the `EffectRegistry`/binder pipeline
+    at all — `services/game_session.py`'s opening-hand handling in
+    `_keep_hand` reads this directly once every seat has kept.
+
+    Delegates to `parser.oracle.catalogue.opening_hand` (the coverage
+    gate's single source of truth for this clause shape), the same split
+    `land_tap_condition`/`entry_counters` use.
+    """
+    return _opening_hand_battlefield_permission(card)
 
 
 def kicker_x_mana_restriction(card: Any) -> Optional[str]:

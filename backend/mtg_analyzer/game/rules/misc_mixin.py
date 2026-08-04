@@ -435,6 +435,56 @@ class MiscSystemsMixin:
                 return
         if source is not None and source in self.state.battlefield:
             self.put_into_graveyard(source)
+    def offer_opening_hand_battlefield_choice(self, player: Player, obj: GameObject) -> None:
+        """RULE 103.6a: a card printing "you may begin the game with it on
+        the battlefield" (the Leyline cycle,
+        `game/ability_catalogue.opening_hand_battlefield_permission`)
+        offers ``player`` the choice for one such card still in their
+        opening hand. `services/game_session.py` walks every seat's
+        qualifying cards one at a time once the whole table has kept,
+        the same queued-`pending_choice` shape Vancouver's post-keep
+        scry uses (`_open_next_vancouver_scry`).
+        """
+        self._pending_opening_hand_obj = obj
+        self.state.pending_choice = {
+            "kind": "opening_hand_battlefield",
+            "player_id": player.id,
+            "prompt": f"{obj.name}: mit ihr auf dem Schlachtfeld statt in der Hand beginnen?",
+            "options": [
+                {"id": "battlefield", "label": "Auf das Schlachtfeld legen"},
+                {"id": "decline", "label": "In der Hand behalten"},
+            ],
+        }
+    def resolve_opening_hand_battlefield_choice(self, answer: Optional[str]) -> None:
+        """Answer a pending `opening_hand_battlefield` choice (RULE 103.6a).
+        ``answer == "battlefield"`` puts the card onto the battlefield
+        straight from the opening hand (untapped, summoning sick — the same
+        default a search-to-battlefield hit gets); anything else leaves it
+        in hand."""
+        choice = self.state.pending_choice
+        if not choice or choice.get("kind") != "opening_hand_battlefield":
+            raise ValueError("no pending opening-hand-battlefield choice to resolve")
+        self.state.pending_choice = None
+        obj = self._pending_opening_hand_obj
+        self._pending_opening_hand_obj = None
+        if obj is None or answer != "battlefield":
+            return
+        player = self.state.player_by_id(choice["player_id"])
+        if obj not in player.hand:
+            return  # defensive: shouldn't happen, nothing else touches hands here
+        player.remove_from_zone(obj, Zone.HAND)
+        obj.zone = Zone.BATTLEFIELD
+        obj.summoning_sick = True
+        self.state.add_to_battlefield(obj)
+        self.state.fire_event(
+            GameEvent(
+                EventType.ENTERS_BATTLEFIELD,
+                controller_id=player.id,
+                object=obj.name,
+                instance_id=obj.instance_id,
+                object_types=sorted(obj.type_words),
+            )
+        )
     def create_token(
         self,
         controller_id: str,

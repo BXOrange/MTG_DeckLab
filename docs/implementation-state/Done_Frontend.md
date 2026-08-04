@@ -129,6 +129,23 @@ into `BACKLOG.md`, and those mentions have been repointed there.
       (there's nothing meaningful to check), and gained a matching "Art"
       (Deck/Cube) checkbox-fieldset filter alongside the existing
       color/legality ones.
+- [x] **VIS-2 · Rename / duplicate-as-new (2026-08-04).** Two new buttons
+      per row in "Decks verwalten" (`savedDecksView.js`), both going
+      through the *same* `POST /api/decks/save` the sleeve picker already
+      used inline — no new backend route. **"Umbenennen"**: `window.
+      prompt` for a new name, then `saveDeck({ ...deck, name })` — same
+      `id`, so the server updates in place. **"Duplizieren"**:
+      ``saveDeck({ ...deck, id: null, name: `${name} (Kopie)` })`` — an
+      absent `id` is exactly "create a new deck" (`SaveDeckRequest`'s own
+      doc-comment), and every other field (`sleeveId`/`author`/`isCube`/
+      the decklist text) rides along in the spread, so a duplicate is a
+      genuine full copy. `createdAt`/`colorIdentity`/`commanders`/
+      `analysisId` aren't part of `SaveDeckRequest` at all, so the server
+      computes fresh ones for the copy the same way it would for any
+      brand-new deck — nothing to reset client-side. Verified live
+      (Playwright): save a deck, rename it, refresh → new name shows;
+      duplicate it, refresh → a second row with " (Kopie)" appended,
+      total count +1, zero console errors.
 
 ## Card display
 
@@ -984,6 +1001,67 @@ into `BACKLOG.md`, and those mentions have been repointed there.
       `flex-wrap: wrap` so the picker unfolds onto a second line of the row
       it belongs to.
 
+- [x] **PLR-10 · "Save as Replay" on the Multiplayer board (2026-08-04).**
+      Scoped down, per explicit instruction, to exactly what "Game
+      history / session persistence" needed to unblock: port
+      goldfishView.js's existing "⬇ Als Replay speichern" button (it
+      already hits the generic `GET /api/game/{id}/replay-export` —
+      confirmed no mode check, so a Multiplayer session exported exactly
+      like a goldfish one already would) to `multiplayerView.js`'s
+      `seatControls()`, in both the normal in-progress array (next to
+      Aufgeben/takeback) and the `game_over` one (next to
+      Auswertung/Spiel schließen) — so a shared table's position can be
+      downloaded and reopened in the Replay tab whether the game is still
+      running or just ended. Not offered to observers, matching "it's
+      your board" the same way goldfish frames it. No backend change.
+      Verified live: created a 2-seat table across two browser contexts,
+      started the game, clicked the button and got a real `replay.json`
+      download.
+
+- [x] **PLR-6 · Draft persistence, frontend half (2026-08-04).** See the
+      matching Done_Backend.md entry for the backend half
+      (`GameSession._ui_drafts`/`set_ui_draft`, `POST .../ui-draft`) and
+      the root cause it fixes. `gameBoardView.js`'s `applyView` used to
+      unconditionally null out `blockDraft`/`castTargeting` on *every*
+      fresh view; it now only does that when `move_log.length` (or the
+      session id) actually changed since the last view it invalidated
+      against, so a view that merely arrived — another seat's socket
+      reconnecting rebroadcasts the same committed position to the whole
+      table — no longer wipes an unrelated player's in-progress pick.
+      Both drafts are also now mirrored to the new endpoint as they're
+      built (after every `blockDraft.set`/`.delete`/clear; after every
+      cast-targeting start/pick/cancel, funneled through the existing
+      `finishCastIfReady`) and best-effort rehydrated in `start()` from
+      `view.ui_draft` — a block draft only restores pairings still
+      offered in fresh `legal_actions`; a cast/activate draft only
+      restores if the same action is still found with a same-shape
+      target requirement list. Anything that doesn't line up is silently
+      dropped rather than risking a confusing half-restored modal — the
+      eventual submit, if any, is still fully validated server-side
+      regardless. Fire-and-forget throughout (a failed draft save is a
+      worse reconnect experience, never a broken game).
+
+## Replay/Puzzle mode
+
+- [x] **3-4 player pods (2026-08-04).** Backend half (lifting `blank_
+      replay`'s 2-player cap) in Done_Backend.md. Two more start-screen
+      buttons (`data-start="3"`/`"4"`) in `replayView.js`'s `renderStart`.
+      Play mode needed nothing — it's the same `gameBoardView.js` board
+      Multiplayer already pods at 3-4 seats (`podGrid()`/`.gf-pod-grid`,
+      driven purely by `state.players.length`, no Multiplayer-specific
+      dependency). The **editor** (`renderEditor`/`renderPlayer`, its own
+      `.replay-players` grid — a from-scratch board-construction UI with
+      inline edit affordances gameBoardView.js has no hook for, so full
+      reuse wasn't in scope) got a `pod` modifier class alongside the
+      existing `two`, with CSS in `main.css` mirroring — same clockwise
+      placement, same odd-seat-spans-the-row rule, same `minmax(0, 1fr)`
+      reasoning, same narrow-screen fallback breakpoint — `gameBoardView.
+      js`'s `.gf-pod-grid` rather than sharing the class outright (`.
+      replay-player`'s box styling has nothing to do with `.gf-player-
+      board`'s). Verified live: a 4-player puzzle's editor tiled 2x2 in
+      the expected clockwise order, and its play-mode board did too, with
+      zero console errors either screen.
+
 ## Deck analysis (UC2)
 
 - [x] "Deck analysieren" (`analyzeView.js` + `deckAnalysis.js`) is a full,
@@ -1018,3 +1096,47 @@ into `BACKLOG.md`, and those mentions have been repointed there.
       analysis still in `docs/implementation-state/BACKLOG.md` "LLM Deck Analysis" — that
       endpoint would add synergy/archetype narrative on top of these
       numbers, not replace them.
+
+## Multiplayer follow-ups (2026-08-04)
+
+- [x] **PLR-5 · Periodic ping.** `lobbySocket.js` now sends `{type:
+      'ping'}` every 30s while the socket is open (well under the default
+      120s `MTG_MULTIPLAYER_IDLE_TIMEOUT`) — backend half (the `ping`
+      handler now calling `lobby.touch`) in Done_Backend.md. The timer is
+      started on `open`, cleared on `close`/the module's own `close()`, so
+      it never outlives the socket it belongs to.
+- [x] **VIS-5 · A move/priority feed.** `gameBoardView.js`'s `applyView`
+      already computed "did `move_log` actually grow since the last view"
+      to invalidate an in-progress block/targeting draft (PLR-6) — the new
+      feed reuses that exact same delta to slice the newly-added `move_log`
+      entries, zip them against the new `move_actors` (Done_Backend.md),
+      and — for any actor that isn't `view.perspective` (so a solo mode,
+      with no perspective at all, never populates it, and your own moves
+      never echo back at you) — queue a short-lived toast ("Bob hat X
+      gespielt", `pushMoveFeed`/`describeMoveLabel`, the latter translating
+      a handful of common raw labels — `play_land`/`cast_spell`/
+      `pass_priority`/`declare_attackers`/… — into a German verb phrase,
+      falling back to the raw label same as the existing "Verlauf" panel
+      already shows it). Rendered as `.gf-move-feed`, fixed near the top
+      of the board, each toast fading out via a pure-CSS `@keyframes`
+      animation over 6s and evicted from the underlying array by a
+      matching `setTimeout` (so a stale entry can't resurrect on the next
+      unrelated re-render). Capped at 3 concurrent toasts. Verified live
+      against a running goldfish board (solo — confirms the feed correctly
+      stays silent with no `perspective`) with zero console errors; the
+      two-seat interactive case is covered by the backend's `move_actors`
+      tests plus this module's reuse of PLR-6's already-proven delta logic.
+- [x] **VIS-6 · Preload every seat's card art.** `preloadOwnDeck` (run at
+      deck-pick time) only ever warmed *this* client's own deck, so an
+      opponent's first play of a card popped in mid-game. New `multiplayerView.js`
+      function `preloadAllDecksArt`, called once — when the table's first
+      real view arrives (`applyGameView`'s existing `enteredBoardFor`
+      "first view for this session" guard, by which point every seat's
+      deck pick is locked in) — resolves every seat's `deck_id` against
+      the already-fetched `savedDecks` (unscoped, this app has no
+      accounts, so an opponent's saved deck is readable the exact same way
+      `mySavedDeck()` reads your own) and preloads the union of every
+      deck's card names through the same `preloadCardImages` goldfish's
+      loading screen uses. Verified live: goldfish's own board (which
+      shares `gameBoardView.js`/`cardImages.js` with this code path)
+      rendered a full board with zero pop-in and zero console errors.

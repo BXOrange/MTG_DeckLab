@@ -26,6 +26,13 @@ import { getServerUrl } from './settings.js';
 
 const RECONNECT_DELAYS_MS = [1000, 2000, 5000, 10000];
 
+// PLR-5: a periodic `ping` counts as liveness server-side (`api/
+// multiplayer_ws.py`'s `_handle`), same as a real game action — well under
+// the default 120s idle timeout, so a player who is genuinely still at the
+// tab but just thinking a move over doesn't get disconnected (and
+// immediately auto-reconnected) for it.
+const PING_INTERVAL_MS = 30000;
+
 function lobbySocketUrl(name, playerId) {
   const url = new URL('/ws/lobby', getServerUrl());
   url.protocol = url.protocol === 'https:' ? 'wss:' : 'ws:';
@@ -52,6 +59,7 @@ export function connectLobbySocket(handlers = {}) {
   let socket = null;
   let attempt = 0;
   let closed = false;
+  let pingTimer = null;
   //: Why the server last dropped us, if it told us ('idle'/'replaced'/…).
   let droppedReason = null;
   // Presence is re-sent on every (re)connect: the server only knows where a
@@ -72,9 +80,13 @@ export function connectLobbySocket(handlers = {}) {
       // path also runs after a *reconnect*, where the board we're holding
       // is however many moves stale.
       send({ type: 'subscribe_game' });
+      clearInterval(pingTimer);
+      pingTimer = setInterval(() => send({ type: 'ping' }), PING_INTERVAL_MS);
     });
 
     socket.addEventListener('close', () => {
+      clearInterval(pingTimer);
+      pingTimer = null;
       handlers.onStatus?.(false, droppedReason);
       if (closed) return;
       const delay = RECONNECT_DELAYS_MS[Math.min(attempt, RECONNECT_DELAYS_MS.length - 1)];
@@ -127,6 +139,8 @@ export function connectLobbySocket(handlers = {}) {
 
   function close() {
     closed = true;
+    clearInterval(pingTimer);
+    pingTimer = null;
     socket?.close();
   }
 

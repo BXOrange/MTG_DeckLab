@@ -284,6 +284,12 @@ async def _handle(
         await manager.broadcast_game(game, session)
         return
     if kind == "ping":
+        # PLR-5: counts as liveness, same as a real game action
+        # (`api/multiplayer.py`'s `apply_action`) — otherwise the idle
+        # watchdog (`sweep_once`) only ever sees silence from a player who
+        # is genuinely still there but just thinking, and disconnects/
+        # instantly-reconnects them for it.
+        lobby.touch(player_id)
         await websocket.send_json({"type": "pong"})
         return
     await websocket.send_json({"type": "error", "message": f"Unknown message type: {kind!r}"})
