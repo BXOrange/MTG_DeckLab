@@ -193,6 +193,13 @@ _PLAYER_TRIGGER_CONDITIONS: tuple[tuple[re.Pattern[str], Any], ...] = (
     (re.compile(r"^you surveil or scry$"), ["SURVEIL", "SCRY"]),
     (re.compile(r"^you scry$"), "SCRY"),
     (re.compile(r"^you surveil$"), "SURVEIL"),
+    # "Whenever you gain life, …" (RULE 119.3 — Ajani's Pridemate/Archangel
+    # of Thune-shaped lifegain payoffs). `EventType.LIFE_GAINED` already
+    # exists as the post-replacement trigger source (`LIFE_GAIN` is the
+    # pre-emptive, replaceable half — see its own docstring); only this
+    # oracle-text recognition and the matching `effect_binder`
+    # `_GROUP_CONTROLLER_EVENT_KEYS` entry were missing.
+    (re.compile(r"^you gain life$"), "LIFE_GAINED"),
 )
 
 #: A triggered-ability wrapper: "When/Whenever/At <condition>, <body>".
@@ -247,6 +254,40 @@ _MAGECRAFT_RE = re.compile(
     r"^magecraft\s*—\s*whenever you cast or copy an instant or sorcery spell,\s*(?P<body>.+)$",
     re.IGNORECASE,
 )
+
+#: RULE 603.1's "Whenever you cast a/an <type>[, <type>, or <type>] spell,
+#: <effect>." (Baral, Chief of Compliance/Archmage of Runes/Young Pyromancer-
+#: adjacent spellslinger payoffs) — a player-subject trigger whose event
+#: needs a card-type filter, so — like `_MAGECRAFT_RE`/`_DAMAGE_TRIGGER_RE`
+#: — it gets its own dedicated whole-line recognizer rather than
+#: `_PLAYER_TRIGGER_CONDITIONS`'s bare event-name table. `effect_binder`'s
+#: ``spell_card_types`` predicate already exists (built for the hand-
+#: authored Wandering Archaic) — only the oracle-text recognition was
+#: missing. Deliberately narrow to ``you`` as the subject (RULE 603.1's by
+#: far most common printed scope for this template); "an opponent casts"/
+#: "a player casts" are a different subject grammar `_subject_condition`
+#: doesn't support yet, left unclaimed rather than silently misreading
+#: "opponent" as "you". Creature *subtypes* ("wizard spell", "elf spell")
+#: aren't in `_SPELL_CAST_TYPE_WORDS` — `GameObject.type_words` only ever
+#: carries main card types — so a compound naming one fails closed
+#: correctly rather than silently dropping the subtype qualifier.
+_SPELL_CAST_TYPE_WORDS: frozenset[str] = frozenset(
+    {"creature", "artifact", "enchantment", "instant", "sorcery", "planeswalker", "land", "battle"}
+)
+_CAST_SPELL_TRIGGER_RE = re.compile(
+    r"^whenever you cast (?:an?|another) (?P<types>[a-z][a-z,\s]*?) spell,\s*(?P<body>.+)$",
+    re.IGNORECASE | re.S,
+)
+
+
+def _parse_cast_spell_types(text: str) -> Optional[list[str]]:
+    """``text`` (e.g. "instant or sorcery", "creature, artifact, or
+    enchantment") → its card-type word list, or ``None`` if any token isn't
+    a recognised main card type (fail-closed)."""
+    tokens = [t for t in re.split(r"[,\s]+", text.strip().lower()) if t and t != "or"]
+    if not tokens or any(t not in _SPELL_CAST_TYPE_WORDS for t in tokens):
+        return None
+    return tokens
 
 #: The card-type words a "group" trigger condition can scope to (RULE 613.6-
 #: adjacent vocabulary shared with `catalogue.static_handlers`'s anthem
@@ -488,6 +529,22 @@ _GROUP_SUBTYPE_SUBJECT_RE = re.compile(
 _SELF_OR_GROUP_SUBTYPE_RE = re.compile(
     r"^~ or another\s+(?P<nontoken>nontoken\s+)?"
     r"(?P<subtypes>[a-z]+(?:\s+or\s+[a-z]+)*)\s+you control\s+"
+    rf"(?:{_VERB_ALT})(?:\s+the\s+battlefield)?(?:\s+alone)?$"
+)
+
+#: The plain **main-type** sibling of `_SELF_OR_GROUP_SUBTYPE_RE` (Blood
+#: Artist/Falkenrath Noble's own printed condition: "whenever ~ or another
+#: creature dies, …") — no subtype filter, and "you control" is optional
+#: rather than mandatory (Blood Artist's trigger fires on *any* creature
+#: dying, not just the controller's own — the aristocrats payoff's whole
+#: point). Tried before `_SELF_OR_GROUP_SUBTYPE_RE` for the same reason
+#: `_GROUP_SUBJECT_RE` is tried before `_GROUP_SUBTYPE_SUBJECT_RE`: a bare
+#: main-type word like "creature" would otherwise also match the subtype
+#: grammar's permissive ``[a-z]+`` and be misread as a one-word tribal
+#: filter.
+_SELF_OR_GROUP_SUBJECT_RE = re.compile(
+    r"^~ or another\s+(?P<type>" + "|".join(_GROUP_TYPE_WORDS) + r")"
+    r"(?P<you> you control)?\s+"
     rf"(?:{_VERB_ALT})(?:\s+the\s+battlefield)?(?:\s+alone)?$"
 )
 
@@ -824,6 +881,14 @@ def _trigger_condition(condition: str) -> Optional[dict[str, Any]]:
         return {"subject": "self"}
     if _ATTACHED_SUBJECT_RE.match(cond):
         return {"subject": "attached_permanent"}
+    m = _SELF_OR_GROUP_SUBJECT_RE.match(cond)
+    if m is not None:
+        return {
+            "subject": "self_or_group",
+            "type": m.group("type"),
+            "controller": "you" if m.group("you") else "any",
+            "other": True,
+        }
     m = _SELF_OR_GROUP_SUBTYPE_RE.match(cond)
     if m is not None:
         return {
@@ -1074,6 +1139,27 @@ def segment_line(
                 "event": "SPELL_CAST",
                 "condition": {"subject": "group", "type": "permanent", "controller": "you", "other": False},
                 "spell_subtype_any": ["instant", "sorcery"],
+            },
+            raw_text=raw,
+            parser=provenance,
+        )
+        return Segment(raw=raw, spec=spec, claimed=True)
+
+    cast_spell_trig = _CAST_SPELL_TRIGGER_RE.match(raw)
+    if cast_spell_trig is not None:
+        types = _parse_cast_spell_types(cast_spell_trig.group("types"))
+        if types is None:
+            return Segment(raw=raw)
+        effects = parse_effect_body(cast_spell_trig.group("body"))
+        if effects is None:
+            return Segment(raw=raw)
+        spec = AbilitySpec(
+            "triggered",
+            effects=effects,
+            trigger={
+                "event": "SPELL_CAST",
+                "condition": {"subject": "you"},
+                "spell_card_types": types,
             },
             raw_text=raw,
             parser=provenance,

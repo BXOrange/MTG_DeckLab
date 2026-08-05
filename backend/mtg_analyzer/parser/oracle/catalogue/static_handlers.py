@@ -137,6 +137,22 @@ _QUOTED_GRANT_RE = re.compile(
     re.IGNORECASE | re.DOTALL,
 )
 
+# "Commander creatures you own have \"<ability>\"" (Acolyte of Bahamut/Agent
+# of the Iron Throne/Candlekeep Sage-shaped cEDH support cards) — a fixed,
+# single-phrase scope rather than routing through `_scope`/`_QUOTED_GRANT_RE`'s
+# general vocabulary: "commander" is a designation (`GameObject.
+# is_commander`), not a card type or creature subtype `_scope` recognises,
+# and no real card pairs it with a colour/subtype/token qualifier the
+# general grammar would otherwise need to carry. Tried before
+# `_QUOTED_GRANT_RE` below (which would otherwise fail closed on it anyway —
+# "commander" isn't in `_scope`'s or `_permanent_type_scope`'s vocabulary —
+# but keeping the dedicated, unambiguous phrase first avoids relying on that
+# fallthrough).
+_COMMANDER_CREATURES_QUOTED_GRANT_RE = re.compile(
+    r'commander creatures you own have "(?P<inner>.+)"',
+    re.IGNORECASE | re.DOTALL,
+)
+
 #: Card-type words the "opponent-scoped"/"prohibition"/"type-overwrite"
 #: families below recognise as a `card_type` selector (`continuous.
 #: _has_card_type` reads the matching `Card.is_<word>` flag) — deliberately
@@ -157,16 +173,36 @@ _ACTIVATION_PROHIBITION_RE = re.compile(
 )
 
 # "<Type> spells cost {N} more/less to cast."  (RULE 601.2f tax/discount,
-# Thalia/Thorn of Amethyst/Vryn Wingmare-shaped) — unlike "Spells you cast
-# cost {N} less" (self-scoped, already covered by the hand-authored
-# `cost_reduction` shape), the bare "<type> spells cost …" phrasing with no
-# "you cast"/"your opponents cast" qualifier taxes *everyone*, the caster's
-# own controller included.
+# Thalia/Thorn of Amethyst/Vryn Wingmare-shaped) — the bare "<type> spells
+# cost …" phrasing with no "you cast"/"your opponents cast" qualifier taxes
+# *everyone*, the caster's own controller included; see
+# `_SPELL_COST_TAX_YOU_CAST_RE` below for the self-scoped "you cast" sibling.
 _SPELL_TYPE_WORDS: frozenset[str] = frozenset(
     {"noncreature", "creature", "artifact", "instant", "sorcery", "enchantment", "planeswalker"}
 )
 _SPELL_COST_TAX_RE = re.compile(
     r"(?:(?P<word>[a-z]+) )?spells cost \{(?P<n>\d+)\} (?P<dir>more|less) to cast", re.IGNORECASE
+)
+
+# "[<Type> [and <type>]] spells you cast cost {N} more/less to cast."  (RULE
+# 601.2f self-scoped discount/tax, Baral/Archmage of Runes/Pearl Medallion-
+# adjacent — the "you cast" sibling of `_SPELL_COST_TAX_RE`: unlike that
+# unscoped tax, this only ever discounts/taxes *this permanent's own
+# controller*'s spells (`continuous.cost_reduction_for`'s ownership check,
+# ``affects="your_spells"`` — the `cost_reduction` registry's own default,
+# so the emitted spec omits ``affects`` entirely). The two-type "instant and
+# sorcery spells you cast …" compound (Baral, Chief of Compliance-shaped)
+# passes both words through as a list — `continuous._spell_type_matches`
+# ORs them. Colour-scoped variants ("White spells you cast cost {1} less…",
+# the Medallion cycle) and creature-subtype-scoped ones ("Equipment spells…",
+# the Banneret cycle) are a genuinely different filter kind
+# (`_spell_type_matches` only reads `Card`'s main-type flags, not colour or
+# subtypes) — deliberately left unclaimed rather than silently ignoring the
+# qualifier.
+_SPELL_COST_TAX_YOU_CAST_RE = re.compile(
+    r"(?:(?P<word1>[a-z]+)(?: and (?P<word2>[a-z]+))? )?spells you cast cost "
+    r"\{(?P<n>\d+)\} (?P<dir>more|less) to cast",
+    re.IGNORECASE,
 )
 
 # "This spell costs {N} less to cast for each attacking creature [you
@@ -1314,7 +1350,13 @@ def _quoted_ability_grant_effects(inner: str) -> Optional[EffectSpec]:
         return None
     trigger = spec.trigger or {}
     event = trigger.get("event")
-    if event not in _GRANTABLE_TRIGGER_EVENTS:
+    # A compound "enters or leaves the battlefield"/"scry or surveil" inner
+    # trigger (`segmenter._SELF_MULTI_EVENT_RE`/`_player_trigger_event`)
+    # stamps a *list* of events on `AbilitySpec.trigger` — re-granting a
+    # multi-event ability isn't supported (nothing downstream re-scopes more
+    # than one event per grant), so this must fail closed rather than crash
+    # on the unhashable-list membership check below.
+    if isinstance(event, list) or event not in _GRANTABLE_TRIGGER_EVENTS:
         return None
     if event == "STEP_BEGIN":
         # A RULE 500.7 phase trigger carries no object subject to re-scope
@@ -2055,6 +2097,21 @@ def static_effect_specs(clause: str) -> Optional[list[EffectSpec]]:
             params["spell_type"] = word
         return [EffectSpec("cost_reduction", params)]
 
+    m = _SPELL_COST_TAX_YOU_CAST_RE.fullmatch(text)
+    if m is not None:
+        words = [w.lower() for w in (m.group("word1"), m.group("word2")) if w]
+        if any(w not in _SPELL_TYPE_WORDS for w in words):
+            return None  # fail-closed — colour/subtype-scoped, not a main type
+        params = {
+            "generic": int(m.group("n")),
+            "increase": m.group("dir") == "more",
+        }
+        if len(words) == 1:
+            params["spell_type"] = words[0]
+        elif len(words) == 2:
+            params["spell_type"] = words
+        return [EffectSpec("cost_reduction", params)]
+
     m = _SELF_COST_REDUCTION_ATTACKING_RE.fullmatch(text)
     if m is not None:
         selector = "attacking_creatures_you_control" if m.group("yours") else "attacking_creatures"
@@ -2476,6 +2533,14 @@ def static_effect_specs(clause: str) -> Optional[list[EffectSpec]]:
                 return None  # e.g. a granted landwalk — fail-closed, whole clause
             specs.append(EffectSpec("grant_keyword", {"keywords": keywords, **params}))
         return specs
+
+    m = _COMMANDER_CREATURES_QUOTED_GRANT_RE.fullmatch(text)
+    if m is not None:
+        grant = _quoted_ability_grant_effects(m.group("inner"))
+        if grant is None:
+            return None
+        grant.params["affects"] = "commander_creatures_you_own"
+        return [grant]
 
     m = _QUOTED_GRANT_RE.fullmatch(text)
     if m is not None:

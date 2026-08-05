@@ -320,6 +320,16 @@ _TABLE: list[tuple[str, KeywordShape, str]] = [
     ("Crew", _N, "702.122"),
     ("Fabricate", _N, "702.123"),
     ("Partner", _F, "702.124"),
+    # "Choose a Background" (Commander Legends: Battle for Baldur's Gate) —
+    # the same RULE 702.124 keyword-ability family as Partner, and just as
+    # inert in-game: it only ever matters at deckbuilding time (pairing a
+    # commander with a Background enchantment, RULE 903.7g), which is
+    # `services/commander_legality.py`'s job, not the game engine's — see
+    # BACKLOG.md's DB-3 ("No Background / 'Friends forever' pairing").
+    # Recognizing it here just lets a
+    # card whose only ability is this reach `MODELED` instead of parking on
+    # an otherwise-fully-modeled card forever, exactly like bare `Partner`.
+    ("Choose a Background", _F, "702.124"),
     ("Undaunted", _F, "702.125"),
     ("Improvise", _F, "702.126"),
     ("Aftermath", _F, "702.127"),

@@ -155,6 +155,10 @@ _GROUP_CONTROLLER_EVENT_KEYS: dict[str, str] = {
     # every other player-subject event above.
     "SCRY": "player_id",
     "SURVEIL": "player_id",
+    # "Whenever you gain life, …" (RULE 119.3, Ajani's Pridemate-shaped) —
+    # `RulesEngine.gain_life` fires `LIFE_GAINED` per-player, same
+    # convention as every other player-subject event above.
+    "LIFE_GAINED": "player_id",
 }
 
 #: Which event-data key identifies *which object* an event is about — RULE

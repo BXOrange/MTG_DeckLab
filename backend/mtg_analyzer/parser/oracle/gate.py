@@ -629,7 +629,44 @@ NEVER_SUPPORTED = "NEVER_SUPPORTED"
 #: conditional/costed/counter-bearing RULE 103.6a battlefield permission
 #: and Buried Ogre's graveyard-destination RULE 103.6 permission
 #: (`catalogue.opening_hand.pregame_setup_permission`, +2 cards).
-PARSER_VERSION = "52"
+#: "53": saved-deck-priority batch (2026-08-04) — cross-referenced every
+#: saved deck's card list against the parser gate and closed the five
+#: highest-yield SOLO-blocker templates found there: the untargeted mass
+#: "destroy/exile all X [with a filter]" board wipe (`catalogue.handlers`'
+#: `destroy_all`/`destroy_all_no_regen`/`exile_all`, widening
+#: `effects._MASS_DESTROY_SELECTORS` with `"all_lands"`); "[<type> [and
+#: <type>]] spells you cast cost {N} less/more to cast"
+#: (`static_handlers._SPELL_COST_TAX_YOU_CAST_RE`, widening
+#: `continuous._spell_type_matches` to OR a list — and fixing a latent
+#: `_CARD_TYPE_ATTRS` gap where "instant"/"sorcery"/"battle" were never
+#: matchable by `_has_card_type` at all, unnoticed because every prior
+#: caller only ever needed the five permanent-type words); "whenever you
+#: cast a/an <type> spell, <effect>" (`segmenter._CAST_SPELL_TRIGGER_RE`, a
+#: new trigger-condition recognizer riding the pre-existing `SPELL_CAST`
+#: event and `effect_binder`'s `spell_card_types` predicate); "whenever ~
+#: or another creature dies, <effect>" (Blood Artist-shaped,
+#: `segmenter._SELF_OR_GROUP_SUBJECT_RE`, the main-type sibling of the
+#: existing subtype-only `_SELF_OR_GROUP_SUBTYPE_RE`); and "Choose a
+#: Background" as a bare RULE 702.124 FLAG keyword (`catalogue.keywords`,
+#: inert in-game like Partner — see BACKLOG.md's DB-3 for the deckbuilding
+#: half). +107 cards, 0 regressions (`Done_Backend.md`).
+#: "54": second saved-deck-priority batch (2026-08-05) — five more
+#: templates off the same ranking: "whenever you gain life, <effect>"
+#: (`segmenter`'s `_PLAYER_TRIGGER_CONDITIONS`, riding the pre-existing
+#: `EventType.LIFE_GAINED`); a general N-way "target artifact, enchantment
+#: [, or land]" sibling of the existing 2-way `TARGET` row
+#: (`subgrammars._TARGET_ROWS`); "commander creatures you own have
+#: '<ability>'" (`continuous`'s new `commander_creatures_you_own` ownership
+#: selector + a dedicated `static_handlers` recognizer — also fixed a latent
+#: `TypeError: unhashable type: 'list'` crash in `_quoted_ability_grant_
+#: effects` on a compound-event inner trigger); "whenever ~ attacks, it gets
+#: +N/+N until end of turn" (`catalogue.handlers`'s new `self_subject_only`
+#: pump row, the bare-pronoun sibling of the existing `~ gets …` one); and
+#: "prevent the next N damage that would be dealt to any target this turn"
+#: (the plain single-target sibling of the already-shipped divided-
+#: prevention row). +282 cards (cumulative with v53), 0 regressions
+#: (`Done_Backend.md`).
+PARSER_VERSION = "54"
 
 
 @dataclass

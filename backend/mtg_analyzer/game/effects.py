@@ -1772,7 +1772,10 @@ class PutHandCardsOnTopEffect(GameEffect):
 #: target form above, so `DestroyEffect`/`ExileEffect` skip `target_spec`
 #: entirely when one of these is set, mirroring `DealDamageEffect.selector`.
 _MASS_DESTROY_SELECTORS: frozenset[str] = frozenset(
-    {"all_creatures", "all_artifacts", "all_enchantments", "all_permanents", "all_planeswalkers"}
+    {
+        "all_creatures", "all_artifacts", "all_enchantments", "all_permanents",
+        "all_planeswalkers", "all_lands",
+    }
 )
 
 
@@ -1799,6 +1802,8 @@ def _mass_selector_objects(
         result = [o for o in battlefield if getattr(o, "is_planeswalker", False)]
     elif selector == "all_permanents":
         result = list(battlefield)
+    elif selector == "all_lands":
+        result = [o for o in battlefield if o.card.is_land]
     else:
         result = []
     if filt:

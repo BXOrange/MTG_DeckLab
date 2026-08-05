@@ -271,6 +271,25 @@ def _prevent_divided_damage(m: re.Match[str]) -> list[EffectSpec]:
     return [EffectSpec("prevent_damage_shield", params)]
 
 
+#: RULE 615's plain single-target sibling — "prevent the next N damage that
+#: would be dealt to any target this turn." (Alabaster Wall/Amulet of Kroog/
+#: Aven Redeemer-shaped, usually a `{cost}: <effect>` activated ability on an
+#: artifact/creature) — note the different word order from
+#: `_PREVENT_DIVIDED_DAMAGE_RE` just above ("dealt **to any target** this
+#: turn" vs that row's "dealt this turn **to any number of targets**"), which
+#: is what keeps the two rows from colliding. `PreventDamageEffect`'s
+#: ``target_kind`` branch already supports exactly one real RULE 115 target
+#: with no ``divided`` flag (its default) — only this oracle-text
+#: recognition was missing.
+_PREVENT_DAMAGE_SINGLE_TARGET_RE = _c(
+    r"prevent the next (?P<n>\d+) damage that would be dealt to any target this turn"
+)
+
+
+def _prevent_damage_single_target(m: re.Match[str]) -> list[EffectSpec]:
+    return [EffectSpec("prevent_damage_shield", {"amount": int(m.group("n")), "target_kind": "any"})]
+
+
 #: "~ deals N damage to each creature/player/opponent" — a *mass* effect
 #: (RULE 601.2c), not RULE 115 targeting, so it's a dedicated regex rather
 #: than a `TARGET` row (see `subgrammars._TARGET_ROWS`'s note on why "each
@@ -654,6 +673,83 @@ def _destroy_multi_target(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     if params is None:
         return None
     return [EffectSpec("destroy", params)]
+
+
+#: RULE 601.2c mass "destroy/exile all X [with a numeric filter]" board wipe
+#: (Wrath of God/Damnation/Citywide Bust-shaped) — untargeted, the same
+#: `selector` vocabulary `game/effects.py`'s `DestroyEffect`/`ExileEffect`
+#: already support (previously only reachable via hand-authoring individual
+#: cards in `ability_catalogue.py`; this is the general oracle-text form).
+#: Only the two numeric filter kinds `_mass_selector_objects` actually
+#: implements are recognized here — "power N or greater" has no mass-form
+#: engine support, so it's deliberately left unmatched (fail-closed) rather
+#: than silently dropped.
+_MASS_DESTROY_NOUNS: dict[str, str] = {
+    "creatures": "all_creatures",
+    "artifacts": "all_artifacts",
+    "enchantments": "all_enchantments",
+    "planeswalkers": "all_planeswalkers",
+    "permanents": "all_permanents",
+    "lands": "all_lands",
+}
+_MASS_DESTROY_FILTER = (
+    r"(?: with (?:mana value (?P<mv>\d+) or (?P<mv_cmp>greater|less)"
+    r"|toughness (?P<tough>\d+) or greater))?"
+)
+
+
+def _mass_destroy_filter_dict(m: re.Match[str]) -> Optional[dict]:
+    groups = m.groupdict()
+    filt: dict = {}
+    if groups.get("mv"):
+        n = int(groups["mv"])
+        filt["max_mana_value" if groups["mv_cmp"] == "less" else "min_mana_value"] = n
+    if groups.get("tough"):
+        filt["min_toughness"] = int(groups["tough"])
+    return filt or None
+
+
+_DESTROY_ALL_RE = _c(
+    rf"destroy all (?P<noun>{'|'.join(_MASS_DESTROY_NOUNS)}){_MASS_DESTROY_FILTER}"
+)
+
+
+def _destroy_all(m: re.Match[str]) -> list[EffectSpec]:
+    params: dict = {"selector": _MASS_DESTROY_NOUNS[m.group("noun")]}
+    filt = _mass_destroy_filter_dict(m)
+    if filt:
+        params["filter"] = filt
+    return [EffectSpec("destroy", params)]
+
+
+#: The "They can't be regenerated." tail (Wrath of God's own trailing
+#: sentence) as one combined whole-body match — `parse_effect_body` tries
+#: the *unsplit* body first, so this must span both sentences itself; the
+#: plain `_destroy_all` above only ever sees this body with the tail still
+#: attached (fullmatch fails) and so correctly declines it, falling through
+#: to this row instead.
+_DESTROY_ALL_NO_REGEN_RE = _c(
+    rf"destroy all (?P<noun>{'|'.join(_MASS_DESTROY_NOUNS)}){_MASS_DESTROY_FILTER}"
+    rf"\. they can'?t be regenerated"
+)
+
+
+def _destroy_all_no_regen(m: re.Match[str]) -> list[EffectSpec]:
+    params: dict = {
+        "selector": _MASS_DESTROY_NOUNS[m.group("noun")],
+        "can_be_regenerated": False,
+    }
+    filt = _mass_destroy_filter_dict(m)
+    if filt:
+        params["filter"] = filt
+    return [EffectSpec("destroy", params)]
+
+
+_EXILE_ALL_RE = _c(rf"exile all (?P<noun>{'|'.join(_MASS_DESTROY_NOUNS)})")
+
+
+def _exile_all(m: re.Match[str]) -> list[EffectSpec]:
+    return [EffectSpec("exile", {"selector": _MASS_DESTROY_NOUNS[m.group("noun")]})]
 
 
 def _regenerate(m: re.Match[str]) -> Optional[list[EffectSpec]]:
@@ -2125,6 +2221,23 @@ def _pump_keywords(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     return [EffectSpec("pump", params)]
 
 
+def _pump_self_subject(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    """The bare-pronoun sibling of `_pump`'s untargeted self form —
+    "it gets +N/+N [and gains <keyword>] until end of turn" (Akroan Hoplite/
+    Aurochs-shaped: an attack/enters trigger whose own body refers back to
+    the source as "it" rather than "~", `self_subject_only`-gated)."""
+    params: dict = {
+        "power": _signed_int(m.group("p")),
+        "toughness": _signed_int(m.group("t")),
+    }
+    if m.groupdict().get("kw"):
+        keywords = _token_keywords(m.group("kw"))
+        if keywords is None:
+            return None  # unmodeled granted ability → fail-closed
+        params["keywords"] = keywords
+    return [EffectSpec("pump", params)]
+
+
 #: The durations a grant may carry beyond "until end of turn", as printed →
 #: `game/durations.py`'s vocabulary. "Until end of turn" is deliberately
 #: absent: that is exactly what the `pump` family's ``temp_*`` fields already
@@ -2833,6 +2946,13 @@ HANDLERS: list[EffectHandler] = [
         _PREVENT_DIVIDED_DAMAGE_RE,
         _prevent_divided_damage,
     ),
+    # RULE 615's plain single-target sibling — Alabaster Wall/Amulet of
+    # Kroog/Aven Redeemer-shaped.
+    EffectHandler(
+        "prevent_damage_single_target",
+        _PREVENT_DAMAGE_SINGLE_TARGET_RE,
+        _prevent_damage_single_target,
+    ),
     # "~ deals 2 damage to each creature" / "… to each player" / "… to each
     # opponent" — a mass effect (RULE 601.2c), not RULE 115 targeting.
     EffectHandler(
@@ -2999,6 +3119,23 @@ HANDLERS: list[EffectHandler] = [
         ),
         _destroy_multi_target,
     ),
+    # "destroy all creatures. they can't be regenerated." (Wrath of God-
+    # shaped) — tried before the plain `destroy_all` below since it's a
+    # strict superset (see `_DESTROY_ALL_NO_REGEN_RE`'s docstring).
+    EffectHandler(
+        "destroy_all_no_regen",
+        _DESTROY_ALL_NO_REGEN_RE,
+        _destroy_all_no_regen,
+    ),
+    # "destroy all creatures[.]" / "destroy all artifacts with mana value 3
+    # or less." (RULE 601.2c untargeted mass board wipe — Damnation/Citywide
+    # Bust-shaped; Wrath of God itself is hand-authored in
+    # `ability_catalogue.py`, this is the general oracle-text form).
+    EffectHandler(
+        "destroy_all",
+        _DESTROY_ALL_RE,
+        _destroy_all,
+    ),
     # "regenerate target creature" (RULE 701.16, Ezuri, Renegade Leader's
     # "Regenerate another target Elf" is a genuinely different, subtype-
     # filtered target this grammar doesn't cover — fails closed, stays
@@ -3071,6 +3208,13 @@ HANDLERS: list[EffectHandler] = [
             rf"{_MULTI_TARGET_DISTINCT_CONTROLLERS}"
         ),
         _exile_multi_target,
+    ),
+    # "exile all creatures[.]" / "exile all lands." (RULE 601.2c untargeted
+    # mass form, Farewell-shaped) — the `exile` sibling of `destroy_all`.
+    EffectHandler(
+        "exile_all",
+        _EXILE_ALL_RE,
+        _exile_all,
     ),
     # "exile ~" / "exile this card" — the self form (Teferi's Protection/
     # Mnemonic Betrayal's trailing self-exile).
@@ -3576,6 +3720,22 @@ HANDLERS: list[EffectHandler] = [
         "pump_keyword",
         _c(rf"{_SUBJECT} gains? (?P<kw>[a-z, ]+?) until end of turn"),
         _pump_keywords,
+    ),
+    # "Whenever ~ attacks, it gets +1/+0 until end of turn." (Akroan Hoplite-
+    # adjacent self-buff-on-attack, `it` bound to the ability's own source —
+    # `self_subject_only`, only ever offered from a self-subject trigger
+    # body). The "for each <count>" scaling variant (Akroan Hoplite's own
+    # actual text, "…where x is the number of attacking creatures you
+    # control") is a separate, still-open widening — this row only claims
+    # the flat-amount form.
+    EffectHandler(
+        "pump_self_subject",
+        _c(
+            rf"it gets? {_PT_DELTA}"
+            rf"(?: and gains? (?P<kw>[a-z, ]+?))? until end of turn"
+        ),
+        _pump_self_subject,
+        self_subject_only=True,
     ),
     # "It doesn't untap during its controller's untap step for as long as ~
     # remains tapped." — the tap-then-lock family (PAR-11), whose subject is

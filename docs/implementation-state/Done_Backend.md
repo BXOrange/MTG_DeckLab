@@ -9819,3 +9819,209 @@ genuinely ambiguous by class alone (stripping an opponent's +1/+1 counters
 is good, stripping your own -1/-1 counters is also good) and was left
 unclassified rather than guessed — see `GameEffect.target_polarity`'s
 docstring for the "don't guess" rule this follows.
+
+## PAR-12 · Saved-deck-priority batch (2026-08-04)
+
+Coverage 28.6%→28.9% (9,786→9,893/34,208), PARSER_VERSION 52→53. Unlike prior
+batches (ranked purely by cache-wide template count), this one's target list
+came from cross-referencing every saved deck in this install's `decks.db`
+against the parser gate — 1,969 of 3,039 unique saved-deck card names were
+`UNMODELED`, then ranked by which unclaimed clause templates were SOLO
+blockers on that set (`parser_probe.py blocked`, restricted to the
+saved-deck names). Five clusters closed, +107 cards, 0 regressions
+(`parser_probe.py diff`):
+
+- **Untargeted mass "destroy/exile all X [with a filter]" board wipes**
+  (RULE 601.2c — Damnation/Day of Judgment/Supreme Verdict/Armageddon/
+  Tranquility-shaped). The engine primitive already existed — `game/
+  ability_catalogue.py` hand-authors this exact shape per card (Wrath of
+  God) via `EffectSpec("destroy", {"selector": "all_creatures", ...})` — but
+  no parser handler recognized the general English phrasing at all.
+  `catalogue/handlers.py` gained three rows: `destroy_all` (bare "destroy
+  all creatures[, with mana value/toughness filter]"), `destroy_all_no_regen`
+  (the "…they can't be regenerated." compound, tried first since
+  `parse_effect_body` tries the whole unsplit body before falling back to
+  its connector-split — this is a real two-sentence body, not two
+  independent clauses, so the "no regen" tail needed its own whole-match
+  regex rather than composing with the bare row), and `exile_all` (Farewell-
+  shaped). Only the two numeric filter kinds `game/effects.py`'s
+  `_mass_selector_objects` actually implements (`max_mana_value`/
+  `min_mana_value`/`min_toughness`) are recognized — "power N or greater"
+  has no mass-form engine support, left unclaimed rather than silently
+  dropped. Widened `_MASS_DESTROY_SELECTORS` with `"all_lands"` (Jokulhaups-
+  shaped "destroy all lands"), the one selector real cards needed that
+  didn't exist yet.
+- **"[<Type> [and <type>]] spells you cast cost {N} less/more to cast."**
+  (RULE 601.2f — Baral, Chief of Compliance/Archmage of Runes/Bureau
+  Headmaster-shaped). Same story: the `cost_reduction` static's
+  `spell_type` filter and `affects="your_spells"` default already existed
+  (built for the *unscoped* "<type> spells cost {N} more" Thalia-shaped tax,
+  `_SPELL_COST_TAX_RE`) — a stale comment on that row even claimed the
+  "you cast" self-scoped sibling was "already covered by the hand-authored
+  cost_reduction shape," which was simply wrong (grepped the whole
+  catalogue — nothing recognized it, hand-authored or parsed). New
+  `_SPELL_COST_TAX_YOU_CAST_RE` in `static_handlers.py`, riding the RULE
+  613.6 conditional-static wrapper for free (so "As long as ~ is tapped,
+  creature spells you cast cost {2} less to cast." — Centaur Omenreader —
+  needed no extra work). The two-type compound ("instant and sorcery
+  spells you cast…") passes both words through as a list;
+  `continuous._spell_type_matches` widened to OR a list. Colour-scoped
+  (Medallion cycle) and creature-subtype-scoped (Banneret cycle, "Equipment
+  spells…") variants stay deliberately unclaimed — `_spell_type_matches`
+  only ever reads a card's main-type flags, no colour/subtype filter exists
+  for the mass form. **Found and fixed a latent bug on the way**:
+  `continuous._CARD_TYPE_ATTRS` (the map `_has_card_type` reads) had no
+  entries for `"instant"`/`"sorcery"`/`"battle"` at all — every existing
+  caller had only ever needed the five permanent-type words (a battlefield
+  permanent is never an instant/sorcery), so a spell-type check naming one
+  of these three silently always returned `False`. Baral's cost reduction
+  was the first consumer to actually need it; without the fix the whole
+  family would have parsed but never reduced anything for the single most
+  common case.
+- **"Whenever you cast a/an <type> spell, <effect>."** (RULE 603.1 — a
+  genuinely new trigger-condition family, not a widening: `parser_probe.py
+  blocked` found 607 SOLO-blocked cache-wide cards on this exact shape, by
+  far the largest single template found all batch). The underlying
+  machinery already existed — `EventType.SPELL_CAST` fires with
+  `object_types` stamped, and `effect_binder`'s `spell_card_types` predicate
+  was already built (for the hand-authored Wandering Archaic) — only the
+  oracle-text recognition was missing. New `segmenter._CAST_SPELL_TRIGGER_RE`,
+  a dedicated whole-line bypass (mirroring `_MAGECRAFT_RE`/
+  `_DAMAGE_TRIGGER_RE`'s existing pattern, since it needs to attach a
+  `spell_card_types` filter the generic `_TRIGGER_RE`/`_trigger_condition`
+  dispatch's simple event-name table can't carry) emitting
+  `{"subject": "you"}` — deliberately narrow to that subject; "an opponent
+  casts"/"a player casts" is a different subject grammar
+  `effect_binder._subject_condition` doesn't support yet, left unclaimed.
+  Creature subtypes ("wizard spell") correctly fail closed — `type_words`
+  only ever carries main types.
+- **"Whenever ~ or another creature dies, <effect>."** (Blood Artist/
+  Falkenrath Noble — only 2 cache-wide cards, but both are iconic
+  aristocrats staples appearing in multiple saved decks). The union
+  `"self_or_group"` subject already existed for a *subtype*-scoped variant
+  (`_SELF_OR_GROUP_SUBTYPE_RE`, The Ghoul, Gunslinger-shaped, mandatory "you
+  control"); Blood Artist's condition is the plain main-type sibling with no
+  subtype and no controller restriction (the whole point of an aristocrats
+  payoff is firing off *any* creature dying). New
+  `_SELF_OR_GROUP_SUBJECT_RE`, tried before the subtype regex for the same
+  reason `_GROUP_SUBJECT_RE` precedes `_GROUP_SUBTYPE_SUBJECT_RE` — a bare
+  main-type word would otherwise also match the subtype grammar's
+  permissive `[a-z]+`. `effect_binder._build_group_ok` already treats
+  `"group"`/`"self_or_group"` identically regardless of whether the
+  condition carries `"type"` or `"subtypes"`, so no binder change was
+  needed.
+- **"Choose a Background"** (RULE 702.124, Commander Legends: Battle for
+  Baldur's Gate — Baeloth Barrityl/Ganax/Jaheira/Vhal/Wilson). The same
+  RULE 702.124 keyword family as `Partner`, and just as inert in-game — it
+  only matters at deckbuilding time (pairing a commander with a Background
+  enchantment, RULE 903.7g), which is `services/commander_legality.py`'s
+  job (still unimplemented — BACKLOG.md's DB-3, unaffected by this).
+  Registered as a bare FLAG keyword in `catalogue/keywords.py` purely so a
+  card whose only other lines are ordinary effects reaches `MODELED`
+  instead of parking on this one no-op line forever.
+
+Deliberately not chased this batch despite being found along the way:
+"Whenever you gain life, <effect>." (Ajani's Pridemate/Archangel of
+Thune-shaped, ~59 cache-wide SOLO blockers per `parser_probe.py blocked`) —
+`EventType.LIFE_GAIN` already exists (built for the life-gain replacement
+family), so this is next-up, ordinary long-tail work, not a re-deferral (no
+prior batch had looked at this template before).
+
+Tests: `tests/test_saved_deck_priority_batch_2026_08_04.py` (24 tests, both
+parse and execute per family, including the two adversarial "stays
+unclaimed" cases — colour/subtype-scoped cost reduction, a creature-subtype
+in a cast-spell trigger, and a "power" filter on a mass destroy). Full
+backend suite green (3,299 passed; the one `test_game_ws.py` failure in a
+full run is the known pre-existing intermittent `DrawCardsEffect`/
+`GameObject` flake, unrelated — passes in isolation).
+
+## PAR-12 · Second saved-deck-priority batch (2026-08-05)
+
+Coverage 28.9%→29.4% (9,893→10,068/34,208), PARSER_VERSION 53→54. Continuing
+the prior batch's ranking (the highest-yield templates left after it, both
+cache-wide and against the saved-deck UNMODELED set). Five more clusters,
++282 cards cumulative with v53 (this batch alone: life-gain +29, the
+artifact/enchantment/land target compound +48, commander-creatures-you-own
++2, the attack-pump family +52, prevent-damage single-target +60-ish — see
+`parser_probe.py diff` for the authoritative per-run split), 0 regressions:
+
+- **"Whenever you gain life, `<effect>`."** (RULE 119.3 — Ajani's Pridemate/
+  Archangel of Thune-shaped). `EventType.LIFE_GAINED` already existed as the
+  post-replacement trigger source (`LIFE_GAIN` is the earlier, *replaceable*
+  pre-event a "you gain that much life plus N instead" effect rewrites —
+  distinct events, not a naming accident). Only the oracle-text recognition
+  was missing: one row in `segmenter._PLAYER_TRIGGER_CONDITIONS` (the same
+  bare event-name table "whenever you scry/surveil" already uses) plus the
+  matching `effect_binder._GROUP_CONTROLLER_EVENT_KEYS["LIFE_GAINED"] =
+  "player_id"` entry.
+- **A general N-way "target artifact, enchantment[, or land]" `TARGET`
+  row** (RULE 115 — Acidic Slime/Aftershock-shaped). `subgrammars.
+  _TARGET_ROWS` already had a dedicated 2-way "target artifact or
+  enchantment" row mapping to the broad `"permanent"` kind (the same
+  accepted precision loss `targeting.legal_targets`'s `"permanent"` branch
+  already has — it offers every permanent regardless of printed type, not
+  just the named subset). Added one general regex covering any 2+
+  combination of `artifact`/`creature`/`enchantment`/`land`/`planeswalker`,
+  same `"permanent"` kind, rather than enumerating every real-card
+  permutation by hand.
+- **"Commander creatures you own have `"<ability>"`"** (cEDH support cards
+  — Clan Crafter/Street Urchin-shaped for the subset the existing quoted-
+  ability recursion can parse; 26 of the 28 real cards use a group-subject
+  or conditional-phase inner trigger `_quoted_ability_grant_effects`
+  deliberately doesn't support yet, so this cluster's honest yield is
+  small — 2 cards — not the full template count, exactly the
+  `PARSER_LONG_TAIL.md` "every batch-plan estimate is an overcount" lesson
+  in action). New `continuous.group_selector_objects` selector
+  `"commander_creatures_you_own"` — **ownership** (`GameObject.owner_id`),
+  not control, the one selector in this whole family that isn't
+  `_you_control`-scoped, since RULE 108.3 ownership is what a "commander
+  creatures you own" grant actually means (a stolen commander stays its
+  owner's for this purpose). Plus a dedicated fixed-phrase
+  `static_handlers` recognizer ahead of the general `_QUOTED_GRANT_RE`,
+  since "commander" is a designation (`GameObject.is_commander`), not a
+  card type or creature subtype `_scope` has any vocabulary for. **Found
+  and fixed a latent crash on the way**: `_quoted_ability_grant_effects`
+  read `trigger["event"]` and checked `event not in
+  _GRANTABLE_TRIGGER_EVENTS` — but a compound self-trigger inner ability
+  ("enters or leaves the battlefield") stamps a *list* there
+  (`segmenter._SELF_MULTI_EVENT_RE`), and a list is unhashable, so the `in`
+  check raised `TypeError` instead of failing closed. This batch's new
+  dispatch was the first caller to reach that particular inner-text shape,
+  but the bug was already live on the pre-existing `_QUOTED_GRANT_RE`/
+  `_ATTACHED_QUOTED_GRANT_RE`/`_SOULBOND_QUOTED_GRANT_RE` paths too — any
+  real card quoting a compound-event trigger would have crashed
+  `coverage_report.py` (and real deck loading) outright. Fixed with an
+  `isinstance(event, list)` guard before the membership test.
+- **"Whenever ~ attacks, it gets +N/+N [and gains `<keyword>`] until end of
+  turn."** (Borderland Marauder/Charging Paladin/Kiln Walker-shaped — a
+  genuinely common pre-modern vanilla-creature template, dozens of real
+  cards). The untargeted self-pump row already existed for the `~`-pronoun
+  form ("~ gets +N/+N …", an activated ability's own body); this shape's
+  body instead refers to the source as "it" (the trigger's own subject),
+  which no existing row's `_SUBJECT` alternation covered. New
+  `catalogue.handlers` row, `self_subject_only`-gated (only offered from a
+  genuinely self-subject trigger, never a bare unbound pronoun elsewhere).
+  The "for each `<count>`" scaling variant (Akroan Hoplite's actual
+  printed text, "…where x is the number of attacking creatures you
+  control") stays unclaimed — `PumpEffect` has no count-scaled amount
+  parameter yet, unlike `cost_reduction`'s `per`; a real future primitive,
+  not attempted this batch.
+- **"Prevent the next N damage that would be dealt to any target this
+  turn."** (RULE 615 — Alabaster Wall/Amulet of Kroog/Aven Redeemer-shaped,
+  almost always a `{cost}:` activated ability on a defensive
+  artifact/creature). `PreventDamageEffect`'s `target_kind` branch already
+  supported exactly one real RULE 115 target with no `divided` flag (built
+  for PAR-15's plural "…to any number of targets, divided as you choose"
+  sibling) — only the singular oracle-text phrasing was unrecognized. New
+  `catalogue.handlers` row; note the different word order from the
+  existing divided-form regex ("dealt **to any target** this turn" vs.
+  "dealt this turn **to any number of targets**"), which is what keeps the
+  two rows from colliding without an explicit precedence comment.
+
+Tests: `tests/test_batch_2026_08_05_attack_pump_grant_prevent.py` (19 tests
+— parse, execute, and full-card end-to-end per family, including the two
+adversarial cases for the commander-creatures grant: a group-subject inner
+trigger correctly stays unclaimed, and the compound-event crash regression
+is pinned down directly). Full backend suite green (3,319 passed, 0
+failures — the previously-flaky `test_game_ws.py` test also passed this
+run).

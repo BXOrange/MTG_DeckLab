@@ -72,7 +72,7 @@ stack.
 from __future__ import annotations
 
 import re
-from typing import TYPE_CHECKING, Any, Optional
+from typing import TYPE_CHECKING, Any, Optional, Union
 
 from . import durations, static_conditions, variants
 from .costs import parse_activation_cost
@@ -153,6 +153,17 @@ _CARD_TYPE_ATTRS: dict[str, str] = {
     "enchantment": "is_enchantment",
     "land": "is_land",
     "planeswalker": "is_planeswalker",
+    # Added for `_spell_type_matches`'s "instant and sorcery spells you cast
+    # cost {N} less to cast" (Baral, Chief of Compliance-shaped) — every
+    # existing `_has_card_type` caller before this had only ever needed the
+    # five permanent-type words above (a battlefield permanent is never an
+    # instant/sorcery/battle), so a spell-type check naming one of these
+    # three silently always returned ``False``. No shipped card exercised
+    # this path yet — Thalia/Thorn of Amethyst/Vryn Wingmare's "noncreature"
+    # scope bypasses `_has_card_type` entirely via its own special case.
+    "instant": "is_instant",
+    "sorcery": "is_sorcery",
+    "battle": "is_battle",
 }
 
 
@@ -289,6 +300,17 @@ def group_selector_objects(
         ]
     elif affects == "lands_you_control":
         result = [o for o in battlefield if o.is_land and o.controller_id == controller_id]
+    elif affects == "commander_creatures_you_own":
+        # "Commander creatures you own have '<ability>'." (Acolyte of
+        # Bahamut/Agent of the Iron Throne/Candlekeep Sage-shaped) —
+        # ownership (RULE 108.3), not control: a commander that's changed
+        # hands (control-stealing) still belongs to its owner for this
+        # purpose, unlike every "_you_control" selector above/below, which
+        # is why this checks ``owner_id`` rather than ``controller_id``.
+        result = [
+            o for o in battlefield
+            if o.is_creature and o.is_commander and o.owner_id == controller_id
+        ]
     elif affects == "artifacts_you_control":
         result = [o for o in battlefield if o.card.is_artifact and o.controller_id == controller_id]
     elif affects == "enchanted_or_equipped_creatures_you_control":
@@ -1598,12 +1620,18 @@ def _cost_static_amount(ability: StaticAbility, state: "GameState", controller_i
     return -amount if ability.params.get("increase") else amount
 
 
-def _spell_type_matches(obj: "GameObject", spell_type: str) -> bool:
+def _spell_type_matches(obj: "GameObject", spell_type: Union[str, list]) -> bool:
     """Whether the spell ``obj`` matches a `cost_reduction` static's
     ``spell_type`` filter ("noncreature spells cost {1} more…", Thalia,
     Guardian of Thraben/Thorn of Amethyst/Vryn Wingmare) — ``"noncreature"``
     is its own case (no ``Card.is_noncreature`` flag to read), everything
-    else is a plain `_has_card_type` lookup on the object being cast."""
+    else is a plain `_has_card_type` lookup on the object being cast. A
+    ``list`` (Baral, Chief of Compliance's "Instant and sorcery spells you
+    cast cost {1} less to cast.") ORs each word — any one matching is
+    enough, mirroring how the printed "and" reads for a spell that's only
+    ever exactly one type at a time."""
+    if isinstance(spell_type, list):
+        return any(_spell_type_matches(obj, t) for t in spell_type)
     if spell_type == "noncreature":
         return not obj.card.is_creature
     return _has_card_type(obj, spell_type)

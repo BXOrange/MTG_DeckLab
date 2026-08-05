@@ -65,6 +65,18 @@ _TARGET_ROWS: list[tuple[str, str]] = [
     # permanent" row below so the longer phrase wins.
     (r"target legendary permanent", "legendary_permanent"),
     (r"target permanent", "permanent"),
+    # "target artifact, enchantment, or land" (Acidic Slime) / "target
+    # artifact, creature, or land" (Aftershock) / any other 2+ combination of
+    # these five permanent-type nouns — the general N-way sibling of the
+    # dedicated "target artifact or enchantment" row just below. All map to
+    # the same broad ``"permanent"`` kind that row already does (RULE 115's
+    # own precision loss this engine accepts here: `targeting.legal_targets`'s
+    # ``"permanent"`` branch offers every permanent regardless of type, not
+    # just the printed subset — the same simplification the 2-way row below
+    # already ships).
+    (r"target (?:artifact|creature|enchantment|land|planeswalker)"
+     r"(?:, (?:artifact|creature|enchantment|land|planeswalker))*"
+     r",? or (?:artifact|creature|enchantment|land|planeswalker)", "permanent"),
     (r"target artifact or enchantment", "permanent"),
     (r"target artifact", "permanent"),
     (r"target enchantment", "permanent"),
