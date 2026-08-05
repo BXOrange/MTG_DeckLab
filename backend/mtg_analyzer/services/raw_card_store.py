@@ -101,6 +101,15 @@ class RawCardStore:
         with self._lock:
             return self._connection.execute("SELECT COUNT(*) FROM raw_cards").fetchone()[0]
 
+    def all_oracle_ids(self) -> set[str]:
+        """All stored keys (Oracle id, or printing id for the rare row lacking
+        one — see `upsert_many`). Cheap id-only query, used to diff a fresh
+        bulk dump against what's already stored (`scripts/update_card_pool.py`).
+        """
+        with self._lock:
+            rows = self._connection.execute("SELECT oracle_id FROM raw_cards").fetchall()
+        return {row[0] for row in rows}
+
     def iter_raw(self) -> Iterator[dict]:
         """Yield every stored raw Scryfall object (streamed, name-ordered)."""
         with self._lock:
