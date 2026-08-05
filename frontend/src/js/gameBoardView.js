@@ -69,7 +69,7 @@ function labelStep(name) {
 // "answer one of these options" shape, so one renderer covers them.
 const CHOICE_ICONS = {
   search: '🔎', cascade: '🌊', discover: '🔮', replacement_order: '⚖️',
-  land_tapped: '💧', order_triggers: '🔀', trigger_target: '🎯',
+  land_tapped: '💧', land_tapped_reveal: '💧', order_triggers: '🔀', trigger_target: '🎯',
   enter_as_copy: '🪞', counter_unless_pays: '🚫', ward: '🛡️',
   commander_zone: '👑', trigger_mode: '🎭', add_mana_any_color: '💎',
   choose_creature_type: '🐾', choose_color: '🎨', choose_basic_land_type: '🗺️', read_ahead: '📜',

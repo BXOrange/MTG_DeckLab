@@ -696,7 +696,46 @@ NEVER_SUPPORTED = "NEVER_SUPPORTED"
 #: unrelated second unclaimed clause of its own), and
 #: `"ring_tempted_at_least"` (RULE 701.51b, `Player.ring_level`
 #: threshold). +365 cards cumulative with v56, 0 regressions.
-PARSER_VERSION = "57"
+#: "58": "make the Hobbits/Wyleth Equip decks playable" batch (2026-08-05) —
+#: the "reveal land" cycle (RULE 614.1's optional interactive sibling to
+#: `unless_types`'s deterministic check lands — new `land_tap_condition`
+#: kind `reveal_types` + a `land_tapped_reveal` `pending_choice`); the
+#: "whenever you gain life, <effect>" *dynamic*-amount family ("that
+#: much"/"that many", `LoseLifeEffect`/`AddCountersEffect`/`PumpEffect.
+#: amount_from_trigger_event` — plus fixing a latent mis-model risk where
+#: the new selfref row could have misread a bare "it" under a *group*-
+#: subject trigger as the source, `EffectHandler.self_subject_only` now
+#: gates it correctly); `LIFE_GAINED` joining `STEP_BEGIN` as a second
+#: player-subject *grantable* trigger event (`continuous.
+#: _PLAYER_SUBJECT_GRANTED_EVENTS`) for "equipped/enchanted creature has
+#: 'whenever you gain life, …'"; `AttachEffect`'s `target_kind="created"`
+#: and `DestroyEffect.exclude_created` (RULE 608.2's "the tokens" referent,
+#: `GameContext.created_objects`, on the attaching/excluding side); a new
+#: "whenever you sacrifice a Food/Clue/Treasure, <effect>" trigger family
+#: (`EventType.SACRIFICE` gaining a `subtypes` payload, mirroring DIES);
+#: "if you don't control a Food/Clue/Treasure, <effect>" as a new
+#: `ConditionalEffect` key; a mass-destroy `min_power`/`max_power` filter
+#: (Dusk // Dawn/Elspeth, Sun's Champion) alongside the pre-existing mana-
+#: value/toughness ones; and a `without_card_type` qualifier on creature
+#: target/blocking filters ("target **nonartifact** creature", Go for the
+#: Throat-shaped). Also fixed a real coverage-badge bug, unrelated to any
+#: of the above: `ability_catalogue.is_registered` lacked `specs_for`'s own
+#: DFC "//" front-face fallback, so an already-fully-bound split/DFC card
+#: registered under its front face alone (Halvar, God of Battle // Sword
+#: of the Realms) was wrongly reported UNMODELED. The rest of this batch's
+#: ~30 cards were hand-authored in `ability_catalogue.py` (several new
+#: general primitives along the way: `AddCountersEffect.x_multiplier`,
+#: `ConditionalEffect`'s `source_x_paid_at_least`/
+#: `creatures_died_this_turn_at_least`, `LoseLifeEffect.
+#: amount_from_life_gained_this_turn`/`amount_from_burden_counters_on_self`,
+#: `costs.ActivationCost.sacrifice_count`, `continuous.
+#: activation_cost_reduction_for`'s subtype-scoped branch, and the
+#: `legendary_creatures_you_control`/`attacking_creatures` `affects`
+#: selectors) — see `Done_Backend.md` for the full per-card list and each
+#: one's documented simplification. +18 cards to measured parser coverage
+#: (the rest were hand-authored, which this ledger doesn't count), 0
+#: regressions.
+PARSER_VERSION = "58"
 
 
 @dataclass

@@ -135,4 +135,4 @@ renderConnectionSettingsView(views.connection);
 renderProfileView(views.profile);
 renderImplementationStatusView(views.status);
 
-showTab('import');
+showTab('savedDecks');

@@ -82,6 +82,19 @@ _OPTIONAL_BONUS_RAD_RE = re.compile(
     rf"^you may have {_SUBJECT} enter tapped\. if you do, you get (\d+|a|an) rad counters?\.?$",
     re.IGNORECASE,
 )
+#: "Reveal land" cycle (Battle for Zendikar's original cycle, reprinted
+#: verbatim as Duskmourn's "Snarl" lands): "As ~ enters, you may reveal a
+#: Forest or Plains card from your hand. If you don't, ~ enters tapped." —
+#: genuinely optional like a shock land's pay-life choice, *not*
+#: deterministic like `_UNLESS_TYPES_RE`'s check lands: the controller can
+#: hold a matching card and still choose not to reveal it (hidden
+#: information), so this needs its own interactive `pending_choice` rather
+#: than being decided off the board.
+_REVEAL_TYPES_RE = re.compile(
+    rf"^as {_SUBJECT} {_ENTERS}, you may reveal an? (.+?) card from your hand\. "
+    rf"if you don'?t, {_SUBJECT} enters tapped\.?$",
+    re.IGNORECASE,
+)
 
 
 def _split_types_clause(clause: str) -> list[str]:
@@ -122,6 +135,10 @@ def tap_clause_condition(line: str) -> Optional[dict[str, Any]]:
       — the "Turbulent" land cycle: untapped iff the *total* count of lands
       across all opponents compares as stated (unlike ``unless_count``,
       which counts the controller's own other lands).
+    - ``{"kind": "reveal_types", "types": [...]}`` — the "reveal land" cycle:
+      the controller may reveal a card of one of these types from hand to
+      keep it untapped, a genuine interactive choice (like ``pay_life``),
+      not a deterministic board check (like ``unless_types``).
     """
     match = _PAY_LIFE_RE.match(line)
     if match:
@@ -155,6 +172,11 @@ def tap_clause_condition(line: str) -> Optional[dict[str, Any]]:
         types = _split_types_clause(match.group(1))
         if types:
             return {"kind": "unless_types", "types": types}
+    match = _REVEAL_TYPES_RE.match(line)
+    if match:
+        types = _split_types_clause(match.group(1))
+        if types:
+            return {"kind": "reveal_types", "types": types}
     if _ALWAYS_RE.match(line):
         return {"kind": "always"}
     return None

@@ -564,8 +564,8 @@ every field it reads, `parser/oracle/gate.py`) since it's called once per
 on every copy/every game. `parser/oracle/processing_list.py` tracks
 cache-wide coverage and ranks the next handlers worth building. The cache is
 now bulk-loaded with the **full ~34k-card Oracle universe**
-(`scripts/import_bulk.py`), so coverage is measured against that: **29.7%
-covered (10,151 / 34,208) as of 2026-08-05, PARSER_VERSION 57** (parser-`MODELED` **or**
+(`scripts/import_bulk.py`), so coverage is measured against that: **29.9%
+covered (10,238 / 34,208) as of 2026-08-05, PARSER_VERSION 58** (parser-`MODELED` **or**
 hand-`AUTHORED`).
 Re-measure with `scripts/coverage_report.py` (ledger-backed — see
 `services/coverage_db.py`) before trusting this number; Batches 1–10 are all

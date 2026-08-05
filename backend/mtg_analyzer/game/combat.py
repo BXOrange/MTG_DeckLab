@@ -443,6 +443,14 @@ def matches_object_filter(
         str(w).lower() for w in (getattr(obj, "type_words", None) or set())
     }:
         return False
+    # "destroy target **nonartifact** creature" (Go for the Throat-shaped) —
+    # the negated sibling of ``card_type`` above, same ``without_keyword``
+    # idiom.
+    without_card_type = filt.get("without_card_type")
+    if without_card_type is not None and str(without_card_type).lower() in {
+        str(w).lower() for w in (getattr(obj, "type_words", None) or set())
+    }:
+        return False
     relation = filt.get("power_vs_reference")
     if relation is not None:
         if reference is None:

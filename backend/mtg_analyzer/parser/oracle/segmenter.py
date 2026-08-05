@@ -284,6 +284,22 @@ _CAST_SPELL_TRIGGER_RE = re.compile(
     re.IGNORECASE | re.S,
 )
 
+#: RULE 701.17/603.1's "Whenever you sacrifice a Food, …" (Experimental
+#: Confectioner/Trail of Crumbs-shaped Food-matters payoffs) — a player-
+#: subject trigger like `_PLAYER_TRIGGER_CONDITIONS`'s bare event-name
+#: table, but that table has no way to carry a type filter, and RULE 122.1a
+#: "sacrifice a `<type>`" always means *some* type. Scoped to the same
+#: closed named-token vocabulary `catalogue.handlers._NAMED_TOKEN_WORDS`
+#: already trusts (Treasure/Clue/Food) rather than any noun — a fail-closed
+#: choice, not a card-count one: `EventType.SACRIFICE`'s own `object_types`
+#: payload (`RulesEngine.put_into_graveyard`) is the *card's printed type
+#: line*, so "a permanent" or an arbitrary creature type would need its own
+#: (much wider, unverified) matching rules this narrow vocabulary sidesteps.
+_SACRIFICE_TYPE_TRIGGER_RE = re.compile(
+    r"^whenever you sacrifice an? (?P<type>treasure|clue|food),\s*(?P<body>.+)$",
+    re.IGNORECASE | re.S,
+)
+
 
 def _parse_cast_spell_types(text: str) -> Optional[list[str]]:
     """``text`` (e.g. "instant or sorcery", "creature, artifact, or
@@ -714,6 +730,19 @@ _RING_BEARER_AND_TEMPTED_CONDITION_RE = re.compile(
     re.IGNORECASE,
 )
 
+#: "if you don't control a Food, `<effect>`." (Butterbur, Bree Innkeeper-
+#: shaped upkeep/end-step "keep a permanent type replenished" payoffs) —
+#: same "wrap the rest, tag the condition" idiom as `_LIFE_GAINED_THIS_
+#: TURN_CONDITION_RE`, onto `ConditionalEffect`'s new
+#: ``"controls_none_of_type"`` key. Scoped to the same closed named-token
+#: vocabulary `catalogue.handlers._NAMED_TOKEN_WORDS`/`segmenter._
+#: SACRIFICE_TYPE_TRIGGER_RE` already trust (Treasure/Clue/Food) rather
+#: than an arbitrary noun — a fail-closed choice, not a card-count one.
+_CONTROLS_NONE_OF_TYPE_CONDITION_RE = re.compile(
+    r"^if you don'?t control an? (?P<type>treasure|clue|food),\s*(?P<rest>.+)$",
+    re.IGNORECASE,
+)
+
 #: RULE 601.2b/604.3's additional-cost line: "As an additional cost to cast
 #: this spell, <cost>." — instants/sorceries only (gated by
 #: ``allow_spell_effect`` at the call site below, same as a bare imperative).
@@ -1094,6 +1123,22 @@ def parse_effect_body(
             return conditioned + more
         return conditioned
 
+    controls_none = _CONTROLS_NONE_OF_TYPE_CONDITION_RE.match(body)
+    if controls_none is not None:
+        inner = parse_effect_body(
+            controls_none.group("rest"), self_subject=self_subject,
+            previous_subject=previous_subject,
+        )
+        if inner is None:
+            return None
+        return [
+            EffectSpec(
+                e.type, dict(e.params),
+                condition={"controls_none_of_type": controls_none.group("type").lower()},
+            )
+            for e in inner
+        ]
+
     ring_bearer_other = _RING_BEARER_OTHER_CONDITION_RE.match(body)
     if ring_bearer_other is not None:
         inner = parse_effect_body(
@@ -1269,6 +1314,24 @@ def segment_line(
                 "event": "SPELL_CAST",
                 "condition": {"subject": "you"},
                 "spell_card_types": types,
+            },
+            raw_text=raw,
+            parser=provenance,
+        )
+        return Segment(raw=raw, spec=spec, claimed=True)
+
+    sacrifice_trig = _SACRIFICE_TYPE_TRIGGER_RE.match(raw)
+    if sacrifice_trig is not None:
+        effects = parse_effect_body(sacrifice_trig.group("body"), self_subject=True)
+        if effects is None:
+            return Segment(raw=raw)
+        spec = AbilitySpec(
+            "triggered",
+            effects=effects,
+            trigger={
+                "event": "SACRIFICE",
+                "condition": {"subject": "you"},
+                "sacrifice_type": sacrifice_trig.group("type").lower(),
             },
             raw_text=raw,
             parser=provenance,
@@ -1651,7 +1714,12 @@ def segment_line(
             # spec carries the ``{"subject": "you"}`` scoping that makes it
             # this controller's scry rather than anybody's.
             body, optional = _peel_optional(trig.group("body"))
-            effects = parse_effect_body(body)
+            # "Whenever you gain life, **~** gets +X/+X …" (Field-Tested
+            # Frying Pan's granted ability, Ageless Entity) — a player-
+            # subject trigger introduces no group of objects, so a bare
+            # "it"/"~" in the body is unambiguous: the ability's own source,
+            # same reasoning as the object self-subject branch below.
+            effects = parse_effect_body(body, self_subject=True)
             if effects is None:
                 return Segment(raw=raw)
             effects, body_limit = _strip_trigger_once_per_turn_marker(effects)

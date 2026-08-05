@@ -481,6 +481,97 @@ class TestDeckValidation:
         assert client.get("/api/decks/nope/validation").status_code == 404
 
 
+class TestDeckCoverage:
+    def teardown_method(self):
+        app.dependency_overrides.pop(get_deck_database, None)
+        app.dependency_overrides.pop(get_lazy_card_loader, None)
+
+    def test_fully_modeled_deck_reports_zero_unmodeled(self):
+        _override_database()
+        _override_loader({"Forest": Card(id="Forest", name="Forest", type_line="Basic Land — Forest", is_land=True)})
+        client = TestClient(app)
+        created = client.post("/api/decks/save", json={"name": "Lands", "mainboardText": "40 Forest\n"}).json()
+
+        response = client.get(f"/api/decks/{created['id']}/coverage")
+
+        assert response.status_code == 200
+        body = response.json()
+        assert body["unmodeledCount"] == 0
+        assert body["unmodeledCardNames"] == []
+
+    def test_unmodeled_cards_are_counted_by_quantity_and_named(self):
+        _override_database()
+        _override_loader(
+            {
+                "Forest": Card(id="Forest", name="Forest", type_line="Basic Land — Forest", is_land=True),
+                "Weird Card": Card(
+                    id="Weird",
+                    name="Weird Card",
+                    type_line="Creature — Weird",
+                    is_creature=True,
+                    power=1,
+                    toughness=1,
+                    oracle_text="This is some totally unparseable nonsense clause that the parser will never understand.",
+                ),
+            }
+        )
+        client = TestClient(app)
+        created = client.post(
+            "/api/decks/save",
+            json={"name": "Mixed", "mainboardText": "39 Forest\n1 Weird Card\n"},
+        ).json()
+
+        response = client.get(f"/api/decks/{created['id']}/coverage")
+
+        assert response.status_code == 200
+        body = response.json()
+        assert body["unmodeledCount"] == 1
+        assert body["unmodeledCardNames"] == ["Weird Card"]
+
+    def test_cube_deck_is_still_checked_for_coverage(self):
+        _override_database()
+        _override_loader(
+            {
+                "Weird Card": Card(
+                    id="Weird",
+                    name="Weird Card",
+                    type_line="Creature — Weird",
+                    is_creature=True,
+                    power=1,
+                    toughness=1,
+                    oracle_text="This is some totally unparseable nonsense clause that the parser will never understand.",
+                ),
+            }
+        )
+        client = TestClient(app)
+        created = client.post(
+            "/api/decks/save",
+            json={"name": "Staples", "mainboardText": "1 Weird Card\n", "isCube": True},
+        ).json()
+
+        response = client.get(f"/api/decks/{created['id']}/coverage")
+
+        assert response.status_code == 200
+        assert response.json()["unmodeledCount"] == 1
+
+    def test_unresolved_card_is_not_counted_as_unmodeled(self):
+        _override_database()
+        _override_loader({})
+        client = TestClient(app)
+        created = client.post("/api/decks/save", json={"name": "Unknown", "mainboardText": "1 Nonexistent Card\n"}).json()
+
+        response = client.get(f"/api/decks/{created['id']}/coverage")
+
+        assert response.status_code == 200
+        assert response.json()["unmodeledCount"] == 0
+
+    def test_coverage_of_unknown_deck_is_404(self):
+        _override_database()
+        _override_loader({})
+        client = TestClient(app)
+        assert client.get("/api/decks/nope/coverage").status_code == 404
+
+
 class TestDeleteDeck:
     def teardown_method(self):
         app.dependency_overrides.pop(get_deck_database, None)

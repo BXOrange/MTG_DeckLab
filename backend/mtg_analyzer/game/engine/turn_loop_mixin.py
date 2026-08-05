@@ -841,6 +841,10 @@ class TurnLoopMixin:
             # <bonus>." (Mariposa Military Base) — the mirror-image choice:
             # untapped by default, tap it for the bonus instead.
             self.rules.resolve_land_tapped_bonus_choice(None if declined else str(answer))
+        elif kind == "land_tapped_reveal":
+            # RULE 614.1's "reveal land" cycle: reveal a matching card from
+            # hand to stay untapped, only offered when one is actually held.
+            self.rules.resolve_land_tapped_reveal_choice(None if declined else str(answer))
         elif kind == "choose_objects":
             # The general "which one?" chooser (`request_choose_objects`) —
             # Cloudstone Curio's bounce, Tangle Wire's tap, Tevesh Szat's

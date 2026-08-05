@@ -74,8 +74,14 @@ from .subgrammars import CANT_BE_COUNTERED_RE, COUNT, count_of
 #: it safe to regrant: each affected permanent's copy fires on its own
 #: controller's upkeep, exactly as the printed reminder text on these cards
 #: reads.
+#: ``LIFE_GAINED`` is a second odd one out alongside ``STEP_BEGIN``: RULE
+#: 119.3's "Whenever **you** gain life, …" (Field-Tested Frying Pan/Light of
+#: Promise/Sunbond) also carries no object-identity key — it's player-
+#: scoped (`player_id`), re-scoped the same "resolve against the granted-to
+#: permanent's own controller" way `game/continuous.py`'s
+#: `_PLAYER_SUBJECT_GRANTED_EVENTS` documents.
 _GRANTABLE_TRIGGER_EVENTS = frozenset(
-    {"ENTERS_BATTLEFIELD", "DIES", "ATTACKS", "BLOCKS", "DAMAGE", "STEP_BEGIN"}
+    {"ENTERS_BATTLEFIELD", "DIES", "ATTACKS", "BLOCKS", "DAMAGE", "STEP_BEGIN", "LIFE_GAINED"}
 )
 
 #: Type words that are *not* creature subtypes — a scope built on one of these
@@ -1366,6 +1372,15 @@ def _quoted_ability_grant_effects(inner: str) -> Optional[EffectSpec]:
         # per affected permanent per upkeep with no way to tell whose it is,
         # so only the two scoped forms are claimed (fail-closed).
         if trigger.get("phase_relation") not in ("you", "not_you"):
+            return None
+    elif event == "LIFE_GAINED":
+        # RULE 119.3's "Whenever **you** gain life, …" is itself a
+        # player-subject condition (`{"subject": "you"}`, not the object-
+        # subject `{"subject": "self"}` the `elif` below requires) — the
+        # `LIFE_GAINED` branch of `game/continuous.py`'s
+        # `_granted_trigger_condition` is what resolves "you" against the
+        # granted-to permanent's own controller once regranted.
+        if trigger.get("condition") != {"subject": "you"}:
             return None
     elif trigger.get("condition") != {"subject": "self"}:
         return None  # a "group"/other subject wouldn't mean the same thing once regranted

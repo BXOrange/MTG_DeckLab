@@ -246,6 +246,28 @@ export async function getDeckValidation(deckId) {
 }
 
 /**
+ * How many of a saved deck's cards the rules engine doesn't model yet
+ * (GET /api/decks/{id}/coverage) — a goldfishing readiness note, not a
+ * legality gate.
+ * @param {string} deckId
+ * @returns {Promise<{unmodeledCount: number, unmodeledCardNames: string[]} | null>} null on failure
+ */
+export async function getDeckCoverage(deckId) {
+  let response;
+  try {
+    response = await fetch(`${getServerUrl()}/api/decks/${encodeURIComponent(deckId)}/coverage`);
+  } catch {
+    return null;
+  }
+  if (!response.ok) return null;
+  try {
+    return await response.json();
+  } catch {
+    return null;
+  }
+}
+
+/**
  * @param {string} deckId
  * @returns {Promise<boolean>} whether the deck was actually deleted
  */

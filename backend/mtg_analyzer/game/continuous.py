@@ -76,7 +76,7 @@ from typing import TYPE_CHECKING, Any, Optional, Union
 
 from . import durations, static_conditions, variants
 from .costs import parse_activation_cost
-from .effects import ActivatedAbility, EffectRegistry, StaticAbility, TriggeredAbility
+from .effects import ActivatedAbility, ConditionalEffect, EffectRegistry, StaticAbility, TriggeredAbility
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
     from ..models.game_object import GameObject
@@ -289,6 +289,28 @@ def group_selector_objects(
         result = [
             o for o in battlefield
             if o.is_creature and o.controller_id == controller_id and o is not src
+        ]
+    elif affects == "attacking_creatures":
+        # "Attacking creatures get +1/+1 until end of turn." (Motivated
+        # Pony) — unscoped by controller, matching the literal printed
+        # text (every creature currently attacking, same convention
+        # `count_selector`'s own ``"attacking_creatures"`` uses).
+        result = [o for o in battlefield if o.is_creature and o.attacking]
+    elif affects == "legendary_creatures_you_control":
+        # "Legendary creatures you control get +2/+1 and have ward {1}."
+        # (Flowering of the White Tree) — RULE 205.4a's supertype, the
+        # same printed-type-line check `count_selector`'s own
+        # ``legendary_creatures_you_control`` counter uses.
+        result = [
+            o for o in battlefield
+            if o.is_creature and o.controller_id == controller_id
+            and "legendary" in o.card.type_line.lower()
+        ]
+    elif affects == "nonlegendary_creatures_you_control":
+        result = [
+            o for o in battlefield
+            if o.is_creature and o.controller_id == controller_id
+            and "legendary" not in o.card.type_line.lower()
         ]
     elif affects == "permanents_you_control":
         result = [o for o in battlefield if o.controller_id == controller_id]
@@ -608,6 +630,24 @@ def count_selector(
         return sum(1 for o in bf if o.is_creature and o.attacking)
     if selector == "lands_you_control":
         return sum(1 for o in bf if o.is_land and o.controller_id == controller_id)
+    if selector.startswith("creatures_you_control_of_type_"):
+        # "X is the number of Halflings you control" (Farmer Cotton) — the
+        # creature-subtype sibling of the land-subtype selector just below,
+        # same "you control" scoping.
+        creature_type = selector[len("creatures_you_control_of_type_"):]
+        return sum(
+            1 for o in bf
+            if o.is_creature and o.controller_id == controller_id and _has_subtype(o, creature_type)
+        )
+    if selector == "foods_you_control":
+        # "…for each Food you control." (Of Herbs and Stewed Rabbit's own
+        # Saga chapter III) — same closed Food/Clue/Treasure named-token
+        # vocabulary `_NAMED_TOKEN_WORDS`/`_SACRIFICE_TYPE_TRIGGER_RE`
+        # already trust.
+        return sum(
+            1 for o in bf
+            if o.controller_id == controller_id and _has_subtype(o, "food")
+        )
     if selector.startswith("lands_you_control_of_type_"):
         # "the number of Islands you control" (Kraken of the Straits'
         # `combat.matches_object_filter`'s ``power_lt_count_selector`` —
@@ -744,6 +784,15 @@ def _pt_mod_count(state: "GameState", ability: StaticAbility, obj: "GameObject",
         return _equipment_attached_count(state, obj)
     if selector == "plus_one_counters_on_self":
         return getattr(ability.source, "plus_one_counters", 0)
+    if selector == "counters_on_self":
+        # "…get +1/+1 for each unity counter on this enchantment." (Call
+        # for Unity) — the *named*-counter-kind sibling of
+        # ``plus_one_counters_on_self``, kind read off ``counter_kind``
+        # (default "+1/+1" so an unparameterized use still means the plain
+        # kind).
+        counters = getattr(ability.source, "counters", None) or {}
+        kind = str(ability.params.get("counter_kind", "+1/+1"))
+        return int(counters.get(kind, 0))
     return _count_selector(state, ability, selector)
 
 
@@ -791,6 +840,17 @@ def _protection_qualities(ability: StaticAbility) -> set[str]:
 #: copy rather than imported (`continuous.py` stays free of `effect_binder`
 #: imports; it's one entry, not worth a shared-module indirection).
 _GRANTED_EVENT_KEYS: dict[str, str] = {"DAMAGE": "source_id"}
+
+#: RULE 119.3 player-subject grantable events ("Equipped creature has
+#: 'Whenever **you** gain life, …'" — Field-Tested Frying Pan/Light of
+#: Promise/Sunbond) — like `STEP_BEGIN`, these carry no object-identity key
+#: at all (`LIFE_GAINED` carries ``player_id``/``amount``, not an
+#: `instance_id`/``source_id``), but unlike `STEP_BEGIN` the scoping isn't
+#: "whose turn it is" — it's "whose life total changed", checked against the
+#: granted-to permanent's own controller (the same "resolve 'your' against
+#: `target`, not the granting source's controller" rule `phase_relation`
+#: documents below).
+_PLAYER_SUBJECT_GRANTED_EVENTS = frozenset({"LIFE_GAINED"})
 
 
 def _granted_trigger_condition(
@@ -846,22 +906,31 @@ def _granted_trigger_condition(
     key = _GRANTED_EVENT_KEYS.get(trigger_event or "", "instance_id")
     filt = dict(event_filter) if event_filter else None
     no_object_subject = phase_relation in ("you", "not_you")
+    player_subject = trigger_event in _PLAYER_SUBJECT_GRANTED_EVENTS
 
     def condition(event: Any, context: Any) -> bool:
-        event_subject = event.get(key)
-        if event_subject is None:
-            if not no_object_subject:
-                # ENG-11: only a STEP_BEGIN phase trigger legitimately fires
-                # off an event with no object subject at all (scoped by
-                # whose turn it is, below, instead). Any other grant is
-                # about one specific object, so an event that doesn't carry
-                # the key `_GRANTED_EVENT_KEYS` maps `trigger_event` to is a
-                # registration gap, not a subject-less event — fail closed
-                # rather than let every object under the same grant react to
-                # an event about none of them.
+        if player_subject:
+            # "Whenever **you** gain life, …" granted onto a permanent means
+            # that permanent's own controller, not the granting source's —
+            # same "resolve against target" rule STEP_BEGIN's phase_relation
+            # branch below uses, just keyed on player_id instead of turn.
+            if event.get("player_id") != target.controller_id:
                 return False
-        elif event_subject != target.instance_id:
-            return False
+        else:
+            event_subject = event.get(key)
+            if event_subject is None:
+                if not no_object_subject:
+                    # ENG-11: only a STEP_BEGIN phase trigger legitimately fires
+                    # off an event with no object subject at all (scoped by
+                    # whose turn it is, below, instead). Any other grant is
+                    # about one specific object, so an event that doesn't carry
+                    # the key `_GRANTED_EVENT_KEYS` maps `trigger_event` to is a
+                    # registration gap, not a subject-less event — fail closed
+                    # rather than let every object under the same grant react to
+                    # an event about none of them.
+                    return False
+            elif event_subject != target.instance_id:
+                return False
         if filt and not all(event.get(k) == v for k, v in filt.items()):
             return False
         if controllers_turn_only and context.state.active_player.id != target.controller_id:
@@ -1197,6 +1266,29 @@ def _apply_layer_5_color(state: "GameState", abilities: list) -> None:
             _trace(obj, 5, _source_name(ability), "becomes " + ", ".join(colors))
 
 
+def _build_grant_effect(spec: dict) -> Any:
+    """One entry of a `grant_triggered_ability`/`grant_activated_ability`'s
+    ``grant_effects`` list → a real `GameEffect`.
+
+    An optional ``condition`` key (the same shape `parser.oracle.spec.
+    EffectSpec.condition`/`effects.ConditionalEffect` already use for a
+    printed ability's own "if `<condition>`, `<effect>`." clause) wraps the
+    built effect so a *granted* ability's own body can have one too —
+    "…that player loses the game if the Ring has tempted you four or more
+    times this game. Otherwise, the Ring tempts you." (Frodo, Sauron's
+    Bane) is two of these in the same ``grant_effects`` list, one gated
+    ``ring_tempted_at_least``, the other its complementary
+    ``ring_tempted_at_most``. Without this, a granted ability could only
+    ever be an unconditional list of effects, unlike an ordinary printed
+    one.
+    """
+    effect = EffectRegistry.create(spec["type"], dict(spec.get("params", {})))
+    condition = spec.get("condition")
+    if condition:
+        effect = ConditionalEffect(dict(condition), effect)
+    return effect
+
+
 def _apply_layer_6_ability(state: "GameState", abilities: list) -> None:
     # -- Layer 6: ability-adding effects (keyword / mana / triggered-ability
     # grants — RULE 613.7f). A grant is re-derived every pass exactly like
@@ -1252,7 +1344,7 @@ def _apply_layer_6_ability(state: "GameState", abilities: list) -> None:
                     granted = TriggeredAbility(
                         trigger_event=trigger_event,
                         effects=[
-                            EffectRegistry.create(spec["type"], dict(spec.get("params", {})))
+                            _build_grant_effect(spec)
                             for spec in ability.params.get("grant_effects", [])
                         ],
                         condition=_granted_trigger_condition(
@@ -1290,7 +1382,7 @@ def _apply_layer_6_ability(state: "GameState", abilities: list) -> None:
                     cost.sorcery_speed_only = bool(ability.params.get("sorcery_speed_only", False))
                     granted_activated = ActivatedAbility(
                         effects=[
-                            EffectRegistry.create(spec["type"], dict(spec.get("params", {})))
+                            _build_grant_effect(spec)
                             for spec in ability.params.get("grant_effects", [])
                         ],
                         cost=cost,
@@ -1735,6 +1827,17 @@ def activation_cost_reduction_for(state: "GameState", source: "GameObject") -> t
             continue
         if ability.affects == "attached_permanent":
             if getattr(ability.source, "attached_to", None) != source.instance_id:
+                continue
+        elif ability.params.get("subtype"):
+            # "Activated abilities of Foods you control cost {1} less to
+            # activate." (Sam, Loyal Attendant) — the unscoped, subtype-
+            # narrowed variant this docstring flagged as unbuilt; scoped to
+            # the reducing permanent's own controller, matching the "you
+            # control" every printed card of this shape carries.
+            controller_id = getattr(ability.source, "controller_id", None)
+            if source.controller_id != controller_id or not has_subtype(
+                source, str(ability.params["subtype"])
+            ):
                 continue
         else:
             continue

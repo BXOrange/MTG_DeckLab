@@ -81,6 +81,8 @@ _ALLOWED_CONDITION_KEYS: frozenset[str] = frozenset(
     {
         "kicked", "kicked_at_least", "bargained", "target_is_controller",
         "life_gained_this_turn_at_least", "is_ring_bearer", "ring_tempted_at_least",
+        "controls_none_of_type", "source_x_paid_at_least",
+        "creatures_died_this_turn_at_least",
     }
 )
 

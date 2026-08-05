@@ -288,6 +288,21 @@ class CastingResolutionMixin:
             self._pending_land_choice_obj = obj
             self._pending_land_choice_amount = condition["amount"]
             self.state.pending_choice = self._land_tapped_bonus_choice(obj, condition["amount"])
+        elif kind == "reveal_types":
+            # "Reveal land" cycle: untapped iff the controller both *can*
+            # (holds a matching card) and *chooses to* reveal one — unlike
+            # `unless_types`, holding the card alone doesn't decide it, so
+            # this only opens a choice when there's actually something to
+            # reveal; with nothing to reveal there's no decision to make.
+            obj.tapped = True
+            types = condition["types"]
+            player = self.state.player_by_id(obj.controller_id)
+            has_match = any(
+                any(t in c.card.type_line.lower() for t in types) for c in player.hand
+            )
+            if has_match:
+                self._pending_land_choice_obj = obj
+                self.state.pending_choice = self._land_tapped_reveal_choice(obj)
         else:
             obj.tapped = kind == "always"
         if not obj.tapped:
@@ -359,7 +374,7 @@ class CastingResolutionMixin:
                 opponent_lands <= condition["count"] if condition["cmp"] == "le"
                 else opponent_lands >= condition["count"]
             )
-        elif kind in ("pay_life", "optional_bonus_rad"):
+        elif kind in ("pay_life", "optional_bonus_rad", "reveal_types"):
             return None
         else:
             tapped = kind == "always"
@@ -429,6 +444,38 @@ class CastingResolutionMixin:
             obj.tapped = True
             player = self.state.player_by_id(obj.controller_id)
             self.add_player_counters(player, amount, "rad", source=obj)
+    def _land_tapped_reveal_choice(self, obj: GameObject) -> dict[str, Any]:
+        """Build the `pending_choice` for a "reveal land"'s reveal-or-not
+        decision (only opened when the controller actually holds a matching
+        card — see `enter_land_tapped`)."""
+        return {
+            "kind": "land_tapped_reveal",
+            "player_id": obj.controller_id,
+            "prompt": f"{obj.name}: eine passende Karte aus der Hand zeigen, "
+                      "um ungetappt ins Spiel zu kommen?",
+            "options": [
+                {"id": "reveal", "label": "Karte zeigen"},
+                {"id": "decline", "label": "Getappt ins Spiel kommen lassen"},
+            ],
+        }
+    def resolve_land_tapped_reveal_choice(self, answer: Optional[str]) -> None:
+        """Answer a pending "reveal land" `land_tapped_reveal` choice.
+
+        ``answer`` is ``"reveal"`` to reveal a matching card and enter
+        untapped, or anything else (``None``/``"decline"``) to leave it
+        tapped — already the default `enter_land_tapped` set while the
+        choice was open. No specific card is named (RULE 614.1 doesn't
+        distinguish *which* matching card was revealed — only that one was),
+        matching the read-only `has_match` check that opened the choice.
+        """
+        choice = self.state.pending_choice
+        if not choice or choice.get("kind") != "land_tapped_reveal":
+            raise ValueError("no pending land-tapped-reveal choice to resolve")
+        self.state.pending_choice = None
+        obj = self._pending_land_choice_obj
+        self._pending_land_choice_obj = None
+        if obj is not None and answer == "reveal":
+            obj.tapped = False
     def is_permanent_spell(self, card: Card) -> bool:
         """A spell that becomes a permanent on resolution (RULE 608.3)."""
         return not (card.is_instant or card.is_sorcery)

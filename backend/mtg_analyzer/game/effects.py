@@ -1506,6 +1506,43 @@ class ConditionalEffect(GameEffect):
             is_bearer = bearer_id is not None and bearer_id == source_id
             if not (is_bearer if is_ring_bearer else not is_bearer):
                 return False
+        creatures_died_this_turn_at_least = self.condition.get("creatures_died_this_turn_at_least")
+        if creatures_died_this_turn_at_least is not None:
+            # "if a creature died under your control this turn, <effect>."
+            # (Sméagol, Helpful Guide) — `GameState.creatures_died_this_turn`,
+            # tallied by `RulesEngine._move_to_graveyard`'s own DIES handling,
+            # the same "this turn" counter idiom as `life_gained_this_turn`.
+            player = _controller_of(self.source, context)
+            died = context.state.creatures_died_this_turn.get(getattr(player, "id", None), 0)
+            if died < creatures_died_this_turn_at_least:
+                return False
+        source_x_paid_at_least = self.condition.get("source_x_paid_at_least")
+        if source_x_paid_at_least is not None:
+            # "If X is 5 or more, destroy all other creatures." (Martial
+            # Coup) — the announced {X} this spell/ability was itself cast
+            # or activated for (RULE 107.3c, `GameObject.x_paid`), unlike
+            # `_substitute_x`'s ``"x"`` sentinel (which rewrites a plain
+            # magnitude field, not a gate) or `ring_tempted_at_least`-style
+            # keys (which read board/player state, not the source itself).
+            x_paid = getattr(self.source, "x_paid", 0) or 0
+            if x_paid < source_x_paid_at_least:
+                return False
+        controls_none_of_type = self.condition.get("controls_none_of_type")
+        if controls_none_of_type is not None:
+            # "if you don't control a Food, <effect>." (Butterbur, Bree
+            # Innkeeper) — a live battlefield scan for the controller's own
+            # permanents of that printed subtype, same word list
+            # `segmenter._SACRIFICE_TYPE_TRIGGER_RE`/`_NAMED_TOKEN_WORDS`
+            # already trust.
+            controller_id = getattr(_controller_of(self.source, context), "id", None)
+            word = str(controls_none_of_type).lower()
+            controls_one = any(
+                o.controller_id == controller_id
+                and word in o.card.type_line.partition("—")[2].strip().lower().split()
+                for o in context.state.battlefield
+            )
+            if controls_one:
+                return False
         ring_tempted_at_least = self.condition.get("ring_tempted_at_least")
         if ring_tempted_at_least is not None:
             # "if the Ring has tempted you N or more times this game,
@@ -1513,6 +1550,17 @@ class ConditionalEffect(GameEffect):
             player = _controller_of(self.source, context)
             level = int(getattr(player, "ring_level", 0) or 0)
             if level < ring_tempted_at_least:
+                return False
+        ring_tempted_at_most = self.condition.get("ring_tempted_at_most")
+        if ring_tempted_at_most is not None:
+            # The upper-bound mirror of `ring_tempted_at_least` — "…
+            # <effect>. Otherwise, the Ring tempts you." (Frodo, Sauron's
+            # Bane) is an if/else over the same threshold, expressed as two
+            # independent conditionals rather than a dedicated "otherwise"
+            # branch, so the complementary bound needs its own key.
+            player = _controller_of(self.source, context)
+            level = int(getattr(player, "ring_level", 0) or 0)
+            if level > ring_tempted_at_most:
                 return False
         return True
 
@@ -1682,7 +1730,7 @@ class DealDamageEffect(GameEffect):
 #: the same "auto-resolve the common case" simplification `ProliferateEffect`/
 #: `SacrificeEffect` already use elsewhere in this engine.
 _DRAW_COUNT_SELECTORS: frozenset[str] = frozenset(
-    {"auras_and_equipment_attached_to_self", "opponents_you_have"}
+    {"auras_and_equipment_attached_to_self", "opponents_you_have", "burden_counters_on_self"}
 )
 
 
@@ -1740,6 +1788,13 @@ class DrawCardEffect(GameEffect):
         elif self.count_selector == "opponents_you_have":
             controller_id = getattr(self.source, "controller_id", None)
             count = sum(1 for p in context.state.living_players() if p.id != controller_id)
+        elif self.count_selector == "burden_counters_on_self":
+            # "…draw a card for each burden counter on The One Ring." — read
+            # *after* this same activation's own ``add_counters`` effect has
+            # already placed this turn's counter (RULE 608.2b, effects in
+            # printed order), so the count includes it.
+            counters = getattr(self.source, "counters", None) or {}
+            count = int(counters.get("burden", 0))
         context.draw(player, count)
 
 
@@ -1858,6 +1913,15 @@ def _mass_selector_objects(
         min_mv = filt.get("min_mana_value")
         if min_mv is not None:
             result = [o for o in result if o.card.converted_mana_cost >= min_mv]
+        # "destroy all creatures with power 3 or greater" (Dusk // Dawn/The
+        # Battle of Bywater-shaped) — the power-threshold sibling of
+        # ``min_toughness`` above.
+        min_power = filt.get("min_power")
+        if min_power is not None:
+            result = [o for o in result if (o.power or 0) >= min_power]
+        max_power = filt.get("max_power")
+        if max_power is not None:
+            result = [o for o in result if (o.power or 0) <= max_power]
     return result
 
 
@@ -1914,12 +1978,19 @@ class DestroyEffect(GameEffect):
         max_mana_value: Optional[int] = None,
         creature_filter: Optional[dict[str, Any]] = None,
         distinct_controllers: bool = False,
+        exclude_created: bool = False,
     ) -> None:
         super().__init__(source)
         self.target = target
         self.selector = selector if selector in _MASS_DESTROY_SELECTORS else None
         self.filter = filter
         self.can_be_regenerated = can_be_regenerated
+        #: "Create X tokens. If X is 5 or more, destroy all **other**
+        #: creatures." (Martial Coup) — RULE 608.2's "the tokens" referent
+        #: excluded from a mass wipe in the *same* resolution
+        #: (`GameContext.created_objects`), the mirror image of
+        #: `AttachEffect`'s ``target_kind="created"`` reading the same list.
+        self.exclude_created = exclude_created
         if self.selector is None:
             self.target_spec = TargetSpec(
                 kind=target_kind, optional=optional, count=count, color=color,
@@ -1932,7 +2003,10 @@ class DestroyEffect(GameEffect):
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
         if self.selector is not None:
+            excluded = set(context.created_objects) if self.exclude_created else ()
             for obj in _mass_selector_objects(context, self.selector, self.filter):
+                if obj in excluded:
+                    continue
                 context.destroy(obj, can_be_regenerated=self.can_be_regenerated)
             return
         chosen = _chosen_targets(targets, self.target_spec.count, self.target)
@@ -2146,10 +2220,18 @@ class LoseLifeEffect(GameEffect):
         source: Optional["GameObject"] = None,
         target_kind: Optional[str] = None,
         player_id: Optional[str] = None,
+        amount_from_trigger_event: Optional[str] = None,
+        amount_from_life_gained_this_turn: bool = False,
+        amount_from_burden_counters_on_self: bool = False,
     ) -> None:
         super().__init__(source)
         self.amount = amount
         self.player = player
+        #: "…you lose 1 life for each burden counter on The One Ring."
+        #: Reads `GameObject.counters["burden"]` on this effect's own
+        #: source, the `LoseLifeEffect` sibling of `DrawCardEffect`'s
+        #: ``"burden_counters_on_self"`` count selector.
+        self.amount_from_burden_counters_on_self = amount_from_burden_counters_on_self
         #: A specific player named by *id* rather than by object — the only
         #: form a serialized `EffectSpec` can carry (Professor Onyx's
         #: per-opponent "if you don't, they lose 3 life" branch, built fresh
@@ -2161,17 +2243,41 @@ class LoseLifeEffect(GameEffect):
         # only, so every existing untargeted/selector caller keeps reading
         # no shared ``targets`` list at all (see the class docstring).
         self.target_spec = TargetSpec(kind=target_kind) if target_kind is not None else None
+        #: "Whenever you gain life, target opponent loses that much life."
+        #: (Sanguine Bond-shaped) — the event field name (``"amount"``) to
+        #: read off `GameContext.trigger_event` at resolution, the same
+        #: "read this firing's own payload" idiom `AddManaEffect.
+        #: amount_from_trigger_event` uses. Overrides ``amount`` when set.
+        self.amount_from_trigger_event = amount_from_trigger_event
+        #: "…loses life equal to the amount of life you gained this turn."
+        #: (Gollum, Obsessed Stalker) — `GameState.life_gained_this_turn`,
+        #: a *cumulative-this-turn* total rather than one firing's payload,
+        #: so unlike `amount_from_trigger_event` this reads state, not the
+        #: triggering event.
+        self.amount_from_life_gained_this_turn = amount_from_life_gained_this_turn
 
     def target_polarity(self) -> Optional[str]:
         return "harmful"
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        amount = self.amount
+        if self.amount_from_trigger_event:
+            event = context.trigger_event
+            amount = int((event or {}).get(self.amount_from_trigger_event) or 0)
+        if self.amount_from_life_gained_this_turn:
+            player = _controller_of(self.source, context)
+            amount = context.state.life_gained_this_turn.get(getattr(player, "id", None), 0)
+        if self.amount_from_burden_counters_on_self:
+            counters = getattr(self.source, "counters", None) or {}
+            amount = int(counters.get("burden", 0))
+        if amount <= 0:
+            return
         if self.selector in _LOSE_LIFE_SELECTORS:
             controller_id = getattr(self.source, "controller_id", None)
             for p in context.state.living_players():
                 if self.selector == "each_opponent" and p.id == controller_id:
                     continue
-                context.lose_life(p, self.amount)
+                context.lose_life(p, amount)
             return
         player = self.player
         if player is None and self.player_id is not None:
@@ -2182,7 +2288,7 @@ class LoseLifeEffect(GameEffect):
             player = _defending_player_of(self.source, context)
         if player is None:
             player = _controller_of(self.source, context)
-        context.lose_life(player, self.amount)
+        context.lose_life(player, amount)
 
 
 class AddPlayerCountersEffect(GameEffect):
@@ -4624,14 +4730,22 @@ class TapEffect(GameEffect):
 class UnblockableEffect(GameEffect):
     """"Target creature can't be blocked this turn" (Rogue's Passage) — sets
     `GameObject.temp_unblockable`, read directly by `GameEngine.can_block`
-    and cleared at cleanup (RULE 514.2)."""
+    and cleared at cleanup (RULE 514.2).
+
+    ``creature_filter`` (Access Tunnel's "target creature with power 3 or
+    less") mirrors `DestroyEffect`'s own qualified-target filter.
+    """
 
     def __init__(
-        self, target: Any = None, source: Optional["GameObject"] = None, target_kind: str = "creature"
+        self,
+        target: Any = None,
+        source: Optional["GameObject"] = None,
+        target_kind: str = "creature",
+        creature_filter: Optional[dict[str, Any]] = None,
     ) -> None:
         super().__init__(source)
         self.target = target
-        self.target_spec = TargetSpec(kind=target_kind)
+        self.target_spec = TargetSpec(kind=target_kind, creature_filter=creature_filter)
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
         target = (targets[0] if targets else None) or self.target
@@ -4751,7 +4865,17 @@ class GrantCombatRestrictionEffect(GameEffect):
 
 
 class AttachEffect(GameEffect):
-    """Attach a permanent to another permanent as an Aura/Equipment-style effect."""
+    """Attach a permanent to another permanent as an Aura/Equipment-style effect.
+
+    ``target_kind="created"`` is a fourth, non-RULE-115 mode alongside the
+    ordinary target/self ``TargetSpec`` shapes below — "create a 1/1 …
+    creature token and attach ~ to it." (Auxiliary Boosters/Living Weapon-
+    adjacent, Field-Tested Frying Pan): the host is whichever object an
+    *earlier* effect in this same resolution just created
+    (`GameContext.created_objects`, RULE 608.2's "the tokens/it" referent —
+    see `RenownEffect`/goad's own use of the same list), not a chosen or
+    printed-source permanent.
+    """
 
     def __init__(
         self,
@@ -4761,10 +4885,16 @@ class AttachEffect(GameEffect):
     ) -> None:
         super().__init__(source)
         self.target = target
-        self.target_spec = TargetSpec(kind=target_kind)
+        self._created_mode = target_kind == "created"
+        if not self._created_mode:
+            self.target_spec = TargetSpec(kind=target_kind)
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
-        target = (targets[0] if targets else None) or self.target
+        if self._created_mode:
+            created = getattr(context, "created_objects", None)
+            target = created[-1] if created else None
+        else:
+            target = (targets[0] if targets else None) or self.target
         if target is None or self.source is None:
             return
         context.engine.attach_to_target(self.source, target)
@@ -5198,9 +5328,29 @@ class AddCountersEffect(GameEffect):
         subtypes: Optional[list[str]] = None,
         trigger_subject_key: Optional[str] = None,
         divided: bool = False,
+        amount_from_trigger_event: Optional[str] = None,
+        x_multiplier: Optional[int] = None,
     ) -> None:
         super().__init__(source)
         self.amount = amount
+        #: "Whenever you gain life, put that many +1/+1 counters on ~/target
+        #: X." (Ageless Entity/Treebeard-shaped) — the event field name
+        #: (``"amount"``) to read off `GameContext.trigger_event` at
+        #: resolution, overriding ``amount`` when set. Same idiom as
+        #: `LoseLifeEffect.amount_from_trigger_event`; deliberately only
+        #: wired into the plain self/single-target branches below, since
+        #: "that many" is inherently a single recipient, never a mass
+        #: selector or an N>=2 multi-target pick.
+        self.amount_from_trigger_event = amount_from_trigger_event
+        #: "~ enters with twice X +1/+1 counters on it." (Banquet Guests) —
+        #: a self-only ETB trigger reading the *source's own* announced
+        #: {X} (`GameObject.x_paid`, RULE 107.3c — set at cast time,
+        #: already present by the time this same object's own ENTERS_
+        #: BATTLEFIELD trigger resolves) times this multiplier. Distinct
+        #: from `_substitute_x`'s ``"x"`` sentinel, which only rewrites a
+        #: *spell's own* resolution effects — a separately-fired triggered
+        #: ability has no `StackItem.x` of its own to substitute against.
+        self.x_multiplier = x_multiplier
         # PAR-15: "distribute N +1/+1 counters among any number of target
         # creatures" (Blessings of Nature/Jugan, the Rising Star/Verdurous
         # Gearhulk) — ``amount`` is then a *pool* split across whichever
@@ -5236,6 +5386,9 @@ class AddCountersEffect(GameEffect):
         return "harmful" if self.kind in ("-1/-1", "stun") else "beneficial"
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        if self.x_multiplier is not None:
+            x_paid = getattr(self.source, "x_paid", 0) or 0
+            self.amount = self.x_multiplier * x_paid
         if self.trigger_subject_key:
             event = context.trigger_event
             obj_id = (event or {}).get(self.trigger_subject_key)
@@ -5273,8 +5426,12 @@ class AddCountersEffect(GameEffect):
             target = targets[0] if targets else None
         else:
             target = self.source
-        if target is not None:
-            context.add_counters(target, self.amount, self.kind, source=self.source)
+        amount = self.amount
+        if self.amount_from_trigger_event:
+            event = context.trigger_event
+            amount = int((event or {}).get(self.amount_from_trigger_event) or 0)
+        if target is not None and amount > 0:
+            context.add_counters(target, amount, self.kind, source=self.source)
 
 
 class RenownEffect(GameEffect):
@@ -5726,6 +5883,7 @@ class PumpEffect(GameEffect):
         source: Optional["GameObject"] = None,
         count: int = 1,
         optional: bool = False,
+        amount_from_trigger_event: Optional[str] = None,
     ) -> None:
         super().__init__(source)
         self.power = power
@@ -5733,6 +5891,14 @@ class PumpEffect(GameEffect):
         self.keywords = list(keywords or [])
         self.selector = selector
         self.unblockable = unblockable
+        #: "Whenever you gain life, ~ gets +X/+X until end of turn, where X
+        #: is the amount of life you gained." (Field-Tested Frying Pan's
+        #: granted ability) — the event field name (``"amount"``) to read
+        #: off `GameContext.trigger_event` at resolution, overriding both
+        #: ``power`` and ``toughness`` with the same value (always a
+        #: symmetric "+X/+X" in practice). Same idiom as `LoseLifeEffect.
+        #: amount_from_trigger_event`.
+        self.amount_from_trigger_event = amount_from_trigger_event
         self._attached_mode = target_kind == "attached_permanent"
         if target_kind is not None and not self._attached_mode:
             # PAR-15: "any number of target creatures each get +N/+N [and
@@ -5766,6 +5932,13 @@ class PumpEffect(GameEffect):
             )
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        if self.amount_from_trigger_event:
+            event = context.trigger_event
+            amount = int((event or {}).get(self.amount_from_trigger_event) or 0)
+            self.power = amount
+            self.toughness = amount
+            if amount <= 0:
+                return
         if self.selector is not None:
             from .continuous import group_selector_objects  # avoid the continuous↔effects cycle
 
@@ -7099,6 +7272,26 @@ class ExileTriggerDamagedCreatureEffect(GameEffect):
         context.exile(creature)
 
 
+class LoseGameTriggerDamagedPlayerEffect(GameEffect):
+    """"…that player loses the game…" (Frodo, Sauron's Bane) — RULE 603.3d's
+    "that player" pronoun refers to the `DAMAGE` event's *recipient*, the
+    exact mirror of `ExileTriggerDamagedCreatureEffect` for a player instead
+    of a creature: no target choice, `GameContext.trigger_event`'s own
+    ``target_id`` is the damaged player's id (`is_player`). A damaged
+    creature or a since-departed player is simply nothing to make lose.
+    """
+
+    def __init__(self, reason: str = "effect", source: Optional["GameObject"] = None) -> None:
+        super().__init__(source)
+        self.reason = reason
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        event = context.trigger_event
+        if event is None or not event.get("is_player"):
+            return
+        context.lose_game(context.state.player_by_id(event.get("target_id")), self.reason)
+
+
 #: RULE 205.2a's permanent card types — the vocabulary "shares a permanent
 #: type with it" (Cloudstone Curio) compares against, so a shared *spell*
 #: type (instant/sorcery, which no permanent has anyway) can never match.
@@ -8283,6 +8476,7 @@ EffectRegistry.register(
         max_mana_value=p.get("max_mana_value"),
         creature_filter=p.get("creature_filter"),
         distinct_controllers=bool(p.get("distinct_controllers", False)),
+        exclude_created=bool(p.get("exclude_created", False)),
     ),
 )
 EffectRegistry.register(
@@ -8323,6 +8517,9 @@ EffectRegistry.register(
     lambda p: LoseLifeEffect(
         amount=p.get("amount", 0), player=p.get("player"), selector=p.get("selector"),
         target_kind=p.get("target_kind"), player_id=p.get("player_id"),
+        amount_from_trigger_event=p.get("amount_from_trigger_event"),
+        amount_from_life_gained_this_turn=bool(p.get("amount_from_life_gained_this_turn", False)),
+        amount_from_burden_counters_on_self=bool(p.get("amount_from_burden_counters_on_self", False)),
     ),
 )
 EffectRegistry.register(
@@ -8898,6 +9095,10 @@ EffectRegistry.register(
     "lose_game", lambda p: LoseGameEffect(reason=p.get("reason", "effect"))
 )
 EffectRegistry.register(
+    "lose_game_trigger_damaged_player",
+    lambda p: LoseGameTriggerDamagedPlayerEffect(reason=p.get("reason", "effect")),
+)
+EffectRegistry.register(
     "blink",  # "Exile target permanent, then return it to the battlefield" (Ephemerate)
     lambda p: BlinkEffect(target_kind=p.get("target_kind", "creature_you_control")),
 )
@@ -8915,7 +9116,10 @@ EffectRegistry.register(
 )
 EffectRegistry.register(
     "unblockable",  # "Target creature can't be blocked this turn" (Rogue's Passage)
-    lambda p: UnblockableEffect(target=p.get("target"), target_kind=p.get("target_kind", "creature")),
+    lambda p: UnblockableEffect(
+        target=p.get("target"), target_kind=p.get("target_kind", "creature"),
+        creature_filter=p.get("creature_filter"),
+    ),
 )
 EffectRegistry.register(
     # "Target creature can't block this turn" (Falter/Abandon the Post) and
@@ -9054,6 +9258,8 @@ EffectRegistry.register(
         count=p.get("target_count", 1),
         subtypes=p.get("subtypes"),
         divided=bool(p.get("divided", False)),
+        amount_from_trigger_event=p.get("amount_from_trigger_event"),
+        x_multiplier=p.get("x_multiplier"),
     ),
 )
 EffectRegistry.register(
@@ -9071,6 +9277,7 @@ EffectRegistry.register(
         unblockable=bool(p.get("unblockable", False)),
         count=p.get("target_count", 1),
         optional=bool(p.get("optional", False)),
+        amount_from_trigger_event=p.get("amount_from_trigger_event"),
     ),
 )
 EffectRegistry.register(
@@ -9309,6 +9516,10 @@ EffectRegistry.register(
             # (controller-scoped `count_selector` names, plus the per-object
             # ``"equipment_attached_to_self"``).
             "power_count": p.get("power_count"), "toughness_count": p.get("toughness_count"),
+            # The counter kind ``"counters_on_self"`` (`continuous.
+            # _pt_mod_count`) reads — "unity"/other named counters, default
+            # "+1/+1" so an unparameterized per-counter anthem is unchanged.
+            "counter_kind": p.get("counter_kind", "+1/+1"),
             **_selectors(p),
         },
     ),
@@ -9593,6 +9804,12 @@ EffectRegistry.register(
             # mana in that cost to less than N mana" floor.
             **({"scope": p["scope"]} if p.get("scope") else {}),
             **({"min_total": p["min_total"]} if p.get("min_total") else {}),
+            # "Activated abilities of Foods you control cost {1} less to
+            # activate." (Sam, Loyal Attendant) — the subtype-scoped
+            # ``scope="activation"`` variant `continuous.
+            # activation_cost_reduction_for` reads, unlike its "attached
+            # Permanent" sibling above.
+            **({"subtype": p["subtype"]} if p.get("subtype") else {}),
         },
     ),
 )
@@ -10296,6 +10513,99 @@ def _double_tokens_replacement(params: dict[str, Any]) -> ReplacementEffect:
     return effect
 
 
+#: The named-token vocabulary `_create_one_of_each_named_token_replacement`/
+#: `_additional_named_token_replacement` build from — same closed
+#: Treasure/Clue/Food set `parser.oracle.catalogue.handlers._NAMED_TOKEN_
+#: WORDS` trusts (`services/token_database.py`'s curated `TokenDatabase`,
+#: so the extra token keeps its own real activated ability).
+_NAMED_TOKEN_DISPLAY_NAMES: tuple[str, ...] = ("Clue", "Food", "Treasure")
+
+
+def _create_one_of_each_named_token_replacement(params: dict[str, Any]) -> ReplacementEffect:
+    """"If you would create a Clue, Food, or Treasure token, instead create
+    one of each." (Academy Manufactor) — the original creation goes through
+    unmodified (RULE 616 doesn't need to touch ``amount`` here), and the
+    *other two* named tokens are created as a side effect alongside it.
+
+    A side-effect `context.create_token` call is itself a new CREATE_TOKENS
+    event this same replacement would otherwise see again — the ``_busy``
+    re-entrancy guard on the `ReplacementEffect` instance is what stops that
+    from looping (a Clue's own creation, made *by* this replacement, must
+    not re-trigger it a second time).
+    """
+    effect = ReplacementEffect(
+        event_type=EventType.CREATE_TOKENS,
+        replacement_fn=lambda e, c: e,
+        description=str(params.get("description", "")),
+    )
+    effect._busy = False  # type: ignore[attr-defined]
+
+    def replace(event: GameEvent, context: GameContext) -> Optional[GameEvent]:
+        src = effect.source
+        if src is None or event.get("controller_id") != src.controller_id:
+            return event
+        if effect._busy:  # type: ignore[attr-defined]
+            return event
+        token_name = event.get("token_name")
+        if token_name not in _NAMED_TOKEN_DISPLAY_NAMES:
+            return event
+        effect._busy = True  # type: ignore[attr-defined]
+        try:
+            from ..services.token_database import default_token_database
+
+            db = default_token_database()
+            for name in _NAMED_TOKEN_DISPLAY_NAMES:
+                if name == token_name:
+                    continue
+                card = db.get_token(name)
+                if card is not None:
+                    context.create_token(src.controller_id, card, 1)
+        finally:
+            effect._busy = False  # type: ignore[attr-defined]
+        return event
+
+    effect.replacement_fn = replace
+    return effect
+
+
+def _additional_named_token_replacement(params: dict[str, Any]) -> ReplacementEffect:
+    """"If one or more tokens would be created under your control, those
+    tokens plus an additional Food token are created instead." (Peregrin
+    Took) — ``token_name`` (default "Food") names the extra token; every
+    token creation under this effect's controller gets one more of it
+    alongside, guarded by the same ``_busy`` re-entrancy flag `_create_
+    one_of_each_named_token_replacement` uses (the extra token's own
+    creation must not trigger *another* extra token).
+    """
+    extra_name = str(params.get("token_name", "Food"))
+    effect = ReplacementEffect(
+        event_type=EventType.CREATE_TOKENS,
+        replacement_fn=lambda e, c: e,
+        description=str(params.get("description", "")),
+    )
+    effect._busy = False  # type: ignore[attr-defined]
+
+    def replace(event: GameEvent, context: GameContext) -> Optional[GameEvent]:
+        src = effect.source
+        if src is None or event.get("controller_id") != src.controller_id:
+            return event
+        if effect._busy:  # type: ignore[attr-defined]
+            return event
+        effect._busy = True  # type: ignore[attr-defined]
+        try:
+            from ..services.token_database import default_token_database
+
+            card = default_token_database().get_token(extra_name)
+            if card is not None:
+                context.create_token(src.controller_id, card, 1)
+        finally:
+            effect._busy = False  # type: ignore[attr-defined]
+        return event
+
+    effect.replacement_fn = replace
+    return effect
+
+
 def _win_instead_of_empty_draw_replacement(params: dict[str, Any]) -> ReplacementEffect:
     """"If you would draw a card while your library has no cards in it, you
     win the game instead." (Jace, Wielder of Mysteries/Laboratory Maniac,
@@ -10364,4 +10674,6 @@ ReplacementRegistry.register("double_counters", _double_counters_replacement)
 ReplacementRegistry.register("gain_life_replacement", _gain_life_replacement)
 ReplacementRegistry.register("die_to_exile", _die_to_exile_replacement)
 ReplacementRegistry.register("double_tokens", _double_tokens_replacement)
+ReplacementRegistry.register("create_one_of_each_named_token", _create_one_of_each_named_token_replacement)
+ReplacementRegistry.register("additional_named_token", _additional_named_token_replacement)
 ReplacementRegistry.register("win_instead_of_empty_draw", _win_instead_of_empty_draw_replacement)

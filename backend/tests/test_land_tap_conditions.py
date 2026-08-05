@@ -39,6 +39,15 @@ def turbulent_land():
     )
 
 
+def reveal_land():
+    return Card(
+        id="FV", name="Fortified Village", type_line="Land", is_land=True,
+        oracle_text="As this land enters, you may reveal a Forest or Plains card "
+                    "from your hand. If you don't, this land enters tapped.\n"
+                    "{T}: Add {G} or {W}.",
+    )
+
+
 def basic_land(subtype):
     return Card(id=subtype, name=subtype, type_line=f"Basic Land — {subtype}",
                 is_land=True, oracle_text="({T}: Add mana.)")
@@ -97,6 +106,81 @@ def test_battlebond_land_tapped_with_exactly_one_opponent_multiplayer():
     engine = GameEngine(state)
     engine.rules.enter_land_tapped(land_obj)
     assert land_obj.tapped is True
+
+
+# ---------------------------------------------------------------------------
+# reveal_types ("reveal land" cycle — a genuine interactive choice, not a
+# deterministic board check like unless_types)
+# ---------------------------------------------------------------------------
+
+
+def test_reveal_land_no_match_in_hand_enters_tapped_with_no_choice_opened():
+    p1 = Player(id="p1", name="You")
+    p2 = Player(id="p2", name="Opp1")
+    land_obj = GameObject(reveal_land(), owner_id="p1", zone=Zone.HAND)
+    p1.hand.append(land_obj)
+    state = GameState(players=[p1, p2])
+    engine = GameEngine(state)
+    engine.rules.enter_land_tapped(land_obj)
+    assert land_obj.tapped is True
+    assert state.pending_choice is None
+
+
+def test_reveal_land_opens_a_choice_when_a_match_is_in_hand():
+    p1 = Player(id="p1", name="You")
+    p2 = Player(id="p2", name="Opp1")
+    land_obj = GameObject(reveal_land(), owner_id="p1", zone=Zone.HAND)
+    p1.hand.append(land_obj)
+    p1.hand.append(GameObject(basic_land("Forest"), owner_id="p1", zone=Zone.HAND))
+    state = GameState(players=[p1, p2])
+    engine = GameEngine(state)
+    engine.rules.enter_land_tapped(land_obj)
+    # Defaults tapped (as if declined) while the choice is open, same as a
+    # shock land's pay-life choice.
+    assert land_obj.tapped is True
+    assert state.pending_choice["kind"] == "land_tapped_reveal"
+
+
+def test_reveal_land_declining_leaves_it_tapped():
+    p1 = Player(id="p1", name="You")
+    p2 = Player(id="p2", name="Opp1")
+    land_obj = GameObject(reveal_land(), owner_id="p1", zone=Zone.HAND)
+    p1.hand.append(land_obj)
+    p1.hand.append(GameObject(basic_land("Plains"), owner_id="p1", zone=Zone.HAND))
+    state = GameState(players=[p1, p2])
+    engine = GameEngine(state)
+    engine.rules.enter_land_tapped(land_obj)
+    engine.rules.resolve_land_tapped_reveal_choice(None)
+    assert land_obj.tapped is True
+    assert state.pending_choice is None
+
+
+def test_reveal_land_revealing_enters_untapped():
+    p1 = Player(id="p1", name="You")
+    p2 = Player(id="p2", name="Opp1")
+    land_obj = GameObject(reveal_land(), owner_id="p1", zone=Zone.HAND)
+    p1.hand.append(land_obj)
+    p1.hand.append(GameObject(basic_land("Plains"), owner_id="p1", zone=Zone.HAND))
+    state = GameState(players=[p1, p2])
+    engine = GameEngine(state)
+    engine.rules.enter_land_tapped(land_obj)
+    engine.rules.resolve_land_tapped_reveal_choice("reveal")
+    assert land_obj.tapped is False
+    assert state.pending_choice is None
+
+
+def test_reveal_land_played_via_engine_action_end_to_end():
+    engine = build_goldfish_engine([reveal_land()], starting_hand=1)
+    engine.begin_turn()
+    engine.state.current_step = "main1"
+    p1 = engine.state.active_player
+    p1.hand.append(GameObject(basic_land("Forest"), owner_id=p1.id, zone=Zone.HAND))
+    land = p1.hand[0]
+    engine.play_land(p1, land)
+    assert land.tapped is True
+    assert engine.state.pending_choice["kind"] == "land_tapped_reveal"
+    engine.rules.resolve_land_tapped_reveal_choice("reveal")
+    assert land.tapped is False
 
 
 # ---------------------------------------------------------------------------

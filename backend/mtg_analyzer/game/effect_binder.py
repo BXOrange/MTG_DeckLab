@@ -536,6 +536,21 @@ def _trigger_condition(
 
         predicates.append(_spell_type_ok)
 
+    # "Whenever you sacrifice a Food, …" (RULE 122.1a/701.17 — Experimental
+    # Confectioner/Trail of Crumbs-shaped) — `EventType.SACRIFICE`'s own
+    # `subtypes` payload (`RulesEngine.put_into_graveyard`, the sacrificed
+    # card's printed subtype half — "Food"/"Clue"/"Treasure" are subtypes,
+    # not main types, so this reads `subtypes` rather than `object_types`
+    # the way `spell_card_types` above does for a cast spell's main types).
+    sacrifice_type = trigger.get("sacrifice_type")
+    if sacrifice_type:
+        word = str(sacrifice_type).lower()
+
+        def _sacrifice_type_ok(event: Any, context: Any, w=word) -> bool:
+            return w in (event.get("subtypes") or ())
+
+        predicates.append(_sacrifice_type_ok)
+
     subtype_any = trigger.get("spell_subtype_any")
     if subtype_any:
         wanted = tuple(str(s).lower() for s in subtype_any)

@@ -641,7 +641,16 @@ class MiscSystemsMixin:
         if zone != Zone.BATTLEFIELD or count <= 0:
             return _build(count)
 
-        event = GameEvent(EventType.CREATE_TOKENS, controller_id=controller_id, amount=count)
+        event = GameEvent(
+            EventType.CREATE_TOKENS, controller_id=controller_id, amount=count,
+            # "If you would create a Clue, Food, or Treasure token, instead
+            # create one of each." (Academy Manufactor) / "…those tokens
+            # plus an additional Food token are created instead." (Peregrin
+            # Took) — both need to know *which* token is being made, not
+            # just how many; `_double_tokens_replacement`'s own amount-only
+            # scaling can't express either.
+            token_name=token_card.name,
+        )
         result: list[GameObject] = []
 
         def _finish(resolved: Optional[GameEvent]) -> None:

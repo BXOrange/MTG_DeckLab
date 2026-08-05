@@ -694,7 +694,8 @@ _MASS_DESTROY_NOUNS: dict[str, str] = {
 }
 _MASS_DESTROY_FILTER = (
     r"(?: with (?:mana value (?P<mv>\d+) or (?P<mv_cmp>greater|less)"
-    r"|toughness (?P<tough>\d+) or greater))?"
+    r"|toughness (?P<tough>\d+) or greater"
+    r"|power (?P<power>\d+) or (?P<power_cmp>greater|less)))?"
 )
 
 
@@ -706,6 +707,9 @@ def _mass_destroy_filter_dict(m: re.Match[str]) -> Optional[dict]:
         filt["max_mana_value" if groups["mv_cmp"] == "less" else "min_mana_value"] = n
     if groups.get("tough"):
         filt["min_toughness"] = int(groups["tough"])
+    if groups.get("power"):
+        n = int(groups["power"])
+        filt["max_power" if groups["power_cmp"] == "less" else "min_power"] = n
     return filt or None
 
 
@@ -1972,7 +1976,11 @@ def _token_keywords(text: str) -> Optional[list[str]]:
     return slugs
 
 
-def _create_token(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+def _inline_create_token_params(m: re.Match[str]) -> Optional[dict]:
+    """The shared ``create_token`` params for the inline-stats creature-token
+    grammar (``p``/``t``/``mid``/``kw``/``n``/``tapped``/``legendary``/``who``
+    groups) — factored out of `_create_token` so `_create_token_and_attach`
+    can build the same params for its own, differently-wrapped clause."""
     colors: list[str] = []
     subtypes: list[str] = []
     for word in (m.group("mid") or "").split():
@@ -2008,7 +2016,40 @@ def _create_token(m: re.Match[str]) -> Optional[list[EffectSpec]]:
         params["creators"] = "each_opponent" if "opponent" in who else "each_player"
     if m.groupdict().get("tapped"):  # RULE 110.5a — enters tapped, not tapped after
         params["tapped"] = True
+    return params
+
+
+def _create_token(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    params = _inline_create_token_params(m)
+    if params is None:
+        return None
     return [EffectSpec("create_token", params)]
+
+
+#: The inline-stats creature-token grammar `_create_token`'s own `EffectHandler`
+#: row wraps, reused bare here (no leading "creates?") so it can be embedded
+#: inside a bigger clause — "create **a 1/1 white Halfling creature token**
+#: and attach ~ to it." (Auxiliary Boosters/Field-Tested Frying Pan's own
+#: second sentence) needs the token description without also consuming the
+#: "and attach …" tail the way the top-level row's fullmatch would demand.
+_CREATE_TOKEN_INLINE = (
+    rf"{COUNT} (?P<tapped>tapped )?(?P<legendary>legendary )?(?P<p>\d+)/(?P<t>\d+) "
+    rf"(?P<mid>[a-z ]*?)creature tokens?(?: with (?P<kw>[a-z, ]+))?"
+)
+
+#: "create a 1/1 white Halfling creature token and attach ~ to it." (Living
+#: Weapon-adjacent, but printed as ordinary oracle text rather than the
+#: keyword — Auxiliary Boosters) — one clause, two effects: the token, then
+#: `AttachEffect`'s ``target_kind="created"`` mode onto whatever that just
+#: made (RULE 608.2's "it").
+_CREATE_TOKEN_AND_ATTACH_RE = _c(rf"creates? {_CREATE_TOKEN_INLINE} and attach ~ to it")
+
+
+def _create_token_and_attach(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    params = _inline_create_token_params(m)
+    if params is None:
+        return None
+    return [EffectSpec("create_token", params), EffectSpec("attach", {"target_kind": "created"})]
 
 
 #: "Create <Name>, a legendary N/N ... creature token [with <keywords>]."
@@ -2072,6 +2113,35 @@ _NAMED_TOKEN_WORDS: dict[str, str] = {"treasure": "Treasure", "clue": "Clue", "f
 def _create_named_token(m: re.Match[str]) -> list[EffectSpec]:
     name = _NAMED_TOKEN_WORDS[m.group("name")]
     return [EffectSpec("create_token", {"count": count_of(m.group("n")), "token_name": name})]
+
+
+#: The compound sibling of `_create_token_and_attach` — "create a Food
+#: token, then create a 1/1 white Halfling creature token and attach ~ to
+#: it." (Field-Tested Frying Pan): a named artifact token
+#: (`_NAMED_TOKEN_WORDS`) first, *then* the create+attach shape onto the
+#: second, inline-stats token — `AttachEffect`'s ``created_objects[-1]``
+#: read picks the Halfling, not the Food, since it's whichever effect ran
+#: last. Deliberately hard-codes the singular "a `<named>` token" (rather
+#: than reusing `COUNT`) — the real card this closes only ever prints one,
+#: and `COUNT`'s own capture group is named ``n``, the same name
+#: `_CREATE_TOKEN_INLINE` already binds for the *second* token's count, so a
+#: shared `COUNT` here would collide.
+_CREATE_NAMED_THEN_CREATE_TOKEN_AND_ATTACH_RE = _c(
+    rf"creates? an? (?P<named>{'|'.join(_NAMED_TOKEN_WORDS)}) token, then "
+    rf"creates? {_CREATE_TOKEN_INLINE} and attach ~ to it"
+)
+
+
+def _create_named_then_create_token_and_attach(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    params = _inline_create_token_params(m)
+    if params is None:
+        return None
+    named_name = _NAMED_TOKEN_WORDS[m.group("named")]
+    return [
+        EffectSpec("create_token", {"count": 1, "token_name": named_name}),
+        EffectSpec("create_token", params),
+        EffectSpec("attach", {"target_kind": "created"}),
+    ]
 
 
 #: RULE 701.19a's keyword action — "Investigate" (Shadows over Innistrad-
@@ -2166,6 +2236,56 @@ def _add_named_counter(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     params["target_kind"] = kind
     params.update(_optional_param(m))
     return [EffectSpec("add_counters", params)]
+
+
+#: RULE 603.1's "Whenever you gain life, …" lifegain-payoff family (RULE
+#: 119.3, Ajani's Pridemate-shaped — `_PLAYER_TRIGGER_CONDITIONS`'s
+#: ``"you gain life"`` row already claims the *condition*; this is the
+#: matching *body* grammar for the two forms real cards actually print:
+#: "target opponent loses that much life" (Sanguine Bond/Defiant Bloodlord)
+#: and "put that many +1/+1 counters on ~/target creature" (Ageless
+#: Entity/Karlov-adjacent). ``amount_from_trigger_event`` reads the firing
+#: LIFE_GAINED event's own ``amount`` (`GameContext.trigger_event`,
+#: `LoseLifeEffect`/`AddCountersEffect`'s new param) rather than a literal
+#: int — the same "that much"/"that many" idiom `AddManaEffect.
+#: amount_from_trigger_event` already models for Raphael, Ninja Destroyer's
+#: "add that much {R}". Not wired into every trigger family generally
+#: (only this one prints "that much"/"that many" this way), so it's a
+#: narrow pair of rows rather than a generic COUNT alternative.
+def _lose_life_from_trigger_amount(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    kind = resolve_target_kind(m.group("target"))
+    if kind != "player":
+        return None
+    return [EffectSpec("lose_life", {"target_kind": "player", "amount_from_trigger_event": "amount"})]
+
+
+def _add_counters_from_trigger_amount(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    ckind = "-1/-1" if m.group("ckind").lstrip()[0] in "-−" else "+1/+1"
+    params: dict = {"kind": ckind, "amount_from_trigger_event": "amount"}
+    if m.groupdict().get("selfref"):
+        return [EffectSpec("add_counters", params)]
+    kind = resolve_target_kind(m.group("target"))
+    if kind not in ("creature", "permanent", "creature_you_control"):
+        return None
+    params["target_kind"] = kind
+    return [EffectSpec("add_counters", params)]
+
+
+#: "~ gets +X/+X until end of turn, where X is the amount of life you
+#: gained." (Field-Tested Frying Pan's granted Equipment ability) — the
+#: dynamic-magnitude sibling of `_pump`'s literal-int "+N/+N until end of
+#: turn"; only ever seen self-referential (a granted quoted ability's own
+#: "~" resolves to whatever object received the grant — the equipped
+#: creature — at bind time, see `continuous._apply_layer_6_ability`'s
+#: ``source=obj``), so no target form is needed.
+_PUMP_SELF_FROM_LIFE_GAINED_RE = _c(
+    rf"{_SELF_SUBJECT} gets \+x/\+x until end of turn, "
+    r"where x is the amount of life you gained"
+)
+
+
+def _pump_self_from_life_gained(m: re.Match[str]) -> list[EffectSpec]:
+    return [EffectSpec("pump", {"amount_from_trigger_event": "amount"})]
 
 
 #: "put a +1/+1 counter on each of up to two target creatures" (RULE 115.1a
@@ -3103,6 +3223,15 @@ HANDLERS: list[EffectHandler] = [
         _c(rf"(?P<selector>each player|each opponent) loses? {NUMBER} life"),
         _lose_life_selector,
     ),
+    # "whenever you gain life, target opponent loses that much life."
+    # (Sanguine Bond/Defiant Bloodlord-shaped) — tried before the plain
+    # `lose_life` row above so "that much" wins over that row's literal
+    # `NUMBER`.
+    EffectHandler(
+        "lose_life_from_trigger_amount",
+        _c(rf"{TARGET} loses that much life"),
+        _lose_life_from_trigger_amount,
+    ),
     # "you get half X rad counters, rounded up/down" (Contaminated Drink) —
     # tried before the plain shape below since its own ``n`` group would
     # otherwise never match "half x" anyway (no overlap risk either way).
@@ -3682,6 +3811,36 @@ HANDLERS: list[EffectHandler] = [
         _ADD_NAMED_COUNTER_RE,
         _add_named_counter,
     ),
+    # "whenever you gain life, put that many +1/+1 counters on ~/target
+    # creature" (Ageless Entity/Karlov-adjacent lifegain payoffs) — tried
+    # before the plain `add_counters` row above so its "that many" wins
+    # over that row's literal-`COUNT` alternation. `self_subject_only`:
+    # its ``(?P<selfref>{_SELF_SUBJECT})`` branch includes the bare pronoun
+    # "it", which under a *group*-subject trigger ("whenever a creature you
+    # control deals combat damage to a player, put that many +1/+1 counters
+    # on it" — Necropolis Regent) means whichever group member fired it,
+    # not this ability's own source — claiming it blind would silently
+    # buff the wrong object. A player-subject trigger ("whenever you gain
+    # life") introduces no such group, so `segmenter.segment_line`'s player-
+    # event branch passes ``self_subject=True`` and this row is offered.
+    EffectHandler(
+        "add_counters_from_trigger_amount",
+        _c(
+            rf"put that many (?P<ckind>[+\-−]1/[+\-−]1) counters? on "
+            rf"(?:{TARGET}|(?P<selfref>{_SELF_SUBJECT}))"
+        ),
+        _add_counters_from_trigger_amount,
+        self_subject_only=True,
+    ),
+    # "~ gets +x/+x until end of turn, where x is the amount of life you
+    # gained." (Field-Tested Frying Pan's granted ability) — same pronoun-
+    # ambiguity gate as the row above.
+    EffectHandler(
+        "pump_self_from_life_gained",
+        _PUMP_SELF_FROM_LIFE_GAINED_RE,
+        _pump_self_from_life_gained,
+        self_subject_only=True,
+    ),
     # "put a +1/+1 counter on each of up to two target creatures" (RULE
     # 115.1a generalized to N>=2 — the Support-keyword-shaped family).
     EffectHandler(
@@ -4040,6 +4199,23 @@ HANDLERS: list[EffectHandler] = [
         "create_named_legendary_token",
         _CREATE_NAMED_LEGENDARY_TOKEN_RE,
         _create_named_legendary_token,
+    ),
+    # "create a Food token, then create a 1/1 white Halfling creature token
+    # and attach ~ to it." (Field-Tested Frying Pan) — tried before the
+    # plain create-and-attach row below since it's a strict superset (a
+    # leading named-token sentence that row's grammar doesn't expect).
+    EffectHandler(
+        "create_named_then_create_token_and_attach",
+        _CREATE_NAMED_THEN_CREATE_TOKEN_AND_ATTACH_RE,
+        _create_named_then_create_token_and_attach,
+    ),
+    # "create a 1/1 white Halfling creature token and attach ~ to it."
+    # (Auxiliary Boosters, Living Weapon-adjacent) — the token, then attach
+    # the ability's own source onto whatever that just made.
+    EffectHandler(
+        "create_token_and_attach",
+        _CREATE_TOKEN_AND_ATTACH_RE,
+        _create_token_and_attach,
     ),
     # "create a Treasure token" / "create two Clue tokens" — named,
     # non-creature artifact tokens (`_NAMED_TOKEN_WORDS`, kept in sync with

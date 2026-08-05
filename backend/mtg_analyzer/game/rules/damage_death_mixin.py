@@ -414,6 +414,13 @@ class DamageDeathMixin:
                     controller_id=obj.controller_id,
                     instance_id=obj.instance_id,
                     object_types=sorted(obj.type_words),
+                    # "…target opponent loses life equal to its power."
+                    # (Rapacious Guest-shaped) — snapshotted for the same
+                    # RULE 400.7 reason `counters`/`subtypes` are elsewhere
+                    # in this module: read via `LoseLifeEffect.
+                    # amount_from_trigger_event`, since a live re-lookup
+                    # after this fires would see the *new* post-move object.
+                    power=obj.power,
                 )
             )
             self.state.remove_from_battlefield(obj)
@@ -457,6 +464,13 @@ class DamageDeathMixin:
                     controller_id=obj.controller_id,
                     instance_id=obj.instance_id,
                     object_types=sorted(obj.type_words),
+                    # "…target opponent loses life equal to its power."
+                    # (Rapacious Guest-shaped) — snapshotted for the same
+                    # RULE 400.7 reason `counters`/`subtypes` are elsewhere
+                    # in this module: read via `LoseLifeEffect.
+                    # amount_from_trigger_event`, since a live re-lookup
+                    # after this fires would see the *new* post-move object.
+                    power=obj.power,
                 )
             )
             self.state.remove_from_battlefield(obj)
@@ -815,6 +829,13 @@ class DamageDeathMixin:
                     controller_id=obj.controller_id,
                     instance_id=obj.instance_id,
                     object_types=sorted(obj.type_words),
+                    # "…target opponent loses life equal to its power."
+                    # (Rapacious Guest-shaped) — snapshotted for the same
+                    # RULE 400.7 reason `counters`/`subtypes` are elsewhere
+                    # in this module: read via `LoseLifeEffect.
+                    # amount_from_trigger_event`, since a live re-lookup
+                    # after this fires would see the *new* post-move object.
+                    power=obj.power,
                 )
             )
             # RULE 700.4: "dies" means "is put into a graveyard from the
@@ -871,6 +892,19 @@ class DamageDeathMixin:
                         controller_id=obj.controller_id,
                         instance_id=obj.instance_id,
                         object_types=sorted(obj.type_words),
+                        # "Whenever you sacrifice a Food/Clue/Treasure, …"
+                        # (`effect_binder._trigger_condition`'s
+                        # `sacrifice_type` predicate) needs the *subtype*
+                        # half of the printed type line — ``object_types``
+                        # above is main types only (mirrors DIES's own
+                        # ``subtypes`` field just above).
+                        subtypes=obj.card.type_line.partition("—")[2].strip().lower().split(),
+                        # "Whenever you sacrifice a token, …" (Mirkwood Bats-
+                        # shaped, the sacrifice-side mirror of ENTERS_
+                        # BATTLEFIELD's own ``is_token`` stamp) — a plain
+                        # exact-match ``filter`` key, not a new condition
+                        # subject.
+                        is_token=obj.is_token,
                     )
                 )
             self.state.remove_from_battlefield(obj)

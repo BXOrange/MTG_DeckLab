@@ -13,7 +13,7 @@ Tracked in the backlog as a single standing entry, `PAR-12`.
 Measured by `scripts/coverage_report.py` (ledger-backed via
 `services/coverage_db.py`), against the full ~34k-card Oracle universe:
 
-**29.7% covered — 10,151 / 34,208 — as of 2026-08-05, PARSER_VERSION 57.**
+**29.9% covered — 10,237 / 34,208 — as of 2026-08-05, PARSER_VERSION 58.**
 
 "Covered" = parser-`MODELED` **or** hand-`AUTHORED`. Re-run the report rather
 than trusting a figure quoted here, in `CLAUDE.md`, or in the Engine-Status
@@ -86,7 +86,7 @@ rules, not one:
   | The Ring tempts you | 701.51/701.52 | Tales of Middle-earth | **Done** — `Player.ring_level`/`ring_bearer_id` (`Done_Backend.md`, cEDH-cube batch); the oracle-text clause itself and "whenever the Ring tempts you, `<effect>`" (`EventType.RING_TEMPTED`) followed later (2026-08-05) |
   | The One Ring's own bespoke clauses (protection-from-everything-on-cast, burden-counter life loss, burden-counter draw scaling) | — | Tales of Middle-earth (one unique card) | **Partially done** (checked 2026-08-05) — "burden" is now a recognized named counter kind, but the card's other two clauses are still unclaimed; likely hand-authoring territory (RULE 122.1a's burden-counter card is a singleton, not a cluster) |
   | Frodo, Adventurous Hobbit (this deck's own commander) | — | Tales of Middle-earth | **Done** (2026-08-05) — `GameState.life_gained_this_turn` (new per-turn tracker) + `EffectSpec.condition`'s `"is_ring_bearer"`/`"ring_tempted_at_least"` keys, `effects.ConditionalEffect._condition_holds` generalized to AND multiple condition keys together. The same `"is_ring_bearer"` key also closed Aragorn, Company Leader/Faramir, Field Commander's "if you chose a creature other than ~" clause (each still has one unrelated second gap of its own) |
-  | Frodo, Sauron's Bane (the same DFC's back face) | — | Tales of Middle-earth (one card) | **Not done** (checked 2026-08-05) — a bespoke "activated ability conditionally changes this permanent's own type/P·T" shape (RULE 205) unlike anything else cached; genuinely singleton, hand-authoring territory, not attempted |
+  | Frodo, Sauron's Bane (the same DFC's back face) | — | Tales of Middle-earth (one card) | **Done** (2026-08-05) — hand-authored in `ability_catalogue.py`, no new engine primitive after all: a two-step RULE 613.6 standing conditional static driven by a plain custom counter, `ActivationCost.activation_condition` settable straight off a hand-authored `cost` dict, and a new `ConditionalEffect.ring_tempted_at_most` + `grant_triggered_ability`'s own `grant_effects` honouring a per-entry `condition` for the "…otherwise…" branch — see `Done_Backend.md`'s "Frodo, Sauron's Bane" entry |
   | Choose a Background | 702.124 | Commander Legends: Battle for Baldur's Gate | **Done** (2026-08-05) — bare FLAG keyword, inert in-game like Partner; the deckbuilding pairing check itself is [BACKLOG.md](BACKLOG.md)'s DB-3, still open |
   | Magecraft | ability word | Strixhaven | **Done** — `segmenter._MAGECRAFT_RE` |
   | Amass / Mutate / Monstrosity / Adapt / Goad / Bargain / Fading / Soulbond | 701.x / 702.x | War of the Spark / Ikoria / Theros / various | **Done** — see `Done_Backend.md`'s cEDH-cube batch |

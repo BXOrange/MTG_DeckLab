@@ -8,7 +8,7 @@
 // elsewhere too). Filtering (color/legality) is client-side over the
 // already-fetched list, same pattern as cachedCardsView.js's filters.
 
-import { listSavedDecks, getSavedDeck, deleteSavedDeck, getDeckValidation, saveDeck, listArchetypes } from './api.js';
+import { listSavedDecks, getSavedDeck, deleteSavedDeck, getDeckValidation, getDeckCoverage, saveDeck, listArchetypes } from './api.js';
 import { escapeHtml } from './cardTile.js';
 
 // Archetype id -> label lookup (mtg_analyzer/data/archetypes.json via GET
@@ -188,6 +188,15 @@ export function renderSavedDecksView(container, { onLoadDeck, onAnalyzeDeck } = 
       });
     }
 
+    // Engine-coverage note ("N Karten nicht modelliert") — a goldfishing
+    // readiness hint, not a legality check, so it's fetched for cubes too.
+    for (const deck of decks) {
+      getDeckCoverage(deck.id).then((coverage) => {
+        if (requestId !== latestRequestId) return; // list refreshed meanwhile
+        updateCoverageBadge(deck.id, coverage);
+      });
+    }
+
     resultEl.querySelectorAll('.load-deck-btn').forEach((btn) => {
       btn.addEventListener('click', async () => {
         btn.disabled = true;
@@ -291,6 +300,15 @@ export function renderSavedDecksView(container, { onLoadDeck, onAnalyzeDeck } = 
     el.title = reasons;
   }
 
+  // Only rendered when there's something to report — a fully-modeled deck
+  // (or a still-loading/unreachable coverage check) shows nothing here.
+  function updateCoverageBadge(deckId, coverage) {
+    const el = resultEl.querySelector(`.saved-deck-coverage[data-deck-id="${cssEscape(deckId)}"]`);
+    if (!el || !coverage || !coverage.unmodeledCount) return;
+    el.textContent = `⚠️ ${coverage.unmodeledCount} Karte(n) nicht modelliert`;
+    el.title = (coverage.unmodeledCardNames || []).join('\n');
+  }
+
   refreshBtn.addEventListener('click', load);
   filtersEl.addEventListener('change', applyFilters);
   resetBtn.addEventListener('click', () => {
@@ -323,6 +341,7 @@ function renderDeckRow(deck) {
         ${deck.isCube
           ? '<span class="saved-deck-legality cube">🧊 Collection – keine Legalitätsprüfung</span>'
           : `<span class="saved-deck-legality checking" data-deck-id="${escapeHtml(deck.id)}">Prüfe Legalität …</span>`}
+        <span class="saved-deck-coverage" data-deck-id="${escapeHtml(deck.id)}"></span>
       </div>
       <div class="saved-deck-actions">
         <div class="saved-deck-actions-row">

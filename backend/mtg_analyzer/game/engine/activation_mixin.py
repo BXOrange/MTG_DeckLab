@@ -374,6 +374,15 @@ class ActivationMixin:
             count, subtype = cost.tap_others
             if self._resolve_tap_others(player, source, count, subtype, tap_choices) is None:
                 return False
+        if cost.sacrifice_count:
+            # Reuses the `tap_others` cost's own `tap_choices` slot for its
+            # chosen instance ids — no printed card needs both a
+            # `tap_others` and a `sacrifice_count` cost component at once,
+            # so one "which N did the player pick" parameter suffices
+            # rather than growing this already-long signature further.
+            count, subtype = cost.sacrifice_count
+            if self._resolve_sacrifice_count(player, count, subtype, tap_choices) is None:
+                return False
         if cost.exile_top_of_library and not player.library:
             return False
         if cost.exile_self_from_hand:
@@ -436,6 +445,36 @@ class ActivationMixin:
         """
         pool = self._tap_others_pool(player, source, subtype)
         return self._resolve_pool_cost(pool, count, chosen_ids)
+    def _sacrifice_count_pool(self, player: Player, subtype: str) -> list[GameObject]:
+        """Every permanent of type ``subtype`` ``player`` controls, eligible
+        to pay a "Sacrifice N `<type>`s" cost (Samwise Gamgee's "Sacrifice
+        three Foods:") — the `sacrifice_count` sibling of `_tap_others_pool`,
+        subtype-matched the same way (`continuous.has_subtype`) rather than
+        `_matches_sacrifice_type`'s broad main-type words, since a printed
+        count always names a specific subtype (Food/Clue/Treasure/a
+        creature type), never a main type."""
+        return [
+            o for o in self.state.permanents_controlled_by(player.id)
+            if continuous.has_subtype(o, subtype)
+        ]
+    def _resolve_sacrifice_count(
+        self, player: Player, count: int, subtype: str, chosen_ids: Optional[list[Any]]
+    ) -> Optional[list[GameObject]]:
+        """The permanents to actually sacrifice for a `sacrifice_count`
+        cost — the `_resolve_tap_others` counterpart for sacrifice."""
+        pool = self._sacrifice_count_pool(player, subtype)
+        return self._resolve_pool_cost(pool, count, chosen_ids)
+    def _sacrifice_count_cost_choice(
+        self, player: Player, cost: "ActivationCost"
+    ) -> dict[str, Any]:
+        """The offer-time UI shape for a `sacrifice_count` cost — the
+        `_tap_cost_choice` counterpart for sacrifice."""
+        count, subtype = cost.sacrifice_count
+        pool = self._sacrifice_count_pool(player, subtype)
+        return {
+            "count": count,
+            "options": [{"instance_id": o.instance_id, "name": o.name} for o in pool],
+        }
     @staticmethod
     def _resolve_pool_cost(
         pool: list[GameObject], count: int, chosen_ids: Optional[list[Any]]
@@ -586,6 +625,10 @@ class ActivationMixin:
             count, subtype = cost.tap_others
             for obj in self._resolve_tap_others(player, source, count, subtype, tap_choices) or []:
                 self.rules.set_tapped(obj, True)
+        if cost.sacrifice_count:
+            count, subtype = cost.sacrifice_count
+            for obj in self._resolve_sacrifice_count(player, count, subtype, tap_choices) or []:
+                self.rules.put_into_graveyard(obj)
         mana = cost.mana.with_x(x) if cost.mana.has_variable else cost.mana
         mana = self._reduced_activation_mana(source, mana, cost)
         if cost.spend_only_chosen_color:

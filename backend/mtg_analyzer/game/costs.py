@@ -238,6 +238,13 @@ class ActivationCost:
     #: summoning sickness (RULE 302.6 only restricts a permanent's own
     #: {T}-cost ability, not being tapped as someone else's cost).
     tap_others: Optional[tuple[int, str]] = None
+    #: "Sacrifice N <type>s" (Samwise Gamgee: "Sacrifice three Foods:") —
+    #: ``(count, singular subtype word)``, the `tap_others`-shaped sibling
+    #: for a sacrifice cost that names a *count* rather than the single
+    #: ``sacrifice`` field's implicit one. Subtype-matched via `continuous.
+    #: has_subtype` (Food/Clue/Treasure/a creature type), not
+    #: `_matches_sacrifice_type`'s broad main-type words.
+    sacrifice_count: Optional[tuple[int, str]] = None
     #: "Put a <kind> counter on this creature" as a *cost* (Devoted Druid's
     #: untap ability) — ``(kind, count)``; always payable (no minimum to
     #: check), unlike `remove_counters`.
@@ -346,6 +353,7 @@ class ActivationCost:
             or self.loyalty is not None
             or self.exile_from_graveyard
             or self.tap_others
+            or self.sacrifice_count
             or self.add_counters_cost
             or self.exile_self_from_hand
             or self.return_to_hand
@@ -390,6 +398,9 @@ class ActivationCost:
         if self.tap_others:
             count, subtype = self.tap_others
             parts.append(f"Tap {count} untapped {subtype}(s) you control")
+        if self.sacrifice_count:
+            count, subtype = self.sacrifice_count
+            parts.append(f"Sacrifice {count} {subtype}(s)")
         if self.add_counters_cost:
             kind, count = self.add_counters_cost
             parts.append(f"Put {count} {kind} counter(s) on this")
@@ -414,6 +425,7 @@ class ActivationCost:
             "remove_counters": list(self.remove_counters) if self.remove_counters else None,
             "exile_from_graveyard": self.exile_from_graveyard,
             "tap_others": list(self.tap_others) if self.tap_others else None,
+            "sacrifice_count": list(self.sacrifice_count) if self.sacrifice_count else None,
             "add_counters_cost": list(self.add_counters_cost) if self.add_counters_cost else None,
             "exile_self_from_hand": self.exile_self_from_hand,
             "return_to_hand": self.return_to_hand,
@@ -476,6 +488,9 @@ def parse_activation_cost(
     if cost.get("tap_others"):
         count, subtype = cost["tap_others"]
         parsed.tap_others = (int(count), str(subtype))
+    if cost.get("sacrifice_count"):
+        count, subtype = cost["sacrifice_count"]
+        parsed.sacrifice_count = (int(count), str(subtype))
     if cost.get("add_counters_cost"):
         kind, count = cost["add_counters_cost"]
         parsed.add_counters_cost = (str(kind), int(count))
@@ -496,6 +511,14 @@ def parse_activation_cost(
         parsed.sorcery_speed_only = bool(cost["sorcery_speed_only"])
     if cost.get("class_level") is not None:
         parsed.class_level = int(cost["class_level"])
+    if cost.get("activation_condition"):
+        # The hand-authored counterpart of PAR-10's marker-based path
+        # (`effect_binder.bind_ability`'s "activated" branch, which folds
+        # an `ACTIVATION_CONDITION_MARKER` `EffectSpec` here for a card
+        # recognized from oracle text) — a spec built directly in
+        # `ability_catalogue.py` has no marker to strip, so it can just
+        # set the field on its own `cost` dict (Frodo, Sauron's Bane).
+        parsed.activation_condition = dict(cost["activation_condition"])
     if "unattach_self" in cost:
         parsed.unattach_self = bool(cost["unattach_self"])
     if cost.get("dynamic_reduction"):

@@ -109,10 +109,12 @@ def test_exile_all_permanents_parses():
     ]
 
 
-def test_destroy_all_creatures_power_filter_stays_unclaimed():
-    # No mass-form engine support for a "power" filter (only mana
-    # value/toughness) — fail-closed rather than silently dropping it.
-    assert match_clause("destroy all creatures with power 4 or greater") is None
+def test_destroy_all_creatures_power_filter_parses():
+    # Dusk // Dawn/Elspeth, Sun's Champion-shaped — the power-threshold
+    # sibling of the mana-value/toughness mass-destroy filters just above.
+    assert match_clause("destroy all creatures with power 4 or greater") == [
+        EffectSpec("destroy", {"selector": "all_creatures", "filter": {"min_power": 4}})
+    ]
 
 
 def test_damnation_full_card_is_modeled_with_no_regen():

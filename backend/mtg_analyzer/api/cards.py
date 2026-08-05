@@ -22,7 +22,7 @@ from mtg_analyzer.services.lazy_card_loader import LazyCardLoader
 router = APIRouter(prefix="/api/cards", tags=["cards"])
 
 
-def _coverage_for(card: Any) -> dict[str, object]:
+def coverage_for(card: Any) -> dict[str, object]:
     """A card's engine-coverage verdict (docs/09 "coverage is the roadmap").
 
     A hand-authored `ability_catalogue` entry is trusted wholesale, same as
@@ -80,7 +80,7 @@ def list_cards(
     cards = []
     for card in source:
         card_dict = card.to_dict()
-        card_dict["coverage"] = _coverage_for(card)
+        card_dict["coverage"] = coverage_for(card)
         cards.append(card_dict)
     return cards
 

@@ -10189,3 +10189,178 @@ check, the per-turn reset, and both execute paths: the first clause only
 firing when life was actually gained, the second only drawing once *both*
 Ring-bearer status and temptation count hold). Full backend suite green
 (3,341 passed, 0 failures).
+
+## "Hobbits" / "Wyleth Equip" saved decks: make every card playable (2026-08-05)
+
+User-directed batch: define "playable" as *every* card in two specific
+saved Commander decks having its full ability set bound to real behaviour
+(not just parsing), and close every gap. Started from 51 unmodeled cards
+across the two decks (Hobbits 42, Wyleth Equip 9); ended at 1 (Frodo,
+Sauron's Bane — see below). Coverage 29.7%→29.9% (10,151→10,237/34,208),
+PARSER_VERSION 57→58 — the rest of the ~50 cards closed were hand-authored
+in `ability_catalogue.py`, which this ledger doesn't count.
+
+**Generalizable primitives, in build order:**
+
+- **"Reveal land" cycle** (RULE 614.1's optional sibling to the
+  deterministic check-land `unless_types` kind) — `catalogue.lands`'s new
+  `reveal_types` kind, resolved via a genuine interactive `land_tapped_
+  reveal` `pending_choice` (the controller can hold a matching card and
+  still decline, unlike a board-state check) — `RulesEngine.
+  enter_land_tapped`/`_land_tapped_reveal_choice`. 8 SOLO cache-wide
+  (Fortified Village, the "Snarl" cycle, …).
+- **"Whenever you gain life, `<effect>`" dynamic-amount family** — "that
+  much"/"that many", reading `LIFE_GAINED`'s own `amount` off
+  `GameContext.trigger_event`: `LoseLifeEffect`/`AddCountersEffect`/
+  `PumpEffect.amount_from_trigger_event`, the same idiom `AddManaEffect`
+  already had for Raphael, Ninja Destroyer. Surfaced and fixed a real
+  latent mis-model risk on the way: the new `add_counters_from_trigger_
+  amount` handler's bare-pronoun branch would have silently misread "it"
+  as the source under a *group*-subject trigger (Necropolis Regent-shaped
+  — "it" there means whichever creature dealt the damage) — gated with
+  `EffectHandler.self_subject_only`, and `segmenter`'s player-event branch
+  now correctly passes `self_subject=True` (a player-subject trigger
+  introduces no group, so a bare pronoun is unambiguous). 12 SOLO
+  cache-wide (Ageless Entity, Sanguine Bond, Auxiliary Boosters via the
+  `create`+`attach` family below, …).
+- **`LIFE_GAINED` as a second player-subject *grantable* trigger event**
+  alongside `STEP_BEGIN` (`continuous._PLAYER_SUBJECT_GRANTED_EVENTS`) —
+  "equipped/enchanted creature has 'whenever you gain life, …'" resolves
+  "you" against the *granted-to* permanent's controller, same rule
+  `STEP_BEGIN`'s `phase_relation` already followed for phase triggers.
+  Closes Field-Tested Frying Pan/Light of Promise/Sunbond.
+- **`AttachEffect`'s `target_kind="created"`** and the matching
+  **`_create_token_and_attach`/`_create_named_then_create_token_and_attach`**
+  handlers — "create a token and attach ~ to it" (Living Weapon-adjacent,
+  printed as ordinary text rather than the keyword), reading
+  `GameContext.created_objects`. Closes Auxiliary Boosters/Field-Tested
+  Frying Pan's own first sentence.
+- **"Whenever you sacrifice a Food/Clue/Treasure, `<effect>`"** —
+  `EventType.SACRIFICE` gained a `subtypes` payload (it only had
+  `object_types`, main types, before — mirroring `DIES`'s existing split)
+  and a new `sacrifice_type` trigger-condition predicate
+  (`effect_binder._trigger_condition`). 4 SOLO cache-wide (Experimental
+  Confectioner, Nuka-Cola Vending Machine, Trail of Crumbs, Unlucky
+  Cabbage Merchant), narrows 3 more.
+- **"If you don't control a Food/Clue/Treasure, `<effect>`"** — a new
+  `ConditionalEffect` key, `controls_none_of_type`, the same "wrap the
+  rest, tag the condition" idiom `life_gained_this_turn_at_least`/
+  `is_ring_bearer` already use. Closes Butterbur, Bree Innkeeper.
+- **Mass-destroy `min_power`/`max_power` filter** — the power-threshold
+  sibling of the pre-existing mana-value/toughness mass-destroy filters
+  (`_mass_selector_objects`). 6 SOLO cache-wide, including Elspeth, Sun's
+  Champion.
+- **`without_card_type` creature-filter qualifier** (`combat.
+  matches_object_filter`) — "target **nonartifact** creature", the negated
+  sibling of the existing `card_type` key. Hand-authored for Go for the
+  Throat rather than wired into the parser this batch (4 more SOLO
+  cache-wide if it is — Grisly Spectacle, Magus of the Abyss, The Abyss —
+  left for a future PAR pass).
+
+**A real coverage-badge bug, found via the `game-engine` skill's
+`primitives` search** (unrelated to any of the above): `ability_catalogue.
+is_registered` didn't share `specs_for`'s own DFC/MDFC/split "//"
+front-face fallback, so a card registered under its front face alone
+(Halvar, God of Battle — registered two cEDH-cube batches ago) reported
+UNMODELED when looked up by its full combined name (Halvar, God of Battle
+// Sword of the Realms) despite `specs_for` binding it perfectly correctly
+in every real game. Fixed by giving `is_registered` the same fallback.
+Worth checking any other coverage-measurement code path that calls
+`is_registered` directly instead of going through `specs_for`.
+
+**Hand-authored** (`ability_catalogue.py`, ~30 cards) — each with its own
+documented simplification where a primitive didn't exist and building one
+wasn't worth it for a single card (dynamic entry-counter multiplier
+`AddCountersEffect.x_multiplier`; `ConditionalEffect`'s
+`source_x_paid_at_least`/`creatures_died_this_turn_at_least`;
+`LoseLifeEffect.amount_from_life_gained_this_turn`/
+`amount_from_burden_counters_on_self`; `DrawCardEffect`'s
+`burden_counters_on_self` count selector; `costs.ActivationCost.
+sacrifice_count`, the `tap_others`-shaped sibling for "Sacrifice N
+`<type>`s:"; `continuous.activation_cost_reduction_for`'s subtype-scoped
+branch, "activated abilities of Foods you control cost `{1}` less"; two
+new `ReplacementRegistry` entries, `create_one_of_each_named_token`/
+`additional_named_token`, both guarded against the reentrant CREATE_TOKENS
+event their own side-effect token creation fires; and the
+`legendary_creatures_you_control`/`nonlegendary_creatures_you_control`/
+`attacking_creatures` `affects` selectors). Full list and each card's own
+simplification note: see the "Hobbits"/"Wyleth Equip" entries in
+`ability_catalogue.py` directly (grep for the "saved-deck-priority batch"
+section comments).
+
+**Not attempted**: Frodo, Sauron's Bane — a genuine two-stage type/base-P/T/
+ability state machine (RULE 205.1/613, "becomes a copy-independent creature
+with a new type line" gated on the permanent's *own current* subtype,
+closer to a Class's level-up than any one-shot effect this engine has).
+Left genuinely unregistered (not registered with empty/vanilla specs)
+so the coverage badge keeps meaning what it says.
+
+Tests: `test_land_tap_conditions.py` (+6), `test_lifegain_dynamic_amount_
+family.py` (13, new file), `test_sacrifice_type_trigger_family.py` (3, new
+file), `test_controls_none_of_type_condition.py` (3, new file),
+`test_saved_deck_priority_batch_2026_08_04.py` (1 updated — the mass-
+destroy power filter went from documented-unclaimed to parsed). Full
+backend suite green throughout (3,370 passed).
+
+## Frodo, Sauron's Bane: closing the "Hobbits" deck's last unmodeled card (2026-08-05)
+
+The two prior batches above both left this card **not attempted**, reading
+its two activated abilities — "{W/B}{W/B}: If Frodo is a Citizen, it
+becomes a Halfling Scout with base power and toughness 2/3 and lifelink."
+/ "{B}{B}{B}: If Frodo is a Scout, it becomes a Halfling Rogue with
+'…'" — as "a genuine two-stage type/base-P/T/ability state machine…
+closer to a Class's level-up than any one-shot effect this engine has."
+Re-examined from scratch: every piece it actually needs already existed,
+generically, from unrelated cards — this closed with **one small, reusable
+addition** rather than a new state machine.
+
+- **The transformation itself is nothing but composition**, hand-authored
+  in `ability_catalogue.py`: a plain custom-kind counter (`frodo_stage` —
+  `AddCountersEffect.kind` is free text, no whitelist ties it to "level" or
+  "class_level") bumped by each ability's own effect, gating two `static`
+  specs via `active_if: {"kind": "source_counters", "counter":
+  "frodo_stage", "min": N}` — **deliberately `min`-only, no `max`**, so
+  both stages stay active once unlocked instead of being mutually
+  exclusive bands (a Leveler's tiers). That's what lets the Rogue stage
+  never restate a P/T: RULE 613.7 timestamp layering keeps the still-active
+  Scout static's own `type_change` (its `power`/`toughness` params feed
+  `continuous._apply_layer_4_type`'s `animation_pt`, the same "becomes an
+  X/Y creature" shape an animate effect uses) underneath the Rogue static's
+  later `set_subtypes` override — the engine reproduces the card's own
+  omission for free, rather than needing to know to copy it forward.
+- **`ActivationCost.activation_condition` settable directly from a
+  hand-authored `cost` dict** (`game/costs.py`'s `parse_activation_cost`,
+  one `elif`-shaped addition) — "if Frodo is a Citizen/Scout" gates each
+  ability's own legality through the exact PAR-10 `source_counters` check a
+  static's `active_if` already uses, previously reachable only via the
+  oracle parser's `ACTIVATION_CONDITION_MARKER` strip-and-fold path
+  (`effect_binder.bind_ability`), which a spec built directly in Python has
+  no marker to strip in the first place.
+- **The Rogue-stage granted trigger's own if/else** — "that player loses
+  the game if the Ring has tempted you four or more times this game.
+  Otherwise, the Ring tempts you." — was the one real gap:
+  `ConditionalEffect` only ever gated a single existing effect (no
+  "otherwise" branch), and `grant_triggered_ability`'s `grant_effects` list
+  was built through a bare `EffectRegistry.create` with no way to condition
+  an entry at all — a printed ability's own clause could be conditional
+  (`EffectSpec.condition`), but a *granted* one's never could. Closed
+  generally: `continuous._build_grant_effect` now wraps a `grant_effects`
+  entry in `ConditionalEffect` when it carries an optional `condition` key,
+  and `ConditionalEffect` gained `ring_tempted_at_most`, the upper-bound
+  mirror of the already-shipped `ring_tempted_at_least` (Frodo, Adventurous
+  Hobbit's own front-face batch) — two independently-gated conditionals
+  with complementary bounds standing in for one if/else, without a
+  dedicated "otherwise" field. "That player" (not "you") is
+  `LoseGameTriggerDamagedPlayerEffect`, the player-flavoured mirror of the
+  existing `ExileTriggerDamagedCreatureEffect`'s "that creature" pronoun,
+  reading the granted ability's own firing `DAMAGE` event.
+
+Coverage 29.9%→29.9% (10,237→10,238/34,208, +1 AUTHORED card) — the
+"Hobbits" saved deck (see the "make every card playable" batch above) is
+now fully modeled, closing that batch's one remaining gap.
+
+Tests: `test_frodo_saurons_bane.py` (new file, 6 tests — starting state,
+each activation's own legality gate including "can't skip/repeat", the
+Scout-stage type/P-T/lifelink transformation, the Rogue-stage transform
+that keeps 2/3 without restating it, and both branches of the granted
+trigger's if/else). Full backend suite green (3,376 passed).

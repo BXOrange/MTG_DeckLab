@@ -13,6 +13,7 @@ from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException
 
+from mtg_analyzer.api.cards import coverage_for
 from mtg_analyzer.api.dependencies import get_deck_database, get_lazy_card_loader
 from mtg_analyzer.api.schemas import SaveDeckRequest
 from mtg_analyzer.models.deck import Deck
@@ -150,6 +151,38 @@ def get_deck_validation(
         deck.commander_text, deck.mainboard_text, deck.sideboard_text, loader, deck.is_cube
     )
     return parsed.validation.to_dict()
+
+
+@router.get("/{deck_id}/coverage")
+def get_deck_coverage(
+    deck_id: str,
+    database: DeckDatabase = Depends(get_deck_database),
+    loader: LazyCardLoader = Depends(get_lazy_card_loader),
+) -> dict[str, object]:
+    """How many of this deck's cards the rules engine doesn't model yet.
+
+    A goldfishing readiness note, not a legality gate — an UNMODELED card is
+    still a perfectly legal include, it just won't behave server-side yet.
+    Counted over `parsed.all_cards` (commanders + mainboard, quantity-
+    weighted) for both a normal deck and a `is_cube` pool alike; a card that
+    failed to resolve is left out rather than counted as unmodeled, same as
+    `_coverage_for`'s callers elsewhere.
+    """
+    deck = database.get_deck(deck_id)
+    if deck is None:
+        raise HTTPException(status_code=404, detail=f'No saved deck with id "{deck_id}"')
+    parsed = parse_deck_sections(deck.commander_text, deck.mainboard_text, deck.sideboard_text, deck.is_cube)
+    resolved = loader.load_cards([e.name for e in parsed.all_cards])
+    unmodeled_count = 0
+    unmodeled_card_names: list[str] = []
+    for entry in parsed.all_cards:
+        card = resolved.cards.get(entry.name)
+        if card is None:
+            continue
+        if not coverage_for(card)["modeled"]:
+            unmodeled_count += entry.qty
+            unmodeled_card_names.append(entry.name)
+    return {"unmodeledCount": unmodeled_count, "unmodeledCardNames": sorted(unmodeled_card_names)}
 
 
 @router.delete("/{deck_id}")

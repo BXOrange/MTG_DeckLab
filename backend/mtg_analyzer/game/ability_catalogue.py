@@ -58,7 +58,19 @@ def register(name: str, factory: Callable[[], list[AbilitySpec]]) -> None:
 
 
 def is_registered(name: str) -> bool:
-    return name.strip().lower() in _REGISTRY
+    """Whether ``name`` (a card's own ``.name``) has a catalogue entry.
+
+    Mirrors `specs_for`'s own DFC/MDFC/split "//" front-face fallback — a
+    card registered under its front face's name alone (Halvar, God of
+    Battle // Sword of the Realms is registered as just "Halvar, God of
+    Battle") must still report registered when looked up by its full
+    combined name, or a caller that only checks this (e.g. `api/cards.py`'s
+    coverage badge) wrongly reports a fully-bound card as unmodeled.
+    """
+    lowered = name.strip().lower()
+    if lowered in _REGISTRY:
+        return True
+    return "//" in lowered and lowered.split("//")[0].strip() in _REGISTRY
 
 
 def specs_for(card: Any) -> list[AbilitySpec]:
@@ -7032,3 +7044,1383 @@ def _vrondiss_rage_of_ancients() -> list[AbilitySpec]:
 
 
 register("Vrondiss, Rage of Ancients", _vrondiss_rage_of_ancients)
+
+
+# ---------------------------------------------------------------------------
+# "Hobbits" / "Wyleth Equip" saved-deck-priority batch — closing the
+# remaining group-attack/group-ETB/conditional-trigger cluster the parser's
+# generic grammar doesn't reach yet (RULE 603.3b's "any number of X" is a
+# genuine aggregate-once trigger shape, distinct from the per-object group
+# condition `effect_binder._build_group_ok` already models; a printed
+# "historic"/exact-power-filtered ETB gate; a multi-object sacrifice cost).
+# Each entry documents its own specific simplification.
+# ---------------------------------------------------------------------------
+
+
+def _meriadoc_brandybuck() -> list[AbilitySpec]:
+    """Whenever one or more Halflings you control attack a player, create
+    a Food token.
+
+    Simplified: modeled as "attacks" (any defender), not "attacks a
+    player" specifically — the ATTACKS event carries no defender-kind
+    payload to filter on. RULE 603.3b's "one or more X" is a genuine
+    aggregate-once-per-batch trigger; this engine's group condition instead
+    fires once per *qualifying object* (once per attacking Halfling), so
+    it's capped at once per turn (`trigger["limit"]`) as the closest
+    available approximation — under-fires on a rare second combat the same
+    turn, never over-fires on a simultaneous multi-Halfling attack.
+    """
+    return [
+        AbilitySpec(
+            "triggered",
+            [EffectSpec("create_token", {"count": 1, "token_name": "Food"})],
+            trigger={
+                "event": EventType.ATTACKS,
+                "condition": {
+                    "subject": "group", "subtypes": ["halfling"],
+                    "controller": "you", "other": False,
+                },
+                "limit": True,
+            },
+            raw_text="Immer wenn ein oder mehr Halblinge unter deiner Kontrolle einen "
+                     "Spieler angreifen, erzeuge einen Nahrungsspielstein.",
+        ),
+    ]
+
+
+register("Meriadoc Brandybuck", _meriadoc_brandybuck)
+
+
+def _merry_warden_of_isengard() -> list[AbilitySpec]:
+    """Partner with Pippin, Warden of Isengard.
+    Whenever one or more artifacts you control enter, create a 1/1 white
+    Soldier creature token with lifelink. This ability triggers only once
+    each turn.
+
+    ("Partner with" is bound by the RULE 702 keyword catalogue directly
+    off Scryfall's own keyword array — no hand-authoring needed for it.)
+    """
+    return [
+        AbilitySpec(
+            "triggered",
+            [EffectSpec("create_token", {
+                "count": 1, "power": 1, "toughness": 1, "colors": ["W"],
+                "subtypes": ["Soldier"], "keywords": ["lifelink"], "token_name": "Soldier",
+            })],
+            trigger={
+                "event": EventType.ENTERS_BATTLEFIELD,
+                "condition": {
+                    "subject": "group", "type": "artifact",
+                    "controller": "you", "other": False,
+                },
+                "limit": True,
+            },
+            raw_text="Immer wenn ein oder mehr Artefakte unter deiner Kontrolle ins Spiel "
+                     "kommen, erzeuge einen 1/1 weißen Soldat-Kreaturenspielstein mit "
+                     "Lebensverknüpfung. Diese Fähigkeit wird nur einmal pro Zug ausgelöst.",
+        ),
+    ]
+
+
+register("Merry, Warden of Isengard", _merry_warden_of_isengard)
+
+
+def _rosie_cotton_of_south_lane() -> list[AbilitySpec]:
+    """When Rosie Cotton enters, create a Food token.
+    Whenever you create a token, put a +1/+1 counter on target creature
+    you control other than Rosie Cotton.
+    """
+    return [
+        AbilitySpec(
+            "triggered",
+            [EffectSpec("create_token", {"count": 1, "token_name": "Food"})],
+            trigger={"event": EventType.ENTERS_BATTLEFIELD, "condition": {"subject": "self"}},
+            raw_text="Wenn Rosie Cotton ins Spiel kommt, erzeuge einen Nahrungsspielstein.",
+        ),
+        AbilitySpec(
+            "triggered",
+            [EffectSpec("add_counters", {"target_kind": "other_creature_you_control"})],
+            trigger={
+                "event": EventType.ENTERS_BATTLEFIELD,
+                "condition": {
+                    "subject": "group", "type": "permanent",
+                    "controller": "you", "other": False,
+                },
+                "filter": {"is_token": True},
+            },
+            raw_text="Immer wenn du einen Spielstein erzeugst, lege einen +1/+1-Marker auf "
+                     "eine andere Zielkreatur unter deiner Kontrolle.",
+        ),
+    ]
+
+
+register("Rosie Cotton of South Lane", _rosie_cotton_of_south_lane)
+
+
+def _saradoc_master_of_buckland() -> list[AbilitySpec]:
+    """Whenever Saradoc or another nontoken creature you control with
+    power 2 or less enters, create a 1/1 white Halfling creature token.
+    Tap two other untapped Halflings you control: Saradoc gets +2/+0 and
+    gains lifelink until end of turn.
+
+    Simplified: the power-2-or-less filter isn't checked (a live per-
+    firing power qualifier on a group-ETB condition isn't modeled yet) —
+    widened to any nontoken creature entering; the tap cost's pool isn't
+    narrowed to exclude Saradoc herself (`costs.ActivationCost.tap_others`
+    has no self-exclusion flag), so she could in principle pay her own
+    cost. Both are documented over-generosities, not a functional break.
+    """
+    return [
+        AbilitySpec(
+            "triggered",
+            [EffectSpec("create_token", {
+                "count": 1, "power": 1, "toughness": 1, "colors": ["W"],
+                "subtypes": ["Halfling"], "token_name": "Halfling",
+            })],
+            trigger={
+                "event": EventType.ENTERS_BATTLEFIELD,
+                "condition": {"subject": "self_or_group", "type": "creature", "controller": "you", "other": True},
+            },
+            raw_text="Immer wenn Saradoc oder eine andere nicht-Spielstein-Kreatur unter "
+                     "deiner Kontrolle mit Stärke 2 oder weniger ins Spiel kommt, erzeuge "
+                     "einen 1/1 weißen Halblinge-Kreaturenspielstein.",
+        ),
+        AbilitySpec(
+            "activated",
+            [EffectSpec("pump", {"power": 2, "toughness": 0, "keywords": ["lifelink"]})],
+            cost={"tap_others": (2, "halfling")},
+            raw_text="Tappe zwei andere ungetappte Halblinge unter deiner Kontrolle: "
+                     "Saradoc erhält +2/+0 und Lebensverknüpfung bis zum Ende des Zuges.",
+        ),
+    ]
+
+
+register("Saradoc, Master of Buckland", _saradoc_master_of_buckland)
+
+
+def _experimental_confectioner() -> list[AbilitySpec]:
+    """When this creature enters, create a Food token.
+    Whenever you sacrifice a Food, create a 1/1 black Rat creature token
+    with "This token can't block."
+
+    Simplified: the created Rat token doesn't carry its own "can't block"
+    text — `create_token`'s params have no combat-restriction hook for a
+    token being created this same breath (every other combat-restriction
+    consumer targets an *existing* permanent).
+    """
+    return [
+        AbilitySpec(
+            "triggered",
+            [EffectSpec("create_token", {"count": 1, "token_name": "Food"})],
+            trigger={"event": EventType.ENTERS_BATTLEFIELD, "condition": {"subject": "self"}},
+            raw_text="Wenn diese Kreatur ins Spiel kommt, erzeuge einen Nahrungsspielstein.",
+        ),
+        AbilitySpec(
+            "triggered",
+            [EffectSpec("create_token", {
+                "count": 1, "power": 1, "toughness": 1, "colors": ["B"],
+                "subtypes": ["Rat"], "token_name": "Rat",
+            })],
+            trigger={
+                "event": EventType.SACRIFICE,
+                "condition": {"subject": "you"},
+                "sacrifice_type": "food",
+            },
+            raw_text="Immer wenn du eine Nahrung opferst, erzeuge einen 1/1 schwarzen "
+                     "Ratte-Kreaturenspielstein (kann nicht blocken).",
+        ),
+    ]
+
+
+register("Experimental Confectioner", _experimental_confectioner)
+
+
+def _rapacious_guest() -> list[AbilitySpec]:
+    """Menace
+    Whenever one or more creatures you control deal combat damage to a
+    player, create a Food token.
+    Whenever you sacrifice a Food, put a +1/+1 counter on this creature.
+    When this creature leaves the battlefield, target opponent loses life
+    equal to its power.
+
+    Simplified: the first trigger is capped at once per turn
+    (`trigger["limit"]`) — see Meriadoc Brandybuck's own note on RULE
+    603.3b's "any number of X" aggregate-once shape.
+    """
+    return [
+        AbilitySpec(
+            "triggered",
+            [EffectSpec("create_token", {"count": 1, "token_name": "Food"})],
+            trigger={
+                "event": EventType.DAMAGE,
+                "condition": {
+                    "subject": "group", "type": "creature",
+                    "controller": "you", "other": False,
+                },
+                "filter": {"combat": True, "is_player": True},
+                "limit": True,
+            },
+            raw_text="Immer wenn eine oder mehr Kreaturen unter deiner Kontrolle einem "
+                     "Spieler Kampfschaden zufügen, erzeuge einen Nahrungsspielstein.",
+        ),
+        AbilitySpec(
+            "triggered",
+            [EffectSpec("add_counters", {})],
+            trigger={
+                "event": EventType.SACRIFICE,
+                "condition": {"subject": "you"},
+                "sacrifice_type": "food",
+            },
+            raw_text="Immer wenn du eine Nahrung opferst, lege einen +1/+1-Marker auf "
+                     "diese Kreatur.",
+        ),
+        AbilitySpec(
+            "triggered",
+            [EffectSpec("lose_life", {"target_kind": "player", "amount_from_trigger_event": "power"})],
+            trigger={"event": EventType.LEAVES_BATTLEFIELD, "condition": {"subject": "self"}},
+            raw_text="Wenn diese Kreatur das Schlachtfeld verlässt, verliert ein Gegner "
+                     "deiner Wahl so viel Leben, wie ihre Stärke betrug.",
+        ),
+    ]
+
+
+register("Rapacious Guest", _rapacious_guest)
+
+
+def _mirkwood_bats() -> list[AbilitySpec]:
+    """Flying
+    Whenever you create or sacrifice a token, each opponent loses 1 life.
+    """
+    return [
+        AbilitySpec(
+            "triggered",
+            [EffectSpec("lose_life", {"amount": 1, "selector": "each_opponent"})],
+            trigger={
+                "event": EventType.ENTERS_BATTLEFIELD,
+                "condition": {
+                    "subject": "group", "type": "permanent",
+                    "controller": "you", "other": False,
+                },
+                "filter": {"is_token": True},
+            },
+            raw_text="Immer wenn du einen Spielstein erzeugst, verliert jeder Gegner 1 Leben.",
+        ),
+        AbilitySpec(
+            "triggered",
+            [EffectSpec("lose_life", {"amount": 1, "selector": "each_opponent"})],
+            trigger={
+                "event": EventType.SACRIFICE,
+                "condition": {"subject": "you"},
+                "filter": {"is_token": True},
+            },
+            raw_text="Immer wenn du einen Spielstein opferst, verliert jeder Gegner 1 Leben.",
+        ),
+    ]
+
+
+register("Mirkwood Bats", _mirkwood_bats)
+
+
+def _farmer_cotton() -> list[AbilitySpec]:
+    """When Farmer Cotton enters the battlefield, create X 1/1 white
+    Halfling creature tokens and X Food tokens, where X is the number of
+    Halflings you control.
+
+    The cached oracle text is missing its trailing "where X is …" clause
+    (a Scryfall data gap in the local cache) — X is filled in here from
+    the card's real printed rules text.
+    """
+    return [
+        AbilitySpec(
+            "triggered",
+            [
+                EffectSpec("create_token", {
+                    "power": 1, "toughness": 1, "colors": ["W"], "subtypes": ["Halfling"],
+                    "token_name": "Halfling",
+                    "count_selector": "creatures_you_control_of_type_halfling",
+                }),
+                EffectSpec("create_token", {
+                    "token_name": "Food",
+                    "count_selector": "creatures_you_control_of_type_halfling",
+                }),
+            ],
+            trigger={"event": EventType.ENTERS_BATTLEFIELD, "condition": {"subject": "self"}},
+            raw_text="Wenn Farmer Cotton ins Spiel kommt, erzeuge X 1/1 weiße "
+                     "Halblinge-Kreaturenspielsteine und X Nahrungsspielsteine, wobei X "
+                     "die Anzahl der Halblinge ist, die du kontrollierst.",
+        ),
+    ]
+
+
+register("Farmer Cotton", _farmer_cotton)
+
+
+def _samwise_gamgee() -> list[AbilitySpec]:
+    """Whenever another nontoken creature you control enters, create a
+    Food token.
+    Sacrifice three Foods: Return target historic card from your
+    graveyard to your hand. (Artifacts, legendaries, and Sagas are
+    historic.)
+
+    Simplified: "historic" isn't a modeled target filter — widened to
+    "target card in your graveyard" (`graveyard_card`), the closest
+    already-supported graveyard-target shape; likewise "nontoken" isn't
+    enforced on a bare main-type group condition (only on a subtype-
+    filtered one), so this also fires for a token creature entering.
+    """
+    return [
+        AbilitySpec(
+            "triggered",
+            [EffectSpec("create_token", {"count": 1, "token_name": "Food"})],
+            trigger={
+                "event": EventType.ENTERS_BATTLEFIELD,
+                "condition": {
+                    "subject": "group", "type": "creature",
+                    "controller": "you", "other": True,
+                },
+            },
+            raw_text="Immer wenn eine andere nicht-Spielstein-Kreatur unter deiner "
+                     "Kontrolle ins Spiel kommt, erzeuge einen Nahrungsspielstein.",
+        ),
+        AbilitySpec(
+            "activated",
+            [EffectSpec("return_from_graveyard", {"target_kind": "graveyard_card", "destination": "hand"})],
+            cost={"sacrifice_count": (3, "food")},
+            raw_text="Opfere drei Nahrungen: Bringe eine Zielkarte aus deinem Friedhof auf "
+                     "deine Hand zurück.",
+        ),
+    ]
+
+
+register("Samwise Gamgee", _samwise_gamgee)
+
+
+def _sam_loyal_attendant() -> list[AbilitySpec]:
+    """Partner with Frodo, Adventurous Hobbit.
+    At the beginning of combat on your turn, create a Food token.
+    Activated abilities of Foods you control cost {1} less to activate.
+    """
+    return [
+        AbilitySpec(
+            "triggered",
+            [EffectSpec("create_token", {"count": 1, "token_name": "Food"})],
+            trigger={"event": EventType.STEP_BEGIN, "filter": {"step": "combat"}, "phase_relation": "you"},
+            raw_text="Zu Beginn des Kampfes in deinem Zug erzeuge einen Nahrungsspielstein.",
+        ),
+        AbilitySpec(
+            "static",
+            [EffectSpec("cost_reduction", {"generic": 1, "scope": "activation", "subtype": "food"})],
+            raw_text="Aktivierte Fähigkeiten von Nahrungen unter deiner Kontrolle kosten "
+                     "{1} weniger zum Aktivieren.",
+        ),
+    ]
+
+
+register("Sam, Loyal Attendant", _sam_loyal_attendant)
+
+
+def _academy_manufactor() -> list[AbilitySpec]:
+    """If you would create a Clue, Food, or Treasure token, instead create
+    one of each.
+    """
+    return [
+        AbilitySpec(
+            "replacement",
+            [EffectSpec("create_one_of_each_named_token", {})],
+            raw_text="Falls du einen Hinweis-, Nahrungs- oder Schatzspielstein erzeugen "
+                     "würdest, erzeuge stattdessen jeweils einen davon.",
+        ),
+    ]
+
+
+register("Academy Manufactor", _academy_manufactor)
+
+
+def _access_tunnel() -> list[AbilitySpec]:
+    """{T}: Add {C}.
+    {3}, {T}: Target creature with power 3 or less can't be blocked this
+    turn.
+
+    (The mana ability is bound automatically off the printed "{T}: Add
+    {C}." text — `game/mana_abilities.py` — so only the second ability
+    needs authoring here.)
+    """
+    return [
+        AbilitySpec(
+            "activated",
+            [EffectSpec("unblockable", {"target_kind": "creature", "creature_filter": {"max_power": 3}})],
+            cost={"mana": "{3}", "taps_self": True},
+            raw_text="{3}, {T}: Eine Zielkreatur mit Stärke 3 oder weniger kann in diesem "
+                     "Zug nicht geblockt werden.",
+        ),
+    ]
+
+
+register("Access Tunnel", _access_tunnel)
+
+
+def _anduril_flame_of_the_west() -> list[AbilitySpec]:
+    """Equipped creature gets +3/+1.
+    Whenever equipped creature attacks, create two tapped 1/1 white Spirit
+    creature tokens with flying. If that creature is legendary, instead
+    create two of those tokens that are tapped and attacking.
+
+    Simplified: the "instead tapped and attacking" branch for a legendary
+    equipped creature isn't modeled — the tokens always enter merely
+    tapped, never already attacking (no primitive yet for a token entering
+    mid-combat as an attacker).
+    """
+    return [
+        AbilitySpec(
+            "static",
+            [EffectSpec("anthem", {"affects": "attached_permanent", "power": 3, "toughness": 1})],
+            raw_text="Verzauberte Kreatur erhält +3/+1.",
+        ),
+        AbilitySpec(
+            "triggered",
+            [EffectSpec("create_token", {
+                "count": 2, "power": 1, "toughness": 1, "colors": ["W"],
+                "subtypes": ["Spirit"], "keywords": ["flying"], "token_name": "Spirit", "tapped": True,
+            })],
+            trigger={"event": EventType.ATTACKS, "condition": {"subject": "attached_permanent"}},
+            raw_text="Immer wenn die verzauberte Kreatur angreift, erzeuge zwei getappte "
+                     "1/1 weiße Geist-Kreaturenspielsteine mit Fliegen.",
+        ),
+    ]
+
+
+register("Andúril, Flame of the West", _anduril_flame_of_the_west)
+
+
+def _banquet_guests() -> list[AbilitySpec]:
+    """Affinity for Foods
+    Trample
+    This creature enters with twice X +1/+1 counters on it.
+    {2}, Sacrifice a Food: This creature gains indestructible until end of
+    turn.
+
+    (Affinity/Trample/the sacrifice-a-Food ability already parse on their
+    own — only the X-scaled entry counters, which RULE 614.1's oracle-
+    derived path can't express, needed hand-authoring.)
+    """
+    return [
+        AbilitySpec(
+            "triggered",
+            [EffectSpec("add_counters", {"x_multiplier": 2})],
+            trigger={"event": EventType.ENTERS_BATTLEFIELD, "condition": {"subject": "self"}},
+            raw_text="Diese Kreatur kommt mit doppelt X +1/+1-Marken ins Spiel.",
+        ),
+    ]
+
+
+register("Banquet Guests", _banquet_guests)
+
+
+def _bilbo_birthday_celebrant() -> list[AbilitySpec]:
+    """If you would gain life, you gain that much life plus 1 instead.
+    {2}{W}{B}{G}, {T}, Exile Bilbo: Search your library for any number of
+    creature cards, put them onto the battlefield, then shuffle. Activate
+    only if you have 111 or more life.
+
+    Simplified: the lifegain-plus-1 replacement and the "111 or more
+    life" activation gate aren't modeled (no lifegain-amount replacement/
+    activation-condition primitive reaches this exact shape yet); the
+    exile-self cost is approximated as sacrifice-self (no battlefield
+    "exile this permanent as a cost" primitive exists — only a hand-zone
+    one). The tutor-and-mass-reanimate itself is fully modeled.
+    """
+    return [
+        AbilitySpec(
+            "activated",
+            [EffectSpec("search", {
+                "criteria": {"type": "Creature"}, "destination": "battlefield",
+                "count": 99, "optional": True,
+            })],
+            cost={"mana": "{2}{W}{B}{G}", "taps_self": True, "sacrifice": "self"},
+            raw_text="{2}{W}{B}{G}, {T}, Exiliere Bilbo: Durchsuche deine Bibliothek nach "
+                     "einer beliebigen Anzahl Kreaturenkarten, lege sie ins Spiel und "
+                     "mische danach.",
+        ),
+    ]
+
+
+register("Bilbo, Birthday Celebrant", _bilbo_birthday_celebrant)
+
+
+def _call_for_unity() -> list[AbilitySpec]:
+    """Revolt — At the beginning of your end step, if a permanent left the
+    battlefield under your control this turn, put a unity counter on this
+    enchantment.
+    Creatures you control get +1/+1 for each unity counter on this
+    enchantment.
+
+    Simplified: Revolt's own condition ("a permanent left the battlefield
+    under your control this turn") isn't modeled — the counter is added
+    every end step unconditionally (no "permanent left the battlefield
+    this turn" tracker exists yet, unlike `creatures_died_this_turn`).
+    """
+    return [
+        AbilitySpec(
+            "triggered",
+            [EffectSpec("add_counters", {"kind": "unity"})],
+            trigger={"event": EventType.STEP_BEGIN, "filter": {"step": "end"}, "phase_relation": "you"},
+            raw_text="Revolte — Zu Beginn deines Endsegments lege eine Einheits-Marke auf "
+                     "diese Verzauberung.",
+        ),
+        AbilitySpec(
+            "static",
+            [EffectSpec("anthem", {
+                "affects": "creatures_you_control", "power": 1, "toughness": 1,
+                "power_count": "counters_on_self", "toughness_count": "counters_on_self",
+                "counter_kind": "unity",
+            })],
+            raw_text="Kreaturen unter deiner Kontrolle erhalten +1/+1 für jede "
+                     "Einheits-Marke auf dieser Verzauberung.",
+        ),
+    ]
+
+
+register("Call for Unity", _call_for_unity)
+
+
+def _call_of_the_ring() -> list[AbilitySpec]:
+    """At the beginning of your upkeep, the Ring tempts you.
+    Whenever you choose a creature as your Ring-bearer, you may pay 2
+    life. If you do, draw a card.
+
+    Simplified: the second ability isn't modeled — no event fires for
+    "you choose a creature as your Ring-bearer" yet (RULE 701.52a's
+    choice is a `pending_choice`, not a broadcast `GameEvent`), so there's
+    nothing to trigger off. The upkeep Ring-tempts-you line (this card's
+    real recurring value) is fully modeled.
+    """
+    return [
+        AbilitySpec(
+            "triggered",
+            [EffectSpec("the_ring_tempts_you", {})],
+            trigger={"event": EventType.STEP_BEGIN, "filter": {"step": "upkeep"}, "phase_relation": "you"},
+            raw_text="Zu Beginn deines Versorgungssegments verlockt dich der Ring.",
+        ),
+    ]
+
+
+register("Call of the Ring", _call_of_the_ring)
+
+
+def _fell_the_mighty() -> list[AbilitySpec]:
+    """Destroy all creatures with power greater than target creature's
+    power.
+
+    Simplified: the dynamic threshold (the target creature's own power,
+    read fresh at resolution) isn't modeled — widened to a fixed "power 4
+    or greater" mass destroy (`min_power`, the same filter Dusk // Dawn
+    uses), a reasonable typical-target approximation without a real
+    "compare to the resolved target's own characteristic" mass-selector
+    primitive.
+    """
+    return [
+        AbilitySpec(
+            "spell_effect",
+            [EffectSpec("destroy", {"selector": "all_creatures", "filter": {"min_power": 4}})],
+            raw_text="Zerstöre alle Kreaturen mit einer größeren Stärke als eine "
+                     "Zielkreatur.",
+        ),
+    ]
+
+
+register("Fell the Mighty", _fell_the_mighty)
+
+
+def _flowering_of_the_white_tree() -> list[AbilitySpec]:
+    """Legendary creatures you control get +2/+1 and have ward {1}.
+    Nonlegendary creatures you control get +1/+1.
+
+    Simplified: the granted "have ward {1}" isn't modeled — the layer-6
+    keyword-grant mechanism only carries flag keywords today (ward is
+    parametric, a real pre-existing gap: `parser/oracle/catalogue/
+    static_handlers._flag_keywords` fails closed on any granted parametric
+    keyword). Both anthems (+2/+1 legendary / +1/+1 nonlegendary) are fully
+    modeled.
+    """
+    return [
+        AbilitySpec(
+            "static",
+            [EffectSpec("anthem", {"affects": "legendary_creatures_you_control", "power": 2, "toughness": 1})],
+            raw_text="Legendäre Kreaturen unter deiner Kontrolle erhalten +2/+1.",
+        ),
+        AbilitySpec(
+            "static",
+            [EffectSpec("anthem", {"affects": "nonlegendary_creatures_you_control", "power": 1, "toughness": 1})],
+            raw_text="Nicht-legendäre Kreaturen unter deiner Kontrolle erhalten +1/+1.",
+        ),
+    ]
+
+
+register("Flowering of the White Tree", _flowering_of_the_white_tree)
+
+
+def _ghost_quarter() -> list[AbilitySpec]:
+    """{T}: Add {C}.
+    {T}, Sacrifice this land: Destroy target land. Its controller may
+    search their library for a basic land card, put it onto the
+    battlefield, then shuffle.
+
+    Simplified: the destroyed land's controller getting a compensating
+    basic-land fetch isn't modeled (`SearchLibraryEffect` always searches
+    *this* ability's own controller's library, not the target's
+    controller) — narrowed to the land destruction alone, the card's own
+    primary use.
+    """
+    return [
+        AbilitySpec(
+            "activated",
+            [EffectSpec("destroy", {"target_kind": "permanent"})],
+            cost={"taps_self": True, "sacrifice": "self"},
+            raw_text="{T}, Opfere dieses Land: Zerstöre ein Zielland.",
+        ),
+    ]
+
+
+register("Ghost Quarter", _ghost_quarter)
+
+
+def _go_for_the_throat() -> list[AbilitySpec]:
+    """Destroy target nonartifact creature."""
+    return [
+        AbilitySpec(
+            "spell_effect",
+            [EffectSpec("destroy", {"target_kind": "creature", "creature_filter": {"without_card_type": "artifact"}})],
+            raw_text="Zerstöre eine Ziel-Nichtartefaktkreatur.",
+        ),
+    ]
+
+
+register("Go for the Throat", _go_for_the_throat)
+
+
+def _gollum_obsessed_stalker() -> list[AbilitySpec]:
+    """Skulk (This creature can't be blocked by creatures with greater
+    power.)
+    At the beginning of your end step, each opponent dealt combat damage
+    this game by a creature named Gollum, Obsessed Stalker loses life
+    equal to the amount of life you gained this turn.
+
+    Simplified: narrowed to "each opponent loses life equal to the amount
+    of life you gained this turn" every end step — the "only an opponent
+    this specific creature has ever connected with" scoping isn't tracked
+    (no "dealt combat damage by a creature named X, ever" history exists);
+    in practice this only differs when Gollum himself hasn't dealt combat
+    damage to anyone yet, a narrow early-game window.
+    """
+    return [
+        AbilitySpec(
+            "triggered",
+            [EffectSpec("lose_life", {
+                "selector": "each_opponent",
+                "amount_from_life_gained_this_turn": True,
+            })],
+            trigger={"event": EventType.STEP_BEGIN, "filter": {"step": "end"}, "phase_relation": "you"},
+            raw_text="Zu Beginn deines Endsegments verliert jeder Gegner so viel Leben, "
+                     "wie du in diesem Zug an Leben gewonnen hast.",
+        ),
+    ]
+
+
+register("Gollum, Obsessed Stalker", _gollum_obsessed_stalker)
+
+
+def _lembas() -> list[AbilitySpec]:
+    """When this artifact enters, scry 1, then draw a card.
+    {2}, {T}, Sacrifice this artifact: You gain 3 life.
+    When this artifact is put into a graveyard from the battlefield, its
+    owner shuffles it into their library.
+
+    Simplified: the dies-trigger self-shuffle isn't modeled (no "return
+    self from graveyard" primitive exists for `ReturnFromGraveyardEffect`,
+    only a real RULE 115 target pick) — Lembas simply stays in the
+    graveyard once it dies, same as an ordinary permanent.
+    """
+    return [
+        AbilitySpec(
+            "triggered",
+            [EffectSpec("scry", {"count": 1}), EffectSpec("draw", {"count": 1})],
+            trigger={"event": EventType.ENTERS_BATTLEFIELD, "condition": {"subject": "self"}},
+            raw_text="Wenn dieses Artefakt ins Spiel kommt, prophezeie 1, dann ziehe "
+                     "eine Karte.",
+        ),
+        AbilitySpec(
+            "activated",
+            [EffectSpec("gain_life", {"amount": 3})],
+            cost={"mana": "{2}", "taps_self": True, "sacrifice": "self"},
+            raw_text="{2}, {T}, Opfere dieses Artefakt: Du gewinnst 3 Leben.",
+        ),
+    ]
+
+
+register("Lembas", _lembas)
+
+
+def _lobelia_defender_of_bag_end() -> list[AbilitySpec]:
+    """When Lobelia enters, look at the top card of each opponent's
+    library and exile those cards face down.
+    {T}, Sacrifice an artifact: Choose one — Until end of turn, you may
+    play a card exiled with Lobelia without paying its mana cost. / Each
+    opponent loses 2 life and you gain 2 life.
+
+    Simplified: narrowed to the second mode only (each opponent loses 2
+    life, you gain 2 life) — the ETB peek-and-exile plus "play what was
+    exiled with ~" free-cast window needs a linked-exile-with-a-play-
+    window primitive this engine doesn't have yet (`ExileEffect(remember=
+    True)` links to *one* object, not a per-opponent set with its own
+    later play permission).
+    """
+    return [
+        AbilitySpec(
+            "activated",
+            [EffectSpec("lose_life", {"amount": 2, "selector": "each_opponent"}), EffectSpec("gain_life", {"amount": 2})],
+            cost={"taps_self": True, "sacrifice": "artifact"},
+            raw_text="{T}, Opfere ein Artefakt: Jeder Gegner verliert 2 Leben und du "
+                     "gewinnst 2 Leben.",
+        ),
+    ]
+
+
+register("Lobelia, Defender of Bag End", _lobelia_defender_of_bag_end)
+
+
+def _motivated_pony() -> list[AbilitySpec]:
+    """Trample, haste
+    Whenever this creature attacks, attacking creatures get +1/+1 until
+    end of turn. If a Food entered under your control this turn, untap
+    those creatures and they get an additional +2/+2 until end of turn.
+
+    Simplified: narrowed to the unconditional first half (attacking
+    creatures get +1/+1) — the "if a Food entered this turn" bonus/untap
+    branch isn't modeled (no "permanent of type X entered this turn"
+    tracker exists, unlike `creatures_died_this_turn`).
+    """
+    return [
+        AbilitySpec(
+            "triggered",
+            [EffectSpec("pump", {"power": 1, "toughness": 1, "selector": "attacking_creatures"})],
+            trigger={"event": EventType.ATTACKS, "condition": {"subject": "self"}},
+            raw_text="Immer wenn diese Kreatur angreift, erhalten angreifende Kreaturen "
+                     "+1/+1 bis zum Ende des Zuges.",
+        ),
+    ]
+
+
+register("Motivated Pony", _motivated_pony)
+
+
+def _of_herbs_and_stewed_rabbit() -> list[AbilitySpec]:
+    """I — Put a +1/+1 counter on up to one target creature. Create a Food
+    token.
+    II — Draw a card. Create a Food token.
+    III — Create a 1/1 white Halfling creature token for each Food you
+    control.
+
+    Chapters I/II are carried over verbatim from what the parser already
+    resolves on its own; only chapter III (a "for each Food you control"
+    dynamic count no `create_token` handler recognizes yet) needed
+    hand-authoring — same shape as Vault 12: The Necropolis's own chapter
+    II, just with the new ``foods_you_control`` count selector.
+    """
+    return [
+        AbilitySpec(
+            "triggered",
+            [
+                EffectSpec("add_counters", {"target_kind": "creature", "optional": True}),
+                EffectSpec("create_token", {"count": 1, "token_name": "Food"}),
+            ],
+            trigger={"event": "SAGA_CHAPTER", "chapter": [1]},
+            raw_text="I — Lege eine +1/+1-Marke auf bis zu eine Zielkreatur. Erzeuge "
+                     "einen Nahrungsspielstein.",
+        ),
+        AbilitySpec(
+            "triggered",
+            [EffectSpec("draw", {"count": 1}), EffectSpec("create_token", {"count": 1, "token_name": "Food"})],
+            trigger={"event": "SAGA_CHAPTER", "chapter": [2]},
+            raw_text="II — Ziehe eine Karte. Erzeuge einen Nahrungsspielstein.",
+        ),
+        AbilitySpec(
+            "triggered",
+            [EffectSpec("create_token", {
+                "power": 1, "toughness": 1, "colors": ["W"], "subtypes": ["Halfling"],
+                "token_name": "Halfling", "count_selector": "foods_you_control",
+            })],
+            trigger={"event": "SAGA_CHAPTER", "chapter": [3]},
+            raw_text="III — Erzeuge einen 1/1 weißen Halbling-Kreaturenspielstein für "
+                     "jede Nahrung, die du kontrollierst.",
+        ),
+    ]
+
+
+register("Of Herbs and Stewed Rabbit", _of_herbs_and_stewed_rabbit)
+
+
+def _peregrin_took() -> list[AbilitySpec]:
+    """If one or more tokens would be created under your control, those
+    tokens plus an additional Food token are created instead.
+    Sacrifice three Foods: Draw a card.
+    """
+    return [
+        AbilitySpec(
+            "replacement",
+            [EffectSpec("additional_named_token", {"token_name": "Food"})],
+            raw_text="Falls ein oder mehr Spielsteine unter deiner Kontrolle erzeugt "
+                     "würden, werden diese Spielsteine plus ein zusätzlicher "
+                     "Nahrungsspielstein stattdessen erzeugt.",
+        ),
+        AbilitySpec(
+            "activated",
+            [EffectSpec("draw", {"count": 1})],
+            cost={"sacrifice_count": (3, "food")},
+            raw_text="Opfere drei Nahrungen: Ziehe eine Karte.",
+        ),
+    ]
+
+
+register("Peregrin Took", _peregrin_took)
+
+
+def _prize_pig() -> list[AbilitySpec]:
+    """Whenever you gain life, put that many ribbon counters on this
+    creature. Then if there are three or more ribbon counters on this
+    creature, remove those counters and untap it.
+    {T}: Add one mana of any color.
+
+    Simplified: narrowed to the counter accumulation — the "at 3+, remove
+    and untap" follow-up isn't modeled (no "then if this permanent's own
+    counter count reaches N, do X" primitive exists yet). The counters
+    still visibly accumulate, so the card isn't a no-op, just missing its
+    payoff.
+    """
+    return [
+        AbilitySpec(
+            "triggered",
+            [EffectSpec("add_counters", {"kind": "ribbon", "amount_from_trigger_event": "amount"})],
+            trigger={"event": EventType.LIFE_GAINED, "condition": {"subject": "you"}},
+            raw_text="Immer wenn du Leben gewinnst, lege so viele Band-Marken auf diese "
+                     "Kreatur.",
+        ),
+    ]
+
+
+register("Prize Pig", _prize_pig)
+
+
+def _shire_shirriff() -> list[AbilitySpec]:
+    """Vigilance
+    When this creature enters, you may sacrifice a token. When you do,
+    exile target creature an opponent controls until this creature leaves
+    the battlefield.
+
+    Simplified: the "you may sacrifice a token" cost gate on the exile
+    isn't modeled as an interactive optional choice — the exile always
+    happens (still linked, still returned when Shire Shirriff leaves), a
+    strictly *more* generous approximation than requiring a token
+    sacrifice.
+    """
+    return [
+        AbilitySpec(
+            "triggered",
+            [EffectSpec("exile", {"target_kind": "creature_you_dont_control", "remember": True})],
+            trigger={"event": EventType.ENTERS_BATTLEFIELD, "condition": {"subject": "self"}},
+            raw_text="Wenn diese Kreatur ins Spiel kommt, exiliere eine Zielkreatur, die "
+                     "ein Gegner kontrolliert, bis diese Kreatur das Schlachtfeld "
+                     "verlässt.",
+        ),
+        AbilitySpec(
+            "triggered",
+            [EffectSpec("return_linked_exile", {})],
+            trigger={"event": EventType.LEAVES_BATTLEFIELD, "condition": {"subject": "self"}},
+            raw_text="Wenn diese Kreatur das Schlachtfeld verlässt, bringe die exilierte "
+                     "Karte zurück.",
+        ),
+    ]
+
+
+register("Shire Shirriff", _shire_shirriff)
+
+
+def _tireless_provisioner() -> list[AbilitySpec]:
+    """Landfall — Whenever a land you control enters, create a Food token
+    or a Treasure token.
+
+    Simplified: narrowed to always creating a Food token — the "or a
+    Treasure" choice isn't modeled (no interactive "choose one of two
+    token types" primitive for a plain trigger body exists yet).
+    """
+    return [
+        AbilitySpec(
+            "triggered",
+            [EffectSpec("create_token", {"count": 1, "token_name": "Food"})],
+            trigger={
+                "event": EventType.ENTERS_BATTLEFIELD,
+                "condition": {"subject": "group", "type": "land", "controller": "you", "other": False},
+            },
+            raw_text="Landfall — Immer wenn ein Land unter deiner Kontrolle ins Spiel "
+                     "kommt, erzeuge einen Nahrungsspielstein oder einen Schatzspielstein.",
+        ),
+    ]
+
+
+register("Tireless Provisioner", _tireless_provisioner)
+
+
+def _treebeard_gracious_host() -> list[AbilitySpec]:
+    """Trample, ward {2}
+    When Treebeard enters, create two Food tokens.
+    Whenever you gain life, put that many +1/+1 counters on target
+    Halfling or Treefolk.
+
+    Simplified: the target is widened to "target creature you control"
+    (no subtype-filtered RULE 115 target kind exists yet — every real
+    target_kind is either broad main-type or a fixed single subtype, not
+    an ad-hoc "Halfling or Treefolk" OR-list).
+    """
+    return [
+        AbilitySpec(
+            "triggered",
+            [EffectSpec("create_token", {"count": 2, "token_name": "Food"})],
+            trigger={"event": EventType.ENTERS_BATTLEFIELD, "condition": {"subject": "self"}},
+            raw_text="Wenn Baumbart ins Spiel kommt, erzeuge zwei Nahrungsspielsteine.",
+        ),
+        AbilitySpec(
+            "triggered",
+            [EffectSpec("add_counters", {
+                "target_kind": "creature_you_control", "amount_from_trigger_event": "amount",
+            })],
+            trigger={"event": EventType.LIFE_GAINED, "condition": {"subject": "you"}},
+            raw_text="Immer wenn du Leben gewinnst, lege so viele +1/+1-Marken auf eine "
+                     "Zielkreatur unter deiner Kontrolle.",
+        ),
+    ]
+
+
+register("Treebeard, Gracious Host", _treebeard_gracious_host)
+
+
+def _smeagol_helpful_guide() -> list[AbilitySpec]:
+    """At the beginning of your end step, if a creature died under your
+    control this turn, the Ring tempts you.
+    Whenever the Ring tempts you, target opponent reveals cards from the
+    top of their library until they reveal a land card. Put that card
+    onto the battlefield tapped under your control and the rest into
+    their graveyard.
+
+    Simplified: the ring-tempted payoff is narrowed to *your own* library
+    instead of a chosen opponent's (`RulesEngine.dig_until` always digs
+    the ability's own controller — no "dig a chosen player's library"
+    variant exists), the found land enters untapped (`dig_until`'s
+    "battlefield" hit destination doesn't apply RULE 614.1 tapped-entry),
+    and the rest goes to exile rather than graveyard (`dig_until`'s own
+    "exile" default `rest_destination`, the only one it supports besides
+    a random bottom-of-library shuffle).
+    """
+    return [
+        AbilitySpec(
+            "triggered",
+            [EffectSpec(
+                "the_ring_tempts_you", {},
+                condition={"creatures_died_this_turn_at_least": 1},
+            )],
+            trigger={"event": EventType.STEP_BEGIN, "filter": {"step": "end"}, "phase_relation": "you"},
+            raw_text="Zu Beginn deines Endsegments, falls eine Kreatur unter deiner "
+                     "Kontrolle in diesem Zug gestorben ist, verlockt dich der Ring.",
+        ),
+        AbilitySpec(
+            "triggered",
+            [EffectSpec("dig_until", {
+                "criteria": {"type": "Land"}, "hit_destination": "battlefield", "rest_destination": "exile",
+            })],
+            trigger={"event": EventType.RING_TEMPTED, "condition": {"subject": "you"}},
+            raw_text="Immer wenn dich der Ring verlockt, deckt ein Gegner deiner Wahl "
+                     "Karten vom oberen Rand seiner Bibliothek auf, bis er eine "
+                     "Landkarte aufdeckt.",
+        ),
+    ]
+
+
+register("Sméagol, Helpful Guide", _smeagol_helpful_guide)
+
+
+def _the_battle_of_bywater() -> list[AbilitySpec]:
+    """Destroy all creatures with power 3 or greater. Then create a Food
+    token for each creature you control.
+    """
+    return [
+        AbilitySpec(
+            "spell_effect",
+            [
+                EffectSpec("destroy", {"selector": "all_creatures", "filter": {"min_power": 3}}),
+                EffectSpec("create_token", {"token_name": "Food", "count_selector": "creatures_you_control"}),
+            ],
+            raw_text="Zerstöre alle Kreaturen mit Stärke 3 oder größer. Erzeuge danach "
+                     "einen Nahrungsspielstein für jede Kreatur, die du kontrollierst.",
+        ),
+    ]
+
+
+register("The Battle of Bywater", _the_battle_of_bywater)
+
+
+def _the_one_ring() -> list[AbilitySpec]:
+    """Indestructible
+    When The One Ring enters, if you cast it, you gain protection from
+    everything until your next turn.
+    At the beginning of your upkeep, you lose 1 life for each burden
+    counter on The One Ring.
+    {T}: Put a burden counter on The One Ring, then draw a card for each
+    burden counter on The One Ring.
+
+    Simplified: the ETB "if you cast it" protection-from-everything grant
+    isn't modeled (no "if this was cast, not put onto the battlefield
+    another way" condition exists, and no generic "protection from
+    everything" grant primitive) — the burden-counter draw engine/life-
+    loss loop (this card's real ongoing engine) is fully modeled.
+    """
+    return [
+        AbilitySpec(
+            "triggered",
+            [EffectSpec("lose_life", {"amount_from_burden_counters_on_self": True})],
+            trigger={"event": EventType.STEP_BEGIN, "filter": {"step": "upkeep"}, "phase_relation": "you"},
+            raw_text="Zu Beginn deines Versorgungssegments verlierst du 1 Leben für "
+                     "jede Bürde-Marke auf Der Eine Ring.",
+        ),
+        AbilitySpec(
+            "activated",
+            [
+                EffectSpec("add_counters", {"kind": "burden", "amount": 1}),
+                EffectSpec("draw", {"count_selector": "burden_counters_on_self"}),
+            ],
+            cost={"taps_self": True},
+            raw_text="{T}: Lege eine Bürde-Marke auf Der Eine Ring, dann ziehe eine "
+                     "Karte für jede Bürde-Marke auf Der Eine Ring.",
+        ),
+    ]
+
+
+register("The One Ring", _the_one_ring)
+
+
+def _frodo_saurons_bane() -> list[AbilitySpec]:
+    """{W/B}{W/B}: If Frodo is a Citizen, it becomes a Halfling Scout with
+    base power and toughness 2/3 and lifelink.
+    {B}{B}{B}: If Frodo is a Scout, it becomes a Halfling Rogue with
+    "Whenever this creature deals combat damage to a player, that player
+    loses the game if the Ring has tempted you four or more times this
+    game. Otherwise, the Ring tempts you."
+
+    — RULE 205.1b's "becomes a copy-independent creature with a new type
+    line", turned out to need no new engine primitive after all despite the
+    BACKLOG's earlier read: it's a two-step RULE 613.6 standing conditional
+    static, gated on the permanent's own progress, driven by a plain custom
+    counter (``frodo_stage``, no whitelist restricts `AddCountersEffect`'s
+    ``kind`` — a "level"/"class_level" counter in spirit, just not literally
+    either mechanic).
+
+    Each activated ability's own legality ("if Frodo is a Citizen/Scout")
+    is `ActivationCost.activation_condition` (PAR-10) reading the same
+    `source_counters` gate a static's `active_if` does, so activating out
+    of order is simply illegal rather than a no-op. Its own effect is
+    nothing but bumping the counter — the actual transformation lives in
+    the two `static` specs below, each gated ``active_if: source_counters``
+    with a **``min`` and no ``max``**, deliberately: both stay active once
+    unlocked (not mutually-exclusive bands like a Leveler's tiers), so the
+    Rogue-stage static — which never restates a P/T — doesn't need to; RULE
+    613.7 timestamp layering keeps the still-active Scout static's own
+    ``pt_set``/type-change-with-P/T (RULE 613.4's "becomes an X/Y creature"
+    shape, ``type_change``'s own ``power``/``toughness`` params) under the
+    Rogue static's later ``set_subtypes`` override, exactly matching the
+    printed card.
+
+    The granted Rogue-stage trigger's "that player loses the game … .
+    Otherwise, the Ring tempts you." is a genuine if/else the engine had no
+    shape for: `ConditionalEffect` only ever gated a single existing
+    effect, with no "otherwise" branch, and `grant_triggered_ability`'s own
+    ``grant_effects`` list was built via a bare `EffectRegistry.create`
+    with no way to condition an entry at all. Closed generally rather than
+    with a one-off: `continuous._build_grant_effect` now honours an
+    optional per-entry ``condition`` key the same shape `EffectSpec.
+    condition` already has, and `ConditionalEffect` gained the symmetric
+    ``ring_tempted_at_most`` key alongside the existing ``ring_tempted_at_
+    least`` — two independently-gated conditionals with complementary
+    bounds standing in for one if/else, the same pattern the front face's
+    own compound clause already established for AND rather than OR. "That
+    player" (not "you") is `LoseGameTriggerDamagedPlayerEffect`, the
+    player-flavoured mirror of `ExileTriggerDamagedCreatureEffect`'s
+    "that creature" pronoun off the granted ability's own firing `DAMAGE`
+    event, since Frodo's controller and the player he just hit are usually
+    different people.
+    """
+    return [
+        AbilitySpec(
+            "activated",
+            [EffectSpec("add_counters", {"kind": "frodo_stage", "amount": 1})],
+            cost={
+                "mana": "{W/B}{W/B}",
+                "activation_condition": {"kind": "source_counters", "counter": "frodo_stage", "max": 0},
+            },
+            raw_text='{W/B}{W/B}: Falls Frodo ein Bürger ist, wird er ein '
+                     'Halbling-Kundschafter mit der Basisstärke/-widerstandskraft '
+                     '2/3 und Lebensverknüpfung.',
+        ),
+        AbilitySpec(
+            "activated",
+            [EffectSpec("add_counters", {"kind": "frodo_stage", "amount": 1})],
+            cost={
+                "mana": "{B}{B}{B}",
+                "activation_condition": {"kind": "source_counters", "counter": "frodo_stage", "min": 1, "max": 1},
+            },
+            raw_text='{B}{B}{B}: Falls Frodo ein Kundschafter ist, wird er ein '
+                     'Halbling-Schurke mit "Wenn diese Kreatur einem Spieler '
+                     'Kampfschaden zufügt, verliert jener Spieler die Partie, '
+                     'falls der Ring dich in diesem Spiel viermal oder öfter '
+                     'verlockt hat. Andernfalls verlockt dich der Ring."',
+        ),
+        AbilitySpec(
+            "static",
+            [
+                EffectSpec("type_change", {
+                    "set_subtypes": ["Halfling", "Scout"], "power": 2, "toughness": 3,
+                    "active_if": {"kind": "source_counters", "counter": "frodo_stage", "min": 1},
+                }),
+                EffectSpec("grant_keyword", {
+                    "affects": "self",
+                    "keywords": ["lifelink"],
+                    "active_if": {"kind": "source_counters", "counter": "frodo_stage", "min": 1},
+                }),
+            ],
+            raw_text="(Halbling-Kundschafter-Stufe)",
+        ),
+        AbilitySpec(
+            "static",
+            [
+                EffectSpec("type_change", {
+                    "set_subtypes": ["Halfling", "Rogue"],
+                    "active_if": {"kind": "source_counters", "counter": "frodo_stage", "min": 2},
+                }),
+                EffectSpec("grant_triggered_ability", {
+                    "affects": "self",
+                    "trigger_event": EventType.DAMAGE,
+                    "filter": {"combat": True, "is_player": True},
+                    "grant_effects": [
+                        {
+                            "type": "lose_game_trigger_damaged_player",
+                            "params": {},
+                            "condition": {"ring_tempted_at_least": 4},
+                        },
+                        {
+                            "type": "the_ring_tempts_you",
+                            "params": {},
+                            "condition": {"ring_tempted_at_most": 3},
+                        },
+                    ],
+                    "active_if": {"kind": "source_counters", "counter": "frodo_stage", "min": 2},
+                }),
+            ],
+            raw_text="(Halbling-Schurke-Stufe)",
+        ),
+    ]
+
+
+register("Frodo, Sauron's Bane", _frodo_saurons_bane)
+
+
+# ---------------------------------------------------------------------------
+# "Wyleth Equip" saved-deck-priority batch (continued)
+# ---------------------------------------------------------------------------
+
+
+def _ardenn_intrepid_archaeologist() -> list[AbilitySpec]:
+    """At the beginning of combat on your turn, you may attach any number
+    of Auras and Equipment you control to target permanent or player.
+    Partner (You can have two commanders if both have partner.)
+
+    Simplified: narrowed to attaching *one* Aura/Equipment already
+    attached to something you control, to another target creature you
+    control — the "any number, freely among permanents or players" mass
+    rearrange has no primitive (`AttachChosenEffect`, built for Halvar's
+    own single-object clause, is the closest shape this engine has).
+    (Partner is bound by the keyword catalogue automatically.)
+    """
+    return [
+        AbilitySpec(
+            "triggered",
+            [EffectSpec("attach_chosen", {
+                "what_kind": "attached_aura_or_equipment_you_control", "to_kind": "creature_you_control",
+            })],
+            trigger={"event": EventType.STEP_BEGIN, "filter": {"step": "combat"}, "phase_relation": "you"},
+            optional=True,
+            raw_text="Zu Beginn des Kampfes in deinem Zug kannst du eine Verzauberung "
+                     "oder Ausrüstung unter deiner Kontrolle an eine andere Zielkreatur "
+                     "unter deiner Kontrolle anlegen.",
+        ),
+    ]
+
+
+register("Ardenn, Intrepid Archaeologist", _ardenn_intrepid_archaeologist)
+
+
+def _armored_skyhunter() -> list[AbilitySpec]:
+    """Flying
+    Whenever this creature attacks, look at the top six cards of your
+    library. You may put an Aura or Equipment card from among them onto
+    the battlefield. If an Equipment is put onto the battlefield this
+    way, you may attach it to a creature you control. Put the rest of
+    those cards on the bottom of your library in a random order.
+
+    Simplified: the found Aura/Equipment enters unattached — the "you may
+    attach it to a creature you control" follow-up isn't modeled (no
+    "dig hit, then optionally attach what was just found" primitive), and
+    the rest go to exile instead of a random spot on the bottom of the
+    library (`dig_until`'s own supported rest destinations).
+    """
+    return [
+        AbilitySpec(
+            "triggered",
+            [EffectSpec("dig_until", {
+                "criteria": {"type": ["Aura", "Equipment"]}, "hit_destination": "battlefield",
+                "rest_destination": "exile",
+            })],
+            trigger={"event": EventType.ATTACKS, "condition": {"subject": "self"}},
+            raw_text="Immer wenn diese Kreatur angreift, sieh dir die obersten sechs "
+                     "Karten deiner Bibliothek an. Du kannst eine Verzauberungs- oder "
+                     "Ausrüstungskarte aus ihnen ins Spiel bringen.",
+        ),
+    ]
+
+
+register("Armored Skyhunter", _armored_skyhunter)
+
+
+def _martial_coup() -> list[AbilitySpec]:
+    """Create X 1/1 white Soldier creature tokens. If X is 5 or more,
+    destroy all other creatures.
+    """
+    return [
+        AbilitySpec(
+            "spell_effect",
+            [
+                EffectSpec("create_token", {
+                    "count": "x", "power": 1, "toughness": 1, "colors": ["W"],
+                    "subtypes": ["Soldier"], "token_name": "Soldier",
+                }),
+                EffectSpec(
+                    "destroy", {"selector": "all_creatures", "exclude_created": True},
+                    condition={"source_x_paid_at_least": 5},
+                ),
+            ],
+            raw_text="Erzeuge X 1/1 weiße Soldat-Kreaturenspielsteine. Falls X 5 oder "
+                     "größer ist, zerstöre alle anderen Kreaturen.",
+        ),
+    ]
+
+
+register("Martial Coup", _martial_coup)
+
+
+def _masterwork_of_ingenuity() -> list[AbilitySpec]:
+    """You may have this Equipment enter as a copy of any Equipment on the
+    battlefield.
+
+    Simplified: widened to "any permanent" — the target-kind vocabulary
+    (docs/11 §10) has no Equipment-only restriction, matching the same
+    documented looseness `Clever Impersonator`'s own catalogue entry
+    already accepts for "any nonland permanent".
+    """
+    return [
+        AbilitySpec(
+            "enter_replacement",
+            [EffectSpec("enter_as_copy", {"target_kind": "permanent"})],
+            raw_text="Du kannst dieses Ausrüstungsstück als Kopie eines beliebigen "
+                     "Ausrüstungsstücks ins Spiel kommen lassen.",
+        ),
+    ]
+
+
+register("Masterwork of Ingenuity", _masterwork_of_ingenuity)
+
+
+def _raiyuu_storms_edge() -> list[AbilitySpec]:
+    """First strike
+    Whenever a Samurai or Warrior you control attacks alone, untap it. If
+    it's the first combat phase of the turn, there is an additional
+    combat phase after this phase.
+
+    Simplified: narrowed to "untap it" — the additional-combat-phase half
+    isn't modeled (no primitive inserts a genuine extra combat phase into
+    the turn sequence yet).
+    """
+    return [
+        AbilitySpec(
+            "triggered",
+            [EffectSpec("tap", {"target_kind": None, "untap": True})],
+            trigger={
+                "event": "ATTACKS_ALONE",
+                "condition": {"subject": "group", "subtypes": ["samurai", "warrior"], "controller": "you"},
+            },
+            raw_text="Immer wenn ein Samurai oder Krieger unter deiner Kontrolle allein "
+                     "angreift, enttappe ihn.",
+        ),
+    ]
+
+
+register("Raiyuu, Storm's Edge", _raiyuu_storms_edge)
+
+
+def _sokenzan_crucible_of_defiance() -> list[AbilitySpec]:
+    """{T}: Add {R}.
+    Channel — {3}{R}, Discard this card: Create two 1/1 colorless Spirit
+    creature tokens. They gain haste until end of turn. This ability
+    costs {1} less to activate for each legendary creature you control.
+
+    (The mana ability is bound automatically off the printed "{T}: Add
+    {R}." text.) Simplified: the "{1} less for each legendary creature"
+    cost reduction isn't modeled (`continuous.activation_cost_reduction_
+    for` has no per-count scaling for a hand-zone Channel-style cost yet,
+    only a flat subtype-scoped one) — Channel itself (offered and payable
+    from hand, discarding this card as its cost) is fully modeled at its
+    full printed price.
+    """
+    return [
+        AbilitySpec(
+            "activated",
+            [EffectSpec("create_token", {
+                "count": 2, "power": 1, "toughness": 1, "colors": [],
+                "subtypes": ["Spirit"], "keywords": ["haste"], "token_name": "Spirit",
+            })],
+            cost={"mana": "{3}{R}", "discard_self": True},
+            raw_text="Kanalisieren — {3}{R}, Wirf diese Karte ab: Erzeuge zwei 1/1 "
+                     "farblose Geist-Kreaturenspielsteine. Sie erhalten Eile bis zum "
+                     "Ende des Zuges.",
+        ),
+    ]
+
+
+register("Sokenzan, Crucible of Defiance", _sokenzan_crucible_of_defiance)
+
+
+def _valakut_awakening() -> list[AbilitySpec]:
+    """Put any number of cards from your hand on the bottom of your
+    library, then draw that many cards plus one.
+
+    Simplified: narrowed to "draw a card" — no primitive puts a player-
+    chosen number of hand cards on the bottom of the library paired with a
+    scaled draw yet (`PutHandCardsOnTopEffect` is a fixed count, to the
+    top, with no paired draw).
+    """
+    return [
+        AbilitySpec(
+            "spell_effect",
+            [EffectSpec("draw", {"count": 1})],
+            raw_text="Lege eine beliebige Anzahl Karten aus deiner Hand unter deine "
+                     "Bibliothek, ziehe danach so viele Karten plus eine.",
+        ),
+    ]
+
+
+register("Valakut Awakening", _valakut_awakening)
+register("Valakut Awakening // Valakut Stoneforge", _valakut_awakening)
