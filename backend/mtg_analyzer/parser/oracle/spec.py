@@ -69,8 +69,19 @@ _CLAMPED_PARAM_KEYS: tuple[str, ...] = (
 #: ``"kicked_at_least"`` (PAR-17, RULE 702.34a — "if it was kicked twice,
 #: `<effect>`.", Archangel of Wrath) is Multikicker's own count threshold,
 #: an int rather than a bool (``kicker_count >= n``).
+#: ``"life_gained_this_turn_at_least"`` (RULE 119.3 — "if you gained N or
+#: more life this turn, `<effect>`.", Frodo, Adventurous Hobbit) reads
+#: `GameState.life_gained_this_turn`. ``"is_ring_bearer"``/``"ring_tempted_
+#: at_least"`` (RULE 701.51b/701.52a, Tales of Middle-earth) read `Player.
+#: ring_bearer_id`/``ring_level`` — Frodo's own second clause is the first
+#: card needing *both* of a condition dict's keys to hold together, which
+#: is why `effects.ConditionalEffect._condition_holds` ANDs every key
+#: present instead of picking the first recognised one.
 _ALLOWED_CONDITION_KEYS: frozenset[str] = frozenset(
-    {"kicked", "kicked_at_least", "bargained", "target_is_controller"}
+    {
+        "kicked", "kicked_at_least", "bargained", "target_is_controller",
+        "life_gained_this_turn_at_least", "is_ring_bearer", "ring_tempted_at_least",
+    }
 )
 
 #: `AbilitySpec.conditional_flash`'s whitelisted keys — see that field's

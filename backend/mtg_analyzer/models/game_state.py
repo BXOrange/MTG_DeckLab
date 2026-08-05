@@ -543,6 +543,16 @@ class GameState:
         #: on every successful draw, the same shape `spells_cast_this_turn`
         #: uses for `cast_limit`.
         self.cards_drawn_this_turn: dict[str, int] = {p.id: 0 for p in players}
+        #: Life actually gained by each player *this turn* (RULE 119.3 —
+        #: "whenever ~ attacks, if you gained 3 or more life this turn,
+        #: <effect>", Frodo, Adventurous Hobbit-shaped). Reset for the new
+        #: active player in `GameEngine.begin_turn`, incremented by
+        #: `RulesEngine.gain_life` on every successful gain — the same
+        #: only-the-incoming-active-player reset `cards_drawn_this_turn`
+        #: above uses, since the cards that read this are all "whenever ~
+        #: attacks" triggers and a creature only ever attacks on its own
+        #: controller's turn.
+        self.life_gained_this_turn: dict[str, int] = {p.id: 0 for p in players}
         #: Whether each player has cast an instant or sorcery spell *this
         #: turn* (PAR-10 — `game/static_conditions.py`'s
         #: ``cast_instant_or_sorcery_this_turn`` condition: Hall of Oracles/

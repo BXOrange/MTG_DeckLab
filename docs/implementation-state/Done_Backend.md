@@ -10122,3 +10122,70 @@ Tests: `tests/test_investigate_family.py` (6 tests) +
 2+-candidate Ring-bearer path and a direct check that the trigger does
 *not* fire before the bearer choice resolves). Full backend suite green
 (3,337 passed, 0 failures).
+
+## PAR-12 · Closing the "Hobbits" deck's own commander (2026-08-05)
+
+Coverage 29.6%→29.7% (10,140→10,151/34,208), PARSER_VERSION 56→57. Follows
+directly from the previous batch's audit: Frodo, Adventurous Hobbit's full
+ability — "Whenever ~ attacks, if you gained 3 or more life this turn, the
+Ring tempts you. Then if ~ is your Ring-bearer and the Ring has tempted you
+two or more times this game, draw a card." — needed three small resolve-time
+condition primitives that didn't exist, all landing in `effects.
+ConditionalEffect`:
+
+- **`GameState.life_gained_this_turn`** — a new per-turn tracker (RULE
+  119.3), mirroring `cards_drawn_this_turn`'s "reset only the incoming
+  active player" convention (every card reading it is a "whenever ~
+  attacks" trigger, and a creature only ever attacks on its own
+  controller's turn). Incremented in `RulesEngine.gain_life`'s post-
+  replacement `_finish` closure, alongside the existing `LIFE_GAINED` fire.
+- **`"is_ring_bearer"`** (RULE 701.52a) and **`"ring_tempted_at_least"`**
+  (RULE 701.51b, a `Player.ring_level` threshold) — new `EffectSpec.
+  condition` keys, whitelisted in `parser/oracle/spec.py`'s
+  `_ALLOWED_CONDITION_KEYS` (missing this step doesn't silently drop the
+  param the way an unregistered *selector* key would — `AbilitySpec.
+  validate()` raises immediately at bind time instead, which is how this
+  batch's own first test run caught it).
+- **`ConditionalEffect._condition_holds` generalized** from an if/elif
+  chain (exactly one condition key was ever set on any card so far) to an
+  AND-fold over every key present in the dict — Frodo's own second clause
+  is the first card needing two conditions to hold *together*
+  ("is_ring_bearer" AND "ring_tempted_at_least"). Backward compatible:
+  every pre-existing condition dict still carries exactly one key, so
+  existing cards see identical behaviour.
+- **A real correctness bug caught before shipping, not just a coverage
+  regression**: the first cut of the new `_LIFE_GAINED_THIS_TURN_CONDITION_
+  RE` wrapper greedily captured Frodo's *entire* remaining text as its
+  `rest`, so parsing it recursively and then tagging *every* resulting
+  `EffectSpec` with the life-gained condition silently overwrote the
+  second sentence's own, unrelated "if ~ is your Ring-bearer and tempted
+  twice" gate — a card that would have *parsed* as `MODELED` but drawn a
+  card on the wrong trigger. `parser_probe.py diff` (coverage-only) didn't
+  catch this; a real execute test asserting the draw only happens once
+  both conditions hold did (`test_second_clause_needs_both_ring_bearer_
+  and_tempted_twice`). Fixed by giving the wrapper regex an explicit
+  `trailing` group for a second, independently-gated "`.` Then if …"
+  sentence, split off and parsed on its own rather than folded into the
+  first condition — exactly `PARSER_LONG_TAIL.md`'s "write the adversarial
+  test before trusting a general fix" lesson, just on a condition-wrapper
+  instead of a plain regex.
+- Also closed on the way: **"if you chose a creature other than ~ as your
+  Ring-bearer, `<effect>`"** (the `is_ring_bearer=False` mirror) — Aragorn,
+  Company Leader/Faramir, Field Commander/Galadriel of Lothlórien/Gandalf,
+  Friend of the Shire all use this exact phrasing after "whenever the Ring
+  tempts you," each still blocked on one unrelated second clause of their
+  own (a static ability or a different trigger), so none of the four
+  reached `MODELED` this batch despite the shared clause now parsing.
+
+**Not attempted**: Frodo, Sauron's Bane (the same physical card's
+transformed back face) — a bespoke "an activated ability conditionally
+changes this permanent's own type and P/T" shape (RULE 205) with no cache
+sibling; genuinely singleton, left as documented hand-authoring territory
+in `PARSER_LONG_TAIL.md` rather than forced into this batch's shared
+grammar.
+
+Tests: `tests/test_frodo_compound_conditions.py` (4 tests — full-card
+check, the per-turn reset, and both execute paths: the first clause only
+firing when life was actually gained, the second only drawing once *both*
+Ring-bearer status and temptation count hold). Full backend suite green
+(3,341 passed, 0 failures).

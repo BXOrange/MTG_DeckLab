@@ -1444,25 +1444,37 @@ class ConditionalEffect(GameEffect):
         self.inner = inner
         self.target_spec = inner.target_spec
 
-    def _condition_holds(self, targets: Optional[list[Any]] = None) -> bool:
+    def _condition_holds(
+        self, context: GameContext, targets: Optional[list[Any]] = None
+    ) -> bool:
+        """AND of every key present in ``condition`` — each existing card so
+        far has set exactly one, so this was a plain if/elif chain until
+        Frodo, Adventurous Hobbit's own second clause ("if ~ is your
+        Ring-bearer **and** the Ring has tempted you N or more times this
+        game") needed two keys to hold *together*. Backward compatible: a
+        one-key dict still checks exactly that one key, same as before.
+        """
         kicked = self.condition.get("kicked")
         if kicked is not None:
             count = getattr(self.source, "kicker_count", 0) or 0
-            return (count > 0) if kicked else (count == 0)
+            if not ((count > 0) if kicked else (count == 0)):
+                return False
         kicked_at_least = self.condition.get("kicked_at_least")
         if kicked_at_least is not None:
             # RULE 702.34a: "if it was kicked twice, <effect>." (PAR-17,
             # Archangel of Wrath) — Multikicker's own count threshold,
             # distinct from the plain "was it kicked at all" gate above.
             count = getattr(self.source, "kicker_count", 0) or 0
-            return count >= kicked_at_least
+            if count < kicked_at_least:
+                return False
         bargained = self.condition.get("bargained")
         if bargained is not None:
             # RULE 701.x (Beseech the Mirror's "if this spell was bargained,
             # …") — Kicker's own gate for a different optional additional
             # cost, reading `GameObject.bargained` instead of a counter.
             was = bool(getattr(self.source, "bargained", False))
-            return was if bargained else not was
+            if not (was if bargained else not was):
+                return False
         target_is_controller = self.condition.get("target_is_controller")
         if target_is_controller is not None:
             target = targets[0] if targets else None
@@ -1471,13 +1483,43 @@ class ConditionalEffect(GameEffect):
                 controller_id is not None
                 and getattr(target, "id", None) == controller_id
             )
-            return is_controller if target_is_controller else not is_controller
+            if not (is_controller if target_is_controller else not is_controller):
+                return False
+        life_gained_at_least = self.condition.get("life_gained_this_turn_at_least")
+        if life_gained_at_least is not None:
+            # "if you gained N or more life this turn, <effect>." (RULE
+            # 119.3 — Frodo, Adventurous Hobbit's own first clause).
+            # `self` here means the ability's controller, not a target.
+            player = _controller_of(self.source, context)
+            gained = context.state.life_gained_this_turn.get(getattr(player, "id", None), 0)
+            if gained < life_gained_at_least:
+                return False
+        is_ring_bearer = self.condition.get("is_ring_bearer")
+        if is_ring_bearer is not None:
+            # "if ~ is your Ring-bearer, <effect>." (RULE 701.52a) — reads
+            # the ability's controller's `ring_bearer_id` against the
+            # source's own `instance_id`, "not" for the Aragorn/Faramir-
+            # shaped "if you chose a creature **other than** ~" mirror.
+            player = _controller_of(self.source, context)
+            bearer_id = getattr(player, "ring_bearer_id", None)
+            source_id = getattr(self.source, "instance_id", None)
+            is_bearer = bearer_id is not None and bearer_id == source_id
+            if not (is_bearer if is_ring_bearer else not is_bearer):
+                return False
+        ring_tempted_at_least = self.condition.get("ring_tempted_at_least")
+        if ring_tempted_at_least is not None:
+            # "if the Ring has tempted you N or more times this game,
+            # <effect>." (RULE 701.51b — `Player.ring_level`, capped at 4).
+            player = _controller_of(self.source, context)
+            level = int(getattr(player, "ring_level", 0) or 0)
+            if level < ring_tempted_at_least:
+                return False
         return True
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
         if self.inner.source is None:
             self.inner.source = self.source
-        if self._condition_holds(targets):
+        if self._condition_holds(context, targets):
             self.inner.apply(context, targets)
 
 

@@ -666,6 +666,9 @@ class DamageDeathMixin:
             if final <= 0:
                 return
             player.gain_life(final)
+            self.state.life_gained_this_turn[player.id] = (
+                self.state.life_gained_this_turn.get(player.id, 0) + final
+            )
             self.state.fire_event(
                 GameEvent(EventType.LIFE_GAINED, player_id=player.id, amount=final)
             )

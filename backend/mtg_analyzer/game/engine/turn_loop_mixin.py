@@ -219,6 +219,7 @@ class TurnLoopMixin:
         self.state.planar_die_rolls_this_turn.clear()
         self.state.spells_cast_this_turn[active.id] = 0
         self.state.cards_drawn_this_turn[active.id] = 0
+        self.state.life_gained_this_turn[active.id] = 0
         # RULE 120.3 history ("dealt combat damage by ~ *this turn*", Hope of
         # Ghirapur) — game-wide, not per active player: last turn's combat
         # damage is stale for everyone once a new turn starts.

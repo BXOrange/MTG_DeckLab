@@ -671,6 +671,49 @@ _TARGET_IS_CONTROLLER_RE = re.compile(
     r"^if that player is(?P<neg> not|n't)? you,\s*(?P<rest>.+)$", re.IGNORECASE
 )
 
+#: RULE 119.3's "if you gained N or more life this turn, `<effect>`."
+#: (Frodo, Adventurous Hobbit's own first clause) — same "wrap the rest, tag
+#: the condition" idiom as `_KICKED_CONDITION_RE`, onto `GameState.
+#: life_gained_this_turn` via `EffectSpec.condition`'s new
+#: ``"life_gained_this_turn_at_least"`` key. ``rest`` is non-greedy with an
+#: explicit ``trailing`` tail for Frodo's own printed shape — "if A, effect1.
+#: Then if B, effect2." is *two* independently-gated sentences, not one
+#: condition spanning both; without splitting here the naive greedy-``.+``
+#: reading would slap *this* condition onto the second sentence's own
+#: `EffectSpec` too, silently discarding its real "if ~ is your Ring-bearer
+#: and the Ring has tempted you N or more times" gate — a wrong-but-modeled
+#: card, worse than leaving it unclaimed.
+_LIFE_GAINED_THIS_TURN_CONDITION_RE = re.compile(
+    r"^if you gained (?P<n>\d+) or more life this turn,\s*(?P<rest>.+?)"
+    r"(?P<trailing>\.\s+then\s+if\s+.+)?$",
+    re.IGNORECASE,
+)
+
+#: RULE 701.52a's Ring-bearer intervening-if, two printed shapes (Tales of
+#: Middle-earth): "if you chose a creature **other than** ~ as your
+#: Ring-bearer" (Aragorn, Company Leader/Faramir, Field Commander/Galadriel
+#: of Lothlórien/Gandalf, Friend of the Shire — ``is_ring_bearer=False``)
+#: and Frodo, Adventurous Hobbit's own compound "if ~ **is** your
+#: Ring-bearer and the Ring has tempted you N or more times this game" —
+#: one `EffectSpec.condition` dict carrying *both*
+#: ``"is_ring_bearer"``/``"ring_tempted_at_least"`` keys, which
+#: `effects.ConditionalEffect._condition_holds`'s AND-fold requires
+#: together (the primitive built for exactly this card).
+#: Both tolerate an optional leading "then " — `_CONNECTORS`' period-split
+#: (tried before its own ",? then " connector, since it's earlier in that
+#: tuple and already yields 2+ parts on "…tempts you. Then if ~ is…") lands
+#: a literal "Then " prefix on the second half, which neither regex would
+#: otherwise expect.
+_RING_BEARER_OTHER_CONDITION_RE = re.compile(
+    r"^(?:then )?if you chose a creature other than ~ as your ring-bearer,\s*(?P<rest>.+)$",
+    re.IGNORECASE,
+)
+_RING_BEARER_AND_TEMPTED_CONDITION_RE = re.compile(
+    r"^(?:then )?if ~ is your ring-bearer and the ring has tempted you (?P<n>\d+) or more "
+    r"times this game,\s*(?P<rest>.+)$",
+    re.IGNORECASE,
+)
+
 #: RULE 601.2b/604.3's additional-cost line: "As an additional cost to cast
 #: this spell, <cost>." — instants/sorceries only (gated by
 #: ``allow_spell_effect`` at the call site below, same as a bare imperative).
@@ -1019,6 +1062,67 @@ def parse_effect_body(
         wants_controller = not target_is_you.group("neg")
         return [
             EffectSpec(e.type, dict(e.params), condition={"target_is_controller": wants_controller})
+            for e in inner
+        ]
+
+    life_gained = _LIFE_GAINED_THIS_TURN_CONDITION_RE.match(body)
+    if life_gained is not None:
+        inner = parse_effect_body(
+            life_gained.group("rest"), self_subject=self_subject, previous_subject=previous_subject
+        )
+        if inner is None:
+            return None
+        conditioned = [
+            EffectSpec(
+                e.type, dict(e.params),
+                condition={"life_gained_this_turn_at_least": int(life_gained.group("n"))},
+            )
+            for e in inner
+        ]
+        trailing = life_gained.group("trailing")
+        if trailing:
+            # Strip the leading ". Then " (and re-fold "Then" back onto the
+            # start so the inner "if ~ is your Ring-bearer and…" wrapper's
+            # own `(?:then )?` tolerance still matches, same as it does
+            # after an ordinary connector-split).
+            more = parse_effect_body(
+                trailing.strip().lstrip(". ").strip(),
+                self_subject=self_subject, previous_subject=previous_subject,
+            )
+            if more is None:
+                return None
+            return conditioned + more
+        return conditioned
+
+    ring_bearer_other = _RING_BEARER_OTHER_CONDITION_RE.match(body)
+    if ring_bearer_other is not None:
+        inner = parse_effect_body(
+            ring_bearer_other.group("rest"), self_subject=self_subject,
+            previous_subject=previous_subject,
+        )
+        if inner is None:
+            return None
+        return [
+            EffectSpec(e.type, dict(e.params), condition={"is_ring_bearer": False})
+            for e in inner
+        ]
+
+    ring_bearer_and_tempted = _RING_BEARER_AND_TEMPTED_CONDITION_RE.match(body)
+    if ring_bearer_and_tempted is not None:
+        inner = parse_effect_body(
+            ring_bearer_and_tempted.group("rest"), self_subject=self_subject,
+            previous_subject=previous_subject,
+        )
+        if inner is None:
+            return None
+        return [
+            EffectSpec(
+                e.type, dict(e.params),
+                condition={
+                    "is_ring_bearer": True,
+                    "ring_tempted_at_least": int(ring_bearer_and_tempted.group("n")),
+                },
+            )
             for e in inner
         ]
 

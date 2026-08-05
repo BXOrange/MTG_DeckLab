@@ -682,7 +682,21 @@ NEVER_SUPPORTED = "NEVER_SUPPORTED"
 #: `<effect>`" triggers (previously unfireable regardless of parser work,
 #: since no event existed at all); "burden" joins `_NAMED_COUNTER_KINDS`
 #: (The One Ring). +354 cards cumulative with v55, 0 regressions.
-PARSER_VERSION = "56"
+#: "57": closes the "Hobbits" deck's own commander, Frodo, Adventurous
+#: Hobbit // Frodo, Sauron's Bane — three new small condition primitives in
+#: `effects.ConditionalEffect._condition_holds` (generalized from an
+#: if/elif chain, exactly one key ever set, to an AND-fold over every key
+#: present — Frodo's own second clause is the first card needing two
+#: conditions together, backward compatible since every existing dict
+#: still carries one key): `GameState.life_gained_this_turn` (a new
+#: per-turn tracker, RULE 119.3), `"is_ring_bearer"` (RULE 701.52a — also
+#: closes "if you chose a creature other than ~ as your Ring-bearer" on
+#: Aragorn, Company Leader/Faramir, Field Commander/Galadriel of
+#: Lothlórien/Gandalf, Friend of the Shire, though each still has an
+#: unrelated second unclaimed clause of its own), and
+#: `"ring_tempted_at_least"` (RULE 701.51b, `Player.ring_level`
+#: threshold). +365 cards cumulative with v56, 0 regressions.
+PARSER_VERSION = "57"
 
 
 @dataclass
