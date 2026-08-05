@@ -2099,6 +2099,36 @@ def _add_counters(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     return [EffectSpec("add_counters", params)]
 
 
+#: RULE 122.1's *named* (non-P/T) counter kinds this grammar recognizes for
+#: the plain "put a `<kind>` counter on X" shape — deliberately small,
+#: extended as a real card needs one (fail-closed for anything else via the
+#: alternation below, same discipline `_CREATURE_FILTER_KEYWORD_WORDS`
+#: uses). Kept as a wholly separate row from `_add_counters`'s own
+#: `[+\-−]1/[+\-−]1` `ckind` group rather than widening that regex's
+#: alternation — `_add_counters`'s builder maps *any* non-`-`-prefixed
+#: match to `"+1/+1"`, so a shared group would have silently mis-typed
+#: "spore" as a P/T counter. `AddCountersEffect.kind` is already a free
+#: string (RULE 122.1a — any permanent, any named counter type), so no
+#: engine change is needed, only this narrower parser recognition.
+_NAMED_COUNTER_KINDS: frozenset[str] = frozenset({"spore"})
+_ADD_NAMED_COUNTER_RE = _c(
+    rf"put {COUNT} (?P<ckind>{'|'.join(_NAMED_COUNTER_KINDS)}) counters? on "
+    rf"(?:{TARGET}|(?P<selfref>{_SELF_SUBJECT}))"
+)
+
+
+def _add_named_counter(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    params: dict = {"count": count_of(m.group("n")), "kind": m.group("ckind")}
+    if m.groupdict().get("selfref"):
+        return [EffectSpec("add_counters", params)]
+    kind = resolve_target_kind(m.group("target"))
+    if kind not in ("creature", "permanent", "creature_you_control"):
+        return None
+    params["target_kind"] = kind
+    params.update(_optional_param(m))
+    return [EffectSpec("add_counters", params)]
+
+
 #: "put a +1/+1 counter on each of up to two target creatures" (RULE 115.1a
 #: generalized to N>=2 — the Support-keyword-shaped family; a live query
 #: against the cached Oracle DB found 100+ real cards spelling this out,
@@ -3604,6 +3634,14 @@ HANDLERS: list[EffectHandler] = [
             rf"(?:{TARGET}|(?P<selfref>{_SELF_SUBJECT}))"
         ),
         _add_counters,
+    ),
+    # "put a spore counter on ~" (Deathspore Thallid/Elvish Farmer-shaped)
+    # / "…on target fungus" (Fungal Bloom) — the named-counter sibling of
+    # the P/T-only row just above.
+    EffectHandler(
+        "add_named_counter",
+        _ADD_NAMED_COUNTER_RE,
+        _add_named_counter,
     ),
     # "put a +1/+1 counter on each of up to two target creatures" (RULE
     # 115.1a generalized to N>=2 — the Support-keyword-shaped family).

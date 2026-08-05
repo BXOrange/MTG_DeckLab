@@ -10025,3 +10025,36 @@ trigger correctly stays unclaimed, and the compound-event crash regression
 is pinned down directly). Full backend suite green (3,319 passed, 0
 failures — the previously-flaky `test_game_ws.py` test also passed this
 run).
+
+## PAR-12 · Named counter kinds (2026-08-05)
+
+Coverage 29.4%→29.5% (10,068→10,081/34,208), PARSER_VERSION 54→55. Closes
+the "put a spore counter on `<name>`" template (Deathspore Thallid/Elvish
+Farmer/Feral Thallid-shaped) — `AddCountersEffect.kind` was already a free
+string (`RulesEngine.add_counters` works on any permanent, any named
+counter, RULE 122.1a), so no engine change was needed; only the parser's
+"put a counter on X" recognition was hard-restricted to the literal
+`+1/+1`/`-1/-1` pattern. New `catalogue.handlers._add_named_counter` +
+`_NAMED_COUNTER_KINDS` whitelist (currently just `"spore"` — extend as a
+real card needs the next one, same discipline
+`_CREATURE_FILTER_KEYWORD_WORDS` uses), kept as a wholly separate handler
+row rather than widening the P/T row's own `ckind` group, since that row's
+builder maps *any* non-`-`-prefixed match to `"+1/+1"` — sharing the group
+would have silently mis-typed "spore" as a P/T counter instead of leaving
+it unclaimed.
+
+**Caught and fixed a self-inflicted regression before it shipped**: the
+edit that split `_add_counters`'s tail out for the new sibling function
+initially dropped `params.update(_optional_param(m))` from the *original*
+P/T handler, breaking "put a +1/+1 counter on up to one target creature"
+(RULE 115.1a). `parser_probe.py diff` didn't catch it — it only tracks
+MODELED/UNMODELED status, not whether the emitted params are still
+correct, exactly the "coverage counts claims, not correctness" lesson
+`PARSER_LONG_TAIL.md` already documents — but the full backend suite did
+(`test_optional_targets.py`), which is why that suite is a required, not
+optional, step of closing a batch.
+
+Tests: `tests/test_named_counter_family.py` (4 tests — parse, an
+adversarial "target fungus" subtype-target case that correctly stays
+unclaimed, a full-card check, and an execute test through a real upkeep
+trigger). Full backend suite green (3,323 passed, 0 failures).

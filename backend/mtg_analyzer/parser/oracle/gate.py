@@ -666,7 +666,12 @@ NEVER_SUPPORTED = "NEVER_SUPPORTED"
 #: (the plain single-target sibling of the already-shipped divided-
 #: prevention row). +282 cards (cumulative with v53), 0 regressions
 #: (`Done_Backend.md`).
-PARSER_VERSION = "54"
+#: "55": named (non-P/T) counter kinds for the plain "put a `<kind>`
+#: counter on X" shape (RULE 122.1) — `AddCountersEffect.kind` was already
+#: a free string; only "spore" recognition was missing
+#: (Deathspore Thallid/Elvish Farmer/Feral Thallid-shaped,
+#: `catalogue.handlers._add_named_counter`). +13 cards, 0 regressions.
+PARSER_VERSION = "55"
 
 
 @dataclass
