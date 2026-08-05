@@ -159,6 +159,10 @@ _GROUP_CONTROLLER_EVENT_KEYS: dict[str, str] = {
     # `RulesEngine.gain_life` fires `LIFE_GAINED` per-player, same
     # convention as every other player-subject event above.
     "LIFE_GAINED": "player_id",
+    # "Whenever the Ring tempts you, …" (RULE 701.51a, Tales of Middle-
+    # earth) — `RulesEngine.the_ring_tempts_you` fires this per-player, same
+    # convention as SCRY/SURVEIL/LIFE_GAINED above.
+    "RING_TEMPTED": "player_id",
 }
 
 #: Which event-data key identifies *which object* an event is about — RULE

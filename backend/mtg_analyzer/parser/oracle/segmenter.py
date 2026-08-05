@@ -200,6 +200,11 @@ _PLAYER_TRIGGER_CONDITIONS: tuple[tuple[re.Pattern[str], Any], ...] = (
     # oracle-text recognition and the matching `effect_binder`
     # `_GROUP_CONTROLLER_EVENT_KEYS` entry were missing.
     (re.compile(r"^you gain life$"), "LIFE_GAINED"),
+    # "Whenever the Ring tempts you, …" (RULE 701.51a, Tales of Middle-earth
+    # — Aragorn, Company Leader/Galadriel of Lothlórien/Sméagol, Helpful
+    # Guide-shaped). `EventType.RING_TEMPTED` fires from `RulesEngine.
+    # the_ring_tempts_you` once the Ring-bearer choice is settled.
+    (re.compile(r"^the ring tempts you$"), "RING_TEMPTED"),
 )
 
 #: A triggered-ability wrapper: "When/Whenever/At <condition>, <body>".

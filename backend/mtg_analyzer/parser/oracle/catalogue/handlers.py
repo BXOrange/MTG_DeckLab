@@ -2074,6 +2074,45 @@ def _create_named_token(m: re.Match[str]) -> list[EffectSpec]:
     return [EffectSpec("create_token", {"count": count_of(m.group("n")), "token_name": name})]
 
 
+#: RULE 701.19a's keyword action — "Investigate" (Shadows over Innistrad-
+#: introduced, but reused across many later sets — the widest single
+#: template found in this batch's ranking, 87 SOLO cache-wide). Purely "the
+#: player creates a Clue token" (`"Clue"` is already in `_NAMED_TOKEN_WORDS`,
+#: so the *token* itself needed no new work — only this keyword-action
+#: recognition), so it's modeled as a direct alias onto the same
+#: `create_token` shape `_create_named_token` already emits rather than a
+#: dedicated `investigate` effect type. "Investigate twice" is `normalize`'s
+#: one gap in its own spelled-number folding (it rewrites "three times" to
+#: "3 times" but "twice" isn't a `_NUMBER_WORDS` entry — it's a distinct
+#: word, not "two times") — handled here as its own literal alternative
+#: rather than widening `normalize` for a single irregular word no other
+#: family needs. "Investigate X times"/"...for each `<count>`" (a dynamic
+#: count) stays unclaimed — `COUNT` only ever resolves a literal int.
+_INVESTIGATE_RE = _c(r"investigate(?: (?P<times>twice|\d+ times?))?")
+
+
+def _investigate(m: re.Match[str]) -> list[EffectSpec]:
+    times = m.group("times")
+    count = 2 if times == "twice" else (int(times.split()[0]) if times else 1)
+    return [EffectSpec("create_token", {"count": count, "token_name": "Clue"})]
+
+
+#: RULE 701.51a's keyword action — "The Ring tempts you." (Tales of
+#: Middle-earth-shaped, "Lord of the Rings" set-specific — see
+#: PARSER_LONG_TAIL.md's set-specific-mechanics table). The engine
+#: primitive and the `"the_ring_tempts_you"` `EffectSpec` type already
+#: existed (`RulesEngine.the_ring_tempts_you`, `effects.
+#: TheRingTemptsYouEffect`, both built for one hand-authored card,
+#: `game/ability_catalogue.py`'s "One Ring to Rule Them All") — only this
+#: general oracle-text recognition was missing, the single widest gap this
+#: set's own precon deck has (36 SOLO cache-wide).
+_RING_TEMPTS_YOU_RE = _c(r"the ring tempts you")
+
+
+def _ring_tempts_you(m: re.Match[str]) -> list[EffectSpec]:
+    return [EffectSpec("the_ring_tempts_you", {})]
+
+
 def _signed_int(token: str) -> int:
     """A signed integer literal, tolerating the unicode minus ``−`` (U+2212)."""
     return int(token.replace("−", "-"))
@@ -2110,7 +2149,7 @@ def _add_counters(m: re.Match[str]) -> Optional[list[EffectSpec]]:
 #: "spore" as a P/T counter. `AddCountersEffect.kind` is already a free
 #: string (RULE 122.1a — any permanent, any named counter type), so no
 #: engine change is needed, only this narrower parser recognition.
-_NAMED_COUNTER_KINDS: frozenset[str] = frozenset({"spore"})
+_NAMED_COUNTER_KINDS: frozenset[str] = frozenset({"spore", "burden"})
 _ADD_NAMED_COUNTER_RE = _c(
     rf"put {COUNT} (?P<ckind>{'|'.join(_NAMED_COUNTER_KINDS)}) counters? on "
     rf"(?:{TARGET}|(?P<selfref>{_SELF_SUBJECT}))"
@@ -4009,6 +4048,19 @@ HANDLERS: list[EffectHandler] = [
         "create_named_token",
         _c(rf"(?:you )?creates? {COUNT} (?P<name>{'|'.join(_NAMED_TOKEN_WORDS)}) tokens?"),
         _create_named_token,
+    ),
+    # "Investigate." / "Investigate twice." / "Investigate 3 times." (RULE
+    # 701.19a) — a Clue-token-creation alias.
+    EffectHandler(
+        "investigate",
+        _INVESTIGATE_RE,
+        _investigate,
+    ),
+    # "The Ring tempts you." (RULE 701.51a) — Tales of Middle-earth.
+    EffectHandler(
+        "ring_tempts_you",
+        _RING_TEMPTS_YOU_RE,
+        _ring_tempts_you,
     ),
 ]
 

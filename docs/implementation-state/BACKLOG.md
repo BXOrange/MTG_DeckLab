@@ -37,17 +37,20 @@ Plan-level sequencing lives in
 ## PAR — Parser
 
 - **PAR-12 · The indefinite long tail.** Strategy, current coverage, and
-  worked examples: [PARSER_LONG_TAIL.md](PARSER_LONG_TAIL.md). Not a ticket
-  that can be "closed" — a standing program. Planechase (901)/Archenemy
-  (904) plane/scheme card *bodies* live here too (13/309 measured
-  2026-08-04) — their trigger conditions are recognized, but the bodies are
-  exotic even by tail standards, so this is ordinary long-tail work with a
-  known card list, not a distinct gap. (Reaching a Planechase/Archenemy/
-  Vanguard table at all is wired up end to end — Setup's format picker,
-  `services/lobby.py`, `api/multiplayer.py`/`api/game.py` — see
-  Done_Backend.md "PLR-13". Vanguard's own remaining piece — a per-seat
-  avatar picker, and its avatars' card text — is a permanent non-goal, not
-  a queued gap; see the MEC callout below.)
+  worked examples: [PARSER_LONG_TAIL.md](PARSER_LONG_TAIL.md) — split into
+  two tracks there, **basic mechanics** (generic shapes, worked by raw
+  cache-wide yield) and **set-specific mechanics** (one expansion/precon's
+  own signature keyword, worked deck-first against a saved deck's actual
+  commander/product). Not a ticket that can be "closed" — a standing
+  program. Planechase (901)/Archenemy (904) plane/scheme card *bodies* live
+  here too (13/309 measured 2026-08-04) — their trigger conditions are
+  recognized, but the bodies are exotic even by tail standards, so this is
+  ordinary long-tail work with a known card list, not a distinct gap.
+  (Reaching a Planechase/Archenemy/Vanguard table at all is wired up end to
+  end — Setup's format picker, `services/lobby.py`, `api/multiplayer.py`/
+  `api/game.py` — see Done_Backend.md "PLR-13". Vanguard's own remaining
+  piece — a per-seat avatar picker, and its avatars' card text — is a
+  permanent non-goal, not a queued gap; see the MEC callout below.)
 
 ## MEC — Game mechanics
 

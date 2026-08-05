@@ -10058,3 +10058,67 @@ Tests: `tests/test_named_counter_family.py` (4 tests — parse, an
 adversarial "target fungus" subtype-target case that correctly stays
 unclaimed, a full-card check, and an execute test through a real upkeep
 trigger). Full backend suite green (3,323 passed, 0 failures).
+
+## PAR-12 · Deck-first audit batch: Investigate + the "Hobbits" precon's own set (2026-08-05)
+
+Coverage 29.5%→29.6% (10,081→10,140/34,208), PARSER_VERSION 55→56. First
+batch under the new deck-first methodology (`PARSER_LONG_TAIL.md`'s
+basic-vs-set-specific split, written this same session): audit a saved
+deck's actual card list, prioritize its commander's own originating set's
+signature mechanic ahead of generic cache-wide ranking. +354 cards
+cumulative with v55, 0 regressions.
+
+- **Investigate** (RULE 701.19a) — the case study that motivated the
+  basic-vs-set-specific split in the first place: it *originated* in
+  Shadows over Innistrad but is reused across many later sets (Kaldheim,
+  Murders at Karlov Manor, …), so it belongs on the **basic** track despite
+  looking set-flavored at a glance — check reuse breadth, not origin,
+  before filing something as set-specific. `"Clue"` was already in
+  `_NAMED_TOKEN_WORDS` (the token itself needed no work), so this is a pure
+  `create_token` alias (`catalogue.handlers._investigate`) — bare
+  "Investigate.", "Investigate twice.", and "Investigate `<n>` times." (a
+  dynamic "investigate X times" stays unclaimed — `COUNT` only ever
+  resolves a literal int). 87+ cards, by far the widest single template
+  found this session.
+- **The "Hobbits" saved deck's own set, Tales of Middle-earth** — audited
+  card-by-card (45 of 89 cards were UNMODELED, including the deck's own
+  commander): "The Ring tempts you" (RULE 701.51a) as a resolve-time effect
+  was a pure alias — `RulesEngine.the_ring_tempts_you` and `EffectSpec`
+  type `"the_ring_tempts_you"` already existed (built for one hand-authored
+  card), only the general "the ring tempts you" oracle-text recognition
+  was missing (`catalogue.handlers._ring_tempts_you`) — 36+ cards. But
+  **"whenever the Ring tempts you, `<effect>`" needed a genuinely new
+  engine primitive**: `RulesEngine.the_ring_tempts_you` fired no event at
+  all, so no card with this template could ever have been modeled
+  regardless of parser work — new `EventType.RING_TEMPTED`
+  (`effect_binder._GROUP_CONTROLLER_EVENT_KEYS["RING_TEMPTED"] =
+  "player_id"`, `segmenter._PLAYER_TRIGGER_CONDITIONS`), fired once the
+  Ring-bearer choice is *settled* — immediately for the 0/1-candidate
+  paths inside `the_ring_tempts_you` itself, but deferred to
+  `resolve_ring_bearer_choice` for the interactive 2+-candidate path — so
+  a trigger reading "if you chose a creature other than ~" (Aragorn,
+  Company Leader/Faramir, Field Commander) always sees the final bearer,
+  not a stale one. Also widened `_NAMED_COUNTER_KINDS` with `"burden"`
+  (The One Ring's own counter type).
+- **Explicitly not chased this batch** (documented in
+  `PARSER_LONG_TAIL.md`'s set-specific-mechanics table rather than silently
+  dropped): Duskmourn's **Specialize** (50 SOLO cache-wide, needs a real
+  "exiled card becomes a copy" effect, not yet built) and **starting
+  intensity** (0 SOLO alone, needs its co-blocker identified first);
+  **Learn**'s Lesson-sideboard-zone infrastructure (bare "Learn." parses as
+  a 7-card cluster, but a full Lessons deck needs RULE 701.50a's "look at
+  your sideboard" zone, which doesn't exist); and Frodo, Adventurous
+  Hobbit // Frodo, Sauron's Bane — this saved deck's own commander — whose
+  full ability needs three new small primitives together (a
+  `life_gained_this_turn` per-turn tracker with no existing analogue, a
+  "chose a creature other than `<name>` as Ring-bearer" condition, and a
+  `ring_level`-threshold condition) for what's ultimately a 2-card cluster
+  (this DFC's own two faces) — a hand-authoring candidate once the
+  turn-tracker exists for other reasons, not attempted here since "no
+  half-implementations" cuts against half-modeling a deck's own commander.
+
+Tests: `tests/test_investigate_family.py` (6 tests) +
+`tests/test_ring_tempts_you_family.py` (8 tests, including the interactive
+2+-candidate Ring-bearer path and a direct check that the trigger does
+*not* fire before the bearer choice resolves). Full backend suite green
+(3,337 passed, 0 failures).

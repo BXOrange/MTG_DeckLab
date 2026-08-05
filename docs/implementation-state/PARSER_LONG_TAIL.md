@@ -13,7 +13,7 @@ Tracked in the backlog as a single standing entry, `PAR-12`.
 Measured by `scripts/coverage_report.py` (ledger-backed via
 `services/coverage_db.py`), against the full ~34k-card Oracle universe:
 
-**29.5% covered — 10,081 / 34,208 — as of 2026-08-05, PARSER_VERSION 55.**
+**29.6% covered — 10,140 / 34,208 — as of 2026-08-05, PARSER_VERSION 56.**
 
 "Covered" = parser-`MODELED` **or** hand-`AUTHORED`. Re-run the report rather
 than trusting a figure quoted here, in `CLAUDE.md`, or in the Engine-Status
@@ -47,6 +47,62 @@ A few items are deliberate non-goals — the legacy pre-2021 werewolf
 template, silver-border/acorn/un-set cards — excluded from the denominator or
 accepted as permanently unmodeled. Stickers and Attractions are project
 non-goals tracked in [BACKLOG.md](BACKLOG.md) under MEC.
+
+## Two tracks: basic mechanics vs. set-specific mechanics
+
+The tail isn't one undifferentiated pile — every unclaimed template falls
+into one of two tracks, and they get worked by two different prioritization
+rules, not one:
+
+- **Basic mechanics** — an oracle-text *shape*, keyword-action, or template
+  that recurs across many sets and years (a modal wrapper, a P/T
+  characteristic-defining ability, an O-Ring variant, a targeted-destroy
+  compound, or a keyword *action* like Investigate/Explore/Scry that a
+  design team keeps reprinting set after set once it exists). Worked by raw
+  cache-wide yield (`parser_probe.py rank`/`blocked`) — a fix here keeps
+  paying off on sets not yet printed, so the biggest SOLO count wins
+  regardless of which deck happens to need it today. This is the default
+  track and where most of this document's worked examples live.
+- **Set-specific mechanics** — a RULE 702 keyword *ability* or *action*
+  that a design team built for, and largely confined to, **one expansion or
+  Commander-precon product line** (it may get one or two nostalgia reprints
+  years later, but no ongoing set keeps printing new cards with it). A fix
+  here only pays off for decks actually built around that product — so it's
+  worked **deck-first**: when auditing a saved deck whose commander (or the
+  deck itself) comes from a named set/precon, check that set's own
+  signature mechanic(s) against the table below *before* falling back to
+  generic cache-wide ranking, since a single precon commonly clusters a
+  dozen+ of its own set's cards into one saved deck.
+
+  A mechanic only belongs in this table once someone has actually run
+  `parser_probe.py blocked "<its regex>"` and confirmed real cards are
+  blocked on it — a name alone (guessed from a set's marketing copy) isn't
+  worth an entry; verify, then add the row. Extend this table as each
+  deck's audit turns up its set's mechanic, rather than trying to
+  pre-populate every named product's keyword in one pass.
+
+  | Mechanic | RULE | Set / product | Status (as of date checked) |
+  | --- | --- | --- | --- |
+  | The Ring tempts you | 701.51/701.52 | Tales of Middle-earth | **Done** — `Player.ring_level`/`ring_bearer_id` (`Done_Backend.md`, cEDH-cube batch); the oracle-text clause itself and "whenever the Ring tempts you, `<effect>`" (`EventType.RING_TEMPTED`) followed later (2026-08-05) |
+  | The One Ring's own bespoke clauses (protection-from-everything-on-cast, burden-counter life loss, burden-counter draw scaling) | — | Tales of Middle-earth (one unique card) | **Partially done** (checked 2026-08-05) — "burden" is now a recognized named counter kind, but the card's other two clauses are still unclaimed; likely hand-authoring territory (RULE 122.1a's burden-counter card is a singleton, not a cluster) |
+  | Frodo, Adventurous Hobbit // Frodo, Sauron's Bane (this deck's own commander) | — | Tales of Middle-earth (one DFC) | **Not done** (checked 2026-08-05) — needs three new small primitives together: a `life_gained_this_turn` per-turn tracker (no existing analogue — `cards_drawn_this_turn` is the nearest sibling), a "chose a creature other than `<name>` as your Ring-bearer" resolve-time condition, and "the Ring has tempted you `<n>` or more times this game" as a `ring_level` threshold condition. Only 2 cards need the last one (this DFC's own two faces) — hand-authoring candidate once the life-gain tracker exists for other reasons |
+  | Choose a Background | 702.124 | Commander Legends: Battle for Baldur's Gate | **Done** (2026-08-05) — bare FLAG keyword, inert in-game like Partner; the deckbuilding pairing check itself is [BACKLOG.md](BACKLOG.md)'s DB-3, still open |
+  | Magecraft | ability word | Strixhaven | **Done** — `segmenter._MAGECRAFT_RE` |
+  | Amass / Mutate / Monstrosity / Adapt / Goad / Bargain / Fading / Soulbond | 701.x / 702.x | War of the Spark / Ikoria / Theros / various | **Done** — see `Done_Backend.md`'s cEDH-cube batch |
+  | Day/Night (werewolf transform) | 702.28 (2011+ template) | Innistrad: Midnight Hunt/Crimson Vow | **Done** — the *legacy* pre-2021 template is the one accepted non-goal above |
+  | Specialize | ~702.166 | Duskmourn: House of Horror | **Not done** (checked 2026-08-05) — 50 SOLO cache-wide (`Gut, Bestial/Brutal Fanatic`-shaped); needs a real "the exiled card becomes a copy, sacrifice-timed token" effect, not yet built |
+  | Starting intensity | Duskmourn's Room-adjacent template | Duskmourn: House of Horror | **Not done** (checked 2026-08-05) — 0 cards SOLO-blocked on the phrase alone (always paired with another unclaimed clause); needs its co-blocker identified before estimating real scope |
+  | Learn (Lessons) | 701.50 | Dominaria / Strixhaven | **Partially done** (checked 2026-08-05) — bare "Learn." is a 7-card SOLO cluster; the Lesson-sideboard-zone infrastructure itself (RULE 701.50a "look at your sideboard") isn't built, so a full deck with real Lessons stays out of scope regardless |
+  | Investigate | 701.19a | Shadows over Innistrad (**reused across many later sets** — belongs on the *basic* track, listed here only as the worked example that motivated this split) | **Done** (2026-08-05) — a `create_token` alias onto the already-shipped Clue token, 87+ cards in one row; this is the case study for "keyword action, but basic not set-specific" — check *reuse breadth* before filing something here |
+
+  Doctor's companion / Time travel (Doctor Who), "Start your engines!"
+  (Aetherdrift), Augment (Aether Revolt), "For Mirrodin!" (Mirrodin block),
+  ki counters (Kamigawa block), and whatever Edge of Eternities/Lorwyn
+  Eclipsed/New Capenna/Bloomburrow turn out to print as their own signature
+  mechanic are all **known-unverified** — real cards are blocked on some of
+  these phrases (see `rank`'s live output), but nobody has yet confirmed
+  scope/primitive-existence for them the way the rows above were. Don't
+  copy a status onto this list without running the check yourself.
 
 ## Lessons that keep recurring
 

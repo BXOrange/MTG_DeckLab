@@ -148,6 +148,13 @@ class EventType:
     SURVEIL = "SURVEIL"
     #: A card was moved to exile (RULE 406) — e.g. cascade/discover reveal.
     EXILE = "EXILE"
+    #: The Ring tempted a player (RULE 701.51a, Tales of Middle-earth) —
+    #: fired by `RulesEngine.the_ring_tempts_you` after the emblem levels up
+    #: and the Ring-bearer choice resolves, for "whenever the Ring tempts
+    #: you, <effect>" triggers (Aragorn, Company Leader/Galadriel of
+    #: Lothlórien/Sméagol, Helpful Guide-shaped). Carries ``player_id`` (the
+    #: tempted player), same convention as SCRY/SURVEIL.
+    RING_TEMPTED = "RING_TEMPTED"
     #: A player searched their library (RULE 701.19) / shuffled it (RULE 701.20).
     LIBRARY_SEARCHED = "LIBRARY_SEARCHED"
     SHUFFLE = "SHUFFLE"

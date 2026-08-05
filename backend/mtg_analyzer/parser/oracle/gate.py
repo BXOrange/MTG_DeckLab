@@ -671,7 +671,18 @@ NEVER_SUPPORTED = "NEVER_SUPPORTED"
 #: a free string; only "spore" recognition was missing
 #: (Deathspore Thallid/Elvish Farmer/Feral Thallid-shaped,
 #: `catalogue.handlers._add_named_counter`). +13 cards, 0 regressions.
-PARSER_VERSION = "55"
+#: "56": deck-first audit batch (2026-08-05) — "Investigate" (RULE 701.19a,
+#: an alias onto the already-shipped Clue token, 87+ cards, the case study
+#: that motivated PARSER_LONG_TAIL.md's basic-vs-set-specific split) plus
+#: the "Hobbits" saved deck's own set (Tales of Middle-earth): "The Ring
+#: tempts you" as a resolve-time effect (aliasing the already-existing
+#: `TheRingTemptsYouEffect`) and — new engine primitive —
+#: `EventType.RING_TEMPTED`, fired by `RulesEngine.the_ring_tempts_you`
+#: once the Ring-bearer choice settles, for "whenever the Ring tempts you,
+#: `<effect>`" triggers (previously unfireable regardless of parser work,
+#: since no event existed at all); "burden" joins `_NAMED_COUNTER_KINDS`
+#: (The One Ring). +354 cards cumulative with v55, 0 regressions.
+PARSER_VERSION = "56"
 
 
 @dataclass

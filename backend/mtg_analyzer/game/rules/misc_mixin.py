@@ -1470,6 +1470,13 @@ class MiscSystemsMixin:
         candidates it's a genuine `ring_bearer` `pending_choice`. Controlling
         no creature means no bearer at all — the emblem's abilities simply
         have nothing to apply to until the next temptation picks one.
+
+        Finally fires `EventType.RING_TEMPTED` (for "whenever the Ring
+        tempts you, `<effect>`" triggers) once ``ring_bearer_id`` is
+        settled — immediately for the 0/1-candidate paths here, or from
+        `resolve_ring_bearer_choice` once the interactive pick resolves, so
+        a trigger reading "if you chose a creature other than ~" always
+        sees the final bearer.
         """
         player.ring_level = min(4, int(getattr(player, "ring_level", 0) or 0) + 1)
         candidates = [
@@ -1477,9 +1484,11 @@ class MiscSystemsMixin:
         ]
         if not candidates:
             player.ring_bearer_id = None
+            self.state.fire_event(GameEvent(EventType.RING_TEMPTED, player_id=player.id))
             return
         if len(candidates) == 1:
             player.ring_bearer_id = candidates[0].instance_id
+            self.state.fire_event(GameEvent(EventType.RING_TEMPTED, player_id=player.id))
             return
         self.state.pending_choice = {
             "kind": "ring_bearer",
@@ -1510,6 +1519,13 @@ class MiscSystemsMixin:
         self.state.pending_choice = None
         if player is not None:
             player.ring_bearer_id = instance_id
+            # `the_ring_tempts_you`'s own RING_TEMPTED firing is deferred to
+            # here for this 2+-candidate path — a "whenever the Ring tempts
+            # you, if you chose a creature other than ~ as your Ring-bearer,
+            # …" trigger (Aragorn, Company Leader/Faramir, Field Commander)
+            # needs `ring_bearer_id` already settled when it fires, and this
+            # is the only point that's true for an interactive choice.
+            self.state.fire_event(GameEvent(EventType.RING_TEMPTED, player_id=player.id))
     def _sweep_ring_bearer(self) -> None:
         """RULE 701.52d: a Ring-bearer that stops being a creature its
         designator controls stops being the Ring-bearer. Run as part of the
