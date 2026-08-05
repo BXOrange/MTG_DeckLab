@@ -13,7 +13,7 @@ Tracked in the backlog as a single standing entry, `PAR-12`.
 Measured by `scripts/coverage_report.py` (ledger-backed via
 `services/coverage_db.py`), against the full ~34k-card Oracle universe:
 
-**29.9% covered — 10,237 / 34,208 — as of 2026-08-05, PARSER_VERSION 58.**
+**30.6% covered — 10,479 / 34,208 — as of 2026-08-05, PARSER_VERSION 59.**
 
 "Covered" = parser-`MODELED` **or** hand-`AUTHORED`. Re-run the report rather
 than trusting a figure quoted here, in `CLAUDE.md`, or in the Engine-Status

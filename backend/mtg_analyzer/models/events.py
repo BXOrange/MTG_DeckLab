@@ -177,6 +177,13 @@ class EventType:
     SPELL_CAST = "SPELL_CAST"
     SPELL_RESOLVED = "SPELL_RESOLVED"
     LAND_PLAYED = "LAND_PLAYED"
+    #: RULE 702.28c: a card was cycled (its Cycling cost paid, discarding
+    #: it — `ActivationCost.is_cycling` distinguishes this from Channel's
+    #: own, unrelated ``discard_self`` cost). What a "When you cycle this
+    #: card, `<effect>`." triggered ability watches for; carries
+    #: ``instance_id``/``controller_id`` like every other self-scoped
+    #: object event.
+    CYCLED = "CYCLED"
 
     # Combat / damage / life.
     DAMAGE = "DAMAGE"

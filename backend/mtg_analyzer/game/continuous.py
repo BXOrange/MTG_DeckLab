@@ -314,6 +314,17 @@ def group_selector_objects(
         ]
     elif affects == "permanents_you_control":
         result = [o for o in battlefield if o.controller_id == controller_id]
+    elif affects.startswith("creatures_you_control_of_type_"):
+        # "Elves you control get +2/+2 and gain deathtouch until end of
+        # turn." (Elvish Warmaster/Ezuri, Renegade Leader-shaped) — the
+        # one-shot-pump sibling of `count_selector`'s own identically-named
+        # branch (that one *counts* matching creatures; this one *picks*
+        # them out to pump/grant a keyword to).
+        creature_type = affects[len("creatures_you_control_of_type_"):]
+        result = [
+            o for o in battlefield
+            if o.is_creature and o.controller_id == controller_id and _has_subtype(o, creature_type)
+        ]
     elif affects == "nonland_permanents_you_control":
         # "Untap all nonland permanents you control." (Dramatic Reversal)
         result = [

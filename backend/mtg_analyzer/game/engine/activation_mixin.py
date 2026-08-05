@@ -675,7 +675,22 @@ class ActivationMixin:
                 for card in chosen or []:
                     self.rules.discard_specific(card)
         if cost.discard_self:
+            instance_id, controller_id, name = source.instance_id, player.id, source.name
             self.rules.discard_specific(source)
+            if cost.is_cycling:
+                # RULE 702.28c: "when you cycle this card" — fired *after*
+                # the discard (the card is genuinely in the graveyard by
+                # the time the trigger checks), so a "return this from your
+                # graveyard" bonus effect on the same cycle sees it there;
+                # `_collect_cycled_triggers` is the graveyard-scoped scan
+                # that finds the now-discarded source's own trigger.
+                source.cycling_x_paid = x
+                self.state.fire_event(
+                    GameEvent(
+                        EventType.CYCLED, instance_id=instance_id,
+                        controller_id=controller_id, object=name,
+                    )
+                )
         if cost.remove_counters:
             kind, count = cost.remove_counters
             amount = x if count in (REMOVE_COUNTERS_X, REMOVE_COUNTERS_ANY) else count

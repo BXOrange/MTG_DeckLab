@@ -20,7 +20,12 @@ import re
 from dataclasses import dataclass, field
 from typing import Any, Optional
 
-from .catalogue.handlers import TRIGGER_ONCE_PER_TURN_MARKER, match_clause
+from .catalogue.handlers import (
+    TRIGGER_ONCE_PER_TURN_MARKER,
+    _CYCLING_XX_TOKEN_RE,
+    _cycling_xx_token,
+    match_clause,
+)
 from .catalogue.keywords import ALIAS_DISPLAYS, KEYWORDS
 from .catalogue.replacements import replacement_clause_specs
 from .catalogue.saga import CHAPTER_LINE_RE, parse_chapter_token
@@ -282,6 +287,59 @@ _SPELL_CAST_TYPE_WORDS: frozenset[str] = frozenset(
 _CAST_SPELL_TRIGGER_RE = re.compile(
     r"^whenever you cast (?:an?|another) (?P<types>[a-z][a-z,\s]*?) spell,\s*(?P<body>.+)$",
     re.IGNORECASE | re.S,
+)
+
+#: The negated sibling — "Whenever you cast a **noncreature** spell, …"
+#: (Young Pyromancer/Shark Typhoon/dozens of "spells matter" payoffs —
+#: found to be the single biggest ranked template blocker in the cache,
+#: ~92 cards on this shape alone). RULE 603.1 excludes one main card type
+#: rather than naming several to include, so it's `effect_binder`'s own
+#: predicate (``spell_exclude_card_types``, the mirror of the existing
+#: ``spell_card_types`` OR-match) rather than reusing that key with a
+#: "negate" flag — the two would otherwise need a third param just to tell
+#: them apart. Only ever one excluded type on a real card so far (a
+#: compound "noncreature, nonland spell" hasn't been seen) — extend the
+#: capture group to a list the day one is.
+_CAST_SPELL_TRIGGER_NEG_RE = re.compile(
+    r"^whenever you cast an? non(?P<type>[a-z]+) spell,\s*(?P<body>.+)$",
+    re.IGNORECASE | re.S,
+)
+
+#: A curated whitelist of real creature subtypes for "Whenever you cast an
+#: Elf spell, …"-shaped triggers (Lys Alana Huntmaster/Leaf-Crowned
+#: Visionary, tribal "spells matter" payoffs — ranked the single biggest
+#: template blocker in the whole cache at ~181 cards on the wider "cast a
+#: `<word>` spell" shape; this is the safe creature-subtype slice of it).
+#: Deliberately a fixed list rather than "any word": `effect_binder`'s
+#: `spell_subtype_any` predicate is a bare substring check against the
+#: cast object's printed type line, which would *silently* misfire on a
+#: non-subtype adjective that happens to appear in some other card's type
+#: line ("legendary") or simply never fire on one that never does
+#: ("historic"/"kicked"/"multicolored"/"party") — both wrong, and neither
+#: caught by the coverage gate, so only genuine creature types go in this
+#: list (extend it as a real card needs one, rather than trying to
+#: enumerate the ~300-entry official creature-type list up front — no
+#: canonical list of those exists in this codebase, per
+#: `catalogue.handlers._creature_type_options`'s own docstring).
+_CAST_SPELL_SUBTYPE_WORDS: frozenset[str] = frozenset({
+    "elf", "goblin", "zombie", "human", "wizard", "merfolk", "vampire",
+    "dragon", "angel", "demon", "spirit", "soldier", "knight", "warrior",
+    "elemental", "giant", "dwarf", "faerie", "sliver", "rogue", "cleric",
+    "shaman", "druid", "beast", "bird", "cat", "dog", "insect", "snake",
+    "treefolk", "wolf",
+})
+
+#: RULE 702.28c's own trigger condition — "When you cycle this card,
+#: `<effect>`." (Krosan Tusker/Shark Typhoon-shaped — ranked the single
+#: biggest template blocker in this family, ~37 real cards). Fires off the
+#: new `EventType.CYCLED` (`GameEngine._pay_activation_cost`, gated on
+#: `ActivationCost.is_cycling` so a Channel card's own unrelated
+#: ``discard_self`` never misfires it) via `RulesEngine.
+#: _collect_cycled_triggers`'s graveyard-scoped scan — a card's own
+#: Cycling keyword line is recognized separately (the "privileged fast
+#: path" keyword grammar), so this only needs to claim the bonus sentence.
+_CYCLE_TRIGGER_RE = re.compile(
+    r"^when you cycle this card,\s*(?P<body>.+)$", re.IGNORECASE | re.S,
 )
 
 #: RULE 701.17/603.1's "Whenever you sacrifice a Food, …" (Experimental
@@ -1299,12 +1357,70 @@ def segment_line(
         )
         return Segment(raw=raw, spec=spec, claimed=True)
 
+    # Tried before the positive `_CAST_SPELL_TRIGGER_RE` below: that
+    # pattern's own ``types`` group (bare ``[a-z][a-z,\s]*?``) is generic
+    # enough to also swallow "noncreature" as if it were a types list —
+    # failing `_parse_cast_spell_types` and returning unclaimed *before*
+    # this negated form ever got a chance to match the same line.
+    cast_spell_trig_neg = _CAST_SPELL_TRIGGER_NEG_RE.match(raw)
+    if cast_spell_trig_neg is not None:
+        excluded = cast_spell_trig_neg.group("type").lower()
+        if excluded not in _SPELL_CAST_TYPE_WORDS:
+            return Segment(raw=raw)
+        body, optional = _peel_optional(cast_spell_trig_neg.group("body"))
+        effects = parse_effect_body(body)
+        if effects is None:
+            return Segment(raw=raw)
+        spec = AbilitySpec(
+            "triggered",
+            effects=effects,
+            trigger={
+                "event": "SPELL_CAST",
+                "condition": {"subject": "you"},
+                "spell_exclude_card_types": [excluded],
+            },
+            optional=optional,
+            raw_text=raw,
+            parser=provenance,
+        )
+        return Segment(raw=raw, spec=spec, claimed=True)
+
     cast_spell_trig = _CAST_SPELL_TRIGGER_RE.match(raw)
     if cast_spell_trig is not None:
-        types = _parse_cast_spell_types(cast_spell_trig.group("types"))
+        raw_types = cast_spell_trig.group("types")
+        types = _parse_cast_spell_types(raw_types)
+        # "Whenever you cast an Elf spell, …" (Lys Alana Huntmaster-shaped) —
+        # the same captured word list read as a *subtype* instead of a main
+        # card type when it isn't one (`_CAST_SPELL_SUBTYPE_WORDS`'s curated
+        # whitelist) — tried here, in the same branch, rather than a
+        # separate regex row: `_CAST_SPELL_TRIGGER_RE`'s own generic
+        # ``types`` group already matches "elf" just as happily as
+        # "creature", so a standalone subtype row placed after this one
+        # would never be reached, and placed before it would just invert
+        # the same problem onto genuine main-type cards.
+        single_word = raw_types.strip().lower()
+        if types is None and single_word in _CAST_SPELL_SUBTYPE_WORDS:
+            body, optional = _peel_optional(cast_spell_trig.group("body"))
+            effects = parse_effect_body(body)
+            if effects is None:
+                return Segment(raw=raw)
+            spec = AbilitySpec(
+                "triggered",
+                effects=effects,
+                trigger={
+                    "event": "SPELL_CAST",
+                    "condition": {"subject": "you"},
+                    "spell_subtype_any": [single_word],
+                },
+                optional=optional,
+                raw_text=raw,
+                parser=provenance,
+            )
+            return Segment(raw=raw, spec=spec, claimed=True)
         if types is None:
             return Segment(raw=raw)
-        effects = parse_effect_body(cast_spell_trig.group("body"))
+        body, optional = _peel_optional(cast_spell_trig.group("body"))
+        effects = parse_effect_body(body)
         if effects is None:
             return Segment(raw=raw)
         spec = AbilitySpec(
@@ -1315,6 +1431,32 @@ def segment_line(
                 "condition": {"subject": "you"},
                 "spell_card_types": types,
             },
+            optional=optional,
+            raw_text=raw,
+            parser=provenance,
+        )
+        return Segment(raw=raw, spec=spec, claimed=True)
+
+    cycle_trig = _CYCLE_TRIGGER_RE.match(raw)
+    if cycle_trig is not None:
+        body = cycle_trig.group("body")
+        # RULE 702.28c's X (Shark Typhoon's "create an X/X ... token"): the
+        # Cycling cost's own paid {X}, ambiguous to any *generic* "create an
+        # X/X ... token" handler outside this wrapper (see `_cycling_xx_
+        # token`'s own docstring) — checked directly, here, rather than
+        # through the ordinary HANDLERS table this body would otherwise go
+        # through via `parse_effect_body`.
+        xx_token_match = _CYCLING_XX_TOKEN_RE.fullmatch(body.strip().rstrip(".").strip())
+        if xx_token_match is not None:
+            effects = _cycling_xx_token(xx_token_match)
+        else:
+            effects = parse_effect_body(body, self_subject=True)
+        if effects is None:
+            return Segment(raw=raw)
+        spec = AbilitySpec(
+            "triggered",
+            effects=effects,
+            trigger={"event": "CYCLED", "condition": {"subject": "self"}},
             raw_text=raw,
             parser=provenance,
         )
@@ -1831,14 +1973,16 @@ def segment_line(
     return Segment(raw=raw, spec=spec, claimed=True)
 
 
-#: "you may pay {E}… . If/When you do, <effect>." (Aether Chaser) — the
-#: "you may" here is the *energy-payment* decision the `pay_energy_then`
-#: effect models with its own interactive choice, not a whole-ability "you
-#: may". Left un-peeled so the full clause reaches `parse_effect_body`'s
-#: `pay_energy_then` handler intact (otherwise the ability would be marked
-#: doubly-optional and the "if you do" gate would be lost).
+#: "you may pay {E}… . If/When you do, <effect>." (Aether Chaser) / "you
+#: may pay {1}. If you do, draw a card." (RULE 118.3's general
+#: `pay_cost_then` idiom, Spellbomb-cycle-shaped — ~21 more real cards) —
+#: the "you may" here is the *cost-payment* decision `pay_energy_then`/
+#: `pay_cost_then` model with their own interactive choice, not a
+#: whole-ability "you may". Left un-peeled so the full clause reaches
+#: `parse_effect_body`'s own handler for either shape intact (otherwise the
+#: ability would be marked doubly-optional and the "if you do" gate lost).
 _PAY_ENERGY_THEN_PEEL_GUARD_RE = re.compile(
-    r"^you may pay (?:\{e\})+\.\s*(?:if|when) you do", re.IGNORECASE
+    r"^you may pay (?:(?:\{e\})+|\{[a-z0-9]+\})\.\s*(?:if|when) you do", re.IGNORECASE
 )
 
 

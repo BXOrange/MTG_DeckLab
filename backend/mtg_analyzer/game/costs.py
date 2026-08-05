@@ -218,6 +218,15 @@ class ActivationCost:
     #: distinct from ``discard`` (a battlefield ability's "discard N cards"),
     #: and paid from hand rather than off a battlefield permanent.
     discard_self: bool = False
+    #: RULE 702.28c's own trigger condition ("When you cycle this card,
+    #: `<effect>`.") needs to fire only when ``discard_self`` was paid
+    #: specifically as a *Cycling* cost, not Channel's (both share
+    #: ``discard_self`` above) — set only by `effect_binder._cycling_
+    #: activated_ability` and the oracle-parsed Cycling-keyword-line cost,
+    #: never by a plain "Discard this card:" Channel ability. Read by
+    #: `GameEngine._pay_activation_cost` to decide whether to fire
+    #: `EventType.CYCLED`.
+    is_cycling: bool = False
     #: PAR-10: "`<cost>`: Return this card from your graveyard to the
     #: battlefield[, tapped]." (Dread Wanderer/Reassembling Skeleton &c) —
     #: like `discard_self`, this is the one shape activated from a zone
@@ -422,6 +431,7 @@ class ActivationCost:
             "pay_energy": self.pay_energy,
             "discard": self.discard,
             "discard_self": self.discard_self,
+            "is_cycling": self.is_cycling,
             "remove_counters": list(self.remove_counters) if self.remove_counters else None,
             "exile_from_graveyard": self.exile_from_graveyard,
             "tap_others": list(self.tap_others) if self.tap_others else None,
@@ -474,6 +484,8 @@ def parse_activation_cost(
         parsed.discard = int(cost["discard"])
     if "discard_self" in cost:
         parsed.discard_self = bool(cost["discard_self"])
+    if "is_cycling" in cost:
+        parsed.is_cycling = bool(cost["is_cycling"])
     if cost.get("loyalty") is not None:
         raw_loyalty = cost["loyalty"]
         if isinstance(raw_loyalty, str) and raw_loyalty.strip().lower() in ("-x", "−x"):

@@ -735,7 +735,62 @@ NEVER_SUPPORTED = "NEVER_SUPPORTED"
 #: one's documented simplification. +18 cards to measured parser coverage
 #: (the rest were hand-authored, which this ledger doesn't count), 0
 #: regressions.
-PARSER_VERSION = "58"
+#:
+#: Batch 59 (2026-08-05, "make two decks fully playable"): a deck-first
+#: audit of the "Keywords Showcase" and "Eliferate" saved decks surfaced a
+#: long tail of genuine engine/parser gaps, closed in priority order by
+#: real yield rather than by card. New primitives, each reused well past
+#: its originating card: RULE 702.90/91 **Infect/Wither** damage
+#: conversion (`combat.has_infect`/`has_wither`, `deal_damage`'s poison/
+#: -1-1-counter substitution — a pure keyword-recognition gap before this,
+#: zero behavior); RULE 702.33b's **kicked override** conditional
+#: ("deals N, if kicked deals M *instead*" — `DealDamageEffect.
+#: amount_if_kicked`/`CopyPermanentEffect.count_if_kicked`, distinct from
+#: the additive shape already shipped); RULE 615's **unscoped Fog** shield
+#: (`PreventAllCombatDamageEffect`, +36 cards on one template); RULE
+#: 707's bare **copy_permanent** oracle recognition (previously hand-
+#: authored only); RULE 119/701.8's **hand-disruption discard** (Duress/
+#: Thoughtseize-shaped, `RevealHandChooseDiscardEffect` reusing
+#: `request_choose_objects`'s existing chooser, +63-card family);
+#: `RulesEngine.blink`'s **``controller``** param (Restoration Angel's
+#: "return under *your* control", not the owner's) — which also surfaced
+#: a real latent bug: `creature_you_control`'s `legal_targets` branch
+#: never consulted `creature_filter` at all; a **normalize fold** for
+#: "Until end of turn, `<body>`." → the far more common trailing form
+#: (+124-card upper bound); `without_color`/`without_card_type`/
+#: `without_subtype`/`"attacking"` **negative/compound target filters**
+#: (Doom Blade's "nonblack", Restoration Angel's "non-Angel", Gnarlroot
+#: Trapper's "attacking Elf"); targeted **draws**
+#: ("target player draws a card" had been silently making the source's
+#: *controller* draw instead); RULE 702.28c's **Cycling trigger**
+#: (`EventType.CYCLED`, `ActivationCost.is_cycling`, a graveyard-scoped
+#: trigger scan mirroring the existing dies-from-graveyard one — "When you
+#: cycle this card" had no event to watch at all, +37-card template) with
+#: its own **{X} preservation** (`GameObject.cycling_x_paid`, mirroring
+#: Kicker's `kicker_x_paid`); a **card-type-excluding spell-cast trigger**
+#: ("whenever you cast a *non*creature spell" — the positive form existed,
+#: the negation didn't, +92-card template) and its **creature-subtype**
+#: sibling ("…an Elf spell" — `spell_subtype_any` was already a real
+#: predicate, just never reachable from oracle text, +181-card template
+#: upper bound); RULE 118.3's **pay_cost_then** oracle recognition ("you
+#: may pay `<cost>`. If you do, `<effect>`." — the primitive was
+#: hand-authored-only, +21-card template) with `_peel_optional`'s
+#: existing energy-only double-optional guard widened to any mana cost;
+#: three **dynamic-magnitude token/pump** shapes read live off the board
+#: or the firing event rather than a fixed int
+#: (`CreateTokenEffect.count_from_trigger_event`/Lathril's "create that
+#: many", `PumpEffect.amount_from_count_selector`/Craterhoof Behemoth's
+#: "+X/+X where X is the number of creatures you control",
+#: `PumpEffect.per_recipient_controller_counter`/Phyresis Outbreak's
+#: per-recipient poison scaling); and several narrow selector/filter
+#: widenings reused by multiple cards each (`creatures_you_control_of_
+#: type_<X>` reaching `group_selector_objects` not just `count_selector`,
+#: `permanents_you_control`/`other_creatures_you_control` reaching
+#: `PumpEffect`/`TapEffect`'s own selector — the latter missing ``src=``
+#: entirely, a second latent bug). +239 cards to measured parser coverage,
+#: 0 regressions (`scripts/parser_probe.py diff`), full pytest suite green
+#: throughout. See `Done_Backend.md` for the per-family narrative.
+PARSER_VERSION = "59"
 
 
 @dataclass

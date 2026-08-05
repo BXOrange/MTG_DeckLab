@@ -445,7 +445,11 @@ referent for a clause naming what an *earlier clause of the same
 resolution* just created ("**The tokens** are goaded …");
 planeswalkers; commander damage + tax; the full RULE 702
 keyword catalogue (194 keywords, flag keywords bound to combat, RULE 702.8b
-Flash now gating cast timing); a trigger-subject family for "whenever
+Flash now gating cast timing, and — since 2026-08-05 — RULE 702.90/91
+**Infect**/**Wither** as real damage-conversion behavior in
+`RulesEngine.deal_damage` rather than just parse-level flag recognition:
+an infect source's damage becomes poison counters on a player and
+-1/-1 counters on a creature, wither the creature-only half); a trigger-subject family for "whenever
 equipped/enchanted creature `<verb>`" and "deals combat damage to a player"
 (`effect_binder`'s `"attached_permanent"`/`"self_or_attached_permanent"`
 subjects + a `EventType.DAMAGE` `"filter"` predicate); "play/cast
@@ -564,8 +568,8 @@ every field it reads, `parser/oracle/gate.py`) since it's called once per
 on every copy/every game. `parser/oracle/processing_list.py` tracks
 cache-wide coverage and ranks the next handlers worth building. The cache is
 now bulk-loaded with the **full ~34k-card Oracle universe**
-(`scripts/import_bulk.py`), so coverage is measured against that: **29.9%
-covered (10,238 / 34,208) as of 2026-08-05, PARSER_VERSION 58** (parser-`MODELED` **or**
+(`scripts/import_bulk.py`), so coverage is measured against that: **30.6%
+covered (10,479 / 34,208) as of 2026-08-05, PARSER_VERSION 59** (parser-`MODELED` **or**
 hand-`AUTHORED`).
 Re-measure with `scripts/coverage_report.py` (ledger-backed — see
 `services/coverage_db.py`) before trusting this number; Batches 1–10 are all

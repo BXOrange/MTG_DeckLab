@@ -19,7 +19,12 @@ from __future__ import annotations
 
 from mtg_analyzer.game.costs import parse_activation_cost
 from mtg_analyzer.game.effect_binder import bind_from_catalogue
-from mtg_analyzer.game.effects import GameContext, GainLifeEffect, PreventDamageEffect
+from mtg_analyzer.game.effects import (
+    GameContext,
+    GainLifeEffect,
+    PreventAllCombatDamageEffect,
+    PreventDamageEffect,
+)
 from mtg_analyzer.game.game_engine import GameEngine
 from mtg_analyzer.models.card import Card
 from mtg_analyzer.models.game_object import GameObject, Zone
@@ -294,3 +299,82 @@ def test_thought_lash_activated_ability_exiles_top_card_and_prevents_damage():
 
     eng.rules.deal_damage(p1, 5)
     assert p1.life == 16  # 1 prevented, 4 dealt
+
+
+# ---------------------------------------------------------------------------
+# RULE 615's unscoped Fog-shaped shield (`PreventAllCombatDamageEffect`,
+# `RulesEngine.prevent_all_combat_damage_this_turn`) — no recipient at all,
+# unlike every shield above.
+# ---------------------------------------------------------------------------
+
+
+def test_prevent_all_combat_damage_absorbs_combat_but_not_noncombat_damage():
+    rules, state, p1, p2 = _rules()
+    _bf(state, _bear("Caster"), controller="p1")
+    rules.prevent_all_combat_damage_this_turn(p1)
+    rules.deal_damage(p2, 5, combat=True)
+    assert p2.life == 20
+    rules.deal_damage(p2, 5, combat=False)
+    assert p2.life == 15  # a burn spell isn't combat damage — still goes through
+
+
+def test_prevent_all_combat_damage_is_not_scoped_to_the_caster():
+    # Unlike `prevent_damage_to_player`, this shield has no chosen
+    # recipient — it stops *every* player's/creature's combat damage, not
+    # just the caster's own.
+    rules, state, p1, p2 = _rules()
+    rules.prevent_all_combat_damage_this_turn(p1)
+    rules.deal_damage(p1, 5, combat=True)
+    rules.deal_damage(p2, 5, combat=True)
+    assert p1.life == 20
+    assert p2.life == 20
+
+
+def test_prevent_all_combat_damage_shield_expires_at_cleanup():
+    eng = GameEngine.new_game(
+        [("p1", "Alice", []), ("p2", "Bob", [])], starting_life=20, starting_hand=0
+    )
+    p1 = eng.state.player_by_id("p1")
+    p2 = eng.state.player_by_id("p2")
+    eng.rules.prevent_all_combat_damage_this_turn(p1)
+    eng._step_cleanup()
+    assert not any(getattr(e, "damage_prevention_shield", False) for e in p1.player_effects)
+    eng.rules.deal_damage(p2, 5, combat=True)
+    assert p2.life == 15  # shield is gone, combat damage goes through
+
+
+def test_prevent_all_combat_damage_effect_targets_its_own_controller_as_the_shields_home():
+    rules, state, p1, p2 = _rules()
+    source = _bf(state, _bear(), controller="p1")
+    ctx = GameContext(state, rules)
+    PreventAllCombatDamageEffect(source=source).apply(ctx)
+    assert any(getattr(e, "damage_prevention_shield", False) for e in p1.player_effects)
+    # But the shield itself is unscoped — it stops p2's combat damage too.
+    rules.deal_damage(p2, 3, combat=True)
+    assert p2.life == 20
+
+
+def _fog_card():
+    return Card(id="Fog", name="Fog", type_line="Instant", mana_cost_string="{G}",
+                converted_mana_cost=1, is_instant=True,
+                oracle_text="Prevent all combat damage that would be dealt this turn.")
+
+
+def test_fog_prevents_combat_damage_end_to_end():
+    eng = GameEngine.new_game(
+        [("p1", "Alice", []), ("p2", "Bob", [])], starting_life=20, starting_hand=0
+    )
+    p1 = eng.state.player_by_id("p1")
+    p2 = eng.state.player_by_id("p2")
+
+    spell = GameObject(_fog_card(), owner_id="p1", zone=Zone.STACK)
+    bind_from_catalogue(spell)
+    assert spell.spell_effects  # confirms the oracle-text parser bound something
+    ctx = GameContext(eng.state, eng.rules)
+    for effect in spell.spell_effects:
+        effect.apply(ctx)
+
+    eng.rules.deal_damage(p2, 7, combat=True)
+    assert p2.life == 20
+    eng.rules.deal_damage(p2, 7, combat=False)
+    assert p2.life == 13

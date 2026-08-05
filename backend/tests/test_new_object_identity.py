@@ -112,6 +112,29 @@ def test_blink_restores_owner_control_after_a_control_change():
     assert obj.controller_id == "p1"
 
 
+def test_blink_with_explicit_controller_returns_under_that_player_not_the_owner():
+    # Restoration Angel-shaped: "return that card to the battlefield under
+    # your control" — the caster, not necessarily the owner.
+    engine, state, p1, p2 = _rules()
+    obj = _bf(state, _bear("Borrowed Bear"), controller="p1")
+    obj.owner_id = "p1"
+
+    engine.blink(obj, controller=state.player_by_id("p2"))
+
+    assert obj.controller_id == "p2"
+    assert obj.owner_id == "p1"  # ownership never changes, only control
+    assert obj in state.battlefield
+
+
+def test_blink_without_controller_still_defaults_to_the_owner():
+    engine, state, p1, p2 = _rules()
+    obj = _bf(state, _bear("Bear"), controller="p1")
+
+    engine.blink(obj)
+
+    assert obj.controller_id == "p1"
+
+
 def test_blink_keeps_instance_id_stable_and_self_trigger_still_fires():
     # `instance_id` is deliberately NOT churned — a self-referential trigger
     # bound at object creation (`effect_binder._subject_condition`'s "self"

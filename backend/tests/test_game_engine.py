@@ -2320,6 +2320,116 @@ def test_lifelink_gains_life_on_combat_damage():
     assert p1.life == start + 3  # controller gained life equal to damage dealt
 
 
+def test_infect_combat_damage_to_player_is_poison_not_life_loss():
+    # RULE 702.90c: an infect source's combat damage to a player becomes
+    # poison counters, with no life loss at all.
+    eng = make_engine([land()], [land()], hand=0)
+    _to_declare_attackers(eng)
+    attacker = obj_on_battlefield(eng.state, eng, creature(power=3, keywords=["Infect"]))
+    p1 = eng.state.active_player
+    eng.declare_attackers(p1, [attacker])
+    eng.state.current_step = "combat_damage"
+    eng._step_combat_damage()
+    p2 = eng.state.player_by_id("p2")
+    assert p2.poison == 3
+    assert p2.life == 20
+
+
+def test_infect_combat_damage_to_creature_is_minus_counters_not_marked():
+    # RULE 702.90b: an infect source's damage to a creature is -1/-1
+    # counters, not marked damage (so it isn't cleared at cleanup — it's a
+    # permanent P/T reduction, unlike ordinary combat damage).
+    eng = make_engine([land()], [land()], hand=0)
+    _to_declare_attackers(eng)
+    attacker = obj_on_battlefield(eng.state, eng, creature(power=2, keywords=["Infect"]))
+    wall = obj_on_battlefield(eng.state, eng, creature(power=0, toughness=5), controller="p2")
+    p2 = _attack_then_blockers_step(eng, attacker)
+    eng.declare_blockers(p2, [{"blocker": wall, "attacker": attacker}])
+    eng.state.current_step = "combat_damage"
+    eng._step_combat_damage()
+    assert wall.damage_marked == 0
+    assert wall.counters.get("-1/-1") == 2
+
+
+def test_wither_damage_to_creature_is_minus_counters_but_player_still_loses_life():
+    # RULE 702.91a: wither is the creature-only half of infect's damage
+    # substitution — a wither source's damage to a *player* is ordinary
+    # life loss.
+    eng = make_engine([land()], [land()], hand=0)
+    _to_declare_attackers(eng)
+    attacker = obj_on_battlefield(eng.state, eng, creature(power=2, keywords=["Wither"]))
+    wall = obj_on_battlefield(eng.state, eng, creature(power=0, toughness=5), controller="p2")
+    p2 = _attack_then_blockers_step(eng, attacker)
+    eng.declare_blockers(p2, [{"blocker": wall, "attacker": attacker}])
+    eng.state.current_step = "combat_damage"
+    eng._step_combat_damage()
+    assert wall.damage_marked == 0
+    assert wall.counters.get("-1/-1") == 2
+
+    eng2 = make_engine([land()], [land()], hand=0)
+    _to_declare_attackers(eng2)
+    attacker2 = obj_on_battlefield(eng2.state, eng2, creature(power=3, keywords=["Wither"]))
+    p1 = eng2.state.active_player
+    eng2.declare_attackers(p1, [attacker2])
+    eng2.state.current_step = "combat_damage"
+    eng2._step_combat_damage()
+    p2b = eng2.state.player_by_id("p2")
+    assert p2b.poison == 0
+    assert p2b.life == 17
+
+
+def _goblin_guide_card():
+    return Card(
+        id="Goblin Guide", name="Goblin Guide", type_line="Creature — Goblin Scout",
+        is_creature=True, power=2, toughness=2, mana_cost_string="{R}",
+        converted_mana_cost=1, keywords=["Haste"],
+        oracle_text="Haste\nWhenever this creature attacks, defending player "
+                     "reveals the top card of their library. If it's a land "
+                     "card, that player puts it into their hand.",
+    )
+
+
+def test_goblin_guide_puts_a_revealed_land_into_the_defenders_hand():
+    eng = make_engine([land()], [land()], hand=0)
+    _to_declare_attackers(eng)
+    guide = obj_on_battlefield(eng.state, eng, _goblin_guide_card())
+    bind_from_catalogue(guide)
+    p2 = eng.state.player_by_id("p2")
+    top_land = land("Island")
+    top_land_obj = GameObject(top_land, owner_id="p2", zone=Zone.LIBRARY)
+    p2.library.append(top_land_obj)  # top of deck is the list end
+    hand_before = len(p2.hand)
+
+    eng.declare_attackers(eng.state.active_player, [guide])
+    placed = eng.rules.put_triggers_on_stack()
+    assert placed == 1
+    eng.resolve_until_stable()
+
+    assert top_land_obj in p2.hand
+    assert top_land_obj not in p2.library
+    assert len(p2.hand) == hand_before + 1
+
+
+def test_goblin_guide_leaves_a_revealed_nonland_card_on_top():
+    eng = make_engine([land()], [land()], hand=0)
+    _to_declare_attackers(eng)
+    guide = obj_on_battlefield(eng.state, eng, _goblin_guide_card())
+    bind_from_catalogue(guide)
+    p2 = eng.state.player_by_id("p2")
+    top_spell = creature(name="Not A Land")
+    top_spell_obj = GameObject(top_spell, owner_id="p2", zone=Zone.LIBRARY)
+    p2.library.append(top_spell_obj)
+    library_count_before = len(p2.library)
+
+    eng.declare_attackers(eng.state.active_player, [guide])
+    eng.rules.put_triggers_on_stack()
+    eng.resolve_until_stable()
+
+    assert top_spell_obj in p2.library
+    assert top_spell_obj not in p2.hand
+    assert len(p2.library) == library_count_before
+
+
 def test_protection_prevents_combat_damage():
     eng = make_engine([land()], [land()], hand=0)
     _to_declare_attackers(eng)

@@ -10364,3 +10364,252 @@ each activation's own legality gate including "can't skip/repeat", the
 Scout-stage type/P-T/lifelink transformation, the Rogue-stage transform
 that keeps 2/3 without restating it, and both branches of the granted
 trigger's if/else). Full backend suite green (3,376 passed).
+
+## "Keywords Showcase" and "Eliferate" saved decks: make every card playable (2026-08-05)
+
+User-directed batch, same "playable" definition as the "Hobbits"/"Wyleth
+Equip" batch above: every card in both saved decks bound to real behaviour,
+not just parsing. Started at 18 unmodeled cards for "Keywords Showcase" (9)
+and "Eliferate" (~40, after Infect/normalize work below already closed a
+few incidentally); ended with **"Keywords Showcase" fully modeled (18/18)**
+and **"Eliferate" at 64/91** — the remaining 27 are genuinely bespoke
+(planeswalker loyalty-ability bodies, Roaming Throne's trigger-doubling,
+Channel abilities, three different "as ~ enters, choose a creature type"
+*payoff* shapes each needing its own dynamic-chosen-type read, Mirrormind
+Crown's "instead of creating tokens, create copies" replacement) and were
+deliberately left rather than half-modeled. Coverage 29.9%→30.6%
+(10,238→10,479/34,208), PARSER_VERSION 58→59, +239 cards, 0 regressions
+(`parser_probe.py diff` after every change). Full pytest suite green
+throughout (ended at 3,452 passed).
+
+Worked as a genuine engine-first pass, not a per-card patch list: almost
+every fix below started as "what does *this* card need" and ended up
+closing a whole family, because the missing piece was a load-bearing
+primitive gap, not a regex gap. In build order:
+
+- **RULE 702.90/91 Infect/Wither** — recognized as keywords (`combat.
+  COMBAT_KEYWORDS`/`_ORACLE_PATTERNS`) but with **zero behaviour**: no
+  code anywhere converted damage to poison/-1-1 counters. `combat.
+  has_infect`/`has_wither` + `RulesEngine.deal_damage`'s `_finish` closure
+  now branches before the ordinary life-loss/damage-marked paths — infect
+  routes a player hit through `add_player_counters(..., "poison", ...)`
+  (itself already replacement-aware, so a poison-doubling effect composes
+  for free) and a creature hit through `add_counters(..., "-1/-1", ...)`
+  instead of `damage_marked`; wither is the creature-only half (players
+  still just lose life). Closes Glistener Elf-shaped cards outright, and
+  is what makes Triumph of the Hordes' *granted* infect actually do
+  something once the normalize fix below lets it parse.
+- **A `normalize` fold: "Until end of turn, `<body>`." → the far more
+  common trailing "`<body>` until end of turn."** — every existing
+  duration handler already expects the trailing form; the leading one
+  (Triumph of the Hordes-shaped) was simply invisible to all of them.
+  Deliberately conservative (single-sentence lines only — a leading
+  duration wrapping a quoted granted ability with its own internal period
+  is left unclaimed rather than mis-split). 124-card upper bound, +4
+  measured this batch (most of the 124 need a second, unrelated fix too).
+- **RULE 702.33b's *override* kicked-conditional** — "deals N damage... if
+  kicked, deals M damage *instead*" is a different shape from the additive
+  "if kicked, `<effect>`." RULE 702.33b already covered:
+  `DealDamageEffect.amount_if_kicked`/`CopyPermanentEffect.
+  count_if_kicked`, mirroring the pre-existing (but undocumented as a
+  precedent until now) `PreventDamageEffect.amount_if_kicked`. Both
+  implemented as a **property**, not a field set at construction, since
+  `RulesEngine._substitute_x`'s generic `"x"`-sentinel substitution (an
+  X-kicker spell) has to keep composing with the override — closes Burst
+  Lightning/Roil Eruption/Shivan Fire/Rite of Replication outright, ~27
+  more on the wider "if kicked, ... instead" family left for a future pass
+  (each needs its own effect-specific `_if_kicked` param).
+- **RULE 707/706.2's bare `create a token that's a copy of target X`** had
+  no oracle-text recognizer at all (`CopyPermanentEffect` existed,
+  Ephemerate-adjacent cards had always been hand-authored) — narrow by
+  design (only a bare `{TARGET}` phrase, no "except it's/has/isn't…"
+  modification clause, since that clause's shapes are too varied to fold
+  into one grammar safely). Closes Cackling Counterpart/Rite of
+  Replication; ~40 more SOLO cache-wide have a "except …" tail this batch
+  didn't attempt.
+- **RULE 615's Fog-shaped unscoped prevention** — "prevent all combat
+  damage that would be dealt this turn," no chosen recipient at all,
+  unlike the pre-existing `PreventDamageEffect`'s two per-recipient
+  shields. New `PreventAllCombatDamageEffect`/`RulesEngine.
+  prevent_all_combat_damage_this_turn`, the shield living on the caster's
+  `player_effects` purely as storage (the `condition` itself checks
+  nothing about whose damage it is). One of the most repeated templates in
+  the cache: +36 cards this batch alone.
+- **RULE 119/701.8's hand-disruption "reveal hand, choose a card, that
+  player discards it"** (Duress/Thoughtseize/Coercion-shaped) — the
+  *chooser* is the caster, not the hand's owner, which is exactly
+  `RulesEngine.request_choose_objects`'s existing shape (Tevesh Szat's
+  sacrifice, Cloudstone Curio's bounce), just never sourced from a hand
+  before; its pre-existing `action="discard"` already resolves against the
+  *object's own owner* regardless of who picked it, so no engine change
+  was needed there, only `RevealHandChooseDiscardEffect` wiring a hand
+  scan through it. Five real filter phrasings recognized (bare/nonland/
+  noncreature+nonland/creature-or-planeswalker/artifact-or-creature).
+  63-card family, +16 measured this batch (the rest need a filter word or
+  trailing "you lose N life" this batch's table doesn't cover).
+- **`RulesEngine.blink` gained a `controller` param** — Restoration
+  Angel's "return that card to the battlefield under **your** control" is
+  not the same as plain blink's "under its **owner's** control"
+  (`BlinkEffect.under_your_control`). Surfaced **a real latent bug on the
+  way**: `targeting.legal_targets`'s `creature_you_control`/
+  `other_creature_you_control`/`land_you_control` branch never consulted
+  `TargetSpec.creature_filter` at all — any card needing a filtered
+  "target creature you control" (not just this one) was silently offering
+  every creature regardless of the filter. Also added `without_subtype`
+  to `combat.matches_object_filter` (Restoration Angel's "non-Angel") and
+  a dedicated blink-family oracle recognizer (`_BLINK_NON_SUBTYPE_RE`).
+- **`RulesEngine.regenerate` gained a `creature_filter` param** the same
+  way — "regenerate **another target Elf**" (Ezuri, Renegade Leader/Mad
+  Auntie/Baron Sengir). "another" needed no special exclusion logic: the
+  plain `"creature"` target kind's own `legal_targets` branch already
+  excludes the ability's own source unconditionally, which is also why a
+  pre-existing test asserting this shape "stays unclaimed" needed
+  updating, not just a new passing test.
+- **Two more negative/compound target-filter keys on `combat.
+  matches_object_filter`**: `without_color` (Doom Blade's "nonblack" — the
+  single most repeated removal template in the cache, ~47 SOLO, this batch
+  closed the color+`can_be_regenerated`-tail forms) and `"attacking"`
+  (Gnarlroot Trapper's "target attacking Elf you control", composing with
+  the pre-existing `subtype` key).
+- **Targeted `draws a card`** — "target player draws a card" had **no**
+  handler at all; `_draw`'s regex only ever matched the untargeted "you
+  draw"/bare "draw" forms, so a targeted draw was silently unclaimed
+  (never silently *mis-bound* — the coverage gate is fail-closed — but
+  still a real, fixable gap). Widened `_draw` with the same `who`-prefix
+  treatment `_discard` already had (`DrawCardEffect.target_kind`/
+  `.selector` already existed as engine primitives). Closes Kenrith, the
+  Returned King/Oona's Grace, 16-card family.
+- **RULE 701.28's "defending player reveals the top card... if it's a
+  land card, puts it into their hand"** (Goblin Guide) — a new, narrow
+  `RevealTopConditionalToHandEffect` (reveal itself has no separate game
+  state; the real behaviour is the conditional move). Single-card yield
+  this batch, but the primitive is general over any of the four printed
+  card-type words.
+- **RULE 702.28c's Cycling trigger, from nothing** — "When you cycle this
+  card, `<effect>`." had no event to watch: the pre-existing generic
+  Cycling keyword binding (`effect_binder._cycling_activated_ability`)
+  built a plain "discard this card: draw a card" `ActivatedAbility` with
+  no signal at all that a *Cycling* discard (as opposed to a Channel-cost
+  one, which shares `ActivationCost.discard_self`) had happened. New
+  `EventType.CYCLED` + `ActivationCost.is_cycling` (set only by the
+  generic Cycling binder) fired from `GameEngine._pay_activation_cost`;
+  found via a **graveyard-scoped trigger scan**
+  (`RulesEngine._collect_cycled_triggers`) mirroring the pre-existing
+  dies-from-graveyard one, since the ordinary `_collect_triggers` loop is
+  battlefield-only and the cycled source is already in the graveyard by
+  the time the event fires. Its own **{X} preservation**
+  (`GameObject.cycling_x_paid`, a `"cycling_x"` `_substitute_x` sentinel
+  mirroring Kicker's pre-existing `kicker_x_paid`/`"kicker_x"`) closes
+  Shark Typhoon's own X/X cycling bonus specifically. Ranked template:
+  37-card family, +1 measured directly (Shark Typhoon; the other 36 each
+  need their own effect body parsed, this batch only built the trigger
+  itself).
+- **A card-type-*excluding* spell-cast trigger** — "whenever you cast a
+  **non**creature spell" had no recognizer; only the *inclusive* form
+  ("…a creature spell") existed (`effect_binder`'s pre-existing
+  `spell_card_types` OR-predicate). New `spell_exclude_card_types`
+  predicate + `_CAST_SPELL_TRIGGER_NEG_RE`, tried *before* the positive
+  row (its own generic word-list regex would otherwise swallow "non..."
+  as a bogus type list and return unclaimed without ever trying the
+  negation). Ranked template: 92-card family, +1 measured directly
+  (Shark Typhoon's other trigger; most of the rest need their own trigger
+  body parsed too).
+- **The same trigger's creature-*subtype* sibling** — "whenever you cast
+  an **Elf** spell" (Lys Alana Huntmaster/Leaf-Crowned Visionary). The
+  engine predicate (`effect_binder`'s `spell_subtype_any`, a live
+  type-line substring check off the event's `instance_id`) already
+  existed, built for "Aura, Equipment, or Vehicle spell" — just never
+  reachable from a bare single-subtype-word clause. Deliberately a
+  **curated whitelist** of ~30 real creature types
+  (`_CAST_SPELL_SUBTYPE_WORDS`), not "any word": the substring check would
+  otherwise silently misfire on adjectives that happen to appear in some
+  type line ("legendary") or silently never fire on ones that don't
+  ("historic"/"kicked"/"multicolored"/"party") — both wrong, and neither
+  caught by the coverage gate. Ranked template: 181-card upper bound
+  (color-word triggers dominate the rest, not attempted); +2 measured
+  directly. Surfaced a **second, pre-existing bug on the way**: neither
+  the positive nor negative cast-spell-trigger row ever called
+  `_peel_optional` on its body, so "…you may `<effect>`" bodies (a very
+  common continuation) had silently failed to parse since those rows were
+  first built.
+- **RULE 118.3's `pay_cost_then`, first oracle-text recognizer** — "You
+  may pay `<cost>`. If you do, draw a card." `PayCostThenEffect` already
+  existed (Mana Vault/Wandering Archaic, hand-authored); nothing emitted
+  it from oracle text. The load-bearing subtlety: this is **not** the
+  generic "you may `<effect>`" `AbilitySpec.optional` shape — the trigger
+  itself is mandatory, only the embedded cost is optional, so peeling
+  "you may" and setting the ability-level flag would double-gate the same
+  choice. `_peel_optional` already had exactly this guard for the
+  energy-only `pay_energy_then` case (`_PAY_ENERGY_THEN_PEEL_GUARD_RE`);
+  widened from `{E}`-only to any single mana symbol rather than adding a
+  second, parallel guard. 21-card "draw a card" tail alone (the general
+  "if you do, `<any effect>`" shape wasn't attempted); closes Leaf-Crowned
+  Visionary combined with the subtype trigger above.
+- **Three dynamic-magnitude token/pump shapes**, each reading a live
+  quantity instead of a fixed int: `CreateTokenEffect.
+  count_from_trigger_event` ("create **that many** tokens" — Lathril,
+  Blade of the Elves' own combat-damage payoff, 38-card family, +1
+  measured); `PumpEffect.amount_from_count_selector` ("+X/+X, where X is
+  the number of creatures you control" — Craterhoof Behemoth, one shared
+  magnitude for the whole selector group, computed via the pre-existing
+  `continuous.count_selector`); `PumpEffect.
+  per_recipient_controller_counter` ("-1/-1 for each poison counter **its
+  controller** has" — Phyresis Outbreak, the one shape where each
+  recipient in a group scales *independently* by its own controller's
+  count, not one shared number). All three mirror the pre-existing
+  `amount_from_trigger_event`/`pt_from_trigger_event` idiom rather than
+  inventing a new one.
+- **Selector/filter reach widenings**, each closing 2+ cards on their own:
+  `creatures_you_control_of_type_<X>` reached `continuous.
+  group_selector_objects` (it only ever existed on `count_selector`, a
+  different function) so a one-shot `PumpEffect.selector` can target "Elf
+  creatures you control", not just count them (Elvish Warmaster/Ezuri,
+  Renegade Leader); `permanents_you_control` reached the same function for
+  Heroic Intervention's "permanents you control gain hexproof and
+  indestructible"; `other_creatures_you_control` reached `TapEffect.
+  selector` for Copperhorn Scout's "untap each other creature you
+  control" — which surfaced a **third latent bug**: that selector branch
+  never passed `src=self.source` to `group_selector_objects`, so "other"
+  had always been silently inert for any selector that needed it.
+- **`create_token` gained two dynamic-*count* oracle recognizers**
+  sharing one selector vocabulary with the pump widenings above: "for
+  each `<subtype>` you control" (Elvish Promenade) and "X ..., where X is
+  the number of `<subtype/attacking>` ..." (Galadhrim Ambush's own token
+  half — its second sentence, a source-filtered Fog variant, was not
+  attempted).
+
+**Not attempted, and why** (left genuinely unmodeled rather than
+half-modeled): Boseiju, Who Endures/Takenuma, Abandoned Mire's Channel
+abilities (a `discard_self`-costed activated ability whose own effect
+needs a `search_for_land_and_battlefield` shape this repo hasn't built);
+Vraska, Betrayal's Sting/Golgari Queen (planeswalker loyalty-ability
+bodies — "target creature becomes a Treasure artifact... and loses all
+other card types and abilities" is a genuine become-effect this engine's
+`EnterAsCopyReplacement`/`become_copy` family doesn't cover); Roaming
+Throne ("if a triggered ability... triggers, it triggers an additional
+time" — a trigger-doubling replacement with no existing analogue);
+Realmwalker/Vanquisher's Banner/Selfless Safewright (three different
+"...of the chosen type" *payoffs* — RULE 601.2b's "as ~ enters, choose a
+creature type" is itself modeled, but reading that dynamic choice back
+into a cast-trigger filter, a library-permission filter, and a grant
+filter are three separate reads none of which exist yet); Mirrormind
+Crown ("the first time you would create 1+ tokens, instead create that
+many copies of equipped creature" — a genuine replacement effect on the
+token-creation event itself); and Glissa Sunslayer/Glissa, Herald of
+Predation (each a "choose 1 —" modal trigger whose individual mode bodies
+are themselves further blocked on unrelated primitives — Incubate,
+transforming all tokens of a kind, etc.).
+
+Tests (all new files unless noted): `test_infect_wither` cases folded into
+`test_game_engine.py`; `test_kicked_conditional.py` (+6, existing file);
+`test_modal_creature_filter_family.py` (+11, existing file — also fixed
+the `creature_you_control` `creature_filter` latent bug's regression
+coverage); `test_prevent_damage.py` (+7, existing file);
+`test_hand_disruption_family.py` (8); `test_new_object_identity.py` (+2,
+existing file); `test_oracle_pipeline.py`/`test_regenerate.py` (+2/+1,
+existing files); `test_poison_counter_family.py` (8);
+`test_dynamic_token_count_family.py` (5);
+`test_group_pump_count_selector_family.py` (4); `test_channel_cycling.py`
+(+18, existing file); `test_spell_subtype_trigger_family.py` (7);
+`test_attacking_subtype_and_tap_selector_family.py` (5). Full backend
+suite green throughout every step (ended at 3,452 passed, 238 skipped).

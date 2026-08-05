@@ -536,6 +536,21 @@ def _trigger_condition(
 
         predicates.append(_spell_type_ok)
 
+    # "Whenever you cast a **noncreature** spell, …" (Young Pyromancer/
+    # Shark Typhoon-shaped) — the negated sibling of `spell_card_types`
+    # just above: RULE 603.1 excludes one main type rather than naming
+    # several to include, so this is a separate key/predicate rather than
+    # a "negate" flag on the existing one.
+    spell_exclude_card_types = trigger.get("spell_exclude_card_types")
+    if spell_exclude_card_types:
+        excluded_types = tuple(str(t).lower() for t in spell_exclude_card_types)
+
+        def _spell_type_excluded_ok(event: Any, context: Any, words=excluded_types) -> bool:
+            types = event.get("object_types") or ()
+            return not any(w in types for w in words)
+
+        predicates.append(_spell_type_excluded_ok)
+
     # "Whenever you sacrifice a Food, …" (RULE 122.1a/701.17 — Experimental
     # Confectioner/Trail of Crumbs-shaped) — `EventType.SACRIFICE`'s own
     # `subtypes` payload (`RulesEngine.put_into_graveyard`, the sacrificed
@@ -953,6 +968,7 @@ def _cycling_activated_ability(
     if any(getattr(a.cost, "discard_self", False) for a in obj.activated_abilities):
         return None
     cost = parse_activation_cost(f"{cost_text}, Discard this card")
+    cost.is_cycling = True
     return ActivatedAbility(
         effects=build_effects([EffectSpec("draw", {"count": 1})], source=obj),
         cost=cost,

@@ -270,6 +270,9 @@ class GameContext:
     def prevent_damage_to_target(self, target: Any, amount: Union[int, str] = "all") -> None:
         self.engine.prevent_damage_to_target(target, amount)
 
+    def prevent_all_combat_damage_this_turn(self, controller: "Player") -> None:
+        self.engine.prevent_all_combat_damage_this_turn(controller)
+
     def lose_life(self, player: "Player", amount: int, cause: str = "effect") -> None:
         self.engine.lose_life(player, amount, cause=cause)
 
@@ -375,8 +378,8 @@ class GameContext:
             target, destination, controller_id=controller_id, transformed=transformed
         )
 
-    def blink(self, target: "GameObject") -> None:
-        self.engine.blink(target)
+    def blink(self, target: "GameObject", controller: Optional["Player"] = None) -> None:
+        self.engine.blink(target, controller=controller)
 
     def exile_return_transformed(self, target: "GameObject") -> None:
         self.engine.exile_return_transformed(target)
@@ -1619,9 +1622,22 @@ class DealDamageEffect(GameEffect):
         count: int = 1,
         divided: bool = False,
         double_at: Optional[int] = None,
+        amount_if_kicked: Optional[int] = None,
     ) -> None:
         super().__init__(source)
-        self.amount = amount
+        self._base_amount = amount
+        # RULE 702.33b's *override* kicked-conditional ("~ deals 2 damage to
+        # any target. If this spell was kicked, it deals 4 damage instead." —
+        # Burst Lightning-shaped), distinct from the *additive* "if kicked,
+        # <effect>" shape `ConditionalEffect`/`EffectSpec.condition` already
+        # cover — mirrors `PreventDamageEffect.amount_if_kicked` exactly, a
+        # param on the effect rather than a generic wrapper since it's the
+        # specific numeric param being overridden that differs per effect
+        # type (amount here, a token count for `CreateTokenCopyEffect`, …).
+        # A property (below) rather than resolving once in `__init__` since
+        # `kicker_count` is only known once ``source`` is fully bound onto
+        # the battlefield object, not necessarily yet at construction time.
+        self.amount_if_kicked = amount_if_kicked
         self.target = target
         self.selector = selector if selector in _DAMAGE_SELECTORS else None
         # RULE 601.2d: a *divided* damage spell splits its total ``amount``
@@ -1648,6 +1664,22 @@ class DealDamageEffect(GameEffect):
             # up to N target X" (Volcanic Salvo-shaped) — the full amount
             # applies to *every* chosen target, not divided among them.
             self.target_spec = TargetSpec(kind=target_kind, optional=optional, count=count)
+
+    @property
+    def amount(self) -> Union[int, str]:
+        kicker_count = getattr(self.source, "kicker_count", 0) or 0
+        if self.amount_if_kicked is not None and kicker_count > 0:
+            return self.amount_if_kicked
+        return self._base_amount
+
+    @amount.setter
+    def amount(self, value: Union[int, str]) -> None:
+        # `RulesEngine.resolve_top_of_stack`'s `_substitute_x` rewrites a
+        # spell's own "x" sentinel to the announced X in place via plain
+        # `setattr` — kept writable (onto `_base_amount`, not a fixed value)
+        # so that substitution still composes with `amount_if_kicked`
+        # exactly as an X-kicker spell's base amount would.
+        self._base_amount = value
 
     def target_polarity(self) -> Optional[str]:
         return "harmful"
@@ -1798,6 +1830,54 @@ class DrawCardEffect(GameEffect):
         context.draw(player, count)
 
 
+class RevealTopConditionalToHandEffect(GameEffect):
+    """RULE 701.28's reveal, with a card-type-conditional move to hand
+    (Goblin Guide-shaped): a player reveals the top card of their library;
+    if it matches ``card_type``, that same player puts it into their hand
+    — otherwise it's simply left on top (RULE 701.28's reveal has no
+    mechanical weight of its own beyond the visibility, so "no match" does
+    nothing rather than needing an explicit "leave it there" clause).
+
+    ``whose="defending_player"`` (this card's only real use so far) reads
+    RULE 506.4's per-firing attack defender via `_defending_player_of` —
+    who's defending is only known once combat is declared, so it can't be
+    a fixed target chosen at cast/trigger time the way an ordinary "target
+    player" clause would be.
+    """
+
+    def __init__(
+        self,
+        whose: str = "defending_player",
+        card_type: str = "land",
+        source: Optional["GameObject"] = None,
+    ) -> None:
+        super().__init__(source)
+        self.whose = whose
+        self.card_type = card_type
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        if self.whose == "defending_player":
+            player = _defending_player_of(self.source, context)
+        else:
+            player = _controller_of(self.source, context)
+        if player is None or not player.library:
+            return
+        top = player.library[-1]
+        checks = {
+            "land": top.is_land,
+            "creature": top.is_creature,
+            "artifact": bool(top.card.is_artifact),
+            "permanent": bool(
+                top.is_land or top.is_creature or top.card.is_artifact
+                or top.card.is_enchantment or top.is_planeswalker
+            ),
+        }
+        if not checks.get(self.card_type, False):
+            return
+        player.library.pop()
+        player.add_to_zone(top, Zone.HAND)
+
+
 class DiscardEffect(GameEffect):
     """Make a player discard ``count`` cards — an interactive choice (RULE
     701.8: the discarding player, not this effect's controller, picks which
@@ -1844,6 +1924,80 @@ class DiscardEffect(GameEffect):
         if player is None:
             player = _controller_of(self.source, context)
         context.discard_choice(player, self.count)
+
+
+class RevealHandChooseDiscardEffect(GameEffect):
+    """RULE 119/701.8's iconic hand-disruption template — "Target opponent
+    reveals their hand. You choose a `<filter>` card from it. That player
+    discards that card." (Duress/Thoughtseize/Coercion/Distress-shaped,
+    one of the most repeated templates in the cache).
+
+    "Reveals their hand" isn't a separate step to model (RULE 701.13's
+    reveal is a zero-effect visibility action, and this engine has no
+    client-visibility layer to update mid-resolution anyway) — the real
+    behaviour is that the *chooser* is this effect's controller (the
+    caster), not the revealed hand's owner, over that owner's *actual*
+    cards. That's exactly `RulesEngine.request_choose_objects`'s shape
+    (Tevesh Szat's sacrifice, Cloudstone Curio's bounce, …), just sourced
+    from a hand instead of the battlefield, with its pre-existing
+    ``action="discard"`` (`_apply_chosen_object` already resolves that
+    against the *object's own owner*, regardless of who's choosing).
+
+    ``exclude_land``/``exclude_creature`` are RULE 601.2c "non-X" card-type
+    exclusions (composing — Duress's "noncreature, nonland" sets both);
+    ``card_types`` is the inclusive opposite ("a creature or planeswalker
+    card" — Despise-shaped). No filter at all (Coercion's bare "a card")
+    leaves both unset and ``card_types`` `None`.
+    """
+
+    def __init__(
+        self,
+        target_kind: str = "player",
+        target: Any = None,
+        source: Optional["GameObject"] = None,
+        exclude_land: bool = False,
+        exclude_creature: bool = False,
+        card_types: Optional[list[str]] = None,
+    ) -> None:
+        super().__init__(source)
+        self.target_spec = TargetSpec(kind=target_kind)
+        self.target = target
+        self.exclude_land = exclude_land
+        self.exclude_creature = exclude_creature
+        self.card_types = card_types
+
+    def target_polarity(self) -> Optional[str]:
+        return "harmful"
+
+    def _matches(self, obj: "GameObject") -> bool:
+        card = obj.card
+        if self.exclude_land and obj.is_land:
+            return False
+        if self.exclude_creature and obj.is_creature:
+            return False
+        if self.card_types:
+            checks = {
+                "creature": obj.is_creature,
+                "planeswalker": bool(getattr(obj, "is_planeswalker", False)),
+                "artifact": bool(card.is_artifact),
+                "instant": bool(card.is_instant),
+                "sorcery": bool(card.is_sorcery),
+                "enchantment": bool(card.is_enchantment),
+            }
+            if not any(checks.get(t, False) for t in self.card_types):
+                return False
+        return True
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        chosen = _chosen_targets(targets, 1, self.target)
+        if not chosen:
+            return
+        revealed_player = chosen[0]
+        caster = _controller_of(self.source, context)
+        if caster is None:
+            return
+        candidates = [obj for obj in revealed_player.hand if self._matches(obj)]
+        context.choose_objects(caster, candidates, "discard", count=1, source=self.source)
 
 
 class PutHandCardsOnTopEffect(GameEffect):
@@ -2027,10 +2181,14 @@ class RegenerateEffect(GameEffect):
         target: Any = None,
         source: Optional["GameObject"] = None,
         target_kind: Optional[str] = "creature",
+        creature_filter: Optional[dict] = None,
     ) -> None:
         super().__init__(source)
         self.target = target
-        self.target_spec = TargetSpec(kind=target_kind) if target_kind is not None else None
+        self.target_spec = (
+            TargetSpec(kind=target_kind, creature_filter=creature_filter)
+            if target_kind is not None else None
+        )
 
     def target_polarity(self) -> Optional[str]:
         return "beneficial"
@@ -2161,6 +2319,23 @@ class PreventDamageEffect(GameEffect):
         for target, share in zip(chosen, shares):
             if share == "all" or (isinstance(share, int) and share > 0):
                 context.prevent_damage_to_target(target, share)
+
+
+class PreventAllCombatDamageEffect(GameEffect):
+    """RULE 615: "Prevent all combat damage that would be dealt this turn."
+    (Fog) — deliberately a separate class from `PreventDamageEffect`
+    rather than a third mode on it: that class's two modes both shield one
+    resolved *recipient* (the caster, or a chosen target); this one has no
+    recipient at all — every attacker's and every blocker's combat damage
+    to *anyone* is prevented, for the rest of the turn, which is why it
+    calls `RulesEngine.prevent_all_combat_damage_this_turn` instead of
+    either of that class's per-recipient shield builders.
+    """
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        player = _controller_of(self.source, context)
+        if player is not None:
+            context.prevent_all_combat_damage_this_turn(player)
 
 
 class ExtraLandPlayEffect(GameEffect):
@@ -3787,10 +3962,14 @@ class BlinkEffect(GameEffect):
     owner's control" (RULE 400.7 — Ephemerate/Momentary Blink-shaped).
 
     Distinct from `ReturnFromGraveyardEffect` (a graveyard-only recursion
-    family): this targets a *battlefield* permanent and always returns it to
-    its owner's control. See `RulesEngine.blink`'s docstring for why exiling
-    then re-entering is a genuine RULE 400.7 "new object" rather than a
-    single no-op move.
+    family): this targets a *battlefield* permanent. See `RulesEngine.
+    blink`'s docstring for why exiling then re-entering is a genuine RULE
+    400.7 "new object" rather than a single no-op move.
+
+    ``under_your_control`` is Restoration Angel's own "return that card to
+    the battlefield **under your control**" — this effect's controller
+    rather than the target's owner (`RulesEngine.blink`'s ``controller``
+    param). Default ``False`` is plain blink, always under the owner.
     """
 
     def __init__(
@@ -3798,15 +3977,20 @@ class BlinkEffect(GameEffect):
         target: Any = None,
         source: Optional["GameObject"] = None,
         target_kind: str = "creature_you_control",
+        under_your_control: bool = False,
+        creature_filter: Optional[dict] = None,
     ) -> None:
         super().__init__(source)
         self.target = target
-        self.target_spec = TargetSpec(kind=target_kind)
+        self.target_spec = TargetSpec(kind=target_kind, creature_filter=creature_filter)
+        self.under_your_control = under_your_control
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
         target = (targets[0] if targets else None) or self.target
-        if target is not None:
-            context.blink(target)
+        if target is None:
+            return
+        controller = _controller_of(self.source, context) if self.under_your_control else None
+        context.blink(target, controller=controller)
 
 
 class AddManaEffect(GameEffect):
@@ -4630,7 +4814,11 @@ class LoseGameEffect(GameEffect):
 #: shape a real card needs so far: "untap all creatures you control"
 #: (Village Bell-Ringer).
 _TAP_SELECTORS: frozenset[str] = frozenset(
-    {"creatures_you_control", "permanents_you_control", "nonland_permanents_you_control"}
+    {
+        "creatures_you_control", "permanents_you_control", "nonland_permanents_you_control",
+        # "Untap each other creature you control." (Copperhorn Scout).
+        "other_creatures_you_control",
+    }
 )
 
 
@@ -4706,7 +4894,7 @@ class TapEffect(GameEffect):
             from .continuous import group_selector_objects  # avoid the continuous↔effects cycle
 
             controller_id = getattr(self.source, "controller_id", None)
-            for obj in group_selector_objects(context.state, controller_id, self.selector):
+            for obj in group_selector_objects(context.state, controller_id, self.selector, src=self.source):
                 context.set_tapped(obj, tapped=not self.untap)
             return
         if self._attached_mode:
@@ -5884,6 +6072,9 @@ class PumpEffect(GameEffect):
         count: int = 1,
         optional: bool = False,
         amount_from_trigger_event: Optional[str] = None,
+        per_recipient_controller_counter: Optional[str] = None,
+        amount_from_count_selector: Optional[str] = None,
+        creature_filter: Optional[dict] = None,
     ) -> None:
         super().__init__(source)
         self.power = power
@@ -5891,6 +6082,15 @@ class PumpEffect(GameEffect):
         self.keywords = list(keywords or [])
         self.selector = selector
         self.unblockable = unblockable
+        #: "Each creature your opponents control gets -1/-1 until end of
+        #: turn for each poison counter its controller has." (Phyresis
+        #: Outbreak-shaped) — unlike `amount_from_trigger_event` (one
+        #: shared magnitude for the whole group), each recipient's own
+        #: boost scales independently by *its own controller's* count of
+        #: this player-counter kind; ``power``/``toughness`` become the
+        #: per-counter multiplier (``-1``) rather than a flat delta.
+        #: ``selector``-only (no real card needs this on a single target).
+        self.per_recipient_controller_counter = per_recipient_controller_counter
         #: "Whenever you gain life, ~ gets +X/+X until end of turn, where X
         #: is the amount of life you gained." (Field-Tested Frying Pan's
         #: granted ability) — the event field name (``"amount"``) to read
@@ -5899,6 +6099,15 @@ class PumpEffect(GameEffect):
         #: symmetric "+X/+X" in practice). Same idiom as `LoseLifeEffect.
         #: amount_from_trigger_event`.
         self.amount_from_trigger_event = amount_from_trigger_event
+        #: "Creatures you control gain trample and get +X/+X until end of
+        #: turn, where X is the number of creatures you control."
+        #: (Craterhoof Behemoth-shaped) — one shared magnitude for the
+        #: whole group (unlike `per_recipient_controller_counter`'s
+        #: per-object scaling), computed live via `continuous.
+        #: count_selector` at resolve time rather than read off a firing
+        #: event (`amount_from_trigger_event`'s job) — there's no trigger
+        #: event to read here, this is the board state itself.
+        self.amount_from_count_selector = amount_from_count_selector
         self._attached_mode = target_kind == "attached_permanent"
         if target_kind is not None and not self._attached_mode:
             # PAR-15: "any number of target creatures each get +N/+N [and
@@ -5908,7 +6117,9 @@ class PumpEffect(GameEffect):
             # own N>=2 mode uses (as opposed to a *divided* pool), since a
             # pump spell's whole point is every chosen creature getting the
             # stated boost independently.
-            self.target_spec = TargetSpec(kind=target_kind, optional=optional, count=count)
+            self.target_spec = TargetSpec(
+                kind=target_kind, optional=optional, count=count, creature_filter=creature_filter,
+            )
 
     def target_polarity(self) -> Optional[str]:
         return "harmful" if (self.power < 0 or self.toughness < 0) else "beneficial"
@@ -5939,11 +6150,30 @@ class PumpEffect(GameEffect):
             self.toughness = amount
             if amount <= 0:
                 return
+        if self.amount_from_count_selector:
+            from . import continuous  # avoid the continuous↔effects import cycle
+
+            controller_id = getattr(self.source, "controller_id", None)
+            amount = continuous.count_selector(context.state, controller_id, self.amount_from_count_selector)
+            self.power = amount
+            self.toughness = amount
+            if amount <= 0:
+                return
         if self.selector is not None:
             from .continuous import group_selector_objects  # avoid the continuous↔effects cycle
 
             controller_id = getattr(self.source, "controller_id", None)
             group = group_selector_objects(context.state, controller_id, self.selector, src=self.source)
+            if self.per_recipient_controller_counter:
+                base_power, base_toughness = self.power, self.toughness
+                for obj in group:
+                    owner = context.state.player_by_id(obj.controller_id)
+                    n = getattr(owner, self.per_recipient_controller_counter, 0) if owner else 0
+                    self.power, self.toughness = base_power * n, base_toughness * n
+                    self._pump_one(obj)
+                self.power, self.toughness = base_power, base_toughness
+                context.recompute()
+                return
             for obj in group:
                 self._pump_one(obj)
             context.recompute()
@@ -6085,6 +6315,8 @@ class CreateTokenEffect(GameEffect):
         creators: str = "you",
         tapped: bool = False,
         legendary: bool = False,
+        pt_from_trigger_event: Optional[str] = None,
+        count_from_trigger_event: Optional[str] = None,
     ) -> None:
         super().__init__(source)
         self.count = count
@@ -6098,20 +6330,39 @@ class CreateTokenEffect(GameEffect):
         self.creators = creators if creators in self._CREATORS else "you"
         self.tapped = bool(tapped)
         self.legendary = bool(legendary)
+        # "…create an X/X blue Shark creature token with flying, where X is
+        # that spell's mana value." (Shark Typhoon-shaped) — an X/X token
+        # sized off the firing `SPELL_CAST` event's own field, read fresh at
+        # resolve time (same idiom as `PumpEffect.amount_from_trigger_event`)
+        # rather than a fixed ``power``/``toughness``. Always symmetric X/X
+        # in practice, so one field sets both.
+        self.pt_from_trigger_event = pt_from_trigger_event
+        #: "…create **that many** 1/1 green Elf Warrior creature tokens."
+        #: (Lathril, Blade of the Elves-shaped "whenever ~ deals combat
+        #: damage to a player" payoff — "that many" always refers back to
+        #: the firing event's own ``amount``, RULE 603.1) — the *count*
+        #: sibling of ``pt_from_trigger_event`` (a token's stats, not how
+        #: many get made). Overrides ``count``/``count_selector`` when set.
+        self.count_from_trigger_event = count_from_trigger_event
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
         from ..services.token_database import default_token_database, synthesize_token_card
 
+        power, toughness = self.power, self.toughness
+        if self.pt_from_trigger_event:
+            event = context.trigger_event
+            x = int((event or {}).get(self.pt_from_trigger_event) or 0)
+            power, toughness = x, x
         card = None
         # A bare named token (no inline stats) → the curated catalogue, so it
         # keeps its printed abilities. Inline stats always synthesize.
-        if self.token_name and self.power is None and self.toughness is None:
+        if self.token_name and power is None and toughness is None:
             card = default_token_database().get_token(self.token_name)
         if card is None:
             card = synthesize_token_card(
                 self.token_name or (self.subtypes[0] if self.subtypes else "Token"),
-                power=self.power,
-                toughness=self.toughness,
+                power=power,
+                toughness=toughness,
                 colors=self.colors,
                 subtypes=self.subtypes,
                 keywords=self.keywords,
@@ -6126,6 +6377,11 @@ class CreateTokenEffect(GameEffect):
             from . import continuous  # avoid the continuous↔effects import cycle
 
             count = continuous.count_selector(context.state, controller_id, self.count_selector)
+        if self.count_from_trigger_event:
+            event = context.trigger_event
+            count = int((event or {}).get(self.count_from_trigger_event) or 0)
+        if count <= 0:
+            return
         if self.creators == "each_player":
             creator_ids = [p.id for p in context.state.living_players()]
         elif self.creators == "each_opponent":
@@ -6160,9 +6416,16 @@ class CopyPermanentEffect(GameEffect):
         target: Any = None,
         source: Optional["GameObject"] = None,
         target_kind: Optional[str] = "creature",
+        count_if_kicked: Optional[int] = None,
     ) -> None:
         super().__init__(source)
         self.count = count
+        # RULE 702.33b's *override* kicked-conditional ("Create a token
+        # that's a copy of target creature. If this spell was kicked,
+        # create five of those tokens instead." — Rite of Replication) —
+        # same shape as `DealDamageEffect.amount_if_kicked`, just overriding
+        # ``count`` instead of ``amount``.
+        self.count_if_kicked = count_if_kicked
         self.target = target
         self.target_spec = TargetSpec(kind=target_kind) if target_kind is not None else None
 
@@ -6176,7 +6439,9 @@ class CopyPermanentEffect(GameEffect):
             self.source.controller_id if self.source is not None
             else context.active_player.id
         )
-        context.copy_permanent(controller_id, target, self.count)
+        kicker_count = getattr(self.source, "kicker_count", 0) or 0
+        count = self.count_if_kicked if (self.count_if_kicked is not None and kicker_count > 0) else self.count
+        context.copy_permanent(controller_id, target, count)
 
 
 class EnterAsCopyReplacement(GameEffect):
@@ -8442,6 +8707,7 @@ EffectRegistry.register(
         count=p.get("count", 1),
         divided=bool(p.get("divided", False)),
         double_at=p.get("double_at"),
+        amount_if_kicked=p.get("amount_if_kicked"),
     ),
 )
 EffectRegistry.register(
@@ -8463,6 +8729,23 @@ EffectRegistry.register(
     lambda p: PutHandCardsOnTopEffect(count=p.get("count", 1), player=p.get("player")),
 )
 EffectRegistry.register(
+    "reveal_hand_choose_discard",  # Duress/Thoughtseize/Coercion-shaped
+    lambda p: RevealHandChooseDiscardEffect(
+        target_kind=p.get("target_kind", "player"),
+        target=p.get("target"),
+        exclude_land=bool(p.get("exclude_land", False)),
+        exclude_creature=bool(p.get("exclude_creature", False)),
+        card_types=p.get("card_types"),
+    ),
+)
+EffectRegistry.register(
+    "reveal_top_conditional_to_hand",  # Goblin Guide-shaped
+    lambda p: RevealTopConditionalToHandEffect(
+        whose=p.get("whose", "defending_player"),
+        card_type=p.get("card_type", "land"),
+    ),
+)
+EffectRegistry.register(
     "destroy",
     lambda p: DestroyEffect(
         target=p.get("target"),
@@ -8482,7 +8765,8 @@ EffectRegistry.register(
 EffectRegistry.register(
     "regenerate",
     lambda p: RegenerateEffect(
-        target=p.get("target"), target_kind=p.get("target_kind", "creature")
+        target=p.get("target"), target_kind=p.get("target_kind", "creature"),
+        creature_filter=p.get("creature_filter"),
     ),
 )
 EffectRegistry.register(
@@ -8507,6 +8791,12 @@ EffectRegistry.register(
         divided=bool(p.get("divided", False)),
         amount_if_kicked=p.get("amount_if_kicked"),
     ),
+)
+EffectRegistry.register(
+    "prevent_all_combat_damage",
+    # RULE 615's unscoped Fog-shaped shield — distinct from
+    # "prevent_damage_shield" above, which always shields one recipient.
+    lambda p: PreventAllCombatDamageEffect(),
 )
 EffectRegistry.register(
     "extra_land_play",
@@ -9100,7 +9390,11 @@ EffectRegistry.register(
 )
 EffectRegistry.register(
     "blink",  # "Exile target permanent, then return it to the battlefield" (Ephemerate)
-    lambda p: BlinkEffect(target_kind=p.get("target_kind", "creature_you_control")),
+    lambda p: BlinkEffect(
+        target_kind=p.get("target_kind", "creature_you_control"),
+        under_your_control=bool(p.get("under_your_control", False)),
+        creature_filter=p.get("creature_filter"),
+    ),
 )
 EffectRegistry.register(
     "tap",
@@ -9278,6 +9572,9 @@ EffectRegistry.register(
         count=p.get("target_count", 1),
         optional=bool(p.get("optional", False)),
         amount_from_trigger_event=p.get("amount_from_trigger_event"),
+        per_recipient_controller_counter=p.get("per_recipient_controller_counter"),
+        amount_from_count_selector=p.get("amount_from_count_selector"),
+        creature_filter=p.get("creature_filter"),
     ),
 )
 EffectRegistry.register(
@@ -9331,6 +9628,8 @@ EffectRegistry.register(
         creators=p.get("creators", "you"),
         tapped=bool(p.get("tapped", False)),
         legendary=bool(p.get("legendary", False)),
+        pt_from_trigger_event=p.get("pt_from_trigger_event"),
+        count_from_trigger_event=p.get("count_from_trigger_event"),
     ),
 )
 EffectRegistry.register(
@@ -9339,6 +9638,7 @@ EffectRegistry.register(
         count=p.get("count", 1),
         target=p.get("target"),
         target_kind=p.get("target_kind", "creature"),
+        count_if_kicked=p.get("count_if_kicked"),
     ),
 )
 EffectRegistry.register(

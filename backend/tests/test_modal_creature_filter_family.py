@@ -44,7 +44,7 @@ mtg_analyzer/game/{effects,targeting}.py.
 
 from __future__ import annotations
 
-from mtg_analyzer.game.effects import DestroyEffect, ExileEffect, GainLifeEffect, GameContext
+from mtg_analyzer.game.effects import BlinkEffect, DestroyEffect, ExileEffect, GainLifeEffect, GameContext
 from mtg_analyzer.game.game_engine import GameEngine
 from mtg_analyzer.models.card import Card
 from mtg_analyzer.models.game_object import GameObject, Zone
@@ -322,3 +322,140 @@ def test_exile_effect_with_creature_filter_exiles_the_chosen_target():
 
     assert flyer not in state.battlefield
     assert flyer in p1.exile
+
+
+# -- "destroy target non<color/artifact> creature" (Doom Blade-shaped) -------
+
+
+def test_destroy_target_nonblack_creature_is_recognized():
+    (spec,) = parse_effect_body("destroy target nonblack creature")
+    assert spec.type == "destroy"
+    assert spec.params == {
+        "target_kind": "creature",
+        "creature_filter": {"without_color": "B"},
+    }
+
+
+def test_destroy_target_nonartifact_creature_is_recognized():
+    (spec,) = parse_effect_body("destroy target nonartifact creature")
+    assert spec.type == "destroy"
+    assert spec.params == {
+        "target_kind": "creature",
+        "creature_filter": {"without_card_type": "artifact"},
+    }
+
+
+def test_destroy_target_nonblack_creature_cant_be_regenerated_tail_is_recognized():
+    (spec,) = parse_effect_body(
+        "destroy target nonblack creature. it can't be regenerated"
+    )
+    assert spec.type == "destroy"
+    assert spec.params == {
+        "target_kind": "creature",
+        "creature_filter": {"without_color": "B"},
+        "can_be_regenerated": False,
+    }
+
+
+def test_doom_blade_is_fully_modeled():
+    card = _card("Doom Blade", "Destroy target nonblack creature.")
+    result = parse_oracle(card)
+    assert result.coverage != UNMODELED
+    assert result.unclaimed == []
+
+
+def test_without_color_filter_excludes_matching_creatures():
+    engine, state, p1, p2 = _rules()
+    black_card = Card(id="Zombie", name="Zombie", type_line="Creature — Zombie",
+                       is_creature=True, power=2, toughness=2, color_identity={"B"})
+    black = _bf(state, black_card)
+    green_card = Card(id="Elf", name="Elf", type_line="Creature — Elf",
+                       is_creature=True, power=1, toughness=1, color_identity={"G"})
+    green = _bf(state, green_card)
+
+    spec = targeting.TargetSpec(kind="creature", creature_filter={"without_color": "B"})
+    legal = targeting.legal_targets(state, "p1", spec)
+    assert {t["instance_id"] for t in legal} == {green.instance_id}
+
+
+def test_without_card_type_filter_excludes_matching_creatures():
+    engine, state, p1, p2 = _rules()
+    artifact_creature = Card(id="Golem", name="Golem", type_line="Artifact Creature — Golem",
+                              is_creature=True, power=2, toughness=2)
+    art = _bf(state, artifact_creature)
+    plain = _bf(state, _creature("Bear", power=2, toughness=2))
+
+    spec = targeting.TargetSpec(kind="creature", creature_filter={"without_card_type": "artifact"})
+    legal = targeting.legal_targets(state, "p1", spec)
+    assert {t["instance_id"] for t in legal} == {plain.instance_id}
+
+
+def test_doom_blade_end_to_end_destroys_the_chosen_creature():
+    engine, state, p1, p2 = _rules()
+    black_card = Card(id="Zombie", name="Zombie", type_line="Creature — Zombie",
+                       is_creature=True, power=2, toughness=2, color_identity={"B"})
+    black = _bf(state, black_card, controller="p2")
+    ctx = GameContext(state, engine)
+
+    # A chosen legal target is destroyed regardless of the filter that
+    # offered it — `legal_targets` (tested above) is what keeps a black
+    # creature from ever being offered to Doom Blade in the first place.
+    DestroyEffect(target_kind="creature", creature_filter={"without_color": "B"}).apply(
+        ctx, targets=[black]
+    )
+    assert black not in state.battlefield
+
+
+# -- "target non-<subtype> creature" (Restoration Angel-shaped) --------------
+
+
+def test_without_subtype_filter_excludes_matching_creatures():
+    engine, state, p1, p2 = _rules()
+    angel = Card(id="Angel Buddy", name="Angel Buddy", type_line="Creature — Angel",
+                 is_creature=True, power=3, toughness=3)
+    angel_obj = _bf(state, angel)
+    other = Card(id="Human Buddy", name="Human Buddy", type_line="Creature — Human",
+                 is_creature=True, power=1, toughness=1)
+    other_obj = _bf(state, other)
+
+    spec = targeting.TargetSpec(
+        kind="creature_you_control", creature_filter={"without_subtype": "Angel"}
+    )
+    legal = targeting.legal_targets(state, "p1", spec)
+    assert {t["instance_id"] for t in legal} == {other_obj.instance_id}
+
+
+def test_restoration_angel_is_fully_modeled():
+    card = _card(
+        "Restoration Angel",
+        "Flash\nFlying\nWhen this creature enters, you may exile target "
+        "non-Angel creature you control, then return that card to the "
+        "battlefield under your control.",
+        type_line="Creature",
+    )
+    result = parse_oracle(card)
+    assert result.coverage != UNMODELED
+    assert result.unclaimed == []
+
+
+def test_restoration_angel_blinks_a_nonangel_creature_under_the_casters_control():
+    engine, state, p1, p2 = _rules()
+    angel = Card(id="Restoration Angel", name="Restoration Angel",
+                 type_line="Creature — Angel", is_creature=True, power=3, toughness=4)
+    angel_obj = _bf(state, angel, controller="p1")
+    stolen = Card(id="Stolen Bear", name="Stolen Bear", type_line="Creature — Bear",
+                  is_creature=True, power=2, toughness=2)
+    bear = _bf(state, stolen, controller="p1")
+    bear.owner_id = "p2"  # p1 controls an opponent's stolen creature
+    ctx = GameContext(state, engine)
+
+    BlinkEffect(
+        source=angel_obj, target_kind="creature_you_control",
+        creature_filter={"without_subtype": "Angel"}, under_your_control=True,
+    ).apply(ctx, targets=[bear])
+
+    # The blinked object is a fresh instance now on the battlefield, still
+    # under p1 (the caster) even though it's owned by p2.
+    refreshed = [o for o in state.battlefield if o.name == "Stolen Bear"][0]
+    assert refreshed.controller_id == "p1"
+    assert refreshed.owner_id == "p2"

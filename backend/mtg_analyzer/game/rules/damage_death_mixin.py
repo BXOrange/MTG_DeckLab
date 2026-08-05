@@ -32,7 +32,7 @@ from ...models.player import Player
 from ...parser.oracle.catalogue.keywords import parse_keywords
 from ...parser.oracle.catalogue.saga import all_chapter_numbers
 from .. import ability_catalogue, combat, continuous, copy_mechanics, dungeons, face_down, variants
-from ..combat import is_protected_from
+from ..combat import has_infect, has_wither, is_protected_from
 from ..costs import DISCARD_HAND, ActivationCost, parse_activation_cost
 from ..mana_abilities import restriction_predicate_for_cast
 from ..effects import (
@@ -207,7 +207,28 @@ class DamageDeathMixin:
             final = resolved.get("amount", amount)
             if final <= 0:
                 return
-            if is_player:
+            # RULE 702.90b/c: damage from an infect source is never marked/
+            # doesn't cause life loss at all — it is dealt as -1/-1 counters
+            # (creature) or poison counters (player) instead. RULE 702.91a's
+            # Wither is the creature-only half of that same substitution,
+            # with a player still just losing life. Both are checked off the
+            # *source*, so an infect source's damage to a planeswalker/battle
+            # still falls through to the ordinary loyalty/defense branches
+            # below (neither rule mentions those permanent types).
+            infect = source is not None and has_infect(source)
+            wither = source is not None and has_wither(source)
+            if is_player and infect:
+                self.add_player_counters(target, final, "poison", source=source)
+                self.state.record_stat(target.id, "damage_taken", amount=final)
+                if source is not None:
+                    self.state.record_stat(source.controller_id, "damage_dealt", amount=final)
+                    if combat and source.is_commander:
+                        target.add_commander_damage(source.instance_id, source.name, final)
+                    if combat:
+                        self.state.combat_damage_to_players_this_turn.setdefault(
+                            source.instance_id, set()
+                        ).add(target.id)
+            elif is_player:
                 # RULE 120.3: damage dealt to a player causes that much life
                 # loss. This is a *consequence* of damage, not a separate
                 # event a player chose to trigger — go through the same
@@ -248,6 +269,15 @@ class DamageDeathMixin:
                 # goes through one place. `add_counters` floors at zero, so
                 # overkill damage can't leave a negative count behind.
                 target.add_counters("defense", -final)
+            elif getattr(target, "is_creature", False) and (infect or wither):
+                # RULE 702.90b/702.91a: damage from an infect or wither
+                # source is put on a creature as -1/-1 counters instead of
+                # being marked — routed through the ordinary `add_counters`
+                # choke point (not `deal_damage` again) so this placement is
+                # itself subject to RULE 122's own counter-doubling
+                # replacements (Doubling Season et al.), same as any other
+                # counters being put on a permanent.
+                self.add_counters(target, final, "-1/-1", source=source)
             else:
                 target.damage_marked += final
             # `copy_with` (not a fresh `GameEvent`) so `source_id`/`combat`/
@@ -481,7 +511,7 @@ class DamageDeathMixin:
         owner.add_to_zone(obj, Zone.HAND)
         if obj.is_commander:
             self.state.pending_choice = self._commander_zone_choice(obj, Zone.HAND)
-    def blink(self, obj: GameObject) -> None:
+    def blink(self, obj: GameObject, controller: Optional[Player] = None) -> None:
         """Exile ``obj``, then immediately return it to the battlefield under
         its owner's control (RULE 400.7's "leaves and re-enters" — Ephemerate/
         Momentary Blink-shaped "exile target permanent, then return it").
@@ -491,11 +521,22 @@ class DamageDeathMixin:
         entry handling — the same choke point `return_from_graveyard` uses —
         so the object re-enters as a fresh `ENTERS_BATTLEFIELD` occurrence
         (RULE 400.7: a new object, ETB triggers refire, summoning sickness
-        resets) rather than a no-op move. Always under the owner's own
-        control — no real blink spell lets the caster keep an opponent's
-        creature.
+        resets) rather than a no-op move.
+
+        ``controller``, when given, is Restoration Angel's own "return that
+        card to the battlefield **under your control**" shape — the caster,
+        not necessarily the owner (`return_from_graveyard`'s own
+        ``controller_id`` param is the graveyard-recursion sibling of this
+        same idea). Every real card in this shape also restricts its target
+        to "creature **you control**", so ``controller`` and ``owner`` are
+        the same player in the overwhelming majority of games; the param
+        exists for the rarer case (a control-stolen creature) where they
+        aren't. Omitted (the default), this is plain blink: always under
+        the owner's own control, since no ordinary blink spell lets the
+        caster keep an opponent's creature.
         """
         owner = self.state.player_by_id(obj.owner_id)
+        new_controller = controller or owner
         # RULE 400.7: a new object remembers nothing of the old one — unlike
         # `exile` on its own (which leaves counters/attachments alone, e.g.
         # for a card that's merely *staying* in exile), drop everything
@@ -512,8 +553,8 @@ class DamageDeathMixin:
         # correctly either way, but the exile *zone list* itself wouldn't).
         owner.remove_from_zone(obj, Zone.EXILE)
         obj.reset_as_new_object()
-        obj.controller_id = owner.id
-        self._put_searched_card(owner, obj, "battlefield")
+        obj.controller_id = new_controller.id
+        self._put_searched_card(new_controller, obj, "battlefield")
     def return_from_graveyard(
         self,
         obj: GameObject,
@@ -774,6 +815,30 @@ class DamageDeathMixin:
 
         effect.replacement_fn = _replace
         holder.append(effect)
+
+    def prevent_all_combat_damage_this_turn(self, controller: Player) -> None:
+        """RULE 615: "Prevent all combat damage that would be dealt this
+        turn." (Fog) — unlike `prevent_damage_to_player`/`_to_target`
+        (a shield for one chosen recipient), this is *unscoped*: it
+        intercepts every RULE 510 combat-damage event for the rest of the
+        turn regardless of source, target, or controller — no target was
+        ever chosen for it to key off of.
+
+        ``controller`` (the resolving spell's caster) is only where the
+        shield physically lives — `Player.player_effects`, the same
+        `damage_prevention_shield`-marked, cleanup-swept home every other
+        RULE 615 shield uses (`GameEngine._step_cleanup`) — its
+        `condition` doesn't reference ``controller`` at all, so the effect
+        applies identically no matter whose damage it is.
+        """
+        effect = ReplacementEffect(
+            event_type=EventType.DAMAGE,
+            replacement_fn=lambda e, c: None,  # every point of combat damage prevented
+            condition=lambda e, c: bool(e.get("combat")),
+            description="Fog: gesamter Kampfschaden in diesem Zug verhindert",
+        )
+        effect.damage_prevention_shield = True
+        controller.player_effects.append(effect)
 
     def _move_to_graveyard(self, obj: GameObject, cause: Optional[str] = None) -> None:
         """Put ``obj`` into its owner's graveyard (RULE 704.5), firing the

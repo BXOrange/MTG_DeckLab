@@ -688,6 +688,7 @@ def legal_targets(
             and o.controller_id == controller_id
             and not (exclude_source and o is source)
             and _targetable_by(o, source)
+            and (not spec.creature_filter or _creature_matches_filter(o, spec.creature_filter))
         ]
     if kind == "non_human_creature_you_own":
         # RULE 702.140a: mutate's own target. Keyed to *ownership* (RULE

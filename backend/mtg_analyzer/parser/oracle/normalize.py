@@ -116,6 +116,32 @@ def _fold_dies_long_form(text: str) -> str:
     return _DIES_LONG_FORM_RE.sub("dies", text)
 
 
+#: A sentence-*leading* "Until end of turn, <body>." (Triumph of the Hordes:
+#: "Until end of turn, creatures you control get +1/+1 and gain trample and
+#: infect.") means exactly the same thing as the far more common trailing
+#: "<body> until end of turn." every handler's grammar already expects —
+#: folding the former into the latter lets one grammar cover both spellings
+#: instead of duplicating every trailing-duration handler for a leading
+#: variant. Deliberately restricted to a *single-sentence* line (``body`` may
+#: contain no further period) rather than "everything up to the first
+#: period": a line like Bail Out's "Until end of turn, target creature you
+#: control gains "when ~ dies, ... its owner's control. It deals 1 damage to
+#: each opponent."" has its first period *inside* a quoted granted ability,
+#: so a naive "up to the first period" cut would relocate the duration to
+#: the middle of that quote instead of the sentence's real end. Runs after
+#: lowercasing, per-line since the duration only ever opens a line (never
+#: appears mid-sentence).
+_LEADING_UNTIL_EOT_RE = re.compile(
+    r"^until end of turn, (?P<body>[^.\n]+)\.$", re.MULTILINE
+)
+
+
+def _fold_leading_until_end_of_turn(text: str) -> str:
+    return _LEADING_UNTIL_EOT_RE.sub(
+        lambda m: f"{m.group('body')} until end of turn.", text
+    )
+
+
 def strip_reminder_text(text: str) -> str:
     """Remove all parenthesised reminder text (RULE 207.2), innermost-first."""
     prev = None
@@ -169,6 +195,7 @@ def normalize(text: str, name: Optional[str] = None) -> str:
     text = _fold_self_reference(text)
     text = _strip_ability_words(text)
     text = _fold_dies_long_form(text)
+    text = _fold_leading_until_end_of_turn(text)
     text = _NUMBER_WORD_RE.sub(lambda m: _NUMBER_WORDS[m.group(1).lower()], text)
     # Collapse horizontal whitespace only; keep '\n' as the ability separator.
     text = re.sub(r"[ \t]+", " ", text)

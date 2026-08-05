@@ -203,6 +203,7 @@ class TriggerCollectionMixin:
         self._collect_counter_death_return_triggers(event)
         self._collect_mill_return_from_graveyard_triggers(event)
         self._collect_graveyard_function_triggers(event)
+        self._collect_cycled_triggers(event)
     def _resolve_mana_trigger(self, ability: "TriggeredAbility", event: GameEvent) -> None:
         """Apply a triggered mana ability immediately (RULE 605.4).
 
@@ -760,6 +761,27 @@ class TriggerCollectionMixin:
             for obj in player.graveyard:
                 for ability in obj.triggered_abilities:
                     if not getattr(ability, "functions_from_graveyard", False):
+                        continue
+                    if isinstance(ability, TriggeredAbility) and ability.check_trigger(event, self.context):
+                        self.pending_triggers.append((ability, event))
+    def _collect_cycled_triggers(self, event: GameEvent) -> None:
+        """RULE 702.28c: "When you cycle this card, `<effect>`." fires from
+        the graveyard the Cycling cost's own ``discard_self`` just put its
+        source into — `_collect_triggers`'s main loop is battlefield-only
+        (`state.permanents()`), so a `CYCLED`-watching ability would
+        otherwise never be seen. Gated purely on ``trigger_event ==
+        EventType.CYCLED`` rather than a `functions_from_graveyard`-style
+        flag (`_collect_graveyard_function_triggers`'s own idiom): every
+        real card's cycling bonus watches exactly this one event and no
+        other, so the event identity alone is enough to scope the scan —
+        no separate marker needed.
+        """
+        if event.type != EventType.CYCLED:
+            return
+        for player in self.state.players:
+            for obj in player.graveyard:
+                for ability in obj.triggered_abilities:
+                    if getattr(ability, "trigger_event", None) != EventType.CYCLED:
                         continue
                     if isinstance(ability, TriggeredAbility) and ability.check_trigger(event, self.context):
                         self.pending_triggers.append((ability, event))

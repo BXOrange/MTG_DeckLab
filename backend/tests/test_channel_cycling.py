@@ -7,10 +7,13 @@ path with a hand-zone source instead.
 """
 
 from mtg_analyzer.models.card import Card
+from mtg_analyzer.models.events import EventType
 from mtg_analyzer.models.game_object import GameObject, Zone
+from mtg_analyzer.game.effect_binder import bind_from_catalogue
 from mtg_analyzer.game.game_engine import GameEngine
-from mtg_analyzer.game.effects import ActivatedAbility, DrawCardEffect, DestroyEffect
+from mtg_analyzer.game.effects import ActivatedAbility, DrawCardEffect, DestroyEffect, TriggeredAbility
 from mtg_analyzer.game.costs import ActivationCost, parse_activation_cost
+from mtg_analyzer.parser.oracle import MODELED, parse_oracle
 
 
 def make_engine(hand=0, extra_library=0):
@@ -450,3 +453,164 @@ def test_hand_cycling_grant_end_to_end_is_offered_and_activatable():
     eng.resolve_until_stable()
 
     assert card in p1.graveyard
+
+
+# ---------------------------------------------------------------------------
+# RULE 702.28c: "When you cycle this card, <effect>." (`EventType.CYCLED`,
+# `ActivationCost.is_cycling`, `RulesEngine._collect_cycled_triggers`)
+# ---------------------------------------------------------------------------
+
+
+def test_paying_a_cycling_cost_fires_cycled_not_a_plain_channel():
+    eng = make_engine(hand=0)
+    eng.begin_turn()
+    eng.state.current_step = "main1"
+    p1 = eng.state.active_player
+    p1.mana_pool.add_many({"C": 2})
+    obj = _unregistered_cycler()
+    bind_from_catalogue(obj)
+    p1.add_to_zone(obj, Zone.HAND)
+    ability = obj.activated_abilities[0]
+    assert ability.cost.is_cycling is True
+
+    seen = []
+    eng.state.subscribe(lambda e: seen.append(e) if e.type == EventType.CYCLED else None)
+    eng.activate_ability(p1, obj, 0)
+
+    assert len(seen) == 1
+    assert seen[0].get("instance_id") == obj.instance_id
+
+
+def test_a_plain_channel_ability_never_fires_cycled():
+    # Channel shares `discard_self` but is never Cycling — `is_cycling`
+    # stays False, so no CYCLED event, and a "when you cycle" trigger on
+    # some unrelated card must not fire off a Channel discard.
+    eng = make_engine(hand=0)
+    eng.begin_turn()
+    eng.state.current_step = "main1"
+    p1 = eng.state.active_player
+    p1.mana_pool.add_many({"C": 1})
+    card = Card(id="Channeler", name="Channeler", type_line="Sorcery",
+                mana_cost_string="{1}", converted_mana_cost=1, is_sorcery=True,
+                oracle_text="Channel — {1}, Discard this card: Draw a card.")
+    obj = GameObject(card, owner_id="p1", zone=Zone.HAND)
+    obj.activated_abilities = [
+        ActivatedAbility(
+            effects=[DrawCardEffect(count=1)],
+            cost=parse_activation_cost("{1}, Discard this card"),
+            source=obj,
+            description="Channel",
+        )
+    ]
+    p1.add_to_zone(obj, Zone.HAND)
+    assert obj.activated_abilities[0].cost.is_cycling is False
+
+    seen = []
+    eng.state.subscribe(lambda e: seen.append(e) if e.type == EventType.CYCLED else None)
+    eng.activate_ability(p1, obj, 0)
+
+    assert seen == []
+
+
+def test_when_you_cycle_this_card_trigger_fires_from_the_graveyard():
+    # A "when you cycle" ability lives on an object that's already been
+    # discarded to the graveyard by the time CYCLED fires — proving
+    # `_collect_cycled_triggers`'s graveyard-scoped scan, not the ordinary
+    # (battlefield-only) `_collect_triggers` loop, is what finds it.
+    eng = make_engine(hand=0)
+    eng.begin_turn()
+    eng.state.current_step = "main1"
+    p1 = eng.state.active_player
+    p1.mana_pool.add_many({"C": 2})
+    obj = _unregistered_cycler()
+    bind_from_catalogue(obj)
+    bonus = TriggeredAbility(
+        trigger_event=EventType.CYCLED,
+        condition=lambda e, c, iid=obj.instance_id: e.get("instance_id") == iid,
+        effects=[DestroyEffect(target_kind="permanent", selector="all_creatures")],
+        source=obj,
+    )
+    obj.triggered_abilities.append(bonus)
+    p1.add_to_zone(obj, Zone.HAND)
+    bystander_card = Card(id="Bystander", name="Bystander", type_line="Creature",
+                           is_creature=True, power=1, toughness=1)
+    bystander = GameObject(bystander_card, owner_id="p1", zone=Zone.BATTLEFIELD)
+    eng.state.add_to_battlefield(bystander)
+
+    eng.activate_ability(p1, obj, 0)
+    assert obj in p1.graveyard  # the source is already discarded here
+    placed = eng.rules.put_triggers_on_stack()
+    assert placed == 1
+    eng.resolve_until_stable()
+
+    assert bystander not in eng.state.battlefield
+
+
+def _shark_typhoon_card():
+    return Card(
+        id="Shark Typhoon", name="Shark Typhoon", type_line="Enchantment",
+        mana_cost_string="{3}{U}", converted_mana_cost=4,
+        oracle_text="Whenever you cast a noncreature spell, create an X/X blue "
+                     "Shark creature token with flying, where X is that spell's "
+                     "mana value.\nCycling {X}{1}{U} ({X}{1}{U}, Discard this "
+                     "card: Draw a card.)\nWhen you cycle this card, create an "
+                     "X/X blue Shark creature token with flying.",
+        keywords=["Cycling"],
+    )
+
+
+def test_shark_typhoon_is_fully_modeled():
+    result = parse_oracle(_shark_typhoon_card())
+    assert result.coverage == MODELED
+
+
+def test_shark_typhoon_spell_cast_trigger_sizes_the_shark_by_mana_value():
+    eng = make_engine(hand=0)
+    eng.begin_turn()
+    eng.state.current_step = "main1"
+    p1 = eng.state.active_player
+    p1.mana_pool.add_many({"C": 3})
+    typhoon = GameObject(_shark_typhoon_card(), owner_id="p1", zone=Zone.BATTLEFIELD)
+    bind_from_catalogue(typhoon)
+    eng.state.add_to_battlefield(typhoon)
+
+    bolt = GameObject(
+        Card(id="Bolt", name="Bolt", type_line="Instant", mana_cost_string="{2}{R}",
+             converted_mana_cost=3, is_instant=True, oracle_text="~ deals 3 damage to any target."),
+        owner_id="p1", zone=Zone.HAND,
+    )
+    bind_from_catalogue(bolt)
+    p1.add_to_zone(bolt, Zone.HAND)
+    p1.mana_pool.add_many({"R": 3})
+
+    before = len(eng.state.battlefield)
+    eng.cast_spell(p1, bolt, targets=[eng.state.player_by_id("p1")])
+    eng.resolve_until_stable()
+
+    sharks = [o for o in eng.state.battlefield if "Shark" in o.card.type_line]
+    assert len(sharks) == 1
+    assert sharks[0].power == 3 and sharks[0].toughness == 3
+    assert len(eng.state.battlefield) == before + 1
+
+
+def test_shark_typhoon_cycling_sizes_the_shark_by_the_paid_x():
+    eng = make_engine(hand=0)
+    eng.begin_turn()
+    eng.state.current_step = "main1"
+    p1 = eng.state.active_player
+    p1.mana_pool.add_many({"C": 6, "U": 1})
+    typhoon = GameObject(_shark_typhoon_card(), owner_id="p1", zone=Zone.HAND)
+    bind_from_catalogue(typhoon)
+    p1.add_to_zone(typhoon, Zone.HAND)
+
+    (ability,) = typhoon.activated_abilities
+    assert ability.cost.is_cycling is True
+    eng.activate_ability(p1, typhoon, 0, x=5)
+    assert typhoon in p1.graveyard
+    placed = eng.rules.put_triggers_on_stack()
+    assert placed == 1
+    eng.resolve_until_stable()
+
+    sharks = [o for o in eng.state.battlefield if "Shark" in o.card.type_line]
+    assert len(sharks) == 1
+    assert sharks[0].power == 5 and sharks[0].toughness == 5

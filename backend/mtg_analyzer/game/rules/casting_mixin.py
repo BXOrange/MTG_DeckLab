@@ -588,6 +588,12 @@ class CastingResolutionMixin:
                 instance_id=obj.instance_id, object_types=sorted(obj.type_words),
                 mana_spent=obj.mana_spent_to_cast,
                 from_hand=from_hand,
+                # "…where X is that spell's mana value" (Shark Typhoon-shaped
+                # spell-cast payoffs) — read live off the event rather than
+                # requiring a lookup back to a stack item that may have
+                # already resolved and left the stack by the time a
+                # triggered ability referencing it does.
+                mana_value=obj.card.converted_mana_cost,
             )
         )
         self.check_ward(item, player)
@@ -864,6 +870,16 @@ class CastingResolutionMixin:
                     # since a triggered ability was never itself "cast for
                     # X" — only Kicker's own separate {X} was.
                     setattr(effect, attr, getattr(effect.source, "kicker_x_paid", 0) or 0)
+                elif value == "cycling_x":
+                    # RULE 702.28c: "when you cycle this card, create an
+                    # X/X ... token" (Shark Typhoon) — the same shape as
+                    # ``kicker_x`` just above: the *Cycling* cost's own
+                    # announced {X} (`GameObject.cycling_x_paid`, stamped by
+                    # `GameEngine._pay_activation_cost`), not this stack
+                    # item's own ``x`` — a "when you cycle" trigger's own
+                    # StackItem was never itself activated for X, only the
+                    # separate Cycling activation was.
+                    setattr(effect, attr, getattr(effect.source, "cycling_x_paid", 0) or 0)
     def resolve_top_of_stack(self) -> Optional[StackItem]:
         """Resolve the topmost stack object (RULE 608). Returns it, or None."""
         if not self.state.stack:

@@ -57,6 +57,8 @@ COMBAT_KEYWORDS: frozenset[str] = frozenset(
         "indestructible",
         "protection",
         "dethrone",
+        "infect",
+        "wither",
     }
 )
 
@@ -101,6 +103,8 @@ _ORACLE_PATTERNS: dict[str, re.Pattern[str]] = {
         "defender": "defender",
         "haste": "haste",
         "indestructible": "indestructible",
+        "infect": "infect",
+        "wither": "wither",
     }.items()
 }
 
@@ -284,6 +288,14 @@ def has_indestructible(obj: "GameObject") -> bool:
     return "indestructible" in _obj_keywords(obj)
 
 
+def has_infect(obj: "GameObject") -> bool:
+    return "infect" in _obj_keywords(obj)
+
+
+def has_wither(obj: "GameObject") -> bool:
+    return "wither" in _obj_keywords(obj)
+
+
 def has_hexproof(obj: "GameObject") -> bool:
     """RULE 702.11b: can't be the target of a spell/ability an opponent
     controls (an opponent's own permanents/self-targets are unaffected —
@@ -368,7 +380,8 @@ _FILTER_KEYS: frozenset[str] = frozenset(
     {
         "min_power", "max_power", "min_toughness", "max_toughness",
         "keyword", "keyword_any", "without_keyword",
-        "subtype", "subtype_any", "color", "card_type", "power_vs_reference",
+        "subtype", "subtype_any", "without_subtype", "color", "without_color",
+        "card_type", "without_card_type", "power_vs_reference", "attacking",
         # Engine-internal only — never produced by the oracle-text parser
         # (which can't know a specific game object's id), only computed at
         # resolve time by `GrantCombatRestrictionEffect`'s ``restrict_to_source``
@@ -433,8 +446,27 @@ def matches_object_filter(
     subtype_any = filt.get("subtype_any")
     if subtype_any and not any(_has_subtype(obj, str(s)) for s in subtype_any):
         return False
+    # "target non-Angel creature" (Restoration Angel-shaped) — the negated
+    # sibling of ``subtype`` above, same ``without_card_type`` idiom.
+    without_subtype = filt.get("without_subtype")
+    if without_subtype is not None and _has_subtype(obj, str(without_subtype)):
+        return False
+    # "target attacking Elf you control gains deathtouch until end of
+    # turn." (Gnarlroot Trapper-shaped) — RULE 506.4's own attacker status,
+    # composing with the subtype/"you control" filters above rather than
+    # a bespoke target kind.
+    if filt.get("attacking") and not getattr(obj, "attacking", False):
+        return False
     color = filt.get("color")
     if color is not None and str(color).upper() not in {
+        str(c).upper() for c in (getattr(obj, "colors", None) or set())
+    }:
+        return False
+    # "destroy target **nonblack** creature" (Doom Blade-shaped, RULE 105's
+    # colour-hoser adjective negated) — the negated sibling of ``color``
+    # above, same ``without_card_type`` idiom.
+    without_color = filt.get("without_color")
+    if without_color is not None and str(without_color).upper() in {
         str(c).upper() for c in (getattr(obj, "colors", None) or set())
     }:
         return False

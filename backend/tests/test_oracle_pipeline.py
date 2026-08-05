@@ -73,6 +73,28 @@ def test_normalize_folds_only_short_number_words():
     assert normalize("draw a card") == "draw a card"
 
 
+def test_normalize_folds_leading_until_end_of_turn_to_trailing_form():
+    # Triumph of the Hordes-shaped: "Until end of turn, X." means the same
+    # thing as the far more common trailing "X until end of turn." every
+    # handler's grammar already expects.
+    out = normalize("Until end of turn, creatures you control get +1/+1 and gain trample and infect.")
+    assert out == "creatures you control get +1/+1 and gain trample and infect until end of turn."
+
+
+def test_normalize_leaves_multi_sentence_leading_until_end_of_turn_alone():
+    # A quoted granted ability can carry its own internal period (Bail
+    # Out-shaped) — folding "up to the first period" would relocate the
+    # duration into the middle of that quote, so the fold only applies to a
+    # genuinely single-sentence line (no embedded period before the last).
+    text = (
+        'until end of turn, target creature you control gains "when ~ dies, '
+        'return it to the battlefield tapped under its owner\'s control. '
+        'It deals 1 damage to each opponent."'
+    )
+    out = normalize(text)
+    assert out.startswith("until end of turn, ")
+
+
 def test_normalize_folds_alchemy_a_prefix_self_reference():
     # PAR-4: an MTG Arena "Alchemy" rebalance is named with Scryfall's own
     # "A-" prefix, but its own oracle text keeps self-referring by the
@@ -574,6 +596,38 @@ def test_transform_handler_matches_self_forms():
         assert e.type == "transform" and e.params == {}
 
 
+def test_draw_recognizes_targeted_and_mass_forms():
+    # Kenrith/Oona's Grace-shaped: "target player/opponent draws a card" is
+    # a real RULE 115 target, not the source's own controller drawing —
+    # mirrors `_discard`'s pre-existing ``who`` treatment.
+    bare = parse_effect_body("draw a card")[0]
+    assert bare.type == "draw" and bare.params == {"count": 1}
+    you = parse_effect_body("you draw a card")[0]
+    assert you.params == {"count": 1}
+    targeted = parse_effect_body("target player draws a card")[0]
+    assert targeted.params == {"count": 1, "target_kind": "player"}
+    opponent = parse_effect_body("target opponent draws 2 cards")[0]
+    assert opponent.params == {"count": 2, "target_kind": "player"}
+    each = parse_effect_body("each opponent draws a card")[0]
+    assert each.params == {"count": 1, "selector": "each_opponent"}
+
+
+def test_kenrith_targeted_draw_ability_is_fully_modeled():
+    card = Card(
+        id="Kenrith, the Returned King", name="Kenrith, the Returned King",
+        type_line="Legendary Creature — Human Noble", is_creature=True,
+        power=4, toughness=4,
+        oracle_text="{R}: All creatures gain trample and haste until end of turn.\n"
+                     "{1}{G}: Put a +1/+1 counter on target creature.\n"
+                     "{2}{W}: Target player gains 5 life.\n"
+                     "{3}{U}: Target player draws a card.\n"
+                     "{4}{B}: Put target creature card from a graveyard onto the "
+                     "battlefield under its owner's control.",
+    )
+    result = parse_oracle(card)
+    assert result.modeled
+
+
 def test_group_pump_handler_creatures_you_control():
     e = parse_effect_body("creatures you control get +2/+1 until end of turn")[0]
     assert e.type == "pump"
@@ -582,6 +636,34 @@ def test_group_pump_handler_creatures_you_control():
     assert other.params["selector"] == "other_creatures_you_control"
     kw = parse_effect_body("creatures you control gain flying until end of turn")[0]
     assert kw.params == {"keywords": ["flying"], "selector": "creatures_you_control"}
+
+
+def test_pump_grant_handles_a_two_keyword_conjunction():
+    # Triumph of the Hordes-shaped: "gain X and Y" (as opposed to a single
+    # granted keyword) — the leading "Until end of turn," is folded to this
+    # trailing form by `normalize` before the segmenter ever sees it.
+    e = parse_effect_body(
+        "creatures you control get +1/+1 and gain trample and infect until end of turn"
+    )[0]
+    assert e.type == "pump"
+    assert e.params == {
+        "power": 1, "toughness": 1,
+        "keywords": ["trample", "infect"],
+        "selector": "creatures_you_control",
+    }
+
+
+def test_triumph_of_the_hordes_is_fully_modeled_end_to_end():
+    card = spell(
+        "Triumph of the Hordes",
+        "Until end of turn, creatures you control get +1/+1 and gain trample and infect. "
+        "(Creatures with infect deal damage to creatures in the form of -1/-1 counters "
+        "and to players in the form of poison counters.)",
+    )
+    result = parse_oracle(card)
+    assert result.coverage == MODELED
+    assert len(result.specs) == 1
+    assert result.specs[0].effects[0].params["keywords"] == ["trample", "infect"]
 
 
 # ---------------------------------------------------------------------------
