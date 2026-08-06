@@ -763,6 +763,18 @@ class TurnLoopMixin:
         if self.state.stack:
             self.rules.resolve_top_of_stack()
             self.rules.check_state_based_actions()
+            # RULE 117.5: before any player can receive priority again,
+            # state-based actions are performed and triggered abilities are
+            # put on the stack. Without this second call, a trigger fired by
+            # what just resolved (e.g. Sigarda's Aid's "whenever an
+            # Equipment you control enters…") sits in `rules.pending_triggers`
+            # with an empty `state.stack` and no `pending_choice` — nothing
+            # in the view hints that anything is owed, so it's only placed
+            # (and its own target choice opened) on some later, unrelated
+            # `pass_priority` call, if ever. `resolve_until_stable` already
+            # loops for exactly this reason; a single `pass_priority` call
+            # must still finish this part of the cycle before returning.
+            self.rules.put_triggers_on_stack()
             # RULE 117.3b: after anything resolves, priority resets to the
             # active player and everyone gets a fresh chance to act.
             self.give_priority(self.state.active_player)
