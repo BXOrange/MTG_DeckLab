@@ -75,6 +75,45 @@ Plan-level sequencing lives in
 > card — that's ordinary runtime behavior, not scheduled work, and needs no
 > special-casing to stay that way.
 
+- **MEC-12 · Make the seven "cEDH"-named saved decks/cubes fully playable.**
+  User request 2026-08-06: `Ojer cEDH`, `cEDH Rocco`, `[cEDH] Glarb
+  Bloomsday`, `cEDH staples`, `cEDH staples 2`, `cEDH M-K`, `cEDH Kinnan` (a
+  700+-unique-card pool across the seven, heavy overlap — the same ~40 real
+  cEDH staples recur across most of them). **Not** "no deferrals" scope like
+  the Eliferate/Imodane batches — tracked here as ordinary open work rather
+  than forced to completion in one sitting given the size. Current state
+  (2026-08-06, second pass): **Ojer 31/77, Rocco 67/98, Glarb Bloomsday
+  69/100, staples 157/215, staples 2 392/636, M-K 72/97, Kinnan 68/100**
+  (unique-card total 417/723) — re-measure with the same script
+  `Done_Backend.md`'s matching entries document rather than trusting these
+  numbers as they age; the per-deck *totals* themselves also drift run to
+  run (e.g. `cEDH staples 2` was 607 last pass, 636 this one) since these
+  are live saved decks a user can keep editing, not a frozen fixture.
+
+  Second pass (2026-08-06) built the RULE 115.4 "change the target"
+  primitive and hand-authored Misdirection/Deflecting Swat with it (full
+  detail in `Done_Backend.md`) — the first pass's own "confirmed-missing
+  primitive" entry for this, below, is now resolved and left in place only
+  as the design record.
+
+  **Confirmed-missing primitives found along the way** were extracted to
+  their own tickets 2026-08-06 (sort-into-categories pass) and all six —
+  ENG-26/27/28 (targetable-ability-on-the-stack, the Bloom Tender/Carpet of
+  Flowers mana primitives, and the "during your turn" cast/activation-
+  prohibition gate), MEC-15 (RULE 118.9 alternative costs), MEC-16
+  (Cumulative upkeep, RULE 702.24), and MEC-17 (Imprint) — shipped the same
+  day; see `Done_Backend.md` for each.
+
+  Remaining high-frequency cards not yet investigated in depth: the tutor
+  family (Chord of Calling/Green Sun's Zenith/Finale of Devastation/
+  Tainted Pact/Wishclaw Talisman/Transmute Artifact — likely mostly
+  `SearchLibraryEffect` reuse plus Convoke/free-cast simplifications, per
+  the already-generalized tutor grammar CLAUDE.md documents), Smothering
+  Tithe (a straightforward `TaxedDrawEffect` generalization — trigger is
+  DRAW not SPELL_CAST, "else" effect is `create_token` not `draw`), and the
+  rest of `[cEDH] Glarb Bloomsday`/`cEDH staples 2`'s long tail (oracle text
+  pulled but not yet triaged for this ticket).
+
 ## PLR — Player management
 
 - **PLR-4 · Names are the identity, unauthenticated.** Two people picking

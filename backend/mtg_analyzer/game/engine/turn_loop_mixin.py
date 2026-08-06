@@ -504,6 +504,9 @@ class TurnLoopMixin:
             # during each of your turns" restriction (Lurrus-shaped) resets
             # the same way.
             obj.graveyard_casts_this_turn = 0
+            # ENG-27: "if you haven't added mana with this ability this
+            # turn" (Carpet of Flowers) resets the same way too.
+            obj.added_mana_with_ability_this_turn = False
         self.state.fire_event(GameEvent(EventType.UNTAP, player_id=active.id))
         # RULE 731.2: "as the second part of the untap step", check whether
         # day/night should flip based on last turn's spell count.
@@ -939,6 +942,12 @@ class TurnLoopMixin:
         elif kind == "counter_unless_pays":
             # RULE 601: "pay" saves the target spell, anything else counters it.
             self.rules.resolve_counter_unless_pays_choice(None if declined else str(answer))
+        elif kind == "change_target":
+            # RULE 115.4/601.2c: Misdirection/Deflecting Swat's own
+            # retarget — the option id is the new target's instance id or
+            # player id, or a decline (only offered when optional) leaving
+            # the spell's existing target untouched.
+            self.rules.resolve_change_target_choice(None if declined else str(answer))
         elif kind == "ward":
             # RULE 702.21: "pay" saves the caster's spell/ability, anything
             # else counters it — the caster decides, not the target's

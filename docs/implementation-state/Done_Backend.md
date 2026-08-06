@@ -10788,3 +10788,690 @@ target, and Imodane's own trigger firing exactly once and only for a
 single-creature-targeted spell) rather than new pytest files, since this
 batch's cards are one-offs in `ability_catalogue.py` and the existing
 suite already covers every primitive's shared machinery.
+
+## The seven "cEDH"-named saved decks/cubes: first playability pass (2026-08-06)
+
+User request: make every "cEDH"-named saved deck/cube fully playable —
+`Ojer cEDH`, `cEDH Rocco`, `[cEDH] Glarb Bloomsday`, `cEDH staples`,
+`cEDH staples 2`, `cEDH M-K`, `cEDH Kinnan`. Together a 393-unique-card
+pool (heavy overlap — the same real-world cEDH staples recur across most
+of the seven), an order of magnitude past any single-deck batch this
+project had done before. Given the size, this is tracked as ordinary open
+work (`MEC-12` in `BACKLOG.md`) across however many sessions it takes,
+not forced to "no deferrals" completion in one sitting the way the
+smaller Eliferate/Imodane batches were — this entry covers the first
+pass: the highest-frequency shared staples (by how many of the seven
+decks each unlocks), prioritized for exactly that leverage.
+
+**Coverage measurement**: `services.deck_database.DeckDatabase`/
+`DECKS_DB_PATH` for the real saved-deck rows, `services.card_database.
+CardDatabase`/`DEFAULT_DB_PATH` (not the `:memory:` default — costs a
+lookup miss on every card if forgotten) for oracle text, decklist lines
+parsed by stripping everything from the `(SET)` collector-number marker
+onward, "playable" = `parse_oracle(card).modeled or ability_catalogue.
+is_registered(card.name)`. Result this pass: **Ojer cEDH 30/77, cEDH
+Rocco 67/98, [cEDH] Glarb Bloomsday 69/100, cEDH staples 156/215, cEDH
+staples 2 375/607, cEDH M-K 70/97, cEDH Kinnan 68/100** (up from 29/62/
+66/147/364/63/61 respectively at the start of this pass) — 13 real cards
+fixed, each shared across 2–6 of the seven decks, hence the larger
+per-deck deltas.
+
+**Parser fix** (`parser/oracle/segmenter.py`'s `_COST_LOOKS_REAL`):
+"Exile this card from your hand: Add `<mana>`." (Simian/Elvish Spirit
+Guide) was UNCLAIMED — not because the mechanic is unbuilt (`costs.py`'s
+`_EXILE_FROM_HAND_RE`/`exile_self_from_hand` and `mana_abilities.
+hand_mana_abilities_for` already fully implement RULE 605.1a hand-zone
+mana abilities, per the CLAUDE.md callout this precedes) but because
+`_COST_LOOKS_REAL`'s cost-shape sniff — the gate deciding whether an
+activated ability's `<cost>: <effect>` line is claimed at all — never
+listed "exile from your hand" among its recognized cost verbs (`{...}`,
+sacrifice, pay life, discard, put/remove a counter, tap-untapped, return
+to hand). Added `exile (?:this \w+|~) from (?:your|their) hand` (the `~`
+half needed separately — `normalize.py` folds "this creature" to `~`
+*before* the sniff runs, so Elvish Spirit Guide's own "Exile this
+**creature** from your hand" only matched once both forms were covered).
+Two solo-blocker cards fixed cache-wide, zero regressions
+(`parser_probe.py diff`).
+
+**New primitive — `TaxedDrawEffect`** (`game/effects.py`): RULE 118.3's
+"you may pay `<cost>`. If you don't, `<effect>`." idiom, already shipped
+for a sacrifice (`SacrificeUnlessPayEffect`) and a mass life-loss
+(`EachPlayerPayOrEffect`), applied to a *draw* instead — Rhystic Study/
+Mystic Remora/Esper Sentinel's shared "whenever an opponent casts a
+spell, you may draw a card unless that player pays `<cost>`." template.
+The one real difference from its siblings: the *payer* is the triggering
+spell's own caster, read off `GameContext.trigger_event`'s `player_id`
+(the firing `SPELL_CAST` event), not this ability's own controller —
+every prior "unless" effect had the payer and the ability's controller be
+the same player. Built on the same `request_pay_cost_then`/
+`_can_pay_player_cost` machinery as always; the trigger condition itself
+needed no new predicate, since `SPELL_CAST`'s `_GROUP_CONTROLLER_EVENT_
+KEYS` entry (`player_id`) already makes `{"subject": "group", "controller":
+"not_you"}` mean "an opponent cast this". `amount_from_source_power`
+(Esper Sentinel: "unless that player pays {X}, where X is this
+creature's power") reads the cost amount off the source's live power at
+resolution instead of a fixed printed value. **Documented
+simplifications**: Mystic Remora's own Cumulative upkeep (RULE 702.24,
+still wholly unbuilt — same drop-precedent as Kyren Negotiations) and
+Esper Sentinel's "their **first** noncreature spell each turn" gate (no
+per-player per-turn "first qualifying event" counter exists yet — fires
+on every qualifying spell instead, a strict upgrade rather than a broken
+card) are both dropped.
+
+**RULE 118.9 alt-cost family, dropped and hand-authored for the rest**:
+Force of Will, Force of Negation, Force of Vigor, and Daze each print
+"You may `<cost>` rather than pay this spell's mana cost." — a genuinely
+unbuilt alternative-casting-cost mechanism (confirmed via
+`parser_probe.py blocked`: 113 cards cache-wide, 58 solo blockers, so
+this is real standalone scope, not a one-off — tracked as its own
+open item in `MEC-12` rather than built for one card's sake). Each of the
+four is hand-authored for its resolution effect only, fully castable at
+its real printed mana cost (all four have one) — `CounterSpellEffect`
+covers Force of Will (plain), Force of Negation (`noncreature=True`,
+dropping the "exile instead of graveyard" rider too), and Daze
+(`unless_pays="1"`, the pre-existing Mana Leak shape); Force of Vigor
+reuses the already-shipped RULE 115.1a "up to N targets" idiom
+(`DestroyEffect(target_kind="artifact_or_enchantment", count=2,
+optional=True)`). Misdirection and Deflecting Swat were investigated and
+**left UNMODELED** rather than half-built: both cards' *entire* effect is
+"change the target of an existing spell/ability", a distinct RULE 115.4
+mechanism from the already-shipped "choose new targets for the copy"
+drop (which only ever touches a freshly-made copy) — dropping it would
+leave a genuine no-op, not a smaller-but-real card. Also discovered along
+the way and recorded in `MEC-12`: `GameEngine.can_cast`/`cast_spell`'s
+existing `free=True` RULE 601.2f condition-gated free-cast path
+(`free_cast_condition`, `control_commander` condition already live in
+`condition_query.py`) has never actually been reachable from a real game
+— `legal_actions_mixin._cast_action`/`_offer_cast` never surfaces it and
+`services/game_session.py`'s `_dispatch_cast_spell` never round-trips a
+`free` flag from the action payload — zero cards use it today because
+nothing could ever legally exercise it end-to-end.
+
+**Plain trigger reuse, no new primitive**: City of Brass ("whenever this
+land becomes tapped, it deals 1 damage to you" — `EventType.TAPPED`,
+already fired for every genuine untapped→tapped transition, `damage`
+with `selector="controller"`, the pre-existing Mana Vault shape) and
+Forbidden Orchard ("whenever you tap this land for mana, target opponent
+creates a 1/1 Spirit" — `EventType.TAPPED_FOR_MANA`, `create_token`).
+**Documented simplification**: Forbidden Orchard's "target opponent"
+becomes `creators="each_opponent"` (`CreateTokenEffect` has no single-
+opponent-target creation shape yet) — correct in 1v1, an overstatement in
+multiplayer.
+
+Tests: full backend suite (3,452 passed, 238 skipped) stayed green
+throughout. Every new-primitive card verified by direct engine scripting
+against real `GameEngine`/`CardDatabase` state rather than just the parse
+verdict: Rhystic Study drawing on decline and staying silent on payment,
+Esper Sentinel's `{X}` tracking its live power (1), Force of Vigor
+resolving and hitting the graveyard, City of Brass/Forbidden Orchard's
+triggers firing off real `TAPPED`/`TAPPED_FOR_MANA` events.
+
+Remaining scope (the other ~30 unique high-frequency staples plus the
+long tail of once-off inclusions across all seven decks, several
+confirmed-missing primitives with design notes already written down, and
+the exact currently-open card lists) is `MEC-12` in `BACKLOG.md` — read
+that before starting the next pass rather than re-deriving which
+primitives are missing from scratch.
+
+## The seven "cEDH"-named saved decks/cubes: RULE 115.4 "change the target" (2026-08-06, second pass)
+
+Continuation of `MEC-12` — this pass built the first pass's own
+"confirmed-missing primitive" entry: RULE 115.4/601.2c's "change the
+target of target spell/ability," needed by Misdirection ("Change the
+target of target spell with a single target.") and Deflecting Swat ("You
+may choose new targets for target spell or ability."). Genuinely distinct
+from the already-shipped "choose new targets for a freshly-made **copy**"
+(RULE 707.10c, `CopySpellEffect`/`RulesEngine.copy_spell`) — that only
+ever affects a copy at creation time; this is a live retarget of an
+*already-existing* stack item.
+
+**New primitive**: `ChangeTargetEffect` (`game/effects.py`) + `RulesEngine.
+change_target` (`game/rules/misc_mixin.py`, next to `_stack_item_for`/
+`counter_unless_pays`, the closest existing "act on a named stack item"
+precedent). The changing player is *this effect's own controller* (RULE
+115.4a — not the targeted spell's controller; a target description's
+"you"/"your" still means the original spell's own controller, so
+`legal_targets` is computed with the targeted item's `controller_id`, not
+the changer's). Legal alternatives are recomputed fresh against the
+*current* board (RULE 115.1c) — not whatever was legal when the targeted
+spell was originally cast — by re-running `targeting.legal_targets`
+against the first targeting effect found on the target's `StackItem.
+effects`. A single legal option (which, per 115.4a, always includes the
+*current* target — nothing excludes it from being re-picked) auto-applies
+without a prompt, the same "forced, asking would be theatre" idiom
+`_choose_objects_choice` already uses; zero legal alternatives (the
+target-has-no-legal-targets edge, or just "nothing else is out there")
+leaves the target untouched by construction, since an empty options list
+short-circuits before any assignment happens. `optional=True` (Deflecting
+Swat's "you may") adds a `"decline"` option; Misdirection's own "Change
+the target" is mandatory (no decline offered).
+
+New `pending_choice` kind `"change_target"` — `GameEngine.
+resolve_pending_choice`/`turn_loop_mixin.py` dispatches it to `RulesEngine.
+resolve_change_target_choice`, same generic `{"id", "label",
+"instance_id"?}` option shape `_trigger_target_choice` already uses (so
+the existing choice UI renders it with zero new frontend work). The choice
+is deliberately data-only (a stack item can't be stored by live reference
+across a `state.clone()` undo snapshot) — it carries `stack_target_
+instance_id` and re-finds the live `StackItem` via `_stack_item_for` at
+resolve time, mirroring `counter_unless_pays`'s own choice shape exactly.
+
+**Deliberately scoped to spells, not "spell or ability"** as Deflecting
+Swat is actually printed, and to a stack item with **exactly one existing
+target** (`item.target_groups is not None` — 2+ *different* targeting
+effects — is refused outright rather than guessed at). Both are real,
+documented simplifications, not laziness:
+
+- Retargeting an *ability* on the stack needs a stable way to name one.
+  `StackItem.obj` is `None` for an ability item (the permanent that has it
+  lives on `.source` instead — see `StackItem`'s own docstring), so
+  `targeting.py`'s `"spell"` kind (which keys every option off `item.obj.
+  instance_id`) simply has nothing to identify an ability item by. Building
+  that — RULE 115's "target activated/triggered ability" (Stifle/Trickbind-
+  shaped) — is a strictly bigger primitive on its own, newly logged in
+  `BACKLOG.md`'s `MEC-12` rather than half-built here. No card in the
+  catalogue or the cEDH pool needs it yet.
+- A spell with 2+ targets (RULE 115.1a's "N target X") retargeting one at a
+  time would need per-slot bookkeeping (`target_groups`) this MVP doesn't
+  build, since neither real card in scope needs it — Misdirection's own
+  printed text restricts to "target spell **with a single target**", and
+  Deflecting Swat in practice retargets single-target removal almost
+  exclusively.
+
+`targeting.py`: `TargetSpec.spell_filter` gained a `single_target` key
+(Misdirection's own restriction) — checked against the stack item's
+*current* `len(item.targets)`, not the spell's printed characteristics
+(it's a fact about the stack, not the card), so it lives in the `"spell"`
+kind's own `legal_targets` branch rather than `_spell_matches_filter`
+(which only ever sees the spell's `GameObject`, not its `StackItem`).
+
+**Hand-authored** (`ability_catalogue.py`): Misdirection (`change_target`,
+`single_target=True`, mandatory) and Deflecting Swat (`change_target`,
+`optional=True`, spell-only per the simplification above) — both at their
+real printed mana cost ({3}{U}{U} and {2}{R} respectively; earlier
+drafting briefly assumed the wrong printed costs from memory before
+checking the real cached Scryfall data, corrected before shipping), RULE
+118.9's alternative cost dropped for both (same documented-simplification
+precedent as the Force of Will cycle — see the first-pass entry above).
+
+Tests: `tests/test_change_target_family.py` (new file, 12 tests) — the
+`"spell"` kind's `single_target` filter in isolation; `RulesEngine.
+change_target`'s three branches (auto-apply on a single legal option,
+opening a mandatory choice with no decline, opening an optional choice
+with one, the 2-existing-targets refusal); `resolve_change_target_choice`
+retargeting a pushed spell and leaving it alone on decline; a full
+`GameEngine.resolve_pending_choice` → `resolve_until_stable` wiring test
+confirming a retargeted damage spell actually lands on the *new* target,
+not the old one; and both cards' registration + emitted `EffectSpec`
+shape. Full backend suite: 3,464 passed (+12), 238 skipped, zero
+regressions.
+
+Coverage re-measured (same script as the first-pass entry, decks a user
+can keep editing so per-deck *totals* drift run to run, not just the
+playable count): **Ojer 31/77, Rocco 67/98, Glarb Bloomsday 69/100,
+staples 157/215, staples 2 392/636, M-K 72/97, Kinnan 68/100** — unique
+417/723. Remaining scope unchanged in kind, still `MEC-12`.
+
+A follow-up in the same pass closed a test-coverage gap noticed while
+confirming Rhystic Study was already modeled (it was — first-pass work,
+above): `TaxedDrawEffect`'s three real cards (Rhystic Study, Mystic
+Remora, Esper Sentinel) had shipped with only an ad hoc scratchpad script
+verifying them, no committed regression test. `tests/
+test_taxed_draw_family.py` (new file, 8 tests, real cached cards per the
+`test_cube_batch_a1.py` house style) now covers all three: the plain {1}
+tax drawing on decline and staying silent on payment; the "opponent" scope
+not firing off the ability's own controller's spell; the no-mana auto-draw
+shortcut (`request_pay_cost_then`'s "don't stall on a choice nobody can
+act on" branch — worth its own test since two earlier draft tests in this
+file wrongly asserted a `pending_choice` while leaving the payer without
+enough mana to ever reach that branch, catching the same mistake this
+comment warns against); Mystic Remora's noncreature-only filter and {4}
+cost; and Esper Sentinel's tax scaling with its own live power (`{1}` off
+its printed 1 power) plus the same noncreature filter. The two
+creature-spell tests cast from the *active* player rather than the
+Remora/Sentinel controller's actual opponent, since a fresh `new_game`
+starts p1 active and RULE 307.4a restricts sorcery-speed casting to
+the active player — Remora/Sentinel simply changed seats (p2) so p1
+remains a legal "opponent" caster either way. Full backend suite: 3,472
+passed (+8), 238 skipped, zero regressions.
+
+## ENG-28 · `cast_prohibition`/`activation_prohibition` gated on "during your turn" (2026-08-06)
+
+Sizing confirmed the ticket's own premise was half wrong before touching
+any code (per the standing "verify engine ticket claims empirically"
+discipline): Linvala, Keeper of Silence and Karn, the Great Creator's
+activation-lock clauses carry **no** turn gate at all ("Activated
+abilities of creatures/artifacts your opponents control can't be
+activated." — permanent, not "during your turn"); only Grand Abolisher
+and Myrel, Shield of Argive actually print the gated shape. Real bug
+found instead: `continuous.cast_prohibited` never consulted `active_if`
+at all (unlike `activation_prohibited`, which already inherited it for
+free through `affected_objects`/`group_selector_objects`), and the
+`cast_prohibition` `EffectRegistry` factory in `game/effects.py` didn't
+even thread the param onto the `StaticAbility` in the first place — a
+`cast_prohibition` spec carrying `active_if` was silently dropped at bind
+time, the exact "new selector param missing from `_SELECTOR_KEYS`" trap
+this repo's own conventions warn about (in this case the factory itself,
+not the whitelist — `active_if` was already in `_SELECTOR_KEYS`, just
+never read into `cast_prohibition`'s own params dict).
+
+Fixed both: `cast_prohibited` now checks `ability.params.get("active_if")`
+(and the three legacy-gate params via `static_conditions.
+condition_from_legacy_params`) exactly the way `group_selector_objects`
+does, and the `cast_prohibition` factory now spreads `**_selectors(p)`
+like every other static factory already does. `group_selector_objects`'s
+`card_type` filter also gained list support (`card_type=["artifact",
+"creature", "enchantment"]`, OR'd via `_has_card_type`) — needed for Grand
+Abolisher's three-way type list, a plain string still works unchanged for
+every existing caller.
+
+That engine fix is inert without a way for real card text to reach it, so
+the same batch added the parser half: a general "During your turn,
+`<static clause>`." wrapper in `parser/oracle/catalogue/static_handlers.
+py`'s `_conditional_static_specs` (fixed to the `your_turn` condition
+rather than routed through `static_condition`, since the phrase itself
+*is* the condition — no separate `cond` to parse a kind out of), sitting
+alongside the existing "as long as" wrapper and reusing its exact
+recursive-rewrite plumbing. Sized first with `parser_probe.py`: 156 cards
+solo-blocked on the literal phrase alone (Ahn-Crop Invader/Blood Burglar/
+Colossus, Steel Stalwart-shaped "During your turn, ~ has `<keyword>`."
+being the commonest single template) — the wrapper claims whichever inner
+clause `static_effect_specs` already knows how to parse, so it's a
+one-time addition that keeps paying off as the anthem/keyword-grant
+family grows, not a per-card fix. Also added, to close Grand Abolisher/
+Myrel's own compound sentence specifically: `_ACTIVATION_PROHIBITION_
+OPPONENTS_RE` (the opponent-scoped sibling of the pre-existing board-wide
+"activated abilities of `<type>` can't be activated" handler — unlocks
+Linvala solo, narrows Karn/Drana and Linvala/Sharkey, Tyrant of the
+Shire), and `_CANT_CAST_OR_ACTIVATE_OPPONENTS_RE` + `_type_word_list`
+(splits "artifacts, creatures, or enchantments" on comma/and/or into
+`_CARD_TYPE_WORDS`, fail-closed on an unrecognised word), which emits one
+`cast_prohibition` spec (untyped — "cast spells", no restriction) plus one
+`activation_prohibition` spec (`affects="opponents_permanents"`, the new
+list-shaped `card_type`) from a single clause, both then gated by the
+"during your turn" wrapper that recognised the sentence in the first
+place.
+
+Confirmed with `engine_bench.py inspect`: Grand Abolisher and Myrel, Shield
+of Argive are now `MODELED` (were `UNMODELED`); Linvala is now `MODELED`
+solo; Karn, the Great Creator stays `UNMODELED` (its two loyalty abilities
+are unrelated, still-unclaimed clauses — out of this ticket's scope).
+Coverage moved 10,561 → 10,599 (+38, 30.87% → 30.98%), and the "during
+your turn" solo-blocked count dropped 156 → 119, confirming the wrapper's
+yield extends well past the four cards that motivated it.
+
+Tests: `tests/test_during_your_turn_prohibition_family.py` (new file, 5
+tests, real cached cards) — Grand Abolisher's cast half gated on/off by
+whose turn it is, never touching its own controller; its activation half
+against a real mana ability (`Llanowar Elves`), which needed `tap_for_mana`
+rather than `can_activate` since a mana ability never lives in `source.
+activated_abilities` (`can_activate` refuses it on that unrelated ground
+regardless of any prohibition — the first draft of this test suite passed
+for the wrong reason before this was caught); Linvala's lock holding on
+both players' turns and never touching her own controller's creature.
+Full backend suite: 3,477 passed (+5), 238 skipped, zero regressions.
+
+## ENG-26 · RULE 115/608.2b "target an activated or triggered ability" (2026-08-06)
+
+The second cEDH pass's own headline deferred item: `targeting.py`'s
+`"spell"` kind only ever matched `StackItem.kind == "spell"`, and an
+*ability* `StackItem`'s own `obj` is `None` (the permanent that has the
+ability lives on `.source` instead) — so nothing could name "an ability on
+the stack" as a target at all, for either counter (Stifle/Trickbind) or
+retarget (Deflecting Swat's real "spell or ability" scope) purposes.
+
+The load-bearing piece is `StackItem.stack_id` (`models/game_state.py`) —
+a stable identity every stack item gets, spell or ability alike, assigned
+by a module-level `itertools.count()` exactly the way `GameObject.
+instance_id` already is. A spell target descriptor still keys off its own
+`GameObject.instance_id` (unchanged, no reason to disturb an already-working
+path); an ability one is keyed by `stack_id` instead, both new `targeting.
+py` kinds (`"ability"`, and `"spell_or_ability"` — the literal union, for
+Deflecting Swat's own wording). `RulesEngine.change_target`'s own
+`stack_target_instance_id` bookkeeping (previously a `GameObject.
+find_object` round trip, meaningless for an ability with no object) was
+simplified to read `StackItem.stack_id` directly for both shapes, which is
+also simply less code — `resolve_change_target_choice` no longer needs the
+`find_object` → `_stack_item_for` two-step at all. `GameSession.
+_resolve_targets` (the API boundary) gained a matching `"stack_id"`
+descriptor branch resolving straight to the live `StackItem`.
+
+Two effects consume the new identity: `CounterAbilityEffect`/
+`RulesEngine.counter_ability` (RULE 701.5b, `EffectRegistry`'s
+`"counter_ability"`) — new, but its actual stack-removal logic is just a
+call to the pre-existing `counter_spell`, which already handled an
+`item.obj is None` ability item correctly (no graveyard move, since RULE
+701.5g's "owner's graveyard" only ever applies to a spell) the whole time,
+once it could be *reached*; and `ChangeTargetEffect`, which gained a
+`spell_or_ability` param switching its `target_spec` to the union kind,
+with `RulesEngine.change_target` itself reading `item.obj if item.obj is
+not None else item.source` as "the thing legality is computed against"
+(RULE 115.1c's live recompute) instead of assuming `item.obj`.
+
+Deflecting Swat's hand-authored entry (`game/ability_catalogue.py`) was
+updated from spell-only to `spell_or_ability=True` — the first-pass
+"documented simplification: narrows to spell only" is resolved, matching
+its real printed "target spell or ability" text. Stifle and Trickbind are
+newly hand-authored on `counter_ability` — Stifle is a clean one-clause
+match; Trickbind keeps two documented simplifications of its own (RULE
+702.61 Split Second, not recognized anywhere in the codebase — a
+cast-timing restriction, a different kind of primitive than this ticket;
+and the post-counter "activated abilities of that permanent can't be
+activated this turn" lockout, which would need its own per-object
+turn-scoped flag no other card needs yet) so its core "counter target
+activated or triggered ability" line is real behaviour without either.
+
+Tests: `tests/test_target_ability_family.py` (new file, 14 tests) —
+`stack_id` uniqueness; the `"ability"`/`"spell_or_ability"` targeting
+kinds in isolation; `counter_ability` removing an ability item (and
+leaving the target undamaged), refusing a spell item (wrong `kind`), and
+refusing a "can't be countered" source; `change_target` retargeting an
+ability (auto-apply on a single mandatory option, opening a choice with
+several, `resolve_change_target_choice` actually moving the target); the
+two hand-authored cards' registration; and a full `resolve_until_stable()`
+end-to-end Stifle counter. `test_change_target_family.py`'s own Deflecting
+Swat spec test was updated for the new `spell_or_ability=True` param.
+Full backend suite: 3,489 passed (+12 net — 14 new, 2 rewritten in place),
+238 skipped, zero regressions.
+
+## ENG-27 · Bloom Tender / Carpet of Flowers mana primitives (2026-08-06)
+
+Sizing again found the ticket's own premise half wrong before any code
+(same discipline as ENG-28): the ticket described Bloom Tender as needing
+"a menu restricted to colors of creatures you control" — but the real
+*cached* Oracle text is `"Vivid — {T}: For each color among permanents you
+control, add one mana of that color."`, a completely different, older
+templating with no player choice in it at all. It's a deterministic
+*aggregate*: tapping always produces one mana of *every* colour currently
+present among the controller's permanents, together, not a menu to pick
+one from. New `ManaAbility.color_selector` kind
+`"colors_among_permanents_you_control"` (`game/mana_abilities.py`) —
+`resolve_options` builds a single option fresh every call by unioning
+`permanent.colors` across the controller's board (`{}`/no state → nothing,
+same "produces nothing" convention every other empty-options path already
+gets); the parser side needed its own new regex
+(`_COLORS_AMONG_PERMANENTS_RE`) checked *before* `_ADD_CLAUSE_RE`'s gate,
+since "add **one** mana of **that** color" only matches `_ADD_CLAUSE_RE`
+mid-sentence in lowercase, and that regex is deliberately case-sensitive
+(capital "Add") everywhere else.
+
+Carpet of Flowers' own text held up (X mana of any one color, gated,
+opponent-targeted), but RULE 605.5a disqualifies it from ever being a mana
+ability in the first place — it targets, so unlike Wild Growth/Kinnan
+(RULE 605.1b's genuine off-stack triggered mana abilities, already
+shipped) this is an ordinary triggered ability that goes on the stack.
+Three new pieces, none of them a menu of colours to restrict, contrary to
+the ticket's framing: `AddManaEffect.amount_from_target_count_selector`
+(a `continuous.count_selector` — the pre-existing
+`lands_you_control_of_type_island` — evaluated against the *resolved
+target*, `targets[0].id`, not this effect's own controller the way
+`amount_selector` always was); `RulesEngine.add_mana_any_color`'s new
+`amount` param (previously hardcoded to producing exactly one mana of the
+chosen colour); and `GameObject.added_mana_with_ability_this_turn`
+(mirrors `activated_loyalty_this_turn`/`graveyard_casts_this_turn`'s exact
+shape — reset alongside them in `turn_loop_mixin.py`'s untap step and
+`reset_as_new_object`), consulted by `AddManaEffect`'s new
+`once_per_turn_ability` flag. **Documented simplification**: the "if you
+haven't added mana…" gate is a resolve-time no-op rather than a full RULE
+603.4 intervening-if, so the "you may" prompt can still appear (and be
+accepted, producing nothing) on a turn it's already been used — no
+observable difference in the resolved outcome either way.
+
+RULE 603.5's existing "you may" machinery
+(`triggers_mixin.py`'s `_trigger_target_choice`, `ability.optional`
+folded into the target-choice options as a `"decline"`) turned out to
+already cover Carpet of Flowers' targeted "you may" outright — a decline
+never puts the trigger on the stack at all, so no bespoke optional-effect
+plumbing was needed in `AddManaEffect` itself. Carpet of Flowers is
+hand-authored as two standing triggered abilities, one per main phase
+(`game/ability_catalogue.py` — the engine fires a real `step="main1"`/
+`"main2"` event, never a generic `"main"` one; that spelling is `Mana
+Drain`'s own delayed-trigger-only sentinel, a different mechanism), each
+`phase_relation: "you"` and `target_kind: "opponent"`.
+
+Tests: `tests/test_bloom_tender_carpet_of_flowers_family.py` (new file, 10
+tests, real cached cards) — Bloom Tender's aggregate production alone and
+combined with a second multicolored permanent (an opponent's colours
+correctly excluded), `tap_for_mana` producing it with no choice opening,
+and the no-`state` conservative-nothing fallback; Carpet of Flowers'
+full `advance_to_main`-driven trigger firing with a real decline path, the
+X-from-target's-Islands color choice and its correct mana yield, the
+once-per-turn gate blocking (but still *offering*) a same-turn reuse, the
+gate resetting after a real untap step, the target's Islands mattering
+rather than the controller's own, and the hand-authored spec shape itself.
+Full backend suite: 3,499 passed (+10), 238 skipped, zero regressions.
+
+## MEC-15 · RULE 118.9 alternative costs — the pitch-cost family (2026-08-06)
+
+The first cEDH pass (2026-08-06) had hand-authored Force of Will/Negation/
+Vigor/Daze at their printed mana cost with the alternative "pitch" cost
+itself dropped as "genuinely unbuilt", flagging exactly what it would take:
+a structured alt-cost spec, a `can_cast`/`cast_spell` parameter next to the
+existing condition-gated `free=True` path, and — the part actually missing
+— real UI wiring, since `free=True` casting had been backend-only and
+unreachable from a real game session the whole time. This batch built all
+three, plus fixed the wiring gap for `free=True` itself along the way
+(neither had ever been reachable).
+
+**The payment vocabulary** rides `game/costs.py`'s existing `ActivationCost`
+— reused rather than rebuilt, matching `additional_cast_cost`'s own
+`parse_activation_cost` dict-to-cost precedent — plus one genuinely new
+field, `exile_hand_card_color` (a WUBRG letter; `return_to_hand` already
+existed, built for an activated ability's "Return a Forest you control…"
+cost, and turned out to need zero changes to serve a spell's alternative
+*cast* cost too — Daze reuses it verbatim). **The gate vocabulary**
+(Force of Negation/Vigor's own "if it's not your turn") reuses
+`free_cast_condition`'s whitelist/evaluator rather than inventing a
+second one — both are "is this alternative cast option available right
+now" checks — so `condition_query.free_cast_condition_holds` gained
+`not_your_turn`/`your_turn` alongside its existing `control_commander`.
+`AbilitySpec.alt_cost` is the new structured field (`parser/oracle/
+spec.py`'s `ALLOWED_ALT_COST_KEYS`), riding on a spec with no effects of
+its own — the same "own oracle-text line, standalone from the spell's real
+effect, scanned by `effect_binder.attach_to_object` regardless of which
+spec carries it" idiom `additional_cost`/`free_cast_condition` already
+use — bound onto `GameObject.alt_cast_cost` (an `ActivationCost`) +
+`alt_cast_condition` (the optional gate dict).
+
+**The engine half**: `GameEngine.can_cast`/`cast_spell`/`_cast_current_
+face`/`_auto_tap_for_cast_if_needed` all gained an `alt_cost: bool = False`
+parameter threaded exactly parallel to the pre-existing `free`, landing a
+new `elif alt_cost:` branch in each one's own dispatch (`can_cast` checks
+the gate then `_can_pay_alt_cast_cost`; `_cast_current_face` pays via the
+same `cast_without_paying` + a follow-up payment call `free`'s own RULE-
+118-life-payment sibling branch already established the shape for).
+`_can_pay_alt_cast_cost`/`_pay_alt_cast_cost`/`_exile_hand_card_candidate`
+(new, `engine/casting_mixin.py`) are a small dedicated pair rather than a
+reuse of `_can_pay_activation_cost`/`_pay_activation_cost` — those two are
+explicitly documented as being for a *battlefield permanent's* own
+ability cost (checking `source.tapped`, exiling being hard-refused for a
+hand card, …), so overloading them for a hand-cast spell's alternative
+cost risked silent wrong behaviour for the sake of a few shared lines;
+`_exile_hand_card_candidate` is the same non-interactive first-match
+auto-pick convention `_return_to_hand_candidate`/`_sacrifice_candidate`
+already use, `exclude`-guarded against the casting spell targeting itself
+(mirroring `_discard_cost_pool`'s identical reasoning).
+
+**The wiring half** (the part that made `free=True` itself unreachable
+before this batch, not just `alt_cost`): `_castable_now_or_via_potential`
+split its original body out to `_plain_castable_now_or_via_potential` and
+now also returns true when a free-cast condition or an alt cost is
+currently satisfiable — neither of which the mana-potential probe below
+it could ever answer, since both need zero mana at all. `_offer_cast` now
+builds up to *three* independent `cast_spell` action entries per card —
+plain, free, and alt-cost — each only when that specific payment method is
+actually legal right now (a truly-unaffordable-by-mana Force of Will no
+longer offers a locked, misleading plain-cost button at all); `_cast_action`
+gained matching `free`/`alt_cost` params that skip every mana-cost/{X}/
+Kicker/Buyback/cost-reduction field entirely (none apply) and surface
+`alt_cost_label` off the bound `ActivationCost.label()`.
+`GameSession._dispatch_cast_spell` (`services/game_session.py`) rounds
+both flags back off the action payload into `engine.cast_spell(...)` —
+the last hop that had been missing.
+
+**The four cards**: each gained a second, effect-less `spell_effect` spec
+carrying just `alt_cost` (`game/ability_catalogue.py`) — Force of Will
+(`{"pay_life": 1, "exile_hand_card_color": "U"}`, unconditional), Force of
+Negation (`{"exile_hand_card_color": "U", "condition": {"not_your_turn":
+True}}`), Force of Vigor (same shape, green), Daze
+(`{"return_to_hand": "island"}`, unconditional). All four are still also
+fully castable at their printed mana cost, unchanged — the alt cost is a
+second option, not a replacement. **Documented simplification carried
+forward**: Force of Negation's own "exile instead of graveyard" rider on
+a spell it counters this way is still dropped (unrelated to the alt cost
+itself, a narrower pre-existing gap).
+
+Tests: `tests/test_alt_cast_cost_family.py` (new file, 14 tests, real
+cached cards) — the two new `ActivationCost` fields' `label()`/`is_free`;
+the shared `not_your_turn` condition read directly; Force of Will
+unaffordable by mana but payable by alt cost, illegal with no blue card in
+hand, illegal at 0 life, and a full pay-life-exile-then-counter run
+through `resolve_until_stable()`; Force of Negation's gate flipping with
+whose turn it is; Force of Vigor correctly refusing a blue card and
+accepting a green one; Daze needing (and then bouncing) a real Island;
+`legal_actions` offering *only* the alt-cost entry with an empty mana pool
+and *both* entries once mana is added too; and a full `GameSession.
+_dispatch_cast_spell` round trip. Full backend suite: 3,513 passed (+14),
+238 skipped, zero regressions.
+
+## MEC-16 · Cumulative upkeep (RULE 702.24) (2026-08-06)
+
+The keyword was already recognized by the oracle-text parser (`parser/
+oracle/catalogue/keywords.py`'s catalogue table, `KeywordShape.COST`, RULE
+702.24 in the table since day one) — the actual gap was purely on the
+binding side: `game/effect_binder.py`'s keyword-to-behaviour dispatch table
+had no entry for it at all (nor, it turned out while building this, for
+Echo — a separate, still-open gap, out of this ticket's scope), so every
+card printing Cumulative Upkeep was inert regardless of whether the rest of
+the card was hand-authored or parser-derived.
+
+**The primitive**: `CumulativeUpkeepEffect` (`game/effects.py`) — "put an
+age counter on this permanent, then sacrifice it unless you pay its
+upkeep cost for each age counter on it" — adds the age counter first,
+unconditionally, then reuses RULE 701.17's existing "Sacrifice ~ unless
+you pay `<cost>`" pay-or-lose-it machinery (`SacrificeUnlessPayEffect`'s
+own `RulesEngine.request_sacrifice_unless_pay`, itself built on ward's
+shared cost-payment plumbing) with the parsed cost scaled by the current
+age-counter count (`_scale_cumulative_upkeep_cost`). Scaling repeats the
+parsed cost's own mana symbols/`pay_life` N times rather than computing a
+single multiplied payment — the same total either way for a mana cost,
+and the only shape that generalizes correctly to a life payment too.
+**Documented simplification**: a non-numeric cost component (sacrifice/
+discard/tap-others/return-to-hand, "tap an untapped white creature you
+control"-shaped) is left un-scaled, paid once regardless of the counter
+count — "pay this cost N *separate* times" is a distinct, more general
+primitive genuinely unbuilt both here and in the RULE 701.17 machinery
+this reuses. `_kw_cumulative_upkeep` (`game/effect_binder.py`, registered
+in `_KEYWORD_TRIGGERED_BUILDERS` alongside Fading) builds the standing
+"at the beginning of your upkeep" `TriggeredAbility`, reading the cost off
+`spec.keyword["cost"]` rather than the `n` this dispatch table's other
+callers all receive — Cumulative Upkeep is `KeywordShape.COST`, not
+`NUMBER`, the one keyword in the table so far where the passed-through
+``n`` argument is simply unused.
+
+**A confirmed, not a bug**: since keyword recognition binds independently
+of hand-authoring, Mystic Remora and Thought Lash — both hand-authored
+with "Cumulative upkeep isn't built yet, dropped" as an explicit
+documented simplification — picked up real Cumulative Upkeep behaviour
+*without either spec being touched*, closing both simplifications for
+free. `test_taxed_draw_family.py`'s Mystic Remora test needed a small
+fixture fix (landing the creature on the battlefield *after* advancing
+past its controller's own upkeep, rather than funding that upkeep, which
+RULE 500.4 empties the mana pool before reaching anyway) since the
+creature was otherwise sacrificed before the spell it's meant to tax was
+ever cast — a real behavioural change the test had been silently relying
+on the absence of. Both cards' hand-authored docstrings were updated to
+stop claiming the mechanic is unbuilt; Thought Lash's own further
+"exile all cards from your library" rider (triggered off cumulative
+upkeep going *unpaid*) is still a real, narrower residual gap — the base
+mechanic never fires a paid-vs-not-paid event a second trigger could hook.
+
+Tests: `tests/test_cumulative_upkeep_family.py` (new file, 7 tests) — a
+synthetic Cumulative-Upkeep-only creature (isolated from Fading's own
+unrelated upkeep trigger, which a *bare*-constructed test fixture with no
+RULE 702.32a entry counters would otherwise auto-sacrifice through) across
+three escalating upkeeps confirming the cost scales 1×/2×/3× correctly;
+declining sacrifices (RULE 701.16c, to the graveyard); an unaffordable
+cost sacrifices outright with no choice offered; only the controller's own
+upkeep triggers it; a life-cost variant (built directly against the effect
+class, since "Pay N life" cumulative-upkeep text has no brace-delimited
+symbol for the keyword catalogue's existing cost-extraction regex to find
+— a separate, real parser gap, not this ticket's own scope); and Old
+Fogey (a real cached card) binding a genuine cumulative-upkeep trigger.
+Full backend suite: 3,520 passed (+7), 238 skipped, zero regressions.
+
+## MEC-17 · Imprint (RULE 702.45-adjacent) (2026-08-06)
+
+Sized at 26 cards cache-wide but only 1 solo blocker: the other 25
+(Clone Shell/Dermotaxi-shaped) pair the "Imprint" ability word with a
+*different* body (look-at-top-N-and-exile-face-down, graveyard exile, …),
+each needing its own handler on top of this batch's own primitives —
+Chrome Mox is the only card whose entire text is the plain "exile from
+hand, mana ability reads it back" shape. Two new general primitives, not
+Chrome-Mox-specific:
+
+`RulesEngine.request_choose_objects` (`game/rules/misc_mixin.py`) gained a
+`remember: bool = False` param, threaded through its own pending-choice
+dict and `_apply_chosen_object`: when set and `action="exile"`, the
+chosen object's `instance_id` is stamped onto the calling permanent's own
+`GameObject.linked_exile_id` — the same field `ExileEffect(remember=True)`
+already uses for the unrelated O-Ring return-when-leaves shape, reused
+rather than a second "remembered object" field. `ImprintEffect` (`game/
+effects.py`) is the ETB half — "you may exile a `<filter>` card from your
+hand" — riding this exact chooser (`action="exile"`, `remember=True`)
+exactly like Gemstone Caverns' own pregame "exile a card from your hand"
+tail already does (that card's own comment already flagged the action as
+"general enough for any future 'exile a card from your hand' cost/effect
+to reuse" — this is that reuse). `exclude_card_types` filters the hand
+pool by `Card.is_<word>` flags — Chrome Mox's own "nonartifact, nonland".
+
+`ManaAbility.color_selector`'s new `"imprinted_card_colors"` kind
+(`game/mana_abilities.py`) is the mana-ability half — "Add one mana of any
+of the exiled card's colors" — reading `GameObject.linked_exile_id` fresh
+every `resolve_options` call and building one option per color in the
+referenced card's `color_identity` (a real *menu*, unlike ENG-27's Bloom
+Tender aggregate — the payer picks one, mirroring a plain dual land's own
+`options` shape); no card imprinted, or a colourless one, both correctly
+produce nothing. The parser side needed its own regex
+(`_IMPRINTED_COLOR_ADD_RE`) alongside the existing `_CHOSEN_COLOR_ADD_RE`
+("…of the chosen color", Throne of Eldraine) it sits next to — a sibling
+"the real color isn't printed, read it off the object at tap time" shape,
+just sourced from a remembered *exiled* card instead of an ETB pick.
+Mana abilities parse straight off the printed card regardless of hand-
+authoring (the same reason ENG-27's Bloom Tender/Carpet of Flowers needed
+no catalogue entry either), so this half needed no registration; only
+Chrome Mox's ETB exile-and-remember is hand-authored
+(`game/ability_catalogue.py`). One real wiring subtlety caught while
+testing: the `AbilitySpec` itself must **not** also carry `optional=True`
+— `ImprintEffect`'s own `optional` default already asks the real "you may
+exile…" question at resolution, and the trigger-placement layer's RULE
+603.5 "you may" is a *second*, redundant gate that produces a duplicate
+prompt if both are set (Chrome Mox has one printed "you may", not two).
+
+Tests: `tests/test_imprint_family.py` (new file, 8 tests, real cached
+cards) — hand-authored spec shape; the ETB choice offering only qualifying
+hand cards (an artifact and a land both correctly excluded); exiling
+remembers the card, declining remembers nothing; no qualifying card never
+even opens a choice; the mana ability producing a mono-colored imprint's
+own color, offering a real menu for a two-color one (Lightning Helix), and
+producing nothing (refusing to tap) with nothing imprinted at all. Full
+backend suite: 3,528 passed (+8), 238 skipped, zero regressions.
+
+---
+
+**Batch summary — the six "sort-into-categories" primitives (ENG-26/27/28,
+MEC-15/16/17), all shipped 2026-08-06**: every "confirmed-missing
+primitive" [MEC-12](BACKLOG.md)'s cEDH batches surfaced along the way is
+now closed, not just filed. Two recurring lessons worth carrying forward:
+a ticket's own premise is routinely half-wrong even when freshly written
+the same week (ENG-28's Linvala/Karn had no "during your turn" gate at
+all; ENG-27's Bloom Tender's *real* cached text was a flatly different,
+simpler mechanic than the ticket described) — sizing empirically
+(`engine_bench.py inspect`, `parser_probe.py`) before designing is what
+caught both, not trusting the prose. And a primitive landing is exactly
+the moment this repo has historically forgotten to sweep for what else it
+closes for free: MEC-16's keyword-binding fix silently resolved Mystic
+Remora's and Thought Lash's own long-standing "Cumulative upkeep isn't
+built yet" simplifications without either hand-authored spec being
+touched, caught only because a pre-existing test's fixture assumptions
+broke.

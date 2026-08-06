@@ -1405,6 +1405,7 @@ class MiscSystemsMixin:
         source: Optional[GameObject] = None,
         then_specs: Optional[list[dict]] = None,
         then_specs_if_commander: Optional[list[dict]] = None,
+        remember: bool = False,
     ) -> None:
         """Open a "choose N of these objects" decision (RULE 601.2c-style).
 
@@ -1433,6 +1434,17 @@ class MiscSystemsMixin:
         ``then_specs_if_commander`` adds RULE 903's "if a commander was
         sacrificed this way" tail on top; both are carried as data on the
         choice, so they survive the state `clone()` undo takes.
+
+        ``remember=True`` (MEC-17, Imprint — Chrome Mox's own "you may
+        exile a nonartifact, nonland card from your hand") additionally
+        stamps whichever object gets ``action="exile"``ed onto ``source``'s
+        own `GameObject.linked_exile_id` — the same field an `ExileEffect`
+        with its own ``remember=True`` already uses for the O-Ring-shaped
+        "when this leaves, return the exiled card" half, reused here so a
+        later mana ability/static can read back *which* card this
+        permanent has imprinted. Only meaningful with ``count=1`` (a
+        multi-pick "remembers" only its own last pick, overwriting the
+        rest — no printed Imprint card needs more than one).
         """
         if action not in self.CHOOSE_OBJECT_ACTIONS:
             raise ValueError(f"unknown choose-objects action {action!r}")
@@ -1445,7 +1457,7 @@ class MiscSystemsMixin:
             commander_taken = False
             for obj in pool:
                 commander_taken = commander_taken or obj.is_commander
-                self._apply_chosen_object(player, obj, action, source)
+                self._apply_chosen_object(player, obj, action, source, remember=remember)
             self._apply_choose_objects_tail(
                 source, then_specs, then_specs_if_commander, commander_taken
             )
@@ -1454,7 +1466,7 @@ class MiscSystemsMixin:
             player, pool, action, count, optional, prompt,
             source_id=source.instance_id if source is not None else None,
             picked=[], then_specs=then_specs,
-            then_specs_if_commander=then_specs_if_commander,
+            then_specs_if_commander=then_specs_if_commander, remember=remember,
         )
     def _apply_choose_objects_tail(
         self,
@@ -1479,6 +1491,7 @@ class MiscSystemsMixin:
         picked: list[int],
         then_specs: Optional[list[dict]] = None,
         then_specs_if_commander: Optional[list[dict]] = None,
+        remember: bool = False,
     ) -> dict[str, Any]:
         """Build the serializable `choose_objects` `pending_choice`."""
         options = [
@@ -1509,6 +1522,10 @@ class MiscSystemsMixin:
             # RULE 903: whether any pick so far was a commander, which the
             # "if a commander was sacrificed this way" tail reads.
             "commander_taken": False,
+            # MEC-17: whether this pick should also be remembered onto
+            # ``source`` (`GameObject.linked_exile_id`) — see
+            # `request_choose_objects`'s own docstring.
+            "remember": remember,
         }
     def resolve_choose_objects_choice(self, instance_id: Optional[int]) -> None:
         """Answer a pending `choose_objects` decision: apply the action to
@@ -1533,7 +1550,9 @@ class MiscSystemsMixin:
         commander_taken = bool(choice.get("commander_taken"))
         if chosen is not None and player is not None:
             commander_taken = commander_taken or chosen.is_commander
-            self._apply_chosen_object(player, chosen, choice["action"], source)
+            self._apply_chosen_object(
+                player, chosen, choice["action"], source, remember=bool(choice.get("remember"))
+            )
         remaining_pool = [
             obj
             for obj in self._choose_objects_pool(choice, picked)
@@ -1555,6 +1574,7 @@ class MiscSystemsMixin:
             source_id=choice.get("source_id"), picked=picked,
             then_specs=choice.get("then_specs"),
             then_specs_if_commander=choice.get("then_specs_if_commander"),
+            remember=bool(choice.get("remember")),
         )
         next_choice["commander_taken"] = commander_taken
         self.state.pending_choice = next_choice
@@ -1587,6 +1607,7 @@ class MiscSystemsMixin:
         obj: GameObject,
         action: str,
         source: Optional[GameObject],
+        remember: bool = False,
     ) -> None:
         """Do the one thing a `choose_objects` action names to one pick."""
         if action == "tap":
@@ -1600,6 +1621,12 @@ class MiscSystemsMixin:
             self.discard_specific(obj)
         elif action == "exile":
             self.exile(obj)
+            if remember and source is not None:
+                # MEC-17: Imprint's own "remember the exiled card" —
+                # `linked_exile_id`'s "keep pointing at the exiled card
+                # after this resolves" shape, same field `ExileEffect
+                # (remember=True)` uses for the unrelated O-Ring return.
+                source.linked_exile_id = obj.instance_id
         elif action == "soulbond_pair" and source is not None:
             # RULE 702.94a: the pairing is recorded on both creatures.
             source.paired_with = obj.instance_id
@@ -1747,6 +1774,114 @@ class MiscSystemsMixin:
             if candidate is target or candidate.obj is target:
                 return candidate
         return None
+    def change_target(
+        self, target: Any, optional: bool = False, source: Optional[GameObject] = None
+    ) -> None:
+        """`ChangeTargetEffect`'s resolve-time logic (RULE 115.4/601.2c —
+        Misdirection/Deflecting Swat).
+
+        The player *changing* the target is this effect's own controller
+        (RULE 115.4a — not the targeted spell's controller, and per
+        115.4a a target description's "you"/"your" still refers to the
+        original spell's own controller, which is why `legal_targets` is
+        computed with ``item.controller_id`` below, not the changer's).
+        Legal alternatives are recomputed fresh against the *current*
+        board (RULE 115.1c), not whatever was legal when the targeted
+        spell was originally cast.
+
+        Scoped to a stack item with exactly one existing target and one
+        targeting effect — see `ChangeTargetEffect`'s own docstring for why
+        a version retargeting any number of targets at once isn't built.
+        ``target`` may be a *spell* (``item.obj``) or, since ENG-26, an
+        *ability* (``item.source`` — a plain activated/triggered ability's
+        stack image has no `GameObject` of its own; `targeting.py`'s
+        ``"ability"`` kind names it by `StackItem.stack_id` instead) — the
+        RULE 115.4a legality recompute below reads whichever one is the
+        actual source of the effect being retargeted. No legal alternative
+        (or an ``optional`` decline) leaves the target untouched, same as
+        RULE 115.4a's own "if no legal targets are available, the target
+        doesn't change."
+        """
+        item = self._stack_item_for(target)
+        if item is None or source is None:
+            return
+        stack_source = item.obj if item.obj is not None else item.source
+        if stack_source is None:
+            return
+        if len(item.targets) != 1 or item.target_groups is not None:
+            return
+        effect = next(
+            (e for e in item.effects if getattr(e, "target_spec", None) is not None), None
+        )
+        if effect is None:
+            return
+        options = legal_targets(self.state, item.controller_id, effect.target_spec, source=stack_source)
+        if not options:
+            return
+        if not optional and len(options) == 1:
+            item.targets = [self._target_from_descriptor(options[0])]
+            return
+        self.state.pending_choice = self._change_target_choice(
+            source.controller_id, item.stack_id, options, optional
+        )
+    def _target_from_descriptor(self, descriptor: dict[str, Any]) -> Any:
+        """A `targeting.legal_targets` descriptor, resolved back to the
+        live `GameObject`/`Player` it names."""
+        if "instance_id" in descriptor:
+            return self.state.find_object(descriptor["instance_id"])
+        return self.state.player_by_id(descriptor["player_id"])
+    def _change_target_choice(
+        self,
+        changer_id: str,
+        stack_id: int,
+        options: list[dict[str, Any]],
+        optional: bool,
+    ) -> dict[str, Any]:
+        """Build the `change_target` `pending_choice` — same generic
+        ``{"id", "label", "instance_id"?}`` option shape `_trigger_target_
+        choice` uses, so the existing choice UI renders it with no new
+        frontend work. ``stack_id`` (not a `GameObject` id — ENG-26) is
+        the being-retargeted item's own `StackItem.stack_id`, which works
+        the same way for a spell or an ability."""
+        choice_options: list[dict[str, Any]] = []
+        for opt in options:
+            if "instance_id" in opt:
+                choice_options.append(
+                    {"id": str(opt["instance_id"]), "label": opt["name"], "instance_id": opt["instance_id"]}
+                )
+            else:
+                choice_options.append({"id": opt["player_id"], "label": opt["name"]})
+        if optional:
+            choice_options.append({"id": "decline", "label": "Nichts ändern"})
+        return {
+            "kind": "change_target",
+            "player_id": changer_id,
+            "stack_id": stack_id,
+            "prompt": "Neues Ziel wählen",
+            "options": choice_options,
+        }
+    def resolve_change_target_choice(self, answer: Optional[str]) -> None:
+        """Answer a pending `change_target` choice (RULE 115.4/601.2c).
+
+        ``answer`` is the chosen new target's option id, same shape as
+        `resolve_trigger_target_choice`; a decline (only offered when
+        `ChangeTargetEffect.optional` was set) leaves the spell's existing
+        target untouched.
+        """
+        choice = self.state.pending_choice
+        if not choice or choice.get("kind") != "change_target":
+            raise ValueError("no pending change-target choice to resolve")
+        self.state.pending_choice = None
+        if answer is None or answer == "decline":
+            return
+        item = next(
+            (i for i in self.state.stack if i.stack_id == choice["stack_id"]), None
+        )
+        if item is None:
+            return
+        target = self._resolve_choice_option(choice["options"], str(answer))
+        if target is not None:
+            item.targets = [target]
     def mutate_onto(
         self, mutating: GameObject, host: GameObject, under: bool = False
     ) -> None:
@@ -1916,6 +2051,21 @@ class MiscSystemsMixin:
         self.state.fire_event(
             GameEvent(EventType.SPELL_RESOLVED, spell=item.description, countered=True)
         )
+    def counter_ability(self, target: Any) -> None:
+        """RULE 701.5b: counter a target activated or triggered ability
+        (Stifle/Trickbind, ENG-26) — the ability-item sibling of
+        `counter_spell`, which already handles an ability `StackItem`
+        correctly on its own (no `.obj` to move to a graveyard; RULE
+        701.5g's "its owner's graveyard" only ever applies to a spell).
+        Refuses a "can't be countered" ability the same way
+        `counter_unless_pays` refuses a spell's own.
+        """
+        item = self._stack_item_for(target)
+        if item is None or item.kind != "ability":
+            return
+        if self._is_cant_be_countered(item.source):
+            return
+        self.counter_spell(target)
     def counter_unless_pays(
         self, target: Any, unless_pays: Optional[str], source: Optional[GameObject] = None
     ) -> None:

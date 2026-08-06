@@ -183,8 +183,19 @@ class LegalActionsMixin:
         face: str = "front",
         mode: Optional[Any] = None,
         entwine: bool = False,
+        free: bool = False,
+        alt_cost: bool = False,
     ) -> dict[str, Any]:
         """A ``cast_spell`` legal-action entry, flagging ``{X}`` and targets.
+
+        ``free``/``alt_cost`` (MEC-15) build the RULE 601.2f-adjacent
+        free-cast / RULE 118.9 alternative-cost sibling offer instead of the
+        plain mana-cost one — `_offer_cast` calls this once per castable
+        payment method, never more than one of the three flags set at once.
+        Both skip the mana-value/{X}/Kicker/Buyback/cost-reduction fields
+        below entirely (none of them apply to either alternative), and
+        ``alt_cost`` surfaces its own `ActivationCost.label()` the same way
+        ``additional_cost_label`` does.
 
         ``has_x`` tells the UI to prompt for a value; ``max_x`` is the
         highest it can offer up front (still re-validated server-side by
@@ -221,88 +232,104 @@ class LegalActionsMixin:
         if mode is not None:
             action["mode"] = mode
             action["mode_description"] = self._mode_description(obj, mode)
-        # RULE 702.42a: the Entwine offer is the same "both modes" action as
-        # RULE 700.2e's, but priced — so it carries its cost and locks when
-        # that cost can't be paid, which the free ``or_both`` offer never does.
-        if entwine:
-            entwine_cost = self._entwine_cost(obj)
-            action["entwine"] = True
-            action["entwine_cost"] = entwine_cost.raw if entwine_cost is not None else ""
-            if not self.can_cast(player, obj, entwine=True):
-                action["locked"] = True
-                action["lock_reason"] = "Verflechten-Kosten nicht bezahlbar"
-        cost = self.rules.mana_cost_of(obj.card)
-        # RULE 202.3: the printed mana value, always present — a client
-        # ordering offers by cost (`services/bots.py`' cheapest-first line)
-        # otherwise has nowhere to read it from, since `GameObject.to_dict`
-        # carries board state rather than printed characteristics.
-        action["mana_value"] = cost.converted_mana_cost
-        if cost.has_variable:
-            action["has_x"] = True
-            action["max_x"] = self.max_affordable_x(player, obj)
+        if free or alt_cost:
+            # RULE 601.2f-adjacent free cast / RULE 118.9 alternative cost
+            # (MEC-15) — a wholly different payment method from the printed
+            # mana cost, so none of the mana-value/{X}/Kicker/Buyback/cost-
+            # reduction/additional-cost fields below apply; only the
+            # target-requirement tail (below the entwine/mana block) is
+            # still relevant, since targets don't depend on how the spell
+            # was paid for.
+            if free:
+                action["free"] = True
+            else:
+                action["alt_cost"] = True
+                alt_cast_cost = getattr(obj, "alt_cast_cost", None)
+                if alt_cast_cost is not None:
+                    action["alt_cost_label"] = alt_cast_cost.label()
+        else:
+            # RULE 702.42a: the Entwine offer is the same "both modes" action as
+            # RULE 700.2e's, but priced — so it carries its cost and locks when
+            # that cost can't be paid, which the free ``or_both`` offer never does.
+            if entwine:
+                entwine_cost = self._entwine_cost(obj)
+                action["entwine"] = True
+                action["entwine_cost"] = entwine_cost.raw if entwine_cost is not None else ""
+                if not self.can_cast(player, obj, entwine=True):
+                    action["locked"] = True
+                    action["lock_reason"] = "Verflechten-Kosten nicht bezahlbar"
+            cost = self.rules.mana_cost_of(obj.card)
+            # RULE 202.3: the printed mana value, always present — a client
+            # ordering offers by cost (`services/bots.py`' cheapest-first line)
+            # otherwise has nowhere to read it from, since `GameObject.to_dict`
+            # carries board state rather than printed characteristics.
+            action["mana_value"] = cost.converted_mana_cost
+            if cost.has_variable:
+                action["has_x"] = True
+                action["max_x"] = self.max_affordable_x(player, obj)
 
-        # RULE 702.33: surface Kicker/Multikicker so the UI can prompt for
-        # how many times to pay it, the same "has_x/max_x" shape as {X}.
-        kicker_cost = self._kicker_cost(obj)
-        if kicker_cost is not None:
-            kicker_param = (getattr(obj, "parametric_keywords", None) or {}).get("kicker") or {}
-            action["has_kicker"] = True
-            action["kicker_cost"] = kicker_cost.raw
-            action["kicker_multi"] = bool(kicker_param.get("multi"))
-            action["max_kicker"] = self.max_affordable_kicker(player, obj)
-            if kicker_cost.has_variable:
-                # PAR-7: Kicker's own {X} (Emblazoned Golem) — the same
-                # "has_x/max_x" shape as the spell's own {X} above, but for
-                # the value announced *inside* Kicker's cost.
-                action["kicker_has_x"] = True
-                action["kicker_max_x"] = self.max_affordable_kicker_x(player, obj)
+            # RULE 702.33: surface Kicker/Multikicker so the UI can prompt for
+            # how many times to pay it, the same "has_x/max_x" shape as {X}.
+            kicker_cost = self._kicker_cost(obj)
+            if kicker_cost is not None:
+                kicker_param = (getattr(obj, "parametric_keywords", None) or {}).get("kicker") or {}
+                action["has_kicker"] = True
+                action["kicker_cost"] = kicker_cost.raw
+                action["kicker_multi"] = bool(kicker_param.get("multi"))
+                action["max_kicker"] = self.max_affordable_kicker(player, obj)
+                if kicker_cost.has_variable:
+                    # PAR-7: Kicker's own {X} (Emblazoned Golem) — the same
+                    # "has_x/max_x" shape as the spell's own {X} above, but for
+                    # the value announced *inside* Kicker's cost.
+                    action["kicker_has_x"] = True
+                    action["kicker_max_x"] = self.max_affordable_kicker_x(player, obj)
 
-        # RULE 702.27: surface Buyback so the UI can offer a "pay to buy
-        # back" toggle, locked when its own cost isn't affordable.
-        buyback_cost = self._buyback_cost(obj)
-        if buyback_cost is not None:
-            action["has_buyback"] = True
-            action["buyback_cost"] = buyback_cost.raw
-            action["buyback_affordable"] = self.can_cast(player, obj, buyback=True)
+            # RULE 702.27: surface Buyback so the UI can offer a "pay to buy
+            # back" toggle, locked when its own cost isn't affordable.
+            buyback_cost = self._buyback_cost(obj)
+            if buyback_cost is not None:
+                action["has_buyback"] = True
+                action["buyback_cost"] = buyback_cost.raw
+                action["buyback_affordable"] = self.can_cast(player, obj, buyback=True)
 
-        # RULE 702.34/702.138: a graveyard cast is by definition via
-        # Flashback/Escape's own alternative cost, not the printed one — tag
-        # it so the UI can label the offer distinctly from a normal cast.
-        graveyard_keyword = self._graveyard_cast_keyword(obj) if obj in player.graveyard else None
-        if graveyard_keyword is not None:
-            action["cast_from_graveyard"] = graveyard_keyword
-            if graveyard_keyword == "escape":
-                escape_cost = self._escape_cost(obj)
-                if escape_cost is not None and escape_cost.exile_from_graveyard:
-                    action["escape_exile_count"] = escape_cost.exile_from_graveyard
+            # RULE 702.34/702.138: a graveyard cast is by definition via
+            # Flashback/Escape's own alternative cost, not the printed one — tag
+            # it so the UI can label the offer distinctly from a normal cast.
+            graveyard_keyword = self._graveyard_cast_keyword(obj) if obj in player.graveyard else None
+            if graveyard_keyword is not None:
+                action["cast_from_graveyard"] = graveyard_keyword
+                if graveyard_keyword == "escape":
+                    escape_cost = self._escape_cost(obj)
+                    if escape_cost is not None and escape_cost.exile_from_graveyard:
+                        action["escape_exile_count"] = escape_cost.exile_from_graveyard
 
-        # Static cost adjustment (RULE 601.2f): surface base vs. reduced so the
-        # UI can show "was {3}, now {1}" and the static-effects panel can
-        # attribute it. Only attached when something actually changes the cost.
-        reduction, contributors = continuous.cost_reduction_for(self.state, player, obj)
-        self_reduction, self_contributors = continuous.self_cost_reduction_for(obj, self.state)
-        reduction += self_reduction
-        contributors = contributors + self_contributors
-        tax = self.commander_tax(player, obj)
-        if (reduction or tax or graveyard_keyword) and cost.raw:
-            action["base_cost"] = cost.raw
-            action["effective_cost"] = self.effective_cast_cost(player, obj).raw
-            if reduction:
-                action["cost_reduction"] = contributors
-            if tax:
-                action["commander_tax"] = tax
+            # Static cost adjustment (RULE 601.2f): surface base vs. reduced so the
+            # UI can show "was {3}, now {1}" and the static-effects panel can
+            # attribute it. Only attached when something actually changes the cost.
+            reduction, contributors = continuous.cost_reduction_for(self.state, player, obj)
+            self_reduction, self_contributors = continuous.self_cost_reduction_for(obj, self.state)
+            reduction += self_reduction
+            contributors = contributors + self_contributors
+            tax = self.commander_tax(player, obj)
+            if (reduction or tax or graveyard_keyword) and cost.raw:
+                action["base_cost"] = cost.raw
+                action["effective_cost"] = self.effective_cast_cost(player, obj).raw
+                if reduction:
+                    action["cost_reduction"] = contributors
+                if tax:
+                    action["commander_tax"] = tax
 
-        # RULE 601.2b: surface the additional cast cost (if any) so the UI
-        # can show it alongside the mana cost, and lock the offer when its
-        # non-X portion (sacrifice/discard) isn't payable — the same
-        # "offer-time face" treatment missing targets get above. A pending
-        # "pay X life" isn't locked here since X isn't chosen until cast.
-        additional_cost = getattr(obj, "additional_cast_cost", None)
-        if additional_cost is not None and not additional_cost.is_free:
-            action["additional_cost_label"] = additional_cost.label()
-            if not self._can_pay_additional_cast_cost(player, obj, additional_cost, x=0):
-                action["locked"] = True
-                action["lock_reason"] = "Zusätzliche Kosten nicht bezahlbar"
+            # RULE 601.2b: surface the additional cast cost (if any) so the UI
+            # can show it alongside the mana cost, and lock the offer when its
+            # non-X portion (sacrifice/discard) isn't payable — the same
+            # "offer-time face" treatment missing targets get above. A pending
+            # "pay X life" isn't locked here since X isn't chosen until cast.
+            additional_cost = getattr(obj, "additional_cast_cost", None)
+            if additional_cost is not None and not additional_cost.is_free:
+                action["additional_cost_label"] = additional_cost.label()
+                if not self._can_pay_additional_cast_cost(player, obj, additional_cost, x=0):
+                    action["locked"] = True
+                    action["lock_reason"] = "Zusätzliche Kosten nicht bezahlbar"
 
         with self._mode_effects_applied(obj, mode):
             requirements = requirements_with_targets(self.state, player.id, obj)
@@ -347,10 +374,10 @@ class LegalActionsMixin:
             for size in sizes
             for combo in itertools.combinations(range(len(modes)), size)
         ]
-    def _castable_now_or_via_potential(
+    def _plain_castable_now_or_via_potential(
         self, player: Player, obj: GameObject, face: str = "front",
     ) -> bool:
-        """Whether a `cast_spell` action should be offered for ``obj`` right
+        """Whether ``obj`` is castable for its own printed mana cost right
         now — either already payable from the real pool (`can_cast`,
         unchanged), or legal except for mana and payable by tapping plain
         untapped sources (`game/mana_potential.py`, never a sacrifice- or
@@ -361,6 +388,12 @@ class LegalActionsMixin:
         702.37a's flat {3} morph/disguise cost, which `effective_cast_cost`
         already resolves correctly via `_face_card` on its own, without
         needing ``obj`` to already be turned face down.
+
+        The *mana-cost-specific* half of `_castable_now_or_via_potential`
+        (MEC-15 split it out): `_offer_cast` also calls this directly to
+        decide whether the plain-cost `cast_spell` offer belongs alongside
+        a free/alt-cost one, since the combined check answers only "offer
+        *something*", not "offer *this specific* one".
         """
         if self.can_cast(player, obj, face=face):
             return True
@@ -368,6 +401,29 @@ class LegalActionsMixin:
             return False
         cost = self.effective_cast_cost(player, obj, face=face)
         return mana_potential.is_castable_via_potential(self, player, cost)
+    def _castable_now_or_via_potential(
+        self, player: Player, obj: GameObject, face: str = "front",
+    ) -> bool:
+        """Whether a `cast_spell` action should be offered for ``obj`` right
+        now — the plain mana-cost path (`_plain_castable_now_or_via_
+        potential`), or, since MEC-15, a free-cast permission (`free_cast_
+        condition`, Deadly Rollick-shaped) or an alternative cost
+        (`alt_cast_cost`, Force of Will/Daze-shaped) reaching castability
+        with zero mana in the pool at all, neither of which the mana-
+        potential probe (only ever "payable by tapping untapped lands")
+        could ever answer.
+        """
+        if self._plain_castable_now_or_via_potential(player, obj, face=face):
+            return True
+        if getattr(obj, "free_cast_condition", None) is not None and self.can_cast(
+            player, obj, face=face, free=True
+        ):
+            return True
+        if getattr(obj, "alt_cast_cost", None) is not None and self.can_cast(
+            player, obj, face=face, alt_cost=True
+        ):
+            return True
+        return False
     def _activatable_now_or_via_potential(
         self, player: Player, source: GameObject, ability: ActivatedAbility,
     ) -> bool:
@@ -395,11 +451,25 @@ class LegalActionsMixin:
         700.2). The common tail of every per-zone cast-offer loop in
         `legal_actions` below (hand/command/exile/graveyard/library-top),
         which otherwise repeated this identically five times.
+
+        MEC-15: a free-cast permission or an alternative cost is a *second*,
+        independent payment method — offered as its own `cast_spell` entry
+        (``free``/``alt_cost`` flagged) alongside the plain mana-cost one,
+        never in place of it, and each only when that specific method is
+        actually payable right now (`_castable_now_or_via_potential`, this
+        method's own caller, only proves *some* method is — see its
+        docstring). A modal spell keeps its existing per-mode offers only;
+        no printed card needs a modal free/alt-cost combination yet.
         """
         if getattr(obj, "spell_modes", None):
             actions.extend(self._modal_cast_actions(player, obj))
-        else:
+            return
+        if self._plain_castable_now_or_via_potential(player, obj):
             actions.append(self._cast_action(player, obj))
+        if getattr(obj, "free_cast_condition", None) is not None and self.can_cast(player, obj, free=True):
+            actions.append(self._cast_action(player, obj, free=True))
+        if getattr(obj, "alt_cast_cost", None) is not None and self.can_cast(player, obj, alt_cost=True):
+            actions.append(self._cast_action(player, obj, alt_cost=True))
 
     def legal_actions(self, player: Player) -> list[dict[str, Any]]:
         """Every action ``player`` may legally take in the current state.

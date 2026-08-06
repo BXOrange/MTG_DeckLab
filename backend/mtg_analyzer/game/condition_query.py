@@ -68,12 +68,19 @@ def conditional_flash_holds(
 def free_cast_condition_holds(condition: dict[str, Any], obj: "GameObject", state: "GameState") -> bool:
     """Whether ``obj``'s `free_cast_condition` (RULE 601.2f-adjacent
     condition-gated free-cast alternative cost) holds right now — checked
-    live off the board, mirroring `conditional_flash_holds`.
+    live off the board, mirroring `conditional_flash_holds`. Also the
+    evaluator for `AbilitySpec.alt_cost`'s own ``condition`` key (RULE
+    118.9, MEC-15 — Force of Negation/Force of Vigor's "if it's not your
+    turn"): both are "is this alternative cost/cast option available right
+    now" checks, so they share one whitelist/evaluator rather than two.
 
     ``"control_commander"``: whether ``obj``'s controller currently controls
     any commander (RULE 903.4 — a `GameObject.is_commander` permanent/card
-    in their command zone or on the battlefield). Fails closed on an
-    unrecognized key.
+    in their command zone or on the battlefield). ``"not_your_turn"``/
+    ``"your_turn"``: whether it currently is/isn't ``obj``'s controller's
+    own turn (RULE 500.7-adjacent) — a card-in-hand-safe read, unlike
+    `static_conditions.py`'s identically-named battlefield-only kind.
+    Fails closed on an unrecognized key.
     """
     controller_id = getattr(obj, "controller_id", None)
     for key, value in condition.items():
@@ -92,6 +99,12 @@ def free_cast_condition_holds(condition: dict[str, Any], obj: "GameObject", stat
                     for o in state.battlefield
                 )
             if bool(value) != has_commander:
+                return False
+        elif key in ("not_your_turn", "your_turn"):
+            active = getattr(state, "active_player", None)
+            is_yours = active is not None and controller_id is not None and active.id == controller_id
+            wants_yours = key == "your_turn"
+            if bool(value) != (is_yours == wants_yours):
                 return False
         else:
             return False

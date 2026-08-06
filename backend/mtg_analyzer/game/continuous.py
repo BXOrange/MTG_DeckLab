@@ -411,7 +411,12 @@ def group_selector_objects(
         result = [o for o in result if o is not src]
     card_type = params.get("card_type")
     if card_type:  # "Artifacts your opponents control…", "Nonbasic lands are…"
-        result = [o for o in result if _has_card_type(o, str(card_type))]
+        # A list means an "or" of types ("…activate abilities of artifacts,
+        # creatures, or enchantments" — Grand Abolisher/Myrel, Shield of
+        # Argive), the plural sibling of the single-string literal every
+        # other caller still passes.
+        types = card_type if isinstance(card_type, (list, tuple)) else [card_type]
+        result = [o for o in result if any(_has_card_type(o, str(t)) for t in types)]
     if params.get("nonbasic"):  # "Nonbasic lands …" (RULE 205.4a)
         result = [o for o in result if _is_nonbasic(o)]
 
@@ -2012,6 +2017,17 @@ def cast_prohibited(state: "GameState", player: "Player", card: Any) -> bool:
         if ability.layer != "cast_prohibition":
             continue
         controller_id = getattr(ability.source, "controller_id", None)
+        # RULE 613.6's own gate ("During your turn, your opponents can't cast
+        # spells …" — Grand Abolisher/Myrel, Shield of Argive), evaluated the
+        # same way `group_selector_objects` does for every other static —
+        # this loop just isn't routed through that helper (`cast_prohibition`
+        # picks a *spell*, not a set of battlefield objects), so it needs its
+        # own gate check rather than inheriting one for free.
+        gate = ability.params.get("active_if") or static_conditions.condition_from_legacy_params(
+            ability.params
+        )
+        if gate and not static_conditions.condition_holds(gate, state, ability.source, controller_id):
+            continue
         scope = ability.params.get("scope", "opponents")
         if scope == "opponents" and player.id in (None, controller_id):
             continue

@@ -90,6 +90,17 @@ BASIC_LAND_MANA = {
 
 #: The text inside an "Add …." clause (up to the sentence's period).
 _ADD_CLAUSE_RE = re.compile(r"Add ([^.]*)\.")
+#: "For each color among permanents you control, add one mana of that
+#: color." (ENG-27, Bloom Tender) — a deterministic *aggregate* production,
+#: not a player choice at all: tapping always makes one mana of *every*
+#: colour currently present among the controller's permanents, together,
+#: whatever that set happens to be right now. Genuinely different from
+#: every other row here (a fixed menu to pick *one* option from) — see
+#: `ManaAbility.color_selector`'s ``"colors_among_permanents_you_control"``.
+_COLORS_AMONG_PERMANENTS_RE = re.compile(
+    r"for each colou?r among permanents you control, add (?:one|1) mana of that colou?r\.?",
+    re.IGNORECASE,
+)
 _PIP_RE = re.compile(r"\{([WUBRGC])\}")
 _ALTERNATIVE_SPLIT_RE = re.compile(r",| or ")
 _ALL_COLORS = ("W", "U", "B", "R", "G")
@@ -230,6 +241,15 @@ _RESTRICTION_CHOSEN_COLOR_MONO_RE = re.compile(
 #: `ManaAbility.color_selector`). ``N`` is a spelled-out word or digit.
 _CHOSEN_COLOR_ADD_RE = re.compile(
     r"^(?P<n>\d+|[a-z]+) mana of the chosen colou?r$", re.IGNORECASE
+)
+#: "Add one mana of any of the exiled card's colors." (RULE 702.45-
+#: adjacent Imprint, MEC-17, Chrome Mox) — a menu built fresh from
+#: whatever card `ImprintEffect` remembered onto this permanent
+#: (`GameObject.linked_exile_id`), the same "not printed at parse time"
+#: shape `_CHOSEN_COLOR_ADD_RE` is for an ETB colour choice — see
+#: `ManaAbility.color_selector`'s ``"imprinted_card_colors"`` kind.
+_IMPRINTED_COLOR_ADD_RE = re.compile(
+    r"^(?:\d+|[a-z]+) mana of any of the exiled card'?s colou?rs$", re.IGNORECASE
 )
 #: Sentinel colour key an unresolved chosen-colour amount is parked under
 #: until `mana_abilities_for` recolours it to the real `chosen_color`.
@@ -600,11 +620,28 @@ def _parse_mana_ability_lines(
         if not sep:
             continue
         effect_text = effect_text.strip()
+        if _TARGET_RE.search(effect_text) or _TARGET_RE.search(cost_text):
+            continue  # RULE 605.1a — a targeted ability is never a mana ability
+        if _COLORS_AMONG_PERMANENTS_RE.search(effect_text):
+            # Its own "add one mana of **that** color" clause is a pronoun,
+            # not an `_ADD_CLAUSE_RE`-shaped literal colour/count — and
+            # mid-sentence lowercase "add" wouldn't match that regex's
+            # capital-A anyway — so this is checked (and dispatched)
+            # standalone, ahead of the generic ``add_match`` gate below.
+            cost = parse_activation_cost(cost_text)
+            if cost.exile_self_from_hand != want_hand_exile:
+                continue
+            rad_match = _SELF_RAD_COUNTERS_RE.search(effect_text)
+            abilities.append(ManaAbility(
+                cost=cost,
+                color_selector="colors_among_permanents_you_control",
+                self_rad_counters=_rad_count_of(rad_match) if rad_match else 0,
+                restriction=_parse_restriction(effect_text),
+            ))
+            continue
         add_match = _ADD_CLAUSE_RE.search(effect_text)
         if add_match is None:
             continue
-        if _TARGET_RE.search(effect_text) or _TARGET_RE.search(cost_text):
-            continue  # RULE 605.1a — a targeted ability is never a mana ability
         cost = parse_activation_cost(cost_text)
         if cost.exile_self_from_hand != want_hand_exile:
             continue
@@ -630,6 +667,14 @@ def _parse_mana_ability_lines(
                 cost=cost,
                 options=[{_CHOSEN_COLOR_KEY: amount}],
                 color_selector="chosen_color",
+                self_rad_counters=_rad_count_of(rad_match) if rad_match else 0,
+                restriction=_parse_restriction(effect_text),
+            ))
+            continue
+        if _IMPRINTED_COLOR_ADD_RE.match(add_match.group(1).strip()):
+            abilities.append(ManaAbility(
+                cost=cost,
+                color_selector="imprinted_card_colors",
                 self_rad_counters=_rad_count_of(rad_match) if rad_match else 0,
                 restriction=_parse_restriction(effect_text),
             ))
@@ -851,7 +896,19 @@ def resolve_options(ability: ManaAbility, obj: Any, state: Optional[Any] = None)
     A ``color_selector="chosen_color"`` ability (Throne of Eldraine) instead
     recolours its `_CHOSEN_COLOR_KEY`-parked amount to ``obj.chosen_color``,
     the object's own RULE 601.2b ETB pick — dropping the option entirely
-    while no colour has been chosen yet (nothing legal to produce)."""
+    while no colour has been chosen yet (nothing legal to produce).
+
+    ``"colors_among_permanents_you_control"`` (ENG-27, Bloom Tender) ignores
+    ``ability.options`` entirely and builds a single option fresh every call:
+    one mana of *each* WUBRG colour currently present among the controller's
+    permanents, all at once — not a menu (there is nothing to choose between,
+    the outcome is whatever colour set the board happens to have right now),
+    so this always returns exactly one option (or none, with no coloured
+    permanent in play — the same "produces nothing" shape an empty
+    ``options`` list gives `GameEngine.tap_for_mana` everywhere else). With
+    no ``state`` (a bare `Card`/`GameObject` query, no battlefield to read)
+    this conservatively answers nothing rather than guessing.
+    """
     if ability.color_selector == "chosen_color":
         chosen = getattr(obj, "chosen_color", None)
         if not chosen:
@@ -860,6 +917,42 @@ def resolve_options(ability: ManaAbility, obj: Any, state: Optional[Any] = None)
             {chosen: amount for _key, amount in opt.items()}
             for opt in ability.options
         ]
+    if ability.color_selector == "colors_among_permanents_you_control":
+        if state is None:
+            return []
+        controller_id = getattr(obj, "controller_id", None)
+        colors_present: set[str] = set()
+        for permanent in state.permanents():
+            if permanent.controller_id != controller_id:
+                continue
+            colors_present |= (permanent.colors & set(_ALL_COLORS))
+        if not colors_present:
+            return []
+        return [{color: 1 for color in colors_present}]
+    if ability.color_selector == "imprinted_card_colors":
+        # RULE 702.45-adjacent Imprint (MEC-17, Chrome Mox): "Add one mana
+        # of any color in the exiled card's color identity" — a genuine
+        # *menu*, unlike ``colors_among_permanents_you_control``'s
+        # aggregate: one option per colour, mutually exclusive, the same
+        # shape a plain dual land's ``options`` already is. Reads
+        # `GameObject.linked_exile_id` (stamped by `ImprintEffect`) fresh
+        # every call, so a future un-imprint/re-imprint stays correct with
+        # no extra bookkeeping; no card imprinted at all, or a colourless
+        # one, both correctly produce nothing (RULE 105.2a colourless is
+        # not a colour to choose from).
+        if state is None:
+            return []
+        imprinted_id = getattr(obj, "linked_exile_id", None)
+        if imprinted_id is None:
+            return []
+        imprinted = state.find_object(imprinted_id)
+        if imprinted is None:
+            return []
+        card = getattr(imprinted, "card", imprinted)
+        colors = set(getattr(card, "color_identity", None) or set()) & set(_ALL_COLORS)
+        if not colors:
+            return []
+        return [{color: 1} for color in colors]
     if ability.amount_selector is None:
         return [dict(opt) for opt in ability.options]
     n = _resolve_amount(ability.amount_selector, obj, state)

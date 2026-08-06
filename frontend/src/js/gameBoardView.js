@@ -119,6 +119,9 @@ export function createGameBoardView(opts = {}) {
   let root = null;
   let sessionId = null;
   let view = null;
+  let latestByInstance = {};
+  let dragSource = null;
+  let dragHandlersInstalled = false;
   let busy = false;
   let status = '';
   let statusKind = '';
@@ -456,6 +459,213 @@ export function createGameBoardView(opts = {}) {
       excludeControllers,
     };
   }
+
+  function isPlayableCardAction(a) {
+    return a.type === 'cast_spell' || a.type === 'play_land' || a.type === 'activate_ability';
+  }
+
+  function dragActionsForInstance(instanceId) {
+    if (!latestByInstance || !latestByInstance[instanceId]) return [];
+    return latestByInstance[instanceId].filter(isPlayableCardAction);
+  }
+
+  function dragTargetsForActions(actions) {
+    const ids = new Set();
+    const playerIds = new Set();
+    let battlefield = false;
+    for (const action of actions) {
+      if (action.type === 'play_land'
+          || ((action.type === 'cast_spell' || action.type === 'activate_ability') && !action.requires_target)) {
+        battlefield = true;
+      }
+      if (Array.isArray(action.targets)) {
+        for (const req of action.targets) {
+          if (!Array.isArray(req.options)) continue;
+          for (const option of req.options) {
+            if (option.instance_id != null) ids.add(String(option.instance_id));
+            if (option.player_id != null) playerIds.add(String(option.player_id));
+          }
+        }
+      }
+    }
+    return { battlefield, instanceIds: ids, playerIds };
+  }
+
+  function findDragTarget(element) {
+    if (!element) return null;
+    let el = element instanceof Element ? element : element.parentElement;
+    while (el) {
+      if (el.dataset && el.dataset.instanceId != null) {
+        return { type: 'instance', instanceId: el.dataset.instanceId, element: el };
+      }
+      if (el.dataset && el.dataset.dropZone != null) {
+        return { type: el.dataset.dropZone, element: el };
+      }
+      if (el.dataset && el.dataset.playerId != null) {
+        return { type: 'player', playerId: el.dataset.playerId, element: el };
+      }
+      el = el.parentElement;
+    }
+    return null;
+  }
+
+  function isValidDragTarget(target) {
+    if (!dragSource || !target) return false;
+    const actions = dragActionsForInstance(dragSource.instanceId);
+    if (!actions.length) return false;
+    const targets = dragTargetsForActions(actions);
+    if (target.type === 'battlefield') return targets.battlefield;
+    if (target.type === 'instance') return targets.instanceIds.has(target.instanceId);
+    if (target.type === 'player') return targets.playerIds.has(target.playerId);
+    return false;
+  }
+
+  function clearDragHighlights() {
+    root?.querySelectorAll('.gf-drag-target-valid, .gf-drag-source').forEach((el) => {
+      el.classList.remove('gf-drag-target-valid', 'gf-drag-source');
+    });
+  }
+
+  function highlightDragTargets() {
+    clearDragHighlights();
+    if (!dragSource) return;
+    const actions = dragActionsForInstance(dragSource.instanceId);
+    if (!actions.length) return;
+    const targets = dragTargetsForActions(actions);
+    const getByInstance = (id) => root?.querySelector(`[data-instance-id="${CSS.escape(id)}"]`);
+    for (const id of targets.instanceIds) {
+      const el = getByInstance(id);
+      if (el) el.classList.add('gf-drag-target-valid');
+    }
+    for (const id of targets.playerIds) {
+      const el = root?.querySelector(`[data-player-id="${CSS.escape(id)}"]`);
+      if (el) el.classList.add('gf-drag-target-valid');
+    }
+    if (targets.battlefield) {
+      const battlefield = root?.querySelector('[data-drop-zone="battlefield"]');
+      if (battlefield) battlefield.classList.add('gf-drag-target-valid');
+    }
+    const sourceEl = root?.querySelector(`[data-instance-id="${CSS.escape(dragSource.instanceId)}"]`);
+    if (sourceEl) sourceEl.classList.add('gf-drag-source');
+  }
+
+  function findTargetOptionForAction(action, instanceId, playerId) {
+    if (!Array.isArray(action.targets)) return null;
+    for (const req of action.targets) {
+      if (!Array.isArray(req.options)) continue;
+      for (const option of req.options) {
+        if ((instanceId != null && String(option.instance_id) === instanceId) || (playerId != null && String(option.player_id) === playerId)) {
+          return option;
+        }
+      }
+    }
+    return null;
+  }
+
+  function requirementOwnerIndexForOption(action, selectedOption) {
+    if (!Array.isArray(action.targets)) return 0;
+    const expanded = expandMultiTargetRequirements(action.targets || []);
+    for (let i = 0; i < expanded.requirements.length; i += 1) {
+      const req = expanded.requirements[i];
+      if (!Array.isArray(req.options)) continue;
+      for (const option of req.options) {
+        if (String(option.instance_id) === String(selectedOption.instance_id) || String(option.player_id) === String(selectedOption.player_id)) {
+          return expanded.owners[i];
+        }
+      }
+    }
+    return 0;
+  }
+
+  function prepareCastTargeting(action, selectedOption = null) {
+    const requirements = action.targets || [];
+    const expanded = expandMultiTargetRequirements(requirements);
+    const send = {
+      type: action.type,
+      instance_id: action.instance_id,
+      face: action.face,
+      mode: action.mode,
+      ability_index: action.ability_index,
+    };
+    if (action.type === 'cast_spell' && action.has_x) {
+      send.x = readX(action.instance_id, action.face);
+    }
+    if (action.kicker) {
+      send.kicker = readKicker(action.instance_id, action.face);
+      if (action.kicker_has_x) send.kicker_x = readKickerX(action.instance_id, action.face);
+    }
+    castTargeting = {
+      instanceId: action.instance_id,
+      requirements: expanded.requirements,
+      reqIndex: 0,
+      targets: [],
+      groups: Array.from({ length: expanded.groupCount }, () => []),
+      x: readX(action.instance_id, action.face),
+      send,
+      excludePicked: expanded.excludePicked,
+      excludeControllers: expanded.excludeControllers,
+    };
+    if (selectedOption) {
+      const owner = requirementOwnerIndexForOption(action, selectedOption);
+      castTargeting.targets.push(selectedOption);
+      if (expanded.groupCount > 1) {
+        castTargeting.groups[owner].push(selectedOption);
+      }
+      castTargeting.reqIndex = 1;
+    }
+    finishCastIfReady();
+  }
+
+  function executeDroppedAction(target) {
+    if (!dragSource || !target) return;
+    const actions = dragActionsForInstance(dragSource.instanceId);
+    if (!actions.length) return;
+
+    if (target.type === 'battlefield') {
+      const action = actions.find((a) => a.type === 'play_land'
+        || ((a.type === 'cast_spell' || a.type === 'activate_ability') && !a.requires_target));
+      if (!action) return;
+      act({ type: action.type, instance_id: action.instance_id, face: action.face, mode: action.mode, ability_index: action.ability_index, x: readX(action.instance_id, action.face) });
+      return;
+    }
+
+    const action = actions.find((a) => findTargetOptionForAction(a, target.instanceId, target.playerId));
+    if (!action) return;
+    const option = findTargetOptionForAction(action, target.instanceId, target.playerId);
+    if (!option) return;
+
+    if (action.targets && action.targets.length <= 1) {
+      const send = {
+        type: action.type,
+        instance_id: action.instance_id,
+        face: action.face,
+        mode: action.mode,
+        ability_index: action.ability_index,
+      };
+      if (action.type === 'cast_spell' && action.has_x) {
+        send.x = readX(action.instance_id, action.face);
+      }
+      if (action.kicker) {
+        send.kicker = readKicker(action.instance_id, action.face);
+        if (action.kicker_has_x) send.kicker_x = readKickerX(action.instance_id, action.face);
+      }
+      act({ ...send, targets: [option], x: send.x || 0 });
+      return;
+    }
+
+    prepareCastTargeting(action, option);
+  }
+
+  function maybeReadDropTargetData(element) {
+    if (!element) return null;
+    const target = findDragTarget(element);
+    return target && isValidDragTarget(target) ? target : null;
+  }
+
+  function setLatestByInstance(byInstance) {
+    latestByInstance = byInstance;
+  }
+
   // The user's current drag-and-drop arrangement of a pending `replacement_
   // order` choice's options (RULE 616.1) — an array of option ids, reset
   // whenever a fresh choice with a different option set appears. See
@@ -689,6 +899,7 @@ export function createGameBoardView(opts = {}) {
       if (a.instance_id == null) continue;
       (byInstance[a.instance_id] ||= []).push(a);
     }
+    setLatestByInstance(byInstance);
     const stackNonEmpty = s.stack.length > 0;
     if (!stackNonEmpty) stackAside = false;
 
@@ -1158,7 +1369,7 @@ export function createGameBoardView(opts = {}) {
     const foldable = seatId != null && !isMe && opponents > 1;
     const folded = foldable && collapsedBoards.has(p.id);
     return `
-      <section class="gf-player-board${isMe ? ' gf-own-board' : ''}${seatId && !isMe ? ' gf-opponent-board' : ''}${p.has_lost ? ' gf-board-out' : ''}${folded ? ' gf-board-folded' : ''}">
+      <section class="gf-player-board${isMe ? ' gf-own-board' : ''}${seatId && !isMe ? ' gf-opponent-board' : ''}${p.has_lost ? ' gf-board-out' : ''}${folded ? ' gf-board-folded' : ''}" data-player-id="${escapeAttr(p.id)}">
         <header class="gf-player-board-head${bannerCss ? ' gf-banner-tinted' : ''}"${bannerAttrs}>
           ${
             foldable
@@ -1197,7 +1408,7 @@ export function createGameBoardView(opts = {}) {
           </aside>
 
           <div class="gf-main">
-            <div class="gf-zone gf-battlefield">
+            <div class="gf-zone gf-battlefield" data-drop-zone="battlefield">
               <div class="gf-bf-head">
                 <h4>Battlefield (${bf.length})</h4>
                 <label class="gf-bf-toggle" title="Länder in eine eigene, dritte Reihe legen">
@@ -1641,6 +1852,41 @@ export function createGameBoardView(opts = {}) {
       });
     });
 
+    if (!dragHandlersInstalled) {
+      dragHandlersInstalled = true;
+      root.addEventListener('dragover', (e) => {
+        e.preventDefault();
+        if (e.dataTransfer) e.dataTransfer.dropEffect = 'move';
+        const target = maybeReadDropTargetData(e.target);
+        if (!target) return;
+      });
+      root.addEventListener('drop', (e) => {
+        const target = maybeReadDropTargetData(e.target);
+        e.preventDefault();
+        if (target) {
+          executeDroppedAction(target);
+        }
+        dragSource = null;
+        clearDragHighlights();
+      });
+    }
+
+    root.querySelectorAll('[data-draggable-card="true"]').forEach((el) => {
+      el.addEventListener('dragstart', (e) => {
+        const slot = el.closest('[data-instance-id]');
+        const instanceId = slot?.dataset.instanceId;
+        if (!instanceId) return;
+        dragSource = { instanceId };
+        e.dataTransfer.effectAllowed = 'move';
+        e.dataTransfer.setData('text/plain', '');
+        highlightDragTargets();
+      });
+      el.addEventListener('dragend', () => {
+        dragSource = null;
+        clearDragHighlights();
+      });
+    });
+
     // RULE 616.1 replacement-order popup: drag & drop reordering. Dragging
     // reorders the list purely client-side (`replacementOrderDraft` is only
     // read again on the next render/confirm); "Bestätigen" replays the final
@@ -1741,8 +1987,7 @@ export function createGameBoardView(opts = {}) {
     root.querySelectorAll('[data-cast-x]').forEach((el) => {
       el.addEventListener('click', () => {
         const { iid, face, mode, entwine } = JSON.parse(el.dataset.castX);
-        const input = root.querySelector(`[data-x-input="${xKey(iid, face)}"]`);
-        const x = Math.max(0, Math.floor(Number(input?.value) || 0));
+        const x = readX(iid, face);
         const kicked = readKicker(iid, face);
         const kicker_x = readKickerX(iid, face);
         act({ type: 'cast_spell', instance_id: iid, x, face, kicked, kicker_x, mode, entwine });
@@ -1752,8 +1997,7 @@ export function createGameBoardView(opts = {}) {
     root.querySelectorAll('[data-activate-x]').forEach((el) => {
       el.addEventListener('click', () => {
         const { iid, ability_index } = JSON.parse(el.dataset.activateX);
-        const input = root.querySelector(`[data-x-input="${iid}"]`);
-        const x = Math.max(0, Math.floor(Number(input?.value) || 0));
+        const x = readX(iid, null);
         act({ type: 'activate_ability', instance_id: iid, ability_index, x });
       });
     });
@@ -1764,8 +2008,7 @@ export function createGameBoardView(opts = {}) {
         const iid = Number(info.iid);
         const action = findTargetableAction(iid, info.type, info.ability_index, info.face, info.mode);
         if (!action) return;
-        const input = root.querySelector(`[data-x-input="${xKey(iid, info.face)}"]`);
-        const x = action.has_x ? Math.max(0, Math.floor(Number(input?.value) || 0)) : 0;
+        const x = action.has_x ? readX(iid, info.face) : 0;
         const kicked = action.has_kicker ? readKicker(iid, info.face) : 0;
         const kicker_x = action.kicker_has_x ? readKickerX(iid, info.face) : 0;
         const send = info.type === 'activate_ability'
@@ -1904,6 +2147,11 @@ export function createGameBoardView(opts = {}) {
   // on a bare instance_id.
   function xKey(instanceId, face) {
     return face ? `${instanceId}:${face}` : String(instanceId);
+  }
+
+  function readX(instanceId, face) {
+    const input = root.querySelector(`[data-x-input="${xKey(instanceId, face)}"]`);
+    return Math.max(0, Math.floor(Number(input?.value) || 0));
   }
 
   // Kicker/Multikicker (RULE 702.33): same face-scoped keying as `xKey`, and
@@ -2294,9 +2542,11 @@ export function createGameBoardView(opts = {}) {
     const flipButton = o.has_back_face
       ? `<button type="button" class="gf-card-flip" data-flip-toggle="${o.instance_id}" title="Andere Seite ansehen" aria-label="Andere Seite ansehen">🔄</button>`
       : '';
+    const draggable = cardActions && cardActions.some(isPlayableCardAction);
+    const dragAttrs = draggable ? ` draggable="true" data-draggable-card="true"` : '';
     return `
-      <div class="gf-card-slot">
-        <div class="${classes.join(' ')}" data-hover-card="${escapeHtml(o.name)}" title="${escapeHtml(o.name)}${pt}${o.tapped ? ' — getappt' : ''}">${inner}${flipButton}${attackBadge}${loyaltyBadge}${sagaBadge}${battleBadge}${counterBadge}${keywordBadge}${adventureBadge}${preparedBadge}${preparedCopyBadge}${faceDownBadge}${effectsSummary}</div>
+      <div class="gf-card-slot" data-instance-id="${escapeAttr(o.instance_id)}">
+        <div class="${classes.join(' ')}"${dragAttrs} data-hover-card="${escapeHtml(o.name)}" title="${escapeHtml(o.name)}${pt}${o.tapped ? ' — getappt' : ''}">${inner}${flipButton}${attackBadge}${loyaltyBadge}${battleBadge}${counterBadge}${keywordBadge}${adventureBadge}${preparedBadge}${preparedCopyBadge}${faceDownBadge}${effectsSummary}</div>
         ${buttons}
       </div>`;
   }

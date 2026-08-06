@@ -178,6 +178,51 @@ _ACTIVATION_PROHIBITION_RE = re.compile(
     r"activated abilities of (?P<word>[a-z]+) can'?t be activated", re.IGNORECASE
 )
 
+# "Activated abilities of <type>[s] your opponents control can't be
+# activated." (ENG-28, Linvala Keeper of Silence/Karn the Great Creator) —
+# the opponent-scoped sibling of `_ACTIVATION_PROHIBITION_RE` above: that one
+# is global (Null Rod silences its own kind too), this one only reaches
+# permanents someone *else* controls, so it needs `affects="opponents_
+# permanents"` rather than the board-wide default.
+_ACTIVATION_PROHIBITION_OPPONENTS_RE = re.compile(
+    r"activated abilities of (?P<word>[a-z]+) your opponents control can'?t be activated",
+    re.IGNORECASE,
+)
+
+# "Your opponents can't cast spells or activate abilities of <type>[, <type>
+# [,] or <type>]." (ENG-28, Grand Abolisher/Myrel, Shield of Argive — always
+# printed under a leading "During your turn," gate, split off by
+# `_conditional_static_specs`'s "during your turn" wrapper before this ever
+# sees the clause) — one sentence combining `cast_prohibition` (the "cast
+# spells" half, no type filter — any spell) with `activation_prohibition`
+# (the "activate abilities of …" half, opponent-scoped and type-filtered).
+# Two independent specs from one clause, both riding whatever ``active_if``
+# gate the caller stamps onto every spec `static_effect_specs` returns.
+_CANT_CAST_OR_ACTIVATE_OPPONENTS_RE = re.compile(
+    r"your opponents can'?t cast spells or activate abilities of (?P<types>[a-z][a-z, ]*)",
+    re.IGNORECASE,
+)
+
+#: A type list ("artifacts, creatures, or enchantments") → normalized
+#: singular `_CARD_TYPE_WORDS`, or ``None`` (fail-closed) if any word in it
+#: isn't a recognised card type. Splits on a comma (with an optional trailing
+#: "and"/"or") or a bare "and"/"or" — the two ways real cards print a list of
+#: two or three types.
+_TYPE_LIST_SPLIT_RE = re.compile(r",\s*(?:and\s+|or\s+)?|\s+and\s+|\s+or\s+", re.IGNORECASE)
+
+
+def _type_word_list(text: str) -> Optional[list[str]]:
+    words = [w.strip() for w in _TYPE_LIST_SPLIT_RE.split(text.strip()) if w.strip()]
+    if not words:
+        return None
+    result = []
+    for word in words:
+        singular = _singularize(word.lower())
+        if singular not in _CARD_TYPE_WORDS:
+            return None
+        result.append(singular)
+    return result
+
 # "<Type> spells cost {N} more/less to cast."  (RULE 601.2f tax/discount,
 # Thalia/Thorn of Amethyst/Vryn Wingmare-shaped) — the bare "<type> spells
 # cost …" phrasing with no "you cast"/"your opponents cast" qualifier taxes
@@ -1926,6 +1971,18 @@ _AS_LONG_AS_TRAILING_RE = re.compile(
     r"(?P<inner>.+?) (?:for )?as long as (?P<cond>(?!.*\bas long as\b)[^,]+)", re.I
 )
 
+#: "During your turn, <static>." (ENG-28, RULE 613.6's other common gate
+#: phrasing besides "as long as" — Ahn-Crop Invader/Blood Burglar/Grand
+#: Abolisher-shaped, 156 solo-blocked cards cache-wide). Fixed to the
+#: ``your_turn`` condition rather than routed through `static_condition`,
+#: since the phrase itself is the whole condition — there's no separate
+#: ``cond``/``inner`` split to parse a *kind* out of. Leading-only: every
+#: sampled card prints the gate first, and a trailing "…during your turn."
+#: form risks colliding with an "activate only during your turn" *activation*
+#: timing restriction (a different, `condition_query.py` concept) if ever
+#: added later, so that form is deliberately not claimed here.
+_DURING_YOUR_TURN_LEADING_RE = re.compile(r"during your turn,\s*(?P<inner>.+)", re.IGNORECASE)
+
 
 def _flag_keywords(text: str) -> Optional[list[str]]:
     """A "have <keywords>" list → grantable keyword slugs, or ``None`` if any
@@ -2051,6 +2108,16 @@ def _conditional_static_specs(text: str) -> Optional[list[EffectSpec]]:
             # ``active_if``, on every spec shape alike.
             spec.params["active_if"] = dict(condition)
         return specs
+
+    m = _DURING_YOUR_TURN_LEADING_RE.fullmatch(text)
+    if m is not None:
+        inner = _INNER_SELF_PRONOUN_RE.sub("~", m.group("inner").strip())
+        specs = static_effect_specs(inner)
+        if not specs:
+            return None
+        for spec in specs:
+            spec.params["active_if"] = {"kind": "your_turn"}
+        return specs
     return None
 
 
@@ -2086,6 +2153,31 @@ def static_effect_specs(clause: str) -> Optional[list[EffectSpec]]:
     # `CANT_BE_COUNTERED_RE`'s docstring for why both need it.
     if CANT_BE_COUNTERED_RE.fullmatch(text):
         return [EffectSpec("cant_be_countered", {})]
+
+    m = _ACTIVATION_PROHIBITION_OPPONENTS_RE.fullmatch(text)
+    if m is not None:
+        card_type = _singularize(m.group("word"))
+        if card_type not in _CARD_TYPE_WORDS:
+            return None  # fail-closed — an unrecognised type-scope
+        return [
+            EffectSpec(
+                "activation_prohibition",
+                {"affects": "opponents_permanents", "card_type": card_type},
+            )
+        ]
+
+    m = _CANT_CAST_OR_ACTIVATE_OPPONENTS_RE.fullmatch(text)
+    if m is not None:
+        card_types = _type_word_list(m.group("types"))
+        if card_types is None:
+            return None  # fail-closed — an unrecognised type in the list
+        return [
+            EffectSpec("cast_prohibition", {"scope": "opponents"}),
+            EffectSpec(
+                "activation_prohibition",
+                {"affects": "opponents_permanents", "card_type": card_types},
+            ),
+        ]
 
     m = _ACTIVATION_PROHIBITION_RE.fullmatch(text)
     if m is not None:

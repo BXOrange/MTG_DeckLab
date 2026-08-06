@@ -263,6 +263,17 @@ class ActivationCost:
     #: word (`continuous.has_subtype`-compatible) of the permanent to
     #: return, or ``None`` when this isn't such a cost.
     return_to_hand: Optional[str] = None
+    #: "…exile a `<color>` card from your hand rather than pay this spell's
+    #: mana cost." (RULE 118.9, Force of Will/Negation/Vigor — MEC-15) — a
+    #: WUBRG letter naming which color the exiled hand card must be, or
+    #: ``None`` when this isn't such a cost. Distinct from
+    #: ``exile_self_from_hand`` below (that one is always *this specific
+    #: card*, no choice at all); this is the payer's choice of any
+    #: qualifying card elsewhere in hand. Charged by `GameEngine.
+    #: _pay_alt_cast_cost` — a spell's own alternative-cost payment, not an
+    #: activated ability's, so it's never consulted by `_can_pay_
+    #: activation_cost`/`_pay_activation_cost`.
+    exile_hand_card_color: Optional[str] = None
     #: "Exile this card from your hand" (Elvish Spirit Guide) — an
     #: alternative-zone cost the engine doesn't charge yet (no hand-zone
     #: activation path); recognised so the ability is never treated as a
@@ -366,6 +377,7 @@ class ActivationCost:
             or self.add_counters_cost
             or self.exile_self_from_hand
             or self.return_to_hand
+            or self.exile_hand_card_color
         )
 
     def label(self) -> str:
@@ -417,6 +429,8 @@ class ActivationCost:
             parts.append("Exile this card from your hand")
         if self.return_to_hand:
             parts.append(f"Return a {self.return_to_hand.capitalize()} you control to its owner's hand")
+        if self.exile_hand_card_color:
+            parts.append(f"Exile a {self.exile_hand_card_color} card from your hand")
         if self.loyalty is not None:
             parts.append(f"[{'+' if self.loyalty >= 0 else ''}{self.loyalty}]")
         return ", ".join(parts)
@@ -439,6 +453,7 @@ class ActivationCost:
             "add_counters_cost": list(self.add_counters_cost) if self.add_counters_cost else None,
             "exile_self_from_hand": self.exile_self_from_hand,
             "return_to_hand": self.return_to_hand,
+            "exile_hand_card_color": self.exile_hand_card_color,
             "loyalty": self.loyalty,
             "loyalty_is_x": self.loyalty_is_x,
             "x_selector": self.x_selector,
@@ -519,6 +534,8 @@ def parse_activation_cost(
         parsed.exile_top_of_library = bool(cost["exile_top_of_library"])
     if cost.get("return_to_hand"):
         parsed.return_to_hand = str(cost["return_to_hand"])
+    if cost.get("exile_hand_card_color"):
+        parsed.exile_hand_card_color = str(cost["exile_hand_card_color"])
     if "sorcery_speed_only" in cost:
         parsed.sorcery_speed_only = bool(cost["sorcery_speed_only"])
     if cost.get("class_level") is not None:

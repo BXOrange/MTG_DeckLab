@@ -105,7 +105,37 @@ ALLOWED_CAST_CONDITION_KEYS: frozenset[str] = frozenset({"entered_this_turn", "t
 #: gates a cast-*timing* permission; this one instead gates a cast-*cost*
 #: permission, so it's its own field/whitelist (`AbilitySpec.
 #: free_cast_condition`) rather than reusing that one.
-ALLOWED_FREE_CAST_CONDITION_KEYS: frozenset[str] = frozenset({"control_commander"})
+ALLOWED_FREE_CAST_CONDITION_KEYS: frozenset[str] = frozenset(
+    {
+        "control_commander",
+        # RULE 500.7-adjacent "if it's not your turn"/"if it's your turn"
+        # (Force of Negation/Force of Vigor's own alt-cost gate, MEC-15) —
+        # shares this whitelist/evaluator rather than getting its own, since
+        # both are "is this alternative cost/cast option available right
+        # now" checks (`AbilitySpec.alt_cost`'s own ``condition`` key reuses
+        # this exact vocabulary).
+        "not_your_turn",
+        "your_turn",
+    }
+)
+
+#: RULE 118.9 "You may pay `<cost>` rather than pay this spell's mana
+#: cost." (Force of Will/Force of Negation/Force of Vigor/Daze-shaped,
+#: MEC-15) — a single spell-level alternative *payment*, as opposed to
+#: `free_cast_condition`'s alternative of paying *nothing*. A dict from
+#: this small closed vocabulary (mirrors `additional_cost`'s "fixed
+#: template, not open cost text" reasoning): ``pay_life`` (an int),
+#: ``return_to_hand`` (a permanent subtype word — Daze's own Island),
+#: ``exile_hand_card_color`` (a WUBRG letter — the Force cycle's own
+#: "exile a `<color>` card from your hand"), and ``condition`` (optional,
+#: `ALLOWED_FREE_CAST_CONDITION_KEYS`-shaped — Force of Negation/Vigor's
+#: own "if it's not your turn" gate). At least one payment key is
+#: required; ``game/costs.py``'s `ActivationCost` is the actual charging
+#: engine (`game/effect_binder.py` builds one from this dict, mirroring
+#: `additional_cost`'s own `parse_activation_cost` reuse).
+ALLOWED_ALT_COST_KEYS: frozenset[str] = frozenset(
+    {"pay_life", "return_to_hand", "exile_hand_card_color", "condition"}
+)
 
 #: RULE 601.2b/604.3 "as an additional cost to cast this spell, <cost>." —
 #: the closed vocabulary an `AbilitySpec.additional_cost` may name. Kept this
@@ -280,6 +310,15 @@ class AbilitySpec:
     #: ``ability_kind``" idiom — the clause is its own oracle-text line,
     #: standalone from the spell's actual effect.
     free_cast_condition: Optional[dict[str, Any]] = None
+    #: RULE 118.9: "You may pay `<cost>` rather than pay this spell's mana
+    #: cost." (Force of Will/Negation/Vigor, Daze — MEC-15) — see
+    #: `ALLOWED_ALT_COST_KEYS`'s own docstring for the vocabulary. Hand-
+    #: authored only (`game/ability_catalogue.py`); no oracle-text grammar
+    #: recognizes this shape yet — real cards phrase the payment too
+    #: variably for one fixed template. Same "may ride on any spec
+    #: regardless of ``ability_kind``, own oracle-text line standalone from
+    #: the spell's actual effect" idiom `free_cast_condition` uses.
+    alt_cost: Optional[dict[str, Any]] = None
     #: "Strive — This spell costs `<cost>` more to cast for each target
     #: beyond the first." (MEC-4) — not a RULE 702 keyword at all (no CR
     #: entry defines it; Scryfall's `keywords` array is the only place it's
@@ -418,6 +457,7 @@ class AbilitySpec:
             and not self.modes
             and not self.additional_cost
             and not self.free_cast_condition
+            and not self.alt_cost
             and not self.conditional_flash
             and not self.strive_cost
         ):
@@ -436,6 +476,9 @@ class AbilitySpec:
 
         if self.free_cast_condition is not None:
             self._validate_free_cast_condition()
+
+        if self.alt_cost is not None:
+            self._validate_alt_cost()
 
         if self.strive_cost is not None:
             self._validate_strive_cost()
@@ -632,6 +675,37 @@ class AbilitySpec:
             raise SpecValidationError(f"unknown free_cast_condition key {key!r}")
         if key == "control_commander" and not isinstance(value, bool):
             raise SpecValidationError("'control_commander' condition must be a bool")
+        if key in ("not_your_turn", "your_turn") and not isinstance(value, bool):
+            raise SpecValidationError(f"{key!r} condition must be a bool")
+
+    def _validate_alt_cost(self) -> None:
+        """Structural check for an ``alt_cost`` clause (RULE 118.9)."""
+        cost = self.alt_cost
+        if not isinstance(cost, dict) or not cost:
+            raise SpecValidationError("'alt_cost' must be a non-empty dict")
+        for key in cost:
+            if key not in ALLOWED_ALT_COST_KEYS:
+                raise SpecValidationError(f"unknown alt_cost key {key!r}")
+        pay_life = cost.get("pay_life")
+        if pay_life is not None and (isinstance(pay_life, bool) or not isinstance(pay_life, int) or pay_life < 1):
+            raise SpecValidationError("'alt_cost' pay_life must be a positive int")
+        return_to_hand = cost.get("return_to_hand")
+        if return_to_hand is not None and (not isinstance(return_to_hand, str) or not return_to_hand):
+            raise SpecValidationError("'alt_cost' return_to_hand must be a non-empty str")
+        color = cost.get("exile_hand_card_color")
+        if color is not None and color not in ("W", "U", "B", "R", "G"):
+            raise SpecValidationError(f"'alt_cost' exile_hand_card_color must be a WUBRG letter, got {color!r}")
+        if not any(k in cost for k in ("pay_life", "return_to_hand", "exile_hand_card_color")):
+            raise SpecValidationError("'alt_cost' must carry at least one real payment component")
+        condition = cost.get("condition")
+        if condition is not None:
+            if not isinstance(condition, dict) or len(condition) != 1:
+                raise SpecValidationError("'alt_cost' condition must be a single-key dict")
+            ckey, cvalue = next(iter(condition.items()))
+            if ckey not in ALLOWED_FREE_CAST_CONDITION_KEYS:
+                raise SpecValidationError(f"unknown alt_cost condition key {ckey!r}")
+            if not isinstance(cvalue, bool):
+                raise SpecValidationError(f"{ckey!r} alt_cost condition must be a bool")
 
     @staticmethod
     def _validate_condition(condition: dict[str, Any]) -> None:

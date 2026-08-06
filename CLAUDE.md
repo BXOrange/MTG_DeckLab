@@ -568,8 +568,8 @@ every field it reads, `parser/oracle/gate.py`) since it's called once per
 on every copy/every game. `parser/oracle/processing_list.py` tracks
 cache-wide coverage and ranks the next handlers worth building. The cache is
 now bulk-loaded with the **full ~34k-card Oracle universe**
-(`scripts/import_bulk.py`), so coverage is measured against that: **30.6%
-covered (10,479 / 34,208) as of 2026-08-05, PARSER_VERSION 59** (parser-`MODELED` **or**
+(`scripts/import_bulk.py`), so coverage is measured against that: **31.0%
+covered (10,603 / 34,208) as of 2026-08-06, PARSER_VERSION 60** (parser-`MODELED` **or**
 hand-`AUTHORED`).
 Re-measure with `scripts/coverage_report.py` (ledger-backed — see
 `services/coverage_db.py`) before trusting this number; Batches 1–10 are all
@@ -783,6 +783,92 @@ the *resolving effect's own* `target_spec` shape are known. Full detail,
 including every documented per-card simplification, in
 `docs/implementation-state/Done_Backend.md`'s "Eliferate (finish) and
 Imodane" entry.
+
+A first pass (2026-08-06) then started on a much larger ask — making all
+**seven "cEDH"-named saved decks/cubes** playable (`Ojer cEDH`/`cEDH
+Rocco`/`[cEDH] Glarb Bloomsday`/`cEDH staples`/`cEDH staples 2`/`cEDH
+M-K`/`cEDH Kinnan`, a 393-unique-card pool an order of magnitude past any
+prior single-deck batch) — tracked as ordinary open work (`MEC-12` in
+`BACKLOG.md`) rather than forced to one-sitting completion. It fixed a
+segmenter false-negative (`_COST_LOOKS_REAL` didn't recognize "Exile this
+card from your hand: Add …" as a real cost, even though `costs.py`/
+`mana_abilities.py` already fully implement RULE 605.1a hand-zone mana
+abilities — Simian/Elvish Spirit Guide), added `TaxedDrawEffect` (RULE
+118.3's "unless" idiom applied to a draw, where the payer is the
+*triggering spell's own caster* rather than the ability's controller —
+Rhystic Study/Mystic Remora/Esper Sentinel), and hand-authored Force of
+Will/Negation/Vigor and Daze at their real printed mana cost with RULE
+118.9's alternative "pitch" cost dropped (a confirmed-unbuilt mechanism,
+113 cards cache-wide per `parser_probe.py blocked` — its own open item
+now, not rebuilt per-card). `BACKLOG.md`'s `MEC-12` also records several
+other confirmed-missing primitives found along the way (that `free_cast_
+condition` RULE 601.2f free-casting has never actually been reachable
+from a real game session — the UI never surfaces it) so the next pass
+doesn't have to re-derive them.
+
+A second pass (2026-08-06) then closed that first pass's own headline
+missing primitive: RULE 115.4/601.2c **"change the target of target
+spell"** (`ChangeTargetEffect`/`RulesEngine.change_target`, `game/
+effects.py`/`game/rules/misc_mixin.py`) — a live retarget of an
+*already-existing* stack item, distinct from the already-shipped "choose
+new targets for a freshly-made **copy**" (RULE 707.10c). The changer is
+this effect's own controller, not the targeted spell's (RULE 115.4a);
+legal alternatives are recomputed fresh against the *current* board (RULE
+115.1c), always including the current target itself (nothing excludes a
+"new" pick from matching the old one) — a single legal option auto-
+applies with no prompt, the same "forced, asking would be theatre" idiom
+`_choose_objects_choice` uses. At the time, deliberately spells-only (not
+the full "spell or ability" Deflecting Swat is printed with — retargeting
+an *ability* on the stack needed a stable way to name one, since
+`StackItem.obj` is `None` for an ability item) and scoped to a spell with
+exactly one existing target (both real cards in scope only ever retarget
+one — ENG-26 below lifted the first restriction; the second still holds).
+Hand-authored Misdirection (mandatory) and Deflecting Swat (optional,
+"you may") at their real printed mana cost ({3}{U}{U}/{2}{R}), RULE
+118.9's alternative cost dropped at the time (MEC-15 below built it).
+Full detail, both passes: `docs/implementation-state/Done_Backend.md`'s
+"seven 'cEDH'-named saved decks" entries.
+
+A sort-into-categories pass (2026-08-06) then filed the second pass's own
+"confirmed-missing primitives" as six standalone tickets and closed every
+one the same day. **ENG-26** built the "target an activated/triggered
+ability" primitive the paragraph above deferred (RULE 115/608.2b —
+`StackItem.stack_id`, a stable identity every stack item gets alongside a
+spell's own `GameObject.instance_id`; `targeting.py`'s `"ability"`/
+`"spell_or_ability"` kinds; `CounterAbilityEffect`, hand-authored onto
+Stifle/Trickbind; `ChangeTargetEffect`'s new `spell_or_ability=True`,
+closing Deflecting Swat's own real printed scope). **ENG-27** built two
+mana primitives sizing the ticket had mis-described (Bloom Tender's real
+cached text turned out to be a deterministic "one mana of each color
+among your permanents" aggregate, not a menu — `ManaAbility.
+color_selector`'s `"colors_among_permanents_you_control"`; Carpet of
+Flowers needed a genuinely targeted, once-per-turn, "X mana of any one
+color" triggered ability instead, since RULE 605.5a disqualifies a
+targeted ability from ever being a mana ability at all —
+`AddManaEffect.amount_from_target_count_selector`/`once_per_turn_
+ability`, `GameObject.added_mana_with_ability_this_turn`). **ENG-28**
+fixed `cast_prohibition` silently dropping its own `active_if` gate (a
+bug, not a missing feature) and added a general "During your turn,
+`<static>`." RULE 613.6 wrapper alongside the existing "as long as" one —
+156 cards solo-blocked on that phrase alone, not just the two the ticket
+named. **MEC-15** built RULE 118.9's alternative-cost primitive for real
+— `AbilitySpec.alt_cost`, `GameObject.alt_cast_cost`/`alt_cast_condition`,
+`GameEngine.can_cast`/`cast_spell`'s new `alt_cost=True` branch parallel
+to the existing `free=True` one — and, critically, the UI wiring neither
+`free=True` nor `alt_cost` had ever had: `_offer_cast` now offers a
+free/alt-cost cast as its own action alongside the plain one, each only
+when actually payable, round-tripped by `GameSession._dispatch_cast_
+spell`. Force of Will/Negation/Vigor/Daze all gained their real
+alternative cost. **MEC-16** bound RULE 702.24 Cumulative Upkeep for the
+first time (`CumulativeUpkeepEffect`, `_kw_cumulative_upkeep`) — the
+keyword was already parser-recognized, just never wired to behaviour;
+since keyword binding is independent of hand-authoring, Mystic Remora and
+Thought Lash's own long-standing "not built yet" simplifications closed
+for free, without either spec being touched. **MEC-17** built RULE
+702.45-adjacent Imprint (`ImprintEffect`, `request_choose_objects`'s new
+`remember=True`, `ManaAbility.color_selector`'s `"imprinted_card_colors"`)
+for Chrome Mox. Full detail, all six: `docs/implementation-state/
+Done_Backend.md`'s matching entries (search each ticket id).
 
 **Notable gaps** (see `docs/implementation-state/BACKLOG.md` for the full list with exact
 scope on each): a kicked spell's "if kicked, ... instead" *override* conditional (as opposed to the

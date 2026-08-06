@@ -30,6 +30,7 @@ from .costs import parse_activation_cost
 from .effects import (
     ActivatedAbility,
     AttachEffect,
+    CumulativeUpkeepEffect,
     RemoveCounterOrSacrificeEffect,
     SoulbondPairEffect,
     ChooseBasicLandTypeReplacement,
@@ -1187,6 +1188,38 @@ def _kw_fading(obj: Any, spec: AbilitySpec, n: Any) -> list[TriggeredAbility]:
     ]
 
 
+def _kw_cumulative_upkeep(obj: Any, spec: AbilitySpec, n: Any) -> list[TriggeredAbility]:
+    # RULE 702.24b: "At the beginning of your upkeep, put an age counter on
+    # this permanent, then sacrifice it unless you pay its upkeep cost for
+    # each age counter on it." Cumulative Upkeep is `KeywordShape.COST`, not
+    # `NUMBER` — its parsed param lives under `spec.keyword["cost"]`, not the
+    # ``n`` this dispatch table's callers all otherwise pass (see
+    # `_keyword_triggered_abilities`, which always forwards `keyword.get("n")`
+    # regardless of shape); ``n`` is simply unused here.
+    cost = (spec.keyword or {}).get("cost")
+    if not cost:
+        return []
+    controller_id = getattr(obj, "controller_id", None)
+
+    def _your_upkeep(event: Any, context: Any, cid=controller_id) -> bool:
+        if event.get("step") != "upkeep":
+            return False
+        state = getattr(context, "state", None)
+        active = getattr(state, "active_player", None) if state is not None else None
+        return active is not None and active.id == cid
+
+    return [
+        TriggeredAbility(
+            trigger_event=EventType.STEP_BEGIN,
+            effects=[CumulativeUpkeepEffect(cost=cost, source=obj)],
+            condition=_your_upkeep,
+            controller_id=controller_id,
+            source=obj,
+            description=spec.raw_text or f"Cumulative upkeep {cost}",
+        )
+    ]
+
+
 def _kw_renown(obj: Any, spec: AbilitySpec, n: Any) -> list[TriggeredAbility]:
     if n is None:
         return []
@@ -1277,6 +1310,7 @@ _KEYWORD_TRIGGERED_BUILDERS: dict[str, Callable[[Any, AbilitySpec, Any], list[Tr
     "soulbond": _kw_soulbond,
     "living_weapon": _kw_living_weapon,
     "fading": _kw_fading,
+    "cumulative_upkeep": _kw_cumulative_upkeep,
     "renown": _kw_renown,
     "annihilator": _kw_annihilator,
     "afflict": _kw_afflict,
@@ -1403,6 +1437,16 @@ def attach_to_object(obj: Any, specs: list[AbilitySpec]) -> None:
         if spec.free_cast_condition:
             spec.validate()
             obj.free_cast_condition = spec.free_cast_condition
+        if spec.alt_cost:
+            # RULE 118.9 (MEC-15): the payment half reuses `additional_cost`'s
+            # `parse_activation_cost` dict-to-`ActivationCost` reuse (minus
+            # its own ``condition`` key, which isn't a cost component);
+            # the optional gate reuses `free_cast_condition`'s own field/
+            # evaluator (`condition_query.free_cast_condition_holds`).
+            spec.validate()
+            payment = {k: v for k, v in spec.alt_cost.items() if k != "condition"}
+            obj.alt_cast_cost = parse_activation_cost(payment)
+            obj.alt_cast_condition = spec.alt_cost.get("condition")
         if spec.strive_cost:
             spec.validate()
             obj.strive_cost = ManaCost.parse(spec.strive_cost)

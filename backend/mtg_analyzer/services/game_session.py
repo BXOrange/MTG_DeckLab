@@ -870,6 +870,11 @@ class GameSession:
         # 702.140b Mutate, RULE 701.x Bargain, and RULE 702.42a Entwine
         # (``entwine``, which is what makes ``mode="both"`` legal on an
         # otherwise "choose one" block).
+        # RULE 601.2f-adjacent free cast / RULE 118.9 alternative cost
+        # (MEC-15) — round-trip from the ``free``/``alt_cost`` flag
+        # `GameEngine._cast_action` stamps on that specific offer (a
+        # *different* action entry from the plain mana-cost one, not a
+        # toggle on it — see `_offer_cast`).
         self.engine.cast_spell(
             active, self._object(action), targets, x, face=face, mode=mode,
             kicked=kicked, kicker_x=kicker_x, target_groups=target_groups,
@@ -878,6 +883,8 @@ class GameSession:
             mutate_under=bool(action.get("mutate_under", False)),
             bargained=bool(action.get("bargained", False)),
             entwine=bool(action.get("entwine", False)),
+            free=bool(action.get("free", False)),
+            alt_cost=bool(action.get("alt_cost", False)),
         )
 
     def _dispatch_roll_planar_die(self, action: dict[str, Any], active: Player) -> None:
@@ -1562,6 +1569,17 @@ class GameSession:
                 resolved.append(self.engine.state.player_by_id(target["player_id"]))
             elif isinstance(target, dict) and "instance_id" in target:
                 resolved.append(self._object_by_id(target["instance_id"]))
+            elif isinstance(target, dict) and "stack_id" in target:
+                # RULE 115/608.2b "target activated or triggered ability"
+                # (ENG-26, `targeting.py`'s ``"ability"`` kind) — the item
+                # itself, not a `GameObject`: an ability `StackItem` has
+                # none of its own (`.obj` is `None`), so it's named by
+                # `StackItem.stack_id` instead and resolved straight to the
+                # live item (`RulesEngine._stack_item_for` already accepts
+                # either a `StackItem` or a `GameObject`).
+                resolved.append(next(
+                    (i for i in self.engine.state.stack if i.stack_id == target["stack_id"]), None
+                ))
             else:
                 resolved.append(target)
         return resolved

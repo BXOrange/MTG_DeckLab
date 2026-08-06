@@ -15,12 +15,22 @@ GameState stays serializable for the WebSocket wire protocol.
 from __future__ import annotations
 
 import copy
+import itertools
 import uuid
 from typing import Any, Callable, Optional
 
 from .events import EventType, GameEvent
 from .game_object import GameObject, Zone
 from .player import Player
+
+#: A `StackItem`'s own stable identity (RULE 115/608.2b's "target activated
+#: or triggered ability" — Stifle/Trickbind-shaped, ENG-26). A spell's
+#: `StackItem.obj` already has one (its `GameObject.instance_id`), but an
+#: *ability* item has no such object to key off (`obj` is `None` — the
+#: permanent that has the ability lives on `.source` instead, and could have
+#: several of its own abilities on the stack at once). Same counter pattern
+#: as `GameObject.instance_id`.
+_stack_id_counter = itertools.count(1)
 
 
 class StackItem:
@@ -72,6 +82,7 @@ class StackItem:
         target_groups: Optional[list[list[Any]]] = None,
         trigger_event: Optional[GameEvent] = None,
     ) -> None:
+        self.stack_id: int = next(_stack_id_counter)
         self.kind = kind
         self.controller_id = controller_id
         self.effects = effects or []
@@ -111,6 +122,7 @@ class StackItem:
 
     def to_dict(self) -> dict[str, Any]:
         return {
+            "stack_id": self.stack_id,
             "kind": self.kind,
             "category": self.category,
             "controller_id": self.controller_id,

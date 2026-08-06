@@ -180,7 +180,7 @@ class ManaCountersMixin:
     #: Monolith produces exactly that.
     _MANA_TYPE_LABELS: dict[str, str] = {**_ANY_COLOR_LABELS, "C": "Farblos"}
     def add_mana_any_color(
-        self, player: Player, colors: Optional[list[str]] = None
+        self, player: Player, colors: Optional[list[str]] = None, amount: int = 1
     ) -> None:
         """Open the interactive colour choice for a resolve-time "add one
         mana of any color" effect (RULE 106.4) — e.g. Deathrite Shaman's
@@ -195,19 +195,27 @@ class ManaCountersMixin:
         With a single option there is nothing to decide, so the mana is
         added outright; with none, nothing happens at all.
 
+        ``amount`` (ENG-27, Carpet of Flowers' "add **X** mana of any one
+        color") is how many of the *one* chosen colour to add — still a
+        single colour decision, just not always a single mana of it.
+        ``amount <= 0`` adds nothing and never opens a choice (an "any one
+        color" ability whose count comes off the board, like Carpet of
+        Flowers' target-dependent X, can resolve to zero real targets/count).
+
         Opens an `add_mana_any_color` `pending_choice`;
-        `resolve_add_mana_any_color_choice` finishes it by adding one mana
-        of the chosen colour to ``player``'s pool.
+        `resolve_add_mana_any_color_choice` finishes it by adding
+        ``amount`` mana of the chosen colour to ``player``'s pool.
         """
         offered = list(colors) if colors is not None else list(self._ANY_COLOR_LABELS)
-        if not offered:
+        if not offered or amount <= 0:
             return
         if len(offered) == 1:
-            self.add_mana(player, offered[0])
+            self.add_mana(player, offered[0], amount)
             return
         self.state.pending_choice = {
             "kind": "add_mana_any_color",
             "player_id": player.id,
+            "amount": amount,
             "prompt": "Farbe für die Manaerzeugung wählen",
             "options": [
                 {"id": color, "label": self._MANA_TYPE_LABELS.get(color, color)}
@@ -230,7 +238,7 @@ class ManaCountersMixin:
         player = self.state.player_by_id(choice["player_id"])
         offered = [o["id"] for o in choice.get("options") or []]
         color = answer if answer in offered else (offered[0] if offered else "W")
-        self.add_mana(player, color)
+        self.add_mana(player, color, int(choice.get("amount", 1) or 1))
     def grant_protection_choice(
         self, target: GameObject, player: Player, allow_colorless: bool = False
     ) -> None:

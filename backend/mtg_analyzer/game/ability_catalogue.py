@@ -4761,22 +4761,23 @@ def _thought_lash() -> list[AbilitySpec]:
     would be dealt to you this turn.
 
     — Thought Lash. Only this repeatable activated ability is hand-authored
-    here; the card's Cumulative upkeep ("At the beginning of your upkeep,
-    put an age counter on this permanent, then sacrifice it unless you pay
-    its upkeep cost for each age counter on it") and its own "when a player
-    doesn't pay this enchantment's cumulative upkeep, that player exiles
-    all cards from their library" trigger are a wholly separate, entirely
-    unmodeled mechanic (Cumulative upkeep isn't built at all yet — no card
-    needs it otherwise) and are deliberately left unclaimed; this entry
-    only supplies the activated ability so the shared `prevent_damage_
-    shield` primitive has its second real, amount-capped/repeatable-use
-    exercising card (Riot Control's own use is the single uncapped "all"
-    case). The cost is a plain "Exile the top card of your library" cost
-    (`costs.py`'s existing library-exile cost grammar); the effect passes
-    ``amount=1`` — a fresh `RulesEngine.prevent_damage_to_player` shield is
-    opened on each activation, so repeated activations in a turn stack
-    independent 1-point shields exactly like `regenerate`'s own multiple-
-    activations-stack behaviour.
+    here; the card's own Cumulative Upkeep (RULE 702.24) now binds for free
+    regardless (MEC-16 — `game/effect_binder.py`'s keyword dispatch reads
+    `Card.keywords`/oracle text independently of whatever a hand-authored
+    entry supplies), so it no longer needs claiming here. Its own trailing
+    "when a player doesn't pay this enchantment's cumulative upkeep, that
+    player exiles all cards from their library" rider is still unclaimed
+    though — the base mechanic never fires a paid-vs-not-paid event a
+    second trigger could hook, only a real but narrower residual gap now.
+    This entry only supplies the activated ability so the shared
+    `prevent_damage_shield` primitive has its second real, amount-capped/
+    repeatable-use exercising card (Riot Control's own use is the single
+    uncapped "all" case). The cost is a plain "Exile the top card of your
+    library" cost (`costs.py`'s existing library-exile cost grammar); the
+    effect passes ``amount=1`` — a fresh `RulesEngine.
+    prevent_damage_to_player` shield is opened on each activation, so
+    repeated activations in a turn stack independent 1-point shields
+    exactly like `regenerate`'s own multiple-activations-stack behaviour.
     """
     return [
         AbilitySpec(
@@ -5226,6 +5227,100 @@ def _kinnan_bonder_prodigy() -> list[AbilitySpec]:
 
 
 register("Kinnan, Bonder Prodigy", _kinnan_bonder_prodigy)
+
+
+def _chrome_mox() -> list[AbilitySpec]:
+    """Imprint — When this artifact enters, you may exile a nonartifact,
+    nonland card from your hand.
+    {T}: Add one mana of any of the exiled card's colors.
+
+    — Chrome Mox (ENG-27's own sibling primitive, MEC-17 — RULE 702.45-
+    adjacent Imprint's solo real card). The mana ability parses on its own
+    (`game/mana_abilities.py`'s new ``_IMPRINTED_COLOR_ADD_RE`` →
+    `ManaAbility.color_selector`'s ``"imprinted_card_colors"``, read fresh
+    off `GameObject.linked_exile_id` every tap, unconditionally — mana
+    abilities are parsed straight from the printed card, not gated on
+    hand-authoring, the same reason ENG-27's Bloom Tender/Carpet of
+    Flowers primitives needed no catalogue entry either); only the ETB
+    exile-and-remember half is hand-authored here, via `ImprintEffect`
+    (``exclude_card_types=["artifact", "land"]`` — Chrome Mox's own
+    "nonartifact, nonland" filter) with ``remember=True`` threaded through
+    `RulesEngine.request_choose_objects`'s general chooser.
+    """
+    # `optional` deliberately stays off the *spec* — the trigger itself is
+    # unconditionally put on the stack (there's no separate RULE 603.5 "you
+    # may" gating the trigger header, unlike a plain "you may draw a card"
+    # body); `ImprintEffect`'s own `optional=True` default is what asks the
+    # real "you may exile…" question at resolution, one prompt not two.
+    return [
+        AbilitySpec(
+            "triggered",
+            [EffectSpec("imprint", {"exclude_card_types": ["artifact", "land"]})],
+            trigger={"event": EventType.ENTERS_BATTLEFIELD, "condition": {"subject": "self"}},
+            raw_text="Prägung — Wenn dieses Artefakt ins Spiel kommt, kannst "
+                     "du eine Nichtartefakt-, Nichtland-Karte aus deiner "
+                     "Hand exilieren.",
+        )
+    ]
+
+
+register("Chrome Mox", _chrome_mox)
+
+
+def _carpet_of_flowers() -> list[AbilitySpec]:
+    """At the beginning of each of your main phases, if you haven't added
+    mana with this ability this turn, you may add X mana of any one
+    color, where X is the number of Islands target opponent controls.
+
+    — Carpet of Flowers (ENG-27). Unlike Wild Growth/Kinnan just above,
+    this one genuinely **targets** ("target opponent"), which RULE 605.5a
+    disqualifies from ever being a mana ability at all regardless of what
+    it produces — so it's an ordinary triggered ability that goes on the
+    stack, not the RULE 605.4 off-stack shape. Two standing entries, one
+    per main phase: the engine fires a real ``step="main1"``/``"main2"``
+    event, never a generic ``"main"`` one (that spelling is `Mana Drain`'s
+    own delayed-trigger-only sentinel, a different mechanism entirely).
+
+    Both ride the same new primitives: `AddManaEffect.
+    amount_from_target_count_selector` (X evaluated against the *resolved
+    target*, not this permanent's own controller — `continuous.
+    count_selector`'s pre-existing ``lands_you_control_of_type_island``,
+    scoped to whichever opponent got picked) and `once_per_turn_ability`
+    (`GameObject.added_mana_with_ability_this_turn`, reset each untap
+    step). ``optional=True`` is RULE 603.5's "you may" — declining never
+    puts the trigger on the stack at all, so a decline never touches the
+    once-per-turn flag either, exactly matching a real "no, thanks" at the
+    table. **Documented simplification**: the "if you haven't added mana…"
+    gate is a resolve-time no-op rather than a full RULE 603.4
+    intervening-if, so the "you may" prompt can still appear on a turn
+    it would do nothing (see `AddManaEffect`'s own docstring) — no
+    observable difference once resolved, since it just adds no mana either way.
+    """
+    return [
+        AbilitySpec(
+            "triggered",
+            [EffectSpec("add_mana", {
+                "colors": ["ANY"],
+                "target_kind": "opponent",
+                "amount_from_target_count_selector": "lands_you_control_of_type_island",
+                "once_per_turn_ability": True,
+            })],
+            trigger={
+                "event": EventType.STEP_BEGIN,
+                "filter": {"step": step},
+                "phase_relation": "you",
+            },
+            optional=True,
+            raw_text="Zu Beginn jeder deiner Hauptphasen erzeuge, falls du in diesem "
+                     "Zug noch kein Mana mit dieser Fähigkeit erzeugt hast, wahlweise "
+                     "X Mana einer beliebigen Farbe, wobei X der Anzahl der Inseln "
+                     "entspricht, die ein Zielgegner kontrolliert.",
+        )
+        for step in ("main1", "main2")
+    ]
+
+
+register("Carpet of Flowers", _carpet_of_flowers)
 
 
 def _mana_web() -> list[AbilitySpec]:
@@ -11033,3 +11128,417 @@ def _imodane_the_pyrohammer() -> list[AbilitySpec]:
 
 
 register("Imodane, the Pyrohammer", _imodane_the_pyrohammer)
+
+
+# --- cEDH lists batch: RULE 118.9 "pitch" alternative-cost family -----------
+#
+# Force of Will/Negation/Vigor and Daze all print "You may <cost> rather
+# than pay this spell's mana cost." — RULE 118.9, an alternative *casting*
+# cost the engine doesn't model yet (see `_flare_of_duplication`'s own
+# precedent for this same drop). Each card below is hand-authored for its
+# *resolution effect only*, fully castable at its real printed mana cost
+# (all four have one) — a strict subset of the real card, not a fake one.
+# **Documented simplification, all four**: the free/discounted alternative
+# cost is dropped; tracked as a real open primitive (RULE 118.9) in
+# BACKLOG.md rather than silently rebuilt per card.
+
+
+def _force_of_will() -> list[AbilitySpec]:
+    """You may pay 1 life and exile a blue card from your hand rather than
+    pay this spell's mana cost.
+    Counter target spell.
+
+    RULE 118.9's own alternative cost (MEC-15, previously dropped — see
+    `Done_Backend.md`'s original cEDH batch entry for why it was deferred)
+    now ships as a second `spell_effect` spec carrying only `alt_cost` and
+    no effects of its own — `effect_binder.attach_to_object` scans every
+    spec for it regardless of which one carries the "real" effects, the
+    same idiom `additional_cost`/`free_cast_condition` already use. No
+    condition: this alt cost is always available, unlike Force of
+    Negation/Vigor's "if it's not your turn" gate below. Still also fully
+    castable at its printed {3}{U}{U}.
+    """
+    return [
+        AbilitySpec(
+            "spell_effect",
+            [EffectSpec("counter", {})],
+            raw_text="Konteret Ziel-Zauberspruch.",
+        ),
+        AbilitySpec(
+            "spell_effect",
+            [],
+            alt_cost={"pay_life": 1, "exile_hand_card_color": "U"},
+            raw_text="Du kannst 1 Leben bezahlen und eine blaue Karte aus "
+                     "deiner Hand ins Exil schicken, anstatt die Manakosten "
+                     "dieses Zauberspruchs zu bezahlen.",
+        ),
+    ]
+
+
+register("Force of Will", _force_of_will)
+
+
+def _force_of_negation() -> list[AbilitySpec]:
+    """If it's not your turn, you may exile a blue card from your hand
+    rather than pay this spell's mana cost.
+    Counter target noncreature spell. If that spell is countered this way,
+    exile it instead of putting it into its owner's graveyard.
+
+    RULE 118.9's alternative cost now ships (MEC-15), gated by the
+    `alt_cost` dict's own ``condition`` key (`ALLOWED_FREE_CAST_CONDITION_
+    KEYS`'s ``not_your_turn`` — shared with `free_cast_condition`'s own
+    vocabulary/evaluator, see `condition_query.free_cast_condition_holds`).
+
+    **Documented simplification**: the "exile instead of graveyard" rider
+    is still dropped (a real but narrow gap — the counter succeeds either
+    way, only the destination zone differs). Still also fully castable at
+    its printed {1}{U}{U}.
+    """
+    return [
+        AbilitySpec(
+            "spell_effect",
+            [EffectSpec("counter", {"noncreature": True})],
+            raw_text="Konteret einen Ziel-Zauberspruch, der keine Kreatur ist.",
+        ),
+        AbilitySpec(
+            "spell_effect",
+            [],
+            alt_cost={"exile_hand_card_color": "U", "condition": {"not_your_turn": True}},
+            raw_text="Falls es nicht dein Zug ist, kannst du eine blaue "
+                     "Karte aus deiner Hand ins Exil schicken, anstatt die "
+                     "Manakosten dieses Zauberspruchs zu bezahlen.",
+        ),
+    ]
+
+
+register("Force of Negation", _force_of_negation)
+
+
+def _force_of_vigor() -> list[AbilitySpec]:
+    """If it's not your turn, you may exile a green card from your hand
+    rather than pay this spell's mana cost.
+    Destroy up to two target artifacts and/or enchantments.
+
+    RULE 118.9's alternative cost now ships (MEC-15), same "if it's not
+    your turn" gate as Force of Negation just above. Still also fully
+    castable at its printed {2}{G}{G}; the "up to two" destroy is the
+    already-shipped RULE 115.1a N>=2 idiom (`DestroyEffect(count=2,
+    optional=True)`).
+    """
+    return [
+        AbilitySpec(
+            "spell_effect",
+            [EffectSpec("destroy", {
+                "target_kind": "artifact_or_enchantment", "count": 2, "optional": True,
+            })],
+            raw_text="Zerstöre bis zu zwei Ziel-Artefakte und/oder "
+                     "-Verzauberungen.",
+        ),
+        AbilitySpec(
+            "spell_effect",
+            [],
+            alt_cost={"exile_hand_card_color": "G", "condition": {"not_your_turn": True}},
+            raw_text="Falls es nicht dein Zug ist, kannst du eine grüne "
+                     "Karte aus deiner Hand ins Exil schicken, anstatt die "
+                     "Manakosten dieses Zauberspruchs zu bezahlen.",
+        ),
+    ]
+
+
+register("Force of Vigor", _force_of_vigor)
+
+
+def _daze() -> list[AbilitySpec]:
+    """You may return an Island you control to its owner's hand rather than
+    pay this spell's mana cost.
+    Counter target spell unless its controller pays {1}.
+
+    RULE 118.9's alternative cost now ships (MEC-15) as `alt_cost`'s
+    ``return_to_hand`` key — the same subtype-word shape `game/costs.py`'s
+    `ActivationCost.return_to_hand` already uses for an activated ability's
+    "Return a Forest you control…" cost (Quirion Ranger-shaped), reused
+    here for a spell's alternative *cast* cost instead. No condition:
+    always available. Still also fully castable at its printed {1}{U};
+    the "unless controller pays" half is the existing `CounterSpellEffect.
+    unless_pays` primitive (Mana Leak's own shape).
+    """
+    return [
+        AbilitySpec(
+            "spell_effect",
+            [EffectSpec("counter", {"unless_pays": "1"})],
+            raw_text="Konteret Ziel-Zauberspruch, falls dessen Kontrolleur "
+                     "nicht {1} bezahlt.",
+        ),
+        AbilitySpec(
+            "spell_effect",
+            [],
+            alt_cost={"return_to_hand": "island"},
+            raw_text="Du kannst eine Insel, die du kontrollierst, auf die "
+                     "Hand ihres Besitzers zurückgeben, anstatt die "
+                     "Manakosten dieses Zauberspruchs zu bezahlen.",
+        ),
+    ]
+
+
+register("Daze", _daze)
+
+
+# --- cEDH lists batch: tax-draw family ("unless that player pays") --------
+#
+# New primitive: `TaxedDrawEffect` (RULE 118.3's "unless" idiom applied to a
+# draw, not a sacrifice) — the payer is the *triggering spell's own caster*,
+# read off `GameContext.trigger_event`, not this ability's controller.
+
+
+def _rhystic_study() -> list[AbilitySpec]:
+    """Whenever an opponent casts a spell, you may draw a card unless that
+    player pays {1}.
+
+    — `TaxedDrawEffect`, see the batch header above.
+    """
+    return [
+        AbilitySpec(
+            "triggered",
+            [EffectSpec("taxed_draw", {"cost": "{1}"})],
+            trigger={
+                "event": EventType.SPELL_CAST,
+                "condition": {"subject": "group", "controller": "not_you"},
+            },
+            raw_text="Immer wenn ein Gegner einen Zauberspruch wirkt, "
+                     "kannst du eine Karte ziehen, außer jener Spieler "
+                     "bezahlt {1}.",
+        )
+    ]
+
+
+register("Rhystic Study", _rhystic_study)
+
+
+def _mystic_remora() -> list[AbilitySpec]:
+    """Cumulative upkeep {1}.
+    Whenever an opponent casts a noncreature spell, you may draw a card
+    unless that player pays {4}.
+
+    Cumulative upkeep (RULE 702.24, MEC-16) now ships as real behaviour —
+    this entry only ever carried the `taxed_draw` trigger; the keyword
+    itself binds independently (`game/effect_binder.py`'s keyword dispatch
+    table reads `Card.keywords`/oracle text directly, regardless of
+    whether the rest of the card is hand-authored), so Mystic Remora
+    correctly has to be paid for again, closing the previous "dropped,
+    never has to be paid for" simplification without touching this spec
+    at all.
+    """
+    return [
+        AbilitySpec(
+            "triggered",
+            [EffectSpec("taxed_draw", {"cost": "{4}"})],
+            trigger={
+                "event": EventType.SPELL_CAST,
+                "condition": {"subject": "group", "controller": "not_you"},
+                "spell_exclude_card_types": ["creature"],
+            },
+            raw_text="Immer wenn ein Gegner einen Zauberspruch wirkt, der "
+                     "keine Kreatur ist, kannst du eine Karte ziehen, außer "
+                     "jener Spieler bezahlt {4}.",
+        )
+    ]
+
+
+register("Mystic Remora", _mystic_remora)
+
+
+def _esper_sentinel() -> list[AbilitySpec]:
+    """Whenever an opponent casts their first noncreature spell each turn,
+    draw a card unless that player pays {X}, where X is this creature's
+    power.
+
+    **Documented simplification**: "their first ... each turn" isn't
+    tracked (no per-player per-turn "first qualifying spell" counter exists
+    yet) — this fires on *every* qualifying opponent spell instead of just
+    the first, a strict upgrade rather than a broken card.
+    """
+    return [
+        AbilitySpec(
+            "triggered",
+            [EffectSpec("taxed_draw", {"amount_from_source_power": True})],
+            trigger={
+                "event": EventType.SPELL_CAST,
+                "condition": {"subject": "group", "controller": "not_you"},
+                "spell_exclude_card_types": ["creature"],
+            },
+            raw_text="Immer wenn ein Gegner seinen ersten Zauberspruch, der "
+                     "keine Kreatur ist, in einem Zug wirkt, ziehst du eine "
+                     "Karte, außer jener Spieler bezahlt {X}, wobei X die "
+                     "Stärke dieser Kreatur ist.",
+        )
+    ]
+
+
+register("Esper Sentinel", _esper_sentinel)
+
+
+def _city_of_brass() -> list[AbilitySpec]:
+    """Whenever this land becomes tapped, it deals 1 damage to you.
+    {T}: Add one mana of any color.
+
+    The mana ability itself is covered by the engine's plain mana model
+    (`mana_abilities_for`, no spec needed) — only the "becomes tapped"
+    drawback needs a spec, `EventType.TAPPED` (already fired for every
+    genuine untapped→tapped transition, not just a mana tap).
+    """
+    return [
+        AbilitySpec(
+            "triggered",
+            [EffectSpec("damage", {"selector": "controller"})],
+            trigger={"event": EventType.TAPPED, "condition": {"subject": "self"}},
+            raw_text="Immer wenn dieses Land angetappt wird, fügt es dir 1 "
+                     "Schadenspunkt zu.",
+        )
+    ]
+
+
+register("City of Brass", _city_of_brass)
+
+
+def _forbidden_orchard() -> list[AbilitySpec]:
+    """{T}: Add one mana of any color.
+    Whenever you tap this land for mana, target opponent creates a 1/1
+    colorless Spirit creature token.
+
+    **Documented simplification**: "target opponent" becomes every
+    opponent (`CreateTokenEffect`'s ``each_opponent`` creator) — no single-
+    opponent target choice for a land-tap trigger yet; correct in 1v1,
+    an overstatement in multiplayer.
+    """
+    return [
+        AbilitySpec(
+            "triggered",
+            [EffectSpec("create_token", {
+                "creators": "each_opponent", "power": 1, "toughness": 1,
+                "colors": [], "subtypes": ["Spirit"], "token_name": "Spirit",
+            })],
+            trigger={"event": EventType.TAPPED_FOR_MANA, "condition": {"subject": "self"}},
+            raw_text="Immer wenn du dieses Land für Mana tappst, erstellt "
+                     "ein Gegner deiner Wahl einen 1/1 farblosen Geist-"
+                     "Kreaturspielstein.",
+        )
+    ]
+
+
+register("Forbidden Orchard", _forbidden_orchard)
+
+
+# --- cEDH lists batch: RULE 115.4 "change the target" -----------------------
+#
+# New primitive: `ChangeTargetEffect`/`RulesEngine.change_target` (RULE
+# 115.4/601.2c) — a genuine retarget of an *existing* stack item, not the
+# already-shipped "choose new targets for a freshly-made copy" (RULE
+# 707.10c). Scoped to a spell with exactly one existing target (see
+# `ChangeTargetEffect`'s own docstring); both real cards below only ever
+# retarget a single-target spell.
+
+
+def _misdirection() -> list[AbilitySpec]:
+    """You may exile a blue card from your hand rather than pay this
+    spell's mana cost.
+    Change the target of target spell with a single target.
+
+    **Documented simplification**: the free-cast alternative cost (RULE
+    118.9, same drop precedent as the Force of Will cycle) is dropped.
+    Fully castable at its printed {3}{U}{U}; the retarget itself is the
+    new `change_target` primitive above, mandatory (no "may") per the
+    printed text.
+    """
+    return [
+        AbilitySpec(
+            "spell_effect",
+            [EffectSpec("change_target", {"single_target": True})],
+            raw_text="Ändere das Ziel eines Ziel-Zauberspruchs mit einem "
+                     "einzelnen Ziel.",
+        )
+    ]
+
+
+register("Misdirection", _misdirection)
+
+
+def _deflecting_swat() -> list[AbilitySpec]:
+    """If you control a commander, you may cast this spell without paying
+    its mana cost.
+    You may choose new targets for target spell or ability.
+
+    **Documented simplifications**: the commander-tax-free alternative
+    cast (RULE 601.2f's `free_cast_condition` — confirmed unreachable from
+    a real game session regardless, see BACKLOG.md) is dropped, fully
+    castable at its printed {2}{R}. "Spell or ability" is now the real
+    printed scope (ENG-26, `spell_or_ability=True` — was **spell**-only
+    before the RULE 115 targetable-ability-on-the-stack primitive shipped).
+    ``optional=True`` is the printed "you may" (unlike Misdirection's
+    mandatory "Change the target").
+    """
+    return [
+        AbilitySpec(
+            "spell_effect",
+            [EffectSpec("change_target", {"optional": True, "spell_or_ability": True})],
+            raw_text="Du kannst neue Ziele für einen Ziel-Zauberspruch "
+                     "oder eine Ziel-Fähigkeit wählen.",
+        )
+    ]
+
+
+register("Deflecting Swat", _deflecting_swat)
+
+
+def _stifle() -> list[AbilitySpec]:
+    """Counter target activated or triggered ability. (Mana abilities
+    can't be targeted.)
+
+    — Stifle. The direct payoff of ENG-26's RULE 115/701.5b primitive
+    (`counter_ability`/`CounterAbilityEffect`, `targeting.py`'s
+    ``"ability"`` kind): a one-clause card that exercises it end to end.
+    The parenthetical is reminder text (RULE 115.9c already excludes a
+    mana ability from every targetable-ability kind — it never uses the
+    stack at all — so nothing extra needs enforcing here).
+    """
+    return [
+        AbilitySpec(
+            "spell_effect",
+            [EffectSpec("counter_ability", {})],
+            raw_text="Annulliere eine Ziel-Aktivierte oder Ziel-Ausgelöste "
+                     "Fähigkeit.",
+        )
+    ]
+
+
+register("Stifle", _stifle)
+
+
+def _trickbind() -> list[AbilitySpec]:
+    """Split second (As long as this spell is on the stack, players can't
+    cast spells or activate abilities that aren't mana abilities.)
+    Counter target activated or triggered ability. If a permanent's
+    ability is countered this way, activated abilities of that permanent
+    can't be activated this turn. (Mana abilities can't be targeted.)
+
+    — Trickbind. Shares Stifle's `counter_ability` core.
+
+    **Documented simplifications**: RULE 702.61 Split Second (nothing in
+    the codebase recognizes it yet — a cast-timing restriction, not a
+    targeting/effect shape, so it's out of ENG-26's own scope) and the
+    "activated abilities of that permanent can't be activated this turn"
+    post-counter lockout (would need its own per-object, turn-scoped flag
+    consulted by `GameEngine.can_activate` — a real but narrow primitive
+    no other printed card needs yet) are both dropped; the core "counter
+    target activated or triggered ability" line is real behaviour.
+    """
+    return [
+        AbilitySpec(
+            "spell_effect",
+            [EffectSpec("counter_ability", {})],
+            raw_text="Annulliere eine Ziel-Aktivierte oder Ziel-Ausgelöste "
+                     "Fähigkeit.",
+        )
+    ]
+
+
+register("Trickbind", _trickbind)

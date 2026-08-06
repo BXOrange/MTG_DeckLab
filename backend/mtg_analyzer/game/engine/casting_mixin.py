@@ -203,6 +203,7 @@ class CastingMixin:
         kicker_x: int = 0,
         buyback: bool = False,
         free: bool = False,
+        alt_cost: bool = False,
         mutate: bool = False,
         bargained: bool = False,
         entwine: bool = False,
@@ -237,7 +238,16 @@ class CastingMixin:
         carries a `free_cast_condition` (`game/effect_binder.py`) whose
         condition currently holds (`condition_query.
         free_cast_condition_holds`); illegal for an object with no such
-        condition at all. ``sacrifice_choice``/``discard_choices`` are the
+        condition at all. ``alt_cost=True`` (RULE 118.9, MEC-15 — "You may
+        pay `<cost>` rather than pay this spell's mana cost." — Force of
+        Will/Negation/Vigor/Daze-shaped) checks a *different* alternative
+        cost instead: legal only when ``obj`` carries a `GameObject.
+        alt_cast_cost` (bound from `AbilitySpec.alt_cost`) whose own
+        optional gate (``alt_cast_condition``, if any) currently holds and
+        whose payment (life/return-to-hand/exile-a-hand-card-of-a-color) is
+        actually payable right now (`_can_pay_alt_cast_cost`) — mutually
+        exclusive with ``free`` in practice (no real card prints both).
+        ``sacrifice_choice``/``discard_choices`` are the
         caster's own pick for an "as an additional cost, sacrifice/discard
         …" clause (RULE 601.2b) — the same RULE 602.1 cost-choice shape
         `can_activate`'s ``sacrifice_choice``/``tap_choices`` are; ``None``
@@ -395,6 +405,17 @@ class CastingMixin:
             if free_cast_condition is None:
                 return False
             if not condition_query.free_cast_condition_holds(free_cast_condition, obj, self.state):
+                return False
+        elif alt_cost:
+            alt_cast_cost = getattr(obj, "alt_cast_cost", None)
+            if alt_cast_cost is None:
+                return False
+            alt_cast_condition = getattr(obj, "alt_cast_condition", None)
+            if alt_cast_condition and not condition_query.free_cast_condition_holds(
+                alt_cast_condition, obj, self.state
+            ):
+                return False
+            if not self._can_pay_alt_cast_cost(player, obj, alt_cast_cost):
                 return False
         elif obj.instance_id in self.state.free_cast_instance_ids:
             # RULE 702.88b Rebound's own free-cast window
@@ -695,6 +716,7 @@ class CastingMixin:
         buyback: bool = False,
         target_groups: Optional[list[list[Any]]] = None,
         free: bool = False,
+        alt_cost: bool = False,
         mutate: bool = False,
         mutate_under: bool = False,
         bargained: bool = False,
@@ -775,7 +797,9 @@ class CastingMixin:
                 self.rules.restore_face(obj, snapshot)
                 raise
         if face in ("back", "fuse"):
-            if not self.can_cast(player, obj, x, face=face, kicked=kicked, buyback=buyback, free=free):
+            if not self.can_cast(
+                player, obj, x, face=face, kicked=kicked, buyback=buyback, free=free, alt_cost=alt_cost,
+            ):
                 raise ValueError(f"{player.id} cannot cast {obj.name} now")
             # RULE 715.2b: an Adventure spell half must be recognized while
             # ``obj.card`` is still the front (creature) face, before the
@@ -788,7 +812,7 @@ class CastingMixin:
             try:
                 result = self._cast_current_face(
                     player, obj, targets, x, mode=mode, kicked=kicked, kicker_x=kicker_x, buyback=buyback,
-                    target_groups=target_groups, free=free, mutate=mutate,
+                    target_groups=target_groups, free=free, alt_cost=alt_cost, mutate=mutate,
                     mutate_under=mutate_under, bargained=bargained, entwine=entwine,
                     sacrifice_choice=sacrifice_choice, discard_choices=discard_choices,
                 )
@@ -800,7 +824,7 @@ class CastingMixin:
             return result
         return self._cast_current_face(
             player, obj, targets, x, mode=mode, kicked=kicked, kicker_x=kicker_x, buyback=buyback,
-            target_groups=target_groups, free=free, mutate=mutate,
+            target_groups=target_groups, free=free, alt_cost=alt_cost, mutate=mutate,
             mutate_under=mutate_under, bargained=bargained, entwine=entwine,
             sacrifice_choice=sacrifice_choice, discard_choices=discard_choices,
         )
@@ -899,6 +923,7 @@ class CastingMixin:
         kicker_x: int = 0,
         buyback: bool = False,
         free: bool = False,
+        alt_cost: bool = False,
         mutate: bool = False,
         bargained: bool = False,
         entwine: bool = False,
@@ -941,16 +966,16 @@ class CastingMixin:
         cast_cost` itself zeroes it, since that portion is paid separately
         (`ManaPool.pay_distinct_colors`), never through auto-tap.
         """
-        if free or self.can_cast(
+        if free or alt_cost or self.can_cast(
             player, obj, x, face=face, kicked=kicked, kicker_x=kicker_x, buyback=buyback, free=free,
-            mutate=mutate, bargained=bargained, entwine=entwine,
+            alt_cost=alt_cost, mutate=mutate, bargained=bargained, entwine=entwine,
             sacrifice_choice=sacrifice_choice, discard_choices=discard_choices,
             targets=targets,
         ):
             return
         if not self.can_cast(
             player, obj, x, face=face, kicked=kicked, kicker_x=kicker_x, buyback=buyback, free=free,
-            mutate=mutate, bargained=bargained, entwine=entwine,
+            alt_cost=alt_cost, mutate=mutate, bargained=bargained, entwine=entwine,
             sacrifice_choice=sacrifice_choice, discard_choices=discard_choices,
             targets=targets, assume_mana_available=True,
         ):
@@ -975,6 +1000,7 @@ class CastingMixin:
         buyback: bool = False,
         target_groups: Optional[list[list[Any]]] = None,
         free: bool = False,
+        alt_cost: bool = False,
         mutate: bool = False,
         mutate_under: bool = False,
         bargained: bool = False,
@@ -987,7 +1013,9 @@ class CastingMixin:
         ``free=True`` (RULE 601.2f-adjacent condition-gated free-cast
         alternative cost — see `can_cast`) skips mana payment entirely via
         `RulesEngine.cast_without_paying`, instead of the ordinary
-        `RulesEngine.cast_spell` mana-cost path.
+        `RulesEngine.cast_spell` mana-cost path. ``alt_cost=True`` (RULE
+        118.9, MEC-15) does the same, then pays `GameObject.alt_cast_cost`
+        (`_pay_alt_cast_cost`) instead of nothing.
         """
         if mode == "both" and not getattr(obj, "spell_modes_or_both", False):
             # RULE 702.42a: on an ordinary "choose one" block, "choose all"
@@ -999,13 +1027,13 @@ class CastingMixin:
         with self._mode_effects_applied(obj, mode):
             self._auto_tap_for_cast_if_needed(
                 player, obj, x, kicked=kicked, kicker_x=kicker_x, buyback=buyback, free=free,
-                mutate=mutate, bargained=bargained, entwine=entwine,
+                alt_cost=alt_cost, mutate=mutate, bargained=bargained, entwine=entwine,
                 sacrifice_choice=sacrifice_choice, discard_choices=discard_choices,
                 targets=targets,
             )
             if not self.can_cast(
                 player, obj, x, kicked=kicked, kicker_x=kicker_x, buyback=buyback, free=free,
-                mutate=mutate, bargained=bargained, entwine=entwine,
+                alt_cost=alt_cost, mutate=mutate, bargained=bargained, entwine=entwine,
                 sacrifice_choice=sacrifice_choice, discard_choices=discard_choices,
                 targets=targets,
             ):
@@ -1045,6 +1073,14 @@ class CastingMixin:
             )
             if free:
                 result = self.rules.cast_without_paying(player, obj, targets, target_groups)
+            elif alt_cost:
+                # RULE 118.9 (MEC-15): no mana leaves the pool at all — the
+                # spell goes on the stack for free, then its controller
+                # pays the alternative cost instead, the same "free push,
+                # pay something else after" order the RULE 118-life-payment
+                # branch just below uses.
+                result = self.rules.cast_without_paying(player, obj, targets, target_groups)
+                self._pay_alt_cast_cost(player, obj, getattr(obj, "alt_cast_cost", None))
             elif self._top_library_life_payment(player, obj):
                 # Bolas's Citadel-shaped: no mana leaves the pool — the
                 # spell goes on the stack for free, then its controller
@@ -1248,6 +1284,61 @@ class CastingMixin:
         if cost.pay_life:
             amount = x if cost.pay_life == PAY_LIFE_X else cost.pay_life
             self.rules.lose_life(player, amount, cause="cost")
+    def _exile_hand_card_candidate(
+        self, player: Player, color: str, exclude: Optional[GameObject] = None
+    ) -> Optional[GameObject]:
+        """A hand card of ``color`` (WUBRG letter) to pay a RULE 118.9
+        "exile a `<color>` card from your hand" alternative cost (Force of
+        Will/Negation/Vigor, MEC-15) — an auto-choice, the same non-
+        interactive first-match convention `_return_to_hand_candidate`/
+        `_sacrifice_candidate` use. ``exclude`` keeps the spell's own hand
+        copy of itself out of its own pool, mirroring `_discard_cost_pool`'s
+        identical reasoning: its alt cost can't be paid by exiling itself.
+        """
+        for card_obj in player.hand:
+            if card_obj is exclude:
+                continue
+            if color in (card_obj.card.color_identity or set()):
+                return card_obj
+        return None
+    def _can_pay_alt_cast_cost(
+        self, player: Player, obj: GameObject, cost: Optional["ActivationCost"]
+    ) -> bool:
+        """RULE 118.9: whether ``player`` can pay ``obj``'s own
+        `GameObject.alt_cast_cost` right now — the payment half of
+        `can_cast`'s ``alt_cost=True`` branch. The *gate* half
+        (`GameObject.alt_cast_condition`, Force of Negation/Vigor's own "if
+        it's not your turn") is checked separately by the caller, via
+        `condition_query.free_cast_condition_holds`.
+        """
+        if cost is None:
+            return False
+        if cost.pay_life and player.life < cost.pay_life:
+            return False
+        if cost.return_to_hand and self._return_to_hand_candidate(player, cost.return_to_hand) is None:
+            return False
+        if cost.exile_hand_card_color and self._exile_hand_card_candidate(
+            player, cost.exile_hand_card_color, exclude=obj
+        ) is None:
+            return False
+        return True
+    def _pay_alt_cast_cost(
+        self, player: Player, obj: GameObject, cost: Optional["ActivationCost"]
+    ) -> None:
+        """Pay ``obj``'s RULE 118.9 alternative cost, assumed already
+        checked payable by `_can_pay_alt_cast_cost`."""
+        if cost is None:
+            return
+        if cost.pay_life:
+            self.rules.lose_life(player, cost.pay_life, cause="cost")
+        if cost.return_to_hand:
+            bounced = self._return_to_hand_candidate(player, cost.return_to_hand)
+            if bounced is not None:
+                self.rules.return_to_hand(bounced)
+        if cost.exile_hand_card_color:
+            victim = self._exile_hand_card_candidate(player, cost.exile_hand_card_color, exclude=obj)
+            if victim is not None:
+                self.rules.exile(victim)
     def _pay_escape_graveyard_cost(self, player: Player, count: int) -> None:
         """RULE 702.138b: exile ``count`` other cards from ``player``'s
         graveyard as part of casting via Escape — an auto-choice (the first

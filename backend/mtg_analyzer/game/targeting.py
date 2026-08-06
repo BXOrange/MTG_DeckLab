@@ -83,6 +83,18 @@ _GRAVEYARD_TARGET_KINDS: frozenset[str] = frozenset(
 ALLOWED_TARGET_KINDS: frozenset[str] = frozenset(
     {
         "any", "creature", "permanent", "player", "spell",
+        # "target activated or triggered ability" (RULE 115/608.2b — Stifle/
+        # Trickbind-shaped, ENG-26) — the stack-item-identity sibling of
+        # ``"spell"``: an ability `StackItem` has no `.obj` a target
+        # descriptor could key off (see `StackItem.stack_id`'s own
+        # docstring), so this kind is keyed by that instead. Not narrowed to
+        # just triggered or just activated — no printed card needs that
+        # split yet, and every real template says "activated or triggered".
+        "ability",
+        # "target spell or ability" (Deflecting Swat's real printed
+        # wording) — the union of ``"spell"`` and ``"ability"`` above, both
+        # option shapes side by side in one list.
+        "spell_or_ability",
         # "target player who was dealt combat damage by ~ this turn" (Hope of
         # Ghirapur) — `player` narrowed by a per-turn damage *history*, the
         # one target kind here answered from a record rather than the board.
@@ -236,7 +248,11 @@ class TargetSpec:
     #: ``{"card_types": ["instant", "sorcery"]}``, ``{"mana_value": 2}``, or
     #: any combination — narrows "counter target noncreature spell" /
     #: "target instant or sorcery spell" / "target spell with mana value N"
-    #: beyond the bare "target spell". ``None``/``{}`` means unfiltered.
+    #: beyond the bare "target spell". ``single_target: True`` (Misdirection's
+    #: "target spell **with a single target**") is checked against the stack
+    #: item's own current ``targets`` count instead of the spell's printed
+    #: characteristics, since it's a fact about the stack, not the card.
+    #: ``None``/``{}`` means unfiltered.
     spell_filter: Optional[dict[str, Any]] = None
     #: A WUBRG colour letter (``"W"``/``"U"``/``"B"``/``"R"``/``"G"``)
     #: narrowing a ``"creature"``/``"permanent"``/``"any"`` target to that
@@ -330,6 +346,8 @@ class TargetSpec:
             "player_dealt_combat_damage_by_source":
                 "Spieler, dem diese Karte in diesem Zug Kampfschaden zugefügt hat",
             "spell": "Zauberspruch",
+            "ability": "aktivierte oder ausgelöste Fähigkeit",
+            "spell_or_ability": "Zauberspruch oder Fähigkeit",
             "creature_you_control": "Kreatur unter deiner Kontrolle",
             "other_creature_you_control": "andere Kreatur unter deiner Kontrolle",
             "non_human_creature_you_own": "Nicht-Mensch-Kreatur, die du besitzt",
@@ -938,11 +956,38 @@ def legal_targets(
             if item.kind == "spell" and item.obj is not None and item.obj is not source
         ]
         if spec.spell_filter:
-            items = [item for item in items if _spell_matches_filter(item.obj, spec.spell_filter)]
+            card_filter = dict(spec.spell_filter)
+            if card_filter.pop("single_target", False):
+                items = [item for item in items if len(item.targets) == 1]
+            if card_filter:
+                items = [item for item in items if _spell_matches_filter(item.obj, card_filter)]
         return [
             {"instance_id": item.obj.instance_id, "name": item.description or item.obj.name}
             for item in items
         ]
+    if kind in ("ability", "spell_or_ability"):
+        # `.obj` is `None` for an ability item, so this is keyed by
+        # `StackItem.stack_id` instead — see that field's own docstring
+        # (ENG-26). ``item.source is None`` is the rare hand-built ability
+        # with no bound permanent (`StackItem`'s own docstring); fail closed
+        # on it the same way a spell target fails closed on `item.obj is
+        # None` above, rather than offering an untargetable option.
+        options = [
+            {"stack_id": item.stack_id, "name": item.description or item.source.name}
+            for item in state.stack
+            if item.kind == "ability" and item.source is not None
+        ]
+        if kind == "spell_or_ability":
+            # "target spell or ability" (Deflecting Swat) — the plain
+            # ``"spell"`` branch's own options, unfiltered by
+            # ``spell_filter`` since neither real card restricts by spell
+            # type, alongside the ability ones just built.
+            options = [
+                {"instance_id": item.obj.instance_id, "name": item.description or item.obj.name}
+                for item in state.stack
+                if item.kind == "spell" and item.obj is not None and item.obj is not source
+            ] + options
+        return options
     return []
 
 

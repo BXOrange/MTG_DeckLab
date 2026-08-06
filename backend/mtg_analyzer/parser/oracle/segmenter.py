@@ -660,7 +660,8 @@ _SPEND_ONLY_CHOSEN_COLOR_RE = re.compile(
 _COST_LOOKS_REAL = re.compile(
     r"\{[^}]+\}|sacrifice|pay \d+ life|discard|put an? .+ counter on|"
     r"tap .+ untapped .+ you control|remove .+ counters?|"
-    r"return an? [a-z]+ you control to (?:its|your) owner'?s?\s*hand",
+    r"return an? [a-z]+ you control to (?:its|your) owner'?s?\s*hand|"
+    r"exile (?:this \w+|~) from (?:your|their) hand",
     re.I,
 )
 

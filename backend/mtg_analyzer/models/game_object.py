@@ -326,6 +326,14 @@ class GameObject:
         #: has been used this turn — gates its ``once_per_turn`` restriction.
         #: Reset each untap step, same as `activated_loyalty_this_turn`.
         self.graveyard_casts_this_turn: int = 0
+        #: ENG-27: whether this object's own "if you haven't added mana
+        #: with this ability this turn, you may add …" trigger (Carpet of
+        #: Flowers) already has this turn. A per-*ability* gate, unlike
+        #: `GameState.cards_drawn_this_turn`'s per-*player* one, since the
+        #: printed condition names "this ability" specifically — a second
+        #: mana source on the same controller's board is unaffected. Reset
+        #: each untap step, same as `activated_loyalty_this_turn`.
+        self.added_mana_with_ability_this_turn: bool = False
         #: Blocking (RULE 509): ``blocking`` is the instance id of the
         #: attacker this creature is declared to block (None if not
         #: blocking); ``blocked_by`` lists the blocker instance ids assigned
@@ -803,6 +811,7 @@ class GameObject:
         self.combat_defender = None
         self.activated_loyalty_this_turn = False
         self.graveyard_casts_this_turn = 0
+        self.added_mana_with_ability_this_turn = False
         self.blocking = None
         self.additional_blocking = []
         self.blocked_by = []

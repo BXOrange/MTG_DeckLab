@@ -372,6 +372,17 @@ class GameContext:
     ) -> None:
         self.engine.counter_unless_pays(target, unless_pays, source)
 
+    def counter_ability(self, target: Any) -> None:
+        self.engine.counter_ability(target)
+
+    def change_target(
+        self,
+        target: Any,
+        optional: bool = False,
+        source: Optional["GameObject"] = None,
+    ) -> None:
+        self.engine.change_target(target, optional=optional, source=source)
+
     def return_to_hand(self, target: "GameObject") -> None:
         self.engine.return_to_hand(target)
 
@@ -407,9 +418,9 @@ class GameContext:
         self.engine.add_mana(player, color, amount)
 
     def add_mana_any_color(
-        self, player: "Player", colors: Optional[list[str]] = None
+        self, player: "Player", colors: Optional[list[str]] = None, amount: int = 1
     ) -> None:
-        self.engine.add_mana_any_color(player, colors)
+        self.engine.add_mana_any_color(player, colors, amount=amount)
 
 
 def _event_player(context: GameContext, key: str = "controller_id") -> Optional["Player"]:
@@ -3050,6 +3061,66 @@ class SacrificeUnlessPayEffect(GameEffect):
         context.engine.request_sacrifice_unless_pay(player, cost, source)
 
 
+class TaxedDrawEffect(GameEffect):
+    """"Whenever an opponent casts a spell, you may draw a card unless that
+    player pays `<cost>`." (RULE 118.3's "unless" idiom applied to a draw
+    rather than a sacrifice/counter — Rhystic Study/Mystic Remora/Esper
+    Sentinel-shaped taxes).
+
+    The *payer* is the triggering spell's own caster — read off the firing
+    event's ``player_id`` (`GameContext.trigger_event`), not this ability's
+    controller — so this only makes sense on a trigger whose condition
+    already scopes the firing event to an opponent (``"controller":
+    "not_you"``). Reuses `request_pay_cost_then`'s pay-or-lose-it machinery
+    exactly like `SacrificeUnlessPayEffect` does: paying does nothing,
+    declining (or being unable to pay) draws a card for this ability's own
+    controller (`DrawCardEffect`'s untargeted default).
+
+    ``amount_from_source_power`` (Esper Sentinel: "unless that player pays
+    {X}, where X is this creature's power") reads the cost's amount off the
+    source's own live power instead of a fixed printed value.
+    """
+
+    def __init__(
+        self,
+        cost: str = "",
+        amount_from_source_power: bool = False,
+        count: int = 1,
+        source: Optional["GameObject"] = None,
+    ) -> None:
+        super().__init__(source)
+        self.cost_text = str(cost or "")
+        self.amount_from_source_power = amount_from_source_power
+        self.count = count
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        from .costs import parse_activation_cost  # function-scoped: costs↔effects cycle
+
+        source = self.source
+        if source is None:
+            return
+        event = context.trigger_event or {}
+        payer_id = event.get("player_id")
+        payer = None
+        for p in context.state.players:
+            if p.id == payer_id:
+                payer = p
+                break
+        if payer is None:
+            return
+        cost_text = self.cost_text
+        if self.amount_from_source_power:
+            power = getattr(source, "power", 0) or 0
+            cost_text = "{" + str(power) + "}"
+        cost = parse_activation_cost(cost_text)
+        if cost.is_free:
+            return
+        context.engine.request_pay_cost_then(
+            payer, cost, [], source,
+            else_effect_specs=[{"type": "draw", "params": {"count": self.count}}],
+        )
+
+
 class EachPlayerPayOrEffect(GameEffect):
     """RULE 101.4's APNAP mass "unless" (PAR-13 — "Each player loses N life
     unless they discard a card."/"...unless they sacrifice a creature,
@@ -3133,6 +3204,33 @@ class CounterSpellEffect(GameEffect):
             context.counter(target, unless_pays=self.unless_pays, source=self.source)
 
 
+class CounterAbilityEffect(GameEffect):
+    """Counter target activated or triggered ability (RULE 701.5b — Stifle/
+    Trickbind, ENG-26).
+
+    The stack-item-identity sibling of `CounterSpellEffect`: an ability
+    `StackItem` has no `GameObject` of its own (`.obj` is `None`), so
+    ``target_spec`` uses `targeting.py`'s ``"ability"`` kind
+    (`StackItem.stack_id`-keyed) rather than ``"spell"``
+    (`GameObject.instance_id`-keyed). No ``unless_pays``/type-filter
+    params — no printed card needing either has reached this yet; add
+    them the same way `CounterSpellEffect` carries its own if one does.
+    """
+
+    def __init__(self, target: Any = None, source: Optional["GameObject"] = None) -> None:
+        super().__init__(source)
+        self.target = target
+        self.target_spec = TargetSpec(kind="ability")
+
+    def target_polarity(self) -> Optional[str]:
+        return "harmful"
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        target = (targets[0] if targets else None) or self.target
+        if target is not None:
+            context.counter_ability(target)
+
+
 class CopySpellEffect(GameEffect):
     """Copy a target spell on the stack (RULE 707.10 — Dualcaster Mage/Flare
     of Duplication/Reiterate "copy target instant or sorcery spell").
@@ -3180,6 +3278,53 @@ class CopySpellEffect(GameEffect):
             return
         for target in targets:
             context.copy_spell(target, controller_id, self.count)
+
+
+class ChangeTargetEffect(GameEffect):
+    """Change the target of a target spell already on the stack (RULE
+    115.4/601.2c — Misdirection/Deflecting Swat).
+
+    The *changing* player (RULE 115.4a: this effect's own controller, not
+    the targeted spell's) picks a fresh legal target, recomputed against
+    the current board — not whatever was legal when that spell was cast.
+    ``single_target`` folds into ``target_spec.spell_filter`` as
+    Misdirection's own restriction ("target spell **with a single
+    target**"); Deflecting Swat has no such restriction printed, but this
+    MVP still only retargets a spell with exactly one existing target —
+    see `RulesEngine.change_target`'s docstring for why. ``optional`` is
+    Deflecting Swat's "**you may** choose new targets"; Misdirection's own
+    "Change the target" is mandatory.
+
+    ``spell_or_ability`` (ENG-26) is Deflecting Swat's actual printed scope
+    ("choose new targets for target spell **or ability**") — the union
+    `targeting.py` kind covering both a spell `StackItem` (keyed by its own
+    `GameObject.instance_id`, as `single_target`'s ``spell_filter`` still
+    only narrows) and an ability one (keyed by `StackItem.stack_id`, which
+    has no *spell*-shaped filter to narrow by). `RulesEngine.change_target`
+    reads whichever one the chosen `StackItem` turns out to be.
+    """
+
+    def __init__(
+        self,
+        target: Any = None,
+        single_target: bool = False,
+        optional: bool = False,
+        spell_or_ability: bool = False,
+        source: Optional["GameObject"] = None,
+    ) -> None:
+        super().__init__(source)
+        self.target = target
+        self.optional = optional
+        if spell_or_ability:
+            self.target_spec = TargetSpec(kind="spell_or_ability")
+        else:
+            spell_filter = {"single_target": True} if single_target else None
+            self.target_spec = TargetSpec(kind="spell", spell_filter=spell_filter)
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        target = (targets[0] if targets else None) or self.target
+        if target is not None:
+            context.change_target(target, optional=self.optional, source=self.source)
 
 
 class CounterCreateTokenEffect(GameEffect):
@@ -3403,6 +3548,57 @@ class ExileEffect(GameEffect):
             if self.remember and self.source is not None:
                 self.source.linked_exile_id = target.instance_id
             context.exile(target)
+
+
+class ImprintEffect(GameEffect):
+    """"Imprint — When ~ enters, you may exile a `<filter>` card from your
+    hand." (MEC-17, Chrome Mox-shaped) — a resolve-time *choice* among the
+    controller's own hand, not a RULE 115 target (the printed line carries
+    no "target" word at all, matching every other "exile a card from your
+    hand" cost/effect in this codebase).
+
+    Reuses `RulesEngine.request_choose_objects`'s general "choose N of
+    these objects" chooser (``action="exile"``) rather than a bespoke
+    pending_choice — the same primitive Gemstone Caverns' own "exile a
+    card from your hand" pregame tail already rides — with its new
+    ``remember=True`` stamping the exiled card's own `instance_id` onto
+    this permanent (`GameObject.linked_exile_id`, the same field
+    `ExileEffect(remember=True)` uses for the unrelated O-Ring return-
+    when-leaves shape) so a later mana ability/static can read back
+    *which* card got imprinted — see `ManaAbility.color_selector`'s
+    ``"imprinted_card_colors"`` kind (`game/mana_abilities.py`).
+
+    ``exclude_card_types`` is Chrome Mox's own "nonartifact, nonland"
+    filter — a list of `Card.is_<word>` flag names to exclude, checked
+    against each hand card's printed characteristics.
+    """
+
+    def __init__(
+        self,
+        optional: bool = True,
+        exclude_card_types: Optional[list[str]] = None,
+        source: Optional["GameObject"] = None,
+    ) -> None:
+        super().__init__(source)
+        self.optional = optional
+        self.exclude_card_types = [str(t).lower() for t in (exclude_card_types or [])]
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        source = self.source
+        if source is None:
+            return
+        player = _controller_of(source, context)
+        if player is None:
+            return
+        candidates = [
+            obj for obj in player.hand
+            if not any(getattr(obj.card, f"is_{t}", False) for t in self.exclude_card_types)
+        ]
+        context.engine.request_choose_objects(
+            player, candidates, "exile", count=1, optional=self.optional,
+            prompt=f"{source.name}: Karte aus der Hand exilieren?",
+            source=source, remember=True,
+        )
 
 
 class ExileGainLifeToControllerEffect(GameEffect):
@@ -4766,8 +4962,26 @@ class AddManaEffect(GameEffect):
         recipient: str = "controller",
         target_kind: Optional[str] = None,
         amount_from_target_hand_size: bool = False,
+        amount_from_target_count_selector: Optional[str] = None,
+        once_per_turn_ability: bool = False,
     ) -> None:
         super().__init__(source)
+        #: "…add X mana of any one color, where X is the number of Islands
+        #: **target opponent** controls" (ENG-27, Carpet of Flowers) — a
+        #: `continuous.count_selector` evaluated for the *resolved target*
+        #: (``targets[0].id``), not this effect's own controller the way
+        #: ``amount_selector`` below always is. Only meaningful alongside
+        #: ``colors=["ANY"]``; scales that colour's own amount instead of
+        #: the fixed-``self.color`` slot.
+        self.amount_from_target_count_selector = amount_from_target_count_selector
+        #: "…if you haven't added mana with this ability this turn, you may
+        #: add …" (Carpet of Flowers) — the effect's own source gets the
+        #: `GameObject.added_mana_with_ability_this_turn` flag (reset each
+        #: untap step); already-used-this-turn is a resolve-time no-op
+        #: rather than a full RULE 603.4 intervening-if that keeps the
+        #: trigger off the stack in the first place — the "you may" is
+        #: still offered, it just does nothing if accepted anyway.
+        self.once_per_turn_ability = once_per_turn_ability
         #: "Add {R} for each card in target opponent's hand." (Jeska's
         #: Will) — the one shape here that genuinely targets (RULE 601.2c
         #: opts this effect into a real `target_spec`, unlike every other
@@ -4820,11 +5034,30 @@ class AddManaEffect(GameEffect):
             player = _controller_of(self.source, context)
         if player is None:
             return
+        if self.once_per_turn_ability and getattr(
+            self.source, "added_mana_with_ability_this_turn", False
+        ):
+            return
+        used_this_turn = False
         for color in self.colors:
             if color == "ANY":
-                context.add_mana_any_color(player)
+                any_amount = 1
+                if self.amount_from_target_count_selector and targets:
+                    from . import continuous  # function-scoped: avoid an import cycle
+
+                    target_player = targets[0]
+                    any_amount = continuous.count_selector(
+                        context.state, getattr(target_player, "id", None),
+                        self.amount_from_target_count_selector, source=self.source,
+                    )
+                if any_amount > 0:
+                    context.add_mana_any_color(player, amount=any_amount)
+                    used_this_turn = True
             else:
                 context.add_mana(player, color)
+                used_this_turn = True
+        if self.once_per_turn_ability and used_this_turn and self.source is not None:
+            self.source.added_mana_with_ability_this_turn = True
         if isinstance(self.amount, int) and self.amount > 0:
             context.add_mana(player, self.color, self.amount)
         if self.amount_from_trigger_event:
@@ -8730,6 +8963,72 @@ class RemoveCounterOrSacrificeEffect(GameEffect):
         context.put_into_graveyard(obj)
 
 
+def _scale_cumulative_upkeep_cost(cost: "ActivationCost", n: int) -> "ActivationCost":
+    """RULE 702.24b: "…unless you pay its upkeep cost **for each age
+    counter** on it" — the whole printed cost, paid ``n`` times over, not a
+    single payment scaled by a multiplier read elsewhere. For a mana cost
+    that's the same thing either way (three payments of ``{G}`` and one
+    payment of ``{G}{G}{G}`` cost identically much), so this repeats the
+    parsed cost's own mana symbols/``pay_life`` ``n`` times — correct for
+    the overwhelming majority of printed Cumulative Upkeep costs (plain
+    mana, or "pay N life").
+
+    **Documented simplification**: a non-numeric cost component
+    (``sacrifice``/``discard``/``tap_others``/``return_to_hand``/…, "tap an
+    untapped white creature you control"-shaped) is left un-scaled — paid
+    once regardless of the age-counter count — since "pay this cost N
+    *separate* times" (tap N different creatures, sacrifice N different
+    permanents) is a distinct, more general primitive genuinely unbuilt
+    both here and in `RulesEngine.request_sacrifice_unless_pay`'s existing
+    RULE 701.17 machinery this reuses.
+    """
+    from dataclasses import replace
+
+    from ..models.mana_cost import ManaCost
+
+    scaled_mana = ManaCost(list(cost.mana.symbols) * n, raw=cost.mana.raw)
+    return replace(cost, mana=scaled_mana, pay_life=cost.pay_life * n)
+
+
+class CumulativeUpkeepEffect(GameEffect):
+    """RULE 702.24b: "At the beginning of your upkeep, put an age counter
+    on this permanent, then sacrifice it unless you pay its upkeep cost
+    for each age counter on it."
+
+    The age counter goes on **first, unconditionally** every upkeep — the
+    opposite direction from Fading's off-by-one-free "remove, then check"
+    shape (`RemoveCounterOrSacrificeEffect`), since this one only ever
+    adds, never runs out on its own. The scaled payment
+    (`_scale_cumulative_upkeep_cost`) reuses the exact same pay-or-
+    sacrifice machinery a plain "Sacrifice ~ unless you pay `<cost>`"
+    already rides (RULE 701.17, `SacrificeUnlessPayEffect` →
+    `RulesEngine.request_sacrifice_unless_pay`), just with the parsed cost
+    multiplied by however many age counters the permanent now carries.
+    """
+
+    def __init__(self, cost: str = "", source: Optional["GameObject"] = None) -> None:
+        super().__init__(source)
+        self.cost_text = str(cost or "")
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        from .costs import parse_activation_cost  # function-scoped: costs↔effects cycle
+
+        obj = self.source
+        if obj is None or obj not in context.state.permanents():
+            return
+        obj.add_counters("age", 1)
+        n = obj.counters.get("age", 0)
+        base = parse_activation_cost(self.cost_text)
+        if base.is_free or n <= 0:
+            return
+        player = _controller_of(obj, context)
+        if player is None:
+            return
+        context.engine.request_sacrifice_unless_pay(
+            player, _scale_cumulative_upkeep_cost(base, n), obj
+        )
+
+
 class TapPermanentsPerCounterEffect(GameEffect):
     """"That player taps an untapped artifact, creature, or land they control
     for each fade counter on this artifact." (Tangle Wire) — a per-player
@@ -9691,12 +9990,27 @@ EffectRegistry.register(
     ),
 )
 EffectRegistry.register(
+    # "Counter target activated or triggered ability." (RULE 701.5b —
+    # Stifle/Trickbind, ENG-26) — the ability-item sibling of ``"counter"``.
+    "counter_ability",
+    lambda p: CounterAbilityEffect(target=p.get("target")),
+)
+EffectRegistry.register(
     "copy_spell",
     lambda p: CopySpellEffect(
         card_types=p.get("card_types"),
         count=p.get("count", 1),
         target_count=int(p.get("target_count", 1) or 1),
         optional=bool(p.get("optional", False)),
+    ),
+)
+EffectRegistry.register(
+    "change_target",
+    lambda p: ChangeTargetEffect(
+        target=p.get("target"),
+        single_target=bool(p.get("single_target", False)),
+        optional=bool(p.get("optional", False)),
+        spell_or_ability=bool(p.get("spell_or_ability", False)),
     ),
 )
 EffectRegistry.register("cant_be_countered", lambda p: CantBeCounteredEffect())
@@ -9716,6 +10030,18 @@ EffectRegistry.register(
     lambda p: SacrificeUnlessPayEffect(cost=p.get("cost", "")),
 )
 EffectRegistry.register(
+    # "Whenever an opponent casts a spell, you may draw a card unless that
+    # player pays <cost>." (Rhystic Study/Mystic Remora/Esper Sentinel) —
+    # the payer is the *triggering* event's caster, not this ability's
+    # controller.
+    "taxed_draw",
+    lambda p: TaxedDrawEffect(
+        cost=p.get("cost", ""),
+        amount_from_source_power=bool(p.get("amount_from_source_power", False)),
+        count=int(p.get("count", 1) or 1),
+    ),
+)
+EffectRegistry.register(
     # PAR-13: "Each player loses N life unless they `<pay cost>`." — the
     # APNAP mass sibling of `sacrifice_unless_pay` above.
     "each_player_pay_or",
@@ -9733,6 +10059,15 @@ EffectRegistry.register(
         remember=bool(p.get("remember", False)),
         creature_filter=p.get("creature_filter"),
         distinct_controllers=bool(p.get("distinct_controllers", False)),
+    ),
+)
+EffectRegistry.register(
+    # RULE 702.45-adjacent Imprint: "you may exile a `<filter>` card from
+    # your hand." (MEC-17, Chrome Mox-shaped) — see `ImprintEffect`.
+    "imprint",
+    lambda p: ImprintEffect(
+        optional=bool(p.get("optional", True)),
+        exclude_card_types=p.get("exclude_card_types"),
     ),
 )
 EffectRegistry.register(
@@ -10013,6 +10348,8 @@ EffectRegistry.register(
         recipient=p.get("recipient", "controller"),
         target_kind=p.get("target_kind"),
         amount_from_target_hand_size=bool(p.get("amount_from_target_hand_size", False)),
+        amount_from_target_count_selector=p.get("amount_from_target_count_selector"),
+        once_per_turn_ability=bool(p.get("once_per_turn_ability", False)),
     ),
 )
 EffectRegistry.register(
@@ -10195,6 +10532,12 @@ EffectRegistry.register(
     # can't, sacrifice it."
     "remove_counter_or_sacrifice",
     lambda p: RemoveCounterOrSacrificeEffect(kind=p.get("kind", "fade")),
+)
+EffectRegistry.register(
+    # RULE 702.24b Cumulative Upkeep: "put an age counter … then sacrifice
+    # unless you pay the upkeep cost for each age counter on it." (MEC-16)
+    "cumulative_upkeep",
+    lambda p: CumulativeUpkeepEffect(cost=p.get("cost", "")),
 )
 EffectRegistry.register(
     # "That player taps an untapped artifact, creature, or land they control
@@ -11157,6 +11500,10 @@ EffectRegistry.register(
     # than the number of lands that player controls." (Lavinia, Azorius
     # Renegade) — a *conditional* prohibition on a specific spell, unlike
     # `cast_limit`'s flat count; consulted by `continuous.cast_prohibited`.
+    # `**_selectors(p)` carries ``active_if`` through ("During your turn,
+    # your opponents can't cast spells …" — Grand Abolisher/Myrel, Shield of
+    # Argive, RULE 613.6) — omitted before ENG-28, which silently dropped any
+    # gate a `cast_prohibition` spec tried to carry.
     "cast_prohibition",
     lambda p: StaticAbility(
         "cast_prohibition",
@@ -11165,6 +11512,7 @@ EffectRegistry.register(
             "scope": p.get("scope", "opponents"),
             "noncreature": bool(p.get("noncreature", False)),
             "max_mana_value_selector": p.get("max_mana_value_selector"),
+            **_selectors(p),
         },
     ),
 )

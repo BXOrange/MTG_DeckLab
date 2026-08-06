@@ -65,10 +65,12 @@ const GROUPS = [
             items: [
               ['full', 'Mana-Modell (106)'],
               ['full', 'Mana-Potenzial (offen/genutzt) + Auto-Tap beim Zaubern/Aktivieren — tappt nie Opfer-/Exil-Manaquellen (Treasures, Spirit Guides)'],
+              ['full', 'Manafähigkeit „ein Mana jeder Farbe unter den eigenen Permanenten" (Bloom Tender) und zielgerichtetes „X Mana einer Farbe, wobei X Inseln eines Ziels" mit Einmal-pro-Zug-Sperre (Carpet of Flowers)'],
               ['full', 'Zielwahl / Targeting (115)'],
               ['partial', 'Echte Mehrfachziele (115.1a, N≥2 fest bei destroy/exile/damage; „eine beliebige Anzahl" bei neun Effekt-Familien) — weitere Effekt-Familien bleiben N=1'],
               ['full', 'Zwei verschiedene Ziele in einem Zauber/einer Fähigkeit (115.1) — jede Klausel trifft ihr eigenes Ziel'],
               ['full', '„ein *anderes* Ziel" gegenüber dem zweiten Ziel derselben Klausel (109.5)'],
+              ['full', 'Ziel-Zauberspruch **oder** -Fähigkeit auf dem Stack (115/608.2b) — annullieren (Stifle/Trickbind) oder Ziel ändern (Misdirection/Deflecting Swat)'],
               ['full', 'Priorität & Stack (117)'],
               ['full', 'Interaktive Priorität reihum (117.3–4) — im Multiplayer'],
               ['full', 'Mulligan — London / Vancouver / Next 7 / kein Mulligan (103)'],
@@ -138,7 +140,9 @@ const GROUPS = [
             items: [
               ['full', 'Zusatzkosten beim Wirken (601.2b/601.2h)'],
               ['full', 'Modale Zaubersprüche (601.2b/700.2)'],
-              ['full', '„Add one mana of any color" — interaktive Farbwahl bei Auflösung'],
+              ['full', '„Add one mana of any color" — interaktive Farbwahl bei Auflösung, auch mit variabler Menge (601.2b)'],
+              ['full', 'Alternative Kosten „anstatt der Manakosten" (118.9) — Force of Will/Negation/Vigor/Daze; eigenständiges Angebot neben dem regulären Manakosten-Wirken'],
+              ['full', '„Während deines Zuges können Gegner keine Zauber wirken/Fähigkeiten aktivieren" (601.3a/RULE 613.6-Bedingung) — Grand Abolisher/Linvala/Myrel'],
             ],
           },
           {
@@ -271,6 +275,8 @@ const GROUPS = [
               ['full', 'Bedingte Sofort-Geschwindigkeit (702.8b/606.3)'],
               ['full', 'Ward (702.21)'],
               ['full', 'Fading / Vanishing (702.32/702.61)'],
+              ['full', 'Kumulative Vorstandszahlung — Cumulative Upkeep (702.24), skaliert mit Zeitmarken'],
+              ['full', 'Prägung — Imprint (702.45-nahe): Karte aus der Hand exilieren und merken (Chrome Mox)'],
               ['full', 'Soulbond — echte Paarung (702.94)'],
               ['full', 'Mutate — darüber oder darunter, Nicht-Mensch-Ziel (702.140)'],
               ['full', 'Verflechten — bezahlbare Modus-Aufwertung (702.42)'],
@@ -385,7 +391,7 @@ const GROUPS = [
             items: [
               ['full', 'Rückgängig / Neustart / Rewind'],
               ['full', 'Passiver Gegner ("Goldfisch") als Ziel für Angriffe/Schaden — bewusst passiv (Zweck ist das Testen ohne Gegenwehr); echte agierende Bots (GoldfishBot/GreedyBot) existieren separat für Multiplayer & die Dynamische Analyse'],
-              ['partial', 'Gesamtabdeckung Oracle-Parser (30,6 % · 10.479 / 34.208, PARSER_VERSION 59)'],
+              ['partial', 'Gesamtabdeckung Oracle-Parser (31,0 % · 10.603 / 34.208, PARSER_VERSION 60)'],
               ['full', 'Interaktive Auswahl statt Automatik: welches Objekt tappen/opfern/zurücknehmen'],
               ['full', 'Unterbrochene Auflösung — mehrere Entscheidungen in einem Effekt (608.2)'],
             ],

@@ -790,7 +790,7 @@ NEVER_SUPPORTED = "NEVER_SUPPORTED"
 #: entirely, a second latent bug). +239 cards to measured parser coverage,
 #: 0 regressions (`scripts/parser_probe.py diff`), full pytest suite green
 #: throughout. See `Done_Backend.md` for the per-family narrative.
-PARSER_VERSION = "59"
+PARSER_VERSION = "60"
 
 
 @dataclass
