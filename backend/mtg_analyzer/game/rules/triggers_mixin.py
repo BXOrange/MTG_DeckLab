@@ -176,7 +176,16 @@ class TriggerCollectionMixin:
                         # late to spend, which is the entire point of both.
                         self._resolve_mana_trigger(ability, event)
                         continue
-                    self.pending_triggers.append((ability, event))
+                    # RULE 603.3d: Roaming Throne-shaped "if a triggered
+                    # ability of another creature you control of the chosen
+                    # type triggers, it triggers an additional time" —
+                    # placed as extra, independent copies rather than a
+                    # multiplier baked into the ability itself, since each
+                    # copy is separately orderable/targetable (RULE 603.3b)
+                    # once 2+ end up pending together.
+                    copies = 1 + continuous.trigger_doubler_bonus(self.state, obj)
+                    for _ in range(copies):
+                        self.pending_triggers.append((ability, event))
         # RULE 114.4: an emblem's abilities function in the command zone —
         # scanned the same way as a permanent's, just off `Player.emblems`
         # instead of the battlefield (see `models/emblem.py`).

@@ -265,6 +265,18 @@ def _subject_condition(
 
         return _self_ok
 
+    if subject == "self_as_recipient":
+        # "Whenever ~ is dealt damage, …" (Stuffy Doll) — unlike plain
+        # "self" (keyed to `_subject_event_key`'s per-event *actor* field,
+        # ``source_id`` for DAMAGE), this checks the *recipient* instead
+        # — always ``target_id`` regardless of event type, since a
+        # "dealt damage" subject only ever makes sense for DAMAGE.
+        def _self_recipient_ok(event: Any, context: Any, iid=instance_id) -> bool:
+            target_id = event.get("target_id")
+            return target_id is not None and target_id == iid
+
+        return _self_recipient_ok
+
     if subject == "attached_permanent":
 
         def _attached_ok(event: Any, context: Any, src=source, key=event_key) -> bool:
@@ -515,6 +527,17 @@ def _trigger_condition(
 
         predicates.append(_equipped_ok)
 
+    # "As long as this Equipment is attached to a creature, …" (Mirrormind
+    # Crown) — the mirror image of `requires_equipped` above: the ability's
+    # own source (the Equipment/Aura itself) must currently *be* attached to
+    # something, not have something attached to it. Reads `GameObject.
+    # attached_to` fresh every check, same live-board idiom.
+    if trigger.get("requires_attached"):
+        def _attached_gate_ok(event: Any, context: Any, src=source) -> bool:
+            return getattr(src, "attached_to", None) is not None
+
+        predicates.append(_attached_gate_ok)
+
     # "Whenever you cast an Aura, Equipment, or Vehicle spell, …" (Sram,
     # Senior Edificer) — a card-*subtype* filter, unlike `"filter"`'s exact
     # key/value match: subtypes ("Equipment"/"Aura"/"Vehicle") live after the
@@ -550,6 +573,71 @@ def _trigger_condition(
             return not any(w in types for w in words)
 
         predicates.append(_spell_type_excluded_ok)
+
+    # "Whenever an instant or sorcery spell you control that targets only a
+    # single creature deals damage to that creature, …" (Imodane, the
+    # Pyrohammer) — two flags `RulesEngine.deal_damage`/`DealDamageEffect`
+    # stamp onto the DAMAGE event at the point where both the source's own
+    # card type and its target_spec's shape are known; "you control" is
+    # already the ordinary `"subject": "group", "controller": "you"`
+    # `_build_group_ok` check (DAMAGE's group-controller key is
+    # ``source_controller_id``), so these only need to add the two things
+    # that check doesn't cover.
+    if trigger.get("requires_source_instant_or_sorcery"):
+        def _instant_sorcery_source_ok(event: Any, context: Any) -> bool:
+            return bool(event.get("source_is_instant_or_sorcery"))
+
+        predicates.append(_instant_sorcery_source_ok)
+
+    if trigger.get("requires_single_creature_target"):
+        def _single_creature_target_ok(event: Any, context: Any) -> bool:
+            return bool(event.get("source_targets_only_single_creature"))
+
+        predicates.append(_single_creature_target_ok)
+
+    # "Whenever you cast a creature spell of the chosen type, draw a card."
+    # (Vanquisher's Banner) — unlike `spell_card_types`'s fixed-at-bind-time
+    # word list, the wanted subtype is only known once RULE 601.2b's "as
+    # this enters, choose a creature type" choice has been made
+    # (`GameObject.chosen_type`), so this reads it live off ``source`` at
+    # check time rather than capturing it as a closure default. The event
+    # itself carries no ``subtypes`` payload (unlike e.g. `SACRIFICE`), so
+    # the cast spell is looked up live by its stamped ``instance_id`` —
+    # still on the stack, since a trigger checks before it resolves.
+    if trigger.get("cast_of_chosen_type"):
+        def _chosen_type_cast_ok(event: Any, context: Any, src=source) -> bool:
+            wanted = getattr(src, "chosen_type", None)
+            if not wanted:
+                return False
+            state = getattr(context, "state", None)
+            instance_id = event.get("instance_id")
+            if state is None or instance_id is None:
+                return False
+            obj = state.find_object(instance_id)
+            if obj is None:
+                return False
+            return wanted.lower() in _card_subtypes(obj.card)
+
+        predicates.append(_chosen_type_cast_ok)
+
+    # "Whenever you cast a red spell, …" (Runaway Steam-Kin) — a colour
+    # filter on the cast card, unlike `spell_card_types`'s card-type-word
+    # filter; the event carries no colour of its own, so the cast object is
+    # looked up live by its stamped ``instance_id``, the same fallback
+    # `cast_of_chosen_type` uses.
+    cast_of_color = trigger.get("cast_of_color")
+    if cast_of_color:
+        wanted_color = str(cast_of_color).upper()
+
+        def _cast_of_color_ok(event: Any, context: Any, color=wanted_color) -> bool:
+            state = getattr(context, "state", None)
+            instance_id = event.get("instance_id")
+            if state is None or instance_id is None:
+                return False
+            obj = state.find_object(instance_id)
+            return obj is not None and color in (getattr(obj, "colors", None) or set())
+
+        predicates.append(_cast_of_color_ok)
 
     # "Whenever you sacrifice a Food, …" (RULE 122.1a/701.17 — Experimental
     # Confectioner/Trail of Crumbs-shaped) — `EventType.SACRIFICE`'s own
@@ -626,6 +714,27 @@ def _trigger_condition(
             return bool(obj.tapped) == (want == "tapped")
 
         predicates.append(_source_state_ok)
+
+    # "…if this creature has fewer than three +1/+1 counters on it, …"
+    # (Runaway Steam-Kin) — the counter-count sibling of `source_state`
+    # above, same RULE 603.4 intervening-if-about-the-source shape, just
+    # a threshold instead of a tapped/untapped flag.
+    source_counters_below = trigger.get("source_counters_below")
+    if source_counters_below is not None:
+        instance_id = getattr(source, "instance_id", None)
+        threshold = int(source_counters_below.get("count", 0))
+        kind = str(source_counters_below.get("kind", "+1/+1"))
+
+        def _source_counters_below_ok(
+            event: Any, context: Any, iid=instance_id, want=threshold, k=kind,
+        ) -> bool:
+            state = getattr(context, "state", None)
+            obj = state.find_object(iid) if state is not None and iid is not None else None
+            if obj is None:
+                return False
+            return int((obj.counters or {}).get(k, 0)) < want
+
+        predicates.append(_source_counters_below_ok)
 
     if trigger.get("not_controllers_turn"):
         controller_key = _GROUP_CONTROLLER_EVENT_KEYS.get(trigger.get("event"), "controller_id")

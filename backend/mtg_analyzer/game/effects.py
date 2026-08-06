@@ -110,8 +110,11 @@ class GameContext:
     def fire_event(self, event: GameEvent) -> GameEvent:
         return self.state.fire_event(event)
 
-    def deal_damage(self, target: Any, amount: int, source: Optional["GameObject"] = None) -> None:
-        self.engine.deal_damage(target, amount, source)
+    def deal_damage(
+        self, target: Any, amount: int, source: Optional["GameObject"] = None,
+        single_target_hint: bool = False,
+    ) -> None:
+        self.engine.deal_damage(target, amount, source, single_target_hint=single_target_hint)
 
     def draw(self, player: "Player", count: int = 1) -> None:
         self.engine.draw(player, count)
@@ -124,6 +127,9 @@ class GameContext:
 
     def put_hand_cards_on_top(self, player: "Player", count: int = 1) -> None:
         self.engine.put_hand_cards_on_top(player, count)
+
+    def put_hand_card_on_bottom_then_draw(self, player: "Player") -> None:
+        self.engine.put_hand_card_on_bottom_then_draw(player)
 
     def destroy(self, target: "GameObject", can_be_regenerated: bool = True) -> None:
         self.engine.destroy(target, can_be_regenerated=can_be_regenerated)
@@ -270,8 +276,10 @@ class GameContext:
     def prevent_damage_to_target(self, target: Any, amount: Union[int, str] = "all") -> None:
         self.engine.prevent_damage_to_target(target, amount)
 
-    def prevent_all_combat_damage_this_turn(self, controller: "Player") -> None:
-        self.engine.prevent_all_combat_damage_this_turn(controller)
+    def prevent_all_combat_damage_this_turn(
+        self, controller: "Player", exclude_subtype: Optional[str] = None,
+    ) -> None:
+        self.engine.prevent_all_combat_damage_this_turn(controller, exclude_subtype=exclude_subtype)
 
     def lose_life(self, player: "Player", amount: int, cause: str = "effect") -> None:
         self.engine.lose_life(player, amount, cause=cause)
@@ -1273,6 +1281,128 @@ class CreateEmblemEffect(GameEffect):
         context.create_emblem(player, self.ability)
 
 
+class RequestChoosePlayerEffect(GameEffect):
+    """"As this creature enters, choose a player." (Stuffy Doll) — opens
+    `RulesEngine.request_choose_player`.
+    """
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        player = _controller_of(self.source, context)
+        if player is None or self.source is None:
+            return
+        context.engine.request_choose_player(player, self.source)
+
+
+class DealDamageToChosenPlayerEffect(GameEffect):
+    """"…it deals that much damage to the chosen player." (Stuffy Doll) —
+    reads the firing `DAMAGE` event's own ``amount`` (the "that much" it
+    was just dealt) against `GameObject.chosen_player_id`.
+    """
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        if self.source is None:
+            return
+        player_id = getattr(self.source, "chosen_player_id", None)
+        event = context.trigger_event
+        if player_id is None or not event:
+            return
+        amount = int(event.get("amount") or 0)
+        if amount <= 0:
+            return
+        try:
+            player = context.state.player_by_id(player_id)
+        except (KeyError, ValueError):
+            return
+        context.deal_damage(player, amount, self.source)
+
+
+class RequestChooseCreatureTypeGrantEffect(GameEffect):
+    """"When this creature enters, choose a creature type. <effect naming
+    the chosen type>." (Selfless Safewright) — opens `RulesEngine.
+    request_choose_creature_type_grant`'s resolve-time type choice; see its
+    docstring for why this needs its own primitive rather than RULE
+    601.2b's as-it-enters `choose_creature_type_on_enter`.
+    """
+
+    def __init__(
+        self,
+        then_specs: Optional[list[dict]] = None,
+        source: Optional["GameObject"] = None,
+    ) -> None:
+        super().__init__(source)
+        self.then_specs = list(then_specs or [])
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        player = _controller_of(self.source, context)
+        if player is None or self.source is None:
+            return
+        context.engine.request_choose_creature_type_grant(player, self.source, self.then_specs)
+
+
+class GrantKeywordsToChosenTypeUntilEotEffect(GameEffect):
+    """"Other permanents you control of that type gain hexproof and
+    indestructible until end of turn." (Selfless Safewright) — "that type"
+    is this effect's own source's `GameObject.chosen_type`, read live
+    (set moments earlier in the same resolution by `RequestChooseCreature
+    TypeGrantEffect`'s choice) rather than captured at bind time.
+    """
+
+    def __init__(
+        self,
+        keywords: Optional[list[str]] = None,
+        source: Optional["GameObject"] = None,
+    ) -> None:
+        super().__init__(source)
+        self.keywords = list(keywords or [])
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        wanted = getattr(self.source, "chosen_type", None)
+        if not wanted or self.source is None or not self.keywords:
+            return
+        controller_id = self.source.controller_id
+        for obj in context.state.battlefield:
+            if obj is self.source or obj.controller_id != controller_id:
+                continue
+            if wanted.lower() not in (obj.card.type_line or "").lower():
+                continue
+            for kw in self.keywords:
+                obj.temp_keywords.add(kw)
+        context.recompute()
+
+
+class GrantKeywordToTriggerSubjectEffect(GameEffect):
+    """"…it gains haste until end of turn…" (Tyvar Kell's emblem, RULE
+    603.1 "it" = the spell that triggered this ability) — grants a temporary
+    keyword to whatever object `GameContext.trigger_event` named, rather
+    than a targeted or self object. The cast spell's own `GameObject`
+    persists by identity from the stack onto the battlefield (RULE 400.7's
+    "new object" rule doesn't apply mid-cast), so a keyword stamped here
+    while it's still a `SPELL_CAST` stack item is still present once it
+    resolves.
+    """
+
+    def __init__(
+        self,
+        keyword: str = "haste",
+        source: Optional["GameObject"] = None,
+        event_key: str = "instance_id",
+    ) -> None:
+        super().__init__(source)
+        self.keyword = keyword
+        self.event_key = event_key
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        event = context.trigger_event
+        if not event:
+            return
+        instance_id = event.get(self.event_key)
+        if instance_id is None:
+            return
+        obj = context.state.find_object(instance_id)
+        if obj is not None:
+            obj.temp_keywords.add(self.keyword)
+
+
 class WinConditionEffect(GameEffect):
     """Overrides a win/loss check, e.g. "you can't lose the game"."""
 
@@ -1335,6 +1465,7 @@ class TopLibraryPermissionEffect(GameEffect):
         noncreature_only: bool = False,
         grants_flash: bool = False,
         life_payment: bool = False,
+        chosen_type_creature_only: bool = False,
         source: Optional["GameObject"] = None,
     ) -> None:
         super().__init__(source)
@@ -1346,6 +1477,14 @@ class TopLibraryPermissionEffect(GameEffect):
         self.noncreature_only = noncreature_only
         self.grants_flash = grants_flash
         self.life_payment = life_payment
+        #: "You may cast **creature spells of the chosen type** from the top
+        #: of your library." (Realmwalker) — narrows `cast_spells` to
+        #: creature spells matching this grant's own source's `GameObject.
+        #: chosen_type` (RULE 601.2b), read live off ``self.source`` rather
+        #: than captured at bind time so a Replay/Puzzle-mode change to the
+        #: choice is honoured immediately, the same live-read idiom
+        #: `continuous.recompute`'s `subtype_from_source` selectors use.
+        self.chosen_type_creature_only = chosen_type_creature_only
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
         return None  # continuous marker — consulted by top_library.py, not applied
@@ -1396,15 +1535,59 @@ class GraveyardCastPermissionEffect(GameEffect):
         once_per_turn: bool = True,
         exile_if_would_be_put_into_graveyard: bool = False,
         source: Optional["GameObject"] = None,
+        instant_sorcery_only: bool = False,
+        expires_turn: Optional[int] = None,
     ) -> None:
         super().__init__(source)
         self.max_mana_value = max_mana_value
         self.permanent_only = permanent_only
         self.once_per_turn = once_per_turn
         self.exile_if_would_be_put_into_graveyard = exile_if_would_be_put_into_graveyard
+        #: "Each instant and sorcery card in your graveyard gains flashback
+        #: until end of turn." (Backdraft Hellkite) — the mirror image of
+        #: ``permanent_only``: only instant/sorcery cards, never a
+        #: permanent. Mutually meaningful with ``permanent_only`` off.
+        self.instant_sorcery_only = instant_sorcery_only
+        #: A one-shot, turn-scoped grant (as opposed to the ordinary
+        #: standing-while-attached shape every other consumer uses) —
+        #: `RulesEngine.turn_number` this expires after, appended directly
+        #: onto a still-on-the-battlefield permanent's own
+        #: `GameObject.static_effects` (`GrantGraveyardCastPermissionThis
+        #: TurnEffect`) rather than tied to a printed static ability's own
+        #: continuous binding. ``None`` (every existing consumer) means
+        #: "as long as the granting permanent is on the battlefield", same
+        #: as before this field existed.
+        self.expires_turn = expires_turn
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
         return None  # continuous marker — consulted by graveyard_cast.py, not applied
+
+
+class GrantGraveyardCastPermissionThisTurnEffect(GameEffect):
+    """"Each instant and sorcery card in your graveyard gains flashback
+    until end of turn. The flashback cost is equal to its mana cost."
+    (Backdraft Hellkite) — "flashback at the printed mana cost" is exactly
+    `GraveyardCastPermissionEffect`'s own shape, just turn-scoped and
+    instant/sorcery-only rather than a standing permanent-only grant. Appends
+    a fresh permission straight onto this effect's own source's
+    `GameObject.static_effects` — the source (the attacking creature) is
+    already on the battlefield and stays there, so `graveyard_cast.py`'s
+    existing per-permanent scan finds it with no new consumer-side code,
+    only the expiry check `expires_turn` adds.
+    """
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        if self.source is None:
+            return
+        self.source.static_effects.append(
+            GraveyardCastPermissionEffect(
+                permanent_only=False,
+                instant_sorcery_only=True,
+                once_per_turn=False,
+                expires_turn=context.state.turn_number,
+                source=self.source,
+            )
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -1546,6 +1729,31 @@ class ConditionalEffect(GameEffect):
             )
             if controls_one:
                 return False
+        target_is_player = self.condition.get("target_is_player")
+        if target_is_player is not None:
+            # "If a player is dealt damage this way, scry 1." (Play with
+            # Fire) — reads the *other* effect's own shared targets list,
+            # the same "no target_spec of its own" idiom `target_is_
+            # controller` uses.
+            target = targets[0] if targets else None
+            is_player = target is not None and not hasattr(target, "instance_id")
+            if not (is_player if target_is_player else not is_player):
+                return False
+        graveyard_has_type = self.condition.get("graveyard_has_type")
+        if graveyard_has_type is not None:
+            # "Then if there is an Elf card in your graveyard, you gain 2
+            # life." (Trystan, Callous Cultivator) — a live scan of the
+            # controller's own graveyard for a card whose type line
+            # (main type or subtype) carries the named word, the same
+            # `controls_none_of_type` word-list convention just above,
+            # just over the graveyard zone instead of the battlefield.
+            player = _controller_of(self.source, context)
+            word = str(graveyard_has_type).lower()
+            has_one = player is not None and any(
+                word in o.card.type_line.lower() for o in player.graveyard
+            )
+            if not has_one:
+                return False
         ring_tempted_at_least = self.condition.get("ring_tempted_at_least")
         if ring_tempted_at_least is not None:
             # "if the Ring has tempted you N or more times this game,
@@ -1599,6 +1807,9 @@ _DAMAGE_SELECTORS: frozenset[str] = frozenset(
      # source's own controller, untargeted (RULE 115: "you" is never a
      # target). The single-player counterpart of "each_player" above.
      "controller",
+     # "~ deals 1 damage to itself." (Stuffy Doll) — the source's own
+     # permanent, unlike "controller" (that permanent's *player*).
+     "self",
      "defending_player"}
 )
 
@@ -1623,9 +1834,47 @@ class DealDamageEffect(GameEffect):
         divided: bool = False,
         double_at: Optional[int] = None,
         amount_if_kicked: Optional[int] = None,
+        amount_if_bargained: Optional[Union[int, str]] = None,
+        double_if_bargained: bool = False,
+        amount_if_target_color: Optional[tuple[Union[int, str], list[str]]] = None,
+        amount_from_count_selector: Optional[str] = None,
+        amount_plus_count_selector: int = 0,
+        amount_from_trigger_event: Optional[str] = None,
     ) -> None:
         super().__init__(source)
         self._base_amount = amount
+        #: "Imodane deals that much damage to each opponent." — the event
+        #: field name to read off `GameContext.trigger_event` at
+        #: resolution, the same idiom `LoseLifeEffect.amount_from_trigger_
+        #: event` already uses. Overrides everything else when set.
+        self.amount_from_trigger_event = amount_from_trigger_event
+        #: "X is 2 plus the number of cards in your graveyard that are
+        #: instant cards, sorcery cards, and/or have an Adventure."
+        #: (Frantic Firebolt) — a live `continuous.count_selector` read,
+        #: scoped to this effect's own controller, resolved once at
+        #: `apply()` time (there's no announced ``{X}`` to substitute —
+        #: this card's mana cost carries no X at all, so the value is
+        #: purely a resolve-time computation, not RULE 107.3c's X).
+        #: ``amount_plus_count_selector`` is the flat addend ("2 plus …").
+        self.amount_from_count_selector = amount_from_count_selector
+        self.amount_plus_count_selector = amount_plus_count_selector
+        #: "If this spell was bargained, it deals twice X damage to that
+        #: permanent instead." (Stonesplitter Bolt) / "…instead it deals 3
+        #: damage…" (Torch the Tower) — RULE 702.157's own `GameObject.
+        #: bargained` flag (already stamped at cast time for any spell
+        #: printing the Bargain keyword), the same *override*-not-additive
+        #: shape `amount_if_kicked` uses. ``double_if_bargained`` is the
+        #: "twice X" phrasing specifically (X isn't known until resolution,
+        #: so a fixed override number can't express it); a plain
+        #: ``amount_if_bargained`` int/``"x"`` covers every other phrasing.
+        self.amount_if_bargained = amount_if_bargained
+        self.double_if_bargained = double_if_bargained
+        #: "It deals 5 damage instead if that target is white and/or
+        #: blue." (Lithomantic Barrage) — ``(override_amount, [colors])``;
+        #: checked per resolved target against `GameObject.colors`, since
+        #: (unlike every other conditional here) this one can vary target
+        #: to target rather than being a single flat override.
+        self.amount_if_target_color = amount_if_target_color
         # RULE 702.33b's *override* kicked-conditional ("~ deals 2 damage to
         # any target. If this spell was kicked, it deals 4 damage instead." —
         # Burst Lightning-shaped), distinct from the *additive* "if kicked,
@@ -1670,7 +1919,34 @@ class DealDamageEffect(GameEffect):
         kicker_count = getattr(self.source, "kicker_count", 0) or 0
         if self.amount_if_kicked is not None and kicker_count > 0:
             return self.amount_if_kicked
+        if getattr(self.source, "bargained", False):
+            if self.double_if_bargained:
+                base = self._base_amount
+                return base * 2 if isinstance(base, int) else base
+            if self.amount_if_bargained is not None:
+                return self.amount_if_bargained
         return self._base_amount
+
+    def _amount_for(self, target: Any, context: Optional["GameContext"] = None) -> Union[int, str]:
+        """``self.amount``, further narrowed by ``amount_if_target_color``
+        for this specific ``target`` (see its docstring)."""
+        amount = self.amount
+        if self.amount_from_trigger_event and context is not None:
+            event = context.trigger_event
+            amount = int((event or {}).get(self.amount_from_trigger_event) or 0)
+        if self.amount_from_count_selector and context is not None:
+            from . import continuous  # avoid the continuous↔effects import cycle
+
+            controller_id = getattr(self.source, "controller_id", None)
+            amount = self.amount_plus_count_selector + continuous.count_selector(
+                context.state, controller_id, self.amount_from_count_selector, source=self.source,
+            )
+        if self.amount_if_target_color is not None:
+            override, colors = self.amount_if_target_color
+            target_colors = {str(c).upper() for c in (getattr(target, "colors", None) or set())}
+            if target_colors & {str(c).upper() for c in colors}:
+                return override
+        return amount
 
     @amount.setter
     def amount(self, value: Union[int, str]) -> None:
@@ -1692,8 +1968,19 @@ class DealDamageEffect(GameEffect):
         if self.divided:
             self._apply_divided(context, chosen)
             return
+        # "targets only a single creature" (Imodane, the Pyrohammer) is a
+        # property of *this effect's own* target_spec, not of the damage in
+        # general — computed here, where that shape is known, and carried
+        # onto the DAMAGE event by `RulesEngine.deal_damage`.
+        single_target_hint = (
+            self.selector is None and self.target_spec is not None
+            and self.target_spec.count == 1 and not self.target_spec.optional
+        )
         for target in chosen:
-            context.deal_damage(target, self.amount, self.source)
+            context.deal_damage(
+                target, self._amount_for(target, context), self.source,
+                single_target_hint=single_target_hint,
+            )
 
     def _apply_divided(self, context: GameContext, targets: list[Any]) -> None:
         """Split the pool across ``targets`` (RULE 601.2d) — see ``divided``."""
@@ -1712,6 +1999,18 @@ class DealDamageEffect(GameEffect):
                 context.deal_damage(target, amount, self.source)
 
     def _apply_selector(self, context: GameContext) -> None:
+        # "Imodane deals that much damage to each opponent." — the mass-
+        # selector sibling of `_amount_for`'s single-target read: `self.
+        # amount` (the property below) takes no `context`, so the
+        # trigger-event override is resolved into a local here instead,
+        # once, and threaded through every `context.deal_damage` call this
+        # method makes below (shadowing `self.amount` reads inline rather
+        # than mutating shared state, since this effect instance is reused
+        # across every future firing of the same permanent's ability).
+        amount = self.amount
+        if self.amount_from_trigger_event:
+            event = context.trigger_event
+            amount = int((event or {}).get(self.amount_from_trigger_event) or 0)
         if self.selector == "defending_player":
             # Simian Sling's "it deals 1 damage to defending player" — the
             # same per-firing dynamic-defender resolution afflict's
@@ -1719,13 +2018,13 @@ class DealDamageEffect(GameEffect):
             # dealing damage instead of a direct life loss.
             player = _defending_player_of(self.source, context)
             if player is not None:
-                context.deal_damage(player, self.amount, self.source)
+                context.deal_damage(player, amount, self.source)
             return
         if self.selector in ("each_creature", "each_creature_and_player", "each_creature_and_planeswalker"):
             from .continuous import group_selector_objects  # avoid the continuous↔effects cycle
 
             for obj in group_selector_objects(context.state, None, "all_creatures"):
-                context.deal_damage(obj, self.amount, self.source)
+                context.deal_damage(obj, amount, self.source)
             if self.selector == "each_creature_and_planeswalker":
                 # A creature that's *also* a planeswalker (rare, but real —
                 # RULE 205.2 multi-type permanents) was already hit above;
@@ -1733,7 +2032,7 @@ class DealDamageEffect(GameEffect):
                 # hit, not two.
                 for obj in context.state.permanents():
                     if obj.is_planeswalker and not obj.is_creature:
-                        context.deal_damage(obj, self.amount, self.source)
+                        context.deal_damage(obj, amount, self.source)
                 return
             if self.selector == "each_creature":
                 return
@@ -1743,12 +2042,17 @@ class DealDamageEffect(GameEffect):
             # controller, and only them.
             player = _controller_of(self.source, context)
             if player is not None:
-                context.deal_damage(player, self.amount, self.source)
+                context.deal_damage(player, amount, self.source)
+            return
+        if self.selector == "self":
+            # "~ deals 1 damage to itself." (Stuffy Doll)
+            if self.source is not None:
+                context.deal_damage(self.source, amount, self.source)
             return
         for player in context.state.living_players():
             if self.selector == "each_opponent" and player.id == controller_id:
                 continue
-            context.deal_damage(player, self.amount, self.source)
+            context.deal_damage(player, amount, self.source)
 
 
 #: `DrawCardEffect`'s ``count_selector`` vocabulary — a per-object dynamic
@@ -2016,6 +2320,21 @@ class PutHandCardsOnTopEffect(GameEffect):
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
         player = self.player or context.active_player
         context.put_hand_cards_on_top(player, self.count)
+
+
+class PutHandCardOnBottomThenDrawEffect(GameEffect):
+    """"You may put a card from your hand on the bottom of your library. If
+    you do, draw a card." (Volcanic Spite) — see `RulesEngine.put_hand_card_
+    on_bottom_then_draw` for why the "may" is auto-taken.
+    """
+
+    def __init__(self, player: Any = None, source: Optional["GameObject"] = None) -> None:
+        super().__init__(source)
+        self.player = player
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        player = self.player or context.active_player
+        context.put_hand_card_on_bottom_then_draw(player)
 
 
 #: RULE 601.2c mass "destroy/exile all X" selectors (Wrath of God/Citywide
@@ -2330,12 +2649,21 @@ class PreventAllCombatDamageEffect(GameEffect):
     to *anyone* is prevented, for the rest of the turn, which is why it
     calls `RulesEngine.prevent_all_combat_damage_this_turn` instead of
     either of that class's per-recipient shield builders.
+
+    ``exclude_subtype`` (Galadhrim Ambush) threads straight through to
+    that method's own qualifier — see its docstring.
     """
+
+    def __init__(
+        self, source: Optional["GameObject"] = None, exclude_subtype: Optional[str] = None,
+    ) -> None:
+        super().__init__(source)
+        self.exclude_subtype = exclude_subtype
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
         player = _controller_of(self.source, context)
         if player is not None:
-            context.prevent_all_combat_damage_this_turn(player)
+            context.prevent_all_combat_damage_this_turn(player, exclude_subtype=self.exclude_subtype)
 
 
 class ExtraLandPlayEffect(GameEffect):
@@ -2398,9 +2726,18 @@ class LoseLifeEffect(GameEffect):
         amount_from_trigger_event: Optional[str] = None,
         amount_from_life_gained_this_turn: bool = False,
         amount_from_burden_counters_on_self: bool = False,
+        amount_from_count_selector: Optional[str] = None,
     ) -> None:
         super().__init__(source)
         self.amount = amount
+        #: "…each opponent loses life equal to the number of tapped
+        #: creatures you control." (Throne of the God-Pharaoh) — a live
+        #: `continuous.count_selector` read, scoped to this effect's own
+        #: controller regardless of which player ends up losing the life
+        #: (unlike `PumpEffect.amount_from_count_selector`'s board-wide
+        #: reads, this one is always "you", matching every printed card
+        #: of this shape).
+        self.amount_from_count_selector = amount_from_count_selector
         self.player = player
         #: "…you lose 1 life for each burden counter on The One Ring."
         #: Reads `GameObject.counters["burden"]` on this effect's own
@@ -2445,6 +2782,13 @@ class LoseLifeEffect(GameEffect):
         if self.amount_from_burden_counters_on_self:
             counters = getattr(self.source, "counters", None) or {}
             amount = int(counters.get("burden", 0))
+        if self.amount_from_count_selector:
+            from . import continuous  # avoid the continuous↔effects import cycle
+
+            controller_id = getattr(self.source, "controller_id", None)
+            amount = continuous.count_selector(
+                context.state, controller_id, self.amount_from_count_selector, source=self.source,
+            )
         if amount <= 0:
             return
         if self.selector in _LOSE_LIFE_SELECTORS:
@@ -2810,22 +3154,32 @@ class CopySpellEffect(GameEffect):
         card_types: Optional[list[str]] = None,
         count: int = 1,
         source: Optional["GameObject"] = None,
+        target_count: int = 1,
+        optional: bool = False,
     ) -> None:
         super().__init__(source)
         self.count = count
         spell_filter: dict[str, Any] = {}
         if card_types:
             spell_filter["card_types"] = list(card_types)
-        self.target_spec = TargetSpec(kind="spell", spell_filter=spell_filter or None)
+        # "Copy any number of target instant and/or sorcery spells." (Display
+        # of Power) — ``target_count`` > 1 offers several *distinct* spell
+        # targets (each getting ``count`` copies), the RULE 601.2c "any
+        # number" idiom Fire Covenant's own ``count=10`` UI cap already
+        # established for "any number of target creatures", applied here to
+        # a spell target instead of a permanent one.
+        self.target_spec = TargetSpec(
+            kind="spell", spell_filter=spell_filter or None, count=target_count, optional=optional,
+        )
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
-        target = targets[0] if targets else None
-        if target is None:
+        if not targets:
             return
         controller_id = getattr(self.source, "controller_id", None)
         if controller_id is None:
             return
-        context.copy_spell(target, controller_id, self.count)
+        for target in targets:
+            context.copy_spell(target, controller_id, self.count)
 
 
 class CounterCreateTokenEffect(GameEffect):
@@ -3553,6 +3907,305 @@ class ReturnToHandDrawIfControlledEffect(GameEffect):
             context.draw(controller, 1)
 
 
+class TopUpPlayerCounterToThresholdEffect(GameEffect):
+    """"If target player has fewer than N [kind] counters, they get a
+    number of [kind] counters equal to the difference." (Vraska,
+    Betrayal's Sting's -9) — a threshold top-up rather than a flat amount;
+    a player already at or past the threshold gets none.
+    """
+
+    def __init__(
+        self,
+        target: Any = None,
+        source: Optional["GameObject"] = None,
+        target_kind: str = "player",
+        kind: str = "poison",
+        threshold: int = 9,
+    ) -> None:
+        super().__init__(source)
+        self.target = target
+        self.kind = kind
+        self.threshold = threshold
+        self.target_spec = TargetSpec(kind=target_kind)
+
+    def target_polarity(self) -> Optional[str]:
+        return "harmful"
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        player = (targets[0] if targets else None) or self.target
+        if player is None:
+            return
+        current = getattr(player, self.kind, None)
+        if current is None:
+            current = player.counters.get(self.kind, 0)
+        diff = self.threshold - int(current or 0)
+        if diff > 0:
+            context.add_player_counters(player, diff, self.kind, source=self.source)
+
+
+class TransformNamedTokensEffect(GameEffect):
+    """"Transform all Incubator tokens you control." (Glissa, Herald of
+    Predation) — applies the same permanent creature-animation every
+    Incubator token's own "{2}: Transform this token" ability does
+    (`type_change`'s existing power/toughness-animation static, granted
+    at ``duration="rest_of_game"``) to every matching token at once, for
+    free, rather than one at a time through its own activated ability.
+    An already-transformed (already-creature) token is skipped — nothing
+    left to transform.
+    """
+
+    def __init__(
+        self,
+        token_name: str = "Incubator",
+        add_types: Optional[list[str]] = None,
+        add_subtypes: Optional[list[str]] = None,
+        power: int = 0,
+        toughness: int = 0,
+        source: Optional["GameObject"] = None,
+    ) -> None:
+        super().__init__(source)
+        self.token_name = token_name
+        self.add_types = list(add_types or ["creature"])
+        self.add_subtypes = list(add_subtypes or [])
+        self.power = power
+        self.toughness = toughness
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        controller_id = getattr(self.source, "controller_id", None)
+        if controller_id is None:
+            return
+        for obj in list(context.state.battlefield):
+            if not (
+                obj.controller_id == controller_id
+                and obj.card.is_token
+                and obj.card.name == self.token_name
+                and not obj.is_creature
+            ):
+                continue
+            GrantUntilEffect(
+                static={
+                    "type": "type_change",
+                    "params": {
+                        "add_types": self.add_types, "add_subtypes": self.add_subtypes,
+                        "power": self.power, "toughness": self.toughness,
+                    },
+                },
+                duration="rest_of_game",
+                target_kind=None,
+                source=obj,
+            ).apply(context)
+
+
+class EachOpponentCounterOwnCreatureEffect(GameEffect):
+    """"Each opponent blights N. (They each put N -1/-1 counters on a
+    creature they control.)" (High Perfect Morcant) — RULE 122's per-
+    opponent fan-out: each opponent independently puts the counters on a
+    creature they control. **Documented simplification**: auto-picked (the
+    first creature found) rather than routed through a real per-opponent
+    chooser — the same "not worth a chooser for a single pick" convention
+    `SacrificeEffect.greatest_power` already uses; an opponent with no
+    creature simply gets nothing.
+    """
+
+    def __init__(
+        self, amount: int = 1, kind: str = "-1/-1", source: Optional["GameObject"] = None,
+    ) -> None:
+        super().__init__(source)
+        self.amount = amount
+        self.kind = kind
+
+    def target_polarity(self) -> Optional[str]:
+        return "harmful"
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        controller_id = getattr(self.source, "controller_id", None)
+        for player in context.state.living_players():
+            if player.id == controller_id:
+                continue
+            creatures = [o for o in context.state.permanents_controlled_by(player.id) if o.is_creature]
+            if creatures:
+                context.add_counters(creatures[0], self.amount, self.kind, source=self.source)
+
+
+class DamageThenInvestigateIfExcessEffect(GameEffect):
+    """"~ deals twice X damage to target creature. If excess damage was
+    dealt to that creature this way, investigate." (Torch the Witness) —
+    RULE 120.9's "excess damage" (more than needed to be lethal): the
+    dealt amount compared against the target's toughness net of damage
+    already marked, read *before* this damage lands — a single atomic
+    effect since the check needs that pre-damage snapshot, not the
+    post-damage `GameObject.damage_marked` total (which could already
+    include unrelated damage from earlier this turn).
+    """
+
+    def __init__(
+        self, target: Any = None, source: Optional["GameObject"] = None, target_kind: str = "creature",
+    ) -> None:
+        super().__init__(source)
+        self.target = target
+        self.target_spec = TargetSpec(kind=target_kind)
+
+    def target_polarity(self) -> Optional[str]:
+        return "harmful"
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        target = (targets[0] if targets else None) or self.target
+        if target is None:
+            return
+        x_paid = getattr(self.source, "x_paid", 0) or 0
+        amount = x_paid * 2
+        remaining = (target.toughness or 0) - target.damage_marked
+        context.deal_damage(target, amount, self.source)
+        if amount > max(remaining, 0):
+            player = _controller_of(self.source, context)
+            if player is not None:
+                from ..services.token_database import default_token_database
+
+                clue = default_token_database().get_token("Clue")
+                if clue is not None:
+                    context.create_token(player.id, clue, 1)
+
+
+class ArmSpellWatcherEffect(GameEffect):
+    """"When you next cast an instant or sorcery spell with mana value N
+    or less this turn, `<effect>`." (Dual Strike) — the resolve-time
+    trigger for `RulesEngine.arm_spell_watcher`; see `GameState.
+    spell_watchers`'s docstring for the mechanism itself.
+    """
+
+    def __init__(
+        self,
+        then_specs: Optional[list[dict]] = None,
+        max_mana_value: Optional[int] = None,
+        card_types: Optional[list[str]] = None,
+        source: Optional["GameObject"] = None,
+    ) -> None:
+        super().__init__(source)
+        self.then_specs = list(then_specs or [])
+        self.max_mana_value = max_mana_value
+        self.card_types = card_types
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        player = _controller_of(self.source, context)
+        if player is None:
+            return
+        context.engine.arm_spell_watcher(
+            player, self.then_specs, self.source,
+            max_mana_value=self.max_mana_value, card_types=self.card_types,
+        )
+
+
+class ExileHandThenDrawThatManyEffect(GameEffect):
+    """"Exile all cards from your hand, then draw that many cards."
+    (Invasion of Kaldheim) — a plain hand refill/filter. **Documented
+    simplification**: the trailing "until the end of your next turn, you
+    may play cards exiled this way" isn't modeled — no primitive grants a
+    *set* of specific exiled cards a multi-turn play window the way
+    `ImpulsiveDrawEffect` does for a *library* exile; the cards are simply
+    gone.
+    """
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        player = _controller_of(self.source, context)
+        if player is None:
+            return
+        count = len(player.hand)
+        for card in list(player.hand):
+            context.exile(card)
+        if count:
+            context.draw(player, count)
+
+
+class ExileTopFromEachPlayerCastFreeEffect(GameEffect):
+    """"Exile the top card of each player's library, then you may cast any
+    number of spells from among those cards without paying their mana
+    costs." (Etali, Primal Storm) — reuses `RulesEngine.grant_free_cast_
+    window_from_exile` (Rebound/Beseech the Mirror's own "cast from exile
+    free" window) per exiled card, one per player, all opened for *this*
+    effect's own controller (RAW: "**you** may cast any number of spells
+    from among those cards" — not each card's owner) rather than the
+    method's own default of the card's ``controller_id``, so a control
+    reassignment happens first.
+    """
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        player = _controller_of(self.source, context)
+        if player is None:
+            return
+        for p in context.state.living_players():
+            if not p.library:
+                continue
+            card = p.library[-1]
+            context.exile(card)
+            card.controller_id = player.id
+            context.engine.grant_free_cast_window_from_exile(card)
+
+
+class GrantDieToExileThisTurnEffect(GameEffect):
+    """"If that creature would die this turn, exile it instead." (Lava
+    Coil/Smite the Deathless/Torch the Tower-shaped) — the resolve-time,
+    single-target, single-turn sibling of `ReplacementRegistry`'s standing
+    ``"die_to_exile"`` (a *permanent*'s own printed ability, scoped by
+    ``subject`` off ``effect.source``). This instead appends a fresh
+    `ReplacementEffect` straight onto the target's own `GameObject.
+    replacement_effects` — the same "just add to the list" idiom a bind-
+    on-load ability normally arrives by — with the turn number baked into
+    its condition at grant time so it expires on its own once the turn
+    moves on, no `GameState.floating_statics`/duration-sweep machinery
+    needed for a grant this narrow.
+    """
+
+    def __init__(
+        self, target: Any = None, source: Optional["GameObject"] = None, target_kind: Optional[str] = None,
+    ) -> None:
+        super().__init__(source)
+        self.target = target
+        self.target_spec = TargetSpec(kind=target_kind) if target_kind is not None else None
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        target = (targets[0] if targets else None) or self.target
+        if target is None:
+            return
+        armed_turn = context.state.turn_number
+        target_id = target.instance_id
+
+        def _condition(e: GameEvent, c: GameContext, turn=armed_turn, tid=target_id) -> bool:
+            return c.state.turn_number == turn and e.get("target_id") == tid
+
+        def _replace(e: GameEvent, c: GameContext) -> Optional[GameEvent]:
+            obj = c.state.find_object(e.get("target_id"))
+            if obj is not None:
+                c.engine.exile(obj)
+            return None
+
+        target.replacement_effects.append(
+            ReplacementEffect(
+                event_type=EventType.WOULD_DIE,
+                replacement_fn=_replace,
+                condition=_condition,
+                description="exile instead of dying this turn",
+            )
+        )
+
+
+class TriggerDoublerEffect(GameEffect):
+    """"If a triggered ability of another creature you control of the
+    chosen type triggers, it triggers an additional time." (Roaming
+    Throne, RULE 603.3d) — a continuous marker like `TopLibraryPermission
+    Effect`/`CantBeCounteredEffect` above: no layer/characteristic
+    behaviour of its own (``apply()`` is a no-op), just something
+    `game/rules/triggers_mixin.py`'s `_collect_triggers` scans for
+    (`continuous.trigger_doubler_bonus`) when deciding how many times to
+    place a *different* permanent's triggered ability on the stack. "The
+    chosen type" is this effect's own source's `GameObject.chosen_type`
+    (RULE 601.2b), read live so a Replay/Puzzle-mode change to the choice
+    is honoured immediately.
+    """
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        return None
+
+
 class GrantFlashUntilEndOfTurnEffect(GameEffect):
     """"You may cast spells this turn as though they had flash." (Borne
     Upon a Wind-shaped) — stamps `GameState.temp_flash_until_turn` for the
@@ -3605,6 +4258,58 @@ class ExileControllerSearchesBasicLandEffect(GameEffect):
         except (KeyError, ValueError):
             return
         context.request_search(player, {"basic": True}, "battlefield_tapped", 1, False)
+
+
+class DestroyControllerMaySearchBasicLandEffect(GameEffect):
+    """"Destroy target artifact, enchantment, or nonbasic land an opponent
+    controls. That player may search their library for a land card with a
+    basic land type, put it onto the battlefield, then shuffle." (Boseiju,
+    Who Endures's Channel ability) — `ExileControllerSearchesBasicLandEffect`'s
+    destroy-shaped sibling: destroy (so RULE 616 indestructible/regeneration
+    still applies, unlike exile) rather than exile, the search is *optional*
+    and untapped rather than Winds of Abandon's mandatory tapped one, and
+    "a land card with a basic land type" (any land carrying a basic land
+    type, not only a true basic) is `request_search`'s own criteria dict.
+    ``target_kind`` drops the "an opponent controls" restriction — no target
+    kind carries an ownership exclusion yet, the same documented
+    simplification `ExileControllerSearchesBasicLandEffect` uses.
+    """
+
+    def __init__(
+        self,
+        target: Any = None,
+        source: Optional["GameObject"] = None,
+        target_kind: str = "artifact_enchantment_or_nonbasic_land",
+        can_be_regenerated: bool = True,
+    ) -> None:
+        super().__init__(source)
+        self.target = target
+        self.can_be_regenerated = can_be_regenerated
+        self.target_spec = TargetSpec(kind=target_kind)
+
+    def target_polarity(self) -> Optional[str]:
+        return "harmful"
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        target = (targets[0] if targets else None) or self.target
+        if target is None:
+            return
+        controller_id = getattr(target, "controller_id", None)
+        context.destroy(target, can_be_regenerated=self.can_be_regenerated)
+        if controller_id is None:
+            return
+        try:
+            player = context.state.player_by_id(controller_id)
+        except (KeyError, ValueError):
+            return
+        context.request_search(
+            # "a land card with a basic land type" — `card_query`'s "basic"
+            # criterion (RULE 205.4h supertype) rather than a stricter
+            # basic-land-*type* check; the two coincide for every real card
+            # in this cache, the same simplification precedent Winds of
+            # Abandon's own basic-land search uses.
+            player, {"basic": True}, "battlefield", 1, True,
+        )
 
 
 class ReturnTopGraveyardCreatureWithHasteEffect(GameEffect):
@@ -3711,6 +4416,41 @@ class CounterAndFirstStrikeEffect(GameEffect):
             return
         context.add_counters(target, 1, "+1/+1", source=self.source)
         target.temp_keywords.add("first_strike")
+        context.recompute()
+
+
+class CounterUntapGrantKeywordEffect(GameEffect):
+    """"Put a +1/+1 counter on up to one target Elf. Untap it. It gains
+    deathtouch until end of turn." (Tyvar Kell's +1) — a single atomic
+    effect over one shared target, the same "two targeting effects would
+    double-prompt" reason `CounterAndFirstStrikeEffect` exists; generalizes
+    it with an untap step and a caller-chosen keyword instead of a fixed
+    first-strike grant.
+    """
+
+    def __init__(
+        self,
+        target: Any = None,
+        source: Optional["GameObject"] = None,
+        target_kind: str = "creature",
+        optional: bool = True,
+        creature_filter: Optional[dict[str, Any]] = None,
+        keyword: str = "deathtouch",
+    ) -> None:
+        super().__init__(source)
+        self.target = target
+        self.keyword = keyword
+        self.target_spec = TargetSpec(
+            kind=target_kind, optional=optional, creature_filter=creature_filter,
+        )
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        target = (targets[0] if targets else None) or self.target
+        if target is None:
+            return
+        context.add_counters(target, 1, "+1/+1", source=self.source)
+        context.set_tapped(target, tapped=False)
+        target.temp_keywords.add(self.keyword)
         context.recompute()
 
 
@@ -3907,6 +4647,7 @@ class ReturnFromGraveyardEffect(GameEffect):
         lose_life_equal_mv: bool = False,
         count: int = 1,
         shuffle_after: bool = False,
+        subtype: Optional[str] = None,
     ) -> None:
         super().__init__(source)
         self.target = target
@@ -3927,7 +4668,9 @@ class ReturnFromGraveyardEffect(GameEffect):
         # already treats a shuffle destination as a placement + a follow-up
         # `shuffle_library` call rather than its own zone.
         self.shuffle_after = shuffle_after
-        self.target_spec = TargetSpec(kind=target_kind, optional=optional, count=count)
+        self.target_spec = TargetSpec(
+            kind=target_kind, optional=optional, count=count, subtype=subtype,
+        )
 
     def _apply_one(self, context: GameContext, target: Any) -> None:
         controller_id = None
@@ -4021,8 +4764,18 @@ class AddManaEffect(GameEffect):
         amount_selector: Optional[str] = None,
         amount_from_trigger_event: Optional[str] = None,
         recipient: str = "controller",
+        target_kind: Optional[str] = None,
+        amount_from_target_hand_size: bool = False,
     ) -> None:
         super().__init__(source)
+        #: "Add {R} for each card in target opponent's hand." (Jeska's
+        #: Will) — the one shape here that genuinely targets (RULE 601.2c
+        #: opts this effect into a real `target_spec`, unlike every other
+        #: untargeted form above); the produced amount is read off that
+        #: resolved target's own hand size at resolution, not a board-wide
+        #: `continuous.count_selector` scope.
+        self.target_spec = TargetSpec(kind=target_kind) if target_kind is not None else None
+        self.amount_from_target_hand_size = amount_from_target_hand_size
         #: "add that much {R}" (MEC-11's Raphael, Ninja Destroyer, an
         #: Enrage sibling — "whenever ~ is dealt damage, add that much
         #: {R}") — the event field name (``"amount"``) to read off
@@ -4085,6 +4838,10 @@ class AddManaEffect(GameEffect):
             extra = continuous.count_selector(
                 context.state, player.id, self.amount_selector, source=self.source
             )
+            if extra > 0:
+                context.add_mana(player, self.color, extra)
+        if self.amount_from_target_hand_size and targets:
+            extra = len(getattr(targets[0], "hand", []) or [])
             if extra > 0:
                 context.add_mana(player, self.color, extra)
 
@@ -4677,17 +5434,46 @@ class ReturnSelfFromGraveyardEffect(GameEffect):
     assuming it's still in the graveyard (RULE 603.3c/608.2b: something
     else may have moved it between trigger and resolution, e.g. an
     opponent's graveyard-hate instant).
+
+    ``obj=None`` falls back to ``self.source`` instead — the shape a
+    *granted* "when this creature dies, return it to the battlefield…"
+    ability needs (Malakir Rebirth-shaped): `continuous.py`'s layer-6
+    `grant_triggered_ability` binds a fresh copy of the ability onto each
+    affected object with that object as ``source``, so there's no specific
+    firing to bake a reference in at — "it" is simply whichever object the
+    granted ability ended up on, read live the same way `RegenerateEffect`'s
+    self mode reads ``self.source``. ``tapped``/``under_your_control``
+    (RULE 400.7's "under **its owner's** control" is the default;
+    ``under_your_control`` is only for the rarer "under **your** control"
+    phrasing) cover the two real variants beyond the plain Infesting
+    Radroach shape.
     """
 
-    def __init__(self, obj: "GameObject", destination: str = "hand", source: Optional["GameObject"] = None) -> None:
+    def __init__(
+        self,
+        obj: Optional["GameObject"] = None,
+        destination: str = "hand",
+        source: Optional["GameObject"] = None,
+        tapped: bool = False,
+        under_your_control: bool = False,
+    ) -> None:
         super().__init__(source)
         self.obj = obj
         self.destination = destination
+        self.tapped = tapped
+        self.under_your_control = under_your_control
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
-        if self.obj.zone != Zone.GRAVEYARD:
+        obj = self.obj or self.source
+        if obj is None or obj.zone != Zone.GRAVEYARD:
             return
-        context.return_from_graveyard(self.obj, self.destination)
+        controller_id = None
+        if self.under_your_control and self.destination == "battlefield":
+            player = _controller_of(self.source, context)
+            controller_id = player.id if player is not None else None
+        context.return_from_graveyard(obj, self.destination, controller_id=controller_id)
+        if self.tapped and self.destination == "battlefield":
+            obj.tapped = True
 
 
 class SacrificeObjectEffect(GameEffect):
@@ -6317,6 +7103,7 @@ class CreateTokenEffect(GameEffect):
         legendary: bool = False,
         pt_from_trigger_event: Optional[str] = None,
         count_from_trigger_event: Optional[str] = None,
+        extra_counters: Optional[dict[str, Any]] = None,
     ) -> None:
         super().__init__(source)
         self.count = count
@@ -6330,6 +7117,12 @@ class CreateTokenEffect(GameEffect):
         self.creators = creators if creators in self._CREATORS else "you"
         self.tapped = bool(tapped)
         self.legendary = bool(legendary)
+        #: "…create an Incubator token with two +1/+1 counters on it…"
+        #: (Glissa, Herald of Predation's Incubate) — ``{"kind": "+1/+1",
+        #: "count": 2}``, put on each created token right after it enters,
+        #: the same shape `request_search`'s own ``extra_counters`` uses
+        #: for a found card reaching the battlefield.
+        self.extra_counters = dict(extra_counters) if extra_counters else None
         # "…create an X/X blue Shark creature token with flying, where X is
         # that spell's mana value." (Shark Typhoon-shaped) — an X/X token
         # sized off the firing `SPELL_CAST` event's own field, read fresh at
@@ -6393,6 +7186,12 @@ class CreateTokenEffect(GameEffect):
             if self.tapped:
                 for token in made:
                     token.tapped = True
+            if self.extra_counters:
+                kind = str(self.extra_counters.get("kind", "+1/+1"))
+                amount = int(self.extra_counters.get("count", 1) or 0)
+                if amount:
+                    for token in made:
+                        context.add_counters(token, amount, kind, source=self.source)
             # The referent for a following "the tokens are …" clause.
             context.created_objects.extend(made)
 
@@ -6417,6 +7216,7 @@ class CopyPermanentEffect(GameEffect):
         source: Optional["GameObject"] = None,
         target_kind: Optional[str] = "creature",
         count_if_kicked: Optional[int] = None,
+        count_from_trigger_event: Optional[str] = None,
     ) -> None:
         super().__init__(source)
         self.count = count
@@ -6426,12 +7226,31 @@ class CopyPermanentEffect(GameEffect):
         # same shape as `DealDamageEffect.amount_if_kicked`, just overriding
         # ``count`` instead of ``amount``.
         self.count_if_kicked = count_if_kicked
+        #: "…create that many tokens that are copies of equipped
+        #: creature." (Mirrormind Crown) — "that many" reads the firing
+        #: `CREATE_TOKENS` event's own ``amount``, the same "read this
+        #: firing's own payload" idiom `CreateTokenEffect.count_from_
+        #: trigger_event` uses. Overrides ``count`` when set.
+        self.count_from_trigger_event = count_from_trigger_event
         self.target = target
-        self.target_spec = TargetSpec(kind=target_kind) if target_kind is not None else None
+        #: ``target_kind="attached_permanent"`` (Mirrormind Crown-shaped
+        #: "…copies of **equipped** creature") is a third self-acting mode
+        #: alongside the plain-target and ``None``-copies-the-source ones:
+        #: whatever this Equipment/Aura is currently attached to, re-read
+        #: live at resolution, the same concept `TapEffect`'s own
+        #: ``"attached_permanent"`` mode uses.
+        self._attached_mode = target_kind == "attached_permanent"
+        self.target_spec = (
+            TargetSpec(kind=target_kind)
+            if target_kind is not None and not self._attached_mode else None
+        )
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
         target = (targets[0] if targets else None) or self.target
-        if target is None and self.target_spec is None:
+        if self._attached_mode:
+            attached_to = getattr(self.source, "attached_to", None)
+            target = context.state.find_object(attached_to) if attached_to is not None else None
+        elif target is None and self.target_spec is None:
             target = self.source
         if target is None:
             return
@@ -6441,7 +7260,11 @@ class CopyPermanentEffect(GameEffect):
         )
         kicker_count = getattr(self.source, "kicker_count", 0) or 0
         count = self.count_if_kicked if (self.count_if_kicked is not None and kicker_count > 0) else self.count
-        context.copy_permanent(controller_id, target, count)
+        if self.count_from_trigger_event:
+            event = context.trigger_event
+            count = int((event or {}).get(self.count_from_trigger_event) or 0)
+        if count > 0:
+            context.copy_permanent(controller_id, target, count)
 
 
 class EnterAsCopyReplacement(GameEffect):
@@ -6812,19 +7635,32 @@ class ImpulsiveDrawEffect(GameEffect):
         permission_player: Any = None,
         same_turn_only: bool = False,
         source: Optional["GameObject"] = None,
+        count_from_trigger_event: Optional[str] = None,
     ) -> None:
         super().__init__(source)
         self.count = count
         self.player = player
         self.permission_player = permission_player
         self.same_turn_only = same_turn_only
+        #: "…you may exile that many cards from the top of your library."
+        #: (Virtue of Courage — "that many" is the firing event's own
+        #: damage amount) — same "read this firing's own payload" idiom
+        #: `CreateTokenEffect.count_from_trigger_event` uses. Overrides
+        #: ``count`` when set.
+        self.count_from_trigger_event = count_from_trigger_event
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
         player = self.player or context.active_player
         permission_player = self.permission_player or player
         source_name = self.source.name if self.source is not None else None
+        count = self.count
+        if self.count_from_trigger_event:
+            event = context.trigger_event
+            count = int((event or {}).get(self.count_from_trigger_event) or 0)
+        if count <= 0:
+            return
         context.exile_with_play_permission(
-            player, self.count, source_name=source_name,
+            player, count, source_name=source_name,
             permission_player=permission_player, same_turn_only=self.same_turn_only,
         )
 
@@ -8708,6 +9544,15 @@ EffectRegistry.register(
         divided=bool(p.get("divided", False)),
         double_at=p.get("double_at"),
         amount_if_kicked=p.get("amount_if_kicked"),
+        amount_if_bargained=p.get("amount_if_bargained"),
+        double_if_bargained=bool(p.get("double_if_bargained", False)),
+        amount_if_target_color=(
+            (p["amount_if_target_color"]["amount"], list(p["amount_if_target_color"]["colors"]))
+            if p.get("amount_if_target_color") else None
+        ),
+        amount_from_count_selector=p.get("amount_from_count_selector"),
+        amount_plus_count_selector=int(p.get("amount_plus_count_selector", 0) or 0),
+        amount_from_trigger_event=p.get("amount_from_trigger_event"),
     ),
 )
 EffectRegistry.register(
@@ -8727,6 +9572,10 @@ EffectRegistry.register(
 EffectRegistry.register(
     "put_hand_cards_on_top",  # "put N cards from your hand on top of your library" (Brainstorm)
     lambda p: PutHandCardsOnTopEffect(count=p.get("count", 1), player=p.get("player")),
+)
+EffectRegistry.register(
+    "put_hand_card_on_bottom_then_draw",  # "you may put a card from your hand on the bottom of your library. If you do, draw a card." (Volcanic Spite)
+    lambda p: PutHandCardOnBottomThenDrawEffect(player=p.get("player")),
 )
 EffectRegistry.register(
     "reveal_hand_choose_discard",  # Duress/Thoughtseize/Coercion-shaped
@@ -8796,7 +9645,7 @@ EffectRegistry.register(
     "prevent_all_combat_damage",
     # RULE 615's unscoped Fog-shaped shield — distinct from
     # "prevent_damage_shield" above, which always shields one recipient.
-    lambda p: PreventAllCombatDamageEffect(),
+    lambda p: PreventAllCombatDamageEffect(exclude_subtype=p.get("exclude_subtype")),
 )
 EffectRegistry.register(
     "extra_land_play",
@@ -8810,6 +9659,7 @@ EffectRegistry.register(
         amount_from_trigger_event=p.get("amount_from_trigger_event"),
         amount_from_life_gained_this_turn=bool(p.get("amount_from_life_gained_this_turn", False)),
         amount_from_burden_counters_on_self=bool(p.get("amount_from_burden_counters_on_self", False)),
+        amount_from_count_selector=p.get("amount_from_count_selector"),
     ),
 )
 EffectRegistry.register(
@@ -8845,6 +9695,8 @@ EffectRegistry.register(
     lambda p: CopySpellEffect(
         card_types=p.get("card_types"),
         count=p.get("count", 1),
+        target_count=int(p.get("target_count", 1) or 1),
+        optional=bool(p.get("optional", False)),
     ),
 )
 EffectRegistry.register("cant_be_countered", lambda p: CantBeCounteredEffect())
@@ -8986,9 +9838,107 @@ EffectRegistry.register(
     "grant_flash_until_eot", lambda p: GrantFlashUntilEndOfTurnEffect()  # Borne Upon a Wind
 )
 EffectRegistry.register(
+    "trigger_doubler", lambda p: TriggerDoublerEffect()  # Roaming Throne
+)
+EffectRegistry.register(
+    "damage_then_investigate_if_excess",  # Torch the Witness
+    lambda p: DamageThenInvestigateIfExcessEffect(
+        target=p.get("target"), target_kind=p.get("target_kind", "creature"),
+    ),
+)
+EffectRegistry.register(
+    "grant_graveyard_cast_permission_this_turn",  # Backdraft Hellkite
+    lambda p: GrantGraveyardCastPermissionThisTurnEffect(),
+)
+EffectRegistry.register(
+    "exile_hand_then_draw_that_many",  # Invasion of Kaldheim
+    lambda p: ExileHandThenDrawThatManyEffect(),
+)
+EffectRegistry.register(
+    "exile_top_from_each_player_cast_free",  # Etali, Primal Storm
+    lambda p: ExileTopFromEachPlayerCastFreeEffect(),
+)
+EffectRegistry.register(
+    "arm_spell_watcher",  # Dual Strike
+    lambda p: ArmSpellWatcherEffect(
+        then_specs=p.get("then_specs"),
+        max_mana_value=p.get("max_mana_value"),
+        card_types=p.get("card_types"),
+    ),
+)
+EffectRegistry.register(
+    "grant_die_to_exile_this_turn",  # Lava Coil/Smite the Deathless/Torch the Tower
+    lambda p: GrantDieToExileThisTurnEffect(
+        target=p.get("target"), target_kind=p.get("target_kind"),
+    ),
+)
+EffectRegistry.register(
+    "each_opponent_counter_own_creature",  # High Perfect Morcant's "blights"
+    lambda p: EachOpponentCounterOwnCreatureEffect(
+        amount=int(p.get("amount", 1) or 1), kind=p.get("kind", "-1/-1"),
+    ),
+)
+EffectRegistry.register(
+    "transform_named_tokens",  # Glissa, Herald of Predation
+    lambda p: TransformNamedTokensEffect(
+        token_name=p.get("token_name", "Incubator"),
+        add_types=p.get("add_types"),
+        add_subtypes=p.get("add_subtypes"),
+        power=int(p.get("power", 0) or 0),
+        toughness=int(p.get("toughness", 0) or 0),
+    ),
+)
+EffectRegistry.register(
+    "top_up_player_counter",  # Vraska, Betrayal's Sting's -9
+    lambda p: TopUpPlayerCounterToThresholdEffect(
+        target=p.get("target"),
+        target_kind=p.get("target_kind", "player"),
+        kind=p.get("kind", "poison"),
+        threshold=int(p.get("threshold", 9) or 9),
+    ),
+)
+EffectRegistry.register(
     "exile_controller_searches_basic_land",  # Winds of Abandon
     lambda p: ExileControllerSearchesBasicLandEffect(
         target=p.get("target"), target_kind=p.get("target_kind", "creature"),
+    ),
+)
+EffectRegistry.register(
+    "request_choose_player", lambda p: RequestChoosePlayerEffect()  # Stuffy Doll
+)
+EffectRegistry.register(
+    "deal_damage_to_chosen_player", lambda p: DealDamageToChosenPlayerEffect()  # Stuffy Doll
+)
+EffectRegistry.register(
+    "request_choose_creature_type_grant",  # Selfless Safewright
+    lambda p: RequestChooseCreatureTypeGrantEffect(then_specs=p.get("then_specs")),
+)
+EffectRegistry.register(
+    "grant_keywords_to_chosen_type_until_eot",  # Selfless Safewright
+    lambda p: GrantKeywordsToChosenTypeUntilEotEffect(keywords=p.get("keywords")),
+)
+EffectRegistry.register(
+    "grant_keyword_to_trigger_subject",  # Tyvar Kell's emblem
+    lambda p: GrantKeywordToTriggerSubjectEffect(
+        keyword=p.get("keyword", "haste"), event_key=p.get("event_key", "instance_id"),
+    ),
+)
+EffectRegistry.register(
+    "counter_untap_grant_keyword",  # Tyvar Kell's +1
+    lambda p: CounterUntapGrantKeywordEffect(
+        target=p.get("target"),
+        target_kind=p.get("target_kind", "creature"),
+        optional=bool(p.get("optional", True)),
+        creature_filter=p.get("creature_filter"),
+        keyword=p.get("keyword", "deathtouch"),
+    ),
+)
+EffectRegistry.register(
+    "destroy_controller_may_search_basic_land",  # Boseiju, Who Endures
+    lambda p: DestroyControllerMaySearchBasicLandEffect(
+        target=p.get("target"),
+        target_kind=p.get("target_kind", "artifact_enchantment_or_nonbasic_land"),
+        can_be_regenerated=bool(p.get("can_be_regenerated", True)),
     ),
 )
 EffectRegistry.register(
@@ -9049,6 +9999,7 @@ EffectRegistry.register(
         lose_life_equal_mv=bool(p.get("lose_life_equal_mv", False)),
         count=p.get("count", 1),
         shuffle_after=bool(p.get("shuffle_after", False)),
+        subtype=p.get("subtype"),
     ),
 )
 EffectRegistry.register(
@@ -9060,6 +10011,8 @@ EffectRegistry.register(
         amount_selector=p.get("amount_selector"),
         amount_from_trigger_event=p.get("amount_from_trigger_event"),
         recipient=p.get("recipient", "controller"),
+        target_kind=p.get("target_kind"),
+        amount_from_target_hand_size=bool(p.get("amount_from_target_hand_size", False)),
     ),
 )
 EffectRegistry.register(
@@ -9603,6 +10556,7 @@ EffectRegistry.register(
         noncreature_only=p.get("noncreature_only", False),
         grants_flash=p.get("grants_flash", False),
         life_payment=p.get("life_payment", False),
+        chosen_type_creature_only=p.get("chosen_type_creature_only", False),
     ),
 )
 EffectRegistry.register(
@@ -9630,6 +10584,7 @@ EffectRegistry.register(
         legendary=bool(p.get("legendary", False)),
         pt_from_trigger_event=p.get("pt_from_trigger_event"),
         count_from_trigger_event=p.get("count_from_trigger_event"),
+        extra_counters=p.get("extra_counters"),
     ),
 )
 EffectRegistry.register(
@@ -9639,6 +10594,7 @@ EffectRegistry.register(
         target=p.get("target"),
         target_kind=p.get("target_kind", "creature"),
         count_if_kicked=p.get("count_if_kicked"),
+        count_from_trigger_event=p.get("count_from_trigger_event"),
     ),
 )
 EffectRegistry.register(
@@ -9672,6 +10628,7 @@ EffectRegistry.register(
     "impulsive_draw",
     lambda p: ImpulsiveDrawEffect(
         count=p.get("count", 1), same_turn_only=bool(p.get("same_turn_only", False)),
+        count_from_trigger_event=p.get("count_from_trigger_event"),
     ),
 )
 EffectRegistry.register(
@@ -9712,6 +10669,19 @@ EffectRegistry.register(
     # sibling of `return_from_graveyard_transformed` above.
     "return_self_from_graveyard",
     lambda p: ReturnSelfFromGraveyardToBattlefieldEffect(tapped=bool(p.get("tapped", False))),
+)
+EffectRegistry.register(
+    # "…that creature gains 'when this creature dies, return it to the
+    # battlefield tapped under its owner's control.'" (Malakir Rebirth's
+    # granted death-return, temporary — unlike `return_self_from_graveyard`
+    # above, which is a printed permanent's own standing ability) — the
+    # untargeted, self-acting sibling of `return_from_graveyard`.
+    "return_self_from_graveyard_untargeted",
+    lambda p: ReturnSelfFromGraveyardEffect(
+        destination=p.get("destination", "hand"),
+        tapped=bool(p.get("tapped", False)),
+        under_your_control=bool(p.get("under_your_control", False)),
+    ),
 )
 EffectRegistry.register(
     # "Return this card from your graveyard to your hand." (PAR-16 —
@@ -10038,6 +11008,9 @@ EffectRegistry.register(
         affects=p.get("affects", "self"),
         params={
             "add_types": list(p.get("add_types", [])),
+            # "…and loses all other card types…" (Vraska, Betrayal's
+            # Sting's -2) — the removal-side mirror of `add_types`.
+            "remove_types": list(p.get("remove_types", [])),
             # RULE 601.2b/613.4a "~ is the chosen type in addition to its
             # other types" (Adaptive Automaton/A-Thran Portal-shaped) — a
             # literal `add_subtypes` list and/or the dynamic
@@ -10093,6 +11066,10 @@ EffectRegistry.register(
             # families above use) since this checks the object on the stack,
             # not a battlefield selector.
             **({"spell_type": p["spell_type"]} if p.get("spell_type") else {}),
+            # "Red spells you cast cost {1} less to cast." (the Medallion
+            # cycle) — `continuous.cost_reduction_for`'s own colour filter,
+            # orthogonal to `spell_type`.
+            **({"spell_color": p["spell_color"]} if p.get("spell_color") else {}),
             # ``scope="activation"`` (Power Artifact-shaped "Enchanted
             # artifact's activated abilities cost {2} less to activate.") —
             # a *different* cost this same "cost" layer/StaticAbility shape

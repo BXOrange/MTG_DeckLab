@@ -251,6 +251,22 @@ class DrawDiscardMixin:
             obj = player.hand.pop()
             obj.zone = Zone.LIBRARY
             player.library.append(obj)  # top of deck is the list end
+    def put_hand_card_on_bottom_then_draw(self, player: Player) -> None:
+        """"You may put a card from your hand on the bottom of your library.
+        If you do, draw a card." (Volcanic Spite) — a pure card exchange
+        riding an already-resolved removal spell, so the "may" is auto-taken
+        whenever the hand isn't empty, the same "auto-pick, no chooser in
+        this MVP" idiom `discard`/`put_hand_cards_on_top` already use for a
+        value-neutral card selection; unlike `put_hand_cards_on_top`, the
+        card goes to library *index 0* (the bottom — "top of deck is the
+        list end", the same convention that method's own comment states).
+        """
+        if not player.hand:
+            return
+        obj = player.hand.pop()
+        obj.zone = Zone.LIBRARY
+        player.library.insert(0, obj)
+        self.draw(player, 1)
     def discard_specific(self, obj: GameObject) -> None:
         """Discard ``obj`` itself out of its owner's hand — Channel (RULE
         702.29)/Cycling (RULE 702.28)'s own "Discard this card" cost, unlike

@@ -604,7 +604,7 @@ export function createGameBoardView(opts = {}) {
       if (restored.size) blockDraft = restored;
     } else if (draft.kind === 'cast' && draft.castTargeting?.send) {
       const ct = draft.castTargeting;
-      const action = findTargetableAction(ct.instanceId, ct.send.type, ct.send.ability_index, ct.send.face);
+      const action = findTargetableAction(ct.instanceId, ct.send.type, ct.send.ability_index, ct.send.face, ct.send.mode);
       if (action) {
         const expanded = expandMultiTargetRequirements(action.targets || []);
         const sameShape = ct.isTapChoice || ct.isSacrificeChoice
@@ -1740,12 +1740,12 @@ export function createGameBoardView(opts = {}) {
     // click time rather than baking it into a static data-action attribute.
     root.querySelectorAll('[data-cast-x]').forEach((el) => {
       el.addEventListener('click', () => {
-        const { iid, face } = JSON.parse(el.dataset.castX);
+        const { iid, face, mode, entwine } = JSON.parse(el.dataset.castX);
         const input = root.querySelector(`[data-x-input="${xKey(iid, face)}"]`);
         const x = Math.max(0, Math.floor(Number(input?.value) || 0));
         const kicked = readKicker(iid, face);
         const kicker_x = readKickerX(iid, face);
-        act({ type: 'cast_spell', instance_id: iid, x, face, kicked, kicker_x });
+        act({ type: 'cast_spell', instance_id: iid, x, face, kicked, kicker_x, mode, entwine });
       });
     });
 
@@ -1762,7 +1762,7 @@ export function createGameBoardView(opts = {}) {
       el.addEventListener('click', () => {
         const info = JSON.parse(el.dataset.castTargetStart);
         const iid = Number(info.iid);
-        const action = findTargetableAction(iid, info.type, info.ability_index, info.face);
+        const action = findTargetableAction(iid, info.type, info.ability_index, info.face, info.mode);
         if (!action) return;
         const input = root.querySelector(`[data-x-input="${xKey(iid, info.face)}"]`);
         const x = action.has_x ? Math.max(0, Math.floor(Number(input?.value) || 0)) : 0;
@@ -1770,7 +1770,10 @@ export function createGameBoardView(opts = {}) {
         const kicker_x = action.kicker_has_x ? readKickerX(iid, info.face) : 0;
         const send = info.type === 'activate_ability'
           ? { type: 'activate_ability', instance_id: iid, ability_index: info.ability_index, name: action.name }
-          : { type: 'cast_spell', instance_id: iid, name: action.name, face: info.face, kicked, kicker_x };
+          : {
+            type: 'cast_spell', instance_id: iid, name: action.name, face: info.face, kicked, kicker_x,
+            mode: info.mode, entwine: info.entwine,
+          };
         const {
           requirements, owners, groupCount, excludePicked, excludeControllers,
         } = expandMultiTargetRequirements(action.targets || []);
@@ -1921,13 +1924,23 @@ export function createGameBoardView(opts = {}) {
     return Math.max(0, Math.floor(Number(input?.value) || 0));
   }
 
-  function findTargetableAction(iid, type, abilityIndex, face) {
+  // ``mode`` disambiguates a modal spell's several `cast_spell` offers
+  // (RULE 700.2 — same instance_id/type/face, one per mode or mode
+  // combination via `_modal_cast_actions`) — without it this always
+  // returned whichever mode `legal_actions` happened to list first,
+  // regardless of which of the offered buttons was actually clicked.
+  // Compared via JSON (not `===`) since a "choose N" mode is an array of
+  // indices; absent on both sides (a non-modal spell/activated ability)
+  // normalizes to the same `null` key either way.
+  function findTargetableAction(iid, type, abilityIndex, face, mode) {
+    const modeKey = JSON.stringify(mode ?? null);
     return (view?.legal_actions || []).find(
       (a) =>
         a.type === type &&
         a.instance_id === iid &&
         (type !== 'activate_ability' || a.ability_index === abilityIndex) &&
-        (a.face || undefined) === (face || undefined),
+        (a.face || undefined) === (face || undefined) &&
+        JSON.stringify(a.mode ?? null) === modeKey,
     );
   }
 
@@ -2425,6 +2438,20 @@ export function createGameBoardView(opts = {}) {
     return a.face ? ` — ${escapeHtml(a.name)}` : '';
   }
 
+  // RULE 700.2: a modal spell offers one `cast_spell` action per mode (or
+  // per legal mode combination — `_modal_cast_actions`), each tagged with
+  // `mode`/`mode_description`. Without this, every offered variant renders
+  // as an identical "✨ Zaubern" button and `findTargetableAction` picks
+  // whichever happens to come first in `legal_actions` — the player never
+  // actually chooses a mode. `a.entwine` (RULE 702.42a) reuses the same
+  // "both modes" `mode: "both"` shape, just priced, so it gets its own
+  // label rather than falling back to the plain mode text.
+  function modeHint(a) {
+    if (!a.mode_description) return a.entwine ? ' (Verflechten)' : '';
+    const suffix = a.entwine ? ' (Verflechten)' : '';
+    return ` — ${escapeHtml(a.mode_description)}${suffix}`;
+  }
+
   // RULE 606: color-code a loyalty ability's button by its [+N]/[-N]/[0]
   // sign, so it reads at a glance distinctly from an ordinary activated
   // ability — the wire action only carries the pre-rendered cost_label
@@ -2486,7 +2513,7 @@ export function createGameBoardView(opts = {}) {
         buttons.push(`
           <div class="gf-cast-x">
             ${xField}${kickerFieldHtml(a)}
-            <button type="button" class="gf-card-action" data-cast-x='${escapeAttr(JSON.stringify({ iid: a.instance_id, face: a.face }))}'>✨ Zaubern (${suffix})${faceHint(a)}</button>
+            <button type="button" class="gf-card-action" data-cast-x='${escapeAttr(JSON.stringify({ iid: a.instance_id, face: a.face, mode: a.mode, entwine: a.entwine }))}'>✨ Zaubern (${suffix})${modeHint(a)}${faceHint(a)}</button>
           </div>
         `);
       } else if (a.type === 'cast_spell') {
@@ -2495,8 +2522,8 @@ export function createGameBoardView(opts = {}) {
           : '';
         buttons.push(
           actionButton(
-            { type: 'cast_spell', instance_id: a.instance_id, name: a.name, face: a.face },
-            `✨ Zaubern${hint}${faceHint(a)}`
+            { type: 'cast_spell', instance_id: a.instance_id, name: a.name, face: a.face, mode: a.mode, entwine: a.entwine },
+            `✨ Zaubern${modeHint(a)}${hint}${faceHint(a)}`
           )
         );
       } else if (a.type === 'activate_ability' && a.locked) {
@@ -2659,10 +2686,13 @@ export function createGameBoardView(opts = {}) {
     const xField = a.has_x
       ? `<input type="number" min="0" max="${a.max_x}" value="${a.max_x}" data-x-input="${xKey(iid, a.face)}" />`
       : '';
-    const startInfo = JSON.stringify({ iid, type: a.type, ability_index: a.ability_index, face: a.face });
+    const startInfo = JSON.stringify({
+      iid, type: a.type, ability_index: a.ability_index, face: a.face,
+      mode: a.mode, entwine: a.entwine,
+    });
     const label = a.type === 'activate_ability'
       ? `⚡ ${escapeHtml(a.cost_label || 'Aktivieren')} → Ziel ▾`
-      : `✨ Zaubern → Ziel ▾${faceHint(a)}`;
+      : `✨ Zaubern${modeHint(a)} → Ziel ▾${faceHint(a)}`;
     const lc = a.type === 'activate_ability' ? loyaltyModifierClass(a.cost_label) : '';
     return `<div class="gf-cast-targets">${xField}${kickerFieldHtml(a)}<button type="button" class="gf-card-action${lc}" data-cast-target-start='${escapeAttr(startInfo)}'>${label}</button></div>`;
   }

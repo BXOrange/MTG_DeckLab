@@ -75,6 +75,16 @@ def _grant_permits_cast(grant: TopLibraryPermissionEffect, card: "Card") -> bool
         return False
     if grant.noncreature_only and getattr(card, "is_creature", False):
         return False
+    if grant.chosen_type_creature_only:
+        # Realmwalker: "creature spells of the chosen type" — the type is
+        # only known once its own RULE 601.2b ETB choice has been made, so
+        # this reads it live off the granting permanent rather than being a
+        # closed-vocabulary flag like `noncreature_only`.
+        if not getattr(card, "is_creature", False):
+            return False
+        wanted = getattr(grant.source, "chosen_type", None)
+        if not wanted or wanted.lower() not in (card.type_line or "").lower():
+            return False
     return True
 
 

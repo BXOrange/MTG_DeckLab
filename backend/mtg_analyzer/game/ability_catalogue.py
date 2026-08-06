@@ -441,16 +441,51 @@ register("Cursed Mirror", _cursed_mirror)
 
 def _tyvar_kell() -> list[AbilitySpec]:
     """Elves you control have "{T}: Add {B}."
-    [loyalty abilities not modeled — planeswalkers/loyalty costs are, but
-    this catalogue entry only demonstrates the static clause]
+    +1: Put a +1/+1 counter on up to one target Elf. Untap it. It gains
+    deathtouch until end of turn.
+    0: Create a 1/1 green Elf Warrior creature token.
+    −6: You get an emblem with "Whenever you cast an Elf spell, it gains
+    haste until end of turn and you draw two cards."
 
-    — Tyvar Kell. A layer-6 ability-adding grant (RULE 613.7f) of a mana
-    ability rather than a keyword — despite CR 612.1's mention of text
-    "granted … by other effects", this is *not* layer 3/RULE 612 (see
-    `game/continuous.py`'s module docstring); it's the same layer as
-    `grant_keyword`, just granting `{"B": 1}` mana production instead of a
-    keyword slug. `mana_abilities.mana_options_for` folds it onto whatever
-    the Elf already taps for."""
+    — Tyvar Kell. The static mana grant is a layer-6 ability-adding grant
+    (RULE 613.7f) — despite CR 612.1's mention of text "granted … by other
+    effects", this is *not* layer 3/RULE 612 (see `game/continuous.py`'s
+    module docstring); it's the same layer as `grant_keyword`, just
+    granting `{"B": 1}` mana production instead of a keyword slug.
+    `mana_abilities.mana_options_for` folds it onto whatever the Elf
+    already taps for.
+
+    Eliferate deck batch (all three loyalty abilities were previously
+    unmodeled — hand-authoring a card wholesale-replaces the parser's own
+    output, `specs_for`'s registry-wins precedence, so a static-only entry
+    silently dropped them even where the parser alone could already model
+    the "0:" ability). "+1:"'s combo body is
+    `effects.CounterUntapGrantKeywordEffect` (put a counter, untap, grant a
+    keyword — one atomic effect over one shared target, `CounterAndFirst
+    StrikeEffect`'s established "avoid a second target prompt" shape,
+    generalized with an untap step and a caller-chosen keyword), targeting
+    `creature_filter={"subtype": "Elf"}` (any Elf, not just yours — RAW has
+    no "you control" on this one). "−6:"'s emblem quotes a genuine nested
+    `AbilitySpec` (RULE 114.2, the same shape the oracle-text parser's own
+    `_emblem_ability_spec` builds, just constructed directly here since
+    there's no card text to recursively parse) combining a new
+    `effects.GrantKeywordToTriggerSubjectEffect` ("it gains haste" — RULE
+    603.1's "it" pronoun resolves to whatever `SPELL_CAST` event fired the
+    trigger) with a plain draw.
+    """
+    emblem_ability = AbilitySpec(
+        "triggered",
+        [
+            EffectSpec("grant_keyword_to_trigger_subject", {"keyword": "haste"}),
+            EffectSpec("draw", {"count": 2}),
+        ],
+        trigger={
+            "event": EventType.SPELL_CAST,
+            "condition": {"subject": "group", "subtypes": ["elf"], "controller": "you"},
+        },
+        raw_text="Immer wenn du einen Elfenzauberspruch wirkst, erhält er Eile bis "
+                 "zum Ende des Zuges und du ziehst zwei Karten.",
+    )
     return [
         AbilitySpec(
             "static",
@@ -461,7 +496,33 @@ def _tyvar_kell() -> list[AbilitySpec]:
                 )
             ],
             raw_text='Elfen, die du kontrollierst, haben "{T}: Erzeuge {B}."',
-        )
+        ),
+        AbilitySpec(
+            "activated",
+            [EffectSpec("counter_untap_grant_keyword", {
+                "creature_filter": {"subtype": "Elf"}, "keyword": "deathtouch",
+            })],
+            cost={"loyalty": 1},
+            raw_text="+1: Lege einen +1/+1-Marke auf bis zu einen Zielelfen. Enttappe "
+                     "ihn. Er erhält Todesberührung bis zum Ende des Zuges.",
+        ),
+        AbilitySpec(
+            "activated",
+            [EffectSpec("create_token", {
+                "count": 1, "power": 1, "toughness": 1, "colors": ["G"],
+                "subtypes": ["Elf", "Warrior"], "keywords": [], "token_name": "Elf Warrior",
+            })],
+            cost={"loyalty": 0},
+            raw_text="0: Erzeuge einen 1/1 grünen Elfen-Krieger-Kreaturenspielstein.",
+        ),
+        AbilitySpec(
+            "activated",
+            [EffectSpec("create_emblem", {"ability": emblem_ability.to_dict()})],
+            cost={"loyalty": -6},
+            raw_text='−6: Du erhältst einen Emblem-Spielstein mit "Immer wenn du einen '
+                     'Elfenzauberspruch wirkst, erhält er Eile bis zum Ende des Zuges '
+                     'und du ziehst zwei Karten."',
+        ),
     ]
 
 
@@ -8424,3 +8485,2551 @@ def _valakut_awakening() -> list[AbilitySpec]:
 
 register("Valakut Awakening", _valakut_awakening)
 register("Valakut Awakening // Valakut Stoneforge", _valakut_awakening)
+
+
+def _boseiju_who_endures() -> list[AbilitySpec]:
+    """{T}: Add {G}.
+    Channel — {1}{G}, Discard this card: Destroy target artifact,
+    enchantment, or nonbasic land an opponent controls. That player may
+    search their library for a land card with a basic land type, put it
+    onto the battlefield, then shuffle. This ability costs {1} less to
+    activate for each legendary creature you control.
+
+    — Eliferate deck batch. The mana ability is bound automatically off
+    the printed "{T}: Add {G}." text. Same Channel/`dynamic_reduction`
+    shape as `Eiganjo, Seat of the Empire`'s own per-legendary-creature
+    discount (`costs.ActivationCost.dynamic_reduction`'s
+    `legendary_creatures_you_control` count_selector). The destroy+search
+    body is a new primitive, `effects.
+    DestroyControllerMaySearchBasicLandEffect` — pairs `RulesEngine.destroy`
+    (unlike Winds of Abandon's exile-then-search sibling, so an
+    indestructible/regeneration-shielded target survives) with an
+    *optional*, untapped basic-land search offered to the destroyed
+    permanent's own controller. `target_kind` drops the "an opponent
+    controls" restriction — the same documented simplification
+    `ExileControllerSearchesBasicLandEffect` already uses (no target kind
+    carries an ownership exclusion yet).
+    """
+    return [
+        AbilitySpec(
+            "activated",
+            [EffectSpec("destroy_controller_may_search_basic_land", {})],
+            cost={
+                "text": "{1}{G}, Discard this card",
+                "dynamic_reduction": {
+                    "count_selector": "legendary_creatures_you_control",
+                    "generic_per": 1,
+                },
+            },
+            raw_text="Kanalisieren — {1}{G}, Wirf diese Karte ab: Zerstöre ein "
+                     "Zielartefakt, eine Zielverzauberung oder ein nichtgrundlegendes "
+                     "Zielland, das ein Gegner kontrolliert. Dieser Spieler kann in "
+                     "seiner Bibliothek nach einer Landkarte mit einem grundlegenden "
+                     "Landtyp suchen, sie ins Spiel legen und danach seine Bibliothek "
+                     "mischen. Diese Fähigkeit kostet {1} weniger für jede legendäre "
+                     "Kreatur, die du kontrollierst.",
+        ),
+    ]
+
+
+register("Boseiju, Who Endures", _boseiju_who_endures)
+
+
+def _takenuma_abandoned_mire() -> list[AbilitySpec]:
+    """{T}: Add {B}.
+    Channel — {3}{B}, Discard this card: Mill three cards, then return a
+    creature or planeswalker card from your graveyard to your hand. This
+    ability costs {1} less to activate for each legendary creature you
+    control.
+
+    — Eliferate deck batch, same Channel/`dynamic_reduction` shape as
+    `Boseiju, Who Endures`/`Eiganjo, Seat of the Empire`. "Return a creature
+    or planeswalker card from your graveyard to your hand" is untargeted
+    RAW (no "target"), but reuses `ReturnFromGraveyardEffect`'s own new
+    `graveyard_creature_or_planeswalker` kind (`targeting.py`'s
+    `_GRAVEYARD_TYPE_FILTERS`) as a targeted choice instead — the same
+    targeted-vs-untargeted-choice simplification this engine's whole
+    Regrowth-adjacent recursion family already makes.
+    """
+    return [
+        AbilitySpec(
+            "activated",
+            [
+                EffectSpec("mill", {"count": 3}),
+                EffectSpec("return_from_graveyard", {
+                    "target_kind": "graveyard_creature_or_planeswalker",
+                    "destination": "hand",
+                }),
+            ],
+            cost={
+                "text": "{3}{B}, Discard this card",
+                "dynamic_reduction": {
+                    "count_selector": "legendary_creatures_you_control",
+                    "generic_per": 1,
+                },
+            },
+            raw_text="Kanalisieren — {3}{B}, Wirf diese Karte ab: Mille drei Karten, "
+                     "kehre danach eine Kreaturenkarte oder Planeswalkerkarte aus "
+                     "deinem Friedhof auf deine Hand zurück. Diese Fähigkeit kostet "
+                     "{1} weniger für jede legendäre Kreatur, die du kontrollierst.",
+        ),
+    ]
+
+
+register("Takenuma, Abandoned Mire", _takenuma_abandoned_mire)
+
+
+def _dwynen_gilt_leaf_daen() -> list[AbilitySpec]:
+    """Reach
+    Other Elf creatures you control get +1/+1.
+    Whenever Dwynen attacks, you gain 1 life for each attacking Elf you
+    control.
+
+    — Eliferate deck batch. Reach and the anthem already parse; the attack
+    trigger's amount is `continuous.count_selector`'s new
+    `attacking_creatures_you_control_of_type_<x>` (`GainLifeEffect.
+    count_selector`) — the attacking-scoped sibling of the existing
+    `creatures_you_control_of_type_` selector.
+    """
+    return [
+        AbilitySpec(
+            "triggered",
+            [EffectSpec("gain_life", {
+                "count_selector": "attacking_creatures_you_control_of_type_elf",
+            })],
+            trigger={"event": EventType.ATTACKS, "condition": {"subject": "self"}},
+            raw_text="Immer wenn Dwynen angreift, gewinnst du 1 Leben für jeden "
+                     "angreifenden Elfen unter deiner Kontrolle.",
+        ),
+    ]
+
+
+register("Dwynen, Gilt-Leaf Daen", _dwynen_gilt_leaf_daen)
+
+
+def _elvish_warmaster() -> list[AbilitySpec]:
+    """Whenever one or more other Elves you control enter, create a 1/1
+    green Elf Warrior creature token. This ability triggers only once each
+    turn.
+    {5}{G}{G}: Elves you control get +2/+2 and gain deathtouch until end of
+    turn.
+
+    — Eliferate deck batch. The pump ability already parses; the ETB
+    trigger is the same "whenever one or more other X you control enter…
+    triggers only once each turn" shape `Merry, Warden of Isengard` already
+    uses for artifacts, just subtype-scoped to Elf instead of type-scoped
+    to artifact.
+    """
+    return [
+        AbilitySpec(
+            "triggered",
+            [EffectSpec("create_token", {
+                "count": 1, "power": 1, "toughness": 1, "colors": ["G"],
+                "subtypes": ["Elf", "Warrior"], "keywords": [], "token_name": "Elf Warrior",
+            })],
+            trigger={
+                "event": EventType.ENTERS_BATTLEFIELD,
+                "condition": {
+                    "subject": "group", "subtypes": ["elf"],
+                    "controller": "you", "other": True,
+                },
+                "limit": True,
+            },
+            raw_text="Immer wenn ein oder mehr andere Elfen unter deiner Kontrolle ins "
+                     "Spiel kommen, erzeuge einen 1/1 grünen Elfen-Krieger-"
+                     "Kreaturenspielstein. Diese Fähigkeit wird nur einmal pro Zug "
+                     "ausgelöst.",
+        ),
+        AbilitySpec(
+            "activated",
+            [EffectSpec("pump", {
+                "power": 2, "toughness": 2, "keywords": ["deathtouch"],
+                "selector": "creatures_you_control_of_type_elf",
+            })],
+            cost={"text": "{5}{G}{G}"},
+            raw_text="{5}{G}{G}: Elfen unter deiner Kontrolle erhalten +2/+2 und "
+                     "Todesberührung bis zum Ende des Zuges.",
+        ),
+    ]
+
+
+register("Elvish Warmaster", _elvish_warmaster)
+
+
+def _morcants_loyalist() -> list[AbilitySpec]:
+    """Other Elves you control get +1/+1.
+    When this creature dies, return another target Elf card from your
+    graveyard to your hand.
+
+    — Eliferate deck batch. The anthem already parses; the dies trigger
+    reuses `ReturnFromGraveyardEffect`'s new `subtype` filter
+    (`targeting.TargetSpec.subtype`) scoped to "elf", which also excludes
+    this card's own now-in-the-graveyard copy the same way an ordinary
+    battlefield "another" target excludes its own source.
+    """
+    return [
+        AbilitySpec(
+            "triggered",
+            [EffectSpec("return_from_graveyard", {
+                "target_kind": "graveyard_creature", "subtype": "elf",
+                "destination": "hand",
+            })],
+            trigger={"event": EventType.DIES, "condition": {"subject": "self"}},
+            raw_text="Wenn diese Kreatur stirbt, kehre eine andere Zielelfenkarte aus "
+                     "deinem Friedhof auf deine Hand zurück.",
+        ),
+    ]
+
+
+register("Morcant's Loyalist", _morcants_loyalist)
+
+
+def _elvish_harbinger() -> list[AbilitySpec]:
+    """When this creature enters, you may search your library for an Elf
+    card, reveal it, then shuffle and put that card on top.
+    {T}: Add one mana of any color.
+
+    — Eliferate deck batch. The mana ability is bound automatically off the
+    printed "{T}: Add one mana of any color." text; the ETB tutor is a
+    plain `SearchLibraryEffect` — an optional, `{"type": "Elf"}`-filtered
+    library search to the top of the library, the same "reveal" simplification
+    (not separately modeled) every other tutor in this catalogue makes.
+    """
+    return [
+        AbilitySpec(
+            "triggered",
+            [EffectSpec("search", {
+                "criteria": {"type": "Elf"}, "destination": "library_top", "optional": True,
+            })],
+            trigger={"event": EventType.ENTERS_BATTLEFIELD, "condition": {"subject": "self"}},
+            raw_text="Wenn diese Kreatur ins Spiel kommt, kannst du in deiner Bibliothek "
+                     "nach einer Elfenkarte suchen, sie zeigen, mischen und diese Karte "
+                     "danach oben auf deine Bibliothek legen.",
+        ),
+    ]
+
+
+register("Elvish Harbinger", _elvish_harbinger)
+
+
+def _elvish_guidance() -> list[AbilitySpec]:
+    """Enchant land
+    Whenever enchanted land is tapped for mana, its controller adds an
+    additional {G} for each Elf on the battlefield.
+
+    — Eliferate deck batch. `Wild Growth`'s own triggered-mana-ability
+    shape (RULE 605.1b/605.4), just with a board-scaled amount instead of a
+    flat one: `AddManaEffect.amount_selector`'s new unscoped
+    `creatures_of_type_<x>` count (`continuous.count_selector`) rather
+    than the `_you_control`-scoped form every existing consumer used —
+    "on the battlefield" here means every Elf, regardless of controller.
+    """
+    return [
+        AbilitySpec(
+            "triggered",
+            [EffectSpec("add_mana", {
+                "color": "G", "amount_selector": "creatures_of_type_elf",
+                "recipient": "event_controller",
+            })],
+            trigger={
+                "event": EventType.TAPPED_FOR_MANA,
+                "condition": {"subject": "attached_permanent"},
+                "mana_ability": True,
+            },
+            raw_text="Verzaubere Land\nImmer wenn das verzauberte Land für Mana getappt "
+                     "wird, erzeugt sein Beherrscher zusätzlich {G} für jeden Elfen auf "
+                     "dem Spielfeld.",
+        ),
+    ]
+
+
+register("Elvish Guidance", _elvish_guidance)
+
+
+def _vanquishers_banner() -> list[AbilitySpec]:
+    """As this artifact enters, choose a creature type.
+    Creatures you control of the chosen type get +1/+1.
+    Whenever you cast a creature spell of the chosen type, draw a card.
+
+    — Eliferate deck batch. The ETB type choice and the anthem parse on
+    their own (`choose_creature_type_on_enter`/`anthem` with
+    `subtype_from_source`) — reproduced here verbatim (whole-card hand-
+    authoring replaces the parser's own specs entirely, `specs_for`'s
+    registry-wins precedence, so a partial registration would silently
+    drop them) — alongside the one clause that didn't: the cast trigger.
+    That's a new `effect_binder` predicate, `"cast_of_chosen_type"` —
+    reads `GameObject.chosen_type` live at check time (unlike the
+    fixed-at-bind `"subtypes"` group filter, the wanted type isn't known
+    until the ETB choice resolves) against the live-looked-up cast spell's
+    own printed subtypes.
+    """
+    return [
+        AbilitySpec(
+            "enter_replacement",
+            [EffectSpec("choose_creature_type_on_enter", {})],
+            raw_text="Wähle beim Ins-Spiel-Kommen dieses Artefakts einen Kreaturentyp.",
+        ),
+        AbilitySpec(
+            "static",
+            [EffectSpec("anthem", {
+                "power": 1, "toughness": 1, "affects": "creatures_you_control",
+                "subtype_from_source": True,
+            })],
+            raw_text="Kreaturen des gewählten Typs unter deiner Kontrolle erhalten +1/+1.",
+        ),
+        AbilitySpec(
+            "triggered",
+            [EffectSpec("draw", {"count": 1})],
+            trigger={
+                "event": EventType.SPELL_CAST,
+                "condition": {"subject": "group", "type": "creature", "controller": "you"},
+                "cast_of_chosen_type": True,
+            },
+            raw_text="Immer wenn du einen Kreaturenzauberspruch des gewählten Typs "
+                     "wirkst, ziehe eine Karte.",
+        ),
+    ]
+
+
+register("Vanquisher's Banner", _vanquishers_banner)
+
+
+def _realmwalker() -> list[AbilitySpec]:
+    """Changeling (This card is every creature type.)
+    As this creature enters, choose a creature type.
+    You may look at the top card of your library any time.
+    You may cast creature spells of the chosen type from the top of your
+    library.
+
+    — Eliferate deck batch. Changeling (keyword) and the ETB type choice
+    (`choose_creature_type_on_enter`) already parse on their own —
+    reproduced here verbatim, since whole-card hand-authoring replaces the
+    parser's own output wholesale (`specs_for`'s registry-wins precedence).
+    The standing permission is `top_library_permission`'s new
+    `chosen_type_creature_only` flag — the same `Oracle of Mul Daya`/
+    `Glarb, Calamity's Augur` family, narrowed by `GameObject.chosen_type`
+    read live (`game/top_library.py`) instead of a fixed mana-value/
+    noncreature gate.
+    """
+    return [
+        AbilitySpec(
+            "enter_replacement",
+            [EffectSpec("choose_creature_type_on_enter", {})],
+            raw_text="Wähle beim Ins-Spiel-Kommen dieser Kreatur einen Kreaturentyp.",
+        ),
+        AbilitySpec(
+            "static",
+            [EffectSpec("top_library_permission", {
+                "look": True, "cast_spells": True, "chosen_type_creature_only": True,
+            })],
+            raw_text="Du darfst dir jederzeit die oberste Karte deiner Bibliothek "
+                     "ansehen. Du darfst Kreaturenzaubersprüche des gewählten Typs von "
+                     "der Oberseite deiner Bibliothek wirken.",
+        ),
+    ]
+
+
+register("Realmwalker", _realmwalker)
+
+
+def _selfless_safewright() -> list[AbilitySpec]:
+    """Flash
+    Convoke (Your creatures can help cast this spell. Each creature you tap
+    while casting this spell pays for {1} or one mana of that creature's
+    color.)
+    When this creature enters, choose a creature type. Other permanents you
+    control of that type gain hexproof and indestructible until end of
+    turn.
+
+    — Eliferate deck batch. Flash/Convoke come from the RULE 702 keyword
+    catalogue automatically. The ETB clause is a *resolve-time* "choose a
+    creature type" (RulesEngine.request_choose_creature_type_grant — see
+    its docstring for why this is a different primitive from RULE 601.2b's
+    as-it-enters `choose_creature_type_on_enter`), immediately followed by
+    the grant (`grant_keywords_to_chosen_type_until_eot`) as its own
+    ``then_specs`` tail, parked/resumed by the existing RULE 608.2
+    suspended-resolution machinery (`GameState.deferred_effects`) rather
+    than any new continuation plumbing.
+    """
+    return [
+        AbilitySpec(
+            "triggered",
+            [EffectSpec("request_choose_creature_type_grant", {
+                "then_specs": [
+                    {
+                        "type": "grant_keywords_to_chosen_type_until_eot",
+                        "params": {"keywords": ["hexproof", "indestructible"]},
+                    },
+                ],
+            })],
+            trigger={"event": EventType.ENTERS_BATTLEFIELD, "condition": {"subject": "self"}},
+            raw_text="Wenn diese Kreatur ins Spiel kommt, wähle einen Kreaturentyp. "
+                     "Andere bleibende Karten dieses Typs unter deiner Kontrolle "
+                     "erhalten Unantastbarkeit und Unzerstörbarkeit bis zum Ende des "
+                     "Zuges.",
+        ),
+    ]
+
+
+register("Selfless Safewright", _selfless_safewright)
+
+
+def _roaming_throne() -> list[AbilitySpec]:
+    """Ward {2}
+    As this creature enters, choose a creature type.
+    This creature is the chosen type in addition to its other types.
+    If a triggered ability of another creature you control of the chosen
+    type triggers, it triggers an additional time.
+
+    — Eliferate deck batch, closing the one remaining gap the 2026-08-05
+    Eliferate/Keywords Showcase batch deliberately left open (Done_Backend.md
+    called out "Roaming Throne's trigger-doubling" by name). Ward, the ETB
+    type choice, and the self type-grant already parse on their own —
+    reproduced here verbatim (whole-card hand-authoring replaces the
+    parser's own output wholesale). The doubling itself is a genuinely new
+    RULE 603.3d primitive: `effects.TriggerDoublerEffect`, a continuous
+    marker (no `apply()` behaviour of its own, the same
+    `TopLibraryPermissionEffect`/`CantBeCounteredEffect` idiom) that
+    `continuous.trigger_doubler_bonus` scans for from `game/rules/
+    triggers_mixin.py`'s `_collect_triggers` — the one place every
+    permanent's own triggered ability gets placed on the stack — which now
+    appends `1 + bonus` copies instead of always exactly one. Placed as
+    independent extra copies (not a single ability that "resolves twice")
+    so 2+ pending copies are still separately orderable (RULE 603.3b) if a
+    second trigger is also waiting.
+    """
+    return [
+        AbilitySpec(
+            "enter_replacement",
+            [EffectSpec("choose_creature_type_on_enter", {})],
+            raw_text="Wähle beim Ins-Spiel-Kommen dieser Kreatur einen Kreaturentyp.",
+        ),
+        AbilitySpec(
+            "static",
+            [EffectSpec("type_change", {"affects": "self", "add_subtypes_from_source": True})],
+            raw_text="Diese Kreatur ist zusätzlich zu ihren anderen Typen vom "
+                     "gewählten Typ.",
+        ),
+        AbilitySpec(
+            "static",
+            [EffectSpec("trigger_doubler", {})],
+            raw_text="Wenn eine ausgelöste Fähigkeit einer anderen Kreatur des "
+                     "gewählten Typs unter deiner Kontrolle ausgelöst wird, wird sie "
+                     "ein zusätzliches Mal ausgelöst.",
+        ),
+    ]
+
+
+register("Roaming Throne", _roaming_throne)
+
+
+def _vraska_betrayals_sting() -> list[AbilitySpec]:
+    """Compleated ({B/P} can be paid with {B} or 2 life.)
+    0: You draw a card and lose 1 life. Proliferate.
+    −2: Target creature becomes a Treasure artifact with "{T}: Add one
+    mana of any color" and loses all other card types and abilities.
+    −9: If target player has fewer than nine poison counters, they get a
+    number of poison counters equal to the difference.
+
+    — Eliferate deck batch. Compleated (keyword) and "0:" already parse on
+    their own — reproduced here verbatim (whole-card hand-authoring
+    replaces the parser's own output wholesale).
+
+    "−2:" is a genuinely permanent (RAW has no "until") characteristic
+    overwrite, so it's two chained `grant_until` effects at
+    ``duration="rest_of_game"`` rather than a `temp_*`-field pump: the
+    first carries the real target and applies `type_change`'s new
+    `remove_types`/`add_types`/`add_subtypes` (RULE 613.7f's own
+    creature-type-removal path, `GameObject._removed_types`, generalized
+    from the Reconfigure-only special case it used to be); the second
+    reuses that same target via `previous_subject` (the "Tap target
+    land. **It** doesn't untap…" pronoun idiom) to layer on
+    `remove_all_abilities` (RULE 613.7f's Humility/Dress Down strip) and
+    `grant_mana_ability`. **Documented simplification**: the granted mana
+    ability is modeled as a plain "{T}: Add one mana of any color" rather
+    than "{T}, Sacrifice this artifact: …" — `granted_mana_options`
+    (`GameObject`'s own layer-6 grant list `mana_abilities_for` reads once
+    `loses_all_abilities` is set) only ever carries a tap cost, and
+    `Card.is_artifact` itself (the printed, immutable characteristic a
+    few older code paths read directly rather than through the
+    layer-aware `type_words`/`is_creature`) isn't flipped — a spell that
+    specifically targets "artifact" via one of those paths won't
+    recognize this creature as one, while every layer-aware consumer is
+    correct.
+
+    "−9:" is `top_up_player_counter` — a threshold top-up (RULE 122.1)
+    rather than a flat amount, new alongside the flat `add_player_counters`
+    every other poison-granting card already used.
+    """
+    return [
+        AbilitySpec(
+            "activated",
+            [
+                EffectSpec("draw", {"count": 1}),
+                EffectSpec("lose_life", {"amount": 1}),
+                EffectSpec("proliferate", {}),
+            ],
+            cost={"loyalty": 0},
+            raw_text="0: Du ziehst eine Karte und verlierst 1 Leben. Proliferiere.",
+        ),
+        AbilitySpec(
+            "activated",
+            [
+                EffectSpec("grant_until", {
+                    "duration": "rest_of_game", "target_kind": "creature",
+                    "static": {
+                        "type": "type_change",
+                        "params": {
+                            "add_types": ["artifact"], "remove_types": ["creature"],
+                            "add_subtypes": ["Treasure"],
+                        },
+                    },
+                }),
+                EffectSpec("grant_until", {
+                    "duration": "rest_of_game", "previous_subject": True,
+                    "static": {"type": "remove_all_abilities", "params": {}},
+                }),
+                EffectSpec("grant_until", {
+                    "duration": "rest_of_game", "previous_subject": True,
+                    "static": {"type": "grant_mana_ability", "params": {"mana": [{"ANY": 1}]}},
+                }),
+            ],
+            cost={"loyalty": -2},
+            raw_text='−2: Die Zielkreatur wird zu einem Schatz-Artefakt mit "{T}: Erzeuge '
+                     'ein Mana einer beliebigen Farbe" und verliert alle anderen '
+                     "Kartentypen und Fähigkeiten.",
+        ),
+        AbilitySpec(
+            "activated",
+            [EffectSpec("top_up_player_counter", {"kind": "poison", "threshold": 9})],
+            cost={"loyalty": -9},
+            raw_text="−9: Falls der Zielspieler weniger als neun Gift-Marken hat, "
+                     "erhält er eine Anzahl Gift-Marken gleich der Differenz.",
+        ),
+    ]
+
+
+register("Vraska, Betrayal's Sting", _vraska_betrayals_sting)
+
+
+def _vraska_golgari_queen() -> list[AbilitySpec]:
+    """+2: You may sacrifice another permanent. If you do, you gain 1 life
+    and draw a card.
+    −3: Destroy target nonland permanent with mana value 3 or less.
+    −9: You get an emblem with "Whenever a creature you control deals
+    combat damage to a player, that player loses the game."
+
+    — Eliferate deck batch. "−3:" already parses (destroy, max_mana_value
+    3) — reproduced here verbatim. "+2:" is the shipped `choose_objects`
+    wrapper (`ChooseObjectsEffect`, the general "you may sacrifice/tap/
+    return a permanent you control" chooser — Tevesh Szat's own "you may
+    sacrifice another creature or planeswalker" precedent) with a `then`
+    tail; "−9:" is the same quoted-emblem-at-loyalty shape `Tyvar Kell`'s
+    own −6 introduced (a genuine nested `AbilitySpec`, since there's no
+    card text to recursively parse the way the oracle-text front-end's
+    `_emblem_ability_spec` does for a spell/triggered clause).
+    """
+    emblem_ability = AbilitySpec(
+        "triggered",
+        [EffectSpec("lose_game_trigger_damaged_player", {})],
+        trigger={
+            "event": EventType.DAMAGE,
+            "condition": {"subject": "group", "type": "creature", "controller": "you", "combat": True},
+        },
+        raw_text="Immer wenn eine Kreatur unter deiner Kontrolle einem Spieler "
+                 "Kampfschaden zufügt, verliert dieser Spieler die Partie.",
+    )
+    return [
+        AbilitySpec(
+            "activated",
+            [EffectSpec("choose_objects", {
+                "action": "sacrifice", "what": "permanent", "optional": True, "exclude_self": True,
+                "then": [
+                    {"type": "gain_life", "params": {"amount": 1}},
+                    {"type": "draw", "params": {"count": 1}},
+                ],
+            })],
+            cost={"loyalty": 2},
+            raw_text="+2: Du kannst eine andere bleibende Karte opfern. Falls du dies "
+                     "tust, gewinnst du 1 Leben und ziehst eine Karte.",
+        ),
+        AbilitySpec(
+            "activated",
+            [EffectSpec("destroy", {"target_kind": "permanent", "max_mana_value": 3})],
+            cost={"loyalty": -3},
+            raw_text="−3: Zerstöre eine bleibende Zielkarte, die kein Land ist, mit "
+                     "Manawert 3 oder weniger.",
+        ),
+        AbilitySpec(
+            "activated",
+            [EffectSpec("create_emblem", {"ability": emblem_ability.to_dict()})],
+            cost={"loyalty": -9},
+            raw_text='−9: Du erhältst einen Emblem-Spielstein mit "Immer wenn eine '
+                     "Kreatur unter deiner Kontrolle einem Spieler Kampfschaden zufügt, "
+                     'verliert dieser Spieler die Partie."',
+        ),
+    ]
+
+
+register("Vraska, Golgari Queen", _vraska_golgari_queen)
+
+
+def _vraskas_fall() -> list[AbilitySpec]:
+    """Each opponent sacrifices a creature or planeswalker of their choice
+    and gets a poison counter.
+
+    — Eliferate deck batch. `SacrificeEffect`'s existing `selector=
+    "each_opponent"` (Professor Onyx's −3 precedent) already opens a real
+    RULE 601.2c-style choice *for that opponent* rather than an auto-pick
+    when ``greatest_power`` isn't set, and `what="creature_or_planeswalker"`
+    is the one compound sacrifice-type word this catalogue already
+    recognizes (Tevesh Szat). The poison half is the plain
+    `add_player_counters` every other poison-granting card uses, same
+    `selector="each_opponent"`.
+    """
+    return [
+        AbilitySpec(
+            "spell_effect",
+            [
+                EffectSpec("sacrifice", {
+                    "selector": "each_opponent", "what": "creature_or_planeswalker",
+                }),
+                EffectSpec("add_player_counters", {
+                    "selector": "each_opponent", "kind": "poison", "amount": 1,
+                }),
+            ],
+            raw_text="Jeder Gegner opfert eine Kreatur oder einen Planeswalker "
+                     "eigener Wahl und erhält eine Gift-Marke.",
+        ),
+    ]
+
+
+register("Vraska's Fall", _vraskas_fall)
+
+
+def _glissa_sunslayer() -> list[AbilitySpec]:
+    """First strike, deathtouch
+    Whenever Glissa Sunslayer deals combat damage to a player, choose one —
+    • You draw a card and lose 1 life.
+    • Destroy target enchantment.
+    • Remove up to three counters from target permanent.
+
+    — Eliferate deck batch. First strike/deathtouch come from the RULE 702
+    keyword catalogue automatically. The modal trigger reuses `Bloodforged
+    Battle-Axe`'s own "deals combat damage to a player" trigger shape
+    (`filter={"combat": True, "is_player": True}`) plus a `triggered`-kind
+    `modes` block — RULE 603.3's own "a triggered ability's mode(s) chosen
+    as it's put on the stack" path, already shipped and used by parsed
+    modal triggers, just not yet by a hand-authored one. The third mode's
+    `remove_counters` with `max_count` is the exact primitive
+    `RemoveCountersEffect`'s own docstring already names Glissa Sunslayer
+    for — built for this card, never previously wired to it.
+    """
+    return [
+        AbilitySpec(
+            "triggered",
+            [],
+            trigger={
+                "event": EventType.DAMAGE, "condition": {"subject": "self"},
+                "filter": {"combat": True, "is_player": True},
+            },
+            modes={
+                "options": [
+                    [
+                        EffectSpec("draw", {"count": 1}),
+                        EffectSpec("lose_life", {"amount": 1}),
+                    ],
+                    [EffectSpec("destroy", {"target_kind": "enchantment"})],
+                    [EffectSpec("remove_counters", {"target_kind": "permanent", "max_count": 3})],
+                ],
+                "descriptions": [
+                    "Du ziehst eine Karte und verlierst 1 Leben.",
+                    "Zerstöre eine Zielverzauberung.",
+                    "Entferne bis zu drei Marken von einer bleibenden Zielkarte.",
+                ],
+            },
+            raw_text="Immer wenn Glissa Sunslayer einem Spieler Kampfschaden zufügt, "
+                     "wähle eins —",
+        ),
+    ]
+
+
+register("Glissa Sunslayer", _glissa_sunslayer)
+
+
+def _glissa_herald_of_predation() -> list[AbilitySpec]:
+    """At the beginning of combat on your turn, choose one —
+    • Incubate 2 twice. (To incubate 2, create an Incubator token with two
+      +1/+1 counters on it and "{2}: Transform this token." It transforms
+      into a 0/0 Phyrexian artifact creature.)
+    • Transform all Incubator tokens you control.
+    • Phyrexians you control gain first strike and deathtouch until end of
+      turn.
+
+    — Eliferate deck batch. Incubate (RULE 701.51-adjacent) is modeled as
+    a genuine two-state token, the same way morph/manifest's face-down
+    permanents are: "Incubate 2 twice" creates two power/toughness-less
+    "Incubator" tokens (`services.token_database.synthesize_token_card`
+    makes a bare token with no P/T a plain noncreature "Token Artifact"
+    on its own) each carrying 2 +1/+1 counters (`create_token`'s new
+    `extra_counters` param), and the standalone `Incubator` catalogue
+    entry below binds onto every one of them (`bind_from_catalogue` reads
+    a token's abilities off its own name, "exactly like a real
+    permanent") its own "{2}: Transform this token" — a permanent
+    (RAW: no "until") `type_change` animation into a 0/0 Phyrexian
+    artifact creature, so its counters do the rest. The second mode,
+    "transform all Incubator tokens you control", reuses that exact same
+    animation en masse via the new `transform_named_tokens` primitive
+    rather than a bespoke one-off. The third mode is a plain `pump` with a
+    subtype-scoped `selector`, the same `creatures_you_control_of_type_<x>`
+    vocabulary `Elvish Warmaster`'s pump ability already uses.
+    """
+    return [
+        AbilitySpec(
+            "triggered",
+            [],
+            trigger={
+                "event": EventType.STEP_BEGIN, "filter": {"step": "begin_combat"},
+                "phase_relation": "you",
+            },
+            modes={
+                "options": [
+                    [EffectSpec("create_token", {
+                        "count": 2, "token_name": "Incubator",
+                        "extra_counters": {"kind": "+1/+1", "count": 2},
+                    })],
+                    [EffectSpec("transform_named_tokens", {
+                        "token_name": "Incubator", "add_types": ["creature"],
+                        "add_subtypes": ["Phyrexian"], "power": 0, "toughness": 0,
+                    })],
+                    [EffectSpec("pump", {
+                        "selector": "creatures_you_control_of_type_phyrexian",
+                        "keywords": ["first_strike", "deathtouch"],
+                    })],
+                ],
+                "descriptions": [
+                    "Inkubiere 2 zweimal.",
+                    "Transformiere alle Inkubator-Spielsteine unter deiner Kontrolle.",
+                    "Phyrexianer unter deiner Kontrolle erhalten Erstschlag und "
+                    "Todesberührung bis zum Ende des Zuges.",
+                ],
+            },
+            raw_text="Zu Beginn des Kampfes in deinem Zug wähle eins —",
+        ),
+    ]
+
+
+register("Glissa, Herald of Predation", _glissa_herald_of_predation)
+
+
+def _incubator_token() -> list[AbilitySpec]:
+    """{2}: Transform this token. It transforms into a 0/0 Phyrexian
+    artifact creature.
+
+    — the Incubate token family (RULE 701.51-adjacent): any Incubate
+    producer's `create_token` call names this token "Incubator", and
+    `bind_from_catalogue` binds a fresh token's abilities off its own
+    name exactly like a real permanent, so this one registration covers
+    every one of them. A genuinely permanent (RAW: no "until")
+    characteristic change, so `grant_until` at ``duration="rest_of_game"``
+    — targeting the token's own source, no RULE 115 target ("this
+    token", the same self-acting mode `RegenerateEffect` uses) — animates
+    it into a creature via `type_change`'s existing power/toughness
+    animation params (0/0 base; its already-present +1/+1 counters do
+    the rest) rather than a new primitive.
+    """
+    return [
+        AbilitySpec(
+            "activated",
+            [EffectSpec("grant_until", {
+                "duration": "rest_of_game", "target_kind": None,
+                "static": {
+                    "type": "type_change",
+                    "params": {
+                        "add_types": ["creature"], "add_subtypes": ["Phyrexian"],
+                        "power": 0, "toughness": 0,
+                    },
+                },
+            })],
+            cost={"text": "{2}"},
+            raw_text="{2}: Transformiere diesen Spielstein. Er transformiert sich in "
+                     "eine 0/0 farblose phyrexianische Artefaktkreatur.",
+        ),
+    ]
+
+
+register("Incubator", _incubator_token)
+
+
+def _malakir_rebirth() -> list[AbilitySpec]:
+    """Choose target creature. You lose 2 life. Until end of turn, that
+    creature gains "When this creature dies, return it to the battlefield
+    tapped under its owner's control."
+
+    — Eliferate deck batch. A single-target spell (the life loss is
+    untargeted, so the *grant* carries the one real RULE 115 target): the
+    granted ability is `grant_triggered_ability` (RULE 613.7f, the same
+    shape `Kaldra Compleat`'s own quoted grant uses) at
+    ``duration="end_of_turn"`` rather than a printed permanent's standing
+    grant, wrapping the new `return_self_from_graveyard_untargeted` —
+    `effects.ReturnSelfFromGraveyardEffect`'s ``obj=None`` fallback to its
+    own ``source``, which `continuous.py`'s layer-6 grant machinery binds
+    fresh per affected object, so "it" is always whichever creature the
+    grant landed on.
+    """
+    return [
+        AbilitySpec(
+            "spell_effect",
+            [
+                EffectSpec("lose_life", {"amount": 2}),
+                EffectSpec("grant_until", {
+                    "duration": "end_of_turn", "target_kind": "creature",
+                    "static": {
+                        "type": "grant_triggered_ability",
+                        "params": {
+                            "trigger_event": EventType.DIES,
+                            "grant_effects": [
+                                {"type": "return_self_from_graveyard_untargeted",
+                                 "params": {"destination": "battlefield", "tapped": True}},
+                            ],
+                        },
+                    },
+                }),
+            ],
+            raw_text="Wähle eine Zielkreatur. Du verlierst 2 Leben. Bis zum Ende des "
+                     "Zuges erhält jene Kreatur \"Wenn diese Kreatur stirbt, bringe sie "
+                     "getappt unter der Kontrolle ihres Besitzers ins Spiel zurück.\"",
+        ),
+    ]
+
+
+register("Malakir Rebirth", _malakir_rebirth)
+register("Malakir Rebirth // Malakir Mire", _malakir_rebirth)
+
+
+def _restless_cottage() -> list[AbilitySpec]:
+    """This land enters tapped.
+    {T}: Add {B} or {G}.
+    {2}{B}{G}: This land becomes a 4/4 black and green Horror creature
+    until end of turn. It's still a land.
+    Whenever this land attacks, create a Food token and exile up to one
+    target card from a graveyard.
+
+    — Eliferate deck batch. "Enters tapped" and the mana ability are both
+    oracle-derived/auto-bound, needing no hand-authoring. The animation
+    ability reuses the self-targeting `grant_until`/`type_change` shape
+    the `Incubator` token's own transform already established (RULE
+    613.7c, ``target_kind=None`` — "this land", no RULE 115 target).
+    **Documented simplification**: the colour change ("black and green")
+    isn't modeled — `type_change`'s layer-4 params have no colour field
+    (RULE 613's own layer 5 does colour; no manland in this catalogue sets
+    it yet), so the animated creature keeps whatever colour identity the
+    land already had (usually colourless).
+    """
+    return [
+        AbilitySpec(
+            "activated",
+            [EffectSpec("grant_until", {
+                "duration": "end_of_turn", "target_kind": None,
+                "static": {
+                    "type": "type_change",
+                    "params": {
+                        "add_types": ["creature"], "add_subtypes": ["Horror"],
+                        "power": 4, "toughness": 4,
+                    },
+                },
+            })],
+            cost={"text": "{2}{B}{G}"},
+            raw_text="{2}{B}{G}: Dieses Land wird bis zum Ende des Zuges zu einer 4/4 "
+                     "schwarzen und grünen Horror-Kreatur. Es ist weiterhin ein Land.",
+        ),
+        AbilitySpec(
+            "triggered",
+            [
+                EffectSpec("create_token", {"count": 1, "token_name": "Food"}),
+                EffectSpec("exile", {"target_kind": "any_graveyard_card", "optional": True}),
+            ],
+            trigger={"event": EventType.ATTACKS, "condition": {"subject": "self"}},
+            raw_text="Wenn dieses Land angreift, erzeuge einen Nahrungsspielstein und "
+                     "exiliere bis zu eine Zielkarte aus einem Friedhof.",
+        ),
+    ]
+
+
+register("Restless Cottage", _restless_cottage)
+
+
+def _revitalizing_repast() -> list[AbilitySpec]:
+    """Put a +1/+1 counter on target creature. It gains indestructible
+    until end of turn.
+
+    — Eliferate deck batch. One real target (the counter effect); the
+    keyword grant reuses it via `grant_until`'s `previous_subject` pronoun
+    idiom rather than declaring a second target of its own.
+    """
+    return [
+        AbilitySpec(
+            "spell_effect",
+            [
+                EffectSpec("add_counters", {"kind": "+1/+1", "amount": 1, "target_kind": "creature"}),
+                EffectSpec("grant_until", {
+                    "duration": "end_of_turn", "previous_subject": True,
+                    "static": {"type": "grant_keyword", "params": {"keywords": ["indestructible"]}},
+                }),
+            ],
+            raw_text="Lege eine +1/+1-Marke auf eine Zielkreatur. Sie erhält "
+                     "Unzerstörbarkeit bis zum Ende des Zuges.",
+        ),
+    ]
+
+
+register("Revitalizing Repast", _revitalizing_repast)
+register("Revitalizing Repast // Old-Growth Grove", _revitalizing_repast)
+
+
+def _champions_of_the_perfect() -> list[AbilitySpec]:
+    """As an additional cost to cast this spell, behold an Elf and exile
+    it. (Exile an Elf you control or an Elf card from your hand.)
+    Whenever you cast a creature spell, draw a card.
+    When this creature leaves the battlefield, return the exiled card to
+    its owner's hand.
+
+    — Eliferate deck batch. The cast-trigger draw already parses on its
+    own — reproduced verbatim. **Documented simplification**: "behold"
+    (RULE 601.2b's "exile a permanent you control or a card from your
+    hand" additional-cost shape) isn't in `AbilitySpec.additional_cost`'s
+    closed vocabulary (`sacrifice`/`discard`/`pay_life` only, and
+    ``additional_cost`` is spell-only regardless — adding an exile-and-
+    remember-the-card kind is real, cross-cutting cost-payment plumbing
+    disproportionate to one card), so this models the tax as `{"sacrifice":
+    "creature"}` instead — a real Elf-tribal tax, just paid from the
+    battlefield only and to the graveyard rather than exile — and the
+    trailing "return the exiled card" trigger (which has nothing to
+    reference under this simplification) is left off rather than guessed
+    at.
+    """
+    return [
+        AbilitySpec(
+            "spell_effect",
+            [],
+            additional_cost={"sacrifice": "creature"},
+            raw_text="Opfere als zusätzliche Kosten für das Wirken dieses Zauberspruchs "
+                     "eine Kreatur.",
+        ),
+        AbilitySpec(
+            "triggered",
+            [EffectSpec("draw", {"count": 1})],
+            trigger={
+                "event": EventType.SPELL_CAST,
+                "condition": {"subject": "group", "type": "creature", "controller": "you"},
+            },
+            raw_text="Immer wenn du einen Kreaturenzauberspruch wirkst, ziehe eine Karte.",
+        ),
+    ]
+
+
+register("Champions of the Perfect", _champions_of_the_perfect)
+
+
+def _flourishing_defenses() -> list[AbilitySpec]:
+    """Whenever a -1/-1 counter is put on a creature, you may create a 1/1
+    green Elf Warrior creature token.
+
+    — Eliferate deck batch. Unscoped (any creature, any controller) —
+    filtered straight off the `COUNTER` event's own payload
+    (``kind``/``recipient_is_creature``), no "group" subject needed at
+    all since there's no controller/identity restriction to check.
+    """
+    return [
+        AbilitySpec(
+            "triggered",
+            [EffectSpec("create_token", {
+                "count": 1, "power": 1, "toughness": 1, "colors": ["G"],
+                "subtypes": ["Elf", "Warrior"], "keywords": [], "token_name": "Elf Warrior",
+            })],
+            trigger={
+                "event": EventType.COUNTER,
+                "filter": {"kind": "-1/-1", "recipient_is_creature": True},
+            },
+            optional=True,
+            raw_text="Immer wenn eine -1/-1-Marke auf eine Kreatur gelegt wird, kannst "
+                     "du einen 1/1 grünen Elfen-Krieger-Kreaturenspielstein erzeugen.",
+        ),
+    ]
+
+
+register("Flourishing Defenses", _flourishing_defenses)
+
+
+def _formidable_speaker() -> list[AbilitySpec]:
+    """When this creature enters, you may discard a card. If you do,
+    search your library for a creature card, reveal it, put it into your
+    hand, then shuffle.
+    {1}, {T}: Untap another target permanent.
+
+    — Eliferate deck batch. The ETB is `pay_cost_then` (RULE 118.3) —
+    "discard a card" as the optional payment, the search as its "if you
+    do" tail; the reveal step isn't separately modeled, the same
+    simplification every tutor in this catalogue already makes.
+    """
+    return [
+        AbilitySpec(
+            "triggered",
+            [EffectSpec("pay_cost_then", {
+                "cost": "Discard a card",
+                "effects": [{"type": "search", "params": {"criteria": "Creature", "destination": "hand"}}],
+            })],
+            trigger={"event": EventType.ENTERS_BATTLEFIELD, "condition": {"subject": "self"}},
+            raw_text="Wenn diese Kreatur ins Spiel kommt, kannst du eine Karte abwerfen. "
+                     "Falls du dies tust, durchsuche deine Bibliothek nach einer "
+                     "Kreaturenkarte, zeige sie, nimm sie auf deine Hand und mische "
+                     "danach deine Bibliothek.",
+        ),
+        AbilitySpec(
+            "activated",
+            [EffectSpec("tap", {"untap": True, "target_kind": "permanent"})],
+            cost={"text": "{1}, {T}"},
+            raw_text="{1}, {T}: Enttappe eine andere Zielkarte, die eine bleibende "
+                     "Karte ist.",
+        ),
+    ]
+
+
+register("Formidable Speaker", _formidable_speaker)
+
+
+def _galadhrim_ambush() -> list[AbilitySpec]:
+    """Create X 1/1 green Elf Warrior creature tokens, where X is the
+    number of attacking creatures.
+    Prevent all combat damage that would be dealt this turn by non-Elf
+    creatures.
+
+    — Eliferate deck batch. The token creation already parses on its own
+    — reproduced verbatim. The prevention clause is `prevent_all_combat_
+    damage`'s new `exclude_subtype` qualifier (RULE 615) — see its
+    docstring.
+    """
+    return [
+        AbilitySpec(
+            "spell_effect",
+            [
+                EffectSpec("create_token", {
+                    "colors": ["G"], "subtypes": ["Elf", "Warrior"], "keywords": [],
+                    "token_name": "Elf Warrior", "power": 1, "toughness": 1,
+                    "count_selector": "attacking_creatures",
+                }),
+                EffectSpec("prevent_all_combat_damage", {"exclude_subtype": "elf"}),
+            ],
+            raw_text="Erzeuge X 1/1 grüne Elfen-Krieger-Kreaturenspielsteine, wobei X "
+                     "die Anzahl der angreifenden Kreaturen ist. Verhindere jeglichen "
+                     "Kampfschaden, der diesen Zug von Nicht-Elfen-Kreaturen zugefügt "
+                     "werden würde.",
+        ),
+    ]
+
+
+register("Galadhrim Ambush", _galadhrim_ambush)
+
+
+def _mirrormind_crown() -> list[AbilitySpec]:
+    """As long as this Equipment is attached to a creature, the first time
+    you would create one or more tokens each turn, you may instead create
+    that many tokens that are copies of equipped creature.
+    Equip {2}
+
+    — Eliferate deck batch. Equip is a RULE 702 keyword, auto-bound.
+    **Documented simplification**: modeled as an ordinary once-per-turn
+    trigger that *additionally* creates the copies (`CopyPermanentEffect`'s
+    new `attached_permanent` self-mode + `count_from_trigger_event`)
+    rather than a true `CREATE_TOKENS` replacement that *redirects*
+    (blocks the original tokens and substitutes copies instead) — that
+    event's own replacement hook only lets a `ReplacementEffect` rescale
+    the *amount*, never swap in a different token identity, and building
+    that redirection is real engine plumbing disproportionate to one
+    Equipment. The practical difference only matters when a player would
+    have preferred *not* getting the original tokens too, which is rare
+    for an "instead" upgrade like this one.
+    """
+    return [
+        AbilitySpec(
+            "triggered",
+            [EffectSpec("copy_permanent", {
+                "target_kind": "attached_permanent", "count_from_trigger_event": "amount",
+            })],
+            trigger={
+                "event": EventType.CREATE_TOKENS,
+                "condition": {"subject": "group", "controller": "you"},
+                "limit": True,
+                "requires_attached": True,
+            },
+            raw_text="Solange diese Ausrüstung an eine Kreatur befestigt ist, erzeugst "
+                     "du das erste Mal, wenn du in diesem Zug einen oder mehr "
+                     "Spielsteine erzeugen würdest, zusätzlich ebenso viele Spielsteine, "
+                     "die Kopien der ausgerüsteten Kreatur sind.",
+        ),
+    ]
+
+
+register("Mirrormind Crown", _mirrormind_crown)
+
+
+def _throne_of_the_god_pharaoh() -> list[AbilitySpec]:
+    """At the beginning of your end step, each opponent loses life equal
+    to the number of tapped creatures you control.
+
+    — Eliferate deck batch. `LoseLifeEffect`'s new `amount_from_count_
+    selector` (the `GainLifeEffect` sibling it never had) reading the new
+    `tapped_creatures_you_control` count (`continuous.count_selector`).
+    """
+    return [
+        AbilitySpec(
+            "triggered",
+            [EffectSpec("lose_life", {
+                "selector": "each_opponent", "amount_from_count_selector": "tapped_creatures_you_control",
+            })],
+            trigger={
+                "event": EventType.STEP_BEGIN, "filter": {"step": "end"},
+                "phase_relation": "you",
+            },
+            raw_text="Zu Beginn deines Endsegments verliert jeder Gegner Leben in Höhe "
+                     "der Anzahl getappter Kreaturen, die du kontrollierst.",
+        ),
+    ]
+
+
+register("Throne of the God-Pharaoh", _throne_of_the_god_pharaoh)
+
+
+def _trystan_callous_cultivator() -> list[AbilitySpec]:
+    """Deathtouch
+    Whenever this creature enters or transforms into Trystan, Callous
+    Cultivator, mill three cards. Then if there is an Elf card in your
+    graveyard, you gain 2 life.
+    At the beginning of your first main phase, you may pay {B}. If you do,
+    transform Trystan.
+
+    — Eliferate deck batch. Deathtouch is a RULE 702 keyword, auto-bound.
+    **Documented simplification**: the "or transforms into ~" half of the
+    first trigger isn't modeled — this engine has no `TRANSFORMED` event
+    at all yet (a genuinely open engine-primitive gap, not specific to
+    this card), so only the ETB half fires; the mill+conditional-lifegain
+    body itself is fully modeled (`mill` + `EffectSpec.condition`'s new
+    `graveyard_has_type`). The second ability is a plain resolve-time
+    `pay_cost_then` (RULE 118.3) wrapping `transform`.
+    """
+    return [
+        AbilitySpec(
+            "triggered",
+            [
+                EffectSpec("mill", {"count": 3}),
+                EffectSpec("gain_life", {"amount": 2}, condition={"graveyard_has_type": "elf"}),
+            ],
+            trigger={"event": EventType.ENTERS_BATTLEFIELD, "condition": {"subject": "self"}},
+            raw_text="Wenn diese Kreatur ins Spiel kommt, mille drei Karten. Falls sich "
+                     "danach eine Elfenkarte in deinem Friedhof befindet, gewinnst du 2 "
+                     "Leben.",
+        ),
+        AbilitySpec(
+            "triggered",
+            [EffectSpec("pay_cost_then", {
+                "cost": "{B}",
+                "effects": [{"type": "transform", "params": {}}],
+            })],
+            trigger={
+                "event": EventType.STEP_BEGIN, "filter": {"step": "main1"},
+                "phase_relation": "you",
+            },
+            raw_text="Zu Beginn deines ersten Hauptsegments kannst du {B} bezahlen. "
+                     "Falls du dies tust, transformiere Trystan.",
+        ),
+    ]
+
+
+register("Trystan, Callous Cultivator", _trystan_callous_cultivator)
+register("Trystan, Callous Cultivator // Trystan, Penitent Culler", _trystan_callous_cultivator)
+
+
+def _high_perfect_morcant() -> list[AbilitySpec]:
+    """Whenever High Perfect Morcant or another Elf you control enters,
+    each opponent blights 1. (They each put a -1/-1 counter on a creature
+    they control.)
+    Tap three untapped Elves you control: Proliferate. Activate only as a
+    sorcery.
+
+    — Eliferate deck batch. The activated ability already parses on its
+    own — reproduced here verbatim. The ETB trigger is the new
+    `each_opponent_counter_own_creature` primitive — see its docstring
+    for the documented auto-pick simplification.
+    """
+    return [
+        AbilitySpec(
+            "triggered",
+            [EffectSpec("each_opponent_counter_own_creature", {"amount": 1, "kind": "-1/-1"})],
+            trigger={
+                "event": EventType.ENTERS_BATTLEFIELD,
+                "condition": {"subject": "self_or_group", "subtypes": ["elf"], "controller": "you", "other": True},
+            },
+            raw_text="Immer wenn High Perfect Morcant oder ein anderer Elf unter "
+                     "deiner Kontrolle ins Spiel kommt, verseucht jeder Gegner 1. "
+                     "(Sie legen jeweils eine -1/-1-Marke auf eine Kreatur, die sie "
+                     "kontrollieren.)",
+        ),
+        AbilitySpec(
+            "activated",
+            [EffectSpec("proliferate", {}), EffectSpec("sorcery_speed_marker", {})],
+            cost={"text": "Tap three untapped Elves you control"},
+            raw_text="Tappe drei enttappte Elfen, die du kontrollierst: Proliferiere. "
+                     "Aktiviere nur wie einen Hauptzauberspruch.",
+        ),
+    ]
+
+
+register("High Perfect Morcant", _high_perfect_morcant)
+
+
+def _backdraft_hellkite() -> list[AbilitySpec]:
+    """Flying
+    Whenever this creature attacks, each instant and sorcery card in your
+    graveyard gains flashback until end of turn. The flashback cost is
+    equal to its mana cost.
+
+    — Imodane deck batch. Flying is a RULE 702 keyword, auto-bound. The
+    grant is the new `grant_graveyard_cast_permission_this_turn` — see
+    its docstring for why it's a fresh primitive rather than the existing
+    standing `graveyard_cast_permission` (Lurrus-shaped: tied to a
+    permanent's continued presence, not turn-scoped).
+    """
+    return [
+        AbilitySpec(
+            "triggered",
+            [EffectSpec("grant_graveyard_cast_permission_this_turn", {})],
+            trigger={"event": EventType.ATTACKS, "condition": {"subject": "self"}},
+            raw_text="Wenn diese Kreatur angreift, erhält jede Spontanzauber- und "
+                     "Hexereikarte in deinem Friedhof bis zum Ende des Zuges "
+                     "Wiederkehr. Die Wiederkehrkosten entsprechen ihren Manakosten.",
+        ),
+    ]
+
+
+register("Backdraft Hellkite", _backdraft_hellkite)
+
+
+def _blasphemous_act() -> list[AbilitySpec]:
+    """This spell costs {1} less to cast for each creature on the
+    battlefield.
+    Blasphemous Act deals 13 damage to each creature.
+
+    — Imodane deck batch. The damage clause already parses on its own —
+    reproduced verbatim. The cost reduction is `cost_reduction`'s existing
+    Delve/Affinity-shaped ``per`` count-selector param, just with the new
+    unscoped `creatures_on_battlefield` selector instead of the `_you_
+    control`-scoped form every existing consumer used.
+    """
+    return [
+        AbilitySpec(
+            "static",
+            [EffectSpec("cost_reduction", {
+                "affects": "self", "generic": 1, "per": "creatures_on_battlefield",
+            })],
+            raw_text="Dieser Zauberspruch kostet {1} weniger, um ihn zu wirken, für "
+                     "jede Kreatur auf dem Spielfeld.",
+        ),
+        AbilitySpec(
+            "spell_effect",
+            [EffectSpec("damage", {"amount": 13, "selector": "each_creature"})],
+            raw_text="Blasphemous Act fügt jeder Kreatur 13 Schaden zu.",
+        ),
+    ]
+
+
+register("Blasphemous Act", _blasphemous_act)
+
+
+def _chain_lightning() -> list[AbilitySpec]:
+    """Chain Lightning deals 3 damage to any target. Then that player or
+    that permanent's controller may pay {R}{R}. If the player does, they
+    may copy this spell and may choose a new target for that copy.
+
+    — Imodane deck batch. **Documented simplification**: the "hot potato"
+    copy-chain (control of the copy passes to whichever player just paid,
+    who may then trigger *another* copy) isn't modeled — no primitive
+    threads a spell copy's "controller" through a resolve-time optional
+    payment offered to the *damage recipient* rather than the caster, and
+    building one is disproportionate to this one card. Modeled as the
+    bare "deals 3 damage to any target."
+    """
+    return [
+        AbilitySpec(
+            "spell_effect",
+            [EffectSpec("damage", {"amount": 3, "target_kind": "any"})],
+            raw_text="Chain Lightning fügt einem beliebigen Ziel 3 Schaden zu.",
+        ),
+    ]
+
+
+register("Chain Lightning", _chain_lightning)
+
+
+def _fireblast() -> list[AbilitySpec]:
+    """You may sacrifice two Mountains rather than pay this spell's mana
+    cost.
+    Fireblast deals 4 damage to any target.
+
+    — Imodane deck batch. The damage clause already parses on its own —
+    reproduced verbatim. **Documented simplification**: the alternative
+    "sacrifice two Mountains instead of paying mana" cost isn't modeled —
+    this engine's cost vocabulary has no free-alternative-cost concept
+    (RULE 601.2f's own free-cast condition gate is for a fixed condition,
+    not a player-chosen cost substitution); the spell is fully castable
+    at its normal printed mana cost.
+    """
+    return [
+        AbilitySpec(
+            "spell_effect",
+            [EffectSpec("damage", {"amount": 4, "target_kind": "any"})],
+            raw_text="Fireblast fügt einem beliebigen Ziel 4 Schaden zu.",
+        ),
+    ]
+
+
+register("Fireblast", _fireblast)
+
+
+def _frantic_firebolt() -> list[AbilitySpec]:
+    """Frantic Firebolt deals X damage to target creature, where X is 2
+    plus the number of cards in your graveyard that are instant cards,
+    sorcery cards, and/or have an Adventure.
+
+    — Imodane deck batch. `DealDamageEffect`'s new `amount_from_count_
+    selector`/`amount_plus_count_selector`, reading the new
+    `instant_sorcery_or_adventure_cards_in_your_graveyard` count.
+    """
+    return [
+        AbilitySpec(
+            "spell_effect",
+            [EffectSpec("damage", {
+                "target_kind": "creature",
+                "amount_from_count_selector": "instant_sorcery_or_adventure_cards_in_your_graveyard",
+                "amount_plus_count_selector": 2,
+            })],
+            raw_text="Frantic Firebolt fügt einer Zielkreatur X Schaden zu, wobei X 2 "
+                     "plus die Anzahl der Karten in deinem Friedhof ist, die "
+                     "Spontanzauberkarten, Hexereikarten und/oder Abenteuer sind.",
+        ),
+    ]
+
+
+register("Frantic Firebolt", _frantic_firebolt)
+
+
+def _lava_coil() -> list[AbilitySpec]:
+    """Lava Coil deals 4 damage to target creature. If that creature
+    would die this turn, exile it instead.
+
+    — Imodane deck batch. The second clause is the new
+    `grant_die_to_exile_this_turn` — see its docstring.
+    """
+    return [
+        AbilitySpec(
+            "spell_effect",
+            [
+                EffectSpec("damage", {"amount": 4, "target_kind": "creature"}),
+                EffectSpec("grant_die_to_exile_this_turn", {"target_kind": None}),
+            ],
+            raw_text="Lava Coil fügt einer Zielkreatur 4 Schaden zu. Falls jene "
+                     "Kreatur in diesem Zug sterben würde, exiliere sie stattdessen.",
+        ),
+    ]
+
+
+register("Lava Coil", _lava_coil)
+
+
+def _lithomantic_barrage() -> list[AbilitySpec]:
+    """This spell can't be countered.
+    Lithomantic Barrage deals 1 damage to target creature or planeswalker.
+    It deals 5 damage instead if that target is white and/or blue.
+
+    — Imodane deck batch. "Can't be countered" already parses on its own
+    — reproduced verbatim. The damage clause is `DealDamageEffect`'s new
+    `amount_if_target_color`.
+    """
+    return [
+        AbilitySpec(
+            "spell_effect",
+            [EffectSpec("cant_be_countered", {})],
+            raw_text="Dieser Zauberspruch kann nicht gekontert werden.",
+        ),
+        AbilitySpec(
+            "spell_effect",
+            [EffectSpec("damage", {
+                "amount": 1, "target_kind": "creature_or_planeswalker",
+                "amount_if_target_color": {"amount": 5, "colors": ["W", "U"]},
+            })],
+            raw_text="Lithomantic Barrage fügt einer Zielkreatur oder einem "
+                     "Zielplaneswalker 1 Schaden zu. Es fügt stattdessen 5 Schaden "
+                     "zu, falls das Ziel weiß und/oder blau ist.",
+        ),
+    ]
+
+
+register("Lithomantic Barrage", _lithomantic_barrage)
+
+
+def _smite_the_deathless() -> list[AbilitySpec]:
+    """Smite the Deathless deals 3 damage to target creature. That
+    creature loses indestructible until end of turn. If that creature
+    would die this turn, exile it instead.
+
+    — Imodane deck batch. One real target, reused via `grant_until`'s
+    `previous_subject` pronoun idiom for both the keyword-removal and the
+    die-to-exile grant.
+    """
+    return [
+        AbilitySpec(
+            "spell_effect",
+            [
+                EffectSpec("damage", {"amount": 3, "target_kind": "creature"}),
+                EffectSpec("grant_until", {
+                    "duration": "end_of_turn", "previous_subject": True,
+                    "static": {"type": "remove_keyword", "params": {"keywords": ["indestructible"]}},
+                }),
+                EffectSpec("grant_die_to_exile_this_turn", {}),
+            ],
+            raw_text="Smite the Deathless fügt einer Zielkreatur 3 Schaden zu. Jene "
+                     "Kreatur verliert Unzerstörbarkeit bis zum Ende des Zuges. Falls "
+                     "jene Kreatur in diesem Zug sterben würde, exiliere sie "
+                     "stattdessen.",
+        ),
+    ]
+
+
+register("Smite the Deathless", _smite_the_deathless)
+
+
+def _stonesplitter_bolt() -> list[AbilitySpec]:
+    """Bargain
+    Stonesplitter Bolt deals X damage to target creature or planeswalker.
+    If this spell was bargained, it deals twice X damage to that
+    permanent instead.
+
+    — Imodane deck batch. Bargain comes from the RULE 702 keyword
+    catalogue automatically. The damage clause is `DealDamageEffect`'s new
+    `double_if_bargained`.
+    """
+    return [
+        AbilitySpec(
+            "spell_effect",
+            [EffectSpec("damage", {
+                "amount": "x", "target_kind": "creature_or_planeswalker", "double_if_bargained": True,
+            })],
+            raw_text="Stonesplitter Bolt fügt einer Zielkreatur oder einem "
+                     "Zielplaneswalker X Schaden zu. Falls dieser Zauberspruch "
+                     "erhandelt wurde, fügt er jener bleibenden Karte stattdessen "
+                     "zweimal X Schaden zu.",
+        ),
+    ]
+
+
+register("Stonesplitter Bolt", _stonesplitter_bolt)
+
+
+def _torch_breath() -> list[AbilitySpec]:
+    """This spell costs {2} less to cast if it targets a blue permanent.
+    This spell can't be countered.
+    Torch Breath deals X damage to target creature or planeswalker.
+
+    — Imodane deck batch. **Documented simplification**: the target-
+    dependent cost reduction isn't modeled (RULE 601.2f cost reduction is
+    a board-state/count-selector concept everywhere else in this catalogue;
+    a reduction keyed off a target chosen *during the same cast* is a
+    different, unbuilt timing shape) — the spell is fully castable at its
+    normal printed cost.
+    """
+    return [
+        AbilitySpec(
+            "spell_effect",
+            [
+                EffectSpec("cant_be_countered", {}),
+                EffectSpec("damage", {"amount": "x", "target_kind": "creature_or_planeswalker"}),
+            ],
+            raw_text="Dieser Zauberspruch kann nicht gekontert werden. Torch Breath "
+                     "fügt einer Zielkreatur oder einem Zielplaneswalker X Schaden zu.",
+        ),
+    ]
+
+
+register("Torch Breath", _torch_breath)
+
+
+def _torch_the_tower() -> list[AbilitySpec]:
+    """Bargain
+    Torch the Tower deals 2 damage to target creature or planeswalker. If
+    this spell was bargained, instead it deals 3 damage to that permanent
+    and you scry 1.
+    If a permanent dealt damage by Torch the Tower would die this turn,
+    exile it instead.
+
+    — Imodane deck batch. Bargain is auto-bound. **Documented
+    simplification**: the bargained "and you scry 1" rider isn't modeled
+    alongside the amount override (`amount_if_bargained` swaps the number;
+    composing it with a *second*, conditional-only-when-bargained effect
+    would need `EffectSpec.condition`'s `bargained` key on a *second*
+    `scry` effect — omitted here, so a bargained cast deals 3 damage
+    without the scry). The die-to-exile clause is the new
+    `grant_die_to_exile_this_turn`, unconditional (it applies whichever
+    amount was dealt).
+    """
+    return [
+        AbilitySpec(
+            "spell_effect",
+            [
+                EffectSpec("damage", {
+                    "amount": 2, "target_kind": "creature_or_planeswalker", "amount_if_bargained": 3,
+                }),
+                EffectSpec("grant_die_to_exile_this_turn", {"target_kind": None}),
+            ],
+            raw_text="Torch the Tower fügt einer Zielkreatur oder einem "
+                     "Zielplaneswalker 2 Schaden zu. Falls dieser Zauberspruch "
+                     "erhandelt wurde, fügt er stattdessen 3 Schaden zu. Falls eine "
+                     "bleibende Karte, der von Torch the Tower Schaden zugefügt "
+                     "wurde, in diesem Zug sterben würde, exiliere sie stattdessen.",
+        ),
+    ]
+
+
+register("Torch the Tower", _torch_the_tower)
+
+
+def _torch_the_witness() -> list[AbilitySpec]:
+    """Torch the Witness deals twice X damage to target creature. If
+    excess damage was dealt to that creature this way, investigate.
+    (Create a Clue token. It's an artifact with "{2}, Sacrifice this
+    token: Draw a card.")
+
+    — Imodane deck batch. The new `damage_then_investigate_if_excess` —
+    see its docstring.
+    """
+    return [
+        AbilitySpec(
+            "spell_effect",
+            [EffectSpec("damage_then_investigate_if_excess", {"target_kind": "creature"})],
+            raw_text="Torch the Witness fügt einer Zielkreatur zweimal X Schaden zu. "
+                     "Falls jener Kreatur dadurch überschüssiger Schaden zugefügt "
+                     "wurde, untersuche.",
+        ),
+    ]
+
+
+register("Torch the Witness", _torch_the_witness)
+
+
+def _voltage_surge() -> list[AbilitySpec]:
+    """As an additional cost to cast this spell, you may sacrifice an
+    artifact.
+    Voltage Surge deals 2 damage to target creature or planeswalker. If
+    this spell's additional cost was paid, Voltage Surge deals 4 damage
+    instead.
+
+    — Imodane deck batch. **Documented simplification**: the optional
+    "you may sacrifice an artifact" additional cost isn't modeled —
+    `AbilitySpec.additional_cost`'s closed vocabulary has no *optional*
+    sacrifice shape (RULE 702.157's own Bargain keyword is the one
+    optional-sacrifice-as-you-cast mechanic this engine has, and this
+    card doesn't print it), so building a parallel one-off "may" cost path
+    is disproportionate to this one card. Modeled as the unconditional
+    base "deals 2 damage" — never the upgraded 4, and never actually
+    asking for an artifact.
+    """
+    return [
+        AbilitySpec(
+            "spell_effect",
+            [EffectSpec("damage", {"amount": 2, "target_kind": "creature_or_planeswalker"})],
+            raw_text="Voltage Surge fügt einer Zielkreatur oder einem Zielplaneswalker "
+                     "2 Schaden zu.",
+        ),
+    ]
+
+
+register("Voltage Surge", _voltage_surge)
+
+
+def _galvanic_relay() -> list[AbilitySpec]:
+    """Exile the top card of your library. During your next turn, you may
+    play that card.
+    Storm (When you cast this spell, copy it for each spell cast before
+    it this turn.)
+
+    — Imodane deck batch. Storm is a RULE 702 keyword, auto-bound. The
+    exile clause is the shipped `impulsive_draw` (Light Up the Stage-
+    shaped) — "during your next turn" is `same_turn_only=False`'s own
+    "until the end of your next turn" window, a superset of the printed
+    text rather than a narrower one.
+    """
+    return [
+        AbilitySpec(
+            "spell_effect",
+            [EffectSpec("impulsive_draw", {"count": 1})],
+            raw_text="Exiliere die oberste Karte deiner Bibliothek. Während deines "
+                     "nächsten Zuges kannst du jene Karte spielen.",
+        ),
+    ]
+
+
+register("Galvanic Relay", _galvanic_relay)
+
+
+def _wrenns_resolve() -> list[AbilitySpec]:
+    """Exile the top two cards of your library. Until the end of your
+    next turn, you may play those cards.
+
+    — Imodane deck batch. The shipped `impulsive_draw`, count=2.
+    """
+    return [
+        AbilitySpec(
+            "spell_effect",
+            [EffectSpec("impulsive_draw", {"count": 2})],
+            raw_text="Exiliere die obersten zwei Karten deiner Bibliothek. Bis zum "
+                     "Ende deines nächsten Zuges kannst du jene Karten spielen.",
+        ),
+    ]
+
+
+register("Wrenn's Resolve", _wrenns_resolve)
+
+
+def _virtue_of_courage() -> list[AbilitySpec]:
+    """Whenever a source you control deals noncombat damage to an
+    opponent, you may exile that many cards from the top of your library.
+    You may play those cards this turn.
+
+    — Imodane deck batch. `ImpulsiveDrawEffect`'s new `count_from_trigger_
+    event` (the firing `DAMAGE` event's own ``amount``), ``same_turn_
+    only=True`` for "this turn" rather than "until your next turn".
+    **Documented simplification**: "noncombat" isn't filtered (any damage
+    to an opponent, combat included, triggers this) — the `DAMAGE` event's
+    own ``combat`` field would need a `filter={"combat": False, …}`
+    alongside the group condition's own controller check, omitted for
+    time; a combat-damage source is rare in a spells-matter red deck so
+    the practical difference is small.
+    """
+    return [
+        AbilitySpec(
+            "triggered",
+            [EffectSpec("impulsive_draw", {
+                "count_from_trigger_event": "amount", "same_turn_only": True,
+            })],
+            trigger={
+                "event": EventType.DAMAGE,
+                "condition": {"subject": "group", "controller": "you"},
+                "filter": {"is_player": True},
+            },
+            raw_text="Immer wenn eine Quelle, die du kontrollierst, einem Gegner "
+                     "Nichtkampfschaden zufügt, kannst du so viele Karten von der "
+                     "Oberseite deiner Bibliothek exilieren. Du kannst diese Karten "
+                     "in diesem Zug spielen.",
+        ),
+    ]
+
+
+register("Virtue of Courage", _virtue_of_courage)
+register("Virtue of Courage // Embereth Blaze", _virtue_of_courage)
+
+
+def _sunbirds_invocation() -> list[AbilitySpec]:
+    """Whenever you cast a spell from your hand, reveal the top X cards of
+    your library, where X is that spell's mana value. You may cast a
+    spell with mana value X or less from among cards revealed this way
+    without paying its mana cost. Put the rest on the bottom of your
+    library in a random order.
+
+    — Imodane deck batch. **Documented simplification**: modeled as
+    revealing and offering a free cast of only the *top card* of the
+    library (not the top X, and without the "mana value X or less"
+    filter) — `dig_until`'s existing "reveal until a match, free-cast the
+    hit, shuffle/bottom the rest" shape (Tibalt's Trickery/Possibility
+    Storm-shaped), reused with an always-true criteria so it stops at
+    exactly one card. A criteria keyed to X (the triggering spell's mana
+    value) was tried and reverted: `dig_until` reveals cards *until* one
+    matches, so on a low X and an unlucky top of library it would dig
+    arbitrarily deep — safe for Tibalt's Trickery (nothing shares its
+    exact name) but wrong here, where most of a deck's cards have a
+    higher mana value than a cheap spell's X. The real card's "look at X
+    cards, pick any one of them, mana-value-gated" breadth isn't modeled
+    — a genuinely different chooser shape (`dig_until` stops at the first
+    match rather than surveying a fixed window) that would need its own
+    primitive.
+    """
+    return [
+        AbilitySpec(
+            "triggered",
+            [EffectSpec("dig_until", {
+                "criteria": "",
+                "hit_destination": "cast_free_window",
+                "rest_destination": "exile",
+            })],
+            trigger={
+                "event": EventType.SPELL_CAST,
+                "condition": {"subject": "group", "controller": "you"},
+                "filter": {"from_hand": True},
+            },
+            raw_text="Immer wenn du einen Zauberspruch aus deiner Hand wirkst, decke "
+                     "die oberste Karte deiner Bibliothek auf. Falls ihr Manawert "
+                     "höchstens dem Manawert jenes Zauberspruchs entspricht, kannst du "
+                     "sie wirken, ohne ihre Manakosten zu bezahlen.",
+        ),
+    ]
+
+
+register("Sunbird's Invocation", _sunbirds_invocation)
+
+
+def _etali_primal_storm() -> list[AbilitySpec]:
+    """Whenever Etali attacks, exile the top card of each player's
+    library, then you may cast any number of spells from among those
+    cards without paying their mana costs.
+
+    — Imodane deck batch. The new `exile_top_from_each_player_cast_free`
+    — see its docstring.
+    """
+    return [
+        AbilitySpec(
+            "triggered",
+            [EffectSpec("exile_top_from_each_player_cast_free", {})],
+            trigger={"event": EventType.ATTACKS, "condition": {"subject": "self"}},
+            raw_text="Wenn Etali angreift, exiliere die oberste Karte der Bibliothek "
+                     "jedes Spielers. Danach kannst du eine beliebige Anzahl "
+                     "Zaubersprüche von diesen Karten wirken, ohne ihre Manakosten zu "
+                     "bezahlen.",
+        ),
+    ]
+
+
+register("Etali, Primal Storm", _etali_primal_storm)
+
+
+def _dual_strike() -> list[AbilitySpec]:
+    """When you next cast an instant or sorcery spell with mana value 4
+    or less this turn, copy that spell. You may choose new targets for
+    the copy.
+    Foretell {R}
+
+    — Imodane deck batch. Foretell (RULE 702.166) is a RULE 702 keyword,
+    auto-bound. "When you next cast … this turn" is a genuinely new
+    primitive, `arm_spell_watcher`/`GameState.spell_watchers` — a one-shot
+    watch for the *next* qualifying `SPELL_CAST` this turn, distinct from
+    both an ordinary per-firing triggered ability (which only ever fires
+    off a matching *object's own* event) and RULE 603.7's fixed-future-
+    *step* `CreateDelayedTriggerEffect`. Its `then_specs` tail is the
+    already-shipped `copy_spell` (RULE 707.10), applied against the
+    just-cast spell's own stack item directly. **Documented
+    simplification**: "you may choose new targets for the copy" isn't
+    modeled — `CopySpellEffect` already keeps this simplification for
+    every other consumer (Reiterate/Dualcaster Mage-shaped), so the copy
+    keeps the original's targets.
+    """
+    return [
+        AbilitySpec(
+            "spell_effect",
+            [EffectSpec("arm_spell_watcher", {
+                "max_mana_value": 4, "card_types": ["instant", "sorcery"],
+                "then_specs": [{"type": "copy_spell", "params": {}}],
+            })],
+            raw_text="Wenn du das nächste Mal in diesem Zug einen Spontanzauber- oder "
+                     "Hexereispruch mit Manawert 4 oder weniger wirkst, kopiere jenen "
+                     "Zauberspruch. Du kannst neue Ziele für die Kopie wählen.",
+        ),
+    ]
+
+
+register("Dual Strike", _dual_strike)
+
+
+def _city_on_fire() -> list[AbilitySpec]:
+    """Convoke
+    If a source you control would deal damage to a permanent or player,
+    it deals triple that damage instead.
+
+    — Imodane deck batch. Convoke is a RULE 702 keyword, auto-bound; the
+    replacement clause is word-for-word `Fiery Emancipation`'s own
+    ``double_damage`` (``multiplier=3``, ``your_sources_only=True``).
+    """
+    return [
+        AbilitySpec(
+            "replacement",
+            [EffectSpec("double_damage", {"multiplier": 3, "your_sources_only": True})],
+            raw_text="Falls eine Quelle, die du kontrollierst, einer bleibenden Karte "
+                     "oder einem Spieler Schaden zufügen würde, fügt sie stattdessen "
+                     "dreifach so viel Schaden zu.",
+        ),
+    ]
+
+
+register("City on Fire", _city_on_fire)
+
+
+def _mana_geyser() -> list[AbilitySpec]:
+    """Add {R} for each tapped land your opponents control.
+
+    — Imodane deck batch. `AddManaEffect`'s existing `amount_selector`,
+    with the new unscoped-to-opponents `tapped_lands_opponents_control`
+    count selector.
+    """
+    return [
+        AbilitySpec(
+            "spell_effect",
+            [EffectSpec("add_mana", {"color": "R", "amount_selector": "tapped_lands_opponents_control"})],
+            raw_text="Erzeuge {R} für jedes getappte Land, das deine Gegner "
+                     "kontrollieren.",
+        ),
+    ]
+
+
+register("Mana Geyser", _mana_geyser)
+
+
+def _ruby_medallion() -> list[AbilitySpec]:
+    """Red spells you cast cost {1} less to cast.
+
+    — Imodane deck batch. `cost_reduction`'s new `spell_color` filter —
+    the Medallion cycle, deliberately left unclaimed by the parser (see
+    `parser/oracle/catalogue/static_handlers.py`'s own comment) since
+    `continuous._spell_type_matches` only ever read card type, not
+    colour, before this batch.
+    """
+    return [
+        AbilitySpec(
+            "static",
+            [EffectSpec("cost_reduction", {"generic": 1, "spell_color": "R"})],
+            raw_text="Rote Zaubersprüche, die du wirkst, kosten {1} weniger.",
+        ),
+    ]
+
+
+register("Ruby Medallion", _ruby_medallion)
+
+
+def _runaway_steam_kin() -> list[AbilitySpec]:
+    """Whenever you cast a red spell, if this creature has fewer than
+    three +1/+1 counters on it, put a +1/+1 counter on this creature.
+    Remove three +1/+1 counters from this creature: Add {R}{R}{R}.
+
+    — Imodane deck batch. The trigger's intervening-if is the new
+    ``source_counters_below`` (`effect_binder._trigger_condition`) — the
+    counter-count sibling of the shipped ``source_state`` (Mana Vault's
+    own "if this artifact is tapped"). The mana ability is a plain
+    "remove N counters: add mana" activation cost, recognized directly
+    from its printed text by `game/costs.py`'s existing
+    `_REMOVE_COUNTERS_RE`.
+    """
+    return [
+        AbilitySpec(
+            "triggered",
+            [EffectSpec("add_counters", {"kind": "+1/+1", "amount": 1, "target_kind": None})],
+            trigger={
+                "event": EventType.SPELL_CAST,
+                "condition": {"subject": "group", "controller": "you"},
+                "cast_of_color": "R",
+                "source_counters_below": {"kind": "+1/+1", "count": 3},
+            },
+            raw_text="Immer wenn du einen roten Zauberspruch wirkst, legst du, falls "
+                     "diese Kreatur weniger als drei +1/+1-Marken hat, eine "
+                     "+1/+1-Marke auf diese Kreatur.",
+        ),
+        AbilitySpec(
+            "activated",
+            [EffectSpec("add_mana", {"colors": ["R", "R", "R"]})],
+            cost={"text": "Remove three +1/+1 counters from this creature"},
+            raw_text="Entferne drei +1/+1-Marken von dieser Kreatur: Erzeuge {R}{R}{R}.",
+        ),
+    ]
+
+
+register("Runaway Steam-Kin", _runaway_steam_kin)
+
+
+def _storm_kiln_artist() -> list[AbilitySpec]:
+    """This creature gets +1/+0 for each artifact you control.
+    Magecraft — Whenever you cast or copy an instant or sorcery spell,
+    create a Treasure token.
+
+    — Imodane deck batch. Magecraft already parses on its own —
+    reproduced verbatim. The P/T clause is `anthem`'s existing
+    ``power_count``, self-scoped, with the existing
+    `artifacts_you_control` selector.
+    """
+    return [
+        AbilitySpec(
+            "static",
+            [EffectSpec("anthem", {"affects": "self", "power": 1, "power_count": "artifacts_you_control"})],
+            raw_text="Diese Kreatur erhält +1/+0 für jedes Artefakt, das du "
+                     "kontrollierst.",
+        ),
+        AbilitySpec(
+            "triggered",
+            [EffectSpec("create_token", {"count": 1, "token_name": "Treasure"})],
+            trigger={
+                "event": EventType.SPELL_CAST,
+                "condition": {"subject": "group", "controller": "you"},
+                "spell_card_types": ["instant", "sorcery"],
+            },
+            raw_text="Zauberkunst — Immer wenn du einen Spontanzauber- oder "
+                     "Hexereispruch wirkst oder kopierst, erzeuge einen "
+                     "Schatz-Spielstein.",
+        ),
+    ]
+
+
+register("Storm-Kiln Artist", _storm_kiln_artist)
+
+
+def _koth_fire_of_resistance() -> list[AbilitySpec]:
+    """+2: Search your library for a basic Mountain card, reveal it, put
+    it into your hand, then shuffle.
+    −3: Koth deals damage to target creature equal to the number of
+    Mountains you control.
+    −7: You get an emblem with "Whenever a Mountain you control enters,
+    this emblem deals 4 damage to any target."
+
+    — Imodane deck batch. "+2:" is the generalized search grammar
+    (`search`, ``{"basic": True, "type": "Mountain"}``). "−3:" is
+    `DealDamageEffect`'s `amount_from_count_selector` (the existing
+    `lands_you_control_of_type_mountain`-shaped count already used
+    elsewhere for a threshold filter, here as a magnitude instead).
+    "−7:" is the quoted-emblem-at-loyalty shape `Tyvar Kell`/`Vraska,
+    Golgari Queen` already established — the emblem's own trigger is a
+    genuine `ENTERS_BATTLEFIELD` group condition scoped by subtype, no
+    different from a permanent's own.
+    """
+    emblem_ability = AbilitySpec(
+        "triggered",
+        [EffectSpec("damage", {"amount": 4, "target_kind": "any"})],
+        trigger={
+            "event": EventType.ENTERS_BATTLEFIELD,
+            "condition": {"subject": "group", "subtypes": ["mountain"], "controller": "you"},
+        },
+        raw_text="Immer wenn ein Gebirge unter deiner Kontrolle ins Spiel kommt, fügt "
+                 "dieser Emblem-Spielstein einem beliebigen Ziel 4 Schaden zu.",
+    )
+    return [
+        AbilitySpec(
+            "activated",
+            [EffectSpec("search", {
+                "criteria": {"basic": True, "type": "Mountain"}, "destination": "hand",
+            })],
+            cost={"loyalty": 2},
+            raw_text="+2: Durchsuche deine Bibliothek nach einer Standard-Gebirgskarte, "
+                     "zeige sie, nimm sie auf deine Hand und mische danach deine "
+                     "Bibliothek.",
+        ),
+        AbilitySpec(
+            "activated",
+            [EffectSpec("damage", {
+                "target_kind": "creature", "amount_from_count_selector": "lands_you_control_of_type_mountain",
+            })],
+            cost={"loyalty": -3},
+            raw_text="−3: Koth fügt einer Zielkreatur Schaden in Höhe der Anzahl der "
+                     "Gebirge zu, die du kontrollierst.",
+        ),
+        AbilitySpec(
+            "activated",
+            [EffectSpec("create_emblem", {"ability": emblem_ability.to_dict()})],
+            cost={"loyalty": -7},
+            raw_text='−7: Du erhältst einen Emblem-Spielstein mit "Immer wenn ein '
+                     'Gebirge unter deiner Kontrolle ins Spiel kommt, fügt dieser '
+                     'Emblem-Spielstein einem beliebigen Ziel 4 Schaden zu."',
+        ),
+    ]
+
+
+register("Koth, Fire of Resistance", _koth_fire_of_resistance)
+
+
+def _stuffy_doll() -> list[AbilitySpec]:
+    """Indestructible
+    As this creature enters, choose a player.
+    Whenever this creature is dealt damage, it deals that much damage to
+    the chosen player.
+    {T}: This creature deals 1 damage to itself.
+
+    — Imodane deck batch. Indestructible is a RULE 702 keyword, auto-
+    bound. The player choice is the new `request_choose_player`
+    (`GameObject.chosen_player_id`); the damage-redirect trigger is the
+    new `self_as_recipient` trigger subject (the "is dealt damage"
+    mirror image of the ordinary source-keyed "self") paired with the
+    new `deal_damage_to_chosen_player`, reading the firing event's own
+    amount. The activated ability is a plain self-damage.
+    """
+    return [
+        AbilitySpec(
+            "triggered",
+            [EffectSpec("request_choose_player", {})],
+            trigger={"event": EventType.ENTERS_BATTLEFIELD, "condition": {"subject": "self"}},
+            raw_text="Wenn diese Kreatur ins Spiel kommt, wähle einen Spieler.",
+        ),
+        AbilitySpec(
+            "triggered",
+            [EffectSpec("deal_damage_to_chosen_player", {})],
+            trigger={"event": EventType.DAMAGE, "condition": {"subject": "self_as_recipient"}},
+            raw_text="Immer wenn dieser Kreatur Schaden zugefügt wird, fügt sie dem "
+                     "gewählten Spieler ebenso viel Schaden zu.",
+        ),
+        AbilitySpec(
+            "activated",
+            [EffectSpec("damage", {"amount": 1, "selector": "self"})],
+            cost={"text": "{T}"},
+            raw_text="{T}: Diese Kreatur fügt sich selbst 1 Schaden zu.",
+        ),
+    ]
+
+
+register("Stuffy Doll", _stuffy_doll)
+
+
+def _grafted_exoskeleton() -> list[AbilitySpec]:
+    """Equipped creature gets +2/+2 and has infect.
+    Whenever this Equipment becomes unattached from a permanent,
+    sacrifice that permanent.
+    Equip {2}
+
+    — Imodane deck batch. The anthem+infect grant and Equip already
+    parse on their own — reproduced verbatim. **Documented
+    simplification**: "whenever ~ becomes unattached" isn't modeled —
+    this engine has no `attached_to` change event at all yet (every
+    detach site — RULE 704.5m/n's illegal-attachment cleanup, a manual
+    re-equip — mutates `GameObject.attached_to` directly with no
+    broadcast), a genuinely open engine-primitive gap beyond this one
+    card, so building it here is disproportionate.
+    """
+    return [
+        AbilitySpec(
+            "static",
+            [
+                EffectSpec("anthem", {"affects": "attached_permanent", "power": 2, "toughness": 2}),
+                EffectSpec("grant_keyword", {"affects": "attached_permanent", "keywords": ["infect"]}),
+            ],
+            raw_text="Ausgerüstete Kreatur erhält +2/+2 und hat Infektion.",
+        ),
+    ]
+
+
+register("Grafted Exoskeleton", _grafted_exoskeleton)
+
+
+def _sword_of_once_and_future() -> list[AbilitySpec]:
+    """Equipped creature gets +2/+2 and has protection from blue and
+    from black.
+    Whenever equipped creature deals combat damage to a player, surveil
+    2. Then you may cast an instant or sorcery spell with mana value 2 or
+    less from your graveyard without paying its mana cost. If that spell
+    would be put into your graveyard, exile it instead.
+    Equip {2}
+
+    — Imodane deck batch. The anthem+protection grant and Equip already
+    parse on their own — reproduced verbatim. **Documented
+    simplification**: only "surveil 2" is modeled — the trailing "cast an
+    instant or sorcery spell with mana value 2 or less from your
+    graveyard without paying its mana cost" needs a chooser over
+    graveyard cards matching a filter, cast *for free*; the shipped
+    graveyard-cast machinery covers either half alone (`dig_until`'s
+    ``cast_free_window`` operates on the *library*, not the graveyard;
+    `GraveyardCastPermissionEffect`'s graveyard permission is always at
+    normal mana cost, never free) but not their combination, so building
+    that chooser is disproportionate to this one card.
+    """
+    return [
+        AbilitySpec(
+            "static",
+            [
+                EffectSpec("anthem", {"affects": "attached_permanent", "power": 2, "toughness": 2}),
+                EffectSpec("grant_protection_static", {
+                    "affects": "attached_permanent", "protections": ["blue", "black"],
+                }),
+            ],
+            raw_text="Ausgerüstete Kreatur erhält +2/+2 und Schutz vor Blau und vor "
+                     "Schwarz.",
+        ),
+        AbilitySpec(
+            "triggered",
+            [EffectSpec("surveil", {"count": 2})],
+            trigger={
+                "event": EventType.DAMAGE,
+                "condition": {"subject": "attached_permanent"},
+                "filter": {"combat": True, "is_player": True},
+            },
+            raw_text="Wenn die ausgerüstete Kreatur einem Spieler Kampfschaden zufügt, "
+                     "surveile 2. Danach kannst du einen Spontanzauber- oder "
+                     "Hexereispruch mit Manawert 2 oder weniger aus deinem Friedhof "
+                     "wirken, ohne seine Manakosten zu bezahlen.",
+        ),
+    ]
+
+
+register("Sword of Once and Future", _sword_of_once_and_future)
+
+
+def _invasion_of_kaldheim() -> list[AbilitySpec]:
+    """(As a Siege enters, choose an opponent to protect it. You and
+    others can attack it. When it's defeated, exile it, then cast it
+    transformed.)
+    When this Siege enters, exile all cards from your hand, then draw
+    that many cards. Until the end of your next turn, you may play cards
+    exiled this way.
+
+    — Imodane deck batch. The RULE 310 battle mechanics (protector
+    choice, attackability, defeat/transform cycle) are all engine-level
+    and need no hand-authoring. The ETB is the new
+    `exile_hand_then_draw_that_many` — see its docstring for the
+    documented simplification.
+    """
+    return [
+        AbilitySpec(
+            "triggered",
+            [EffectSpec("exile_hand_then_draw_that_many", {})],
+            trigger={"event": EventType.ENTERS_BATTLEFIELD, "condition": {"subject": "self"}},
+            raw_text="Wenn diese Belagerung ins Spiel kommt, exiliere alle Karten "
+                     "aus deiner Hand und ziehe danach ebenso viele Karten.",
+        ),
+    ]
+
+
+register("Invasion of Kaldheim", _invasion_of_kaldheim)
+register("Invasion of Kaldheim // Pyre of the World Tree", _invasion_of_kaldheim)
+
+
+def _invasion_of_regatha() -> list[AbilitySpec]:
+    """(As a Siege enters, choose an opponent to protect it. You and
+    others can attack it. When it's defeated, exile it, then cast it
+    transformed.)
+    When this Siege enters, it deals 4 damage to another target battle
+    or opponent and 1 damage to up to one target creature.
+
+    — Imodane deck batch. Two independent targeting effects on one
+    trigger, gathered one at a time (`_continue_trigger_multi_target`,
+    RULE 603.1) rather than `GameEffect.extra_target_specs` — `damage`
+    itself only ever reads a single flat targets list, so the second
+    requirement needs its own effect, not a bolt-on second target on the
+    first. The new `battle_or_opponent` target kind covers the first.
+    """
+    return [
+        AbilitySpec(
+            "triggered",
+            [
+                EffectSpec("damage", {"amount": 4, "target_kind": "battle_or_opponent"}),
+                EffectSpec("damage", {"amount": 1, "target_kind": "creature", "optional": True}),
+            ],
+            trigger={"event": EventType.ENTERS_BATTLEFIELD, "condition": {"subject": "self"}},
+            raw_text="Wenn diese Belagerung ins Spiel kommt, fügt sie einer anderen "
+                     "Zielschlacht oder einem Ziel-Gegner 4 Schaden zu und einer bis "
+                     "zu einen Zielkreatur 1 Schaden.",
+        ),
+    ]
+
+
+register("Invasion of Regatha", _invasion_of_regatha)
+register("Invasion of Regatha // Disciples of the Inferno", _invasion_of_regatha)
+
+
+def _magda_the_hoardmaster() -> list[AbilitySpec]:
+    """Whenever you commit a crime, create a tapped Treasure token. This
+    ability triggers only once each turn. (Targeting opponents, anything
+    they control, and/or cards in their graveyards is a crime.)
+    Sacrifice three Treasures: Create a 4/4 red Scorpion Dragon creature
+    token with flying and haste. Activate only as a sorcery.
+
+    — Imodane deck batch. The sacrifice ability already parses on its
+    own — reproduced verbatim. **Documented simplification**: "whenever
+    you commit a crime" (RULE 701.53 — targeting an opponent, anything
+    they control, or a card in their graveyard) isn't modeled — no
+    single event unifies "any targeting effect resolving against
+    anything opponent-owned" across every effect family in this engine
+    (damage, destroy, exile, counter-removal, graveyard recursion, …), so
+    the trigger never fires; the treasure-cost payoff still works once
+    Treasures exist from any other source.
+    """
+    return [
+        AbilitySpec(
+            "activated",
+            [EffectSpec("create_token", {
+                "count": 1, "power": 4, "toughness": 4, "colors": ["R"],
+                "subtypes": ["Scorpion", "Dragon"], "keywords": ["flying", "haste"],
+                "token_name": "Scorpion Dragon",
+            }), EffectSpec("sorcery_speed_marker", {})],
+            cost={"text": "Sacrifice three Treasures"},
+            raw_text="Opfere drei Schätze: Erzeuge einen 4/4 roten Skorpiondrache-"
+                     "Kreaturenspielstein mit Fliegen und Eile. Aktiviere nur wie "
+                     "einen Hauptzauberspruch.",
+        ),
+    ]
+
+
+register("Magda, the Hoardmaster", _magda_the_hoardmaster)
+
+
+def _birgi_god_of_storytelling() -> list[AbilitySpec]:
+    """Whenever you cast a spell, add {R}. Until end of turn, you don't
+    lose this mana as steps and phases end.
+    Creatures you control can boast twice during each of your turns
+    rather than once.
+
+    — Imodane deck batch. **Documented simplification**: modeled as a
+    plain "whenever you cast a spell, add {R}" (the mana empties at the
+    end of the current step/phase as usual, RULE 500.4 — no primitive
+    marks specific floating mana as persisting past that) — no mana
+    *ritual* value is lost for a spell cast with priority still to
+    follow, only the "bank it for later this turn" upside. "Boast twice"
+    isn't modeled at all: RULE 702.161's Boast keyword itself has no
+    engine primitive yet (no Boast-printing card is in either deck), so
+    there's nothing to double.
+    """
+    return [
+        AbilitySpec(
+            "triggered",
+            [EffectSpec("add_mana", {"colors": ["R"]})],
+            trigger={
+                "event": EventType.SPELL_CAST,
+                "condition": {"subject": "group", "controller": "you"},
+            },
+            raw_text="Immer wenn du einen Zauberspruch wirkst, erzeuge {R}.",
+        ),
+    ]
+
+
+register("Birgi, God of Storytelling", _birgi_god_of_storytelling)
+register("Birgi, God of Storytelling // Harnfel, Horn of Bounty", _birgi_god_of_storytelling)
+
+
+def _display_of_power() -> list[AbilitySpec]:
+    """This spell can't be copied.
+    Copy any number of target instant and/or sorcery spells. You may
+    choose new targets for the copies.
+
+    — Imodane deck batch. "Any number of target spells" is the RULE
+    601.2c "any number" idiom Fire Covenant's own ``count=10`` UI cap
+    already established, applied to `CopySpellEffect`'s ``target_count``
+    (new — every prior copy-spell card only ever named one target).
+    **Documented simplification**: "This spell can't be copied" (RULE
+    707.12) isn't modeled — no spell-copy-immunity primitive exists yet,
+    and nothing in either deck tries to copy a spell that's still on the
+    stack as a copy target — so it's harmless in practice; "you may
+    choose new targets for the copies" is the same already-documented
+    MVP `CopySpellEffect` simplification every other copy-spell card in
+    this catalogue shares (keeps the original's targets).
+    """
+    return [
+        AbilitySpec(
+            "spell_effect",
+            [EffectSpec("copy_spell", {
+                "card_types": ["instant", "sorcery"], "target_count": 10, "optional": True,
+            })],
+            raw_text="Dieser Zauberspruch kann nicht kopiert werden. Kopiere eine "
+                     "beliebige Anzahl Ziel-Hexerei- und/oder Spontanzauber. Du "
+                     "kannst für die Kopien neue Ziele wählen.",
+        ),
+    ]
+
+
+register("Display of Power", _display_of_power)
+
+
+def _gamble() -> list[AbilitySpec]:
+    """Search your library for a card, put that card into your hand,
+    discard a card at random, then shuffle.
+
+    — Imodane deck batch. **Documented simplification**: "at random"
+    becomes an ordinary discard choice — the same simplification
+    Indoraptor, the Perfect Hybrid's own "choose an opponent at random"
+    already established in this catalogue (a real choice instead of
+    randomness has no rules-relevant difference an MVP needs to model).
+    """
+    return [
+        AbilitySpec(
+            "spell_effect",
+            [
+                EffectSpec("search", {"criteria": "", "destination": "hand"}),
+                EffectSpec("discard", {"count": 1}),
+            ],
+            raw_text="Durchsuche deine Bibliothek nach einer Karte, nimm diese "
+                     "Karte auf deine Hand, wirf danach zufällig eine Karte ab "
+                     "und mische danach deine Bibliothek.",
+        ),
+    ]
+
+
+register("Gamble", _gamble)
+
+
+def _jayas_immolating_inferno() -> list[AbilitySpec]:
+    """(You may cast a legendary sorcery only if you control a legendary
+    creature or planeswalker.)
+    Jaya's Immolating Inferno deals X damage to each of up to three
+    targets.
+
+    — Imodane deck batch. "To each of up to three targets" is
+    `DealDamageEffect`'s existing ``count``/``optional`` "up to N
+    targets" shape (Volcanic Salvo-shaped), unchanged; X is the spell's
+    own announced {X}, substituted the same way every other X-damage
+    spell in this catalogue already reads it. **Documented
+    simplification**: the Legendary Sorcery casting restriction (control
+    a legendary creature or planeswalker) isn't enforced — no card-type-
+    supertype casting gate exists in `can_cast` yet — so the spell casts
+    like an ordinary sorcery; the damage itself is fully modeled.
+    """
+    return [
+        AbilitySpec(
+            "spell_effect",
+            [EffectSpec("damage", {"amount": "x", "target_kind": "any", "count": 3, "optional": True})],
+            raw_text="Jaya's Immolating Inferno fügt bis zu drei Zielen je X "
+                     "Schadenspunkte zu.",
+        ),
+    ]
+
+
+register("Jaya's Immolating Inferno", _jayas_immolating_inferno)
+
+
+def _jeskas_will() -> list[AbilitySpec]:
+    """Choose one. If you control a commander as you cast this spell, you
+    may choose both instead.
+    • Add {R} for each card in target opponent's hand.
+    • Exile the top three cards of your library. You may play them this
+    turn.
+
+    — Imodane deck batch. Mode 1 needed a genuinely new `AddManaEffect`
+    shape (``target_kind``/``amount_from_target_hand_size`` — every prior
+    use of that effect was untargeted); mode 2 is `ImpulsiveDrawEffect`
+    unchanged (``count=3, same_turn_only=True`` — Ragavan, Nimble
+    Pilferer's own shorter "this turn" window rather than Light Up the
+    Stage's "until your next turn"). **Documented simplification**:
+    ``or_both`` is offered unconditionally rather than gated on "if you
+    control a commander" — this app's decks are Commander decks by
+    construction, so the gate is true in every real game this engine
+    plays; a genuinely commander-less game would let this spell over-
+    offer the combined mode.
+    """
+    return [
+        AbilitySpec(
+            "spell_effect",
+            [],
+            modes={
+                "or_both": True,
+                "options": [
+                    [EffectSpec("add_mana", {
+                        "color": "R", "target_kind": "opponent", "amount_from_target_hand_size": True,
+                    })],
+                    [EffectSpec("impulsive_draw", {"count": 3, "same_turn_only": True})],
+                ],
+                "descriptions": [
+                    "Füge {R} für jede Karte auf der Hand eines Zielgegners hinzu.",
+                    "Exiliere die obersten drei Karten deiner Bibliothek. Du "
+                    "kannst sie in diesem Zug ausspielen.",
+                ],
+            },
+            raw_text="Wähle eins. Falls du beim Wirken dieses Zauberspruchs "
+                     "einen Commander kontrollierst, kannst du stattdessen "
+                     "beide wählen.",
+        ),
+    ]
+
+
+register("Jeska's Will", _jeskas_will)
+
+
+def _play_with_fire() -> list[AbilitySpec]:
+    """Play with Fire deals 2 damage to any target. If a player is dealt
+    damage this way, scry 1.
+
+    — Imodane deck batch. The scry rider is `ConditionalEffect`'s new
+    ``target_is_player`` condition key (this batch, shares its shared-
+    targets-list idiom with the existing ``target_is_controller``), same
+    shape as Trystan's ``graveyard_has_type``.
+    """
+    return [
+        AbilitySpec(
+            "spell_effect",
+            [
+                EffectSpec("damage", {"amount": 2, "target_kind": "any"}),
+                EffectSpec("scry", {"amount": 1}, condition={"target_is_player": True}),
+            ],
+            raw_text="Play with Fire fügt einem beliebigen Ziel 2 Schadenspunkte "
+                     "zu. Falls einem Spieler auf diese Weise Schaden zugefügt "
+                     "wurde, schaue dir die oberste Karte deiner Bibliothek an "
+                     "(Scry 1).",
+        ),
+    ]
+
+
+register("Play with Fire", _play_with_fire)
+
+
+def _vandalblast() -> list[AbilitySpec]:
+    """Destroy target artifact you don't control.
+    Overload {4}{R} (You may cast this spell for its overload cost. If
+    you do, change "target" in its text to "each.")
+
+    — Imodane deck batch. The base mode needed a new `artifact_you_dont_
+    control` target kind, the artifact-typed mirror of the existing
+    `creature_you_dont_control`. **Documented simplification**: Overload
+    (RULE 702.96) isn't modeled, matching the standing precedent Winds of
+    Abandon/Damn/Cyclonic Rift already set in this catalogue — no
+    alternative-cost mechanism stamps "was this spell cast via its
+    overload cost" anywhere yet.
+    """
+    return [
+        AbilitySpec(
+            "spell_effect",
+            [EffectSpec("destroy", {"target_kind": "artifact_you_dont_control"})],
+            raw_text="Zerstöre ein Ziel-Artefakt, das du nicht kontrollierst.",
+        ),
+    ]
+
+
+register("Vandalblast", _vandalblast)
+
+
+def _witchs_mark() -> list[AbilitySpec]:
+    """You may discard a card. If you do, draw two cards.
+    Create a Wicked Role token attached to up to one target creature you
+    control. (If you control another Role on it, put that one into the
+    graveyard. Enchanted creature gets +1/+1. When this token is put
+    into a graveyard, each opponent loses 1 life.)
+
+    — Imodane deck batch. The loot half is `pay_cost_then` (RULE 118.3),
+    the same "discard a card. If you do, …" shape Formidable Speaker's
+    ETB already uses. **Documented simplification**: the Role token
+    (RULE 701.62, an Aura-shaped token type this engine has no synthesis
+    support for — `synthesize_token_card` only builds Creature/Artifact
+    tokens, not Enchantment-Aura ones) isn't modeled; the card's real
+    functional value (the loot) is fully modeled.
+    """
+    return [
+        AbilitySpec(
+            "spell_effect",
+            [EffectSpec("pay_cost_then", {
+                "cost": "Discard a card",
+                "effects": [{"type": "draw", "params": {"count": 2}}],
+            })],
+            raw_text="Du kannst eine Karte abwerfen. Falls du dies tust, ziehe "
+                     "zwei Karten.",
+        ),
+    ]
+
+
+register("Witch's Mark", _witchs_mark)
+
+
+def _wheel_of_misfortune() -> list[AbilitySpec]:
+    """Each player secretly chooses a number 0 or greater, then all
+    players reveal those numbers simultaneously and determine the
+    highest and lowest numbers revealed this way. Wheel of Misfortune
+    deals damage equal to the highest number to each player who chose
+    that number. Each player who didn't choose the lowest number
+    discards their hand, then draws seven cards.
+
+    — Imodane deck batch. **Documented simplification** (the whole card):
+    no "secretly choose a number, then reveal simultaneously" primitive
+    exists (a genuinely new interactive-choice subsystem, out of scope
+    for the value of one card), so the highest/lowest voting sub-game and
+    its damage aren't modeled at all. What's modeled instead is the
+    card's Wheel-of-Fortune-shaped headline effect: every player
+    discards their hand and draws seven — `DiscardEffect(count=99,
+    scope="each_player")` is the same "count large enough to force the
+    whole hand" idiom Fire Covenant's own ``count=10`` "any number" UI
+    cap uses elsewhere, since `discard_choice` already forces without a
+    prompt once ``count`` reaches hand size.
+    """
+    return [
+        AbilitySpec(
+            "spell_effect",
+            [
+                EffectSpec("discard", {"count": 99, "scope": "each_player"}),
+                EffectSpec("draw", {"count": 7, "selector": "each_player"}),
+            ],
+            raw_text="Jeder Spieler wählt heimlich eine Zahl 0 oder größer, "
+                     "danach decken alle Spieler diese Zahlen gleichzeitig auf "
+                     "und bestimmen die höchste und die niedrigste auf diese "
+                     "Weise aufgedeckte Zahl. Wheel of Misfortune fügt jedem "
+                     "Spieler, der diese Zahl gewählt hat, Schaden in Höhe der "
+                     "höchsten Zahl zu. Jeder Spieler, der nicht die niedrigste "
+                     "Zahl gewählt hat, wirft seine Hand ab und zieht danach "
+                     "sieben Karten.",
+        ),
+    ]
+
+
+register("Wheel of Misfortune", _wheel_of_misfortune)
+
+
+def _volcanic_spite() -> list[AbilitySpec]:
+    """Volcanic Spite deals 3 damage to target creature, planeswalker, or
+    battle. You may put a card from your hand on the bottom of your
+    library. If you do, draw a card.
+
+    — Imodane deck batch. The target kind is the new `creature_
+    planeswalker_or_battle`. The loot rider is the new `put_hand_card_on_
+    bottom_then_draw` primitive (`RulesEngine.put_hand_card_on_bottom_
+    then_draw`) — see its docstring for why the "may" is auto-taken
+    rather than opening a real chooser.
+    """
+    return [
+        AbilitySpec(
+            "spell_effect",
+            [
+                EffectSpec("damage", {"amount": 3, "target_kind": "creature_planeswalker_or_battle"}),
+                EffectSpec("put_hand_card_on_bottom_then_draw", {}),
+            ],
+            raw_text="Volcanic Spite fügt einer Zielkreatur, einem Ziel-"
+                     "Planeswalker oder einer Zielschlacht 3 Schadenspunkte "
+                     "zu. Du kannst eine Karte von deiner Hand unten in deine "
+                     "Bibliothek legen. Falls du dies tust, ziehe eine Karte.",
+        ),
+    ]
+
+
+register("Volcanic Spite", _volcanic_spite)
+
+
+def _imodane_the_pyrohammer() -> list[AbilitySpec]:
+    """Whenever an instant or sorcery spell you control that targets only
+    a single creature deals damage to that creature, Imodane deals that
+    much damage to each opponent.
+
+    — Imodane deck batch, the commander's own signature ability and this
+    batch's biggest new-primitive investment: `DealDamageEffect.amount_
+    from_trigger_event` (new — every other damage-doubling/mirroring
+    card in this catalogue reads a count selector or a flat override, not
+    a *firing event's own* damage amount) reads the DAMAGE event's
+    ``amount`` field the trigger fired with. Two new event flags make the
+    trigger condition possible at all: `RulesEngine.deal_damage`/
+    `DealDamageEffect.apply` now stamp ``source_is_instant_or_sorcery``
+    (the source's own printed card type) and ``source_targets_only_
+    single_creature`` (computed from the *resolving effect's own*
+    ``target_spec`` — count 1, not optional, not a mass selector — and
+    the target's own `is_creature`) onto every DAMAGE event; two matching
+    `effect_binder._trigger_condition` predicate keys
+    (``requires_source_instant_or_sorcery``/``requires_single_creature_
+    target``) check them. "You control" is the ordinary ``"subject":
+    "group", "controller": "you"`` group-subject check (DAMAGE's group-
+    controller key is already ``source_controller_id``).
+    """
+    return [
+        AbilitySpec(
+            "triggered",
+            [EffectSpec("damage", {
+                "amount_from_trigger_event": "amount", "selector": "each_opponent",
+            })],
+            trigger={
+                "event": "DAMAGE",
+                "condition": {"subject": "group", "controller": "you"},
+                "requires_source_instant_or_sorcery": True,
+                "requires_single_creature_target": True,
+            },
+            raw_text="Immer wenn ein Spontanzauber oder eine Hexerei unter "
+                     "deiner Kontrolle, der/die nur eine einzelne Kreatur zum "
+                     "Ziel hat, dieser Kreatur Schaden zufügt, fügt Imodane "
+                     "jedem Gegner ebenso viel Schaden zu.",
+        ),
+    ]
+
+
+register("Imodane, the Pyrohammer", _imodane_the_pyrohammer)

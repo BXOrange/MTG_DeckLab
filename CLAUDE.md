@@ -759,6 +759,31 @@ state/BACKLOG.md`'s MEC callout: `scripts/import_bulk.py` already drops
 the Scryfall `vanguard` layout from the card cache entirely, so avatar
 text can never reach the parser's coverage ranking regardless.
 
+A follow-up batch (2026-08-06) finished the "Eliferate"/"Imodane" saved
+decks to full playability (91/91 and 69/69) and, along the way, fixed two
+durable engine bugs that had silently blocked *any* card from ever
+triggering off them: `RulesEngine.add_counters`/`add_player_counters` and
+`create_token` each computed their event through `apply_replacements`
+but never called `state.fire_event` on the result, so COUNTER and
+CREATE_TOKENS events were never broadcast to `_collect_triggers`. It also
+added RULE 603.3d **trigger doubling** (Roaming Throne — `continuous.
+trigger_doubler_bonus`/`TriggerDoublerEffect`, "an additional time"
+rather than "a bigger effect", no prior analogue) and **"spell
+watchers"** (`GameState.spell_watchers`, Dual Strike's "when you next
+cast an instant or sorcery this turn, copy it") — a GameState-level
+mechanism distinct from both an object-bound `TriggeredAbility` and a
+step-bound RULE 603.7 `DelayedTrigger`. Imodane, the Pyrohammer's own
+signature ability ("whenever an instant or sorcery spell you control
+that targets only a single creature deals damage to that creature,
+Imodane deals that much damage to each opponent") needed
+`DealDamageEffect.amount_from_trigger_event` plus two new DAMAGE-event
+flags (`source_is_instant_or_sorcery`/`source_targets_only_single_
+creature`) computed at the point where both the source's card type and
+the *resolving effect's own* `target_spec` shape are known. Full detail,
+including every documented per-card simplification, in
+`docs/implementation-state/Done_Backend.md`'s "Eliferate (finish) and
+Imodane" entry.
+
 **Notable gaps** (see `docs/implementation-state/BACKLOG.md` for the full list with exact
 scope on each): a kicked spell's "if kicked, ... instead" *override* conditional (as opposed to the
 additional-effect shape already shipped); "search library and/or

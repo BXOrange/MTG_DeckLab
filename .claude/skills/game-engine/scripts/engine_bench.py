@@ -573,6 +573,29 @@ def _src(rel: str) -> str:
     return path.read_text(encoding="utf-8") if path.exists() else ""
 
 
+def _src_many(rels: list[str]) -> list[tuple[str, str]]:
+    """(relpath, text) for every concrete file matching ``rels`` (plain
+    relative paths or glob patterns, e.g. ``"game/rules/*.py"``).
+
+    `RulesEngine`/`GameEngine` are each a mixin composition (ENG-20/21) —
+    `game/rules_engine.py`/`game/game_engine.py` now hold only `__init__` +
+    the class declaration, everything else lives in `game/rules/*_mixin.py`/
+    `game/engine/*_mixin.py`. A scan of the top-level file alone sees almost
+    nothing; every caller that used to read one file via `_src` and needs the
+    *real* method/kind/dispatch inventory should read this instead.
+    """
+    out: list[tuple[str, str]] = []
+    for rel in rels:
+        if any(ch in rel for ch in "*?["):
+            for path in sorted(PKG.glob(rel)):
+                out.append((str(path.relative_to(PKG)), path.read_text(encoding="utf-8")))
+        else:
+            text = _src(rel)
+            if text:
+                out.append((rel, text))
+    return out
+
+
 def _lineno(text: str, index: int) -> int:
     return text.count("\n", 0, index) + 1
 
@@ -628,21 +651,24 @@ def _choice_kinds() -> dict:
     A choice missing a stop passes every unit test and hangs a real game: the
     API can't answer it, or the board can't name it.
     """
-    rules = _src("game/rules_engine.py")
-    engine = _src("game/game_engine.py")
+    rules_files = _src_many(["game/rules_engine.py", "game/rules/*.py"])
+    engine_files = _src_many(["game/game_engine.py", "game/engine/*.py"])
     board_path = REPO / "frontend/src/js/gameBoardView.js"
     board = board_path.read_text(encoding="utf-8") if board_path.exists() else ""
 
     kinds: dict[str, dict] = {}
-    for m in re.finditer(r"[\"']kind[\"']\s*:\s*[\"']([a-z0-9_]+)[\"']", rules):
-        kinds.setdefault(m.group(1), {"line": f"game/rules_engine.py:{_lineno(rules, m.start())}"})
+    for rel, rules in rules_files:
+        for m in re.finditer(r"[\"']kind[\"']\s*:\s*[\"']([a-z0-9_]+)[\"']", rules):
+            kinds.setdefault(m.group(1), {"line": f"{rel}:{_lineno(rules, m.start())}"})
 
-    dispatched = set(re.findall(r"kind\s*==\s*[\"']([a-z0-9_]+)[\"']", engine))
-    dispatched |= {
-        k
-        for group in re.findall(r"kind in \(([^)]*)\)", engine)
-        for k in re.findall(r"[\"']([a-z0-9_]+)[\"']", group)
-    }
+    dispatched: set[str] = set()
+    for _, engine in engine_files:
+        dispatched |= set(re.findall(r"kind\s*==\s*[\"']([a-z0-9_]+)[\"']", engine))
+        dispatched |= {
+            k
+            for group in re.findall(r"kind in \(([^)]*)\)", engine)
+            for k in re.findall(r"[\"']([a-z0-9_]+)[\"']", group)
+        }
 
     # Matching resolver to kind can't go by name prefix: `order_triggers` is
     # answered by `resolve_trigger_order_choice`. Accept the kind named in the
@@ -651,11 +677,12 @@ def _choice_kinds() -> dict:
         return {w.rstrip("s") for w in name.split("_")} - {"resolve", "choice", ""}
 
     resolver_stems, resolved = [], set()
-    for block in re.split(r"\n    def ", rules):
-        if not block.startswith("resolve_"):
-            continue
-        resolver_stems.append(stems(block.split("(", 1)[0]))
-        resolved |= set(re.findall(r"[\"']([a-z0-9_]+)[\"']", block))
+    for _, rules in rules_files:
+        for block in re.split(r"\n    def ", rules):
+            if not block.startswith("resolve_"):
+                continue
+            resolver_stems.append(stems(block.split("(", 1)[0]))
+            resolved |= set(re.findall(r"[\"']([a-z0-9_]+)[\"']", block))
     for kind in kinds:
         if any(stems(kind) <= s for s in resolver_stems):
             resolved.add(kind)
@@ -670,12 +697,18 @@ def _choice_kinds() -> dict:
     return kinds
 
 
-def _methods(rel: str, label: str):
-    text = _src(rel)
-    return [
-        (m.group(1), label, f"{rel}:{_lineno(text, m.start())}")
-        for m in re.finditer(r"^    def ([a-z][a-z0-9_]*)\(", text, re.M)
-    ]
+def _methods(rels: list[str], label: str):
+    """Every method defined at class-body indent (4 spaces) across ``rels``.
+
+    Takes a list of paths/globs, not one file, so a mixin-composed class
+    (`RulesEngine`/`GameEngine` — see `_src_many`'s docstring) is actually
+    covered; a single-file scan here used to report almost nothing.
+    """
+    rows = []
+    for rel, text in _src_many(rels):
+        for m in re.finditer(r"^    def ([a-z][a-z0-9_]*)\(", text, re.M):
+            rows.append((m.group(1), label, f"{rel}:{_lineno(text, m.start())}"))
+    return rows
 
 
 def _object_state():
@@ -719,8 +752,8 @@ def cmd_primitives(args):
         ]),
         ("interactive choices (pending_choice)",
          [(k, "choice kind", str(v["line"])) for k, v in sorted(choices.items())]),
-        ("RulesEngine methods", _methods("game/rules_engine.py", "RulesEngine")),
-        ("GameEngine methods", _methods("game/game_engine.py", "GameEngine")),
+        ("RulesEngine methods", _methods(["game/rules_engine.py", "game/rules/*.py"], "RulesEngine")),
+        ("GameEngine methods", _methods(["game/game_engine.py", "game/engine/*.py"], "GameEngine")),
         ("GameObject state", _object_state()),
         ("RULE 702 keywords", _keyword_rows()),
         ("hand-authored cards", _authored_rows()),

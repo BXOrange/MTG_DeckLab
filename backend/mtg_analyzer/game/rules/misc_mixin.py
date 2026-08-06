@@ -362,6 +362,90 @@ class MiscSystemsMixin:
         )
         for effect in built:
             effect.apply(self.context, targets)
+    def request_choose_creature_type_grant(
+        self, player: Player, source: GameObject, then_specs: list[dict],
+    ) -> None:
+        """Open a **resolve-time** "choose a creature type" choice — RULE
+        601.2b's "as ~ enters, choose a creature type" happens *during*
+        battlefield entry via `_offer_enter_choices`'s own continuation-
+        passing pipeline; this is for a triggered ability's own "When ~
+        enters, choose a creature type. <effect naming the chosen type>."
+        (Selfless Safewright-shaped), where the choice is part of an
+        ordinary resolution instead. Stashes the pick onto ``source.
+        chosen_type`` (the same field the enter-time choice sets, so a
+        later static/effect reading it doesn't care which path set it) and
+        runs ``then_specs`` once answered.
+
+        No bespoke continuation needed: `_apply_effects_partitioned`
+        already parks the rest of *this* effect list the instant this one
+        opens `pending_choice` (RULE 608.2), and `GameEngine.
+        resolve_until_stable`'s `resume_deferred_effects` resumes it —
+        this method only needs to open the choice and, via
+        `resolve_choose_type_for_source_choice`, apply the tail.
+        """
+        options = _creature_type_options(self.state, player.id)
+        if not options:
+            # Nothing to choose from (e.g. a puzzle board with no creature
+            # cards anywhere) — chosen_type stays None, the same safe
+            # fallback RULE 601.2b's own enter-time choice gets.
+            source.chosen_type = None
+            self._apply_effect_specs(list(then_specs or []), source)
+            return
+        self.state.pending_choice = {
+            "kind": "choose_type_for_source",
+            "player_id": player.id,
+            "prompt": "Kreaturentyp wählen",
+            "options": [{"id": t, "label": t} for t in options],
+            "source_id": source.instance_id,
+            "then_specs": [dict(spec) for spec in (then_specs or [])],
+        }
+    def request_choose_player(self, player: Player, source: GameObject) -> None:
+        """"As this creature enters, choose a player." (Stuffy Doll) — a
+        resolve-time choice, the player-choice sibling of `request_choose_
+        creature_type_grant` (see its docstring for why this needs its
+        own primitive rather than RULE 601.2b's own enter-time machinery:
+        that pipeline only knows creature-type/colour/mode picks). Stashes
+        the pick onto `GameObject.chosen_player_id`.
+        """
+        living = self.state.living_players()
+        if not living:
+            return
+        self.state.pending_choice = {
+            "kind": "choose_player_for_source",
+            "player_id": player.id,
+            "prompt": "Spieler wählen",
+            "options": [{"id": p.id, "label": p.name} for p in living],
+            "source_id": source.instance_id,
+        }
+    def resolve_choose_player_choice(self, answer: Optional[str]) -> None:
+        """Answer a `request_choose_player` choice."""
+        choice = self.state.pending_choice
+        if not choice or choice.get("kind") != "choose_player_for_source":
+            raise ValueError("no pending choose-player choice to resolve")
+        self.state.pending_choice = None
+        options = choice["options"]
+        valid_ids = {str(o["id"]) for o in options}
+        chosen = str(answer) if answer is not None and str(answer) in valid_ids else (
+            str(options[0]["id"]) if options else None
+        )
+        source = self._object_by_instance_id(choice.get("source_id"))
+        if source is not None:
+            source.chosen_player_id = chosen
+    def resolve_choose_type_for_source_choice(self, answer: Optional[str]) -> None:
+        """Answer a `request_choose_creature_type_grant` choice."""
+        choice = self.state.pending_choice
+        if not choice or choice.get("kind") != "choose_type_for_source":
+            raise ValueError("no pending choose-type choice to resolve")
+        self.state.pending_choice = None
+        options = choice["options"]
+        valid_ids = {str(o["id"]) for o in options}
+        chosen = str(answer) if answer is not None and str(answer) in valid_ids else (
+            str(options[0]["id"]) if options else None
+        )
+        source = self._object_by_instance_id(choice.get("source_id"))
+        if source is not None:
+            source.chosen_type = chosen
+        self._apply_effect_specs(list(choice.get("then_specs") or []), source)
     def request_sacrifice_unless_pay(
         self, player: Player, cost: "ActivationCost", source: Optional[GameObject]
     ) -> None:
@@ -658,6 +742,11 @@ class MiscSystemsMixin:
             if resolved is None:
                 return
             result = _build(resolved.get("amount", count))
+            # "The first time you create one or more tokens each turn, …"
+            # (Mirrormind Crown) — same missing broadcast `add_counters`
+            # had: `apply_replacements` only used this event to compute the
+            # final amount, so nothing ever reached `_collect_triggers`.
+            self.state.fire_event(resolved)
 
         self.apply_replacements(event, on_resolved=_finish)
         return result
@@ -703,6 +792,65 @@ class MiscSystemsMixin:
         object_types = event.get("object_types") or []
         if "instant" in object_types or "sorcery" in object_types:
             self.state.cast_instant_or_sorcery_this_turn[player_id] = True
+    def arm_spell_watcher(
+        self,
+        player: Player,
+        then_specs: list[dict],
+        source: Optional[GameObject],
+        max_mana_value: Optional[int] = None,
+        card_types: Optional[list[str]] = None,
+    ) -> None:
+        """"When you next cast an instant or sorcery spell with mana value
+        N or less this turn, `<effect>`." (Dual Strike) — see `GameState.
+        spell_watchers`'s docstring for why this is its own mechanism
+        rather than an ordinary triggered ability or RULE 603.7 delayed
+        trigger.
+        """
+        self.state.spell_watchers.append({
+            "controller_id": player.id,
+            "max_mana_value": max_mana_value,
+            "card_types": list(card_types) if card_types else None,
+            "then_specs": [dict(spec) for spec in then_specs],
+            "source_id": source.instance_id if source is not None else None,
+            "expires_turn": self.state.turn_number,
+        })
+
+    def _check_spell_watchers(self, event: GameEvent) -> None:
+        """`SPELL_CAST` subscriber consuming the first matching entry in
+        `GameState.spell_watchers`, if any (`arm_spell_watcher`). Runs the
+        matched watcher's ``then_specs`` with the just-cast spell's own
+        stack item as ``targets[0]`` — `effects.CopySpellEffect.apply`
+        reads a plain ``targets[0]`` with no RULE 115 target selection of
+        its own, so this reuses it unmodified.
+        """
+        if event.type != EventType.SPELL_CAST or not self.state.spell_watchers:
+            return
+        turn = self.state.turn_number
+        player_id = event.get("player_id")
+        object_types = event.get("object_types") or []
+        instance_id = event.get("instance_id")
+        mana_value = event.get("mana_value")
+        remaining = []
+        consumed = None
+        for watcher in self.state.spell_watchers:
+            if consumed is not None or watcher["expires_turn"] != turn or watcher["controller_id"] != player_id:
+                remaining.append(watcher)
+                continue
+            if watcher["max_mana_value"] is not None and (mana_value or 0) > watcher["max_mana_value"]:
+                remaining.append(watcher)
+                continue
+            if watcher["card_types"] and not any(t in object_types for t in watcher["card_types"]):
+                remaining.append(watcher)
+                continue
+            consumed = watcher
+        self.state.spell_watchers = remaining
+        if consumed is None or instance_id is None:
+            return
+        item = self.state.find_object(instance_id)
+        if item is None:
+            return
+        source = self._object_by_instance_id(consumed.get("source_id"))
+        self._apply_effect_specs(consumed["then_specs"], source, targets=[item])
     def _track_creature_death(self, event: GameEvent) -> None:
         """Tally `DIES` toward `GameState.creatures_died_this_turn` (RULE
         700.4). Subscribed rather than incremented at `_move_to_graveyard`,

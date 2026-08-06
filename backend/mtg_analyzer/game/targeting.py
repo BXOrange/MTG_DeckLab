@@ -57,6 +57,10 @@ _GRAVEYARD_TYPE_FILTERS: dict[str, Any] = {
     or bool(o.card.is_artifact or o.card.is_enchantment),
     "nonland_permanent": lambda o: o.is_creature or o.is_planeswalker
     or bool(o.card.is_artifact or o.card.is_enchantment),
+    # "return a creature or planeswalker card from your graveyard to your
+    # hand" (Takenuma, Abandoned Mire's Channel ability) — the union of the
+    # two single-type filters, same idiom as `instant_or_sorcery` above.
+    "creature_or_planeswalker": lambda o: o.is_creature or o.is_planeswalker,
 }
 #: Every ``{prefix}_{suffix}`` combination — the full graveyard-target kind
 #: vocabulary (docs/09's Regrowth/Reanimate/Deathrite Shaman/Virtue of
@@ -94,6 +98,9 @@ ALLOWED_TARGET_KINDS: frozenset[str] = frozenset(
         # "target creature you **don't** control" (Archdruid's Charm's second
         # mode) — the mirror image of `creature_you_control`.
         "creature_you_dont_control",
+        # "target artifact you don't control" (Vandalblast) — the same
+        # mirror-image shape as `creature_you_dont_control`, for artifacts.
+        "artifact_you_dont_control",
         # RULE 702.140a's "target **non-Human** creature you own" — mutate's
         # own target line. Note *own*, not control (RULE 108.3): a creature
         # you own but an opponent controls is still a legal mutate host, and
@@ -102,6 +109,11 @@ ALLOWED_TARGET_KINDS: frozenset[str] = frozenset(
         # "target artifact or enchantment" (Archdruid's Charm) — the union of
         # the two single-type kinds, a common printed phrasing.
         "artifact_or_enchantment",
+        # "target artifact, enchantment, or nonbasic land" (Boseiju, Who
+        # Endures's Channel ability) — `artifact_or_enchantment` widened
+        # with `nonbasic_land`, the same three-kind-union idiom
+        # `artifact_creature_planeswalker_or_opponent` already uses.
+        "artifact_enchantment_or_nonbasic_land",
         # "target opponent or planeswalker" (MEC-11's Enrage cluster —
         # Frilled Deathspitter/Sun-Crowned Hunters-shaped, but a common
         # printed phrasing well beyond just those two) — a player who isn't
@@ -139,6 +151,18 @@ ALLOWED_TARGET_KINDS: frozenset[str] = frozenset(
         # deliberately excludes non-creature artifacts, RULE 115.9c) and
         # wider than `opponent_or_planeswalker` (which excludes artifacts).
         "artifact_creature_planeswalker_or_opponent",
+        # "target creature or planeswalker" (Imodane deck batch —
+        # Stonesplitter Bolt/Lithomantic Barrage/Torch Breath/Torch the
+        # Tower, a hugely common modern removal-spell template) — the
+        # two-kind union idiom `artifact_or_enchantment` already uses.
+        "creature_or_planeswalker",
+        # "another target battle or opponent" (Invasion of Regatha) — the
+        # `opponent_or_planeswalker`-shaped union, just with a battle
+        # (RULE 310) instead of a planeswalker.
+        "battle_or_opponent",
+        # "target creature, planeswalker, or battle" (Volcanic Spite) —
+        # the same three-permanent-type union idiom, no player half.
+        "creature_planeswalker_or_battle",
         # "enchant Forest you control" (Harold and Bob, First Numens) —
         # `forest` narrowed to the controller's own, the same split
         # `land_you_control` is to a bare "land".
@@ -280,6 +304,13 @@ class TargetSpec:
     #: See `TARGET_COUNT_SELECTORS`. ``None`` (the common case) keeps
     #: ``count`` exactly as printed.
     count_selector: Optional[str] = None
+    #: A creature-subtype filter on a `_GRAVEYARD_TARGET_KINDS` target
+    #: (Morcant's Loyalist's "return **another target Elf** card from your
+    #: graveyard to your hand") — narrows the kind's own card-type filter
+    #: (e.g. ``graveyard_creature``) by a tribal subtype, lower-cased to
+    #: match `_has_subtype`'s own convention. ``None`` means unfiltered.
+    #: Only meaningful for a graveyard kind; ignored elsewhere.
+    subtype: Optional[str] = None
     #: Best-effort "is this target on the receiving end of something good or
     #: bad" hint — ``"harmful"``/``"beneficial"``/``None`` (no opinion).
     #: Not rules data and never read by the engine itself: stamped by
@@ -303,11 +334,17 @@ class TargetSpec:
             "other_creature_you_control": "andere Kreatur unter deiner Kontrolle",
             "non_human_creature_you_own": "Nicht-Mensch-Kreatur, die du besitzt",
             "creature_you_dont_control": "Kreatur, die du nicht kontrollierst",
+            "artifact_you_dont_control": "Artefakt, das du nicht kontrollierst",
             "artifact_or_enchantment": "Artefakt oder Verzauberung",
+            "artifact_enchantment_or_nonbasic_land":
+                "Artefakt, Verzauberung oder nichtgrundlegendes Land",
             "opponent": "Gegner",
             "opponent_or_planeswalker": "Gegner oder Planeswalker",
             "artifact_creature_planeswalker_or_opponent":
                 "Artefakt, Kreatur, Planeswalker oder Gegner",
+            "creature_or_planeswalker": "Kreatur oder Planeswalker",
+            "battle_or_opponent": "Schlacht oder Gegner",
+            "creature_planeswalker_or_battle": "Kreatur, Planeswalker oder Schlacht",
             "attached_aura_or_equipment_you_control":
                 "Aura oder Ausrüstung an einer Kreatur unter deiner Kontrolle",
             "land_you_control": "Land unter deiner Kontrolle",
@@ -650,6 +687,18 @@ def legal_targets(
             and o.controller_id != controller_id
             and _targetable_by(o, source)
         ]
+    if kind == "artifact_you_dont_control":
+        # RULE 115: the artifact-typed mirror of `creature_you_dont_control`
+        # (Vandalblast's base, non-Overload mode — RULE 702.96 Overload
+        # itself is a documented non-goal, same as Winds of Abandon/Damn/
+        # Cyclonic Rift).
+        return [
+            {"instance_id": o.instance_id, "name": o.name}
+            for o in state.permanents()
+            if o.card.is_artifact
+            and o.controller_id != controller_id
+            and _targetable_by(o, source)
+        ]
     if kind == "attached_aura_or_equipment_you_control":
         # "target Aura or Equipment attached to a creature you control"
         # (Halvar) — both the attachment *and* its host must be yours, which
@@ -749,6 +798,46 @@ def legal_targets(
             and o is not source
             and _targetable_by(o, source)
         ]
+    if kind == "artifact_enchantment_or_nonbasic_land":
+        return [
+            {"instance_id": o.instance_id, "name": o.name}
+            for o in state.permanents()
+            if (
+                o.card.is_artifact
+                or o.card.is_enchantment
+                or (o.is_land and "basic" not in o.card.type_line.lower())
+            )
+            and o is not source
+            and _targetable_by(o, source)
+        ]
+    if kind == "battle_or_opponent":
+        battles = [
+            {"instance_id": o.instance_id, "name": o.name}
+            for o in state.permanents()
+            if o.is_battle and o is not source and _targetable_by(o, source)
+        ]
+        players = [
+            {"player_id": p.id, "name": p.name}
+            for p in state.living_players()
+            if p.id != controller_id
+        ]
+        return battles + players
+    if kind == "creature_planeswalker_or_battle":
+        return [
+            {"instance_id": o.instance_id, "name": o.name}
+            for o in state.permanents()
+            if (o.is_creature or o.is_planeswalker or o.is_battle)
+            and o is not source
+            and _targetable_by(o, source)
+        ]
+    if kind == "creature_or_planeswalker":
+        return [
+            {"instance_id": o.instance_id, "name": o.name}
+            for o in state.permanents()
+            if (o.is_creature or o.is_planeswalker)
+            and o is not source
+            and _targetable_by(o, source)
+        ]
     if kind in ("artifact", "enchantment"):
         # RULE 115 single-type permanent target (also the enter-as-copy
         # candidate pool for Copy Artifact / Copy Enchantment).
@@ -839,6 +928,8 @@ def legal_targets(
             for gy in graveyards
             for o in gy
             if type_filter(o)
+            and (not spec.subtype or spec.subtype in o.card.type_line.lower())
+            and o is not source
         ]
     if kind == "spell":
         items = [

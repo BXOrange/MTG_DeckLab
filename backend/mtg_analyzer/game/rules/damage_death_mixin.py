@@ -157,6 +157,7 @@ class DamageDeathMixin:
         amount: int,
         source: Optional[GameObject] = None,
         combat: bool = False,
+        single_target_hint: bool = False,
     ) -> None:
         is_player = isinstance(target, Player)
         # RULE 702.16c: protection prevents *all* damage from a source of the
@@ -199,6 +200,20 @@ class DamageDeathMixin:
             # this to tell the two apart — see `_double_damage_replacement`.
             source_is_creature=bool(getattr(source, "is_creature", False)),
             combat=combat,
+            # "Whenever an instant or sorcery spell you control … deals
+            # damage to that creature, Imodane deals that much damage to
+            # each opponent." (Imodane, the Pyrohammer) — two flags computed
+            # at the call site (where the effect still knows both its own
+            # card type and its target_spec's shape) rather than derived
+            # generically here, since "targets only a single creature" is a
+            # property of the *resolving effect*, not of damage in general.
+            source_is_instant_or_sorcery=bool(
+                source is not None
+                and (getattr(source.card, "is_instant", False) or getattr(source.card, "is_sorcery", False))
+            ),
+            source_targets_only_single_creature=bool(
+                single_target_hint and not is_player and getattr(target, "is_creature", False)
+            ),
         )
 
         def _finish(resolved: Optional[GameEvent]) -> None:
@@ -816,7 +831,9 @@ class DamageDeathMixin:
         effect.replacement_fn = _replace
         holder.append(effect)
 
-    def prevent_all_combat_damage_this_turn(self, controller: Player) -> None:
+    def prevent_all_combat_damage_this_turn(
+        self, controller: Player, exclude_subtype: Optional[str] = None,
+    ) -> None:
         """RULE 615: "Prevent all combat damage that would be dealt this
         turn." (Fog) — unlike `prevent_damage_to_player`/`_to_target`
         (a shield for one chosen recipient), this is *unscoped*: it
@@ -830,11 +847,32 @@ class DamageDeathMixin:
         RULE 615 shield uses (`GameEngine._step_cleanup`) — its
         `condition` doesn't reference ``controller`` at all, so the effect
         applies identically no matter whose damage it is.
+
+        ``exclude_subtype`` (Galadhrim Ambush's "…by **non-Elf** creatures")
+        is the one qualified variant this engine models: damage from a
+        source currently carrying that creature subtype is let through
+        (looked up live off `GameEvent.source_id`, so a mid-turn subtype
+        change is honoured), every other source's combat damage is still
+        prevented. Any other qualifier ("…by enchanted creatures"/"…except
+        Spiders") stays unclaimed rather than guessed at.
         """
+        def _condition(e: GameEvent, c: Any) -> bool:
+            if not e.get("combat"):
+                return False
+            if exclude_subtype:
+                source_id = e.get("source_id")
+                obj = c.state.find_object(source_id) if source_id is not None else None
+                if obj is not None:
+                    from .. import continuous  # local: avoid the continuous↔rules cycle
+
+                    if continuous._has_subtype(obj, exclude_subtype):
+                        return False
+            return True
+
         effect = ReplacementEffect(
             event_type=EventType.DAMAGE,
             replacement_fn=lambda e, c: None,  # every point of combat damage prevented
-            condition=lambda e, c: bool(e.get("combat")),
+            condition=_condition,
             description="Fog: gesamter Kampfschaden in diesem Zug verhindert",
         )
         effect.damage_prevention_shield = True

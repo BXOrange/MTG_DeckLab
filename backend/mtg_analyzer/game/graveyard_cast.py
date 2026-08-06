@@ -49,6 +49,8 @@ def active_graveyard_cast_grants(player: "Player", state: "GameState") -> list[G
                 continue
             if effect.once_per_turn and getattr(obj, "graveyard_casts_this_turn", 0):
                 continue
+            if effect.expires_turn is not None and effect.expires_turn != state.turn_number:
+                continue
             grants.append(effect)
     return grants
 
@@ -66,6 +68,8 @@ def graveyard_cast_grant_for(
         return None
     for effect in active_graveyard_cast_grants(player, state):
         if effect.permanent_only and not _is_permanent_card(card):
+            continue
+        if effect.instant_sorcery_only and not (card.is_instant or card.is_sorcery):
             continue
         if effect.max_mana_value is not None and card.converted_mana_cost > effect.max_mana_value:
             continue

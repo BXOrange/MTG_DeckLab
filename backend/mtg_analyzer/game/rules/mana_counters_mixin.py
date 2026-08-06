@@ -378,6 +378,14 @@ class ManaCountersMixin:
             if resolved is None:
                 return
             _place(resolved.get("amount", amount))
+            # "Whenever a -1/-1 counter is put on a creature, …" (Flourishing
+            # Defenses) / "…on a permanent you control, …" (Hardened Scales-
+            # adjacent triggered, not just replacement, consumers) — RULE
+            # 122.5's own trigger family. `apply_replacements` only ever used
+            # this event to compute the final amount; nothing broadcast it,
+            # so `_collect_triggers` (a `state.fire_event` subscriber) could
+            # never see a counter placement at all until now.
+            self.state.fire_event(resolved)
 
         self.apply_replacements(event, on_resolved=_finish)
     def add_player_counters(
@@ -425,6 +433,9 @@ class ManaCountersMixin:
             if resolved is None:
                 return
             _place(resolved.get("amount", amount))
+            # See `add_counters`'s matching fix: broadcast so a "whenever a
+            # player gets a poison/energy counter" trigger can actually fire.
+            self.state.fire_event(resolved)
 
         self.apply_replacements(event, on_resolved=_finish)
     def request_remove_counters_choice(

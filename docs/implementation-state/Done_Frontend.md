@@ -1238,3 +1238,70 @@ into `BACKLOG.md`, and those mentions have been repointed there.
       zero console errors (backend half — the harness, the metric
       definitions/simplifications, the job registry — in
       Done_Backend.md).
+
+## Modal spell mode selection (2026-08-06)
+
+- [x] **Bug fix**: RULE 700.2 modal spells ("choose one —"/"choose N —"/
+      "choose N or more —", plus RULE 702.42a Entwine's priced "both")
+      could never actually have a mode picked from the board. The backend
+      has always offered this correctly — `legal_actions_mixin.py`'s
+      `_modal_cast_actions` returns one `cast_spell` action per mode (or
+      legal mode combination), each carrying `mode`/`mode_description` —
+      but `gameBoardView.js` dropped `mode` at every step of the round
+      trip: `cardActionButtons` built the button label and its submitted
+      action from `a.name`/`a.face` only, never `a.mode`/`a.mode_description`,
+      so 2+ modes with the same target-shape rendered as visually
+      identical "✨ Zaubern" buttons; and `findTargetableAction` matched
+      only on `type`/`instance_id`/`face`, so even the "requires target"
+      path (`castTargetHtml`'s per-mode buttons) always resolved to
+      whichever mode `legal_actions` happened to list first, regardless
+      which button was clicked. Net effect: every modal spell in the game
+      silently cast its first listed mode only, with no way to choose
+      otherwise and no visual indication a choice existed — found via a
+      user report ("these triggered effects are common... I have never
+      experienced such a selection") that was first (correctly) traced
+      through the *triggered*-ability "you may" pending-choice machinery
+      (`triggers_mixin.py`'s `_trigger_may_choice`/`_trigger_target_choice`,
+      verified end-to-end via a real `GameSession.view()` round trip —
+      that path was and is fine) before the user narrowed the report to
+      a spell's own modal cast, which is a structurally different code
+      path (`obj.spell_modes` + `_modal_cast_actions`, chosen *before* the
+      spell goes on the stack per RULE 601.2b, not a `pending_choice` at
+      all).
+
+      Fixed by threading `mode`/`entwine` through every `cast_spell`
+      button variant (plain, {X}/Kicker, target-requiring) into both the
+      button's own label (new `modeHint(a)` — `mode_description`, plus an
+      Entwine annotation) and its submitted action payload, and by
+      widening `findTargetableAction` to disambiguate on `mode` too
+      (compared via `JSON.stringify`, since a "choose N" mode is an index
+      *array*, not a scalar — `===` can't compare those). `mode`/`entwine`
+      are `undefined` on every non-modal action already, and
+      `JSON.stringify` drops `undefined` object properties, so a
+      non-modal spell's submitted action is byte-for-byte unchanged —
+      confirmed no regression by re-reading every call site. This project
+      has no JS test runner (`CLAUDE.md`); verified by full-file parse
+      (ES-module `import`/`export` stripped, `new Function(src)` via
+      `osascript -l JavaScript` — this repo's established no-Node syntax
+      check) and by tracing every `cast_spell`-action call site by hand
+      (`gameBoardView.js` is the *only* file that builds or sends a
+      `cast_spell` action — Goldfisch/Replay/Multiplayer all share it, so
+      one fix covers every surface).
+
+      While diagnosing, also fixed `.claude/skills/game-engine/scripts/
+      engine_bench.py`'s `choices --gaps`/`primitives` commands: both had
+      silently gone blind after the ENG-20/21 `RulesEngine`/`GameEngine`
+      mixin split (2026-07-29), since they read only `game/rules_engine.py`/
+      `game/game_engine.py` — which now hold just `__init__` + the class
+      declaration — and never the ~17 mixin files under `game/rules/*.py`/
+      `game/engine/*.py` where almost every method actually lives.
+      `choices --gaps` was reporting 1 total `pending_choice` kind instead
+      of the real 32, and `primitives`'s "RulesEngine methods"/"GameEngine
+      methods" listings were reporting near-zero instead of 150/42 —
+      exactly the "don't rebuild what you have" check `CLAUDE.md`'s own
+      "No half-implementations" section warns this repo has repeatedly
+      failed at, now silently defeated for every session between the
+      mixin split and this fix. New `_src_many(rels)` reads a list of
+      paths/globs instead of one file; `_choice_kinds`/`_methods` both use
+      it now, tracking line numbers per-source-file rather than by offset
+      into a concatenated string.

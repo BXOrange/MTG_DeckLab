@@ -434,6 +434,10 @@ class GameObject:
         #: ability actually fires. ``None`` until chosen, same RULE 400.7
         #: reset-on-new-object treatment as `chosen_type`/`chosen_color`.
         self.chosen_mode: Optional[str] = None
+        #: RULE 601.2b-adjacent "as ~ enters, choose a player" (Stuffy
+        #: Doll) — the player-choice sibling of `chosen_type`/`chosen_
+        #: color`/`chosen_mode`, same reset-on-new-object treatment.
+        self.chosen_player_id: Optional[str] = None
         #: Static abilities (`StaticAbility`) this object grants through the
         #: layer system (RULE 613) — anthems, keyword grants, type changes,
         #: cost reductions. Read by `game/continuous.py`.
@@ -830,6 +834,7 @@ class GameObject:
         self.protector_id = None
         self.battle_defeat_triggered = False
         self.chosen_mode = None
+        self.chosen_player_id = None
         self.temp_power = 0
         self.temp_toughness = 0
         self.temp_keywords = set()

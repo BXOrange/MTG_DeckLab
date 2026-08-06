@@ -10613,3 +10613,178 @@ existing files); `test_poison_counter_family.py` (8);
 (+18, existing file); `test_spell_subtype_trigger_family.py` (7);
 `test_attacking_subtype_and_tap_selector_family.py` (5). Full backend
 suite green throughout every step (ended at 3,452 passed, 238 skipped).
+
+## "Eliferate" (finish) and "Imodane" saved decks: make every card playable (2026-08-06)
+
+User-directed follow-up to the batch above ("Keine Zurückstellungen" — no
+deferrals): close out Eliferate's remaining 27 unmodeled cards, then bring
+"Imodane" (a from-scratch Boros/Jeskai-adjacent burn-commander deck, 69
+unique cards, previously untouched) to full coverage too. **Both decks
+end fully playable: Eliferate 91/91, Imodane 69/69** (`parse_oracle(...).
+modeled or ability_catalogue.is_registered(...)` per card, re-verified
+against the live saved decks after the batch). Full pytest suite green
+throughout (ended at 3,452 passed, 238 skipped).
+
+**Two durable, pre-existing engine bugs found and fixed along the way** —
+not scoped to either deck, and were silently blocking *any* card that
+would ever have triggered off them: `RulesEngine.add_counters`/
+`add_player_counters` (`game/rules/mana_counters_mixin.py`) and
+`create_token` (`game/rules/misc_mixin.py`) each computed their event
+through `apply_replacements(event, on_resolved=_finish)` but the
+`_finish` closure applied the effect and never called `self.state.
+fire_event(resolved)` — so COUNTER and CREATE_TOKENS events were never
+broadcast to `_collect_triggers` at all. No card in this engine's history
+could ever have triggered off "a counter is placed on something" or "a
+token is created" until this fix. Both verified via before/after tests
+(Flourishing Defenses/High Perfect Morcant for counters, Mirrormind Crown
+for tokens) and the full suite stayed green.
+
+Closing Eliferate's last 27 needed one new primitive per genuinely novel
+shape, most reused since (see Imodane below):
+
+- **RULE 603.3d trigger doubling** (Roaming Throne, "if a triggered
+  ability of a permanent you control triggers, it triggers an additional
+  time") — `continuous.trigger_doubler_bonus` plus a `TriggerDoublerEffect`
+  marker, wired into `_collect_triggers`'s per-object loop as an extra
+  `trigger_doubler_bonus(...)` added to the base copy count. No prior
+  analogue existed for "this fires again" as opposed to "this fires
+  bigger".
+- **RULE 601.2b resolve-time interactive choices** — a new category
+  distinct from the existing enter-battlefield `_offer_enter_choices`
+  pipeline: "choose a creature type, then grant it something" (Selfless
+  Safewright) and "choose a player" (Stuffy Doll, reused for Imodane's
+  own remaining singles below), both `RulesEngine.request_choose_X`/
+  `resolve_choose_X_choice` pairs dispatched by `kind` string in
+  `turn_loop_mixin.resolve_pending_choice`.
+- Vraska, Betrayal's Sting/Golgari Queen's loyalty bodies, Mirrormind
+  Crown's "create copies instead of tokens" replacement, and Glissa
+  Sunslayer/Glissa, Herald of Predation's modal triggers all shipped as
+  hand-authored entries reusing existing primitives (`EnterAsCopyReplacement`-
+  adjacent copy effects, `request_choose_objects`, the modal `"choose one
+  —"` machinery) rather than needing new engine mechanisms — the
+  `Done_Backend.md` entry above had flagged them as blocked on primitives
+  that, on closer inspection, either already existed or decomposed into
+  a documented simplification instead (see each factory's own docstring
+  in `game/ability_catalogue.py` for the exact trade made per card).
+- Boseiju, Who Endures/Takenuma, Abandoned Mire's Channel abilities
+  shipped as their own real `discard_self`-costed activated abilities.
+
+"Imodane" then went from 0/69 to 69/69 across several batches (damage-
+modifier family, exile-and-play-window family, mana/cost/counters family,
+planeswalker/emblem/equipment family, Sieges + Magda + Birgi, and a final
+10-card "remaining singles" batch closing with the commander herself).
+New primitives, mostly built for one card and immediately reused:
+
+- **"Spell watchers"** (`GameState.spell_watchers`, Dual Strike's "when
+  you next cast an instant or sorcery spell this turn, copy it") — a
+  brand-new GameState-level mechanism distinct from both an ordinary
+  object-bound `TriggeredAbility` and a step-bound RULE 603.7
+  `DelayedTrigger`: a `SPELL_CAST` subscriber (`_check_spell_watchers`)
+  consumes a standing "watch for the next qualifying cast" registration.
+- `GrantDieToExileThisTurnEffect` (Lava Coil/Smite the Deathless/Torch
+  the Tower's "exile instead of graveyard, this turn only") — a turn-
+  scoped `ReplacementEffect` appended directly to `target.
+  replacement_effects` with the firing turn number baked into a closure
+  condition for self-expiry.
+- Cost-reduction extended two ways: `continuous.cost_reduction_for`
+  (RULE 601.2f, battlefield-sourced) gained a `spell_color` filter for
+  the Medallion cycle; `self_cost_reduction_for`'s existing `per`/
+  count_selector mechanism (Delve/Affinity-shaped) was reused unchanged,
+  with a new unscoped `creatures_on_battlefield` selector, for
+  Blasphemous Act.
+- `EffectSpec.condition`'s whitelist gained `graveyard_has_type`
+  (Trystan) and `target_is_player` (Play with Fire's "if a player is
+  dealt damage this way, scry 1").
+- The final 10-card singles batch (Display of Power, Gamble, Jaya's
+  Immolating Inferno, Jeska's Will, Play with Fire, Vandalblast, Witch's
+  Mark, Wheel of Misfortune, Volcanic Spite, and Imodane, the Pyrohammer
+  herself) added: `CopySpellEffect.target_count`/`optional` ("copy *any
+  number* of target spells", Display of Power — the RULE 601.2c "any
+  number" idiom Fire Covenant's own `count=10` UI cap had already
+  established, applied to a spell target instead of a permanent one, and
+  each target now gets its own `copy_spell` call rather than the effect
+  only ever handling one target); `AddManaEffect.target_kind`/
+  `amount_from_target_hand_size` (Jeska's Will's "Add {R} for each card
+  in target opponent's hand" — the first genuinely *targeted* use of that
+  effect; every prior use was untargeted); a new `artifact_you_dont_
+  control` target kind (Vandalblast, the artifact-typed mirror of the
+  existing `creature_you_dont_control`); and a new `put_hand_card_on_
+  bottom_then_draw` primitive (`RulesEngine.put_hand_card_on_bottom_
+  then_draw`, Volcanic Spite's "you may put a card from your hand on the
+  bottom of your library. If you do, draw a card." — the "may" auto-taken
+  as a pure card exchange, the same "auto-pick, no chooser" idiom
+  `discard`/`put_hand_cards_on_top` already use).
+- **Imodane, the Pyrohammer's own signature ability** ("whenever an
+  instant or sorcery spell you control that targets only a single
+  creature deals damage to that creature, Imodane deals that much damage
+  to each opponent") was this batch's biggest single investment:
+  `DealDamageEffect.amount_from_trigger_event` (reading the firing DAMAGE
+  event's own `amount` field — every other damage-doubling/mirroring
+  effect in this catalogue reads a count selector or a flat override, not
+  a firing event's own payload) plus two new DAMAGE-event flags computed
+  at the point where both the source's own card type and the *resolving
+  effect's own* `target_spec` shape are known — `RulesEngine.deal_damage`
+  gained a `single_target_hint` parameter, `DealDamageEffect.apply`
+  computes it (`count == 1`, not optional, not a mass selector) and
+  passes it through, and `deal_damage` stamps
+  `source_is_instant_or_sorcery`/`source_targets_only_single_creature`
+  onto the event. Two matching `effect_binder._trigger_condition`
+  predicate keys (`requires_source_instant_or_sorcery`/`requires_single_
+  creature_target`) check them; "you control" reuses the ordinary
+  `"subject": "group", "controller": "you"` group-subject check (DAMAGE's
+  group-controller key is already `source_controller_id` from an earlier
+  batch). Verified directly against the engine: fires exactly once for a
+  single-target burn spell killing a creature, does *not* fire when the
+  same spell targets a player directly, and does not double-fire (an
+  earlier hand-test that appeared to show a double-trigger turned out to
+  be a test-script bug — calling `bind_from_catalogue` a second time on
+  top of the bench fixture's own call — not an engine defect).
+
+**Documented simplifications** (the card's real value stays modeled;
+only the flagged clause is a deliberate, narrower stand-in — see each
+factory's own docstring in `game/ability_catalogue.py` for the exact
+reasoning): Chain Lightning's copy-chain; Fireblast's alternative cost;
+Voltage Surge/Torch Breath's optional-cost/target-color cost reductions;
+Torch the Tower's bargained scry rider; Champions of the Perfect's exile-
+vs-sacrifice/hand alternative; Trystan's "transforms into" re-trigger;
+High Perfect Morcant's auto-picked blight; Grafted Exoskeleton's
+"becomes unattached" trigger (no unattach event exists anywhere in this
+engine yet — every detach site is a raw assignment); Sword of Once and
+Future's graveyard free-cast (would have needed `dig_until` misapplied to
+a graveyard, which it doesn't support); Magda's "commit a crime" trigger
+(RULE 701.53 has no unifying event across every targeting-effect family);
+Birgi's mana-retention and Boast-doubling (RULE 702.161 Boast has zero
+engine presence, so there's nothing to double); Sunbird's Invocation's
+top-X breadth; Invasion of Kaldheim's exiled-card play permission;
+Display of Power's "can't be copied" (RULE 707.12 — no spell-copy-
+immunity primitive exists, harmless since nothing in either deck copies
+a spell that's itself a copy target) and its own "choose new targets for
+the copies" (the pre-existing `CopySpellEffect` MVP, keeps the original's
+targets); Gamble's "at random" (an ordinary discard choice, the same
+simplification Indoraptor, the Perfect Hybrid already established);
+Jaya's Immolating Inferno's Legendary Sorcery casting-timing restriction
+(no card-type-supertype casting gate exists in `can_cast` yet — the
+damage itself is fully modeled); Jeska's Will's commander-control gate on
+`or_both` (offered unconditionally — every deck this engine plays is a
+Commander deck by construction); Vandalblast's Overload (RULE 702.96,
+same standing precedent Winds of Abandon/Damn/Cyclonic Rift already set —
+no alternative-cost-tracking mechanism exists); Witch's Mark's Role
+token (RULE 701.62 — `synthesize_token_card` only builds Creature/
+Artifact tokens, not Enchantment-Aura ones; the card's real value, the
+loot, is fully modeled); and Wheel of Misfortune's entire "secretly
+choose a number, reveal simultaneously, damage the highest/exempt the
+lowest" sub-game (no secret-simultaneous-choice primitive exists — a
+genuinely new interactive-choice subsystem out of scope for one card's
+value; what's modeled instead is the card's Wheel-of-Fortune-shaped
+headline effect, every player discarding their hand and drawing seven).
+
+Tests: full backend suite (3,452 passed, 238 skipped) stayed green after
+every primitive change, plus direct engine verification via
+`engine_bench.py`/ad hoc scripts for every new-primitive card (Display of
+Power copying 2 spells on the stack, Vandalblast destroying an opponent's
+artifact, Jeska's Will's `mode="both"`, Jaya's Immolating Inferno hitting
+3 targets, Play with Fire's conditional scry firing only against a player
+target, and Imodane's own trigger firing exactly once and only for a
+single-creature-targeted spell) rather than new pytest files, since this
+batch's cards are one-offs in `ability_catalogue.py` and the existing
+suite already covers every primitive's shared machinery.

@@ -852,6 +852,19 @@ class TurnLoopMixin:
             # partner, a library reorder. Declining is only legal when the
             # effect said "you may"/"up to", which the choice records.
             self.rules.resolve_choose_objects_choice(None if declined else int(answer))
+        elif kind == "choose_type_for_source":
+            # `RulesEngine.request_choose_creature_type_grant` — a
+            # triggered ability's own resolve-time "choose a creature
+            # type" (Selfless Safewright-shaped), distinct from RULE
+            # 601.2b's as-it-enters `choose_creature_type` above. Mandatory
+            # (no decline offered), same "default to the first option"
+            # treatment `resolve_enter_choice` gives a missing answer.
+            self.rules.resolve_choose_type_for_source_choice(None if declined else str(answer))
+        elif kind == "choose_player_for_source":
+            # `RulesEngine.request_choose_player` (Stuffy Doll-shaped "as
+            # ~ enters, choose a player") — mandatory, same "default to
+            # the first option" treatment as the type-choice sibling above.
+            self.rules.resolve_choose_player_choice(None if declined else str(answer))
         elif kind == "ring_bearer":
             # RULE 701.52a: "you choose a creature you control as your
             # Ring-bearer" — mandatory (the choice only opens with 2+

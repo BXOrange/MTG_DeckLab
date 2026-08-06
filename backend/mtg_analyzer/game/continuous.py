@@ -627,6 +627,44 @@ def count_selector(
     _source_card_name = getattr(source, "name", None)
     if selector == "creatures_you_control":
         return sum(1 for o in bf if o.is_creature and o.controller_id == controller_id)
+    if selector == "creatures_on_battlefield":
+        # "This spell costs {1} less to cast for each creature on the
+        # battlefield." (Blasphemous Act) — every creature regardless of
+        # controller, the unscoped sibling of `creatures_you_control`.
+        return sum(1 for o in bf if o.is_creature)
+    if selector == "instant_sorcery_or_adventure_cards_in_your_graveyard":
+        # "the number of cards in your graveyard that are instant cards,
+        # sorcery cards, and/or have an Adventure." (Frantic Firebolt) —
+        # RULE 715's Adventure card is itself an instant/sorcery half of a
+        # creature card, so "has an Adventure" only ever adds creature
+        # cards printing one to the instant-or-sorcery count above.
+        if controller_id is None:
+            return 0
+        try:
+            graveyard = state.player_by_id(controller_id).graveyard
+        except (KeyError, ValueError):
+            return 0
+        return sum(
+            1 for o in graveyard
+            if o.card.is_instant or o.card.is_sorcery
+            or "adventure" in (o.card.type_line or "").lower()
+        )
+    if selector == "tapped_lands_opponents_control":
+        # "Add {R} for each tapped land your opponents control." (Mana
+        # Geyser) — every opponent's tapped land, unioned rather than
+        # scoped to any one of them (there's no single "the opponent" in
+        # a multiplayer game).
+        if controller_id is None:
+            return 0
+        return sum(
+            1 for o in bf
+            if o.is_land and o.tapped and o.controller_id is not None and o.controller_id != controller_id
+        )
+    if selector == "tapped_creatures_you_control":
+        # "…each opponent loses life equal to the number of tapped
+        # creatures you control." (Throne of the God-Pharaoh) — a plain
+        # board count, unrelated to attacking/blocking status.
+        return sum(1 for o in bf if o.is_creature and o.tapped and o.controller_id == controller_id)
     if selector == "attacking_creatures_you_control":
         # "for each attacking creature you control" (Embercleave's own
         # self-cost-reduction, MEC-6) — read live off `GameObject.attacking`
@@ -641,6 +679,25 @@ def count_selector(
         return sum(1 for o in bf if o.is_creature and o.attacking)
     if selector == "lands_you_control":
         return sum(1 for o in bf if o.is_land and o.controller_id == controller_id)
+    if selector.startswith("attacking_creatures_you_control_of_type_"):
+        # "you gain 1 life for each attacking Elf you control" (Dwynen,
+        # Gilt-Leaf Daen) — `attacking_creatures_you_control` narrowed by a
+        # creature-subtype, same split `creatures_you_control_of_type_`
+        # below is to the unattacking `creatures_you_control`.
+        creature_type = selector[len("attacking_creatures_you_control_of_type_"):]
+        return sum(
+            1 for o in bf
+            if o.is_creature and o.attacking and o.controller_id == controller_id
+            and _has_subtype(o, creature_type)
+        )
+    if selector.startswith("creatures_of_type_"):
+        # "…add an additional {G} for each Elf **on the battlefield**."
+        # (Elvish Guidance) — the unscoped sibling of
+        # `creatures_you_control_of_type_`: every matching creature
+        # regardless of controller, the same scoping `attacking_creatures`
+        # is to `attacking_creatures_you_control`.
+        creature_type = selector[len("creatures_of_type_"):]
+        return sum(1 for o in bf if o.is_creature and _has_subtype(o, creature_type))
     if selector.startswith("creatures_you_control_of_type_"):
         # "X is the number of Halflings you control" (Farmer Cotton) — the
         # creature-subtype sibling of the land-subtype selector just below,
@@ -1195,6 +1252,13 @@ def _apply_layer_4_type(state: "GameState", abilities: list) -> dict[int, tuple[
 
     for ability in _in_layer(abilities, "type"):
         added = ability.params.get("add_types", [])
+        # "…and loses all other card types…" (Vraska, Betrayal's Sting's
+        # -2 — "target creature becomes a Treasure artifact … and loses
+        # all other card types and abilities") — the removal-side mirror
+        # of `add_types`, read by `GameObject.type_words`/`is_creature`
+        # the same way `_removed_types` already strips creature-ness for
+        # RULE 702.151b's Reconfigure-while-attached case.
+        removed = ability.params.get("remove_types", [])
         set_subtypes = ability.params.get("set_subtypes")
         # "~ is the chosen type in addition to its other types" (RULE
         # 601.2b/613.4a, Adaptive Automaton/A-Thran Portal-shaped) — reads
@@ -1210,6 +1274,8 @@ def _apply_layer_4_type(state: "GameState", abilities: list) -> dict[int, tuple[
         for obj in affected_objects(state, ability):
             for type_name in added:
                 obj._added_types.add(type_name)
+            for type_name in removed:
+                obj._removed_types.add(type_name)
             for subtype_name in add_subtypes:
                 # RULE 613.7: `abilities` is already timestamp-sorted, so an
                 # add that runs *after* an overwrite already stamped on this
@@ -1771,6 +1837,13 @@ def cost_reduction_for(
             continue
         spell_type = ability.params.get("spell_type")
         if spell_type and (obj is None or not _spell_type_matches(obj, spell_type)):
+            continue
+        # "Red spells you cast cost {1} less to cast." (the Medallion
+        # cycle) — a colour filter, orthogonal to `spell_type`'s card-type
+        # one; `GameObject.colors` reads the layer-5 derived colour, same
+        # as every other colour-scoped consumer in this file.
+        spell_color = ability.params.get("spell_color")
+        if spell_color and (obj is None or spell_color.upper() not in (obj.colors or set())):
             continue
         signed = _cost_static_amount(ability, state, player.id)
         net += signed
@@ -2359,3 +2432,34 @@ def _describe_ability(ability: StaticAbility) -> str:
     if ability.layer == "untap_cap":
         return f"players can't untap more than {p.get('count', 1)} land(s) during their untap steps"
     return ability.affects
+
+
+def trigger_doubler_bonus(state: "GameState", obj: "GameObject") -> int:
+    """RULE 603.3d: how many *additional* times a triggered ability of
+    ``obj`` should be placed on the stack (0 in the overwhelming common
+    case), from every active `effects.TriggerDoublerEffect` a
+    same-controller permanent carries (Roaming Throne's "if a triggered
+    ability of another creature you control of the chosen type triggers,
+    it triggers an additional time").
+
+    Multiple simultaneous doublers stack additively (RULE 603.3d/611.2b
+    "additional time" instances are independent) — two Roaming Thrones of
+    the same chosen type make a matching trigger fire three times total,
+    not four, matching how the rule itself composes rather than
+    multiplying.
+    """
+    from .effects import TriggerDoublerEffect  # local: effects imports this module
+
+    if obj.controller_id is None:
+        return 0
+    bonus = 0
+    for doubler in state.battlefield:
+        if doubler is obj or doubler.controller_id != obj.controller_id:
+            continue
+        wanted = getattr(doubler, "chosen_type", None)
+        if not wanted or not _has_subtype(obj, wanted):
+            continue
+        for effect in getattr(doubler, "static_effects", None) or []:
+            if isinstance(effect, TriggerDoublerEffect):
+                bonus += 1
+    return bonus

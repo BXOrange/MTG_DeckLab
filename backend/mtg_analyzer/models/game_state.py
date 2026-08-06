@@ -530,6 +530,19 @@ class GameState:
         #: new active player in `GameEngine.begin_turn`, incremented off the
         #: `SPELL_CAST` event by `RulesEngine._track_spell_cast`.
         self.spells_cast_this_turn: dict[str, int] = {p.id: 0 for p in players}
+        #: "When you next cast an instant or sorcery spell with mana value
+        #: N or less this turn, `<effect>`." (Dual Strike-shaped) — a
+        #: one-shot watch for the *next* qualifying `SPELL_CAST` this turn,
+        #: consumed by `RulesEngine._check_spell_watchers` (a `SPELL_CAST`
+        #: subscriber, the same "one place covers every cast path" idiom
+        #: `_track_spell_cast` uses) rather than a `TriggeredAbility` (which
+        #: only ever fires off a *matching object's own* event) or RULE
+        #: 603.7's step-scoped `DelayedTrigger` (which waits for a future
+        #: *step*, not a future *event*). Each entry:
+        #: ``{"controller_id", "max_mana_value", "card_types", "then_specs",
+        #: "source_id", "expires_turn"}``; expired/consumed entries are
+        #: dropped, never swept separately.
+        self.spell_watchers: list[dict[str, Any]] = []
         #: The previous turn's active player id + their final spell count,
         #: captured by `begin_turn` right before rotating so the *next*
         #: turn's untap step can apply RULE 731.2a/2b. ``None`` on turn 1

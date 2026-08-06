@@ -333,6 +333,9 @@ class RulesEngine(
         # Tally creatures that died this turn (RULE 700.4) — see
         # `GameState.creatures_died_this_turn`.
         state.subscribe(self._track_creature_death)
+        # Consume a "when you next cast a spell matching X this turn, …"
+        # watcher (Dual Strike-shaped) — see `GameState.spell_watchers`.
+        state.subscribe(self._check_spell_watchers)
     @staticmethod
     def mana_cost_of(card: Card) -> ManaCost:
         """The structured cost of a card.
