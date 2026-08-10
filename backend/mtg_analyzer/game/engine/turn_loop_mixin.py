@@ -926,6 +926,28 @@ class TurnLoopMixin:
             # RULE 614.1c/614.12: the option id is a permanent's instance id,
             # or decline to enter as itself.
             self.rules.resolve_enter_as_copy_choice(None if declined else str(answer))
+        elif kind == "enter_or_graveyard":
+            # RULE 614.12: the option id is a land card's instance id, or
+            # decline to send the permanent straight to the graveyard
+            # instead of letting it enter (Mox Diamond).
+            self.rules.resolve_enter_or_graveyard_choice(None if declined else str(answer))
+        elif kind == "tainted_pact":
+            # Tainted Pact: "take" the just-exiled card, or "continue"
+            # digging further at the risk of a duplicate name. A decline/
+            # missing answer defaults to "take" (the safe option).
+            self.rules.resolve_tainted_pact_choice("take" if declined else str(answer))
+        elif kind == "transmute_sacrifice":
+            # Transmute Artifact stage 1: which of the player's own
+            # artifacts to sacrifice — the option id is its instance id.
+            self.rules.resolve_transmute_sacrifice_choice(None if declined else str(answer))
+        elif kind == "transmute_search":
+            # Transmute Artifact stage 2: which artifact card was found (or
+            # decline) — the option id is a library card's instance id.
+            self.rules.resolve_transmute_search_choice(None if declined else str(answer))
+        elif kind == "transmute_pay_x":
+            # Transmute Artifact stage 3: pay the mana-value difference, or
+            # let the found card go to its owner's graveyard instead.
+            self.rules.resolve_transmute_pay_x_choice(None if declined else str(answer))
         elif kind in (
             "choose_creature_type", "choose_color", "choose_named_mode", "choose_basic_land_type",
         ):

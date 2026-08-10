@@ -11629,3 +11629,405 @@ Remaining scope (the tutor family, Mox Diamond's RULE 614.12 alternative
 ETB-or-graveyard replacement, Ghostfire Slice's conditional self
 cost-reduction, Eye of Ugin's combined colour+subtype filter, and the
 rest of the long tail) is `MEC-12` in `BACKLOG.md`.
+
+## The seven "cEDH"-named saved decks/cubes: fourth pass (2026-08-11)
+
+User request: not just the remaining high-frequency cards this time —
+"make the rest of MEC-12's cards fully playable... build not just the
+high-frequency cards but all." Baseline: 764 unique cards, 436 covered /
+328 uncovered. Rather than picking off single named cards, this pass
+worked the pool's own unclaimed-clause list end to end
+(`parser_oracle.gate.parse_oracle(card).unclaimed` dumped for all 328),
+clustering into shared templates before writing anything, per this
+project's own "grep before claiming a new mechanism" convention. Closed
+451/764 by the end — real, substantial progress, but the true remaining
+residue is roughly 300 cards, several needing subsystems no ticket has
+even sketched yet (devotion, a general "players can't `<verb>`" family,
+"search library and/or graveyard" for X-cost tutors, a broader
+alternative-cost "pitch" family, …) — see the updated `MEC-12` entry in
+`BACKLOG.md` for the full list. Consistent with the ticket's own framing
+("not no-deferrals scope"): a large batch, not forced completion.
+
+**New general primitives, most valuable well past this one pool:**
+
+- **RULE 603.1's untyped player-subject cast trigger.** "Whenever you
+  cast a spell, `<effect>`." had never been recognized at all —
+  `_CAST_SPELL_TRIGGER_RE` only ever matched a *typed* variant ("cast
+  a/an `<type>` spell"), and only for the `you` subject. The gap: its own
+  `types` capture group (`[a-z][a-z,\s]*?`) requires at least one word
+  between the article and "spell", so "a spell" (nothing between "a" and
+  "spell") never matched — confirmed by a direct `_trigger_condition`
+  probe before writing anything. `_CAST_SPELL_TRIGGER_PLAIN_RE` (whole-line,
+  parallel to the typed regex, not a widening of it) covers `you`/`an
+  opponent`/`a player` alike: `effect_binder`'s existing `{"subject":
+  "group", "controller": "you"/"not_you"/None}` scoping already handles
+  any player-keyed event with no `type`/`other` filter set — proven
+  working for a non-permanent event by Smothering Tithe's own `DRAW`-event
+  use last pass, so zero engine changes were needed for the trigger
+  condition itself. `_CAST_SPELL_TRIGGER_MV_RE` adds the "with mana value
+  N or less" filter sibling, reading `SPELL_CAST`'s already-stamped
+  `mana_value` field through one new `effect_binder` predicate
+  (`spell_mana_value_at_most`) — the event already carried the value
+  (`RulesEngine._track_spell_cast`'s own read), only the predicate was
+  missing. Unlocks Spellshock (plain) and Eidolon of the Great Revel/
+  Pyrostatic Pillar (mana-value-filtered) directly, +21 cards to measured
+  cache-wide coverage on its own.
+- **`DealDamageEffect`'s new `"event_player"` selector** — "~ deals N
+  damage to **that player**", the player named by the firing trigger's
+  own event (`SPELL_CAST`'s `player_id`), read via the same
+  `_event_player` helper `PayCostThenEffect`'s `payer="event_player"`
+  already uses. Paired with a new `"that player"` entry in
+  `handlers.py`'s `_DAMAGE_SELECTOR_WORDS` (alongside the existing "each
+  creature"/"each player"/"each opponent"), so the parser recognizes it
+  the same way as the other mass-damage selectors.
+- **`_EXILE_TOP_PLAY_RE` widened** (RULE 601.3b "impulsive draw") — the
+  effect (`ImpulsiveDrawEffect`) was already fully built, hand-authored
+  for Light Up the Stage specifically, yet Light Up the Stage's own real
+  printed text ("Exile the top two cards of your library. **Until the end
+  of your next turn,** you may play those cards.") didn't match the
+  existing regex, which only recognized the *trailing*-duration word
+  order ("...you may play them [duration]"). Found by testing the card
+  the effect was named after, not by assuming a hand-authored primitive
+  with a real card's name on it must already be reachable from that
+  card's own oracle text. Widened to accept both word orders, "that
+  card"/"those cards" pronouns (not just "them"/"it"), a singular "the top
+  card" (no digit — `\d+` can't match zero digits, needed its own
+  alternative), and `count_or_x_of` for "the top x cards" (Commune with
+  Lava's variable count, the same `"x"`-sentinel/`_substitute_x` idiom
+  every other X-scaled one-shot effect already uses). Unlocked Blazing
+  Crescendo, Commune with Lava, Light Up the Stage, and Reckless Impulse
+  directly, +~24 more cache-wide.
+- **Search criteria widened**: a colour word ahead of the type list
+  ("search your library for a **blue** instant card" — Merchant Scroll;
+  "a **green** creature card" — Magus of the Order/Natural Order/
+  Shadow-Rite Priest), consumed and dropped rather than modeled as its
+  own filter (`SearchLibraryEffect` has no colour criterion yet — a
+  documented over-approximation, not a silent behaviour change on any
+  card actually in the cache, since every real card found on this shape
+  pairs the colour with an already-narrow type search). Caught a real
+  regex-precedence bug while widening this: the first attempt wrote
+  `(?:white|blue|black|red|green\s+)?`, where `\s+` binds to only the
+  last alternative in the group — "green X" matched by pure accident (the
+  literal word "green" happened to include its own following space in
+  the match) while every other colour silently didn't, until a test with
+  more than one colour word caught it. Fixed to
+  `(?:(?:white|blue|black|red|green)\s+)?`. Also added "equipment" to the
+  searchable-subtype vocabulary (`_SEARCH_TYPE_WORD`) — `models.
+  card_query._type_matches` already does a plain substring check against
+  the *whole* printed type line ("Artifact — Equipment"), not just the
+  pre-em-dash main types, the same reason "Forest"/"Island" already work
+  as entries despite being land subtypes too, so this cost nothing
+  engine-side. Together these unlocked Merchant Scroll, Magus of the
+  Order, Shadow-Rite Priest, Steelshaper's Gift, Honored Knight-Captain,
+  and Steelshaper Apprentice.
+- **`models/card_query.py` gains `max_power`/`min_power`/`max_toughness`/
+  `min_toughness`** criteria keys, mirroring `max_mana_value`'s shape and
+  fail-closed treatment exactly (a non-creature card's `None` power never
+  matches a power bound). The parser still doesn't parse a power/
+  toughness qualifier after a search noun phrase — the same documented
+  gap as "with mana value X or less" — so Imperial Recruiter ("with power
+  2 or less") and Recruiter of the Guard ("with toughness 2 or less") are
+  hand-authored directly onto the new keys rather than waiting on that
+  parser work.
+- **`effects.WheelOfFortuneEffect`** — "each player discards their hand,
+  then draws seven cards." (Wheel of Fortune), the flat-draw-count
+  sibling of the already-shipped `WheelEffect` (Timetwister's shuffle-
+  into-library variant) and `WindfallEffect` (Windfall's shared-maximum
+  variant) — same sequential-discard-then-draw shape, just a fixed count
+  instead of a computed one. Hand-authored (this exact printed line is a
+  one-card template, not a family worth a parser handler yet).
+- **`DestroyEffect`'s mass-wipe `filter` gains a `"nonbasic"` key**
+  ("destroy all nonbasic lands." — Ruination), paired with the existing
+  `selector="all_lands"` the same "selector picks the zone/type, filter
+  narrows it" split every other qualified board wipe already uses.
+  Hand-authored (single-card template).
+
+Also fixed a stale regression test, `tests/test_oracle_triggers.py`'s
+`test_whenever_you_cast_a_spell_stays_unmodeled`, which had documented
+the untyped cast-trigger gap this pass closed — renamed to `_is_modeled`
+and its assertion flipped, rather than deleted, per this project's
+"update the test that documented a gap you closed" convention.
+
+New tests: `tests/test_mec_12_cedh_batch_4.py` (10 execute tests covering
+every primitive above against a real `GameEngine` — the cast-trigger
+family with both a firing and a non-firing case for the mana-value
+filter, the impulsive-draw exile-and-permission check, the search
+criteria's type-filter-without-colour behaviour, both new `card_query`
+bounds, and both hand-authored spell effects). Several genuine test-
+authoring bugs surfaced and were fixed along the way, not engine bugs:
+`Card.is_instant`/`converted_mana_cost` don't default from `type_line`/
+`mana_cost_string` and must be passed explicitly (a `{4}{4}`-costed test
+card without an explicit `converted_mana_cost=8` silently priced as mana
+value 0, making a "shouldn't trigger" assertion pass for the wrong
+reason); a land `Card` needs `is_land=True` explicitly too (`type_line`
+text alone doesn't make `DestroyEffect`'s `selector="all_lands"` see it);
+and `GameState`'s real turn/phase fields are `current_step`/
+`active_player_index`-via-`active_player` (mirroring `tests/
+test_batch8_permission_statics_family.py`'s established `engine.
+begin_turn(); state.current_step = "main1"` idiom), not the `current_phase`/
+`active_player_id` names an initial draft guessed at. Full backend suite:
+3,548 passed (+10 new, 1 renamed), 238 skipped, 0 regressions (one
+pre-existing flaky websocket test, unrelated, confirmed passing in
+isolation). `PARSER_VERSION` bumped 61 → 62 (+66 to measured cache-wide
+parser coverage: 10,961 → 11,027/34,811, 31.7%).
+
+Remaining scope — both the specific already-diagnosed gaps (tutor
+family, Mox Diamond, Mindbreak Trap's unbounded clause, Ghostfire Slice,
+Eye of Ugin, Meltdown's X-scaled filter, Stonehewer Giant's search-then-
+attach shape) and the broader subsystems this pass's full-pool sweep
+surfaced (devotion, a general "players can't `<verb>`" family, phasing/
+copy-exception effects, a broader pitch-cost family, conditional extra-
+combat grants) — is `MEC-12` in `BACKLOG.md`.
+
+## The seven "cEDH"-named saved decks/cubes: fifth pass (2026-08-11)
+
+Continuation of `MEC-12`, working down the fourth pass's own "specific,
+already-diagnosed gaps" list rather than the broader undesigned
+subsystems it also flagged (those still need their own tickets, per the
+ticket's own text). Closed six real cards outright — Meltdown, Chord of
+Calling, Green Sun's Zenith, Finale of Devastation, Wishclaw Talisman,
+Ghostfire Slice — each landing a genuinely reusable primitive, not a
+one-off:
+
+- **`RulesEngine._substitute_x` now walks a `filter`/`criteria` dict
+  attribute**, not just a plain `amount`/`count`/`power`/`toughness`
+  field, for its "x"/"-x" sentinel — the fourth pass's own diagnosis of
+  Meltdown's block ("`DestroyEffect.filter`'s `max_mana_value` can't
+  carry the sentinel yet") turned out to double as `SearchLibraryEffect.
+  criteria`'s exact same gap once the tutor grammar below started
+  emitting `max_mana_value: "x"` too — one small addition to the
+  substitution walk closed both at once, rather than needing two.
+- **The mass "destroy all X" family gains a singular "destroy each X"
+  alternative** (`_MASS_DESTROY_NOUNS_SINGULAR`, alongside the existing
+  plural "all Xs") — Meltdown prints "Destroy **each** artifact", not
+  "destroy all artifacts", which the existing regex had never
+  accounted for; combined with the "x" sentinel above, `Meltdown` is now
+  MODELED outright.
+- **The tutor grammar's colour word actually reaches
+  `SearchLibraryEffect.criteria["color"]` now.** `models.card_query` has
+  had a `color` key (matched against colour identity) since an earlier
+  pass, but `_search_criteria_from_match`/`_search_zone_criteria_from_
+  match` had only ever *consumed and dropped* the captured word — a real
+  gap, not the documented-permanent over-approximation the surrounding
+  comment claimed (found by grepping the criteria vocabulary before
+  building anything new, per this repo's own "grep before claiming a new
+  mechanism" convention). A regression test (`test_mec_12_cedh_batch_4.
+  py`'s Merchant Scroll case) had actually been asserting the *old*,
+  wrong behaviour — a red instant matching "a **blue** instant card" —
+  and needed a real fixture fix, not just a number bump.
+- **A "with mana value X or less/greater" trailing qualifier**, shared by
+  `_SEARCH_CRITERIA` and `_SEARCH_ZONE_CRITERIA` (`_SEARCH_MV_QUALIFIER`)
+  — X is this spell's own announced {X}, carried as the literal `"x"`
+  sentinel into `criteria["max_mana_value"]`/`min_mana_value"]` and
+  resolved by the `_substitute_x` widening above; a literal digit bound
+  works the same way. Unlocks `Chord of Calling` outright (MODELED) and
+  the search half of `Green Sun's Zenith`/`Finale of Devastation`.
+- **`ShuffleSelfIntoLibraryEffect`/`GameEngine.shuffle_into_library`** —
+  "Shuffle ~ into its owner's library." (RULE 701.20, Green Sun's
+  Zenith's own trailing sentence), overriding a spell's default RULE
+  608.2m "goes to the graveyard as it resolves" routing. No new
+  special-casing needed in `_apply_stack_item`: its existing
+  `obj.zone != Zone.STACK` check already treats *any* self-move away
+  from the stack as an override (built for a trailing self-`ExileEffect`,
+  Mnemonic Betrayal/Teferi's Protection-shaped) — this effect is a second
+  occupant of that same branch. Combined with the mana-value qualifier
+  above, `Green Sun's Zenith` is now MODELED outright.
+- **`Finale of Devastation`** hand-authored (its own two-sentence shape —
+  a conditional bonus keyed to the *same* spell's {X} as its search — is
+  a singleton template cache-wide, not worth a parser handler yet): the
+  search half reuses the zone/criteria primitives above; the bonus half
+  ("if X is 10 or more, creatures you control get +X/+X and gain haste")
+  reuses `Martial Coup`'s own `source_x_paid_at_least` `ConditionalEffect`
+  gate, found by grepping `Done_Backend.md` for an equivalently-shaped
+  condition before assuming a new one was needed.
+- **`ActivationCost.only_during_your_turn`** (RULE 602.5d's *wider*
+  sibling of `sorcery_speed_only` — still legal at instant speed with a
+  non-empty stack, just not outside the controller's own turn) +
+  **`GainControlBySourceEffect`** ("An opponent gains control of ~.",
+  RULE 701.10-adjacent — indefinite, always the source itself, moves
+  control *away* from the controller, and isn't a RULE 115 target at
+  all). Together with the "remove a `<kind>` counter from ~" activation
+  cost (already generic since an earlier batch — `costs.py`'s
+  `_REMOVE_COUNTERS_RE` needed no change at all), these make
+  `Wishclaw Talisman` MODELED outright. `only_during_your_turn` picking
+  the *next* opponent in seating order (rather than a real "choose an
+  opponent" chooser, which doesn't exist yet for a *player* — only for
+  `GameObject` candidates via `request_choose_objects`) is unambiguous
+  in every 1v1 goldfish/Replay game and a documented MVP simplification
+  for 3+-player tables, the same "auto-pick, no chooser in this MVP"
+  idiom `put_hand_cards_on_top` already uses.
+- **`continuous.self_cost_reduction_for` now honours an `active_if` gate**
+  (RULE 613.6, the same whitelist a battlefield static already reads) and
+  **`count_selector` gains `multicolored_permanents_you_control`** —
+  Ghostfire Slice's own "This spell costs {2} less to cast if an opponent
+  controls a multicolored permanent." `static_handlers.py` gained the
+  general "if `<condition>`" recognizer for this shape too (reusing
+  `static_condition`'s existing whitelist, plus a new `_opponent_control_
+  condition` mirroring `_control_count_condition`'s "you control a/an
+  `<x>`" row for the opponent-scoped case) — real, general, and already
+  reachable for any *permanent* printing this shape (several real cEDH
+  creatures do). Ghostfire Slice itself is an Instant, though, and hit a
+  genuine, separate architectural gap on the way: `parser/oracle/
+  segmenter.py`'s `allow_spell_effect` routes every clause on a true
+  instant/sorcery through the one-shot `spell_effect` dispatch, which has
+  no static-ability shape to emit at all — so the new parser recognizer,
+  correct as it is, can never actually reach a spell's own oracle text.
+  Hand-authored directly instead (`AbilitySpec("static", …)` doesn't care
+  what kind of card its owner is, so it reaches `self_cost_reduction_for`
+  regardless) rather than widening `attach_to_object`'s `spell_effect`
+  branch to split a `StaticAbility` out of its bound effects — a real,
+  separate primitive no *other* card needs yet, left as diagnosed
+  context for whoever picks it up next rather than built speculatively.
+
+New tests: `tests/test_mec_12_cedh_batch_5.py` (8 execute tests — Meltdown's
+mana-value-capped mass destroy, Chord of Calling's search criteria capping
+at the announced X, Green Sun's Zenith's search-then-self-shuffle
+end-to-end including answering the interactive search choice to let the
+deferred shuffle effect actually run, Finale of Devastation's zone search
++ its conditional pump's own `condition` dict, Wishclaw Talisman's real
+RULE 614.1 entry counters through a genuine cast + activation + control
+change, its own `only_during_your_turn` refusal on an opponent's turn, and
+Ghostfire Slice's cost reduction toggling on `active_if`). Three existing
+tests had documented the closed gaps as fail-closed and needed updating
+rather than deleting, per this project's own convention (`test_search_
+effects.py`/`test_effect_families_wave3.py`'s mana-value-qualifier tests,
+`test_mec_12_cedh_batch_4.py`'s Merchant Scroll fixture, which had been
+silently passing for the wrong reason). Full backend suite: 3,556 passed
+(+8 new), 238 skipped, 0 regressions. `PARSER_VERSION` bumped 62 → 63
+(measured cache-wide parser coverage: 11,027 → 11,066/34,811, 31.8%).
+
+Remaining scope, now genuinely narrowed and re-diagnosed rather than
+just re-counted (Tainted Pact's own two-reasons-to-stop loop shape
+confirmed distinct from `dig_until`; Eye of Ugin's search half now just a
+missing `"colorless"` vocabulary word, its static half still needing a
+combined colour-emptiness-and-subtype cost filter; Transmute Artifact,
+Mox Diamond, Mindbreak Trap, and Stonehewer Giant's search-then-attach
+shape unchanged) plus the fourth pass's own broader undesigned
+subsystems (devotion, "players can't `<verb>`", phasing/copy-exceptions,
+a broader pitch-cost family, conditional extra-combat) — is `MEC-12` in
+`BACKLOG.md`.
+
+## The seven "cEDH"-named saved decks/cubes: sixth pass (2026-08-11)
+
+Continuation of `MEC-12`: the fifth pass's own "specific, already-
+diagnosed gaps" list (Mox Diamond, Mindbreak Trap, Eye of Ugin, Stonehewer
+Giant/Quest for the Holy Relic, Tainted Pact, Transmute Artifact) had just
+been promoted to next-up, putting all six at this project's own "no
+half-implementations" threshold — a second deferral must be built or
+explicitly re-promoted, not silently rolled to a third. This pass closed
+every one of them:
+
+- **Mox Diamond** (RULE 614.12's own worked example, "if ~ would enter,
+  you may discard a land card instead...") — a new general primitive,
+  `AbilitySpec.enter_or_graveyard_discard_land` + `RulesEngine._offer_
+  enter_or_graveyard`, spliced into `_resolve_permanent_spell`'s existing
+  continuation-passing chain (enter-as-copy → protector → enter-choice →
+  Read Ahead → `_finish`) *before* every one of those, since declining
+  means the object never becomes a permanent at all and none of them
+  matter. `_send_to_graveyard_unentered` mirrors `_move_to_graveyard`'s
+  own "a spell fresh off the stack has nothing to remove from a per-player
+  zone first" shape. A new `shuffle_into_library`-adjacent mover wasn't
+  needed here (that was the *fifth* pass's own primitive, for Green Sun's
+  Zenith) — `_apply_stack_item`'s existing `obj.zone != Zone.STACK` check
+  already recognizes any self-move off the stack as an override of the
+  default graveyard routing, so Mox Diamond's "don't pay" branch reaches
+  it for free.
+- **Mindbreak Trap** ("exile any number of target spells") needed one
+  row, not a new primitive: `_multi_target_params`'s "any number of" idiom
+  (`_ANY_NUMBER_TARGET_CAP`) was already fully general — Fire Covenant and
+  Display of Power both already exercise it — just missing a "target
+  spells" target-kind row. Deliberately kept *out* of the shared
+  `_MULTI_TARGET_ROWS` every other multi-target family (destroy/damage/
+  tap/return_to_hand/...) also reads, since "destroy target spells"/"N
+  damage to target spells" aren't real templates (you counter or exile a
+  spell, never destroy or damage one) — only `exile`'s own regex opts into
+  the wider `_MULTI_TARGET_ALT_WITH_SPELL` alternation. Caught a real
+  regression on the way: widening the shared list first let
+  `destroy_multi_target` claim "destroy 2 target spells" too, breaking
+  `tests/test_multi_target.py`'s own "stays unclaimed" regression test —
+  fixed by scoping the new row to `exile` alone rather than by weakening
+  the test.
+- **Eye of Ugin** — two independent gaps. `models.card_query`'s `color`
+  key gained a `"colorless"` special case: an *empty* colour-identity
+  check rather than a membership one, kept local to `_SEARCH_COLOR_WORD`
+  (the search-only vocabulary) rather than widened into the shared
+  WUBRG-only `subgrammars.resolve_color_word`/`COLOR_WORD_ALT`, since
+  "colorless" isn't a valid substitute for any of that vocabulary's other
+  consumers (target-filter colour adjectives, "if it's `<color>`"
+  suffixes). `continuous.cost_reduction_for` gained a `spell_subtype`
+  filter (a creature subtype — "Eldrazi" — orthogonal to the existing
+  `spell_type`, which only ever checks a main card type), composed with
+  `spell_color="colorless"` by plain AND, the same way every other filter
+  in that function already composes. Hand-authored (the *combined*
+  colour-emptiness-and-subtype shape is a singleton, even though both
+  halves are now real, reusable primitives on their own).
+- **Stonehewer Giant / Quest for the Holy Relic** ("search for an
+  Equipment card, put it onto the battlefield, attach it to a creature you
+  control") — `SearchLibraryEffect` gained `attach_to_creature_you_control`,
+  applied in `_finish_search` right after `extra_counters` (the same "one
+  more step once the found card reaches the battlefield" slot Neoform's
+  counter already occupies), auto-picking the first eligible creature the
+  searching player controls — the same "no chooser for an equally-valid
+  pick" idiom this codebase uses pervasively, since Equipment attachment
+  here has no RULE 115 target of its own (the printed line never says
+  "target creature"). Reached by a new, fully general oracle-text handler
+  (`_SEARCH_PUT_ATTACH_THEN_SHUFFLE_RE`, a strict superset of the existing
+  put-then-shuffle family) — both cards MODELED outright, no
+  hand-authoring needed. Quest for the Holy Relic's own trigger ("put a
+  quest counter on this enchantment") needed only a vocabulary word —
+  `_NAMED_COUNTER_KINDS` gains `"quest"` alongside the existing `"spore"`/
+  `"burden"`.
+- **Tainted Pact** — a genuinely new loop shape, confirmed on inspection
+  *not* an instance of `dig_until` (which stops on the first card matching
+  one static predicate; this stops for either of two reasons on
+  *cumulative* per-iteration state). `ExileUntilDuplicateNameEffect`/
+  `RulesEngine.exile_until_duplicate_name` opens a real interactive
+  `pending_choice` ("take" the just-exiled card vs. "continue" digging
+  further) on every non-duplicate hit with library left — not an
+  auto-take, since the actual reason this card is played in cEDH is
+  *declining* every hit on purpose (paired with Thassa's Oracle in a
+  singleton deck, deliberately milling the whole library to win off an
+  empty-library trigger); auto-resolves without a prompt only when there's
+  truly nothing to decide (a forced duplicate, or an empty library right
+  after a hit).
+- **Transmute Artifact** — confirmed a singleton cost-comparison-gated
+  placement (a raw-text grep for its own distinctive "put it onto the
+  battlefield if its mana value is less than or equal to" phrasing turns
+  up only this card). One self-contained bespoke sequence,
+  `TransmuteArtifactEffect`/`RulesEngine.transmute_artifact`, with three
+  of its own `pending_choice` kinds (sacrifice → search → an optional
+  pay-the-difference) rather than composed from the general search/
+  sacrifice/`pay_cost_then` primitives — none of which can express "the
+  cost is a number computed from what a different, just-made choice
+  turned out to be". A player who can't pay the difference is never
+  asked, matching `request_pay_cost_then`'s own "don't stall on a choice
+  nobody can act on" convention.
+
+New tests: `tests/test_mec_12_cedh_batch_6.py` (12 execute tests, one per
+real behavioural branch — Mox Diamond's pay/decline/no-land-available
+cases, Mindbreak Trap's parse verdict, Eye of Ugin's combined cost filter
+across three spell fixtures plus its colorless-only search, Stonehewer
+Giant's real attach-after-search end to end, Quest for the Holy Relic's
+parse verdict, Tainted Pact's take-vs-continue-into-a-duplicate cases, and
+Transmute Artifact's cheap-find/pricier-find-declined cases). Fixture
+gotchas worth recording for the next batch: `Card.is_artifact` is a
+derived `@property` off the type line, not a constructor kwarg (unlike
+`is_creature`/`is_land`/`is_instant`, which *are* explicit); `GameObject.
+colors` falls back to `Card.color_identity`, which is never auto-derived
+from `mana_cost_string` and must be set explicitly on a synthetic Card;
+and a synthetic Equipment card needs `keywords=["Equip"]` set explicitly —
+`parser.oracle.catalogue.keywords.parse_keywords` is anchored on
+Scryfall's machine-readable `keywords` array, not parsed out of a raw
+"Equip {N}" oracle-text line, so a hand-built fixture with only
+`oracle_text` set silently never attaches. Full backend suite: 3,568
+passed (+12 new), 238 skipped, 0 regressions (one pre-existing flaky
+websocket test, unrelated, confirmed passing in isolation).
+`PARSER_VERSION` bumped 63 → 64 (measured cache-wide parser coverage:
+11,066 → 11,081/34,811, 31.8%).
+
+No specific per-card gaps remain open on this ticket right now — what's
+left is entirely the fourth pass's own broader undesigned subsystems
+(devotion, a general "players can't `<verb>`" family, phasing/copy-
+exception effects, a broader pitch-cost family, conditional extra-combat
+grants, the last of which is what still blocks Godo, Bandit Warlord's own
+second ability) — see `MEC-12` in `BACKLOG.md`.

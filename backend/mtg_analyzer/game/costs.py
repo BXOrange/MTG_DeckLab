@@ -307,6 +307,13 @@ class ActivationCost:
     #: level-up abilities) that isn't tied to a planeswalker — see
     #: `GameEngine._sorcery_speed_ok`. Not itself a cost component.
     sorcery_speed_only: bool = False
+    #: RULE 602.5d "Activate only during your turn." — a *different*, wider
+    #: timing window than `sorcery_speed_only` (Wishclaw Talisman-shaped):
+    #: still legal at instant speed with a non-empty stack, only ruled out
+    #: outside the controller's own turn. Deliberately its own flag rather
+    #: than folded into `sorcery_speed_only` — see `GameEngine.
+    #: _only_during_your_turn_ok`.
+    only_during_your_turn: bool = False
     #: PAR-10: "…and only if `<condition>`." stacked on (or standing in
     #: for) sorcery-speed timing (Cabal Inquisitor/Dread Wanderer/Hall of
     #: Oracles/Jin-Gitaxias/Potioner's Trove) — a `game/static_conditions.py`
@@ -538,6 +545,8 @@ def parse_activation_cost(
         parsed.exile_hand_card_color = str(cost["exile_hand_card_color"])
     if "sorcery_speed_only" in cost:
         parsed.sorcery_speed_only = bool(cost["sorcery_speed_only"])
+    if "only_during_your_turn" in cost:
+        parsed.only_during_your_turn = bool(cost["only_during_your_turn"])
     if cost.get("class_level") is not None:
         parsed.class_level = int(cost["class_level"])
     if cost.get("activation_condition"):

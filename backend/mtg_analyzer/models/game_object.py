@@ -406,6 +406,18 @@ class GameObject:
         #: `_offer_enter_as_copy`, before this object is added to the
         #: battlefield.
         self.enter_choice_effects: list[Any] = []
+        #: RULE 614.12: "If ~ would enter, you may discard a land card
+        #: instead. If you do, put ~ onto the battlefield. If you don't, put
+        #: it into its owner's graveyard." (Mox Diamond) — consulted by
+        #: `RulesEngine._offer_enter_or_graveyard` *before*
+        #: `enter_as_copy_effects`/`enter_choice_effects` even get a look
+        #: (if this is declined, the object never becomes a permanent at
+        #: all, so nothing else about entering matters). A plain flag
+        #: rather than a generic cost, since real-cache-wide this template
+        #: is a singleton (confirmed via a raw-text grep) — not worth a
+        #: general `ActivationCost`-shaped alternative-entry-cost primitive
+        #: until a second card actually needs one.
+        self.enter_or_graveyard_discard_land: bool = False
         #: The creature type/color chosen by this object's own "as ~ enters,
         #: choose a …" ability (`enter_choice_effects` above), e.g.
         #: ``"Goblin"`` / ``"R"``. Read by `game/continuous.py`'s

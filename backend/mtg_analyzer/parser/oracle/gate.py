@@ -817,7 +817,43 @@ NEVER_SUPPORTED = "NEVER_SUPPORTED"
 #: Smothering Tithe are hand-authored, which this ledger doesn't count),
 #: 0 regressions, full pytest suite green throughout. See
 #: `Done_Backend.md` for the full narrative.
-PARSER_VERSION = "61"
+#:
+#: Batch 62 (2026-08-11, MEC-12 fourth pass — the *rest* of the seven cEDH
+#: decks, not just the high-frequency remainder): RULE 603.1's **untyped
+#: player-subject cast trigger** ("whenever you/an opponent/a player casts
+#: a spell[, `<effect>`]", optionally "with mana value N or less" —
+#: `_CAST_SPELL_TRIGGER_PLAIN_RE`/`_CAST_SPELL_TRIGGER_MV_RE`) alongside a
+#: new `DealDamageEffect` `"event_player"` selector ("~ deals N damage to
+#: **that player**" — the caster, read off the firing `SPELL_CAST` event
+#: via the same `_event_player` helper `PayCostThenEffect`'s
+#: `payer="event_player"` already uses) — Spellshock/Eidolon of the Great
+#: Revel/Pyrostatic Pillar-shaped punishers, no new engine primitive for
+#: the trigger condition itself since `effect_binder`'s `{"subject":
+#: "group", "controller": ...}` scoping already handles any player-keyed
+#: event (proven by Smothering Tithe's `DRAW`-event use last batch);
+#: `_EXILE_TOP_PLAY_RE` (impulsive draw, RULE 601.3b) widened to the
+#: *leading*-duration word order real cards actually print ("Until the end
+#: of your next turn, you may play those cards." — Light Up the Stage's
+#: own text, not the trailing form the row was first written against),
+#: "that card"/"those cards" pronouns, a singular "the top card", and
+#: `count_or_x_of` for "the top x cards" (Commune with Lava) —
+#: `ImpulsiveDrawEffect` itself was already fully built (Light Up the
+#: Stage was its hand-authored namesake), this was purely a missing
+#: recognizer; "search your library for a `<colour>` `<type>` card" (colour
+#: dropped, not modeled as its own filter) plus "equipment" added to the
+#: searchable-subtype vocabulary (`_type_matches`'s plain type-line
+#: substring check already supports any subtype, same reason "Forest"/
+#: "Island" work) — Merchant Scroll/Magus of the Order/Shadow-Rite Priest/
+#: Steelshaper's Gift/Honored Knight-Captain/Steelshaper Apprentice, and a
+#: regex-precedence bug caught along the way (`(?:white|...|green\s+)?`
+#: bound `\s+` to only the last alternative, so only "green X" matched by
+#: accident). +~28 cards to measured parser coverage this pass, 0
+#: regressions, full pytest suite green throughout. See `Done_Backend.md`
+#: for the full narrative, including this batch's hand-authored cards
+#: (Imperial Recruiter/Recruiter of the Guard on two new `card_query`
+#: criteria keys, Wheel of Fortune, Ruination), which this ledger doesn't
+#: count.
+PARSER_VERSION = "64"
 
 
 @dataclass

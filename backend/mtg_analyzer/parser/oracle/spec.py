@@ -370,6 +370,16 @@ class AbilitySpec:
     #: the delayed trigger's own resolution, the same simplification
     #: `exile_with_play_permission`'s impulsive-draw window already uses).
     rebound: bool = False
+    #: RULE 614.12: "If ~ would enter, you may discard a land card instead.
+    #: If you do, put ~ onto the battlefield. If you don't, put it into its
+    #: owner's graveyard." (Mox Diamond) — hand-authored only (confirmed a
+    #: singleton template cache-wide), same "scan every spec, attach a bare
+    #: flag to the object" idiom as `rebound`. Read by `RulesEngine.
+    #: _resolve_permanent_spell`/`_offer_enter_or_graveyard`, which offer
+    #: this choice *before* every other battlefield-entry step — declining
+    #: (or having no land to discard) means the object never becomes a
+    #: permanent at all.
+    enter_or_graveyard_discard_land: bool = False
     #: RULE 603.7-style per-firing marker: "whenever a creature you control
     #: with a counter of ``counter_kind`` on it dies, return that card to
     #: the battlefield under your control at the beginning of the next end
@@ -494,6 +504,9 @@ class AbilitySpec:
 
         if not isinstance(self.rebound, bool):
             raise SpecValidationError("'rebound' must be a bool")
+
+        if not isinstance(self.enter_or_graveyard_discard_land, bool):
+            raise SpecValidationError("'enter_or_graveyard_discard_land' must be a bool")
 
         if self.counter_death_return is not None:
             self._validate_counter_death_return()

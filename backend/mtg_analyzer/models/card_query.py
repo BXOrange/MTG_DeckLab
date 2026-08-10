@@ -26,9 +26,22 @@ A criteria value is one of:
   ``basic``           bool — the card is a basic land (the "Basic" supertype).
   ``max_mana_value``  int  — mana value ≤ this (e.g. Green Sun's Zenith's X).
   ``min_mana_value``  int  — mana value ≥ this.
+  ``max_power``       int  — printed power ≤ this (Imperial Recruiter's "with
+                      power 2 or less") — a non-creature card (``power`` is
+                      ``None``) never matches a ``max_power``/``min_power``
+                      bound, the same fail-closed treatment ``max_mana_value``
+                      gets from an unset ``converted_mana_cost``.
+  ``min_power``       int  — printed power ≥ this.
+  ``max_toughness``   int  — printed toughness ≤ this (Recruiter of the
+                      Guard's "with toughness 2 or less").
+  ``min_toughness``   int  — printed toughness ≥ this.
   ``name``            str  — exact card name, case-insensitive ("a card named…").
   ``color``           str | list[str] — a colour ("W"/"U"/"B"/"R"/"G") that
                       must be in the card's colour identity; a list is an OR.
+                      ``"colorless"`` is a special entry meaning an *empty*
+                      colour identity instead (Eye of Ugin's "a colorless
+                      creature card") — the opposite check, since nothing is
+                      ever "colorless" *in* an identity set.
 """
 
 from __future__ import annotations
@@ -43,7 +56,11 @@ Criteria = Union[str, dict[str, Any], None]
 #: Recognized dict keys, so an unknown key fails closed instead of being
 #: silently ignored (which would over-match and search wrongly).
 _ALLOWED_KEYS: frozenset[str] = frozenset(
-    {"type", "basic", "max_mana_value", "min_mana_value", "name", "not_name", "color"}
+    {
+        "type", "basic", "max_mana_value", "min_mana_value",
+        "max_power", "min_power", "max_toughness", "min_toughness",
+        "name", "not_name", "color",
+    }
 )
 
 
@@ -78,6 +95,14 @@ def matches(card: Card, criteria: Criteria) -> bool:
     if "max_mana_value" in crit and card.converted_mana_cost > crit["max_mana_value"]:
         return False
     if "min_mana_value" in crit and card.converted_mana_cost < crit["min_mana_value"]:
+        return False
+    if "max_power" in crit and (card.power is None or card.power > crit["max_power"]):
+        return False
+    if "min_power" in crit and (card.power is None or card.power < crit["min_power"]):
+        return False
+    if "max_toughness" in crit and (card.toughness is None or card.toughness > crit["max_toughness"]):
+        return False
+    if "min_toughness" in crit and (card.toughness is None or card.toughness < crit["min_toughness"]):
         return False
     if "name" in crit and card.name.lower() != str(crit["name"]).lower():
         return False
@@ -114,6 +139,14 @@ def describe(criteria: Criteria) -> str:
         bounds.append(f"mana value ≤ {crit['max_mana_value']}")
     if "min_mana_value" in crit:
         bounds.append(f"mana value ≥ {crit['min_mana_value']}")
+    if "max_power" in crit:
+        bounds.append(f"power ≤ {crit['max_power']}")
+    if "min_power" in crit:
+        bounds.append(f"power ≥ {crit['min_power']}")
+    if "max_toughness" in crit:
+        bounds.append(f"toughness ≤ {crit['max_toughness']}")
+    if "min_toughness" in crit:
+        bounds.append(f"toughness ≥ {crit['min_toughness']}")
     suffix = f" with {' and '.join(bounds)}" if bounds else ""
     article = "an" if label[:1].lower() in "aeiou" else "a"
     return f"{article} {label} card{suffix}"
@@ -134,4 +167,12 @@ def _color_matches(card: Card, color_val: Any) -> bool:
         return True
     wanted = [color_val] if isinstance(color_val, str) else list(color_val)
     identity = card.color_identity
-    return any(str(c).upper() in identity for c in wanted)
+    # "colorless" is a real (if unusual) search word ("a colorless creature
+    # card" — Eye of Ugin) meaning an *empty* colour identity, not a WUBRG
+    # letter to look for among the card's colours — the opposite check from
+    # every other entry in ``wanted``, so it can't share the membership test
+    # below (nothing is ever "colorless" *in* an identity set).
+    return any(
+        not identity if str(c).lower() == "colorless" else str(c).upper() in identity
+        for c in wanted
+    )

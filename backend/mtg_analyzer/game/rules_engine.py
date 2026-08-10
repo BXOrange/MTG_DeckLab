@@ -263,6 +263,36 @@ class RulesEngine(
         self._pending_enter_choice_obj: Optional[GameObject] = None
         self._pending_enter_choice_effect: Optional[Any] = None
         self._pending_enter_choice_continuation: Optional[Callable[[], None]] = None
+        #: The card just exiled by `exile_until_duplicate_name` (Tainted
+        #: Pact) awaiting a "take it or keep digging" answer, its owner, and
+        #: the growing "names seen this resolution" set to resume with —
+        #: populated only while that choice is pending; see
+        #: `resolve_tainted_pact_choice`.
+        self._pending_tainted_pact_obj: Optional[GameObject] = None
+        self._pending_tainted_pact_player: Optional[Player] = None
+        self._pending_tainted_pact_seen: Optional[set] = None
+        #: Transmute Artifact's own three-stage bespoke sequence (sacrifice
+        #: → search → optional pay-the-difference) — the player, the
+        #: sacrificed artifact's mana value, the found card awaiting a
+        #: payment answer, and the `ActivationCost` it would take — each
+        #: populated only while its matching stage's `pending_choice` is
+        #: open; see `RulesEngine.transmute_artifact` and its three
+        #: `resolve_transmute_*_choice` methods.
+        self._pending_transmute_player: Optional[Player] = None
+        self._pending_transmute_sacrificed_mv: Optional[int] = None
+        self._pending_transmute_found_obj: Optional[GameObject] = None
+        self._pending_transmute_cost: Optional[Any] = None
+        #: A permanent spell carrying `GameObject.enter_or_graveyard_discard_
+        #: land` (RULE 614.12, "if ~ would enter, you may discard a land
+        #: card instead. If you do, put it onto the battlefield. If you
+        #: don't, put it into its owner's graveyard." — Mox Diamond), and the
+        #: battlefield-entry continuation to resume if the cost is paid —
+        #: populated only while that choice is pending, ahead of every other
+        #: entry choice (if it's declined, none of them matter — the object
+        #: never becomes a permanent at all); see `_offer_enter_or_graveyard`/
+        #: `resolve_enter_or_graveyard_choice`.
+        self._pending_enter_or_graveyard_obj: Optional[GameObject] = None
+        self._pending_enter_or_graveyard_continuation: Optional[Callable[[], None]] = None
         #: The battle currently awaiting its RULE 310.8a/310.11a "choose a
         #: player to protect it" pick, and the battlefield-entry
         #: continuation to resume once it's answered — populated only while

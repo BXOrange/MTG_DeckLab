@@ -140,6 +140,8 @@ class ActivationMixin:
             return False
         if ability.cost.sorcery_speed_only and not self._sorcery_speed_ok(player):
             return False
+        if ability.cost.only_during_your_turn and not self._only_during_your_turn_ok(player):
+            return False
         if ability.cost.activation_condition and not static_conditions.condition_holds(
             ability.cost.activation_condition, self.state, source=source, controller_id=player.id
         ):
@@ -166,6 +168,12 @@ class ActivationMixin:
             and self._in_main_phase()
             and not self.state.stack
         )
+    def _only_during_your_turn_ok(self, player: Player) -> bool:
+        """RULE 602.5d's "Activate only during your turn." — wider than
+        `_sorcery_speed_ok`: still legal at instant speed with a non-empty
+        stack or outside the controller's own main phase, only ruled out on
+        someone else's turn (Wishclaw Talisman-shaped)."""
+        return player is self.state.active_player
     def _can_activate_loyalty(self, player: Player, source: GameObject) -> bool:
         """Timing gate for a planeswalker loyalty ability (RULE 606.3).
 

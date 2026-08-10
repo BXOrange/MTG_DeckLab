@@ -267,11 +267,14 @@ def test_search_handlers_recognize_the_unrestricted_tutor_and_basic_land_fetch()
     assert fetch.params == {"criteria": {"basic": True}, "destination": "battlefield_tapped"}
 
 
-def test_search_handler_fails_closed_on_a_mana_value_qualifier():
-    assert parse_effect_body(
+def test_search_handler_recognizes_a_mana_value_qualifier():
+    # MEC-12 (fifth pass): "with mana value N or less" is now recognized --
+    # this card previously documented the gap as fail-closed.
+    spec = parse_effect_body(
         "search your library for a card with mana value 2 or less, put that card "
         "into your hand, then shuffle"
-    ) is None
+    )[0]
+    assert spec.params == {"criteria": {"max_mana_value": 2}, "destination": "hand"}
 
 
 def test_basic_land_fetch_recognizes_an_up_to_n_count():

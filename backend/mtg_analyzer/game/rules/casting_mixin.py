@@ -838,6 +838,16 @@ class CastingResolutionMixin:
         literal string ``"x"``/``"-x"``, so this can't misfire on an
         unrelated ``amount``/``count``/``power``/``toughness`` value.
 
+        Also walks a ``filter``/``criteria`` dict attribute (`DestroyEffect`/
+        `ExileEffect`'s mass-wipe filter, `SearchLibraryEffect`'s search
+        criteria) for an ``"x"``/``"-x"`` sentinel on its own
+        ``max_mana_value``/``min_mana_value`` key — "destroy all creatures
+        with mana value X or less" (Meltdown) and "search your library for a
+        creature card with mana value X or less" (Green Sun's Zenith/Chord of
+        Calling/Finale of Devastation) both need the substitution one level
+        deeper than a plain effect attribute, which the per-``attr`` loop
+        below can't reach on its own.
+
         Unwraps a `ConditionalEffect` (RULE 702.33b's "if it was kicked, …"
         wrapper) to reach the magnitude field on its ``inner`` effect —
         the wrapper itself never carries one, so without this an
@@ -850,6 +860,16 @@ class CastingResolutionMixin:
             effect = wrapper
             while hasattr(effect, "inner"):
                 effect = effect.inner
+            for dict_attr in ("filter", "criteria"):
+                mapping = getattr(effect, dict_attr, None)
+                if not isinstance(mapping, dict):
+                    continue
+                for mv_key in ("max_mana_value", "min_mana_value"):
+                    mv_value = mapping.get(mv_key)
+                    if mv_value == "x":
+                        mapping[mv_key] = x
+                    elif mv_value == "-x":
+                        mapping[mv_key] = -x
             for attr in ("amount", "count", "power", "toughness"):
                 value = getattr(effect, attr, None)
                 if value == "x":
@@ -1119,10 +1139,92 @@ class CastingResolutionMixin:
             # so it joins this pipeline rather than getting a bespoke one.
             self._offer_protector_choice(obj, _after_protector_choice)
 
-        if obj.enter_as_copy_effects:
-            self._offer_enter_as_copy(obj, _after_copy_choice)
+        def _after_replacement_choice() -> None:
+            if obj.enter_as_copy_effects:
+                self._offer_enter_as_copy(obj, _after_copy_choice)
+            else:
+                _after_copy_choice()
+
+        if obj.enter_or_graveyard_discard_land:
+            self._offer_enter_or_graveyard(obj, _after_replacement_choice)
         else:
-            _after_copy_choice()
+            _after_replacement_choice()
+    def _offer_enter_or_graveyard(
+        self, obj: GameObject, continuation: Callable[[], None]
+    ) -> None:
+        """RULE 614.12: offer ``obj``'s "you may discard a land card instead"
+        choice *before* anything else about entering the battlefield is even
+        considered (Mox Diamond) — declining sends it straight to its
+        owner's graveyard, the same way a spell that never became a
+        permanent always has (`_send_to_graveyard_unentered`).
+
+        No prompt at all when the controller has no land card to discard
+        (RULE 601.2c-style: nothing to choose, nothing pauses) — straight to
+        the graveyard, mirroring `_offer_enter_as_copy`'s no-legal-target
+        case exactly.
+        """
+        player = self.state.player_by_id(obj.controller_id)
+        lands = [c for c in player.hand if c.card.is_land] if player is not None else []
+        if not lands:
+            self._send_to_graveyard_unentered(obj)
+            return
+        self._pending_enter_or_graveyard_obj = obj
+        self._pending_enter_or_graveyard_continuation = continuation
+        options = [
+            {"id": str(c.instance_id), "label": c.name, "instance_id": c.instance_id}
+            for c in lands
+        ]
+        options.append({"id": "decline", "label": "Nicht abwerfen (auf den Friedhof)"})
+        self.state.pending_choice = {
+            "kind": "enter_or_graveyard",
+            "player_id": obj.controller_id,
+            "prompt": f"{obj.name}: Land abwerfen, um es ins Spiel zu bringen?",
+            "options": options,
+        }
+    def resolve_enter_or_graveyard_choice(self, answer: Optional[str]) -> None:
+        """Answer a pending `enter_or_graveyard` choice (RULE 614.12), then
+        either resume whatever battlefield-entry work `_offer_enter_or_
+        graveyard` deferred (a land was discarded) or route the object
+        straight to its owner's graveyard instead (declined).
+
+        ``answer`` is a land card's stringified ``instance_id``, or
+        ``None``/``"decline"`` to decline.
+        """
+        choice = self.state.pending_choice
+        if not choice or choice.get("kind") != "enter_or_graveyard":
+            raise ValueError("no pending enter-or-graveyard choice to resolve")
+        self.state.pending_choice = None
+        obj = self._pending_enter_or_graveyard_obj
+        continuation = self._pending_enter_or_graveyard_continuation
+        self._pending_enter_or_graveyard_obj = None
+        self._pending_enter_or_graveyard_continuation = None
+        if obj is None:
+            return
+        if answer is None or str(answer) == "decline":
+            self._send_to_graveyard_unentered(obj)
+            return
+        land = self._resolve_choice_option(choice["options"], str(answer))
+        player = self.state.player_by_id(obj.controller_id)
+        if land is not None and player is not None and land in player.hand:
+            player.remove_from_zone(land, Zone.HAND)
+            player.add_to_zone(land, Zone.GRAVEYARD)
+            self.state.fire_event(GameEvent(EventType.DISCARD, player_id=player.id, count=1))
+        if continuation is not None:
+            continuation()
+    def _send_to_graveyard_unentered(self, obj: GameObject) -> None:
+        """RULE 614.12's "don't pay" branch: ``obj`` never becomes a
+        permanent at all — no `ENTERS_BATTLEFIELD`. Straight to its owner's
+        graveyard, the same `_move_to_graveyard`-shaped placement a resolving
+        non-permanent spell already ends with (`obj` is fresh off the stack
+        here, not sitting in any per-player zone list, so there's nothing to
+        remove it *from* first — `resolve_top_of_stack` already popped it).
+        """
+        owner = self.state.player_by_id(obj.owner_id)
+        owner.add_to_zone(obj, Zone.GRAVEYARD)
+        self.state.fire_event(
+            GameEvent(EventType.SPELL_RESOLVED, spell=obj.name, controller_id=obj.controller_id)
+        )
+        self.check_state_based_actions()
     def _offer_protector_choice(self, obj: GameObject, continuation: Callable[[], None]) -> None:
         """RULE 310.8a/310.11a: offer a battle's "choose a player to protect
         it" pick *before* it's added to the battlefield — the `_offer_enter_

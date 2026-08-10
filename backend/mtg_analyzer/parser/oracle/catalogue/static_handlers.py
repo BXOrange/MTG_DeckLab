@@ -307,6 +307,16 @@ _SELF_COST_REDUCTION_ATTACKING_RE = re.compile(
     re.IGNORECASE,
 )
 
+# "This spell costs {N} less to cast if `<condition>`." (RULE 601.2f,
+# Ghostfire Slice-shaped) — the self cost-reduction sibling of the above,
+# gated by RULE 613.6's own "as long as `<condition>`" whitelist
+# (`static_condition`) instead of a `per`-scaled count, so it reuses that
+# same evaluator rather than growing a second one.
+_SELF_COST_REDUCTION_IF_RE = re.compile(
+    r"this spell costs \{(?P<n>\d+)\} less to cast if (?P<cond>.+)",
+    re.IGNORECASE,
+)
+
 # "Each player can't cast more than N spell(s) each turn."  (RULE 601-area
 # prohibition, Eidolon of Rhetoric/Rule of Law/Archon of Emeria) — a flat,
 # unscoped per-player-per-turn cast cap; ``normalize`` already folds a
@@ -1912,6 +1922,10 @@ _STATIC_CONDITION_RES: list[tuple[re.Pattern[str], Any]] = [
         r"an opponent has (?P<n>\d+) or more cards in (?:their|his or her) graveyard", re.I),
      lambda m: {"kind": "opponent_count", "selector": "cards_in_your_graveyard",
                 "min": int(m.group("n"))}),
+    # "an opponent controls a multicolored permanent" (Ghostfire Slice) —
+    # `opponent_count`'s sibling to the "you control a/an `<x>`" row above.
+    (re.compile(r"an opponent controls (?:a|an) (?P<what>[a-z ]+)", re.I),
+     lambda m: _opponent_control_condition(m.group("what"))),
     # PAR-10: "as long as you've cast an instant or sorcery spell this
     # turn" (Haunting Figment/Leapfrog/Piston-Fist Cyclops) — the same
     # `cast_instant_or_sorcery_this_turn` condition kind
@@ -1963,6 +1977,8 @@ _CONTROL_COUNT_SELECTORS: dict[str, str] = {
     "lands": "lands_you_control",
     "permanent": "permanents_you_control",
     "permanents": "permanents_you_control",
+    "multicolored permanent": "multicolored_permanents_you_control",
+    "multicolored permanents": "multicolored_permanents_you_control",
 }
 
 
@@ -1970,6 +1986,17 @@ def _control_count_condition(what: str, minimum: int) -> Optional[dict]:
     selector = _CONTROL_COUNT_SELECTORS.get(what.strip().lower())
     return None if selector is None else {
         "kind": "control_count", "selector": selector, "min": minimum
+    }
+
+
+def _opponent_control_condition(what: str) -> Optional[dict]:
+    """"An opponent controls a/an `<filter>`." (Ghostfire Slice's own
+    `active_if`) — `opponent_count`'s sibling to `_control_count_condition`,
+    same selector dict, always ``min=1`` (a plain "controls a" has no count
+    of its own to carry, unlike "controls N or more `<x>`")."""
+    selector = _CONTROL_COUNT_SELECTORS.get(what.strip().lower())
+    return None if selector is None else {
+        "kind": "opponent_count", "selector": selector, "min": 1
     }
 
 
@@ -2295,6 +2322,18 @@ def static_effect_specs(clause: str) -> Optional[list[EffectSpec]]:
             EffectSpec(
                 "cost_reduction",
                 {"affects": "self", "generic": int(m.group("n")), "per": selector},
+            )
+        ]
+
+    m = _SELF_COST_REDUCTION_IF_RE.fullmatch(text)
+    if m is not None:
+        condition = static_condition(m.group("cond"))
+        if condition is None:
+            return None  # fail-closed — an unrecognised condition clause
+        return [
+            EffectSpec(
+                "cost_reduction",
+                {"affects": "self", "generic": int(m.group("n")), "active_if": condition},
             )
         ]
 

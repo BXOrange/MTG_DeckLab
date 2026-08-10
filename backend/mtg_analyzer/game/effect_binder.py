@@ -23,6 +23,7 @@ from ..models.mana_cost import ManaCost
 from ..parser.oracle.catalogue.handlers import (
     ACTIVATION_CONDITION_MARKER,
     ONCE_PER_TURN_MARKER,
+    ONLY_DURING_YOUR_TURN_MARKER,
     SORCERY_SPEED_MARKER,
 )
 from ..parser.oracle.spec import AbilitySpec, EffectSpec
@@ -580,6 +581,21 @@ def _trigger_condition(
 
         predicates.append(_spell_type_excluded_ok)
 
+    # "Whenever a player casts a spell with mana value 3 or less, …"
+    # (Eidolon of the Great Revel/Pyrostatic Pillar-shaped) — `SPELL_CAST`
+    # already stamps ``mana_value`` (`RulesEngine`'s own cast-tracking, used
+    # by `_track_spell_cast`'s "spells cast this turn" tally), so this is
+    # purely a missing predicate, not a missing event field.
+    spell_mv_at_most = trigger.get("spell_mana_value_at_most")
+    if spell_mv_at_most is not None:
+        threshold = int(spell_mv_at_most)
+
+        def _spell_mv_ok(event: Any, context: Any, n=threshold) -> bool:
+            mv = event.get("mana_value")
+            return mv is not None and mv <= n
+
+        predicates.append(_spell_mv_ok)
+
     # "Whenever an instant or sorcery spell you control that targets only a
     # single creature deals damage to that creature, …" (Imodane, the
     # Pyrohammer) — two flags `RulesEngine.deal_damage`/`DealDamageEffect`
@@ -858,6 +874,7 @@ def bind_ability(
     # (mirroring `TriggeredAbility.once_per_turn`'s RULE 603.2 stamp).
     once_per_turn = False
     sorcery_speed_only = False
+    only_during_your_turn = False
     activation_condition: Optional[dict[str, Any]] = None
     effect_specs = spec.effects
     if spec.ability_kind == "activated":
@@ -865,6 +882,8 @@ def bind_ability(
             once_per_turn = True
         if any(e.type == SORCERY_SPEED_MARKER for e in effect_specs):
             sorcery_speed_only = True
+        if any(e.type == ONLY_DURING_YOUR_TURN_MARKER for e in effect_specs):
+            only_during_your_turn = True
         # PAR-10: "…and only if `<condition>`." — the same marker-then-strip
         # shape as the two above, folded into `ActivationCost.
         # activation_condition` instead of a flag.
@@ -878,7 +897,10 @@ def bind_ability(
         # ActivatedAbility/cost, not a GameEffect.
         effect_specs = [
             e for e in effect_specs
-            if e.type not in (ONCE_PER_TURN_MARKER, SORCERY_SPEED_MARKER, ACTIVATION_CONDITION_MARKER)
+            if e.type not in (
+                ONCE_PER_TURN_MARKER, SORCERY_SPEED_MARKER,
+                ONLY_DURING_YOUR_TURN_MARKER, ACTIVATION_CONDITION_MARKER,
+            )
         ]
 
     effects = build_effects(effect_specs, source)
@@ -959,6 +981,9 @@ def bind_ability(
         # RULE 602.5d — the "Activate only as a sorcery" body marker folds into
         # the cost's timing flag (`can_activate` already enforces it).
         cost.sorcery_speed_only = True
+    if only_during_your_turn:
+        # RULE 602.5d's wider sibling — see `ONLY_DURING_YOUR_TURN_MARKER`.
+        cost.only_during_your_turn = True
     if activation_condition:
         cost.activation_condition = activation_condition
     if any(
@@ -1461,6 +1486,9 @@ def attach_to_object(obj: Any, specs: list[AbilitySpec]) -> None:
         if spec.rebound:
             spec.validate()
             obj.has_rebound = True
+        if spec.enter_or_graveyard_discard_land:
+            spec.validate()
+            obj.enter_or_graveyard_discard_land = True
         if spec.counter_death_return:
             spec.validate()
             obj.counter_death_return = dict(spec.counter_death_return)

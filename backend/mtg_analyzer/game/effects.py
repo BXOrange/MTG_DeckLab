@@ -140,6 +140,12 @@ class GameContext:
     def exile(self, target: "GameObject") -> None:
         self.engine.exile(target)
 
+    def exile_until_duplicate_name(self, player: "Player") -> None:
+        self.engine.exile_until_duplicate_name(player)
+
+    def transmute_artifact(self, player: "Player") -> None:
+        self.engine.transmute_artifact(player)
+
     def mill(self, player: "Player", count: int = 1) -> None:
         self.engine.mill(player, count)
 
@@ -299,11 +305,13 @@ class GameContext:
         exile_rest: bool = False,
         extra_counters: Optional[dict[str, Any]] = None,
         destination_if: Optional[list[dict[str, Any]]] = None,
+        attach_to_creature_you_control: bool = False,
     ) -> None:
         self.engine.request_search(
             player, criteria, destination, count, optional,
             zones=zones, destinations=destinations, exile_rest=exile_rest,
             extra_counters=extra_counters, destination_if=destination_if,
+            attach_to_creature_you_control=attach_to_creature_you_control,
         )
 
     def choose_objects(
@@ -385,6 +393,9 @@ class GameContext:
 
     def return_to_hand(self, target: "GameObject") -> None:
         self.engine.return_to_hand(target)
+
+    def shuffle_into_library(self, target: "GameObject") -> None:
+        self.engine.shuffle_into_library(target)
 
     def return_from_graveyard(
         self,
@@ -1821,7 +1832,14 @@ _DAMAGE_SELECTORS: frozenset[str] = frozenset(
      # "~ deals 1 damage to itself." (Stuffy Doll) — the source's own
      # permanent, unlike "controller" (that permanent's *player*).
      "self",
-     "defending_player"}
+     "defending_player",
+     # "~ deals N damage to that player." (Spellshock/Eidolon of the Great
+     # Revel-shaped cast-trigger punishers) — the player named by the
+     # currently-resolving trigger's own event (`_event_player`, the same
+     # helper `PayCostThenEffect`'s ``payer="event_player"`` already reads),
+     # not a RULE 115 target: the ability names its own firing condition's
+     # actor, the caster never chooses who gets hit.
+     "event_player"}
 )
 
 
@@ -2059,6 +2077,15 @@ class DealDamageEffect(GameEffect):
             # "~ deals 1 damage to itself." (Stuffy Doll)
             if self.source is not None:
                 context.deal_damage(self.source, amount, self.source)
+            return
+        if self.selector == "event_player":
+            # "whenever a player casts a spell, ~ deals 2 damage to that
+            # player." (Spellshock) — the caster named by the SPELL_CAST
+            # event that fired this trigger, read via the same
+            # `_event_player` helper `PayCostThenEffect` uses.
+            player = _event_player(context, key="player_id")
+            if player is not None:
+                context.deal_damage(player, amount, self.source)
             return
         for player in context.state.living_players():
             if self.selector == "each_opponent" and player.id == controller_id:
@@ -2406,6 +2433,12 @@ def _mass_selector_objects(
         max_power = filt.get("max_power")
         if max_power is not None:
             result = [o for o in result if (o.power or 0) <= max_power]
+        # "destroy all nonbasic lands." (Ruination-shaped) — paired with
+        # ``selector="all_lands"`` rather than its own selector, the same
+        # "selector picks the zone/type, filter narrows it" split every
+        # other mass-wipe qualifier here uses.
+        if filt.get("nonbasic"):
+            result = [o for o in result if "basic" not in (o.card.type_line or "").lower()]
     return result
 
 
@@ -3976,6 +4009,51 @@ class GainControlUntilEndOfTurnEffect(GameEffect):
         context.recompute()
 
 
+class GainControlBySourceEffect(GameEffect):
+    """"An opponent gains control of ~." (RULE 701.10-adjacent — Wishclaw
+    Talisman-shaped: an activated ability that hands its own permanent away
+    as a drawback, rather than the caster grabbing something). Unlike
+    `GainControlUntilEndOfTurnEffect` (temporary, a chosen *target*, control
+    moves *to* the ability's controller), this is indefinite, always the
+    source itself, moves control *away* from the controller, and isn't a
+    RULE 115 target at all — the printed line never says "target opponent".
+
+    ``recipient="opponent"`` is the only kind today. With exactly one
+    opponent (the common 1v1 goldfish/Replay case) the pick is unambiguous;
+    with 2+ (multiplayer), this auto-picks the next player after the
+    current controller in seating order — no "choose an opponent" chooser
+    exists yet for a *player* (`request_choose_objects` only offers
+    `GameObject` candidates), the same "auto-pick, no chooser in this MVP"
+    idiom `put_hand_cards_on_top` already documents for a value-neutral
+    selection among equally-valid choices.
+    """
+
+    def __init__(
+        self,
+        source: Optional["GameObject"] = None,
+        recipient: str = "opponent",
+    ) -> None:
+        super().__init__(source)
+        self.recipient = recipient
+        self.target_spec = None
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        if self.source is None:
+            return
+        controller = _controller_of(self.source, context)
+        if controller is None:
+            return
+        players = context.state.players
+        opponents = [p for p in players if p.id != controller.id]
+        if not opponents:
+            return
+        idx = players.index(controller)
+        ordered = players[idx + 1:] + players[:idx]
+        recipient = next((p for p in ordered if p in opponents), opponents[0])
+        self.source.controller_id = recipient.id
+        context.recompute()
+
+
 class ReturnLinkedExileEffect(GameEffect):
     """"When this leaves the battlefield, return the exiled card to the
     battlefield under its owner's control." (Leonin Relic-Warder/O-Ring-
@@ -4804,6 +4882,26 @@ class ReturnToHandEffect(GameEffect):
         target = (targets[0] if targets else None) or self.target
         if target is not None:
             context.return_to_hand(target)
+
+
+class ShuffleSelfIntoLibraryEffect(GameEffect):
+    """"Shuffle ~ into its owner's library." (RULE 701.20 — Green Sun's
+    Zenith's own trailing sentence, overriding the spell's default RULE
+    608.2m "goes to the graveyard as it resolves" routing). Self-only, no
+    RULE 115 target, mirroring `ReturnToHandEffect`'s ``target_kind=None``
+    self mode; `_apply_stack_item`'s existing ``obj.zone != Zone.STACK``
+    check already treats any self-move away from the stack (previously only
+    a trailing self-`ExileEffect`) as an override, so nothing else needs to
+    know this effect exists.
+    """
+
+    def __init__(self, source: Optional["GameObject"] = None) -> None:
+        super().__init__(source)
+        self.target_spec = None
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        if self.source is not None:
+            context.shuffle_into_library(self.source)
 
 
 class ReturnFromGraveyardEffect(GameEffect):
@@ -7746,6 +7844,7 @@ class SearchLibraryEffect(GameEffect):
         mana_value_from: Optional[dict[str, Any]] = None,
         extra_counters: Optional[dict[str, Any]] = None,
         destination_if: Optional[list[dict[str, Any]]] = None,
+        attach_to_creature_you_control: bool = False,
     ) -> None:
         super().__init__(source)
         #: A per-found-card *conditional* destination (RULE 701.19c), unlike
@@ -7771,6 +7870,10 @@ class SearchLibraryEffect(GameEffect):
         #: applied by `RulesEngine.resolve_search_choice` right after the
         #: found card reaches the battlefield.
         self.extra_counters = extra_counters
+        #: "…put it onto the battlefield, **attach it to a creature you
+        #: control**" (Stonehewer Giant/Quest for the Holy Relic) — see
+        #: `RulesEngine._finish_search`'s own docstring for the auto-pick.
+        self.attach_to_creature_you_control = attach_to_creature_you_control
 
     def _resolved_criteria(self) -> Any:
         """``criteria`` with any `mana_value_from` bound to a real number."""
@@ -7799,6 +7902,7 @@ class SearchLibraryEffect(GameEffect):
             player, self._resolved_criteria(), self.destination, self.count, self.optional,
             zones=self.zones, destinations=self.destinations, exile_rest=self.exile_rest,
             extra_counters=self.extra_counters, destination_if=self.destination_if,
+            attach_to_creature_you_control=self.attach_to_creature_you_control,
         )
 
 
@@ -8037,6 +8141,25 @@ class WheelEffect(GameEffect):
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
         for player in list(context.state.living_players()):
             context.shuffle_hand_and_graveyard_into_library(player)
+            context.draw(player, self.draw_count)
+
+
+class WheelOfFortuneEffect(GameEffect):
+    """"Each player discards their hand, then draws seven cards." (Wheel of
+    Fortune) — the flat-draw-count sibling of `WindfallEffect`'s
+    shared-maximum shape: every player discards their whole hand (RULE
+    101.4's simultaneous-turn-based-action idiom, same sequential-loop
+    approximation `WheelEffect`/`WindfallEffect` already use), then every
+    player draws the same fixed number regardless of how many they held.
+    """
+
+    def __init__(self, draw_count: int = 7, source: Optional["GameObject"] = None) -> None:
+        super().__init__(source)
+        self.draw_count = draw_count
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        for player in list(context.state.living_players()):
+            context.discard(player, len(player.hand))
             context.draw(player, self.draw_count)
 
 
@@ -8699,6 +8822,48 @@ class NameCardThenEffect(GameEffect):
         if player is None:
             return
         context.engine.request_name_card(player, self.inner_specs, self.source)
+
+
+class ExileUntilDuplicateNameEffect(GameEffect):
+    """"Exile the top card of your library. You may put that card into
+    your hand unless it has the same name as another card exiled this
+    way. Repeat this process until you put a card into your hand or you
+    exile two cards with the same name, whichever comes first." (RULE
+    701.19-adjacent — Tainted Pact) — see `RulesEngine.
+    exile_until_duplicate_name`'s docstring for why this is a genuinely
+    different loop shape from `DigUntilEffect`, not a special case of it.
+    """
+
+    def __init__(self, source: Optional["GameObject"] = None) -> None:
+        super().__init__(source)
+        self.target_spec = None
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        player = _controller_of(self.source, context)
+        if player is not None:
+            context.exile_until_duplicate_name(player)
+
+
+class TransmuteArtifactEffect(GameEffect):
+    """"Sacrifice an artifact. If you do, search your library for an
+    artifact card. If that card's mana value is less than or equal to the
+    sacrificed artifact's mana value, put it onto the battlefield. If
+    it's greater, you may pay {X}, where X is the difference. If you do,
+    put it onto the battlefield. If you don't, put it into its owner's
+    graveyard. Then shuffle." (Transmute Artifact) — see `RulesEngine.
+    transmute_artifact`'s own docstring for why this is one self-contained
+    bespoke sequence rather than composed from the general search/
+    sacrifice/`pay_cost_then` primitives.
+    """
+
+    def __init__(self, source: Optional["GameObject"] = None) -> None:
+        super().__init__(source)
+        self.target_spec = None
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        player = _controller_of(self.source, context)
+        if player is not None:
+            context.transmute_artifact(player)
 
 
 class DigUntilEffect(GameEffect):
@@ -10322,6 +10487,16 @@ EffectRegistry.register(
     ),
 )
 EffectRegistry.register(
+    # "Shuffle ~ into its owner's library." (Green Sun's Zenith)
+    "shuffle_self_into_library",
+    lambda p: ShuffleSelfIntoLibraryEffect(),
+)
+EffectRegistry.register(
+    # "An opponent gains control of ~." (Wishclaw Talisman)
+    "gain_control_by_source",
+    lambda p: GainControlBySourceEffect(recipient=p.get("recipient", "opponent")),
+)
+EffectRegistry.register(
     # "return target creature card from your graveyard to the battlefield/
     # your hand" (RULE 701.3, Regrowth/Reanimate-shaped)
     "return_from_graveyard",
@@ -10556,6 +10731,19 @@ EffectRegistry.register(
 EffectRegistry.register(
     "name_card_then",  # "Choose a card name. <effect>" (Demonic Consultation)
     lambda p: NameCardThenEffect(effects=list(p.get("effects", []))),
+)
+EffectRegistry.register(
+    # "Exile the top card of your library. You may put that card into your
+    # hand unless it has the same name as another card exiled this way.
+    # Repeat…" (Tainted Pact).
+    "exile_until_duplicate_name",
+    lambda p: ExileUntilDuplicateNameEffect(),
+)
+EffectRegistry.register(
+    # "Sacrifice an artifact. If you do, search your library for an
+    # artifact card…" (Transmute Artifact).
+    "transmute_artifact",
+    lambda p: TransmuteArtifactEffect(),
 )
 EffectRegistry.register(
     # "…reveal/exile cards from the top of your library until <predicate>"
@@ -10955,6 +11143,7 @@ EffectRegistry.register(
         exile_rest=p.get("exile_rest", False),
         mana_value_from=p.get("mana_value_from"),
         extra_counters=p.get("extra_counters"),
+        attach_to_creature_you_control=bool(p.get("attach_to_creature_you_control", False)),
     ),
 )
 EffectRegistry.register(
@@ -10990,6 +11179,10 @@ EffectRegistry.register(
 EffectRegistry.register(
     "windfall",  # "Each player discards their hand, then draws cards equal to the greatest number discarded." (Windfall)
     lambda p: WindfallEffect(),
+)
+EffectRegistry.register(
+    "wheel_of_fortune",  # "Each player discards their hand, then draws seven cards." (Wheel of Fortune)
+    lambda p: WheelOfFortuneEffect(draw_count=p.get("draw_count", 7)),
 )
 EffectRegistry.register(
     "transform", lambda p: TransformEffect(target_kind=p.get("target_kind"))
@@ -11411,8 +11604,14 @@ EffectRegistry.register(
             **({"spell_type": p["spell_type"]} if p.get("spell_type") else {}),
             # "Red spells you cast cost {1} less to cast." (the Medallion
             # cycle) — `continuous.cost_reduction_for`'s own colour filter,
-            # orthogonal to `spell_type`.
+            # orthogonal to `spell_type`. ``"colorless"`` is its own special
+            # value (Eye of Ugin), an empty-identity check rather than a
+            # membership one.
             **({"spell_color": p["spell_color"]} if p.get("spell_color") else {}),
+            # "Colorless Eldrazi spells you cast cost {2} less to cast."
+            # (Eye of Ugin) — a creature-subtype filter, orthogonal to both
+            # `spell_type` (main card types only) and `spell_color` above.
+            **({"spell_subtype": p["spell_subtype"]} if p.get("spell_subtype") else {}),
             # ``scope="activation"`` (Power Artifact-shaped "Enchanted
             # artifact's activated abilities cost {2} less to activate.") —
             # a *different* cost this same "cost" layer/StaticAbility shape
@@ -11436,6 +11635,12 @@ EffectRegistry.register(
             # a main card type (`continuous._has_card_type`) instead of a
             # creature subtype.
             **({"card_type": p["card_type"]} if p.get("card_type") else {}),
+            # "This spell costs {N} less to cast if `<condition>`."
+            # (Ghostfire Slice) — the `affects="self"` sibling of every
+            # other RULE 613.6 `active_if` gate, read by `continuous.
+            # self_cost_reduction_for` instead of the battlefield scan
+            # every other static's own `active_if` goes through.
+            **({"active_if": p["active_if"]} if p.get("active_if") else {}),
         },
     ),
 )

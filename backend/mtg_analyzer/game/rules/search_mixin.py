@@ -339,6 +339,7 @@ class SearchMixin:
         exile_rest: bool = False,
         extra_counters: Optional[dict[str, Any]] = None,
         destination_if: Optional[list[dict[str, Any]]] = None,
+        attach_to_creature_you_control: bool = False,
     ) -> None:
         """Open a "search your library" choice on the game state (a tutor).
 
@@ -376,6 +377,18 @@ class SearchMixin:
         it can't be resolved when the search opens, only once the player has
         said which card they found.
 
+        ``attach_to_creature_you_control=True`` (Stonehewer Giant/Quest for
+        the Holy Relic's own "…put it onto the battlefield, **attach it to a
+        creature you control**") attaches the found card, once it reaches
+        the battlefield, to one of the searching player's own creatures —
+        auto-picked (the first eligible one found), the same "no chooser for
+        an equally-valid pick" idiom `put_hand_cards_on_top` already uses,
+        since real Equipment attachment has no RULE 115 target of its own
+        here (the printed line never says "target creature"). Silently
+        stays unattached if the player controls no creature at all — RULE
+        301.5c: an unattached Equipment is always legal to *have*, just
+        does nothing. Ignored for any non-battlefield destination.
+
         Records the eligible cards (across ``zones``) as a `state.
         pending_choice` — the engine's resolve loop stops on it and the
         session surfaces it, and `resolve_search_choice` finishes the search
@@ -402,6 +415,7 @@ class SearchMixin:
             player, criteria, destination, count, optional, found=[],
             zones=zones, destinations=destinations, exile_rest=exile_rest,
             extra_counters=extra_counters, destination_if=destination_if,
+            attach_to_creature_you_control=attach_to_creature_you_control,
         )
     def _search_zone_objects(self, player: Player, zones: list[str]) -> list[GameObject]:
         """The combined pool of cards a (possibly multi-zone) search draws
@@ -459,6 +473,7 @@ class SearchMixin:
                 exile_rest=choice.get("exile_rest", False),
                 extra_counters=choice.get("extra_counters"),
                 destination_if=choice.get("destination_if"),
+                attach_to_creature_you_control=choice.get("attach_to_creature_you_control", False),
             )
             return
 
@@ -470,6 +485,7 @@ class SearchMixin:
             criteria=choice["criteria"],
             extra_counters=choice.get("extra_counters"),
             destination_if=choice.get("destination_if"),
+            attach_to_creature_you_control=choice.get("attach_to_creature_you_control", False),
         )
     def _search_choice(
         self,
@@ -484,6 +500,7 @@ class SearchMixin:
         exile_rest: bool = False,
         extra_counters: Optional[dict[str, Any]] = None,
         destination_if: Optional[list[dict[str, Any]]] = None,
+        attach_to_creature_you_control: bool = False,
     ) -> dict[str, Any]:
         """Build the serializable `pending_choice` for a search in progress."""
         zones = list(zones) if zones else ["library"]
@@ -521,6 +538,7 @@ class SearchMixin:
             "exile_rest": exile_rest,
             "extra_counters": dict(extra_counters) if extra_counters else None,
             "destination_if": [dict(rule) for rule in destination_if] if destination_if else None,
+            "attach_to_creature_you_control": bool(attach_to_creature_you_control),
             "criteria": card_query.normalize(criteria),
             "description": description,
             "prompt": prompt,
@@ -544,6 +562,7 @@ class SearchMixin:
         criteria: Any = "",
         extra_counters: Optional[dict[str, Any]] = None,
         destination_if: Optional[list[dict[str, Any]]] = None,
+        attach_to_creature_you_control: bool = False,
     ) -> None:
         """Move every chosen card to its destination, then shuffle the
         library (RULE 701.19e) — unless ``exile_rest`` suppresses it
@@ -592,6 +611,21 @@ class SearchMixin:
                     int(extra_counters.get("count", 1)),
                     str(extra_counters.get("kind", "+1/+1")),
                 )
+            if attach_to_creature_you_control and dest in ("battlefield", "battlefield_tapped"):
+                # Stonehewer Giant/Quest for the Holy Relic: "…put it onto
+                # the battlefield, **attach it to a creature you control**"
+                # — auto-picks the first eligible creature (see
+                # `request_search`'s docstring for why); silently stays
+                # unattached (RULE 301.5c-legal) if there is none.
+                host = next(
+                    (
+                        o for o in self.state.permanents()
+                        if o.is_creature and o.controller_id == player.id and o is not obj
+                    ),
+                    None,
+                )
+                if host is not None:
+                    self.attach_to_target(obj, host)
         if shuffle and not to_library:
             self.shuffle_library(player)
 
@@ -1195,6 +1229,217 @@ class SearchMixin:
             # drawn again.
             player.library.insert(0, obj)
         self.request_look_top_pay_life_loop(player, count, life_cost)
+    def exile_until_duplicate_name(
+        self, player: Player, seen_names: Optional[set[str]] = None
+    ) -> None:
+        """"Exile the top card of your library. You may put that card into
+        your hand unless it has the same name as another card exiled this
+        way. Repeat this process until you put a card into your hand or you
+        exile two cards with the same name, whichever comes first." (Tainted
+        Pact) — a genuinely different loop shape from `dig_until` (which
+        stops on the first card matching a fixed, static `criteria`): here
+        the stop condition is *cumulative* per-iteration state (a growing
+        "names seen this resolution" set) with a different outcome each way
+        — a name never seen before lets the player choose to *keep* it and
+        end the loop, **or gamble and keep digging** (the real reason this
+        card exists in cEDH: paired with Thassa's Oracle in a singleton
+        deck, where no duplicate is possible, deliberately declining every
+        hit exiles the whole library on purpose) — a repeat name always
+        ends the loop with nothing gained. MEC-12 (sixth pass) — confirmed a
+        singleton template cache-wide, built as a real primitive anyway
+        since the loop itself has no card-specific data in it at all.
+
+        A genuine ``pending_choice`` (kind ``"tainted_pact"``) whenever
+        there's an actual decision to make — a freshly-exiled non-duplicate
+        name with library cards still left to risk; auto-resolved (no
+        prompt) the instant there's truly nothing to choose between: a
+        duplicate (forced loss, nothing to decide) or an empty library
+        after taking it (nothing left to keep digging for).
+        """
+        seen_names = set(seen_names) if seen_names else set()
+        if not player.library:
+            return
+        obj = player.library.pop()  # top of deck is the list end
+        self.exile(obj)
+        if obj.name in seen_names:
+            return  # a repeat: the process ends empty-handed
+        seen_names.add(obj.name)
+        if not player.library:
+            self.return_to_hand(obj)  # nothing left to gain by asking
+            return
+        self._pending_tainted_pact_obj = obj
+        self._pending_tainted_pact_player = player
+        self._pending_tainted_pact_seen = seen_names
+        self.state.pending_choice = {
+            "kind": "tainted_pact",
+            "player_id": player.id,
+            "prompt": f"{obj.name} exiliert — auf die Hand nehmen oder weiter suchen?",
+            "options": [
+                {"id": "take", "label": f"{obj.name} auf die Hand nehmen"},
+                {"id": "continue", "label": "Weiter exilieren"},
+            ],
+        }
+    def resolve_tainted_pact_choice(self, answer: Optional[str]) -> None:
+        """Answer a pending `tainted_pact` choice (Tainted Pact) — ``"take"``
+        (or any unrecognized/missing answer, the safe default) keeps the
+        just-exiled card; ``"continue"`` resumes `exile_until_duplicate_name`
+        with the same "names seen so far" set, risking a duplicate.
+        """
+        choice = self.state.pending_choice
+        if not choice or choice.get("kind") != "tainted_pact":
+            raise ValueError("no pending tainted-pact choice to resolve")
+        self.state.pending_choice = None
+        obj = self._pending_tainted_pact_obj
+        player = self._pending_tainted_pact_player
+        seen_names = self._pending_tainted_pact_seen
+        self._pending_tainted_pact_obj = None
+        self._pending_tainted_pact_player = None
+        self._pending_tainted_pact_seen = None
+        if answer == "continue" and player is not None:
+            self.exile_until_duplicate_name(player, seen_names=seen_names)
+            return
+        if obj is not None:
+            self.return_to_hand(obj)
+    def transmute_artifact(self, player: Player) -> None:
+        """"Sacrifice an artifact. If you do, search your library for an
+        artifact card. If that card's mana value is less than or equal to
+        the sacrificed artifact's mana value, put it onto the battlefield.
+        If it's greater, you may pay {X}, where X is the difference. If you
+        do, put it onto the battlefield. If you don't, put it into its
+        owner's graveyard. Then shuffle." (Transmute Artifact) — MEC-12
+        (sixth pass). A confirmed singleton cost-comparison-gated
+        placement: every step after the sacrifice depends on a *live*
+        numeric comparison against that specific sacrifice, which no other
+        card's shape needs yet, so this is one self-contained bespoke
+        sequence (three of its own `pending_choice` kinds — sacrifice,
+        search, and an optional pay-the-difference) rather than composed
+        from the general search/sacrifice/`pay_cost_then` primitives, none
+        of which can express "the cost is a number computed from what a
+        *different*, just-made choice turned out to be".
+
+        RULE 608.2b: with no artifact to sacrifice, nothing happens at all
+        — the "if you do" branch never triggers, matching a real "sacrifice
+        an artifact" bare imperative with no legal candidate.
+        """
+        artifacts = [
+            o for o in self.state.permanents()
+            if o.card.is_artifact and o.controller_id == player.id
+        ]
+        if not artifacts:
+            return
+        if len(artifacts) == 1:
+            self._transmute_artifact_sacrifice(player, artifacts[0])
+            return
+        self._pending_transmute_player = player
+        self.state.pending_choice = {
+            "kind": "transmute_sacrifice",
+            "player_id": player.id,
+            "prompt": "Opfere ein Artefakt (Transmute Artifact)",
+            "options": [
+                {"id": str(o.instance_id), "label": o.name, "instance_id": o.instance_id}
+                for o in artifacts
+            ],
+        }
+    def resolve_transmute_sacrifice_choice(self, answer: Optional[str]) -> None:
+        """Answer a pending `transmute_sacrifice` choice: which of the
+        player's own artifacts to sacrifice for Transmute Artifact."""
+        choice = self.state.pending_choice
+        if not choice or choice.get("kind") != "transmute_sacrifice":
+            raise ValueError("no pending transmute-sacrifice choice to resolve")
+        self.state.pending_choice = None
+        player = self._pending_transmute_player
+        self._pending_transmute_player = None
+        if player is None or answer is None:
+            return
+        victim = self._resolve_choice_option(choice["options"], str(answer))
+        if victim is not None:
+            self._transmute_artifact_sacrifice(player, victim)
+    def _transmute_artifact_sacrifice(self, player: Player, victim: GameObject) -> None:
+        sacrificed_mv = victim.card.converted_mana_cost
+        self.put_into_graveyard(victim)
+        eligible = [
+            o for o in player.library
+            if o.card.is_artifact
+        ]
+        if not eligible:
+            self.shuffle_library(player)
+            return
+        self._pending_transmute_player = player
+        self._pending_transmute_sacrificed_mv = sacrificed_mv
+        self.state.pending_choice = {
+            "kind": "transmute_search",
+            "player_id": player.id,
+            "prompt": "Durchsuche deine Bibliothek nach einer Artefaktkarte (Transmute Artifact)",
+            "options": [
+                {"id": str(o.instance_id), "label": o.name, "instance_id": o.instance_id}
+                for o in eligible
+            ]
+            + [{"id": "decline", "label": "Nichts wählen"}],
+        }
+    def resolve_transmute_search_choice(self, answer: Optional[str]) -> None:
+        """Answer a pending `transmute_search` choice: the artifact card
+        found (or a decline). A found card whose mana value is at most the
+        sacrificed artifact's own goes straight to the battlefield; a
+        pricier one opens the "pay the difference" choice instead."""
+        choice = self.state.pending_choice
+        if not choice or choice.get("kind") != "transmute_search":
+            raise ValueError("no pending transmute-search choice to resolve")
+        self.state.pending_choice = None
+        player = self._pending_transmute_player
+        sacrificed_mv = self._pending_transmute_sacrificed_mv
+        self._pending_transmute_player = None
+        self._pending_transmute_sacrificed_mv = None
+        if player is None or answer is None or str(answer) == "decline":
+            self.shuffle_library(player)
+            return
+        found = self._resolve_choice_option(choice["options"], str(answer))
+        if found is None or found not in player.library:
+            self.shuffle_library(player)
+            return
+        player.remove_from_zone(found, Zone.LIBRARY)
+        self.shuffle_library(player)
+        found_mv = found.card.converted_mana_cost
+        if found_mv <= sacrificed_mv:
+            self._put_searched_card(player, found, "battlefield")
+            return
+        difference = found_mv - sacrificed_mv
+        self._pending_transmute_found_obj = found
+        self._pending_transmute_player = player
+        cost = ActivationCost(mana=ManaCost.parse("{" + str(difference) + "}"))
+        if not self._can_pay_player_cost(player, cost):
+            self.put_into_graveyard(found)
+            return
+        self._pending_transmute_cost = cost
+        self.state.pending_choice = {
+            "kind": "transmute_pay_x",
+            "player_id": player.id,
+            "prompt": f"{{{difference}}} bezahlen, um {found.name} ins Spiel zu bringen?",
+            "options": [
+                {"id": "pay", "label": f"{{{difference}}} bezahlen"},
+                {"id": "decline", "label": "Nicht bezahlen"},
+            ],
+        }
+    def resolve_transmute_pay_x_choice(self, answer: Optional[str]) -> None:
+        """Answer a pending `transmute_pay_x` choice: pay the mana-value
+        difference to put the found artifact onto the battlefield, or let
+        it go to its owner's graveyard instead."""
+        choice = self.state.pending_choice
+        if not choice or choice.get("kind") != "transmute_pay_x":
+            raise ValueError("no pending transmute-pay-x choice to resolve")
+        self.state.pending_choice = None
+        player = self._pending_transmute_player
+        found = self._pending_transmute_found_obj
+        cost = self._pending_transmute_cost
+        self._pending_transmute_player = None
+        self._pending_transmute_found_obj = None
+        self._pending_transmute_cost = None
+        if found is None:
+            return
+        if answer == "pay" and player is not None and cost is not None and self._can_pay_player_cost(player, cost):
+            self._pay_player_cost(player, cost)
+            self._put_searched_card(player, found, "battlefield")
+        else:
+            self.put_into_graveyard(found)
     def dig_until(
         self,
         player: Player,

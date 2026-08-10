@@ -82,59 +82,45 @@ Plan-level sequencing lives in
   cEDH staples recur across most of them). **Not** "no deferrals" scope like
   the Eliferate/Imodane batches — tracked here as ordinary open work rather
   than forced to completion in one sitting given the size. Current state
-  (2026-08-10, third pass): **Ojer 48/125, Rocco 71/98, Glarb Bloomsday
-  74/100, staples 164/215, staples 2 383/607, M-K 74/97, Kinnan 72/100**
-  (unique-card total 436/764) — re-measure with the same script
-  `Done_Backend.md`'s matching entries document rather than trusting these
+  (2026-08-11, sixth pass): **Ojer 39/77, Rocco 73/98, Glarb Bloomsday
+  77/100, staples 173/215, staples 2 398/607, M-K 75/97, Kinnan 78/100**
+  (unique-card total 444/719) — re-measure rather than trusting these
   numbers as they age; the per-deck *totals* themselves also drift run to
   run since these are live saved decks a user can keep editing, not a
-  frozen fixture.
+  frozen fixture. Worklog detail for what's shipped so far — batch by
+  batch, why each piece is built the way it is — is in `Done_Backend.md`'s
+  "seven 'cEDH'-named saved decks" entries, not here.
 
-  Second pass (2026-08-06) built the RULE 115.4 "change the target"
-  primitive and hand-authored Misdirection/Deflecting Swat with it (full
-  detail in `Done_Backend.md`) — the first pass's own "confirmed-missing
-  primitive" entry for this, below, is now resolved and left in place only
-  as the design record.
+  The sixth pass closed every item the fifth pass's own "specific,
+  already-diagnosed gaps" list had promoted to next-up (Mox Diamond,
+  Mindbreak Trap, Eye of Ugin, Stonehewer Giant/Quest for the Holy Relic,
+  Tainted Pact, Transmute Artifact) — no specific per-card gaps left open
+  right now; Godo, Bandit Warlord's own second ability is still blocked,
+  but on the broader extra-combat-phase gap below, not a search/attach
+  shape.
 
-  **Confirmed-missing primitives found along the way** were extracted to
-  their own tickets 2026-08-06 (sort-into-categories pass) and all six —
-  ENG-26/27/28 (targetable-ability-on-the-stack, the Bloom Tender/Carpet of
-  Flowers mana primitives, and the "during your turn" cast/activation-
-  prohibition gate), MEC-15 (RULE 118.9 alternative costs), MEC-16
-  (Cumulative upkeep, RULE 702.24), and MEC-17 (Imprint) — shipped the same
-  day; see `Done_Backend.md` for each.
-
-  Third pass (2026-08-10) closed the highest deck-frequency remainder: a
-  mana-ability coverage-classification fix (Bloom Tender), a RULE
-  118.7/601.2f cost-reduction generalization (colour-scoped and
-  opponents-scoped spell-cost tax, an activation-cost `card_type` group
-  scope — Grand Arbiter Augustin IV, Training Grounds), Otawara hand-
-  authored on Eiganjo/Boseiju's existing Channel shape, a "cast spells this
-  turn as though they had flash" parser handler (Emergence Zone), a new
-  `free_cast_condition` board-count kind (Mindbreak Trap's free-cast half —
-  its own second clause, RULE 601.2c's genuinely unbuilt *unbounded*
-  "exile any number of target spells", is still open), and Smothering
-  Tithe hand-authored (the `TaxedDrawEffect` family's first `DRAW`-triggered
-  member, `effect_binder._GROUP_CONTROLLER_EVENT_KEYS` gaining a `"DRAW"`
-  row). Full detail in `Done_Backend.md`.
-
-  Remaining high-frequency cards not yet investigated in depth: the tutor
-  family (Chord of Calling/Green Sun's Zenith/Finale of Devastation/
-  Tainted Pact/Wishclaw Talisman/Transmute Artifact — likely mostly
-  `SearchLibraryEffect` reuse plus Convoke/free-cast simplifications, per
-  the already-generalized tutor grammar CLAUDE.md documents); Mox Diamond's
-  "if this artifact would enter, you may discard a land card instead. If
-  you do, put this artifact onto the battlefield. If you don't, put it
-  into its owner's graveyard." (RULE 614.12, confirmed a singleton
-  template cache-wide — hand-authoring candidate, needs its own
-  enters-or-graveyard replacement mechanism, not yet built); RULE 601.2c's
-  unbounded "exile any number of target spells" (Mindbreak Trap's own
-  remaining clause, 13 cache-wide cards on the wider "any number of target
-  X" shape); Ghostfire Slice's conditional self cost-reduction (needs
-  `active_if` support added to `continuous.self_cost_reduction_for`, not
-  yet built) and Eye of Ugin's colour-**and**-creature-subtype-combined
-  cost filter; and the rest of `[cEDH] Glarb Bloomsday`/`cEDH staples 2`'s
-  long tail (oracle text pulled but not yet triaged for this ticket).
+  Broader gaps the fourth pass's full-pool sweep surfaced, each blocking a
+  double-digit slice of the remaining residue and needing real design, not
+  just a handler: **devotion** (RULE 700.6 — Purphoros/Heliod/Nykthos,
+  Shrine to Nyx all need it, nothing today reads a permanent's own pips
+  toward it); a general **"players can't `<verb>`"** cross-cutting family
+  (search libraries/gain life/draw more than N/untap more than N — Leonin
+  Arbiter/Rampaging Ferocidon/Narset-Parter-of-Veils-shaped/Winter Moon/
+  Static Orb/Stasis, each needing enforcement wired into the real
+  search/life-gain/draw/untap call sites, not a single shared primitive);
+  **phasing out an opponent's permanent as a spell effect** + the wider
+  "copy a creature except it also `<X>`" family beyond the couple of
+  shapes already hand-authored; an **alternative-cost "pitch" family**
+  broader than the six Force-of-Will-shaped cards already hand-authored
+  (Downhill Charge/Gush/Pyrokinesis/Flare of Denial/Snuff Out/Snapback all
+  still print their own alternative cost individually); and RULE 702.26b
+  **extra-combat-phase** grants tied to a specific attack condition
+  (Combat Celebrant/Godo's "attacks for the first time each turn, untap +
+  additional combat" shape, distinct from the already-shipped flat
+  "additional combat phase" primitive). None of these should be built
+  *for* this ticket alone — each is worth its own ticket once picked up,
+  scoped against the wider cache via `parser_probe.py`/`engine_bench.py
+  cards`, not just this pool's count.
 
 ## PLR — Player management
 

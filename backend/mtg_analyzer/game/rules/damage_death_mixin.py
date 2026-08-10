@@ -526,6 +526,39 @@ class DamageDeathMixin:
         owner.add_to_zone(obj, Zone.HAND)
         if obj.is_commander:
             self.state.pending_choice = self._commander_zone_choice(obj, Zone.HAND)
+    def shuffle_into_library(self, obj: GameObject) -> None:
+        """Move ``obj`` into its owner's library, then shuffle (RULE 701.20 —
+        Green Sun's Zenith's own trailing "Shuffle ~ into its owner's
+        library.", from wherever it currently is, mirroring `return_to_hand`/
+        `exile`'s "move to another zone, from wherever it is" shape). Unlike
+        `shuffle_hand_and_graveyard_into_library` (a fixed hand+graveyard
+        sweep), this moves one named object — typically the resolving spell
+        itself, still on the stack when its own last effect runs (RULE
+        608.2m: `_apply_stack_item`'s ``obj.zone != Zone.STACK`` check
+        already treats *any* self-move away from the stack as an override of
+        the default "goes to the graveyard" routing, the same way a trailing
+        "Exile ~." self-exile clause does — no special-casing needed here).
+        """
+        was_on_battlefield = obj in self.state.battlefield
+        owner = self.state.player_by_id(obj.owner_id)
+        if was_on_battlefield:
+            self.state.fire_event(
+                GameEvent(
+                    EventType.LEAVES_BATTLEFIELD,
+                    object=obj.name,
+                    owner_id=obj.owner_id,
+                    controller_id=obj.controller_id,
+                    instance_id=obj.instance_id,
+                    object_types=sorted(obj.type_words),
+                )
+            )
+            self.state.remove_from_battlefield(obj)
+        else:
+            self._remove_from_current_zone(owner, obj)
+        obj.tapped = False
+        obj.damage_marked = 0
+        owner.add_to_zone(obj, Zone.LIBRARY)
+        self.shuffle_library(owner)
     def blink(self, obj: GameObject, controller: Optional[Player] = None) -> None:
         """Exile ``obj``, then immediately return it to the battlefield under
         its owner's control (RULE 400.7's "leaves and re-enters" — Ephemerate/

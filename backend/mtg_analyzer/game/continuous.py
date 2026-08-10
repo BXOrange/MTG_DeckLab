@@ -632,6 +632,12 @@ def count_selector(
     _source_card_name = getattr(source, "name", None)
     if selector == "creatures_you_control":
         return sum(1 for o in bf if o.is_creature and o.controller_id == controller_id)
+    if selector == "multicolored_permanents_you_control":
+        # "…if an opponent controls a multicolored permanent." (Ghostfire
+        # Slice's own `active_if`, read via `opponent_count`'s per-opponent
+        # scoping) — `GameObject.colors` is the layer-5 derived colour set,
+        # same field `cost_reduction_for`'s own colour filter already reads.
+        return sum(1 for o in bf if o.controller_id == controller_id and len(o.colors or ()) >= 2)
     if selector == "creatures_on_battlefield":
         # "This spell costs {1} less to cast for each creature on the
         # battlefield." (Blasphemous Act) — every creature regardless of
@@ -1852,9 +1858,28 @@ def cost_reduction_for(
         # "Red spells you cast cost {1} less to cast." (the Medallion
         # cycle) — a colour filter, orthogonal to `spell_type`'s card-type
         # one; `GameObject.colors` reads the layer-5 derived colour, same
-        # as every other colour-scoped consumer in this file.
+        # as every other colour-scoped consumer in this file. ``"colorless"``
+        # (Eye of Ugin's "Colorless Eldrazi spells…") is the empty-set check
+        # instead of a membership one, mirroring `card_query`'s own
+        # ``color``-key special case.
         spell_color = ability.params.get("spell_color")
-        if spell_color and (obj is None or spell_color.upper() not in (obj.colors or set())):
+        if spell_color:
+            if obj is None:
+                continue
+            if str(spell_color).lower() == "colorless":
+                if obj.colors:
+                    continue
+            elif spell_color.upper() not in (obj.colors or set()):
+                continue
+        # "Colorless Eldrazi spells you cast cost {2} less to cast." (Eye of
+        # Ugin) — a creature-*subtype* filter, orthogonal to both of the
+        # above (`spell_type` only ever checks a main card type). Combines
+        # with ``spell_color="colorless"`` above via plain AND (both keys
+        # present, both must hold) rather than a new combined key, since
+        # every other cost-reduction filter here already composes the same
+        # way.
+        spell_subtype = ability.params.get("spell_subtype")
+        if spell_subtype and (obj is None or not has_subtype(obj, str(spell_subtype))):
             continue
         signed = _cost_static_amount(ability, state, player.id)
         net += signed
@@ -1883,6 +1908,15 @@ def self_cost_reduction_for(obj: "GameObject", state: "GameState") -> tuple[int,
     controller_id = getattr(obj, "controller_id", None)
     for ability in getattr(obj, "static_effects", []):
         if not isinstance(ability, StaticAbility) or ability.layer != "cost" or ability.affects != "self":
+            continue
+        # RULE 613.6: "This spell costs {N} less to cast if `<condition>`."
+        # (Ghostfire Slice's "if an opponent controls a multicolored
+        # permanent") — the same whitelisted `active_if` gate a battlefield
+        # static already reads in `_battlefield_static_abilities`, just
+        # evaluated here too since a spell's own printed reduction is read
+        # straight off `static_effects` rather than that battlefield scan.
+        active_if = ability.params.get("active_if")
+        if active_if and not static_conditions.condition_holds(active_if, state, obj, controller_id):
             continue
         signed = _cost_static_amount(ability, state, controller_id)
         net += signed

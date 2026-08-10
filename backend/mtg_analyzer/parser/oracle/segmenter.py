@@ -274,10 +274,12 @@ _MAGECRAFT_RE = re.compile(
 #: ``spell_card_types`` predicate already exists (built for the hand-
 #: authored Wandering Archaic) — only the oracle-text recognition was
 #: missing. Deliberately narrow to ``you`` as the subject (RULE 603.1's by
-#: far most common printed scope for this template); "an opponent casts"/
-#: "a player casts" are a different subject grammar `_subject_condition`
-#: doesn't support yet, left unclaimed rather than silently misreading
-#: "opponent" as "you". Creature *subtypes* ("wizard spell", "elf spell")
+#: far most common printed scope for a *typed* filter) — extending it to
+#: "an opponent"/"a player" too would need `effect_binder`'s existing group
+#: scoping *plus* a card-type filter on a non-permanent event, which no
+#: card in scope has needed yet; `_CAST_SPELL_TRIGGER_PLAIN_RE` below is the
+#: sibling that already covers all three subjects for the untyped case.
+#: Creature *subtypes* ("wizard spell", "elf spell")
 #: aren't in `_SPELL_CAST_TYPE_WORDS` — `GameObject.type_words` only ever
 #: carries main card types — so a compound naming one fails closed
 #: correctly rather than silently dropping the subtype qualifier.
@@ -302,6 +304,34 @@ _CAST_SPELL_TRIGGER_RE = re.compile(
 #: capture group to a list the day one is.
 _CAST_SPELL_TRIGGER_NEG_RE = re.compile(
     r"^whenever you cast an? non(?P<type>[a-z]+) spell,\s*(?P<body>.+)$",
+    re.IGNORECASE | re.S,
+)
+
+#: The *untyped* sibling of `_CAST_SPELL_TRIGGER_RE` — "Whenever you/an
+#: opponent/a player casts a spell, <effect>." with no card-type filter at
+#: all (Spellshock/Eidolon of the Great Revel-shaped punishers). Doesn't
+#: overlap with the typed regex above: that one requires a real word between
+#: "a" and "spell" (`(?P<types>[a-z][a-z,\s]*?) spell`), which "a spell"
+#: alone never supplies. Unlike the two regexes above, this one also covers
+#: the "an opponent"/"a player" subjects — `effect_binder`'s existing
+#: ``{"subject": "group", "controller": "not_you"/None}`` scoping already
+#: handles any player-keyed event (`_GROUP_CONTROLLER_EVENT_KEYS` maps
+#: `SPELL_CAST` to ``"player_id"``, proven working by Smothering Tithe's own
+#: `DRAW`-event use of the identical shape), so no new engine primitive is
+#: needed here — purely a missing recognizer.
+_CAST_SPELL_TRIGGER_PLAIN_RE = re.compile(
+    r"^whenever (?P<subj>you|an opponent|a player) casts? a spell,\s*(?P<body>.+)$",
+    re.IGNORECASE | re.S,
+)
+
+#: The mana-value-filtered sibling — "Whenever a player casts a spell with
+#: mana value N or less, <effect>." (Eidolon of the Great Revel/Pyrostatic
+#: Pillar-shaped). `SPELL_CAST` already carries ``mana_value`` on the event
+#: (`_track_spell_cast`'s own read), so `effect_binder`'s
+#: ``spell_mana_value_at_most`` predicate is the only new piece.
+_CAST_SPELL_TRIGGER_MV_RE = re.compile(
+    r"^whenever (?P<subj>you|an opponent|a player) casts? a spell with "
+    r"mana value (?P<n>\d+) or less,\s*(?P<body>.+)$",
     re.IGNORECASE | re.S,
 )
 
@@ -1378,6 +1408,56 @@ def segment_line(
                 "condition": {"subject": "group", "type": "permanent", "controller": "you", "other": False},
                 "spell_subtype_any": ["instant", "sorcery"],
             },
+            raw_text=raw,
+            parser=provenance,
+        )
+        return Segment(raw=raw, spec=spec, claimed=True)
+
+    cast_spell_trig_mv = _CAST_SPELL_TRIGGER_MV_RE.match(raw)
+    if cast_spell_trig_mv is not None:
+        subj = cast_spell_trig_mv.group("subj").lower()
+        body, optional = _peel_optional(cast_spell_trig_mv.group("body"))
+        effects = parse_effect_body(body)
+        if effects is None:
+            return Segment(raw=raw)
+        if subj == "you":
+            mv_condition: dict[str, Any] = {"subject": "you"}
+        elif subj == "an opponent":
+            mv_condition = {"subject": "group", "controller": "not_you"}
+        else:
+            mv_condition = {"subject": "group"}
+        spec = AbilitySpec(
+            "triggered",
+            effects=effects,
+            trigger={
+                "event": "SPELL_CAST",
+                "condition": mv_condition,
+                "spell_mana_value_at_most": int(cast_spell_trig_mv.group("n")),
+            },
+            optional=optional,
+            raw_text=raw,
+            parser=provenance,
+        )
+        return Segment(raw=raw, spec=spec, claimed=True)
+
+    cast_spell_trig_plain = _CAST_SPELL_TRIGGER_PLAIN_RE.match(raw)
+    if cast_spell_trig_plain is not None:
+        subj = cast_spell_trig_plain.group("subj").lower()
+        body, optional = _peel_optional(cast_spell_trig_plain.group("body"))
+        effects = parse_effect_body(body)
+        if effects is None:
+            return Segment(raw=raw)
+        if subj == "you":
+            condition: dict[str, Any] = {"subject": "you"}
+        elif subj == "an opponent":
+            condition = {"subject": "group", "controller": "not_you"}
+        else:
+            condition = {"subject": "group"}
+        spec = AbilitySpec(
+            "triggered",
+            effects=effects,
+            trigger={"event": "SPELL_CAST", "condition": condition},
+            optional=optional,
             raw_text=raw,
             parser=provenance,
         )

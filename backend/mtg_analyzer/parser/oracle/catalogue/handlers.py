@@ -139,6 +139,26 @@ _MULTI_TARGET_ROWS: list[tuple[str, str]] = [
     (r"target players", "player"),
 ]
 _MULTI_TARGET_ALT = "|".join(f"(?:{frag})" for frag, _ in _MULTI_TARGET_ROWS)
+#: "exile any number of target spells." (Mindbreak Trap) — a spell-kind
+#: target row, deliberately *not* folded into the shared `_MULTI_TARGET_
+#: ROWS`/`_MULTI_TARGET_ALT` every other multi-target family (destroy/
+#: damage/tap/return_to_hand/…) also reads: "destroy target spells"/
+#: "N damage to target spells" aren't real templates (you counter or exile
+#: a spell, never destroy/damage one), so widening the shared alternation
+#: would have let `destroy_multi_target` silently claim a nonsense clause
+#: too (caught by `tests/test_multi_target.py`'s own unrecognized-phrase
+#: regression test). Only `exile`'s own regex opts into this wider
+#: alternation. Reuses the same `TargetSpec(kind="spell", …)` `CopyPermanentEffect`'s
+#: "copy any number of target instant and/or sorcery spells" (Display of
+#: Power) already exercises.
+_MULTI_TARGET_ALT_WITH_SPELL = _MULTI_TARGET_ALT + "|(?:target spells)"
+
+
+def _multi_target_kind_with_spell(phrase: str) -> Optional[str]:
+    text = phrase.strip()
+    if re.fullmatch(r"target spells", text, re.IGNORECASE):
+        return "spell"
+    return _multi_target_kind(phrase)
 
 
 def _multi_target_kind(phrase: str) -> Optional[str]:
@@ -179,7 +199,7 @@ _MULTI_TARGET_QUANTIFIER = (
 _MULTI_TARGET_DISTINCT_CONTROLLERS = r"(?P<dc> controlled by different (?:players|controllers))?"
 
 
-def _multi_target_params(m: re.Match[str]) -> Optional[dict]:
+def _multi_target_params(m: re.Match[str], allow_spell: bool = False) -> Optional[dict]:
     """The shared ``{target_kind, count, optional?, distinct_controllers?}``
     params for a `_MULTI_TARGET_QUANTIFIER` + `_MULTI_TARGET_ALT` match, or
     ``None`` if the target phrase isn't recognized or the count is < 2 (the
@@ -187,8 +207,16 @@ def _multi_target_params(m: re.Match[str]) -> Optional[dict]:
     job, not this one's — a count of exactly 1 here would just be a
     confusing duplicate route to the same effect). PAR-15's "any number of"
     always carries ``optional=True`` (RULE 115.1a — 0 is always a legal
-    choice) and a capped ``count`` (`_ANY_NUMBER_TARGET_CAP`)."""
-    kind = _multi_target_kind(m.group("target"))
+    choice) and a capped ``count`` (`_ANY_NUMBER_TARGET_CAP`).
+
+    ``allow_spell=True`` (only `exile_multi_target`) additionally recognizes
+    "target spells" — see `_MULTI_TARGET_ALT_WITH_SPELL`'s docstring for why
+    this isn't just folded into the shared alternation every caller reads.
+    """
+    kind = (
+        _multi_target_kind_with_spell(m.group("target"))
+        if allow_spell else _multi_target_kind(m.group("target"))
+    )
     if kind is None:
         return None
     if m.groupdict().get("any_number"):
@@ -380,6 +408,11 @@ _DAMAGE_SELECTOR_WORDS: dict[str, str] = {
     "each creature": "each_creature",
     "each player": "each_player",
     "each opponent": "each_opponent",
+    # "whenever a player casts a spell, ~ deals 2 damage to that player."
+    # (Spellshock-shaped) — the player named by the trigger's own firing
+    # event (`effects.DealDamageEffect`'s ``"event_player"`` selector), not
+    # an untargeted group like the three above.
+    "that player": "event_player",
 }
 
 
@@ -458,16 +491,30 @@ def _draw_next_upkeep(m: re.Match[str]) -> list[EffectSpec]:
 #: them" (the dungeon room's own phrasing, with no explicit window at all)
 #: defaults to the effect's own "until the end of your next turn" — the
 #: more common real-card convention for an unqualified "you may play them".
+#: MEC-12 fourth pass widened this: the *leading*-duration word order
+#: ("Until the end of your next turn, you may play those cards." — Light Up
+#: the Stage/Reckless Impulse/Commune with Lava's own real printed text,
+#: not the trailing form this row was first written against) is at least as
+#: common cache-wide as the trailing one, "that card"/"those cards" are as
+#: real as the pronoun "them"/"it", the singular "the top card" (no number)
+#: needs its own alternative since ``\d+`` can't match zero digits, and
+#: ``count_or_x_of`` covers "the top x cards" (Commune with Lava) via the
+#: same ``"x"``-sentinel/`RulesEngine._substitute_x` idiom every other
+#: X-scaled one-shot effect already uses.
 _EXILE_TOP_PLAY_RE = _c(
-    r"exile the top (?P<n>\d+) cards? of your library\. you may play (?:them|it)"
-    r"(?: (?P<dur>this turn|until the end of your next turn))?"
+    r"exile the top (?:(?P<n>\d+|x) cards?|card) of your library\. "
+    r"(?:(?P<dur_pre>this turn|until the end of your next turn), )?"
+    r"you may play (?:them|it|that card|those cards)"
+    r"(?: (?P<dur_post>this turn|until the end of your next turn))?"
 )
 
 
 def _exile_top_play(m: re.Match[str]) -> list[EffectSpec]:
-    same_turn_only = (m.groupdict().get("dur") or "").strip() == "this turn"
+    dur = (m.groupdict().get("dur_pre") or m.groupdict().get("dur_post") or "").strip()
+    same_turn_only = dur == "this turn"
+    n = m.group("n")
     return [EffectSpec("impulsive_draw", {
-        "count": int(m.group("n")), "same_turn_only": same_turn_only,
+        "count": count_or_x_of(n) if n else 1, "same_turn_only": same_turn_only,
     })]
 
 
@@ -980,8 +1027,27 @@ _MASS_DESTROY_NOUNS: dict[str, str] = {
     "permanents": "all_permanents",
     "lands": "all_lands",
 }
+#: "Destroy **each** artifact with mana value X or less." (Meltdown) —
+#: the singular-noun/"each" phrasing of the same mass wipe, alongside the
+#: far more common plural-noun/"all" one above; same selector targets, just
+#: matched against a singular noun word.
+_MASS_DESTROY_NOUNS_SINGULAR: dict[str, str] = {
+    "creature": "all_creatures",
+    "artifact": "all_artifacts",
+    "enchantment": "all_enchantments",
+    "planeswalker": "all_planeswalkers",
+    "permanent": "all_permanents",
+    "land": "all_lands",
+}
+#: The mana-value bound's own magnitude accepts ``x`` (Meltdown's own
+#: "with mana value X or less", X being this spell's announced {X}) as well
+#: as a literal digit — `_mass_destroy_filter_dict` carries the ``"x"``
+#: sentinel straight into `DestroyEffect.filter`'s ``max_mana_value``/
+#: ``min_mana_value`` key, which `RulesEngine._substitute_x` now knows how
+#: to walk into (a plain digit bound like Damnation's own "mana value 3 or
+#: less" never reaches this branch at all).
 _MASS_DESTROY_FILTER = (
-    r"(?: with (?:mana value (?P<mv>\d+) or (?P<mv_cmp>greater|less)"
+    r"(?: with (?:mana value (?P<mv>\d+|x) or (?P<mv_cmp>greater|less)"
     r"|toughness (?P<tough>\d+) or greater"
     r"|power (?P<power>\d+) or (?P<power_cmp>greater|less)))?"
 )
@@ -991,7 +1057,7 @@ def _mass_destroy_filter_dict(m: re.Match[str]) -> Optional[dict]:
     groups = m.groupdict()
     filt: dict = {}
     if groups.get("mv"):
-        n = int(groups["mv"])
+        n: Any = int(groups["mv"]) if groups["mv"] != "x" else "x"
         filt["max_mana_value" if groups["mv_cmp"] == "less" else "min_mana_value"] = n
     if groups.get("tough"):
         filt["min_toughness"] = int(groups["tough"])
@@ -1002,12 +1068,15 @@ def _mass_destroy_filter_dict(m: re.Match[str]) -> Optional[dict]:
 
 
 _DESTROY_ALL_RE = _c(
-    rf"destroy all (?P<noun>{'|'.join(_MASS_DESTROY_NOUNS)}){_MASS_DESTROY_FILTER}"
+    rf"destroy (?:all (?P<noun>{'|'.join(_MASS_DESTROY_NOUNS)})"
+    rf"|each (?P<noun_sg>{'|'.join(_MASS_DESTROY_NOUNS_SINGULAR)})){_MASS_DESTROY_FILTER}"
 )
 
 
 def _destroy_all(m: re.Match[str]) -> list[EffectSpec]:
-    params: dict = {"selector": _MASS_DESTROY_NOUNS[m.group("noun")]}
+    noun = m.groupdict().get("noun")
+    selector = _MASS_DESTROY_NOUNS[noun] if noun else _MASS_DESTROY_NOUNS_SINGULAR[m.group("noun_sg")]
+    params: dict = {"selector": selector}
     filt = _mass_destroy_filter_dict(m)
     if filt:
         params["filter"] = filt
@@ -1114,7 +1183,7 @@ def _exile(m: re.Match[str]) -> Optional[list[EffectSpec]]:
 
 
 def _exile_multi_target(m: re.Match[str]) -> Optional[list[EffectSpec]]:
-    params = _multi_target_params(m)
+    params = _multi_target_params(m, allow_spell=True)
     if params is None:
         return None
     return [EffectSpec("exile", params)]
@@ -1507,9 +1576,16 @@ def _exile_target_graveyard(m: re.Match[str]) -> Optional[list[EffectSpec]]:
 #: "basic land" (Rampant Growth) which sets `criteria["basic"]` instead of a
 #: `type` filter — the two are mutually exclusive alternatives tried in that
 #: order (longest/most-specific first), never combined.
+#: "Equipment" is a subtype, not a main card type, but `models.card_query.
+#: _type_matches` does a plain substring check against the whole printed
+#: type line ("Artifact — Equipment") rather than only the pre-em-dash main
+#: types — the same reason "Forest"/"Island" already work as entries here
+#: despite being land subtypes too. Adding it costs nothing engine-side,
+#: purely a missing vocabulary word (Steelshaper's Gift/Stoneforge
+#: Mystic-shaped).
 _SEARCH_TYPE_WORD = (
     r"artifact|creature|enchantment|instant|planeswalker|sorcery|land|"
-    r"plains|island|swamp|mountain|forest"
+    r"plains|island|swamp|mountain|forest|equipment"
 )
 #: An "or"/comma-separated list of 1+ type words, same shape as
 #: `subgrammars._SPELL_TYPE_LIST` (kept separate/local since this vocabulary
@@ -1519,13 +1595,45 @@ _SEARCH_TYPE_LIST = (
     rf"(?:{_SEARCH_TYPE_WORD})(?:,\s*(?:{_SEARCH_TYPE_WORD}))*"
     rf"(?:,?\s+or\s+(?:{_SEARCH_TYPE_WORD}))?"
 )
+#: A colour word ahead of the type list — "search your library for a
+#: **blue** instant card" (Merchant Scroll), "a **green** creature card"
+#: (Green Sun's Zenith/Magus of the Order/Natural Order/Shadow-Rite
+#: Priest) — captured and mapped onto `models.card_query`'s own ``color``
+#: key (matched against the card's colour identity), the same key/matcher
+#: `_destroy_color_adj` already reuses via `resolve_color_word` — not
+#: dropped, despite this module's older docstrings elsewhere describing it
+#: that way (that was a real gap until `SearchLibraryEffect.criteria`
+#: started reaching `card_query.matches`, not a documented permanent
+#: choice). ``colorless`` (Eye of Ugin's "a colorless creature card") is
+#: kept local to this search vocabulary rather than added to the shared
+#: `subgrammars.COLOR_WORD_ALT`/`resolve_color_word` every other colour-word
+#: consumer (target filters, "if it's `<color>`" suffixes, …) reuses — those
+#: are genuinely WUBRG-only templates, "colorless" isn't a valid substitute
+#: for any of them today, so widening that shared vocabulary would risk
+#: silently claiming a clause it shouldn't. `_search_criteria_from_match`/
+#: `_search_zone_criteria_from_match` handle it directly rather than through
+#: `resolve_color_word`, which only maps WUBRG letters.
+_SEARCH_COLOR_WORD = r"white|blue|black|red|green|colorless"
+#: "…with mana value X or less" (Green Sun's Zenith/Chord of Calling) — X
+#: is this spell's own announced {X}, so the captured magnitude is the
+#: literal ``"x"``/``"-x"`` sentinel `RulesEngine._substitute_x` rewrites
+#: once the spell actually resolves, exactly like every other X-scaled
+#: one-shot effect; a literal digit bound ("…with mana value 3 or less")
+#: is accepted the same way but has no known real card on this exact
+#: search-noun-phrase shape yet.
+_SEARCH_MV_QUALIFIER = (
+    r"(?: with mana value (?P<mv>\d+|x) or (?P<mv_cmp>greater|less))?"
+)
 #: The noun phrase after "search your library for": a determiner ("a"/"an"/
 #: "up to N"), then either "basic land" (sets `basic`) or a `_SEARCH_TYPE_
-#: LIST` (sets `types`) or neither (a bare "a card"), then "card(s)".
+#: LIST` (sets `types`) or neither (a bare "a card"), then "card(s)", then
+#: an optional trailing mana-value qualifier.
 _SEARCH_CRITERIA = (
     r"(?:up to (?P<count>\d+)|an?)\s+"
+    rf"(?:(?P<color>{_SEARCH_COLOR_WORD})\s+)?"
     rf"(?:(?P<basic>basic land)|(?P<types>{_SEARCH_TYPE_LIST}))?\s*"
     r"cards?"
+    + _SEARCH_MV_QUALIFIER
 )
 #: Whichever pronoun/noun-phrase a card's "reveal ~"/"put ~ <dest>" clause
 #: uses for the found card — every variant found in the popular-tutor cache
@@ -1576,14 +1684,42 @@ _SEARCH_SHUFFLE_THEN_PUT_TOP_RE = _c(
 )
 
 
+def _search_mv_qualifier_from_match(m: re.Match[str]) -> dict:
+    """The trailing "with mana value X or less/greater" qualifier, if
+    present — shared by `_SEARCH_CRITERIA` and `_SEARCH_ZONE_CRITERIA`,
+    both of which name their groups ``mv``/``mv_cmp`` identically."""
+    mv = m.groupdict().get("mv")
+    if not mv:
+        return {}
+    n: Any = int(mv) if mv != "x" else "x"
+    key = "max_mana_value" if m.groupdict().get("mv_cmp") == "less" else "min_mana_value"
+    return {key: n}
+
+
+def _search_color_from_match(m: re.Match[str]) -> Optional[str]:
+    """The captured ``color`` group → a WUBRG letter, ``"colorless"``
+    (`_SEARCH_COLOR_WORD`'s own local addition — see its docstring for why
+    this isn't `resolve_color_word`), or ``None``."""
+    word = (m.groupdict().get("color") or "").strip().lower()
+    if word == "colorless":
+        return "colorless"
+    return resolve_color_word(word)
+
+
 def _search_criteria_from_match(m: re.Match[str]) -> dict:
     if m.groupdict().get("basic"):
-        return {"basic": True}
-    types = m.groupdict().get("types")
-    if types:
-        words = [t.strip() for t in re.split(r",\s*or\s+|,\s*|\s+or\s+", types) if t.strip()]
-        return {"type": words if len(words) > 1 else words[0]}
-    return {}
+        crit: dict = {"basic": True}
+    else:
+        crit = {}
+        types = m.groupdict().get("types")
+        if types:
+            words = [t.strip() for t in re.split(r",\s*or\s+|,\s*|\s+or\s+", types) if t.strip()]
+            crit["type"] = words if len(words) > 1 else words[0]
+    color = _search_color_from_match(m)
+    if color:
+        crit["color"] = color
+    crit.update(_search_mv_qualifier_from_match(m))
+    return crit
 
 
 def _search_count_from_match(m: re.Match[str]) -> Optional[int]:
@@ -1596,6 +1732,36 @@ def _search_put_then_shuffle(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     if destination is None:
         return None
     params: dict = {"criteria": _search_criteria_from_match(m), "destination": destination}
+    count = _search_count_from_match(m)
+    if count is not None:
+        params["count"] = count
+    return [EffectSpec("search", params)]
+
+
+#: "search your library for <criteria>, put <pronoun> onto the battlefield,
+#: attach it to a creature you control, then shuffle." (Stonehewer Giant/
+#: Quest for the Holy Relic-shaped combined search-then-attach — MEC-12
+#: sixth pass) — a strict superset of `_SEARCH_PUT_THEN_SHUFFLE_RE`'s own
+#: "put <pronoun> onto the battlefield, then shuffle" shape with the attach
+#: clause spliced in, mapped onto `"search"`'s new
+#: ``attach_to_creature_you_control`` param (`SearchLibraryEffect`).
+#: Destination is always the battlefield (the attach clause presupposes
+#: it), so unlike the plain family this doesn't need a `dest` capture group.
+_SEARCH_PUT_ATTACH_THEN_SHUFFLE_RE = _c(
+    rf"search your library for {_SEARCH_CRITERIA},?\s*"
+    rf"{_SEARCH_REVEAL}"
+    rf"put {_SEARCH_PRONOUN} onto the battlefield,?\s*"
+    r"attach it to a creature you control,?\s*"
+    r"then shuffle"
+)
+
+
+def _search_put_attach_then_shuffle(m: re.Match[str]) -> list[EffectSpec]:
+    params: dict = {
+        "criteria": _search_criteria_from_match(m),
+        "destination": "battlefield",
+        "attach_to_creature_you_control": True,
+    }
     count = _search_count_from_match(m)
     if count is not None:
         params["count"] = count
@@ -1650,12 +1816,14 @@ def _search_split_destination(m: re.Match[str]) -> Optional[list[EffectSpec]]:
 #: internal comma (see the module docstring above for why).
 _SEARCH_ZONE_CRITERIA = (
     r"(?:up to (?P<count>\d+)|an?)\s+"
+    rf"(?:(?P<color>{_SEARCH_COLOR_WORD})\s+)?"
     r"(?:"
     r"(?P<basic>basic land) cards?"
     rf"|card named (?P<name>[a-z][a-z' -]*?)"
     rf"|(?P<types>{_SEARCH_TYPE_LIST}) cards?"
     r"|cards?"
     r")"
+    + _SEARCH_MV_QUALIFIER
 )
 #: "search your library and/or graveyard for <criteria>, [reveal <pronoun>,]
 #: [and] put <pronoun> <destination>. If you search[ed] your library this
@@ -1677,15 +1845,21 @@ _SEARCH_ZONE_PUT_RE = _c(
 
 def _search_zone_criteria_from_match(m: re.Match[str]) -> dict:
     if m.groupdict().get("basic"):
-        return {"basic": True}
-    name = m.groupdict().get("name")
-    if name:
-        return {"name": name.strip()}
-    types = m.groupdict().get("types")
-    if types:
-        words = [t.strip() for t in re.split(r",\s*or\s+|,\s*|\s+or\s+", types) if t.strip()]
-        return {"type": words if len(words) > 1 else words[0]}
-    return {}
+        crit: dict = {"basic": True}
+    else:
+        name = m.groupdict().get("name")
+        if name:
+            return {"name": name.strip()}  # a named-card search ignores colour/mv qualifiers
+        crit = {}
+        types = m.groupdict().get("types")
+        if types:
+            words = [t.strip() for t in re.split(r",\s*or\s+|,\s*|\s+or\s+", types) if t.strip()]
+            crit["type"] = words if len(words) > 1 else words[0]
+    color = _search_color_from_match(m)
+    if color:
+        crit["color"] = color
+    crit.update(_search_mv_qualifier_from_match(m))
+    return crit
 
 
 def _search_zone_put(m: re.Match[str]) -> Optional[list[EffectSpec]]:
@@ -1729,6 +1903,30 @@ def _search_exile_rest(m: re.Match[str]) -> list[EffectSpec]:
             },
         )
     ]
+
+
+#: "An opponent gains control of ~." (Wishclaw Talisman-shaped — RULE
+#: 701.10-adjacent; `game/effects.py`'s `GainControlBySourceEffect`).
+_GAIN_CONTROL_BY_OPPONENT_RE = _c(
+    rf"an opponent gains control of {_SELF_SUBJECT}"
+)
+
+
+def _gain_control_by_opponent(m: re.Match[str]) -> list[EffectSpec]:
+    return [EffectSpec("gain_control_by_source", {"recipient": "opponent"})]
+
+
+#: "Shuffle ~ into its owner's library." (RULE 701.20 — Green Sun's Zenith's
+#: own trailing sentence, overriding the spell's default RULE 608.2m
+#: "goes to the graveyard as it resolves" routing; `game/effects.py`'s
+#: `ShuffleSelfIntoLibraryEffect`).
+_SHUFFLE_SELF_INTO_LIBRARY_RE = _c(
+    rf"shuffle {_SELF_SUBJECT} into its owner'?s library"
+)
+
+
+def _shuffle_self_into_library(m: re.Match[str]) -> list[EffectSpec]:
+    return [EffectSpec("shuffle_self_into_library", {})]
 
 
 #: "attach it to target creature you control" / "attach ~ to target creature
@@ -2165,11 +2363,11 @@ def _trigger_once_per_turn(m: re.Match[str]) -> list[EffectSpec]:
 #: by `game_engine.can_activate` via `_sorcery_speed_ok`), the same lever the
 #: engine already uses for level-up / Class-level sorcery-speed abilities.
 #: Only the two canonical *sorcery-speed* phrasings (RULE 605.3b / "any time
-#: you could cast a sorcery"). Deliberately not "only during your turn" /
-#: "before attackers are declared" — those are subtly different timing
-#: windows (a non-empty stack / instant-speed-within-your-turn is still
-#: allowed), so folding them to sorcery-speed would be *wrong*; left unclaimed
-#: (fail-closed) until modeled precisely.
+#: you could cast a sorcery"). Deliberately not "only during your turn"
+#: (its own, wider `ONLY_DURING_YOUR_TURN_MARKER` below — folding it in
+#: here would be *wrong*, since a non-empty stack is still legal for that
+#: one) or "before attackers are declared" (still unclaimed, fail-closed,
+#: until modeled precisely).
 SORCERY_SPEED_MARKER = "sorcery_speed_marker"
 _SORCERY_SPEED_RE = _c(
     r"activate (?:this ability )?only "
@@ -2179,6 +2377,22 @@ _SORCERY_SPEED_RE = _c(
 
 def _sorcery_speed(m: re.Match[str]) -> list[EffectSpec]:
     return [EffectSpec(SORCERY_SPEED_MARKER, {})]
+
+
+#: RULE 602.5d's *other* timing restriction: "Activate only during your
+#: turn." (Wishclaw Talisman-shaped) — deliberately left unclaimed above
+#: (see `SORCERY_SPEED_MARKER`'s own docstring) since it's a genuinely
+#: different, wider window than sorcery-speed (still legal at instant
+#: speed with a non-empty stack — just not outside the controller's own
+#: turn). Same marker-then-strip shape, folded by `effect_binder.
+#: bind_ability` into `ActivationCost.only_during_your_turn`
+#: (`GameEngine._only_during_your_turn_ok`) instead of `sorcery_speed_only`.
+ONLY_DURING_YOUR_TURN_MARKER = "only_during_your_turn_marker"
+_ONLY_DURING_YOUR_TURN_RE = _c(r"activate (?:this ability )?only during your turn")
+
+
+def _only_during_your_turn(m: re.Match[str]) -> list[EffectSpec]:
+    return [EffectSpec(ONLY_DURING_YOUR_TURN_MARKER, {})]
 
 
 # PAR-10: "Activate only as a sorcery and only if `<condition>`." (Cabal
@@ -2622,7 +2836,7 @@ def _add_counters(m: re.Match[str]) -> Optional[list[EffectSpec]]:
 #: "spore" as a P/T counter. `AddCountersEffect.kind` is already a free
 #: string (RULE 122.1a — any permanent, any named counter type), so no
 #: engine change is needed, only this narrower parser recognition.
-_NAMED_COUNTER_KINDS: frozenset[str] = frozenset({"spore", "burden"})
+_NAMED_COUNTER_KINDS: frozenset[str] = frozenset({"spore", "burden", "quest"})
 _ADD_NAMED_COUNTER_RE = _c(
     rf"put {COUNT} (?P<ckind>{'|'.join(_NAMED_COUNTER_KINDS)}) counters? on "
     rf"(?:{TARGET}|(?P<selfref>{_SELF_SUBJECT}))"
@@ -3662,7 +3876,7 @@ HANDLERS: list[EffectHandler] = [
         "damage_selector",
         _c(
             rf"(?:(?:~|it|this creature|this land|this permanent) )?deals? {NUMBER} damage to "
-            rf"(?P<selector>each creature|each player|each opponent)"
+            rf"(?P<selector>each creature|each player|each opponent|that player)"
         ),
         _damage_selector,
     ),
@@ -3971,14 +4185,16 @@ HANDLERS: list[EffectHandler] = [
         _c(rf"exile {TARGET}"),
         _exile,
     ),
-    # "exile two target creatures" / "exile up to two target artifacts"
+    # "exile two target creatures" / "exile up to two target artifacts" /
+    # "exile any number of target spells" (Mindbreak Trap — the one row
+    # `_MULTI_TARGET_ALT_WITH_SPELL` adds on top of the shared alternation)
     # (RULE 115.1a generalized to N>=2), optionally "… controlled by
     # different players" (Protector of the Wastes-shaped cross-target
     # constraint — `_MULTI_TARGET_DISTINCT_CONTROLLERS`).
     EffectHandler(
         "exile_multi_target",
         _c(
-            rf"exile {_MULTI_TARGET_QUANTIFIER}(?P<target>{_MULTI_TARGET_ALT})"
+            rf"exile {_MULTI_TARGET_QUANTIFIER}(?P<target>{_MULTI_TARGET_ALT_WITH_SPELL})"
             rf"{_MULTI_TARGET_DISTINCT_CONTROLLERS}"
         ),
         _exile_multi_target,
@@ -4149,6 +4365,15 @@ HANDLERS: list[EffectHandler] = [
         _SEARCH_PUT_THEN_SHUFFLE_RE,
         _search_put_then_shuffle,
     ),
+    # "search your library for <criteria>, put it onto the battlefield,
+    # attach it to a creature you control, then shuffle." (Stonehewer
+    # Giant/Quest for the Holy Relic-shaped combined search-then-attach) —
+    # tried before the plain row above since it's a strict superset of it.
+    EffectHandler(
+        "search_put_attach_then_shuffle",
+        _SEARCH_PUT_ATTACH_THEN_SHUFFLE_RE,
+        _search_put_attach_then_shuffle,
+    ),
     # "search your library for <criteria>, [reveal <pronoun>,] then shuffle
     # and put <pronoun> on top." (the reordered shuffle-then-put-on-top
     # tutors — Vampiric/Mystical/Enlightened/Worldly Tutor).
@@ -4181,6 +4406,20 @@ HANDLERS: list[EffectHandler] = [
         "search_exile_rest",
         _SEARCH_EXILE_REST_RE,
         _search_exile_rest,
+    ),
+    # "Shuffle ~ into its owner's library." (Green Sun's Zenith's own
+    # trailing sentence, overriding the spell's default graveyard routing).
+    EffectHandler(
+        "shuffle_self_into_library",
+        _SHUFFLE_SELF_INTO_LIBRARY_RE,
+        _shuffle_self_into_library,
+    ),
+    # "An opponent gains control of ~." (Wishclaw Talisman's own drawback
+    # clause).
+    EffectHandler(
+        "gain_control_by_opponent",
+        _GAIN_CONTROL_BY_OPPONENT_RE,
+        _gain_control_by_opponent,
     ),
     # "attach it to target creature you control" / "attach ~ to target
     # creature you control" (an Equipment's own ETB self-attach).
@@ -4342,6 +4581,13 @@ HANDLERS: list[EffectHandler] = [
         "sorcery_speed",
         _SORCERY_SPEED_RE,
         _sorcery_speed,
+    ),
+    # "Activate only during your turn." — RULE 602.5d's wider sibling
+    # (Wishclaw Talisman); see `ONLY_DURING_YOUR_TURN_MARKER`'s docstring.
+    EffectHandler(
+        "only_during_your_turn",
+        _ONLY_DURING_YOUR_TURN_RE,
+        _only_during_your_turn,
     ),
     # PAR-10: "Activate only as a sorcery and only if `<condition>`." — tried
     # before the bare `_SORCERY_SPEED_RE`/`_ACTIVATE_ONLY_IF_RE` rows since a

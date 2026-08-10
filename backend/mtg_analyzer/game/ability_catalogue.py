@@ -11465,6 +11465,92 @@ def _smothering_tithe() -> list[AbilitySpec]:
 register("Smothering Tithe", _smothering_tithe)
 
 
+def _imperial_recruiter() -> list[AbilitySpec]:
+    """When ~ enters, you may search your library for a creature card with
+    power 2 or less, reveal it, put it into your hand, then shuffle.
+
+    MEC-12 fourth pass — the generalized tutor grammar (`SearchLibraryEffect`/
+    `models.card_query`) doesn't parse a power/toughness qualifier after the
+    search noun phrase (a documented gap on the parser side, same family as
+    the already-unclaimed "with mana value X or less"); hand-authored
+    directly onto the new `card_query.max_power` criteria key instead.
+    """
+    return [
+        AbilitySpec(
+            "triggered",
+            [EffectSpec("search", {
+                "criteria": {"type": "Creature", "max_power": 2},
+                "destination": "hand",
+            })],
+            trigger={"event": EventType.ENTERS_BATTLEFIELD, "condition": {"subject": "self"}},
+            raw_text="Wenn Imperial Recruiter ins Spiel kommt, kannst du in "
+                     "deiner Bibliothek nach einer Kreaturenkarte mit Stärke "
+                     "2 oder weniger suchen, sie offenlegen, auf deine Hand "
+                     "nehmen und deine Bibliothek danach mischen.",
+        )
+    ]
+
+
+register("Imperial Recruiter", _imperial_recruiter)
+
+
+def _recruiter_of_the_guard() -> list[AbilitySpec]:
+    """When ~ enters, you may search your library for a creature card with
+    toughness 2 or less, reveal it, put it into your hand, then shuffle.
+
+    MEC-12 fourth pass — same gap and same fix as Imperial Recruiter above,
+    on `card_query.max_toughness` instead of `max_power`.
+    """
+    return [
+        AbilitySpec(
+            "triggered",
+            [EffectSpec("search", {
+                "criteria": {"type": "Creature", "max_toughness": 2},
+                "destination": "hand",
+            })],
+            trigger={"event": EventType.ENTERS_BATTLEFIELD, "condition": {"subject": "self"}},
+            raw_text="Wenn Recruiter of the Guard ins Spiel kommt, kannst du "
+                     "in deiner Bibliothek nach einer Kreaturenkarte mit "
+                     "Widerstandskraft 2 oder weniger suchen, sie "
+                     "offenlegen, auf deine Hand nehmen und deine "
+                     "Bibliothek danach mischen.",
+        )
+    ]
+
+
+register("Recruiter of the Guard", _recruiter_of_the_guard)
+
+
+def _wheel_of_fortune() -> list[AbilitySpec]:
+    """Each player discards their hand, then draws seven cards.
+
+    MEC-12 fourth pass — `effects.WheelOfFortuneEffect`, the flat-draw-count
+    sibling of the already-shipped `WheelEffect` (Timetwister)/
+    `WindfallEffect` (Windfall); no oracle-text recognizer yet since this
+    exact printed line is a one-card template, not a family.
+    """
+    return [AbilitySpec("spell_effect", [EffectSpec("wheel_of_fortune", {"draw_count": 7})])]
+
+
+register("Wheel of Fortune", _wheel_of_fortune)
+
+
+def _ruination() -> list[AbilitySpec]:
+    """Destroy all nonbasic lands.
+
+    MEC-12 fourth pass — `effects.DestroyEffect`'s existing
+    ``selector="all_lands"`` mass-wipe path, narrowed by the new
+    ``filter={"nonbasic": True}`` key (mirrors ``max_mana_value``'s
+    selector+filter split for every other qualified board wipe).
+    """
+    return [AbilitySpec("spell_effect", [EffectSpec("destroy", {
+        "selector": "all_lands", "filter": {"nonbasic": True},
+    })])]
+
+
+register("Ruination", _ruination)
+
+
 def _city_of_brass() -> list[AbilitySpec]:
     """Whenever this land becomes tapped, it deals 1 damage to you.
     {T}: Add one mana of any color.
@@ -11630,3 +11716,259 @@ def _trickbind() -> list[AbilitySpec]:
 
 
 register("Trickbind", _trickbind)
+
+
+def _finale_of_devastation() -> list[AbilitySpec]:
+    """Search your library and/or graveyard for a creature card with mana
+    value X or less and put it onto the battlefield. If you search your
+    library this way, shuffle. If X is 10 or more, creatures you control
+    get +X/+X and gain haste until end of turn.
+
+    — MEC-12 (fifth pass): the "search library and/or graveyard" half
+    reuses `SearchLibraryEffect`'s ``zones``/``criteria`` exactly like the
+    oracle-text `search_zone_put` handler does, just with the search's own
+    ``max_mana_value`` bound left as the ``"x"`` sentinel
+    `RulesEngine._substitute_x` now knows to walk into a nested
+    ``criteria`` dict (a fifth-pass primitive, alongside Meltdown's
+    matching `filter` case); the bonus half is `Martial Coup`'s own
+    `source_x_paid_at_least` `ConditionalEffect` gate wrapping a
+    `creatures_you_control`-selector `PumpEffect`. Not built as a general
+    oracle-text handler (unlike the plain single-zone "with mana value X
+    or less" qualifier, which is): this card's own two-sentence shape —
+    a conditional bonus keyed to the *same* spell's {X} as its search —
+    is a singleton template cache-wide, the sanctioned hand-authoring
+    escape valve rather than a family worth its own grammar yet.
+
+    Simplified: the search always shuffles the library when it's among
+    the search zones (the same `search_zone_put` simplification the
+    oracle-text handler already documents — it doesn't track which zone
+    the found card actually came from), so this always shuffles rather
+    than only "if you search your library this way".
+    """
+    return [
+        AbilitySpec(
+            "spell_effect",
+            [
+                EffectSpec("search", {
+                    "criteria": {"type": "Creature", "max_mana_value": "x"},
+                    "destination": "battlefield",
+                    "zones": ["library", "graveyard"],
+                }),
+                EffectSpec(
+                    "pump",
+                    {"power": "x", "toughness": "x", "keywords": ["haste"], "selector": "creatures_you_control"},
+                    condition={"source_x_paid_at_least": 10},
+                ),
+            ],
+            raw_text="Durchsuche deine Bibliothek und/oder deinen Friedhof nach einer "
+                     "Kreaturenkarte mit Manawert X oder weniger und bringe sie ins "
+                     "Spiel. Falls du auf diese Weise deine Bibliothek durchsucht hast, "
+                     "mische sie. Falls X 10 oder größer ist, erhalten Kreaturen, die du "
+                     "kontrollierst, +X/+X und Eile bis zum Ende des Zuges.",
+        ),
+    ]
+
+
+register("Finale of Devastation", _finale_of_devastation)
+
+
+def _ghostfire_slice() -> list[AbilitySpec]:
+    """Devoid (This card has no color.)
+    This spell costs {2} less to cast if an opponent controls a
+    multicolored permanent.
+    Ghostfire Slice deals 4 damage to any target.
+
+    — MEC-12 (fifth pass): a genuine gap, not just a missing handler —
+    `game/continuous.self_cost_reduction_for`/`EffectRegistry`'s
+    ``"cost_reduction"`` factory both already support an `active_if` gate
+    (this pass's own primitive, alongside `multicolored_permanents_you_
+    control`'s new `count_selector`), but the oracle-text *parser* only
+    ever reaches that static path for a **permanent** — `parser/oracle/
+    segmenter.py`'s `allow_spell_effect` gate routes every clause on a
+    true instant/sorcery through the one-shot `spell_effect` dispatch
+    instead, which has no static-ability shape to emit at all. Hand-
+    authored as two independent `AbilitySpec`s instead of widening that
+    routing (a real but separate architectural gap — `attach_to_object`'s
+    `spell_effect` branch would need to split a `StaticAbility` out of its
+    bound effects into `obj.static_effects`, which no other card needs
+    yet): ``"static"`` doesn't care what kind of card its owner is, so a
+    hand-authored `AbilitySpec("static", …)` on an Instant reaches
+    `self_cost_reduction_for` exactly like Embercleave's parsed one does
+    on an Equipment.
+
+    Simplified: Devoid (a purely cosmetic colour-identity keyword with no
+    gameplay effect this engine's card model can't already represent via
+    printed colourless mana cost) isn't separately modeled.
+    """
+    return [
+        AbilitySpec(
+            "static",
+            [EffectSpec("cost_reduction", {
+                "affects": "self", "generic": 2,
+                "active_if": {
+                    "kind": "opponent_count",
+                    "selector": "multicolored_permanents_you_control",
+                    "min": 1,
+                },
+            })],
+            raw_text="Dieser Zauberspruch kostet {2} weniger, falls ein Gegner "
+                     "ein mehrfarbiges Permanent kontrolliert.",
+        ),
+        AbilitySpec(
+            "spell_effect",
+            [EffectSpec("damage", {"target_kind": "any", "amount": 4})],
+            raw_text="~ fügt einem beliebigen Ziel 4 Schadenspunkte zu.",
+        ),
+    ]
+
+
+register("Ghostfire Slice", _ghostfire_slice)
+
+
+def _mox_diamond() -> list[AbilitySpec]:
+    """If this artifact would enter, you may discard a land card instead.
+    If you do, put this artifact onto the battlefield. If you don't, put
+    it into its owner's graveyard.
+    {T}: Add one mana of any color.
+
+    — MEC-12 (sixth pass): RULE 614.12's own worked example, confirmed a
+    singleton template cache-wide (a raw-text grep for "would enter, you
+    may" turns up only this card). `AbilitySpec.enter_or_graveyard_discard_
+    land` (`RulesEngine._offer_enter_or_graveyard`, offered *before* every
+    other battlefield-entry step, since declining means this never becomes
+    a permanent at all) is a new, genuinely general RULE 614.12 primitive
+    even though only one card needs it today — a bare marker flag, not a
+    parametrized cost, since a second card of this shape would almost
+    certainly print the identical "discard a land card" cost anyway. The
+    mana ability itself needs no hand-authoring: a plain "{T}: Add one
+    mana of any color." is recognized generically by `mana_abilities_for`.
+    """
+    return [
+        AbilitySpec(
+            "static", [],
+            enter_or_graveyard_discard_land=True,
+            raw_text="Falls ~ ins Spiel kommen würde, kannst du stattdessen eine "
+                     "Landkarte abwerfen. Wenn du dies tust, bringe ~ ins Spiel. "
+                     "Wenn nicht, lege es in den Friedhof seines Besitzers.",
+        ),
+    ]
+
+
+register("Mox Diamond", _mox_diamond)
+
+
+def _eye_of_ugin() -> list[AbilitySpec]:
+    """Colorless Eldrazi spells you cast cost {2} less to cast.
+    {7}, {T}: Search your library for a colorless creature card, reveal
+    it, put it into your hand, then shuffle.
+
+    — MEC-12 (sixth pass). The search half is left to the oracle-text
+    parser (`_SEARCH_COLOR_WORD`'s new "colorless" entry, matched onto
+    `models.card_query`'s own colour-emptiness check) rather than
+    duplicated here — only the static half is hand-authored, since a
+    combined colour-emptiness-**and**-creature-subtype cost filter
+    ("Colorless Eldrazi spells", as opposed to a bare colour or a bare
+    main-card-type filter) is this pass's own new primitive
+    (`continuous.cost_reduction_for`'s `spell_color="colorless"` +
+    `spell_subtype="Eldrazi"`, composed by plain AND) with no other real
+    card on this exact combined shape yet — not worth a general "<colour-
+    or-colorless> <optional creature subtype> spells [you cast] cost {N}
+    less" grammar until a second one does. Both abilities are hand-
+    authored on the same registered card regardless, since a registered
+    card's catalogue entry replaces the parser's own output wholesale
+    rather than merging with it — the search line below is simply the
+    identical shape the parser would already produce for this card on
+    its own.
+    """
+    return [
+        AbilitySpec(
+            "static",
+            [EffectSpec("cost_reduction", {
+                "affects": "self", "generic": 2,
+                "spell_color": "colorless", "spell_subtype": "Eldrazi",
+            })],
+            raw_text="Farblose Eldrazi-Zaubersprüche, die du wirkst, kosten {2} weniger.",
+        ),
+        AbilitySpec(
+            "activated",
+            [EffectSpec("search", {
+                "criteria": {"type": "Creature", "color": "colorless"},
+                "destination": "hand",
+            })],
+            cost={"text": "{7}, {T}"},
+            raw_text="{7}, {T}: Durchsuche deine Bibliothek nach einer farblosen "
+                     "Kreaturenkarte, zeige sie offen vor, nimm sie auf deine Hand "
+                     "und mische deine Bibliothek.",
+        ),
+    ]
+
+
+register("Eye of Ugin", _eye_of_ugin)
+
+
+def _tainted_pact() -> list[AbilitySpec]:
+    """Exile the top card of your library. You may put that card into
+    your hand unless it has the same name as another card exiled this
+    way. Repeat this process until you put a card into your hand or you
+    exile two cards with the same name, whichever comes first.
+
+    — MEC-12 (sixth pass). `ExileUntilDuplicateNameEffect`/`RulesEngine.
+    exile_until_duplicate_name` — a new, genuinely general RULE 701.19-
+    adjacent loop shape (see its own docstring for why it's not an
+    instance of `dig_until`), confirmed a singleton template cache-wide
+    but built as a real primitive anyway since the loop has no card-
+    specific data in it. A real interactive choice each time a fresh
+    (non-duplicate) name comes up with cards still left in the library —
+    take it, or keep digging (the real reason this card is played: paired
+    with Thassa's Oracle in a singleton deck, deliberately declining every
+    hit mills the whole library on purpose).
+    """
+    return [
+        AbilitySpec(
+            "spell_effect",
+            [EffectSpec("exile_until_duplicate_name", {})],
+            raw_text="Exiliere die oberste Karte deiner Bibliothek. Du kannst diese "
+                     "Karte auf deine Hand nehmen, außer sie hat denselben Namen wie "
+                     "eine andere auf diese Weise exilierte Karte. Wiederhole diesen "
+                     "Vorgang, bis du eine Karte auf deine Hand nimmst oder zwei "
+                     "Karten mit demselben Namen exilierst, je nachdem, was zuerst "
+                     "eintritt.",
+        ),
+    ]
+
+
+register("Tainted Pact", _tainted_pact)
+
+
+def _transmute_artifact() -> list[AbilitySpec]:
+    """Sacrifice an artifact. If you do, search your library for an
+    artifact card. If that card's mana value is less than or equal to the
+    sacrificed artifact's mana value, put it onto the battlefield. If
+    it's greater, you may pay {X}, where X is the difference. If you do,
+    put it onto the battlefield. If you don't, put it into its owner's
+    graveyard. Then shuffle.
+
+    — MEC-12 (sixth pass). `TransmuteArtifactEffect`/`RulesEngine.
+    transmute_artifact` — confirmed a singleton cost-comparison-gated
+    placement cache-wide, self-contained (its own three `pending_choice`
+    kinds: sacrifice, search, and an optional pay-the-difference) rather
+    than composed from the general search/sacrifice/`pay_cost_then`
+    primitives, none of which can express a cost computed from what a
+    different, just-made choice turned out to be.
+    """
+    return [
+        AbilitySpec(
+            "spell_effect",
+            [EffectSpec("transmute_artifact", {})],
+            raw_text="Opfere ein Artefakt. Wenn du dies tust, durchsuche deine "
+                     "Bibliothek nach einer Artefaktkarte. Falls der Manawert dieser "
+                     "Karte kleiner oder gleich dem Manawert des geopferten Artefakts "
+                     "ist, bringe sie ins Spiel. Falls er größer ist, kannst du {X} "
+                     "bezahlen, wobei X die Differenz ist. Wenn du dies tust, bringe "
+                     "sie ins Spiel. Wenn nicht, lege sie in den Friedhof ihres "
+                     "Besitzers. Mische danach.",
+        ),
+    ]
+
+
+register("Transmute Artifact", _transmute_artifact)

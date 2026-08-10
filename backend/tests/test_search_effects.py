@@ -181,11 +181,16 @@ def test_reordered_on_top_of_your_library_phrasing():
 # ---------------------------------------------------------------------------
 
 
-def test_fails_closed_on_a_mana_value_qualifier():
-    assert parse_effect_body(
+def test_mana_value_qualifier_caps_the_search_criteria():
+    # MEC-12 (fifth pass): "with mana value N or less/greater" is now
+    # recognized (Green Sun's Zenith/Chord of Calling/Finale of
+    # Devastation's own qualifier, generalized to a literal digit too) --
+    # this card previously documented the gap as fail-closed.
+    spec = parse_effect_body(
         "search your library for a card with mana value 2 or less, put that "
         "card into your hand, then shuffle"
-    ) is None
+    )[0]
+    assert spec.params == {"criteria": {"max_mana_value": 2}, "destination": "hand"}
 
 
 def test_fails_closed_on_a_bare_and_combined_search():
