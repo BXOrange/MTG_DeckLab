@@ -172,6 +172,10 @@ ALLOWED_TARGET_KINDS: frozenset[str] = frozenset(
         # Tower, a hugely common modern removal-spell template) — the
         # two-kind union idiom `artifact_or_enchantment` already uses.
         "creature_or_planeswalker",
+        # "a creature or planeswalker you control" (Spark Double's own
+        # enter-as-copy candidate pool) — the controller-scoped sibling of
+        # the bare union kind just above.
+        "creature_or_planeswalker_you_control",
         # "another target battle or opponent" (Invasion of Regatha) — the
         # `opponent_or_planeswalker`-shaped union, just with a battle
         # (RULE 310) instead of a planeswalker.
@@ -367,6 +371,8 @@ class TargetSpec:
             "artifact_creature_enchantment_or_planeswalker":
                 "Artefakt, Kreatur, Verzauberung oder Planeswalker",
             "creature_or_planeswalker": "Kreatur oder Planeswalker",
+            "creature_or_planeswalker_you_control":
+                "Kreatur oder Planeswalker unter deiner Kontrolle",
             "battle_or_opponent": "Schlacht oder Gegner",
             "creature_planeswalker_or_battle": "Kreatur, Planeswalker oder Schlacht",
             "attached_aura_or_equipment_you_control":
@@ -873,6 +879,19 @@ def legal_targets(
             if (o.is_creature or o.is_planeswalker)
             and o is not source
             and _targetable_by(o, source)
+        ]
+    if kind == "creature_or_planeswalker_you_control":
+        # "…a copy of a creature or planeswalker **you control**." (Spark
+        # Double) — the controller-scoped sibling of the bare kind above;
+        # not a RULE 115 "target" (RULE 614.12's "any" phrasing), but this
+        # engine's enter-as-copy choice reuses the same candidate-pool
+        # machinery regardless.
+        return [
+            {"instance_id": o.instance_id, "name": o.name}
+            for o in state.permanents()
+            if (o.is_creature or o.is_planeswalker)
+            and o.controller_id == controller_id
+            and o is not source
         ]
     if kind in ("artifact", "enchantment"):
         # RULE 115 single-type permanent target (also the enter-as-copy

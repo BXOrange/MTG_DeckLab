@@ -324,6 +324,21 @@ _CAST_SPELL_TRIGGER_PLAIN_RE = re.compile(
     re.IGNORECASE | re.S,
 )
 
+#: RULE 120/613's "Whenever you/an opponent/a player draws a card, <effect>."
+#: (Sheoldred, the Apocalypse/Underworld Dreams/Consecrated Sphinx-shaped
+#: draw-matters triggers — the single most-requested missing trigger
+#: condition in the cache, ~50+ cards). Exactly the same shape as
+#: `_CAST_SPELL_TRIGGER_PLAIN_RE` just above — a bare player-subject
+#: event with no type filter — reusing that row's own docstring reasoning
+#: verbatim: `effect_binder`'s ``{"subject": "you"}``/``{"subject":
+#: "group", "controller": "not_you"/None}`` scoping over `EventType.DRAW`
+#: is already proven (Smothering Tithe's hand-authored entry), so this is
+#: purely the missing oracle-text recognizer, no new engine primitive.
+_DRAW_TRIGGER_PLAIN_RE = re.compile(
+    r"^whenever (?P<subj>you|an opponent|a player) draws? a card,\s*(?P<body>.+)$",
+    re.IGNORECASE | re.S,
+)
+
 #: The mana-value-filtered sibling — "Whenever a player casts a spell with
 #: mana value N or less, <effect>." (Eidolon of the Great Revel/Pyrostatic
 #: Pillar-shaped). `SPELL_CAST` already carries ``mana_value`` on the event
@@ -844,6 +859,69 @@ _CONTROLS_NONE_OF_TYPE_CONDITION_RE = re.compile(
     re.IGNORECASE,
 )
 
+#: "Destroy target X. It can't be regenerated." (Terminate/Doom Blade's
+#: mass/multi/filtered siblings — Death Bomb, Big Game Hunter, Cruel
+#: Revival, …) — the single most repeated removal-spell tail in the cache
+#: (110 cards SOLO-blocked on it alone, `parser_probe.py blocked`). Unlike
+#: every wrapper above, this doesn't prefix-condition the *rest* of the
+#: body — it's a trailing sentence that retroactively modifies whichever
+#: `destroy` clause came before it (RULE 701.16's "can't be regenerated"
+#: shield-denial is a property of *that* destruction, not a free-standing
+#: effect), so `parse_effect_body` special-cases it below instead of
+#: reaching `match_clause`/the connector-split loop: split on this
+#: sentence, parse "before"/"after" independently, then set
+#: ``can_be_regenerated: False`` on the last "destroy" spec `before`
+#: produced. Deliberately requires the sentence to stand alone (end of
+#: body, or followed by its own ``. ``-bounded sentence) — "…it can't be
+#: regenerated **this turn**" (Orcish Healer/Carbonize-shaped) is a
+#: genuinely different, free-standing prevent-regeneration effect and must
+#: NOT match here.
+_NO_REGEN_SENTENCE_RE = re.compile(
+    r"^(?P<before>.+?)\.\s*(?:it|they) can'?t be regenerated"
+    r"(?:\.\s*(?P<after>.+))?$",
+    re.IGNORECASE | re.DOTALL,
+)
+
+#: "Gain control of target creature until end of turn. **Untap that
+#: creature. It gains haste until end of turn.**" (Act of Treason/Claim the
+#: Firstborn-shaped) — same "trailing sentence retroactively describing the
+#: previous clause" idiom as `_NO_REGEN_SENTENCE_RE` just above, not a
+#: second effect: `effects.GainControlUntilEndOfTurnEffect` (built for the
+#: hand-authored Zealous Conscripts) already untaps and grants haste as
+#: *part of* the control change itself, so this tail is reprinting what the
+#: single `gain_control_until_eot` effect (`catalogue.handlers.
+#: _gain_control_eot`) the "before" half produces already does — it's
+#: absorbed here rather than re-modeled as its own untap/haste effect,
+#: which would double up RULE 115 targeting onto the same creature
+#: (`GainControlUntilEndOfTurnEffect`'s own docstring). Requires the "gain
+#: control" clause to be the immediately preceding sentence (anchored on
+#: "until end of turn" right before the period) so this can't misfire onto
+#: an unrelated creature-choosing clause followed by an unrelated genuine
+#: untap effect.
+_GAIN_CONTROL_HASTE_TAIL_RE = re.compile(
+    r"^(?P<before>gain control of target .+? until end of turn)\.\s*"
+    r"untap (?:that creature|it)\.?\s*(?:it|they) gains? haste until end of turn"
+    r"(?:\.\s*(?P<after>.+))?$",
+    re.IGNORECASE | re.DOTALL,
+)
+
+#: "Sacrifice it. **When you do,** `<effect>`." (RULE 603.3's "when you do"
+#: sub-trigger, Maestros Theater/Bant Panorama's cousin cycle-shaped) —
+#: deliberately narrow, not a general "you may X. When you do, Y." handler:
+#: RULE 603.3's own "when you do" only fires *if* the triggering action
+#: happened, which for an unconditional "Sacrifice it." antecedent (no
+#: "may") is a certainty, so the two clauses collapse to one plain sequence
+#: with no interactive branch needed. The 200+ cache hits on "you may
+#: `<action>`. When you do, `<effect>`." are a real, much bigger family
+#: (RULE 603.3's genuine optional-then-branch shape, needing its own
+#: pending_choice) deliberately NOT attempted here — this regex only matches
+#: when the clause immediately before "When you do," is exactly a bare
+#: self-sacrifice, so it can never misfire onto one of those.
+_SACRIFICE_THEN_WHEN_YOU_DO_RE = re.compile(
+    r"^(?P<before>sacrifice (?:it|this \w+|~))\.\s*when you do,\s*(?P<after>.+)$",
+    re.IGNORECASE | re.DOTALL,
+)
+
 #: RULE 601.2b/604.3's additional-cost line: "As an additional cost to cast
 #: this spell, <cost>." — instants/sorceries only (gated by
 #: ``allow_spell_effect`` at the call site below, same as a bare imperative).
@@ -855,6 +933,17 @@ _ADDITIONAL_COST_LINE_RE = re.compile(
 )
 _ADDITIONAL_COST_SACRIFICE_RE = re.compile(
     r"^sacrifice an?\s+(creature|artifact|land)$", re.IGNORECASE
+)
+#: "sacrifice an artifact or creature" (RULE 601.2b — Deadly Dispute/Costly
+#: Plunder-shaped, the single most-repeated compound sacrifice cost in the
+#: cache) — the two-way sibling of `misc_mixin._matches_permanent_type`'s
+#: existing ``"creature_artifact_or_land"``/``"creature_or_planeswalker"``
+#: sentinels, same idiom: a fixed compound word `costs.parse_activation_cost`
+#: reads verbatim (never a general N-way list — RAW only prints a handful of
+#: real combinations, so each earns its own sentinel rather than a generic
+#: parser).
+_ADDITIONAL_COST_SACRIFICE_ARTIFACT_OR_CREATURE_RE = re.compile(
+    r"^sacrifice an? (?:artifact or creature|creature or artifact)$", re.IGNORECASE
 )
 _ADDITIONAL_COST_DISCARD_RE = re.compile(r"^discard an?\s+card$", re.IGNORECASE)
 _ADDITIONAL_COST_PAY_LIFE_RE = re.compile(r"^pay\s+(x|\d+)\s+life$", re.IGNORECASE)
@@ -913,10 +1002,13 @@ def _additional_cost_dict(text: str) -> Optional[dict[str, Any]]:
     """One additional-cost clause's closed vocabulary → its dict, or ``None``.
 
     Matches `AbilitySpec.additional_cost`'s shape exactly: ``{"sacrifice":
-    "creature"|"artifact"|"land"}``, ``{"discard": 1}`` ("discard a card" is
-    the only printed count in the pool), or ``{"pay_life": N|"x"}``.
+    "creature"|"artifact"|"land"|"artifact_or_creature"}``, ``{"discard": 1}``
+    ("discard a card" is the only printed count in the pool), or
+    ``{"pay_life": N|"x"}``.
     """
     text = text.strip().lower()
+    if _ADDITIONAL_COST_SACRIFICE_ARTIFACT_OR_CREATURE_RE.match(text):
+        return {"sacrifice": "artifact_or_creature"}
     sac = _ADDITIONAL_COST_SACRIFICE_RE.match(text)
     if sac is not None:
         return {"sacrifice": sac.group(1)}
@@ -1285,6 +1377,66 @@ def parse_effect_body(
             for e in inner
         ]
 
+    no_regen = _NO_REGEN_SENTENCE_RE.match(body)
+    if no_regen is not None:
+        before_specs = parse_effect_body(
+            no_regen.group("before"), self_subject=self_subject, previous_subject=previous_subject
+        )
+        if before_specs is None:
+            return None
+        for i in range(len(before_specs) - 1, -1, -1):
+            if before_specs[i].type == "destroy":
+                flagged = dict(before_specs[i].params)
+                flagged["can_be_regenerated"] = False
+                before_specs[i] = EffectSpec(
+                    before_specs[i].type, flagged, condition=before_specs[i].condition
+                )
+                break
+        else:
+            return None  # nothing to deny regeneration to — fail closed
+        after_text = (no_regen.group("after") or "").strip()
+        if not after_text:
+            return before_specs
+        after_specs = parse_effect_body(
+            after_text, previous_subject=_announces_creature_target(before_specs)
+        )
+        if after_specs is None:
+            return None
+        return before_specs + after_specs
+
+    gain_control_tail = _GAIN_CONTROL_HASTE_TAIL_RE.match(body)
+    if gain_control_tail is not None:
+        before_specs = parse_effect_body(
+            gain_control_tail.group("before"), self_subject=self_subject,
+            previous_subject=previous_subject,
+        )
+        if before_specs is None or not any(
+            spec.type == "gain_control_until_eot" for spec in before_specs
+        ):
+            return None  # fail closed — the tail only makes sense after that clause
+        after_text = (gain_control_tail.group("after") or "").strip()
+        if not after_text:
+            return before_specs
+        after_specs = parse_effect_body(
+            after_text, previous_subject=_announces_creature_target(before_specs)
+        )
+        if after_specs is None:
+            return None
+        return before_specs + after_specs
+
+    sac_when_you_do = _SACRIFICE_THEN_WHEN_YOU_DO_RE.match(body)
+    if sac_when_you_do is not None:
+        before_specs = parse_effect_body(
+            sac_when_you_do.group("before"), self_subject=self_subject,
+            previous_subject=previous_subject,
+        )
+        if before_specs is None or not any(spec.type == "sacrifice_self" for spec in before_specs):
+            return None  # fail closed — only a certain, unconditional antecedent collapses
+        after_specs = parse_effect_body(sac_when_you_do.group("after"))
+        if after_specs is None:
+            return None
+        return before_specs + after_specs
+
     direct = match_clause(body, self_subject=self_subject, previous_subject=previous_subject)
     if direct is not None:
         return direct
@@ -1457,6 +1609,29 @@ def segment_line(
             "triggered",
             effects=effects,
             trigger={"event": "SPELL_CAST", "condition": condition},
+            optional=optional,
+            raw_text=raw,
+            parser=provenance,
+        )
+        return Segment(raw=raw, spec=spec, claimed=True)
+
+    draw_trig_plain = _DRAW_TRIGGER_PLAIN_RE.match(raw)
+    if draw_trig_plain is not None:
+        subj = draw_trig_plain.group("subj").lower()
+        body, optional = _peel_optional(draw_trig_plain.group("body"))
+        effects = parse_effect_body(body)
+        if effects is None:
+            return Segment(raw=raw)
+        if subj == "you":
+            draw_condition: dict[str, Any] = {"subject": "you"}
+        elif subj == "an opponent":
+            draw_condition = {"subject": "group", "controller": "not_you"}
+        else:
+            draw_condition = {"subject": "group"}
+        spec = AbilitySpec(
+            "triggered",
+            effects=effects,
+            trigger={"event": "DRAW", "condition": draw_condition},
             optional=optional,
             raw_text=raw,
             parser=provenance,

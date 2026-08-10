@@ -3166,6 +3166,830 @@ def _zealous_conscripts() -> list[AbilitySpec]:
 register("Zealous Conscripts", _zealous_conscripts)
 
 
+def _liliana_dreadhorde_general() -> list[AbilitySpec]:
+    """Whenever a creature you control dies, draw a card.
+    +1: Create a 2/2 black Zombie creature token.
+    −4: Each player sacrifices two creatures of their choice.
+    −9: Each opponent chooses a permanent they control of each permanent
+    type and sacrifices the rest.
+
+    — Liliana, Dreadhorde General. The first three abilities are exactly
+    what the oracle-text parser already claims (`author_card.py reuse`) —
+    pasted as-is. Only the -9 needed a hand-written spec: reframed as
+    "sacrifice all but one of each type, one type at a time" —
+    `EffectSpec("sacrifice", {"selector": "each_opponent", "what": <type>,
+    "count": "all_but_one"})`, `effects.SacrificeEffect`'s dynamic
+    ``"all_but_one"`` count sentinel (`RulesEngine.sacrifice`) — six
+    separate top-level effects, one per RULE 300-ish permanent type,
+    relying on `_apply_effects_partitioned`'s existing "suspend the rest
+    when one effect opens a pending_choice" sequencing (RULE 608.2) to run
+    them one at a time rather than a bespoke chaining structure.
+
+    Documented simplification: real Liliana lets the *same* multi-typed
+    permanent (an artifact creature, say) count as the kept pick for two
+    different types in one settling; processing types independently in
+    sequence here means a permanent spared by an earlier type's cut can
+    still be swept by a later type's own cut if a *different* permanent is
+    kept for that type instead. Unobservable for the overwhelming majority
+    of real boards (single-typed permanents), and still strictly a choice
+    each affected player makes themselves, never an auto-pick.
+    """
+    types = ["battle", "planeswalker", "creature", "land", "artifact", "enchantment"]
+    return [
+        AbilitySpec(
+            "triggered",
+            [EffectSpec("draw", {"count": 1})],
+            trigger={
+                "event": EventType.DIES,
+                "condition": {"subject": "group", "type": "creature", "controller": "you", "other": False},
+            },
+            raw_text="whenever a creature you control dies, draw a card.",
+        ),
+        AbilitySpec(
+            "activated",
+            [EffectSpec("create_token", {
+                "count": 1, "power": 2, "toughness": 2, "colors": ["B"],
+                "subtypes": ["Zombie"], "keywords": [], "token_name": "Zombie",
+            })],
+            cost={"loyalty": 1},
+            raw_text="+1: create a 2/2 black zombie creature token.",
+        ),
+        AbilitySpec(
+            "activated",
+            [EffectSpec("sacrifice", {"selector": "each_player", "what": "creature", "count": 2})],
+            cost={"loyalty": -4},
+            raw_text="−4: each player sacrifices 2 creatures of their choice.",
+        ),
+        AbilitySpec(
+            "activated",
+            [
+                EffectSpec("sacrifice", {"selector": "each_opponent", "what": t, "count": "all_but_one"})
+                for t in types
+            ],
+            cost={"loyalty": -9},
+            raw_text=(
+                "−9: each opponent chooses a permanent they control of each "
+                "permanent type and sacrifices the rest."
+            ),
+        ),
+    ]
+
+
+register("Liliana, Dreadhorde General", _liliana_dreadhorde_general)
+
+
+def _mutiny() -> list[AbilitySpec]:
+    """Target creature an opponent controls deals damage equal to its power
+    to another target creature that player controls.
+
+    — Mutiny. The one-sided "fight" shape `effects.DamageEqualToPowerEffect`
+    already implements for Rabid Bite ("target creature you control deals
+    damage equal to its power to target creature you don't control") — only
+    the *dealer* here is also an opponent's creature (RULE 115.1a two
+    independent `creature_you_dont_control` targets, `extra_target_specs`),
+    not the caster's own.
+
+    Documented simplification: RAW's "**that player**" ties the second
+    target to the specific opponent who controls the first (only matters at
+    3+ players); both targets are modeled as plain "an opponent controls"
+    independently rather than tracking which specific opponent the first
+    pick named — the two coincide by construction in any 2-player game, and
+    no card in scope needs the distinction (no "same specific opponent"
+    targeting constraint exists in this engine yet).
+    """
+    return [
+        AbilitySpec(
+            "spell_effect",
+            [EffectSpec("damage_equal_to_power", {
+                "dealer_kind": "creature_you_dont_control",
+                "target_kind": "creature_you_dont_control",
+            })],
+            raw_text=(
+                "target creature an opponent controls deals damage equal to "
+                "its power to another target creature that player controls."
+            ),
+        ),
+    ]
+
+
+register("Mutiny", _mutiny)
+
+
+def _anger() -> list[AbilitySpec]:
+    """As long as this card is in your graveyard and you control a
+    Mountain, creatures you control have haste.
+
+    — Anger. RULE 112.7a's own printed exception: a static ability that
+    explicitly functions from the graveyard rather than the battlefield
+    (the "Timeshifted enemy-color cycle" — Brawn/Filth/Valor/Wonder are
+    the same shape onto trample/swampwalk/first strike/flying, not in
+    scope here). ``"from_graveyard": True`` is what `continuous.
+    _battlefield_static_abilities` reads to scan each player's graveyard
+    for this one marked ability instead of the battlefield — everything
+    downstream (the layer-6 keyword grant, the "you control a Mountain"
+    `active_if` gate) is the same machinery an ordinary battlefield anthem
+    already uses; only the *source's own zone* is unusual. Re-evaluated
+    fresh every `continuous.recompute` pass, so this stops granting haste
+    the instant either half of the condition stops holding — Anger leaves
+    the graveyard, or the last Mountain does.
+    """
+    return [
+        AbilitySpec(
+            "static",
+            [EffectSpec("grant_keyword", {
+                "affects": "creatures_you_control",
+                "keywords": ["haste"],
+                "active_if": {
+                    "kind": "control_count",
+                    "selector": "lands_you_control_of_type_mountain",
+                    "min": 1,
+                },
+                "from_graveyard": True,
+            })],
+            raw_text=(
+                "as long as this card is in your graveyard and you control "
+                "a mountain, creatures you control have haste."
+            ),
+        ),
+    ]
+
+
+register("Anger", _anger)
+
+
+def _brawn() -> list[AbilitySpec]:
+    """As long as this card is in your graveyard and you control a
+    Forest, creatures you control have trample.
+
+    — Brawn, `_anger`'s green sibling (MEC-22): identical
+    ``"from_graveyard": True`` shape, just trample/Forest in place of
+    haste/Mountain. Brawn's own printed Trample (its first oracle-text
+    line) needs no `AbilitySpec` of its own — that's the creature's plain
+    printed keyword, read directly off `Card.keywords` by
+    `combat.py`/`continuous.py` like any other, independent of this
+    catalogue entry.
+    """
+    return [
+        AbilitySpec(
+            "static",
+            [EffectSpec("grant_keyword", {
+                "affects": "creatures_you_control",
+                "keywords": ["trample"],
+                "active_if": {
+                    "kind": "control_count",
+                    "selector": "lands_you_control_of_type_forest",
+                    "min": 1,
+                },
+                "from_graveyard": True,
+            })],
+            raw_text=(
+                "as long as this card is in your graveyard and you control "
+                "a forest, creatures you control have trample."
+            ),
+        ),
+    ]
+
+
+register("Brawn", _brawn)
+
+
+def _filth() -> list[AbilitySpec]:
+    """As long as this card is in your graveyard and you control a
+    Swamp, creatures you control have swampwalk.
+
+    — Filth, `_anger`'s black sibling (MEC-22). ``"swampwalk"`` is a
+    landwalk slug, not a FLAG keyword, but `grant_keyword`'s
+    `keywords` list already accepts either shape identically
+    (`combat._landwalk_slugs` matches any granted keyword ending
+    "walk"), so no different EffectSpec params are needed here than
+    Anger's/Brawn's.
+    """
+    return [
+        AbilitySpec(
+            "static",
+            [EffectSpec("grant_keyword", {
+                "affects": "creatures_you_control",
+                "keywords": ["swampwalk"],
+                "active_if": {
+                    "kind": "control_count",
+                    "selector": "lands_you_control_of_type_swamp",
+                    "min": 1,
+                },
+                "from_graveyard": True,
+            })],
+            raw_text=(
+                "as long as this card is in your graveyard and you control "
+                "a swamp, creatures you control have swampwalk."
+            ),
+        ),
+    ]
+
+
+register("Filth", _filth)
+
+
+def _valor() -> list[AbilitySpec]:
+    """As long as this card is in your graveyard and you control a
+    Plains, creatures you control have first strike.
+
+    — Valor, `_anger`'s white sibling (MEC-22).
+    """
+    return [
+        AbilitySpec(
+            "static",
+            [EffectSpec("grant_keyword", {
+                "affects": "creatures_you_control",
+                "keywords": ["first strike"],
+                "active_if": {
+                    "kind": "control_count",
+                    "selector": "lands_you_control_of_type_plains",
+                    "min": 1,
+                },
+                "from_graveyard": True,
+            })],
+            raw_text=(
+                "as long as this card is in your graveyard and you control "
+                "a plains, creatures you control have first strike."
+            ),
+        ),
+    ]
+
+
+register("Valor", _valor)
+
+
+def _wonder() -> list[AbilitySpec]:
+    """As long as this card is in your graveyard and you control an
+    Island, creatures you control have flying.
+
+    — Wonder, `_anger`'s blue sibling (MEC-22).
+    """
+    return [
+        AbilitySpec(
+            "static",
+            [EffectSpec("grant_keyword", {
+                "affects": "creatures_you_control",
+                "keywords": ["flying"],
+                "active_if": {
+                    "kind": "control_count",
+                    "selector": "lands_you_control_of_type_island",
+                    "min": 1,
+                },
+                "from_graveyard": True,
+            })],
+            raw_text=(
+                "as long as this card is in your graveyard and you control "
+                "an island, creatures you control have flying."
+            ),
+        ),
+    ]
+
+
+register("Wonder", _wonder)
+
+
+def _riftstone_portal() -> list[AbilitySpec]:
+    """{T}: Add {C}.
+    As long as this card is in your graveyard, lands you control have
+    "{T}: Add {G} or {W}."
+
+    — MEC-22's fifth "from the graveyard" card, and unlike Anger/Brawn/
+    Filth/Valor/Wonder it grants a mana ability rather than a keyword
+    (`grant_mana_ability` in place of `grant_keyword`, same
+    ``"from_graveyard": True`` gate) onto lands rather than creatures
+    (``affects="lands_you_control"``), and with no board-state gate of
+    its own — unconditional once the card is in the graveyard. Its own
+    printed "{T}: Add {C}." mana ability needs no `AbilitySpec` either,
+    same reasoning as Brawn's own printed Trample: an ordinary printed
+    mana ability is read directly by `mana_abilities.py`, not through
+    this catalogue.
+    """
+    return [
+        AbilitySpec(
+            "static",
+            [EffectSpec("grant_mana_ability", {
+                "affects": "lands_you_control",
+                "mana": [{"G": 1}, {"W": 1}],
+                "from_graveyard": True,
+            })],
+            raw_text=(
+                'as long as this card is in your graveyard, lands you '
+                'control have "{t}: add {g} or {w}."'
+            ),
+        ),
+    ]
+
+
+register("Riftstone Portal", _riftstone_portal)
+
+
+def _arcane_denial() -> list[AbilitySpec]:
+    """Counter target spell. Its controller may draw up to two cards at
+    the beginning of the next turn's upkeep.
+    You draw a card at the beginning of the next turn's upkeep.
+
+    — Arcane Denial. The second sentence is exactly what the oracle-text
+    parser already claims on its own (`author_card.py reuse`) — a plain
+    "you draw a card next upkeep" `create_delayed_trigger`, pasted as-is.
+    Only the first sentence needed a hand-written spec: the delayed draw
+    belongs to the *countered spell's controller*, not this ability's own
+    caster — `effects.CreateDelayedTriggerEffect`'s new
+    ``capture="target_controller"`` (built for this card), which both
+    arms the delayed trigger for *that* player's next upkeep and hands
+    the drawn cards to them, reading the countered spell's own
+    `GameObject.controller_id` at resolution (the countered spell is long
+    gone by the time the delayed half actually fires).
+
+    Documented simplification: "may draw **up to** two" is modeled as an
+    unconditional draw of 2 — declining is a real but exceedingly rare
+    choice (avoiding a self-mill/deck-out effect), and a delayed trigger
+    has no interactive pending_choice machinery to offer it yet.
+    """
+    return [
+        AbilitySpec(
+            "spell_effect",
+            [
+                EffectSpec("counter", {}),
+                EffectSpec("create_delayed_trigger", {
+                    "step": "upkeep",
+                    # "**the** next turn's upkeep" — the very next one,
+                    # whoever's turn that turns out to be, not specifically
+                    # the countered spell's controller's own next turn
+                    # (same reading the parser already gave the second
+                    # sentence's identical phrasing, `scope: "any"` below).
+                    "scope": "any",
+                    "capture": "target_controller",
+                    "effects": [{"type": "draw", "params": {"count": 2}}],
+                    "description": "Arcane Denial: 2 Karten ziehen",
+                }),
+            ],
+            raw_text=(
+                "counter target spell. its controller may draw up to two "
+                "cards at the beginning of the next turn's upkeep."
+            ),
+        ),
+        AbilitySpec(
+            "spell_effect",
+            [EffectSpec("create_delayed_trigger", {
+                "step": "upkeep",
+                "scope": "any",
+                "effects": [{"type": "draw", "params": {"count": 1}}],
+                "description": "Arcane Denial: 1 Karte ziehen",
+            })],
+            raw_text="you draw a card at the beginning of the next turn's upkeep.",
+        ),
+    ]
+
+
+register("Arcane Denial", _arcane_denial)
+
+
+def _goldspan_dragon() -> list[AbilitySpec]:
+    """Flying, haste
+    Whenever this creature attacks or becomes the target of a spell,
+    create a Treasure token.
+    Treasures you control have "{T}, Sacrifice this artifact: Add two
+    mana of any one color."
+
+    — Goldspan Dragon. Flying/haste are keywords, already covered by the
+    parser's keyword catalogue.
+
+    Documented simplifications (both narrow — this card's own combo
+    engine primitives don't exist yet, tracked in BACKLOG.md for a future
+    batch rather than built one-off here):
+    - The trigger only fires on "attacks", not the full "attacks or
+      becomes the target of a spell" — this engine has no general
+      "becomes the target of a spell/ability" event yet (RULE 601.2c/
+      section 115's targeting doesn't fire onto the event bus anywhere;
+      Ward is checked directly at cast-time instead), and only 2 real
+      cards in the cache need it (Tectonic Giant, the other).
+    - The granted ability keeps Treasure's own default amount (1 mana)
+      rather than upgrading it to 2 — `effects.grant_mana_ability`'s
+      granted options are always a repeatable tap-only "{T}: Add …", with
+      no way to express a *replacement* sacrifice-cost mana ability (the
+      engine has no "upgrade an existing matching ability's amount"
+      primitive), so granting the real printed ability verbatim isn't
+      reachable through it yet. The card still ramps normally.
+    """
+    return [
+        AbilitySpec(
+            "triggered",
+            [EffectSpec("create_token", {"count": 1, "token_name": "Treasure"})],
+            trigger={"event": EventType.ATTACKS, "condition": {"subject": "self"}},
+            raw_text="whenever ~ attacks, create a treasure token.",
+        ),
+    ]
+
+
+register("Goldspan Dragon", _goldspan_dragon)
+
+
+def _kiki_jiki_mirror_breaker() -> list[AbilitySpec]:
+    """Haste
+    {T}: Create a token that's a copy of target nonlegendary creature you
+    control, except it has haste. Sacrifice it at the beginning of the
+    next end step.
+
+    — Kiki-Jiki, Mirror Breaker. Haste is a keyword, already covered by
+    the parser's keyword catalogue. The activated ability needed a hand
+    spec for its "except it has haste" + "sacrifice it at the beginning
+    of the next end step" pair — `effects.CopyPermanentEffect`'s new
+    ``haste`` param (grants the copy temp haste directly, rather than a
+    second untargeted keyword-grant effect that couldn't tell *which*
+    creature just got made), then `create_delayed_trigger`'s new
+    ``capture="created_objects"`` to arm a RULE 603.7 delayed
+    ``sacrifice_specific`` naming that exact token (`GameContext.
+    created_objects`, the same "the tokens…" referent Fabricate/Martial
+    Coup already read) — this batch's general primitive for the whole
+    "create/return X, it gains haste, [sacrifice/exile] it at the
+    beginning of the next end step" template family (~40 real cards
+    total between this shape and Puppeteer Clique's reanimate-and-exile
+    sibling), not a one-off for this card alone.
+
+    Documented simplification: the real printed restriction is "target
+    **nonlegendary** creature you control" — this engine's targeting
+    vocabulary has no "nonlegendary" creature kind yet (only the positive
+    "legendary permanent"), so it's modeled as a plain "creature you
+    control" target; illegally copying a legendary creature just runs
+    into the ordinary RULE 704.5j legend-rule SBA like any other route to
+    a second legendary permanent, rather than being refused as an illegal
+    target the way real Kiki-Jiki refuses it outright.
+    """
+    return [
+        AbilitySpec(
+            "activated",
+            [
+                EffectSpec("copy_permanent", {
+                    "target_kind": "creature_you_control", "count": 1, "haste": True,
+                }),
+                EffectSpec("create_delayed_trigger", {
+                    "step": "end",
+                    "scope": "any",
+                    "capture": "created_objects",
+                    "effects": [{"type": "sacrifice_specific", "params": {}}],
+                    "description": "Kiki-Jiki: Kopie opfern",
+                }),
+            ],
+            cost={"taps_self": True},
+            raw_text=(
+                "{t}: create a token that's a copy of target nonlegendary "
+                "creature you control, except it has haste. sacrifice it "
+                "at the beginning of the next end step."
+            ),
+        ),
+    ]
+
+
+register("Kiki-Jiki, Mirror Breaker", _kiki_jiki_mirror_breaker)
+
+
+def _puppeteer_clique() -> list[AbilitySpec]:
+    """When this creature enters, put target creature card from an
+    opponent's graveyard onto the battlefield under your control. It
+    gains haste. At the beginning of your next end step, exile it.
+
+    — Puppeteer Clique. The reanimate-and-exile sibling of Kiki-Jiki's
+    copy-and-sacrifice template (same batch, same primitives):
+    `effects.ReturnFromGraveyardEffect`'s new ``haste`` param plus
+    `create_delayed_trigger`'s ``capture="created_objects"`` to arm a
+    RULE 603.7 delayed ``exile`` naming the exact permanent this
+    resolution just reanimated (`GameContext.created_objects`) — see
+    `_kiki_jiki_mirror_breaker`'s docstring for the shared design.
+    ``target_kind="opponent_graveyard_creature"`` already exists in
+    `targeting.py` for exactly this card (its own docstring names
+    Puppeteer Clique as the motivating example).
+    """
+    return [
+        AbilitySpec(
+            "triggered",
+            [
+                EffectSpec("return_from_graveyard", {
+                    "target_kind": "opponent_graveyard_creature",
+                    "destination": "battlefield",
+                    "under_your_control": True,
+                    "haste": True,
+                }),
+                EffectSpec("create_delayed_trigger", {
+                    "step": "end",
+                    "scope": "controller",
+                    "capture": "created_objects",
+                    "effects": [{"type": "exile", "params": {"target_kind": None}}],
+                    "description": "Puppeteer Clique: Kreatur verbannen",
+                }),
+            ],
+            trigger={"event": EventType.ENTERS_BATTLEFIELD, "condition": {"subject": "self"}},
+            raw_text=(
+                "when ~ enters, put target creature card from an "
+                "opponent's graveyard onto the battlefield under your "
+                "control. it gains haste. at the beginning of your next "
+                "end step, exile it."
+            ),
+        ),
+    ]
+
+
+register("Puppeteer Clique", _puppeteer_clique)
+
+
+def _mikaeus_the_unhallowed() -> list[AbilitySpec]:
+    """Whenever a Human deals damage to you, destroy it.
+    Other non-Human creatures you control get +1/+1 and have undying.
+
+    — Mikaeus, the Unhallowed. The anthem is `other_nonhuman_creatures_
+    you_control` (`continuous.group_selector_objects`'s new branch — the
+    negated-subtype sibling of the existing `other_creatures_you_control`/
+    `nonlegendary_creatures_you_control`), carrying both the +1/+1 anthem
+    and the undying keyword grant.
+
+    The first clause needed two small additions of its own: a group-
+    subject DAMAGE trigger scoped to the *player* recipient specifically
+    (`effect_binder`'s new ``condition["recipient_is_you"]`` — the
+    existing ``condition["recipient"]`` only ever matches a *permanent*
+    recipient's controller, since `RulesEngine.deal_damage` stamps
+    ``target_controller_id`` as ``None`` for a player target), and
+    `effects.DestroyEffect`'s new ``target_from_trigger_event="source_id"``
+    to destroy the Human that actually dealt the damage — a group-subject
+    trigger has no single chosen creature the way a self-subject "when ~
+    enters" trigger's implicit "it" would, so "it" here has to be read
+    back off the firing DAMAGE event itself.
+    """
+    return [
+        AbilitySpec(
+            "triggered",
+            [EffectSpec("destroy", {"target_kind": None, "target_from_trigger_event": "source_id"})],
+            trigger={
+                "event": "DAMAGE",
+                "condition": {"subject": "group", "subtypes": ["human"], "recipient_is_you": True},
+            },
+            raw_text="whenever a human deals damage to you, destroy it.",
+        ),
+        AbilitySpec(
+            "static",
+            [
+                EffectSpec("anthem", {
+                    "affects": "other_nonhuman_creatures_you_control", "power": 1, "toughness": 1,
+                }),
+                EffectSpec("grant_keyword", {
+                    "affects": "other_nonhuman_creatures_you_control", "keywords": ["undying"],
+                }),
+            ],
+            raw_text="other non-human creatures you control get +1/+1 and have undying.",
+        ),
+    ]
+
+
+register("Mikaeus, the Unhallowed", _mikaeus_the_unhallowed)
+
+
+def _spark_double() -> list[AbilitySpec]:
+    """You may have this creature enter as a copy of a creature or
+    planeswalker you control, except it enters with an additional +1/+1
+    counter on it if it's a creature, it enters with an additional
+    loyalty counter on it if it's a planeswalker, and it isn't legendary.
+
+    — Spark Double. `effects.EnterAsCopyReplacement` (RULE 614.1c/614.12,
+    Clever Impersonator's own mechanism), with two additions this batch
+    needed: ``target_kind="creature_or_planeswalker_you_control"``
+    (`targeting.py`'s new controller-scoped sibling of the existing bare
+    "creature or planeswalker" union kind), and the new
+    ``extra_counter_if_creature``/``extra_counter_if_planeswalker`` pair
+    (`RulesEngine.add_counters`, applied once the copy is made and the
+    resulting permanent's real type is known).
+
+    Documented simplification: "**and it isn't legendary**" is not
+    modeled — this engine's copy mechanism (`copy_mechanics.become_copy`)
+    has no "strip a supertype" primitive (only `add_types`/`add_subtypes`
+    exist), so a Spark Double copying a legendary permanent comes in as a
+    second copy of that same legendary permanent and runs into the
+    ordinary RULE 704.5j legend-rule SBA like any other route to one,
+    rather than being exempted from it the way the real card is.
+    """
+    return [
+        AbilitySpec(
+            "enter_replacement",
+            [EffectSpec("enter_as_copy", {
+                "target_kind": "creature_or_planeswalker_you_control",
+                "extra_counter_if_creature": "+1/+1",
+                "extra_counter_if_planeswalker": "loyalty",
+            })],
+            raw_text=(
+                "you may have ~ enter as a copy of a creature or "
+                "planeswalker you control, except it enters with an "
+                "additional +1/+1 counter on it if it's a creature, it "
+                "enters with an additional loyalty counter on it if it's "
+                "a planeswalker, and it isn't legendary."
+            ),
+        ),
+    ]
+
+
+register("Spark Double", _spark_double)
+
+
+def _kari_zevs_expertise() -> list[AbilitySpec]:
+    """Gain control of target creature or Vehicle until end of turn.
+    Untap it. It gains haste until end of turn.
+    You may cast a spell with mana value 2 or less from your hand without
+    paying its mana cost.
+
+    — Kari Zev's Expertise. The threaten half reuses `effects.
+    GainControlUntilEndOfTurnEffect` (built for Zealous Conscripts,
+    already bundling the control change/untap/haste grant) with
+    ``target_kind="permanent"`` rather than a creature-only kind, so a
+    Vehicle target (an artifact, not a creature until crewed) is reachable
+    the same way — narrower than the printed "creature or Vehicle" (any
+    artifact is technically eligible here, not just Vehicles), a one-word
+    substitution rather than a dedicated Vehicle target kind for this one
+    card.
+
+    Documented simplification: the second sentence — RULE 601.2f's
+    "Expertise" cycle template ("you may cast a spell with mana value N
+    or less from your hand without paying its mana cost", also on Sram's/
+    Yahenni's/Baral's/Rishkar's Expertise) — is not modeled. It's a
+    genuinely new engine primitive (an interactive "which hand card, if
+    any" choice opening a temporary free-cast window), not a one-off for
+    this card; tracked in BACKLOG.md rather than built here, since 8 real
+    cards share it and it deserves the same batch treatment the rest of
+    this session's primitives got, not a rushed one-off.
+    """
+    return [
+        AbilitySpec(
+            "spell_effect",
+            [EffectSpec("gain_control_until_eot", {"target_kind": "permanent"})],
+            raw_text=(
+                "gain control of target creature or vehicle until end of "
+                "turn. untap it. it gains haste until end of turn."
+            ),
+        ),
+    ]
+
+
+register("Kari Zev's Expertise", _kari_zevs_expertise)
+
+
+def _danny_pink() -> list[AbilitySpec]:
+    """Creatures you control have "Whenever one or more counters are put
+    on this creature for the first time each turn, draw a card."
+
+    — Danny Pink. `grant_triggered_ability` (layer 6, the same quoted-
+    ability-grant mechanism the hand-authored Dionus, Elvish Archdruid
+    uses for its own per-creature "once each turn" grant): each creature
+    you control gets its own `TriggeredAbility` watching its own
+    `EventType.COUNTER` firing, capped by ``once_per_turn`` — RULE 603.2's
+    "for the first time each turn" phrasing exactly.
+    """
+    return [
+        AbilitySpec(
+            "static",
+            [
+                EffectSpec(
+                    "grant_triggered_ability",
+                    {
+                        "affects": "creatures_you_control",
+                        "trigger_event": EventType.COUNTER,
+                        "once_per_turn": True,
+                        "grant_effects": [{"type": "draw", "params": {"count": 1}}],
+                    },
+                )
+            ],
+            raw_text=(
+                'creatures you control have "whenever 1 or more counters '
+                'are put on ~ for the first time each turn, draw a card."'
+            ),
+        ),
+    ]
+
+
+register("Danny Pink", _danny_pink)
+
+
+def _black_market_connections() -> list[AbilitySpec]:
+    """At the beginning of your first main phase, choose one or more —
+    • Sell Contraband — Create a Treasure token. You lose 1 life.
+    • Buy Information — Draw a card. You lose 2 life.
+    • Hire a Mercenary — Create a 3/2 colorless Shapeshifter creature
+    token with changeling. You lose 3 life.
+
+    — Black Market Connections. The modal shape (RULE 700.2's "choose one
+    or more") reuses Farewell's own ``modes={"choose": 1, "at_least":
+    True, "options": [...]}`` structure verbatim — the only difference is
+    the wrapper: a `STEP_BEGIN` main-phase trigger (``filter: {"step":
+    "main1"}``, ``phase_relation: "you"``, the same shape Trystan/Wall of
+    Vipers-esque "at the beginning of your first main phase" grants
+    already use) instead of a plain spell.
+    """
+    return [
+        AbilitySpec(
+            "triggered",
+            [],
+            modes={
+                "choose": 1,
+                "at_least": True,
+                "options": [
+                    [
+                        EffectSpec("create_token", {"count": 1, "token_name": "Treasure"}),
+                        EffectSpec("lose_life", {"amount": 1}),
+                    ],
+                    [
+                        EffectSpec("draw", {"count": 1}),
+                        EffectSpec("lose_life", {"amount": 2}),
+                    ],
+                    [
+                        EffectSpec("create_token", {
+                            "count": 1, "power": 3, "toughness": 2, "colors": [],
+                            "subtypes": ["Shapeshifter"], "keywords": ["changeling"],
+                            "token_name": "Shapeshifter",
+                        }),
+                        EffectSpec("lose_life", {"amount": 3}),
+                    ],
+                ],
+                "descriptions": [
+                    "Sell Contraband: Erzeuge einen Schatz. Verliere 1 Leben.",
+                    "Buy Information: Ziehe eine Karte. Verliere 2 Leben.",
+                    "Hire a Mercenary: Erzeuge einen 3/2 farblosen Gestaltwandler "
+                    "mit Wandelbar. Verliere 3 Leben.",
+                ],
+            },
+            trigger={
+                "event": EventType.STEP_BEGIN, "filter": {"step": "main1"},
+                "phase_relation": "you",
+            },
+            raw_text=(
+                "at the beginning of your first main phase, choose one or "
+                "more — sell contraband — create a treasure token. you "
+                "lose 1 life. buy information — draw a card. you lose 2 "
+                "life. hire a mercenary — create a 3/2 colorless "
+                "shapeshifter creature token with changeling. you lose 3 "
+                "life."
+            ),
+        ),
+    ]
+
+
+register("Black Market Connections", _black_market_connections)
+
+
+def _agathas_soul_cauldron() -> list[AbilitySpec]:
+    """You may spend mana as though it were mana of any color to activate
+    abilities of creatures you control.
+    Creatures you control with +1/+1 counters on them have all activated
+    abilities of all creature cards exiled with this artifact.
+    {T}: Exile target card from a graveyard. When a creature card is
+    exiled this way, put a +1/+1 counter on target creature you control.
+
+    — Agatha's Soul Cauldron. Only the activated ability is modeled;
+    documented as a deliberately partial implementation rather than left
+    entirely unclaimed, since the artifact still does real, useful work
+    (exile hate + counter growth) even without its full build-around
+    payoff.
+
+    Not modeled (both would need genuinely new, substantial primitives
+    for this one card alone — tracked as a real gap, not silently
+    assumed away):
+    - The mana-spend restriction lift ("as though it were mana of any
+      color", scoped specifically to *activating creature abilities*) —
+      no "any color, purpose-restricted" spend permission exists; the
+      shipped ones (RULE 605.3a `restriction_predicate_for_cast`/
+      `_for_activation`) restrict *what a lot of mana can pay for*, never
+      *what color a lot of mana counts as*.
+    - The dynamic ability grant ("all activated abilities of all creature
+      cards exiled with ~", onto every counter-bearing creature you
+      control) — needs a live "cards exiled with this source" list (no
+      "exiled with" linked-zone tracking exists beyond the single-card
+      O-Ring shape, `GameObject.linked_exile_id`) *and* a way to read an
+      arbitrary exiled card's own printed activated abilities back out
+      and re-grant them, which the layer-6 grant machinery has no
+      "borrow another card's abilities live" shape for.
+
+    Documented simplification on the modeled third of the card: the
+    counter placement is unconditional rather than gated on "if a
+    **creature** card was exiled this way" — this engine's ``exile``
+    effect has no "conditional on the exiled card's own type" follow-up
+    yet (RULE 608.2's "when you do" sub-trigger machinery this would need
+    is the same one Maestros Theater's cycle uses for its own mandatory
+    "sacrifice it, then search" shape, not directly reusable for an
+    optional target's *type* instead of a fixed antecedent).
+    """
+    return [
+        AbilitySpec(
+            "activated",
+            [
+                EffectSpec("exile", {"target_kind": "any_graveyard_card"}),
+                EffectSpec("add_counters", {"amount": 1, "target_kind": "creature"}),
+            ],
+            cost={"taps_self": True},
+            raw_text=(
+                "{t}: exile target card from a graveyard. when a creature "
+                "card is exiled this way, put a +1/+1 counter on target "
+                "creature you control."
+            ),
+        ),
+    ]
+
+
+register("Agatha's Soul Cauldron", _agathas_soul_cauldron)
+
+
 def _coercive_recruiter() -> list[AbilitySpec]:
     """Whenever this creature or another Pirate you control enters, gain
     control of target creature until end of turn. Untap that creature.

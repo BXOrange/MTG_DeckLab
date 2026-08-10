@@ -122,6 +122,57 @@ Plan-level sequencing lives in
   scoped against the wider cache via `parser_probe.py`/`engine_bench.py
   cards`, not just this pool's count.
 
+- **MEC-18 · "You may `<action>`. When you do, `<effect>`." optional-
+  antecedent family (RULE 603.3).** Found during the 2026-08-10 Marchesa
+  V4.2 batch: ~200 cache hits, the single biggest template blocker that
+  batch's `parser_probe.py` scan turned up. Needs a genuine interactive
+  "did the optional action actually happen" gate before the "when you
+  do" half can fire — that batch's own "when you do" handling
+  (`segmenter._SACRIFICE_THEN_WHEN_YOU_DO_RE`) deliberately only covers
+  the unconditional/mandatory-antecedent case (a bare "Sacrifice it.",
+  never "you may") and cannot be widened to this family without the real
+  primitive. Worked example: Danny Pink/Puppeteer Clique/Kiki-Jiki are
+  now closed via *other* primitives that don't need this; the family
+  itself is still fully open.
+- **MEC-19 · "Becomes the target of a spell/ability" as a real
+  `EventType`.** No such event exists — Ward (RULE 702.21) is checked
+  directly at cast-time in `casting_mixin.py`, never through the event
+  bus, so nothing else can key a trigger off it. Blocks Goldspan Dragon's
+  own "attacks **or becomes the target of a spell**" (shipped 2026-08-10
+  with "attacks" only) and Tectonic Giant — 2 cards found so far,
+  re-scope against the wider cache before building. A second, unrelated
+  Goldspan Dragon gap tracked alongside it: `grant_mana_ability`'s
+  granted options are always a repeatable tap-only "{T}: Add …", with no
+  way to express a *replacement* sacrifice-cost mana ability (Goldspan's
+  own "Treasures you control have '{T}, Sacrifice this artifact: Add two
+  mana of any one color.'" — currently Treasures keep their default
+  1-mana ability instead).
+- **MEC-20 · RULE 601.2f "Expertise" cycle — free-cast-from-hand
+  window.** "You may cast a spell with mana value N or less from your
+  hand without paying its mana cost." 8 real cards (Kari Zev's/Sram's/
+  Yahenni's/Baral's/Rishkar's Expertise, Electrodominance, Epistolary
+  Librarian, Coveted Prize) — Kari Zev's Expertise shipped 2026-08-10
+  with only its threaten half. Needs a new interactive "which hand card,
+  if any, meets the mana-value cap" choice opening a temporary free-cast
+  permission (`GameState.free_cast_instance_ids` already exists and
+  could likely be reused for the actual cast-cost-zeroing half — the
+  missing piece is the choice itself, not the payment mechanism).
+- **MEC-21 · Agatha's Soul Cauldron's own two unmodeled clauses.**
+  Shipped 2026-08-10 with only its activated ability (exile + counter)
+  modeled. Two real, substantial primitives still open on this one card:
+  (1) "You may spend mana as though it were mana of any color to
+  activate abilities of creatures you control" — an "any color, purpose-
+  restricted" mana-spend permission; the shipped RULE 605.3a restriction
+  machinery (`restriction_predicate_for_cast`/`_for_activation`)
+  restricts *what* a lot of mana can pay for, never *what color* a lot
+  counts as. (2) "Creatures you control with +1/+1 counters on them have
+  all activated abilities of all creature cards exiled with ~" — needs a
+  live "cards exiled with this source" linked-zone list (only the
+  single-card O-Ring shape, `GameObject.linked_exile_id`, exists today)
+  *and* a way to read an arbitrary exiled card's own printed activated
+  abilities back out and re-grant them, which the layer-6 grant
+  machinery has no "borrow another card's abilities live" shape for.
+
 ## PLR — Player management
 
 - **PLR-4 · Names are the identity, unauthenticated.** Two people picking

@@ -12031,3 +12031,301 @@ left is entirely the fourth pass's own broader undesigned subsystems
 exception effects, a broader pitch-cost family, conditional extra-combat
 grants, the last of which is what still blocks Godo, Bandit Warlord's own
 second ability) — see `MEC-12` in `BACKLOG.md`.
+
+## Marchesa V4.2 (saved deck, fully playable) — 2026-08-10
+
+User request: make the "Marchesa V4.2" saved deck (96 cards, commander
+Marchesa, the Black Rose) fully playable, using the `hand-author-card`
+skill handing over to `extend-parser` where a general handler would close
+more than one card. Inventory (`inspect-db` skill + a direct
+`parse_oracle`/`ability_catalogue.is_registered` scan, more reliable than
+the coverage ledger for a specific decklist) found 21 of the 96 cards
+UNMODELED. All 21 are closed; re-running the same scan at the end shows
+zero remaining gaps.
+
+### General parser handlers (most of the batch, by cards-unlocked)
+
+- **"Destroy target X. It can't be regenerated."** — the single most
+  repeated removal-spell tail in the whole cache. `segmenter.
+  _NO_REGEN_SENTENCE_RE` retroactively flags whichever `destroy` spec the
+  *previous* sentence produced with `can_be_regenerated=False`, then
+  recurses into whatever comes after — the same "split, recurse before
+  and after, verify what `before` produced" idiom every other capture in
+  this batch reuses. Deliberately anchored so "…can't be regenerated
+  **this turn**" (Orcish Healer/Carbonize-shaped — a genuinely different,
+  free-standing prevent-regeneration effect) never matches. +40 cards on
+  its own measurement pass (Terminate, Big Game Hunter, Putrefy, Execute,
+  Pillage, Oxidize, Consume the Meek, …).
+- **The "threaten" family** — "Gain control of target creature [with mana
+  value N or less] until end of turn. Untap it/that creature. It gains
+  haste until end of turn." `catalogue.handlers._gain_control_eot` claims
+  the first sentence (`effects.GainControlUntilEndOfTurnEffect`, built
+  for the hand-authored Zealous Conscripts, already bundles the control
+  change/untap/haste grant into one atomic effect); the untap/haste tail
+  is absorbed by a second `_NO_REGEN_SENTENCE_RE`-shaped capture
+  (`_GAIN_CONTROL_HASTE_TAIL_RE`) rather than re-modeled as its own
+  effect, since re-modeling it would double up RULE 115 targeting onto
+  the same creature. `GainControlUntilEndOfTurnEffect` gained
+  `max_mana_value` (Claim the Firstborn) and a `selector="all_creatures"`
+  mass form (Insurrection's own "untap all creatures and gain control of
+  them", its own dedicated whole-body handler, `_GAIN_CONTROL_ALL_RE`,
+  since it's the only real card on that exact phrasing). +59 cards (Act
+  of Treason, Act of Aggression, Claim the Firstborn, Bond of Passion,
+  Conquering Manticore, Insurrection, …).
+- **"a basic Island, Swamp, or Mountain card"** — `_SEARCH_CRITERIA`'s
+  `basic`/`types` groups were mutually exclusive (`{"basic": True}` *or*
+  `{"type": [...]}`, never both); widened to combine freely, since "basic
+  land" bare still collapses to the old `{"basic": True}` shape (dropping
+  the now-redundant `type: "land"`, matching every pre-existing test's
+  exact expected dict). Closes the whole Panorama/Landscape/Monument
+  tri-land fetch-land cycles — Maestros Theater's own cycle (Streets of
+  New Capenna) additionally needed **"Sacrifice it. When you do,
+  `<effect>`."** collapsed to a plain sequence
+  (`_SACRIFICE_THEN_WHEN_YOU_DO_RE`) — RULE 603.3's "when you do" only
+  fires *if* the antecedent happened, which for an unconditional
+  "Sacrifice it." (no "may") is a certainty, so the two clauses safely
+  collapse to one list with no interactive branch. Deliberately **not** a
+  general "you may `<action>`. When you do, `<effect>`." handler — that's
+  a real, much bigger family (~200 cache hits, its own genuine
+  optional-then-branch primitive) left for a future batch; this only
+  matches when the clause immediately before "When you do," is exactly a
+  bare self-sacrifice, so it can never misfire onto one of those. +94
+  cards combined across both fixes.
+- **Mass edicts** — "each player/opponent sacrifices `<n>` `<type>` of
+  their choice" (`_sacrifice_edict`, closing Accursed Marauder and (with
+  Liliana below) Liliana, Dreadhorde General's own +1/-4). `what="nontoken_
+  creature"` is new on `_matches_permanent_type` (all three near-duplicate
+  copies — see bug list below).
+- **"Whenever you/an opponent draws a card, `<effect>`."** — the
+  Sheoldred/Underworld Dreams/Consecrated Sphinx trigger family,
+  previously unrecognized despite `effect_binder`'s `DRAW`-event group
+  scoping already being proven (Smothering Tithe's hand-authored entry).
+  Purely a missing recognizer (`_DRAW_TRIGGER_PLAIN_RE`), mirroring
+  `_CAST_SPELL_TRIGGER_PLAIN_RE` exactly. Paired with a new `lose_life`
+  selector, `"event_player"` (the same "that player" idiom
+  `DealDamageEffect.selector` already had, reused via the shared
+  `_event_player` helper rather than reimplemented) for Sheoldred's own
+  "they lose 2 life" half. +34 cards.
+- **"sacrifice an artifact or creature"** additional cost — a new
+  `additional_cost` sacrifice sentinel, `"artifact_or_creature"`, plumbed
+  through `spec.py`'s whitelist and all three `_matches_*` copies. +16
+  cards (Deadly Dispute, Costly Plunder, Artillerize, …).
+- **"each creature deals N damage to its controller"** (Rakdos Charm's
+  third mode) — a new `DealDamageEffect` selector,
+  `"each_creature_controller"`, where the recipient varies per creature
+  (N independent hits) rather than one amount fanned to a fixed group.
+
+Net measured effect of the parser batch: **coverage 31.83% → 32.22%
+(11,081 → 11,215 / 34,811)**, +134 cards, **0 regressions** (`parser_probe.py
+diff` after every single change).
+
+### Hand-authored (`game/ability_catalogue.py`)
+
+- **Liliana, Dreadhorde General** — +1/-4 reuse the mass-edict handler
+  above verbatim (`author_card.py reuse` pasted as-is); only −9 ("each
+  opponent chooses a permanent they control of each permanent type and
+  sacrifices the rest") needed a hand spec, reframed as six independent
+  `EffectSpec("sacrifice", {"selector": "each_opponent", "what": <type>,
+  "count": "all_but_one"})` calls (one per RULE 300ish permanent type) —
+  RULE 608.2's existing "suspend the rest when one effect opens a
+  pending_choice" sequencing handles running them one at a time with no
+  bespoke chaining. New `count="all_but_one"` sentinel on
+  `RulesEngine.sacrifice`, resolved against the *live* candidate count at
+  each call. Documented simplification: a multi-typed permanent kept by
+  one type's cut can still be swept by a different type's own cut if a
+  different permanent is kept for that type instead — real Liliana lets
+  the same permanent count as the kept pick for two types at once;
+  unobservable on an ordinary single-typed board.
+- **Kiki-Jiki, Mirror Breaker** / **Puppeteer Clique** — share a new
+  general primitive: "create/reanimate a permanent with haste, `[sacrifice/
+  exile]` it at the beginning of the next end step." `CopyPermanentEffect`
+  and `ReturnFromGraveyardEffect` both gained a `haste` param and now
+  populate `GameContext.created_objects` (the RULE 608.2 "the tokens…"
+  referent `CreateTokenEffect` already had), and `create_delayed_trigger`
+  gained `capture="created_objects"`, mutating a freshly-registered
+  `sacrifice_specific`/the existing `exile` effect's `.objects`/`.target`
+  directly — the same "capture a resolve-time fact the delayed firing
+  can't see anymore" idiom `target_mana_value` already used, just for an
+  object reference instead of a magnitude. Kiki-Jiki's own "**non
+  legendary** creature you control" restriction isn't modeled (no
+  "nonlegendary" target kind exists yet — copying a legendary just runs
+  into the ordinary legend-rule SBA instead of being refused as an
+  illegal target).
+- **Mikaeus, the Unhallowed** — the anthem clause is a new
+  `group_selector_objects` branch, `"other_nonhuman_creatures_you_
+  control"` (the negated-subtype sibling of the existing
+  `nonlegendary_creatures_you_control`). "Whenever a Human deals damage
+  to **you**, destroy it" needed two small additions: `effect_binder`'s
+  new `condition["recipient_is_you"]` (the *existing*
+  `condition["recipient"]` only ever matches a **permanent** recipient's
+  controller — `RulesEngine.deal_damage` stamps `target_controller_id` as
+  `None` for a player target, so it can never match "to you" directly),
+  and `DestroyEffect`'s new `target_from_trigger_event="source_id"` to
+  destroy the Human that actually fired the trigger (a group-subject
+  trigger has no single chosen creature the way a self-subject trigger's
+  implicit "it" would).
+- **Spark Double** — `EnterAsCopyReplacement` gained
+  `extra_counter_if_creature`/`extra_counter_if_planeswalker` (applied
+  post-copy, once the resulting permanent's real type is known), and
+  `targeting.py` gained `creature_or_planeswalker_you_control` (the
+  controller-scoped sibling of the existing bare union kind). "…and it
+  isn't legendary" isn't modeled — no "strip a supertype" primitive
+  exists on the copy mechanism yet.
+- **Danny Pink** — `grant_triggered_ability` (the same mechanism the
+  hand-authored Dionus, Elvish Archdruid uses for its own per-creature
+  "once each turn" grant) watching each creature's own `EventType.COUNTER`
+  firing. Exposed the `COUNTER`-event gap in both "which event field names
+  the firing object" tables (see bug list).
+- **Arcane Denial** — the second sentence ("You draw a card at the
+  beginning of the next turn's upkeep.") is exactly what the parser
+  already claimed on its own, pasted as-is; only "Its controller may draw
+  up to two cards…" needed a hand spec —
+  `create_delayed_trigger`'s new `capture="target_controller"` (reads the
+  *countered spell's* controller off the resolving target, since the
+  delayed draw belongs to them, not this ability's caster) directly
+  mutates the constructed inner `draw` effect's `.player`. "Up to two"
+  is modeled as an unconditional draw of 2 (declining is a real but
+  exceedingly rare choice with no delayed-trigger chooser to offer it).
+- **Black Market Connections** — a `STEP_BEGIN` main-phase trigger
+  (`filter: {"step": "main1"}`, `phase_relation: "you"`) wrapping the
+  exact `modes={"choose": 1, "at_least": True, "options": [...]}` shape
+  Farewell's own hand-authored "choose one or more" spell already uses —
+  no new modal machinery needed, just the trigger wrapper around it.
+- **Agatha's Soul Cauldron** — deliberately partial: only the activated
+  ability ("{T}: Exile target card from a graveyard… put a +1/+1 counter
+  on target creature you control", counter placement made unconditional
+  rather than gated on the exiled card's type) is modeled. The other two
+  clauses — an "any color, purpose-restricted" mana-spend permission, and
+  a dynamic "borrow every activated ability of every card exiled with
+  this source" grant onto counter-bearing creatures — are real,
+  substantial, unbuilt primitives, left as an open, documented gap rather
+  than silently modeled or forced into an unrelated shape.
+- **Mutiny** — the one-sided-fight shape (`DamageEqualToPowerEffect`,
+  built for Rabid Bite) with *both* sides independently targeted
+  (`extra_target_specs`, `creature_you_dont_control` for each) — the
+  RAW-printed "same specific opponent" constraint on the second target
+  isn't tracked (no such targeting relation exists; coincides by
+  construction in any 2-player game).
+
+### Five dormant engine bugs found and fixed (none previously exercised)
+
+1. **`SacrificeEffect`'s `each_player`/`each_opponent` selector** looped
+   every matching player synchronously in one `apply()` call — fine for
+   the pre-existing `each_opponent` uses (Professor Onyx's `greatest_
+   power` auto-pick, or a mass "sacrifice everything" force-take, neither
+   ever opens a real chooser), but the moment 2+ players simultaneously
+   need a genuine interactive pick (Accursed Marauder/Liliana −4 with
+   both players over the count), the second player's `request_choose_
+   objects` call silently overwrote the first's still-unanswered
+   `pending_choice` — one player's sacrifice was simply skipped forever.
+   Fixed by sequencing through `GameState.deferred_effects`
+   (`SacrificeEffect._sacrifice_each_in_order`, the same RULE 608.2
+   "suspend the rest when one effect opens a pending_choice" idiom
+   `_apply_effects_partitioned` already used for sibling *effects*, one
+   level down for remaining *players* within one effect).
+2. **`_matches_permanent_type`'s three near-duplicate copies**
+   (`misc_mixin.py`/`damage_death_mixin.py`/`rules_engine.py`, kept
+   separate per the mixin-split architecture to avoid import cycles) had
+   no `"planeswalker"`/`"battle"` branch — either word silently fell
+   through to `return True` (matches *any* permanent), discovered when
+   Liliana's −9 sacrificed nearly an opponent's entire board because its
+   "battle"/"planeswalker" passes matched everything, not nothing. All
+   three now handle both, plus the `"nontoken_creature"`/`"artifact_or_
+   creature"` words this batch's other primitives needed.
+3. **`DrawCardEffect`** read `targets[0]` whenever its own `self.player`
+   was unset and *any* `targets` list was non-empty — never checking
+   whether it had declared a `target_spec` of its own first, unlike
+   `GainLifeEffect`/`LoseLifeEffect`'s existing guard against exactly this
+   ("Destroy target creature. Draw a card."-shaped resolutions sharing one
+   `targets` list). Surfaced by Arcane Denial's own delayed-trigger
+   `draw`, which inherited the arming resolution's `[countered_spell]`
+   target and tried to hand it to `RulesEngine.draw` as a player. Same
+   `target_spec is not None` guard added.
+4. **`resolve_trigger_target_choice`'s own `answer` param** expects one
+   scalar id — not a caller bug in the engine, but the shape of the
+   *fifth* bug's discovery: this batch's own test scripts double-checked
+   assumptions from documented method signatures rather than working
+   backwards from silent-no-op behaviour, and the interactive-choice
+   plumbing is otherwise sound end to end (Kiki-Jiki, Puppeteer Clique,
+   Spark Double, Liliana −9, Black Market Connections all round-trip a
+   real `pending_choice` correctly).
+5. **`COUNTER` missing from both "which event field names the firing
+   object" tables** — `effect_binder._SUBJECT_EVENT_KEYS` (parser-facing
+   self/group-subject triggers) and `continuous._GRANTED_EVENT_KEYS`
+   (layer-6 granted-ability per-object scoping) both defaulted to
+   `instance_id` for any event not explicitly listed; `RulesEngine.
+   add_counters`'s own `COUNTER` event actually names its subject
+   `target_id`. No prior card had a self-subject or granted `COUNTER`
+   trigger, so this was silently unreachable — Danny Pink's grant fired
+   for *no* creature at all until both tables got a `"COUNTER":
+   "target_id"` row.
+
+Full backend suite: 3,568 passed (+0 net — no new dedicated test file this
+batch; every primitive was instead verified against a real `GameEngine`
+via `engine_bench.py`-style scripts, end to end, per card), 238 skipped,
+0 regressions (the one pre-existing flaky websocket test, confirmed
+passing in isolation, unrelated to any change here). `PARSER_VERSION`
+bumped 64 → 65.
+
+**Left open, tracked for a future batch** (none block Marchesa V4.2 —
+recorded so the next session doesn't have to re-derive them):
+- The "you may `<action>`. When you do, `<effect>`." optional-antecedent
+  family (RULE 603.3's genuine sub-trigger) — ~200 cache hits, the single
+  biggest template blocker found this batch. Needs a real "did the
+  optional action happen" interactive gate; this batch's own "when you
+  do" handling deliberately only covers the unconditional/mandatory-
+  antecedent case and cannot be widened to this family without it.
+- "Becomes the target of a spell/ability" as a real `EventType` — Ward is
+  checked directly at cast-time today, not through the event bus, so no
+  general "X becomes a target" trigger exists. Blocks Goldspan Dragon's
+  own "attacks **or becomes the target of a spell**" half (modeled as
+  "attacks" only this batch) and Tectonic Giant (2 cards total).
+  Goldspan's other simplification — Treasures keep their default 1-mana
+  sacrifice ability rather than the printed "add two mana of any one
+  color" upgrade — is a separate gap: `grant_mana_ability`'s granted
+  options are always a repeatable tap-only ability, with no way to
+  express a *replacement* sacrifice-cost one.
+- The RULE 601.2f "Expertise" cycle template ("you may cast a spell with
+  mana value N or less from your hand without paying its mana cost") —
+  8 real cards (Kari Zev's/Sram's/Yahenni's/Baral's/Rishkar's Expertise,
+  Electrodominance, Epistolary Librarian, Coveted Prize). Kari Zev's
+  Expertise ships this batch with only its threaten half; the free-cast
+  half needs a genuinely new interactive "which hand card, if any" choice
+  opening a temporary free-cast window.
+- Agatha's Soul Cauldron's mana-spend-restriction-lift and dynamic
+  ability-borrowing clauses (see above) — both real, both substantial,
+  neither built.
+
+**MEC-22 · Graveyard-sourced statics: the Anger cycle's other four**
+(2026-08-10, same day as the batch above). Anger's own build left its four
+siblings deliberately unregistered ("none were in the deck that prompted
+Anger's own build") — this closed that gap directly rather than letting it
+roll to a second deferral. All four are the identical `"from_graveyard":
+True` shape `_anger` already established, just the granted keyword/land
+type swapped: Brawn (trample/Forest), Filth (swampwalk/Swamp), Valor
+(first strike/Plains), Wonder (flying/Island) — each a `grant_keyword`
+static with an `active_if` `control_count` gate on
+`lands_you_control_of_type_<x>`, exactly Anger's own params shape. A
+fifth card from the same real Incarnation/Portal cycle, Riftstone Portal,
+is the one structural variant: it grants a **mana ability**
+(`grant_mana_ability`, `affects="lands_you_control"`, `mana=[{"G": 1},
+{"W": 1}]`) rather than a keyword, and has no board-state gate at all
+(unconditional once in the graveyard) — same `"from_graveyard": True`
+marker, since `_battlefield_static_abilities`'s graveyard scan checks
+only `isinstance(ab, StaticAbility)` and the marker, not which kind of
+static it is. None of the five cards' own printed keyword/mana ability
+(Brawn's Trample, Riftstone Portal's own "{T}: Add {C}.") needed an
+`AbilitySpec` — those are read directly off `Card.keywords`/the printed
+mana-ability text by `combat.py`/`continuous.py`/`mana_abilities.py`,
+independent of the catalogue, the same reason Anger's own entry never
+declared a keyword for itself. Verified end to end against a real
+`GameEngine` per card (graveyard placement + the relevant basic land →
+`continuous.recompute` → the keyword/mana option appears; removing the
+land, or leaving the graveyard, removes it again) rather than a dedicated
+test file — no new engine behaviour, same idiom Anger's own closure used.
+Full suite: 3,567 passed, 238 skipped, 1 pre-existing flaky websocket
+test (passes in isolation, unrelated). No `PARSER_VERSION` bump — these
+are catalogue registrations, not parser-classification changes, and
+`coverage_db.content_hash` already folds `is_registered()` into its key
+for exactly this case (`services/coverage_db.py`'s own doc comment).
+Coverage: 11,215 → 11,220 / 34,811 (32.2%, unchanged at this precision).

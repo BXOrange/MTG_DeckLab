@@ -290,6 +290,17 @@ def group_selector_objects(
             o for o in battlefield
             if o.is_creature and o.controller_id == controller_id and o is not src
         ]
+    elif affects == "other_nonhuman_creatures_you_control":
+        # "Other non-Human creatures you control get +1/+1 and have
+        # undying." (Mikaeus, the Unhallowed) — ``other_creatures_you_
+        # control`` narrowed by a negated subtype, the same shape
+        # `nonlegendary_creatures_you_control` uses for a negated
+        # supertype.
+        result = [
+            o for o in battlefield
+            if o.is_creature and o.controller_id == controller_id and o is not src
+            and not _has_subtype(o, "human")
+        ]
     elif affects == "attacking_creatures":
         # "Attacking creatures get +1/+1 until end of turn." (Motivated
         # Pony) — unscoped by controller, matching the literal printed
@@ -576,6 +587,21 @@ def _battlefield_static_abilities(state: "GameState") -> list[StaticAbility]:
         for ab in getattr(src, "static_effects", [])
         if isinstance(ab, StaticAbility)
     ]
+    # RULE 112.7a's own printed exception — "As long as this card is in
+    # your graveyard [and `<condition>`], `<static>`." (Anger/Brawn/Filth/
+    # Valor/Wonder-shaped) is one of the rare statics that explicitly
+    # functions from a zone other than the battlefield. Scanned separately
+    # from `sources` above, and filtered to just the ``from_graveyard``-
+    # marked ability, so a graveyard card's *other*, ordinary abilities
+    # (which do NOT function there) can't leak through by sharing a source
+    # with this one. Re-derived fresh every pass like everything else here:
+    # the moment the card leaves the graveyard it's simply not found here
+    # again, no separate "un-stamp on leave" bookkeeping needed.
+    for player in state.players:
+        for obj in player.graveyard:
+            for ab in getattr(obj, "static_effects", []):
+                if isinstance(ab, StaticAbility) and ab.params.get("from_graveyard"):
+                    abilities.append(ab)
     # RULE 611: continuous effects created by a *resolving* spell or ability
     # rather than printed on a permanent ("Until your next turn, creatures you
     # control get +1/+1"). They live on the state (`GameState.
@@ -918,7 +944,7 @@ def _protection_qualities(ability: StaticAbility) -> set[str]:
 #: identifies *which object* a grantable event is about. Kept as a local
 #: copy rather than imported (`continuous.py` stays free of `effect_binder`
 #: imports; it's one entry, not worth a shared-module indirection).
-_GRANTED_EVENT_KEYS: dict[str, str] = {"DAMAGE": "source_id"}
+_GRANTED_EVENT_KEYS: dict[str, str] = {"DAMAGE": "source_id", "COUNTER": "target_id"}
 
 #: RULE 119.3 player-subject grantable events ("Equipped creature has
 #: 'Whenever **you** gain life, …'" — Field-Tested Frying Pan/Light of

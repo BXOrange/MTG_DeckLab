@@ -149,7 +149,9 @@ ALLOWED_ALT_COST_KEYS: frozenset[str] = frozenset(
 #: an additional cost is recognized off a fixed template, not open cost text;
 #: `game/costs.py`'s `parse_activation_cost` still does the actual charging,
 #: fed this dict the same way it already accepts an `AbilitySpec.cost` dict.
-_ADDITIONAL_COST_SACRIFICE_TYPES: frozenset[str] = frozenset({"creature", "artifact", "land"})
+_ADDITIONAL_COST_SACRIFICE_TYPES: frozenset[str] = frozenset(
+    {"creature", "artifact", "land", "artifact_or_creature"}
+)
 
 
 class SpecValidationError(ValueError):

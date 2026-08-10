@@ -100,10 +100,24 @@ def _matches_permanent_type(obj: GameObject, what: str) -> bool:
         return obj.card.is_enchantment
     if what == "land":
         return obj.is_land
+    if what == "planeswalker":
+        return obj.card.is_planeswalker
+    if what == "battle":
+        return obj.card.is_battle
+    if what == "nontoken_creature":
+        # RULE 111.8/701.17: "each player sacrifices a nontoken creature of
+        # their choice" (Accursed Marauder/Liliana, Dreadhorde General's own
+        # -4 — the edict family's most common creature-type qualifier).
+        return obj.is_creature and not obj.is_token
     if what == "creature_or_planeswalker":
         # RULE 306/302: Tevesh Szat's "another creature or planeswalker" —
         # the one compound word any shipped card needs.
         return obj.is_creature or obj.card.is_planeswalker
+    if what == "artifact_or_creature":
+        # Deadly Dispute/Costly Plunder-shaped "sacrifice an artifact or
+        # creature" additional cost — the single most-repeated compound
+        # sacrifice cost in the cache.
+        return obj.is_creature or obj.card.is_artifact
     if what == "creature_artifact_or_land":
         # PAR-13: "sacrifice a creature, artifact, or land of their choice"
         # (Tomb of Annihilation's "Sandfall Cell" dungeon room) — the

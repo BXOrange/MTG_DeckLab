@@ -421,6 +421,19 @@ def _damage_selector(m: re.Match[str]) -> list[EffectSpec]:
     return [EffectSpec("damage", {"amount": int(m.group("n")), "selector": selector})]
 
 
+#: "Each creature deals N damage to its controller." (Rakdos Charm) — unlike
+#: `_DAMAGE_SELECTOR_WORDS`'s rows, the subject here is "each creature"
+#: itself, not "~"/the source, and the recipient varies per creature
+#: (`effects.DealDamageEffect`'s ``"each_creature_controller"`` selector).
+_DAMAGE_EACH_CREATURE_TO_CONTROLLER_RE = _c(
+    rf"each creature deals {NUMBER} damage to its controller"
+)
+
+
+def _damage_each_creature_to_controller(m: re.Match[str]) -> list[EffectSpec]:
+    return [EffectSpec("damage", {"amount": int(m.group("n")), "selector": "each_creature_controller"})]
+
+
 def _draw(m: re.Match[str]) -> list[EffectSpec]:
     # `COUNT_X` also matches a literal "x" (RULE 107.3c's own announced
     # {X}, "draw X cards" — Contaminated Drink), resolved via the same
@@ -689,6 +702,36 @@ def _discard(m: re.Match[str]) -> list[EffectSpec]:
     return [EffectSpec("discard", params)]
 
 
+#: RULE 601.2c mass edict — "each player sacrifices a nontoken creature of
+#: their choice" (Accursed Marauder-shaped) / "each player sacrifices N
+#: creatures of their choice" (Liliana, Dreadhorde General's own -4) — each
+#: player independently choosing their own victim(s) via `effects.
+#: SacrificeEffect`'s ``selector="each_player"``/``"each_opponent"``, not a
+#: random/rules-picked edict (RulesEngine.sacrifice is a real interactive
+#: choice per player).
+_SACRIFICE_EDICT_SELECTOR_WORDS: dict[str, str] = {
+    "each player": "each_player", "each opponent": "each_opponent",
+}
+_SACRIFICE_EDICT_WHAT_WORDS: dict[str, str] = {
+    "creature": "creature", "artifact": "artifact", "land": "land", "permanent": "permanent",
+}
+_SACRIFICE_EDICT_RE = _c(
+    rf"(?P<selector>{'|'.join(_SACRIFICE_EDICT_SELECTOR_WORDS)}) sacrifices? "
+    rf"(?P<count>a|an|\d+) (?P<nontoken>nontoken )?"
+    rf"(?P<what>{'|'.join(_SACRIFICE_EDICT_WHAT_WORDS)})s? of their choice"
+)
+
+
+def _sacrifice_edict(m: re.Match[str]) -> list[EffectSpec]:
+    selector = _SACRIFICE_EDICT_SELECTOR_WORDS[m.group("selector")]
+    what = _SACRIFICE_EDICT_WHAT_WORDS[m.group("what")]
+    if m.group("nontoken") and what == "creature":
+        what = "nontoken_creature"
+    count_word = m.group("count")
+    count = 1 if count_word in ("a", "an") else int(count_word)
+    return [EffectSpec("sacrifice", {"selector": selector, "what": what, "count": count})]
+
+
 #: "Each player loses N life unless they discard a card."/"...unless they
 #: sacrifice a creature, artifact, or land of their choice." (PAR-13, Tomb
 #: of Annihilation's "Veils of Fear"/"Sandfall Cell" dungeon rooms) — RULE
@@ -749,10 +792,17 @@ def _gain_life(m: re.Match[str]) -> list[EffectSpec]:
 
 def _lose_life(m: re.Match[str]) -> list[EffectSpec]:
     # "you lose N life" / "target player loses N life" — same targeting
-    # split as `_gain_life`.
+    # split as `_gain_life`. "they lose N life" (Sheoldred, the Apocalypse's
+    # "whenever an opponent draws a card, they lose 2 life.") is the group-
+    # subject trigger's own firing player, not a fresh RULE 115 target —
+    # `LoseLifeEffect`'s ``selector="event_player"``, the same "that player"
+    # idiom `_DAMAGE_SELECTOR_WORDS`'s ``"event_player"`` row already uses.
+    who = (m.groupdict().get("who") or "").strip()
     params: dict = {"amount": int(m.group("n"))}
-    if (m.groupdict().get("who") or "").strip() == "target player":
+    if who == "target player":
         params["target_kind"] = "player"
+    elif who == "they":
+        params["selector"] = "event_player"
     return [EffectSpec("lose_life", params)]
 
 
@@ -1625,13 +1675,21 @@ _SEARCH_MV_QUALIFIER = (
     r"(?: with mana value (?P<mv>\d+|x) or (?P<mv_cmp>greater|less))?"
 )
 #: The noun phrase after "search your library for": a determiner ("a"/"an"/
-#: "up to N"), then either "basic land" (sets `basic`) or a `_SEARCH_TYPE_
-#: LIST` (sets `types`) or neither (a bare "a card"), then "card(s)", then
-#: an optional trailing mana-value qualifier.
+#: "up to N"), an optional "basic" qualifier (sets `basic`), then either a
+#: `_SEARCH_TYPE_LIST` (sets `types` — "land" is itself one of that list's
+#: words, so bare "basic land" still resolves to ``{"basic": True}`` with no
+#: separate case) or neither (a bare "a card"), then "card(s)", then an
+#: optional trailing mana-value qualifier. "Basic" and a type list combine
+#: freely — "a basic Forest, Plains, or Island card" (the Panorama/Landscape/
+#: Monument tri-land fetch cycles, Bant Panorama-shaped: ~40 real cards on
+#: this exact combined shape) narrows the search to *basic* lands of *those*
+#: named types, not "basic land" (any basic) or a bare type list (any card of
+#: that type, not necessarily basic) alone.
 _SEARCH_CRITERIA = (
     r"(?:up to (?P<count>\d+)|an?)\s+"
     rf"(?:(?P<color>{_SEARCH_COLOR_WORD})\s+)?"
-    rf"(?:(?P<basic>basic land)|(?P<types>{_SEARCH_TYPE_LIST}))?\s*"
+    r"(?:(?P<basic>basic)\s+)?"
+    rf"(?P<types>{_SEARCH_TYPE_LIST})?\s*"
     r"cards?"
     + _SEARCH_MV_QUALIFIER
 )
@@ -1707,13 +1765,20 @@ def _search_color_from_match(m: re.Match[str]) -> Optional[str]:
 
 
 def _search_criteria_from_match(m: re.Match[str]) -> dict:
-    if m.groupdict().get("basic"):
-        crit: dict = {"basic": True}
-    else:
-        crit = {}
-        types = m.groupdict().get("types")
-        if types:
-            words = [t.strip() for t in re.split(r",\s*or\s+|,\s*|\s+or\s+", types) if t.strip()]
+    crit: dict = {}
+    basic = bool(m.groupdict().get("basic"))
+    if basic:
+        crit["basic"] = True
+    types = m.groupdict().get("types")
+    if types:
+        words = [t.strip() for t in re.split(r",\s*or\s+|,\s*|\s+or\s+", types) if t.strip()]
+        # Bare "basic land" stays `{"basic": True}` alone (pre-existing
+        # shape, Rampant Growth) — "land" is redundant once `basic` is set
+        # (every basic card is a land), so it's only kept as a `type` filter
+        # when it names something *besides* plain "land" ("a basic Forest,
+        # Plains, or Island card" — the Panorama/Landscape/Monument tri-land
+        # cycles, `_SEARCH_CRITERIA`'s combined basic+type-list shape).
+        if not (basic and words == ["land"]):
             crit["type"] = words if len(words) > 1 else words[0]
     color = _search_color_from_match(m)
     if color:
@@ -1914,6 +1979,52 @@ _GAIN_CONTROL_BY_OPPONENT_RE = _c(
 
 def _gain_control_by_opponent(m: re.Match[str]) -> list[EffectSpec]:
     return [EffectSpec("gain_control_by_source", {"recipient": "opponent"})]
+
+
+#: RULE 108.4-adjacent "threaten" effect — "Gain control of target creature
+#: until end of turn." (Act of Treason/Act of Aggression/Claim the
+#: Firstborn-shaped — the single most-repeated effect template in the whole
+#: cache, ~90 real cards). `effects.GainControlUntilEndOfTurnEffect` already
+#: bundles the control change, untap, and haste grant into one atomic effect
+#: (built for the hand-authored Zealous Conscripts); this only teaches the
+#: parser the oracle-text shape, including its optional "with mana value N
+#: or less" cap (Claim the Firstborn, `TargetSpec.max_mana_value`, the same
+#: param `destroy_mv` uses). The trailing "Untap that creature[.] It gains
+#: haste until end of turn." pair is recognized separately, in `segmenter.
+#: parse_effect_body` (`_GAIN_CONTROL_HASTE_TAIL_RE`) — it's not a second
+#: effect, just the card restating in words what this one already does, so
+#: it's absorbed there rather than re-parsed into a second (redundant, and
+#: RULE-115-target-doubling-risky) untap/haste effect here.
+_GAIN_CONTROL_EOT_RE = _c(
+    rf"gain control of {TARGET}(?: with mana value (?P<mv>\d+) or less)? until end of turn"
+)
+
+
+def _gain_control_eot(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    kind = resolve_target_kind(m.group("target"))
+    if kind is None or kind not in ("creature", "creature_you_dont_control", "permanent"):
+        return None
+    params: dict = {"target_kind": kind, **_optional_param(m)}
+    if m.group("mv"):
+        params["max_mana_value"] = int(m.group("mv"))
+    return [EffectSpec("gain_control_until_eot", params)]
+
+
+#: The untargeted mass sibling — "Untap all creatures and gain control of
+#: them until end of turn. They gain haste until end of turn." (Insurrection)
+#: — RULE 601.2c's "all creatures" over the same `GainControlUntilEndOfTurnEffect`,
+#: `selector="all_creatures"` (`effects._mass_selector_objects`). A whole-body
+#: match (both sentences, like `_DESTROY_ALL_NO_REGEN_RE`) rather than the
+#: `_GAIN_CONTROL_HASTE_TAIL_RE` two-step above, since the only real card
+#: printing this exact mass shape has nothing before or after it to split on.
+_GAIN_CONTROL_ALL_RE = _c(
+    r"untap all creatures and gain control of them until end of turn\."
+    r"\s*they gain haste until end of turn"
+)
+
+
+def _gain_control_all(m: re.Match[str]) -> list[EffectSpec]:
+    return [EffectSpec("gain_control_until_eot", {"selector": "all_creatures"})]
 
 
 #: "Shuffle ~ into its owner's library." (RULE 701.20 — Green Sun's Zenith's
@@ -3880,6 +3991,12 @@ HANDLERS: list[EffectHandler] = [
         ),
         _damage_selector,
     ),
+    # "Each creature deals 1 damage to its controller." (Rakdos Charm).
+    EffectHandler(
+        "damage_each_creature_to_controller",
+        _DAMAGE_EACH_CREATURE_TO_CONTROLLER_RE,
+        _damage_each_creature_to_controller,
+    ),
     # "You may pay <cost>. If you do, draw a card." (RULE 118.3).
     EffectHandler(
         "pay_cost_then_draw",
@@ -3973,6 +4090,14 @@ HANDLERS: list[EffectHandler] = [
         _EACH_PLAYER_LOSE_LIFE_UNLESS_RE,
         _each_player_lose_life_unless,
     ),
+    # "each player/opponent sacrifices a[n] [nontoken] creature/artifact/
+    # land/permanent of their choice" (Accursed Marauder/Liliana, Dreadhorde
+    # General's -4 mass edict).
+    EffectHandler(
+        "sacrifice_edict",
+        _SACRIFICE_EDICT_RE,
+        _sacrifice_edict,
+    ),
     # PAR-13: "discard a card and sacrifice a creature, an artifact, and a
     # land." — Oubliette's own compound mandatory punishment.
     EffectHandler(
@@ -3986,10 +4111,11 @@ HANDLERS: list[EffectHandler] = [
         _c(rf"(?P<who>you |target player )?gains? {NUMBER} life"),
         _gain_life,
     ),
-    # "you lose 2 life" / "target player loses 2 life"
+    # "you lose 2 life" / "target player loses 2 life" / "they lose 2 life"
+    # (the group-subject event's own player — see `_lose_life`'s docstring).
     EffectHandler(
         "lose_life",
-        _c(rf"(?P<who>you |target player )?loses? {NUMBER} life"),
+        _c(rf"(?P<who>you |target player |they )?loses? {NUMBER} life"),
         _lose_life,
     ),
     # "each opponent loses 2 life" / "each player loses 2 life" (RULE
@@ -4420,6 +4546,21 @@ HANDLERS: list[EffectHandler] = [
         "gain_control_by_opponent",
         _GAIN_CONTROL_BY_OPPONENT_RE,
         _gain_control_by_opponent,
+    ),
+    # "gain control of target creature [with mana value N or less] until
+    # end of turn" (Act of Treason/Claim the Firstborn-shaped threaten
+    # effect).
+    EffectHandler(
+        "gain_control_eot",
+        _GAIN_CONTROL_EOT_RE,
+        _gain_control_eot,
+    ),
+    # "Untap all creatures and gain control of them until end of turn. They
+    # gain haste until end of turn." (Insurrection's own mass threaten).
+    EffectHandler(
+        "gain_control_all",
+        _GAIN_CONTROL_ALL_RE,
+        _gain_control_all,
     ),
     # "attach it to target creature you control" / "attach ~ to target
     # creature you control" (an Equipment's own ETB self-attach).

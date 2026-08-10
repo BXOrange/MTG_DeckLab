@@ -99,6 +99,19 @@ def _matches_permanent_type(obj: GameObject, what: str) -> bool:
         return obj.card.is_enchantment
     if what == "land":
         return obj.is_land
+    if what == "planeswalker":
+        return obj.card.is_planeswalker
+    if what == "battle":
+        return obj.card.is_battle
+    if what == "nontoken_creature":
+        # RULE 111.8/701.17: "each player sacrifices a nontoken creature of
+        # their choice" (Accursed Marauder/Liliana, Dreadhorde General's own
+        # -4 — the edict family's most common creature-type qualifier).
+        return obj.is_creature and not obj.is_token
+    if what == "artifact_or_creature":
+        # Deadly Dispute/Costly Plunder-shaped "sacrifice an artifact or
+        # creature" additional cost.
+        return obj.is_creature or obj.card.is_artifact
     if what == "creature_or_planeswalker":
         # RULE 306/302: Tevesh Szat's "another creature or planeswalker" —
         # the one compound word any shipped card needs.
@@ -414,7 +427,7 @@ class DamageDeathMixin:
         sacrifice (RULE 701.17) uses this too, for the same reason.
         """
         self._move_to_graveyard(obj, cause="sacrifice")
-    def sacrifice(self, player: Player, what: str = "permanent", count: int = 1) -> None:
+    def sacrifice(self, player: Player, what: str = "permanent", count: "int | str" = 1) -> None:
         """``player`` sacrifices up to ``count`` permanents matching ``what``
         (RULE 701.17) — an effect-driven sacrifice (annihilator, RULE
         702.86), not a cost payment (`GameEngine._sacrifice_candidate`
@@ -428,12 +441,21 @@ class DamageDeathMixin:
         as before), but a defending player facing Annihilator on a board
         with more permanents than the trigger demands genuinely gets to
         choose which ones go.
+
+        ``count="all_but_one"`` (Liliana, Dreadhorde General's -9 — "choose
+        a permanent of each type and sacrifice the rest", reframed as
+        "sacrifice all but one of each type in turn") resolves against the
+        *live* candidate count at this call, same "choose which ones go"
+        shape as a literal int, just always leaving exactly one behind
+        (0 candidates → nothing to do, 1 → nothing to choose, forced).
         """
         candidates = [
             obj
             for obj in self.state.permanents_controlled_by(player.id)
             if _matches_permanent_type(obj, what)
         ]
+        if count == "all_but_one":
+            count = max(0, len(candidates) - 1)
         self.request_choose_objects(
             player, candidates, "sacrifice", count=count,
             prompt="Wähle eine bleibende Karte zum Opfern",

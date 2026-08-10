@@ -232,8 +232,9 @@ class GameContext:
         # for a following "the tokens …" clause — see `created_objects`.
         return self.engine.create_token(controller_id, token_card, count)
 
-    def copy_permanent(self, controller_id: str, source: "GameObject", count: int = 1) -> None:
-        self.engine.copy_permanent(controller_id, source, count)
+    def copy_permanent(self, controller_id: str, source: "GameObject", count: int = 1) -> list[Any]:
+        # Returns what it made, same as `create_token` — see `created_objects`.
+        return self.engine.copy_permanent(controller_id, source, count)
 
     def copy_spell(
         self,
@@ -1839,7 +1840,13 @@ _DAMAGE_SELECTORS: frozenset[str] = frozenset(
      # helper `PayCostThenEffect`'s ``payer="event_player"`` already reads),
      # not a RULE 115 target: the ability names its own firing condition's
      # actor, the caster never chooses who gets hit.
-     "event_player"}
+     "event_player",
+     # "Each creature deals 1 damage to its controller." (Rakdos Charm's
+     # own third mode) — unlike every other row here, the *recipient*
+     # varies per creature (that creature's own controller), so this is N
+     # independent single-recipient hits (all sharing the same flat
+     # ``amount``) rather than one amount fanned out to a fixed group.
+     "each_creature_controller"}
 )
 
 
@@ -2087,6 +2094,19 @@ class DealDamageEffect(GameEffect):
             if player is not None:
                 context.deal_damage(player, amount, self.source)
             return
+        if self.selector == "each_creature_controller":
+            # "Each creature deals 1 damage to its controller." (Rakdos
+            # Charm) — snapshot the list first: a creature's own damage can
+            # kill its controller's other creatures via state-based actions
+            # mid-loop, which must not skip or reorder anyone still owed a
+            # hit.
+            for obj in list(context.state.battlefield):
+                if not obj.is_creature:
+                    continue
+                owner = context.state.player_by_id(obj.controller_id)
+                if owner is not None:
+                    context.deal_damage(owner, amount, obj)
+            return
         for player in context.state.living_players():
             if self.selector == "each_opponent" and player.id == controller_id:
                 continue
@@ -2155,7 +2175,19 @@ class DrawCardEffect(GameEffect):
                     continue
                 context.draw(p, self.count)
             return
-        player = self.player or (targets[0] if targets else None) or _controller_of(self.source, context)
+        # Like `GainLifeEffect`/`LoseLifeEffect`: only consume the shared
+        # `targets` list when this effect actually declared a target_spec
+        # of its own (`target_kind` set) — otherwise a `targets[0]` left
+        # over from a *different* targeting effect in the same resolution
+        # (Deathrite Shaman-shaped "Exile target creature card... Draw a
+        # card.", or a delayed trigger that inherited its arming
+        # resolution's own targets) would silently get handed to
+        # `RulesEngine.draw` as if it were a chosen player.
+        player = self.player
+        if player is None and self.target_spec is not None and targets:
+            player = targets[0]
+        if player is None:
+            player = _controller_of(self.source, context)
         count = self.count
         if self.count_selector == "auras_and_equipment_attached_to_self":
             count = _attached_auras_and_equipment_count(context, self.source)
@@ -2496,19 +2528,31 @@ class DestroyEffect(GameEffect):
         creature_filter: Optional[dict[str, Any]] = None,
         distinct_controllers: bool = False,
         exclude_created: bool = False,
+        target_from_trigger_event: Optional[str] = None,
     ) -> None:
         super().__init__(source)
         self.target = target
         self.selector = selector if selector in _MASS_DESTROY_SELECTORS else None
         self.filter = filter
         self.can_be_regenerated = can_be_regenerated
+        #: "Whenever a Human deals damage to you, destroy it." (Mikaeus,
+        #: the Unhallowed) — "it" is the *source* of the very DAMAGE event
+        #: that fired this trigger (a group-subject trigger, so there's no
+        #: single chosen creature to fall back on the way a self-subject
+        #: "when ~ deals damage" trigger's implicit "it" would be) — the
+        #: event field name to read off `GameContext.trigger_event` (its
+        #: own ``"source_id"``), resolved fresh at apply-time since the
+        #: dealer varies firing to firing. Same "read this firing's own
+        #: payload" idiom `DealDamageEffect.amount_from_trigger_event` uses
+        #: for a magnitude instead of an object reference.
+        self.target_from_trigger_event = target_from_trigger_event
         #: "Create X tokens. If X is 5 or more, destroy all **other**
         #: creatures." (Martial Coup) — RULE 608.2's "the tokens" referent
         #: excluded from a mass wipe in the *same* resolution
         #: (`GameContext.created_objects`), the mirror image of
         #: `AttachEffect`'s ``target_kind="created"`` reading the same list.
         self.exclude_created = exclude_created
-        if self.selector is None:
+        if self.selector is None and target_from_trigger_event is None:
             self.target_spec = TargetSpec(
                 kind=target_kind, optional=optional, count=count, color=color,
                 max_mana_value=max_mana_value, creature_filter=creature_filter,
@@ -2519,6 +2563,13 @@ class DestroyEffect(GameEffect):
         return "harmful"
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        if self.target_from_trigger_event:
+            event = context.trigger_event or {}
+            source_id = event.get(self.target_from_trigger_event)
+            target = context.state.find_object(source_id) if source_id is not None else None
+            if target is not None:
+                context.destroy(target, can_be_regenerated=self.can_be_regenerated)
+            return
         if self.selector is not None:
             excluded = set(context.created_objects) if self.exclude_created else ()
             for obj in _mass_selector_objects(context, self.selector, self.filter):
@@ -2751,6 +2802,11 @@ class LoseLifeEffect(GameEffect):
     ``selector="each_opponent"``/``"each_player"`` (RULE 601.2c) instead
     hits every matching player, the same mass-effect shape
     `DealDamageEffect.selector` uses for "~ deals N damage to each player".
+    ``selector="event_player"`` (Sheoldred, the Apocalypse's "whenever an
+    opponent draws a card, **they** lose 2 life.") resolves against
+    whoever the *firing event itself* names (`_event_player`, the same
+    "that player" idiom `DealDamageEffect.selector` already uses for a
+    damage trigger) rather than this ability's controller.
 
     Like `GainLifeEffect`, the plain (no-selector) path never falls back to
     a shared ``targets`` list — this effect declares no `target_spec` of
@@ -2849,6 +2905,8 @@ class LoseLifeEffect(GameEffect):
             player = targets[0] if targets else None
         if player is None and self.selector == "defending_player":
             player = _defending_player_of(self.source, context)
+        if player is None and self.selector == "event_player":
+            player = _event_player(context, key="player_id")
         if player is None:
             player = _controller_of(self.source, context)
         context.lose_life(player, amount)
@@ -2996,7 +3054,7 @@ class SacrificeEffect(GameEffect):
 
     def __init__(
         self,
-        count: int = 1,
+        count: "int | str" = 1,
         what: str = "permanent",
         player: Any = None,
         selector: Optional[str] = None,
@@ -3004,18 +3062,36 @@ class SacrificeEffect(GameEffect):
         source: Optional["GameObject"] = None,
     ) -> None:
         super().__init__(source)
+        #: An int, or the ``"all_but_one"`` sentinel (`RulesEngine.sacrifice`
+        #: resolves it against the live candidate count at apply-time).
         self.count = count
         self.what = what
         self.player = player
         self.selector = selector
         self.greatest_power = greatest_power
 
+    #: A resumed continuation's own remaining-players list (see
+    #: `_sacrifice_each_in_order`) — never set by a parsed `EffectSpec`
+    #: (outside the whitelisted-param security boundary on purpose: this is
+    #: pure runtime state, constructed only by this class itself), only by
+    #: this class re-scheduling its own remainder.
+    _remaining_players: Optional[list["Player"]] = None
+
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        if self._remaining_players is not None:
+            self._sacrifice_each_in_order(context, self._remaining_players)
+            return
         if self.selector == "each_opponent":
             controller_id = getattr(self.source, "controller_id", None)
-            for opponent in context.state.living_players():
-                if opponent.id != controller_id:
-                    self._sacrifice_one(context, opponent)
+            players = [p for p in context.state.living_players() if p.id != controller_id]
+            self._sacrifice_each_in_order(context, players)
+            return
+        if self.selector == "each_player":
+            # RULE 601.2c mass edict — "each player sacrifices <what> of
+            # their choice" (Accursed Marauder/Liliana, Dreadhorde General's
+            # -4) — the `each_opponent` sibling that also includes the
+            # ability's own controller.
+            self._sacrifice_each_in_order(context, list(context.state.living_players()))
             return
         player = self.player or (targets[0] if targets else None)
         if player is None and self.selector == "defending_player":
@@ -3023,6 +3099,46 @@ class SacrificeEffect(GameEffect):
         if player is None:
             return
         self._sacrifice_one(context, player)
+
+    def _sacrifice_each_in_order(self, context: GameContext, players: list["Player"]) -> None:
+        """`each_opponent`/`each_player` — one player's choice at a time.
+
+        `context.sacrifice` opens a real `pending_choice` (RULE 601.2c)
+        whenever a player has more matching permanents than ``count``.
+        Looping every player synchronously in one `apply()` would silently
+        overwrite an earlier player's still-unanswered prompt with a later
+        one's — the game state holds exactly one `pending_choice` at a time
+        (RULE 608.2, the same reason `_apply_effects_partitioned` parks a
+        resolution's remaining *effects*; this is that same idiom one level
+        down, for remaining *players* within a single effect). If a choice
+        actually opened for this player and others remain, the rest are
+        parked on `GameState.deferred_effects` as a fresh `SacrificeEffect`
+        carrying just its own remaining-players list, resumed by
+        `RulesEngine.resume_deferred_effects` once this one is answered.
+        """
+        state = context.state
+        for i, player in enumerate(players):
+            before = getattr(state, "pending_choice", None)
+            self._sacrifice_one(context, player)
+            opened = getattr(state, "pending_choice", None)
+            if opened is not None and opened is not before and i + 1 < len(players):
+                remainder = SacrificeEffect(
+                    count=self.count, what=self.what, greatest_power=self.greatest_power,
+                    source=self.source,
+                )
+                remainder._remaining_players = players[i + 1:]
+                state.deferred_effects.append(
+                    {
+                        "effects": [remainder],
+                        "targets": None,
+                        "target_groups": None,
+                        "group_index": 0,
+                        "source": self.source,
+                        "previous_targets": list(getattr(context, "previous_targets", [])),
+                        "created_objects": list(getattr(context, "created_objects", [])),
+                    }
+                )
+                return
 
     def _sacrifice_one(self, context: GameContext, player: "Player") -> None:
         if not self.greatest_power:
@@ -3984,28 +4100,52 @@ class GainControlUntilEndOfTurnEffect(GameEffect):
         source: Optional["GameObject"] = None,
         target_kind: str = "permanent",
         haste: bool = True,
+        max_mana_value: Optional[int] = None,
+        selector: Optional[str] = None,
     ) -> None:
         super().__init__(source)
         self.target = target
-        self.target_spec = TargetSpec(kind=target_kind)
+        #: "Untap **all creatures** and gain control of them until end of
+        #: turn." (Insurrection) — the untargeted RULE 601.2c mass sibling
+        #: of the single-target form above, same ``_mass_selector_objects``
+        #: vocabulary `DestroyEffect.selector` uses. Only ``"all_creatures"``
+        #: is meaningful here (no real card needs a different mass filter),
+        #: but the param is named/shaped like every other mass effect's for
+        #: consistency.
+        self.selector = selector
+        if self.selector is None:
+            #: "Gain control of target creature **with mana value 3 or
+            #: less**" (Claim the Firstborn) — a target-offer-time cap, the
+            #: same `TargetSpec.max_mana_value` `DestroyEffect`/`destroy_mv`
+            #: already use.
+            self.target_spec = TargetSpec(kind=target_kind, max_mana_value=max_mana_value)
         self.haste = haste
 
     def target_polarity(self) -> Optional[str]:
         return "harmful"
 
-    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
-        target = (targets[0] if targets else None) or self.target
-        if target is None:
-            return
-        controller = _controller_of(self.source, context)
-        if controller is None or target.controller_id == controller.id:
-            return
-        if target.control_change_until_eot is None:
-            target.control_change_until_eot = target.controller_id
-        target.controller_id = controller.id
+    def _take(self, context: GameContext, target: "GameObject", controller: "Player") -> None:
+        if target.controller_id != controller.id:
+            if target.control_change_until_eot is None:
+                target.control_change_until_eot = target.controller_id
+            target.controller_id = controller.id
         context.set_tapped(target, tapped=False)
         if self.haste:
             target.temp_keywords.add("haste")
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        controller = _controller_of(self.source, context)
+        if controller is None:
+            return
+        if self.selector is not None:
+            for obj in _mass_selector_objects(context, self.selector, None):
+                self._take(context, obj, controller)
+            context.recompute()
+            return
+        target = (targets[0] if targets else None) or self.target
+        if target is None:
+            return
+        self._take(context, target, controller)
         context.recompute()
 
 
@@ -4942,11 +5082,16 @@ class ReturnFromGraveyardEffect(GameEffect):
         count: int = 1,
         shuffle_after: bool = False,
         subtype: Optional[str] = None,
+        haste: bool = False,
     ) -> None:
         super().__init__(source)
         self.target = target
         self.destination = destination if destination in self._DESTINATIONS else "battlefield"
         self.under_your_control = under_your_control
+        #: "It gains haste." (Puppeteer Clique-shaped reanimate-and-exile) —
+        #: a temp keyword grant on the returned permanent, same idiom
+        #: `CopyPermanentEffect.haste` uses.
+        self.haste = haste
         # RULE 701.3 rider: "You lose life equal to that creature's mana
         # value." (Reanimate) — read off the returned card, paid by the
         # effect's own controller, after the return resolves.
@@ -4974,6 +5119,16 @@ class ReturnFromGraveyardEffect(GameEffect):
         mv = getattr(getattr(target, "card", None), "converted_mana_cost", 0) or 0
         owner_id = getattr(target, "owner_id", None)
         context.return_from_graveyard(target, self.destination, controller_id=controller_id)
+        if self.destination == "battlefield":
+            # RULE 400.7: the object's `instance_id` stays stable across
+            # the zone change (see `GameObject.reset_as_new_object`'s own
+            # docstring), so `target` is still the right reference to hand
+            # a following "it gains haste"/"exile it" clause — RULE 608.2's
+            # referent, `GameContext.created_objects`, the same list
+            # `CreateTokenEffect`/`CopyPermanentEffect` populate.
+            context.created_objects.append(target)
+            if self.haste:
+                target.temp_keywords.add("haste")
         if self.shuffle_after and owner_id is not None:
             owner = context.state.player_by_id(owner_id)
             context.shuffle_library(owner)
@@ -5249,7 +5404,44 @@ class CreateDelayedTriggerEffect(GameEffect):
                 for attr in ("amount", "count"):
                     if getattr(effect, attr, None) == "x":
                         setattr(effect, attr, captured)
-        controller_id = getattr(self.source, "controller_id", None) or context.active_player.id
+        if self.capture == "created_objects":
+            # "…Sacrifice it at the beginning of the next end step."
+            # (Kiki-Jiki, Mirror Breaker) / "…exile it." (Puppeteer
+            # Clique) — "it" names whatever *this same resolution* just
+            # created/returned (RULE 608.2's referent, `GameContext.
+            # created_objects`), not a fresh RULE 115 target — baked
+            # directly into the delayed effect the same way as every other
+            # capture here, since the object has to survive until the
+            # delayed firing without being re-chosen.
+            made = list(context.created_objects)
+            for effect in inner:
+                if hasattr(effect, "objects"):
+                    effect.objects = made
+                elif hasattr(effect, "target") and made:
+                    effect.target = made[0]
+        # "Its controller may draw up to two cards at the beginning of the
+        # next turn's upkeep." (Arcane Denial's own first sentence) — the
+        # delayed draw belongs to the countered spell's controller, not
+        # this ability's caster, so both *whose* upkeep it waits for
+        # (`DelayedTrigger.controller_id`, below) and *who* the inner
+        # `draw` effect hands cards to need that player instead of the
+        # default. Baked directly into the constructed effect objects, the
+        # same "capture a resolve-time fact the delayed firing can't see
+        # anymore" idiom `target_mana_value` uses just above — by the time
+        # this fires, the countered spell is long gone.
+        target_controller_id: Optional[str] = None
+        if self.capture == "target_controller" and targets:
+            target_controller_id = getattr(targets[0], "controller_id", None)
+            if target_controller_id is not None:
+                target_player = context.state.player_by_id(target_controller_id)
+                for effect in inner:
+                    if hasattr(effect, "player") and getattr(effect, "player", None) is None:
+                        effect.player = target_player
+        controller_id = (
+            target_controller_id
+            or getattr(self.source, "controller_id", None)
+            or context.active_player.id
+        )
         context.state.delayed_triggers.append(
             DelayedTrigger(
                 controller_id=controller_id,
@@ -7548,9 +7740,14 @@ class CopyPermanentEffect(GameEffect):
         target_kind: Optional[str] = "creature",
         count_if_kicked: Optional[int] = None,
         count_from_trigger_event: Optional[str] = None,
+        haste: bool = False,
     ) -> None:
         super().__init__(source)
         self.count = count
+        #: "…except it has haste." (Kiki-Jiki, Mirror Breaker-shaped) — a
+        #: temp keyword grant on the freshly-made token(s), the same
+        #: `temp_keywords` set every other resolve-time haste grant uses.
+        self.haste = haste
         # RULE 702.33b's *override* kicked-conditional ("Create a token
         # that's a copy of target creature. If this spell was kicked,
         # create five of those tokens instead." — Rite of Replication) —
@@ -7595,7 +7792,15 @@ class CopyPermanentEffect(GameEffect):
             event = context.trigger_event
             count = int((event or {}).get(self.count_from_trigger_event) or 0)
         if count > 0:
-            context.copy_permanent(controller_id, target, count)
+            made = context.copy_permanent(controller_id, target, count)
+            # RULE 608.2's "the tokens"/"it" referent for a following
+            # clause — `create_token`'s own effect already does this; this
+            # class just hadn't needed it until a delayed-sacrifice tail
+            # (Kiki-Jiki) had to name what got made.
+            context.created_objects.extend(made)
+            if self.haste:
+                for obj in made:
+                    obj.temp_keywords.add("haste")
 
 
 class EnterAsCopyReplacement(GameEffect):
@@ -7625,6 +7830,8 @@ class EnterAsCopyReplacement(GameEffect):
         add_subtypes: Optional[list[str]] = None,
         optional: bool = True,
         description: str = "",
+        extra_counter_if_creature: Optional[str] = None,
+        extra_counter_if_planeswalker: Optional[str] = None,
     ) -> None:
         super().__init__(None)
         self.target_kind = target_kind
@@ -7632,6 +7839,16 @@ class EnterAsCopyReplacement(GameEffect):
         self.add_subtypes = list(add_subtypes or [])
         self.optional = optional
         self.description = description
+        #: "…except it enters with an additional +1/+1 counter on it if
+        #: it's a creature[, or a loyalty counter if it's a planeswalker]."
+        #: (Spark Double) — a counter *kind* name (`RulesEngine.
+        #: add_counters`'s vocabulary), applied once the copy is made and
+        #: only when the resulting permanent is that type — a creature
+        #: copy of a planeswalker (or vice versa) never happens, but the
+        #: two are independent fields since either alone is a real printed
+        #: shape elsewhere.
+        self.extra_counter_if_creature = extra_counter_if_creature
+        self.extra_counter_if_planeswalker = extra_counter_if_planeswalker
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
         return None  # consulted by RulesEngine._offer_enter_as_copy, not applied
@@ -10073,6 +10290,7 @@ EffectRegistry.register(
         creature_filter=p.get("creature_filter"),
         distinct_controllers=bool(p.get("distinct_controllers", False)),
         exclude_created=bool(p.get("exclude_created", False)),
+        target_from_trigger_event=p.get("target_from_trigger_event"),
     ),
 )
 EffectRegistry.register(
@@ -10313,7 +10531,8 @@ EffectRegistry.register(
     "gain_control_until_eot",  # Zealous Conscripts / Coercive Recruiter
     lambda p: GainControlUntilEndOfTurnEffect(
         target=p.get("target"), target_kind=p.get("target_kind", "permanent"),
-        haste=bool(p.get("haste", True)),
+        haste=bool(p.get("haste", True)), max_mana_value=p.get("max_mana_value"),
+        selector=p.get("selector"),
     ),
 )
 EffectRegistry.register("return_linked_exile", lambda p: ReturnLinkedExileEffect())
@@ -10510,6 +10729,7 @@ EffectRegistry.register(
         count=p.get("count", 1),
         shuffle_after=bool(p.get("shuffle_after", False)),
         subtype=p.get("subtype"),
+        haste=bool(p.get("haste", False)),
     ),
 )
 EffectRegistry.register(
@@ -10662,11 +10882,22 @@ EffectRegistry.register(
     # registry.
     "sacrifice",
     lambda p: SacrificeEffect(
-        count=int(p.get("count", 1) or 1),
+        count=p.get("count", 1) if p.get("count") == "all_but_one" else int(p.get("count", 1) or 1),
         what=p.get("what", "permanent"),
         selector=p.get("selector"),
         greatest_power=bool(p.get("greatest_power", False)),
     ),
+)
+EffectRegistry.register(
+    # "Sacrifice it at the beginning of the next end step." (Kiki-Jiki,
+    # Mirror Breaker-shaped) — the ``objects`` list is never real
+    # card-text data (an empty default here), only ever populated by
+    # `CreateDelayedTriggerEffect`'s own ``capture="created_objects"``
+    # mutating the constructed effect directly, the same "capture a
+    # resolve-time fact the delayed firing can't see anymore" idiom
+    # ``target_mana_value``/``target_controller`` use.
+    "sacrifice_specific",
+    lambda p: SacrificeSpecificEffect(objects=[]),
 )
 EffectRegistry.register(
     # "Each opponent may discard a card. If they don't, they lose N life.
@@ -10967,6 +11198,8 @@ EffectRegistry.register(
         add_types=list(p.get("add_types", [])),
         add_subtypes=list(p.get("add_subtypes", [])),
         optional=bool(p.get("optional", True)),
+        extra_counter_if_creature=p.get("extra_counter_if_creature"),
+        extra_counter_if_planeswalker=p.get("extra_counter_if_planeswalker"),
     ),
 )
 EffectRegistry.register(
@@ -11126,6 +11359,7 @@ EffectRegistry.register(
         target_kind=p.get("target_kind", "creature"),
         count_if_kicked=p.get("count_if_kicked"),
         count_from_trigger_event=p.get("count_from_trigger_event"),
+        haste=bool(p.get("haste", False)),
     ),
 )
 EffectRegistry.register(
@@ -11303,6 +11537,12 @@ _SELECTOR_KEYS: tuple[str, ...] = (
     # `min_count`) are the same idea per-card, and are translated into this
     # vocabulary rather than evaluated separately.
     "active_if",
+    # RULE 112.7a's printed exception — "As long as this card is in your
+    # graveyard, …" (Anger-shaped) — read by `continuous.
+    # _battlefield_static_abilities`'s separate graveyard scan, which is
+    # also what makes the *source's own zone* gate correct here: nothing
+    # else about this static changes, only where it's looked for.
+    "from_graveyard",
 )
 
 

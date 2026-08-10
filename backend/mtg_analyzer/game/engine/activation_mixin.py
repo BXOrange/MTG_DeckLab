@@ -561,6 +561,22 @@ class ActivationMixin:
             return obj.card.is_enchantment
         if what == "land":
             return obj.is_land
+        if what == "creature_or_planeswalker":
+            # RULE 306/302: Tevesh Szat's "another creature or planeswalker".
+            # Mirrors `rules.misc_mixin._matches_permanent_type` (the
+            # effect-driven sacrifice path) — this is the cost-*payment*
+            # counterpart, previously missing every compound word that
+            # function already handled, so a cost using one silently fell
+            # through to the "any permanent" catch-all below instead of the
+            # narrower RAW-correct set.
+            return obj.is_creature or obj.card.is_planeswalker
+        if what == "creature_artifact_or_land":
+            # PAR-13: "sacrifice a creature, artifact, or land" (Sandfall
+            # Cell) — see `_matches_permanent_type`'s matching branch.
+            return obj.is_creature or obj.card.is_artifact or obj.is_land
+        if what == "artifact_or_creature":
+            # Deadly Dispute/Costly Plunder-shaped additional cost.
+            return obj.is_creature or obj.card.is_artifact
         return True  # unknown type word → any permanent, so the cost is payable
     def _discard_cost_pool(
         self, player: Player, exclude: Optional[GameObject] = None

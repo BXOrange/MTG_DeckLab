@@ -178,8 +178,11 @@ _GROUP_CONTROLLER_EVENT_KEYS: dict[str, str] = {
 #: `ATTACKS`/`BLOCKS` fires carries ``instance_id`` (the default); `DAMAGE`
 #: is the one exception — its subject (who *dealt* the damage) is
 #: ``source_id`` (`RulesEngine.deal_damage`), since ``instance_id`` isn't
-#: even a key that event carries.
-_SUBJECT_EVENT_KEYS: dict[str, str] = {"DAMAGE": "source_id"}
+#: even a key that event carries. `COUNTER` (RULE 122, `RulesEngine.
+#: add_counters`) names the permanent counters were put *on* as
+#: ``target_id`` — a self-subject "whenever counters are put on ~" grant
+#: (Danny Pink) needs that key, not the default.
+_SUBJECT_EVENT_KEYS: dict[str, str] = {"DAMAGE": "source_id", "COUNTER": "target_id"}
 
 
 def _subject_event_key(trigger: dict[str, Any]) -> str:
@@ -382,6 +385,17 @@ def _build_group_ok(
         controller_key = "target_controller_id"
     else:
         controller_key = _GROUP_CONTROLLER_EVENT_KEYS.get(trigger.get("event"), "controller_id")
+    # "Whenever a Human deals damage to **you**, …" (Mikaeus, the
+    # Unhallowed) — unlike ``condition["recipient"]``/``target_controller_
+    # id`` above (a *permanent* recipient's controller — "a creature you
+    # control is dealt damage"), the recipient here is the player
+    # directly: `RulesEngine.deal_damage`'s DAMAGE event stamps
+    # ``target_id`` as the player's own id and ``target_controller_id`` as
+    # `None` for a player target (a player has no controller), so that key
+    # can never match a player recipient. Checked separately rather than
+    # folded into ``controller_key`` so a permanent-recipient condition and
+    # a player-recipient one never get confused for each other.
+    wants_recipient_you = bool(condition.get("recipient_is_you"))
 
     def _group_ok(
         event: Any,
@@ -398,6 +412,7 @@ def _build_group_ok(
         skey=subject_key,
         want_goaded=goaded,
         want_in_combat=in_combat,
+        want_recipient_you=wants_recipient_you,
     ) -> bool:
         event_instance = event.get(skey)
         if other and (event_instance is None or event_instance == iid):
@@ -405,6 +420,8 @@ def _build_group_ok(
         if you and event.get(ckey) != cid:
             return False
         if not_you and event.get(ckey) == cid:
+            return False
+        if want_recipient_you and not (event.get("is_player") and event.get("target_id") == cid):
             return False
         if tword and tword != "permanent":
             types = event.get("object_types")

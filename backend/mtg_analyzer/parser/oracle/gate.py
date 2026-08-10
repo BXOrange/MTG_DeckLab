@@ -853,7 +853,7 @@ NEVER_SUPPORTED = "NEVER_SUPPORTED"
 #: (Imperial Recruiter/Recruiter of the Guard on two new `card_query`
 #: criteria keys, Wheel of Fortune, Ruination), which this ledger doesn't
 #: count.
-PARSER_VERSION = "64"
+PARSER_VERSION = "65"
 
 
 @dataclass

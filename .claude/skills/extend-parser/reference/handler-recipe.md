@@ -75,6 +75,83 @@ trailing `.*` — that would claim clauses you haven't modeled.
 subject is a bare pronoun ("it fights …"). Use them; claiming a pronoun blind
 mis-models cards like Epic Confrontation into resolving to nothing.
 
+## Trailing sentence that retroactively modifies the previous clause
+
+Some two-sentence bodies aren't two effects — the second sentence describes a
+*property of the first clause's own effect*, not a free-standing action:
+"Destroy target creature. **It can't be regenerated.**" (RULE 701.16 shield
+denial is a property of *that* destruction), "Gain control of target creature
+until end of turn. **Untap that creature. It gains haste until end of
+turn.**" (already part of what `GainControlUntilEndOfTurnEffect` does — the
+tail just reprints it), "Sacrifice it. **When you do,** `<effect>`." (RULE
+603.3's "when you do" is a certainty when the antecedent is unconditional, so
+it collapses to a plain sequence). Don't model these as a second effect —
+that either double-applies something (double haste/untap) or invents a
+free-standing effect that isn't RAW. This idiom has been reinvented three
+times (`_NO_REGEN_SENTENCE_RE`, `_GAIN_CONTROL_HASTE_TAIL_RE`,
+`_SACRIFICE_THEN_WHEN_YOU_DO_RE`, all in `parser/oracle/segmenter.py`); reach
+for it by name instead of re-deriving the shape.
+
+It lives in `segmenter.py`'s `parse_effect_body`, **not** `handlers.py` —
+this is a body-splitting concern (like the connector-split loop right below
+it), not a single-clause builder, because it needs to reach back into
+`before`'s *already-parsed specs* and mutate one, which a `HANDLERS`-table
+regex/builder pair can never do (a builder only ever sees its own clause).
+
+Template — one `re.match` + one `if` block, added to `parse_effect_body`
+before the `direct = match_clause(...)` fallback:
+
+```python
+#: "<clause A>. <tail that only makes sense right after clause A>"
+#: — not a second effect, see handler-recipe.md's
+#: "Trailing sentence that retroactively modifies the previous clause".
+_MY_TAIL_RE = re.compile(
+    r"^(?P<before>...)\.\s*<tail wording>(?:\.\s*(?P<after>.+))?$",
+    re.IGNORECASE | re.DOTALL,
+)
+
+# in parse_effect_body, before the `direct = match_clause(...)` fallback:
+my_tail = _MY_TAIL_RE.match(body)
+if my_tail is not None:
+    before_specs = parse_effect_body(
+        my_tail.group("before"), self_subject=self_subject, previous_subject=previous_subject
+    )
+    if before_specs is None or not any(spec.type == "<expected type>" for spec in before_specs):
+        return None  # fail closed — the tail only makes sense after that clause
+    # mutate the relevant spec in before_specs here, or just drop the tail
+    # if it merely reprints behaviour the effect already has (gain-control case)
+    after_text = (my_tail.group("after") or "").strip()
+    if not after_text:
+        return before_specs
+    after_specs = parse_effect_body(after_text, previous_subject=_announces_creature_target(before_specs))
+    if after_specs is None:
+        return None
+    return before_specs + after_specs
+```
+
+Rules specific to this pattern (each paid for by a real near-miss):
+
+- **Guard that `before` actually produced the clause type the tail modifies**
+  (`any(spec.type == "destroy" ...)` / `"gain_control_until_eot"` /
+  `"sacrifice_self"`). Without this the tail silently attaches to an
+  unrelated clause it happens to follow.
+- **Anchor the tail wording tightly enough that a genuinely different,
+  free-standing effect can't match it.** `_NO_REGEN_SENTENCE_RE` requires the
+  sentence to stand alone — "…it can't be regenerated **this turn**"
+  (Orcish Healer/Carbonize) is a real, different, non-retroactive
+  prevent-regeneration effect and must NOT match. `_GAIN_CONTROL_HASTE_TAIL_RE`
+  anchors on "until end of turn" immediately before the period so it can't
+  misfire onto an unrelated creature-choosing clause followed by an unrelated
+  genuine untap effect.
+- **Recurse into both `before` and `after` independently** (`parse_effect_body`
+  again, not `match_clause`) — either half can itself be a multi-clause body.
+- **Fail closed at every step**: `before_specs is None`, the guard clause
+  missing, or `after_specs is None` must all `return None`, not silently drop
+  the tail or the after-text.
+- Put it in `HANDLERS`-adjacent naming (`_XXX_TAIL_RE`/`_XXX_SENTENCE_RE`) so
+  `grep '_.*_TAIL_RE\|_.*_SENTENCE_RE' segmenter.py` finds every instance of
+  this pattern at once.
+
 ## A new effect *type* needs three registrations
 
 1. `game/effects.py` — a `GameEffect` subclass **and**

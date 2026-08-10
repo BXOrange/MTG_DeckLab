@@ -595,8 +595,8 @@ every field it reads, `parser/oracle/gate.py`) since it's called once per
 on every copy/every game. `parser/oracle/processing_list.py` tracks
 cache-wide coverage and ranks the next handlers worth building. The cache is
 now bulk-loaded with the **full ~35k-card Oracle universe**
-(`scripts/import_bulk.py`), so coverage is measured against that: **31.8%
-covered (11,081 / 34,811) as of 2026-08-11, PARSER_VERSION 64** (parser-`MODELED` **or**
+(`scripts/import_bulk.py`), so coverage is measured against that: **32.2%
+covered (11,220 / 34,811) as of 2026-08-10, PARSER_VERSION 65** (parser-`MODELED` **or**
 hand-`AUTHORED`).
 Re-measure with `scripts/coverage_report.py` (ledger-backed — see
 `services/coverage_db.py`) before trusting this number; Batches 1–10 are all
@@ -896,6 +896,51 @@ for free, without either spec being touched. **MEC-17** built RULE
 `remember=True`, `ManaAbility.color_selector`'s `"imprinted_card_colors"`)
 for Chrome Mox. Full detail, all six: `docs/implementation-state/
 Done_Backend.md`'s matching entries (search each ticket id).
+
+A **Marchesa V4.2 batch** (2026-08-10) made the whole 96-card "Marchesa
+V4.2" saved deck playable, closing its 21 previously-unmodeled cards
+through a mix of general parser handlers (most of the batch — "gain
+control of target creature [with mana value N or less] until end of
+turn. Untap it. It gains haste." — the threaten-effect family, ~90 cards
+— and its untargeted "untap all creatures and gain control of them"
+sibling; "Destroy target X. It can't be regenerated." — 110+ cards;
+"basic Island, Swamp, or Mountain card"-shaped combined search criteria — the Panorama/
+Landscape/Monument tri-land cycles, ~40 cards; "each player/opponent
+sacrifices N `<type>` of their choice" mass edicts; "whenever you/an
+opponent draws a card, `<effect>`" — the Sheoldred/Underworld Dreams
+trigger family; "sacrifice an artifact or creature" additional costs;
+"Sacrifice it. When you do, `<effect>`." collapsed to a plain sequence
+for its one safe (mandatory-antecedent) case) and seven hand-authored
+entries for the rest (Liliana, Dreadhorde General's edict-family loyalty
+abilities plus a genuinely new "sacrifice all but one of each permanent
+type" `-9`; Kiki-Jiki/Puppeteer Clique sharing a new "create/reanimate
+with haste, `[sacrifice/exile]` it at the beginning of the next end
+step" primitive; Mikaeus, the Unhallowed's damage-sourced destroy plus a
+negated-subtype anthem selector; Spark Double's copy-with-extra-counter;
+Danny Pink's per-creature "for the first time each turn" counter-draw
+grant; Arcane Denial's controller-redirected delayed draw; Black Market
+Connections' `STEP_BEGIN`-wrapped "choose one or more" reusing Farewell's
+own `modes` shape; and a deliberately partial Agatha's Soul Cauldron,
+whose mana-spend-restriction-lift and dynamic ability-borrowing clauses
+are real, substantial, un-built primitives left as an open gap rather
+than silently modeled). Along the way it found and fixed five dormant
+engine bugs no prior card had exercised: `SacrificeEffect`'s
+`each_player`/`each_opponent` selector silently overwriting one player's
+sacrifice choice with the next's when 2+ needed a real pick in the same
+resolution (now sequenced via `GameState.deferred_effects`, the same
+RULE 608.2 idiom `_apply_effects_partitioned` already used one level up);
+`_matches_permanent_type`'s three near-duplicate copies (one per mixin)
+never recognizing `"planeswalker"`/`"battle"` and silently falling through
+to "any permanent"; `DrawCardEffect` consuming a shared `targets` list
+even when it declared no target of its own; and both the parser-facing
+and layer-6-grant "which event field names the firing object" tables
+missing a `COUNTER` row entirely (any "whenever counters are put on ~"
+self-subject/granted trigger was unreachable). See `docs/implementation-
+state/Done_Backend.md`'s "Marchesa V4.2" entry for full detail on every
+primitive and bug fix, and its own list of what a future batch should
+build next (the ~200-card "you may `<action>`. When you do, `<effect>`."
+optional-antecedent family in particular — this batch's mandatory-
+antecedent collapse deliberately doesn't touch it).
 
 **Notable gaps** (see `docs/implementation-state/BACKLOG.md` for the full list with exact
 scope on each): a kicked spell's "if kicked, ... instead" *override* conditional (as opposed to the

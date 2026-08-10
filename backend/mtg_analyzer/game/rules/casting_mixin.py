@@ -1332,6 +1332,13 @@ class CastingResolutionMixin:
             target = self._resolve_choice_option(choice["options"], str(answer))
             if target is not None and target is not obj:
                 copy_mechanics.become_copy(obj, target, effect.add_types, effect.add_subtypes)
+                # "…enters with an additional +1/+1/loyalty counter…"
+                # (Spark Double) — applied post-copy, once the resulting
+                # permanent's real type is known.
+                if obj.is_creature and effect.extra_counter_if_creature:
+                    self.add_counters(obj, 1, kind=effect.extra_counter_if_creature)
+                if obj.card.is_planeswalker and effect.extra_counter_if_planeswalker:
+                    self.add_counters(obj, 1, kind=effect.extra_counter_if_planeswalker)
         if continuation is not None:
             continuation()
     def _offer_enter_choices(self, obj: GameObject, continuation: Callable[[], None]) -> None:
