@@ -683,6 +683,18 @@ _LOYALTY_LINE_RE = re.compile(
 #: line is *claimed* here (covered) but contributes no spec.
 _MANA_EFFECT_RE = re.compile(r"^add\b", re.I)
 
+#: "For each color among permanents you control, add one mana of that
+#: color." (Bloom Tender/Faeburrow Elder-shaped) — doesn't start with "add"
+#: (that's mid-sentence, after the "for each" clause), so `_MANA_EFFECT_RE`
+#: above never matches it; mirrors `game/mana_abilities.py`'s own
+#: `_COLORS_AMONG_PERMANENTS_RE` exactly; this module can't import that one
+#: directly (front-end security boundary), so the shape is duplicated
+#: rather than shared — keep the two in sync if it ever changes.
+_COLORS_AMONG_PERMANENTS_MANA_RE = re.compile(
+    r"^for each colou?r among permanents you control, add (?:one|1) mana of that colou?r\.?$",
+    re.IGNORECASE,
+)
+
 #: "You may look at the top card of your library any time." (Elsha of the
 #: Infinite/Bolas's Citadel) — purely informational, no separate game-state
 #: effect at this engine's fidelity: the *actual* play/cast-from-top
@@ -827,6 +839,19 @@ _ADDITIONAL_COST_PAY_LIFE_RE = re.compile(r"^pay\s+(x|\d+)\s+life$", re.IGNORECA
 #: (fail-closed), matching `AbilitySpec.free_cast_condition`'s whitelist.
 _FREE_CAST_IF_COMMANDER_RE = re.compile(
     r"^if you control a commander,\s*you may cast this spell without paying its mana cost\.?\s*$",
+    re.IGNORECASE,
+)
+
+#: "If an opponent cast three or more spells this turn, you may pay {0}
+#: rather than pay this spell's mana cost." (Mindbreak Trap-shaped RULE
+#: 702's "Trap" template, MEC-12) — a differently-worded but functionally
+#: identical `free_cast_condition` alternative (paying ``{0}`` is paying
+#: nothing), gated by a *board-count* condition instead of
+#: `_FREE_CAST_IF_COMMANDER_RE`'s boolean one — `AbilitySpec.
+#: free_cast_condition`'s ``opponent_spells_cast_this_turn_at_least`` key.
+_FREE_CAST_IF_OPPONENT_SPELLS_RE = re.compile(
+    r"^if an opponent cast (?P<n>\d+) or more spells this turn,\s*"
+    r"you may pay \{0\} rather than pay this spell'?s mana cost\.?\s*$",
     re.IGNORECASE,
 )
 
@@ -1634,6 +1659,19 @@ def segment_line(
             )
             return Segment(raw=raw, spec=spec, claimed=True)
 
+        opp_spells = _FREE_CAST_IF_OPPONENT_SPELLS_RE.match(raw)
+        if opp_spells is not None:
+            spec = AbilitySpec(
+                "spell_effect",
+                effects=[],
+                free_cast_condition={
+                    "opponent_spells_cast_this_turn_at_least": int(opp_spells.group("n"))
+                },
+                raw_text=raw,
+                parser=provenance,
+            )
+            return Segment(raw=raw, spec=spec, claimed=True)
+
         # RULE 702.8b: "You may cast this spell as though it had flash if it
         # targets a commander." (Timely Ward-shaped, MEC-7) — same standalone-
         # line treatment as the free-cast condition just above.
@@ -1711,7 +1749,7 @@ def segment_line(
     act = _ACTIVATED_RE.match(raw)
     if act is not None and _COST_LOOKS_REAL.search(act.group("cost")):
         effect_text = act.group("effect").strip()
-        if _MANA_EFFECT_RE.match(effect_text):
+        if _MANA_EFFECT_RE.match(effect_text) or _COLORS_AMONG_PERMANENTS_MANA_RE.match(effect_text):
             # Mana ability — covered by the engine's mana model, no spec here.
             return Segment(raw=raw, claimed=True)
         cost_dict: dict[str, Any] = {"text": act.group("cost").strip()}

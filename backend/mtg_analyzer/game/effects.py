@@ -11430,6 +11430,12 @@ EffectRegistry.register(
             # activation_cost_reduction_for` reads, unlike its "attached
             # Permanent" sibling above.
             **({"subtype": p["subtype"]} if p.get("subtype") else {}),
+            # "Activated abilities of creatures you control cost {2} less
+            # to activate." (Training Grounds) — the same ``scope=
+            # "activation"`` group scope as ``subtype`` above, narrowed by
+            # a main card type (`continuous._has_card_type`) instead of a
+            # creature subtype.
+            **({"card_type": p["card_type"]} if p.get("card_type") else {}),
         },
     ),
 )

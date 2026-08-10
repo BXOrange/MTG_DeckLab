@@ -164,6 +164,11 @@ _GROUP_CONTROLLER_EVENT_KEYS: dict[str, str] = {
     # earth) — `RulesEngine.the_ring_tempts_you` fires this per-player, same
     # convention as SCRY/SURVEIL/LIFE_GAINED above.
     "RING_TEMPTED": "player_id",
+    # "Whenever an opponent draws a card, …" (Smothering Tithe-shaped,
+    # MEC-12) — `RulesEngine.draw` already fires this per-player
+    # (`draw_discard_mixin.py`), same ``player_id`` convention as every
+    # other player-subject event above; only this table entry was missing.
+    "DRAW": "player_id",
 }
 
 #: Which event-data key identifies *which object* an event is about — RULE

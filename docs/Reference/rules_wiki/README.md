@@ -1,6 +1,6 @@
 # Rules Wiki — LLM navigation layer for the Comprehensive Rules
 
-The Magic Comprehensive Rules (`MagicCompRules 20260619.txt`, ~975 KB) are too large to load
+The Magic Comprehensive Rules (`MagicCompRules 20260807.txt`, ~975 KB) are too large to load
 whole. This directory is a **navigation layer**: it maps every rule number and
 glossary term to a line in that source file so an agent can read exactly the
 passage it needs. **The rules text is not copied here** — the source `.txt`
@@ -20,7 +20,7 @@ stays the single source of truth.
 1. Have a `RULE <n>` reference (e.g. from code)? Look it up:
    - section like `613` → find its line in `RULES_WIKI.md`.
    - subrule like `613.7` → `rule_line_index.json` → `subrules["613.7"]`.
-2. `Read("Reference/MagicCompRules 20260619.txt", offset=<line>, limit=~40)` — read just that rule.
+2. `Read("Reference/MagicCompRules 20260807.txt", offset=<line>, limit=~40)` — read just that rule.
 3. Unknown term? `glossary_index.md` gives its line **and** the rule that defines it.
 
 ## Engine concept → rules map
@@ -52,7 +52,7 @@ Bridges this repo's subsystems to the CR sections they implement
 Drop the newer `MagicCompRules <date>.txt` into `Reference/` and run:
 
 ```bash
-python3 Reference/rules_wiki/build_wiki.py
+python3 docs/Reference/rules_wiki/build_wiki.py
 ```
 
 It picks the newest `MagicCompRules*.txt` automatically. The concept map at

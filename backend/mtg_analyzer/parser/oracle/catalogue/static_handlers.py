@@ -256,6 +256,43 @@ _SPELL_COST_TAX_YOU_CAST_RE = re.compile(
     re.IGNORECASE,
 )
 
+# "<Color> spells you cast cost {N} more/less to cast."  (the Medallion
+# cycle/Grand Arbiter Augustin IV-shaped colour filter `_SPELL_COST_TAX_YOU_
+# CAST_RE`'s own docstring flagged as unbuilt — `continuous.cost_reduction_
+# for`'s ``spell_color`` param already reads it, only the parser recognizer
+# was missing.) Checked ahead of `_SPELL_COST_TAX_YOU_CAST_RE` in dispatch
+# order: that regex's own ``word1`` group also matches a colour word, and
+# its handler fails closed (returns ``None``, claiming nothing) on a word
+# outside `_SPELL_TYPE_WORDS` rather than falling through to try this one.
+_SPELL_COST_TAX_COLOR_RE = re.compile(
+    r"(?P<color>white|blue|black|red|green|colorless) spells you cast cost "
+    r"\{(?P<n>\d+)\} (?P<dir>more|less) to cast",
+    re.IGNORECASE,
+)
+
+# "Spells your opponents cast cost {N} more/less to cast."  (Grand Arbiter
+# Augustin IV's third line) — the tax-only mirror of
+# `_SPELL_COST_TAX_YOU_CAST_RE`'s ``"your_spells"`` default: `continuous.
+# cost_reduction_for`'s ``affects="opponents_spells"`` branch applies to
+# every player except the permanent's own controller.
+_SPELL_COST_TAX_OPPONENTS_RE = re.compile(
+    r"spells your opponents cast cost \{(?P<n>\d+)\} (?P<dir>more|less) to cast",
+    re.IGNORECASE,
+)
+
+# "Activated abilities of <type> you control cost {N} less to activate[.
+# This effect can't reduce the mana in that cost to less than {M} mana.]"
+# (Training Grounds) — the main-card-type-scoped sibling of Sam, Loyal
+# Attendant's hand-authored subtype scope (`continuous.
+# activation_cost_reduction_for`'s ``card_type`` branch); the trailing floor
+# clause is optional (folded into the same spec via ``min_total`` when
+# present) since not every card of this shape prints one.
+_ACTIVATION_COST_REDUCTION_TYPE_RE = re.compile(
+    r"activated abilities of (?P<word>[a-z]+) you control cost \{(?P<n>\d+)\} less to activate\.?"
+    r"(?:\s*this effect can'?t reduce the mana in that cost to less than \{?(?P<floor>\d+)\}? mana\.?)?",
+    re.IGNORECASE,
+)
+
 # "This spell costs {N} less to cast for each attacking creature [you
 # control]."  (RULE 601.2f self-scoped discount printed on the spell itself
 # — Embercleave/Ancient Stone Idol-shaped, MEC-6) — unlike `_SPELL_COST_TAX_RE`
@@ -2204,6 +2241,24 @@ def static_effect_specs(clause: str) -> Optional[list[EffectSpec]]:
             params["spell_type"] = word
         return [EffectSpec("cost_reduction", params)]
 
+    m = _SPELL_COST_TAX_COLOR_RE.fullmatch(text)
+    if m is not None:
+        params = {
+            "generic": int(m.group("n")),
+            "increase": m.group("dir") == "more",
+            "spell_color": _COLOR_WORDS[m.group("color").lower()],
+        }
+        return [EffectSpec("cost_reduction", params)]
+
+    m = _SPELL_COST_TAX_OPPONENTS_RE.fullmatch(text)
+    if m is not None:
+        params = {
+            "affects": "opponents_spells",
+            "generic": int(m.group("n")),
+            "increase": m.group("dir") == "more",
+        }
+        return [EffectSpec("cost_reduction", params)]
+
     m = _SPELL_COST_TAX_YOU_CAST_RE.fullmatch(text)
     if m is not None:
         words = [w.lower() for w in (m.group("word1"), m.group("word2")) if w]
@@ -2217,6 +2272,20 @@ def static_effect_specs(clause: str) -> Optional[list[EffectSpec]]:
             params["spell_type"] = words[0]
         elif len(words) == 2:
             params["spell_type"] = words
+        return [EffectSpec("cost_reduction", params)]
+
+    m = _ACTIVATION_COST_REDUCTION_TYPE_RE.fullmatch(text)
+    if m is not None:
+        card_type = _singularize(m.group("word").lower())
+        if card_type not in _CARD_TYPE_WORDS:
+            return None  # fail-closed — an unrecognised type-scope
+        params = {
+            "scope": "activation",
+            "card_type": card_type,
+            "generic": int(m.group("n")),
+        }
+        if m.group("floor"):
+            params["min_total"] = int(m.group("floor"))
         return [EffectSpec("cost_reduction", params)]
 
     m = _SELF_COST_REDUCTION_ATTACKING_RE.fullmatch(text)

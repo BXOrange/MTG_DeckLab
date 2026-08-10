@@ -30,8 +30,10 @@ Usage (from backend/, venv active):
 from __future__ import annotations
 
 import argparse
+import gzip
 import json
 import sys
+import tempfile
 import time
 from pathlib import Path
 
@@ -57,21 +59,57 @@ _SKIP_LAYOUTS = frozenset(
 
 
 def _download_dump(dest: Path) -> Path:
-    """Resolve the oracle_cards download URI and stream the JSON dump to `dest`."""
+    """Resolve the oracle_cards download URI and stream the JSON dump to `dest`.
+
+    Scryfall's bulk-data index dropped the plain-JSON `download_uri` for this
+    dataset (as of 2026-08) in favor of a gzip-compressed JSONL stream
+    (`jsonl_download_uri`) — one card object per line. Every downstream
+    consumer of `dest` (`_load_raw_store`, `update_card_pool.py`) still
+    expects a single uncompressed JSON array, so the reassembly happens right
+    here rather than pushing the format change out to every caller. Each
+    JSONL line is already valid JSON, so reassembly is a string join, not a
+    parse+reserialize of ~30k objects.
+    """
     headers = {"User-Agent": USER_AGENT, "Accept": "application/json"}
     dest.parent.mkdir(parents=True, exist_ok=True)
     with httpx.Client(headers=headers, timeout=60.0, follow_redirects=True) as client:
         index = client.get(_BULK_INDEX_URL)
         index.raise_for_status()
         entry = next(e for e in index.json()["data"] if e["type"] == _DATASET)
-        uri = entry["download_uri"]
-        size_mb = entry.get("size", 0) / 1_000_000
-        print(f"Downloading {_DATASET} dump (~{size_mb:.0f} MB) from {uri} ...")
-        with client.stream("GET", uri) as resp:
-            resp.raise_for_status()
-            with dest.open("wb") as fh:
-                for chunk in resp.iter_bytes(chunk_size=1 << 20):
-                    fh.write(chunk)
+        size_mb = entry.get("compressed_size", entry.get("size", 0)) / 1_000_000
+
+        if "download_uri" in entry:
+            uri = entry["download_uri"]
+            print(f"Downloading {_DATASET} dump (~{size_mb:.0f} MB) from {uri} ...")
+            with client.stream("GET", uri) as resp:
+                resp.raise_for_status()
+                with dest.open("wb") as fh:
+                    for chunk in resp.iter_bytes(chunk_size=1 << 20):
+                        fh.write(chunk)
+        else:
+            uri = entry["jsonl_download_uri"]
+            print(f"Downloading {_DATASET} dump (~{size_mb:.0f} MB compressed, JSONL/gzip) from {uri} ...")
+            with tempfile.NamedTemporaryFile(suffix=".jsonl.gz", delete=False) as tmp:
+                tmp_path = Path(tmp.name)
+                with client.stream("GET", uri) as resp:
+                    resp.raise_for_status()
+                    for chunk in resp.iter_bytes(chunk_size=1 << 20):
+                        tmp.write(chunk)
+            try:
+                with gzip.open(tmp_path, "rt", encoding="utf-8") as gz, dest.open("w", encoding="utf-8") as out:
+                    out.write("[")
+                    first = True
+                    for line in gz:
+                        line = line.strip()
+                        if not line:
+                            continue
+                        if not first:
+                            out.write(",")
+                        out.write(line)
+                        first = False
+                    out.write("]")
+            finally:
+                tmp_path.unlink(missing_ok=True)
     print(f"Saved dump to {dest} ({dest.stat().st_size / 1_000_000:.0f} MB).")
     return dest
 

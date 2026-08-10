@@ -244,6 +244,33 @@ on the *whole run*, for the rarer hang the per-test timer can't reach
 (collection, a session-scoped fixture, or a true C-level block) — it kills
 the process group and reports the last test that had started.
 
+## Claude Code skills
+
+Two project-scoped skills live in `.claude/skills/` and should be invoked
+(not reimplemented ad hoc) for the work they cover:
+
+- **`extend-parser`** (`.claude/skills/extend-parser/SKILL.md`) — extending
+  the oracle-text parser (`parser/oracle/`): add/widen an effect/static/
+  trigger handler to raise `MODELED` coverage, close a `PAR-*` ticket, or
+  make specific cards parse. Ships `parser_probe.py` (~5s against the full
+  34k-card cache: which real cards a change would unlock, whether a regex
+  edit broke anything).
+- **`game-engine`** (`.claude/skills/game-engine/SKILL.md`) — engine work in
+  `game/`: implement a mechanic or `MEC`/`ENG` ticket, add an effect/
+  trigger/replacement/static/interactive choice, fix layer-system or combat
+  behaviour, or debug a card's live behaviour. Ships `engine_bench.py`
+  (boards/casts/resolves/fights a real card against a real `GameEngine`
+  from one command — event trace + board diff, no throwaway test file —
+  and searches existing registries for a primitive before you build a new
+  one).
+- **`inspect-db`** (`.claude/skills/inspect-db/SKILL.md`) — read-only
+  lookups against the five SQLite stores (card cache, raw Scryfall data,
+  parser-coverage ledger, saved decks, player assets). A short routing
+  SKILL.md points at exactly one lean `reference/<store>.md` per store
+  (path, schema, gotchas), so a lookup only ever loads the one store that
+  matters. Ships `query.py`, a read-only SQL runner that resolves each
+  store's real on-disk path itself and refuses non-`SELECT` statements.
+
 ## Architecture & data flow
 
 ```code
@@ -567,9 +594,9 @@ every field it reads, `parser/oracle/gate.py`) since it's called once per
 `GameObject` built — a popular card no longer gets re-parsed from scratch
 on every copy/every game. `parser/oracle/processing_list.py` tracks
 cache-wide coverage and ranks the next handlers worth building. The cache is
-now bulk-loaded with the **full ~34k-card Oracle universe**
-(`scripts/import_bulk.py`), so coverage is measured against that: **31.0%
-covered (10,603 / 34,208) as of 2026-08-06, PARSER_VERSION 60** (parser-`MODELED` **or**
+now bulk-loaded with the **full ~35k-card Oracle universe**
+(`scripts/import_bulk.py`), so coverage is measured against that: **31.5%
+covered (10,961 / 34,811) as of 2026-08-10, PARSER_VERSION 61** (parser-`MODELED` **or**
 hand-`AUTHORED`).
 Re-measure with `scripts/coverage_report.py` (ledger-backed — see
 `services/coverage_db.py`) before trusting this number; Batches 1–10 are all
@@ -1054,7 +1081,8 @@ English and German.
 | Bots filling a multiplayer seat (UC5) | `backend/mtg_analyzer/services/bots.py` (`Bot`/`GoldfishBot`/`GreedyBot`/`run_bots`), `services/lobby.py` (`Seat.bot_kind`, `add_bot`), `frontend/src/js/multiplayerView.js` (`addBotHtml`/`seatRowHtml`) |
 | Replay/Puzzle mode (build+save/load a board) | `backend/mtg_analyzer/services/replay.py`, `game_session.py` (`edit_*` actions), `frontend/src/js/replayView.js` |
 | Archidekt deck import proxy | `backend/mtg_analyzer/services/archidekt_client.py`, `api/import_external.py` (Moxfield was tried and reverted twice — Cloudflare-blocked; don't re-add it without checking that's changed) |
-| Refreshing the full Oracle card pool (new set/banlist update) | `backend/scripts/update_card_pool.py` — re-downloads the Scryfall `oracle_cards` bulk dump, merges it into `RawCardStore`, reseeds the app cache, and diffs `services/commander_legality.py`'s hand-maintained `BANNED_COMMANDER_CARDS` against live `legalities.commander` (`scripts/import_bulk.py` is first-load only; its default reuses an on-disk dump) |
+| Refreshing the full Oracle card pool (new set) | `backend/scripts/update_card_pool.py` — re-downloads the Scryfall `oracle_cards` bulk dump, merges it into `RawCardStore`, reseeds the app cache, and prints a ban-list drift heads-up (`scripts/import_bulk.py` is first-load only; its default reuses an on-disk dump) |
+| Applying a ban-list update | `backend/scripts/update_ban_lists.py` — rewrites a hand-maintained ban-list constant (`BAN_LIST_TARGETS`, just `services/commander_legality.py`'s `BANNED_COMMANDER_CARDS` today) straight from the raw store's live `legalities` data; no network of its own, run `update_card_pool.py` first. `--format <key>`/`--dry-run` |
 | Player-uploaded token art / card-back sleeves | `backend/mtg_analyzer/services/player_assets.py`, `api/player_assets.py`, `frontend/src/js/connectionSettingsView.js`, `frontend/src/js/profileView.js` (player name), `gameBoardView.js` (`resolveImageUrl`/`setAssets`) |
 | Engine coverage doc (user-facing) | `frontend/src/js/implementationStatusView.js` |
 | What's still open (any area) | [docs/implementation-state/BACKLOG.md](docs/implementation-state/BACKLOG.md) — tickets by category |

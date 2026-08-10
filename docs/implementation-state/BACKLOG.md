@@ -82,13 +82,13 @@ Plan-level sequencing lives in
   cEDH staples recur across most of them). **Not** "no deferrals" scope like
   the Eliferate/Imodane batches — tracked here as ordinary open work rather
   than forced to completion in one sitting given the size. Current state
-  (2026-08-06, second pass): **Ojer 31/77, Rocco 67/98, Glarb Bloomsday
-  69/100, staples 157/215, staples 2 392/636, M-K 72/97, Kinnan 68/100**
-  (unique-card total 417/723) — re-measure with the same script
+  (2026-08-10, third pass): **Ojer 48/125, Rocco 71/98, Glarb Bloomsday
+  74/100, staples 164/215, staples 2 383/607, M-K 74/97, Kinnan 72/100**
+  (unique-card total 436/764) — re-measure with the same script
   `Done_Backend.md`'s matching entries document rather than trusting these
   numbers as they age; the per-deck *totals* themselves also drift run to
-  run (e.g. `cEDH staples 2` was 607 last pass, 636 this one) since these
-  are live saved decks a user can keep editing, not a frozen fixture.
+  run since these are live saved decks a user can keep editing, not a
+  frozen fixture.
 
   Second pass (2026-08-06) built the RULE 115.4 "change the target"
   primitive and hand-authored Misdirection/Deflecting Swat with it (full
@@ -104,15 +104,37 @@ Plan-level sequencing lives in
   (Cumulative upkeep, RULE 702.24), and MEC-17 (Imprint) — shipped the same
   day; see `Done_Backend.md` for each.
 
+  Third pass (2026-08-10) closed the highest deck-frequency remainder: a
+  mana-ability coverage-classification fix (Bloom Tender), a RULE
+  118.7/601.2f cost-reduction generalization (colour-scoped and
+  opponents-scoped spell-cost tax, an activation-cost `card_type` group
+  scope — Grand Arbiter Augustin IV, Training Grounds), Otawara hand-
+  authored on Eiganjo/Boseiju's existing Channel shape, a "cast spells this
+  turn as though they had flash" parser handler (Emergence Zone), a new
+  `free_cast_condition` board-count kind (Mindbreak Trap's free-cast half —
+  its own second clause, RULE 601.2c's genuinely unbuilt *unbounded*
+  "exile any number of target spells", is still open), and Smothering
+  Tithe hand-authored (the `TaxedDrawEffect` family's first `DRAW`-triggered
+  member, `effect_binder._GROUP_CONTROLLER_EVENT_KEYS` gaining a `"DRAW"`
+  row). Full detail in `Done_Backend.md`.
+
   Remaining high-frequency cards not yet investigated in depth: the tutor
   family (Chord of Calling/Green Sun's Zenith/Finale of Devastation/
   Tainted Pact/Wishclaw Talisman/Transmute Artifact — likely mostly
   `SearchLibraryEffect` reuse plus Convoke/free-cast simplifications, per
-  the already-generalized tutor grammar CLAUDE.md documents), Smothering
-  Tithe (a straightforward `TaxedDrawEffect` generalization — trigger is
-  DRAW not SPELL_CAST, "else" effect is `create_token` not `draw`), and the
-  rest of `[cEDH] Glarb Bloomsday`/`cEDH staples 2`'s long tail (oracle text
-  pulled but not yet triaged for this ticket).
+  the already-generalized tutor grammar CLAUDE.md documents); Mox Diamond's
+  "if this artifact would enter, you may discard a land card instead. If
+  you do, put this artifact onto the battlefield. If you don't, put it
+  into its owner's graveyard." (RULE 614.12, confirmed a singleton
+  template cache-wide — hand-authoring candidate, needs its own
+  enters-or-graveyard replacement mechanism, not yet built); RULE 601.2c's
+  unbounded "exile any number of target spells" (Mindbreak Trap's own
+  remaining clause, 13 cache-wide cards on the wider "any number of target
+  X" shape); Ghostfire Slice's conditional self cost-reduction (needs
+  `active_if` support added to `continuous.self_cost_reduction_for`, not
+  yet built) and Eye of Ugin's colour-**and**-creature-subtype-combined
+  cost filter; and the rest of `[cEDH] Glarb Bloomsday`/`cEDH staples 2`'s
+  long tail (oracle text pulled but not yet triaged for this ticket).
 
 ## PLR — Player management
 

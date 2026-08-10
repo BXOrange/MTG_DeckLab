@@ -163,6 +163,10 @@ ALLOWED_TARGET_KINDS: frozenset[str] = frozenset(
         # deliberately excludes non-creature artifacts, RULE 115.9c) and
         # wider than `opponent_or_planeswalker` (which excludes artifacts).
         "artifact_creature_planeswalker_or_opponent",
+        # "target artifact, creature, enchantment, or planeswalker" (Otawara,
+        # Soaring City's Channel ability) — the same four-permanent-type
+        # union idiom, no player half, enchantment instead of opponent.
+        "artifact_creature_enchantment_or_planeswalker",
         # "target creature or planeswalker" (Imodane deck batch —
         # Stonesplitter Bolt/Lithomantic Barrage/Torch Breath/Torch the
         # Tower, a hugely common modern removal-spell template) — the
@@ -360,6 +364,8 @@ class TargetSpec:
             "opponent_or_planeswalker": "Gegner oder Planeswalker",
             "artifact_creature_planeswalker_or_opponent":
                 "Artefakt, Kreatur, Planeswalker oder Gegner",
+            "artifact_creature_enchantment_or_planeswalker":
+                "Artefakt, Kreatur, Verzauberung oder Planeswalker",
             "creature_or_planeswalker": "Kreatur oder Planeswalker",
             "battle_or_opponent": "Schlacht oder Gegner",
             "creature_planeswalker_or_battle": "Kreatur, Planeswalker oder Schlacht",
@@ -804,6 +810,18 @@ def legal_targets(
             if p.id != controller_id
         ]
         return permanents + players
+    if kind == "artifact_creature_enchantment_or_planeswalker":
+        # "target artifact, creature, enchantment, or planeswalker"
+        # (Otawara, Soaring City's Channel ability) — the same four-
+        # permanent-type union idiom as `artifact_creature_planeswalker_
+        # or_opponent`, minus the player half and with enchantment added.
+        return [
+            {"instance_id": o.instance_id, "name": o.name}
+            for o in state.permanents()
+            if (o.card.is_artifact or o.is_creature or o.card.is_enchantment or o.is_planeswalker)
+            and o is not source
+            and _targetable_by(o, source)
+        ]
     if kind == "artifact_or_enchantment":
         # "Exile target artifact or enchantment." (Archdruid's Charm's third
         # mode) — the union of the two single-type kinds below, which is a

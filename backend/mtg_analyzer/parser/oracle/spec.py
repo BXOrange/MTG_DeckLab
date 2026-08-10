@@ -116,6 +116,12 @@ ALLOWED_FREE_CAST_CONDITION_KEYS: frozenset[str] = frozenset(
         # this exact vocabulary).
         "not_your_turn",
         "your_turn",
+        # "If an opponent cast three or more spells this turn, you may pay
+        # {0} rather than pay this spell's mana cost." (Mindbreak Trap,
+        # MEC-12) — a board-count threshold rather than the other keys'
+        # plain booleans, so its value is a positive int instead of
+        # ``True``.
+        "opponent_spells_cast_this_turn_at_least",
     }
 )
 
@@ -677,6 +683,12 @@ class AbilitySpec:
             raise SpecValidationError("'control_commander' condition must be a bool")
         if key in ("not_your_turn", "your_turn") and not isinstance(value, bool):
             raise SpecValidationError(f"{key!r} condition must be a bool")
+        if key == "opponent_spells_cast_this_turn_at_least" and (
+            isinstance(value, bool) or not isinstance(value, int) or value < 1
+        ):
+            raise SpecValidationError(
+                "'opponent_spells_cast_this_turn_at_least' condition must be a positive int"
+            )
 
     def _validate_alt_cost(self) -> None:
         """Structural check for an ``alt_cost`` clause (RULE 118.9)."""

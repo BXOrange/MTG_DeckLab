@@ -84,7 +84,12 @@ def test_a_planechase_game_starts_with_a_face_up_plane():
     eng = make_engine("planechase")
     assert len(eng.state.planar_deck) == variants.DEFAULT_PLANAR_DECK_SIZE
     plane = variants.active_plane(eng.state)
-    assert plane is not None and plane.card.type_line.startswith("Plane")
+    # Case-insensitive: the real catalogue includes silver-border/joke
+    # printings (e.g. Secret Lair "sAnS mERcY") with scrambled-case text on
+    # every field, and classification is layout-based, not text-based
+    # (VariantCardDatabase._load), so a plane's type_line casing isn't
+    # actually guaranteed.
+    assert plane is not None and plane.card.type_line.lower().startswith("plane")
     assert eng.state.to_dict()["active_plane"]["name"] == plane.name
 
 

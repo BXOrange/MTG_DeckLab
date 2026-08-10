@@ -11475,3 +11475,157 @@ Remora's and Thought Lash's own long-standing "Cumulative upkeep isn't
 built yet" simplifications without either hand-authored spec being
 touched, caught only because a pre-existing test's fixture assumptions
 broke.
+
+## The seven "cEDH"-named saved decks/cubes: third pass (2026-08-10)
+
+Continuation of `MEC-12` (see the two 2026-08-06 entries above for the
+first two passes). Baseline re-measured at the start of this pass: 764
+unique cards across the seven decks (up from 723 — these are live,
+user-editable saved decks), 430 covered / 334 uncovered. This pass
+prioritized the highest deck-frequency remainder rather than working
+alphabetically, closing **436/764** by the end (`Ojer cEDH` 48/125,
+`cEDH Rocco` 71/98, `[cEDH] Glarb Bloomsday` 74/100, `cEDH staples`
+164/215, `cEDH staples 2` 383/607, `cEDH M-K` 74/97, `cEDH Kinnan`
+72/100).
+
+**Mana-ability coverage-classification fix, not a behavior change**
+(`parser/oracle/segmenter.py`): Bloom Tender ("For each color among
+permanents you control, add one mana of that color.") was already fully
+playable — `game/mana_abilities.py`'s own `_COLORS_AMONG_PERMANENTS_RE`
+(ENG-27) parses and resolves it correctly — but scored UNMODELED anyway,
+because the segmenter's mana-ability *claim* check (`_MANA_EFFECT_RE`)
+only recognized an activated ability's effect line when it started with
+the literal word "add"; this phrasing puts "add" mid-sentence, after the
+"for each" clause. Added `_COLORS_AMONG_PERMANENTS_MANA_RE`, a literal
+mirror of the `game/` regex (the front-end can't import `game/`, so the
+shape is duplicated rather than shared — a documented, deliberate
+tradeoff, not an oversight). Deliberately *not* generalized to a looser
+"any line containing add + mana" pattern: Nykthos, Shrine to Nyx's "add
+an amount of mana … equal to your devotion" and a few other UNCLAIMED
+mana-shaped cards were checked and found genuinely unbuilt (no `devotion`
+selector exists in `mana_abilities.py` at all) — claiming those too would
+have been a silent half-resolve, exactly what this gate exists to catch.
+
+**RULE 118.7/601.2f cost-reduction generalization** — the engine already
+had a rich `cost_reduction_for`/`self_cost_reduction_for`/
+`activation_cost_reduction_for` family (`game/continuous.py`, built across
+several earlier batches for Delve/Affinity, the Medallion cycle's own
+`spell_color` param, Power Artifact, and Sam Loyal Attendant's subtype
+group scope) — but three shapes it already had *engine* support for had
+never had a matching **parser handler**, and one engine branch was
+missing outright:
+
+- **Colour-scoped spell-cost tax** ("`<Color>` spells you cast cost `{N}`
+  more/less to cast" — the Medallion cycle, Grand Arbiter Augustin IV's
+  first two lines): `continuous.cost_reduction_for`'s own `spell_color`
+  param was fully wired and tested, just unreachable from oracle text.
+  New `_SPELL_COST_TAX_COLOR_RE` (`static_handlers.py`), checked *ahead*
+  of the existing `_SPELL_COST_TAX_YOU_CAST_RE` in dispatch order — that
+  regex's own `word1` group also matches a bare colour word, and its
+  handler fails closed (claims nothing) on a word outside
+  `_SPELL_TYPE_WORDS` rather than falling through to try a sibling regex,
+  so the colour-specific row has to go first or it's never reached.
+- **Opponents-scoped spell-cost tax** ("Spells your opponents cast cost
+  `{N}` more/less to cast" — Grand Arbiter's third line): a genuinely new
+  `affects="opponents_spells"` branch on `cost_reduction_for` (skip unless
+  the caster is *not* the taxing permanent's controller — the mirror image
+  of the existing `"your_spells"` check), plus `_SPELL_COST_TAX_OPPONENTS_RE`.
+- **Activation-cost group scope by main card type** ("Activated abilities
+  of creatures you control cost `{N}` less to activate[, floor]" —
+  Training Grounds): `activation_cost_reduction_for` had a `subtype`
+  group-scope branch (Sam) but no `card_type` one (a main type, not a
+  creature subtype) — added alongside it, reusing `_has_card_type`/
+  `_CARD_TYPE_ATTRS` already built for the opponent-scoped-permission
+  family. Also switched this function from a flat
+  `int(ability.params.get("generic", 0))` to `_cost_static_amount(...)`,
+  so a future "for each X" count-selector-scaled *group* activation
+  reduction (not needed by any card yet) would work for free. New
+  `_ACTIVATION_COST_REDUCTION_TYPE_RE`.
+
+**Otawara, Soaring City** hand-authored (`game/ability_catalogue.py`),
+mirroring Eiganjo, Seat of the Empire/Boseiju, Who Endures's existing
+Channel + `costs.ActivationCost.dynamic_reduction` shape exactly — the
+per-legendary-creature discount is the *same* `legendary_creatures_you_
+control` count_selector, not a new mechanism. Its own new piece:
+`targeting.py`'s `artifact_creature_enchantment_or_planeswalker` target
+kind, the four-permanent-type union Otawara's real printed wording needs
+("target artifact, creature, enchantment, or planeswalker") that no
+existing union kind covered.
+
+**"[You may c]ast spells this turn as though they had flash."** parser
+recognition (`catalogue/handlers.py`, Emergence Zone) — the effect already
+shipped as `effects.GrantFlashUntilEndOfTurnEffect` (Borne Upon a Wind,
+hand-authored only). The new `HANDLERS` row deliberately claims only the
+unrestricted "spells" wording (no type filter exists on that effect at
+all), leaving "sorcery spells"/"creature spells"-narrowed variants of the
+same template correctly unclaimed rather than silently dropping their
+qualifier — a ~87-cache-wide-card template family per
+`engine_bench.py cards`, of which this row closes the unrestricted-"this
+turn" slice.
+
+**Mindbreak Trap's free-cast condition** — RULE 601.2f's
+`free_cast_condition` family (`AbilitySpec.free_cast_condition`,
+`game/condition_query.free_cast_condition_holds`) had only ever carried
+boolean condition kinds (`control_commander`, `not_your_turn`/
+`your_turn`, both reachable only via hand-authored cards per MEC-15).
+Mindbreak Trap's "If an opponent cast three or more spells this turn, you
+may pay `{0}` rather than pay this spell's mana cost." is the same
+free-alternative-cost idiom (paying `{0}` *is* paying nothing) gated by a
+board **count** instead — a new `opponent_spells_cast_this_turn_at_least`
+key (positive-int-valued, unlike its boolean siblings), reading the
+existing `GameState.spells_cast_this_turn` per-player counter
+(`TaxedDrawEffect`'s own payer-lookup already relies on the same field).
+New `_FREE_CAST_IF_OPPONENT_SPELLS_RE` (`segmenter.py`), mirroring the
+existing `_FREE_CAST_IF_COMMANDER_RE`'s standalone-line treatment.
+**Documented gap**: Mindbreak Trap's own second clause, "Exile any number
+of target spells.", is RULE 601.2c's genuinely unbuilt *unbounded* target
+count (distinct from the already-shipped "up to N"/fixed-N
+generalization — no `TargetSpec` shape exists for "as many as you choose,
+0 to unlimited" yet) — left UNMODELED rather than half-built; 13 cache-wide
+cards share the wider "any number of target X" shape per
+`engine_bench.py cards`, filed as open scope in `MEC-12` rather than
+rebuilt ad hoc here.
+
+**Smothering Tithe** hand-authored — the `TaxedDrawEffect` family's
+(Rhystic Study/Mystic Remora/Esper Sentinel) first member whose trigger
+isn't `SPELL_CAST`: "Whenever an opponent draws a card, that player may
+pay `{2}`. If the player doesn't, you create a Treasure token." needed
+`effect_binder._GROUP_CONTROLLER_EVENT_KEYS` to gain a `"DRAW":
+"player_id"` row (`RulesEngine.draw` already fired the event with the
+right shape — a per-player `count`, mirroring every other player-subject
+event in that table — only this row was missing), so the same
+`{"subject": "group", "controller": "not_you"}` condition shape Rhystic
+Study uses reads it correctly. The payoff isn't a draw, though, so this
+isn't `TaxedDrawEffect` itself: `effects.PayCostThenEffect`'s general
+RULE 118.3 "you may pay `<cost>`. If you don't, `<effect>`." shape
+(`payer="event_player"` reads the *drawing* player off the triggering
+DRAW event; `else_effects=[create_token]` resolves under Smothering
+Tithe's own controller, matching "**you** create a Treasure token").
+One test-writing trap worth flagging for the next hand-authored card
+using `PayCostThenEffect`'s `effects`/`else_effects` params: each entry
+must be a *nested* `{"type": ..., "params": {...}}` dict (`EffectSpec.
+to_dict()`'s own shape, which `RulesEngine._apply_effect_specs` expects) —
+a flat `{"type": "create_token", "token_name": "Treasure"}` is silently
+accepted (no error) but resolves with every param defaulted, since
+`d.get("params")` on a flat dict just returns `None`/`{}`.
+
+Tests: `tests/test_mec_12_cedh_batch_3.py`, eight real execute tests
+against a real `GameEngine` (Bloom Tender's mana production, Grand
+Arbiter's own reduction/tax numbers, Training Grounds's floor, Otawara's
+hand-zone Channel activation and legendary-count discount, Emergence
+Zone's flash grant, Mindbreak Trap's condition evaluator, and Smothering
+Tithe's both branches — decline-and-create-Treasure, pay-and-drain-mana).
+One pre-existing regression test, `test_color_scoped_variant_stays_
+unclaimed`, documented the colour-scoped gap this pass closed and was
+updated (renamed, its assertion flipped from "stays unclaimed" to the new
+claimed shape) rather than deleted. Full backend suite: 3,538 passed
+(+8), 238 skipped, 0 regressions. `PARSER_VERSION` bumped 60 → 61 (+13 to
+measured cache-wide parser coverage: 10,948 → 10,961/34,811, 31.5%) —
+required for a parser-classification change like this, since the
+coverage ledger is content-hash-keyed and won't reparse an unchanged
+card's cached verdict otherwise.
+
+Remaining scope (the tutor family, Mox Diamond's RULE 614.12 alternative
+ETB-or-graveyard replacement, Ghostfire Slice's conditional self
+cost-reduction, Eye of Ugin's combined colour+subtype filter, and the
+rest of the long tail) is `MEC-12` in `BACKLOG.md`.

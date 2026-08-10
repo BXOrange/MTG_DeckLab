@@ -192,11 +192,13 @@ def test_two_type_spells_you_cast_cost_less_parses_as_a_list():
     ]
 
 
-def test_color_scoped_variant_stays_unclaimed():
-    # `_spell_type_matches` only reads main card types, not colour — fail
-    # closed rather than silently dropping the colour qualifier (Medallion
-    # cycle).
-    assert static_effect_specs("white spells you cast cost {1} less to cast") is None
+def test_color_scoped_variant_parses():
+    # MEC-12: the Medallion cycle/Grand Arbiter Augustin IV's colour filter
+    # — `continuous.cost_reduction_for`'s own `spell_color` param, now
+    # reachable from oracle text via `_SPELL_COST_TAX_COLOR_RE`.
+    assert static_effect_specs("white spells you cast cost {1} less to cast") == [
+        EffectSpec("cost_reduction", {"generic": 1, "increase": False, "spell_color": "W"})
+    ]
 
 
 def test_subtype_scoped_variant_stays_unclaimed():

@@ -10,18 +10,16 @@ ids are added, existing ones get their JSON refreshed in place — errata,
 new legality, updated rulings-adjacent fields), and reseed the app cache from
 it, same as `import_bulk.py --reseed-only` does.
 
-It also flags the two things a human still has to act on by hand, since
-neither has a live source of truth in this codebase:
+It also flags the two things a human still has to act on:
 
   * **New cards**: printed as a name list so a release can be sanity-checked
     (e.g. "did the new set actually land"), not applied anywhere automatically.
-  * **Commander ban-list drift**: `services/commander_legality.py`'s
-    `BANNED_COMMANDER_CARDS` is hand-maintained (the per-printing `legalities`
-    field is stored in the raw dump but not surfaced anywhere else). This
-    script diffs that constant against the freshly downloaded `legalities.
-    commander` field and prints any additions/removals — it does not edit the
-    source file; update `BANNED_COMMANDER_CARDS` by hand per its own
-    docstring, using this output as the changelog.
+  * **Ban-list drift**: every hand-maintained ban-list constant registered in
+    `scripts/update_ban_lists.py` (`BAN_LIST_TARGETS` — just
+    `BANNED_COMMANDER_CARDS` today) is diffed against the freshly downloaded
+    `legalities` data and printed here as a heads-up. This report never
+    writes the source file itself; run `scripts/update_ban_lists.py` to
+    actually apply a drift once you've looked at it.
 
 Usage (from backend/, venv active):
   python scripts/update_card_pool.py [--db PATH] [--dump PATH] [--reuse-dump] [--skip-reseed]
@@ -37,9 +35,9 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from import_bulk import _DEFAULT_DUMP, _download_dump, _seed_cache_from_store  # noqa: E402
+from update_ban_lists import BAN_LIST_TARGETS, current_constant_value, live_banned_names  # noqa: E402
 
 from mtg_analyzer.services.card_database import DEFAULT_DB_PATH  # noqa: E402
-from mtg_analyzer.services.commander_legality import BANNED_COMMANDER_CARDS  # noqa: E402
 from mtg_analyzer.services.raw_card_store import RawCardStore  # noqa: E402
 
 #: How many new-card names to print before summarizing the rest — a whole
@@ -55,24 +53,23 @@ def _print_name_sample(label: str, names: list[str]) -> None:
         print(f"  ... and {len(names) - _MAX_NAMES_SHOWN} more")
 
 
-def _diff_ban_list(cards: list[dict]) -> None:
-    live_banned = {
-        c["name"] for c in cards
-        if (c.get("legalities") or {}).get("commander") == "banned"
-    }
-    newly_banned = sorted(live_banned - BANNED_COMMANDER_CARDS)
-    no_longer_banned = sorted(BANNED_COMMANDER_CARDS - live_banned)
+def _diff_ban_lists(cards: list[dict]) -> None:
+    for format_key, target in BAN_LIST_TARGETS.items():
+        live = live_banned_names(cards, target.legality_key)
+        current = current_constant_value(target.module_path, target.constant_name)
+        added = sorted(live - current, key=str.casefold)
+        removed = sorted(current - live, key=str.casefold)
 
-    if not newly_banned and not no_longer_banned:
-        print("Commander ban list: no drift vs BANNED_COMMANDER_CARDS.")
-        return
+        if not added and not removed:
+            print(f"{format_key} ban list: no drift vs {target.constant_name}.")
+            continue
 
-    print("Commander ban list drift vs BANNED_COMMANDER_CARDS "
-          "(services/commander_legality.py) — update that constant by hand:")
-    for name in newly_banned:
-        print(f"  + now banned on Scryfall, missing from our list: {name}")
-    for name in no_longer_banned:
-        print(f"  - in our list but no longer banned on Scryfall: {name}")
+        print(f"{format_key} ban list drift vs {target.constant_name} ({target.module_path}) "
+              f"— run `python scripts/update_ban_lists.py --format {format_key}` to apply:")
+        for name in added:
+            print(f"  + now banned on Scryfall, missing from our list: {name}")
+        for name in removed:
+            print(f"  - in our list but no longer banned on Scryfall: {name}")
 
 
 def main() -> None:
@@ -112,7 +109,7 @@ def main() -> None:
     else:
         print("No new Oracle ids since the last update (same card pool, possibly refreshed fields).")
 
-    _diff_ban_list(cards)
+    _diff_ban_lists(cards)
 
     if args.skip_reseed:
         store.close()

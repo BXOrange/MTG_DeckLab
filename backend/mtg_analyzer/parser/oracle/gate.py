@@ -790,7 +790,34 @@ NEVER_SUPPORTED = "NEVER_SUPPORTED"
 #: entirely, a second latent bug). +239 cards to measured parser coverage,
 #: 0 regressions (`scripts/parser_probe.py diff`), full pytest suite green
 #: throughout. See `Done_Backend.md` for the per-family narrative.
-PARSER_VERSION = "60"
+#:
+#: Batch 61 (2026-08-10, MEC-12 third pass — the seven cEDH decks): a
+#: mana-ability coverage-*classification* fix (Bloom Tender's "for each
+#: color among permanents you control, add one mana of that color" was
+#: already fully behavioral via `game/mana_abilities.py`'s ENG-27 selector,
+#: just never credited by the gate's mana-ability claim check, which only
+#: recognized a line starting with the literal word "add");
+#: oracle-text recognition of three RULE 118.7/601.2f cost-reduction
+#: shapes the engine already had params for but no parser handler ever
+#: claimed — colour-scoped "`<Color>` spells you cast cost `<N>`
+#: more/less to cast" (the Medallion cycle/Grand Arbiter Augustin IV),
+#: "Spells your opponents cast cost `<N>` more/less to cast" (new
+#: `affects="opponents_spells"` branch), and "Activated abilities of
+#: `<type>` you control cost `<N>` less to activate[, floor]" (new
+#: `card_type` group scope on `continuous.activation_cost_reduction_for`,
+#: next to the existing `subtype` one); "[you may c]ast spells this turn
+#: as though they had flash" (Emergence Zone — the effect already shipped
+#: as `GrantFlashUntilEndOfTurnEffect`, hand-authored-only until now); and
+#: a `free_cast_condition` board-count kind, `opponent_spells_cast_this_
+#: turn_at_least` (Mindbreak Trap's "if an opponent cast three or more
+#: spells this turn, you may pay `{0}` rather than pay this spell's mana
+#: cost" — RULE 601.2f's free-cast family, previously boolean-conditions
+#: only). +6 cards to measured parser coverage this pass (Bloom Tender,
+#: Grand Arbiter Augustin IV, Training Grounds, Emergence Zone — Otawara/
+#: Smothering Tithe are hand-authored, which this ledger doesn't count),
+#: 0 regressions, full pytest suite green throughout. See
+#: `Done_Backend.md` for the full narrative.
+PARSER_VERSION = "61"
 
 
 @dataclass

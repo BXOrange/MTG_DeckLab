@@ -4862,6 +4862,20 @@ HANDLERS: list[EffectHandler] = [
         _RING_TEMPTS_YOU_RE,
         _ring_tempts_you,
     ),
+    # "[You may c]ast spells this turn as though they had flash." (Emergence
+    # Zone-shaped, MEC-12; the leading "you may" is already peeled off by
+    # `segmenter._peel_optional` before a clause ever reaches this table) —
+    # the unrestricted, "this turn" one-shot grant already shipped as
+    # `effects.GrantFlashUntilEndOfTurnEffect` (Borne Upon a Wind,
+    # hand-authored only until now). No type filter exists on that effect,
+    # so this row deliberately claims only the unqualified "spells"
+    # wording, not a "sorcery spells"/"creature spells" narrowed variant (a
+    # different, still-unmodeled shape — see PARSER_LONG_TAIL.md).
+    EffectHandler(
+        "grant_flash_until_eot",
+        _c(r"cast spells this turn as though they had flash"),
+        lambda m: [EffectSpec("grant_flash_until_eot", {})],
+    ),
 ]
 
 

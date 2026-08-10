@@ -1840,6 +1840,12 @@ def cost_reduction_for(
             continue
         if ability.affects == "your_spells" and getattr(ability.source, "controller_id", None) != player.id:
             continue
+        # "Spells your opponents cast cost {N} more to cast." (Grand
+        # Arbiter Augustin IV-shaped) — the tax-only mirror of
+        # ``"your_spells"``: applies to every player *except* the
+        # permanent's own controller.
+        if ability.affects == "opponents_spells" and getattr(ability.source, "controller_id", None) == player.id:
+            continue
         spell_type = ability.params.get("spell_type")
         if spell_type and (obj is None or not _spell_type_matches(obj, spell_type)):
             continue
@@ -1900,10 +1906,11 @@ def activation_cost_reduction_for(state: "GameState", source: "GameObject") -> t
     Only a ``"cost"``-layer static with ``params["scope"] == "activation"``
     counts (`cost_reduction_for` explicitly skips these, so a static never
     double-applies to both a spell's cast cost and an ability's activation
-    cost). Only the ``affects="attached_permanent"`` scope is implemented
-    today — the one shape the pool needs; an unscoped "activated abilities
-    you control cost less" variant would need its own `affects` branch here,
-    not yet built since nothing needs it.
+    cost). Three group scopes: ``affects="attached_permanent"`` (Power
+    Artifact), a ``subtype`` filter (Sam, Loyal Attendant's "Foods you
+    control"), or a ``card_type`` filter (Training Grounds's "creatures you
+    control" — a main card type rather than a creature subtype, so it reads
+    `_has_card_type` instead of `has_subtype`).
 
     Returns ``(net_reduction, floor)`` where ``floor`` is the highest
     "can't reduce the mana in that cost to less than N mana" clause among
@@ -1928,9 +1935,19 @@ def activation_cost_reduction_for(state: "GameState", source: "GameObject") -> t
                 source, str(ability.params["subtype"])
             ):
                 continue
+        elif ability.params.get("card_type"):
+            # "Activated abilities of creatures you control cost {2} less
+            # to activate." (Training Grounds) — the same "you control"
+            # group scope as the subtype branch above, narrowed by a main
+            # card type instead of a creature subtype.
+            controller_id = getattr(ability.source, "controller_id", None)
+            if source.controller_id != controller_id or not _has_card_type(
+                source, str(ability.params["card_type"])
+            ):
+                continue
         else:
             continue
-        net += int(ability.params.get("generic", 0))
+        net += _cost_static_amount(ability, state, getattr(ability.source, "controller_id", None))
         floor = max(floor, int(ability.params.get("min_total", 0)))
     return net, floor
 

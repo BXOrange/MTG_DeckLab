@@ -106,6 +106,17 @@ def free_cast_condition_holds(condition: dict[str, Any], obj: "GameObject", stat
             wants_yours = key == "your_turn"
             if bool(value) != (is_yours == wants_yours):
                 return False
+        elif key == "opponent_spells_cast_this_turn_at_least":
+            # Mindbreak Trap-shaped (RULE 601.2f-adjacent, MEC-12): true
+            # once *any* opponent has cast at least this many spells this
+            # turn — `GameState.spells_cast_this_turn`, the same per-player
+            # counter `TaxedDrawEffect`'s Rhystic Study-shaped trigger reads.
+            threshold = int(value)
+            counts = getattr(state, "spells_cast_this_turn", {}) or {}
+            if not any(
+                pid != controller_id and count >= threshold for pid, count in counts.items()
+            ):
+                return False
         else:
             return False
     return True
