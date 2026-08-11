@@ -514,17 +514,27 @@ def _draw_next_upkeep(m: re.Match[str]) -> list[EffectSpec]:
 #: ``count_or_x_of`` covers "the top x cards" (Commune with Lava) via the
 #: same ``"x"``-sentinel/`RulesEngine._substitute_x` idiom every other
 #: X-scaled one-shot effect already uses.
+#: "…until your next end step." (Opera Love Song) accepted as a third
+#: duration word alongside "this turn"/"until the end of your next turn" —
+#: **documented simplification**: `ImpulsiveDrawEffect`'s window is turn-
+#: scoped (`_grant_temp_play_permission`'s ``same_turn_only`` sweeps at
+#: *this* turn's own cleanup, the finest granularity it has), so this maps
+#: to ``same_turn_only=True`` rather than a genuine step-scoped expiry.
+#: Exact when cast during the caster's own turn (their next end step
+#: *is* later this same turn); an instant-speed cast on an opponent's turn
+#: would close the window at that turn's cleanup instead of carrying it
+#: into the caster's own next end step — narrower than RAW, not wider.
 _EXILE_TOP_PLAY_RE = _c(
     r"exile the top (?:(?P<n>\d+|x) cards?|card) of your library\. "
-    r"(?:(?P<dur_pre>this turn|until the end of your next turn), )?"
+    r"(?:(?P<dur_pre>this turn|until the end of your next turn|until your next end step), )?"
     r"you may play (?:them|it|that card|those cards)"
-    r"(?: (?P<dur_post>this turn|until the end of your next turn))?"
+    r"(?: (?P<dur_post>this turn|until the end of your next turn|until your next end step))?"
 )
 
 
 def _exile_top_play(m: re.Match[str]) -> list[EffectSpec]:
     dur = (m.groupdict().get("dur_pre") or m.groupdict().get("dur_post") or "").strip()
-    same_turn_only = dur == "this turn"
+    same_turn_only = dur in ("this turn", "until your next end step")
     n = m.group("n")
     return [EffectSpec("impulsive_draw", {
         "count": count_or_x_of(n) if n else 1, "same_turn_only": same_turn_only,
@@ -543,6 +553,39 @@ _DRAW_REVEAL_CAST_FREE_RE = _c(
 
 def _draw_reveal_cast_free(m: re.Match[str]) -> list[EffectSpec]:
     return [EffectSpec("draw_reveal_cast_one_free", {"count": int(m.group("n"))})]
+
+
+#: RULE 601.2f-adjacent "Expertise" cycle template (MEC-20) — "You may cast
+#: a spell with mana value N or less from your hand without paying its mana
+#: cost." (Kari Zev's/Sram's/Yahenni's/Baral's/Rishkar's Expertise), its
+#: ``{X}``-scaled sibling ("…mana value x or less…", Electrodominance —
+#: ``COUNT_X``/``count_or_x_of``, resolved against the spell's own announced
+#: {X} by `RulesEngine._substitute_x`'s existing ``criteria`` walk, no new
+#: wiring needed), and the trailing "where x is the number of attacking
+#: creatures" tail (Epistolary Librarian's own triggered-ability body, which
+#: has no cast {X} of its own to substitute — a board-read count instead,
+#: `continuous.count_selector`'s existing ``"attacking_creatures"`` entry).
+#: `FreeCastFromHandEffect` (`game/effects.py`) is a resolve-time *choice*
+#: among the controller's own hand, not a target — none of these print
+#: "target". The leading "you may " is optional here (not required) since
+#: `segmenter._peel_optional` already strips it before `parse_effect_body`
+#: ever reaches a handler, for both the bare spell-effect and the
+#: triggered-ability wrapper paths — MEC-18's own "the generic 'you may '
+#: stripper eats the clause first" lesson, guarded against directly rather
+#: than by exempting `_peel_optional` (nothing else about this clause is
+#: sensitive to the optional marker: `spec.optional` is read only by the
+#: ``triggered`` binder branch, never ``spell_effect``, and this effect's
+#: own `request_choose_objects(optional=True)` already models the "may").
+_FREE_CAST_FROM_HAND_RE = _c(
+    rf"(?:you may )?cast a spell with mana value {COUNT_X} or less from your hand "
+    rf"without paying its mana cost(?P<selector>, where x is the number of attacking creatures)?"
+)
+
+
+def _free_cast_from_hand(m: re.Match[str]) -> list[EffectSpec]:
+    if m.group("selector"):
+        return [EffectSpec("free_cast_from_hand", {"max_mana_value_selector": "attacking_creatures"})]
+    return [EffectSpec("free_cast_from_hand", {"max_mana_value": count_or_x_of(m.group("n"))})]
 
 
 #: RULE 119/701.8's "Target opponent/player reveals their hand. You choose
@@ -594,21 +637,44 @@ def _reveal_top_conditional(m: re.Match[str]) -> list[EffectSpec]:
     })]
 
 
+def _split_token_mid_words(mid: str) -> tuple[list[str], list[str], bool]:
+    """A created token's "<mid>" description words (everything between its
+    P/T and "creature token") → ``(colors, subtypes, is_artifact)``.
+
+    "artifact" is a `_TOKEN_NOISE_WORDS` entry — recognized, not just
+    dropped: "colorless Construct **artifact** creature token" (Construct/
+    Thopter/Servo-shaped) needs `CreateTokenEffect.is_artifact` set, or the
+    synthesized token silently comes out as a bare Creature missing the
+    Artifact card type entirely (RULE 704.5f's zero-toughness check, a
+    "sacrifice an artifact" cost, and any artifact-count anthem all read
+    `Card.is_artifact`). The one shared word-splitting loop for all three
+    "<mid> creature token[s]" handler shapes (`_xx_token_mid_params`,
+    `_inline_create_token_params`, `_create_named_legendary_token`) — kept
+    as one function specifically so a future noise word only needs adding
+    here once, not independently in three near-identical copies.
+    """
+    colors: list[str] = []
+    subtypes: list[str] = []
+    is_artifact = False
+    for word in mid.split():
+        if word in _COLOR_WORDS:
+            colors.append(_COLOR_WORDS[word])
+        elif word == "artifact":
+            is_artifact = True
+        elif word in _TOKEN_NOISE_WORDS:
+            continue
+        else:
+            subtypes.append(word.capitalize())
+    return colors, subtypes, is_artifact
+
+
 def _xx_token_mid_params(mid: str, kw: Optional[str]) -> Optional[dict]:
     """The shared ``colors``/``subtypes``/``keywords`` params for an X/X
     token clause's "<mid> token[ with <kw>]" tail — the same word-splitting
     `_inline_create_token_params` uses for a literal-stats token, factored
     out since neither of the two X/X handlers below share that function's
     other (count/tapped/legendary) groups."""
-    colors: list[str] = []
-    subtypes: list[str] = []
-    for word in mid.split():
-        if word in _COLOR_WORDS:
-            colors.append(_COLOR_WORDS[word])
-        elif word in _TOKEN_NOISE_WORDS:
-            continue
-        else:
-            subtypes.append(word.capitalize())
+    colors, subtypes, is_artifact = _split_token_mid_words(mid)
     keywords: list[str] = []
     if kw:
         parsed = _token_keywords(kw)
@@ -616,6 +682,8 @@ def _xx_token_mid_params(mid: str, kw: Optional[str]) -> Optional[dict]:
             return None
         keywords = parsed
     params: dict = {"colors": colors, "subtypes": subtypes, "keywords": keywords}
+    if is_artifact:
+        params["is_artifact"] = True
     if subtypes:
         params["token_name"] = " ".join(subtypes)
     return params
@@ -1375,6 +1443,44 @@ def _return_to_hand(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     return [EffectSpec("return_to_hand", {"target_kind": kind, **_optional_param(m)})]
 
 
+#: RULE 601.2c mass "return all nonland permanents with mana value X or less
+#: to their owners' hands." (Displacement Wave) — `ReturnToHandEffect`'s own
+#: sibling of `_destroy_all`'s board wipe, reusing the exact same
+#: `_MASS_DESTROY_FILTER`/`_mass_destroy_filter_dict` vocabulary (including
+#: the ``"x"`` sentinel, substituted at cast time by `RulesEngine.
+#: _substitute_x`, which already walks any effect's ``filter`` attribute
+#: generically).
+_RETURN_ALL_NONLAND_RE = _c(
+    rf"return all nonland permanents{_MASS_DESTROY_FILTER} to their owners'? hands?"
+)
+
+
+def _return_all_nonland(m: re.Match[str]) -> list[EffectSpec]:
+    params: dict = {"selector": "all_nonland_permanents"}
+    filt = _mass_destroy_filter_dict(m)
+    if filt:
+        params["filter"] = filt
+    return [EffectSpec("return_to_hand", params)]
+
+
+#: "put target creature on top of its owner's library" (RULE 701.3 — Time
+#: Ebb/Griptide/Roil Spout/Vedalken Dismisser-shaped tempo bounce, 10 SOLO
+#: cards, `parser_probe.py blocked`) / "…on the bottom of its owner's
+#: library" (rarer — same shape, ``position="bottom"``). `ReturnToLibraryEffect`
+#: is `return_to_hand`'s library-destination sibling.
+def _return_to_library(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    kind = resolve_target_kind(m.group("target"))
+    if kind is None or kind not in _RETURN_TO_HAND_KINDS:
+        return None
+    position = "bottom" if m.group("pos") == "bottom" else "top"
+    return [
+        EffectSpec(
+            "return_to_library",
+            {"target_kind": kind, "position": position, **_optional_param(m)},
+        )
+    ]
+
+
 #: "Return ~ to its owner's hand." (RULE 701.3, self form — no RULE 115
 #: target and no player choice, the bounce sibling of `_sacrifice_self`/
 #: `_exile_self`). Two families of real cards, both Aura-heavy:
@@ -2027,6 +2133,95 @@ def _gain_control_all(m: re.Match[str]) -> list[EffectSpec]:
     return [EffectSpec("gain_control_until_eot", {"selector": "all_creatures"})]
 
 
+#: "Whenever a player casts an instant or sorcery spell, that player
+#: copies it and may choose new targets for the copy [until end of turn]."
+#: (Bonus Round) — RULE 603.1's "it"/"that player" both name the *firing
+#: trigger event* rather than a RULE 601.2c target choice, unlike every
+#: other `copy_spell` card in scope (Dualcaster Mage-shaped, which really
+#: does target). `CopySpellEffect.spell_from_trigger_event`/
+#: `controller_from_trigger_event` read the SPELL_CAST event's own
+#: ``instance_id``/``player_id`` instead of a target list — the same
+#: "resolve off the firing event" idiom `DestroyEffect.
+#: target_from_trigger_event` already established (Mikaeus, the
+#: Unhallowed). "may choose new targets" is the same accepted
+#: simplification `CopySpellEffect`'s own docstring already documents for
+#: every card in this family (the copy keeps the original's targets, no
+#: retarget prompt) — not a new gap this card introduces.
+_TRIGGER_COPY_SPELL_RE = _c(
+    r"that player copies it and may choose new targets for the copy(?: until end of turn)?"
+)
+
+
+#: "Each instant and sorcery card in your graveyard gains flashback until
+#: end of turn. The flashback cost is equal to its mana cost." (Past in
+#: Flames/Will of the Jeskai-shaped — the untargeted "each" sibling of the
+#: single-target "target instant or sorcery card in your graveyard gains
+#: flashback…" family, still unclaimed: a genuinely different shape, since
+#: granting *one specific* graveyard card flashback needs a per-object
+#: marker `grant_graveyard_cast_permission_this_turn` doesn't have — see
+#: BACKLOG.md). `GrantGraveyardCastPermissionThisTurnEffect` already exists
+#: (built for Backdraft Hellkite's identical wording) — this is purely the
+#: missing oracle-text recognizer for a *second* card using the same
+#: primitive, per the project's "sweep for what else a new primitive
+#: closes" discipline.
+_GRANT_FLASHBACK_EACH_RE = _c(
+    r"each instant and sorcery card in your graveyard gains flashback until end of turn\.\s*"
+    r"the flashback cost is equal to its mana cost"
+)
+
+
+def _grant_flashback_each(m: re.Match[str]) -> list[EffectSpec]:
+    return [EffectSpec("grant_graveyard_cast_permission_this_turn", {})]
+
+
+#: "The next spell you cast this turn can't be countered." (Mistrise
+#: Village) — `arm_spell_watcher`'s existing "when you next cast a spell
+#: this turn, `<effect>`" mechanism (built for Dual Strike's "…copy it"),
+#: here with `MarkCantBeCounteredEffect` as the ``then_specs`` payload
+#: instead — no card-type/mana-value filter, since the printed line has
+#: neither.
+_NEXT_SPELL_CANT_BE_COUNTERED_RE = _c(
+    r"the next spell you cast this turn can'?t be countered"
+)
+
+
+#: "Look at the top card of target player's library." (Mishra's Bauble) /
+#: "Look at a card at random in target player's hand." (Urza's Bauble) — a
+#: genuine RULE 115 target with no other game-state consequence, see
+#: `LookAtCardsEffect`'s own docstring for why. Two narrow, closed phrasings
+#: (not "look at *any* card X") rather than a general "look at" grammar —
+#: the only two real cards printing this in the cache.
+_LOOK_AT_TARGET_RE = _c(
+    r"look at (?:the top card of target player's library"
+    r"|a card at random in target player's hand)"
+)
+
+
+def _look_at_target(m: re.Match[str]) -> list[EffectSpec]:
+    return [EffectSpec("look_at_cards", {"target_kind": "player"})]
+
+
+def _next_spell_cant_be_countered(m: re.Match[str]) -> list[EffectSpec]:
+    return [
+        EffectSpec(
+            "arm_spell_watcher",
+            {"then_specs": [{"type": "mark_cant_be_countered", "params": {}}]},
+        )
+    ]
+
+
+def _trigger_copy_spell(m: re.Match[str]) -> list[EffectSpec]:
+    return [
+        EffectSpec(
+            "copy_spell",
+            {
+                "spell_from_trigger_event": "instance_id",
+                "controller_from_trigger_event": "player_id",
+            },
+        )
+    ]
+
+
 #: "Shuffle ~ into its owner's library." (RULE 701.20 — Green Sun's Zenith's
 #: own trailing sentence, overriding the spell's default RULE 608.2m
 #: "goes to the graveyard as it resolves" routing; `game/effects.py`'s
@@ -2338,6 +2533,98 @@ def _pay_energy_then(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     return [EffectSpec("pay_energy_then", {"amount": amount, "effects": [s.to_dict() for s in sub]})]
 
 
+#: MEC-18/RULE 603.5's general "You may `<cost-shaped action>`. When/If you
+#: do, `<effect>`." — generalizes `_pay_cost_then_draw`/`_pay_energy_then`
+#: from one hardcoded antecedent (a bare mana cost / `{E}` pips) and, for
+#: the first, one hardcoded consequence (draw a card) to the *whole*
+#: `ActivationCost` vocabulary `pay_cost_then`/`RulesEngine.
+#: request_pay_cost_then` already supports server-side (mana, sacrifice,
+#: discard, life — see that method's own docstring) plus an arbitrary
+#: recursively-parsed follow-up. No new engine primitive: `pay_cost_then`
+#: was already general, just never had an oracle-text recognizer past the
+#: two narrow shapes above.
+#:
+#: `<cost>` is matched against a **closed** whitelist of atomic clause
+#: shapes rather than run through `costs.py`'s lenient substring search —
+#: that search only *finds* a cost fragment inside arbitrary text, it
+#: doesn't confirm the fragment is the *entire* clause, so a compound
+#: antecedent ("discard your hand and draw two cards") could otherwise have
+#: its un-matched tail silently dropped. The mana alternative excludes the
+#: `{E}` symbol on purpose — `_can_pay_player_cost`/`_pay_player_cost` don't
+#: charge `ActivationCost.pay_energy` at all (that's `pay_energy_then`'s own
+#: job, tried above and first-match-wins), so letting it through here would
+#: silently make an energy antecedent free. A *targeted* follow-up is
+#: rejected for the same reason `_pay_energy_then` rejects one:
+#: `PayCostThenEffect`'s branch effects resolve off-stack with no
+#: target-gathering step of their own (RULE 601.2c targets are announced
+#: with the spell/ability, and this clause isn't one).
+#:
+#: Exported (not module-private in spirit, just in naming convention) so
+#: `segmenter._PAY_ENERGY_THEN_PEEL_GUARD_RE` can protect the exact same
+#: shapes from its own generic "you may " stripping — that peel is a
+#: *different*, outer RULE 601.2c optionality (the whole ability, not this
+#: sub-clause's cost), and the two must never drift apart or a clause this
+#: handler recognizes would get its "you may" eaten before reaching here.
+#:
+#: The sacrifice alternative deliberately excludes the bare **self**-
+#: sacrifice forms ("sacrifice it"/"this `<type>`"/"~") that `segmenter.
+#: _SACRIFICE_THEN_WHEN_YOU_DO_RE` already claims (a plain, unconditional
+#: sequence — sacrificing yourself is always legal once declared, so RULE
+#: 603.5's antecedent can never fail, and that older path is strictly more
+#: permissive than this one since it allows a *targeted* follow-up).
+#: Routing self-sacrifice through here too would only lose coverage: this
+#: handler's `_can_pay_player_cost` gate can genuinely fail an antecedent
+#: (no legal permanent of the named type/no cards in hand), which is real
+#: and worth being interactive about for a *typed* sacrifice/discard/life
+#: payment — but it also rejects a targeted follow-up outright, which the
+#: self-sacrifice cases don't need to risk.
+_MAY_COST_THEN_CLAUSE = (
+    r"pay (?:\{[wubrgcx0-9/]+\})+"
+    r"|sacrifice an? \w+"
+    r"|sacrifice another \w+"
+    r"|discard (?:your hand|a card|\d+ cards?|[a-z]+ cards?)"
+    r"|pay \d+ life"
+)
+_PAY_COST_THEN_GENERAL_RE = _c(
+    r"you may (?P<cost>" + _MAY_COST_THEN_CLAUSE + r")\.\s*(?:if|when) you do,?\s*(?P<effect>.+)"
+)
+
+
+def _pay_cost_then_general(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    from ..segmenter import parse_effect_body  # lazy: segmenter imports this module
+
+    sub = parse_effect_body(m.group("effect").strip())
+    if not sub:
+        return None  # follow-up not modeled → whole clause unclaimed
+    if any(s.params.get("target_kind") for s in sub):
+        return None  # a targeted follow-up can't resolve off-stack — see docstring above
+    return [EffectSpec("pay_cost_then", {
+        "cost": m.group("cost"),
+        "effects": [s.to_dict() for s in sub],
+    })]
+
+
+#: MEC-19's "counter it/that spell[or ability] unless that player/its
+#: controller pays `<cost>`." — a `_BECOMES_TARGET_TRIGGER_RE`-anchored
+#: triggered ability's own resolution body, the un-keyworded-Ward-shaped
+#: cycle's single most common effect (~90 real cards). The captured cost is
+#: normalized to its imperative form ("pays"→"pay", "discards"→"discard")
+#: before being handed to `costs.parse_activation_cost` at resolve time —
+#: that parser's regexes anchor on the imperative ("pay\s+", "discard\s+"),
+#: so the printed "pays"/"discards" would otherwise silently fail to match
+#: and the cost would resolve as free.
+_COUNTER_UNLESS_PAY_RE = _c(
+    r"counter (?:it|that spell or ability|that spell|that ability) unless "
+    r"(?:that player|its controller) (?P<verb>pays|discards) "
+    r"(?P<amount>(?:\{[wubrgcx0-9/]+\})+|\d+ life|a card)"
+)
+
+
+def _counter_unless_pay(m: re.Match[str]) -> list[EffectSpec]:
+    verb = "pay" if m.group("verb") == "pays" else "discard"
+    return [EffectSpec("counter_unless_pay", {"cost": f"{verb} {m.group('amount')}"})]
+
+
 #: "you get {E}{E}" (RULE 122 energy production, the reminder-text
 #: parenthetical already stripped by `normalize`) — N energy counters to the
 #: effect's controller, the resolve-time sibling of the "Pay {E}" cost. Uses
@@ -2615,15 +2902,7 @@ def _inline_create_token_params(m: re.Match[str]) -> Optional[dict]:
     grammar (``p``/``t``/``mid``/``kw``/``n``/``tapped``/``legendary``/``who``
     groups) — factored out of `_create_token` so `_create_token_and_attach`
     can build the same params for its own, differently-wrapped clause."""
-    colors: list[str] = []
-    subtypes: list[str] = []
-    for word in (m.group("mid") or "").split():
-        if word in _COLOR_WORDS:
-            colors.append(_COLOR_WORDS[word])
-        elif word in _TOKEN_NOISE_WORDS:
-            continue
-        else:
-            subtypes.append(word.capitalize())
+    colors, subtypes, is_artifact = _split_token_mid_words(m.group("mid") or "")
     keywords: list[str] = []
     if m.groupdict().get("kw"):
         parsed = _token_keywords(m.group("kw"))
@@ -2638,6 +2917,8 @@ def _inline_create_token_params(m: re.Match[str]) -> Optional[dict]:
         "subtypes": subtypes,
         "keywords": keywords,
     }
+    if is_artifact:
+        params["is_artifact"] = True
     if subtypes:
         params["token_name"] = " ".join(subtypes)
     if m.groupdict().get("legendary"):
@@ -2797,15 +3078,7 @@ _CREATE_NAMED_LEGENDARY_TOKEN_RE = _c(
 
 
 def _create_named_legendary_token(m: re.Match[str]) -> Optional[list[EffectSpec]]:
-    colors: list[str] = []
-    subtypes: list[str] = []
-    for word in (m.group("mid") or "").split():
-        if word in _COLOR_WORDS:
-            colors.append(_COLOR_WORDS[word])
-        elif word in _TOKEN_NOISE_WORDS:
-            continue
-        else:
-            subtypes.append(word.capitalize())
+    colors, subtypes, is_artifact = _split_token_mid_words(m.group("mid") or "")
     keywords: list[str] = []
     if m.groupdict().get("kw"):
         parsed = _token_keywords(m.group("kw"))
@@ -2815,6 +3088,7 @@ def _create_named_legendary_token(m: re.Match[str]) -> Optional[list[EffectSpec]
     return [EffectSpec("create_token", {
         "count": 1, "power": int(m.group("p")), "toughness": int(m.group("t")),
         "colors": colors, "subtypes": subtypes, "keywords": keywords,
+        **({"is_artifact": True} if is_artifact else {}),
         "token_name": m.group("name").strip().title(), "legendary": True,
     })]
 
@@ -3156,6 +3430,35 @@ def _pump_attacking_subtype_target(m: re.Match[str]) -> Optional[list[EffectSpec
         "keywords": keywords, "target_kind": "creature_you_control",
         "creature_filter": {"attacking": True, "subtype": m.group("subtype").capitalize()},
     })]
+
+
+#: "Up to two target creatures each get +N/+N [and gain `<keywords>`] until
+#: end of turn." (Dauntless Onslaught-shaped — the single biggest pump
+#: template found in the cache, 19 SOLO cards, `parser_probe.py blocked`) /
+#: "One or two target creatures…" (Opera Love Song's own phrasing) — both
+#: fold to the same `PumpEffect` shape RULE 115.1a's "up to N" idiom already
+#: uses (`count=2, optional=True`). **Documented simplification** for the
+#: "one or two" wording specifically: RAW requires picking at least one,
+#: modeled here as fully optional (0–2) like "up to two" — a card offering
+#: this is always worth taking, so declining below the printed minimum is
+#: not a real choice any player would make differently.
+_PUMP_UP_TO_TWO_RE = _c(
+    r"(?:up to 2|1 or 2) target creatures each gets? "
+    r"(?P<p>[+\-−]\d+)/(?P<t>[+\-−]\d+)(?: and gains? (?P<kw>[a-z][a-z, ]*?))? until end of turn"
+)
+
+
+def _pump_up_to_two(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    params: dict = {
+        "power": _signed_int(m.group("p")), "toughness": _signed_int(m.group("t")),
+        "target_kind": "creature", "count": 2, "optional": True,
+    }
+    if m.groupdict().get("kw"):
+        keywords = _token_keywords(m.group("kw"))
+        if keywords is None:
+            return None
+        params["keywords"] = keywords
+    return [EffectSpec("pump", params)]
 
 
 #: "Each creature your opponents control gets -1/-1 until end of turn for
@@ -4035,6 +4338,14 @@ HANDLERS: list[EffectHandler] = [
         _DRAW_REVEAL_CAST_FREE_RE,
         _draw_reveal_cast_free,
     ),
+    # MEC-20: RULE 601.2f "Expertise" cycle — "you may cast a spell with
+    # mana value N/X or less from your hand without paying its mana cost
+    # [, where x is the number of attacking creatures]".
+    EffectHandler(
+        "free_cast_from_hand",
+        _FREE_CAST_FROM_HAND_RE,
+        _free_cast_from_hand,
+    ),
     # "Target opponent reveals their hand. You choose a nonland card from
     # it. That player discards that card." (Duress/Thoughtseize-shaped) —
     # tried before the plain `discard` row below (unrelated shapes, but
@@ -4406,6 +4717,20 @@ HANDLERS: list[EffectHandler] = [
         _c(rf"return {TARGET} to its owner's hand"),
         _return_to_hand,
     ),
+    # "put target creature on top/the bottom of its owner's library" (RULE
+    # 701.3 — Time Ebb/Griptide-shaped tempo bounce).
+    EffectHandler(
+        "return_to_library",
+        _c(rf"put {TARGET} on (?:top|the (?P<pos>bottom)) of its owner's library"),
+        _return_to_library,
+    ),
+    # "return all nonland permanents with mana value X or less to their
+    # owners' hands." (Displacement Wave).
+    EffectHandler(
+        "return_all_nonland",
+        _RETURN_ALL_NONLAND_RE,
+        _return_all_nonland,
+    ),
     # "return two target creatures to their owners' hands" (RULE 115.1a
     # generalized to N>=2) — the plural sibling of `return_to_hand`.
     EffectHandler(
@@ -4562,6 +4887,35 @@ HANDLERS: list[EffectHandler] = [
         _GAIN_CONTROL_ALL_RE,
         _gain_control_all,
     ),
+    # "that player copies it and may choose new targets for the copy [until
+    # end of turn]" (Bonus Round's own trigger body).
+    EffectHandler(
+        "trigger_copy_spell",
+        _TRIGGER_COPY_SPELL_RE,
+        _trigger_copy_spell,
+    ),
+    # "Each instant and sorcery card in your graveyard gains flashback until
+    # end of turn. The flashback cost is equal to its mana cost." (Past in
+    # Flames-shaped).
+    EffectHandler(
+        "grant_flashback_each",
+        _GRANT_FLASHBACK_EACH_RE,
+        _grant_flashback_each,
+    ),
+    # "The next spell you cast this turn can't be countered." (Mistrise
+    # Village's own activated ability body).
+    EffectHandler(
+        "next_spell_cant_be_countered",
+        _NEXT_SPELL_CANT_BE_COUNTERED_RE,
+        _next_spell_cant_be_countered,
+    ),
+    # "Look at the top card of target player's library."/"Look at a card at
+    # random in target player's hand." (Mishra's/Urza's Bauble).
+    EffectHandler(
+        "look_at_target",
+        _LOOK_AT_TARGET_RE,
+        _look_at_target,
+    ),
     # "attach it to target creature you control" / "attach ~ to target
     # creature you control" (an Equipment's own ETB self-attach).
     EffectHandler(
@@ -4634,6 +4988,22 @@ HANDLERS: list[EffectHandler] = [
         "pay_energy_then",
         _PAY_ENERGY_THEN_RE,
         _pay_energy_then,
+    ),
+    # MEC-18: "you may <sacrifice/discard/pay-mana/pay-life>. when/if you
+    # do, <effect>." — the general RULE 603.5 optional-antecedent family.
+    # Tried after `pay_energy_then`/`pay_cost_then_draw` (both narrower,
+    # both correct) so first-match-wins never lets this one preempt them.
+    EffectHandler(
+        "pay_cost_then_general",
+        _PAY_COST_THEN_GENERAL_RE,
+        _pay_cost_then_general,
+    ),
+    # MEC-19: "counter it unless that player pays <cost>" — the
+    # un-keyworded-Ward-shaped `BECOMES_TARGET` trigger's own resolution.
+    EffectHandler(
+        "counter_unless_pay",
+        _COUNTER_UNLESS_PAY_RE,
+        _counter_unless_pay,
     ),
     # "you get {E}{E}" — energy-counter production (RULE 122).
     EffectHandler(
@@ -4935,6 +5305,14 @@ HANDLERS: list[EffectHandler] = [
         "pump_per_controller_counter",
         _PUMP_PER_CONTROLLER_COUNTER_RE,
         _pump_per_controller_counter,
+    ),
+    # "Up to two target creatures each get +N/+N [and gain <keywords>]
+    # until end of turn." (Dauntless Onslaught-shaped) / "One or two target
+    # creatures…" (Opera Love Song's own phrasing).
+    EffectHandler(
+        "pump_up_to_two",
+        _PUMP_UP_TO_TWO_RE,
+        _pump_up_to_two,
     ),
     # "Creatures you control gain trample and get +X/+X until end of turn,
     # where X is the number of creatures you control." (Craterhoof

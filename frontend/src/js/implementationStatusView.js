@@ -169,6 +169,8 @@ const GROUPS = [
               ['full', '„Diese Fähigkeit wird nur einmal pro Zug ausgelöst" (603.2, auch „…zum ersten Mal in diesem Zug")'],
               ['full', 'Verliehene Upkeep-/Phasen-Trigger (in Zitat-Fähigkeiten)'],
               ['full', '„Opfere ~, es sei denn, du bezahlst <Kosten>" (interaktiv)'],
+              ['full', '„Du darfst <Opfern/Ablegen/Bezahlen>. Wenn du dies tust, <Effekt>" (603.5, interaktiv)'],
+              ['full', '„Wird ~ Ziel eines Zaubers/einer Fähigkeit [die/der ein Gegner kontrolliert]" (115/601.2c)'],
               ['full', 'Zielwahl für ausgelöste Fähigkeiten'],
               ['full', 'Modale ausgelöste Fähigkeiten'],
               ['full', '„Du darfst"-Trigger'],
@@ -212,6 +214,7 @@ const GROUPS = [
               ['full', 'Zwei unabhängige Ziele in einer Klausel'],
               ['full', 'grant_mana_ability / grant_triggered_ability'],
               ['full', '„Bringe ~ auf die Hand zurück" (Rancor/Flickering Ward)'],
+              ['full', '„Kontere es, es sei denn, der Spieler bezahlt <Kosten>" (nicht als Ward gedrucktes 702.21a-Ergebnis)'],
             ],
           },
           {
@@ -391,7 +394,7 @@ const GROUPS = [
             items: [
               ['full', 'Rückgängig / Neustart / Rewind'],
               ['full', 'Passiver Gegner ("Goldfisch") als Ziel für Angriffe/Schaden — bewusst passiv (Zweck ist das Testen ohne Gegenwehr); echte agierende Bots (GoldfishBot/GreedyBot) existieren separat für Multiplayer & die Dynamische Analyse'],
-              ['partial', 'Gesamtabdeckung Oracle-Parser (32,2 % · 11.215 / 34.811, PARSER_VERSION 65)'],
+              ['partial', 'Gesamtabdeckung Oracle-Parser (33,0 % · 11.475 / 34.811, PARSER_VERSION 69)'],
               ['full', 'Interaktive Auswahl statt Automatik: welches Objekt tappen/opfern/zurücknehmen'],
               ['full', 'Unterbrochene Auflösung — mehrere Entscheidungen in einem Effekt (608.2)'],
             ],

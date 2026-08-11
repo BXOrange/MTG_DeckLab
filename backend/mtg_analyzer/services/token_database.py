@@ -94,6 +94,7 @@ def synthesize_token_card(
     keywords: Optional[list[str]] = None,
     oracle_text: str = "",
     legendary: bool = False,
+    is_artifact: bool = False,
 ) -> Card:
     """Build a `Card` *definition* for a token an effect creates on the fly.
 
@@ -103,6 +104,13 @@ def synthesize_token_card(
     `Card.is_token` is True and the parser/binder treat any granted keywords
     exactly like a real card's. A token with power/toughness is a creature; one
     without is a generic artifact (e.g. Treasure/Clue when not catalogued).
+
+    ``is_artifact=True`` (Construct/Thopter/Servo-shaped "colorless Construct
+    **artifact** creature token") adds the Artifact card type *alongside*
+    Creature rather than instead of it — real Magic prints plenty of
+    artifact creature tokens, and "sacrifice an artifact"/an artifact-count
+    anthem/RULE 704.5f's own zero-toughness check all need `Card.is_artifact`
+    true for one of these, not just `Card.is_creature`.
 
     ``legendary`` (PAR-13, "Create The Atropal, a legendary 4/4 black God
     Horror creature token with deathtouch.") sets `Card.is_legendary`
@@ -115,7 +123,10 @@ def synthesize_token_card(
     """
     is_creature = power is not None and toughness is not None
     subtypes = subtypes or ([name] if (name and is_creature) else [])
-    kind = "Creature" if is_creature else "Artifact"
+    if is_creature:
+        kind = "Artifact Creature" if is_artifact else "Creature"
+    else:
+        kind = "Artifact"
     type_line = f"Token{' Legendary' if legendary else ''} {kind}"
     if subtypes:
         type_line += " — " + " ".join(s.capitalize() for s in subtypes)

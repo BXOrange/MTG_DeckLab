@@ -48,6 +48,7 @@ from .effects import (
     RenownEffect,
     ReplacementEffect,
     ReplacementRegistry,
+    PutSelfOntoBattlefieldFromHandEffect,
     ReturnSelfFromGraveyardToBattlefieldEffect,
     ReturnSelfFromGraveyardToHandEffect,
     SacrificeEffect,
@@ -170,6 +171,14 @@ _GROUP_CONTROLLER_EVENT_KEYS: dict[str, str] = {
     # (`draw_discard_mixin.py`), same ``player_id`` convention as every
     # other player-subject event above; only this table entry was missing.
     "DRAW": "player_id",
+    # "Whenever a creature/permanent **you control** becomes the target of a
+    # spell or ability, …" (MEC-19, Battle Mammoth/Shapers' Sanctuary-
+    # shaped) — `BECOMES_TARGET` names the *targeted* object's own
+    # controller as ``target_controller_id`` (not a bare ``controller_id``,
+    # which this event uses for the unrelated *caster* — see its own
+    # docstring), so "you control" scopes to the target, not whoever cast
+    # the targeting spell.
+    "BECOMES_TARGET": "target_controller_id",
 }
 
 #: Which event-data key identifies *which object* an event is about — RULE
@@ -613,6 +622,17 @@ def _trigger_condition(
 
         predicates.append(_spell_mv_ok)
 
+    # "Whenever a player casts a spell, if no mana was spent to cast it,
+    # counter that spell." (Vexing Bauble) — RULE 601.2h's "free spell" hate,
+    # off `SPELL_CAST`'s own ``mana_spent`` (`GameObject.mana_spent_to_cast`,
+    # already 0 for a free-cast/alt-cost spell — `RulesEngine.cast_spell`'s
+    # own ``free_cast``/alt-cost branches never bump it).
+    if trigger.get("spell_no_mana_spent"):
+        def _spell_no_mana_ok(event: Any, context: Any) -> bool:
+            return not event.get("mana_spent")
+
+        predicates.append(_spell_no_mana_ok)
+
     # "Whenever an instant or sorcery spell you control that targets only a
     # single creature deals damage to that creature, …" (Imodane, the
     # Pyrohammer) — two flags `RulesEngine.deal_damage`/`DealDamageEffect`
@@ -734,6 +754,32 @@ def _trigger_condition(
             return is_yours if rel == "you" else not is_yours
 
         predicates.append(_phase_relation_ok)
+
+    # MEC-19: "Whenever ~ becomes the target of a spell or ability **an
+    # opponent controls**/**you control**, …" — unlike ``phase_relation``
+    # (whose event carries no controller at all, so it compares "whose turn
+    # is it" against the source) or the "group"/"you" subject's own
+    # ``controller`` key (which scopes the *acting* object/player, always
+    # read off ``_GROUP_CONTROLLER_EVENT_KEYS``), this compares a THIRD
+    # party — the *caster* of the spell/ability doing the targeting
+    # (`BECOMES_TARGET`'s own ``controller_id``, deliberately not reused as
+    # that event's default subject/group key — see its docstring) — against
+    # the triggered ability's own source. "an opponent controls" only makes
+    # rules sense when the ability's own source has a controller to compare
+    # against (never true off the battlefield), so a sourceless/ownerless
+    # ability fails closed rather than matching every caster.
+    caster_relation = trigger.get("caster_relation")
+    if caster_relation in ("opponent", "you"):
+        controller_id = getattr(source, "controller_id", None)
+
+        def _caster_relation_ok(event: Any, context: Any, cid=controller_id, rel=caster_relation) -> bool:
+            if cid is None:
+                return False
+            caster_id = event.get("controller_id")
+            is_you = caster_id == cid
+            return is_you if rel == "you" else (caster_id is not None and not is_you)
+
+        predicates.append(_caster_relation_ok)
 
     # "… if this artifact is tapped, …" (Mana Vault's draw-step ping) — a
     # RULE 603.4 intervening-if about the ability's **own source's** current
@@ -1012,6 +1058,11 @@ def bind_ability(
         # entire body on a real card — the ability lives in the graveyard,
         # not the battlefield (`can_activate`'s `graveyard_zone` branch).
         cost.graveyard_zone = True
+    if any(isinstance(e, PutSelfOntoBattlefieldFromHandEffect) for e in effects):
+        # "{N}: Put this card from your hand onto the battlefield." (Talon
+        # Gates of Madara-shaped) — same inference, `hand_zone`'s own
+        # branch of `can_activate`.
+        cost.hand_zone = True
     return ActivatedAbility(
         effects=effects,
         cost=cost,

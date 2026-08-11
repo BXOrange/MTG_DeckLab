@@ -237,6 +237,11 @@ class ActivationCost:
     #: card printing this shape has it as the ability's *entire* body, so
     #: the effect and the zone always travel together.
     graveyard_zone: bool = False
+    #: "{N}: Put this card from your hand onto the battlefield." (Talon
+    #: Gates of Madara-shaped) — `graveyard_zone`'s hand-zone sibling, same
+    #: inference idiom (`effect_binder.bind_ability`, keyed on
+    #: `PutSelfOntoBattlefieldFromHandEffect` instead).
+    hand_zone: bool = False
     remove_counters: Optional[tuple[str, int]] = None
     #: RULE 702.138b (Escape): how many *other* cards must be exiled from the
     #: payer's own graveyard — "Exile four other cards from your graveyard".

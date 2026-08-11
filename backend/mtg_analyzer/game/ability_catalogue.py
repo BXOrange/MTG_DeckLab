@@ -3552,24 +3552,27 @@ def _goldspan_dragon() -> list[AbilitySpec]:
     mana of any one color."
 
     — Goldspan Dragon. Flying/haste are keywords, already covered by the
-    parser's keyword catalogue.
+    parser's keyword catalogue. The compound "attacks or becomes the
+    target of a spell" trigger is two `AbilitySpec`s (MEC-19's
+    `EventType.BECOMES_TARGET` added the second — same "one AbilitySpec
+    per event" idiom `_SELF_MULTI_EVENT_RE`/Matoya, Archon Elder's "you
+    scry or surveil" use for a compound RULE 603.1 condition), not a
+    generalized "attacks or becomes the target of a spell [an opponent
+    controls]" parser grammar — only Goldspan Dragon and Tectonic Giant
+    print this exact compound (Giggling Skitterspike's own 3-way "attacks,
+    blocks, or becomes the target of a spell" is a third, still wider
+    shape), too narrow a family to be worth a general regex over two
+    hand-authored entries.
 
-    Documented simplifications (both narrow — this card's own combo
-    engine primitives don't exist yet, tracked in BACKLOG.md for a future
-    batch rather than built one-off here):
-    - The trigger only fires on "attacks", not the full "attacks or
-      becomes the target of a spell" — this engine has no general
-      "becomes the target of a spell/ability" event yet (RULE 601.2c/
-      section 115's targeting doesn't fire onto the event bus anywhere;
-      Ward is checked directly at cast-time instead), and only 2 real
-      cards in the cache need it (Tectonic Giant, the other).
-    - The granted ability keeps Treasure's own default amount (1 mana)
-      rather than upgrading it to 2 — `effects.grant_mana_ability`'s
-      granted options are always a repeatable tap-only "{T}: Add …", with
-      no way to express a *replacement* sacrifice-cost mana ability (the
-      engine has no "upgrade an existing matching ability's amount"
-      primitive), so granting the real printed ability verbatim isn't
-      reachable through it yet. The card still ramps normally.
+    MEC-25 closed this card's own documented simplification: the granted
+    ability now upgrades Treasure's printed one-mana version to the real
+    printed two — `effects.grant_mana_ability`'s new ``cost`` param
+    (`continuous._apply_layer_6_ability`'s ``mana_ability_cost`` handling)
+    lets a grant carry a non-``{T}``-only cost and *replace* a matching
+    printed ability instead of adding an independent second one (see
+    `mana_abilities.mana_abilities_for`'s replace-matching). ``mana`` is
+    the same 5-option "any one colour" menu shape `mana_abilities.
+    _parse_clause` builds for Treasure's own printed text, just at amount 2.
     """
     return [
         AbilitySpec(
@@ -3578,10 +3581,104 @@ def _goldspan_dragon() -> list[AbilitySpec]:
             trigger={"event": EventType.ATTACKS, "condition": {"subject": "self"}},
             raw_text="whenever ~ attacks, create a treasure token.",
         ),
+        AbilitySpec(
+            "triggered",
+            [EffectSpec("create_token", {"count": 1, "token_name": "Treasure"})],
+            trigger={
+                "event": EventType.BECOMES_TARGET,
+                "condition": {"subject": "self"},
+                "filter": {"item_kind": "spell"},
+            },
+            raw_text="whenever ~ becomes the target of a spell, create a treasure token.",
+        ),
+        AbilitySpec(
+            "static",
+            [EffectSpec("grant_mana_ability", {
+                "affects": "permanents_you_control",
+                "subtype": "Treasure",
+                "cost": {"text": "{T}, Sacrifice this artifact"},
+                "mana": [{color: 2} for color in ("W", "U", "B", "R", "G")],
+            })],
+            raw_text='treasures you control have "{t}, sacrifice this artifact: '
+                     'add two mana of any one color."',
+        ),
     ]
 
 
 register("Goldspan Dragon", _goldspan_dragon)
+
+
+def _tectonic_giant() -> list[AbilitySpec]:
+    """Whenever this creature attacks or becomes the target of a spell an
+    opponent controls, choose one —
+    • This creature deals 3 damage to each opponent.
+    • Exile the top two cards of your library. Choose one of them. Until
+    the end of your next turn, you may play that card.
+
+    — Tectonic Giant, MEC-19's second named card. Same "one AbilitySpec per
+    compound-triggered event" idiom as Goldspan Dragon's own entry (this
+    trigger only needs the ``caster_relation: "opponent"`` filter Goldspan
+    Dragon's plain "of a spell" doesn't).
+
+    Documented simplification on the second mode: "exile the top two
+    cards, **choose one of them**, until the end of your next turn you may
+    play *that* card" is a distinct RULE 601.3b shape from the already-
+    shipped `ImpulsiveDrawEffect` ("exile N, *all* of them stay playable")
+    — a filtered choice-and-route dig, not a plain reveal-and-window one.
+    No shipped primitive covers "exile N, pick 1 to keep playable, discard
+    the rest" (7 real cache cards total, `parser_probe.py cards` — its own
+    small, real gap, orthogonal to MEC-19's `BECOMES_TARGET` work and not
+    built here). Modeled instead with the closest existing effect,
+    `impulsive_draw` at ``count=2``: strictly more generous than print
+    (both exiled cards stay playable, not just one chosen), same
+    "until the end of your next turn" window (``same_turn_only=False``).
+    """
+    return [
+        AbilitySpec(
+            "triggered",
+            [],
+            modes={
+                "choose": 1,
+                "options": [
+                    [EffectSpec("damage", {"amount": 3, "selector": "each_opponent"})],
+                    [EffectSpec("impulsive_draw", {"count": 2, "same_turn_only": False})],
+                ],
+                "descriptions": [
+                    "~ fügt jedem Gegner 3 Schadenspunkte zu.",
+                    "Exiliere die obersten zwei Karten deiner Bibliothek. Du "
+                    "darfst sie bis zum Ende deines nächsten Zuges spielen.",
+                ],
+            },
+            trigger={"event": EventType.ATTACKS, "condition": {"subject": "self"}},
+            raw_text="whenever ~ attacks, choose one —",
+        ),
+        AbilitySpec(
+            "triggered",
+            [],
+            modes={
+                "choose": 1,
+                "options": [
+                    [EffectSpec("damage", {"amount": 3, "selector": "each_opponent"})],
+                    [EffectSpec("impulsive_draw", {"count": 2, "same_turn_only": False})],
+                ],
+                "descriptions": [
+                    "~ fügt jedem Gegner 3 Schadenspunkte zu.",
+                    "Exiliere die obersten zwei Karten deiner Bibliothek. Du "
+                    "darfst sie bis zum Ende deines nächsten Zuges spielen.",
+                ],
+            },
+            trigger={
+                "event": EventType.BECOMES_TARGET,
+                "condition": {"subject": "self"},
+                "filter": {"item_kind": "spell"},
+                "caster_relation": "opponent",
+            },
+            raw_text="whenever ~ becomes the target of a spell an opponent controls, choose one —",
+        ),
+    ]
+
+
+register("Tectonic Giant", _tectonic_giant)
 
 
 def _kiki_jiki_mirror_breaker() -> list[AbilitySpec]:
@@ -3802,15 +3899,13 @@ def _kari_zevs_expertise() -> list[AbilitySpec]:
     substitution rather than a dedicated Vehicle target kind for this one
     card.
 
-    Documented simplification: the second sentence — RULE 601.2f's
-    "Expertise" cycle template ("you may cast a spell with mana value N
-    or less from your hand without paying its mana cost", also on Sram's/
-    Yahenni's/Baral's/Rishkar's Expertise) — is not modeled. It's a
-    genuinely new engine primitive (an interactive "which hand card, if
-    any" choice opening a temporary free-cast window), not a one-off for
-    this card; tracked in BACKLOG.md rather than built here, since 8 real
-    cards share it and it deserves the same batch treatment the rest of
-    this session's primitives got, not a rushed one-off.
+    MEC-20 closed the second sentence — RULE 601.2f's "Expertise" cycle
+    template ("you may cast a spell with mana value N or less from your
+    hand without paying its mana cost", also on Sram's/Yahenni's/Baral's/
+    Rishkar's Expertise), via the new `effects.FreeCastFromHandEffect` and
+    the oracle-text handler that now claims the other four automatically
+    (`parser/oracle/catalogue/handlers.py`'s ``free_cast_from_hand`` row) —
+    this card stays hand-authored only for its first, threaten sentence.
     """
     return [
         AbilitySpec(
@@ -3821,10 +3916,53 @@ def _kari_zevs_expertise() -> list[AbilitySpec]:
                 "turn. untap it. it gains haste until end of turn."
             ),
         ),
+        AbilitySpec(
+            "spell_effect",
+            [EffectSpec("free_cast_from_hand", {"max_mana_value": 2})],
+            raw_text=(
+                "you may cast a spell with mana value 2 or less from your "
+                "hand without paying its mana cost."
+            ),
+        ),
     ]
 
 
 register("Kari Zev's Expertise", _kari_zevs_expertise)
+
+
+def _electrodominance() -> list[AbilitySpec]:
+    """Electrodominance deals X damage to any target. You may cast a spell
+    with mana value X or less from your hand without paying its mana cost.
+
+    — Electrodominance (MEC-20's own X-scaled "Expertise" cousin — RULE
+    601.2f, same template as the Expertise cycle just with an announced
+    {X} instead of a literal N, `effects.FreeCastFromHandEffect`'s
+    ``criteria={"max_mana_value": "x"}``). Hand-authored rather than
+    reached through the oracle-text parser's own ``damage`` handler:
+    that handler's regex is digit-only (``NUMBER``, not ``COUNT_X``) and
+    widening it to accept the "x" sentinel is a separate, real gap of its
+    own (X-cost burn spells generally — Fireball/Rolling Thunder/Banefire-
+    shaped, a family this ticket didn't size) rather than a one-line
+    change safe to fold into this batch unreviewed.
+    """
+    return [
+        AbilitySpec(
+            "spell_effect",
+            [EffectSpec("damage", {"amount": "x", "target_kind": "any"})],
+            raw_text="~ deals x damage to any target.",
+        ),
+        AbilitySpec(
+            "spell_effect",
+            [EffectSpec("free_cast_from_hand", {"max_mana_value": "x"})],
+            raw_text=(
+                "you may cast a spell with mana value x or less from your "
+                "hand without paying its mana cost."
+            ),
+        ),
+    ]
+
+
+register("Electrodominance", _electrodominance)
 
 
 def _danny_pink() -> list[AbilitySpec]:
@@ -3937,44 +4075,43 @@ def _agathas_soul_cauldron() -> list[AbilitySpec]:
     {T}: Exile target card from a graveyard. When a creature card is
     exiled this way, put a +1/+1 counter on target creature you control.
 
-    — Agatha's Soul Cauldron. Only the activated ability is modeled;
-    documented as a deliberately partial implementation rather than left
-    entirely unclaimed, since the artifact still does real, useful work
-    (exile hate + counter growth) even without its full build-around
-    payoff.
+    — Agatha's Soul Cauldron. MEC-21 closed both of this card's previously
+    unmodeled clauses:
 
-    Not modeled (both would need genuinely new, substantial primitives
-    for this one card alone — tracked as a real gap, not silently
-    assumed away):
-    - The mana-spend restriction lift ("as though it were mana of any
-      color", scoped specifically to *activating creature abilities*) —
-      no "any color, purpose-restricted" spend permission exists; the
-      shipped ones (RULE 605.3a `restriction_predicate_for_cast`/
-      `_for_activation`) restrict *what a lot of mana can pay for*, never
-      *what color a lot of mana counts as*.
-    - The dynamic ability grant ("all activated abilities of all creature
-      cards exiled with ~", onto every counter-bearing creature you
-      control) — needs a live "cards exiled with this source" list (no
-      "exiled with" linked-zone tracking exists beyond the single-card
-      O-Ring shape, `GameObject.linked_exile_id`) *and* a way to read an
-      arbitrary exiled card's own printed activated abilities back out
-      and re-grant them, which the layer-6 grant machinery has no
-      "borrow another card's abilities live" shape for.
+    - The mana-spend permission is `effects.grant_any_color_for_activation`
+      (a standing RULE 605.1a wildcard over activation-cost mana, distinct
+      from the shipped RULE 605.3a `restriction_predicate_for_cast`/
+      `_for_activation` machinery, which restricts *what* a lot of mana can
+      pay for rather than *what color* it counts as) — `continuous.
+      any_color_for_activation`, consulted by every activation-cost payment
+      site in `game/engine/activation_mixin.py`.
+    - The dynamic ability grant is `effects.grant_borrowed_activated_
+      ability`, reading live off `GameObject.exiled_with_ids` — the
+      generalized, *accumulating* "cards exiled with ~" list this card's
+      own activated ability below now stamps via `ExileEffect`'s new
+      ``track_exiled_with`` param (MEC-21's other named primitive,
+      reusable by any future "exile with ~" card; ~185 cached cards print
+      that shape). `continuous._apply_borrowed_activated_abilities` builds
+      one fresh `ActivatedAbility` per (grantee, exiled creature, ability
+      index), reusing the exiled card's own cost/effects (bound once at
+      bind-on-load, same as any other permanent's) with each nested
+      effect's `.source` redirected to the grantee (RULE 113.7c).
 
-    Documented simplification on the modeled third of the card: the
-    counter placement is unconditional rather than gated on "if a
-    **creature** card was exiled this way" — this engine's ``exile``
-    effect has no "conditional on the exiled card's own type" follow-up
-    yet (RULE 608.2's "when you do" sub-trigger machinery this would need
-    is the same one Maestros Theater's cycle uses for its own mandatory
-    "sacrifice it, then search" shape, not directly reusable for an
-    optional target's *type* instead of a fixed antecedent).
+    Documented simplification on the activated ability: the counter
+    placement is unconditional rather than gated on "if a **creature** card
+    was exiled this way" — this engine's ``exile`` effect has no
+    "conditional on the exiled card's own type" follow-up yet (RULE 608.2's
+    "when you do" sub-trigger machinery this would need is the same one
+    Maestros Theater's cycle uses for its own mandatory "sacrifice it, then
+    search" shape, not directly reusable for an optional target's *type*
+    instead of a fixed antecedent) — so a noncreature exile still grows a
+    counter, strictly more generous than print.
     """
     return [
         AbilitySpec(
             "activated",
             [
-                EffectSpec("exile", {"target_kind": "any_graveyard_card"}),
+                EffectSpec("exile", {"target_kind": "any_graveyard_card", "track_exiled_with": True}),
                 EffectSpec("add_counters", {"amount": 1, "target_kind": "creature"}),
             ],
             cost={"taps_self": True},
@@ -3983,6 +4120,23 @@ def _agathas_soul_cauldron() -> list[AbilitySpec]:
                 "card is exiled this way, put a +1/+1 counter on target "
                 "creature you control."
             ),
+        ),
+        AbilitySpec(
+            "static",
+            [EffectSpec("grant_any_color_for_activation", {"creature_abilities_only": True})],
+            raw_text="you may spend mana as though it were mana of any color to "
+                     "activate abilities of creatures you control.",
+        ),
+        AbilitySpec(
+            "static",
+            [EffectSpec("grant_borrowed_activated_ability", {
+                "affects": "creatures_you_control",
+                "has_counter_kind": "+1/+1",
+                "creature_only": True,
+            })],
+            raw_text="creatures you control with +1/+1 counters on them have all "
+                     "activated abilities of all creature cards exiled with this "
+                     "artifact.",
         ),
     ]
 
@@ -12796,3 +12950,233 @@ def _transmute_artifact() -> list[AbilitySpec]:
 
 
 register("Transmute Artifact", _transmute_artifact)
+
+
+def _chain_of_vapor() -> list[AbilitySpec]:
+    """Return target nonland permanent to its owner's hand. Then that
+    permanent's controller may sacrifice a land of their choice. If the
+    player does, they may copy this spell and may choose a new target for
+    that copy.
+
+    — Vivi B4 batch. `return_to_hand` for the bounce; `PayCostThenEffect`'s
+    general "you may pay `<cost>`. If you do, nothing further." (RULE
+    118.3) models the land sacrifice itself with a new
+    ``payer="previous_target_controller"`` (`GameContext.previous_targets`
+    — it's the *bounced permanent's* controller being asked, almost always
+    an opponent, not this spell's own caster). **Documented
+    simplification**: "they may copy this spell and may choose a new
+    target for that copy" is dropped rather than approximated —
+    `CopySpellEffect.copy_self` ("copy this spell" while it's still
+    resolving) can't reach back through a `pending_choice` pause (by the
+    time the player answers "pay", the original has already finished
+    resolving and left the stack for the graveyard, RULE 608.2m), and a
+    same-target "copy" would fizzle for real play anyway: the only target
+    this MVP can default to is the permanent the first sentence just
+    bounced, which is no longer a legal "target nonland permanent" once
+    it's sitting in hand — RAW's own "you may choose new targets" is
+    exactly there to route around that, and this engine doesn't offer that
+    choice yet. Sacrificing the land is still a real, correctly-costed
+    decision on its own.
+    """
+    return [
+        AbilitySpec(
+            "spell_effect",
+            [
+                EffectSpec("return_to_hand", {"target_kind": "nonland_permanent"}),
+                EffectSpec("pay_cost_then", {
+                    "cost": "sacrifice a land",
+                    "payer": "previous_target_controller",
+                    "effects": [],
+                }),
+            ],
+            raw_text=(
+                "return target nonland permanent to its owner's hand. then that "
+                "permanent's controller may sacrifice a land of their choice. if "
+                "the player does, they may copy this spell and may choose a new "
+                "target for that copy."
+            ),
+        ),
+    ]
+
+
+register("Chain of Vapor", _chain_of_vapor)
+
+
+def _intuition() -> list[AbilitySpec]:
+    """Search your library for three cards and reveal them. Target
+    opponent chooses one. Put that card into your hand and the rest into
+    your graveyard. Then shuffle.
+
+    — Vivi B4 batch. `IntuitionEffect`/`RulesEngine.request_intuition` —
+    a genuinely two-player interactive search (the caster picks the three
+    cards, then the *targeted opponent* picks which one is kept), self-
+    contained rather than composed from `request_search` (whose single
+    ``destination`` has no way to hand off to a second player's choice).
+    """
+    return [
+        AbilitySpec(
+            "spell_effect",
+            [EffectSpec("intuition_search", {"count": 3})],
+            raw_text=(
+                "search your library for 3 cards and reveal them. target opponent "
+                "chooses 1. put that card into your hand and the rest into your "
+                "graveyard. then shuffle."
+            ),
+        ),
+    ]
+
+
+register("Intuition", _intuition)
+
+
+def _ral_monsoon_mage() -> list[AbilitySpec]:
+    """Whenever you cast an instant or sorcery spell during your turn, flip
+    a coin. If you lose the flip, ~ deals 1 damage to you. If you win the
+    flip, you may exile ~. If you do, return him to the battlefield
+    transformed under his owner's control.
+
+    — Vivi B4 batch. New `CoinFlipEffect`/`RulesEngine.coin_flip` (RULE
+    705.1, previously built but unused by any card) branches into the loss
+    (``damage`` with the existing ``selector="controller"``, Mana Vault's
+    own "deals 1 damage to you" shape) and win (`exile_return_transformed`,
+    RULE 400.7/712.8's existing transform-via-zone-change primitive)
+    halves. "During your turn" reuses `phase_relation="you"` — built for
+    RULE 500.7 "at the beginning of your `<step>`" triggers, but its
+    predicate only checks whose turn it currently is, so it gates a
+    SPELL_CAST trigger exactly as well. **Documented simplification**:
+    "you may exile ~" is modeled as unconditional (always taken) — the
+    same accepted simplification `CoinFlipEffect` itself already documents.
+    """
+    return [
+        AbilitySpec(
+            "triggered",
+            [EffectSpec("coin_flip", {
+                "lose_effects": [{"type": "damage", "params": {"selector": "controller", "amount": 1}}],
+                "win_effects": [{"type": "exile_return_transformed", "params": {}}],
+            })],
+            trigger={
+                "event": "SPELL_CAST",
+                "condition": {"subject": "you"},
+                "spell_card_types": ["instant", "sorcery"],
+                "phase_relation": "you",
+            },
+            raw_text=(
+                "whenever you cast an instant or sorcery spell during your turn, "
+                "flip a coin. if you lose the flip, ~ deals 1 damage to you. if "
+                "you win the flip, you may exile ~. if you do, return him to the "
+                "battlefield transformed under his owner's control."
+            ),
+        ),
+    ]
+
+
+register("Ral, Monsoon Mage", _ral_monsoon_mage)
+
+
+def _talon_gates_of_madara() -> list[AbilitySpec]:
+    """When this land enters, up to one target creature phases out.
+    {T}: Add {C}.
+    {1}, {T}: Add one mana of any color.
+    {4}: Put this card from your hand onto the battlefield.
+
+    — Vivi B4 batch. The two mana abilities are already oracle-parsed
+    (RULE 605); only the ETB phase-out trigger (`PhaseOutEffect`) and the
+    new `PutSelfOntoBattlefieldFromHandEffect`/`ActivationCost.hand_zone`
+    ("play this land from hand for a generic cost, bypassing RULE 305's
+    per-turn land drop — an activated ability, not a land play") needed
+    hand-authoring.
+    """
+    return [
+        AbilitySpec(
+            "triggered",
+            [EffectSpec("phase_out", {"target_kind": "creature", "optional": True})],
+            trigger={"event": "ENTERS_BATTLEFIELD", "condition": {"subject": "self"}},
+            raw_text="when ~ enters, up to 1 target creature phases out.",
+        ),
+        AbilitySpec(
+            "activated",
+            [EffectSpec("put_self_onto_battlefield_from_hand", {})],
+            cost="{4}",
+            raw_text="{4}: put this card from your hand onto the battlefield.",
+        ),
+    ]
+
+
+register("Talon Gates of Madara", _talon_gates_of_madara)
+
+
+def _urzas_saga() -> list[AbilitySpec]:
+    """I — This Saga gains "{T}: Add {C}."
+    II — This Saga gains "{2}, {T}: Create a 0/0 colorless Construct
+    artifact creature token with 'This token gets +1/+1 for each artifact
+    you control.'"
+    III — Search your library for an artifact card with mana value 0 or 1,
+    put it onto the battlefield, then shuffle.
+
+    — Vivi B4 batch. Chapters I/II are `GrantSelfActivatedAbilityEffect`
+    (RULE 714.2c's *lasting* self-grant — new, since a Saga chapter's
+    "gains an ability" outlives the trigger that grants it, unlike the
+    turn-scoped `grant_graveyard_cast_permission_this_turn` shape it
+    otherwise mirrors), each wrapping the ability it grants as nested
+    ``EffectSpec`` dicts. Chapter II's Construct token gets its own
+    self-scaling +1/+1-per-artifact ability via `CreateTokenEffect.
+    grant_self_anthem` (new — appends a real ``anthem``-shaped
+    `StaticAbility` onto the *created token itself* rather than the
+    effect's source, reusing the oracle-parsed "creatures you control get
+    +N/+N" static's own ``power_count``/``toughness_count`` per-count
+    scaling). Chapter III is a plain `search`. **Documented
+    simplification**: chapter I's granted mana ability resolves through
+    the stack like any other granted activated ability (`grant_activated_
+    ability`'s general form) rather than as a genuine no-stack RULE 605.1a
+    mana ability — functionally equivalent (the mana still reaches the
+    pool), just one extra `activate_ability` step instead of an instant
+    tap-for-mana shortcut.
+    """
+    return [
+        AbilitySpec(
+            "triggered",
+            [EffectSpec("grant_self_activated_ability", {
+                "cost": {"taps_self": True},
+                "effects": [{"type": "add_mana", "params": {"colors": ["C"]}}],
+            })],
+            trigger={"event": "SAGA_CHAPTER", "chapter": [1]},
+            raw_text='i — this saga gains "{t}: add {c}."',
+        ),
+        AbilitySpec(
+            "triggered",
+            [EffectSpec("grant_self_activated_ability", {
+                "cost": {"mana": "{2}", "taps_self": True},
+                "effects": [{"type": "create_token", "params": {
+                    "power": 0, "toughness": 0, "colors": [], "subtypes": ["Construct"],
+                    "token_name": "Construct", "is_artifact": True,
+                    "grant_self_anthem": {
+                        "power": 1, "toughness": 1,
+                        "power_count": "artifacts_you_control",
+                        "toughness_count": "artifacts_you_control",
+                    },
+                }}],
+            })],
+            trigger={"event": "SAGA_CHAPTER", "chapter": [2]},
+            raw_text=(
+                'ii — this saga gains "{2}, {t}: create a 0/0 colorless construct '
+                "artifact creature token with '~ gets +1/+1 for each artifact you "
+                "control.'\""
+            ),
+        ),
+        AbilitySpec(
+            "triggered",
+            [EffectSpec("search", {
+                "criteria": {"type": "Artifact", "max_mana_value": 1},
+                "destination": "battlefield",
+                "optional": False,
+            })],
+            trigger={"event": "SAGA_CHAPTER", "chapter": [3]},
+            raw_text=(
+                "iii — search your library for an artifact card with mana cost "
+                "{0} or {1}, put it onto the battlefield, then shuffle."
+            ),
+        ),
+    ]
+
+
+register("Urza's Saga", _urzas_saga)

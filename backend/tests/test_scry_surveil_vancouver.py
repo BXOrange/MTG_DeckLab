@@ -419,6 +419,7 @@ class TestVancouverMulligan:
 
     def test_london_is_unaffected(self):
         session = self.make_goldfish(style="london")
+        session.apply_action({"type": "mulligan"})  # free (Commander default)
         session.apply_action({"type": "mulligan"})
         assert len(session.engine.state.player_by_id("p1").hand) == 7
         assert session.bottom_count_for("p1") == 1

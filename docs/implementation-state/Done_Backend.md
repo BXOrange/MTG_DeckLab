@@ -12329,3 +12329,786 @@ are catalogue registrations, not parser-classification changes, and
 `coverage_db.content_hash` already folds `is_registered()` into its key
 for exactly this case (`services/coverage_db.py`'s own doc comment).
 Coverage: 11,215 → 11,220 / 34,811 (32.2%, unchanged at this precision).
+
+## Vivi B4 (saved deck, fully playable) — 2026-08-10
+
+Made the "Vivi B4" saved deck (a 99-card storm-shell Commander deck, commander
+Vivi Ornitier) fully playable — 18 of its 99 unique cards were `UNMODELED`;
+all 18 closed (11 via general parser handlers, 7 hand-authored), plus one
+card (Hadoken) that resolved for free once identified as a flavor-name
+printing of an already-`MODELED` Lightning Bolt, never a real gap. Explicitly
+used the `hand-author-card` skill handing over to `extend-parser` whenever a
+general handler would close more cards than a one-off — several of the 11
+parser wins turned out to be the single biggest templates found to date,
+well past the Marchesa V4.2 batch's own headline items. Coverage 32.23% →
+32.6% (11,220 → 11,365/34,811), `PARSER_VERSION` 65 → 66. Full suite: 3,568
+passed, 238 skipped throughout (one pre-existing flaky websocket test seen
+intermittently, confirmed unrelated — passes in isolation every time).
+
+### Parser handlers (11 templates, cache-wide side effects far larger than the deck itself)
+
+**`look_top_select`** (`RulesEngine.look_top_select`/`LookTopSelectEffect`,
+`search_mixin.py`) — "Look at the top N cards of your library. Put M of them
+into your hand and the rest `<destination>`." (Anticipate/Dig Through Time/
+Diabolic Vision/Ancestral Memories-shaped, closing **Stock Up** — 38 cards on
+first measurement, since risen past 40 as later handlers in this same batch
+unblocked siblings). The fixed-selection-count sibling of `scry`/`surveil`'s
+per-card away/stay decision (`_LOOK_TOP_KINDS`): there the count going away
+is the player's own per-card choice, here the count going to hand is fixed
+by the card text, so the shape is instead a two-phase decision — "pick
+exactly M of these for hand", then (only when the card says "in any order")
+order what's left before it goes to `rest_destination`
+(`"library_bottom"`/`"library_top"`/`"graveyard"`). A `"random"` order
+shuffles with no choice; `"graveyard"` is never ordered either way (RULE
+701.31b's own precedent — a surveil/mill pile is never ordered). The
+segmenter recognition (`_LOOK_TOP_SELECT_RE`) is a `parse_effect_body`-level
+special case, not an ordinary `HANDLERS` row: "Look at the top N…" and "Put M
+of them…" are two sentences that are one indivisible instruction (neither
+alone means anything), so — same idiom `_NO_REGEN_SENTENCE_RE` established —
+it's checked on the whole span *before* the ordinary connector-split loop
+would otherwise shatter it into two unmatchable halves, with an optional
+trailing sentence (Bitter Revelation's "You lose 2 life.") recursed into via
+its own `after` group. Deliberately doesn't handle a *leading* clause before
+"look at the top…" (Creative Outburst's "~ deals 5 damage… Look at…") — the
+connector loop splits that off before the special case ever sees both halves
+together, a narrow, one-card, fail-closed gap rather than an oversight.
+
+**Cast-spell trigger `subj` widening** (`segmenter.py`'s
+`_CAST_SPELL_TRIGGER_RE`/`_CAST_SPELL_TRIGGER_NEG_RE`, closing **Bonus
+Round**) — both rows previously matched only "whenever **you** cast…"; widened
+to "whenever you/an opponent/a player casts…", reusing the untyped sibling's
+(`_CAST_SPELL_TRIGGER_PLAIN_RE`) own proof that the "an opponent"/"a player"
+subjects need no new engine primitive (`effect_binder`'s existing
+group/controller scoping over `SPELL_CAST`). A new shared helper,
+`_cast_spell_trigger_condition(subj)`, centralizes the three-way
+`{"subject": …}` mapping so the now five rows sharing it (`_RE`, `_NEG_RE`,
+`_PLAIN_RE`, `_MV_RE`, `_DRAW_TRIGGER_PLAIN_RE`) stay in one place instead of
+drifting. +51 cards measured via `parser_probe.py diff` (well under the
+naive ~420 SOLO estimate `blocked` gave both widened rows combined — most of
+that gap turned out to need a *second* still-unclaimed clause of their own,
+the same "SOLO is an upper bound" lesson the Marchesa batch already
+documented; not chased further, in-scope for a future batch). "That player
+copies it and may choose new targets for the copy" (Bonus Round's own
+trigger *body*, once its condition was reachable) is a new one-shot handler,
+`trigger_copy_spell` — RULE 603.1's "it" names the *firing SPELL_CAST
+event's own object*, not a RULE 115 target, so `CopySpellEffect` gained
+`spell_from_trigger_event`/`controller_from_trigger_event` params (find the
+object via `context.state.find_object(event.get(field))`, same "resolve off
+the firing event" idiom `DestroyEffect.target_from_trigger_event` already
+established) alongside its existing targeted mode. "May choose new targets"
+stays the same accepted simplification the class's docstring already
+documents for every other consumer (Reiterate/Dualcaster Mage-shaped): the
+copy keeps the original's target.
+
+**Delirium** (RULE 702.137, closing **Dragon's Rage Channeler** + 3 more
+SOLO siblings) — `normalize._strip_ability_words` gained `"delirium"`
+alongside `landfall|constellation|battalion|enrage` (the label itself
+carries no rules meaning, RULE 207.2c, so stripping it and letting the bare
+"as long as…" clause fall through the existing RULE 613.6 machinery is
+correct); a new `static_conditions.py` kind, `card_types_in_graveyard_at_least`
+(distinct printed card types among graveyard cards, explicitly excluding the
+synthetic `"permanent"` marker `GameObject.type_words` always includes,
+since that's not a real card type Delirium's own count should see). Its own
+compound anthem shape — "~ gets +N/+N, has `<keyword>`, **and attacks each
+combat if able**" — needed `_SELF_ANTHEM_RE` widened for an Oxford-comma
+third list item (previously only "~ gets +N/+N and has `<keyword>`"'s single
+`and`-joined pair): "attacks each combat if able" turned out to already be
+the synthetic flag keyword `"attacks_if_able"` through the exact same
+`grant_keyword` machinery "has flying" uses (`_ATTACKS_IF_ABLE_RE` proved
+this standalone already) — no new spec shape, just one more keyword folded
+into the same list.
+
+**`return_to_library`** (`RulesEngine.return_to_library`/
+`ReturnToLibraryEffect`, closing **10 cards** — Time Ebb/Griptide/Roil
+Spout/Vedalken Dismisser among them) — "put target creature on top/the
+bottom of its owner's library" (RULE 701.3's "put"), `ReturnToHandEffect`'s
+library-destination sibling, same "move to another zone, from wherever it
+is" shape `return_to_hand`/`exile` use. RULE 903.9b's commander redirect
+applies here exactly as it does for hand, which surfaced a real (if
+cosmetic) latent bug fixed on the way: `_commander_zone_choice`'s German
+prompt hardcoded "aus dem `<zone>`"/"Im `<zone>` bleiben" keyed only on
+`zone != Zone.HAND`, silently mis-declining Hand's own feminine article
+("Im Hand bleiben" instead of "In der Hand bleiben") since the check was
+never really about gender, just a HAND-shaped special case. Replaced with a
+proper `_COMMANDER_ZONE_FEMININE` set (Hand, Bibliothek) the new Library
+label joins correctly. **`ReturnToHandEffect`** also gained `selector`/
+`filter` (RULE 601.2c mass "return all X" support, `DestroyEffect`'s own
+`_MASS_DESTROY_SELECTORS`/`_mass_selector_objects` shared verbatim, plus a
+new `"all_nonland_permanents"` selector) for **Displacement Wave**'s "return
+all nonland permanents with mana value X or less to their owners' hands" —
+the `"x"` filter sentinel needs no new substitution code, since
+`RulesEngine._substitute_x` already walks any effect's `filter` dict
+attribute generically by name, not by type.
+
+**Submerge's free-cast condition** — "If an opponent controls a Forest and
+you control an Island, you may cast this spell without paying its mana
+cost." A new named boolean key,
+`opponent_controls_forest_and_you_control_island`, joining
+`AbilitySpec.free_cast_condition`'s existing whitelist
+(`control_commander`/`not_your_turn`/`your_turn`/
+`opponent_spells_cast_this_turn_at_least`) — a fixed compound condition
+rather than a generic "controls type X and type Y" combinator, matching
+`control_commander`'s own "one named condition, not a general vocabulary"
+precedent (no other card in the cache prints this exact combination).
+Evaluated live off the board in `condition_query.py`, same "check it fresh
+each time" shape as every sibling key.
+
+**Mistrise Village** — "The next spell you cast this turn can't be
+countered." `arm_spell_watcher`'s existing "when you next cast a spell this
+turn, `<effect>`" mechanism (built for Dual Strike's "…copy it") reused with
+a new payload, `MarkCantBeCounteredEffect` — appends a
+`CantBeCounteredEffect` marker onto the *next-cast* spell's own
+`GameObject.spell_effects` once the watcher fires, the resolve-time
+counterpart to that marker class's own bind-time use.
+`RulesEngine._is_cant_be_countered`'s existing scan finds it with no new
+consumer-side code.
+
+**`grant_graveyard_cast_permission_this_turn` — second card** (closing
+**Past in Flames**) — "Each instant and sorcery card in your graveyard gains
+flashback until end of turn. The flashback cost is equal to its mana cost."
+The primitive already existed (built for Backdraft Hellkite), just never had
+an oracle-text recognizer — a clean instance of the project's own "sweep for
+what a primitive should also close" discipline, since `blocked` showed 11
+SOLO cards on this exact clause family (Recoup/Snapcaster Mage/Slickshot
+Lockpicker among the *targeted*-singular siblings, deliberately left for a
+future batch — see Notable gaps below).
+
+**`LookAtCardsEffect`** (closing **Mishra's Bauble** + **Urza's Bauble**) —
+"Look at the top card of target player's library."/"Look at a card at
+random in target player's hand." A genuine RULE 115 target (hexproof still
+matters) with no other game-state consequence: this engine has no reason to
+hide a peeked card from the querying player (a solo/goldfish board already
+shows every zone to its one real player; a bot never reads hidden
+information regardless), so there's nothing left for "look" to actually
+*do* — kept as its own effect rather than dropped to an empty `effects`
+list specifically so the RULE 115 target requirement survives.
+
+**Vexing Bauble** — "Whenever a player casts a spell, if no mana was spent
+to cast it, counter that spell." A new `effect_binder.py` trigger predicate,
+`spell_no_mana_spent` (reads `SPELL_CAST`'s existing `mana_spent` field,
+already zero for any free-cast/alt-cost spell — `RulesEngine.cast_spell`'s
+own free/alt-cost branches never bump it), and `CounterSpellEffect` gained
+`target_from_trigger_event` (the same "resolve off the firing event" idiom
+as `DestroyEffect`'s own — "that spell" is the trigger's object, not a RULE
+115 target). Verified end to end: a real-mana Lightning Bolt resolves
+untouched, a `cast_without_paying`-cast Ancestral Recall gets countered.
+
+**`pump_up_to_two`** (closing **Opera Love Song**'s second mode + 19 more
+SOLO cards, the single biggest pump template found in the whole cache) — "Up
+to two target creatures each get +N/+N [and gain `<keywords>`] until end of
+turn." (Dauntless Onslaught-shaped) / "One or two target creatures…" (Opera
+Love Song's own phrasing) both fold to `PumpEffect`'s existing RULE 115.1a
+"up to N" idiom (`count=2, optional=True`) — no new engine primitive, purely
+the missing recognizer. **Documented simplification**: "one or two" (a real
+minimum of one) is modeled as fully optional like "up to two" (0–2) — a
+card offering this is always worth taking, so declining below the printed
+minimum isn't a choice any player would make differently in practice.
+
+### Hand-authored (7 cards)
+
+**Chain of Vapor** — "Return target nonland permanent to its owner's hand.
+Then that permanent's controller may sacrifice a land of their choice. If
+the player does, they may copy this spell and may choose a new target for
+that copy." `return_to_hand` for the bounce; `PayCostThenEffect` (RULE
+118.3's "may pay `<cost>`. If you do, `<effect>`.") for the land sacrifice,
+with a new `payer="previous_target_controller"` mode reading
+`GameContext.previous_targets` — the *bounced permanent's* controller is
+being asked, almost always an opponent, not this spell's own caster (no
+existing `payer` value covered "whoever this same resolution's earlier
+clause targeted"). **Documented simplification**: the "copy this spell"
+tail is dropped rather than approximated. Built `CopySpellEffect.copy_self`
+for it first (reads `self.source` directly, no target/trigger-event needed)
+and confirmed by direct engine test that it **doesn't actually work** for
+this card's real shape: `PayCostThenEffect`'s "if you do" branch only runs
+once the player answers a `pending_choice`, by which point the *original*
+Chain of Vapor has already finished resolving and left the stack for the
+graveyard (RULE 608.2m) — `copy_spell`'s underlying `_stack_item_for` needs
+the source to *still be on the stack*, which it no longer is. Rather than
+ship a re-bounce approximation (which turns out to be mechanically wrong
+too — the already-bounced permanent is sitting in hand, no longer a legal
+"target nonland permanent" for a same-target copy to hit), the tail is
+simply not modeled; sacrificing the land is still a real, correctly-costed
+decision on its own. `copy_self` itself is kept — a real, correctly-scoped
+primitive for a future *non-deferred* "copy this spell" card, just not this
+one.
+
+**Intuition** — "Search your library for three cards and reveal them.
+Target opponent chooses one. Put that card into your hand and the rest into
+your graveyard. Then shuffle." A new self-contained primitive,
+`IntuitionEffect`/`RulesEngine.request_intuition` (`search_mixin.py`) — two
+chained `pending_choice`s (`kind="intuition_search"` then
+`"intuition_choose"`): the caster picks the three cards first, then a real
+RULE 115 target (`TargetSpec(kind="opponent")`) — not the searcher — picks
+one of them for the searcher's hand, the rest to the searcher's graveyard,
+then shuffle. Not composed from `request_search`, whose single `destination`
+has no way to express "hold these aside for a *second* player's pick."
+Verified end to end (search phase picks all three, opponent's choice lands
+in the searcher's hand, the other two in their graveyard).
+
+**Ral, Monsoon Mage // Ral, Leyline Prodigy** — "Whenever you cast an
+instant or sorcery spell during your turn, flip a coin. If you lose the
+flip, ~ deals 1 damage to you. If you win the flip, you may exile ~. If you
+do, return him to the battlefield transformed under his owner's control." A
+new `CoinFlipEffect` (RULE 705.1) branching into `win_effects`/`lose_effects`
+off `RulesEngine.coin_flip` — a reproducible RNG primitive that already
+existed (`mana_counters_mixin.py`) but had **no consumer anywhere in the
+codebase** until this card, a dormant primitive finally exercised. The loss
+branch reuses `DealDamageEffect`'s existing `selector="controller"` (Mana
+Vault's own "deals 1 damage to you" shape); the win branch reuses
+`exile_return_transformed` (RULE 400.7/712.8, already built). "During your
+turn" reuses `phase_relation="you"` — built for RULE 500.7 "at the
+beginning of your `<step>`" triggers, but its predicate only ever checks
+whose turn it currently is, gating a `SPELL_CAST` trigger exactly as well
+with no changes needed. Verified over 30 real casts: life loss and the
+transform both happen at roughly a 50/50 split, and the transform correctly
+produces a genuine new "Ral, Leyline Prodigy" object on the battlefield.
+**Documented simplification**: the win branch's "you may exile" is
+unconditional, same accepted shape as every other undecided "may" in this
+codebase.
+
+**Talon Gates of Madara** — "When this land enters, up to one target
+creature phases out. `{T}`: Add `{C}`. `{1}, {T}`: Add one mana of any
+color. `{4}`: Put this card from your hand onto the battlefield." The ETB
+trigger is a plain `PhaseOutEffect` (already existed); the two mana
+abilities were already oracle-parsed. The last line needed a genuinely new
+zone-of-activation primitive: `PutSelfOntoBattlefieldFromHandEffect` +
+`ActivationCost.hand_zone` — `graveyard_zone`'s hand-zone sibling (PAR-10's
+"Return this card from your graveyard to the battlefield" precedent, same
+inference idiom in `effect_binder.bind_ability`: an ability whose effects
+include this class gets `cost.hand_zone = True` stamped automatically, no
+per-card wiring). Threaded through `can_activate`'s zone-legality branch and
+`legal_actions_mixin.py`'s existing hand-zone-ability scan loop (which
+already handled `discard_self`/Cycling — widened to `or hand_zone` rather
+than duplicated). Doesn't consume the land-per-turn drop, since it's a
+genuine activated ability, not RULE 305.1's "play a land" action. Verified:
+tapping for `{C}`, activating the `{4}` ability from hand, and the land
+correctly landing on the battlefield afterward all work.
+
+**Urza's Saga** — the full 3-chapter Saga, the batch's largest single card.
+Chapters I/II ("This Saga gains '`<ability>`.'") needed a new *lasting*
+self-grant, `GrantSelfActivatedAbilityEffect` — RULE 714.2c's grant outlives
+the one-shot chapter trigger that creates it, unlike the turn-scoped
+`grant_graveyard_cast_permission_this_turn` shape it otherwise mirrors:
+appends a real `grant_activated_ability`-shaped `StaticAbility`
+(`affects="self"`) straight onto the Saga's own `static_effects`, permanent
+(no `expires_turn`). Chapter II's Construct token needed its own self-
+scaling "+1/+1 for each artifact you control" ability baked onto the
+*created token itself* — a new `CreateTokenEffect.grant_self_anthem` param,
+appending a real `anthem`-shaped `StaticAbility` (reusing its existing
+`power_count`/`toughness_count` per-count scaling, `continuous.
+_pt_mod_count`'s vocabulary) onto each token right after `create_token`
+returns it. Chapter III is a plain `search`.
+
+This surfaced a real, significant, **cache-wide** dormant engine bug on the
+way: every "create an N/N `<color>` `<Subtype>` **artifact** creature
+token" clause — a very common template (Construct/Thopter/Servo/Golem
+tokens across dozens of cards) — silently produced a token typed as a bare
+Creature, missing the Artifact card type entirely.
+`services/token_database.py`'s `synthesize_token_card` derived `kind =
+"Creature" if is_creature else "Artifact"` as a strict either/or, and all
+three of the parser's independent "`<mid>` creature token" word-splitting
+loops (`_xx_token_mid_params`/`_inline_create_token_params`/
+`_create_named_legendary_token`, `catalogue/handlers.py`) already correctly
+recognized "artifact" as a `_TOKEN_NOISE_WORDS` supertype marker — and then
+just **discarded** it, never threading an `is_artifact` flag anywhere.
+Found because it wasn't cosmetic here: Urza's Saga's Construct starts 0/0
+and only survives via its own artifact-counting anthem counting *itself* —
+with the type bug, the freshly-created token was invisible to its own
+"artifacts you control" count, stayed 0/0, and got swept by RULE 704.5f's
+zero-toughness state-based action the very next SBA pass, one step after
+`create_token` had genuinely already returned a real object into
+`state.battlefield`, which is what made this so non-obvious to trace (three
+layers removed from the actual defect). Fixed at the root: `synthesize_
+token_card` gained `is_artifact: bool`, combining "Artifact Creature"
+instead of choosing one or the other; the three duplicated word-splitting
+loops were consolidated into one shared `_split_token_mid_words` helper
+(recognizing "artifact" and returning it as a third value) so a future
+noise word only needs adding in one place, not independently drifting
+across three near-identical copies — the same "duplicated per-mixin table"
+lesson the Marchesa V4.2 batch already flagged, here found in the parser's
+`catalogue/handlers.py` instead of `game/`'s mixins. `CreateTokenEffect`
+gained the matching `is_artifact` param. Verified with and without other
+artifacts on the board (0/0 base → 1/1 counting itself alone, 2/2 with one
+more artifact in play) — a real, previously-silent gap now fixed
+cache-wide, not just for this card.
+
+### Left open, tracked for a future batch
+
+- **Quicksilver Elemental** — "`{U}`: ~ gains all activated abilities of
+  target creature until end of turn." needs a genuinely new "temporarily
+  copy every one of a target's activated abilities onto self" primitive —
+  no existing mechanism does this (the layer-6 `grant_activated_ability`
+  static grants *one fixed printed ability* to an attached/self permanent;
+  this needs the *whole, currently-live set* of a different object's
+  abilities, snapshotted at resolve time). Deliberately not rushed at the
+  end of this batch — filed as **MEC-23**.
+- **The single-target "target instant or sorcery card in your graveyard
+  gains flashback…" flashback-grant family** (Recoup/Snapcaster Mage/
+  Slickshot Lockpicker/Sphinx of Forgotten Lore among ~10 real cards) —
+  `grant_graveyard_cast_permission_this_turn`'s existing shape only grants
+  *broadly* (every instant/sorcery in the graveyard); a single *named*
+  card's flashback needs a per-object marker the primitive doesn't have.
+  Filed as **MEC-24**.
+- **Creative Outburst**'s own narrow gap in `look_top_select` (a *leading*
+  clause before "Look at the top…" isn't absorbed by the segmenter special
+  case) — one real card, documented inline in `segmenter.py`, not filed
+  separately (too narrow to be worth its own ticket).
+
+### Skill efficiency (continuing the running assessment from the Marchesa V4.2 batch)
+
+Both skills held up well across a much larger single-session batch than
+Marchesa's — `author_card.py reuse`/`scaffold` and `parser_probe.py diff`
+remained the two most-reached-for commands, no change from that batch's
+assessment. Two things worth adding:
+
+- **The single biggest time sink this batch wasn't parsing or hand-authoring
+  at all — it was *debugging a resolve-time engine primitive against the
+  real stack/SBA loop*** (Urza's Saga's Construct token dying to RULE
+  704.5f one SBA pass after `create_token` had already, genuinely,
+  returned a real object). Neither skill's tooling caught this — `author_
+  card.py` doesn't touch runtime behavior, and `parser_probe.py diff` only
+  proves *parsing* didn't regress, not that a newly-wired effect actually
+  survives a full resolve cycle. `engine_bench.py play`/`inspect` from the
+  `game-engine` skill would have caught it faster than the ad hoc `python
+  -c` scripts reached for here — worth defaulting to `engine_bench.py`
+  first for any new *resolve-time* primitive (not just a parser-adjacent
+  one), rather than reaching for it only after a manual test already
+  looked broken.
+- **A hand-authored `EffectSpec` dict silently missing one param is
+  invisible until you actually resolve it.** Both Urza's Saga's `is_artifact`
+  omission and an earlier `copy_self` dead-end in Chain of Vapor were only
+  caught by direct engine testing, not by `is_registered()`/`specs_for()`
+  static checks (which only prove a spec *parses into an effect*, not that
+  the effect *does the right thing*). The hand-author-card guide's own
+  checklist doesn't currently say "execute-test every new param you added
+  this session, not just the card that motivated it" — worth adding, since
+  both misses here were exactly that: a param built correctly in `effects.py`
+  but not actually passed at the call site that needed it.
+
+Coverage: 11,220 → 11,365 / 34,811 (32.23% → 32.6%), `PARSER_VERSION` 65 →
+66.
+
+## MEC-18/MEC-19 (2026-08-11)
+
+Two tickets closed together, both RULE 603.1-adjacent trigger-family gaps
+found the same way (a `parser_probe.py` scan turning up a repeated template
+far bigger than the filing session had scoped it): MEC-18's RULE 603.5 "You
+may `<action>`. When you do, `<effect>`." optional-antecedent family, and
+MEC-19's RULE 115/601.2c "becomes the target of a spell/ability" as a real
+`EventType`. Both tickets' own card-count estimates were wrong in the
+direction `PARSER_LONG_TAIL.md` already warns about — MEC-18 filed as "~200
+cache hits," MEC-19 as "2 cards found so far" — re-scoping each against the
+live cache first (`parser_probe.py blocked`/a direct SQL sweep over raw
+`oracle_text`) is what turned up the real shape of both.
+
+### MEC-18 — no new engine primitive, a parser-recognition gap
+
+`PayCostThenEffect`/`RulesEngine.request_pay_cost_then` (RULE 118.3) already
+generalized "ask an interactive yes/no, pay `<cost>` (mana/sacrifice/
+discard/life) if yes, resolve `<effects>`" behind one `_can_pay_player_cost`/
+`_pay_player_cost` gate — Mana Vault's upkeep untap and Wandering Archaic's
+tax already proved it. The gap was purely that its oracle-text recognition
+covered only two hardcoded shapes: a bare mana cost paired with a fixed
+"draw a card" (`_pay_cost_then_draw`), and `{E}` pips paired with an
+arbitrary follow-up (`_pay_energy_then`). `catalogue.handlers.
+_pay_cost_then_general` widens this to the whole vocabulary
+`ActivationCost`/`costs.parse_activation_cost` already supports — a closed
+whitelist of atomic antecedent shapes (`_MAY_COST_THEN_CLAUSE`: a mana cost,
+"sacrifice a/another `<type>`", "discard a card"/"your hand"/"N cards", "pay
+N life") rather than running the antecedent through `costs.py`'s lenient
+substring search, which finds a cost fragment inside arbitrary text but
+never confirms the fragment is the *whole* clause — a compound antecedent
+("discard your hand and draw two cards") could otherwise have its unmatched
+tail silently dropped. The follow-up is recursively parsed via
+`parse_effect_body` and rejected if it carries a RULE 115 target
+(`PayCostThenEffect`'s branch effects resolve off-stack, with no
+target-gathering step of their own — the same restriction `_pay_energy_then`
+already had).
+
+The mana alternative deliberately excludes the `{E}` symbol:
+`_can_pay_player_cost`/`_pay_player_cost` never charge
+`ActivationCost.pay_energy` at all (that's `pay_energy_then`'s own,
+separately-tried job), so letting `{E}` through here would have silently
+made an energy antecedent free.
+
+**A real bug found and fixed on the way, not just a coverage gap.** The
+generic "you may " optionality stripper (`segmenter._peel_optional`, which
+turns a trigger's outer "you may" into `AbilitySpec.optional` — a
+*different*, whole-ability optionality than RULE 118.3's own embedded one)
+runs before every trigger body reaches the handler table. It already had a
+narrow guard (`_PAY_ENERGY_THEN_PEEL_GUARD_RE`) protecting the two old
+hardcoded shapes from being stripped, but widening the handler without
+widening the guard alongside it left every trigger-based card in the new
+family broken: "whenever ~ deals combat damage to a player, you may discard
+a card. if you do, draw a card." (Academy Raider) would peel to "discard a
+card. if you do, draw a card." — losing the "you may" `pay_cost_then_
+general` itself needs to recognize the clause as a whole. `_MAY_COST_THEN_
+CLAUSE` is now a single shared constant both `catalogue.handlers.
+_PAY_COST_THEN_GENERAL_RE` and `segmenter._PAY_ENERGY_THEN_PEEL_GUARD_RE`
+build from, so the two can't drift apart again.
+
+**A second, narrower bug found while chasing that fix.** The first version
+of `_MAY_COST_THEN_CLAUSE` included bare self-sacrifice forms ("sacrifice
+it"/"this `<type>`"/"~") — widening the peel guard to protect those too
+broke 4 cards (Flaxen Intruder, Spare Dagger, Sunfire Torch, The Falcon,
+Airship Restored) that had been correctly modeled through the *older*,
+narrower `_SACRIFICE_THEN_WHEN_YOU_DO_RE` collapse (an unconditional
+sequence — self-sacrifice can never fail once declared, so RULE 603.5's
+antecedent is a certainty, letting that path allow a *targeted* follow-up
+`pay_cost_then_general` can't). Fixed by narrowing `_MAY_COST_THEN_CLAUSE`'s
+sacrifice alternative to typed sacrifice only ("sacrifice a/another
+`<type>`") — a genuinely different case, since a *typed* sacrifice/discard/
+life cost can really fail (no legal permanent of that type/no cards in
+hand), which is exactly what the new interactive gate is for. Caught via
+`parser_probe.py diff` against a true pre-change baseline (`git stash` on
+just the two touched files) — 0 regressions in the shipped version.
+
+89 real cache cards fully MODELED through the new general handler (verified
+by checking each one's bound `pay_cost_then` spec directly, not just the
+raw-text hit count) — Abandon Attachments/Academy Raider/Akki Ronin/Akoum
+Firebird among them. `tests/test_mec18_optional_antecedent_family.py`
+covers parse-level MODELED verdicts, the two regression guards above, and
+execute tests (Abandon Attachments as a spell, Academy Raider as a
+triggered ability — pay/decline/unpayable-with-an-empty-hand branches).
+
+### MEC-19 — one real new event, a Ward-shaped effect adapter, and a much bigger family than filed
+
+RULE 115/601.2c targeting had never reached the event bus at all — Ward
+(RULE 702.21) was the only consumer, checked directly by
+`RulesEngine.check_ward` right after a spell/activated-ability/triggered-
+ability's targets are finalized (the one choke point all three call sites
+already reach unconditionally). `EventType.BECOMES_TARGET` now fires once
+per target from that same choke point (`_fire_becomes_target_events`,
+folded into `check_ward` itself rather than a fourth sibling call, so a
+future call site can't add one but forget the other) — carrying
+`instance_id`/`target_controller_id` (RULE 603.1's ordinary default subject/
+group keys, no `_SUBJECT_EVENT_KEYS` override needed), `is_player`, the
+*targeting* spell/ability's own `controller_id`/`item_kind`
+("spell"/"ability")/`stack_id`. Ward itself is completely unchanged — a
+parallel consumer of the same moment, not a rewire.
+
+Two `effect_binder` additions power the trigger grammar: `_GROUP_
+CONTROLLER_EVENT_KEYS["BECOMES_TARGET"] = "target_controller_id"` (so "a
+creature **you control** becomes the target…" scopes to the target, the
+ordinary group-subject mechanism), and a new `caster_relation` predicate
+("opponent"/"you", mirroring `phase_relation`'s shape) comparing the event's
+`controller_id` (the *caster*) against the triggered ability's own source —
+a third-party comparison neither the existing group-`controller` key (which
+scopes the *acting* object) nor `phase_relation` (whose event carries no
+controller at all) could express.
+
+**The real size of this ticket only showed up once measured against the
+live cache, not the "2 cards" the filing session estimated.** A raw SQL
+sweep over `oracle_text` for "whenever … becomes the target of a[n] …" found
+177 hits — but most of those are printed **Ward** with its reminder text
+included in `oracle_text` (already `MODELED` via the keyword catalogue,
+invisible in `normalize`'s output since reminder-text stripping removes it
+before the parser ever sees it). Filtering to cards whose *normalized* text
+still contains the sentence narrowed it to 87 real, non-reminder-text hits —
+a whole un-keyworded cycle that prints Ward's exact RULE 702.21a outcome
+("counter it unless that player pays `<cost>`") as ordinary card text
+instead of the keyword, which the keyword catalogue can never reach.
+`CounterUnlessPayEffect`/`counter_unless_pay` closes that cycle: a
+deliberately thin adapter onto the existing `RulesEngine.resolve_ward_effect`
+(found via `GameContext.trigger_event`'s own `stack_id`/`controller_id`),
+reusing ward's exact "can they afford it? open a real pay-or-not choice
+(the same `"ward"` `pending_choice` kind); if not, counter outright" flow
+rather than a parallel implementation — the two are rules-identical from
+that point on. `catalogue.handlers._counter_unless_pay` normalizes the
+printed "pays"/"discards" to the imperative "pay"/"discard"
+`costs.parse_activation_cost`'s regexes actually anchor on (the printed verb
+would otherwise silently fail to match and the cost would resolve as free).
+
+`segmenter._BECOMES_TARGET_TRIGGER_RE` recognizes the self/attached/group
+subject grammar (mirroring `_DAMAGE_TRIGGER_RE`'s shape) plus this family's
+own two qualifiers: `item_kind` ("of a spell"/"of a spell or ability"/"of an
+ability", fed through the ordinary `"filter"` exact-match mechanism) and the
+optional `caster_relation` scoping. A trailing "**for the first time each
+turn**" (Angelic Cub/Heartfire Hero-shaped) sets `trigger["limit"]` directly
+— RULE 603.2's existing `TriggeredAbility.once_per_turn`, previously only
+reachable through a *trailing-sentence* marker
+(`TRIGGER_ONCE_PER_TURN_MARKER`); here the qualifier is embedded in the
+condition clause itself, so no marker round-trip is needed.
+
+14 real cache cards are fully `MODELED` through the new mechanism end to end
+(Battle Mammoth/Angelic Cub/Mossdog/Segmented Wurm/Reality Smasher among
+them), plus the two ticket's own named cards, hand-authored directly:
+**Goldspan Dragon** (a second `AbilitySpec` alongside its existing "attacks"
+one — the same "one spec per compound-triggered event" idiom
+`_SELF_MULTI_EVENT_RE`/Matoya, Archon Elder's "you scry or surveil" already
+use, rather than a generalized "attacks or becomes the target of a spell"
+parser grammar for what only 2-3 real cards print) and **Tectonic Giant**
+(same idiom, plus `caster_relation: "opponent"` and a modal body — one mode
+a plain `damage`/`each_opponent` selector, the other a documented
+simplification: "exile the top two, **choose one of them**, until your next
+turn you may play *that* card" is a genuinely different RULE 601.3b shape
+from the already-shipped `ImpulsiveDrawEffect` — "exile N, *all* stay
+playable" — that no primitive covers yet (7 real cache cards total, its own
+small, real gap, orthogonal to this ticket and not built here); modeled
+instead as `impulsive_draw` at `count=2`, strictly more generous than
+print). Left open and split into its own ticket (**MEC-25**, unrelated to
+targeting): Goldspan Dragon's granted Treasure ability still keeps the
+default 1-mana tap ability rather than the real printed *replacement*
+sacrifice-cost ability, since `grant_mana_ability` still can't express an
+upgrade to an existing matching ability.
+
+Many more real cards (Frost Titan, Diffusion Sliver, and others) now have
+their `BECOMES_TARGET` clause correctly parsed and `MODELED` in isolation
+but stay overall `UNMODELED` — blocked by a *different*, unrelated clause on
+the same card (docs/09's fail-closed whole-card gate; verified directly,
+e.g. Frost Titan's own "enters or attacks, tap target permanent… doesn't
+untap during its controller's next untap step" is a separate, unbuilt
+duration shape). Also deliberately out of scope, both real, distinct
+grammars: the player-subject/compound "you or a permanent you control
+becomes the target…" shape (Leovold, Rayne, Surrak, Unsettled Mariner,
+Parnesse) and a group subject qualified by a *subtype* word rather than
+`_GROUP_TYPE_WORDS`'s closed main-type list ("a Dragon you control becomes
+the target…" — Thunderbreak Regent/Dragon's Disciple/Scalelord Reckoner).
+
+`tests/test_mec19_becomes_target_family.py` covers the event firing itself,
+both Goldspan Dragon trigger halves (including that its plain "of a spell"
+clause fires off the controller's *own* spell too, unlike Tectonic Giant's
+opponent-scoped one), Tectonic Giant's modal choice and its `caster_relation`
+gate, `CounterUnlessPayEffect`'s three branches (open the choice and decline
+→ countered, pay → resolves, unpayable → auto-countered with no choice
+offered) via a synthetic `bind_ability`-built ability (no real un-keyworded
+"counter unless pay" card is *itself* fully `MODELED` — every real one has
+at least one other unclaimed clause), and parse-level coverage for Battle
+Mammoth/Angelic Cub/Frost Titan (the last confirming the clause parses
+correctly even though the whole card doesn't).
+
+Coverage after both tickets: 11,471 / 34,811 (33.0%), `PARSER_VERSION` → 68
+(the working tree's prior uncommitted state had already drifted through 66
+and 67 from earlier, unrelated session work before this batch started —
+68 is the first version number with no stale ledger rows, so this is a
+genuinely fresh full re-measurement, not a delta cleanly attributable to
+only these two tickets).
+
+## User-reported bug: Mox Amber/Exotic Orchard/Fellwar Stone ignored board state (2026-08-11)
+
+`game/mana_abilities.py`'s `_parse_clause` matched the bare substring "any
+color" (`_ANY_COLOR_PHRASES`) before ever looking at what came after it, so
+every *qualified* "add one mana of any color `<condition>`" clause fell
+through to the unconditional 5-colour branch with the qualifying condition
+silently discarded — Mox Amber ("...among legendary creatures and
+planeswalkers you control"), Exotic Orchard/Fellwar Stone/Quirion Explorer/
+Sylvok Explorer ("...that a land an opponent controls could produce"), and
+Harvester Druid (the same, self-scoped) all behaved like an unconditional
+5-colour Command Tower regardless of board state — never producing nothing
+even with no qualifying permanent in play. Not previously tracked in
+`BACKLOG.md`; found by a user playing a real goldfish game.
+
+Fixed with two new `_parse_mana_ability_lines`-level regexes dispatched
+before the generic `_ADD_CLAUSE_RE`/`_parse_clause` path (the same
+standalone-dispatch shape `_COLORS_AMONG_PERMANENTS_RE`/Bloom Tender already
+used) and two new `ManaAbility.color_selector` pairs, each a genuine menu
+(the payer still picks one colour, unlike Bloom Tender's aggregate) built
+fresh off the live board every call, same shape as `"imprinted_card_colors"`:
+
+- `_LEGENDARY_AMONG_RE` → `"colors_of_legendary_creatures_planeswalkers_
+  you_control"` (Mox Amber) / `"colors_of_legendary_permanents_you_control"`
+  (Plaza of Heroes' own second mana ability, a strictly broader scope —
+  found for free while sizing the regex against the cache, and picked up
+  the same pass since the only difference is one filter check).
+- `_LAND_COULD_PRODUCE_RE` → `"colors_lands_you_control_could_produce"`/
+  `"colors_lands_opponents_control_could_produce"`, resolved by a new
+  `_colors_a_land_could_produce` helper that reads a qualifying land's own
+  *live* mana abilities (not its printed colour identity — a land's mana
+  ability is what "could produce" means, RULE 605.1a) via `mana_abilities_
+  for`. Two mutually-reflecting lands (an Exotic Orchard facing another
+  Exotic Orchard) can't be allowed to ask each other the same question
+  forever — `_LAND_REFLECTION_SELECTORS` short-circuits by checking a
+  candidate land's own *unresolved* `parse_mana_abilities` output before
+  ever calling the eager-resolving `mana_abilities_for` on it, since that
+  function resolves every printed ability (including a reflecting one) as
+  part of building its own return list — filtering the returned list
+  afterward is too late, the recursive call has already happened by then.
+  Deliberately doesn't cover Reflecting Pool/Naga Vitalist's "any **type**
+  that a land you control could produce" (colourless-inclusive, a wider
+  shape) — left for a future pass.
+
+`tests/test_reflecting_lands_and_legendary_mox_family.py` covers both
+selector families against the real cached cards: empty board → no options
+(and `tap_for_mana` refuses to raise a `ValueError` rather than silently
+succeeding), a qualifying permanent → the right board-dependent menu, an
+opponent's/own-side's permanent correctly excluded per scope, Mox Amber's
+narrower creature/planeswalker filter vs. Plaza of Heroes' broader
+any-legendary-permanent one (Bolas's Citadel — legendary, black, neither a
+creature nor a planeswalker — distinguishes the two), and the mutual-
+reflection guard actually terminating.
+
+## MEC-25/MEC-20/MEC-21 (2026-08-11)
+
+Three tickets closed together, all found while chasing MEC-19's own
+"cite or rule out an existing primitive" sweep — none needed a genuinely
+novel mechanism from scratch; each was a real, named gap in an existing one.
+
+### MEC-25 — `grant_mana_ability`'s upgrade shape
+
+Goldspan Dragon's "Treasures you control have '{T}, Sacrifice this
+artifact: Add two mana of any one color.'" needed two things the shipped
+layer-6 mana grant (Tyvar Kell-shaped) never had: a non-``{T}``-only cost,
+and *replacing* a matching printed ability rather than stacking a second
+one alongside it. `grant_mana_ability`'s new ``cost`` param threads an
+`ActivationCost`-shaped dict through `continuous._apply_layer_6_ability`'s
+new ``mana_ability_cost`` branch onto a new `GameObject.
+granted_mana_ability_upgrades` field (kept separate from the existing
+tap-only `_granted_mana`/`granted_mana_options`, which every pre-existing
+caller — Tyvar Kell — still uses unchanged). `mana_abilities.
+mana_abilities_for` then drops any printed ability whose cost has the same
+*shape* as an upgrade's (`_cost_shape` — `dataclasses.replace(cost,
+raw="")` before comparing, so "Sacrifice this token" and "Sacrifice this
+artifact" still count as the same shape despite differing wording) before
+adding the upgraded one in its place. Goldspan Dragon's Treasures now keep
+exactly one mana ability, at the real printed two-mana amount, with the
+real sacrifice cost — verified by actually tapping one and checking both
+the production and that it left the battlefield.
+
+### MEC-21 — Agatha's Soul Cauldron's own two clauses, plus a real generalization
+
+Both of this card's previously-unmodeled clauses shipped, plus the
+generalization the user asked for explicitly: any future "exile with ~"
+card (~185 cached cards print that shape) can now reuse the same tracking
+rather than each needing its own bespoke linked-zone field.
+
+**"Cards exiled with ~" — a genuinely reusable primitive.** `GameObject.
+linked_exile_id` (the O-Ring shape) is a single slot, overwritten each
+time — wrong for a repeatable "{T}: Exile target card from a graveyard."
+ability that should *accumulate* a list across many activations. The new
+`GameObject.exiled_with_ids` (a plain list) is stamped by `ExileEffect`'s
+new ``track_exiled_with=True`` mode (independent of, and combinable with,
+the existing ``remember`` flag) — appending rather than overwriting. A
+consumer re-resolves each id fresh via `GameState.find_object` and checks
+it's still genuinely sitting in exile (`obj.zone == "exile"`, cheap since
+`Zone` is a `str, Enum` — no `models/` import needed in `continuous.py`,
+keeping that file's existing model-import discipline) rather than pruning
+the list on removal, the same "dead reference is harmless, re-check it"
+contract `linked_exile_id`'s own `imprinted_card_colors` reader already
+uses — except zone-checked too, since (unlike an Imprint permission) a
+*borrowed ability* would otherwise still apply after its source card left
+exile for hand or battlefield.
+
+**The ability-borrowing grant itself.** `effects.
+grant_borrowed_activated_ability` is a new layer-6 static
+(`continuous._apply_borrowed_activated_abilities`, called right after the
+ordinary `_apply_layer_6_ability` pass) whose granted-ability *set* is read
+live off the board rather than fixed at parse time — the gap
+`grant_activated_ability`'s existing single-fixed-ability shape
+(Umbral Mantle/Squirrel Nest) could never close. For each creature
+matching the scope (a new `has_counter_kind` filter on
+`continuous.group_selector_objects`, generalizing the existing min/max
+power-toughness qualifiers to an arbitrary counter kind) and each still-
+exiled creature card in the source's `exiled_with_ids`, it builds one
+fresh `ActivatedAbility` per (grantee, exiled card, ability index): the
+exiled card's own cost/effects — already bound once at bind-on-load, like
+any other permanent's — with every nested effect's `.source` redirected to
+the *grantee* via a new `_retarget_effect_source` (a shallow `copy.copy`
+per effect, safe since `GameEffect` subclasses hold no per-instance
+mutable state beyond `.source`), per RULE 113.7c ("Any ability that a
+permanent gains by another spell/ability applies to that permanent, not to
+the object that granted it"). Cached in a new, separate `GameState.
+_borrowed_ability_cache` (a 4-element key, `(ability, grantee, exiled
+card, ability index)`) rather than reusing `_granted_ability_cache` —
+exactly the collision `_hand_cycling_ability_cache` was already split out
+to avoid, since `_apply_layer_6_ability`'s own end-of-pass pruning loop
+only recognizes its own key shapes and would otherwise delete this
+function's entries every single pass, before it ever got to re-add them.
+Verified end-to-end: activating a borrowed ability taps and costs the
+*grantee* (not the original, still-untapped exiled card), the grant
+vanishes the instant the exiled card leaves exile for any reason, and a
+noncreature card exiled the same way contributes nothing.
+
+**The any-color mana permission.** `effects.
+grant_any_color_for_activation` is a standing RULE 605.1a wildcard
+*permission*, not a layer-6 characteristic grant — it rides its own
+non-RULE-613 bucket (`continuous.any_color_for_activation`, same
+"permission static outside the layer engine proper" treatment as
+`has_no_maximum_hand_size`/`no_untap_optional`), consulted by all three
+activation-cost payment sites in `game/engine/activation_mixin.py`
+(`_max_x_for_mana`/`_can_pay_activation_cost`/`_pay_activation_cost`),
+each now passing ``wildcard="color"`` through to `ManaPool.can_pay`/`pay`
+— the same ``wildcard`` param RULE 605.1a's *casting*-side grant
+(`GameState.mana_wildcard_permission`) already used, just newly reached
+from the activation-cost path too. Distinct from the shipped RULE 605.3a
+`restriction_predicate_for_cast`/`_for_activation` machinery, which
+restricts *what a lot of mana can pay for*, never *what color it counts
+as* — the two now coexist in the same `can_pay`/`pay` call rather than one
+having been rebuilt to imitate the other. Scoped by
+``creature_abilities_only`` (default `True`, matching print) to abilities
+whose *source* is a creature.
+
+Found two more real cards while sizing this (Drana and Linvala, Scheming
+Fence) printing the identical "any color to activate **those** abilities"
+wildcard, narrower-scoped than Agatha's own "creatures you control" —
+not built here since both also need the *targeted*/chosen-permanent
+ability-borrowing primitive MEC-23 still names, not the exiled-with one;
+folded into MEC-23's own BACKLOG entry rather than left to be
+rediscovered a third time.
+
+### MEC-20 — RULE 601.2f "Expertise" cycle
+
+The missing piece was never the payment mechanism — `GameState.
+free_cast_instance_ids` already existed and already zeroed a cast's mana
+cost (RULE 702.88b Rebound/Beseech the Mirror already used it, from
+*exile*) — it was the interactive "which hand card, if any, meets the
+mana-value cap" choice itself. `effects.FreeCastFromHandEffect` opens
+`RulesEngine.request_choose_objects` with a new ``"grant_free_cast"``
+action that only *arms* the picked card's `free_cast_instance_ids` entry
+rather than casting it immediately (deliberately not the existing
+``"cast_free"`` action's `cast_without_paying`, which puts a chosen card
+straight on the stack with no further interaction) — a hand card is
+already a legal cast zone (`can_cast`'s `in_castable_zone` check doesn't
+even consult `free_cast_instance_ids`, only the *payment* step does), so
+arming the flag is enough; the caster casts it (or doesn't) through the
+ordinary `legal_actions` cast option afterward, getting its full
+targeting/modal choices exactly like `grant_free_cast_window_from_exile`'s
+own "goes through the ordinary action loop" shape for an *exiled* card.
+The armed flag is also registered in `temp_play_permissions` (same-turn-
+only) purely so the existing cleanup sweep tears both down together —
+`free_cast_instance_ids`'s own sweep only keeps entries also found there.
+**Documented simplification**: RULE 601.2f/718 rulings actually require
+this free cast to happen *as the Expertise spell resolves*, not at
+leisure later in the turn; this engine has no "pause mid-resolution for a
+full nested cast+targeting cycle" primitive, so a same-turn window is
+offered instead — strictly more permissive than print, never less.
+
+`FreeCastFromHandEffect` covers three real shapes in one primitive:
+a literal cap (the five Expertise sorceries), the caster's own announced
+{X} (Electrodominance — ``criteria={"max_mana_value": "x"}`` mirrors
+`SearchLibraryEffect`'s own key so `RulesEngine._substitute_x`'s existing
+``filter``/``criteria`` walk resolves it for free, no separate wiring),
+and a board-read cap (Epistolary Librarian's "where X is the number of
+attacking creatures" — a *triggered* ability, never itself cast for an
+{X} of its own — ``max_mana_value_selector``, resolved via the existing
+`continuous.count_selector`).
+
+**Parser recognition** (`catalogue.handlers._free_cast_from_hand`) covers
+the whole family in one row: a literal N, the ``x`` sentinel via the
+existing `COUNT_X`/`count_or_x_of`, and the optional "where x is the
+number of attacking creatures" tail. Closed Sram's/Yahenni's Expertise
+and Epistolary Librarian outright. Hit — and worked around rather than
+side-stepped — two real, separate pre-existing gaps along the way:
+`segmenter._peel_optional` strips a leading "you may " before any handler
+ever sees the clause (MEC-18's own "the generic 'you may' stripper eats
+the clause first" lesson, recurring a second time), fixed by making the
+prefix optional in the regex itself rather than special-casing the peel
+again; and "Veil of Time —" (Epistolary Librarian's own RULE 207.2c
+ability-word label) wasn't in `normalize`'s deliberately-conservative
+whitelist, fixed by adding it there (the whitelist's own documented
+extension point — "safe to extend as more are checked"). Baral's/
+Rishkar's Expertise stay UNMODELED — both fully closed on this clause,
+blocked only by unrelated pre-existing gaps in their *other* sentence
+(returning up to N targets, drawing off greatest power). Electrodominance
+and Kari Zev's Expertise (the latter already partially hand-authored)
+are hand-authored rather than reached through the parser's own ``damage``
+handler, which is digit-only (`NUMBER`, not `COUNT_X`) — widening it to
+accept "X damage" is a separate, real gap of its own (X-cost burn spells
+generally: Fireball/Rolling Thunder/Banefire-shaped) left for a future
+ticket rather than folded in unreviewed. Coveted Prize stays UNMODELED
+entirely — blocked on RULE 301.7's Party mechanic (cost reduction +
+condition), which nothing in this engine models yet.
+
+`PARSER_VERSION` → 69. Coverage after this batch: 11,475 / 34,811 (33.0%).
+`tests/test_mec25_mana_ability_upgrade.py`, `test_mec21_agathas_soul_
+cauldron.py`, `test_mec20_free_cast_from_hand.py` cover all three, each
+with a real-card end-to-end check alongside the synthetic-fixture ones.

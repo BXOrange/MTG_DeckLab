@@ -1018,6 +1018,23 @@ class TurnLoopMixin:
             # RULE 701.31: the same decision as scry with the graveyard
             # where scry has the bottom of the library.
             self.rules.resolve_surveil_choice(None if declined else int(answer))
+        elif kind == "intuition_search":
+            # Intuition's own first phase: the searching player picks each
+            # card one at a time — mandatory, no decline (RULE 701.19's
+            # "search for N cards" isn't "up to").
+            self.rules.resolve_intuition_search_choice(int(answer))
+        elif kind == "intuition_choose":
+            # Intuition's own second phase: the *targeted opponent* (not
+            # the searcher) picks which revealed card goes to the
+            # searcher's hand — also mandatory ("chooses one").
+            self.rules.resolve_intuition_choose_choice(int(answer))
+        elif kind == "look_top_select":
+            # RULE 701.19-adjacent "look at top N, put M into hand, rest
+            # <destination>" (Anticipate-shaped) — the option id is one of
+            # the looked-at cards (select it for hand, or — in the
+            # ordering phase — place it next); decline only appears in the
+            # ordering phase, see `RulesEngine._look_top_select_choice`.
+            self.rules.resolve_look_top_select_choice(None if declined else int(answer))
         elif kind == "manifest_dread":
             # RULE 701.40a: which of the two looked-at cards is manifested
             # face down (the other is milled) — mandatory, so a decline

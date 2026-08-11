@@ -285,7 +285,10 @@ class TestMulliganSetup:
         response = client.post(f"/api/game/{sid}/action", json={"type": "advance_step"})
         assert response.status_code == 400
 
-    def test_mulligan_redraws_seven_and_requires_bottoming_one_to_keep(self):
+    def test_first_mulligan_redraws_seven_and_is_free_to_keep(self):
+        # A goldfish game defaults to Commander (`GameState.format_name`),
+        # whose RULE 103.4 change gives every player's first mulligan for
+        # free — no bottoming required.
         _setup()
         client = TestClient(app)
         sid = self._start(client)["session_id"]
@@ -294,6 +297,29 @@ class TestMulliganSetup:
         assert after_mull["setup"]["complete"] is False
         assert after_mull["setup"]["mulligan_count"] == 1
         assert len(after_mull["state"]["players"][0]["hand"]) == 7
+        keep_action = next(
+            a for a in after_mull["legal_actions"] if a["type"] == "keep_hand"
+        )
+        assert keep_action["bottom_count"] == 0
+
+        kept = client.post(
+            f"/api/game/{sid}/action", json={"type": "keep_hand", "bottom_instance_ids": []}
+        ).json()
+        assert kept["setup"]["complete"] is True
+        assert kept["setup"]["mulligan_count"] == 1
+        assert len(kept["state"]["players"][0]["hand"]) == 7
+        # The setup phase is over — normal actions are accepted again.
+        response = client.post(f"/api/game/{sid}/action", json={"type": "advance_step"})
+        assert response.status_code == 200
+
+    def test_second_mulligan_requires_bottoming_one_to_keep(self):
+        _setup()
+        client = TestClient(app)
+        sid = self._start(client)["session_id"]
+
+        client.post(f"/api/game/{sid}/action", json={"type": "mulligan"})  # free
+        after_mull = client.post(f"/api/game/{sid}/action", json={"type": "mulligan"}).json()
+        assert after_mull["setup"]["mulligan_count"] == 2
         keep_action = next(
             a for a in after_mull["legal_actions"] if a["type"] == "keep_hand"
         )
@@ -311,11 +337,8 @@ class TestMulliganSetup:
             json={"type": "keep_hand", "bottom_instance_ids": [hand[0]["instance_id"]]},
         ).json()
         assert kept["setup"]["complete"] is True
-        assert kept["setup"]["mulligan_count"] == 1
+        assert kept["setup"]["mulligan_count"] == 2
         assert len(kept["state"]["players"][0]["hand"]) == 6
-        # The setup phase is over — normal actions are accepted again.
-        response = client.post(f"/api/game/{sid}/action", json={"type": "advance_step"})
-        assert response.status_code == 200
 
     def test_keeping_the_first_hand_needs_no_bottoming(self):
         _setup()

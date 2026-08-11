@@ -1406,6 +1406,14 @@ class MiscSystemsMixin:
             # another hand-zone pick, general enough for any future "exile a
             # card from your hand" cost/effect to reuse.
             "exile",
+            # MEC-20 (the "Expertise" cycle): another hand-zone pick, but
+            # unlike ``"cast_free"`` this only *arms* the pick's temporary
+            # free-cast permission (`GameState.free_cast_instance_ids`)
+            # rather than casting it immediately — a hand card is already a
+            # legal cast zone, so the caster casts it (or doesn't) through
+            # the ordinary `legal_actions` cast option afterward, getting
+            # its full targeting/modal choices. See `FreeCastFromHandEffect`.
+            "grant_free_cast",
         }
     )
     def request_choose_objects(
@@ -1651,6 +1659,27 @@ class MiscSystemsMixin:
             owner.add_to_zone(obj, Zone.LIBRARY)
         elif action == "cast_free":
             self.cast_without_paying(player, obj)
+        elif action == "grant_free_cast":
+            # MEC-20: arm the pick's free-cast window without casting it —
+            # see `CHOOSE_OBJECT_ACTIONS`'s own docstring for why this is
+            # deliberately not `cast_without_paying`. Also registered in
+            # `temp_play_permissions` (same-turn-only) purely so
+            # `GameEngine._step_cleanup`'s existing sweep tears both down
+            # together — a hand card needs no actual play-permission grant
+            # to be castable (it already is), but `free_cast_instance_ids`'
+            # own cleanup only keeps entries also found there.
+            #
+            # RULE 601.2f/718 rulings actually require this free cast to
+            # happen *as the Expertise spell resolves*, not at leisure later
+            # in the turn — this engine has no "pause mid-resolution for a
+            # full nested cast+targeting cycle" primitive, so a same-turn
+            # window is offered instead (documented simplification: strictly
+            # more permissive than print, never less).
+            self.state.free_cast_instance_ids.add(obj.instance_id)
+            self._grant_temp_play_permission(
+                obj, player, source.name if source is not None else None,
+                same_turn_only=True, mana_wildcard=None,
+            )
     def the_ring_tempts_you(self, player: Player) -> None:
         """RULE 701.51a: the Ring tempts ``player``.
 
@@ -2151,12 +2180,45 @@ class MiscSystemsMixin:
                     self.lose_life(controller, life_spent, cause="cost")
             return
         self.counter_spell(target)
+    def _fire_becomes_target_events(self, item: StackItem) -> None:
+        """MEC-19: fire `EventType.BECOMES_TARGET` once per target of
+        ``item`` — see that constant's own docstring for the full field
+        list and the reasoning for piggy-backing on `check_ward`'s own
+        choke point rather than a fourth call site. Ward itself is
+        untouched by this (still its own direct RULE 702.21 cast-time
+        check, right below); this is a parallel, general-purpose event so
+        anything else can key a trigger off "became a target" the same way
+        it already can for damage/counters/etc.
+        """
+        for target in item.targets or []:
+            if isinstance(target, GameObject):
+                is_player = False
+                instance_id: Optional[str] = target.instance_id
+                target_controller_id: Optional[str] = target.controller_id
+            elif isinstance(target, Player):
+                is_player = True
+                instance_id = None
+                target_controller_id = None
+            else:
+                continue  # not a real RULE 115 target (e.g. an already-resolved value)
+            self.state.fire_event(GameEvent(
+                EventType.BECOMES_TARGET,
+                instance_id=instance_id,
+                target_controller_id=target_controller_id,
+                is_player=is_player,
+                controller_id=item.controller_id,
+                item_kind=item.kind,
+                stack_id=item.stack_id,
+            ))
     def check_ward(self, item: StackItem, caster: Player) -> None:
-        """RULE 702.21/603.3: after ``item`` (a spell, activated ability, or
-        triggered ability) is placed on the stack with its final targets,
-        push a genuine ward triggered-ability `StackItem` for every target
-        that has ward against ``caster`` — one per warded target (RULE
-        702.21c), each on top of ``item``.
+        """RULE 702.21/601.2c/603.3: after ``item`` (a spell, activated
+        ability, or triggered ability) is placed on the stack with its final
+        targets — fire MEC-19's RULE 603.1 "becomes the target of a spell/
+        ability" event for every target (`_fire_becomes_target_events`, see
+        `EventType.BECOMES_TARGET`'s own docstring), then push a genuine ward
+        triggered-ability `StackItem` for every target that has ward against
+        ``caster`` — one per warded target (RULE 702.21c), each on top of
+        ``item``.
 
         This is what makes ward rules-accurate rather than an inline choice:
         like any triggered ability, it becomes its own object on the stack
@@ -2177,8 +2239,13 @@ class MiscSystemsMixin:
 
         A no-op when ``item`` targets nothing warded — the overwhelming
         common case — so every call site can call this unconditionally right
-        after a spell/ability's targets are finalized.
+        after a spell/ability's targets are finalized. The method keeps its
+        ward-specific name (every call site already reads it that way) even
+        though it's now also the one choke point `BECOMES_TARGET` fires
+        from — a second, sibling call at each of the three sites would risk
+        a future call site adding one but not the other.
         """
+        self._fire_becomes_target_events(item)
         for target in item.targets or []:
             if not isinstance(target, GameObject):
                 continue  # ward is on permanents (RULE 702.21) — never a player

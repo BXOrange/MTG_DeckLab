@@ -853,7 +853,29 @@ NEVER_SUPPORTED = "NEVER_SUPPORTED"
 #: (Imperial Recruiter/Recruiter of the Guard on two new `card_query`
 #: criteria keys, Wheel of Fortune, Ruination), which this ledger doesn't
 #: count.
-PARSER_VERSION = "65"
+#: MEC-18/MEC-19 (2026-08-11): MEC-18 generalized `pay_cost_then`'s oracle
+#: recognition from two hardcoded shapes to the whole RULE 603.5 "you may
+#: <sacrifice/discard/pay-mana/pay-life>. When you do, <effect>." family
+#: (`catalogue.handlers._pay_cost_then_general`, `segmenter._PAY_ENERGY_
+#: THEN_PEEL_GUARD_RE` widened alongside it so the "you may" isn't eaten by
+#: the generic optional-ability peel first). MEC-19 built `EventType.
+#: BECOMES_TARGET` (RULE 115/601.2c never reached the event bus before —
+#: `RulesEngine.check_ward` is now the general "targets finalized" choke
+#: point, still doing ward's own unchanged direct check alongside it) plus
+#: `CounterUnlessPayEffect`/`counter_unless_pay` (a thin adapter onto
+#: `resolve_ward_effect` for the un-keyworded-Ward-shaped "counter it
+#: unless that player pays `<cost>`" cycle) and a new `caster_relation`
+#: trigger predicate for "an opponent controls"/"you control". Both
+#: PARSER_VERSION bumps land together since MEC-19's own testing turned up
+#: real MEC-18-adjacent cost-clause fixes in the same session. See
+#: `Done_Backend.md` for the full narrative.
+#: MEC-20 (2026-08-11): RULE 601.2f "Expertise" cycle — "you may cast a
+#: spell with mana value N/X or less from your hand without paying its
+#: mana cost[, where x is the number of attacking creatures]"
+#: (`catalogue.handlers._free_cast_from_hand`, `effects.
+#: FreeCastFromHandEffect`), plus "veil of time" added to `normalize`'s
+#: RULE 207.2c ability-word whitelist (Epistolary Librarian).
+PARSER_VERSION = "69"
 
 
 @dataclass

@@ -378,6 +378,19 @@ def condition_holds(
     if kind == "cast_instant_or_sorcery_this_turn":
         cast = getattr(state, "cast_instant_or_sorcery_this_turn", None) or {}
         return bool(cast.get(controller_id, False))
+    if kind == "card_types_in_graveyard_at_least":
+        # RULE 702.137's "Delirium" — count *distinct printed card types*
+        # among cards in your graveyard (Dragon's Rage Channeler/Winter,
+        # Misanthropic Guide-shaped). `GameObject.type_words` always
+        # includes the synthetic "permanent" marker (RULE 110.1) — not a
+        # real card type, so it's excluded from the count the same way a
+        # land/instant/sorcery card in the graveyard (not itself a
+        # permanent) still counts toward delirium.
+        types: set[str] = set()
+        for obj in getattr(player, "graveyard", []):
+            types |= obj.type_words
+        types.discard("permanent")
+        return len(types) >= int(condition.get("amount", 0))
     return False
 
 
@@ -471,6 +484,8 @@ def describe(condition: Optional[dict[str, Any]]) -> str:
         return f"solange du {condition.get('name', '')} kontrollierst"
     if kind == "drawn_cards_at_least":
         return f"solange ≥{condition.get('amount', 0)} Karten gezogen"
+    if kind == "card_types_in_graveyard_at_least":
+        return f"Delirium (≥{condition.get('amount', 0)} Kartentypen im Friedhof)"
     if kind.startswith("life_"):
         return f"solange Leben {'≥' if kind.endswith('least') else '≤'}{condition.get('amount', 0)}"
     if kind.startswith("cards_in_hand_"):

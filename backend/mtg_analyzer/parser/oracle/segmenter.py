@@ -24,6 +24,7 @@ from .catalogue.handlers import (
     TRIGGER_ONCE_PER_TURN_MARKER,
     _CYCLING_XX_TOKEN_RE,
     _cycling_xx_token,
+    _MAY_COST_THEN_CLAUSE,
     match_clause,
 )
 from .catalogue.keywords import ALIAS_DISPLAYS, KEYWORDS
@@ -286,10 +287,33 @@ _MAGECRAFT_RE = re.compile(
 _SPELL_CAST_TYPE_WORDS: frozenset[str] = frozenset(
     {"creature", "artifact", "enchantment", "instant", "sorcery", "planeswalker", "land", "battle"}
 )
+#: ``subj`` alternation added 2026-08-10 (Bonus Round/Hive Mind's own
+#: "whenever **a player** casts an instant or sorcery spell, …" needed it
+#: — 354 SOLO cards on this widening alone, `parser_probe.py blocked`,
+#: the single biggest template blocker found to date): the untyped sibling
+#: (`_CAST_SPELL_TRIGGER_PLAIN_RE`) already proved the "an opponent"/"a
+#: player" subjects need no new engine primitive (`effect_binder`'s
+#: existing group/controller scoping over `SPELL_CAST`), so this is purely
+#: widening the *typed* row's own subject the same way.
 _CAST_SPELL_TRIGGER_RE = re.compile(
-    r"^whenever you cast (?:an?|another) (?P<types>[a-z][a-z,\s]*?) spell,\s*(?P<body>.+)$",
+    r"^whenever (?P<subj>you|an opponent|a player) casts? (?:an?|another) "
+    r"(?P<types>[a-z][a-z,\s]*?) spell,\s*(?P<body>.+)$",
     re.IGNORECASE | re.S,
 )
+
+
+def _cast_spell_trigger_condition(subj: str) -> dict[str, Any]:
+    """``{"subject": …}`` for a cast-spell/draw-card trigger's ``you``/``an
+    opponent``/``a player`` subject — shared by every widened row below so
+    the three-way mapping (`_CAST_SPELL_TRIGGER_RE`/`_CAST_SPELL_TRIGGER_NEG_RE`/
+    `_CAST_SPELL_TRIGGER_PLAIN_RE`/`_CAST_SPELL_TRIGGER_MV_RE`/
+    `_DRAW_TRIGGER_PLAIN_RE`) lives in exactly one place."""
+    subj = subj.lower()
+    if subj == "you":
+        return {"subject": "you"}
+    if subj == "an opponent":
+        return {"subject": "group", "controller": "not_you"}
+    return {"subject": "group"}
 
 #: The negated sibling — "Whenever you cast a **noncreature** spell, …"
 #: (Young Pyromancer/Shark Typhoon/dozens of "spells matter" payoffs —
@@ -302,8 +326,11 @@ _CAST_SPELL_TRIGGER_RE = re.compile(
 #: them apart. Only ever one excluded type on a real card so far (a
 #: compound "noncreature, nonland spell" hasn't been seen) — extend the
 #: capture group to a list the day one is.
+#: ``subj`` alternation added alongside `_CAST_SPELL_TRIGGER_RE`'s own
+#: widening (Cindervines/Kambal, Consul of Allocation-shaped — 67 more SOLO
+#: cards): same reasoning, same shared `_cast_spell_trigger_condition`.
 _CAST_SPELL_TRIGGER_NEG_RE = re.compile(
-    r"^whenever you cast an? non(?P<type>[a-z]+) spell,\s*(?P<body>.+)$",
+    r"^whenever (?P<subj>you|an opponent|a player) casts? an? non(?P<type>[a-z]+) spell,\s*(?P<body>.+)$",
     re.IGNORECASE | re.S,
 )
 
@@ -322,6 +349,23 @@ _CAST_SPELL_TRIGGER_NEG_RE = re.compile(
 _CAST_SPELL_TRIGGER_PLAIN_RE = re.compile(
     r"^whenever (?P<subj>you|an opponent|a player) casts? a spell,\s*(?P<body>.+)$",
     re.IGNORECASE | re.S,
+)
+
+#: RULE 601.2h's "free spell" hate: "Whenever a player casts a spell, if no
+#: mana was spent to cast it, counter that spell." (Vexing Bauble — the one
+#: real card printing this exact template). A standalone whole-line
+#: recognizer rather than decomposed into the generic trigger-condition +
+#: body machinery: the "if no mana was spent" clause is folded straight into
+#: the trigger's own ``spell_no_mana_spent`` gate (`effect_binder.py`) and
+#: "counter that spell" resolves off the firing SPELL_CAST event's own
+#: object (`CounterSpellEffect.target_from_trigger_event`), not a RULE 115
+#: target — no other card needs this exact combination yet, so it isn't
+#: split into reusable pieces the way the untyped/typed cast-trigger rows
+#: above are.
+_COUNTER_FREE_SPELL_RE = re.compile(
+    r"^whenever a player casts a spell, if no mana was spent to cast it,\s*"
+    r"counter that spell\.?\s*$",
+    re.IGNORECASE,
 )
 
 #: RULE 120/613's "Whenever you/an opponent/a player draws a card, <effect>."
@@ -491,6 +535,61 @@ _DAMAGE_RECIPIENT_TRIGGER_RE = re.compile(
     + "|".join(_GROUP_TYPE_WORDS) + r")"
     r"(?P<yours> you control)?"
     r") is dealt (?P<combat>combat )?damage,\s*(?P<body>.+)$",
+    re.IGNORECASE,
+)
+
+#: MEC-19/RULE 115/601.2c's "becomes the target of a spell/ability" trigger
+#: condition (`EventType.BECOMES_TARGET`) — Goldspan Dragon/Tectonic Giant's
+#: own "attacks or becomes the target of a spell", and, far more numerously,
+#: a ~150-card cycle that prints Ward's exact RULE 702.21a outcome
+#: ("counter it unless that player pays `<cost>`") as an ordinary triggered
+#: ability instead of the Ward keyword — those cards have no "Ward" word
+#: anywhere in their text, so the keyword catalogue can never reach them.
+#: Same self/attached/group subject grammar as `_DAMAGE_TRIGGER_RE` above,
+#: plus two qualifiers this family always prints and that shape never needs:
+#:
+#: * ``item_kind`` — "of a spell"/"of a spell or ability"/"of an ability",
+#:   fed straight to the ordinary ``"filter"`` exact-match mechanism
+#:   (`BECOMES_TARGET`'s own ``item_kind`` payload) rather than a bespoke
+#:   predicate. A more specific object ("of an Aura spell", "of an instant
+#:   or sorcery spell", "of a backup ability") isn't in this closed
+#:   alternation on purpose — matching it here would require re-deriving
+#:   the *cast* object's own card-type/subtype at `BECOMES_TARGET`-fire
+#:   time, a genuinely separate lookup `cast_of_color`/`spell_card_types`
+#:   need a live `state.find_object` for; those clauses stay unclaimed
+#:   (fail-closed) rather than guessed at.
+#: * ``caster_relation`` — "an opponent controls"/"you control", optional
+#:   (unscoped when absent) — `effect_binder._trigger_condition`'s new
+#:   ``caster_relation`` predicate, comparing `BECOMES_TARGET`'s
+#:   ``controller_id`` (the *caster*, not the target) against the ability's
+#:   own source.
+#:
+#: A trailing "**for the first time each turn**" (Angelic Cub/Heartfire
+#: Hero-shaped) is RULE 603.2's per-source once-a-turn cap — the exact
+#: primitive `TRIGGER_ONCE_PER_TURN_MARKER` already folds into
+#: `TriggeredAbility.once_per_turn` for a *trailing-sentence* phrasing;
+#: here the qualifier is embedded in the condition clause itself, so it's
+#: set directly as ``trigger["limit"]`` rather than round-tripped through
+#: that marker.
+#:
+#: Deliberately excludes the player-subject/compound "you or a permanent
+#: you control becomes the target…" shape (Leovold, Rayne, Surrak, Unsettled
+#: Mariner, Parnesse) — a genuinely different, unbuilt compound-subject
+#: grammar (BACKLOG.md) — and any group subject qualified by a *subtype*
+#: word rather than `_GROUP_TYPE_WORDS`'s closed main-type list ("a Dragon
+#: you control becomes the target…", Thunderbreak Regent/Dragon's
+#: Disciple/Scalelord Reckoner/Svyelun-shaped): those stay unclaimed.
+_BECOMES_TARGET_TRIGGER_RE = re.compile(
+    r"^whenever (?:"
+    r"(?P<self>~)"
+    r"|(?P<attached>(?:enchanted|equipped) (?:creature|permanent|land|artifact))"
+    r"|(?P<article>another|an|a) (?P<type>"
+    + "|".join(_GROUP_TYPE_WORDS) + r")"
+    r"(?P<yours> you control)?"
+    r") becomes the target of an? (?P<item_kind>spell or ability|spell|ability)"
+    r"(?P<caster_rel> an opponent controls| you control)?"
+    r"(?P<once> for the first time each turn)?"
+    r",\s*(?P<body>.+)$",
     re.IGNORECASE,
 )
 
@@ -882,6 +981,44 @@ _NO_REGEN_SENTENCE_RE = re.compile(
     re.IGNORECASE | re.DOTALL,
 )
 
+#: "Look at the top N cards of your library. Put M of them into your hand
+#: and the rest `<destination>`." (Anticipate/Dig Through Time/Diabolic
+#: Vision/Ancestral Memories-shaped — the single biggest template blocker
+#: found in the whole cache, 60 cards SOLO-blocked on it alone,
+#: `parser_probe.py blocked`). Two sentences that are one indivisible
+#: instruction (the "look" alone and the "put" alone are each meaningless),
+#: so — same idiom as `_NO_REGEN_SENTENCE_RE` just above — this is a
+#: `parse_effect_body`-level special case checked on the *whole* two-sentence
+#: span before the ordinary connector-split loop would otherwise shatter it
+#: into unmatchable halves, with an optional trailing sentence
+#: (`Bitter Revelation`'s "You lose 2 life.") recursed into via `after`.
+#: `RulesEngine.look_top_select` is the fixed-count sibling of scry/surveil's
+#: per-card away/stay decision (`_LOOK_TOP_KINDS`) built for this. Deliberately
+#: doesn't handle a *leading* clause before "look at the top…" (Creative
+#: Outburst's "~ deals 5 damage to any target. Look at…") — the connector
+#: loop splits that off before this check ever sees the two halves together,
+#: which is a real, known, narrow gap (one card in the cache) rather than an
+#: oversight; a genuinely three-way split ("put 1 into hand, 1 on the
+#: bottom, and exile 1" — Expressive Iteration) correctly stays unclaimed too,
+#: since the ``dest`` alternation only knows the four two-way destinations
+#: real cards actually print.
+_LOOK_TOP_SELECT_RE = re.compile(
+    r"^look at the top (?P<n>\d+) cards? of your library\.\s*"
+    r"put (?P<m>\d+) of (?:them|those cards) into your hand and the (?:rest|other)\s+"
+    r"(?P<dest>on the bottom of your library in any order|"
+    r"on the bottom of your library in a random order|"
+    r"on top of your library in any order|"
+    r"into your graveyard)\.?"
+    r"(?:\s*(?P<after>.+))?$",
+    re.IGNORECASE | re.DOTALL,
+)
+_LOOK_TOP_SELECT_DESTINATIONS: dict[str, tuple[str, Optional[str]]] = {
+    "on the bottom of your library in any order": ("library_bottom", "any"),
+    "on the bottom of your library in a random order": ("library_bottom", "random"),
+    "on top of your library in any order": ("library_top", "any"),
+    "into your graveyard": ("graveyard", None),
+}
+
 #: "Gain control of target creature until end of turn. **Untap that
 #: creature. It gains haste until end of turn.**" (Act of Treason/Claim the
 #: Firstborn-shaped) — same "trailing sentence retroactively describing the
@@ -971,6 +1108,19 @@ _FREE_CAST_IF_COMMANDER_RE = re.compile(
 _FREE_CAST_IF_OPPONENT_SPELLS_RE = re.compile(
     r"^if an opponent cast (?P<n>\d+) or more spells this turn,\s*"
     r"you may pay \{0\} rather than pay this spell'?s mana cost\.?\s*$",
+    re.IGNORECASE,
+)
+
+#: "If an opponent controls a Forest and you control an Island, you may
+#: cast this spell without paying its mana cost." (Submerge — the one real
+#: card printing this exact compound board-state gate) — a fixed named
+#: condition rather than a generic "opponent controls type X and you
+#: control type Y" combinator, same idiom as `_FREE_CAST_IF_COMMANDER_RE`'s
+#: own single boolean flag (`AbilitySpec.free_cast_condition`'s
+#: ``opponent_controls_forest_and_you_control_island`` key).
+_FREE_CAST_IF_OPPONENT_FOREST_YOU_ISLAND_RE = re.compile(
+    r"^if an opponent controls a forest and you control an island,\s*"
+    r"you may cast this spell without paying its mana cost\.?\s*$",
     re.IGNORECASE,
 )
 
@@ -1377,6 +1527,28 @@ def parse_effect_body(
             for e in inner
         ]
 
+    look_top_select = _LOOK_TOP_SELECT_RE.match(body)
+    if look_top_select is not None:
+        rest_destination, rest_order = _LOOK_TOP_SELECT_DESTINATIONS[
+            look_top_select.group("dest").lower()
+        ]
+        spec = EffectSpec(
+            "look_top_select",
+            {
+                "count": int(look_top_select.group("n")),
+                "select_count": int(look_top_select.group("m")),
+                "rest_destination": rest_destination,
+                "rest_order": rest_order,
+            },
+        )
+        after_text = (look_top_select.group("after") or "").strip()
+        if not after_text:
+            return [spec]
+        after_specs = parse_effect_body(after_text)
+        if after_specs is None:
+            return None
+        return [spec] + after_specs
+
     no_regen = _NO_REGEN_SENTENCE_RE.match(body)
     if no_regen is not None:
         before_specs = parse_effect_body(
@@ -1592,6 +1764,20 @@ def segment_line(
         )
         return Segment(raw=raw, spec=spec, claimed=True)
 
+    if _COUNTER_FREE_SPELL_RE.match(raw):
+        spec = AbilitySpec(
+            "triggered",
+            effects=[EffectSpec("counter", {"target_from_trigger_event": "instance_id"})],
+            trigger={
+                "event": "SPELL_CAST",
+                "condition": {"subject": "group"},
+                "spell_no_mana_spent": True,
+            },
+            raw_text=raw,
+            parser=provenance,
+        )
+        return Segment(raw=raw, spec=spec, claimed=True)
+
     cast_spell_trig_plain = _CAST_SPELL_TRIGGER_PLAIN_RE.match(raw)
     if cast_spell_trig_plain is not None:
         subj = cast_spell_trig_plain.group("subj").lower()
@@ -1599,16 +1785,10 @@ def segment_line(
         effects = parse_effect_body(body)
         if effects is None:
             return Segment(raw=raw)
-        if subj == "you":
-            condition: dict[str, Any] = {"subject": "you"}
-        elif subj == "an opponent":
-            condition = {"subject": "group", "controller": "not_you"}
-        else:
-            condition = {"subject": "group"}
         spec = AbilitySpec(
             "triggered",
             effects=effects,
-            trigger={"event": "SPELL_CAST", "condition": condition},
+            trigger={"event": "SPELL_CAST", "condition": _cast_spell_trigger_condition(subj)},
             optional=optional,
             raw_text=raw,
             parser=provenance,
@@ -1622,16 +1802,10 @@ def segment_line(
         effects = parse_effect_body(body)
         if effects is None:
             return Segment(raw=raw)
-        if subj == "you":
-            draw_condition: dict[str, Any] = {"subject": "you"}
-        elif subj == "an opponent":
-            draw_condition = {"subject": "group", "controller": "not_you"}
-        else:
-            draw_condition = {"subject": "group"}
         spec = AbilitySpec(
             "triggered",
             effects=effects,
-            trigger={"event": "DRAW", "condition": draw_condition},
+            trigger={"event": "DRAW", "condition": _cast_spell_trigger_condition(subj)},
             optional=optional,
             raw_text=raw,
             parser=provenance,
@@ -1648,6 +1822,7 @@ def segment_line(
         excluded = cast_spell_trig_neg.group("type").lower()
         if excluded not in _SPELL_CAST_TYPE_WORDS:
             return Segment(raw=raw)
+        neg_subj = cast_spell_trig_neg.group("subj")
         body, optional = _peel_optional(cast_spell_trig_neg.group("body"))
         effects = parse_effect_body(body)
         if effects is None:
@@ -1657,7 +1832,7 @@ def segment_line(
             effects=effects,
             trigger={
                 "event": "SPELL_CAST",
-                "condition": {"subject": "you"},
+                "condition": _cast_spell_trigger_condition(neg_subj),
                 "spell_exclude_card_types": [excluded],
             },
             optional=optional,
@@ -1668,6 +1843,7 @@ def segment_line(
 
     cast_spell_trig = _CAST_SPELL_TRIGGER_RE.match(raw)
     if cast_spell_trig is not None:
+        pos_subj = cast_spell_trig.group("subj")
         raw_types = cast_spell_trig.group("types")
         types = _parse_cast_spell_types(raw_types)
         # "Whenever you cast an Elf spell, …" (Lys Alana Huntmaster-shaped) —
@@ -1690,7 +1866,7 @@ def segment_line(
                 effects=effects,
                 trigger={
                     "event": "SPELL_CAST",
-                    "condition": {"subject": "you"},
+                    "condition": _cast_spell_trigger_condition(pos_subj),
                     "spell_subtype_any": [single_word],
                 },
                 optional=optional,
@@ -1709,7 +1885,7 @@ def segment_line(
             effects=effects,
             trigger={
                 "event": "SPELL_CAST",
-                "condition": {"subject": "you"},
+                "condition": _cast_spell_trigger_condition(pos_subj),
                 "spell_card_types": types,
             },
             optional=optional,
@@ -1883,6 +2059,47 @@ def segment_line(
         )
         return Segment(raw=raw, spec=spec, claimed=True)
 
+    becomes_target_trig = _BECOMES_TARGET_TRIGGER_RE.match(raw)
+    if becomes_target_trig is not None:
+        body, optional = _peel_optional(becomes_target_trig.group("body"))
+        is_self_subject = bool(becomes_target_trig.group("self"))
+        effects = parse_effect_body(body, self_subject=is_self_subject)
+        if effects is None:
+            return Segment(raw=raw)
+        if becomes_target_trig.group("self"):
+            condition = {"subject": "self"}
+        elif becomes_target_trig.group("attached"):
+            condition = {"subject": "attached_permanent"}
+        else:
+            condition = {
+                "subject": "group",
+                "type": becomes_target_trig.group("type").lower(),
+                "other": becomes_target_trig.group("article").lower() == "another",
+            }
+            if becomes_target_trig.group("yours"):
+                condition["controller"] = "you"
+        trigger: dict[str, Any] = {
+            "event": "BECOMES_TARGET",
+            "condition": condition,
+            "filter": {"item_kind": becomes_target_trig.group("item_kind").lower()},
+        }
+        caster_rel = (becomes_target_trig.group("caster_rel") or "").strip()
+        if caster_rel == "an opponent controls":
+            trigger["caster_relation"] = "opponent"
+        elif caster_rel == "you control":
+            trigger["caster_relation"] = "you"
+        if becomes_target_trig.group("once"):
+            trigger["limit"] = True
+        spec = AbilitySpec(
+            "triggered",
+            effects=effects,
+            trigger=trigger,
+            optional=optional,
+            raw_text=raw,
+            parser=provenance,
+        )
+        return Segment(raw=raw, spec=spec, claimed=True)
+
     # RULE 601.2b/604.3 additional cost — instants/sorceries only, and
     # checked before every other wrapper since it has neither a trigger word
     # nor a colon (so it can't be mistaken for one of those shapes below).
@@ -1922,6 +2139,16 @@ def segment_line(
                 free_cast_condition={
                     "opponent_spells_cast_this_turn_at_least": int(opp_spells.group("n"))
                 },
+                raw_text=raw,
+                parser=provenance,
+            )
+            return Segment(raw=raw, spec=spec, claimed=True)
+
+        if _FREE_CAST_IF_OPPONENT_FOREST_YOU_ISLAND_RE.match(raw):
+            spec = AbilitySpec(
+                "spell_effect",
+                effects=[],
+                free_cast_condition={"opponent_controls_forest_and_you_control_island": True},
                 raw_text=raw,
                 parser=provenance,
             )
@@ -2269,14 +2496,19 @@ def segment_line(
 
 #: "you may pay {E}… . If/When you do, <effect>." (Aether Chaser) / "you
 #: may pay {1}. If you do, draw a card." (RULE 118.3's general
-#: `pay_cost_then` idiom, Spellbomb-cycle-shaped — ~21 more real cards) —
-#: the "you may" here is the *cost-payment* decision `pay_energy_then`/
+#: `pay_cost_then` idiom, Spellbomb-cycle-shaped) / MEC-18's wider "you may
+#: sacrifice/discard/pay life `<X>`. When you do, `<effect>`." family — the
+#: "you may" here is the *cost-payment* decision `pay_energy_then`/
 #: `pay_cost_then` model with their own interactive choice, not a
 #: whole-ability "you may". Left un-peeled so the full clause reaches
 #: `parse_effect_body`'s own handler for either shape intact (otherwise the
 #: ability would be marked doubly-optional and the "if you do" gate lost).
+#: The non-energy alternatives are `catalogue.handlers._MAY_COST_THEN_
+#: CLAUSE` itself (not a hand-copied mirror of it) so this guard can never
+#: drift out of sync with what `pay_cost_then_general` actually claims.
 _PAY_ENERGY_THEN_PEEL_GUARD_RE = re.compile(
-    r"^you may pay (?:(?:\{e\})+|\{[a-z0-9]+\})\.\s*(?:if|when) you do", re.IGNORECASE
+    r"^you may (?:pay (?:\{e\})+|" + _MAY_COST_THEN_CLAUSE + r")\.\s*(?:if|when) you do",
+    re.IGNORECASE,
 )
 
 

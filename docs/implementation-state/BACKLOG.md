@@ -122,56 +122,45 @@ Plan-level sequencing lives in
   scoped against the wider cache via `parser_probe.py`/`engine_bench.py
   cards`, not just this pool's count.
 
-- **MEC-18 · "You may `<action>`. When you do, `<effect>`." optional-
-  antecedent family (RULE 603.3).** Found during the 2026-08-10 Marchesa
-  V4.2 batch: ~200 cache hits, the single biggest template blocker that
-  batch's `parser_probe.py` scan turned up. Needs a genuine interactive
-  "did the optional action actually happen" gate before the "when you
-  do" half can fire — that batch's own "when you do" handling
-  (`segmenter._SACRIFICE_THEN_WHEN_YOU_DO_RE`) deliberately only covers
-  the unconditional/mandatory-antecedent case (a bare "Sacrifice it.",
-  never "you may") and cannot be widened to this family without the real
-  primitive. Worked example: Danny Pink/Puppeteer Clique/Kiki-Jiki are
-  now closed via *other* primitives that don't need this; the family
-  itself is still fully open.
-- **MEC-19 · "Becomes the target of a spell/ability" as a real
-  `EventType`.** No such event exists — Ward (RULE 702.21) is checked
-  directly at cast-time in `casting_mixin.py`, never through the event
-  bus, so nothing else can key a trigger off it. Blocks Goldspan Dragon's
-  own "attacks **or becomes the target of a spell**" (shipped 2026-08-10
-  with "attacks" only) and Tectonic Giant — 2 cards found so far,
-  re-scope against the wider cache before building. A second, unrelated
-  Goldspan Dragon gap tracked alongside it: `grant_mana_ability`'s
-  granted options are always a repeatable tap-only "{T}: Add …", with no
-  way to express a *replacement* sacrifice-cost mana ability (Goldspan's
-  own "Treasures you control have '{T}, Sacrifice this artifact: Add two
-  mana of any one color.'" — currently Treasures keep their default
-  1-mana ability instead).
-- **MEC-20 · RULE 601.2f "Expertise" cycle — free-cast-from-hand
-  window.** "You may cast a spell with mana value N or less from your
-  hand without paying its mana cost." 8 real cards (Kari Zev's/Sram's/
-  Yahenni's/Baral's/Rishkar's Expertise, Electrodominance, Epistolary
-  Librarian, Coveted Prize) — Kari Zev's Expertise shipped 2026-08-10
-  with only its threaten half. Needs a new interactive "which hand card,
-  if any, meets the mana-value cap" choice opening a temporary free-cast
-  permission (`GameState.free_cast_instance_ids` already exists and
-  could likely be reused for the actual cast-cost-zeroing half — the
-  missing piece is the choice itself, not the payment mechanism).
-- **MEC-21 · Agatha's Soul Cauldron's own two unmodeled clauses.**
-  Shipped 2026-08-10 with only its activated ability (exile + counter)
-  modeled. Two real, substantial primitives still open on this one card:
-  (1) "You may spend mana as though it were mana of any color to
-  activate abilities of creatures you control" — an "any color, purpose-
-  restricted" mana-spend permission; the shipped RULE 605.3a restriction
-  machinery (`restriction_predicate_for_cast`/`_for_activation`)
-  restricts *what* a lot of mana can pay for, never *what color* a lot
-  counts as. (2) "Creatures you control with +1/+1 counters on them have
-  all activated abilities of all creature cards exiled with ~" — needs a
-  live "cards exiled with this source" linked-zone list (only the
-  single-card O-Ring shape, `GameObject.linked_exile_id`, exists today)
-  *and* a way to read an arbitrary exiled card's own printed activated
-  abilities back out and re-grant them, which the layer-6 grant
-  machinery has no "borrow another card's abilities live" shape for.
+- **MEC-23 · "Gains all activated abilities of target creature until end
+  of turn."** Quicksilver Elemental (Vivi B4 batch, 2026-08-10) — the one
+  card left open. MEC-21's batch (2026-08-11) narrowed this: `continuous.
+  _apply_borrowed_activated_abilities`/`_retarget_effect_source` now do
+  read an arbitrary object's own `activated_abilities` and rebuild each as
+  a fresh `ActivatedAbility` redirected onto a different grantee (RULE
+  113.7c) — but as a *standing* layer-6 static keyed off `GameObject.
+  exiled_with_ids`, not a resolve-time "snapshot a **targeted** creature's
+  ability set, for the rest of the turn" grant. What's still genuinely
+  open: a resolve-time effect that snapshots `target.activated_abilities`
+  at resolution and stamps the rebuilt copies onto the source via a
+  turn-scoped field (`temp_*`-shaped, cleared at cleanup like `temp_
+  keywords`) rather than the exiled-with static's own live per-pass
+  re-derivation. Likely a thin wrapper reusing `_retarget_effect_source`
+  rather than a second implementation. Also still needs "you may spend
+  blue mana as though it were mana of any color to pay the activation
+  costs of ~'s abilities" — MEC-21's `grant_any_color_for_activation` is
+  scoped to *creatures you control generally*, not *this one card's own
+  granted set specifically*; the same gap Drana and Linvala/Scheming
+  Fence's near-identical "any color to activate **those** abilities"
+  phrasing needs too (`parser_probe.py cards` — 2 more real cards, found
+  while sizing MEC-21, not built there since both also need the
+  target-creature/chosen-permanent ability-borrowing half above first).
+
+- **MEC-24 · Single-target "target instant or sorcery card in your
+  graveyard gains flashback…" flashback grant.** Vivi B4 batch,
+  2026-08-10 — Past in Flames's own untargeted "each…" sibling shipped
+  (`grant_graveyard_cast_permission_this_turn`), but the far more common
+  *targeted*-singular phrasing (Recoup/Snapcaster Mage/Slickshot
+  Lockpicker/Sphinx of Forgotten Lore/Katilda and Lier/The Fugitive
+  Doctor — ~10 real cards, `parser_probe.py blocked`) needs a genuinely
+  different shape: granting flashback to *one specific, targeted*
+  graveyard card rather than broadly to every instant/sorcery there. No
+  existing primitive marks a single graveyard object with a temporary
+  cast permission the way `exile_with_play_permission`'s `GameState.
+  temp_play_permissions` does for an *exiled* card — needs its own
+  per-object marker (or reuse of the graveyard-cast permission machinery
+  scoped to one `instance_id` instead of "every instant/sorcery you
+  control").
 
 ## PLR — Player management
 

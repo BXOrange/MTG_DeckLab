@@ -849,12 +849,21 @@ export function createGameBoardView(opts = {}) {
         // board alone rather than painting a stale reply over it.
         if (res.data) applyView(res.data);
         setStatus('', '');
-      } else if (res.status === 400) {
-        setStatus(`Aktion nicht erlaubt: ${res.data?.detail ?? ''}`, 'warning');
-      } else if (res.status === 404) {
-        setStatus('Spielsitzung abgelaufen.', 'warning');
       } else {
-        setStatus(`Fehler (${res.status}).`, 'warning');
+        // A failed action never changes `priorityWindowKey()`, so if this
+        // was the auto-skip's own `pass_priority` attempt, `skipAttemptedForKey`
+        // would otherwise stay set to a window that never actually got
+        // passed — wedging the ⏭/auto-skip logic for the rest of the game
+        // (nothing else ever resets it). Clearing it here lets the next
+        // render retry instead of silently going inert.
+        skipAttemptedForKey = null;
+        if (res.status === 400) {
+          setStatus(`Aktion nicht erlaubt: ${res.data?.detail ?? ''}`, 'warning');
+        } else if (res.status === 404) {
+          setStatus('Spielsitzung abgelaufen.', 'warning');
+        } else {
+          setStatus(`Fehler (${res.status}).`, 'warning');
+        }
       }
     });
   }

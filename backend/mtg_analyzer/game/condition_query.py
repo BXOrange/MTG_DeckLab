@@ -80,7 +80,9 @@ def free_cast_condition_holds(condition: dict[str, Any], obj: "GameObject", stat
     ``"your_turn"``: whether it currently is/isn't ``obj``'s controller's
     own turn (RULE 500.7-adjacent) — a card-in-hand-safe read, unlike
     `static_conditions.py`'s identically-named battlefield-only kind.
-    Fails closed on an unrecognized key.
+    ``"opponent_controls_forest_and_you_control_island"``: Submerge's own
+    named board-state gate (RULE 205.3i basic land types). Fails closed on
+    an unrecognized key.
     """
     controller_id = getattr(obj, "controller_id", None)
     for key, value in condition.items():
@@ -105,6 +107,25 @@ def free_cast_condition_holds(condition: dict[str, Any], obj: "GameObject", stat
             is_yours = active is not None and controller_id is not None and active.id == controller_id
             wants_yours = key == "your_turn"
             if bool(value) != (is_yours == wants_yours):
+                return False
+        elif key == "opponent_controls_forest_and_you_control_island":
+            # Submerge's own gate: true only while *some* opponent controls
+            # a Forest and ``obj``'s controller controls an Island — a plain
+            # printed-type-line check (RULE 205.3i's basic land types),
+            # matching `control_commander`'s "check it live off the board"
+            # shape rather than a cached/derived flag.
+            battlefield = getattr(state, "battlefield", [])
+            you_have_island = any(
+                o.controller_id == controller_id and o.is_land
+                and "island" in (o.card.type_line or "").lower()
+                for o in battlefield
+            )
+            opp_has_forest = any(
+                o.controller_id is not None and o.controller_id != controller_id and o.is_land
+                and "forest" in (o.card.type_line or "").lower()
+                for o in battlefield
+            )
+            if bool(value) != (you_have_island and opp_has_forest):
                 return False
         elif key == "opponent_spells_cast_this_turn_at_least":
             # Mindbreak Trap-shaped (RULE 601.2f-adjacent, MEC-12): true

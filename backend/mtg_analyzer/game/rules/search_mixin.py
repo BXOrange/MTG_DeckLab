@@ -327,6 +327,188 @@ class SearchMixin:
             obj = objects.get(iid)
             if obj is not None:
                 player.library.append(obj)
+
+    def look_top_select(
+        self,
+        player: Player,
+        count: int,
+        select_count: int,
+        rest_destination: str,
+        rest_order: Optional[str] = None,
+    ) -> None:
+        """"Look at the top N cards of your library. Put M of them into
+        your hand and the rest `<destination>`." (Anticipate/Dig Through
+        Time/Diabolic Vision/Ancestral Memories-shaped) — the fixed-count
+        sibling of `scry`/`surveil`'s per-card away/stay decision
+        (`_LOOK_TOP_KINDS`): there the count going *away* is the player's
+        own choice made one card at a time, here the count going to *hand*
+        is fixed by the card text, so the shape is instead "pick exactly M
+        of these for your hand", then — only when the card says "in any
+        order" — order what's left before it goes to
+        ``rest_destination`` (``"library_bottom"``/``"library_top"``/
+        ``"graveyard"``). A ``"random"`` ``rest_order`` shuffles with no
+        choice at all, and ``"graveyard"`` is never ordered either way
+        (RULE 701.31b's own precedent — a surveil/mill pile is never
+        ordered, which is also why none of these cards ever pair
+        "graveyard" with "in any order").
+        """
+        looked = player.library[-count:] if count > 0 else []
+        if not looked:
+            return
+        remaining = [obj.instance_id for obj in reversed(looked)]  # top of library first
+        select_count = max(0, min(select_count, len(remaining)))
+        if select_count <= 0:
+            self._advance_look_top_select(player, remaining, [], rest_destination, rest_order)
+            return
+        self.state.pending_choice = self._look_top_select_choice(
+            player, "select", remaining, [], select_count, [], rest_destination, rest_order,
+        )
+
+    def _look_top_select_choice(
+        self,
+        player: Player,
+        phase: str,
+        remaining: list[int],
+        selected: list[int],
+        select_count: int,
+        ordered: list[int],
+        rest_destination: str,
+        rest_order: Optional[str],
+    ) -> dict[str, Any]:
+        """Build one step of the serializable `look_top_select` decision —
+        ``phase`` is ``"select"`` (choosing the hand cards, no decline: RULE
+        701.19's "put M of them" is mandatory, not "up to") or ``"order"``
+        (placing what's left one at a time, decline keeps the rest in
+        their looked-at order, same convention as `_look_top_choice`)."""
+        looked = [(iid, self._object_by_instance_id(iid)) for iid in remaining]
+        options = [
+            {"id": str(iid), "label": obj.name, "instance_id": iid}
+            for iid, obj in looked
+            if obj is not None
+        ]
+        if phase == "order":
+            options.append({"id": "decline", "label": "Reihenfolge behalten"})
+            prompt = "Wähle die nächste Karte für die Bibliothek"
+        else:
+            prompt = f"Wähle eine Karte für deine Hand ({select_count - len(selected)} übrig)"
+        return {
+            "kind": "look_top_select",
+            "player_id": player.id,
+            "phase": phase,
+            "remaining": list(remaining),
+            "selected": list(selected),
+            "select_count": select_count,
+            "ordered": list(ordered),
+            "rest_destination": rest_destination,
+            "rest_order": rest_order,
+            "prompt": prompt,
+            "options": options,
+        }
+
+    def resolve_look_top_select_choice(self, instance_id: Optional[int]) -> None:
+        """Answer one step of a `look_top_select` decision — see
+        `_look_top_select_choice` for the two phases."""
+        choice = self.state.pending_choice
+        if not choice or choice.get("kind") != "look_top_select":
+            raise ValueError("no pending look_top_select choice to resolve")
+        player = self.state.player_by_id(choice["player_id"])
+        remaining: list[int] = list(choice["remaining"])
+        selected: list[int] = list(choice["selected"])
+        select_count: int = choice["select_count"]
+        ordered: list[int] = list(choice["ordered"])
+        rest_destination: str = choice["rest_destination"]
+        rest_order: Optional[str] = choice["rest_order"]
+        phase = choice["phase"]
+
+        if phase == "select":
+            if instance_id is None or instance_id not in remaining:
+                raise ValueError(f"{instance_id} is not a legal choice")
+            remaining.remove(instance_id)
+            selected.append(instance_id)
+            if len(selected) < select_count and remaining:
+                self.state.pending_choice = self._look_top_select_choice(
+                    player, "select", remaining, selected, select_count, ordered,
+                    rest_destination, rest_order,
+                )
+                return
+            self._advance_look_top_select(player, remaining, selected, rest_destination, rest_order)
+            return
+
+        # phase == "order"
+        if instance_id is None:
+            self._finish_look_top_select(player, selected, ordered + remaining, rest_destination)
+            return
+        if instance_id not in remaining:
+            raise ValueError(f"{instance_id} is not a legal choice")
+        remaining.remove(instance_id)
+        ordered.append(instance_id)
+        if not remaining:
+            self._finish_look_top_select(player, selected, ordered, rest_destination)
+            return
+        self.state.pending_choice = self._look_top_select_choice(
+            player, "order", remaining, selected, select_count, ordered,
+            rest_destination, rest_order,
+        )
+
+    def _advance_look_top_select(
+        self,
+        player: Player,
+        remaining: list[int],
+        selected: list[int],
+        rest_destination: str,
+        rest_order: Optional[str],
+    ) -> None:
+        """Selection done — order the rest (only when the card said "in any
+        order" and 2+ remain), shuffle it (``"random"``), or just place it."""
+        if rest_order == "any" and len(remaining) >= 2:
+            self.state.pending_choice = self._look_top_select_choice(
+                player, "order", remaining, selected, len(selected), [],
+                rest_destination, rest_order,
+            )
+            return
+        if rest_order == "random":
+            import random
+
+            random.shuffle(remaining)
+        self._finish_look_top_select(player, selected, remaining, rest_destination)
+
+    def _finish_look_top_select(
+        self, player: Player, selected: list[int], rest: list[int], rest_destination: str,
+    ) -> None:
+        """Put the selected cards in hand and the rest at
+        ``rest_destination`` — the bottom/top-of-library conventions match
+        `_finish_look_top` exactly (bottom: `insert(0, …)` per card; top:
+        appended in reverse so the list's first entry ends up topmost)."""
+        self.state.pending_choice = None
+        objects = {iid: self._object_by_instance_id(iid) for iid in (*selected, *rest)}
+        for obj in objects.values():
+            if obj is not None and obj in player.library:
+                player.library.remove(obj)
+        for iid in selected:
+            obj = objects.get(iid)
+            if obj is None:
+                continue
+            obj.zone = Zone.HAND
+            player.hand.append(obj)
+        if rest_destination == "graveyard":
+            for iid in rest:
+                obj = objects.get(iid)
+                if obj is None:
+                    continue
+                obj.zone = Zone.GRAVEYARD
+                player.graveyard.append(obj)
+                self._flag_commander_zone_choice(obj)  # RULE 903.9a
+        elif rest_destination == "library_top":
+            for iid in reversed(rest):
+                obj = objects.get(iid)
+                if obj is not None:
+                    player.library.append(obj)
+        else:  # "library_bottom"
+            for iid in rest:
+                obj = objects.get(iid)
+                if obj is not None:
+                    player.library.insert(0, obj)
+
     def request_search(
         self,
         player: Player,
@@ -417,6 +599,109 @@ class SearchMixin:
             extra_counters=extra_counters, destination_if=destination_if,
             attach_to_creature_you_control=attach_to_creature_you_control,
         )
+
+    def request_intuition(
+        self, searcher: Player, chooser_id: str, count: int, source: Optional[GameObject] = None,
+    ) -> None:
+        """"Search your library for three cards and reveal them. Target
+        opponent chooses one. Put that card into your hand and the rest
+        into your graveyard. Then shuffle." (Intuition) — self-contained
+        (two chained `pending_choice`s: ``searcher`` picks ``count`` cards
+        first, then ``chooser_id`` — a real RULE 115 target, not the
+        searcher — picks one of them for the searcher's hand) rather than
+        composed from `request_search`, whose single ``destination`` has
+        no way to express "hold these aside for a *second* player's pick".
+        """
+        if not searcher.library or count <= 0:
+            self.shuffle_library(searcher)
+            return
+        self.state.pending_choice = self._intuition_search_choice(
+            searcher, chooser_id, count, [], source
+        )
+
+    def _intuition_search_choice(
+        self, searcher: Player, chooser_id: str, count: int, found: list[int],
+        source: Optional[GameObject],
+    ) -> dict[str, Any]:
+        options = [
+            {"id": str(obj.instance_id), "label": obj.name, "instance_id": obj.instance_id}
+            for obj in searcher.library
+            if obj.instance_id not in found
+        ]
+        return {
+            "kind": "intuition_search",
+            "player_id": searcher.id,
+            "chooser_id": chooser_id,
+            "count": count,
+            "found": list(found),
+            "source_id": source.instance_id if source is not None else None,
+            "prompt": f"Intuition: wähle {count - len(found)} Karte(n) aus deiner Bibliothek",
+            "options": options,
+        }
+
+    def resolve_intuition_search_choice(self, instance_id: int) -> None:
+        """Answer one pick of Intuition's first phase (mandatory — RULE
+        701.19's "search for `<count>` cards" doesn't offer "up to")."""
+        choice = self.state.pending_choice
+        if not choice or choice.get("kind") != "intuition_search":
+            raise ValueError("no pending intuition search to resolve")
+        eligible_ids = {int(e["instance_id"]) for e in choice["options"]}
+        if instance_id not in eligible_ids:
+            raise ValueError(f"{instance_id} is not a valid search target")
+        searcher = self.state.player_by_id(choice["player_id"])
+        found = list(choice["found"]) + [instance_id]
+        if len(found) < choice["count"] and len(found) < len(searcher.library):
+            self.state.pending_choice = self._intuition_search_choice(
+                searcher, choice["chooser_id"], choice["count"], found,
+                self._object_by_instance_id(choice["source_id"]),
+            )
+            return
+        chooser = self.state.player_by_id(choice["chooser_id"])
+        self.state.pending_choice = self._intuition_choose_choice(searcher, chooser, found)
+
+    def _intuition_choose_choice(
+        self, searcher: Player, chooser: Player, found: list[int],
+    ) -> dict[str, Any]:
+        options = [
+            {"id": str(iid), "label": self._object_by_instance_id(iid).name, "instance_id": iid}
+            for iid in found
+            if self._object_by_instance_id(iid) is not None
+        ]
+        return {
+            "kind": "intuition_choose",
+            "player_id": chooser.id,
+            "searcher_id": searcher.id,
+            "found": list(found),
+            "prompt": f"Intuition: welche Karte kommt in {searcher.name}s Hand?",
+            "options": options,
+        }
+
+    def resolve_intuition_choose_choice(self, instance_id: int) -> None:
+        """The opponent's mandatory pick (RULE 601.2c — "chooses one" has
+        no decline): the chosen card goes to the searcher's hand, the rest
+        to their graveyard, then the library is shuffled."""
+        choice = self.state.pending_choice
+        if not choice or choice.get("kind") != "intuition_choose":
+            raise ValueError("no pending intuition choice to resolve")
+        found = list(choice["found"])
+        if instance_id not in found:
+            raise ValueError(f"{instance_id} is not a legal choice")
+        searcher = self.state.player_by_id(choice["searcher_id"])
+        self.state.pending_choice = None
+        for iid in found:
+            obj = self._object_by_instance_id(iid)
+            if obj is None or obj not in searcher.library:
+                continue
+            searcher.library.remove(obj)
+            if iid == instance_id:
+                obj.zone = Zone.HAND
+                searcher.hand.append(obj)
+            else:
+                obj.zone = Zone.GRAVEYARD
+                searcher.graveyard.append(obj)
+                self._flag_commander_zone_choice(obj)  # RULE 903.9a
+        self.shuffle_library(searcher)
+
     def _search_zone_objects(self, player: Player, zones: list[str]) -> list[GameObject]:
         """The combined pool of cards a (possibly multi-zone) search draws
         from, library before graveyard when both are searched.

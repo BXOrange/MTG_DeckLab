@@ -548,6 +548,40 @@ class DamageDeathMixin:
         owner.add_to_zone(obj, Zone.HAND)
         if obj.is_commander:
             self.state.pending_choice = self._commander_zone_choice(obj, Zone.HAND)
+    def return_to_library(self, obj: GameObject, position: str = "top") -> None:
+        """Put ``obj`` on top (default) or the bottom of its owner's library
+        (RULE 701.3's "put" — Time Ebb/Griptide/Roil Spout-shaped tempo
+        bounce, distinct from `shuffle_into_library`'s "shuffle into", which
+        randomizes rather than placing), from anywhere — the same "move to
+        another zone, from wherever it is" shape as `return_to_hand`/
+        `exile`. RULE 903.9b's commander redirect applies here exactly as it
+        does for a commander headed to hand.
+        """
+        was_on_battlefield = obj in self.state.battlefield
+        owner = self.state.player_by_id(obj.owner_id)
+        if was_on_battlefield:
+            self.state.fire_event(
+                GameEvent(
+                    EventType.LEAVES_BATTLEFIELD,
+                    object=obj.name,
+                    owner_id=obj.owner_id,
+                    controller_id=obj.controller_id,
+                    instance_id=obj.instance_id,
+                    object_types=sorted(obj.type_words),
+                )
+            )
+            self.state.remove_from_battlefield(obj)
+        else:
+            self._remove_from_current_zone(owner, obj)
+        obj.tapped = False
+        obj.damage_marked = 0
+        if position == "bottom":
+            obj.zone = Zone.LIBRARY
+            owner.library.insert(0, obj)
+        else:
+            owner.add_to_zone(obj, Zone.LIBRARY)  # top (index -1)
+        if obj.is_commander:
+            self.state.pending_choice = self._commander_zone_choice(obj, Zone.LIBRARY)
     def shuffle_into_library(self, obj: GameObject) -> None:
         """Move ``obj`` into its owner's library, then shuffle (RULE 701.20 —
         Green Sun's Zenith's own trailing "Shuffle ~ into its owner's
@@ -1084,21 +1118,29 @@ class DamageDeathMixin:
         Zone.GRAVEYARD: "Friedhof",
         Zone.EXILE: "Exil",
         Zone.HAND: "Hand",
+        Zone.LIBRARY: "Bibliothek",
     }
+    #: German dative-article gender for each label above ("aus **dem**
+    #: Friedhof"/"aus **der** Hand") — feminine zones (Hand, Bibliothek) take
+    #: "der", the rest (masculine/neuter) take "dem".
+    _COMMANDER_ZONE_FEMININE = {Zone.HAND, Zone.LIBRARY}
     def _commander_zone_choice(self, obj: GameObject, zone: str) -> dict[str, Any]:
         """Build the RULE 903.9a/9b `pending_choice` offering to move a
         commander from ``zone`` (graveyard/exile — 903.9a, already there; or
-        hand — 903.9b, about to land there) into the command zone instead."""
+        hand/library — 903.9b, about to land there) into the command zone
+        instead."""
         label = self._COMMANDER_ZONE_LABELS.get(zone, str(zone))
+        feminine = zone in self._COMMANDER_ZONE_FEMININE
+        article = "der" if feminine else "dem"
+        stay_prefix = "In der" if feminine else "Im"  # "im" = "in dem" contracted
         return {
             "kind": "commander_zone",
             "player_id": obj.owner_id,
             "instance_id": obj.instance_id,
-            "prompt": f"{obj.name}: aus {'dem' if zone != Zone.HAND else 'der'} {label} "
-            "in die Kommandozone legen?",
+            "prompt": f"{obj.name}: aus {article} {label} in die Kommandozone legen?",
             "options": [
                 {"id": "command", "label": "In die Kommandozone legen"},
-                {"id": "decline", "label": f"Im {label} bleiben"},
+                {"id": "decline", "label": f"{stay_prefix} {label} bleiben"},
             ],
         }
     def resolve_commander_zone_choice(self, answer: Optional[str]) -> None:

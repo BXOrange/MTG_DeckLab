@@ -244,9 +244,22 @@ class TestMulligan:
         # can't be asserted against by name, but the instances differ.
         assert {o.instance_id for o in player.hand} != first_hand
 
-    def test_keep_hand_requires_bottoming_one_card_per_mulligan(self):
+    def test_first_mulligan_is_free_in_commander(self):
+        # RULE 103.4, Commander Rules Committee 2023: every session defaults
+        # to the Commander format (`GameState.format_name`), so the first
+        # mulligan bottoms nothing.
         session = self._start()
         session.apply_action({"type": "mulligan"})
+        player = session.engine.state.active_player
+        view = session.apply_action({"type": "keep_hand", "bottom_instance_ids": []})
+        assert view["setup"]["complete"] is True
+        assert view["setup"]["mulligan_count"] == 1
+        assert len(player.hand) == 7
+
+    def test_keep_hand_requires_bottoming_one_card_per_mulligan_past_the_first(self):
+        session = self._start()
+        session.apply_action({"type": "mulligan"})  # free
+        session.apply_action({"type": "mulligan"})  # not free
         with pytest.raises(GameActionError):
             session.apply_action({"type": "keep_hand", "bottom_instance_ids": []})
 
@@ -256,9 +269,21 @@ class TestMulligan:
             {"type": "keep_hand", "bottom_instance_ids": [bottom_id]}
         )
         assert view["setup"]["complete"] is True
-        assert view["setup"]["mulligan_count"] == 1
+        assert view["setup"]["mulligan_count"] == 2
         assert len(player.hand) == 6
         assert player.library[0].instance_id == bottom_id
+
+    def test_no_free_mulligan_outside_commander(self):
+        manager = GameSessionManager()
+        session = manager.create_goldfish(
+            library=[land()] * 30,
+            starting_hand=7,
+            mulligan_style="london",
+            game_format="constructed",
+        )
+        session.apply_action({"type": "mulligan"})
+        with pytest.raises(GameActionError):
+            session.apply_action({"type": "keep_hand", "bottom_instance_ids": []})
 
     def test_keeping_the_opening_hand_needs_no_bottoming(self):
         session = self._start()

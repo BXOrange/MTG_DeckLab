@@ -209,6 +209,44 @@ class EventType:
     #: afflict/bushido/rampage (RULE 702.130/702.45/702.23) all trigger off
     #: the *attacker* becoming blocked, which `BLOCKS` alone can't express.
     BECOMES_BLOCKED = "BECOMES_BLOCKED"
+    #: MEC-19/RULE 115/601.2c: an object or player was named as a target when
+    #: a spell or ability's targets were finalized — fired once per target by
+    #: `RulesEngine.check_ward` (renamed from a ward-only check to the general
+    #: RULE 601.2c/602.2b/603.3d "targets finalized" choke point every
+    #: spell/activated-ability/triggered-ability call site already reaches
+    #: unconditionally; ward itself is unchanged, still its own direct
+    #: cast-time check, not rewired onto this event). Powers RULE 603.1's
+    #: "whenever ~ becomes the target of a spell/ability [an opponent/you
+    #: control(s)], …" family (Goldspan Dragon/Tectonic Giant/the ~150-card
+    #: un-keyworded-Ward-shaped "counter it unless that player pays" cycle —
+    #: a card that instead prints the real **Ward** keyword is already
+    #: MODELED through the keyword catalogue and never reaches this event's
+    #: trigger grammar at all, since it has no "whenever…becomes the
+    #: target…" sentence of its own to parse).
+    #:
+    #: For a `GameObject` target: ``instance_id`` (the RULE 603.1 default
+    #: subject key — no `_SUBJECT_EVENT_KEYS` override needed) and
+    #: ``target_controller_id`` (its controller, for a "group"
+    #: subject's "…you control" scoping via `_GROUP_CONTROLLER_EVENT_KEYS`).
+    #: ``is_player`` distinguishes a player target (``target_controller_id``
+    #: is then ``None`` — a player has no controller); player-subject
+    #: "whenever you become the target of…" triggers aren't wired yet (no
+    #: shipped card needs one in isolation from a compound "you or a
+    #: permanent you control" subject, itself a separate, un-built compound-
+    #: subject grammar — BACKLOG.md).
+    #:
+    #: ``controller_id`` is the *targeting* spell/ability's controller (the
+    #: caster), not the target's — what `effect_binder`'s new
+    #: ``caster_relation`` predicate compares against the trigger's own
+    #: source to tell "an opponent controls" from "you control". ``item_kind``
+    #: is `StackItem.kind` (``"spell"``/``"ability"``), consumed through the
+    #: ordinary ``"filter"`` exact-match mechanism to scope "of a spell" vs.
+    #: "of a spell or ability" vs. "of an ability". ``stack_id`` is
+    #: `StackItem.stack_id` — the only way a later-resolving effect
+    #: (`CounterUnlessPayEffect`) can find back the exact spell/ability that
+    #: did the targeting, since nothing else on this event survives a
+    #: `GameState` deep copy the way a raw object reference would need to.
+    BECOMES_TARGET = "BECOMES_TARGET"
     #: RULE 901.10: a player planeswalked **to** a plane — the plane that
     #: just turned face up is named by ``instance_id``/``plane``, and the
     #: planeswalking player by ``player_id``/``controller_id``. This is what

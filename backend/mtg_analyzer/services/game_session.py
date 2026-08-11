@@ -1201,24 +1201,48 @@ class GameSession:
         """How many mulligans ``player_id`` has taken (0 if none)."""
         return self._mulligan_counts.get(str(player_id), 0)
 
+    def _free_mulligan(self) -> bool:
+        """Whether this session's format grants a penalty-free first
+        mulligan (the Commander Rules Committee's 2023 change to RULE 103.4:
+        each player's *first* mulligan each game costs nothing — no bottomed
+        card under London, no smaller hand under Vancouver). Read off the
+        live format rather than cached at construction time, since
+        `GameState.format_name` defaults to ``"commander"`` and is the same
+        field every other format-aware default already keys off.
+        """
+        return get_format(self.engine.state.format_name).free_mulligan
+
+    def _penalized_mulligan_count(self, count: int) -> int:
+        """``count`` mulligans taken/pending, minus the free one if this
+        session's format grants it (RULE 103.4, Commander) — never below 0.
+        """
+        if self._free_mulligan() and count > 0:
+            return count - 1
+        return count
+
     def bottom_count_for(self, player_id: str) -> int:
         """How many cards ``keep_hand`` must bottom for this player right now.
 
-        London: one per mulligan taken (RULE 103.4-103.5). ``next7`` is the
-        "free mulligan" variant — a full fresh 7 every time, never any
-        bottoming, however many mulligans were taken. ``vancouver`` never
-        bottoms either: it pays for a mulligan by *drawing* one card fewer
+        London: one per mulligan taken (RULE 103.4-103.5), minus the free
+        first one a Commander-shaped format grants. ``next7`` is the "free
+        mulligan" variant — a full fresh 7 every time, never any bottoming,
+        however many mulligans were taken. ``vancouver`` never bottoms
+        either: it pays for a mulligan by *drawing* one card fewer
         (`_mulligan`), which is what London replaced.
         """
         if self.mulligan_style in ("next7", "vancouver"):
             return 0
-        return self.mulligan_count_for(player_id)
+        return self._penalized_mulligan_count(self.mulligan_count_for(player_id))
 
     def hand_size_after_mulligans(self, player_id: str) -> int:
         """How big a fresh hand this seat draws on its *next* mulligan.
 
         London/``next7`` always redraw the full starting hand; ``vancouver``
-        draws one card fewer per mulligan taken, down to none.
+        draws one card fewer per mulligan taken, down to none. The
+        Commander free-mulligan rule (RULE 103.4) is specifically a change
+        to the *London* bottoming penalty (`bottom_count_for`) — Vancouver's
+        own draw-one-fewer penalty predates London and isn't what that rule
+        text addresses, so it's untouched here.
         """
         if self.mulligan_style != "vancouver":
             return self._starting_hand

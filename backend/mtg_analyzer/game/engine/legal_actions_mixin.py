@@ -775,7 +775,9 @@ class LegalActionsMixin:
         for source in list(player.hand):
             combined = source.activated_abilities + source.granted_activated_abilities
             for index, ability in enumerate(combined):
-                if ability.cost.discard_self and self.can_activate(player, source, ability):
+                if (
+                    ability.cost.discard_self or ability.cost.hand_zone
+                ) and self.can_activate(player, source, ability):
                     actions.append(self._activate_action(player, source, index, ability))
 
         # PAR-10: "Return this card from your graveyard to the

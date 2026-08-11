@@ -384,6 +384,19 @@ class GameObject:
         #: `ReturnLinkedExileEffect` on this object's own leaves-battlefield
         #: trigger. ``None`` when nothing is currently linked.
         self.linked_exile_id: Optional[int] = None
+        #: MEC-21's generalized sibling of `linked_exile_id` above — "cards
+        #: exiled **with** ~" (Agatha's Soul Cauldron/Dark Impostor/Bruna,
+        #: Light of Alabaster-shaped, ~185 cached cards per this ticket's
+        #: sizing), which *accumulates* every card this object has ever
+        #: exiled "with itself" rather than overwriting a single slot —
+        #: `ExileEffect`'s ``track_exiled_with=True`` mode appends here
+        #: instead of stamping `linked_exile_id`. A stale id (the exiled
+        #: card since left exile) is left in place rather than pruned on
+        #: removal — every consumer (`continuous._apply_borrowed_activated_
+        #: abilities`) already re-resolves each id fresh and drops what it
+        #: can't find, the same "dead reference is harmless" contract
+        #: `linked_exile_id`'s own `imprinted_card_colors` reader uses.
+        self.exiled_with_ids: list[int] = []
 
         #: Effects this object contributes while in play, consulted by the
         #: rules engine (mtg_analyzer/game/). Typed loosely to avoid a
@@ -593,6 +606,10 @@ class GameObject:
         #: …'" static ability (Tyvar Kell) — folded onto the printed ones by
         #: `mana_abilities.mana_options_for`. Reset each recompute.
         self._granted_mana: list[dict[str, int]] = []
+        #: MEC-25 sibling of `_granted_mana` above for a granted mana
+        #: ability whose cost isn't a bare ``{T}`` — see
+        #: `granted_mana_ability_upgrades`. Reset each recompute.
+        self._granted_mana_upgrades: list[dict[str, Any]] = []
         #: Triggered abilities granted by a layer-6 "X have '<ability>'"
         #: static ability (Dionus, Elvish Archdruid). Rebuilt each recompute
         #: from a stable per-relationship cache (`GameState._granted_ability_
@@ -738,6 +755,7 @@ class GameObject:
         self._granted_legendary = False
         self._loses_all_abilities = False
         self._granted_mana = []
+        self._granted_mana_upgrades = []
         self._granted_triggered_abilities = []
         self._granted_activated_abilities = []
         self._added_types = set()
@@ -832,6 +850,7 @@ class GameObject:
         self.last_unattached_from_id = None
         self.control_change_until_eot = None
         self.linked_exile_id = None
+        self.exiled_with_ids = []
         #: RULE 702.112b: a new object hasn't become renowned yet either —
         #: the "never reset" rule on this flag only ever meant "not reset by
         #: an ordinary recompute", not "not reset ever" (no code implemented
@@ -1077,6 +1096,18 @@ class GameObject:
         ability grants this object (Tyvar Kell) — folded onto the printed
         ones by `mana_abilities.mana_options_for`."""
         return list(self._granted_mana)
+
+    @property
+    def granted_mana_ability_upgrades(self) -> list[dict[str, Any]]:
+        """MEC-25: the *non*-tap-only sibling of `granted_mana_options` —
+        "X have '{cost}: Add …'" grants whose cost isn't a bare ``{T}``
+        (Goldspan Dragon's "Treasures you control have '{T}, Sacrifice this
+        artifact: Add two mana of any one color.'"). Each entry is
+        ``{"cost": ActivationCost, "options": [...]}``. Unlike
+        `granted_mana_options`, this *replaces* a printed ability whose cost
+        has the same shape rather than adding an independent one alongside
+        it — see `mana_abilities.mana_abilities_for`."""
+        return list(self._granted_mana_upgrades)
 
     @property
     def granted_triggered_abilities(self) -> list[Any]:

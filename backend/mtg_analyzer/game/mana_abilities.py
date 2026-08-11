@@ -72,7 +72,7 @@ parameter).
 from __future__ import annotations
 
 import re
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace as dataclass_replace
 from typing import Any, Callable, Optional
 
 from ..parser.oracle.catalogue.levels import LEVEL_TIER_RE
@@ -99,6 +99,34 @@ _ADD_CLAUSE_RE = re.compile(r"Add ([^.]*)\.")
 #: `ManaAbility.color_selector`'s ``"colors_among_permanents_you_control"``.
 _COLORS_AMONG_PERMANENTS_RE = re.compile(
     r"for each colou?r among permanents you control, add (?:one|1) mana of that colou?r\.?",
+    re.IGNORECASE,
+)
+#: "Add one mana of any color among legendary creatures and planeswalkers
+#: you control." (Mox Amber) / "...among legendary permanents you control."
+#: (Plaza of Heroes' second ability) — a genuine *menu* (the payer still
+#: picks one colour, unlike `_COLORS_AMONG_PERMANENTS_RE`'s aggregate), but
+#: a board-dependent one: without this, the bare substring "any color" below
+#: would swallow the qualifying clause entirely and offer all five
+#: unconditionally, ignoring whether the controller has any qualifying
+#: legendary permanent at all. See `ManaAbility.color_selector`'s
+#: ``"colors_of_legendary_creatures_planeswalkers_you_control"``/
+#: ``"colors_of_legendary_permanents_you_control"``.
+_LEGENDARY_AMONG_RE = re.compile(
+    r"any colou?r among legendary (?P<scope>permanents|creatures and planeswalkers) you control",
+    re.IGNORECASE,
+)
+#: "Add one mana of any color that a land <you control|an opponent
+#: controls> could produce." (Exotic Orchard/Fellwar Stone/Quirion
+#: Explorer/Sylvok Explorer — opponent-scoped; Harvester Druid —
+#: self-scoped) — same bug/fix shape as `_LEGENDARY_AMONG_RE` above: a
+#: board-dependent menu, not an unconditional five-colour one. Deliberately
+#: doesn't match Reflecting Pool/Naga Vitalist's "any **type**" wording
+#: (which can include colourless {C}) — a different, wider shape left for a
+#: future pass. See `ManaAbility.color_selector`'s
+#: ``"colors_lands_you_control_could_produce"``/``"colors_lands_opponents_
+#: control_could_produce"``.
+_LAND_COULD_PRODUCE_RE = re.compile(
+    r"any colou?r that a land (?P<scope>you control|an opponent controls) could produce",
     re.IGNORECASE,
 )
 _PIP_RE = re.compile(r"\{([WUBRGC])\}")
@@ -380,6 +408,15 @@ class ManaAbility:
     #: key `_CHOSEN_COLOR_KEY`, recoloured per-instance in `mana_abilities_
     #: for`/`resolve_options` off ``obj.chosen_color`` (dropped entirely if
     #: the choice hasn't been made yet — no colour to produce).
+    #:
+    #: ``"colors_of_legendary_creatures_planeswalkers_you_control"``/
+    #: ``"colors_of_legendary_permanents_you_control"`` (Mox Amber/Plaza of
+    #: Heroes) and ``"colors_lands_you_control_could_produce"``/
+    #: ``"colors_lands_opponents_control_could_produce"`` (Exotic Orchard/
+    #: Fellwar Stone/Harvester Druid) are genuine menus like
+    #: ``"imprinted_card_colors"`` — one option per colour, the payer still
+    #: picks one — just with a board-dependent menu instead of a fixed one;
+    #: see `resolve_options`.
     color_selector: Optional[str] = None
 
 
@@ -639,6 +676,42 @@ def _parse_mana_ability_lines(
                 restriction=_parse_restriction(effect_text),
             ))
             continue
+        legendary_match = _LEGENDARY_AMONG_RE.search(effect_text)
+        if legendary_match is not None:
+            # Same reason as `_COLORS_AMONG_PERMANENTS_RE` above: dispatched
+            # standalone, ahead of the generic `_ADD_CLAUSE_RE`/`_parse_clause`
+            # path, so its qualifying clause isn't swallowed by the bare
+            # "any color" substring check in `_parse_clause`.
+            cost = parse_activation_cost(cost_text)
+            if cost.exile_self_from_hand != want_hand_exile:
+                continue
+            rad_match = _SELF_RAD_COUNTERS_RE.search(effect_text)
+            kind = (
+                "colors_of_legendary_permanents_you_control"
+                if legendary_match.group("scope") == "permanents"
+                else "colors_of_legendary_creatures_planeswalkers_you_control"
+            )
+            abilities.append(ManaAbility(
+                cost=cost,
+                color_selector=kind,
+                self_rad_counters=_rad_count_of(rad_match) if rad_match else 0,
+                restriction=_parse_restriction(effect_text),
+            ))
+            continue
+        land_produce_match = _LAND_COULD_PRODUCE_RE.search(effect_text)
+        if land_produce_match is not None:
+            cost = parse_activation_cost(cost_text)
+            if cost.exile_self_from_hand != want_hand_exile:
+                continue
+            rad_match = _SELF_RAD_COUNTERS_RE.search(effect_text)
+            scope = "opponents" if "opponent" in land_produce_match.group("scope") else "you"
+            abilities.append(ManaAbility(
+                cost=cost,
+                color_selector=f"colors_lands_{scope}_control_could_produce",
+                self_rad_counters=_rad_count_of(rad_match) if rad_match else 0,
+                restriction=_parse_restriction(effect_text),
+            ))
+            continue
         add_match = _ADD_CLAUSE_RE.search(effect_text)
         if add_match is None:
             continue
@@ -850,7 +923,30 @@ def mana_abilities_for(obj: Any, state: Optional[Any] = None) -> list[ManaAbilit
         ManaAbility(cost=ActivationCost(taps_self=True), options=[dict(opt)])
         for opt in getattr(obj, "granted_mana_options", [])
     ]
+    upgrades = getattr(obj, "granted_mana_ability_upgrades", [])
+    if upgrades:
+        # MEC-25: an upgraded grant *replaces* a printed ability of the same
+        # cost shape rather than adding an independent one alongside it
+        # (Goldspan Dragon's Treasures keep exactly one "sacrifice for mana"
+        # ability, at the upgraded amount — not two competing ones).
+        # ``raw`` (the cost's own source text, e.g. "Sacrifice this token" vs
+        # "Sacrifice this artifact") is excluded from the comparison since
+        # it differs by wording alone, not by cost shape.
+        upgrade_shapes = [_cost_shape(u["cost"]) for u in upgrades]
+        printed = [p for p in printed if _cost_shape(p.cost) not in upgrade_shapes]
+        granted = granted + [
+            ManaAbility(cost=u["cost"], options=[dict(opt) for opt in u["options"]])
+            for u in upgrades
+        ]
     return printed + granted + derived_basic
+
+
+def _cost_shape(cost: ActivationCost) -> ActivationCost:
+    """``cost`` with its ``raw`` source text blanked, for a "same cost
+    shape, different wording" equality check (MEC-25) — ``ActivationCost``
+    is a plain dataclass, so `==` already compares every other field
+    structurally."""
+    return dataclass_replace(cost, raw="")
 
 
 def hand_mana_abilities(card: Any) -> list[ManaAbility]:
@@ -886,6 +982,45 @@ def hand_mana_abilities_for(obj: Any, state: Optional[Any] = None) -> list[ManaA
         )
         for ability in hand_mana_abilities(obj.card)
     ]
+
+
+#: `color_selector` kinds that themselves ask "what could another land
+#: produce" — excluded inside `_colors_a_land_could_produce` so two
+#: mutually-reflecting lands (an Exotic Orchard staring at another Exotic
+#: Orchard across the table) can't recurse into each other forever. Treating
+#: a reflecting land's own reflected menu as empty here is a deliberate
+#: simplification, not a regression: nothing modeled this shape at all
+#: before this primitive existed.
+_LAND_REFLECTION_SELECTORS = frozenset({
+    "colors_lands_you_control_could_produce",
+    "colors_lands_opponents_control_could_produce",
+})
+
+
+def _colors_a_land_could_produce(land: Any, state: Any) -> set[str]:
+    """The WUBRG colours ``land`` (a battlefield land permanent) could
+    actually tap for right now, for the Exotic Orchard/Fellwar Stone-shaped
+    "any color that a land ... could produce" menu — reads that land's own
+    live mana abilities (`mana_abilities_for`) the same way any other tap
+    would, so a dual land only offers its printed colours and a land with no
+    mana ability at all correctly contributes none.
+
+    Checks ``land``'s own *unresolved* abilities (`parse_mana_abilities`,
+    cheap, no board lookups) before ever calling `mana_abilities_for` on it:
+    that function eagerly resolves every printed ability via
+    `resolve_options` as part of building its return list, so calling it on
+    a land that itself carries a reflecting ability would recurse straight
+    back into this function — the check has to happen *before* that call,
+    not by filtering its result afterward.
+    """
+    card = getattr(land, "card", land)
+    if any(a.color_selector in _LAND_REFLECTION_SELECTORS for a in parse_mana_abilities(card)):
+        return set()
+    colors: set[str] = set()
+    for land_ability in mana_abilities_for(land, state):
+        for option in resolve_options(land_ability, land, state):
+            colors |= (set(option.keys()) & set(_ALL_COLORS))
+    return colors
 
 
 def resolve_options(ability: ManaAbility, obj: Any, state: Optional[Any] = None) -> list[dict[str, int]]:
@@ -953,6 +1088,59 @@ def resolve_options(ability: ManaAbility, obj: Any, state: Optional[Any] = None)
         if not colors:
             return []
         return [{color: 1} for color in colors]
+    if ability.color_selector in (
+        "colors_of_legendary_permanents_you_control",
+        "colors_of_legendary_creatures_planeswalkers_you_control",
+    ):
+        # Mox Amber/Plaza of Heroes: a menu built fresh off the controller's
+        # own legendary permanents' *printed colours* (not colour identity —
+        # RULE 105.2a, the same field `colors_among_permanents_you_control`
+        # reads), restricted to creatures/planeswalkers for Mox Amber, any
+        # legendary permanent for Plaza of Heroes. Correctly produces
+        # nothing with no qualifying permanent in play, same shape as every
+        # other board-dependent selector here.
+        if state is None:
+            return []
+        controller_id = getattr(obj, "controller_id", None)
+        creatures_planeswalkers_only = ability.color_selector.endswith(
+            "creatures_planeswalkers_you_control"
+        )
+        colors_present: set[str] = set()
+        for permanent in state.permanents():
+            if permanent.controller_id != controller_id or not permanent.is_legendary:
+                continue
+            if creatures_planeswalkers_only and not (
+                permanent.is_creature or permanent.is_planeswalker
+            ):
+                continue
+            colors_present |= (permanent.colors & set(_ALL_COLORS))
+        if not colors_present:
+            return []
+        return [{color: 1} for color in colors_present]
+    if ability.color_selector in (
+        "colors_lands_you_control_could_produce",
+        "colors_lands_opponents_control_could_produce",
+    ):
+        # Exotic Orchard/Fellwar Stone/Harvester Druid: a menu built from
+        # whatever colours the qualifying lands could *actually* tap for
+        # right now (`_colors_a_land_could_produce`), not their printed
+        # colour identity — a land's own mana ability is what "could
+        # produce" means here (RULE 605.1a).
+        if state is None:
+            return []
+        controller_id = getattr(obj, "controller_id", None)
+        opponents_scope = ability.color_selector.startswith("colors_lands_opponents")
+        colors_present = set()
+        for permanent in state.permanents():
+            if not permanent.is_land:
+                continue
+            same_controller = permanent.controller_id == controller_id
+            if same_controller == opponents_scope:
+                continue
+            colors_present |= _colors_a_land_could_produce(permanent, state)
+        if not colors_present:
+            return []
+        return [{color: 1} for color in colors_present]
     if ability.amount_selector is None:
         return [dict(opt) for opt in ability.options]
     n = _resolve_amount(ability.amount_selector, obj, state)

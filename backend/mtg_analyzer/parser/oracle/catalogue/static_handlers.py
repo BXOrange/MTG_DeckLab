@@ -1899,6 +1899,13 @@ _STATIC_CONDITION_RES: list[tuple[re.Pattern[str], Any]] = [
     (re.compile(r"there are (?P<n>\d+) or more cards in your graveyard", re.I),
      lambda m: {"kind": "control_count", "selector": "cards_in_your_graveyard",
                 "min": int(m.group("n"))}),
+    # RULE 702.137 "Delirium" ("delirium — as long as there are 4 or more
+    # card types among cards in your graveyard, …" — the ability word itself
+    # is stripped by `normalize._strip_ability_words` before this ever runs,
+    # leaving the bare "as long as" clause `_conditional_static_specs`
+    # already routes here).
+    (re.compile(r"there are (?P<n>\d+) or more card types among cards in your graveyard", re.I),
+     lambda m: {"kind": "card_types_in_graveyard_at_least", "amount": int(m.group("n"))}),
     # -- The controller's own resources.
     (re.compile(r"you have (?P<n>\d+) or more life", re.I),
      lambda m: {"kind": "life_at_least", "amount": int(m.group("n"))}),
@@ -2095,10 +2102,21 @@ def _flag_keywords(text: str) -> Optional[list[str]]:
 #: though it didn't have defender") — the compound MEC-13 shape. It is its
 #: own group rather than part of the keyword list because a permission is a
 #: `combat_restriction` param entry, not a grantable keyword.
+#: The trailing ``, and attacks each combat if able`` on ``_SELF_ANTHEM_RE``
+#: (RULE 702.137 Delirium's own compound shape — "~ gets +2/+2, has flying,
+#: and attacks each combat if able.", Dragon's Rage Channeler-shaped) is an
+#: Oxford-comma third list item, not another " and "-joined clause, so both
+#: the ``kw``/``attacks`` separators accept a bare comma as well as " and ".
+#: `_ATTACKS_IF_ABLE_RE` already proves "attacks each combat if able" is
+#: just the synthetic flag keyword ``"attacks_if_able"`` through the *same*
+#: `grant_keyword` machinery as "has flying" — no new spec shape, just one
+#: more keyword folded into the same list (or its own `grant_keyword` when
+#: there's no ``kw`` tail to join).
 _SELF_ANTHEM_RE = re.compile(
     r"~ gets (?P<p>[+-]\d+)/(?P<t>[+-]\d+)"
-    r"(?: and has (?P<kw>[a-z][a-z, ]*?))?"
-    r"(?: and (?P<perm>can (?:attack|block)[a-z0-9 ']*))?",
+    r"(?:(?:,\s*|\s+and\s+)has (?P<kw>[a-z][a-z, ]*?))?"
+    r"(?:\s+and (?P<perm>can (?:attack|block)[a-z0-9 ']*))?"
+    r"(?:(?:,\s*and\s+|,\s*|\s+and\s+)(?P<attacks_if_able>attacks each combat if able))?",
     re.IGNORECASE,
 )
 _SELF_GRANT_RE = re.compile(
@@ -2539,10 +2557,14 @@ def static_effect_specs(clause: str) -> Optional[list[EffectSpec]]:
             EffectSpec("anthem", {"power": int(m.group("p")), "toughness": int(m.group("t")),
                                    "affects": "self"})
         ]
+        keywords: Optional[list[str]] = None
         if m.group("kw"):
             keywords = _flag_keywords(m.group("kw"))
             if keywords is None:
                 return None
+        if m.group("attacks_if_able"):
+            keywords = (keywords or []) + ["attacks_if_able"]
+        if keywords:
             specs.append(EffectSpec("grant_keyword", {"keywords": keywords, "affects": "self"}))
         tail = _self_permission_spec(m)
         if tail is False:

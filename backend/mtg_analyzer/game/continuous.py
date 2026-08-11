@@ -71,6 +71,7 @@ stack.
 
 from __future__ import annotations
 
+import copy
 import re
 from typing import TYPE_CHECKING, Any, Optional, Union
 
@@ -452,6 +453,14 @@ def group_selector_objects(
     max_toughness = params.get("max_toughness")
     if max_toughness is not None:
         result = [o for o in result if (o.toughness or 0) <= max_toughness]
+
+    # "Creatures you control **with +1/+1 counters on them** …" (MEC-21,
+    # Agatha's Soul Cauldron) — a counter-presence qualifier on the scope
+    # itself, the same "filter the affected group by the object's own
+    # state" idiom as the min/max power/toughness keys just above.
+    has_counter_kind = params.get("has_counter_kind")
+    if has_counter_kind:
+        result = [o for o in result if o.counters.get(str(has_counter_kind), 0) > 0]
 
     # The *dynamic* sibling of the literal min/max keys just above: a
     # threshold read off the board rather than fixed at parse time
@@ -1414,6 +1423,7 @@ def _apply_layer_6_ability(state: "GameState", abilities: list) -> None:
         remove_keywords = ability.params.get("remove_keywords", [])
         lose_all = bool(ability.params.get("lose_all_abilities", False))
         mana = ability.params.get("mana", [])
+        mana_ability_cost = ability.params.get("mana_ability_cost")
         trigger_event = ability.params.get("trigger_event")
         activated_cost = ability.params.get("activated_cost")
         # RULE 702.16 standing protection grant ("Cats you control have
@@ -1447,7 +1457,15 @@ def _apply_layer_6_ability(state: "GameState", abilities: list) -> None:
                 obj._granted_protections.update(protections)
                 _trace(obj, 6, _source_name(ability),
                        "gains protection from " + ", ".join(sorted(protections)))
-            if mana:
+            if mana and mana_ability_cost:
+                # MEC-25 upgrade shape — not a bare ``{T}``, so it replaces a
+                # matching printed ability instead of stacking a second one
+                # alongside it (`mana_abilities.mana_abilities_for`).
+                obj._granted_mana_upgrades.append(
+                    {"cost": parse_activation_cost(dict(mana_ability_cost)), "options": [dict(o) for o in mana]}
+                )
+                _trace(obj, 6, _source_name(ability), "gains an upgraded mana ability")
+            elif mana:
                 obj._granted_mana.extend(mana)
                 _trace(obj, 6, _source_name(ability), "gains a mana ability")
             if trigger_event:
@@ -1785,6 +1803,84 @@ def _apply_post_layer_combat_restrictions_and_goad(state: "GameState", abilities
             _trace(obj, "Kampf", _source_name(ability), "wird aufgestachelt (goaded)")
 
 
+def _apply_borrowed_activated_abilities(state: "GameState", abilities: list) -> None:
+    """"Creatures you control with +1/+1 counters on them have all activated
+    abilities of all creature cards exiled with ~." (MEC-21, Agatha's Soul
+    Cauldron) — layer 6, but the granted-ability *set* is read live off the
+    board rather than fixed at parse time, so it can't reuse
+    `_apply_layer_6_ability`'s own ``activated_cost`` branch (one fixed
+    ability per static). ``ability.source.exiled_with_ids`` (`ExileEffect`'s
+    generalized ``track_exiled_with`` — see its docstring) names every card
+    ever exiled "with" this static's own source; each id is re-resolved
+    fresh every pass (`GameState.find_object`), dropping anything gone or no
+    longer actually sitting in exile (recurred to hand, cast, …) — the same
+    "a dead reference is harmless, just re-check it" contract
+    `mana_abilities.resolve_options`'s ``imprinted_card_colors`` reader uses
+    for the singular `linked_exile_id` sibling, just zone-checked too, since
+    unlike an Imprint permission a *borrowed ability* would otherwise still
+    apply after the source card left exile for hand/battlefield.
+
+    Each borrowed ability is a fresh `ActivatedAbility` per (grantee, exiled
+    card, ability index): same cost/effects the exiled card's own printed
+    ability bound at bind-on-load, but with every nested effect's `.source`
+    redirected to the *grantee* rather than the exiled card (RULE 113.7c:
+    "Any ability that a permanent gains by another spell/ability applies to
+    that permanent, not to the object that granted it") via a shallow
+    `copy.copy` per effect — `GameEffect` subclasses hold no per-instance
+    mutable state beyond `.source`, so this is safe and cheap. Cached in
+    `GameState._borrowed_ability_cache` (its own dict — see that field's
+    docstring for why) so a borrowed ability's "once per turn" state
+    survives across passes for as long as the (grantee, exiled card)
+    relationship holds, the same per-relationship identity-preservation
+    `_apply_layer_6_ability`'s own grants already rely on.
+    """
+    live_keys: set[tuple[int, int, int, int]] = set()
+    for ability in _in_layer(abilities, "borrowed_activated_ability"):
+        source = ability.source
+        exiled_ids = getattr(source, "exiled_with_ids", None) or []
+        if not exiled_ids:
+            continue
+        creature_only = bool(ability.params.get("creature_only", True))
+        exiled_creatures = []
+        for iid in exiled_ids:
+            card_obj = state.find_object(iid)
+            if card_obj is None or getattr(card_obj, "zone", None) != "exile":
+                continue
+            if creature_only and not getattr(card_obj.card, "is_creature", False):
+                continue
+            exiled_creatures.append(card_obj)
+        if not exiled_creatures:
+            continue
+        for obj in affected_objects(state, ability):
+            for exiled in exiled_creatures:
+                for idx, base in enumerate(exiled.activated_abilities):
+                    key = (id(ability), obj.instance_id, exiled.instance_id, idx)
+                    live_keys.add(key)
+                    granted = state._borrowed_ability_cache.get(key)
+                    if granted is None:
+                        granted = ActivatedAbility(
+                            effects=[_retarget_effect_source(e, obj) for e in base.effects],
+                            cost=base.cost,
+                            source=obj,
+                            description=base.description,
+                            once_per_turn=base.once_per_turn,
+                        )
+                        state._borrowed_ability_cache[key] = granted
+                    obj._granted_activated_abilities.append(granted)
+                    _trace(obj, 6, _source_name(ability), f"gains {exiled.name}'s activated ability")
+    for key in list(state._borrowed_ability_cache):
+        if key not in live_keys:
+            del state._borrowed_ability_cache[key]
+
+
+def _retarget_effect_source(effect: Any, new_source: "GameObject") -> Any:
+    """A shallow copy of ``effect`` with `.source` redirected to
+    ``new_source`` — see `_apply_borrowed_activated_abilities`."""
+    retargeted = copy.copy(effect)
+    retargeted.source = new_source
+    return retargeted
+
+
 def recompute(state: "GameState") -> None:
     """Re-derive every battlefield permanent's characteristics (RULE 613)."""
     # Restore any controller a prior layer-2 pass changed, so this pass
@@ -1806,6 +1902,7 @@ def recompute(state: "GameState") -> None:
     animation_pt = _apply_layer_4_type(state, abilities)
     _apply_layer_5_color(state, abilities)
     _apply_layer_6_ability(state, abilities)
+    _apply_borrowed_activated_abilities(state, abilities)
     _apply_layer_7_pt(state, abilities, animation_pt)
     _apply_post_layer_combat_restrictions_and_goad(state, abilities)
 
@@ -2246,6 +2343,35 @@ def has_no_maximum_hand_size(state: "GameState", player: "Player") -> bool:
     return False
 
 
+def any_color_for_activation(state: "GameState", player: "Player", source: "GameObject") -> bool:
+    """Whether ``player`` may spend mana as though it were mana of any color
+    to activate ``source``'s ability right now (RULE 605.1a-adjacent
+    wildcard permission, MEC-21 — Agatha's Soul Cauldron's "You may spend
+    mana as though it were mana of any color to activate abilities of
+    creatures you control.") — consulted by `game/engine/activation_mixin.
+    py`'s cost-paying trio (`_max_x_for_mana`/`_can_pay_activation_cost`/
+    `_pay_activation_cost`), which pass ``"color"`` on to `ManaPool.
+    can_pay`/`pay`'s own ``wildcard`` param (already shipped for the
+    RULE 605.1a *casting*-side grant, `GameState.mana_wildcard_
+    permission`) when this returns ``True``.
+
+    Same "permission static outside the layer engine proper" treatment as
+    `has_no_maximum_hand_size`/`no_untap_optional` — this isn't a
+    characteristic of ``source`` itself, so RULE 613's layer engine has no
+    slot for it. ``creature_abilities_only`` (every printed card so far)
+    scopes the grant to abilities whose *source* is a creature; a future
+    card without that restriction would set it ``False``.
+    """
+    for ability in _battlefield_static_abilities(state):
+        if ability.layer != "any_color_for_activation":
+            continue
+        if ability.params.get("creature_abilities_only", True) and not getattr(source, "is_creature", False):
+            continue
+        if ability.affects == "each_player" or getattr(ability.source, "controller_id", None) == player.id:
+            return True
+    return False
+
+
 def has_radiation_life_gain(state: "GameState", player: "Player") -> bool:
     """RULE 728.1a: "You gain life rather than lose life from radiation."
     (Strong, the Brutish Thespian) — consulted by `RulesEngine.lose_life`
@@ -2358,7 +2484,7 @@ _NON_RULE_613_LAYERS: frozenset[str] = frozenset(
     {"cost", "no_untap", "no_untap_optional", "enters_tapped", "activation_prohibition",
      "cast_limit", "cast_prohibition", "draw_limit", "trigger_prohibition", "untap_cap",
      "extra_land_drop", "no_max_hand_size", "radiation_life_gain", "grant_escape",
-     "combat_restriction", "goaded"}
+     "combat_restriction", "goaded", "any_color_for_activation"}
 )
 
 
@@ -2524,6 +2650,11 @@ def _describe_ability(ability: StaticAbility) -> str:
         return f"{scope}s {who}enter tapped"
     if ability.layer == "untap_cap":
         return f"players can't untap more than {p.get('count', 1)} land(s) during their untap steps"
+    if ability.layer == "any_color_for_activation":
+        scope = "creatures'" if p.get("creature_abilities_only", True) else "permanents'"
+        return f"may spend mana as though it were mana of any color to activate {scope} abilities"
+    if ability.layer == "borrowed_activated_ability":
+        return "gains all activated abilities of creature cards exiled with it"
     return ability.affects
 
 

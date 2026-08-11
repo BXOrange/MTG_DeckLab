@@ -595,8 +595,8 @@ every field it reads, `parser/oracle/gate.py`) since it's called once per
 on every copy/every game. `parser/oracle/processing_list.py` tracks
 cache-wide coverage and ranks the next handlers worth building. The cache is
 now bulk-loaded with the **full ~35k-card Oracle universe**
-(`scripts/import_bulk.py`), so coverage is measured against that: **32.2%
-covered (11,220 / 34,811) as of 2026-08-10, PARSER_VERSION 65** (parser-`MODELED` **or**
+(`scripts/import_bulk.py`), so coverage is measured against that: **33.0%
+covered (11,475 / 34,811) as of 2026-08-11, PARSER_VERSION 69** (parser-`MODELED` **or**
 hand-`AUTHORED`).
 Re-measure with `scripts/coverage_report.py` (ledger-backed — see
 `services/coverage_db.py`) before trusting this number; Batches 1–10 are all
@@ -941,6 +941,97 @@ primitive and bug fix, and its own list of what a future batch should
 build next (the ~200-card "you may `<action>`. When you do, `<effect>`."
 optional-antecedent family in particular — this batch's mandatory-
 antecedent collapse deliberately doesn't touch it).
+
+A **Vivi B4 batch** (2026-08-10, same day) then made the "Vivi B4" saved
+deck (a 99-card storm-shell Commander deck) fully playable — 18 of its 99
+unique cards were unmodeled, closed via 11 general parser handlers plus 7
+hand-authored entries. The single biggest parser win of the whole batch was
+`look_top_select` (`RulesEngine.look_top_select`) — "Look at the top N cards
+of your library. Put M of them into your hand and the rest `<destination>`."
+(Anticipate/Dig Through Time/Diabolic Vision-shaped), the fixed-selection-
+count sibling of scry/surveil's per-card away/stay decision, closing 38+
+cards at once; a widened cast-spell trigger subject ("whenever **you/an
+opponent/a player**" now on the *typed* row, not just the untyped one)
+closed another 51. Also shipped: `ReturnToLibraryEffect` (RULE 701.3's
+"put target X on top/bottom of its owner's library", 10 cards) plus mass
+"return all X" support on `ReturnToHandEffect`; a new RULE 702.137
+**Delirium** condition; `IntuitionEffect` (a genuine two-player interactive
+search — the caster picks, a *targeted opponent* chooses which one is
+kept); `CoinFlipEffect` finally giving the long-dormant `RulesEngine.
+coin_flip` (RULE 705.1) its first real consumer; `ActivationCost.hand_zone`
+(a land's own "pay `<N>`: put this card from your hand onto the
+battlefield" special action, `graveyard_zone`'s hand-zone sibling); and
+`GrantSelfActivatedAbilityEffect` (RULE 714.2c's *lasting* Saga-chapter
+self-grant) for the batch's largest single card, Urza's Saga. That last one
+surfaced a real, **cache-wide** dormant bug: every "create an N/N `<color>`
+`<Subtype>` **artifact** creature token" clause (Construct/Thopter/Servo/
+Golem tokens across dozens of cards) silently produced a token missing the
+Artifact card type entirely — `services/token_database.py`'s
+`synthesize_token_card` treated "Creature"/"Artifact" as strict either/or,
+and all three of the parser's independent token-description word-splitters
+already recognized "artifact" as a supertype marker and just discarded it
+rather than threading an `is_artifact` flag through. Fixed at the root
+(`synthesize_token_card` now combines "Artifact Creature", the three
+duplicated word-splitting loops consolidated into one shared
+`_split_token_mid_words` helper) rather than worked around for just the one
+card that surfaced it. Left open, tracked as `MEC-23`/`MEC-24`: Quicksilver
+Elemental's "gains all activated abilities of target creature" (needs a
+new "temporarily copy a target's whole live ability set" primitive, a
+different shape from the existing single-fixed-ability layer-6 grant), and
+the single-*target* (as opposed to Past in Flames' "each") flashback-grant
+family (Recoup/Snapcaster Mage-shaped, ~10 cards). Full detail — every
+primitive, every card, the token-type bug's full trace — in
+`docs/implementation-state/Done_Backend.md`'s "Vivi B4" entry.
+
+**MEC-18/MEC-19** (2026-08-11) closed two RULE 603.1-adjacent trigger-family
+gaps, both far bigger than their filing sessions had scoped them. MEC-18
+generalized RULE 118.3's `pay_cost_then` (already shipped for Mana Vault/
+Wandering Archaic) from two hardcoded oracle-text shapes to the whole "you
+may `<sacrifice/discard/pay-mana/pay-life>`. When you do, `<effect>`."
+family — no new engine primitive, a parser-recognition widening plus a
+guard fix so the generic "you may " stripper doesn't eat the clause first
+(89 real cards). MEC-19 built `EventType.BECOMES_TARGET` (RULE 115/601.2c
+targeting had never reached the event bus — `RulesEngine.check_ward` is now
+the general "targets finalized" choke point, still doing ward's own
+unchanged direct check alongside it) and `CounterUnlessPayEffect` (a thin
+adapter onto `resolve_ward_effect` for the ~90-card cycle that prints
+Ward's exact outcome as ordinary text instead of the keyword), closing
+Goldspan Dragon's "attacks or becomes the target of a spell" and Tectonic
+Giant by name plus 14 more real cards. Full detail in
+`docs/implementation-state/Done_Backend.md`'s "MEC-18/MEC-19" entry.
+
+**MEC-25/MEC-20/MEC-21** (2026-08-11) closed three more named gaps, none
+needing a wholly new mechanism. MEC-25 gave `grant_mana_ability` an
+*upgrade* shape (`GameObject.granted_mana_ability_upgrades`, `mana_abilities.
+mana_abilities_for`'s cost-shape replace-matching) so a layer-6 mana grant
+can carry its own non-`{T}`-only cost and replace a matching printed
+ability instead of stacking a second one — Goldspan Dragon's Treasures now
+keep exactly one "{T}, Sacrifice this artifact: Add two mana of any one
+color" ability, at the real printed amount. MEC-21 built the general "cards
+exiled with ~" tracker the user asked to see generalized — `GameObject.
+exiled_with_ids`, stamped by `ExileEffect`'s new `track_exiled_with` mode,
+the accumulating sibling of the single-slot O-Ring `linked_exile_id`,
+reusable by any future "exile with ~" card (~185 cached cards print that
+shape) — and used it for Agatha's Soul Cauldron's own two previously-open
+clauses: `grant_borrowed_activated_ability` (`continuous.
+_apply_borrowed_activated_abilities`/`_retarget_effect_source`, RULE 113.7c
+— reads an exiled creature's own bind-on-load abilities and rebuilds each
+as a fresh `ActivatedAbility` redirected onto the grantee) and
+`grant_any_color_for_activation` (a standing RULE 605.1a wildcard
+*permission* over activation-cost mana, `continuous.
+any_color_for_activation`, newly reached from all three activation-cost
+payment sites in `game/engine/activation_mixin.py` via `ManaPool`'s
+existing `wildcard` param). MEC-20 closed RULE 601.2f's "Expertise" cycle
+— `effects.FreeCastFromHandEffect` opens a `request_choose_objects`
+`"grant_free_cast"` choice that *arms* a picked hand card's existing
+`GameState.free_cast_instance_ids` entry rather than casting it immediately,
+so the caster still gets the ordinary `legal_actions` cast option with full
+targeting; one parser handler covers a literal cap, the `"x"` sentinel
+(Electrodominance), and a count-selector cap (Epistolary Librarian's "where
+X is the number of attacking creatures") in one row. Full detail — every
+primitive, every card, the "you may " peel-guard/ability-word gotchas hit
+along the way — in `docs/implementation-state/Done_Backend.md`'s
+"MEC-25/MEC-20/MEC-21" entry.
 
 **Notable gaps** (see `docs/implementation-state/BACKLOG.md` for the full list with exact
 scope on each): a kicked spell's "if kicked, ... instead" *override* conditional (as opposed to the

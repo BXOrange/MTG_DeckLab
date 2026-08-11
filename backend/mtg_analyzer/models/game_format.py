@@ -53,6 +53,7 @@ class GameFormat:
         singleton: bool = False,
         variants: Optional[frozenset[str]] = None,
         archenemy_life: int = 40,
+        free_mulligan: bool = False,
     ) -> None:
         self.name = name
         self.label = label
@@ -63,6 +64,12 @@ class GameFormat:
         #: assuming Commander, even though today only Commander sets it.
         self.singleton = singleton
         self.variants: frozenset[str] = frozenset(variants or ())
+        #: The Commander Rules Committee's "free" first mulligan: a player's
+        #: *first* mulligan each game costs no card (draw the full starting
+        #: hand again), same as the London style's shuffle-and-redraw, just
+        #: without London's "bottom N" penalty on that one attempt. Only
+        #: Commander-shaped formats grant it.
+        self.free_mulligan = free_mulligan
         #: RULE 904.4: in an Archenemy game the archenemy starts with 40 life
         #: while each other player starts with the format's ordinary total.
         self.archenemy_life = archenemy_life
@@ -78,6 +85,7 @@ class GameFormat:
             "starting_hand": self.starting_hand,
             "singleton": self.singleton,
             "variants": sorted(self.variants),
+            "free_mulligan": self.free_mulligan,
         }
 
     def __repr__(self) -> str:
@@ -90,7 +98,9 @@ class GameFormat:
 FORMATS: dict[str, GameFormat] = {
     fmt.name: fmt
     for fmt in [
-        GameFormat("commander", "Commander", starting_life=40, singleton=True),
+        GameFormat(
+            "commander", "Commander", starting_life=40, singleton=True, free_mulligan=True
+        ),
         GameFormat("constructed", "Constructed"),
         # RULE 806: free-for-all multiplayer — the engine's own N-player mode,
         # already the shape `build_multiplayer_engine` produces.
@@ -106,6 +116,7 @@ FORMATS: dict[str, GameFormat] = {
             starting_life=40,
             singleton=True,
             variants=frozenset({PLANECHASE}),
+            free_mulligan=True,
         ),
     ]
 }

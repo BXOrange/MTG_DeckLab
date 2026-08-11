@@ -122,6 +122,11 @@ ALLOWED_FREE_CAST_CONDITION_KEYS: frozenset[str] = frozenset(
         # plain booleans, so its value is a positive int instead of
         # ``True``.
         "opponent_spells_cast_this_turn_at_least",
+        # "If an opponent controls a Forest and you control an Island, you
+        # may cast this spell without paying its mana cost." (Submerge) — a
+        # fixed named board-state gate, same boolean shape as
+        # ``control_commander``.
+        "opponent_controls_forest_and_you_control_island",
     }
 )
 
@@ -696,7 +701,9 @@ class AbilitySpec:
             raise SpecValidationError(f"unknown free_cast_condition key {key!r}")
         if key == "control_commander" and not isinstance(value, bool):
             raise SpecValidationError("'control_commander' condition must be a bool")
-        if key in ("not_your_turn", "your_turn") and not isinstance(value, bool):
+        if key in (
+            "not_your_turn", "your_turn", "opponent_controls_forest_and_you_control_island",
+        ) and not isinstance(value, bool):
             raise SpecValidationError(f"{key!r} condition must be a bool")
         if key == "opponent_spells_cast_this_turn_at_least" and (
             isinstance(value, bool) or not isinstance(value, int) or value < 1

@@ -512,6 +512,15 @@ class GameState:
         #: `continuous._apply_hand_cycling_grants`.
         self._hand_cycling_ability_cache: dict[tuple[int, int], Any] = {}
 
+        #: MEC-21's own identity-preservation cache — "X have all activated
+        #: abilities of all creature cards exiled with ~" (Agatha's Soul
+        #: Cauldron) — kept separate from `_granted_ability_cache` for the
+        #: same reason `_hand_cycling_ability_cache` is: its own end-of-pass
+        #: pruning loop only recognizes its own 4-element ``(id(ability),
+        #: grantee instance_id, exiled-card instance_id, ability index)``
+        #: key shape. See `continuous._apply_borrowed_activated_abilities`.
+        self._borrowed_ability_cache: dict[tuple[int, int, int, int], Any] = {}
+
         #: Per-player play statistics + a flat event timeline, for the
         #: end-of-game review (cards drawn/played, mana curve, mana produced
         #: per turn, damage). Plain JSON-able data written by the engine
