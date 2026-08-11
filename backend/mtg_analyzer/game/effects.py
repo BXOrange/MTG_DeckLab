@@ -12814,17 +12814,28 @@ EffectRegistry.register(
     # Monolith/Grim Monolith/Mana Vault — self-scoped) or "Enchanted creature
     # doesn't untap during its controller's untap step." (Paralyzing Grasp —
     # ``affects="attached_permanent"``); consulted by
-    # `continuous.has_no_untap_static` (`GameEngine._step_untap`).
+    # `continuous.has_no_untap_static` (`GameEngine._step_untap`). Also the
+    # unattached group shape "Creatures with power N or greater don't untap
+    # during their controllers' untap steps." (Meekstone —
+    # ``affects="all_creatures"`` + the ordinary ``min_power`` selector),
+    # forwarded via ``_selectors`` like every other group-scoped static.
     "no_untap",
-    lambda p: StaticAbility("no_untap", affects=p.get("affects", "self"), params={}),
+    lambda p: StaticAbility("no_untap", affects=p.get("affects", "self"), params={**_selectors(p)}),
 )
 EffectRegistry.register(
     # "As long as this artifact is untapped, players can't untap more than
     # one land during their untap steps." (Winter Orb) — a flat, unscoped
-    # cap consulted by `continuous.untap_cap_for_lands`/`GameEngine.
-    # _step_untap`, gated live on the source's own tapped state.
+    # cap consulted by `continuous.active_untap_caps`/`GameEngine.
+    # _step_untap`. ``card_type`` (default ``"land"``, Winter Orb's own
+    # shape) and ``nonbasic`` (Winter Moon's "…one nonbasic land…") widen
+    # the scope beyond lands; any tap-state gate ("as long as this artifact
+    # is untapped") rides the ordinary ``active_if`` RULE 613.6 wrapper
+    # rather than a hardcoded tapped check, same as every other conditional
+    # static.
     "untap_cap",
-    lambda p: StaticAbility("untap_cap", affects="all_players", params={"count": p.get("count", 1)}),
+    lambda p: StaticAbility(
+        "untap_cap", affects="all_players", params={"count": p.get("count", 1), **_selectors(p)}
+    ),
 )
 EffectRegistry.register(
     # "You may choose not to untap ~ during your untap step." (RULE 502.1

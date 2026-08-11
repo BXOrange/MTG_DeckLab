@@ -2540,19 +2540,22 @@ def _winter_orb() -> list[AbilitySpec]:
     """As long as this artifact is untapped, players can't untap more than
     one land during their untap steps.
 
-    — Winter Orb. A new static family (`continuous.untap_cap_for_lands`,
+    — Winter Orb. A static family (`continuous.active_untap_caps`,
     `GameEngine._step_untap`), distinct from `no_untap` (which restricts
     one specific *permanent*, not a global per-player cap) and from
     `enters_tapped_static`'s opponent-scoped board-wide family (this is
-    unscoped by ownership and gates on the source's own tapped state, not
-    a permanent's controller). Auto-picks which land(s) stay tapped (the
-    same non-interactive MVP simplification `_sacrifice_candidate`'s
-    callers already make elsewhere).
+    unscoped by ownership). The tapped-state gate is the ordinary RULE
+    613.6 ``active_if`` wrapper every other conditional static uses, not a
+    hardcoded check — Static Orb/Winter Moon (`parser/oracle/catalogue/
+    static_handlers.py`'s ``_UNTAP_CAP_RE``) reuse the same family,
+    ``card_type``/``nonbasic`` widening it past lands-only. Auto-picks
+    which land(s) stay tapped (the same non-interactive MVP simplification
+    `_sacrifice_candidate`'s callers already make elsewhere).
     """
     return [
         AbilitySpec(
             "static",
-            [EffectSpec("untap_cap", {"count": 1})],
+            [EffectSpec("untap_cap", {"count": 1, "active_if": {"kind": "source_untapped"}})],
             raw_text="Solange dieses Artefakt ungetappt ist, können Spieler "
                      "während ihres Enttapp-Schritts nicht mehr als ein Land "
                      "enttappen.",

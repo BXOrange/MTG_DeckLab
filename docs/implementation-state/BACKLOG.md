@@ -82,32 +82,50 @@ Plan-level sequencing lives in
   cEDH staples recur across most of them). **Not** "no deferrals" scope like
   the Eliferate/Imodane batches — tracked here as ordinary open work rather
   than forced to completion in one sitting given the size. Current state
-  (2026-08-11, sixth pass): **Ojer 39/77, Rocco 73/98, Glarb Bloomsday
-  77/100, staples 173/215, staples 2 398/607, M-K 75/97, Kinnan 78/100**
-  (unique-card total 444/719) — re-measure rather than trusting these
+  (2026-08-11, seventh pass): **Ojer 44/77, Rocco 73/98, Glarb Bloomsday
+  78/100, staples 176/215, staples 2 417/607, M-K 82/97, Kinnan 81/100**
+  (unique-card total 467/723) — re-measure rather than trusting these
   numbers as they age; the per-deck *totals* themselves also drift run to
   run since these are live saved decks a user can keep editing, not a
   frozen fixture. Worklog detail for what's shipped so far — batch by
   batch, why each piece is built the way it is — is in `Done_Backend.md`'s
   "seven 'cEDH'-named saved decks" entries, not here.
 
-  The sixth pass closed every item the fifth pass's own "specific,
-  already-diagnosed gaps" list had promoted to next-up (Mox Diamond,
-  Mindbreak Trap, Eye of Ugin, Stonehewer Giant/Quest for the Holy Relic,
-  Tainted Pact, Transmute Artifact) — no specific per-card gaps left open
-  right now; Godo, Bandit Warlord's own second ability is still blocked,
-  but on the broader extra-combat-phase gap below, not a search/attach
-  shape.
+  The seventh pass closed Static Orb/Winter Moon/Meekstone (the untap-cap/
+  no_untap family, generalized rather than hand-authored — see
+  `Done_Backend.md`), Bolt Bend and the generic RULE 115.4 "change the
+  target" handler it unlocked (Deflection/Shunt/Swerve/Willbender for
+  free), and Voice of Victory ("your opponents can't cast spells during
+  your turn." — `cast_prohibition`'s existing shapes, just a missing
+  parser row). Redirect Lightning's own remaining gap — "as an additional
+  cost to cast this spell, pay 5 life **or** pay `{2}`" — is a genuinely
+  new primitive (`AbilitySpec.additional_cost` has no "pick one of two
+  cost shapes" branch, and payment happens synchronously inside
+  `cast_spell` with no interactive choice point today); a singleton in the
+  cache (`parser_probe.py` confirms), so hand-author it next time this
+  ticket is picked up rather than building the choice machinery for one
+  card. Kutzil, Malamet Exemplar's own second ability ("whenever 1 or more
+  creatures you control each with power greater than its base power deals
+  combat damage to a player, draw a card") is also still open — a
+  derived-vs-printed-power comparison trigger, a different shape from
+  everything above.
 
   Broader gaps the fourth pass's full-pool sweep surfaced, each blocking a
   double-digit slice of the remaining residue and needing real design, not
   just a handler: **devotion** (RULE 700.6 — Purphoros/Heliod/Nykthos,
   Shrine to Nyx all need it, nothing today reads a permanent's own pips
   toward it); a general **"players can't `<verb>`"** cross-cutting family
-  (search libraries/gain life/draw more than N/untap more than N — Leonin
-  Arbiter/Rampaging Ferocidon/Narset-Parter-of-Veils-shaped/Winter Moon/
-  Static Orb/Stasis, each needing enforcement wired into the real
-  search/life-gain/draw/untap call sites, not a single shared primitive);
+  (search libraries/gain life/draw more than N — Leonin Arbiter/Rampaging
+  Ferocidon/Narset-Parter-of-Veils-shaped/Stasis, each needing enforcement
+  wired into the real search/life-gain/draw call sites, not a single
+  shared primitive — untap's own member of this family shipped this pass
+  as the generalized `active_untap_caps`, so Stasis's "players skip their
+  untap steps" is the only one of the original four still open here); a
+  **"players can't cast spells from graveyards or libraries" +
+  "`<type>` cards in graveyards/libraries can't enter the battlefield"**
+  pair (Grafdigger's Cage/Weathered Runestone — 4 cache cards each,
+  overlapping; two genuinely new primitives, not just a regex, since
+  neither zone-scoped restriction exists in any form today);
   **phasing out an opponent's permanent as a spell effect** + the wider
   "copy a creature except it also `<X>`" family beyond the couple of
   shapes already hand-authored; an **alternative-cost "pitch" family**

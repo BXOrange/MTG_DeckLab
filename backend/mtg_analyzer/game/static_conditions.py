@@ -305,12 +305,26 @@ def condition_holds(
         return bool(player is not None and player.has_city_blessing)
 
     if kind == "control_count":
-        from .continuous import count_selector  # local: continuous imports this module
-
         selector = condition.get("selector")
         if not selector or controller_id is None:
             return False
-        n = count_selector(state, controller_id, str(selector))
+        min_power = condition.get("min_power")
+        if min_power is not None and selector == "creatures_you_control":
+            # "you control a creature with power N or greater" (Bolt Bend) —
+            # a per-object power qualifier on the count, not expressible
+            # through `continuous.count_selector`'s flat vocabulary (which
+            # only counts, never filters by a derived characteristic), so
+            # scanned directly rather than adding one selector name per
+            # possible threshold.
+            n = sum(
+                1
+                for o in state.battlefield
+                if o.is_creature and o.controller_id == controller_id and (o.power or 0) >= min_power
+            )
+        else:
+            from .continuous import count_selector  # local: continuous imports this module
+
+            n = count_selector(state, controller_id, str(selector))
         minimum = condition.get("min")
         maximum = condition.get("max")
         if minimum is not None and n < int(minimum):

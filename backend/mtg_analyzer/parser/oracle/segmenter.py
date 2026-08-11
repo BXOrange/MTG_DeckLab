@@ -2479,6 +2479,26 @@ def segment_line(
             return Segment(raw=raw, spec=spec, claimed=True)
         return Segment(raw=raw)  # permanent bare imperative → unclaimed
 
+    # RULE 601.2f "This spell costs {N} less to cast if `<condition>`."/
+    # "…for each attacking creature [you control]." — a spell's own self
+    # cost reduction, printed on an instant/sorcery rather than a
+    # permanent. `continuous.self_cost_reduction_for` already reads this
+    # off *any* object's `static_effects` regardless of zone (Ghostfire
+    # Slice's own hand-authored entry proves the engine side works) — the
+    # only missing piece was ever reaching `static_effect_specs` at all
+    # for a card where `allow_spell_effect` is true, since every clause
+    # below this point is otherwise routed to the resolve-time
+    # `spell_effect` parse instead. Scoped to a pure ``cost_reduction``
+    # result so an unrelated static-shaped false match can't misfile a
+    # genuine resolve-time clause here.
+    if allow_spell_effect:
+        cost_static = static_effect_specs(raw)
+        if cost_static is not None and all(
+            spec.type == "cost_reduction" and spec.params.get("affects") == "self" for spec in cost_static
+        ):
+            spec = AbilitySpec("static", effects=cost_static, raw_text=raw, parser=provenance)
+            return Segment(raw=raw, spec=spec, claimed=True)
+
     # A resolve-time effect (instant/sorcery only).
     body, optional = _peel_optional(raw)
     effects = parse_effect_body(body)

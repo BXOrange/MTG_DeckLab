@@ -12032,6 +12032,162 @@ exception effects, a broader pitch-cost family, conditional extra-combat
 grants, the last of which is what still blocks Godo, Bandit Warlord's own
 second ability) — see `MEC-12` in `BACKLOG.md`.
 
+## The seven "cEDH"-named saved decks/cubes: seventh pass (2026-08-11)
+
+Continuation of `MEC-12`. Baseline re-measured at the start of this pass:
+723 unique cards across the seven decks (up from 719 — these are live,
+user-editable saved decks), 462 covered / 261 uncovered. Rather than
+picking off the residue card-by-card, this pass prioritized shapes that
+generalize past this pool — every item below was sized against the full
+cache (`parser_probe.py`-style grep) before building, and every one landed
+as a widened existing primitive rather than a new one:
+
+- **The untap-cap family widened past lands-only.** `continuous.
+  untap_cap_for_lands` — Winter Orb's own primitive, hardcoded to
+  `obj.is_land` and to a hardcoded `not ability.source.tapped` check — is
+  now `continuous.active_untap_caps` (returns a list of `{"count",
+  "card_type", "nonbasic"}` dicts, since 2+ differently-scoped caps can be
+  active at once and are enforced independently) + `matches_untap_cap_
+  filter` (`_has_card_type`/`_is_nonbasic`, the same filters every other
+  static family's `affects` selector already applies). The tapped-state
+  gate ("as long as this artifact is untapped") now rides the ordinary
+  RULE 613.6 `active_if` wrapper instead of a hardcoded check — Winter
+  Orb's own hand-authored `ability_catalogue.py` entry was updated to
+  carry `active_if={"kind": "source_untapped"}` explicitly rather than
+  relying on the old default, with its existing execute tests
+  (`test_cube_batch_b1.py`) re-run to confirm no behavior change.
+  `GameEngine._step_untap` now tracks one running count per active cap
+  rather than a single land count. Closes **Static Orb** ("as long as
+  this artifact is untapped, players can't untap more than two
+  permanents…") and **Winter Moon** ("…one nonbasic land…") via one new
+  parser regex (`static_handlers._UNTAP_CAP_RE`) — Static Orb's own
+  "as long as…" gate is peeled off for free by the pre-existing
+  `_conditional_static_specs`/`static_condition` "~ is untapped" row
+  (self-reference folding already turns "this artifact" into `~` before
+  the condition parser ever sees it). Cache-wide this same row also
+  claims Damping Field/Imi Statue (artifacts)/Smoke/Stoic Angel
+  (creatures) — 9 real cards total print "can't untap more than N `<type>`
+  during their untap steps," 6 of them now reachable.
+- **Meekstone** — "Creatures with power N or greater don't untap during
+  their controllers' untap steps." is the unattached, group-scoped
+  sibling of `no_untap`'s existing self/`attached_permanent` shapes: a new
+  `_NO_UNTAP_GROUP_POWER_RE` row emits `affects="all_creatures"` plus the
+  ordinary `min_power` selector `group_selector_objects` already applies
+  to every other static family — no new engine code. Caught two of the
+  `no_untap`/`untap_cap` `EffectRegistry` factories dropping every param
+  but their own hardcoded ones (`params={}`), silently discarding
+  `min_power`/`card_type`/`nonbasic`/`active_if` even once the parser
+  started emitting them — fixed to forward `_selectors(p)` like every
+  other static factory in the file already does.
+- **RULE 115.4 "change the target" got its first oracle-text handler.**
+  `ChangeTargetEffect` (built two passes ago for Misdirection/Deflecting
+  Swat) had never had a generic parser row at all — both real cards were
+  hand-authored individually, and every other card printing the same
+  template stayed unclaimed. One new handler (`catalogue.handlers.
+  _change_target`, matched by `_CHANGE_TARGET_RE`) claims "Change the
+  target of target spell with a single target." and "…target spell or
+  ability with a single target." generically — the "or ability" variant
+  always uses `spell_or_ability=True` regardless of whether the printed
+  text also says "with a single target," since the engine's own
+  single-existing-target MVP limit applies inside that branch either way
+  (see the effect's own docstring — the printed qualifier and the engine
+  limit happen to coincide, they aren't two different restrictions).
+  Closes this pool's own **Bolt Bend**/**Redirect Lightning** and, cache-
+  wide, **Deflection**/**Shunt**/**Swerve**/**Willbender** for free (24
+  cache cards print some variant of the phrase; a few more — Reroute's
+  "target activated ability," Rebound's player-only retarget, Torchling's
+  self-only variant — print a narrower or differently-scoped version this
+  row doesn't claim and stay open).
+- **"You control a creature with power N or greater" as a RULE 613.6
+  condition** (Bolt Bend's own cost-reduction gate — `_SELF_COST_
+  REDUCTION_IF_RE` already existed but its `cond` clause fed into
+  `static_condition`, which had no row for a *qualified* existence check).
+  `control_count`'s existing `selector`/`min` shape gained an optional
+  `min_power` key: `static_conditions.condition_holds`'s `control_count`
+  branch scans the battlefield directly when `min_power` + `selector ==
+  "creatures_you_control"` are both present, instead of routing through
+  `continuous.count_selector` (whose flat vocabulary only counts, never
+  filters by a derived characteristic — adding one selector name per
+  possible power threshold isn't the right shape). 58 cache cards print
+  this exact phrase; only cost-reduction/activation-condition gates reach
+  it as `active_if` today, so most of those 58 need their *other* clauses
+  closed too before the card itself is MODELED, but the condition itself
+  no longer blocks any of them.
+- **A spell's own "this spell costs `{N}` less to cast if/for each…" had
+  never reached `static_effect_specs` at all for an instant or sorcery.**
+  `segmenter.py`'s per-line dispatch only tries `static_effect_specs` when
+  `allow_spell_effect` is false (i.e., for a permanent) — an instant/
+  sorcery's lines go straight to the resolve-time `spell_effect`/
+  additional-cost paths instead, so `_SELF_COST_REDUCTION_IF_RE`/
+  `_SELF_COST_REDUCTION_ATTACKING_RE` (both already shipped, both already
+  proven on real permanents — Embercleave, Ancient Stone Idol) were simply
+  unreachable for the far more common case of the clause printed on the
+  spell itself. `continuous.self_cost_reduction_for` already reads a
+  `cost`-layer static straight off *any* object's `static_effects`
+  regardless of zone — Ghostfire Slice's own hand-authored catalogue entry
+  proved the engine half worked, nothing had ever exercised the parser
+  half. Fixed with a narrowly-scoped addition to the `allow_spell_effect`
+  branch (parallel to the existing additional-cost special case): try
+  `static_effect_specs` first, and only accept the result when *every*
+  spec is `type == "cost_reduction"` and `affects == "self"` — anything
+  else falls through to the ordinary resolve-time parse untouched, so an
+  unrelated static-shaped false match can't misfile a genuine effect line.
+  123 cache cards print `"this spell costs {N} less to cast if"` in some
+  form; most are instants/sorceries newly reachable by this fix (a
+  minority were permanents already working via the pre-existing route).
+  Full suite re-run after this change specifically (broadest-blast-radius
+  edit in the batch, since it touches segmenting for every instant/sorcery
+  in the game) — no regressions.
+- **"Your opponents can't cast spells during your turn."** (Voice of
+  Victory/Dragonlord Dromoka/A-Teferi Time Raveler's static half/Jennifer
+  Walters/Tidal Barracuda/Conqueror's Flail) — `cast_prohibition`'s
+  existing `scope="opponents"` default (RULE 613.6's own `active_if`
+  already general) already expresses this exactly; the only gap was a
+  parser row for the *trailing* phrasing (`_CANT_CAST_OPPONENTS_YOUR_
+  TURN_RE`, `{"scope": "opponents", "active_if": {"kind": "your_turn"}}`)
+  — the existing `_CANT_CAST_OR_ACTIVATE_OPPONENTS_RE` only covers the
+  *leading* "During your turn, your opponents can't cast spells or
+  activate abilities of `<type>`." shape, a different template. Conqueror
+  Flail's own "as long as this Equipment is attached to a creature, …"
+  wrapping needs no new code — `_conditional_static_specs` peels it off
+  before this row is ever reached, same as any other conditional static.
+  Closes this pool's own **Voice of Victory** (Kutzil, Malamet Exemplar
+  still has an unrelated second clause open — see below) and, cache-wide,
+  Dragonlord Dromoka/A-Teferi/Jennifer Walters (Tidal Barracuda/Conqueror's
+  Flail both print an *additional* unrelated clause that keeps them open).
+
+**Left open, diagnosed rather than silently deferred**: Redirect
+Lightning's "as an additional cost to cast this spell, pay 5 life **or**
+pay `{2}`" is a genuinely new primitive (`AbilitySpec.additional_cost` has
+no "choose one of two cost shapes" branch, and `_pay_additional_cast_cost`
+pays synchronously inside `cast_spell` with no interactive choice point
+today) confirmed a cache-wide singleton — the right call is to
+hand-author it next time this ticket is picked up, not build the general
+choice machinery for one card. Kutzil, Malamet Exemplar's second ability
+("whenever 1 or more creatures you control each with power greater than
+its base power deals combat damage to a player, draw a card") needs a
+derived-vs-printed-power comparison the trigger-condition vocabulary
+doesn't have yet — a different, unrelated shape. Grafdigger's Cage/
+Weathered Runestone's pair of zone-scoped restrictions ("players can't
+cast spells from graveyards or libraries" / "`<type>` cards in graveyards
+and libraries can't enter the battlefield") are real, reusable primitives
+neither of which exists in any form today (4 cache cards each,
+overlapping) — sized but not built this pass; promoted to `BACKLOG.md`'s
+"broader gaps" list alongside devotion/the cast/copy-exception family
+rather than attempted as a rushed one-off.
+
+New tests: `tests/test_mec_12_cedh_batch_7.py` (10 execute/parse-verdict
+tests — Static Orb's permanent cap and its own tapped-state gate, Winter
+Moon's nonbasic-only cap, Meekstone's power threshold, the four
+`change_target`-unlocked cards' parse verdicts, Bolt Bend's cost-reduction
+condition executed both ways (no big creature / a power-4 creature
+present), and `cast_prohibited`'s your-turn-vs-their-turn behavior for
+Voice of Victory). Full backend suite: 3,691 passed (+10 new), 238
+skipped, 0 regressions (one pre-existing flaky websocket test, unrelated,
+confirmed passing in isolation both before and after this batch).
+`PARSER_VERSION` bumped 70 → 71 (measured cache-wide parser coverage:
+11,489 → 11,509/34,811, 33.1%).
+
 ## Marchesa V4.2 (saved deck, fully playable) — 2026-08-10
 
 User request: make the "Marchesa V4.2" saved deck (96 cards, commander

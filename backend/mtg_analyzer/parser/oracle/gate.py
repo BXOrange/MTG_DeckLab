@@ -886,7 +886,17 @@ NEVER_SUPPORTED = "NEVER_SUPPORTED"
 #: this_turn`) already claims. `_GRAVEYARD_TYPE_WORD` also gained a bare
 #: "sorcery" alternative (Recoup's own "target **sorcery** card") alongside
 #: a matching `targeting._GRAVEYARD_TYPE_FILTERS["sorcery"]` entry.
-PARSER_VERSION = "70"
+#:
+#: 71: MEC-12 seventh pass (2026-08-11) — the untap-cap family widened past
+#: lands-only (Static Orb/Winter Moon), Meekstone's group-scoped `no_untap`,
+#: a generic RULE 115.4 "change the target" handler (Deflection/Shunt/
+#: Swerve/Willbender/Bolt Bend/Redirect Lightning), "you control a creature
+#: with power N or greater" as a `control_count` condition, a spell's own
+#: "this spell costs {N} less to cast if/for each…" now reaching
+#: `static_effect_specs` for instants/sorceries too (not just permanents),
+#: and "your opponents can't cast spells during your turn." as a
+#: `cast_prohibition` row (Voice of Victory/Dragonlord Dromoka).
+PARSER_VERSION = "71"
 
 
 @dataclass

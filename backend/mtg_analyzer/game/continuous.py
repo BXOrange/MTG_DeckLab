@@ -2443,30 +2443,55 @@ def has_radiation_life_gain(state: "GameState", player: "Player") -> bool:
     return False
 
 
-def untap_cap_for_lands(state: "GameState") -> Optional[int]:
-    """The global cap on how many lands *any* player may untap during their
-    untap step this turn (RULE 502.3-adjacent, Winter Orb-shaped: "As long
-    as this artifact is untapped, players can't untap more than one land
-    during their untap steps.") — ``None`` when no such static is currently
-    active.
+def active_untap_caps(state: "GameState") -> list[dict[str, Any]]:
+    """Every currently-active "players can't untap more than N `<type>`
+    during their untap steps" restriction (RULE 502.3-adjacent — Winter
+    Orb's lands, Static Orb's permanents, Winter Moon's nonbasic lands),
+    each as ``{"count", "card_type", "nonbasic"}``.
 
     Unlike `has_no_untap_static` (a single permanent's own restriction) or
     `enters_tapped_from_static` (a board-wide but ownership-scoped effect),
-    this is a flat, unscoped cap that applies to *every* player's untap
-    step identically, gated on the static's own source currently being
-    untapped ("as long as ~ is untapped" — checked live, not the source's
-    controller/affected-set machinery every other static family here
-    uses). Two+ simultaneous instances don't stack (RULE 613's "the most
-    restrictive" isn't quite right either — real Magic just has each
-    Orb apply its own 1-land cap independently, so the effective cap is
-    whichever is *smallest*), hence ``min()`` rather than summing.
+    this is a flat, unscoped-by-controller cap that applies to *every*
+    player's untap step identically. Any tap-state gate a card prints
+    ("as long as this artifact is untapped" — Winter Orb/Static Orb) rides
+    the ordinary ``active_if`` RULE 613.6 wrapper like any other conditional
+    static, rather than a hardcoded tapped check — Winter Moon prints no
+    such gate and is unconditional. 2+ simultaneous instances don't merge
+    into one cap (RULE 613's "most restrictive" doesn't quite apply either —
+    real Magic has each Orb/Static Orb/Winter Moon enforce its own cap
+    independently), so `GameEngine._step_untap` checks each entry this
+    returns against its own running count rather than a single combined one.
     """
-    caps = [
-        ability.params.get("count", 1)
-        for ability in _battlefield_static_abilities(state)
-        if ability.layer == "untap_cap" and ability.source is not None and not ability.source.tapped
-    ]
-    return min(caps) if caps else None
+    caps: list[dict[str, Any]] = []
+    for ability in _battlefield_static_abilities(state):
+        if ability.layer != "untap_cap":
+            continue
+        active_if = ability.params.get("active_if")
+        if active_if:
+            controller_id = getattr(ability.source, "controller_id", None)
+            if not static_conditions.condition_holds(active_if, state, ability.source, controller_id):
+                continue
+        caps.append(
+            {
+                "count": ability.params.get("count", 1),
+                "card_type": ability.params.get("card_type", "land"),
+                "nonbasic": bool(ability.params.get("nonbasic")),
+            }
+        )
+    return caps
+
+
+def matches_untap_cap_filter(obj: "GameObject", cap: dict[str, Any]) -> bool:
+    """Whether ``obj`` counts toward an `active_untap_caps` entry's cap —
+    its ``card_type`` (``_has_card_type``, "permanent" always matches) plus
+    an optional ``nonbasic`` land narrowing (Winter Moon), the same two
+    filters `group_selector_objects` applies for every other static family.
+    """
+    if not _has_card_type(obj, cap["card_type"]):
+        return False
+    if cap.get("nonbasic") and not (obj.is_land and _is_nonbasic(obj)):
+        return False
+    return True
 
 
 def trigger_suppressed(state: "GameState", event: Any) -> bool:

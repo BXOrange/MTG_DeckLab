@@ -472,30 +472,38 @@ class TurnLoopMixin:
         for obj in self.state.battlefield:
             if obj.controller_id == active.id and obj.phased_out:
                 obj.phased_out = False
-        # RULE 502.3-adjacent (Winter Orb): "players can't untap more than
-        # N lands during their untap steps" — a flat, unscoped cap that
-        # applies to every player's untap step identically, including the
-        # static's own controller. ``None`` means unrestricted (the
-        # overwhelmingly common case), so this never changes anything for
-        # a board without one; an auto-pick (first N lands found) untaps up
-        # to the cap, the same non-interactive MVP simplification
-        # `_sacrifice_candidate`'s callers already make elsewhere.
-        land_cap = continuous.untap_cap_for_lands(self.state)
-        lands_untapped = 0
+        # RULE 502.3-adjacent (Winter Orb/Static Orb/Winter Moon): "players
+        # can't untap more than N `<type>` during their untap steps" — a
+        # flat, unscoped cap that applies to every player's untap step
+        # identically, including each static's own controller. An empty
+        # list means unrestricted (the overwhelmingly common case), so this
+        # never changes anything for a board without one; an auto-pick
+        # (first N matching permanents found) untaps up to each cap, the
+        # same non-interactive MVP simplification `_sacrifice_candidate`'s
+        # callers already make elsewhere. 2+ active caps are enforced
+        # independently (each keeps its own running count), not merged.
+        untap_caps = continuous.active_untap_caps(self.state)
+        cap_counts = [0] * len(untap_caps)
         for obj in self.state.permanents_controlled_by(active.id):
-            if (
-                not self.rules.should_skip_step(active, "untap_permanents")
-                and not continuous.has_no_untap_static(self.state, obj)
-                and not (obj.is_land and land_cap is not None and lands_untapped >= land_cap)
+            if self.rules.should_skip_step(active, "untap_permanents") or continuous.has_no_untap_static(
+                self.state, obj
             ):
+                continue
+            capped_out = False
+            for i, cap in enumerate(untap_caps):
+                if continuous.matches_untap_cap_filter(obj, cap) and cap_counts[i] >= cap["count"]:
+                    capped_out = True
+                    break
+            if not capped_out:
                 # RULE 502.3-adjacent: "This artifact doesn't untap during
                 # your untap step." (Basalt Monolith/Grim Monolith/Mana
                 # Vault) — a separate "{N}: Untap this artifact." activated
                 # ability (or Mana Vault's upkeep trigger) is unaffected,
                 # it's a different code path (an ordinary `untap` effect).
                 obj.untap()
-                if obj.is_land:
-                    lands_untapped += 1
+                for i, cap in enumerate(untap_caps):
+                    if continuous.matches_untap_cap_filter(obj, cap):
+                        cap_counts[i] += 1
             # Controlled since the turn began → no longer summoning sick.
             obj.summoning_sick = False
             # RULE 606.3: a new loyalty ability may be activated this turn.

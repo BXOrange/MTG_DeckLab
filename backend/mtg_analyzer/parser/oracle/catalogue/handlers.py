@@ -1284,6 +1284,19 @@ def _cant_be_countered(m: re.Match[str]) -> list[EffectSpec]:
     return [EffectSpec("cant_be_countered", {})]
 
 
+def _change_target(m: re.Match[str]) -> list[EffectSpec]:
+    # "…spell or ability…" always goes through `ChangeTargetEffect`'s
+    # ``spell_or_ability`` branch (ENG-26's union stack-item lookup) rather
+    # than folding "with a single target" into a spell-only filter — the
+    # engine's own single-existing-target MVP limit already applies inside
+    # that branch regardless of what's printed (see the effect's own
+    # docstring), so the printed "with a single target" here is redundant
+    # with, not narrower than, that limit.
+    if m.group("kind") == "spell or ability":
+        return [EffectSpec("change_target", {"spell_or_ability": True})]
+    return [EffectSpec("change_target", {"single_target": True})]
+
+
 def _mill(m: re.Match[str]) -> list[EffectSpec]:
     # "you mill N" / bare "mill N" → self; "target player/opponent mills N" → targeted.
     who = (m.groupdict().get("who") or "").strip()
@@ -4638,6 +4651,18 @@ HANDLERS: list[EffectHandler] = [
         "cant_be_countered",
         CANT_BE_COUNTERED_RE,
         _cant_be_countered,
+    ),
+    # "Change the target of target spell with a single target." (Deflection/
+    # Shunt/Swerve-shaped) / "…target spell or ability with a single
+    # target." (Bolt Bend/Redirect Lightning/Untimely Malfunction/
+    # Willbender-shaped) — RULE 115.4/601.2c, the oracle-text front-end for
+    # `ChangeTargetEffect`, previously only reachable by hand-authoring
+    # (Misdirection/Deflecting Swat, `ability_catalogue.py`) since no
+    # generic handler had claimed the phrase.
+    EffectHandler(
+        "change_target",
+        _c(r"change the target of target (?P<kind>spell or ability|spell) with a single target"),
+        _change_target,
     ),
     # "mill 3 cards" / "you mill 3 cards" / "target player mills 3 cards"
     EffectHandler(

@@ -203,6 +203,21 @@ _CANT_CAST_OR_ACTIVATE_OPPONENTS_RE = re.compile(
     re.IGNORECASE,
 )
 
+# "Your opponents can't cast spells during your turn."  (Dragonlord Dromoka/
+# Teferi, Time Raveler/Kutzil, Malamet Exemplar/Voice of Victory-shaped) —
+# unlike `_CANT_CAST_OR_ACTIVATE_OPPONENTS_RE`'s type-scoped sibling (always
+# printed under a leading "During your turn," gate `_conditional_static_
+# specs` peels off first), this trails its own turn-scope inline rather than
+# leading with it, so it needs its own row: `cast_prohibition`'s existing
+# ``scope="opponents"`` default plus an ordinary RULE 613.6 ``active_if``
+# gate — no new engine primitive, both already exist for other cards'
+# shapes. Conqueror's Flail's own "as long as this Equipment is attached to
+# a creature, …" wrapping is peeled by `_conditional_static_specs` before
+# this is ever reached, same as any other conditional static.
+_CANT_CAST_OPPONENTS_YOUR_TURN_RE = re.compile(
+    r"your opponents can'?t cast spells during your turn", re.IGNORECASE
+)
+
 #: A type list ("artifacts, creatures, or enchantments") → normalized
 #: singular `_CARD_TYPE_WORDS`, or ``None`` (fail-closed) if any word in it
 #: isn't a recognised card type. Splits on a comma (with an optional trailing
@@ -383,6 +398,31 @@ _RADIATION_LIFE_GAIN_RE = re.compile(
 # that normalize never leaves in place.
 _NO_UNTAP_RE = re.compile(
     r"~ doesn'?t untap during your untap step", re.IGNORECASE
+)
+
+# "Creatures with power N or greater don't untap during their controllers'
+# untap steps."  (Meekstone) — the unattached group-scoped sibling of
+# `_NO_UNTAP_RE`/`_NO_UNTAP_ATTACHED_RE` above: no `~`/attached subject at
+# all, just a board-wide power qualifier, so it reuses `no_untap`'s ordinary
+# ``affects="all_creatures"`` selector plus the standard ``min_power``
+# post-filter (`continuous.group_selector_objects`) rather than a new field.
+_NO_UNTAP_GROUP_POWER_RE = re.compile(
+    r"creatures with power (?P<n>\d+) or greater don'?t untap during their "
+    r"controllers'? untap steps?",
+    re.IGNORECASE,
+)
+
+# "Players can't untap more than N [nonbasic] `<type>` during their untap
+# steps."  (RULE 502.3-adjacent, Static Orb's "permanents"/Winter Moon's
+# "nonbasic land" — Winter Orb's own "one land" is hand-authored, see
+# `ability_catalogue._winter_orb`, but shares this same `untap_cap` family)
+# — always printed either bare (Winter Moon) or under a leading "as long as
+# this artifact is untapped," gate peeled off by `_conditional_static_specs`
+# before this ever sees the clause (Static Orb).
+_UNTAP_CAP_RE = re.compile(
+    r"players can'?t untap more than (?P<n>\d+) (?P<nonbasic>nonbasic )?"
+    r"(?P<word>artifacts?|creatures?|lands?|permanents?) during their untap steps?",
+    re.IGNORECASE,
 )
 
 # "Creatures entering don't cause abilities to trigger."  (RULE 603
@@ -1894,6 +1934,15 @@ _STATIC_CONDITION_RES: list[tuple[re.Pattern[str], Any]] = [
     # -- Board counts, over `continuous.count_selector`'s own vocabulary.
     (re.compile(r"you control (?P<n>\d+) or more (?P<what>[a-z ]+)", re.I),
      lambda m: _control_count_condition(m.group("what"), int(m.group("n")))),
+    # "you control a creature with power N or greater" (Bolt Bend and 50+
+    # other cache cards' cost-reduction/activation-condition gates) — a
+    # per-object power qualifier layered onto the plain existence count
+    # `_control_count_condition` handles; tried before that catch-all row
+    # (though it can never match this text anyway — its ``[a-z ]+`` can't
+    # span the digit).
+    (re.compile(r"you control a creature with power (?P<n>\d+) or greater", re.I),
+     lambda m: {"kind": "control_count", "selector": "creatures_you_control",
+                "min": 1, "min_power": int(m.group("n"))}),
     (re.compile(r"you control (?:a|an) (?P<what>[a-z ]+)", re.I),
      lambda m: _control_count_condition(m.group("what"), 1)),
     (re.compile(r"there are (?P<n>\d+) or more cards in your graveyard", re.I),
@@ -2248,6 +2297,9 @@ def static_effect_specs(clause: str) -> Optional[list[EffectSpec]]:
             )
         ]
 
+    if _CANT_CAST_OPPONENTS_YOUR_TURN_RE.fullmatch(text):
+        return [EffectSpec("cast_prohibition", {"scope": "opponents", "active_if": {"kind": "your_turn"}})]
+
     m = _CANT_CAST_OR_ACTIVATE_OPPONENTS_RE.fullmatch(text)
     if m is not None:
         card_types = _type_word_list(m.group("types"))
@@ -2391,6 +2443,20 @@ def static_effect_specs(clause: str) -> Optional[list[EffectSpec]]:
     m = _NO_UNTAP_ATTACHED_RE.fullmatch(text)
     if m is not None:
         return [EffectSpec("no_untap", {"affects": "attached_permanent"})]
+
+    m = _NO_UNTAP_GROUP_POWER_RE.fullmatch(text)
+    if m is not None:
+        return [EffectSpec("no_untap", {"affects": "all_creatures", "min_power": int(m.group("n"))})]
+
+    m = _UNTAP_CAP_RE.fullmatch(text)
+    if m is not None:
+        card_type = _singularize(m.group("word").lower())
+        if card_type not in _CARD_TYPE_WORDS:
+            return None  # fail-closed — an unrecognised type-scope
+        params: dict = {"count": int(m.group("n")), "card_type": card_type}
+        if m.group("nonbasic"):
+            params["nonbasic"] = True
+        return [EffectSpec("untap_cap", params)]
 
     m = _TRIGGER_PROHIBITION_RE.fullmatch(text)
     if m is not None:
