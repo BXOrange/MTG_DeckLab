@@ -1632,6 +1632,51 @@ class GrantGraveyardCastPermissionThisTurnEffect(GameEffect):
         )
 
 
+class GrantFlashbackToTargetEffect(GameEffect):
+    """"Target instant or sorcery card in your graveyard gains flashback
+    until end of turn. The flashback cost is equal to its mana cost."
+    (MEC-24 — Recoup/Snapcaster Mage/Slickshot Lockpicker/Sphinx of
+    Forgotten Lore/Katilda and Lier/The Fugitive Doctor-shaped) — the
+    targeted, single-card sibling of `GrantGraveyardCastPermissionThisTurn
+    Effect`'s untargeted "each instant and sorcery card in your graveyard"
+    grant (Backdraft Hellkite). That one appends a marker onto the
+    *granting permanent's own* `GameObject.static_effects`, discoverable by
+    `game/graveyard_cast.py`'s battlefield scan; this one instead marks the
+    *targeted graveyard card itself* (`GameState.temp_flashback_grants`),
+    since the grant must survive independently of whatever granted it (the
+    creature that triggered this may attack into removal, or simply leave
+    the battlefield, before the graveyard card is ever cast) and must apply
+    to exactly the one chosen card, not every instant/sorcery in the
+    graveyard.
+
+    ``cost=None`` (every real card but The Fugitive Doctor) means "equal to
+    its mana cost" — read off the target's own `Card.mana_cost_string` at
+    the moment this effect resolves, matching *that* card's cost rather
+    than a fixed one; a literal ``cost`` string (The Fugitive Doctor's flat
+    ``"{2}{R}{G}"``) overrides it. Consulted by `game/engine/casting_mixin.
+    py`'s `_graveyard_cast_keyword`/`_flashback_cost`, the same choke point
+    a printed Flashback keyword goes through — the exile-after-cast (RULE
+    702.34a) and cost-computation machinery need no changes at all.
+    """
+
+    def __init__(
+        self,
+        cost: Optional[str] = None,
+        target_kind: str = "graveyard_instant_or_sorcery",
+        source: Optional["GameObject"] = None,
+    ) -> None:
+        super().__init__(source)
+        self.cost = cost
+        self.target_spec = TargetSpec(kind=target_kind, count=1)
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        target = targets[0] if targets else None
+        if target is None:
+            return
+        cost = self.cost or getattr(target.card, "mana_cost_string", None) or "{0}"
+        context.state.temp_flashback_grants[target.instance_id] = str(cost)
+
+
 class GrantSelfActivatedAbilityEffect(GameEffect):
     """"This [permanent] gains '`<cost>`: `<effect>`.'" (Urza's Saga's own
     Saga-chapter shape, RULE 714.2c — a chapter's *lasting* self-grant, not
@@ -1666,6 +1711,53 @@ class GrantSelfActivatedAbilityEffect(GameEffect):
             self.source,
         )
         self.source.static_effects.extend(granted)
+
+
+class GainActivatedAbilitiesOfTargetEffect(GameEffect):
+    """"~ gains all activated abilities of target creature until end of
+    turn." (MEC-23, Quicksilver Elemental) — the resolve-time, single-target
+    sibling of `grant_borrowed_activated_ability`'s standing layer-6 grant
+    (`continuous._apply_borrowed_activated_abilities`, MEC-21, Agatha's Soul
+    Cauldron): that one re-derives its granted set live off a permanent's
+    own `GameObject.exiled_with_ids` every `continuous.recompute` pass, so a
+    later change to an exiled card's own abilities is picked straight back
+    up. This effect instead **snapshots** ``target``'s `activated_abilities`
+    once, at resolution, onto a turn-scoped field
+    (`GameObject.temp_granted_activated_abilities`, cleared at cleanup
+    alongside `temp_keywords` — RULE 514.2) — a later change to the
+    target's own ability set doesn't retroactively change what was copied,
+    matching Quicksilver Elemental's own ruling that this is a one-time
+    copy, not a continuous link to the target.
+
+    Reuses `continuous._retarget_effect_source` (RULE 113.7c: "Any ability
+    that a permanent gains by another spell/ability applies to that
+    permanent, not to the object that granted it") rather than a second
+    implementation — the same shallow-copy-per-effect approach the layer-6
+    grant already uses.
+    """
+
+    def __init__(self, source: Optional["GameObject"] = None) -> None:
+        super().__init__(source)
+        self.target_spec = TargetSpec(kind="creature", count=1)
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        if self.source is None or not targets:
+            return
+        target = targets[0]
+        if target is None:
+            return
+        from . import continuous  # local: avoid the continuous<->effects import cycle
+
+        for base in list(getattr(target, "activated_abilities", None) or []):
+            self.source.temp_granted_activated_abilities.append(
+                ActivatedAbility(
+                    effects=[continuous._retarget_effect_source(e, self.source) for e in base.effects],
+                    cost=base.cost,
+                    source=self.source,
+                    description=base.description,
+                    once_per_turn=base.once_per_turn,
+                )
+            )
 
 
 # ---------------------------------------------------------------------------
@@ -11086,6 +11178,15 @@ EffectRegistry.register(
     lambda p: GrantGraveyardCastPermissionThisTurnEffect(),
 )
 EffectRegistry.register(
+    # MEC-24: "target instant or sorcery card in your graveyard gains
+    # flashback [<cost>] until end of turn." — Recoup/Snapcaster Mage-shaped.
+    # See `GrantFlashbackToTargetEffect`'s own docstring for why this is a
+    # per-graveyard-card marker rather than reusing the untargeted grant
+    # just above.
+    "grant_flashback_to_target",
+    lambda p: GrantFlashbackToTargetEffect(cost=p.get("cost")),
+)
+EffectRegistry.register(
     "grant_self_activated_ability",  # Urza's Saga's own chapter grants
     lambda p: GrantSelfActivatedAbilityEffect(
         cost=p.get("cost"), effects=p.get("effects"),
@@ -12281,11 +12382,27 @@ EffectRegistry.register(
     # consulted by the activation-cost payment path in
     # `game/engine/activation_mixin.py` (`ManaPool`'s own ``wildcard`` param,
     # already shipped for RULE 605.1a casting-side grants).
+    #
+    # ``from_color`` (MEC-23, Quicksilver Elemental's own second ability —
+    # "You may spend **blue** mana as though it were mana of any color to
+    # pay the activation costs of this creature's abilities.") narrows
+    # *which* mana counts as the wildcard: Agatha's grant lets any of the
+    # five colors pay any colored pip, but Quicksilver's only lets **blue**
+    # mana substitute — a green pip still needs real green (or blue) mana,
+    # never white/black/red. ``None`` (every pre-existing card) keeps
+    # Agatha's fully unrestricted behaviour. ``self_only`` narrows *whose*
+    # abilities the grant covers to this exact permanent's own — Quicksilver
+    # scopes to "this creature's abilities", not Agatha's unscoped
+    # "creatures you control".
     "grant_any_color_for_activation",
     lambda p: StaticAbility(
         "any_color_for_activation",
         affects=p.get("affects", "you"),
-        params={"creature_abilities_only": bool(p.get("creature_abilities_only", True))},
+        params={
+            "creature_abilities_only": bool(p.get("creature_abilities_only", True)),
+            **({"from_color": str(p["from_color"])} if p.get("from_color") else {}),
+            **({"self_only": True} if p.get("self_only") else {}),
+        },
     ),
 )
 EffectRegistry.register(
@@ -12314,6 +12431,15 @@ EffectRegistry.register(
             **_selectors(p),
         },
     ),
+)
+EffectRegistry.register(
+    # "~ gains all activated abilities of target creature until end of
+    # turn." (MEC-23, Quicksilver Elemental) — the resolve-time, targeted
+    # sibling of `grant_borrowed_activated_ability` just above; see
+    # `GainActivatedAbilitiesOfTargetEffect`'s own docstring for the
+    # snapshot-vs-live-rederive distinction between the two.
+    "gain_target_activated_abilities",
+    lambda p: GainActivatedAbilitiesOfTargetEffect(),
 )
 EffectRegistry.register(
     # PAR-8: "Each [<filter>] card in your hand has cycling `<cost>`."

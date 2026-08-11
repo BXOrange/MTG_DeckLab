@@ -1102,6 +1102,151 @@ class TestReconnect:
         assert lobby.find(pid) is None
 
 
+class TestClientTokenIdentity:
+    """PLR-4: a `clientToken` disambiguates two browsers sharing a name."""
+
+    def test_reconnecting_with_the_same_token_reclaims_even_under_a_new_name(self, env):
+        client = env["client"]
+        first = client.post(
+            "/api/multiplayer/connect", json={"name": "Ann", "clientToken": "tok-1"}
+        ).json()["player"]
+        again = client.post(
+            "/api/multiplayer/connect", json={"name": "Annika", "clientToken": "tok-1"}
+        ).json()["player"]
+        assert again["id"] == first["id"]
+        assert again["name"] == "Annika"
+        assert [p["name"] for p in client.get("/api/multiplayer/lobby").json()["players"]] == [
+            "Annika"
+        ]
+
+    def test_two_browsers_sharing_a_name_no_longer_merge_once_both_have_tokens(self, env):
+        client = env["client"]
+        first = client.post(
+            "/api/multiplayer/connect", json={"name": "Ann", "clientToken": "tok-1"}
+        ).json()["player"]
+        second = client.post(
+            "/api/multiplayer/connect", json={"name": "Ann", "clientToken": "tok-2"}
+        ).json()["player"]
+        assert first["id"] != second["id"]
+        names = sorted(p["name"] for p in client.get("/api/multiplayer/lobby").json()["players"])
+        assert names == ["Ann", "Ann"]
+
+    def test_a_token_does_not_reclaim_a_player_that_connected_anonymously(self, env):
+        # Legacy path: the first connect never sent a token, so it's only
+        # findable by name. A second connect under the same name that *does*
+        # carry a (unknown) token must not silently take that seat over —
+        # that's the exact collision PLR-4 exists to stop.
+        client = env["client"]
+        anon = client.post("/api/multiplayer/connect", json={"name": "Ann"}).json()["player"]
+        tokened = client.post(
+            "/api/multiplayer/connect", json={"name": "Ann", "clientToken": "tok-1"}
+        ).json()["player"]
+        assert tokened["id"] != anon["id"]
+
+    def test_without_a_token_the_legacy_name_reclaim_still_works(self, env):
+        client = env["client"]
+        first = _connect(client, "Ann")
+        again = client.post("/api/multiplayer/connect", json={"name": "Ann"}).json()["player"]
+        assert again["id"] == first
+
+    def test_a_takeover_reused_socket_still_replaces_the_old_one(self, env):
+        # Same guarantee the name-only path already had: reconnecting under
+        # the *same* token takes the seat over rather than being refused.
+        client = env["client"]
+        first = client.post(
+            "/api/multiplayer/connect", json={"name": "Ann", "clientToken": "tok-1"}
+        ).json()["player"]
+        again = client.post(
+            "/api/multiplayer/connect", json={"name": "Ann", "clientToken": "tok-1"}
+        ).json()["player"]
+        assert again["id"] == first["id"]
+        assert len(client.get("/api/multiplayer/lobby").json()["players"]) == 1
+
+
+class TestClientTokenExpiry:
+    """PLR-4: an abandoned token's lobby entry and player_assets are dropped."""
+
+    def _sweep(self, env, player_assets=None):
+        import asyncio
+
+        from mtg_analyzer.api.multiplayer_ws import sweep_once
+
+        loop = asyncio.get_event_loop_policy().new_event_loop()
+        try:
+            loop.run_until_complete(sweep_once(env["lobby"], env["sessions"], player_assets))
+        finally:
+            loop.close()
+
+    def _expire(self, env, player_id):
+        """Make ``player_id``'s token look abandoned: disconnected, and its
+        validity window already in the past."""
+        import time
+
+        player = env["lobby"].find(player_id)
+        player.connected = False
+        player.token_expires_at = time.time() - 1
+
+    def test_an_expired_token_forgets_the_player(self, env):
+        client, lobby = env["client"], env["lobby"]
+        pid = client.post(
+            "/api/multiplayer/connect", json={"name": "Ann", "clientToken": "tok-1"}
+        ).json()["player"]["id"]
+        self._expire(env, pid)
+        self._sweep(env)
+        assert lobby.find(pid) is None
+
+    def test_a_still_connected_token_is_never_expired(self, env):
+        import time
+
+        client, lobby = env["client"], env["lobby"]
+        pid = client.post(
+            "/api/multiplayer/connect", json={"name": "Ann", "clientToken": "tok-1"}
+        ).json()["player"]["id"]
+        lobby.player(pid).token_expires_at = time.time() - 1  # stale clock, but…
+        # …still connected, so the sweep must leave them alone.
+        self._sweep(env)
+        assert lobby.find(pid) is not None
+
+    def test_a_seat_in_a_running_game_is_never_expired_out_from_under_it(self, env):
+        lobby = env["lobby"]
+        gid, ann, _bob = _seated_game(env)
+        env["client"].post(f"/api/multiplayer/games/{gid}/start", json={"playerId": ann})
+        lobby.player(ann).client_token = "tok-ann"
+        self._expire(env, ann)
+        self._sweep(env)
+        assert lobby.find(ann) is not None
+
+    def test_expiry_purges_that_names_player_assets_when_unshared(self, env):
+        from mtg_analyzer.services.player_assets import PlayerAssetStore
+
+        client, lobby = env["client"], env["lobby"]
+        store = PlayerAssetStore(":memory:")
+        store.add_favorite_deck("Ann", "deck-1")
+        pid = client.post(
+            "/api/multiplayer/connect", json={"name": "Ann", "clientToken": "tok-1"}
+        ).json()["player"]["id"]
+        self._expire(env, pid)
+        self._sweep(env, store)
+        assert lobby.find(pid) is None
+        assert store.list_favorite_decks("Ann") == []
+
+    def test_expiry_does_not_purge_assets_a_still_active_namesake_owns(self, env):
+        from mtg_analyzer.services.player_assets import PlayerAssetStore
+
+        client, lobby = env["client"], env["lobby"]
+        store = PlayerAssetStore(":memory:")
+        store.add_favorite_deck("Ann", "deck-1")
+        stale = client.post(
+            "/api/multiplayer/connect", json={"name": "Ann", "clientToken": "tok-stale"}
+        ).json()["player"]["id"]
+        # A second browser, same display name, still perfectly valid.
+        client.post("/api/multiplayer/connect", json={"name": "Ann", "clientToken": "tok-fresh"})
+        self._expire(env, stale)
+        self._sweep(env, store)
+        assert lobby.find(stale) is None  # the stale one is still forgotten
+        assert store.list_favorite_decks("Ann") == ["deck-1"]  # but the data survives
+
+
 class TestWatchdog:
     """`sweep_once`: idle disconnects, lapsed seats, and keeping play moving."""
 

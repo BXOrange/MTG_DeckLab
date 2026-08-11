@@ -212,6 +212,28 @@ class PlayerAssetStore:
             self._connection.commit()
         return cursor.rowcount > 0
 
+    # -- Bulk removal (PLR-4) ------------------------------------------------
+
+    def delete_all_for_player(self, player_name: str) -> int:
+        """Drop every row (token images, sleeves, favorites) under this name.
+
+        The counterpart to a `services/lobby.py` `client_token` expiring
+        (`api/multiplayer_ws.sweep_once`): once nobody is left recognized
+        under this display name (`Lobby.name_in_use_by_other`), its uploads
+        and preferences are abandoned data with nothing to serve them to,
+        the same "player-data is deleted" half of PLR-4 as the lobby entry
+        itself. Returns the total row count removed, for the caller's log.
+        """
+        with self._lock:
+            removed = 0
+            for table in ("token_images", "sleeves", "favorite_decks"):
+                cursor = self._connection.execute(
+                    f"DELETE FROM {table} WHERE player_name = ?", (player_name,)
+                )
+                removed += cursor.rowcount
+            self._connection.commit()
+        return removed
+
 
 def _now() -> str:
     return datetime.now(timezone.utc).isoformat()

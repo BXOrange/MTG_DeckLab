@@ -55,6 +55,32 @@ class TestPlayerAssetStoreFavoriteDecks:
         assert store.list_favorite_decks("Sam") == []
 
 
+class TestDeleteAllForPlayer:
+    """PLR-4: purging a name's data once nobody's token still claims it."""
+
+    def test_removes_favorites_sleeves_and_token_images(self):
+        store = PlayerAssetStore(":memory:")
+        store.add_favorite_deck("Alex", "deck-1")
+        store.save_sleeve("Alex", "sleeve-1", "Mine", "image/png", b"x")
+        store.save_token_image("Alex", "Soldier", "image/png", b"y")
+        removed = store.delete_all_for_player("Alex")
+        assert removed == 3
+        assert store.list_favorite_decks("Alex") == []
+        assert store.list_sleeves("Alex") == []
+        assert store.list_token_images("Alex") == []
+
+    def test_does_not_touch_other_players(self):
+        store = PlayerAssetStore(":memory:")
+        store.add_favorite_deck("Alex", "deck-1")
+        store.add_favorite_deck("Sam", "deck-1")
+        store.delete_all_for_player("Alex")
+        assert store.list_favorite_decks("Sam") == ["deck-1"]
+
+    def test_no_op_when_nothing_stored(self):
+        store = PlayerAssetStore(":memory:")
+        assert store.delete_all_for_player("Nobody") == 0
+
+
 class TestFavoriteDecksApi:
     def teardown_method(self):
         _teardown()

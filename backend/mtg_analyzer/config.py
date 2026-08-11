@@ -121,6 +121,17 @@ MULTIPLAYER_IDLE_TIMEOUT_SECONDS = _env_seconds("MTG_MULTIPLAYER_IDLE_TIMEOUT", 
 #: waited on forever. 0 disables the sweep, holding the seat indefinitely.
 MULTIPLAYER_DISCONNECT_GRACE_SECONDS = _env_seconds("MTG_MULTIPLAYER_DISCONNECT_GRACE", 90)
 
+#: PLR-4: how long a browser's identity token (`services/lobby.py`'s
+#: `LobbyPlayer.client_token`, minted client-side by profileView.js's
+#: "Speichern" button into the `mtg_client_token` cookie) stays valid without
+#: being used again. Sliding, not fixed — every reconnect that presents the
+#: token renews it, mirroring the cookie's own sliding `Max-Age` — so a
+#: browser in active use never expires and one that was abandoned (or had its
+#: cookies cleared) quietly does, 90 days after it was last seen. This is
+#: what lets the token disambiguate two browsers sharing a display name (the
+#: thing PLR-4 is actually about) without ever needing real accounts.
+CLIENT_TOKEN_VALIDITY_SECONDS = _env_seconds("MTG_CLIENT_TOKEN_VALIDITY", 90 * 24 * 3600)
+
 
 def _env_positive_int(name: str, default: int) -> int:
     """A worker/pool-size style count from the environment; always >= 1."""

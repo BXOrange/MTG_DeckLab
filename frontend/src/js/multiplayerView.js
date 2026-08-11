@@ -46,6 +46,7 @@ import {
 import { connectLobbySocket } from './lobbySocket.js';
 import {
   getPlayerName,
+  getClientToken,
   getMpDefaultFormat,
   getMpDefaultMulliganStyle,
   getMpDefaultSeats,
@@ -324,6 +325,7 @@ export function createMultiplayerView(hooks = {}) {
     if (socket) return;
     socket = connectLobbySocket({
       name: getPlayerName() || 'Spieler',
+      clientToken: getClientToken() || null,
       onWelcome: (id, snapshot, reclaimed) => {
         playerId = id;
         lobby = snapshot;

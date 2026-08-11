@@ -610,6 +610,9 @@ class TurnLoopMixin:
             if obj.temp_protections:
                 obj.temp_protections.clear()
                 ended_effects = True
+            if obj.temp_granted_activated_abilities:
+                obj.temp_granted_activated_abilities.clear()
+                ended_effects = True
             if obj._copy_until_eot_base is not None:
                 copy_mechanics.restore_face(obj, obj._copy_until_eot_base)
                 obj._copy_until_eot_base = None
@@ -685,6 +688,11 @@ class TurnLoopMixin:
             iid for iid in self.state.free_cast_instance_ids
             if iid in self.state.temp_play_permissions
         }
+        # RULE 514.2: MEC-24's targeted "gains flashback until end of turn"
+        # grant is a flat per-turn expiry (unlike `temp_play_permissions`'
+        # own "until your next turn" survival above) — cleared unconditionally.
+        if self.state.temp_flashback_grants:
+            self.state.temp_flashback_grants = {}
     def resolve_until_stable(self) -> None:
         """Resolve triggers + the stack until empty, stable, or blocked.
 

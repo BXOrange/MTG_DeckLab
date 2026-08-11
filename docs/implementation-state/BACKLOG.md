@@ -122,51 +122,46 @@ Plan-level sequencing lives in
   scoped against the wider cache via `parser_probe.py`/`engine_bench.py
   cards`, not just this pool's count.
 
-- **MEC-23 · "Gains all activated abilities of target creature until end
-  of turn."** Quicksilver Elemental (Vivi B4 batch, 2026-08-10) — the one
-  card left open. MEC-21's batch (2026-08-11) narrowed this: `continuous.
-  _apply_borrowed_activated_abilities`/`_retarget_effect_source` now do
-  read an arbitrary object's own `activated_abilities` and rebuild each as
-  a fresh `ActivatedAbility` redirected onto a different grantee (RULE
-  113.7c) — but as a *standing* layer-6 static keyed off `GameObject.
-  exiled_with_ids`, not a resolve-time "snapshot a **targeted** creature's
-  ability set, for the rest of the turn" grant. What's still genuinely
-  open: a resolve-time effect that snapshots `target.activated_abilities`
-  at resolution and stamps the rebuilt copies onto the source via a
-  turn-scoped field (`temp_*`-shaped, cleared at cleanup like `temp_
-  keywords`) rather than the exiled-with static's own live per-pass
-  re-derivation. Likely a thin wrapper reusing `_retarget_effect_source`
-  rather than a second implementation. Also still needs "you may spend
-  blue mana as though it were mana of any color to pay the activation
-  costs of ~'s abilities" — MEC-21's `grant_any_color_for_activation` is
-  scoped to *creatures you control generally*, not *this one card's own
-  granted set specifically*; the same gap Drana and Linvala/Scheming
-  Fence's near-identical "any color to activate **those** abilities"
-  phrasing needs too (`parser_probe.py cards` — 2 more real cards, found
-  while sizing MEC-21, not built there since both also need the
-  target-creature/chosen-permanent ability-borrowing half above first).
-
-- **MEC-24 · Single-target "target instant or sorcery card in your
-  graveyard gains flashback…" flashback grant.** Vivi B4 batch,
-  2026-08-10 — Past in Flames's own untargeted "each…" sibling shipped
-  (`grant_graveyard_cast_permission_this_turn`), but the far more common
-  *targeted*-singular phrasing (Recoup/Snapcaster Mage/Slickshot
-  Lockpicker/Sphinx of Forgotten Lore/Katilda and Lier/The Fugitive
-  Doctor — ~10 real cards, `parser_probe.py blocked`) needs a genuinely
-  different shape: granting flashback to *one specific, targeted*
-  graveyard card rather than broadly to every instant/sorcery there. No
-  existing primitive marks a single graveyard object with a temporary
-  cast permission the way `exile_with_play_permission`'s `GameState.
-  temp_play_permissions` does for an *exiled* card — needs its own
-  per-object marker (or reuse of the graveyard-cast permission machinery
-  scoped to one `instance_id` instead of "every instant/sorcery you
-  control").
+- **MEC-26 · Standing, group-scoped ability borrowing + a scoped
+  activation prohibition.** Drana and Linvala/Scheming Fence — found while
+  sizing MEC-21 (2026-07-22), deferred again by MEC-23 (2026-08-11) as
+  needing that ticket's target-creature ability-borrowing primitive first;
+  MEC-23 has since shipped (`effects.GainActivatedAbilitiesOfTargetEffect`),
+  but it's a **resolve-time, single-target snapshot** ("gains X's abilities
+  *until end of turn*"), and both of these print a **standing, group-scoped**
+  grant instead — genuinely closer to MEC-21's own `grant_borrowed_
+  activated_ability`/`continuous._apply_borrowed_activated_abilities`
+  (a live, every-recompute-pass re-derivation), just reading its "which
+  creatures to borrow from" list off a *group selector*
+  ("all creatures your opponents control") or an *ETB choice*
+  ("the chosen permanent") instead of `GameObject.exiled_with_ids` — that
+  static's ``has_counter_kind``/``creature_only`` params would need a third
+  source-selection mode alongside "exiled with ~". Three real gaps, not one:
+  (1) the group/chosen-permanent source selector just described; (2) "You
+  may spend mana as though it were mana of any color to activate **those**
+  abilities" — MEC-23's `from_color`/`self_only` params scope to *the
+  granting permanent's own* ability set, not *the borrowed set specifically*
+  (a third param, or reframing `self_only` as "abilities borrowed via this
+  static" would cover both); (3) "Activated abilities of `<X>` can't be
+  activated" scoped to a specific object/group (Drana: every opponent
+  creature; Scheming Fence: the chosen permanent) — the existing
+  `continuous.activation_prohibited` is a flat, card-type-wide RULE 602
+  gate (Collector Ouphe-shaped), not scoped to a dynamic selector or a
+  per-object choice. Scheming Fence also needs its own ETB "you may choose
+  a nonland permanent" (RULE 601.2b-shaped `chosen_permanent`, a new sibling
+  to the existing `chosen_type`/`chosen_color` entry-choice family) before
+  any of the above can even name what "the chosen permanent" refers to.
 
 ## PLR — Player management
 
-- **PLR-4 · Names are the identity, unauthenticated.** Two people picking
-  the same name share a seat; the second to connect takes over. Fine for a
-  LAN table, not for anything public — needs [PLR-9].
+- **PLR-4 · Names are unauthenticated; the client-token stub only covers
+  browsers that have saved a Profil name.** Two browsers that *have* saved
+  a Profil name no longer merge into one seat (`services/lobby.py`'s
+  `client_token`, `Done_Backend.md` "Client-token identity stub") — but the
+  token is unsigned, client-trusted data (copy/clear/forge it and nothing
+  notices), and a client that has never opened Profil still resolves by
+  name alone, the original collision. Fine for a LAN table, not for
+  anything public — closing the residual gap for real needs [PLR-9].
 - **PLR-9 · User accounts.** Login/signup (docs/04 PART 4), auth token
   storage + attachment to API/WebSocket calls, browser-refresh reconnect
   flow (docs/04 S1), and login/signup pages. Saved decks are unscoped until

@@ -437,6 +437,26 @@ class GameState:
         #: (`GameEngine._step_cleanup`).
         self.free_cast_instance_ids: set[int] = set()
 
+        #: "Target instant or sorcery card in your graveyard gains flashback
+        #: until end of turn." (MEC-24 — Recoup/Snapcaster Mage/Sphinx of
+        #: Forgotten Lore-shaped) — ``instance_id -> flashback cost``
+        #: (a `ManaCost`-parseable string), a genuinely *per-graveyard-card*
+        #: marker rather than one appended to the granting permanent's own
+        #: `GameObject.static_effects` the way `GrantGraveyardCastPermission
+        #: ThisTurnEffect`'s untargeted "each instant and sorcery card"
+        #: sibling (Backdraft Hellkite) is: that shape reads fine off a
+        #: scan of the controller's battlefield, but a *targeted* singular
+        #: grant needs to survive independently of the granting permanent
+        #: (which may attack, die, or leave play before the graveyard card
+        #: is ever cast) and must apply to exactly one graveyard object, not
+        #: every card matching a type filter. Consulted by `game/engine/
+        #: casting_mixin.py`'s `_graveyard_cast_keyword`/`_flashback_cost`
+        #: alongside the printed Flashback keyword; cleared unconditionally
+        #: at cleanup (RULE 514.2, `GameEngine._step_cleanup`) — a flat
+        #: "until end of turn" grant, unlike `temp_play_permissions`' own
+        #: "until your next turn" turn-number bookkeeping.
+        self.temp_flashback_grants: dict[int, str] = {}
+
         #: Delayed triggered abilities (RULE 603.7) a resolving spell/ability
         #: has set up to fire at a *future* step ("at the beginning of your
         #: next upkeep/main phase/end step, …" — Pacts, Mana Drain, Final

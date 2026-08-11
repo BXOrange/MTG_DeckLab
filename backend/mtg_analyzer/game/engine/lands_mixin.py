@@ -193,12 +193,22 @@ class LandsMixin:
         in your graveyard has escape." (Underworld Breach), a layer-6
         ability grant that no printed keyword scan would ever see, so the
         board is consulted too (`continuous.granted_escape_for`).
+
+        Flashback may likewise be *granted* to one specific graveyard card
+        (MEC-24 — "target instant or sorcery card in your graveyard gains
+        flashback until end of turn.", Recoup/Snapcaster Mage-shaped) —
+        `GameState.temp_flashback_grants`, a resolve-time, turn-scoped,
+        per-object marker rather than a continuously-rederived static (the
+        granting permanent may leave play or change before the graveyard
+        card is ever cast, unlike Underworld Breach's own live grant).
         """
         params = getattr(obj, "parametric_keywords", None) or {}
         if "flashback" in params:
             return "flashback"
         if "escape" in params:
             return "escape"
+        if obj.instance_id in self.state.temp_flashback_grants:
+            return "flashback"
         if continuous.granted_escape_for(self.state, obj) is not None:
             return "escape"
         return None

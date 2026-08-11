@@ -1523,11 +1523,14 @@ def _return_previous_group(m: re.Match[str]) -> list[EffectSpec]:
 
 
 #: A graveyard clause's card-*type* word, right before "card" — "target
-#: [instant or sorcery/nonland permanent/creature/artifact/enchantment/
-#: land/permanent] card", or no word at all for a bare "target card"
-#: (longest-alternative-first so "nonland permanent" wins over "permanent").
+#: [instant or sorcery/sorcery/nonland permanent/creature/artifact/
+#: enchantment/land/permanent] card", or no word at all for a bare "target
+#: card" (longest-alternative-first so "nonland permanent" wins over
+#: "permanent"; ``sorcery`` alone — MEC-24, Recoup's own "target **sorcery**
+#: card" — doesn't need the same ordering care since it starts on a
+#: different word than "instant or sorcery").
 _GRAVEYARD_TYPE_WORD = (
-    r"instant or sorcery|nonland permanent|creature|artifact|enchantment|land|permanent"
+    r"instant or sorcery|sorcery|nonland permanent|creature|artifact|enchantment|land|permanent"
 )
 #: A graveyard clause's *scope* — whose graveyard — "your"/"a" (any single
 #: graveyard)/"an opponent's" (longest-alternative-first, same reason).
@@ -2154,16 +2157,12 @@ _TRIGGER_COPY_SPELL_RE = _c(
 
 #: "Each instant and sorcery card in your graveyard gains flashback until
 #: end of turn. The flashback cost is equal to its mana cost." (Past in
-#: Flames/Will of the Jeskai-shaped — the untargeted "each" sibling of the
-#: single-target "target instant or sorcery card in your graveyard gains
-#: flashback…" family, still unclaimed: a genuinely different shape, since
-#: granting *one specific* graveyard card flashback needs a per-object
-#: marker `grant_graveyard_cast_permission_this_turn` doesn't have — see
-#: BACKLOG.md). `GrantGraveyardCastPermissionThisTurnEffect` already exists
-#: (built for Backdraft Hellkite's identical wording) — this is purely the
-#: missing oracle-text recognizer for a *second* card using the same
-#: primitive, per the project's "sweep for what else a new primitive
-#: closes" discipline.
+#: Flames/Will of the Jeskai-shaped — the untargeted "each" sibling of
+#: `_GRANT_FLASHBACK_TARGET_RE` below). `GrantGraveyardCastPermissionThisTurnEffect`
+#: already exists (built for Backdraft Hellkite's identical wording) — this
+#: is purely the missing oracle-text recognizer for a *second* card using
+#: the same primitive, per the project's "sweep for what else a new
+#: primitive closes" discipline.
 _GRANT_FLASHBACK_EACH_RE = _c(
     r"each instant and sorcery card in your graveyard gains flashback until end of turn\.\s*"
     r"the flashback cost is equal to its mana cost"
@@ -2172,6 +2171,44 @@ _GRANT_FLASHBACK_EACH_RE = _c(
 
 def _grant_flashback_each(m: re.Match[str]) -> list[EffectSpec]:
     return [EffectSpec("grant_graveyard_cast_permission_this_turn", {})]
+
+
+#: "Target instant or sorcery card in your graveyard gains flashback until
+#: end of turn. The flashback cost is equal to its mana cost." (MEC-24 —
+#: Recoup/Snapcaster Mage/Slickshot Lockpicker/Sphinx of Forgotten Lore/
+#: Katilda and Lier-shaped) — the *targeted*, single-card sibling of
+#: `_GRANT_FLASHBACK_EACH_RE` above, needing a genuinely different
+#: primitive (`grant_flashback_to_target`/`GameState.temp_flashback_grants`
+#: — see that effect's own docstring for why the untargeted marker doesn't
+#: fit) rather than reusing `grant_graveyard_cast_permission_this_turn`.
+#: Reuses the graveyard-recursion family's own `_GRAVEYARD_TYPE_WORD`/
+#: `_GRAVEYARD_SCOPE_WORD`/`_graveyard_target_kind` vocabulary (word order
+#: is "target ... card **in** ... graveyard", not "**from** ... graveyard"
+#: like the recursion family, so this is its own regex rather than a shared
+#: one). The trailing "the flashback cost is equal to [that card's/its]
+#: mana cost" sentence is optional and dropped once matched — it's not a
+#: second effect, just prose restating what "gains flashback" (with no
+#: literal cost) already means; when a literal cost **is** given inline
+#: instead (The Fugitive Doctor's "gains flashback {2}{R}{G} until end of
+#: turn", no such sentence at all), ``cost`` carries it and overrides the
+#: "equal to its mana cost" default `GrantFlashbackToTargetEffect` falls
+#: back to.
+_GRANT_FLASHBACK_TARGET_RE = _c(
+    rf"target (?:(?P<type>{_GRAVEYARD_TYPE_WORD}) )?card in "
+    rf"(?P<scope>{_GRAVEYARD_SCOPE_WORD}) graveyard gains flashback"
+    r"(?: (?P<cost>(?:\{[^}]+\})+))? until end of turn\.?"
+    r"(?:\s*the flashback cost is equal to (?:that card'?s|its) mana cost\.?)?"
+)
+
+
+def _grant_flashback_target(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    kind = _graveyard_target_kind(m.groupdict().get("type"), m.group("scope"))
+    if kind is None:
+        return None
+    params: dict = {"target_kind": kind}
+    if m.groupdict().get("cost"):
+        params["cost"] = m.group("cost")
+    return [EffectSpec("grant_flashback_to_target", params)]
 
 
 #: "The next spell you cast this turn can't be countered." (Mistrise
@@ -4901,6 +4938,14 @@ HANDLERS: list[EffectHandler] = [
         "grant_flashback_each",
         _GRANT_FLASHBACK_EACH_RE,
         _grant_flashback_each,
+    ),
+    # "Target instant or sorcery card in your graveyard gains flashback
+    # [<cost>] until end of turn[. The flashback cost is equal to its mana
+    # cost.]" (MEC-24, Recoup/Snapcaster Mage-shaped).
+    EffectHandler(
+        "grant_flashback_target",
+        _GRANT_FLASHBACK_TARGET_RE,
+        _grant_flashback_target,
     ),
     # "The next spell you cast this turn can't be countered." (Mistrise
     # Village's own activated ability body).

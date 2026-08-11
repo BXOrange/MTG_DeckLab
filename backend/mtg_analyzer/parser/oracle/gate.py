@@ -875,7 +875,18 @@ NEVER_SUPPORTED = "NEVER_SUPPORTED"
 #: (`catalogue.handlers._free_cast_from_hand`, `effects.
 #: FreeCastFromHandEffect`), plus "veil of time" added to `normalize`'s
 #: RULE 207.2c ability-word whitelist (Epistolary Librarian).
-PARSER_VERSION = "69"
+#: MEC-24 (2026-08-11): "target instant or sorcery card in your graveyard
+#: gains flashback [`<cost>`] until end of turn[. The flashback cost is
+#: equal to its mana cost.]" (Recoup/Snapcaster Mage/Slickshot Lockpicker/
+#: Sphinx of Forgotten Lore/Katilda and Lier-shaped) —
+#: `catalogue.handlers._grant_flashback_target`/`effects.
+#: GrantFlashbackToTargetEffect`, a per-graveyard-card marker
+#: (`GameState.temp_flashback_grants`) rather than the untargeted "each
+#: instant and sorcery card" grant (`grant_graveyard_cast_permission_
+#: this_turn`) already claims. `_GRAVEYARD_TYPE_WORD` also gained a bare
+#: "sorcery" alternative (Recoup's own "target **sorcery** card") alongside
+#: a matching `targeting._GRAVEYARD_TYPE_FILTERS["sorcery"]` entry.
+PARSER_VERSION = "70"
 
 
 @dataclass

@@ -53,6 +53,9 @@ _GRAVEYARD_TYPE_FILTERS: dict[str, Any] = {
     "artifact": lambda o: bool(o.card.is_artifact),
     "enchantment": lambda o: bool(o.card.is_enchantment),
     "instant_or_sorcery": lambda o: bool(o.card.is_instant or o.card.is_sorcery),
+    # "target **sorcery** card in your graveyard gains flashback…" (MEC-24,
+    # Recoup) — the sorcery-only narrowing of the combined filter above.
+    "sorcery": lambda o: bool(o.card.is_sorcery),
     "permanent": lambda o: o.is_creature or o.is_land or o.is_planeswalker
     or bool(o.card.is_artifact or o.card.is_enchantment),
     "nonland_permanent": lambda o: o.is_creature or o.is_planeswalker

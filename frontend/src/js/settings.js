@@ -9,6 +9,7 @@ import { getCookie, setCookie } from './cookies.js';
 
 const SERVER_URL_COOKIE = 'mtg_server_url';
 const PLAYER_NAME_COOKIE = 'mtg_player_name';
+const CLIENT_TOKEN_COOKIE = 'mtg_client_token';
 const AUTO_PASS_COOKIE = 'mtg_auto_pass';
 const AUTO_PASS_SECONDS_COOKIE = 'mtg_auto_pass_seconds';
 const AUTO_PASS_SCOPE_COOKIE = 'mtg_auto_pass_scope';
@@ -25,6 +26,12 @@ const MP_DEFAULT_TAKEBACKS_COOKIE = 'mtg_mp_default_takebacks';
 const MP_DEFAULT_RANDOM_SEATING_COOKIE = 'mtg_mp_default_random_seating';
 const MP_DEFAULT_RANDOM_START_COOKIE = 'mtg_mp_default_random_start';
 const COOKIE_MAX_AGE_DAYS = 365;
+
+//: PLR-4: how long this browser's identity token stays valid without being
+//: renewed — mirrors the backend's sliding `CLIENT_TOKEN_VALIDITY_SECONDS`
+//: (config.py). Every time the Profil tab's "Speichern" mints/renews the
+//: cookie, both clocks reset together.
+const CLIENT_TOKEN_VALIDITY_DAYS = 90;
 
 //: Multiplayer auto-pass (RULE 117): how long you get to decide whether to
 //: respond before priority passes for you. Three seconds is the default —
@@ -68,6 +75,31 @@ export function getServerUrl() {
 
 export function getPlayerName() {
   return getCookie(PLAYER_NAME_COOKIE) || '';
+}
+
+/** This browser's PLR-4 identity token, or `''` if it has never saved one
+ * (a fresh browser, or one that predates this feature) — read-only, use
+ * `ensureClientToken()` to mint/renew it. */
+export function getClientToken() {
+  return getCookie(CLIENT_TOKEN_COOKIE) || '';
+}
+
+/**
+ * Mint this browser's identity token if it doesn't have one yet, or renew
+ * its validity window if it does; returns the token either way.
+ *
+ * Distinct from the player *name*: the name is what's shown at the table,
+ * the token (a random UUID, never shown anywhere) is what lets the server
+ * tell two browsers that happen to share a name apart instead of merging
+ * them into one seat (`services/lobby.py`'s `client_token` — PLR-4). Called
+ * from the Profil tab's "Speichern" button, same moment the name is saved,
+ * so a player who has never touched Profil (and so never sends a token)
+ * still gets the original name-only reconnect behaviour.
+ */
+export function ensureClientToken() {
+  const token = getClientToken() || crypto.randomUUID();
+  setCookie(CLIENT_TOKEN_COOKIE, token, CLIENT_TOKEN_VALIDITY_DAYS);
+  return token;
 }
 
 /** Whether priority passes by itself after `getAutoPassSeconds()`. */
@@ -153,6 +185,7 @@ export function getSettings() {
   return {
     serverUrl: getServerUrl(),
     playerName: getPlayerName(),
+    clientToken: getClientToken(),
     autoPass: getAutoPassEnabled(),
     autoPassSeconds: getAutoPassSeconds(),
     autoPassScope: getAutoPassScope(),

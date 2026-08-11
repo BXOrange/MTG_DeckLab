@@ -13112,3 +13112,209 @@ condition), which nothing in this engine models yet.
 `tests/test_mec25_mana_ability_upgrade.py`, `test_mec21_agathas_soul_
 cauldron.py`, `test_mec20_free_cast_from_hand.py` cover all three, each
 with a real-card end-to-end check alongside the synthetic-fixture ones.
+
+## MEC-23/MEC-24 (2026-08-11)
+
+Two tickets, both left open by the Vivi B4 batch (2026-08-10), closed
+together.
+
+### MEC-23 — Quicksilver Elemental's own two clauses
+
+"{U}: This creature gains all activated abilities of target creature
+until end of turn." needed the resolve-time, single-target sibling MEC-21's
+own ability-borrowing static (Agatha's Soul Cauldron) explicitly deferred:
+that one is a *standing* layer-6 grant, re-deriving its borrowed set live
+off `GameObject.exiled_with_ids` every `continuous.recompute` pass — wrong
+shape for "snapshot **one target's** ability set, once, for the rest of
+the turn." The new `effects.GainActivatedAbilitiesOfTargetEffect`
+(``"gain_target_activated_abilities"``) is a plain one-shot `GameEffect`
+with a ``target_kind="creature"`` `TargetSpec`: at resolution it reads
+``target.activated_abilities`` once and, for each, builds a fresh
+`ActivatedAbility` — same cost/effects, every nested effect's ``.source``
+redirected to the grantee via the *existing* `continuous.
+_retarget_effect_source` (RULE 113.7c), reused rather than reimplemented
+per the ticket's own note — appended onto a new turn-scoped
+`GameObject.temp_granted_activated_abilities` field (the `temp_keywords`
+shape: initialized in `__init__`, *not* reset by `reset_derived` since it
+must survive a mid-turn recompute, cleared unconditionally at cleanup,
+RULE 514.2). `GameObject.granted_activated_abilities` — the one property
+every consumer (`can_activate`/`activate_ability`/`legal_actions`) already
+reads — now unions this list with the pre-existing layer-6
+`_granted_activated_abilities`, so no call site needed to change at all.
+A later change to the target's own ability set doesn't retroactively
+change what was copied, matching the card's own printed ruling.
+
+The second clause — "You may spend blue mana as though it were mana of
+any color to pay the activation costs of this creature's abilities." —
+is *not* Agatha's own unscoped wildcard reused verbatim: Agatha's lets
+*any* of the five colors pay *any* colored pip, for *any* creature the
+controller controls; this is self-scoped (only this permanent's own
+abilities) and single-color (only blue substitutes — a red pip still
+needs real red or blue, never green/white/black). `continuous.
+any_color_for_activation` gained two params to cover both without a
+second function: ``self_only`` (checks ``ability.source is source``
+instead of Agatha's controller-wide check) and ``from_color`` (returned
+in place of the literal ``"color"`` wildcard token). `ManaPool._solve`
+gained the matching branch: a WUBRG letter as ``wildcard`` (as opposed to
+the literal string ``"color"``) widens a colored pip's candidates to
+``[real_color, wildcard_color]`` rather than all five — genuinely
+different arithmetic, not a relabeling of the existing branch. All three
+of `game/engine/activation_mixin.py`'s cost-paying call sites already
+computed ``wildcard`` from this one function's return value, so widening
+it from `bool` to `Optional[str]` (the wildcard token itself, or `None`)
+needed no new call site, only dropping each one's own
+``"color" if ... else None`` ternary.
+
+Hand-authored (`game/ability_catalogue.py`) — a genuine singleton shape
+(`engine_bench.py cards 'gains all activated abilities of target
+creature'` found exactly one cached card) per the authoring guide's own
+"a card the parser can't fully claim" criterion, not a deferred parser
+gap. Found two more real cards printing the same wildcard phrasing while
+sizing this (Drana and Linvala, Scheming Fence) — their own grant is
+*standing* and *group/choice-scoped* rather than resolve-time/targeted,
+a genuinely different shape needing its own selector on the MEC-21 static
+plus a scoped activation-prohibition and (Scheming Fence) an ETB
+chosen-permanent primitive; filed as `MEC-26` rather than silently
+re-deferred a third time under the old ticket's stale wording.
+
+### MEC-24 — the targeted "target instant or sorcery card in your graveyard gains flashback…" family
+
+Past in Flames's own untargeted "each instant and sorcery card in your
+graveyard gains flashback…" sibling (`grant_graveyard_cast_permission_
+this_turn`, appended onto the *granting permanent's own*
+`GameObject.static_effects`, scanned by `game/graveyard_cast.py`) doesn't
+fit the far more common *targeted*-singular phrasing (Recoup/Snapcaster
+Mage/Slickshot Lockpicker/Sphinx of Forgotten Lore/Katilda and Lier — 5
+of the ticket's ~10 named cards, the other, The Fugitive Doctor, remains
+blocked on an unrelated pre-existing gap below): that marker lives on the
+*grantee*, discoverable only by scanning the granting permanent's own
+battlefield presence, but a targeted grant must survive independently of
+whatever granted it (the creature that triggered it may attack into
+removal, or simply leave play, before the graveyard card is ever cast)
+and must apply to exactly the one chosen card, not every instant/sorcery
+in the graveyard.
+
+New primitive: `GameState.temp_flashback_grants` (``instance_id ->
+cost``), a marker on the *graveyard card itself* — the same "per-object
+marker" shape `GameState.temp_play_permissions` already uses for a
+temporarily-castable *exiled* card, just keyed to a graveyard object
+instead. `effects.GrantFlashbackToTargetEffect`
+(``"grant_flashback_to_target"``) stamps it at resolution, defaulting the
+cost to the target's own `Card.mana_cost_string` (every real card but The
+Fugitive Doctor, whose flat ``{2}{R}{G}`` overrides it via the effect's
+own ``cost`` param). Consulted by exactly two existing choke points —
+`game/engine/lands_mixin.py`'s `_graveyard_cast_keyword` (now returns
+``"flashback"`` for a granted card too, alongside the printed-keyword and
+Underworld-Breach-granted-Escape checks already there) and
+`game/engine/casting_mixin.py`'s `_flashback_cost` (converted from
+`@staticmethod` to an instance method so it can read `self.state`,
+matching `_escape_cost`'s own printed-vs-granted split) — so cost
+computation (`effective_cast_cost`), the `legal_actions` "cast_from_
+graveyard" UI tag, and the RULE 702.34a exile-after-cast
+(`GameObject.cast_via_flashback`, already keyed off the same
+`_graveyard_cast_keyword` return value) all fall out of the existing
+Flashback machinery unchanged — no new casting/exile code at all. Cleared
+unconditionally at cleanup (RULE 514.2, `GameEngine._step_cleanup`) — a
+flat "until end of turn" grant, unlike `temp_play_permissions`' own
+"until your next turn" turn-number bookkeeping the sibling mechanism
+needs.
+
+**Parser recognition** (`catalogue.handlers._grant_flashback_target`)
+reuses the graveyard-recursion family's own `_GRAVEYARD_TYPE_WORD`/
+`_GRAVEYARD_SCOPE_WORD`/`_graveyard_target_kind` vocabulary (Regrowth/
+Reanimate-shaped) rather than a bespoke grammar — one regex covers every
+real card's variation: the common "the flashback cost is equal to
+[its/that card's] mana cost" trailing sentence (optional, dropped once
+matched — restated prose, not a second effect), a literal inline cost
+with no trailing sentence (The Fugitive Doctor), and a bare "target
+**sorcery** card" narrowing (Recoup) that needed a new
+`targeting._GRAVEYARD_TYPE_FILTERS["sorcery"]` entry (the existing
+vocabulary only had the combined `instant_or_sorcery` filter). The Fugitive
+Doctor stays UNMODELED: its clause is wrapped in "you may sacrifice a
+Clue. When you do, `<effect>`." (RULE 603.5), and `_pay_cost_then_
+general`'s own, already-documented restriction against a *targeted*
+follow-up (`PayCostThenEffect`'s branches resolve off-stack, with no
+RULE 601.2c target-gathering step of their own) correctly still applies —
+a real, separate, pre-existing limitation, not something this ticket's
+own primitive touches.
+
+`PARSER_VERSION` → 70. Coverage after this batch: 11,487 / 34,811 (33.0%).
+`tests/test_mec23_quicksilver_elemental.py`/`test_mec24_targeted_
+flashback_grant.py` cover both, each with parser-unit-level regex tests,
+synthetic-fixture engine tests, and a real-card end-to-end cast (Snapcaster
+Mage's own ETB interactively targeting a graveyard Lightning Bolt, then
+actually casting it for the granted cost).
+
+## PLR-4 · Client-token identity stub (2026-08-11)
+
+Narrowed, not closed — real accounts are still [PLR-9]. Before this,
+`services/lobby.py`'s only identity was the display name
+(`normalize_name`), so two browsers saving the same Profil name genuinely
+merged into one seat, the second to connect taking it over. This batch
+gives a browser that *has* saved a Profil name a second, independent
+handle that disambiguates it from another browser sharing that name,
+without building any part of real accounts (no login, no server-issued
+credential, no password) — deliberately scoped to "stop the accidental
+collision," per the user's own framing of it as a stub.
+
+**Client side** (`settings.js`'s `ensureClientToken`): a random
+`crypto.randomUUID()`, minted into the `mtg_client_token` cookie the first
+time the Profil tab's "Speichern" button is pressed (same moment the name
+itself is saved) and never before — a client that has never opened Profil
+still resolves purely by name, the original PLR-4 behaviour, unchanged.
+The cookie's `Max-Age` is a sliding 90 days, renewed on every save.
+
+**Server side** (`services/lobby.py`): `LobbyPlayer.client_token` +
+`token_expires_at` (wall-clock, since it has to slide independently of the
+monotonic disconnect/idle deadlines already on the class) and a new
+`Lobby._by_token` index. `Lobby.connect`'s reclaim order is now
+`player_id` → `client_token` (if the caller has one) → `name` (only when
+the caller has *no* token — the legacy path). The key behavioural change
+is that once a client presents a token, name is never consulted for that
+client's identity at all: an unrecognized token mints a brand-new player
+rather than falling back to a name match, which is exactly what stops two
+same-name browsers from merging. `client_token` is deliberately never
+included in `LobbyPlayer.to_dict()` — the lobby snapshot is broadcast to
+every connected client, and leaking a token would let an opponent replay
+it to steal the reconnect. Wired through both connect paths: `/ws/lobby`
+(`api/multiplayer_ws.py`, a new `client_token` query param) and the REST
+`POST /api/multiplayer/connect` fallback (`LobbyConnectRequest.
+client_token`, `api/schemas.py`).
+
+**Expiry ("player-data can/will be deleted")**: `Lobby.
+expired_token_players()` (swept once a second by `api/multiplayer_ws.
+sweep_once`, alongside the existing idle/disconnect-grace jobs) is gated
+the same cautious way the disconnect-grace sweep already is — never a
+player who's currently connected, never one seated in a `RUNNING` game —
+so a live browser's identity never expires mid-session regardless of the
+clock, only a genuinely abandoned one (`config.
+CLIENT_TOKEN_VALIDITY_SECONDS`, 90 days, `MTG_CLIENT_TOKEN_VALIDITY` env
+override). Once forgotten, if no *other* still-recognized player shares
+that display name (`Lobby.name_in_use_by_other` — connected, or holding
+an unexpired token of their own), that name's `player_assets.py` uploads
+(sleeves, token art, favorite decks — still name-keyed, untouched by this
+batch otherwise) are purged too, via the new `PlayerAssetStore.
+delete_all_for_player`. The `name_in_use_by_other` guard exists
+specifically because two browsers can now legitimately share a display
+name at once (that's the point) — without it, one stale browser expiring
+would delete a still-active namesake's uploads out from under them.
+
+**What this deliberately doesn't do**, all requiring real accounts
+(PLR-9, left as the actual next step, not narrowed by this batch): the
+token is unsigned, client-trusted data — nothing stops it being copied,
+cleared, or forged, so it's a UX safeguard against *accidental* collision,
+not a security boundary; a client with cookies cleared (or one that never
+opened Profil) is indistinguishable from a stranger and falls back to the
+original name-only behaviour; and saved decks stay globally unscoped
+(anyone hitting the API sees every deck) exactly as before — the token
+lives entirely in the lobby's presence layer, `services/deck_database.py`
+was not touched.
+
+Tests: `tests/test_api_multiplayer.py`'s `TestClientTokenIdentity` (same
+token reclaims across a rename; two tokens under one name stay distinct;
+an anonymous connect is never silently reclaimed by a later tokened one;
+the legacy no-token path is unchanged; a repeated token still takes over
+its own old socket) and `TestClientTokenExpiry` (expiry forgets the
+player; a connected or mid-game token is never swept; asset purge fires
+when the name is unshared and is skipped when a still-valid namesake
+exists) plus `tests/test_player_assets.py`'s `TestDeleteAllForPlayer`.

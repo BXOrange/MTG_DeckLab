@@ -16,7 +16,7 @@
 // uploaded token art / sleeves under (see connectionSettingsView.js), so
 // this remains the one field the rest of the app treats as "who you are".
 
-import { getSettings, saveSettings } from './settings.js';
+import { getSettings, saveSettings, ensureClientToken } from './settings.js';
 import { fetchGameFormats, listSavedDecks, listFavoriteDecks, addFavoriteDeck, removeFavoriteDeck } from './api.js';
 import { MULLIGAN_LABELS, SEAT_COUNTS } from './mulligan.js';
 import { escapeHtml } from './cardTile.js';
@@ -37,7 +37,11 @@ export function renderProfileView(container) {
       <p class="hint">
         Wird im Browser (Cookie) gespeichert — nicht serverseitig, ein anderer Browser/Rechner
         sieht ihn nicht. Eigene Token-Bilder und Karten-Sleeves (Tab "Einstellungen") sowie der
-        Mehrspieler-Modus sind unter diesem Namen gespeichert.
+        Mehrspieler-Modus sind unter diesem Namen gespeichert. Beim Speichern erhält dieser
+        Browser außerdem eine eigene, unsichtbare Kennung (90 Tage gültig, verlängert sich bei
+        jedem Speichern) — so belegt ein zweiter Browser mit demselben Namen nicht denselben
+        Platz am Tisch. Wird die Kennung 90 Tage lang nicht genutzt, gelten Name und hochgeladene
+        Bilder/Sleeves als verwaist und werden vom Server gelöscht.
       </p>
 
       <div class="deck-section">
@@ -106,6 +110,9 @@ export function renderProfileView(container) {
   saveBtn.addEventListener('click', () => {
     const saved = saveSettings({ playerName: nameInput.value });
     nameInput.value = saved.playerName;
+    // PLR-4: mint/renew this browser's identity token alongside the name,
+    // so a second browser saving the same name doesn't take this seat over.
+    ensureClientToken();
     loadFavorites(); // the favorites list is keyed by the (now possibly new) name
   });
 

@@ -103,15 +103,25 @@ class CastingMixin:
             kind = face_down.cast_face_down_kind(obj)
             return face_down.face_down_card(kind) if kind else None
         return obj.card
-    @staticmethod
-    def _flashback_cost(obj: GameObject) -> Optional["ManaCost"]:
+    def _flashback_cost(self, obj: GameObject) -> Optional["ManaCost"]:
         """RULE 702.34b: ``obj``'s Flashback cost as a `ManaCost`, or
         ``None`` if it carries no Flashback keyword (or one with no parsed
-        cost)."""
+        cost) and no *granted* one either.
+
+        A granted flashback (MEC-24 — "target instant or sorcery card in
+        your graveyard gains flashback [until end of turn]", Recoup/
+        Snapcaster Mage-shaped) has no printed keyword to read; its cost
+        comes from `GameState.temp_flashback_grants` instead, the same
+        "no printed text, assemble the cost from the grant" split
+        `_escape_cost`'s own `continuous.granted_escape_for` branch uses.
+        """
         param = (getattr(obj, "parametric_keywords", None) or {}).get("flashback")
-        if not param or not param.get("cost"):
-            return None
-        return ManaCost.parse(str(param["cost"]))
+        if param and param.get("cost"):
+            return ManaCost.parse(str(param["cost"]))
+        granted = self.state.temp_flashback_grants.get(obj.instance_id)
+        if granted is not None:
+            return ManaCost.parse(str(granted))
+        return None
     @staticmethod
     def _mutate_cost(obj: GameObject) -> Optional["ManaCost"]:
         """RULE 702.140b: ``obj``'s Mutate cost as a `ManaCost`, or ``None``

@@ -716,6 +716,19 @@ class GameObject:
         #: printed-text protection, so it's kept off the card and unioned in at
         #: check time instead.
         self.temp_protections: set[str] = set()
+        #: "~ gains all activated abilities of target creature until end of
+        #: turn." (MEC-23, Quicksilver Elemental) — a resolve-time snapshot
+        #: of the target's `activated_abilities` at the moment of
+        #: resolution (each redirected onto this object via
+        #: `continuous._retarget_effect_source`, RULE 113.7c), *not* a live
+        #: re-derivation the way `_granted_activated_abilities` (layer-6,
+        #: rebuilt every `continuous.recompute` pass) is — later changes to
+        #: the target's own ability set don't retroactively change what was
+        #: copied, matching Quicksilver Elemental's own ruling. Read
+        #: together with both of those by the `granted_activated_abilities`
+        #: property below. Cleared at cleanup (RULE 514.2) alongside
+        #: `temp_keywords`/`temp_power`.
+        self.temp_granted_activated_abilities: list[Any] = []
 
         #: "Another target creature" a layer-1 conditional-copy static
         #: ability (Vesuvan Shapeshifter) should copy — read fresh every
@@ -883,6 +896,7 @@ class GameObject:
         self.temp_cant_block = False
         self.temp_combat_restrictions = []
         self.temp_protections = set()
+        self.temp_granted_activated_abilities = []
         self.copy_target_id = None
         self._copy_base = None
         self._copy_applied_target_id = None
@@ -1118,10 +1132,13 @@ class GameObject:
     def granted_activated_abilities(self) -> list[Any]:
         """Activated abilities a layer-6 static ability granted this object
         (Umbral Mantle/Squirrel Nest-shaped "<host> has '{cost}: <effect>.'")
-        — read together with `activated_abilities` (this object's own
-        printed ones) by `GameEngine.can_activate`/`activate_ability`/
+        plus any resolve-time, turn-scoped grant (MEC-23's
+        `temp_granted_activated_abilities` — Quicksilver Elemental's own
+        "gains all activated abilities of target creature until end of
+        turn") — read together with `activated_abilities` (this object's
+        own printed ones) by `GameEngine.can_activate`/`activate_ability`/
         `legal_actions`, mirroring `granted_triggered_abilities`."""
-        return list(self._granted_activated_abilities)
+        return list(self._granted_activated_abilities) + list(self.temp_granted_activated_abilities)
 
     # -- State transitions ----------------------------------------------
 

@@ -2343,33 +2343,47 @@ def has_no_maximum_hand_size(state: "GameState", player: "Player") -> bool:
     return False
 
 
-def any_color_for_activation(state: "GameState", player: "Player", source: "GameObject") -> bool:
-    """Whether ``player`` may spend mana as though it were mana of any color
-    to activate ``source``'s ability right now (RULE 605.1a-adjacent
-    wildcard permission, MEC-21 — Agatha's Soul Cauldron's "You may spend
-    mana as though it were mana of any color to activate abilities of
-    creatures you control.") — consulted by `game/engine/activation_mixin.
-    py`'s cost-paying trio (`_max_x_for_mana`/`_can_pay_activation_cost`/
-    `_pay_activation_cost`), which pass ``"color"`` on to `ManaPool.
-    can_pay`/`pay`'s own ``wildcard`` param (already shipped for the
-    RULE 605.1a *casting*-side grant, `GameState.mana_wildcard_
-    permission`) when this returns ``True``.
+def any_color_for_activation(state: "GameState", player: "Player", source: "GameObject") -> Optional[str]:
+    """The `ManaPool` ``wildcard`` token to use when ``player`` pays
+    ``source``'s activation cost right now (RULE 605.1a-adjacent wildcard
+    permission), or ``None`` if no such grant applies.
+
+    Returns ``"color"`` for an unrestricted grant (MEC-21 — Agatha's Soul
+    Cauldron's "You may spend mana as though it were mana of any color to
+    activate abilities of creatures you control.": any of the five colors
+    pays any colored pip) — or a single WUBRG letter for a grant narrowed to
+    *one* source color (MEC-23 — Quicksilver Elemental's "You may spend
+    **blue** mana as though it were mana of any color to pay the activation
+    costs of this creature's abilities.": only blue mana substitutes, see
+    `ManaPool._solve`'s matching branch). Consulted by `game/engine/
+    activation_mixin.py`'s cost-paying trio (`_max_x_for_mana`/
+    `_can_pay_activation_cost`/`_pay_activation_cost`), which pass the
+    result straight on to `ManaPool.can_pay`/`pay`'s own ``wildcard`` param
+    (already shipped for the RULE 605.1a *casting*-side grant, `GameState.
+    mana_wildcard_permission`).
 
     Same "permission static outside the layer engine proper" treatment as
     `has_no_maximum_hand_size`/`no_untap_optional` — this isn't a
     characteristic of ``source`` itself, so RULE 613's layer engine has no
     slot for it. ``creature_abilities_only`` (every printed card so far)
     scopes the grant to abilities whose *source* is a creature; a future
-    card without that restriction would set it ``False``.
+    card without that restriction would set it ``False``. ``self_only``
+    (MEC-23) narrows the grant to abilities whose source is this *exact*
+    granting permanent, rather than Agatha's unscoped "creatures you
+    control" (any creature the grant's controller controls).
     """
     for ability in _battlefield_static_abilities(state):
         if ability.layer != "any_color_for_activation":
             continue
         if ability.params.get("creature_abilities_only", True) and not getattr(source, "is_creature", False):
             continue
-        if ability.affects == "each_player" or getattr(ability.source, "controller_id", None) == player.id:
-            return True
-    return False
+        if ability.params.get("self_only"):
+            if ability.source is not source:
+                continue
+        elif not (ability.affects == "each_player" or getattr(ability.source, "controller_id", None) == player.id):
+            continue
+        return ability.params.get("from_color") or "color"
+    return None
 
 
 def has_radiation_life_gain(state: "GameState", player: "Player") -> bool:

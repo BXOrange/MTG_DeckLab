@@ -113,7 +113,19 @@ but `move_log` never does, so the two can differ in length.
 id: that's what survives a page reload, so reconnecting with the same
 Profil name walks back into the same seat mid-game. The trade is explicit —
 two people sharing a name share a seat, and the second to connect takes
-over (the old socket is closed with a `replaced` reason). Losing a socket
+over (the old socket is closed with a `replaced` reason) — **unless**
+either browser has ever saved a Profil name, which mints it a random
+`client_token` (PLR-4 stub, `settings.js`'s `mtg_client_token` cookie,
+90-day sliding validity): once a client presents one, `Lobby.connect`
+resolves it by that token instead of by name at all, so two browsers
+sharing a display name stay distinct players rather than merging. Not real
+auth (unsigned, client-trusted, still PLR-9 to actually close) — just
+enough for one browser to keep recognizing itself without colliding with
+someone else's. A token unused for `MTG_CLIENT_TOKEN_VALIDITY` (default 90
+days, never while connected or mid-game) is forgotten, along with that
+name's `player_assets.py` uploads if no other still-recognized player
+shares it (`Lobby.expired_token_players`/`name_in_use_by_other`, swept
+alongside the timers below). Losing a socket
 doesn't forfeit: `Lobby.disconnect` starts a grace period
 (`MTG_MULTIPLAYER_DISCONNECT_GRACE`, default 90s) and meanwhile the server
 **passes priority for the absent player** (`pass_for_absent_players`) so
@@ -596,7 +608,7 @@ on every copy/every game. `parser/oracle/processing_list.py` tracks
 cache-wide coverage and ranks the next handlers worth building. The cache is
 now bulk-loaded with the **full ~35k-card Oracle universe**
 (`scripts/import_bulk.py`), so coverage is measured against that: **33.0%
-covered (11,475 / 34,811) as of 2026-08-11, PARSER_VERSION 69** (parser-`MODELED` **or**
+covered (11,487 / 34,811) as of 2026-08-11, PARSER_VERSION 70** (parser-`MODELED` **or**
 hand-`AUTHORED`).
 Re-measure with `scripts/coverage_report.py` (ledger-backed — see
 `services/coverage_db.py`) before trusting this number; Batches 1–10 are all
@@ -1032,6 +1044,40 @@ X is the number of attacking creatures") in one row. Full detail — every
 primitive, every card, the "you may " peel-guard/ability-word gotchas hit
 along the way — in `docs/implementation-state/Done_Backend.md`'s
 "MEC-25/MEC-20/MEC-21" entry.
+
+**MEC-23/MEC-24** (2026-08-11) closed the last two gaps the Vivi B4 batch
+had left open. MEC-23 (Quicksilver Elemental) needed the *resolve-time,
+single-target* sibling of MEC-21's *standing* ability-borrowing static:
+`effects.GainActivatedAbilitiesOfTargetEffect` snapshots a target's
+`activated_abilities` once, at resolution, redirecting each via the
+existing `continuous._retarget_effect_source` onto a new turn-scoped
+`GameObject.temp_granted_activated_abilities` field (unioned with the
+layer-6 grant by the one `granted_activated_abilities` property every
+consumer already reads) — later changes to the target's own abilities
+don't retroactively change what was copied. Its own "spend blue mana as
+though it were mana of any color" clause widened `continuous.
+any_color_for_activation` with `self_only` (this permanent's abilities
+only, not Agatha's unscoped "creatures you control") and `from_color`
+(only *that* WUBRG letter substitutes, not all five — a new `ManaPool.
+_solve` branch: `[real_color, wildcard_color]` rather than every color).
+Hand-authored as a genuine singleton shape; two more real cards found
+printing the same wildcard phrasing (Drana and Linvala, Scheming Fence)
+need a *standing, group/choice-scoped* borrow instead, filed as `MEC-26`
+rather than re-deferred a third time. MEC-24 built the *targeted* sibling
+of the already-shipped untargeted "each instant and sorcery card in your
+graveyard gains flashback…" grant (Recoup/Snapcaster Mage/Slickshot
+Lockpicker/Sphinx of Forgotten Lore/Katilda and Lier) — `GameState.
+temp_flashback_grants` (`instance_id -> cost`), a per-*graveyard-card*
+marker (the same shape `temp_play_permissions` already uses for a
+temporarily-castable exiled card) rather than one hung off the granting
+permanent, since the grant must survive independently of whatever
+granted it. `effects.GrantFlashbackToTargetEffect` stamps it;
+`_graveyard_cast_keyword`/`_flashback_cost` (`game/engine/{lands,
+casting}_mixin.py`) consult it alongside a printed Flashback keyword, so
+cost computation and the RULE 702.34a exile-after-cast fall out of the
+existing Flashback machinery with no new casting code. Full detail, both
+tickets: `docs/implementation-state/Done_Backend.md`'s "MEC-23/MEC-24"
+entry.
 
 **Notable gaps** (see `docs/implementation-state/BACKLOG.md` for the full list with exact
 scope on each): a kicked spell's "if kicked, ... instead" *override* conditional (as opposed to the

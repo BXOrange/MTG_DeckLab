@@ -202,13 +202,18 @@ class LobbyConnectRequest(BaseModel):
     """Request body for POST /api/multiplayer/connect.
 
     ``playerId`` is optional: send it to reclaim an existing id after a
-    reload, omit it to be given a fresh one.
+    reload, omit it to be given a fresh one. ``clientToken`` (PLR-4) is the
+    browser's own identity token (`settings.js`'s `mtg_client_token`
+    cookie, minted by profileView.js) — send it once it exists so a
+    reconnect resolves by token rather than by the (not-unique) name; see
+    `services/lobby.py`'s `Lobby.connect`.
     """
 
     model_config = ConfigDict(populate_by_name=True)
 
     name: str = "Spieler"
     player_id: Optional[str] = Field(default=None, alias="playerId")
+    client_token: Optional[str] = Field(default=None, alias="clientToken")
 
 
 class MultiplayerPlayerRequest(BaseModel):

@@ -149,7 +149,12 @@ class ManaPool:
         constrained symbol's payment: ``"color"`` lets any of the five
         colors (never colorless) pay a colored pip, ``"type"`` lets any of
         the six mana types pay *any* constrained pip, including a ``{C}``
-        one. ``None`` (the default) is the ordinary, unrelaxed solve.
+        one. A single WUBRG letter (MEC-23 — Quicksilver Elemental's "you
+        may spend **blue** mana as though it were mana of any color…")
+        narrows ``"color"`` the other way: only *that* color of mana
+        substitutes for a colored pip it doesn't already match, not all
+        five (real red mana still pays a red pip either way). ``None`` (the
+        default) is the ordinary, unrelaxed solve.
         """
         usable = self._usable_lots(allows_restriction)
         return self._find_payment(self._merged_available(usable), cost, life_available, wildcard) is not None
@@ -266,6 +271,14 @@ class ManaPool:
                     candidates = list(MANA_TYPES)
                 elif wildcard == "color" and color != "C":
                     candidates = list(_FIVE_COLORS)
+                elif wildcard in _FIVE_COLORS and color != "C":
+                    # MEC-23: a single source color counts as a wildcard
+                    # (Quicksilver Elemental's "spend blue mana as though it
+                    # were mana of any color") — only that one color
+                    # substitutes, alongside the pip's own real color;
+                    # unlike the ``"color"`` branch above, mana of a *third*
+                    # color still can't pay this pip.
+                    candidates = [color, wildcard]
                 else:
                     candidates = [color]
                 for cand in candidates:

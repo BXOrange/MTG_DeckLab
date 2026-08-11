@@ -33,11 +33,12 @@ const RECONNECT_DELAYS_MS = [1000, 2000, 5000, 10000];
 // immediately auto-reconnected) for it.
 const PING_INTERVAL_MS = 30000;
 
-function lobbySocketUrl(name, playerId) {
+function lobbySocketUrl(name, playerId, clientToken) {
   const url = new URL('/ws/lobby', getServerUrl());
   url.protocol = url.protocol === 'https:' ? 'wss:' : 'ws:';
   url.searchParams.set('name', name || 'Spieler');
   if (playerId) url.searchParams.set('player_id', playerId);
+  if (clientToken) url.searchParams.set('client_token', clientToken);
   return url.toString();
 }
 
@@ -46,6 +47,7 @@ function lobbySocketUrl(name, playerId) {
  * @param {{
  *   name: string,
  *   playerId?: string|null,
+ *   clientToken?: string|null,
  *   onWelcome?: (playerId: string, lobby: object, reclaimed: boolean) => void,
  *   onLobby?: (lobby: object) => void,
  *   onGame?: (message: {game: object, view: object|null}) => void,
@@ -56,6 +58,7 @@ function lobbySocketUrl(name, playerId) {
  */
 export function connectLobbySocket(handlers = {}) {
   let playerId = handlers.playerId || null;
+  const clientToken = handlers.clientToken || null;
   let socket = null;
   let attempt = 0;
   let closed = false;
@@ -69,7 +72,7 @@ export function connectLobbySocket(handlers = {}) {
 
   function open() {
     if (closed) return;
-    socket = new WebSocket(lobbySocketUrl(handlers.name, playerId));
+    socket = new WebSocket(lobbySocketUrl(handlers.name, playerId, clientToken));
 
     socket.addEventListener('open', () => {
       attempt = 0;

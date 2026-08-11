@@ -98,7 +98,9 @@ async def connect(
     Normally the `/ws/lobby` socket does this on connect; this route is the
     fallback for a client without a socket (and what the tests use).
     """
-    player = lobby.connect(name=request.name, player_id=request.player_id)
+    player = lobby.connect(
+        name=request.name, player_id=request.player_id, client_token=request.client_token
+    )
     await lobby_connections.broadcast_lobby(lobby)
     return {"player": player.to_dict(), "lobby": lobby.snapshot()}
 

@@ -285,6 +285,7 @@ const GROUPS = [
               ['full', 'Verflechten — bezahlbare Modus-Aufwertung (702.42)'],
               ['full', 'Bargain (optionale Zusatzkosten)'],
               ['full', 'Verliehenes Entfliehen (702.138, Underworld Breach)'],
+              ['full', 'Verliehenes Flashback für eine Zielkarte im Friedhof (702.34, Snapcaster Mage)'],
               ['full', 'Bedingte Statics „solange …" (613.6) — Zustand, Eigenschaften, Zug, Brettzähler (auch gegnerisch), benanntes Permanent, gezogene Karten'],
               ['full', 'Bezugsobjekt einer Bedingung — die Quelle, das verzauberte/ausgerüstete Objekt (303.4a) oder das betroffene Permanent'],
               ['full', 'Wirkungsdauern (611) — „bis zu deinem nächsten Zug", „bis zum Ende des Kampfes", „solange …"'],

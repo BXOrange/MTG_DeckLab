@@ -255,7 +255,7 @@ class ActivationMixin:
     def _max_x_for_mana(self, player: Player, source: GameObject, mana: "ManaCost") -> int:
         bound = player.mana_pool.total()
         allows_restriction = restriction_predicate_for_activation(source, has_x=True)
-        wildcard = "color" if continuous.any_color_for_activation(self.state, player, source) else None
+        wildcard = continuous.any_color_for_activation(self.state, player, source)
         for x in range(bound, -1, -1):
             if player.mana_pool.can_pay(
                 mana.with_x(x), life_available=player.life, allows_restriction=allows_restriction,
@@ -356,7 +356,7 @@ class ActivationMixin:
                 return False
         elif mana.symbols and not assume_mana_available:
             allows_restriction = restriction_predicate_for_activation(source, has_x=cost.mana.has_variable)
-            wildcard = "color" if continuous.any_color_for_activation(self.state, player, source) else None
+            wildcard = continuous.any_color_for_activation(self.state, player, source)
             if not player.mana_pool.can_pay(
                 mana, life_available=player.life, allows_restriction=allows_restriction, wildcard=wildcard
             ):
@@ -673,7 +673,7 @@ class ActivationMixin:
                 player.mana_pool.pay(locked, life_available=player.life)
         elif mana.symbols:
             allows_restriction = restriction_predicate_for_activation(source, has_x=cost.mana.has_variable)
-            wildcard = "color" if continuous.any_color_for_activation(self.state, player, source) else None
+            wildcard = continuous.any_color_for_activation(self.state, player, source)
             life_spent = player.mana_pool.pay(
                 mana, life_available=player.life, allows_restriction=allows_restriction, wildcard=wildcard
             )

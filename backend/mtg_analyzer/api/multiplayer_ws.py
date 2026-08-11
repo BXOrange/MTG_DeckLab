@@ -36,10 +36,11 @@ from typing import Any, Optional
 
 from fastapi import APIRouter, Depends, Query, WebSocket, WebSocketDisconnect
 
-from mtg_analyzer.api.dependencies import get_game_session_manager, get_lobby
+from mtg_analyzer.api.dependencies import get_game_session_manager, get_lobby, get_player_asset_store
 from mtg_analyzer.services.bots import bots_for_game, run_bots
 from mtg_analyzer.services.game_session import GameActionError, GameSession, GameSessionManager
 from mtg_analyzer.services.lobby import AVAILABLE, ONLINE, Lobby, LobbyError, LobbyGame
+from mtg_analyzer.services.player_assets import PlayerAssetStore
 
 logger = logging.getLogger(__name__)
 
@@ -142,16 +143,20 @@ async def lobby_websocket(
     websocket: WebSocket,
     name: str = Query(default="Spieler"),
     player_id: Optional[str] = Query(default=None),
+    client_token: Optional[str] = Query(default=None),
     lobby: Lobby = Depends(get_lobby),
     sessions: GameSessionManager = Depends(get_game_session_manager),
 ) -> None:
     """Register a client, then hold the socket open for presence + pushes.
 
-    Identity is the **player name** (`services/lobby.py`): reconnecting with
-    the name from the Profil tab walks back into the same seat, mid-game,
-    which is what makes a page reload survivable. ``player_id`` is still
-    accepted — a client that kept its id saves a lookup and can rename
-    itself — but it isn't needed for a reclaim any more.
+    Identity is name plus an optional **client token** (PLR-4,
+    `services/lobby.py`): once a browser has one (`client_token`, from
+    `settings.js`'s cookie), reconnecting with it walks back into the same
+    seat regardless of what the display name currently is, and two browsers
+    that happen to share a name no longer merge into one player. A client
+    with no token yet falls back to the original name-only reclaim.
+    ``player_id`` is still accepted — a client that kept its id saves a
+    lookup — but it isn't needed for a reclaim either way.
 
     Reconnecting while an older socket for the same player is still
     registered *takes over*: the old one is closed with a ``replaced``
@@ -160,7 +165,7 @@ async def lobby_websocket(
     would lock a player out of their own game.
     """
     reclaimed = manager.is_connected(player_id) if player_id else False
-    player = lobby.connect(name=name, player_id=player_id)
+    player = lobby.connect(name=name, player_id=player_id, client_token=client_token)
     if manager.is_connected(player.id):
         reclaimed = True
         await manager.close(player.id, "replaced")
@@ -315,10 +320,12 @@ async def _push_own_game(player_id: str, lobby: Lobby, sessions: GameSessionMana
 # -- The watchdog --------------------------------------------------------
 
 
-async def sweep_once(lobby: Lobby, sessions: GameSessionManager) -> None:
+async def sweep_once(
+    lobby: Lobby, sessions: GameSessionManager, player_assets: Optional[PlayerAssetStore] = None
+) -> None:
     """One pass of the watchdog. Idempotent; safe to call from a test.
 
-    Three jobs, in order, because each can create work for the next:
+    Four jobs, in order, because each can create work for the next:
 
     1. **Idle disconnects.** A player who holds priority and hasn't acted
        within `config.MULTIPLAYER_IDLE_TIMEOUT_SECONDS` has their socket
@@ -329,7 +336,17 @@ async def sweep_once(lobby: Lobby, sessions: GameSessionManager) -> None:
     2. **Expired seats.** A disconnected player whose grace period lapsed
        is dropped; in a running game that concedes for them (RULE 104.3a),
        because a seat nobody is coming back to can't be waited on.
-    3. **Keeping play moving.** Priority is passed for anyone currently
+    3. **Expired identity tokens (PLR-4).** A browser's `client_token` that
+       hasn't been seen in `config.CLIENT_TOKEN_VALIDITY_SECONDS` (and isn't
+       mid-game — `Lobby.expired_token_players` already excludes that) is
+       forgotten, and if no other still-recognized player shares its display
+       name (`Lobby.name_in_use_by_other`), that name's uploaded sleeves/
+       token art/favorites are purged from `player_assets` too — an
+       abandoned browser's data is exactly the "player-data ... deleted"
+       half of PLR-4. ``player_assets`` is optional so a test exercising the
+       other three jobs doesn't need to wire one up; production always
+       passes it (`api/app.py`'s lifespan).
+    4. **Keeping play moving.** Priority is passed for anyone currently
        absent, and any bot at the table takes whatever turn is now its —
        so the players who *are* there can keep going, and a table of
        nothing but bots plays itself out.
@@ -365,6 +382,14 @@ async def sweep_once(lobby: Lobby, sessions: GameSessionManager) -> None:
             await manager.broadcast_game(game, session)
         await manager.broadcast_lobby(lobby)
 
+    for player in lobby.expired_token_players():
+        name = player.name
+        purge_assets = player_assets is not None and not lobby.name_in_use_by_other(name, player.id)
+        lobby.forget(player.id)
+        if purge_assets:
+            player_assets.delete_all_for_player(name)
+        await manager.broadcast_lobby(lobby)
+
     for game in list(lobby.games()):
         session = _session_or_none(sessions, game.session_id)
         if session is None:
@@ -385,7 +410,9 @@ async def sweep_once(lobby: Lobby, sessions: GameSessionManager) -> None:
             await manager.broadcast_game(game, session)
 
 
-async def sweeper(lobby: Lobby, sessions: GameSessionManager) -> None:
+async def sweeper(
+    lobby: Lobby, sessions: GameSessionManager, player_assets: Optional[PlayerAssetStore] = None
+) -> None:
     """Run `sweep_once` forever. Started by the app's lifespan (`api/app.py`).
 
     Failures are swallowed deliberately: this is a background janitor, and
@@ -394,7 +421,7 @@ async def sweeper(lobby: Lobby, sessions: GameSessionManager) -> None:
     while True:
         await asyncio.sleep(SWEEP_INTERVAL_SECONDS)
         try:
-            await sweep_once(lobby, sessions)
+            await sweep_once(lobby, sessions, player_assets)
         except asyncio.CancelledError:
             raise
         except Exception:  # noqa: BLE001 — a janitor that dies is worse

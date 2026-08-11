@@ -429,8 +429,8 @@ export async function analyzeArchetypes(payload) {
 // free text and not unique.
 
 /** Register with the lobby without a WebSocket (fallback / first contact). */
-export async function connectToLobby(name, playerId = null) {
-  return gameRequest('POST', '/api/multiplayer/connect', { name, playerId });
+export async function connectToLobby(name, playerId = null, clientToken = null) {
+  return gameRequest('POST', '/api/multiplayer/connect', { name, playerId, clientToken });
 }
 
 /** Everyone connected and every table (players + games). */
