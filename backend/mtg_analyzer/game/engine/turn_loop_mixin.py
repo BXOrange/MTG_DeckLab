@@ -348,6 +348,12 @@ class TurnLoopMixin:
         """
         if self.state.game_over:
             return None
+        # RULE 500.4-adjacent: drain any "additional combat phase" request an
+        # effect queued since the last advance (`ExtraCombatPhaseEffect`) —
+        # done here, not where it's queued, since only `GameEngine` (not the
+        # effect that requested it) can see `_turn_steps`/`_cursor`.
+        while self.state.pending_extra_combats:
+            self.insert_additional_combat_phase(self.state.pending_extra_combats.pop(0))
         if self.state.current_step == "declare_attackers":
             self._enforce_attacks_if_able()
             self._enforce_goad_requirements()
@@ -410,6 +416,57 @@ class TurnLoopMixin:
         for player in self.state.players:
             player.mana_pool.empty()
         self.state.fire_event(GameEvent(EventType.STEP_END, step=step.name, phase=phase.name))
+    def insert_additional_combat_phase(self, main_phase_too: bool = False) -> None:
+        """RULE 500.4-adjacent "after this combat phase, there is an
+        additional combat phase[, followed by an additional main phase]"
+        (Combat Celebrant/Godo/Aurelia/Xenagos-shaped triggered abilities;
+        ``main_phase_too`` covers World at War/Aggravated Assault's own
+        activated-ability wording instead). No CR number of its own — this
+        is the turn genuinely growing an extra phase, not a skip/replace —
+        so it splices a fresh `GamePhase("combat", …)` (and, if asked, a
+        fresh `postcombat_main`) straight into `_turn_steps`, the same
+        mutable per-turn step list `advance_step`'s cursor already walks;
+        `phases.default_turn_sequence`'s own docstring flagged this exact
+        insertion as the reason that function returns a fresh instance
+        every call.
+
+        Inserted right after the *next* upcoming ``end_combat`` in the
+        list (found from the current cursor onward — the combat phase
+        that's still in progress when this fires, since the trigger
+        resolves mid-combat), not at the raw cursor position itself,
+        which would otherwise splice the new phase's steps *before* the
+        current combat's own remaining declare-blockers/damage/end-combat
+        steps and reorder them.
+
+        A no-op outside the interactive step-cursor model (`start`/
+        `advance_step` never called — `_turn_steps` still empty, `run_turn`'s
+        own one-shot loop): no shipped card reaches extra-combat that way in
+        this codebase, so nothing currently needs it, and inventing a second
+        insertion path for an unreachable case isn't worth the surface.
+        """
+        steps = self._turn_steps
+        if not steps:
+            return
+        insert_at = len(steps)
+        for i in range(max(0, self._cursor - 1), len(steps)):
+            if steps[i][1].name == "end_combat":
+                insert_at = i + 1
+                break
+        new_combat = GamePhase(
+            "combat",
+            [
+                GameStep("begin_combat", rule="507"),
+                GameStep("declare_attackers", rule="508"),
+                GameStep("declare_blockers", rule="509"),
+                GameStep("combat_damage", rule="510"),
+                GameStep("end_combat", rule="511"),
+            ],
+        )
+        new_steps = [(new_combat, s) for s in new_combat.steps]
+        if main_phase_too:
+            new_main = GamePhase("postcombat_main", [GameStep("main2", rule="505")])
+            new_steps.append((new_main, new_main.steps[0]))
+        steps[insert_at:insert_at] = new_steps
     def _execute_step_body(self, step: GameStep) -> None:
         handler = getattr(self, f"_step_{step.name}", None)
         if handler is not None:

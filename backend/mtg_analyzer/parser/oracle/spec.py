@@ -127,6 +127,11 @@ ALLOWED_FREE_CAST_CONDITION_KEYS: frozenset[str] = frozenset(
         # fixed named board-state gate, same boolean shape as
         # ``control_commander``.
         "opponent_controls_forest_and_you_control_island",
+        # "If you control a Swamp, you may pay 4 life rather than pay this
+        # spell's mana cost." (RULE 118.9, Snuff Out, MEC-12) — a basic
+        # land-type word rather than a plain boolean, unlike every other
+        # key above.
+        "control_land_type",
     }
 )
 
@@ -145,7 +150,19 @@ ALLOWED_FREE_CAST_CONDITION_KEYS: frozenset[str] = frozenset(
 #: engine (`game/effect_binder.py` builds one from this dict, mirroring
 #: `additional_cost`'s own `parse_activation_cost` reuse).
 ALLOWED_ALT_COST_KEYS: frozenset[str] = frozenset(
-    {"pay_life", "return_to_hand", "exile_hand_card_color", "condition"}
+    {
+        "pay_life", "return_to_hand", "exile_hand_card_color", "condition",
+        # MEC-12's remaining "pitch" shapes: a genuinely different fixed
+        # mana cost (the Bringer cycle's "{W}{U}{B}{R}{G}"), a bare
+        # sacrifice type word (Downhill Charge's "a Mountain" — reuses
+        # `additional_cost`'s own vocabulary rather than duplicating it),
+        # a qualifier-filtered sacrifice (Flare of Denial's "a nontoken
+        # blue creature" — `combat.matches_object_filter`-shaped),
+        # a counted sacrifice (`ActivationCost.sacrifice_count`'s own
+        # ``(count, subtype)`` shape), and a counted return-to-hand
+        # (Gush's "return two Islands").
+        "mana", "sacrifice", "sacrifice_count", "sacrifice_filter", "return_to_hand_count",
+    }
 )
 
 #: RULE 601.2b/604.3 "as an additional cost to cast this spell, <cost>." —
@@ -711,6 +728,8 @@ class AbilitySpec:
             raise SpecValidationError(
                 "'opponent_spells_cast_this_turn_at_least' condition must be a positive int"
             )
+        if key == "control_land_type" and (not isinstance(value, str) or not value):
+            raise SpecValidationError("'control_land_type' condition must be a non-empty str")
 
     def _validate_alt_cost(self) -> None:
         """Structural check for an ``alt_cost`` clause (RULE 118.9)."""
@@ -729,7 +748,30 @@ class AbilitySpec:
         color = cost.get("exile_hand_card_color")
         if color is not None and color not in ("W", "U", "B", "R", "G"):
             raise SpecValidationError(f"'alt_cost' exile_hand_card_color must be a WUBRG letter, got {color!r}")
-        if not any(k in cost for k in ("pay_life", "return_to_hand", "exile_hand_card_color")):
+        mana = cost.get("mana")
+        if mana is not None and (not isinstance(mana, str) or not mana):
+            raise SpecValidationError("'alt_cost' mana must be a non-empty str")
+        sacrifice = cost.get("sacrifice")
+        if sacrifice is not None and (not isinstance(sacrifice, str) or not sacrifice):
+            raise SpecValidationError("'alt_cost' sacrifice must be a non-empty str")
+        for count_key in ("sacrifice_count", "return_to_hand_count"):
+            pair = cost.get(count_key)
+            if pair is not None:
+                if (
+                    not isinstance(pair, (list, tuple)) or len(pair) != 2
+                    or isinstance(pair[0], bool) or not isinstance(pair[0], int) or pair[0] < 1
+                    or not isinstance(pair[1], str) or not pair[1]
+                ):
+                    raise SpecValidationError(f"'alt_cost' {count_key} must be [positive int, non-empty str]")
+        sac_filter = cost.get("sacrifice_filter")
+        if sac_filter is not None and (not isinstance(sac_filter, dict) or not sac_filter):
+            raise SpecValidationError("'alt_cost' sacrifice_filter must be a non-empty dict")
+        if not any(
+            k in cost for k in (
+                "pay_life", "return_to_hand", "exile_hand_card_color", "mana", "sacrifice",
+                "sacrifice_count", "sacrifice_filter", "return_to_hand_count",
+            )
+        ):
             raise SpecValidationError("'alt_cost' must carry at least one real payment component")
         condition = cost.get("condition")
         if condition is not None:
@@ -738,7 +780,10 @@ class AbilitySpec:
             ckey, cvalue = next(iter(condition.items()))
             if ckey not in ALLOWED_FREE_CAST_CONDITION_KEYS:
                 raise SpecValidationError(f"unknown alt_cost condition key {ckey!r}")
-            if not isinstance(cvalue, bool):
+            if ckey == "control_land_type":
+                if not isinstance(cvalue, str) or not cvalue:
+                    raise SpecValidationError("'control_land_type' alt_cost condition must be a non-empty str")
+            elif not isinstance(cvalue, bool):
                 raise SpecValidationError(f"{ckey!r} alt_cost condition must be a bool")
 
     @staticmethod

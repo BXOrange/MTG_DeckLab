@@ -31,6 +31,7 @@ from .subgrammars import (
     COLOR_WORD_ALT,
     COUNT,
     COUNT_X,
+    DEVOTION,
     IF_COLOR_SUFFIX,
     NUMBER,
     SPELL_TARGET,
@@ -38,6 +39,7 @@ from .subgrammars import (
     UP_TO_ONE,
     count_of,
     count_or_x_of,
+    devotion_selector,
     resolve_color_word,
     resolve_spell_filter,
     resolve_target_kind,
@@ -419,6 +421,24 @@ _DAMAGE_SELECTOR_WORDS: dict[str, str] = {
 def _damage_selector(m: re.Match[str]) -> list[EffectSpec]:
     selector = _DAMAGE_SELECTOR_WORDS[m.group("selector")]
     return [EffectSpec("damage", {"amount": int(m.group("n")), "selector": selector})]
+
+
+#: RULE 202.2f/700.6 "it deals damage to each opponent equal to your
+#: devotion to `<colour>`." (Fanatic of Mogis) — `_damage_selector`'s
+#: devotion-amount sibling; ``it`` (not ``~``) is the ETB-trigger pronoun
+#: this specific card prints, so `self_subject_only` gates it the same way
+#: `_pump_self_subject` does.
+_DAMAGE_SELECTOR_DEVOTION_RE = _c(
+    rf"it deals damage to (?P<selector>each opponent|each player) equal to {DEVOTION}"
+)
+
+
+def _damage_selector_devotion(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    selector = _DAMAGE_SELECTOR_WORDS[m.group("selector")]
+    dsel = devotion_selector(m)
+    if not dsel:
+        return None
+    return [EffectSpec("damage", {"amount_from_count_selector": dsel, "selector": selector})]
 
 
 #: "Each creature deals N damage to its controller." (Rakdos Charm) — unlike
@@ -858,6 +878,20 @@ def _gain_life(m: re.Match[str]) -> list[EffectSpec]:
     return [EffectSpec("gain_life", params)]
 
 
+#: RULE 119's "drain" idiom trailing sentence — "You gain life equal to the
+#: life lost this way." (Gray Merchant of Asphodel/Exsanguinate/Kokusho, the
+#: Evening Star-shaped, 16+ cache cards) — always the second sentence after
+#: a "`<player(s)>` lose[s] `<amount>` life" clause that already parses on
+#: its own (`_lose_life`/`_lose_life_selector`); only this trailing pronoun
+#: sentence was ever unclaimed, discarding the *whole* two-sentence ability
+#: fail-closed.
+_GAIN_LIFE_LOST_THIS_WAY_RE = _c(r"you gain life equal to the life lost this way")
+
+
+def _gain_life_lost_this_way(m: re.Match[str]) -> list[EffectSpec]:
+    return [EffectSpec("gain_life", {"count_selector": "life_lost_this_way"})]
+
+
 def _lose_life(m: re.Match[str]) -> list[EffectSpec]:
     # "you lose N life" / "target player loses N life" — same targeting
     # split as `_gain_life`. "they lose N life" (Sheoldred, the Apocalypse's
@@ -880,12 +914,59 @@ def _lose_life(m: re.Match[str]) -> list[EffectSpec]:
 #: opponent"/"each player" stay out of the `TARGET` grammar).
 _LOSE_LIFE_SELECTOR_WORDS: dict[str, str] = {
     "each player": "each_player", "each opponent": "each_opponent",
+    # "each other player" (Urborg Syphon-Mage) — functionally identical to
+    # "each opponent" in this engine (no team-variant life sharing, RULE
+    # 809/810/811 — PLR-14, still unbuilt), so it reuses that same selector
+    # rather than adding a third value `LoseLifeEffect`'s mass-path would
+    # need to special-case.
+    "each other player": "each_opponent",
 }
 
 
 def _lose_life_selector(m: re.Match[str]) -> list[EffectSpec]:
     selector = _LOSE_LIFE_SELECTOR_WORDS[m.group("selector")]
-    return [EffectSpec("lose_life", {"amount": int(m.group("n")), "selector": selector})]
+    # ``COUNT_X`` (not just digits) so "each opponent loses X life."
+    # (Exsanguinate) carries the ``"x"`` sentinel `RulesEngine._substitute_x`
+    # resolves against the spell's actually-announced {X} at resolve time —
+    # `LoseLifeEffect.amount` is a plain attribute that sentinel already
+    # walks, so no engine change was needed, just this wider capture.
+    return [EffectSpec("lose_life", {"amount": count_or_x_of(m.group("n")), "selector": selector})]
+
+
+#: RULE 202.2f/700.6 "each opponent loses X life, where X is your devotion
+#: to `<colour>`." (Gray Merchant of Asphodel-shaped) — `_lose_life_
+#: selector`'s devotion-amount sibling, tried first since "x" never matches
+#: that row's `NUMBER` (``\d+``).
+_LOSE_LIFE_SELECTOR_DEVOTION_RE = _c(
+    rf"(?P<selector>each player|each opponent) loses x life, where x is {DEVOTION}"
+)
+
+
+def _lose_life_selector_devotion(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    selector = _LOSE_LIFE_SELECTOR_WORDS[m.group("selector")]
+    dsel = devotion_selector(m)
+    if not dsel:
+        return None
+    return [EffectSpec("lose_life", {"amount_from_count_selector": dsel, "selector": selector})]
+
+
+#: "Each opponent loses life equal to the number of Vampires you control."
+#: (Malakir Bloodwitch) — `continuous.count_selector`'s existing
+#: ``creatures_you_control_of_type_<subtype>`` vocabulary (already reached
+#: by `_create_token_for_each`'s "for each `<subtype>` you control" reading)
+#: applied to life loss instead of a token count.
+_LOSE_LIFE_SELECTOR_SUBTYPE_RE = _c(
+    r"(?P<selector>each player|each opponent) loses life equal to the number of "
+    r"(?P<subtype>[a-z]+) you control"
+)
+
+
+def _lose_life_selector_subtype(m: re.Match[str]) -> list[EffectSpec]:
+    selector = _LOSE_LIFE_SELECTOR_WORDS[m.group("selector")]
+    subtype = m.group("subtype").rstrip("s")
+    return [EffectSpec("lose_life", {
+        "amount_from_count_selector": f"creatures_you_control_of_type_{subtype}", "selector": selector,
+    })]
 
 
 def _rad_counter_amount(token: str) -> "int | str":
@@ -970,7 +1051,7 @@ def _add_rad_counters_half_x(m: re.Match[str]) -> list[EffectSpec]:
 
 def _destroy(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     kind = resolve_target_kind(m.group("target"))
-    if kind is None or kind not in ("creature", "permanent"):
+    if kind is None or kind not in ("creature", "permanent", "permanent_you_dont_control"):
         return None
     color = resolve_color_word(m.groupdict().get("cond_color"))
     params: dict = {"target_kind": kind, **_optional_param(m)}
@@ -1352,6 +1433,26 @@ def _tap_selector(m: re.Match[str]) -> list[EffectSpec]:
     return [EffectSpec("tap", {"selector": selector, "untap": untap})]
 
 
+#: "Untap it and all Samurai you control." (Godo, Bandit Warlord's own
+#: attack trigger) — the compound "self **and** a subtype group" untap
+#: `_tap_self`/`_tap_selector` each only cover one half of; two ordinary
+#: `tap` `EffectSpec`s in sequence (the ability's own effect list, RULE
+#: 608.2 printed order) rather than a single effect trying to express both
+#: recipients at once.
+_TAP_SELF_AND_SUBTYPE_RE = _c(
+    r"(?P<verb>tap|untap) it and all (?P<subtype>[a-z]+) you control"
+)
+
+
+def _tap_self_and_subtype(m: re.Match[str]) -> list[EffectSpec]:
+    untap = m.group("verb").lower() == "untap"
+    subtype = m.group("subtype").rstrip("s")
+    return [
+        EffectSpec("tap", {"target_kind": None, "untap": untap}),
+        EffectSpec("tap", {"selector": f"creatures_you_control_of_type_{subtype}", "untap": untap}),
+    ]
+
+
 #: "Untap this creature" (Devoted Druid's counter-cost untap ability) / "tap
 #: ~" — the *self* form, no RULE 115 target at all (`target_kind=None` makes
 #: `TapEffect` act on its own source, mirroring `AttachEffect`'s ``~``/"it"
@@ -1568,16 +1669,20 @@ def _graveyard_target_kind(type_word: Optional[str], scope_word: str) -> Optiona
     return f"{scope_key}_{type_key}"
 
 
-#: "return target [type] card from [scope] graveyard to the battlefield/
-#: your hand/its owner's hand" / "put target [type] card from [scope]
-#: graveyard onto the battlefield under its owner's control" (RULE 701.3,
-#: the Regrowth/Reanimate/Deathrite-adjacent recursion family — see
-#: `game/targeting.py`'s `_GRAVEYARD_TARGET_KINDS` for the scope × type
-#: vocabulary this claims). Both verb shapes land the object under its own
-#: *owner*'s control — the "steal it for yourself" shape is
-#: `_reanimate_under_your_control` below, a genuinely different effect.
+#: "return target [type] card [with mana value N or less] from [scope]
+#: graveyard to the battlefield/your hand/its owner's hand" / "put target
+#: [type] card from [scope] graveyard onto the battlefield under its
+#: owner's control" (RULE 701.3, the Regrowth/Reanimate/Deathrite-adjacent
+#: recursion family — see `game/targeting.py`'s `_GRAVEYARD_TARGET_KINDS`
+#: for the scope × type vocabulary this claims). Both verb shapes land the
+#: object under its own *owner*'s control — the "steal it for yourself"
+#: shape is `_reanimate_under_your_control` below, a genuinely different
+#: effect. The optional mana-value cap (Auriok Salvagers-shaped) is the
+#: same `TargetSpec.max_mana_value` offer-time filter `destroy_mv` already
+#: uses, not a new one.
 _RETURN_FROM_GRAVEYARD_RE = _c(
-    rf"return (?P<up_to_one>{UP_TO_ONE})target (?:(?P<type>{_GRAVEYARD_TYPE_WORD}) )?card from "
+    rf"return (?P<up_to_one>{UP_TO_ONE})target (?:(?P<type>{_GRAVEYARD_TYPE_WORD}) )?card"
+    rf"(?: with mana value (?P<mv>\d+) or less)? from "
     rf"(?P<scope>{_GRAVEYARD_SCOPE_WORD}) graveyard to "
     r"(?P<dest>the battlefield|your hand|its owner'?s hand)"
 )
@@ -1596,6 +1701,9 @@ def _return_from_graveyard(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     params: dict = {"target_kind": kind, "destination": destination}
     if m.groupdict().get("up_to_one"):
         params["optional"] = True
+    mv = m.groupdict().get("mv")
+    if mv is not None:
+        params["max_mana_value"] = int(mv)
     return [EffectSpec("return_from_graveyard", params)]
 
 
@@ -1844,6 +1952,36 @@ def _search_destination_kind(phrase: str) -> Optional[str]:
         if re.fullmatch(frag, text, re.IGNORECASE):
             return kind
     return None
+
+#: "Its controller may search their library for a basic land card, put it
+#: onto the battlefield, then shuffle." (Assassin's Trophy/Geomancer's
+#: Gambit/Ghost Quarter-shaped — always the trailing sentence after a
+#: "Destroy target land/permanent an opponent controls." clause the
+#: ordinary `destroy` handler already claims on its own) — `SearchLibraryEffect`'s
+#: ``player="previous_target_controller"`` sentinel (the same one
+#: `PayCostThenEffect`'s own ``payer`` param already uses for Chain of
+#: Vapor's "that permanent's controller may sacrifice a land"), since the
+#: acting player here is whoever just lost the destroyed permanent, not
+#: this spell's own caster.
+_DESTROY_CONTROLLER_SEARCH_BASIC_LAND_RE = _c(
+    r"its controller may search (?:its|their) library for a basic land card, "
+    r"put it onto the battlefield, then shuffle"
+)
+
+
+def _destroy_controller_search_basic_land(m: re.Match[str]) -> list[EffectSpec]:
+    return [
+        EffectSpec(
+            "search",
+            {
+                "criteria": {"basic": True},
+                "destination": "battlefield",
+                "optional": True,
+                "player": "previous_target_controller",
+            },
+        )
+    ]
+
 
 #: "search your library for <criteria>, [reveal <pronoun>,] put <pronoun>
 #: <destination>, then shuffle." — the common put-then-shuffle order.
@@ -2443,6 +2581,76 @@ _FIGHT_PREVIOUS_RE = _c(
 _FIGHT_PREVIOUS_PAIR_RE = _c(
     rf"{_THEN}(?:those|the chosen) creatures fight each other"
 )
+#: "Put a +1/+1 counter on target creature. **It** phases out." (Slip Out
+#: the Back) — the same previous-clause pronoun `_FIGHT_PREVIOUS_RE` uses,
+#: for `PhaseOutEffect.previous_subject` instead of a fight.
+_PHASE_OUT_PREVIOUS_RE = _c(rf"{_THEN}{_PREVIOUS_SUBJECT} phases? out")
+
+
+def _phase_out_previous(m: re.Match[str]) -> list[EffectSpec]:
+    return [EffectSpec("phase_out", {"previous_subject": True})]
+
+
+#: RULE 702.26 "~ phases out." (Blink Dog/Vaporous Djinn/Crystal Golem-
+#: shaped — the source phasing out *itself*) — `PhaseOutEffect.self_target`,
+#: distinct from the plain untargeted default below (Robe of Stars' own
+#: Equipment-hosted "equipped creature phases out", reached by
+#: `_phase_out_attached` instead).
+_PHASE_OUT_SELF_RE = _c(r"~ phases? out")
+#: "Enchanted/equipped creature phases out." (Vanishing) — the untargeted
+#: default `PhaseOutEffect` already had (Robe of Stars' own hand-authored
+#: shape, `EffectSpec("phase_out", {})`), just reached from oracle text now.
+_PHASE_OUT_ATTACHED_RE = _c(rf"{_ATTACHED_SUBJECT} phases? out")
+#: "Target creature phases out." / "Target artifact, creature, or land
+#: phases out." / "Target creature you control phases out." / "Target
+#: creature or planeswalker an opponent controls phases out." (Reality
+#: Ripple/Vodalian Illusionist/Haystack/Divine Smite-shaped) — a genuine
+#: RULE 115 target, so an opponent's own permanent is exactly as legal a
+#: target as your own whenever the printed phrase says so (no engine
+#: restriction ever scoped this to "your own permanents" — `PhaseOutEffect`
+#: just forwards whatever `target_kind` `resolve_target_kind` resolves).
+_PHASE_OUT_TARGET_RE = _c(rf"{TARGET} phases? out")
+
+
+def _phase_out_self(m: re.Match[str]) -> list[EffectSpec]:
+    return [EffectSpec("phase_out", {"self_target": True})]
+
+
+def _phase_out_attached(m: re.Match[str]) -> list[EffectSpec]:
+    return [EffectSpec("phase_out", {})]
+
+
+def _phase_out_target(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    kind = resolve_target_kind(m.group("target"))
+    if kind is None:
+        return None
+    params: dict = {"target_kind": kind}
+    if target_is_optional(m):
+        params["optional"] = True
+    return [EffectSpec("phase_out", params)]
+
+
+#: RULE 500.4-adjacent "after this phase, there is an additional combat
+#: phase." (Combat Celebrant/Godo/Aurelia-shaped, `normalize` folds "this
+#: combat phase" to the bare "this phase" self-reference every printing of
+#: this clause uses) / World at War/Aggravated Assault's own longer
+#: "after this main phase, there is an additional combat phase followed by
+#: an additional main phase." — `ExtraCombatPhaseEffect`'s `main_phase_too`
+#: flag is what tells the two apart.
+_EXTRA_COMBAT_PHASE_RE = _c(r"after this phase, there is an additional combat phase")
+_EXTRA_COMBAT_AND_MAIN_PHASE_RE = _c(
+    r"after this main phase, there is an additional combat phase followed by an additional main phase"
+)
+
+
+def _extra_combat_phase(m: re.Match[str]) -> list[EffectSpec]:
+    return [EffectSpec("extra_combat_phase", {})]
+
+
+def _extra_combat_and_main_phase(m: re.Match[str]) -> list[EffectSpec]:
+    return [EffectSpec("extra_combat_phase", {"main_phase_too": True})]
+
+
 _CHOOSE_TARGETS_RE = _c(rf"choose {TARGET} and {_TARGET_B}")
 #: "choose two target creatures [controlled by different players]." (PAR-1)
 #: — the `_MULTI_TARGET_QUANTIFIER`/`_MULTI_TARGET_ALT`/`_MULTI_TARGET_
@@ -3085,6 +3293,35 @@ def _create_token_xx_where(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     })]
 
 
+#: RULE 202.2f/700.6 "create a number of 1/1 white Soldier creature tokens
+#: equal to your devotion to white." (Evangel of Heliod/Master of Waves-
+#: shaped) — a third surface wording for the same dynamic-count shape
+#: `_CREATE_TOKEN_FOR_EACH_RE`/`_CREATE_TOKEN_XX_WHERE_RE` already cover,
+#: this time keyed to `DEVOTION` instead of a `count_selector` subtype word.
+_CREATE_TOKEN_NUMBER_EQUAL_DEVOTION_RE = _c(
+    r"creates? a number of (?P<tapped>tapped )?(?P<legendary>legendary )?(?P<p>\d+)/(?P<t>\d+) "
+    r"(?P<mid>[a-z ]*?)creature tokens?"
+    rf"(?: with (?P<kw>[a-z, ]+))? equal to {DEVOTION}"
+)
+
+
+def _create_token_number_equal_devotion(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    params = _xx_token_mid_params(m.group("mid"), m.groupdict().get("kw"))
+    if params is None:
+        return None
+    selector = devotion_selector(m)
+    if not selector:
+        return None
+    if m.groupdict().get("tapped"):
+        params["tapped"] = True
+    if m.groupdict().get("legendary"):
+        params["legendary"] = True
+    return [EffectSpec("create_token", {
+        **params, "power": int(m.group("p")), "toughness": int(m.group("t")),
+        "count_selector": selector,
+    })]
+
+
 #: The inline-stats creature-token grammar `_create_token`'s own `EffectHandler`
 #: row wraps, reused bare here (no leading "creates?") so it can be embedded
 #: inside a bigger clause — "create **a 1/1 white Halfling creature token**
@@ -3557,6 +3794,66 @@ def _group_pump_count_selector(m: re.Match[str]) -> Optional[list[EffectSpec]]:
         "amount_from_count_selector": "creatures_you_control",
     })]
 
+
+#: RULE 202.2f/700.6 "target creature gets +X/+X until end of turn, where X
+#: is your devotion to `<colour(s)/wedge>`." (Aspect of Hydra/Devoted Temur-
+#: shaped) — the `DEVOTION` fragment feeding `PumpEffect.amount_from_count_
+#: selector` via `continuous.count_selector`'s existing `devotion_to_<key>`
+#: vocabulary, same shape `_GROUP_PUMP_COUNT_SELECTOR_RE` uses for a board
+#: count instead of a mana-symbol one.
+_PUMP_DEVOTION_TARGET_RE = _c(rf"{TARGET} gets? \+x/\+x until end of turn, where x is {DEVOTION}")
+#: The mass sibling — "creatures you control get +X/+X …" (Klothys's
+#: Design) — same amount grammar, group subject instead of a RULE 115
+#: target.
+_GROUP_PUMP_DEVOTION_RE = _c(
+    rf"creatures you control gets? \+x/\+x until end of turn, where x is {DEVOTION}"
+)
+#: The debuff sibling — "target creature [an opponent controls] gets -X/-X
+#: until end of turn, where X is your devotion to `<colour>`." (Blight-
+#: Breath Catoblepas) — `PumpEffect.amount_from_count_selector_negative`
+#: flips the always-nonnegative devotion count into the printed "-X/-X".
+_PUMP_DEVOTION_NEGATIVE_TARGET_RE = _c(
+    rf"{TARGET} gets? -x/-x until end of turn, where x is {DEVOTION}"
+)
+
+
+def _pump_devotion_target(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    subject = _pump_target(m)
+    if subject is None:
+        return None
+    target_kind, selector_subject = subject
+    selector = devotion_selector(m)
+    if not selector:
+        return None
+    params: dict = {"amount_from_count_selector": selector}
+    if target_kind:
+        params["target_kind"] = target_kind
+    if selector_subject:
+        params["selector"] = selector_subject
+    return [EffectSpec("pump", params)]
+
+
+def _pump_devotion_negative_target(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    subject = _pump_target(m)
+    if subject is None:
+        return None
+    target_kind, selector_subject = subject
+    selector = devotion_selector(m)
+    if not selector:
+        return None
+    params: dict = {"amount_from_count_selector": selector, "amount_from_count_selector_negative": True}
+    if target_kind:
+        params["target_kind"] = target_kind
+    if selector_subject:
+        params["selector"] = selector_subject
+    return [EffectSpec("pump", params)]
+
+
+def _group_pump_devotion(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    selector = devotion_selector(m)
+    if not selector:
+        return None
+    return [EffectSpec("pump", {"selector": "creatures_you_control", "amount_from_count_selector": selector})]
 
 def _pump_self_subject(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     """The bare-pronoun sibling of `_pump`'s untargeted self form —
@@ -4344,6 +4641,11 @@ HANDLERS: list[EffectHandler] = [
         ),
         _damage_selector,
     ),
+    # RULE 202.2f/700.6 "it deals damage to each opponent equal to your
+    # devotion to <colour>." (Fanatic of Mogis) — tried before the plain
+    # `damage_selector` row above since "equal to …" has no digit `NUMBER`
+    # for that row to match.
+    EffectHandler("damage_selector_devotion", _DAMAGE_SELECTOR_DEVOTION_RE, _damage_selector_devotion),
     # "Each creature deals 1 damage to its controller." (Rakdos Charm).
     EffectHandler(
         "damage_each_creature_to_controller",
@@ -4472,6 +4774,9 @@ HANDLERS: list[EffectHandler] = [
         _c(rf"(?P<who>you |target player )?gains? {NUMBER} life"),
         _gain_life,
     ),
+    # RULE 119's "drain" idiom trailing sentence — "You gain life equal to
+    # the life lost this way." (Gray Merchant of Asphodel-shaped).
+    EffectHandler("gain_life_lost_this_way", _GAIN_LIFE_LOST_THIS_WAY_RE, _gain_life_lost_this_way),
     # "you lose 2 life" / "target player loses 2 life" / "they lose 2 life"
     # (the group-subject event's own player — see `_lose_life`'s docstring).
     EffectHandler(
@@ -4479,11 +4784,23 @@ HANDLERS: list[EffectHandler] = [
         _c(rf"(?P<who>you |target player |they )?loses? {NUMBER} life"),
         _lose_life,
     ),
+    # RULE 202.2f/700.6 "each opponent loses X life, where X is your
+    # devotion to <colour>." (Gray Merchant of Asphodel) — tried before the
+    # plain digit-amount row below since "x" never matches its `NUMBER`.
+    EffectHandler(
+        "lose_life_selector_devotion", _LOSE_LIFE_SELECTOR_DEVOTION_RE, _lose_life_selector_devotion
+    ),
+    # "Each opponent loses life equal to the number of Vampires you
+    # control." (Malakir Bloodwitch) — tried before the plain digit-amount
+    # row below.
+    EffectHandler(
+        "lose_life_selector_subtype", _LOSE_LIFE_SELECTOR_SUBTYPE_RE, _lose_life_selector_subtype
+    ),
     # "each opponent loses 2 life" / "each player loses 2 life" (RULE
     # 601.2c mass effect, Deathrite Shaman-shaped).
     EffectHandler(
         "lose_life_selector",
-        _c(rf"(?P<selector>each player|each opponent) loses? {NUMBER} life"),
+        _c(rf"(?P<selector>each other player|each player|each opponent) loses? {COUNT_X} life"),
         _lose_life_selector,
     ),
     # "whenever you gain life, target opponent loses that much life."
@@ -4749,6 +5066,10 @@ HANDLERS: list[EffectHandler] = [
         _c(r"(?P<verb>tap|untap) (?:all creatures you control|each (?P<other>other) creature you control)"),
         _tap_selector,
     ),
+    # "Untap it and all Samurai you control." (Godo, Bandit Warlord) — tried
+    # before `tap_self` since that row's bare `_SELF_SUBJECT` would consume
+    # only "it" and leave "and all Samurai you control" unclaimed.
+    EffectHandler("tap_self_and_subtype", _TAP_SELF_AND_SUBTYPE_RE, _tap_self_and_subtype),
     # "untap this creature" / "untap ~" / "tap it" — the self form (Devoted
     # Druid's "Put a -1/-1 counter on this creature: Untap this creature.").
     EffectHandler(
@@ -4868,6 +5189,15 @@ HANDLERS: list[EffectHandler] = [
         "exile_target_graveyard",
         _EXILE_TARGET_GRAVEYARD_RE,
         _exile_target_graveyard,
+    ),
+    # "Its controller may search their library for a basic land card, put
+    # it onto the battlefield, then shuffle." (Assassin's Trophy/
+    # Geomancer's Gambit/Ghost Quarter — the destroyed permanent's
+    # controller, not the caster, gets the ramp).
+    EffectHandler(
+        "destroy_controller_search_basic_land",
+        _DESTROY_CONTROLLER_SEARCH_BASIC_LAND_RE,
+        _destroy_controller_search_basic_land,
     ),
     # "search your library for <criteria>, [reveal <pronoun>,] put <pronoun>
     # <destination>, then shuffle." (RULE 701.19 — the general tutor/ramp/
@@ -5017,6 +5347,30 @@ HANDLERS: list[EffectHandler] = [
         "fight_previous_pair", _FIGHT_PREVIOUS_PAIR_RE, _fight_previous_pair,
         previous_subject_only=True,
     ),
+    # "Put a +1/+1 counter on target creature. It phases out." (Slip Out
+    # the Back) — the same previous-clause pronoun idiom as the fight
+    # family just above, for a phase-out instead.
+    EffectHandler(
+        "phase_out_previous", _PHASE_OUT_PREVIOUS_RE, _phase_out_previous,
+        previous_subject_only=True,
+    ),
+    # RULE 702.26 "~ phases out." (Blink Dog/Vaporous Djinn-shaped) / the
+    # attached-permanent sibling "enchanted/equipped creature phases out."
+    # (Vanishing) / a genuine RULE 115 target (Reality Ripple/Divine Smite,
+    # including an opponent-controlled one) — tried in "most specific
+    # subject first" order like every other family here.
+    EffectHandler("phase_out_self", _PHASE_OUT_SELF_RE, _phase_out_self),
+    EffectHandler("phase_out_attached", _PHASE_OUT_ATTACHED_RE, _phase_out_attached),
+    EffectHandler("phase_out_target", _PHASE_OUT_TARGET_RE, _phase_out_target),
+    # RULE 500.4-adjacent "after this [main] phase, there is an additional
+    # combat phase[ followed by an additional main phase]." (Combat
+    # Celebrant/Godo/Aurelia-shaped; World at War/Aggravated Assault's own
+    # longer form) — tried longer-form-first, same "most specific first"
+    # convention as everywhere else in this table.
+    EffectHandler(
+        "extra_combat_and_main_phase", _EXTRA_COMBAT_AND_MAIN_PHASE_RE, _extra_combat_and_main_phase
+    ),
+    EffectHandler("extra_combat_phase", _EXTRA_COMBAT_PHASE_RE, _extra_combat_phase),
     # "Choose target creature you control and target creature you don't
     # control." — the target announcement those pair clauses read back.
     EffectHandler("choose_targets", _CHOOSE_TARGETS_RE, _choose_targets),
@@ -5393,6 +5747,17 @@ HANDLERS: list[EffectHandler] = [
         _GROUP_PUMP_COUNT_SELECTOR_RE,
         _group_pump_count_selector,
     ),
+    # RULE 202.2f/700.6 "target creature gets +X/+X until end of turn, where
+    # X is your devotion to <colour(s)/wedge>." (Aspect of Hydra/Devoted
+    # Temur-shaped) and its "-X/-X" debuff sibling (Blight-Breath
+    # Catoblepas) / mass "creatures you control get +X/+X …" sibling
+    # (Klothys's Design) — tried before the plain digit-amount `pump` row
+    # below since "x" would otherwise never match that row's `\d+`.
+    EffectHandler("pump_devotion_target", _PUMP_DEVOTION_TARGET_RE, _pump_devotion_target),
+    EffectHandler(
+        "pump_devotion_negative_target", _PUMP_DEVOTION_NEGATIVE_TARGET_RE, _pump_devotion_negative_target
+    ),
+    EffectHandler("group_pump_devotion", _GROUP_PUMP_DEVOTION_RE, _group_pump_devotion),
     # "Whenever ~ attacks, it gets +1/+0 until end of turn." (Akroan Hoplite-
     # adjacent self-buff-on-attack, `it` bound to the ability's own source —
     # `self_subject_only`, only ever offered from a self-subject trigger
@@ -5639,6 +6004,15 @@ HANDLERS: list[EffectHandler] = [
         "create_token_xx_where",
         _CREATE_TOKEN_XX_WHERE_RE,
         _create_token_xx_where,
+    ),
+    # RULE 202.2f/700.6 "create a number of 1/1 white Soldier creature
+    # tokens equal to your devotion to white." (Evangel of Heliod/Master of
+    # Waves-shaped) — tried before the plain `create_token` row below, same
+    # "strict superset" reasoning as the two rows above.
+    EffectHandler(
+        "create_token_number_equal_devotion",
+        _CREATE_TOKEN_NUMBER_EQUAL_DEVOTION_RE,
+        _create_token_number_equal_devotion,
     ),
     # "create a 1/1 white Soldier creature token" / "create two 2/2 green Bear
     # creature tokens with trample" — inline creature tokens (fully modeled).

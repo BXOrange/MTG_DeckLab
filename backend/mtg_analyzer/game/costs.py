@@ -279,6 +279,21 @@ class ActivationCost:
     #: activated ability's, so it's never consulted by `_can_pay_
     #: activation_cost`/`_pay_activation_cost`.
     exile_hand_card_color: Optional[str] = None
+    #: "…return two Islands you control to their owner's hand rather than
+    #: pay this spell's mana cost." (RULE 118.9, Gush) — ``(count, subtype
+    #: word)``, the alt-cast-only sibling of ``return_to_hand`` (that one's
+    #: implicit count of 1 can't express Gush's two). Subtype-matched via
+    #: `continuous.has_subtype`, same as ``sacrifice_count``. Charged by
+    #: `GameEngine._pay_alt_cast_cost`, never `_pay_activation_cost` — no
+    #: activated ability prints this shape yet.
+    return_to_hand_count: Optional[tuple[int, str]] = None
+    #: "…sacrifice a nontoken blue creature rather than pay this spell's
+    #: mana cost." (RULE 118.9, Flare of Denial) — a `combat.matches_
+    #: object_filter`-shaped dict (``card_type``/``color``/``nontoken``)
+    #: for an alt-cast sacrifice whose qualifier is more than a single
+    #: subtype word (``sacrifice_count`` can't express "blue" or
+    #: "nontoken"). Alt-cast-only, like ``return_to_hand_count`` above.
+    sacrifice_filter: Optional[dict] = None
     #: "Exile this card from your hand" (Elvish Spirit Guide) — an
     #: alternative-zone cost the engine doesn't charge yet (no hand-zone
     #: activation path); recognised so the ability is never treated as a
@@ -389,6 +404,8 @@ class ActivationCost:
             or self.add_counters_cost
             or self.exile_self_from_hand
             or self.return_to_hand
+            or self.return_to_hand_count
+            or self.sacrifice_filter
             or self.exile_hand_card_color
         )
 
@@ -441,6 +458,11 @@ class ActivationCost:
             parts.append("Exile this card from your hand")
         if self.return_to_hand:
             parts.append(f"Return a {self.return_to_hand.capitalize()} you control to its owner's hand")
+        if self.return_to_hand_count:
+            count, subtype = self.return_to_hand_count
+            parts.append(f"Return {count} {subtype.capitalize()}s you control to their owner's hand")
+        if self.sacrifice_filter:
+            parts.append("Sacrifice a permanent")
         if self.exile_hand_card_color:
             parts.append(f"Exile a {self.exile_hand_card_color} card from your hand")
         if self.loyalty is not None:
@@ -465,6 +487,8 @@ class ActivationCost:
             "add_counters_cost": list(self.add_counters_cost) if self.add_counters_cost else None,
             "exile_self_from_hand": self.exile_self_from_hand,
             "return_to_hand": self.return_to_hand,
+            "return_to_hand_count": list(self.return_to_hand_count) if self.return_to_hand_count else None,
+            "sacrifice_filter": dict(self.sacrifice_filter) if self.sacrifice_filter else None,
             "exile_hand_card_color": self.exile_hand_card_color,
             "loyalty": self.loyalty,
             "loyalty_is_x": self.loyalty_is_x,
@@ -546,6 +570,11 @@ def parse_activation_cost(
         parsed.exile_top_of_library = bool(cost["exile_top_of_library"])
     if cost.get("return_to_hand"):
         parsed.return_to_hand = str(cost["return_to_hand"])
+    if cost.get("return_to_hand_count"):
+        count, subtype = cost["return_to_hand_count"]
+        parsed.return_to_hand_count = (int(count), str(subtype))
+    if cost.get("sacrifice_filter"):
+        parsed.sacrifice_filter = dict(cost["sacrifice_filter"])
     if cost.get("exile_hand_card_color"):
         parsed.exile_hand_card_color = str(cost["exile_hand_card_color"])
     if "sorcery_speed_only" in cost:

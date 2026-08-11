@@ -82,62 +82,78 @@ Plan-level sequencing lives in
   cEDH staples recur across most of them). **Not** "no deferrals" scope like
   the Eliferate/Imodane batches — tracked here as ordinary open work rather
   than forced to completion in one sitting given the size. Current state
-  (2026-08-11, seventh pass): **Ojer 44/77, Rocco 73/98, Glarb Bloomsday
-  78/100, staples 176/215, staples 2 417/607, M-K 82/97, Kinnan 81/100**
-  (unique-card total 467/723) — re-measure rather than trusting these
+  (2026-08-11, tenth pass): **Ojer 45/77, Rocco 74/98, Glarb Bloomsday
+  80/100, staples 176/215, staples 2 421/607, M-K 84/97, Kinnan 81/100**
+  (unique-card total 478/722) — re-measure rather than trusting these
   numbers as they age; the per-deck *totals* themselves also drift run to
   run since these are live saved decks a user can keep editing, not a
   frozen fixture. Worklog detail for what's shipped so far — batch by
   batch, why each piece is built the way it is — is in `Done_Backend.md`'s
   "seven 'cEDH'-named saved decks" entries, not here.
 
-  The seventh pass closed Static Orb/Winter Moon/Meekstone (the untap-cap/
-  no_untap family, generalized rather than hand-authored — see
-  `Done_Backend.md`), Bolt Bend and the generic RULE 115.4 "change the
-  target" handler it unlocked (Deflection/Shunt/Swerve/Willbender for
-  free), and Voice of Victory ("your opponents can't cast spells during
-  your turn." — `cast_prohibition`'s existing shapes, just a missing
-  parser row). Redirect Lightning's own remaining gap — "as an additional
-  cost to cast this spell, pay 5 life **or** pay `{2}`" — is a genuinely
-  new primitive (`AbilitySpec.additional_cost` has no "pick one of two
-  cost shapes" branch, and payment happens synchronously inside
-  `cast_spell` with no interactive choice point today); a singleton in the
-  cache (`parser_probe.py` confirms), so hand-author it next time this
-  ticket is picked up rather than building the choice machinery for one
-  card. Kutzil, Malamet Exemplar's own second ability ("whenever 1 or more
-  creatures you control each with power greater than its base power deals
-  combat damage to a player, draw a card") is also still open — a
-  derived-vs-printed-power comparison trigger, a different shape from
-  everything above.
+  The tenth pass closed four of the fourth pass's own "broader gaps,
+  needs real design" list (below), each turning out to need no new
+  primitive at all — RULE 613.6's `control_count`/`type_change`, RULE
+  601.2c's mass-selector/count-selector families, and RULE 500.4's own
+  turn-sequence-as-data design (`phases.default_turn_sequence`'s docstring
+  had already anticipated the one genuinely new piece) all already
+  existed; the work was oracle-text handlers plus the odd wiring gap
+  (`DealDamageEffect._apply_selector` never having read `amount_from_
+  count_selector`, `_matches_sacrifice_type`'s "any permanent" catch-all).
+  Full detail in `Done_Backend.md`'s "MEC-12 tenth pass" entry. The
+  eighth/ninth passes' own diagnosed-open items are unchanged: Redirect
+  Lightning's "pay 5 life **or** pay `{2}`" additional cost (confirmed
+  cache-wide singleton — hand-author next time), Kutzil's second ability
+  (derived-vs-printed-power trigger), and Grafdigger's Cage/Weathered
+  Runestone's zone-cast-restriction pair (two genuinely new primitives —
+  `RulesEngine._move_to_graveyard` is *not* the single choke point its own
+  docstring frames it as; `mill`/`discard`/`discard_choice` all move cards
+  to a graveyard with their own direct `player.graveyard.append(obj)`,
+  bypassing it entirely, so "any card, from anywhere" needs the redirect
+  added at every one of those sites, not just the one already-hooked
+  permanent-death path — a real unification project, not a quick
+  extension).
 
   Broader gaps the fourth pass's full-pool sweep surfaced, each blocking a
   double-digit slice of the remaining residue and needing real design, not
-  just a handler: **devotion** (RULE 700.6 — Purphoros/Heliod/Nykthos,
-  Shrine to Nyx all need it, nothing today reads a permanent's own pips
-  toward it); a general **"players can't `<verb>`"** cross-cutting family
-  (search libraries/gain life/draw more than N — Leonin Arbiter/Rampaging
-  Ferocidon/Narset-Parter-of-Veils-shaped/Stasis, each needing enforcement
-  wired into the real search/life-gain/draw call sites, not a single
-  shared primitive — untap's own member of this family shipped this pass
-  as the generalized `active_untap_caps`, so Stasis's "players skip their
+  just a handler: a general **"players can't `<verb>`"** cross-cutting
+  family (search libraries/gain life/draw more than N — Leonin Arbiter/
+  Rampaging Ferocidon/Narset-Parter-of-Veils-shaped/Stasis, each needing
+  enforcement wired into the real search/life-gain/draw call sites, not a
+  single shared primitive — untap's own member of this family shipped as
+  the generalized `active_untap_caps`, so Stasis's "players skip their
   untap steps" is the only one of the original four still open here); a
   **"players can't cast spells from graveyards or libraries" +
   "`<type>` cards in graveyards/libraries can't enter the battlefield"**
-  pair (Grafdigger's Cage/Weathered Runestone — 4 cache cards each,
-  overlapping; two genuinely new primitives, not just a regex, since
-  neither zone-scoped restriction exists in any form today);
-  **phasing out an opponent's permanent as a spell effect** + the wider
-  "copy a creature except it also `<X>`" family beyond the couple of
-  shapes already hand-authored; an **alternative-cost "pitch" family**
-  broader than the six Force-of-Will-shaped cards already hand-authored
-  (Downhill Charge/Gush/Pyrokinesis/Flare of Denial/Snuff Out/Snapback all
-  still print their own alternative cost individually); and RULE 702.26b
-  **extra-combat-phase** grants tied to a specific attack condition
-  (Combat Celebrant/Godo's "attacks for the first time each turn, untap +
-  additional combat" shape, distinct from the already-shipped flat
-  "additional combat phase" primitive). None of these should be built
-  *for* this ticket alone — each is worth its own ticket once picked up,
-  scoped against the wider cache via `parser_probe.py`/`engine_bench.py
+  pair (Grafdigger's Cage/Weathered Runestone — see this ticket's own
+  narrative above for why it's a real multi-site unification, not a
+  regex); and the wider **"copy a creature except it also `<X>`"** family
+  beyond the couple of shapes already hand-authored. Devotion/phasing-out/
+  extra-combat/alt-cost all closed this pass (see above) — each still has
+  its own smaller residue worth a future ticket if picked up again: **a
+  general "X is the number of `<noun phrase>` you control" count-amount
+  resolver** (400+ cache-wide solo-blocked cards, `parser_probe.py blocked
+  "where x is the number of"` — devotion/Downhill Charge's own land-count
+  pump only needed a narrow one-off regex each; Nykthos, Shrine to Nyx's
+  mana ability (amount depends on a colour *chosen by the same ability* —
+  a new choice+amount coupling); "devotion to hybrid" (Blended Twistling —
+  any hybrid pip counts, not a colour); the "intervening if" trigger-
+  condition family ("whenever ~ attacks, **if it's the first combat phase
+  of the turn**, …" — Karlach/Finest Hour/Genji Glove-shaped, ~20 more
+  cache-wide extra-combat cards alone); RULE 702.19 **Exert** (Combat
+  Celebrant's own gate, unbuilt as a mechanic at all); a creature-spell
+  route for `alt_cost` (the Bringer cycle's "You may pay `<mana>`
+  rather than pay this spell's mana cost." — the *engine* side is wired
+  and tested, but `parser/oracle/segmenter.py`'s `allow_spell_effect`
+  standalone-line special cases are gated to instants/sorceries only,
+  `gate.py`'s `_is_spell`); and Snuff Out's own sibling shapes (Dark
+  Triumph's "if you control a Swamp, you may **sacrifice a creature**
+  rather than pay…" — a compound condition+sacrifice `alt_cost`, and the
+  broader "you may discard a `<type>` card"/"you may pay `<mana>` **and**
+  `<other cost>`" alt-cost shapes `parser_probe.py blocked "rather than
+  pay this spell"` still lists ~40 cards against). None of these should be
+  built *for* this ticket alone — each is worth its own ticket once picked
+  up, scoped against the wider cache via `parser_probe.py`/`engine_bench.py
   cards`, not just this pool's count.
 
 ## PLR — Player management

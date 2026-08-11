@@ -64,6 +64,12 @@ _TARGET_ROWS: list[tuple[str, str]] = [
     # supertype-filtered pick (RULE 205.4a), above the bare "target
     # permanent" row below so the longer phrase wins.
     (r"target legendary permanent", "legendary_permanent"),
+    # "target permanent an opponent controls" (Assassin's Trophy/
+    # Geomancer's Gambit) — the controller-scoped sibling of the bare
+    # "target permanent" row below, mirroring "target creature an opponent
+    # controls" → `creature_you_dont_control` above; above that bare row so
+    # the longer phrase wins.
+    (r"target permanent (?:an opponent controls|you don't control)", "permanent_you_dont_control"),
     (r"target permanent", "permanent"),
     # "target artifact, enchantment, or land" (Acidic Slime) / "target
     # artifact, creature, or land" (Aftershock) / any other 2+ combination of
@@ -166,6 +172,46 @@ COUNT = r"(?P<n>a|an|\d+)"
 #: it, the same "generalize the fragment, not blindly the call sites"
 #: split `_rad_counter_amount` used before this existed.
 COUNT_X = r"(?P<n>a|an|x|\d+)"
+
+#: RULE 202.2f/700.6 "your devotion to <colour>[ and <colour>[ and
+#: <colour>]]" (Purphoros/Heliod/Athreos/Karametra-shaped) or one of the five
+#: two-colour "wedge" names (Abzan/Jeskai/Mardu/Sultai/Temur — Devoted
+#: Abzan/Jeskai/Mardu/Sultai/Temur). One shared fragment feeding every
+#: devotion-scaled handler (a static's "isn't a creature" gate, a pump/
+#: damage/token/draw amount, …) so each only needs to embed `DEVOTION` once
+#: rather than re-deriving the colour/wedge grammar; `devotion_selector`
+#: turns a match into `continuous.count_selector`'s ``devotion_to_<key>``
+#: name. "Devotion to hybrid" (Blended Twistling — any hybrid pip counts,
+#: not a colour at all) is a different, unbuilt reading and stays unclaimed.
+_DEVOTION_COLOR_WORDS: dict[str, str] = {
+    "white": "W", "blue": "U", "black": "B", "red": "R", "green": "G",
+}
+_DEVOTION_WEDGE_WORDS: frozenset[str] = frozenset({"abzan", "jeskai", "mardu", "sultai", "temur"})
+DEVOTION = (
+    r"your devotion to (?:"
+    r"(?P<devotion_colors>(?:white|blue|black|red|green)(?: and (?:white|blue|black|red|green)){0,2})"
+    r"|(?P<devotion_wedge>abzan|jeskai|mardu|sultai|temur)"
+    r")"
+)
+
+
+def devotion_selector(m: "re.Match[str]") -> Optional[str]:
+    """A `DEVOTION` match's groups → `continuous.count_selector`'s
+    ``devotion_to_<key>`` name, or ``None`` if somehow neither group fired.
+    """
+    wedge = m.groupdict().get("devotion_wedge")
+    if wedge:
+        return f"devotion_to_{wedge}"
+    colors_text = m.groupdict().get("devotion_colors")
+    if not colors_text:
+        return None
+    words = colors_text.split(" and ")
+    if len(words) == 1:
+        return f"devotion_to_{words[0]}"
+    letters = sorted(
+        {_DEVOTION_COLOR_WORDS[w] for w in words}, key="WUBRG".index
+    )
+    return f"devotion_to_{''.join(letters).lower()}"
 
 
 def resolve_target_kind(phrase: str) -> Optional[str]:

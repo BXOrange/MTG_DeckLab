@@ -651,6 +651,16 @@ _DEVOTION_COLOURS: dict[str, str] = {
     "white": "W", "blue": "U", "black": "B", "red": "R", "green": "G",
 }
 
+#: The five two-colour "wedge" names a multi-colour devotion clause may
+#: print instead of spelling out its colours ("your devotion to Abzan" —
+#: Devoted Abzan/Jeskai/Mardu/Sultai/Temur) → their WUBRG letters, for the
+#: ``devotion_to_<wedge>`` selector suffix `subgrammars.devotion_selector`
+#: produces verbatim (unlike the multi-colour case, which is pre-resolved
+#: to sorted letters at parse time since there's no fixed name for it).
+_DEVOTION_WEDGES: dict[str, str] = {
+    "abzan": "WBG", "jeskai": "URW", "mardu": "RWB", "sultai": "BGU", "temur": "GUR",
+}
+
 
 def count_selector(
     state: "GameState",
@@ -834,16 +844,32 @@ def count_selector(
         # devotion). Read off the printed cost string rather than
         # `Card.mana_cost`'s per-colour dict, which is only populated for
         # cards that came from Scryfall.
+        #
+        # "Devotion to two [or three] colors" (RULE 700.6's own
+        # multi-colour reading, Athreos/Karametra-shaped "white and black")
+        # sums across all named colours instead of one — parsed here as a
+        # short lowercase-letter suffix (``"wb"``) by `subgrammars.
+        # devotion_selector`, distinct from the single full colour word
+        # every existing single-colour selector already uses, so there's no
+        # collision between the two suffix shapes.
         from ..models.mana_cost import ManaCost  # function-scoped: see module header
 
-        colour = _DEVOTION_COLOURS.get(selector[len("devotion_to_"):])
-        if colour is None:
+        suffix = selector[len("devotion_to_"):]
+        colour = _DEVOTION_COLOURS.get(suffix)
+        wedge = _DEVOTION_WEDGES.get(suffix)
+        if colour is not None:
+            letters = {colour}
+        elif wedge is not None:
+            letters = set(wedge)
+        elif suffix and suffix.isalpha() and 2 <= len(suffix) <= 5 and set(suffix.upper()) <= set("WUBRG"):
+            letters = set(suffix.upper())
+        else:
             return 0
         return sum(
             sum(
                 1
                 for symbol in ManaCost.parse(o.card.mana_cost_string).symbols
-                if colour in symbol.colors
+                if letters & symbol.colors
             )
             for o in bf
             if o.controller_id == controller_id

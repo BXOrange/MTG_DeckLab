@@ -258,7 +258,7 @@ the process group and reports the last test that had started.
 
 ## Claude Code skills
 
-Two project-scoped skills live in `.claude/skills/` and should be invoked
+Four project-scoped skills live in `.claude/skills/` and should be invoked
 (not reimplemented ad hoc) for the work they cover:
 
 - **`extend-parser`** (`.claude/skills/extend-parser/SKILL.md`) — extending
@@ -275,6 +275,15 @@ Two project-scoped skills live in `.claude/skills/` and should be invoked
   from one command — event trace + board diff, no throwaway test file —
   and searches existing registries for a primitive before you build a new
   one).
+- **`hand-author-card`** (`.claude/skills/hand-author-card/SKILL.md`) —
+  hand-authoring a specific card's abilities into `game/ability_catalogue.py`
+  (a replacement effect, a triggered ability with a real conditional
+  predicate, or any card the oracle-text parser can't fully claim) rather
+  than a parser handler. Ships `author_card.py`: pulls the card's real
+  oracle text, shows what the parser already claims for free (so you copy
+  that part instead of re-deriving it), finds the closest-shaped existing
+  catalogue entry to adapt, and assembles a paste-ready factory function +
+  `register()` call + test skeleton in one command.
 - **`inspect-db`** (`.claude/skills/inspect-db/SKILL.md`) — read-only
   lookups against the five SQLite stores (card cache, raw Scryfall data,
   parser-coverage ledger, saved decks, player assets). A short routing
@@ -607,8 +616,8 @@ every field it reads, `parser/oracle/gate.py`) since it's called once per
 on every copy/every game. `parser/oracle/processing_list.py` tracks
 cache-wide coverage and ranks the next handlers worth building. The cache is
 now bulk-loaded with the **full ~35k-card Oracle universe**
-(`scripts/import_bulk.py`), so coverage is measured against that: **33.1%
-covered (11,509 / 34,811) as of 2026-08-11, PARSER_VERSION 71** (parser-`MODELED` **or**
+(`scripts/import_bulk.py`), so coverage is measured against that: **33.3%
+covered (11,582 / 34,811) as of 2026-08-11, PARSER_VERSION 74** (parser-`MODELED` **or**
 hand-`AUTHORED`).
 Re-measure with `scripts/coverage_report.py` (ledger-backed — see
 `services/coverage_db.py`) before trusting this number; Batches 1–10 are all
@@ -1277,7 +1286,7 @@ English and German.
 | A clause naming what a previous clause targeted or created | `effects.GameContext.previous_targets` / `created_objects` (both maintained by `_apply_effects_partitioned`) |
 | Activated abilities / costs | `game/costs.py`, `game/game_engine.py` (`activate_ability`) |
 | Card abilities / fetch lands / enters-tapped | `game/ability_catalogue.py`, `effect_binder.bind_from_catalogue` |
-| Hand-authoring a specific card's effects | [docs/Reference/11_CARD_CATALOGUE_AUTHORING_GUIDE.md](docs/Reference/11_CARD_CATALOGUE_AUTHORING_GUIDE.md) |
+| Hand-authoring a specific card's effects | `hand-author-card` skill, [docs/Reference/11_CARD_CATALOGUE_AUTHORING_GUIDE.md](docs/Reference/11_CARD_CATALOGUE_AUTHORING_GUIDE.md) |
 | Effects / triggers | `game/effects.py`, `game/effect_binder.py` |
 | Which trigger conditions the parser recognizes | `parser/oracle/segmenter.py` (`_TRIGGER_VERBS` object subjects, `_PHASE_STEP_WORDS`, `_PLAYER_TRIGGER_CONDITIONS` "whenever **you** scry/surveil", `_VARIANT_TRIGGER_CONDITIONS`) |
 | Face-down permanents (morph/disguise/manifest/cloak) | `game/face_down.py`, `models/game_object.py` (`turn_face_down`/`turn_face_up`), `game/game_engine.py` (`turn_face_up`, `face="face_down"`) |

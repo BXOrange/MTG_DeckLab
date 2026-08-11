@@ -382,6 +382,9 @@ _FILTER_KEYS: frozenset[str] = frozenset(
         "keyword", "keyword_any", "without_keyword",
         "subtype", "subtype_any", "without_subtype", "color", "without_color",
         "card_type", "without_card_type", "power_vs_reference", "attacking",
+        # RULE 111.9 — "a **nontoken** blue creature" (Flare of Denial-
+        # shaped RULE 118.9 alternative cost).
+        "nontoken",
         # Engine-internal only — never produced by the oracle-text parser
         # (which can't know a specific game object's id), only computed at
         # resolve time by `GrantCombatRestrictionEffect`'s ``restrict_to_source``
@@ -456,6 +459,12 @@ def matches_object_filter(
     # composing with the subtype/"you control" filters above rather than
     # a bespoke target kind.
     if filt.get("attacking") and not getattr(obj, "attacking", False):
+        return False
+    # "sacrifice a **nontoken** blue creature" (Flare of Denial's own RULE
+    # 118.9 alternative cost) — RULE 111.9's token/nontoken distinction,
+    # composing with every other filter key here rather than a bespoke
+    # sacrifice-only check.
+    if filt.get("nontoken") and getattr(obj, "is_token", False):
         return False
     color = filt.get("color")
     if color is not None and str(color).upper() not in {

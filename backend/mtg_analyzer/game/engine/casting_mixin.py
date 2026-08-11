@@ -1323,9 +1323,29 @@ class CastingMixin:
         """
         if cost is None:
             return False
+        if cost.mana.symbols and not player.mana_pool.can_pay(cost.mana, life_available=player.life):
+            # "You may pay {R}{G} rather than pay this spell's mana cost."
+            # (the Bringer cycle/Admiral's Order-shaped RULE 118.9 family) —
+            # a genuinely *different* fixed mana cost, not "no mana cost"
+            # (`free=True`'s own branch, which is why `cast_without_paying`
+            # can't be reused unconditionally for every `alt_cost=True`
+            # spell — see `_pay_alt_cast_cost`'s matching check below).
+            return False
         if cost.pay_life and player.life < cost.pay_life:
             return False
         if cost.return_to_hand and self._return_to_hand_candidate(player, cost.return_to_hand) is None:
+            return False
+        if cost.return_to_hand_count:
+            count, subtype = cost.return_to_hand_count
+            if self._return_to_hand_count_candidates(player, count, subtype) is None:
+                return False
+        if cost.sacrifice and self._sacrifice_candidate(player, obj, cost.sacrifice) is None:
+            return False
+        if cost.sacrifice_count:
+            count, subtype = cost.sacrifice_count
+            if self._resolve_sacrifice_count(player, count, subtype, None) is None:
+                return False
+        if cost.sacrifice_filter and self._sacrifice_filter_candidate(player, cost.sacrifice_filter) is None:
             return False
         if cost.exile_hand_card_color and self._exile_hand_card_candidate(
             player, cost.exile_hand_card_color, exclude=obj
@@ -1339,16 +1359,65 @@ class CastingMixin:
         checked payable by `_can_pay_alt_cast_cost`."""
         if cost is None:
             return
+        if cost.mana.symbols:
+            life_spent = player.mana_pool.pay(cost.mana, life_available=player.life)
+            if life_spent:
+                self.rules.lose_life(player, life_spent, cause="cost")
         if cost.pay_life:
             self.rules.lose_life(player, cost.pay_life, cause="cost")
         if cost.return_to_hand:
             bounced = self._return_to_hand_candidate(player, cost.return_to_hand)
             if bounced is not None:
                 self.rules.return_to_hand(bounced)
+        if cost.return_to_hand_count:
+            count, subtype = cost.return_to_hand_count
+            for bounced in self._return_to_hand_count_candidates(player, count, subtype) or []:
+                self.rules.return_to_hand(bounced)
+        if cost.sacrifice:
+            victim = self._sacrifice_candidate(player, obj, cost.sacrifice)
+            if victim is not None:
+                self.rules.put_into_graveyard(victim)
+        if cost.sacrifice_count:
+            count, subtype = cost.sacrifice_count
+            for victim in self._resolve_sacrifice_count(player, count, subtype, None) or []:
+                self.rules.put_into_graveyard(victim)
+        if cost.sacrifice_filter:
+            victim = self._sacrifice_filter_candidate(player, cost.sacrifice_filter)
+            if victim is not None:
+                self.rules.put_into_graveyard(victim)
         if cost.exile_hand_card_color:
             victim = self._exile_hand_card_candidate(player, cost.exile_hand_card_color, exclude=obj)
             if victim is not None:
                 self.rules.exile(victim)
+    def _sacrifice_filter_candidate(
+        self, player: Player, filt: dict, exclude: Optional[GameObject] = None
+    ) -> Optional[GameObject]:
+        """A permanent matching a `combat.matches_object_filter`-shaped
+        ``filt`` ``player`` can sacrifice — the qualifier-filtered sibling
+        of `_sacrifice_candidate`/`_sacrifice_count_pool` for an alt-cast
+        cost whose object description is more than a bare type/subtype word
+        ("a nontoken blue creature", Flare of Denial)."""
+        for candidate in self.state.permanents_controlled_by(player.id):
+            if candidate is exclude:
+                continue
+            if combat.matches_object_filter(candidate, filt):
+                return candidate
+        return None
+    def _return_to_hand_count_candidates(
+        self, player: Player, count: int, subtype: str
+    ) -> Optional[list[GameObject]]:
+        """``count`` permanents of ``subtype`` ``player`` controls, to pay a
+        "Return N `<Type>`s you control to their owner's hand" alt-cast
+        cost (Gush's "return two Islands") — the `return_to_hand_count`
+        sibling of `_return_to_hand_candidate`'s singular form, auto-picking
+        the first ``count`` matches the same non-interactive way every other
+        alt-cast payment here does. ``None`` (not payable) if fewer than
+        ``count`` are eligible.
+        """
+        pool = [
+            o for o in self.state.permanents_controlled_by(player.id) if continuous.has_subtype(o, subtype)
+        ]
+        return pool[:count] if len(pool) >= count else None
     def _pay_escape_graveyard_cost(self, player: Player, count: int) -> None:
         """RULE 702.138b: exile ``count`` other cards from ``player``'s
         graveyard as part of casting via Escape — an auto-choice (the first

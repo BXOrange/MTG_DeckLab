@@ -12188,6 +12188,333 @@ confirmed passing in isolation both before and after this batch).
 `PARSER_VERSION` bumped 70 → 71 (measured cache-wide parser coverage:
 11,489 → 11,509/34,811, 33.1%).
 
+## The seven "cEDH"-named saved decks/cubes: eighth pass (2026-08-11)
+
+Continuation of `MEC-12`. Baseline re-measured at the start of this pass:
+467 covered / 723 total across the seven decks. Rather than the two
+"broader gap" primitives the seventh pass had explicitly sized-but-not-
+built (Grafdigger's Cage/Weathered Runestone's zone-cast-restriction
+pair — still open, unchanged, needing two genuinely new primitives no
+existing casting/zone-entry choke point covers), this pass picked off a
+small, tightly-scoped cluster:
+
+- **Back to Basics** ("Nonbasic lands don't untap during their
+  controllers' untap steps.") is `no_untap`'s unconditional, unlimited-
+  count sibling to the seventh pass's own `_UNTAP_CAP_RE` (Winter Moon's
+  "…can't untap more than one nonbasic land…", a *cap* that still lets the
+  first one through each turn — this blocks every one, every turn):
+  `affects="all_lands"` plus the ordinary `nonbasic` selector `group_
+  selector_objects` already applies to every other static family — no new
+  engine code at all, one new parser row (`_NO_UNTAP_NONBASIC_LANDS_RE`).
+  Only 1 other cache card prints this exact phrase, but it's a real
+  cEDH staple.
+- **Auriok Salvagers** ("{1}{W}: Return target artifact card **with mana
+  value 1 or less** from your graveyard to your hand.") — `Return
+  FromGraveyardEffect` had no mana-value filter at all: no constructor
+  param, no capture group in `_RETURN_FROM_GRAVEYARD_RE`, and `targeting.
+  py`'s `_GRAVEYARD_TARGET_KINDS` branch never checked `spec.max_mana_
+  value` the way every battlefield-object branch already does. Added all
+  three, reusing `destroy_mv`'s own `TargetSpec.max_mana_value` field
+  rather than inventing a second one. Cache-wide this same widening
+  reaches **102 real cards** printing "return target `<type>` card with
+  mana value N or less from `<scope>` graveyard to `<dest>`" — Sun Titan,
+  Unearth, Teshar Ancestor's Apostle, Ral Zarek Guest Lecturer's own
+  static half, and 98 more, most already `MODELED` the instant the filter
+  landed (the shape itself — recursion — was already fully general; only
+  the qualifier was missing).
+- **Assassin's Trophy** ("Destroy target permanent an opponent controls.
+  Its controller may search their library for a basic land card, put it
+  onto the battlefield, then shuffle.") needed two independent gaps:
+  1. **A missing target kind.** `subgrammars._TARGET_ROWS` had "target
+     creature an opponent controls" (→ `creature_you_dont_control`) but no
+     equivalent unscoped-by-type "target permanent an opponent controls"
+     row — `resolve_target_kind` simply had nowhere to send it. Added
+     `permanent_you_dont_control` (new row in `_TARGET_ROWS`, new branch in
+     `targeting.legal_targets` mirroring the existing `("creature",
+     "permanent")` branch but controller-scoped) — and found the plain
+     `_destroy` handler function itself was hardcoded to accept only
+     `kind in ("creature", "permanent")`, silently discarding *any* other
+     kind `resolve_target_kind` might resolve, including this brand-new
+     one and, incidentally, `creature_you_dont_control` too (never
+     exercised through the *plain* `destroy` handler before — narrower
+     dedicated handlers like `destroy_creature_filter` had covered that
+     case from a different angle). Widened the whitelist rather than
+     special-casing. Reaches 12 cache-wide cards on its own (Teferi, Hero
+     of Dominaria; Kiora, the Crashing Wave; Elspeth Conquers Death; Dovin,
+     Hand of Control among them) even before the second half below.
+  2. **A controller-redirected optional search.** "Its controller" is
+     whoever just lost the destroyed permanent, never this spell's own
+     caster — the same RULE 608.2 "previous clause's referent" shape
+     `PayCostThenEffect`'s `payer="previous_target_controller"` sentinel
+     already uses for Chain of Vapor's "that permanent's controller may
+     sacrifice a land," just never built for `SearchLibraryEffect`. Added
+     the identical sentinel there (`GameContext.previous_targets`, fails
+     closed — no search offered — if somehow there's no previous target on
+     record) plus one new parser row recognizing the fixed trailing
+     sentence (`_DESTROY_CONTROLLER_SEARCH_BASIC_LAND_RE`, `{"criteria":
+     {"basic": True}, "destination": "battlefield", "optional": True,
+     "player": "previous_target_controller"}`). Closes Assassin's Trophy
+     itself plus, cache-wide, **Geomancer's Gambit** and **Ghost Quarter**
+     (a hand-authored land whose second activated-ability clause had been
+     left an undocumented partial until now) — all three print the exact
+     same trailing sentence verbatim.
+
+New tests: `tests/test_mec_12_cedh_batch_8.py` (8 execute/parse tests —
+Back to Basics blocking every nonbasic land with no cap, Auriok Salvagers'
+activated ability offering only the cheap artifact, Assassin's Trophy
+destroying its target and opening the search choice for the *victim's*
+controller rather than the caster, confirmed by checking `pending_choice
+["player_id"]`, then answering it and confirming the land lands under the
+victim's controller's control — plus `permanent_you_dont_control`'s own
+legal-target scoping test). Full backend suite: 3,699 passed (+8 new), 238
+skipped, 0 regressions (the same pre-existing flaky websocket test,
+confirmed passing in isolation both before and after this batch).
+`PARSER_VERSION` bumped 71 → 72 (measured cache-wide parser coverage:
+11,509 → 11,533/34,811, still 33.1% at this precision).
+
+## The seven "cEDH"-named saved decks/cubes: ninth pass (2026-08-11)
+
+Continuation of `MEC-12`. Baseline re-measured at the start of this pass:
+470 covered / 723 total across the seven decks. Closed two items, and
+spent real investigation time on a third that turned out to need more
+than a quick extension — writing that finding down rather than silently
+re-deferring it a third time (this project's own "no half-implementations"
+discipline):
+
+- **Slip Out the Back** ("Put a +1/+1 counter on target creature. **It**
+  phases out.") — `PhaseOutEffect` had no previous-clause pronoun at all,
+  unlike `GrantUntilEffect`/`TapEffect`/`ReturnToHandEffect`, which all
+  already carry a `previous_subject` flag reading `GameContext.
+  previous_targets` (`_apply_effects_partitioned`'s general per-resolution
+  bookkeeping, populated automatically for *any* effect sequence — nothing
+  card-specific needed on the counter-placement side). Added the same flag
+  to `PhaseOutEffect`, plus one new parser row (`_PHASE_OUT_PREVIOUS_RE`,
+  reusing the fight family's own `_PREVIOUS_SUBJECT` pronoun alternation:
+  "it"/"that creature"/"the chosen creature"). Closes 8 cache-wide cards
+  (Teferi's Veil, The Pandorica, King of the Oathbreakers among them).
+- **Snapback / Pyrokinesis** (RULE 118.9: "You may exile a `<color>` card
+  from your hand rather than pay this spell's mana cost.") — the pitch-cost
+  family MEC-15 built two passes ago (`AbilitySpec.alt_cost`, `GameObject.
+  alt_cast_cost`, `GameEngine.can_cast`/`cast_spell`'s `alt_cost=True`
+  branch) had **no oracle-text handler at all** — Force of Will/Negation/
+  Vigor/Daze, the only four cards exercising it, were each hand-authored
+  individually in `ability_catalogue.py`, and every other card printing
+  the identical clause stayed unclaimed. Added a segmenter special-case
+  (`_ALT_COST_EXILE_HAND_COLOR_RE`, alongside the existing `additional_
+  cost`/`free_cast_condition`/`strive_cost` standalone-line rows in the
+  `allow_spell_effect` branch — this is a cast-cost-shaped clause, not a
+  resolve-time effect, so it needs the same "recognized whole, produces no
+  `EffectSpec`" treatment those get) producing `alt_cost={"exile_hand_
+  card_color": <letter>}` directly. Reaches **14 cache-wide cards** on the
+  clause alone (Bounty of the Hunt/Cave-In/Force of Despair/Force of Rage/
+  Force of Virtue/Misdirection/Reverent Mantra/Scars of the Veteran/Unmask/
+  Vine Dryad joining the six already-shipped Force-of-Will-shaped cards) —
+  Snapback and Pyrokinesis are the two that also had every other clause
+  already covered, so they're the two that flip fully `MODELED`; the rest
+  still have an unrelated second clause open (Bounty of the Hunt's counter-
+  distribution, Cave-In's mass damage, Reverent Mantra's mass protection
+  grant, …). Deliberately scoped to the `allow_spell_effect` (instant/
+  sorcery) branch only — Vine Dryad prints the identical clause on a
+  *creature*, which reaches a structurally different segmenter branch with
+  no equivalent "standalone cast-cost line" special case; left unclaimed
+  rather than duplicating the branch for a single off-pool card.
+- **Grafdigger's Cage / Weathered Runestone** — investigated further
+  rather than re-deferred verbatim. `RulesEngine._move_to_graveyard`'s own
+  docstring calls itself "the one choke point every graveyard-bound move
+  funnels through regardless of cause," which is what made Lurrus's own
+  "if a spell cast this way would be put into a graveyard, exile it
+  instead" redirect (`GraveyardCastPermissionEffect.exile_if_would_be_put_
+  into_graveyard`) a single-site fix. Checking whether "if a card **would
+  be put into a graveyard from anywhere**, exile it instead" (Rest in
+  Peace/Leyline of the Void — a different, more general card than either
+  of this pool's own two, but the same missing primitive shape) could
+  reuse that exact choke point found it can't: `mill()` and `discard()`
+  (`game/rules/draw_discard_mixin.py`) each move a card to a graveyard via
+  their own direct `obj.zone = Zone.GRAVEYARD; player.graveyard.append
+  (obj)`, never calling `_move_to_graveyard` at all. A genuinely general
+  "any card, any zone, any cause" redirect needs the same replacement
+  check added at each of those sites too (and confirming no other bypass
+  exists — a resolving instant/sorcery's own move to its owner's graveyard
+  wasn't checked either), which is real, multi-site surgery across the
+  zone-transition call sites, not a extension of the existing hook.
+  Recorded in `BACKLOG.md` rather than attempted rushed or silently
+  re-deferred with the same wording a third time.
+
+New tests: `tests/test_alt_cast_cost_family.py` gained 4 (parser-vs-hand-
+authored verdict check for all three newly-closed cards, plus one
+`can_cast`/exile-execute test each for Snapback/Pyrokinesis/Unmask,
+mirroring the file's own existing Force of Vigor pattern — Unmask's own
+test needed `current_step = "main1"` since, unlike the four Instants
+already in this file, it's the first Sorcery-speed member); `tests/
+test_phasing.py` gained 1 (Slip Out the Back's real cached card, cast end
+to end via `resolve_until_stable`, confirming the *same* creature both
+received the counter and phased out). Full backend suite: 3,704 passed
+(+4 new — Slip Out the Back's own suite already existed but gained a case;
+the alt-cost family's count includes the Snapback/Pyrokinesis/Unmask
+tests), 238 skipped, 0 regressions (the same pre-existing flaky websocket
+test, plus one incidentally-flaky Planechase test caught mid-batch that
+reproduced only inside a full-suite run and passed standalone every time —
+confirmed unrelated to this batch's changes, not touched).
+`PARSER_VERSION` bumped 72 → 73 (measured cache-wide parser coverage:
+11,533 → 11,537/34,811, still 33.1% at this precision).
+
+## The seven "cEDH"-named saved decks/cubes: tenth pass (2026-08-11)
+
+Continuation of `MEC-12`, this time working the fourth pass's own
+"broader gaps, needs real design" list rather than the pool directly —
+**devotion**, **phasing out an opponent's permanent as a spell effect**,
+**RULE 702.26b extra-combat-phase grants**, and the **remaining
+alternative-cost "pitch" shapes**, all four picked in one sitting since
+each turned out to lean on the same discovery: the engine primitive each
+one needed either already existed (built for an unrelated earlier card)
+or was a small, well-contained gap in an existing mechanism, not a
+ground-up build. Baseline re-measured at the start: 473/723 unique cards
+across the seven decks (a light overlap with this pass's four mechanics,
+since none of them are common cEDH-staple shapes); end state 478/722 (the
+pool's own live-editing drift between runs, not a regression — see the
+ticket's own note on why the denominator moves).
+
+- **Devotion (RULE 700.6)** — `continuous.count_selector`'s own
+  `devotion_to_<colour>` selector already existed (built for Thassa's
+  Oracle), just single-colour and with no oracle-text route reaching it
+  at all. Generalized the selector to a *set* of colours (Athreos/
+  Karametra's "white and black"/"green and white") or one of the five
+  two-colour wedge names (Devoted Abzan/Jeskai/Mardu/Sultai/Temur), summed
+  via "does this mana symbol's colour set intersect the named colours"
+  rather than single-letter membership (a hybrid pip still counts once
+  even when it matches two named colours). Added `subgrammars.DEVOTION`/
+  `devotion_selector` — one shared fragment every devotion handler embeds
+  rather than re-deriving the colour/wedge grammar per family. RULE
+  613.7f's "isn't a creature" gods (Purphoros/Heliod/Erebos/Karametra)
+  needed **no new engine primitive**: `static_conditions.py`'s
+  `control_count` condition already supports a `max` bound, and
+  `type_change`'s existing `remove_types` static already threads
+  `active_if` through `_selectors` — just a `_STATIC_CONDITION_RES` row
+  for "your devotion to `<X>` is less than `<n>`" and an unconditional
+  `_NOT_A_CREATURE_RE` for the inner "~ isn't a creature." clause
+  `_conditional_static_specs` wraps. The amount-scaled family (pump/
+  damage/lose_life/gain_life/create_token) all already had
+  `amount_from_count_selector`/`count_selector` params (Craterhoof/
+  Dockside/Frantic Firebolt-shaped) — only `DealDamageEffect._apply_
+  selector` (the *mass* "to each opponent" path) had never actually read
+  `amount_from_count_selector`, a latent gap `_amount_for`'s single-target
+  path had masked until Fanatic of Mogis exercised mass+dynamic-amount
+  together for the first time. `PumpEffect` gained a signed
+  `amount_from_count_selector_negative` flag for "-X/-X" (Blight-Breath
+  Catoblepas — the param had only ever been read as "+X/+X" before). RULE
+  119's "drain" idiom ("`<player(s)>` lose[s] X life. You gain life equal
+  to the life lost this way.", Gray Merchant of Asphodel and 15+ other
+  cache cards sharing the exact trailing sentence) needed a genuinely new
+  primitive: `GameContext.life_lost_this_way`, a per-resolution
+  accumulator threaded through `_apply_effects_partitioned`'s existing
+  save/reset/restore idiom (`previous_targets`/`created_objects`'s own
+  pattern, including `resume_deferred_effects`) and incremented by
+  `GameContext.lose_life`'s facade off the *actual* (post-replacement)
+  life delta, read by `GainLifeEffect(count_selector="life_lost_this_
+  way")`. Also widened `_lose_life_selector` from `NUMBER` to `COUNT_X`
+  (Exsanguinate's "loses X life" — the `"x"` sentinel already threads
+  through `RulesEngine._substitute_x` for free since `LoseLifeEffect.
+  amount` is a plain attribute that walk already covers), added "each
+  other player" as a selector alias (Urborg Syphon-Mage), and a
+  `creatures_you_control_of_type_<subtype>`-keyed row (Malakir
+  Bloodwitch's "the number of Vampires you control"). New tests:
+  `tests/test_mec_12_cedh_batch_10.py` (15 devotion cases — multicolour/
+  wedge/hybrid selector math, the two static gods, pump ±, mass damage,
+  token count, the drain family end-to-end with a real X spell).
+- **Phasing out an opponent's permanent as a spell effect (RULE 702.26)**
+  — `PhaseOutEffect` already accepted an arbitrary `target_kind` (nothing
+  in the engine ever scoped it to "your own permanents"); the gap was
+  purely parser-side. Added `PhaseOutEffect.self_target` (Blink Dog/
+  Vaporous Djinn-shaped "~ phases out.", distinct from the pre-existing
+  untargeted default — Robe of Stars' Equipment-hosted "equipped creature
+  phases out") plus three parser rows (self/attached/target, the target
+  row reusing the shared `TARGET` macro so an opponent-controlled
+  permanent is exactly as legal a target as your own whenever the printed
+  phrase says so). Closed 9 cache-wide cards (Blink Dog, Crystal Golem,
+  Rainbow Efreet, Reality Ripple, Vodalian Illusionist, Haystack,
+  Vanishing, Teferi's Honor Guard, Divine Smite's own phase-out half).
+  New tests: 4 (self-phase-out via activated ability, targeting an
+  opponent's permanent, an Aura's attached-host phase-out with the
+  Aura itself confirmed *not* phasing along per RULE 702.26e).
+- **RULE 702.26b extra-combat-phase grants** — genuinely unbuilt (the
+  BACKLOG entry's own claim of an "already-shipped flat" primitive was
+  stale; grepping `Done_Backend.md`/`game/effects.py` found nothing).
+  `phases.default_turn_sequence`'s docstring had already anticipated the
+  shape needed ("a fresh instance per call so callers can safely mutate a
+  turn's sequence — e.g. add an extra combat phase — without affecting
+  others"): `GameEngine.insert_additional_combat_phase` splices a fresh
+  `GamePhase("combat", …)` (and, for World at War/Aggravated Assault's
+  own "…followed by an additional main phase" wording, a fresh
+  `postcombat_main` too) into `_turn_steps`, the same mutable per-turn
+  step list `advance_step`'s cursor already walks — inserted right after
+  the *next* upcoming `end_combat`, not the raw cursor position, so it
+  doesn't reorder the combat still in progress. An effect can't reach
+  `_turn_steps`/`_cursor` directly (only `GameContext`/`RulesEngine` are
+  visible to it), so `ExtraCombatPhaseEffect` queues onto a new
+  `GameState.pending_extra_combats` FIFO instead — the same "queue now,
+  the turn loop drains it later" shape `extra_turns`/`TakeExtraTurnEffect`
+  already use — drained by `advance_step` before running the next step.
+  Two parser rows (`extra_combat_phase`/`extra_combat_and_main_phase`)
+  closed Godo/Aurelia/Aggravated Assault outright; Godo's own "untap it
+  and all Samurai you control" compound self+subtype-group untap needed
+  one more small piece — `TapEffect.selector`'s whitelist widened to admit
+  any `creatures_you_control_of_type_<subtype>` name (`continuous.
+  group_selector_objects` already handled the selector itself generically,
+  just never reached from `TapEffect`). Left open: Combat Celebrant's own
+  Exert-gated trigger (Exert isn't modeled as a mechanic at all yet) and
+  the ~20-card "intervening if" family (Karlach/Finest Hour/Genji
+  Glove-shaped "whenever ~ attacks, **if it's the first combat phase of
+  the turn**, …") — a different, unbuilt trigger-condition primitive, not
+  an extra-combat gap. New tests: 4 (the splice mechanics directly,
+  plus Aurelia attacking and confirmed reaching a second real
+  declare_attackers step later in the same turn).
+- **The remaining alternative-cost "pitch" shapes (RULE 118.9)** — three
+  new `ActivationCost` fields (`return_to_hand_count` — Gush's "return two
+  Islands", count-generalizing the existing singular `return_to_hand`;
+  `sacrifice_filter` — Flare of Denial's "a nontoken blue creature", a
+  `combat.matches_object_filter`-shaped dict, which gained a new
+  `nontoken` key for the occasion; and reusing the already-existing
+  `sacrifice`/`sacrifice_count` fields, previously activation-cost-only)
+  wired into `GameEngine._can_pay_alt_cast_cost`/`_pay_alt_cast_cost`,
+  plus a new `condition_query.free_cast_condition_holds` kind
+  (`control_land_type` — Snuff Out's "if you control a Swamp, …", the
+  single-player generalization of Submerge's own two-player board-state
+  gate). Found and fixed a real latent bug on the way: `_matches_
+  sacrifice_type`'s fallback for an unrecognized cost word was "any
+  permanent matches" rather than a real subtype check — harmless while
+  every printed `sacrifice` cost used one of the eight explicitly-handled
+  main-type words, but silently wrong the instant a card named a bare
+  subtype (exactly what "sacrifice a Mountain" needs); now falls through
+  to `continuous.has_subtype` instead. Also found `_can_pay_alt_cast_
+  cost`/`_pay_alt_cast_cost` never read `cost.mana` at all — `alt_cost`
+  always routed through `RulesEngine.cast_without_paying`, which skips
+  every mana cost including the alt cost's *own* (a real, different, RULE
+  118.9-legal amount, not "free") — wired that in too, closing the plain
+  "You may pay `<mana>` rather than pay this spell's mana cost." shape
+  (the Bringer cycle) at the engine level, though the parser only reaches
+  it for an instant/sorcery today (`gate.py`'s `_is_spell` scoping the
+  whole `allow_spell_effect` standalone-line family to those two types —
+  the Bringers are creatures, so their own printing needs a second,
+  not-yet-built route to reach the same already-working mechanism).
+  Closed Flare of Denial, Snuff Out, and Gush outright; Downhill Charge's
+  own alt-cost half works identically (confirmed by the engine test) but
+  the card stays UNMODELED on its unrelated "+X/+0, where X is the number
+  of Mountains you control" pump clause — deliberately not chased, since
+  "X is the number of `<noun phrase>` you control" turned out to be its
+  own 400+-card family (`parser_probe.py blocked "where x is the number
+  of"`), not a one-off. `parser/oracle/spec.py`'s `ALLOWED_ALT_COST_KEYS`/
+  `ALLOWED_FREE_CAST_CONDITION_KEYS` whitelists (the security boundary)
+  gained the five new keys plus their own structural validation. New
+  tests: 10 (each shape's payability gate and end-to-end payment, plus
+  the plain-mana shape exercised directly against `ActivationCost` since
+  no cached card reaches it via the parser yet).
+
+Full backend suite: 3,738 passed (+33 new across all four pieces above —
+`tests/test_mec_12_cedh_batch_10.py`), 238 skipped, 0 regressions (the
+same pre-existing flaky websocket test, confirmed passing in isolation).
+`PARSER_VERSION` bumped 73 → 74 (measured cache-wide parser coverage:
+11,537 → 11,582/34,811, 33.3%).
+
 ## Marchesa V4.2 (saved deck, fully playable) — 2026-08-10
 
 User request: make the "Marchesa V4.2" saved deck (96 cards, commander

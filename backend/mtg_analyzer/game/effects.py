@@ -98,6 +98,15 @@ class GameContext:
         #: alongside `previous_targets`, and appended to (not replaced) by a
         #: creating effect, since "each player creates …" makes several.
         self.created_objects: list[Any] = []
+        #: "Each opponent loses X life. You gain life equal to the life lost
+        #: this way." (Gray Merchant of Asphodel-shaped RULE 119 "drain" —
+        #: 16+ cache cards share the exact trailing sentence) — the running
+        #: total of *actual* life lost (post-replacement; see `lose_life`
+        #: below) across this same resolution, read by a following
+        #: `GainLifeEffect(count_selector="life_lost_this_way")`.
+        #: `_apply_effects_partitioned`'s own save/reset/restore idiom, same
+        #: as `previous_targets`/`created_objects` above.
+        self.life_lost_this_way: int = 0
 
     @property
     def players(self) -> list["Player"]:
@@ -299,7 +308,15 @@ class GameContext:
         self.engine.prevent_all_combat_damage_this_turn(controller, exclude_subtype=exclude_subtype)
 
     def lose_life(self, player: "Player", amount: int, cause: str = "effect") -> None:
+        before = getattr(player, "life", None)
         self.engine.lose_life(player, amount, cause=cause)
+        # `self.life_lost_this_way`'s own bookkeeping — the *actual* drop
+        # (so a life-locked/replaced loss doesn't overcount "the life lost
+        # this way"), not the nominal ``amount`` requested.
+        if before is not None:
+            actual = before - getattr(player, "life", before)
+            if actual > 0:
+                self.life_lost_this_way += actual
 
     def sacrifice(self, player: "Player", what: str = "permanent", count: int = 1) -> None:
         self.engine.sacrifice(player, what, count)
@@ -619,6 +636,7 @@ def _apply_effects_partitioned(
     group_index: int = 0,
     previous_targets: Optional[list[Any]] = None,
     created_objects: Optional[list[Any]] = None,
+    life_lost_this_way: int = 0,
 ) -> None:
     """Apply each of ``effects`` against its own share of ``targets``.
 
@@ -657,8 +675,10 @@ def _apply_effects_partitioned(
     already_pending = getattr(state, "pending_choice", None) if state is not None else None
     outer_previous = getattr(context, "previous_targets", [])
     outer_created = getattr(context, "created_objects", [])
+    outer_life_lost = getattr(context, "life_lost_this_way", 0)
     context.previous_targets = list(previous_targets or [])
     context.created_objects = list(created_objects or [])
+    context.life_lost_this_way = life_lost_this_way
     try:
         for position, effect in enumerate(effects):
             if source is not None and effect.source is None:
@@ -693,12 +713,14 @@ def _apply_effects_partitioned(
                         "source": source,
                         "previous_targets": list(context.previous_targets),
                         "created_objects": list(context.created_objects),
+                        "life_lost_this_way": context.life_lost_this_way,
                     }
                 )
                 return
     finally:
         context.previous_targets = outer_previous
         context.created_objects = outer_created
+        context.life_lost_this_way = outer_life_lost
 
 
 # ---------------------------------------------------------------------------
@@ -2232,6 +2254,16 @@ class DealDamageEffect(GameEffect):
         if self.amount_from_trigger_event:
             event = context.trigger_event
             amount = int((event or {}).get(self.amount_from_trigger_event) or 0)
+        if self.amount_from_count_selector:
+            # "it deals damage to each opponent equal to your devotion to
+            # red." (Fanatic of Mogis) — `_amount_for`'s own read, needed
+            # here too since the mass-selector path never calls that method.
+            from . import continuous  # avoid the continuous↔effects import cycle
+
+            controller_id_for_amount = getattr(self.source, "controller_id", None)
+            amount = self.amount_plus_count_selector + continuous.count_selector(
+                context.state, controller_id_for_amount, self.amount_from_count_selector, source=self.source,
+            )
         if self.selector == "defending_player":
             # Simian Sling's "it deals 1 damage to defending player" — the
             # same per-firing dynamic-defender resolution afflict's
@@ -2844,7 +2876,14 @@ class GainLifeEffect(GameEffect):
         if player is None:
             player = _controller_of(self.source, context)
         amount = self.amount
-        if self.count_selector and player is not None:
+        if self.count_selector == "life_lost_this_way":
+            # "You gain life equal to the life lost this way." (Gray
+            # Merchant of Asphodel-shaped RULE 119 drain) — a per-resolution
+            # accumulator (`GameContext.life_lost_this_way`), not a board
+            # count, so it's read directly rather than through
+            # `continuous.count_selector`'s vocabulary.
+            amount = context.life_lost_this_way
+        elif self.count_selector and player is not None:
             from . import continuous  # avoid the continuous↔effects import cycle
 
             amount = continuous.count_selector(context.state, player.id, self.count_selector)
@@ -5583,6 +5622,7 @@ class ReturnFromGraveyardEffect(GameEffect):
         shuffle_after: bool = False,
         subtype: Optional[str] = None,
         haste: bool = False,
+        max_mana_value: Optional[int] = None,
     ) -> None:
         super().__init__(source)
         self.target = target
@@ -5609,6 +5649,7 @@ class ReturnFromGraveyardEffect(GameEffect):
         self.shuffle_after = shuffle_after
         self.target_spec = TargetSpec(
             kind=target_kind, optional=optional, count=count, subtype=subtype,
+            max_mana_value=max_mana_value,
         )
 
     def _apply_one(self, context: GameContext, target: Any) -> None:
@@ -6581,6 +6622,28 @@ class TakeExtraTurnEffect(GameEffect):
             context.take_extra_turn(player)
 
 
+class ExtraCombatPhaseEffect(GameEffect):
+    """"After this combat phase, there is an additional combat phase[,
+    followed by an additional main phase]." (RULE 500.4-adjacent —
+    Combat Celebrant/Godo/Aurelia-shaped triggered abilities; World at
+    War/Aggravated Assault's own activated-ability wording sets
+    ``main_phase_too``). The same "queue now, the turn loop drains it
+    later" shape `TakeExtraTurnEffect`/`GameState.extra_turns` already
+    use — this effect can't reach `GameEngine._turn_steps` directly (only
+    `GameContext`/`RulesEngine` are visible to it), so it appends to
+    `GameState.pending_extra_combats` instead and `GameEngine.
+    advance_step` drains it (via `insert_additional_combat_phase`) before
+    running the next step.
+    """
+
+    def __init__(self, main_phase_too: bool = False, source: Optional["GameObject"] = None) -> None:
+        super().__init__(source)
+        self.main_phase_too = main_phase_too
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        context.state.pending_extra_combats.append(self.main_phase_too)
+
+
 class GrantProtectionEffect(GameEffect):
     """"Target creature gains protection from the color of your choice until
     end of turn" (RULE 702.16 — Mother of Runes; Giver of Runes adds a
@@ -6644,6 +6707,16 @@ _TAP_SELECTORS: frozenset[str] = frozenset(
 )
 
 
+def _is_valid_tap_selector(selector: Optional[str]) -> bool:
+    if selector in _TAP_SELECTORS:
+        return True
+    # "…untap it and all Samurai you control." (Godo, Bandit Warlord) —
+    # `continuous.group_selector_objects`'s own subtype-scoped branch
+    # already handles any such name; this just widens the whitelist to
+    # admit it rather than growing `_TAP_SELECTORS` one subtype at a time.
+    return bool(selector) and selector.startswith("creatures_you_control_of_type_")
+
+
 class TapEffect(GameEffect):
     """Tap (or untap) a target permanent — or the source itself (RULE 701.21/22).
 
@@ -6692,7 +6765,7 @@ class TapEffect(GameEffect):
         super().__init__(source)
         self.target = target
         self.untap = untap
-        self.selector = selector if selector in _TAP_SELECTORS else None
+        self.selector = selector if _is_valid_tap_selector(selector) else None
         self._attached_mode = target_kind == "attached_permanent"
         self.previous_subject = previous_subject
         self.target_spec = (
@@ -7284,15 +7357,34 @@ class PhaseOutEffect(GameEffect):
         source: Optional["GameObject"] = None,
         target_kind: Optional[str] = None,
         optional: bool = False,
+        previous_subject: bool = False,
+        self_target: bool = False,
     ) -> None:
         super().__init__(source)
         self.target = target
-        if target_kind is not None:
+        #: "Put a +1/+1 counter on target creature. **It** phases out."
+        #: (Slip Out the Back) — the same `GameContext.previous_targets`
+        #: pronoun `FightEffect`/`GrantUntilEffect.previous_subject` already
+        #: use, rather than a second independent RULE 115 target.
+        self.previous_subject = previous_subject
+        #: "~ phases out." (Blink Dog/Vaporous Djinn/Crystal Golem-shaped —
+        #: the source phasing out *itself*, no attachment involved) —
+        #: distinct from the plain untargeted default below, which is
+        #: Robe of Stars' Equipment-hosted "**equipped creature** phases
+        #: out" instead (`TransformEffect`'s own "self vs. attached host"
+        #: split has the identical shape).
+        self.self_target = self_target
+        if target_kind is not None and not previous_subject:
             self.target_spec = TargetSpec(kind=target_kind, optional=optional)
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
-        if self.target_spec is not None:
+        if self.previous_subject:
+            prev = list(context.previous_targets)
+            target = prev[0] if prev else None
+        elif self.target_spec is not None:
             target = (targets[0] if targets else None) or self.target
+        elif self.self_target:
+            target = self.source
         elif self.source is not None:
             host_id = getattr(self.source, "attached_to", None)
             target = context.state.find_object(host_id) if host_id is not None else None
@@ -7926,6 +8018,7 @@ class PumpEffect(GameEffect):
         amount_from_trigger_event: Optional[str] = None,
         per_recipient_controller_counter: Optional[str] = None,
         amount_from_count_selector: Optional[str] = None,
+        amount_from_count_selector_negative: bool = False,
         creature_filter: Optional[dict] = None,
     ) -> None:
         super().__init__(source)
@@ -7960,6 +8053,12 @@ class PumpEffect(GameEffect):
         #: event (`amount_from_trigger_event`'s job) — there's no trigger
         #: event to read here, this is the board state itself.
         self.amount_from_count_selector = amount_from_count_selector
+        #: "…gets -X/-X until end of turn, where X is your devotion to
+        #: black." (Blight-Breath Catoblepas) — `amount_from_count_selector`
+        #: always reads a non-negative board count; this flips the sign
+        #: after reading it, the "-X/-X" sibling of that always-positive
+        #: "+X/+X" default rather than a second, duplicated param.
+        self.amount_from_count_selector_negative = amount_from_count_selector_negative
         self._attached_mode = target_kind == "attached_permanent"
         if target_kind is not None and not self._attached_mode:
             # PAR-15: "any number of target creatures each get +N/+N [and
@@ -8007,9 +8106,11 @@ class PumpEffect(GameEffect):
 
             controller_id = getattr(self.source, "controller_id", None)
             amount = continuous.count_selector(context.state, controller_id, self.amount_from_count_selector)
+            if self.amount_from_count_selector_negative:
+                amount = -amount
             self.power = amount
             self.toughness = amount
-            if amount <= 0:
+            if amount == 0:
                 return
         if self.selector is not None:
             from .continuous import group_selector_objects  # avoid the continuous↔effects cycle
@@ -8740,7 +8841,25 @@ class SearchLibraryEffect(GameEffect):
         return criteria
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
-        player = self.player or context.active_player
+        if self.player == "previous_target_controller":
+            # "Its controller may search their library …" (Assassin's
+            # Trophy-shaped) — the controller of whatever this same
+            # resolution's *previous* clause targeted (RULE 608.2's
+            # referent, `GameContext.previous_targets`), the same sentinel
+            # `PayCostThenEffect`'s own ``payer`` param already uses for
+            # Chain of Vapor. No previous target on record (shouldn't
+            # happen for a real card printing this shape, but fails closed
+            # rather than guessing) skips the search entirely.
+            prev = list(context.previous_targets)
+            player = (
+                context.state.player_by_id(prev[0].controller_id)
+                if prev and getattr(prev[0], "controller_id", None)
+                else None
+            )
+            if player is None:
+                return
+        else:
+            player = self.player or context.active_player
         context.request_search(
             player, self._resolved_criteria(), self.destination, self.count, self.optional,
             zones=self.zones, destinations=self.destinations, exile_rest=self.exile_rest,
@@ -11407,6 +11526,7 @@ EffectRegistry.register(
         count=p.get("count", 1),
         shuffle_after=bool(p.get("shuffle_after", False)),
         subtype=p.get("subtype"),
+        max_mana_value=p.get("max_mana_value"),
         haste=bool(p.get("haste", False)),
     ),
 )
@@ -11745,6 +11865,10 @@ EffectRegistry.register(
 )
 EffectRegistry.register("take_extra_turn", lambda p: TakeExtraTurnEffect())
 EffectRegistry.register(
+    "extra_combat_phase",
+    lambda p: ExtraCombatPhaseEffect(main_phase_too=bool(p.get("main_phase_too", False))),
+)
+EffectRegistry.register(
     # "You may sacrifice/tap/return a <kind> you control." — the player
     # picks which; see `RulesEngine.request_choose_objects`.
     "choose_objects",
@@ -11976,6 +12100,7 @@ EffectRegistry.register(
         amount_from_trigger_event=p.get("amount_from_trigger_event"),
         per_recipient_controller_counter=p.get("per_recipient_controller_counter"),
         amount_from_count_selector=p.get("amount_from_count_selector"),
+        amount_from_count_selector_negative=bool(p.get("amount_from_count_selector_negative", False)),
         creature_filter=p.get("creature_filter"),
     ),
 )
@@ -12071,6 +12196,7 @@ EffectRegistry.register(
         destination=p.get("destination", "hand"),
         count=p.get("count", 1),
         optional=p.get("optional", True),
+        player=p.get("player"),
         zones=p.get("zones"),
         destinations=p.get("destinations"),
         destination_if=p.get("destination_if"),
@@ -12186,7 +12312,12 @@ EffectRegistry.register(
 EffectRegistry.register("become_prepared", lambda p: BecomePreparedEffect())
 EffectRegistry.register(
     "phase_out",
-    lambda p: PhaseOutEffect(target_kind=p.get("target_kind"), optional=bool(p.get("optional", False))),
+    lambda p: PhaseOutEffect(
+        target_kind=p.get("target_kind"),
+        optional=bool(p.get("optional", False)),
+        previous_subject=bool(p.get("previous_subject", False)),
+        self_target=bool(p.get("self_target", False)),
+    ),
 )
 EffectRegistry.register("cascade", lambda p: CascadeEffect(mana_value=p.get("mana_value")))
 EffectRegistry.register("proliferate", lambda p: ProliferateEffect(times=p.get("times", 1)))

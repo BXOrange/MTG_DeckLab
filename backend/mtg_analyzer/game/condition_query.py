@@ -127,6 +127,21 @@ def free_cast_condition_holds(condition: dict[str, Any], obj: "GameObject", stat
             )
             if bool(value) != (you_have_island and opp_has_forest):
                 return False
+        elif key == "control_land_type":
+            # "If you control a Swamp, you may pay 4 life rather than pay
+            # this spell's mana cost." (RULE 118.9, Snuff Out) — the
+            # single-player generalization of `opponent_controls_forest_
+            # and_you_control_island`'s own "you control a `<land type>`"
+            # half, for a plain basic-land-type gate on its own.
+            battlefield = getattr(state, "battlefield", [])
+            land_type = str(value).lower()
+            you_have_type = any(
+                o.controller_id == controller_id and o.is_land
+                and land_type in (o.card.type_line or "").lower()
+                for o in battlefield
+            )
+            if not you_have_type:
+                return False
         elif key == "opponent_spells_cast_this_turn_at_least":
             # Mindbreak Trap-shaped (RULE 601.2f-adjacent, MEC-12): true
             # once *any* opponent has cast at least this many spells this

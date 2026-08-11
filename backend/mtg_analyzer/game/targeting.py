@@ -116,6 +116,11 @@ ALLOWED_TARGET_KINDS: frozenset[str] = frozenset(
         # "target artifact you don't control" (Vandalblast) — the same
         # mirror-image shape as `creature_you_dont_control`, for artifacts.
         "artifact_you_dont_control",
+        # "target permanent an opponent controls" (Assassin's Trophy/
+        # Geomancer's Gambit) — the same mirror-image shape, unscoped by
+        # permanent type (unlike the narrower `nonland_permanent_you_dont_
+        # control` a couple of names).
+        "permanent_you_dont_control",
         # RULE 702.140a's "target **non-Human** creature you own" — mutate's
         # own target line. Note *own*, not control (RULE 108.3): a creature
         # you own but an opponent controls is still a legal mutate host, and
@@ -679,6 +684,21 @@ def legal_targets(
             and (spec.max_mana_value is None or o.card.converted_mana_cost <= spec.max_mana_value)
             and (not spec.creature_filter or _creature_matches_filter(o, spec.creature_filter))
         ]
+    if kind == "permanent_you_dont_control":
+        # RULE 115: "target permanent an opponent controls." (Assassin's
+        # Trophy/Geomancer's Gambit-shaped) — the controller-scoped sibling
+        # of the bare ``permanent`` branch above (any permanent type,
+        # including lands, unlike ``nonland_permanent_you_dont_control``
+        # just below), narrowed to whoever isn't this ability's controller.
+        return [
+            {"instance_id": o.instance_id, "name": o.name, "controller_id": o.controller_id}
+            for o in state.permanents()
+            if o.controller_id not in (None, controller_id)
+            and o is not source
+            and _targetable_by(o, source)
+            and (not spec.color or spec.color in o.colors)
+            and (spec.max_mana_value is None or o.card.converted_mana_cost <= spec.max_mana_value)
+        ]
     if kind == "nonland_permanent":
         # RULE 115: every permanent that isn't a land (Geistwave/Beast
         # Within-adjacent). Mirrors the "permanent" branch above, minus lands.
@@ -987,6 +1007,7 @@ def legal_targets(
             for o in gy
             if type_filter(o)
             and (not spec.subtype or spec.subtype in o.card.type_line.lower())
+            and (spec.max_mana_value is None or o.card.converted_mana_cost <= spec.max_mana_value)
             and o is not source
         ]
     if kind == "spell":

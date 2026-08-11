@@ -31,6 +31,7 @@ from mtg_analyzer.game.costs import ActivationCost
 from mtg_analyzer.game.effect_binder import bind_from_catalogue
 from mtg_analyzer.game.game_engine import GameEngine
 from mtg_analyzer.models.game_object import GameObject, Zone
+from mtg_analyzer.parser.oracle.gate import parse_oracle
 from mtg_analyzer.services.card_database import CardDatabase, DEFAULT_DB_PATH
 
 pytestmark = pytest.mark.skipif(
@@ -244,6 +245,48 @@ def test_legal_actions_offers_both_plain_and_alt_cost_when_both_are_payable():
     ]
     assert len(offers) == 2
     assert {bool(o.get("alt_cost")) for o in offers} == {True, False}
+
+
+# ---------------------------------------------------------------------------
+# MEC-12 ninth pass (2026-08-11) — the same alt_cost shape, now reachable
+# from oracle text directly (`segmenter._ALT_COST_EXILE_HAND_COLOR_RE`)
+# instead of one-at-a-time hand-authoring: Snapback (blue), Pyrokinesis
+# (red), Unmask (black).
+# ---------------------------------------------------------------------------
+
+
+def test_snapback_pyrokinesis_unmask_are_parser_modeled_not_hand_authored():
+    from mtg_analyzer.game.ability_catalogue import is_registered
+
+    for name in ("Snapback", "Pyrokinesis", "Unmask"):
+        assert not is_registered(name), name  # reached generically, not one-off
+        assert parse_oracle(_card(name)).modeled, name
+
+
+def test_snapback_alt_cost_needs_a_blue_card_in_hand():
+    eng, p1, p2 = two_player_engine()
+    snapback = to_hand(eng, "Snapback", "p1")
+    assert eng.can_cast(p1, snapback, alt_cost=True) is False
+    to_hand(eng, "Brainstorm", "p1")  # blue, qualifies
+    assert eng.can_cast(p1, snapback, alt_cost=True) is True
+
+
+def test_pyrokinesis_alt_cost_needs_a_red_card_not_a_blue_one():
+    eng, p1, p2 = two_player_engine()
+    pyro = to_hand(eng, "Pyrokinesis", "p1")
+    to_hand(eng, "Brainstorm", "p1")  # blue, doesn't qualify
+    assert eng.can_cast(p1, pyro, alt_cost=True) is False
+    to_hand(eng, "Lightning Bolt", "p1")  # red, qualifies
+    assert eng.can_cast(p1, pyro, alt_cost=True) is True
+
+
+def test_unmask_alt_cost_needs_a_black_card_in_hand():
+    eng, p1, p2 = two_player_engine()
+    eng.state.current_step = "main1"  # Unmask is a sorcery — needs sorcery-speed timing
+    unmask = to_hand(eng, "Unmask", "p1")
+    assert eng.can_cast(p1, unmask, alt_cost=True) is False
+    to_hand(eng, "Dark Confidant", "p1")  # black, qualifies
+    assert eng.can_cast(p1, unmask, alt_cost=True) is True
 
 
 def test_dispatch_cast_spell_rountrips_the_alt_cost_flag():

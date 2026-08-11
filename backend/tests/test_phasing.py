@@ -171,3 +171,34 @@ def test_phases_back_in_at_the_controllers_next_untap_step():
     eng._step_untap()  # RULE 702.26a phase-in sweep runs here
     assert bear.phased_out is False
     assert bear in eng.state.permanents()
+
+
+# ---------------------------------------------------------------------------
+# MEC-12 ninth pass (2026-08-11) — "It phases out." as a previous-clause
+# pronoun (PhaseOutEffect.previous_subject), Slip Out the Back-shaped.
+# ---------------------------------------------------------------------------
+
+
+def test_slip_out_the_back_counters_and_phases_out_the_same_creature():
+    from mtg_analyzer.parser.oracle.gate import parse_oracle
+    from mtg_analyzer.services.card_database import CardDatabase, DEFAULT_DB_PATH
+
+    card = CardDatabase(DEFAULT_DB_PATH).get_card("Slip Out the Back")
+    assert card is not None and parse_oracle(card).modeled
+
+    eng = make_engine()
+    p1 = eng.state.active_player
+    bear = _put(eng, creature())
+    bind_from_catalogue(bear)
+    spell = GameObject(card, owner_id="p1", zone=Zone.HAND)
+    bind_from_catalogue(spell)
+    p1.hand.append(spell)
+    p1.mana_pool.add("U", 1)
+    eng.state.current_step = "main1"
+    eng.recompute_continuous_effects()
+
+    eng.cast_spell(p1, spell, targets=[bear])
+    eng.resolve_until_stable()
+
+    assert bear.counters.get("+1/+1", 0) == 1
+    assert bear.phased_out is True

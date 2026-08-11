@@ -896,7 +896,23 @@ NEVER_SUPPORTED = "NEVER_SUPPORTED"
 #: `static_effect_specs` for instants/sorceries too (not just permanents),
 #: and "your opponents can't cast spells during your turn." as a
 #: `cast_prohibition` row (Voice of Victory/Dragonlord Dromoka).
-PARSER_VERSION = "71"
+#:
+#: 72: MEC-12 eighth pass (2026-08-11) — Back to Basics's unconditional
+#: nonbasic-land `no_untap` sibling to the untap-cap family; `Return
+#: FromGraveyardEffect`/`destroy_mv`'s shared `TargetSpec.max_mana_value`
+#: offer-time cap extended to the graveyard-recursion family (Auriok
+#: Salvagers, cache-wide Sun Titan/Unearth/Teshar); a new
+#: `permanent_you_dont_control` target kind (Assassin's Trophy/Teferi Hero
+#: of Dominaria/Kiora the Crashing Wave) plus `SearchLibraryEffect`'s
+#: `player="previous_target_controller"` sentinel for "its controller may
+#: search…" (also closing Geomancer's Gambit/Ghost Quarter).
+#:
+#: 73: MEC-12 ninth pass (2026-08-11) — `PhaseOutEffect.previous_subject`
+#: for "It phases out." as a previous-clause pronoun (Slip Out the Back),
+#: and RULE 118.9's pitch alt_cost family's first oracle-text route
+#: (`segmenter._ALT_COST_EXILE_HAND_COLOR_RE` — Snapback/Pyrokinesis/Unmask,
+#: previously only reachable via one-at-a-time hand-authoring).
+PARSER_VERSION = "74"
 
 
 @dataclass

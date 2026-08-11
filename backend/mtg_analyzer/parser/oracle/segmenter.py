@@ -31,6 +31,7 @@ from .catalogue.keywords import ALIAS_DISPLAYS, KEYWORDS
 from .catalogue.replacements import replacement_clause_specs
 from .catalogue.saga import CHAPTER_LINE_RE, parse_chapter_token
 from .catalogue.static_handlers import enter_choice_specs, static_effect_specs
+from .catalogue.subgrammars import COLOR_WORD_ALT, resolve_color_word
 from .spec import AbilitySpec, EffectSpec, ParserProvenance
 
 #: RULE 603.1's object-subject trigger *verbs*, longest phrase first, each
@@ -1147,6 +1148,76 @@ _STRIVE_LINE_RE = re.compile(
     re.IGNORECASE,
 )
 
+#: RULE 118.9's "pitch" alternative cost: "You may exile a `<color>` card
+#: from your hand rather than pay this spell's mana cost." (MEC-15 — the
+#: Force of Will cycle/Misdirection/Pyrokinesis/Snapback/Unmask-shaped
+#: family, previously only reachable one card at a time via `ability_
+#: catalogue.py`'s `alt_cost={"exile_hand_card_color": …}` — this is the
+#: same shape's first oracle-text route). Same standalone-line treatment as
+#: every other `alt_cost`/`free_cast_condition` row above.
+_ALT_COST_EXILE_HAND_COLOR_RE = re.compile(
+    rf"^you may exile an? (?P<color>{COLOR_WORD_ALT}) card from your hand "
+    r"rather than pay this spell'?s mana cost\.?\s*$",
+    re.IGNORECASE,
+)
+
+#: RULE 118.9's other three "pitch"-family shapes (MEC-12's own diagnosed
+#: remaining gap, past the "exile a colored card" one above): "You may
+#: sacrifice a `<permanent type>` rather than pay this spell's mana cost."
+#: (Downhill Charge's "a Mountain") — a bare subtype word, `AbilitySpec.
+#: alt_cost`'s ``sacrifice`` key (reused verbatim from the ordinary-cost
+#: field, `_matches_sacrifice_type`'s own subtype fallback now recognizes
+#: it rather than the old "any permanent" catch-all).
+_ALT_COST_SACRIFICE_TYPE_RE = re.compile(
+    r"^you may sacrifice an? (?P<what>[a-z]+) rather than pay this spell'?s mana cost\.?\s*$",
+    re.IGNORECASE,
+)
+#: "…a nontoken `<color>` creature…" (Flare of Denial) — a qualifier beyond
+#: a bare type word, so it's a `combat.matches_object_filter`-shaped dict
+#: (``sacrifice_filter``) instead of the plain ``sacrifice`` word above.
+_ALT_COST_SACRIFICE_NONTOKEN_COLOR_CREATURE_RE = re.compile(
+    rf"^you may sacrifice a nontoken (?P<color>{COLOR_WORD_ALT}) creature "
+    r"rather than pay this spell'?s mana cost\.?\s*$",
+    re.IGNORECASE,
+)
+#: "You may return two `<Type>`s you control to their owner's hand rather
+#: than pay this spell's mana cost." (Gush) — `AbilitySpec.alt_cost`'s
+#: ``return_to_hand_count`` key, the count-generalized sibling of the
+#: already-shipped singular ``return_to_hand``. Only "two" is a real
+#: cache-wide printing today; a future count word widens the alternation,
+#: not the shape.
+_ALT_COST_RETURN_TWO_RE = re.compile(
+    r"^you may return 2 (?P<subtype>[a-z]+)s you control to their owner'?s hand "
+    r"rather than pay this spell'?s mana cost\.?\s*$",
+    re.IGNORECASE,
+)
+#: "If you control a `<land type>`, you may pay `<N>` life rather than pay
+#: this spell's mana cost." (Snuff Out) — a *board-state-conditioned*
+#: pay-life, unlike the already-shipped unconditional Phyrexian-mana-style
+#: `pay_life`: `AbilitySpec.alt_cost`'s own ``condition`` key (already
+#: used for ``not_your_turn``) gains `condition_query.
+#: free_cast_condition_holds`'s new ``control_land_type`` kind.
+_ALT_COST_PAY_LIFE_IF_CONTROL_LAND_RE = re.compile(
+    r"^if you control an? (?P<land>[a-z]+), you may pay (?P<n>\d+) life "
+    r"rather than pay this spell'?s mana cost\.?\s*$",
+    re.IGNORECASE,
+)
+#: RULE 118.9's plain, unconditional form — "You may pay `<mana>` rather
+#: than pay this spell's mana cost." (the Bringer cycle — five-color
+#: {W}{U}{B}{R}{G} — among others) is a genuinely *different fixed cost*,
+#: not "no cost" (`free_cast_condition`'s job) — `AbilitySpec.alt_cost`'s
+#: own ``mana`` key, newly wired into `GameEngine._can_pay_alt_cast_cost`/
+#: `_pay_alt_cast_cost` (previously unread: `alt_cost=True` always routed
+#: through `RulesEngine.cast_without_paying`, which skips mana entirely).
+#: Deliberately only the *unconditional* printing — a leading "Raid —
+#: if you attacked this turn, "-shaped gate (Admiral's Order) would need a
+#: `condition` key this row doesn't parse, so it's left unclaimed rather
+#: than silently dropping the gate.
+_ALT_COST_PAY_MANA_RE = re.compile(
+    r"^you may pay (?P<mana>(?:\{[^{}]+\})+) rather than pay this spell'?s mana cost\.?\s*$",
+    re.IGNORECASE,
+)
+
 
 def _additional_cost_dict(text: str) -> Optional[dict[str, Any]]:
     """One additional-cost clause's closed vocabulary → its dict, or ``None``.
@@ -2177,6 +2248,101 @@ def segment_line(
                 "spell_effect",
                 effects=[],
                 strive_cost=re.sub(r"\s+", "", strive.group("cost")),
+                raw_text=raw,
+                parser=provenance,
+            )
+            return Segment(raw=raw, spec=spec, claimed=True)
+
+        # RULE 118.9: "You may exile a <color> card from your hand rather
+        # than pay this spell's mana cost." (MEC-15's pitch-cost family,
+        # first oracle-text route) — same standalone-line treatment as
+        # every alt_cost/free_cast_condition row above.
+        pitch = _ALT_COST_EXILE_HAND_COLOR_RE.match(raw)
+        if pitch is not None:
+            color = resolve_color_word(pitch.group("color"))
+            if color is None:
+                return Segment(raw=raw)  # unrecognised colour word → unclaimed
+            spec = AbilitySpec(
+                "spell_effect",
+                effects=[],
+                alt_cost={"exile_hand_card_color": color},
+                raw_text=raw,
+                parser=provenance,
+            )
+            return Segment(raw=raw, spec=spec, claimed=True)
+
+        # RULE 118.9: "You may sacrifice a nontoken <color> creature rather
+        # than pay this spell's mana cost." (Flare of Denial) — tried before
+        # the plain sacrifice-a-type row below since it's a strict superset
+        # of that shape (a bare "sacrifice a <word>" wouldn't match "a
+        # nontoken <color> creature" anyway, but the explicit ordering keeps
+        # this file's own "most specific first" convention).
+        sac_filter = _ALT_COST_SACRIFICE_NONTOKEN_COLOR_CREATURE_RE.match(raw)
+        if sac_filter is not None:
+            color = resolve_color_word(sac_filter.group("color"))
+            if color is None:
+                return Segment(raw=raw)  # unrecognised colour word → unclaimed
+            spec = AbilitySpec(
+                "spell_effect",
+                effects=[],
+                alt_cost={"sacrifice_filter": {"card_type": "creature", "color": color, "nontoken": True}},
+                raw_text=raw,
+                parser=provenance,
+            )
+            return Segment(raw=raw, spec=spec, claimed=True)
+
+        # RULE 118.9: "You may sacrifice a <type> rather than pay this
+        # spell's mana cost." (Downhill Charge's "a Mountain").
+        sac_type = _ALT_COST_SACRIFICE_TYPE_RE.match(raw)
+        if sac_type is not None:
+            spec = AbilitySpec(
+                "spell_effect",
+                effects=[],
+                alt_cost={"sacrifice": sac_type.group("what").lower()},
+                raw_text=raw,
+                parser=provenance,
+            )
+            return Segment(raw=raw, spec=spec, claimed=True)
+
+        # RULE 118.9: "You may return two <Type>s you control to their
+        # owner's hand rather than pay this spell's mana cost." (Gush).
+        ret_two = _ALT_COST_RETURN_TWO_RE.match(raw)
+        if ret_two is not None:
+            spec = AbilitySpec(
+                "spell_effect",
+                effects=[],
+                alt_cost={"return_to_hand_count": [2, ret_two.group("subtype").lower()]},
+                raw_text=raw,
+                parser=provenance,
+            )
+            return Segment(raw=raw, spec=spec, claimed=True)
+
+        # RULE 118.9: "If you control a <land type>, you may pay <N> life
+        # rather than pay this spell's mana cost." (Snuff Out) — a
+        # board-state-conditioned pay-life, unlike the unconditional
+        # Phyrexian-mana-style ``pay_life`` MEC-15 already shipped.
+        pay_if = _ALT_COST_PAY_LIFE_IF_CONTROL_LAND_RE.match(raw)
+        if pay_if is not None:
+            spec = AbilitySpec(
+                "spell_effect",
+                effects=[],
+                alt_cost={
+                    "pay_life": int(pay_if.group("n")),
+                    "condition": {"control_land_type": pay_if.group("land").lower()},
+                },
+                raw_text=raw,
+                parser=provenance,
+            )
+            return Segment(raw=raw, spec=spec, claimed=True)
+
+        # RULE 118.9's plain "You may pay <mana> rather than pay this
+        # spell's mana cost." (the Bringer cycle-shaped unconditional form).
+        pay_mana = _ALT_COST_PAY_MANA_RE.match(raw)
+        if pay_mana is not None:
+            spec = AbilitySpec(
+                "spell_effect",
+                effects=[],
+                alt_cost={"mana": re.sub(r"\s+", "", pay_mana.group("mana"))},
                 raw_text=raw,
                 parser=provenance,
             )

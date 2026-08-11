@@ -57,7 +57,7 @@ from typing import Any, Callable, NamedTuple, Optional
 from ..spec import EffectSpec, ParserProvenance
 from .handlers import ONCE_PER_TURN_MARKER, SORCERY_SPEED_MARKER
 from .keywords import KEYWORDS, KeywordShape, keyword_slug, resolve_keyword
-from .subgrammars import CANT_BE_COUNTERED_RE, COUNT, count_of
+from .subgrammars import CANT_BE_COUNTERED_RE, COUNT, DEVOTION, count_of, devotion_selector
 
 #: Trigger events a granted triggered ability can be safely re-scoped to a
 #: *different* object each time it's granted (`continuous.
@@ -400,6 +400,14 @@ _NO_UNTAP_RE = re.compile(
     r"~ doesn'?t untap during your untap step", re.IGNORECASE
 )
 
+# "~ isn't a creature." (RULE 613.7f, always printed wrapped in a RULE 613.6
+# "as long as <condition>, " gate — the Theros gods' own devotion threshold —
+# so this row is only ever reached through `_conditional_static_specs`,
+# never as a bare unconditional clause: no real card removes creature-ness
+# unconditionally.) `type_change`'s existing `remove_types` param already
+# does the layer-4 removal; nothing new needed but the phrase.
+_NOT_A_CREATURE_RE = re.compile(r"~ isn'?t a creature", re.IGNORECASE)
+
 # "Creatures with power N or greater don't untap during their controllers'
 # untap steps."  (Meekstone) — the unattached group-scoped sibling of
 # `_NO_UNTAP_RE`/`_NO_UNTAP_ATTACHED_RE` above: no `~`/attached subject at
@@ -409,6 +417,18 @@ _NO_UNTAP_RE = re.compile(
 _NO_UNTAP_GROUP_POWER_RE = re.compile(
     r"creatures with power (?P<n>\d+) or greater don'?t untap during their "
     r"controllers'? untap steps?",
+    re.IGNORECASE,
+)
+
+# "Nonbasic lands don't untap during their controllers' untap steps."
+# (Back to Basics) — `no_untap`'s unconditional, unlimited-count sibling to
+# `_UNTAP_CAP_RE`'s Winter Moon-shaped "…can't untap more than one nonbasic
+# land…" (a cap that still lets the *first* one through each turn): this
+# one blocks every nonbasic land, every turn. ``affects="all_lands"`` +
+# the ordinary ``nonbasic`` selector `group_selector_objects` already
+# applies to every other static family — no new engine code.
+_NO_UNTAP_NONBASIC_LANDS_RE = re.compile(
+    r"nonbasic lands don'?t untap during their controllers'? untap steps?",
     re.IGNORECASE,
 )
 
@@ -1989,6 +2009,17 @@ _STATIC_CONDITION_RES: list[tuple[re.Pattern[str], Any]] = [
     # Oracles/Jin-Gitaxias's "Activate only … and only if …" shape.
     (re.compile(r"you'?ve cast an instant or sorcery spell this turn", re.I),
      lambda m: {"kind": "cast_instant_or_sorcery_this_turn"}),
+    # RULE 202.2f/700.6: "as long as your devotion to `<colour(s)/wedge>` is
+    # less than `<n>`, `<name>` isn't a creature." (Purphoros/Heliod/Erebos'
+    # own single-colour gods; Athreos/Karametra's "white and black"/"green
+    # and white" two-colour reading) — `control_count`'s existing ``max``
+    # bound already expresses a strict "less than" as "at most N-1"; no new
+    # condition kind needed, just this phrase recognized into it.
+    (re.compile(rf"{DEVOTION} is less than (?P<n>\d+)", re.I),
+     lambda m: (
+         {"kind": "control_count", "selector": devotion_selector(m), "max": int(m.group("n")) - 1}
+         if devotion_selector(m) else None
+     )),
 ]
 
 #: The characteristic words an "as long as `<attached subject>` is `<word>`"
@@ -2434,6 +2465,9 @@ def static_effect_specs(clause: str) -> Optional[list[EffectSpec]]:
             params[_TOP_LIBRARY_TAILS[tail.lower()]] = True
         return [EffectSpec("top_library_permission", params)]
 
+    if _NOT_A_CREATURE_RE.fullmatch(text):
+        return [EffectSpec("type_change", {"remove_types": ["creature"]})]
+
     if _NO_UNTAP_OPTIONAL_RE.fullmatch(text):
         return [EffectSpec("no_untap_optional", {})]
 
@@ -2447,6 +2481,9 @@ def static_effect_specs(clause: str) -> Optional[list[EffectSpec]]:
     m = _NO_UNTAP_GROUP_POWER_RE.fullmatch(text)
     if m is not None:
         return [EffectSpec("no_untap", {"affects": "all_creatures", "min_power": int(m.group("n"))})]
+
+    if _NO_UNTAP_NONBASIC_LANDS_RE.fullmatch(text):
+        return [EffectSpec("no_untap", {"affects": "all_lands", "nonbasic": True})]
 
     m = _UNTAP_CAP_RE.fullmatch(text)
     if m is not None:

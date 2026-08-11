@@ -504,6 +504,18 @@ class GameState:
         #: 500.7. Plain board state — deep-copies with `clone`.
         self.extra_turns: list[str] = []
 
+        #: RULE 500.4-adjacent "after this combat phase, there is an
+        #: additional combat phase[, followed by an additional main
+        #: phase]" (Combat Celebrant/Godo/World at War-shaped) — a FIFO of
+        #: ``main_phase_too`` flags, mirroring `extra_turns`' own "append
+        #: now, the turn loop drains it later" shape: an effect can't reach
+        #: `GameEngine._turn_steps`/`_cursor` directly (only `GameContext`/
+        #: `RulesEngine` are visible to it), so it queues the request here
+        #: instead and `GameEngine.advance_step` drains it (via `insert_
+        #: additional_combat_phase`) before running the next step. Plain
+        #: board state — deep-copies with `clone`.
+        self.pending_extra_combats: list[bool] = []
+
         #: When True, the active player is asked to order their simultaneous
         #: triggered abilities (RULE 603.3b) via a `pending_choice` instead of
         #: the engine placing them in a deterministic order. Off by default so

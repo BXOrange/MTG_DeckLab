@@ -945,6 +945,7 @@ class CastingResolutionMixin:
             group_index=resumed.get("group_index", 0),
             previous_targets=resumed.get("previous_targets"),
             created_objects=resumed.get("created_objects"),
+            life_lost_this_way=resumed.get("life_lost_this_way", 0),
         )
         return True
     def _apply_stack_item(self, item: StackItem) -> Optional[StackItem]:

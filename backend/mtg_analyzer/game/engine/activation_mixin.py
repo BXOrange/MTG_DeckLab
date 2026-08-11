@@ -587,7 +587,14 @@ class ActivationMixin:
         if what == "artifact_or_creature":
             # Deadly Dispute/Costly Plunder-shaped additional cost.
             return obj.is_creature or obj.card.is_artifact
-        return True  # unknown type word → any permanent, so the cost is payable
+        # A genuine subtype word (RULE 205.3 — "Sacrifice a Mountain"/
+        # "Sacrifice a Human", `costs._SACRIFICE_RE`'s generic single-word
+        # capture from oracle text) — matched narrowly rather than falling
+        # through to "any permanent", which had been silently accepting
+        # *every* sacrifice choice for a cost like this (a latent bug: no
+        # shipped card had exercised a non-generic word here before MEC-12's
+        # alt-cost pitch family surfaced it).
+        return continuous.has_subtype(obj, what)
     def _discard_cost_pool(
         self, player: Player, exclude: Optional[GameObject] = None
     ) -> list[GameObject]:
