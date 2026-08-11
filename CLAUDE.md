@@ -608,7 +608,7 @@ on every copy/every game. `parser/oracle/processing_list.py` tracks
 cache-wide coverage and ranks the next handlers worth building. The cache is
 now bulk-loaded with the **full ~35k-card Oracle universe**
 (`scripts/import_bulk.py`), so coverage is measured against that: **33.0%
-covered (11,487 / 34,811) as of 2026-08-11, PARSER_VERSION 70** (parser-`MODELED` **or**
+covered (11,489 / 34,811) as of 2026-08-11, PARSER_VERSION 70** (parser-`MODELED` **or**
 hand-`AUTHORED`).
 Re-measure with `scripts/coverage_report.py` (ledger-backed — see
 `services/coverage_db.py`) before trusting this number; Batches 1–10 are all
@@ -1078,6 +1078,33 @@ cost computation and the RULE 702.34a exile-after-cast fall out of the
 existing Flashback machinery with no new casting code. Full detail, both
 tickets: `docs/implementation-state/Done_Backend.md`'s "MEC-23/MEC-24"
 entry.
+
+**MEC-26** (2026-08-11, same day — the mandatory hand-author-or-promote
+close for the two cards MEC-23 had just deferred a second time) built the
+*standing, group-scoped* sibling of MEC-23's resolve-time snapshot:
+`grant_borrowed_activated_ability` (MEC-21's own static) gained a
+`source_mode` param generalizing beyond `exiled_with_ids` — `"group"`
+reads a live `affects` selector straight off the battlefield every
+recompute (Drana and Linvala's "all creatures your opponents control");
+`"chosen_permanent"` reads a single donor named once by a new interactive
+ETB pick (Scheming Fence — `ChoosePermanentEffect`/`request_choose_
+objects`'s new `"choose_permanent"` action, `GameObject.
+chosen_permanent_id`, a new `continuous.group_selector_objects` selector
+of the same name). Both printed "Activated abilities of `<X>` can't be
+activated" clauses needed no new code — `continuous.activation_prohibited`
+already reused the ordinary `affects` vocabulary, just never scoped to
+these selector values by a real card before — and both "you may spend
+mana as though it were mana of any color to activate those abilities"
+clauses were fully covered by MEC-23's existing `self_only`, since neither
+card prints any *other* activated ability of its own; the ticket's own
+worry that `self_only` might over-scope didn't survive contact with the
+actual cards. Found and fixed one latent bug along the way:
+`grant_borrowed_activated_ability` defaulted `has_counter_kind` to
+`"+1/+1"` for every caller, not just Agatha's own qualifier, so Drana and
+Linvala's `affects="self"` grantee (no +1/+1 counters of her own) was
+silently filtered to nothing — now `None` unless a caller explicitly asks
+(Agatha's own catalogue entry already did). Full detail:
+`docs/implementation-state/Done_Backend.md`'s "MEC-26" entry.
 
 **Notable gaps** (see `docs/implementation-state/BACKLOG.md` for the full list with exact
 scope on each): a kicked spell's "if kicked, ... instead" *override* conditional (as opposed to the

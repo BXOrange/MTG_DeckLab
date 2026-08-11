@@ -13245,6 +13245,99 @@ synthetic-fixture engine tests, and a real-card end-to-end cast (Snapcaster
 Mage's own ETB interactively targeting a graveyard Lightning Bolt, then
 actually casting it for the granted cost).
 
+## MEC-26 · Drana and Linvala / Scheming Fence (2026-08-11)
+
+The second of MEC-23's own two open cards (found while sizing MEC-21,
+2026-07-22; deferred again by MEC-23 the same day this ticket was filed —
+the mandatory hand-author-or-promote close per CLAUDE.md's no-half-
+implementations rule, so this shipped in the same session rather than
+rolling to a third deferral). Both print a **standing, group-scoped**
+ability-borrowing static — genuinely closer to MEC-21's own
+`grant_borrowed_activated_ability`/`continuous.
+_apply_borrowed_activated_abilities` (Agatha's Soul Cauldron: a live,
+every-`recompute`-pass re-derivation) than to MEC-23's resolve-time,
+single-target snapshot — just reading their donor set off something other
+than `GameObject.exiled_with_ids`:
+
+- **Drana and Linvala** ("has all activated abilities of all creatures
+  your opponents control"): a new ``source_mode="group"`` reads a live
+  `affects` selector straight off the battlefield every recompute
+  (``source_affects="creatures_opponents_control"``) — no exiling
+  involved, so `exiled_with_ids` doesn't apply, but the "read the donor
+  set live" shape is identical. Confirmed dynamic (not a snapshot) with a
+  test that removes the donor creature mid-game and checks the grant
+  disappears on the next recompute.
+- **Scheming Fence** ("has all activated abilities of the chosen
+  permanent except for loyalty abilities"): a new
+  ``source_mode="chosen_permanent"`` reads a *single* donor named once by
+  a new interactive ETB pick. Its own "As this creature enters, you may
+  choose a nonland permanent" turned out **not** to need a pre-entry RULE
+  601.2b replacement like `chosen_type`/`chosen_color`
+  (`RulesEngine._offer_enter_choices`) — unlike those, the chosen
+  permanent never feeds back into *Scheming Fence's own* printed
+  characteristics, only into other statics that already re-read live
+  state every recompute regardless of when the choice landed — so it's
+  modeled as an ordinary interactive ETB trigger instead
+  (`ChoosePermanentEffect`/``"choose_permanent"``, a new
+  `RulesEngine.request_choose_objects` action alongside ``"tap"``/
+  ``"sacrifice"``/``"exile"``/etc. that stamps the pick onto a new
+  `GameObject.chosen_permanent_id` field rather than acting on the chosen
+  object itself). "You may" makes the pick genuinely optional
+  (`request_choose_objects(optional=True)`, its existing decline
+  affordance) — unlike `chosen_type`/`chosen_color`'s always-mandatory
+  pick, which defaults to the first option when declined. Candidates are
+  *any* nonland permanent on the whole battlefield, not scoped to the
+  controller — Scheming Fence borrows an opponent's ability just as
+  readily as its own controller's. A new `continuous.
+  group_selector_objects` selector, ``"chosen_permanent"``, reads the id
+  back every recompute — the `attached_permanent` idiom (an Aura's
+  `.attached_to`), just for a chosen id instead of an attachment.
+  ``exclude_loyalty=True`` drops any donor ability whose cost
+  `is_loyalty` (RULE 606.5c is planeswalker-only and makes no sense
+  copied onto a creature) — needed here because, unlike Drana's
+  creature-only donor pool, "a nonland permanent" can be an artifact,
+  enchantment, planeswalker, or battle, so `creature_only=False` on this
+  card's own static.
+
+Both also print "Activated abilities of `<the same donor scope>` can't be
+activated" and needed **no new code at all** for it: `continuous.
+activation_prohibited` already reuses the ordinary `affects` selector
+vocabulary (Collector Ouphe-shaped), so scoping it to
+``"creatures_opponents_control"``/``"chosen_permanent"`` was just a matter
+of a real card finally using those selector values there. Likewise "you
+may spend mana as though it were mana of any color to activate **those**
+abilities" needed no third param on `grant_any_color_for_activation`
+either: the ticket's own filing worried MEC-23's ``self_only=True`` would
+over-scope to "any ability this permanent has," not just the borrowed set
+specifically, but neither Drana and Linvala nor Scheming Fence prints any
+*other* activated ability of its own — so in practice the two sets are
+identical, and the worry didn't survive contact with the actual cards. Genuinely
+three real gaps closed by one new `source_mode` param plus one new ETB
+choice primitive, not three separate mechanisms.
+
+One latent bug surfaced and was fixed on the way: `grant_borrowed_
+activated_ability`'s registration defaulted ``has_counter_kind`` to
+``"+1/+1"`` for *every* caller, not just Agatha's own "creatures you
+control **with +1/+1 counters on them**" qualifier — since that filter is
+applied to the *grantee* selector's own result (`continuous.
+group_selector_objects`), Drana and Linvala (an ``affects="self"`` grantee
+with no +1/+1 counters of her own) was silently filtered down to an empty
+grantee set by a qualifier her printed text never mentions. Fixed at the
+default (now `None` unless a caller explicitly asks for it — Agatha's own
+catalogue entry already passed it explicitly, so this was a pure
+narrowing, not a behavior change for the one card that needed it).
+
+`tests/test_mec26_group_scoped_ability_borrowing.py` (23 tests) covers
+both cards: the donor set updating live (not a snapshot) as a creature
+leaves the battlefield, opponent-only scoping, the ETB pick's optional
+decline, loyalty-ability exclusion, choosing the permanent itself being a
+harmless no-op (the existing donor-is-grantee guard in
+`_apply_borrowed_activated_abilities`), the scoped activation prohibition
+in both directions, and the any-color wildcard paying a borrowed colored
+cost off each card. Coverage after this batch: 11,489 / 34,811 (33.0%) —
++2 from the two new hand-authored (`AUTHORED`) cards; no `PARSER_VERSION`
+bump, since neither card involved a new oracle-text handler.
+
 ## PLR-4 · Client-token identity stub (2026-08-11)
 
 Narrowed, not closed — real accounts are still [PLR-9]. Before this,
@@ -13318,3 +13411,65 @@ its own old socket) and `TestClientTokenExpiry` (expiry forgets the
 player; a connected or mid-game token is never swept; asset purge fires
 when the name is unshared and is skipped when a still-valid namesake
 exists) plus `tests/test_player_assets.py`'s `TestDeleteAllForPlayer`.
+
+## DB-2 · Ban-list live sync (2026-08-10)
+
+Closed, not narrowed: DB-2's actual complaint was "no live source, needs
+manual updates against the official page" — that's fixed. `RawCardStore`
+(`services/raw_card_store.py`) already keeps each card's full raw Scryfall
+`legalities` dict alongside the rest of its JSON (it exists precisely so a
+model change never forces a re-download — see its own module docstring),
+so the ban list was never actually missing a live source, just not reading
+the one already on disk. `scripts/update_ban_lists.py` closes that: it
+re-derives the live "banned" set for a format straight from
+`RawCardStore.iter_raw()`, diffs it against the hand-maintained constant
+(parsing the source with `ast`, not importing the module, so it has no
+dependency on the rest of `mtg_analyzer` being importable), and rewrites
+the constant in place with a round-trip check. `BAN_LIST_TARGETS` is a
+one-entry-per-format registry (`commander` → `commander_legality.
+BANNED_COMMANDER_CARDS` today) so a second enforced format is one new
+entry, not new plumbing; `update_card_pool.py`'s own routine-refresh
+ban-list report reuses the same registry so the two can't drift apart.
+
+`BANNED_COMMANDER_CARDS` itself deliberately stays a frozen Python
+constant read at legality-check time rather than a live per-card lookup —
+same reasoning as the rest of this app's cache-primary posture (`CLAUDE.md`'s
+`SCRYFALL_PRIMARY`): a deck-legality check shouldn't touch the raw store on
+every call. Syncing is still a deliberate, run-it-yourself step (`python
+scripts/update_ban_lists.py`, after `update_card_pool.py` if the raw store
+itself might be stale) rather than automatic on every startup — consistent
+with how the rest of the card pool refreshes, and not a gap worth tracking
+on its own.
+
+## DB-1 · Stale pre-`mana_cost_string` cache rows (audit closed, 2026-08-11)
+
+Closed as already-structurally-impossible, not by any code change. DB-1
+worried that a row cached before `Card.mana_cost_string` existed
+(2026-07-06) could keep serving lossy legacy pip-tally mana data
+indefinitely, healed only opportunistically by `Card.has_mana_cost_data` /
+`LazyCardLoader`'s stale-refetch path. That refetch path only fires under
+`scryfall_primary=True` (not this app's default) — but the premise doesn't
+survive contact with `services/schema_version.py`, which predates the
+field itself (2026-07-04): `CardDatabase` hashes `models/card.py` (+ its
+own file) on every open and **wipes the entire cache** on any mismatch
+(`_clear_on_schema_change`, whose own comment already names this exact
+case: "this is what heals e.g. stale mana-cost data"). `models/card.py`
+has changed 14 times since the field was added, most recently 2026-07-27
+— so any row present in today's cache was necessarily written by
+present-day code, whether via a live Scryfall fetch or a
+`RawCardStore`-backed reseed (both paths always populate
+`mana_cost_string`). Verified empirically against the live cache
+(`inspect-db` skill, 34,811 rows): 541 non-land rows do carry a blank
+`mana_cost_string`, but every sampled one — Conspiracies, Un-set
+Contraptions/Stickers, Ancestral Vision (castable only via Suspend) — is
+blank in the *raw* Scryfall JSON too (`scryfall_raw.db`), i.e. a real
+costless card, not lossy cache data. Restoring an old cache export
+(docs/Reference/08) doesn't reopen the window either — `_reconcile_schema`
+runs in `CardDatabase.__init__`, so an imported stale file gets wiped on
+the very next server start against current code, before anything can read
+it. No code changed; `Card.has_mana_cost_data`/`_is_fresh` stay as they
+are since `scryfall_primary=True` mode still wants them for the narrower,
+real risk of a `scryfall_client.py` parsing-logic improvement not
+reaching already-cached *values* (deliberately excluded from the schema
+hash, per that file's own comment) — a different, still-open risk that
+was never what DB-1 was describing.

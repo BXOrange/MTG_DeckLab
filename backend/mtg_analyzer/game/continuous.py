@@ -247,6 +247,15 @@ def group_selector_objects(
     elif affects == "attached_permanent":
         host_id = getattr(src, "attached_to", None)
         result = [o for o in battlefield if host_id is not None and o.instance_id == host_id]
+    elif affects == "chosen_permanent":
+        # RULE 601.2b-adjacent "the chosen permanent" (MEC-26, Scheming
+        # Fence's "as this creature enters, you may choose a nonland
+        # permanent" — the object-choice sibling of `attached_permanent`
+        # just above, reading `GameObject.chosen_permanent_id` instead of
+        # `.attached_to`. Naturally yields nothing while undeclined/
+        # declined or once the chosen permanent has left the battlefield.
+        chosen_id = getattr(src, "chosen_permanent_id", None)
+        result = [o for o in battlefield if chosen_id is not None and o.instance_id == chosen_id]
     elif affects == "soulbond_pair":
         # RULE 702.94b: "As long as ~ is paired with another creature, **each
         # of those creatures** has …" — the source and its partner, and only
@@ -1833,28 +1842,61 @@ def _apply_borrowed_activated_abilities(state: "GameState", abilities: list) -> 
     survives across passes for as long as the (grantee, exiled card)
     relationship holds, the same per-relationship identity-preservation
     `_apply_layer_6_ability`'s own grants already rely on.
+
+    ``source_mode`` (MEC-26) picks *which* permanents are the donors —
+    `exiled_with_ids` above is only the ``"exiled_with"`` case (the
+    default); ``"group"`` reads a live `affects` selector straight off the
+    battlefield (``source_affects``, e.g. Drana and Linvala's "all
+    creatures your opponents control") and ``"chosen_permanent"`` reads the
+    single donor named by the grantee's own `GameObject.chosen_permanent_id`
+    (Scheming Fence). Both skip the ``exile``-zone check ``exiled_with``
+    needs, since a group/chosen donor is a live battlefield permanent, not
+    a card that may or may not still be sitting in exile.
     """
     live_keys: set[tuple[int, int, int, int]] = set()
     for ability in _in_layer(abilities, "borrowed_activated_ability"):
         source = ability.source
-        exiled_ids = getattr(source, "exiled_with_ids", None) or []
-        if not exiled_ids:
-            continue
         creature_only = bool(ability.params.get("creature_only", True))
-        exiled_creatures = []
-        for iid in exiled_ids:
-            card_obj = state.find_object(iid)
-            if card_obj is None or getattr(card_obj, "zone", None) != "exile":
-                continue
-            if creature_only and not getattr(card_obj.card, "is_creature", False):
-                continue
-            exiled_creatures.append(card_obj)
-        if not exiled_creatures:
+        exclude_loyalty = bool(ability.params.get("exclude_loyalty", False))
+        source_mode = ability.params.get("source_mode", "exiled_with")
+        donors: list["GameObject"] = []
+        if source_mode == "exiled_with":
+            exiled_ids = getattr(source, "exiled_with_ids", None) or []
+            for iid in exiled_ids:
+                card_obj = state.find_object(iid)
+                if card_obj is None or getattr(card_obj, "zone", None) != "exile":
+                    continue
+                if creature_only and not getattr(card_obj.card, "is_creature", False):
+                    continue
+                donors.append(card_obj)
+        elif source_mode == "group":
+            controller_id = getattr(source, "controller_id", None)
+            donors = group_selector_objects(
+                state, controller_id, str(ability.params.get("source_affects", "")), src=source,
+            )
+            if creature_only:
+                donors = [d for d in donors if d.is_creature]
+        elif source_mode == "chosen_permanent":
+            donors = affected_objects(
+                state,
+                StaticAbility("ability", affects="chosen_permanent", source=source),
+            )
+            if creature_only:
+                donors = [d for d in donors if d.is_creature]
+        if not donors:
             continue
         for obj in affected_objects(state, ability):
-            for exiled in exiled_creatures:
-                for idx, base in enumerate(exiled.activated_abilities):
-                    key = (id(ability), obj.instance_id, exiled.instance_id, idx)
+            for donor in donors:
+                if donor is obj:
+                    # A donor never lends its own abilities back to itself —
+                    # relevant only for "group"/"chosen_permanent" modes,
+                    # since an exiled card can't also be the battlefield
+                    # grantee at the same time.
+                    continue
+                for idx, base in enumerate(donor.activated_abilities):
+                    if exclude_loyalty and base.cost is not None and base.cost.is_loyalty:
+                        continue
+                    key = (id(ability), obj.instance_id, donor.instance_id, idx)
                     live_keys.add(key)
                     granted = state._borrowed_ability_cache.get(key)
                     if granted is None:
@@ -1867,7 +1909,7 @@ def _apply_borrowed_activated_abilities(state: "GameState", abilities: list) -> 
                         )
                         state._borrowed_ability_cache[key] = granted
                     obj._granted_activated_abilities.append(granted)
-                    _trace(obj, 6, _source_name(ability), f"gains {exiled.name}'s activated ability")
+                    _trace(obj, 6, _source_name(ability), f"gains {donor.name}'s activated ability")
     for key in list(state._borrowed_ability_cache):
         if key not in live_keys:
             del state._borrowed_ability_cache[key]

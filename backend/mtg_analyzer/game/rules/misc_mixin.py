@@ -1414,6 +1414,14 @@ class MiscSystemsMixin:
             # the ordinary `legal_actions` cast option afterward, getting
             # its full targeting/modal choices. See `FreeCastFromHandEffect`.
             "grant_free_cast",
+            # MEC-26 (Scheming Fence's "As this creature enters, you may
+            # choose a nonland permanent."): stamps the pick onto
+            # ``source``'s own `GameObject.chosen_permanent_id` rather than
+            # acting on the chosen object at all — the object-choice
+            # sibling of ``remember``'s `linked_exile_id` stamp, its own
+            # action rather than overloading ``remember`` since nothing
+            # here gets exiled.
+            "choose_permanent",
         }
     )
     def request_choose_objects(
@@ -1649,6 +1657,12 @@ class MiscSystemsMixin:
                 # after this resolves" shape, same field `ExileEffect
                 # (remember=True)` uses for the unrelated O-Ring return.
                 source.linked_exile_id = obj.instance_id
+        elif action == "choose_permanent" and source is not None:
+            # MEC-26: Scheming Fence's own ETB pick — nothing happens to
+            # ``obj`` itself, just a pointer stamped onto the source
+            # (`continuous.group_selector_objects`'s ``"chosen_permanent"``
+            # selector reads it back every recompute).
+            source.chosen_permanent_id = obj.instance_id
         elif action == "soulbond_pair" and source is not None:
             # RULE 702.94a: the pairing is recorded on both creatures.
             source.paired_with = obj.instance_id

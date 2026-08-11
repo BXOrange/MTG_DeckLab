@@ -471,6 +471,20 @@ class GameObject:
         #: Doll) — the player-choice sibling of `chosen_type`/`chosen_
         #: color`/`chosen_mode`, same reset-on-new-object treatment.
         self.chosen_player_id: Optional[str] = None
+        #: "As this creature enters, you may choose a nonland permanent."
+        #: (MEC-26, Scheming Fence) — an *object*-choice sibling of
+        #: `chosen_player_id`, but modeled as an ordinary interactive ETB
+        #: trigger (`RulesEngine.request_choose_objects`'s new
+        #: ``"choose_permanent"`` action) rather than a pre-entry RULE
+        #: 601.2b replacement like `chosen_type`/`chosen_color`: unlike
+        #: those, the pick never feeds back into *this object's own*
+        #: printed characteristics, only into other statics
+        #: (`continuous.group_selector_objects`'s ``"chosen_permanent"``
+        #: selector) that already re-read live state every recompute
+        #: regardless of when the choice landed. ``None`` until chosen (or
+        #: declined — the clause is optional), same RULE 400.7
+        #: reset-on-new-object treatment as the other ``chosen_*`` fields.
+        self.chosen_permanent_id: Optional[int] = None
         #: Static abilities (`StaticAbility`) this object grants through the
         #: layer system (RULE 613) — anthems, keyword grants, type changes,
         #: cost reductions. Read by `game/continuous.py`.
@@ -888,6 +902,7 @@ class GameObject:
         self.battle_defeat_triggered = False
         self.chosen_mode = None
         self.chosen_player_id = None
+        self.chosen_permanent_id = None
         self.temp_power = 0
         self.temp_toughness = 0
         self.temp_keywords = set()

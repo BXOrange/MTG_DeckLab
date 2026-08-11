@@ -4093,6 +4093,43 @@ class ImprintEffect(GameEffect):
         )
 
 
+class ChoosePermanentEffect(GameEffect):
+    """"As this creature enters, you may choose a nonland permanent."
+    (MEC-26, Scheming Fence) — a resolve-time choice stamped onto this
+    permanent's own `GameObject.chosen_permanent_id`, the object-choice
+    sibling of `ImprintEffect` just above (same `request_choose_objects`
+    reuse, a different action — ``"choose_permanent"`` stamps a pointer
+    rather than exiling).
+
+    Unlike `ChooseObjectsEffect`'s candidates (always ``permanents_
+    controlled_by(player.id)``), "a nonland permanent" is deliberately
+    unscoped by controller — Scheming Fence borrows an *opponent's*
+    abilities just as readily as its controller's own, so candidates are
+    every nonland permanent on the whole battlefield. Choosing this
+    permanent itself is a legal (if pointless) pick; `continuous.
+    _apply_borrowed_activated_abilities`'s own donor-is-grantee guard makes
+    it a no-op rather than something that needs excluding here.
+    """
+
+    def __init__(self, optional: bool = True, source: Optional["GameObject"] = None) -> None:
+        super().__init__(source)
+        self.optional = optional
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        source = self.source
+        if source is None:
+            return
+        player = _controller_of(source, context)
+        if player is None:
+            return
+        candidates = [obj for obj in context.state.permanents() if not obj.is_land]
+        context.engine.request_choose_objects(
+            player, candidates, "choose_permanent", count=1, optional=self.optional,
+            prompt=f"{source.name}: nichtländliches Bleibendes wählen?",
+            source=source,
+        )
+
+
 class FreeCastFromHandEffect(GameEffect):
     """"You may cast a spell with mana value N or less from your hand
     without paying its mana cost." (RULE 601.2f-adjacent — MEC-20, the
@@ -11052,6 +11089,12 @@ EffectRegistry.register(
     ),
 )
 EffectRegistry.register(
+    # RULE 601.2b-adjacent "as ~ enters, you may choose a nonland
+    # permanent." (MEC-26, Scheming Fence) — see `ChoosePermanentEffect`.
+    "choose_permanent",
+    lambda p: ChoosePermanentEffect(optional=bool(p.get("optional", True))),
+)
+EffectRegistry.register(
     # RULE 601.2f-adjacent "you may cast a spell with mana value N or less
     # from your hand without paying its mana cost." (MEC-20, the
     # "Expertise" cycle) — see `FreeCastFromHandEffect`.
@@ -12414,20 +12457,50 @@ EffectRegistry.register(
     # static's own source has accumulated via `ExileEffect`'s generalized
     # ``track_exiled_with`` (`GameObject.exiled_with_ids`) — MEC-21's other
     # named primitive, reusable by any future "exile with ~" card (~185
-    # cached cards print that shape). ``has_counter_kind`` (default
-    # ``"+1/+1"``) is the scope's own qualifier — see
-    # `continuous.group_selector_objects`'s matching filter — and
-    # ``creature_only`` (default ``True``) filters which *exiled* cards
-    # contribute, matching the printed "creature cards exiled with ~".
+    # cached cards print that shape). ``has_counter_kind`` (``None`` unless
+    # given — MEC-26's Drana and Linvala/Scheming Fence print no such
+    # qualifier on their own grantee, only Agatha's own "creatures you
+    # control **with +1/+1 counters on them**" needs it, so it now passes
+    # ``"+1/+1"`` explicitly rather than relying on a default every other
+    # caller would silently inherit) is the *grantee* scope's own
+    # qualifier — see `continuous.group_selector_objects`'s matching
+    # filter — and ``creature_only`` (default ``True``) filters which
+    # *donor* permanents contribute, matching the printed "creature cards
+    # exiled with ~" (narrowed to ``False`` by Scheming Fence, whose donor
+    # can be any nonland permanent type).
     # See `continuous._apply_borrowed_activated_abilities` for how each
     # borrowed ability is actually built.
+    #
+    # ``source_mode`` (MEC-26, Drana and Linvala / Scheming Fence) picks
+    # *which* permanents' abilities get borrowed, generalizing beyond the
+    # original ``exiled_with`` (default, unchanged) shape:
+    #   - ``"exiled_with"``: `GameObject.exiled_with_ids` (Agatha's Soul
+    #     Cauldron's own shape, above).
+    #   - ``"group"``: a **standing, live-rederived** `affects` selector on
+    #     the *battlefield* itself (``source_affects``, e.g.
+    #     ``"creatures_opponents_control"``) — "Drana and Linvala has all
+    #     activated abilities of all creatures your opponents control.":
+    #     no exiling involved, so `exiled_with_ids` doesn't apply, but the
+    #     "read the donor set live every recompute" shape is identical.
+    #   - ``"chosen_permanent"``: `GameObject.chosen_permanent_id`
+    #     (`continuous.group_selector_objects`'s matching selector) — "This
+    #     creature has all activated abilities of the chosen permanent."
+    #     (Scheming Fence), a single donor picked once by its own ETB
+    #     `request_choose_objects` rather than exiled or group-scoped.
+    # ``exclude_loyalty`` (Scheming Fence's own "…except for loyalty
+    # abilities" — RULE 606.5c abilities are a planeswalker-only concept
+    # that makes no sense borrowed onto a creature) drops any donor ability
+    # whose cost `is_loyalty`.
     "grant_borrowed_activated_ability",
     lambda p: StaticAbility(
         "borrowed_activated_ability",
         affects=p.get("affects", "creatures_you_control"),
         params={
-            "has_counter_kind": p.get("has_counter_kind", "+1/+1"),
+            **({"has_counter_kind": str(p["has_counter_kind"])} if p.get("has_counter_kind") else {}),
             "creature_only": bool(p.get("creature_only", True)),
+            "source_mode": p.get("source_mode", "exiled_with"),
+            **({"source_affects": str(p["source_affects"])} if p.get("source_affects") else {}),
+            **({"exclude_loyalty": True} if p.get("exclude_loyalty") else {}),
             **_selectors(p),
         },
     ),

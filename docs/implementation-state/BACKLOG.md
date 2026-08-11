@@ -122,50 +122,19 @@ Plan-level sequencing lives in
   scoped against the wider cache via `parser_probe.py`/`engine_bench.py
   cards`, not just this pool's count.
 
-- **MEC-26 · Standing, group-scoped ability borrowing + a scoped
-  activation prohibition.** Drana and Linvala/Scheming Fence — found while
-  sizing MEC-21 (2026-07-22), deferred again by MEC-23 (2026-08-11) as
-  needing that ticket's target-creature ability-borrowing primitive first;
-  MEC-23 has since shipped (`effects.GainActivatedAbilitiesOfTargetEffect`),
-  but it's a **resolve-time, single-target snapshot** ("gains X's abilities
-  *until end of turn*"), and both of these print a **standing, group-scoped**
-  grant instead — genuinely closer to MEC-21's own `grant_borrowed_
-  activated_ability`/`continuous._apply_borrowed_activated_abilities`
-  (a live, every-recompute-pass re-derivation), just reading its "which
-  creatures to borrow from" list off a *group selector*
-  ("all creatures your opponents control") or an *ETB choice*
-  ("the chosen permanent") instead of `GameObject.exiled_with_ids` — that
-  static's ``has_counter_kind``/``creature_only`` params would need a third
-  source-selection mode alongside "exiled with ~". Three real gaps, not one:
-  (1) the group/chosen-permanent source selector just described; (2) "You
-  may spend mana as though it were mana of any color to activate **those**
-  abilities" — MEC-23's `from_color`/`self_only` params scope to *the
-  granting permanent's own* ability set, not *the borrowed set specifically*
-  (a third param, or reframing `self_only` as "abilities borrowed via this
-  static" would cover both); (3) "Activated abilities of `<X>` can't be
-  activated" scoped to a specific object/group (Drana: every opponent
-  creature; Scheming Fence: the chosen permanent) — the existing
-  `continuous.activation_prohibited` is a flat, card-type-wide RULE 602
-  gate (Collector Ouphe-shaped), not scoped to a dynamic selector or a
-  per-object choice. Scheming Fence also needs its own ETB "you may choose
-  a nonland permanent" (RULE 601.2b-shaped `chosen_permanent`, a new sibling
-  to the existing `chosen_type`/`chosen_color` entry-choice family) before
-  any of the above can even name what "the chosen permanent" refers to.
-
 ## PLR — Player management
 
-- **PLR-4 · Names are unauthenticated; the client-token stub only covers
-  browsers that have saved a Profil name.** Two browsers that *have* saved
-  a Profil name no longer merge into one seat (`services/lobby.py`'s
-  `client_token`, `Done_Backend.md` "Client-token identity stub") — but the
-  token is unsigned, client-trusted data (copy/clear/forge it and nothing
-  notices), and a client that has never opened Profil still resolves by
-  name alone, the original collision. Fine for a LAN table, not for
-  anything public — closing the residual gap for real needs [PLR-9].
 - **PLR-9 · User accounts.** Login/signup (docs/04 PART 4), auth token
   storage + attachment to API/WebSocket calls, browser-refresh reconnect
   flow (docs/04 S1), and login/signup pages. Saved decks are unscoped until
-  this exists — anyone hitting the API sees every deck.
+  this exists — anyone hitting the API sees every deck. Also what actually
+  closes the collision gap the PLR-4 client-token stub (`services/
+  lobby.py`'s `client_token`, `Done_Backend.md` "Client-token identity
+  stub") only covers halfway: that token is unsigned, client-trusted data —
+  copy/clear/forge it and nothing notices — and a client that has never
+  opened Profil still resolves purely by name, the original "two people
+  sharing a name share a seat" collision. Fine for a LAN table, not for
+  anything public.
 - **PLR-14 · Team variants (RULE 809/810/811).** Two-Headed Giant, Emperor
   and Grand Melee are the part of CR 8 that `models/game_format.py`
   deliberately doesn't model: unlike the RULE 9 variants (which add a card
@@ -195,17 +164,6 @@ Plan-level sequencing lives in
 
 ## DB — Database
 
-- **DB-1 · Stale cached rows keep lossy mana-cost data.** A pre-
-  `mana_cost_string` row is priced from the legacy pip tally +
-  `converted_mana_cost` via `ManaCost.from_card` — correct total/colors, but
-  hybrid/Phyrexian nuance is unavailable until the self-healing refetch
-  (`Card.has_mana_cost_data`) happens to hit it. `models/mana_cost.py`,
-  `services/lazy_card_loader.py`.
-- **DB-2 · The commander ban list is hand-maintained.** Scryfall's
-  per-printing `legalities` isn't fetched, so there's no live source.
-  Deliberately conservative (only long-standing entries that survived unban
-  waves); needs manual updates against the official page.
-  `services/commander_legality.py`'s `BANNED_COMMANDER_CARDS`.
 - **DB-3 · Commander legality gaps.** No Background / "Friends forever"
   pairing, and no check that a commander is actually legendary.
   `check_commander_legality` covers color identity, the ban list, and plain
