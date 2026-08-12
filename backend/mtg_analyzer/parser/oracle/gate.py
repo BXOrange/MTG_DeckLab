@@ -912,7 +912,21 @@ NEVER_SUPPORTED = "NEVER_SUPPORTED"
 #: and RULE 118.9's pitch alt_cost family's first oracle-text route
 #: (`segmenter._ALT_COST_EXILE_HAND_COLOR_RE` — Snapback/Pyrokinesis/Unmask,
 #: previously only reachable via one-at-a-time hand-authoring).
-PARSER_VERSION = "83"
+#: 84 (2026-08-12): "You may look at the top card of your library any
+#: time." (Sphinx of Jwar Isle/Fblthp, Lost on the Range/Glowcap Lantern/
+#: Iron Lad, Diverging Destiny/Vesuvan Drifter-shaped — ~57 real cards) now
+#: emits a real `top_library_permission {"look": True}` spec
+#: (`catalogue.static_handlers._LOOK_AT_TOP_ANY_TIME_RE`) instead of being
+#: claimed as a no-op line — that no-op treatment (still correct for
+#: `_PLAY_WITH_TOP_REVEALED_RE`'s always-paired-with-a-play/cast-grant
+#: sibling) turned out to be a real gap for the standalone case: `game/
+#: top_library.py`'s `may_look_at_top_of_library`/`GameEngine` view redaction
+#: (`services/game_session.py`'s ``top_library_visible``) already fully
+#: supported a look-only grant, it just never received one from oracle text.
+#: No coverage-count change (all 57 were already MODELED) — this is a
+#: behavioral reclassification, not a new-coverage bump, hence the version
+#: bump on its own rather than folded into a batch with new coverage.
+PARSER_VERSION = "84"
 
 
 @dataclass

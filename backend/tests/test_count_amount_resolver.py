@@ -157,3 +157,102 @@ def test_bag_end_porter_scales_with_legendary_creatures_you_control():
     eng.resolve_until_stable()
 
     assert (porter.power, porter.toughness) == (4, 4)
+
+
+# -- MEC-27: the counter family gains the same devotion-amount reading -------
+
+
+def test_add_counters_devotion_clause_parses():
+    effects = parse_effect_body(
+        # "goblins" (regular plural) rather than "elves" (irregular) — the
+        # `_singularize` gap only strips a trailing "s", a documented,
+        # pre-existing limitation this test isn't about.
+        "put x +1/+1 counters on target creature you control, where x is the number of goblins you control"
+    )
+    assert effects is not None
+    assert len(effects) == 1
+    assert effects[0].type == "add_counters"
+    assert effects[0].params.get("amount_from_count_selector") == "creatures_you_control_of_type_goblin"
+    assert effects[0].params.get("target_kind") == "creature_you_control"
+
+
+def test_leyline_invocation_is_modeled():
+    card = Card(
+        id="Leyline Invocation", name="Leyline Invocation", type_line="Sorcery", is_sorcery=True,
+        mana_cost_string="{4}{G}{U}", converted_mana_cost=6,
+        oracle_text="Create a 0/0 green and blue Fractal creature token. Put X +1/+1 "
+                    "counters on it, where X is the number of lands you control.",
+    )
+    result = parse_oracle(card)
+    assert result.coverage != UNMODELED
+    assert result.unclaimed == []
+
+
+def test_add_counters_devotion_scales_with_lands_you_control():
+    eng = make_engine("p1", "p2")
+    for i in range(3):
+        put(eng.state, Card(
+            id=f"Land {i}", name=f"Land {i}", type_line="Basic Land — Forest", is_land=True,
+        ))
+    source = put(eng.state, creature("Counter Source", oracle_text=(
+        "When this creature enters, put x +1/+1 counters on it, "
+        "where x is the number of lands you control."
+    )))
+
+    from mtg_analyzer.models.events import EventType, GameEvent
+    eng.state.fire_event(GameEvent(
+        EventType.ENTERS_BATTLEFIELD, controller_id="p1", instance_id=source.instance_id,
+        object=source.name, object_types=sorted(source.type_words),
+    ))
+    placed = eng.rules.put_triggers_on_stack()
+    assert placed == 1
+    eng.resolve_until_stable()
+
+    # base 2/2 + 3 lands' worth of +1/+1 counters = 5/5.
+    assert (source.power, source.toughness) == (5, 5)
+
+
+# -- MEC-27: create_token's "where x is" tail widened past subtype/attacking
+
+
+def test_create_token_xx_where_reads_bare_devotion_phrase():
+    effects = parse_effect_body(
+        "create x 1/1 white soldier creature tokens, where x is the number of creatures you control"
+    )
+    assert effects is not None
+    assert len(effects) == 1
+    assert effects[0].type == "create_token"
+    assert effects[0].params.get("count_selector") == "creatures_you_control"
+
+
+def test_create_token_xx_where_still_reads_attacking_creatures():
+    # The pre-widening phrasing (Galadhrim Ambush-shaped) must keep working —
+    # `attacking_creatures` is one of `DEVOTION`'s own bare-phrase readings.
+    effects = parse_effect_body(
+        "create x 1/1 green elf warrior creature tokens, where x is the number of attacking creatures"
+    )
+    assert effects is not None
+    assert effects[0].params.get("count_selector") == "attacking_creatures"
+
+
+def test_create_token_bare_devotion_scales_with_creatures_you_control():
+    eng = make_engine("p1", "p2")
+    put(eng.state, creature("Ally One"))
+    source = put(eng.state, creature("Token Source", oracle_text=(
+        "When this creature enters, create x 1/1 white Soldier creature "
+        "tokens, where x is the number of creatures you control."
+    )))
+
+    from mtg_analyzer.models.events import EventType, GameEvent
+    eng.state.fire_event(GameEvent(
+        EventType.ENTERS_BATTLEFIELD, controller_id="p1", instance_id=source.instance_id,
+        object=source.name, object_types=sorted(source.type_words),
+    ))
+    placed = eng.rules.put_triggers_on_stack()
+    assert placed == 1
+    eng.resolve_until_stable()
+
+    # 2 creatures on the board when the trigger resolves (Ally One + Token
+    # Source itself) → 2 Soldier tokens created.
+    soldiers = [o for o in eng.state.battlefield if o.name == "Soldier"]
+    assert len(soldiers) == 2

@@ -884,6 +884,102 @@ def _trigger_condition(
     return _all
 
 
+#: ENG-29: which param on a given `EffectSpec.type` carries the RULE 603.1
+#: "implicit subject" convention (``None`` → the ability's own source,
+#: ``"attached_permanent"`` → whatever the source is currently attached to —
+#: `TapEffect`/`PumpEffect`/`CopyPermanentEffect`'s own ``target_kind``,
+#: `FightEffect`/`DamageEqualToPowerEffect`'s ``fighter_kind``/``dealer_kind``,
+#: the *acting* side, not the RULE 115 ``target_kind``/``other_kind`` half
+#: those last two also carry). Deliberately a narrow whitelist, not "rewrite
+#: any ``target_kind: None``" — most effect types (`regenerate`/`exile`/
+#: `return_to_hand`/`goad`/…) also default an absent/``None`` ``target_kind``
+#: to their own source, but have no ``"attached_permanent"`` mode at all
+#: (no matching `_attached_mode` branch in `game/effects.py`), so retargeting
+#: them here would hand a real `TargetSpec` an unrecognized kind instead of
+#: leaving them alone.
+_ATTACHED_PERMANENT_RETARGET_FIELDS: dict[str, str] = {
+    "tap": "target_kind",
+    "pump": "target_kind",
+    "copy_permanent": "target_kind",
+    "fight": "fighter_kind",
+    "damage_equal_to_power": "dealer_kind",
+}
+
+#: MEC-28's ``{"subject": "group"}`` sibling of the whitelist above — see
+#: `_retarget_implicit_subject_effects`'s docstring for why it's `tap`-only
+#: today rather than mirroring the wider attached-permanent list.
+_GROUP_SUBJECT_RETARGET_FIELDS: dict[str, str] = {
+    "tap": "target_kind",
+}
+
+
+def _retarget_implicit_subject_effects(
+    effect_specs: list[EffectSpec], trigger: dict[str, Any]
+) -> list[EffectSpec]:
+    """RULE 303.4/301.5: "whenever equipped/enchanted creature `<verb>`, it
+    `<effect>`." — the trigger *condition* already scopes correctly to the
+    attached permanent (`_subject_condition`'s ``"attached_permanent"``
+    branch), but a bare "it" in the *effect body* was parsed with no subject
+    context at all (`parser/oracle/segmenter.py`'s generic trigger dispatch
+    only unlocks ``self_subject=True`` for an exact ``{"subject": "self"}``
+    condition), so it fell through to the same unconditional ``target_kind:
+    None`` "it" recognition every self-acting handler uses regardless of that
+    flag — silently resolving to the Equipment/Aura itself (Genji Glove's
+    "untap it" untapping the Equipment, not the attacking creature).
+
+    Fixed at bind time rather than parse time: rewriting *every* self-acting
+    handler in `catalogue/handlers.py` to thread a richer subject context
+    through `parse_effect_body` would touch dozens of unrelated handlers for
+    one trigger-subject shape. Here, once, for exactly the effect types that
+    already understand the ``"attached_permanent"`` sentinel.
+
+    Deliberately scoped to the plain ``"attached_permanent"`` subject only —
+    not its ``"self_or_attached_permanent"`` sibling (Simian Sling-shaped
+    "whenever this creature or equipped creature becomes blocked"), where a
+    bare "it" would need to resolve to *whichever* of the two actually fired
+    the event, a dynamic per-firing resolution this static bind-time rewrite
+    can't express. No shipped card combines that subject with a self-acting
+    "it" effect body today, so leaving it unhandled fails closed rather than
+    silently picking the wrong one.
+
+    MEC-28: a ``{"subject": "group"}`` condition ("whenever a creature you
+    control attacks alone, ... untap it.", Raiyuu-shaped) is the same "it"
+    ambiguity one level removed — there's no static field to repoint at all,
+    since *which* object matched varies every firing, so this rewrites
+    ``target_kind: None`` to ``"trigger_subject"`` instead (`TapEffect`'s new
+    mode reading `GameContext.trigger_event` live, the same idiom
+    `GrantKeywordToTriggerSubjectEffect` already uses for Tyvar Kell's
+    emblem) and additionally stamps ``trigger_event_key`` so the effect knows
+    *which* event field names the acting object — `_subject_event_key`'s own
+    per-event-type lookup, the same one the trigger *condition* side already
+    uses to check whether it fired. Scoped to `tap` alone for now — no
+    shipped card needs this retarget for `pump`/`fight`/`copy_permanent`/
+    `damage_equal_to_power` yet, and extending those means confirming each
+    one actually reads `trigger_event_key` the way `TapEffect` was just
+    given, not assuming the shape transfers for free.
+    """
+    condition = trigger.get("condition") or {}
+    subject = condition.get("subject")
+    if subject == "attached_permanent":
+        retarget_fields, retarget_value = _ATTACHED_PERMANENT_RETARGET_FIELDS, "attached_permanent"
+    elif subject == "group":
+        retarget_fields, retarget_value = _GROUP_SUBJECT_RETARGET_FIELDS, "trigger_subject"
+    else:
+        return effect_specs
+    retargeted: list[EffectSpec] = []
+    for e in effect_specs:
+        field_name = retarget_fields.get(e.type)
+        if field_name is not None and field_name in e.params and e.params[field_name] is None:
+            params = dict(e.params)
+            params[field_name] = retarget_value
+            if retarget_value == "trigger_subject":
+                params["trigger_event_key"] = _subject_event_key(trigger)
+            retargeted.append(EffectSpec(e.type, params, condition=e.condition))
+        else:
+            retargeted.append(e)
+    return retargeted
+
+
 def bind_ability(
     spec: AbilitySpec, source: Optional[Any] = None
 ) -> Union[list[GameEffect], list[ReplacementEffect], TriggeredAbility, list[TriggeredAbility], ActivatedAbility]:
@@ -970,13 +1066,16 @@ def bind_ability(
             )
         ]
 
+    if spec.ability_kind == "triggered":
+        assert spec.trigger is not None  # validate() guarantees this
+        effect_specs = _retarget_implicit_subject_effects(effect_specs, spec.trigger)
+
     effects = build_effects(effect_specs, source)
 
     if spec.ability_kind == "spell_effect":
         return effects
 
     if spec.ability_kind == "triggered":
-        assert spec.trigger is not None  # validate() guarantees this
         modes = _build_mode_entries(spec.modes, source) if spec.modes else None
         trigger_event = spec.trigger["event"]
 

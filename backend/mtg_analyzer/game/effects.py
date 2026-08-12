@@ -6753,6 +6753,12 @@ _TAP_SELECTORS: frozenset[str] = frozenset(
         "creatures_you_control", "permanents_you_control", "nonland_permanents_you_control",
         # "Untap each other creature you control." (Copperhorn Scout).
         "other_creatures_you_control",
+        # MEC-28: "untap all attacking creatures"/"untap each attacking
+        # creature" (Karlach, Fury of Avernus/Hexplate Wallbreaker-shaped) —
+        # unscoped by controller, the same `group_selector_objects`
+        # `"attacking_creatures"` branch an anthem's own `affects` already
+        # reuses (Motivated Pony's "Attacking creatures get +1/+1").
+        "attacking_creatures",
     }
 )
 
@@ -6811,16 +6817,33 @@ class TapEffect(GameEffect):
         selector: Optional[str] = None,
         count: int = 1,
         previous_subject: bool = False,
+        trigger_event_key: Optional[str] = None,
     ) -> None:
         super().__init__(source)
         self.target = target
         self.untap = untap
         self.selector = selector if _is_valid_tap_selector(selector) else None
         self._attached_mode = target_kind == "attached_permanent"
+        #: ENG-29's sibling: MEC-28's RULE 603.1 "group" subject — "whenever
+        #: a creature you control attacks alone, ... untap it/that creature."
+        #: — where the acting object isn't a static field on the source (an
+        #: Aura's ``attached_to``) but whichever object actually satisfied
+        #: *this firing* of a group trigger condition, re-read off
+        #: `GameContext.trigger_event` at resolution time (the same "read
+        #: the current firing's own payload" idiom `GrantKeywordToTrigger
+        #: SubjectEffect` already uses for Tyvar Kell's emblem — this is that
+        #: idiom applied to `TapEffect` instead of a keyword grant).
+        #: ``trigger_event_key`` names which event field carries the acting
+        #: object's id (``instance_id`` by default, `effect_binder.
+        #: _subject_event_key`'s same per-event-type lookup — e.g.
+        #: ``source_id`` for a DAMAGE-sourced group condition).
+        self._trigger_subject_mode = target_kind == "trigger_subject"
+        self.trigger_event_key = trigger_event_key or "instance_id"
         self.previous_subject = previous_subject
         self.target_spec = (
             TargetSpec(kind=target_kind, optional=optional, count=count)
-            if target_kind is not None and not self._attached_mode and self.selector is None and not previous_subject
+            if target_kind is not None and not self._attached_mode
+            and not self._trigger_subject_mode and self.selector is None and not previous_subject
             else None
         )
 
@@ -6845,6 +6868,13 @@ class TapEffect(GameEffect):
         if self._attached_mode:
             host_id = getattr(self.source, "attached_to", None)
             target = context.state.find_object(host_id) if host_id is not None else None
+            if target is not None:
+                context.set_tapped(target, tapped=not self.untap)
+            return
+        if self._trigger_subject_mode:
+            event = context.trigger_event
+            obj_id = (event or {}).get(self.trigger_event_key)
+            target = context.state.find_object(obj_id) if obj_id is not None else None
             if target is not None:
                 context.set_tapped(target, tapped=not self.untap)
             return
@@ -7512,9 +7542,19 @@ class AddCountersEffect(GameEffect):
         divided: bool = False,
         amount_from_trigger_event: Optional[str] = None,
         x_multiplier: Optional[int] = None,
+        amount_from_count_selector: Optional[str] = None,
     ) -> None:
         super().__init__(source)
         self.amount = amount
+        #: MEC-27: "put X +1/+1 counters on ~, where X is the number of
+        #: `<noun phrase>` you control." — `subgrammars.DEVOTION`'s wider
+        #: RULE 613.7c reading, previously wired into damage/lose_life only.
+        #: Same `continuous.count_selector` lookup, resolved live at
+        #: resolution the same way `DealDamageEffect.amount_from_count_
+        #: selector` already does; deliberately only wired into the plain
+        #: self/single-target branch below, mirroring `amount_from_trigger_
+        #: event`'s own single-recipient scope just above.
+        self.amount_from_count_selector = amount_from_count_selector
         #: "Whenever you gain life, put that many +1/+1 counters on ~/target
         #: X." (Ageless Entity/Treebeard-shaped) — the event field name
         #: (``"amount"``) to read off `GameContext.trigger_event` at
@@ -7612,6 +7652,13 @@ class AddCountersEffect(GameEffect):
         if self.amount_from_trigger_event:
             event = context.trigger_event
             amount = int((event or {}).get(self.amount_from_trigger_event) or 0)
+        if self.amount_from_count_selector:
+            from . import continuous  # avoid the continuous↔effects import cycle
+
+            controller_id = getattr(self.source, "controller_id", None)
+            amount = continuous.count_selector(
+                context.state, controller_id, self.amount_from_count_selector, source=self.source,
+            )
         if target is not None and amount > 0:
             context.add_counters(target, amount, self.kind, source=self.source)
 
@@ -11997,6 +12044,7 @@ EffectRegistry.register(
         selector=p.get("selector"),
         count=int(p.get("count", 1)),
         previous_subject=bool(p.get("previous_subject", False)),
+        trigger_event_key=p.get("trigger_event_key"),
     ),
 )
 EffectRegistry.register(
@@ -12147,6 +12195,7 @@ EffectRegistry.register(
         divided=bool(p.get("divided", False)),
         amount_from_trigger_event=p.get("amount_from_trigger_event"),
         x_multiplier=p.get("x_multiplier"),
+        amount_from_count_selector=p.get("amount_from_count_selector"),
     ),
 )
 EffectRegistry.register(

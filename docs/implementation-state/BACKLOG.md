@@ -36,23 +36,7 @@ Plan-level sequencing lives in
 
 ## ENG — Game engine
 
-- **ENG-29 · An `"attached_permanent"`-subject trigger's "it" doesn't
-  retarget a self-acting effect.** `parse_effect_body`'s generic trigger
-  dispatch only sets `self_subject=True` when the trigger condition is
-  exactly `{"subject": "self"}` — for `{"subject": "attached_permanent"}`
-  ("whenever equipped/enchanted creature `<verb>`, it `<effect>`",
-  RULE 303.4/301.5) it's `False`, but a self-acting effect built with
-  `target_kind=None` (`TapEffect`'s "untap it" mode, and others of the same
-  shape) always means "the ability's own source" regardless of that flag —
-  so "it" silently resolves to the Equipment/Aura itself instead of the
-  equipped/enchanted permanent. Found via Genji Glove (MEC-12's 2026-08-12
-  batch) while validating the new intervening-if primitive; no shipped card
-  hit this before (the attached_permanent subject family so far was only
-  built for "deals combat damage to a player" shapes, where the effect
-  targets the *player*, not "it"). Needs either a genuine `target_kind=
-  "attached_permanent"` emitted at parse time for this subject, or a bind-
-  time retarget of a `None`-target self-acting effect based on the
-  ability's own trigger condition subject.
+(none open)
 
 ## PAR — Parser
 
@@ -71,26 +55,61 @@ Plan-level sequencing lives in
   `api/game.py` — see Done_Backend.md "PLR-13". Vanguard's own remaining
   piece — a per-seat avatar picker, and its avatars' card text — is a
   permanent non-goal, not a queued gap; see the MEC callout below.)
-- **PAR-18 · Copy-except-also, the wider residual.** MEC-12's 2026-08-12
-  batch shipped `Card.as_copy`'s `not_legendary` (RULE 205.4a) and threaded
-  `add_types`/`add_subtypes`/`not_legendary` through `CopyPermanentEffect`
-  for the first time — 188 cards (`engine_bench.py cards "copy.*except
-  it"`) still don't parse, mostly two shapes neither of those closed: a
-  self-referential "create a token that's a copy of **it**" (the source
-  itself, not a `{TARGET}`) rather than a targeted copy, and compound
+- **PAR-18 · Copy-except-also, the wider residual (narrowed 2026-08-12).**
+  MEC-12's 2026-08-12 batch shipped `Card.as_copy`'s `not_legendary` (RULE
+  205.4a) and threaded `add_types`/`add_subtypes`/`not_legendary` through
+  `CopyPermanentEffect` for the first time, but with no oracle-text route
+  reaching `add_types`/`add_subtypes` at all — a same-day follow-up closed
+  that gap (`catalogue.handlers._copy_permanent_add_types`, "…except it's
+  an artifact/a Shapeshifter Rogue in addition to its other types",
+  Saheeli's Artistry-shaped), reusing `_split_token_mid_words`'s existing
+  type/subtype-word classification rather than a new list. 187 cards
+  (`engine_bench.py cards "copy.*except it"`, was 188) still don't parse,
+  still mostly the *original* two shapes neither pass closed: a
+  self-referential "create a token that's a copy of **it**/**that card**"
+  where the antecedent is often *not* the ability's own source at all but a
+  card an earlier clause of the same ability exiled/found (needs a
+  `previous_subject`-style retarget reading `GameContext.created_objects`/
+  an exile-tracking field, not a genuine self-reference the way the ticket's
+  own original framing assumed — re-scope before building), and compound
   "except" clauses combining 2+ modifiers in one sentence
   (`_COPY_PERMANENT_RE`'s own docstring already explains why that family is
   deliberately excluded rather than guessed at).
-- **PAR-19 · The alt-cost family's own wider tail.** MEC-12's 2026-08-12
-  batch closed Snuff Out's named siblings (a board condition + sacrifice/
-  tap_others, mana+return-to-hand combined, counted sacrifice) — 81 cards
-  (`engine_bench.py cards "rather than pay this spell"`) are still
-  UNMODELED, ranked by `parser_probe.py blocked "rather than pay this
-  spell"`: "you may discard a `<type>` card rather than pay…", "you may
-  exile N `<color>` cards…" (Multikicker-style counted pitch), "…spend only
-  mana produced by Treasures to cast it this way" (a restriction riding the
-  alt_cost's own mana payment), and a handful of board-count-conditioned
-  gates beyond "if you control a `<land type>`".
+- **PAR-19 · The alt-cost family's own wider tail, narrowed (2026-08-12).**
+  MEC-12's 2026-08-12 batch closed Snuff Out's named siblings (a board
+  condition + sacrifice/tap_others, mana+return-to-hand combined, counted
+  sacrifice). A same-day follow-up closed the board-count-conditioned gate
+  named here — "If N or more creatures are attacking, you may pay `<cost>`
+  rather than pay this spell's mana cost." (Lethargy Trap/Arrow Volley
+  Trap-shaped) — via a new `AbilitySpec.alt_cost` condition key
+  (`creatures_attacking_at_least`, the combat-count sibling of the
+  already-shipped `opponent_spells_cast_this_turn_at_least`; also fixed a
+  latent validation bug where `_validate_alt_cost`'s inline condition check
+  only special-cased `control_land_type`'s string value and would have
+  rejected *any* int-valued condition, including the pre-existing
+  `opponent_spells_cast_this_turn_at_least` key, had a card ever printed it
+  on an `alt_cost` rather than a `free_cast_condition`). Along the way, a
+  **much bigger, unrelated find**: the shared `_GROUP`/`_GROUP_SELECTORS`
+  mass-pump vocabulary (`catalogue.handlers`, used by several existing
+  pump/keyword-grant rows at once) had never included "attacking
+  creatures" at all, despite `continuous.group_selector_objects`'s
+  `"attacking_creatures"` branch already existing (built for Motivated
+  Pony's anthem, later reused by MEC-28's `TapEffect.selector`) — widening
+  that one shared fragment closed **24 cards outright** in one line-count
+  change (`engine_bench.py cards "rather than pay this spell"` itself only
+  moved 27→28/81→80, since most of the 24 are cards that print "Attacking
+  creatures get `<±P>/<±T>` until end of turn"/"…gain `<keyword>` until end
+  of turn" with no alt-cost line at all — a completely different template
+  this ticket didn't name, found only because Lethargy Trap's *own* second
+  clause happened to need it too). What's left, per the ticket's original
+  framing: "you may discard a `<type>` card rather than pay…", "you may
+  exile N `<color>` cards…" (Multikicker-style counted pitch), and "…spend
+  only mana produced by Treasures to cast it this way" — the last of these
+  is a genuinely new primitive (mana-pool *provenance* tracking — which
+  permanent produced a given mana lot — not the existing RULE 605.3a
+  spend-restriction mechanism, which gates what a lot can be spent *on*,
+  not which lot must be spent), confirmed via `game/mana_abilities.py`
+  before deferring rather than assumed.
 
 ## MEC — Game mechanics
 
@@ -140,31 +159,70 @@ Plan-level sequencing lives in
   gaps' batch" entry for what shipped and why. Five residual/adjacent gaps
   that batch surfaced or deliberately left open are their own tickets now:
   **MEC-27**, **MEC-28**, **PAR-18**, **PAR-19**, **ENG-29**.
-- **MEC-27 · The count-amount resolver's own wider residual.** MEC-12's
-  2026-08-12 batch folded "the number of `<noun phrase>` you control" into
-  `subgrammars.DEVOTION`/`devotion_selector`, deliberately narrow: a closed
-  set of bare noun phrases (`creatures`/`permanents`/`artifacts`/`lands`/
-  `enchantments`/`planeswalkers` you control, "attacking creatures[ you
-  control]", "tapped creatures you control", a single creature-type word,
-  three two-word compounds). 599 cards still touch the template
-  (`engine_bench.py cards "where x is the number of"`) — most need either a
-  qualifier grammar ("creatures you control with power N or less", "tapped
-  `<type>` and/or `<type>` you control") or the phrase embedded into a verb
-  family that doesn't yet read `{DEVOTION}` at all (counters — "put X
-  +1/+1 counters on ~"; tokens — "create X 1/1 `<type>` tokens"; draw/
-  life-gain/loss outside the two rows already wired).
-- **MEC-28 · The intervening-if family's own wider residual.** MEC-12's
-  2026-08-12 batch shipped RULE 603.4's "if it's the first combat phase of
-  the turn, `<effect>`." (`ConditionalEffect`'s new `is_first_combat_phase`
-  key, `GameState.combats_this_turn`) — 7 cards still print it
-  (`engine_bench.py cards "if it's the first combat phase"`) but need a
-  second, separate primitive first: Karlach, Fury of Avernus/Hexplate
-  Wallbreaker need a mass "untap all attacking creatures" + a "they"
-  plural-pronoun referent; Finest Hour/Raph & Leo need "that creature"/
-  "that attacking creature" bound to the *trigger condition's* own group
-  subject (RULE 603.1) rather than an earlier clause's chosen target
-  (`previous_subject`'s current job) or the ability's own source
-  (`self_subject`'s).
+- **MEC-27 · The count-amount resolver's own wider residual, still a long
+  tail (re-measured 2026-08-12).** MEC-12's 2026-08-12 batch folded "the
+  number of `<noun phrase>` you control" into `subgrammars.DEVOTION`/
+  `devotion_selector`, deliberately narrow: a closed set of bare noun
+  phrases (`creatures`/`permanents`/`artifacts`/`lands`/`enchantments`/
+  `planeswalkers` you control, "attacking creatures[ you control]", "tapped
+  creatures you control", a single creature-type word, three two-word
+  compounds). A same-day follow-up closed the two verb families the ticket
+  named as entirely unwired — `AddCountersEffect` gained
+  `amount_from_count_selector` (a new `add_counters_devotion` parser row,
+  "put X `<±1/±1>` counters on `<target/self>`, where X is `<DEVOTION>`")
+  and `CreateTokenEffect`'s existing `count_selector` field (already fully
+  wired at the engine level, per `_CREATE_TOKEN_NUMBER_EQUAL_DEVOTION_RE`'s
+  "equal to" phrasing) is now also reachable from the "create X `<p>/<t>`
+  `<mid>` tokens, where X is `<DEVOTION>`" surface wording — previously
+  narrowed to only subtype/attacking-creatures phrasings
+  (`_CREATE_TOKEN_XX_WHERE_RE`, widened rather than left as a second row).
+  Real yield: 26→28 MODELED, 599→597 UNMODELED
+  (`engine_bench.py cards "where x is the number of"`) — most cards in the
+  remaining 597 have some *other* unrelated blocker too (the gate is
+  fail-closed), so this is a floor, not the true remaining count. What's
+  left, per the ticket's own original framing: a **qualifier grammar**
+  ("creatures you control with power N or less", "tapped `<type>` and/or
+  `<type>` you control" — `DEVOTION`'s own docstring already documents this
+  as the deliberate boundary) and the **draw/life-gain/loss** verb families
+  outside the two rows already wired before this pass. Standing long-tail
+  work in the `PAR-12`/`PARSER_LONG_TAIL.md` mould, not a ticket that
+  closes in one sitting — re-measure before trusting any of these numbers.
+- **MEC-28 · The intervening-if family's own wider residual, narrowed
+  (2026-08-12).** The two primitives the ticket originally named are now
+  built and shipped — `TapEffect`'s RULE 603.1 group-subject retarget
+  (`effect_binder._retarget_implicit_subject_effects`, extended from
+  ENG-29's own attached-permanent shape; closes the "it" half of Raiyuu/
+  A-Raiyuu) and a mass `"attacking_creatures"` untap selector (closed
+  Hellkite Charger outright, plus the untap clause of Hexplate Wallbreaker).
+  None of the 7 cards `engine_bench.py cards "if it's the first combat
+  phase"` names is fully MODELED yet — each has its own *separate*,
+  unrelated blocking clause the original ticket didn't call out:
+  - **Finest Hour** needs "that creature" (not "it") to reach the same
+    group-subject retarget — the retarget itself now exists, but no parser
+    row emits `target_kind: None` for that literal phrase in a group-trigger
+    body yet; needs a `group_subject_only`-gated `EffectHandler` row
+    (mirroring `self_subject_only`/`previous_subject_only`'s existing shape
+    in `handlers.py`, threaded through `parse_effect_body`'s same three-flag
+    convention in `segmenter.py`) — deliberately not attempted in this pass,
+    since it means touching `parse_effect_body`'s signature at every one of
+    its ~15 recursive call sites for one card, not a small addition.
+  - **Karlach, Fury of Avernus** needs a "They gain `<keyword>` until end of
+    turn." tail bound to whichever mass selector the *preceding* clause of
+    the same ability used — `previous_subject`'s existing machinery only
+    tracks a real RULE 115 target (`GameContext.previous_targets`), not a
+    selector choice, so this needs its own small extension, not reuse.
+  - **A-Raiyuu, Storm's Edge**, **Balthier and Fran**, **Raph & Leo, Sibling
+    Rivals**, **Tifa, Martial Artist** are each blocked on an unrelated
+    trigger-*condition* grammar gap having nothing to do with the pronoun
+    primitive at all: "a samurai or warrior you control attacks alone"
+    (compound type-or-type group filter), "a vehicle crewed by `<name>`
+    this turn attacks", "N or more creatures you control with power N or
+    greater deal combat damage to a player" (compound count+power group
+    condition), and "untap 1 or 2 target attacking creatures" (a variable
+    1-2 multi-target count, not the bare "up to N" shape already built).
+  - **Hexplate Wallbreaker**'s remaining blocker is "For Mirrodin!" — its
+    own separate ability-word ETB template (create a token, then attach),
+    unrelated to this ticket's scope entirely; not investigated here.
 
 ## PLR — Player management
 

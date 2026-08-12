@@ -587,6 +587,24 @@ _TOP_LIBRARY_PERMISSION_RE = re.compile(
     re.IGNORECASE,
 )
 
+#: "You may look at the top card of your library any time." (Sphinx of Jwar
+#: Isle/Fblthp, Lost on the Range/Glowcap Lantern/Iron Lad, Diverging
+#: Destiny/Vesuvan Drifter-shaped — ~57 real cards) — the standalone,
+#: look-only sibling of `_TOP_LIBRARY_PERMISSION_RE` just above (whose own
+#: grants already always carry ``look=True``, since playing from the top
+#: implies seeing it). A genuine independent RULE 400.2-adjacent visibility
+#: grant when printed with no accompanying play/cast permission, not the
+#: purely-redundant sibling `segmenter._PLAY_WITH_TOP_REVEALED_RE` is (that
+#: one is always paired with a play/cast grant on the same card). Previously
+#: claimed as a no-op line at the `segmenter.segment_line` level; recognized
+#: here instead so it reaches `game/top_library.py`'s
+#: `may_look_at_top_of_library`, which `_redact_hidden_zones`'s
+#: ``top_library_visible`` view flag and the goldfish/shared board's
+#: library-zone UI already fully support for any active grant.
+_LOOK_AT_TOP_ANY_TIME_RE = re.compile(
+    r"you may look at the top card of your library any time", re.IGNORECASE
+)
+
 
 # "~ can be your commander."  (RULE 903.3 deck-legality permission,
 # Jeska/Tevesh Szat-shaped) — a plain-text line with **no in-game behavioral
@@ -2510,6 +2528,9 @@ def static_effect_specs(clause: str) -> Optional[list[EffectSpec]]:
         if tail is not None:
             params[_TOP_LIBRARY_TAILS[tail.lower()]] = True
         return [EffectSpec("top_library_permission", params)]
+
+    if _LOOK_AT_TOP_ANY_TIME_RE.fullmatch(text):
+        return [EffectSpec("top_library_permission", {"look": True})]
 
     if _NOT_A_CREATURE_RE.fullmatch(text):
         return [EffectSpec("type_change", {"remove_types": ["creature"]})]

@@ -79,28 +79,42 @@ _ADDITIONAL_DAMAGE_RE = re.compile(
 )
 
 
-#: Furnace of Rath/Dictate of the Twin Gods's unscoped damage-doubling line
-#: ("a source" — no controller restriction at all).
-_DOUBLE_DAMAGE_ANY_SOURCE_RE = re.compile(
-    r"if a source would deal damage to a permanent or player, "
-    r"it deals double that damage to that permanent or player instead",
+#: The damage-multiplying family (RULE 616.1) — Furnace of Rath/Dictate of
+#: the Twin Gods's unscoped "a source" line, Gratuitous Violence's narrower
+#: "a *creature* you control" line (no "combat" qualifier despite the
+#: card's own flavor — note its tail doesn't repeat "to that permanent or
+#: player" the way the other two do, hence the trailing phrase below is
+#: optional rather than assumed present), and Fiery Emancipation's "triple"
+#: sibling of the unscoped line, scoped to "a source *you control*" (any
+#: permanent, not creature-only). One regex parameterized over
+#: {scope, multiplier} rather than three near-identical literals.
+_DAMAGE_MULTIPLIER_RE = re.compile(
+    r"if a (?P<scope>source|creature you control|source you control) would deal damage to a "
+    r"permanent or player, it deals (?P<mult>double|triple) that damage"
+    r"(?P<tail> to that permanent or player)? instead",
     re.IGNORECASE,
 )
-#: Gratuitous Violence's own, narrower line: "a *creature* you control" —
-#: no "combat" qualifier despite the card's own flavor, and note the tail
-#: doesn't repeat "to that permanent or player" the way the two above do.
-_DOUBLE_DAMAGE_YOUR_CREATURE_RE = re.compile(
-    r"if a creature you control would deal damage to a permanent or player, "
-    r"it deals double that damage instead",
-    re.IGNORECASE,
-)
-#: Fiery Emancipation's "triple" sibling of the unscoped line above, scoped
-#: to "a source *you control*" (any permanent, not creature-only).
-_TRIPLE_DAMAGE_YOUR_SOURCE_RE = re.compile(
-    r"if a source you control would deal damage to a permanent or player, "
-    r"it deals triple that damage to that permanent or player instead",
-    re.IGNORECASE,
-)
+
+#: The exact three (scope, multiplier, has-trailing-phrase) combinations the
+#: three original literals covered — kept as an explicit whitelist rather
+#: than accepting the regex's full cross product, since e.g. "a source you
+#: control ... double ... to that permanent or player instead" (Angrath's
+#: Marauders) is a real, un-modeled printed shape the original three
+#: literals never happened to cover; recognizing it is real new coverage,
+#: not a side effect of this refactor, so it's deliberately left out here.
+_DAMAGE_MULTIPLIER_SHAPES: dict[tuple[str, str, bool], dict] = {
+    ("source", "double", True): {},
+    ("creature you control", "double", False): {"creature_only": True, "your_sources_only": True},
+    ("source you control", "triple", True): {"your_sources_only": True, "multiplier": 3},
+}
+
+
+def _damage_multiplier_spec(m: re.Match[str]) -> Optional[EffectSpec]:
+    key = (m.group("scope"), m.group("mult"), m.group("tail") is not None)
+    params = _DAMAGE_MULTIPLIER_SHAPES.get(key)
+    if params is None:
+        return None
+    return EffectSpec("double_damage", dict(params))
 
 
 #: Life-gain replacement, "if you would gain life, ... instead" (RULE
@@ -207,14 +221,11 @@ def replacement_clause_specs(clause: str) -> Optional[list[EffectSpec]]:
     if _WIN_INSTEAD_OF_EMPTY_DRAW_RE.fullmatch(text):
         return [EffectSpec("win_instead_of_empty_draw", {})]
 
-    if _DOUBLE_DAMAGE_ANY_SOURCE_RE.fullmatch(text):
-        return [EffectSpec("double_damage", {})]
-
-    if _DOUBLE_DAMAGE_YOUR_CREATURE_RE.fullmatch(text):
-        return [EffectSpec("double_damage", {"creature_only": True, "your_sources_only": True})]
-
-    if _TRIPLE_DAMAGE_YOUR_SOURCE_RE.fullmatch(text):
-        return [EffectSpec("double_damage", {"multiplier": 3, "your_sources_only": True})]
+    m = _DAMAGE_MULTIPLIER_RE.fullmatch(text)
+    if m is not None:
+        spec = _damage_multiplier_spec(m)
+        if spec is not None:
+            return [spec]
 
     m = _GAIN_LIFE_PLUS_RE.fullmatch(text)
     if m is not None:

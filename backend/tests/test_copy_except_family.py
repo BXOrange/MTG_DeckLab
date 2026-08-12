@@ -83,6 +83,63 @@ def test_multiversal_recruitment_is_modeled():
     assert result.unclaimed == []
 
 
+# -- PAR-18: the add_types/add_subtypes sibling now has a parser route too --
+
+
+def test_saheelis_artistry_is_modeled():
+    card = Card(
+        id="Saheeli's Artistry", name="Saheeli's Artistry", type_line="Sorcery",
+        is_sorcery=True, mana_cost_string="{3}{U}{U}", converted_mana_cost=5,
+        oracle_text=(
+            "Choose one or both —\n"
+            "• Create a token that's a copy of target artifact.\n"
+            "• Create a token that's a copy of target creature, except "
+            "it's an artifact in addition to its other types."
+        ),
+    )
+    result = parse_oracle(card)
+    assert result.coverage != UNMODELED
+    assert result.unclaimed == []
+
+
+def test_copy_add_types_clause_parses_as_artifact():
+    from mtg_analyzer.parser.oracle.catalogue.handlers import match_clause
+
+    effects = match_clause(
+        "create a token that's a copy of target creature, except it's an "
+        "artifact in addition to its other types"
+    )
+    assert effects is not None
+    assert effects[0].type == "copy_permanent"
+    assert effects[0].params.get("add_types") == ["Artifact"]
+
+
+def test_copy_add_subtypes_clause_parses_as_subtype_words():
+    from mtg_analyzer.parser.oracle.catalogue.handlers import match_clause
+
+    effects = match_clause(
+        "create a token that's a copy of target creature, except it's a "
+        "shapeshifter rogue in addition to its other types"
+    )
+    assert effects is not None
+    assert effects[0].type == "copy_permanent"
+    assert effects[0].params.get("add_subtypes") == ["Shapeshifter", "Rogue"]
+
+
+def test_copy_permanent_effect_add_types_from_parsed_spec_makes_a_real_artifact_token():
+    eng = make_engine("p1", "p2")
+    original = put(eng.state, legendary_creature())
+
+    effect = CopyPermanentEffect(target=original, add_types=["Artifact"])
+    context = GameContext(eng.state, eng.rules)
+    effect.apply(context, targets=[original])
+
+    tokens = [o for o in eng.state.battlefield if o.is_token]
+    assert len(tokens) == 1
+    assert "Artifact" in tokens[0].card.type_line
+    assert tokens[0].card.is_artifact is True
+
+
 def test_copy_permanent_effect_strips_legendary_from_the_token():
     eng = make_engine("p1", "p2")
     original = put(eng.state, legendary_creature())

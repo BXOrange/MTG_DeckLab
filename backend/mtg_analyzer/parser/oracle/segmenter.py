@@ -886,26 +886,21 @@ _DEVOTION_CHOSEN_COLOR_MANA_RE = re.compile(
     re.IGNORECASE,
 )
 
-#: "You may look at the top card of your library any time." (Elsha of the
-#: Infinite/Bolas's Citadel) — purely informational, no separate game-state
-#: effect at this engine's fidelity: the *actual* play/cast-from-top
-#: permission is a different clause (`game/top_library.py`, already
-#: standing/battlefield-sourced), and this one only lets a player see what's
-#: already implied by having that permission. Claimed as a documented no-op
-#: (mirroring how a mana-ability's own effect line is "covered but no spec"
-#: above) rather than wired into new behaviour — the goldfish UI has no
-#: hidden-information model where "may look any time" would change anything
-#: observable.
-_LOOK_AT_TOP_ANY_TIME_RE = re.compile(
-    r"^you may look at the top card of your library any time\.?$", re.IGNORECASE
-)
-
 #: "Play with the top card of your library revealed." (Oracle of Mul
-#: Daya/Future Sight-shaped) — the same "purely informational, no separate
-#: game-state effect" no-op as `_LOOK_AT_TOP_ANY_TIME_RE` just above, printed
-#: as its own line right next to the actual play/cast-from-top permission
-#: (`catalogue.static_handlers._TOP_LIBRARY_PERMISSION_RE`) rather than
-#: combined with it.
+#: Daya/Future Sight-shaped) — purely informational, no separate game-state
+#: effect: it's always printed as its own line right next to the actual
+#: play/cast-from-top permission (`catalogue.static_handlers.
+#: _TOP_LIBRARY_PERMISSION_RE`), whose own grant already implies visibility
+#: (`game/top_library.py`'s `may_look_at_top_of_library` — "a permission to
+#: play cards from the top implies seeing them"), so this line adds no new
+#: information over that grant. Claimed as a documented no-op (mirroring how
+#: a mana-ability's own effect line is "covered but no spec" above) rather
+#: than wired into new behaviour. Contrast the *standalone* "you may look at
+#: the top card of your library any time." line (Sphinx of Jwar Isle-shaped,
+#: no accompanying play/cast permission on ~57 real cards) — that one is a
+#: genuine, independent RULE 400.2-adjacent visibility grant, so it's
+#: claimed by `static_handlers._LOOK_AT_TOP_ANY_TIME_RE` instead, as a real
+#: `top_library_permission {"look": True}` spec, not here.
 _PLAY_WITH_TOP_REVEALED_RE = re.compile(
     r"^play with the top card of your library revealed\.?$", re.IGNORECASE
 )
@@ -1276,6 +1271,19 @@ _ALT_COST_PAY_MANA_RE = re.compile(
     re.IGNORECASE,
 )
 
+#: PAR-19: "If `<N>` or more creatures are attacking, you may pay `<cost>`
+#: rather than pay this spell's mana cost." (Lethargy Trap/Arrow Volley
+#: Trap — RULE 702's "Trap" template) — a board-*count* gate on the plain
+#: mana-payment alt_cost above, the combat-count sibling of
+#: `_ALT_COST_PAY_LIFE_IF_CONTROL_LAND_RE`'s land-type gate on a life
+#: payment; shares that row's ``condition`` key idiom
+#: (`AbilitySpec.alt_cost`'s new ``creatures_attacking_at_least``).
+_ALT_COST_PAY_MANA_IF_ATTACKING_RE = re.compile(
+    r"^if (?P<n>\d+) or more creatures are attacking, you may pay "
+    r"(?P<mana>(?:\{[^{}]+\})+) rather than pay this spell'?s mana cost\.?\s*$",
+    re.IGNORECASE,
+)
+
 #: Snuff Out's own sibling shapes (MEC-12's "broader gaps" — the compound
 #: "board condition gates a non-mana alt_cost" family, same ``condition``
 #: key `_ALT_COST_PAY_LIFE_IF_CONTROL_LAND_RE` already carries, just paired
@@ -1545,6 +1553,24 @@ def _trigger_condition(condition: str) -> Optional[dict[str, Any]]:
     return None
 
 
+def _with_after_tail(
+    specs: list[EffectSpec], after_group: Optional[str], *, previous_subject: bool = False,
+) -> Optional[list[EffectSpec]]:
+    """The repeated tail shape across `parse_effect_body`'s two-sentence
+    wrapper blocks below (look_top_select/no_regen/gain_control_tail/
+    sac_when_you_do): a trailing "after" sentence, if any, recurses back
+    into `parse_effect_body` and its specs are appended; with none, ``specs``
+    is returned as-is. Fails closed (``None``) if the "after" sentence itself
+    doesn't parse."""
+    after_text = (after_group or "").strip()
+    if not after_text:
+        return specs
+    after_specs = parse_effect_body(after_text, previous_subject=previous_subject)
+    if after_specs is None:
+        return None
+    return specs + after_specs
+
+
 def parse_effect_body(
     body: str, *, self_subject: bool = False, previous_subject: bool = False
 ) -> Optional[list[EffectSpec]]:
@@ -1726,13 +1752,7 @@ def parse_effect_body(
                 "rest_order": rest_order,
             },
         )
-        after_text = (look_top_select.group("after") or "").strip()
-        if not after_text:
-            return [spec]
-        after_specs = parse_effect_body(after_text)
-        if after_specs is None:
-            return None
-        return [spec] + after_specs
+        return _with_after_tail([spec], look_top_select.group("after"))
 
     no_regen = _NO_REGEN_SENTENCE_RE.match(body)
     if no_regen is not None:
@@ -1751,15 +1771,10 @@ def parse_effect_body(
                 break
         else:
             return None  # nothing to deny regeneration to — fail closed
-        after_text = (no_regen.group("after") or "").strip()
-        if not after_text:
-            return before_specs
-        after_specs = parse_effect_body(
-            after_text, previous_subject=_announces_creature_target(before_specs)
+        return _with_after_tail(
+            before_specs, no_regen.group("after"),
+            previous_subject=_announces_creature_target(before_specs),
         )
-        if after_specs is None:
-            return None
-        return before_specs + after_specs
 
     gain_control_tail = _GAIN_CONTROL_HASTE_TAIL_RE.match(body)
     if gain_control_tail is not None:
@@ -1771,15 +1786,10 @@ def parse_effect_body(
             spec.type == "gain_control_until_eot" for spec in before_specs
         ):
             return None  # fail closed — the tail only makes sense after that clause
-        after_text = (gain_control_tail.group("after") or "").strip()
-        if not after_text:
-            return before_specs
-        after_specs = parse_effect_body(
-            after_text, previous_subject=_announces_creature_target(before_specs)
+        return _with_after_tail(
+            before_specs, gain_control_tail.group("after"),
+            previous_subject=_announces_creature_target(before_specs),
         )
-        if after_specs is None:
-            return None
-        return before_specs + after_specs
 
     sac_when_you_do = _SACRIFICE_THEN_WHEN_YOU_DO_RE.match(body)
     if sac_when_you_do is not None:
@@ -1789,10 +1799,7 @@ def parse_effect_body(
         )
         if before_specs is None or not any(spec.type == "sacrifice_self" for spec in before_specs):
             return None  # fail closed — only a certain, unconditional antecedent collapses
-        after_specs = parse_effect_body(sac_when_you_do.group("after"))
-        if after_specs is None:
-            return None
-        return before_specs + after_specs
+        return _with_after_tail(before_specs, sac_when_you_do.group("after"))
 
     direct = match_clause(body, self_subject=self_subject, previous_subject=previous_subject)
     if direct is not None:
@@ -1901,7 +1908,7 @@ def segment_line(
     if is_keyword_line(raw):
         return Segment(raw=raw, claimed=True, keyword_line=True)
 
-    if _LOOK_AT_TOP_ANY_TIME_RE.match(raw) or _PLAY_WITH_TOP_REVEALED_RE.match(raw):
+    if _PLAY_WITH_TOP_REVEALED_RE.match(raw):
         return Segment(raw=raw, claimed=True)  # informational-only, no spec (see docstring)
 
     magecraft = _MAGECRAFT_RE.match(raw)
@@ -2385,6 +2392,22 @@ def segment_line(
             alt_cost={
                 "pay_life": int(pay_if.group("n")),
                 "condition": {"control_land_type": pay_if.group("land").lower()},
+            },
+            raw_text=raw,
+            parser=provenance,
+        )
+        return Segment(raw=raw, spec=spec, claimed=True)
+
+    pay_mana_if_attacking = _ALT_COST_PAY_MANA_IF_ATTACKING_RE.match(raw)
+    if pay_mana_if_attacking is not None:
+        spec = AbilitySpec(
+            "spell_effect",
+            effects=[],
+            alt_cost={
+                "mana": re.sub(r"\s+", "", pay_mana_if_attacking.group("mana")),
+                "condition": {
+                    "creatures_attacking_at_least": int(pay_mana_if_attacking.group("n")),
+                },
             },
             raw_text=raw,
             parser=provenance,

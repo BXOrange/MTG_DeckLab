@@ -410,3 +410,16 @@ def test_session_view_flags_top_library_hidden_without_permission():
     session = GameSession(eng)
     view = session.view()
     assert view["top_library_visible"] == {"p1": False, "p2": False}
+
+
+def test_session_view_flags_top_library_visible_for_look_only_grant():
+    # Sphinx of Jwar Isle-shaped: a standalone `look=True` grant with no
+    # play_lands/cast_spells at all still flips the view flag — the
+    # frontend's `libraryTopHtml` already renders the top card with no
+    # buttons whenever no matching legal_action exists, so a look-only
+    # permission needs nothing beyond this flag to be fully visible.
+    eng = _engine_with_library(top_cards=[_land("Island")])
+    _permanent_with_grant(eng.state, look=True)
+    session = GameSession(eng)
+    view = session.view()
+    assert view["top_library_visible"] == {"p1": True, "p2": False}

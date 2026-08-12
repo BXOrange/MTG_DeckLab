@@ -133,6 +133,12 @@ ALLOWED_FREE_CAST_CONDITION_KEYS: frozenset[str] = frozenset(
         # land-type word rather than a plain boolean, unlike every other
         # key above.
         "control_land_type",
+        # PAR-19: "If 3 or more creatures are attacking, you may pay `<cost>`
+        # rather than pay this spell's mana cost." (Lethargy Trap/Arrow
+        # Volley Trap-shaped RULE 702 "Trap" template) — the combat-count
+        # sibling of ``opponent_spells_cast_this_turn_at_least``, same
+        # int-threshold shape.
+        "creatures_attacking_at_least",
     }
 )
 
@@ -787,6 +793,15 @@ class AbilitySpec:
             if ckey == "control_land_type":
                 if not isinstance(cvalue, str) or not cvalue:
                     raise SpecValidationError("'control_land_type' alt_cost condition must be a non-empty str")
+            elif ckey in ("opponent_spells_cast_this_turn_at_least", "creatures_attacking_at_least"):
+                # PAR-19: an int-threshold condition, same shape
+                # `_validate_free_cast_condition` already accepts for these
+                # two keys on the sibling `free_cast_condition` field — this
+                # branch previously only special-cased ``control_land_type``,
+                # so an alt_cost using either of these (a real, valid shape)
+                # would have been silently rejected as "must be a bool".
+                if isinstance(cvalue, bool) or not isinstance(cvalue, int) or cvalue < 1:
+                    raise SpecValidationError(f"{ckey!r} alt_cost condition must be a positive int")
             elif not isinstance(cvalue, bool):
                 raise SpecValidationError(f"{ckey!r} alt_cost condition must be a bool")
 

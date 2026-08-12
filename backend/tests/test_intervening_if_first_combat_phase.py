@@ -12,16 +12,21 @@ same "wrap the rest, tag the condition" `parse_effect_body` idiom every
 other intervening-if shape already uses (`_KICKED_CONDITION_RE`/
 `_TARGET_IS_CONTROLLER_RE`/the Ring-bearer rows).
 
-Genji Glove itself (the equipment-shaped card in this family) hits a
-*separate*, pre-existing gap this batch didn't touch: an "attached_permanent"
--subject trigger's "it" doesn't retarget a self-acting effect (`TapEffect`'s
-``target_kind=None`` mode) onto the equipped creature — it silently acts on
+Genji Glove itself (the equipment-shaped card in this family) originally hit
+a *separate* gap this batch didn't touch: an "attached_permanent"-subject
+trigger's "it" didn't retarget a self-acting effect (`TapEffect`'s
+``target_kind=None`` mode) onto the equipped creature — it silently acted on
 the Equipment itself instead, since `parse_effect_body`'s generic trigger
-dispatch only special-cases a bare "self" subject
+dispatch only special-cased a bare "self" subject
 (`condition == {"subject": "self"}`), not "attached_permanent" too. Filed as
-its own ticket (BACKLOG.md) rather than fixed here. This file validates the
-primitive itself against a plain self-subject creature instead, where
-``target_kind=None`` already correctly means "this creature".
+ENG-29 and fixed separately (`effect_binder._retarget_attached_permanent_
+effects`, a bind-time rewrite scoped to the handful of effect types —
+`tap`/`pump`/`copy_permanent`/`fight`/`damage_equal_to_power` — that already
+understand the ``"attached_permanent"`` implicit-subject sentinel).
+`test_genji_glove_untaps_the_equipped_creature_not_the_equipment` below
+covers that fix directly; the rest of this file still validates the
+intervening-if primitive itself against a plain self-subject creature, where
+``target_kind=None`` already correctly means "this creature" regardless.
 """
 
 from __future__ import annotations
@@ -114,3 +119,53 @@ def test_combats_this_turn_resets_on_a_new_turn():
     eng.state.combats_this_turn = 3
     eng.begin_turn()
     assert eng.state.combats_this_turn == 0
+
+
+# --- ENG-29: attached_permanent trigger's "it" must resolve to the equipped
+# creature, not the Equipment itself ------------------------------------
+
+
+def genji_glove_card():
+    return Card(
+        id="Genji Glove", name="Genji Glove", type_line="Artifact — Equipment",
+        # ``keywords`` (Scryfall's own array) drives `_attachment_kind`'s
+        # `parametric_keywords["equip"]` binding — without it the RULE
+        # 704.5m/n re-validation SBA (`_revalidate_attachments`) sees no
+        # recognized attachment kind at all and immediately detaches Genji
+        # Glove from its host, silently resetting `attached_to` to `None`
+        # before the trigger ever resolves.
+        keywords=["Equip"],
+        oracle_text=(
+            "Equipped creature has double strike.\n"
+            "Whenever equipped creature attacks, if it's the first combat "
+            "phase of the turn, untap it. After this phase, there is an "
+            "additional combat phase.\n"
+            "Equip {3}"
+        ),
+    )
+
+
+def bear_card(name="Bear"):
+    return Card(id=name, name=name, type_line="Creature — Bear", is_creature=True, power=2, toughness=2)
+
+
+def test_genji_glove_is_modeled():
+    result = parse_oracle(genji_glove_card())
+    assert result.coverage != UNMODELED
+    assert result.unclaimed == []
+
+
+def test_genji_glove_untaps_the_equipped_creature_not_the_equipment():
+    eng = make_engine("p1", "p2")
+    bear = put(eng.state, bear_card())
+    glove = put(eng.state, genji_glove_card())
+    glove.attached_to = bear.instance_id
+    _to_declare_attackers(eng)
+    eng.state.combats_this_turn = 1  # the (first) real combat phase this turn
+
+    eng.declare_attackers(eng.state.active_player, [bear])
+    eng.resolve_until_stable()
+
+    assert bear.tapped is False  # untapped by the trigger — the equipped creature
+    assert glove.tapped is False  # the Equipment was never tapped to begin with
+    assert len(eng.state.pending_extra_combats) == 1

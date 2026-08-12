@@ -14129,3 +14129,273 @@ coverage assertion — this repo's own standing lesson that parse-only
 verification has masked real runtime bugs before. Full backend suite green
 throughout (3804 passed at the end of the batch); `PARSER_VERSION` bumped
 once per parser-classification change, 74 → 83.
+
+## ENG-29: an `"attached_permanent"`-subject trigger's "it" now retargets a self-acting effect (2026-08-12)
+
+Fixed the gap Genji Glove surfaced in the MEC-12 nine-broader-gaps batch
+above: `parse_effect_body`'s generic trigger dispatch only unlocks
+`self_subject=True` for an exact `{"subject": "self"}` condition
+(`segmenter.py`'s `effects = parse_effect_body(body, self_subject=condition
+== {"subject": "self"})`), so a `{"subject": "attached_permanent"}` trigger
+("whenever equipped/enchanted creature `<verb>`, it `<effect>`") passed
+`self_subject=False` — but a bare "it" in the effect body was *still*
+recognized regardless of that flag, by the unconditional `_SELF_SUBJECT`
+regex alternation every self-acting handler (`_tap_self`, and its siblings
+across other effect types) already matches on. The clause parsed fine either
+way; only its *meaning* was wrong — `TapEffect(target_kind=None)` always
+means "the ability's own source," so "untap it" untapped the Equipment
+itself instead of the creature it was attached to.
+
+Fixed at bind time rather than parse time (`effect_binder.
+_retarget_attached_permanent_effects`, called from `bind_ability` right
+before `build_effects`, for the `"triggered"` ability kind only): when a
+trigger's condition subject is exactly `"attached_permanent"`, every effect
+in its body whose type is one of the five that already understand the
+`"attached_permanent"` implicit-subject sentinel (`TapEffect`/`PumpEffect`/
+`CopyPermanentEffect`'s `target_kind`, `FightEffect`'s `fighter_kind`,
+`DamageEqualToPowerEffect`'s `dealer_kind` — confirmed via each class's own
+`_attached_mode` branch in `game/effects.py`) gets that field rewritten from
+`None` to `"attached_permanent"` if and only if the key is already present
+with an explicit `None` value (never invented — `tap`'s own registry lambda
+defaults an *absent* key to `"permanent"`, a real RULE 115 target, so
+merely adding the key would be wrong for any row that never meant "self" in
+the first place). Deliberately a narrow five-type whitelist, not "rewrite
+every `target_kind: None`" — most self-acting effect types (`regenerate`/
+`exile`/`return_to_hand`/`goad`) have no `"attached_permanent"` mode in
+`game/effects.py` at all (no matching `_attached_mode` branch — verified by
+grep before assuming), so a blind rewrite would have hand them a target
+kind their own `TargetSpec` construction doesn't recognize instead of
+leaving them alone. Also deliberately scoped to the plain
+`"attached_permanent"` subject only, not its `"self_or_attached_permanent"`
+sibling (Simian Sling-shaped "whenever this creature or equipped creature
+becomes blocked") — that shape needs a genuinely dynamic "whichever one
+actually fired" resolution a static bind-time rewrite can't express, and no
+shipped card combines it with a self-acting "it" effect body today, so it's
+left unhandled (fails closed) rather than silently retargeted wrong.
+
+`tests/test_intervening_if_first_combat_phase.py` gained the real
+regression: Genji Glove (its actual printed text, `keywords=["Equip"]` set
+so the RULE 704.5m/n attachment-legality SBA doesn't detach it mid-test —
+the one real trap in writing this test, `_attachment_kind` reads
+`parametric_keywords["equip"]`, which only a bound `Equip` keyword ability
+populates) attached to a bear, attacking, correctly untaps the bear and not
+the Equipment. No parser-classification change (the clause already parsed
+identically before and after — only the *bound* effect's `target_kind`
+differs), so no `PARSER_VERSION` bump. Full suite green (3810 passed).
+
+## MEC-28: RULE 603.1 group-subject retarget + a mass "attacking creatures" untap selector (2026-08-12)
+
+Built the two primitives MEC-28's own residual named, both real and
+verified, though neither of the ticket's two headline cards (Karlach,
+Fury of Avernus/Finest Hour) turned out to close on these alone — see
+BACKLOG.md's rewritten MEC-28 entry for exactly what each of the family's 7
+cards is *still* blocked on (five separate, unrelated trigger-condition
+gaps this batch didn't touch).
+
+**Group-subject retarget**: the ENG-29 sibling. `TapEffect` gained a
+`"trigger_subject"` target_kind mode (`game/effects.py`) reading
+`GameContext.trigger_event` live at resolution — the same "read the
+current firing's own payload" idiom `GrantKeywordToTriggerSubjectEffect`
+already used for Tyvar Kell's emblem, just applied to tap/untap instead of
+a keyword grant. `effect_binder._retarget_implicit_subject_effects`
+(renamed from ENG-29's `_retarget_attached_permanent_effects`, since it now
+covers two subject kinds) grew a second branch: a `{"subject": "group"}`
+trigger condition ("whenever a creature you control attacks alone, untap
+**it**.") retargets a `target_kind: None` effect to `"trigger_subject"` and
+stamps `trigger_event_key` from `_subject_event_key` — the same per-event
+lookup (`instance_id` default, `source_id` for DAMAGE) the trigger
+*condition* side already uses to decide whether it fires, now reused to
+decide *which* object the effect body acts on. Scoped to `tap` alone (a new
+`_GROUP_SUBJECT_RETARGET_FIELDS` whitelist, sibling to the attached-
+permanent one) — no shipped card needs this for `pump`/`fight`/
+`copy_permanent`/`damage_equal_to_power` yet, and each would need
+confirming its own `trigger_event_key` plumbing before extending, not
+assumed to transfer for free. Verified against a minimal synthetic clause
+that fully parses today ("Whenever a creature you control attacks alone,
+untap it.") rather than a real card, since every real card printing this
+shape has its own separate blocker (`tests/test_group_subject_retarget.py`)
+— including the negative case (two attackers, RULE 508.1a's `ATTACKS_ALONE`
+event never fires, nobody untaps).
+
+**Mass "attacking creatures" selector**: `TapEffect._TAP_SELECTORS` gained
+`"attacking_creatures"`, reusing `continuous.group_selector_objects`'s
+existing branch of the same name (already built for Motivated Pony's
+"Attacking creatures get +1/+1" anthem — the selector-resolution primitive
+was never tap-specific, it just hadn't been reached from `TapEffect.
+selector` before). One new parser row (`catalogue.handlers.
+_tap_attacking_creatures`) claims "untap all attacking creatures"/"untap
+each attacking creature". This closed **Hellkite Charger** outright (its
+`pay_cost_then`-wrapped "untap all attacking creatures and after this
+phase, there is an additional combat phase" was previously unclaimed on the
+untap clause alone) and claims Hexplate Wallbreaker's own untap clause,
+though that card stays UNMODELED on its unrelated "For Mirrodin!" line.
+
+No `PARSER_VERSION` bump math surprises: `parser_probe.py diff` showed
+exactly `+1 newly covered` (Hellkite Charger) / `-0 REGRESSED`, matching the
+one genuine new-coverage card these two primitives reach on their own.
+Full suite green throughout (3817 passed at the end, up from 3810 — seven
+new tests, zero regressions).
+
+## MEC-27: the counter and token-creation families read the count-amount resolver too (2026-08-12)
+
+Closed the two verb families MEC-27's own residual named as entirely
+unwired to `subgrammars.DEVOTION`'s "the number of `<noun phrase>` you
+control" reading — grep-checked first per this repo's own standing rule
+("before writing 'needs a new primitive', grep for one already shaped this
+way"), which turned up a real surprise: `CreateTokenEffect` already had a
+fully-wired `count_selector` field reading `continuous.count_selector` at
+resolution (built for `_CREATE_TOKEN_NUMBER_EQUAL_DEVOTION_RE`'s "create a
+number of `<p>/<t>` tokens equal to your devotion to `<colour>`" phrasing)
+— the actual gap there was parser recognition surface, not a missing
+engine primitive.
+
+**Counters**: `AddCountersEffect` gained `amount_from_count_selector`
+(mirroring `DealDamageEffect`'s own field/resolution exactly —
+`continuous.count_selector(state, controller_id, selector, source=...)` at
+apply time), wired to a new `add_counters_devotion` parser row: "put X
+`<±1/±1>` counters on `<target/self>`, where X is `<DEVOTION>`" — a
+genuinely separate row from the plain `add_counters` handler (that one's
+`{COUNT}` group is digits/"a"/"an" only, no "x", so there's no dispatch
+ambiguity registering both). Closed **Leyline Invocation** (a
+self-referential "put X counters on **it**" onto a token the same clause
+just created) and **Strength Bobblehead** (a subtype-count "the number of
+Bobbleheads you control").
+
+**Tokens**: `_CREATE_TOKEN_XX_WHERE_RE`'s "create X `<p>/<t>` `<mid>`
+tokens, where X is `<...>`" tail was previously its own narrow subtype/
+attacking-creatures-only alternation (`_count_selector_for_phrase`) even
+though the sibling "equal to" row next to it already used the full
+`DEVOTION` fragment — widened to match, so the same row now reads any bare
+`DEVOTION` noun phrase ("the number of creatures/permanents/artifacts/
+lands you control", the two-word compounds), not just the two words it
+happened to be built for. Confirmed backward-compatible (the pre-widening
+attacking-creatures phrasing still resolves, since `attacking_creatures` is
+itself one of `DEVOTION`'s own readings) and confirmed via a real execute
+test (an ETB trigger creating one 1/1 Soldier token per creature the
+controller has when it resolves) rather than a parse-only assertion. Found
+no card in the cache solely blocked on this widening alone — it removes
+one blocking clause from cards that (per the fail-closed gate) usually have
+another, unrelated one too, the same "a correct primitive can still show
+zero new coverage today" shape this repo's own lessons document already
+names.
+
+Real, measured yield: `engine_bench.py cards "where x is the number of"`
+went 26→28 MODELED / 599→597 UNMODELED. `parser_probe.py diff` showed
+exactly `+2` on top of MEC-28's own `+1` in the same session (Leyline
+Invocation, Strength Bobblehead) / `-0 REGRESSED`. This ticket stays open
+in BACKLOG.md rather than closing — 597 cards remain, most blocked on the
+qualifier grammar ("creatures you control with power N or less") or the
+draw/life-gain/loss verb families the original ticket also named and this
+pass didn't touch; genuine standing long-tail work, not a one-sitting
+ticket. 18 new/extended tests in `tests/test_count_amount_resolver.py`
+(parse-level *and* execute-level — an ETB trigger actually placing counters
+sized by live board state, not just a spec assertion). Full suite green
+throughout (3823 passed at the end, up from 3817).
+
+## PAR-18: copy-except's add_types/add_subtypes gain an oracle-text route (2026-08-12)
+
+MEC-12's 2026-08-12 batch had threaded `add_types`/`add_subtypes`/
+`not_legendary` through `CopyPermanentEffect` and `Card.as_copy`, but only
+`not_legendary` ever got a parser handler (`_copy_permanent_not_legendary`)
+— `add_types`/`add_subtypes` were reachable only by hand-authoring, a
+pure recognition gap this pass closed: `_copy_permanent_add_types`
+("…create a token that's a copy of target creature, except it's an
+artifact/a Shapeshifter Rogue in addition to its other types") reuses
+`_split_token_mid_words` — the same colour/subtype/is-artifact word
+classifier every "`<mid>` creature token" handler already shares — rather
+than a new word list, and is tried before the bare `copy_permanent` row so
+its trailing "except" clause isn't left dangling. Closed **Saheeli's
+Artistry** (its second mode).
+
+One real bug found and fixed on the way: `Card.as_copy` splices
+`add_types`/`add_subtypes` straight into the type line with no case
+normalization of its own (`f"{main} {' '.join(add_types)}"`), and the
+existing MEC-12 test/hand-authored convention always passed pre-capitalized
+words ("Artifact") — the new parser handler's first draft passed
+`_split_token_mid_words`'s raw lowercase output straight through,
+producing a real but wrongly-cased type line ("Legendary Creature artifact
+— Human" instead of "Legendary Artifact Creature — Human"). An execute
+test (not just the parse-level assertion) caught it immediately; fixed by
+capitalizing at the parser boundary rather than pushing case-normalization
+into `as_copy` itself, keeping that function's existing "caller passes the
+final words" contract unchanged for its other callers.
+
+Re-scoped rather than closed the ticket's own original two named shapes,
+both still open: the "create a token that's a copy of **it**" self-
+reference turns out, on inspection of the real cards, to usually mean a
+card an *earlier clause of the same ability* exiled or found (Abyssal
+Harvester: "exile target creature card…create a token that's a copy of
+it") rather than the ability's own source — a `previous_subject`-shaped
+retarget onto whatever was just exiled, not a true self-reference the way
+the ticket's original framing assumed; and compound "except" clauses
+combining 2+ modifiers in one sentence remain deliberately excluded
+(`_COPY_PERMANENT_RE`'s own standing docstring). `engine_bench.py cards
+"copy.*except it"` went 17→18 MODELED / 188→187 UNMODELED.
+`tests/test_copy_except_family.py` gained 5 new tests (2 clause-level, 1
+end-to-end card, 1 execute-level effect test that's what actually caught
+the capitalization bug, plus the modeled-card check). Full suite green
+throughout (3827 passed at the end, up from 3823).
+
+## PAR-19: alt-cost's combat-count gate, plus a much bigger unrelated find (2026-08-12)
+
+Closed the board-count-conditioned gate PAR-19 named — "If N or more
+creatures are attacking, you may pay `<cost>` rather than pay this spell's
+mana cost." (Lethargy Trap/Arrow Volley Trap) — with a new
+`AbilitySpec.alt_cost` condition key, `creatures_attacking_at_least`
+(`condition_query.free_cast_condition_holds`'s new branch, a live
+`.attacking` scan over the battlefield with no controller scoping, matching
+RULE 508's "creatures are attacking" having no controller qualifier of its
+own). Shares `ALLOWED_FREE_CAST_CONDITION_KEYS`/the evaluator with the
+already-shipped `opponent_spells_cast_this_turn_at_least`
+(`free_cast_condition`'s own int-threshold key) — which surfaced a real,
+previously-latent bug: `_validate_alt_cost`'s own inline condition check
+(a second, independent validator from `_validate_free_cast_condition`,
+since `alt_cost`'s `condition` sub-key reuses the same whitelist but isn't
+validated by the same function) only special-cased `control_land_type`'s
+string value, treating *every other key* as boolean-only — meaning
+`opponent_spells_cast_this_turn_at_least` was structurally never usable as
+an `alt_cost` condition (only as a `free_cast_condition`) even though
+nothing else in the system would have stopped a card from needing it that
+way. No card happened to need that combination before, so it went
+unnoticed; fixed by widening the same int-threshold branch to cover both
+keys rather than just adding a third special case next to it.
+
+The bigger find was unrelated to alt-cost entirely: Lethargy Trap's own
+second clause, "Attacking creatures get -3/-0 until end of turn.", doesn't
+parse either — and checking why turned up that `catalogue.handlers`'s
+shared `_GROUP`/`_GROUP_SELECTORS` mass-pump vocabulary (the fragment
+several existing pump/keyword-grant rows already read, the "creatures you
+control"/"all creatures"/"elves you control" family) had never included
+"attacking creatures" at all, despite `continuous.group_selector_objects`'s
+own `"attacking_creatures"` branch already existing (built for Motivated
+Pony's anthem, and reused again by MEC-28's `TapEffect.selector` earlier in
+this same session) — a pure recognition gap, zero new engine primitive.
+Adding one alternation entry and one dict row closed it for every rule
+already built on top of `_GROUP`, not just the pump case Lethargy Trap
+needed — 24 real cards outright (Army of Allah/Morale's "+N/+N", Headlong
+Rush's "gain first strike", and 21 more), the single highest-yield one-line
+change of this whole five-ticket session. `engine_bench.py cards "rather
+than pay this spell"` itself only shows 27→28 MODELED/81→80 UNMODELED,
+since most of the 24 newly-closed cards print no alt-cost line at all —
+worth recording so a future re-measurement of *this* ticket's own search
+term doesn't undercount what actually shipped from it.
+
+Not attempted: "you may discard a `<type>` card"/"you may exile N `<color>`
+cards" (PAR-19's other two named shapes) and "…spend only mana produced by
+Treasures to cast it this way" — checked against `game/mana_abilities.py`
+before deferring rather than assumed: the existing RULE 605.3a spend-
+restriction machinery (tagged mana lots, a caller-supplied predicate for
+*what a lot can be spent on*) is the wrong shape for "which lot must be
+spent" — this needs the mana pool to track *provenance* (which permanent
+produced a given lot), a genuinely new primitive, not a rename of an
+existing one. `tests/test_alt_cost_snuff_out_siblings.py` gained 3 new
+tests (modeled-card, a `can_cast(alt_cost=True)` gate test needing 3 live
+`.attacking` flags before it opens, and a direct `PumpEffect` execute test
+for the mass debuff — which caught a test-setup mistake of its own on the
+first pass: `group_selector_objects`'s `attacking_creatures` branch still
+reads `self.source.controller_id` on the way in, so a sourceless effect in
+a synthetic test resolves to nothing even though the selector is otherwise
+unscoped by controller; every real bound ability always has a real source,
+so this never bites in practice, but the test needed one too). Full suite
+green throughout (3829 passed at the end, up from 3827 — one flaky,
+unrelated websocket test reconfirmed in isolation both before and after).

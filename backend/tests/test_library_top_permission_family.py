@@ -89,6 +89,14 @@ def test_life_payment_conditional_tail():
     ]
 
 
+def test_look_at_top_card_any_time_standalone():
+    # The look-only sibling (Sphinx of Jwar Isle-shaped, ~57 real cards with
+    # no accompanying play/cast grant) — previously a no-op claimed line at
+    # the segmenter level, now a real standalone permission.
+    specs = static_effect_specs("You may look at the top card of your library any time.")
+    assert specs == [EffectSpec("top_library_permission", {"look": True})]
+
+
 def test_unrecognized_tail_stays_unclaimed():
     # Fail-closed: a conditional tail outside the two known phrasings isn't
     # half-claimed as the bare permission.
@@ -117,6 +125,24 @@ def test_future_sight_is_modeled():
     )
 
 
+def test_sphinx_of_jwar_isle_is_modeled():
+    # A real card printing *only* the look-only line, no accompanying
+    # play/cast-from-top permission — the standalone case this batch closes.
+    card = Card(
+        id="Sphinx of Jwar Isle", name="Sphinx of Jwar Isle", type_line="Creature — Sphinx",
+        is_creature=True, power=5, toughness=5, keywords=["Flying", "Shroud"],
+        oracle_text=(
+            "Flying\n"
+            "Shroud (This creature can't be the target of spells or abilities.)\n"
+            "You may look at the top card of your library any time."
+        ),
+    )
+    result = parse_oracle(card)
+    assert result.coverage == MODELED, result.unclaimed
+    static = next(s for s in result.specs if s.ability_kind == "static")
+    assert static.effects[0] == EffectSpec("top_library_permission", {"look": True})
+
+
 def test_elsha_of_the_infinite_is_modeled():
     card = Card(
         id="Elsha of the Infinite", name="Elsha of the Infinite",
@@ -132,10 +158,22 @@ def test_elsha_of_the_infinite_is_modeled():
     )
     result = parse_oracle(card)
     assert result.coverage == MODELED, result.unclaimed
-    static = next(s for s in result.specs if s.ability_kind == "static")
-    assert static.effects[0] == EffectSpec("top_library_permission", {
+    # Two real, separately-printed lines now each claim their own spec: the
+    # standalone "you may look at the top card ... any time" line (its own
+    # `_LOOK_AT_TOP_ANY_TIME_RE` row) *and* the fuller cast-from-top
+    # permission just below it — redundant in practice (the fuller grant
+    # already implies `look`) but both are real printed clauses, and
+    # `active_top_library_grants` ORs any number of simultaneous grants
+    # together harmlessly, so both are faithfully claimed rather than one
+    # being silently dropped.
+    top_library_specs = [
+        e for s in result.specs if s.ability_kind == "static" for e in s.effects
+        if e.type == "top_library_permission"
+    ]
+    assert EffectSpec("top_library_permission", {"look": True}) in top_library_specs
+    assert EffectSpec("top_library_permission", {
         "look": True, "cast_spells": True, "noncreature_only": True, "grants_flash": True,
-    })
+    }) in top_library_specs
 
 
 def test_bolas_citadel_is_modeled():
@@ -151,10 +189,15 @@ def test_bolas_citadel_is_modeled():
     )
     result = parse_oracle(card)
     assert result.coverage == MODELED, result.unclaimed
-    static = next(s for s in result.specs if s.ability_kind == "static")
-    assert static.effects[0] == EffectSpec("top_library_permission", {
+    # Same two-real-lines shape as Elsha above.
+    top_library_specs = [
+        e for s in result.specs if s.ability_kind == "static" for e in s.effects
+        if e.type == "top_library_permission"
+    ]
+    assert EffectSpec("top_library_permission", {"look": True}) in top_library_specs
+    assert EffectSpec("top_library_permission", {
         "look": True, "play_lands": True, "cast_spells": True, "life_payment": True,
-    })
+    }) in top_library_specs
 
 
 def test_experimental_frenzy_still_unmodeled_on_its_own_separate_restriction():

@@ -204,3 +204,69 @@ def test_sacrifice_count_alt_cost_needs_three_mountains():
     eng.cast_spell(eng.state.active_player, obj, alt_cost=True)
     mountains_left = [o for o in eng.state.battlefield if "Mountain" in o.card.type_line]
     assert len(mountains_left) == 0
+
+
+# -- PAR-19: Lethargy Trap-shaped combat-count condition + mana payment -----
+
+
+def lethargy_trap_card():
+    return Card(
+        id="Lethargy Trap", name="Lethargy Trap", type_line="Instant", is_instant=True,
+        mana_cost_string="{3}{U}", converted_mana_cost=4,
+        oracle_text="If 3 or more creatures are attacking, you may pay {U} "
+                    "rather than pay this spell's mana cost.\n"
+                    "Attacking creatures get -3/-0 until end of turn.",
+    )
+
+
+def test_lethargy_trap_is_modeled():
+    result = parse_oracle(lethargy_trap_card())
+    assert result.coverage != UNMODELED
+    assert result.unclaimed == []
+
+
+def test_lethargy_trap_alt_cost_needs_three_attacking_creatures():
+    eng = make_engine("p1", "p2")
+    card = lethargy_trap_card()
+    obj = GameObject(card, owner_id="p1", zone=Zone.HAND)
+    bind_from_catalogue(obj)
+    eng.state.active_player.hand.append(obj)
+    eng.state.current_step = "main1"
+
+    attackers = [put(eng.state, creature(f"Attacker {i}")) for i in range(2)]
+    for a in attackers:
+        a.attacking = True
+    assert eng.can_cast(eng.state.active_player, obj, alt_cost=True) is False
+
+    third = put(eng.state, creature("Attacker 3"))
+    third.attacking = True
+    eng.rules.add_mana(eng.state.active_player, "U", 1)
+    assert eng.can_cast(eng.state.active_player, obj, alt_cost=True) is True
+
+    eng.cast_spell(eng.state.active_player, obj, alt_cost=True)
+    assert any(item.obj is obj for item in eng.state.stack)
+
+
+def test_attacking_creatures_pump_debuffs_only_attackers():
+    eng = make_engine("p1", "p2")
+    attacker = put(eng.state, creature("Attacker", power=4, toughness=4))
+    attacker.attacking = True
+    bystander = put(eng.state, creature("Bystander", power=4, toughness=4))
+    # A real Lethargy Trap-shaped spell always has a real, controlled
+    # source (the stack object); a sourceless effect isn't a shape this
+    # engine casts in practice, but `PumpEffect.apply`'s ``attacking_
+    # creatures`` branch does read `self.source.controller_id` on the way
+    # in (`group_selector_objects`'s ``elif controller_id is None`` guard
+    # sits ahead of the unscoped selector branches) — the same lookup
+    # `_pump_selector`'s own bound-ability callers always satisfy for free.
+    caster = put(eng.state, creature("Caster", power=1, toughness=1))
+
+    from mtg_analyzer.game.effects import GameContext, PumpEffect
+
+    effect = PumpEffect(power=-3, toughness=0, selector="attacking_creatures", source=caster)
+    context = GameContext(eng.state, eng.rules)
+    effect.apply(context)
+    eng.recompute_continuous_effects()
+
+    assert (attacker.power, attacker.toughness) == (1, 4)
+    assert (bystander.power, bystander.toughness) == (4, 4)

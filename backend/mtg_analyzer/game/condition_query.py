@@ -153,6 +153,18 @@ def free_cast_condition_holds(condition: dict[str, Any], obj: "GameObject", stat
                 pid != controller_id and count >= threshold for pid, count in counts.items()
             ):
                 return False
+        elif key == "creatures_attacking_at_least":
+            # PAR-19: "If 3 or more creatures are attacking, ..." (Lethargy
+            # Trap/Arrow Volley Trap-shaped) — true once *any* number of
+            # creatures currently attacking meets the threshold, regardless
+            # of controller (RULE 508's attack is already locked in by the
+            # time this alt-cost option is checked, so a live `.attacking`
+            # scan is exactly RULE 506.4's "declared attackers").
+            threshold = int(value)
+            battlefield = getattr(state, "battlefield", [])
+            attacking = sum(1 for o in battlefield if getattr(o, "attacking", False))
+            if attacking < threshold:
+                return False
         else:
             return False
     return True
