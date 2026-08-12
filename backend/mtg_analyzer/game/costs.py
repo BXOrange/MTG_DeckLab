@@ -402,6 +402,15 @@ class ActivationCost:
     #: hand-authored only (`game/ability_catalogue.py`); no oracle-text
     #: grammar for it yet.
     dynamic_reduction: Optional[dict[str, Any]] = None
+    #: RULE 702.122a (Crew): "Tap any number of other untapped creatures you
+    #: control with total power N or greater: this permanent becomes an
+    #: artifact creature until end of turn." — the power *threshold* a
+    #: chosen subset of creatures must meet or exceed, unlike `tap_others`
+    #: (an exact count of one named subtype). ``None`` means this isn't a
+    #: Crew ability. Resolved by `GameEngine._resolve_crew_cost`/
+    #: `_crew_pool`; the tapped creatures are recorded on the crewed
+    #: permanent's own `GameObject.crewed_by_ids` (RULE 702.122c).
+    crew_power: Optional[int] = None
     raw: str = ""
 
     @property
@@ -432,6 +441,7 @@ class ActivationCost:
             or self.return_to_hand_count
             or self.sacrifice_filter
             or self.exile_hand_card_color
+            or self.crew_power
         )
 
     def label(self) -> str:
@@ -497,6 +507,8 @@ class ActivationCost:
             parts.append(f"Discard a {self.discard_land_type.capitalize()} card")
         if self.loyalty is not None:
             parts.append(f"[{'+' if self.loyalty >= 0 else ''}{self.loyalty}]")
+        if self.crew_power:
+            parts.append(f"Tap any number of other untapped creatures you control with total power {self.crew_power} or greater")
         return ", ".join(parts)
 
     def to_dict(self) -> dict[str, Any]:
@@ -528,6 +540,7 @@ class ActivationCost:
             "loyalty": self.loyalty,
             "loyalty_is_x": self.loyalty_is_x,
             "x_selector": self.x_selector,
+            "crew_power": self.crew_power,
             "label": self.label(),
         }
 
@@ -597,6 +610,8 @@ def parse_activation_cost(
         parsed.remove_counters = (str(kind), int(count))
     if cost.get("x_selector"):
         parsed.x_selector = str(cost["x_selector"])
+    if cost.get("crew_power"):
+        parsed.crew_power = int(cost["crew_power"])
     if "exile_self_from_hand" in cost:
         parsed.exile_self_from_hand = bool(cost["exile_self_from_hand"])
     if "spend_only_chosen_color" in cost:

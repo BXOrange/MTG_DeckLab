@@ -83,6 +83,17 @@ class GameContext:
         #: referent is the last thing actually chosen, not the last thing that
         #: happened.
         self.previous_targets: list[Any] = []
+        #: MEC-28: the `continuous.group_selector_objects` name the last
+        #: mass-*selector* effect of this same resolution acted on (RULE
+        #: 601.2c, untargeted — "untap all attacking creatures. **They**
+        #: gain first strike until end of turn.", Karlach, Fury of
+        #: Avernus-shaped). `previous_targets`' sibling for the other kind of
+        #: referent: a selector clause never populates that list (nothing
+        #: was *targeted*), so a following "they" needs its own tracking.
+        #: Maintained by `_apply_effects_partitioned` off a narrow
+        #: whitelist of effect types (`_PREVIOUS_SELECTOR_EFFECT_TYPES`),
+        #: same save/reset/restore idiom as `previous_targets`.
+        self.previous_selector: Optional[str] = None
         #: The permanents an earlier clause of this same resolution **just
         #: created**, for a follow-up clause whose subject is "the tokens" /
         #: "that token" — "…each player creates a tapped 2/2 Bird. **The
@@ -648,6 +659,7 @@ def _apply_effects_partitioned(
     previous_targets: Optional[list[Any]] = None,
     created_objects: Optional[list[Any]] = None,
     life_lost_this_way: int = 0,
+    previous_selector: Optional[str] = None,
 ) -> None:
     """Apply each of ``effects`` against its own share of ``targets``.
 
@@ -681,15 +693,25 @@ def _apply_effects_partitioned(
     the same way; ``created_objects`` is only ever passed by a *resumed*
     remainder picking its own referent back up, so a fresh resolution always
     starts empty and can't point at something an unrelated one made.
+
+    ``previous_selector`` seeds `GameContext.previous_selector` (MEC-28) the
+    same way — the mass-selector sibling of ``previous_targets``, tracked
+    off a narrow whitelist of effect types (`_PREVIOUS_SELECTOR_EFFECT_
+    TYPES`) since only `TapEffect`'s own selector is a real card's
+    antecedent today (widen the whitelist, not this function, as another
+    card needs a different one — same convention `effect_binder.
+    _GROUP_SUBJECT_RETARGET_FIELDS` uses).
     """
     state = getattr(context, "state", None)
     already_pending = getattr(state, "pending_choice", None) if state is not None else None
     outer_previous = getattr(context, "previous_targets", [])
     outer_created = getattr(context, "created_objects", [])
     outer_life_lost = getattr(context, "life_lost_this_way", 0)
+    outer_previous_selector = getattr(context, "previous_selector", None)
     context.previous_targets = list(previous_targets or [])
     context.created_objects = list(created_objects or [])
     context.life_lost_this_way = life_lost_this_way
+    context.previous_selector = previous_selector
     try:
         for position, effect in enumerate(effects):
             if source is not None and effect.source is None:
@@ -711,6 +733,8 @@ def _apply_effects_partitioned(
                 used = list(targets or [])
             if specs and used:
                 context.previous_targets = list(used)
+            if isinstance(effect, _PREVIOUS_SELECTOR_EFFECT_TYPES) and effect.selector:
+                context.previous_selector = effect.selector
             if state is None or position + 1 >= len(effects):
                 continue
             opened = getattr(state, "pending_choice", None)
@@ -725,6 +749,7 @@ def _apply_effects_partitioned(
                         "previous_targets": list(context.previous_targets),
                         "created_objects": list(context.created_objects),
                         "life_lost_this_way": context.life_lost_this_way,
+                        "previous_selector": context.previous_selector,
                     }
                 )
                 return
@@ -732,6 +757,7 @@ def _apply_effects_partitioned(
         context.previous_targets = outer_previous
         context.created_objects = outer_created
         context.life_lost_this_way = outer_life_lost
+        context.previous_selector = outer_previous_selector
 
 
 # ---------------------------------------------------------------------------
@@ -2112,6 +2138,7 @@ class DealDamageEffect(GameEffect):
         selector: Optional[str] = None,
         optional: bool = False,
         count: int = 1,
+        count_max: Optional[int] = None,
         divided: bool = False,
         double_at: Optional[int] = None,
         amount_if_kicked: Optional[int] = None,
@@ -2193,7 +2220,7 @@ class DealDamageEffect(GameEffect):
             # casting is never locked on it. ``count`` > 1 is "to each of
             # up to N target X" (Volcanic Salvo-shaped) — the full amount
             # applies to *every* chosen target, not divided among them.
-            self.target_spec = TargetSpec(kind=target_kind, optional=optional, count=count)
+            self.target_spec = TargetSpec(kind=target_kind, optional=optional, count=count, count_max=count_max)
 
     @property
     def amount(self) -> Union[int, str]:
@@ -2245,7 +2272,7 @@ class DealDamageEffect(GameEffect):
         if self.selector is not None:
             self._apply_selector(context)
             return
-        chosen = _chosen_targets(targets, self.target_spec.count, self.target)
+        chosen = _chosen_targets(targets, self.target_spec.effective_count, self.target)
         if self.divided:
             self._apply_divided(context, chosen)
             return
@@ -2411,11 +2438,19 @@ class DrawCardEffect(GameEffect):
         count_selector: Optional[str] = None,
         target_kind: Optional[str] = None,
         selector: Optional[str] = None,
+        amount_from_count_selector: Optional[str] = None,
     ) -> None:
         super().__init__(source)
         self.count = count
         self.player = player
         self.count_selector = count_selector if count_selector in _DRAW_COUNT_SELECTORS else None
+        #: "draw X cards, where X is the number of `<noun phrase>` you
+        #: control." (MEC-27's own draw-verb-family gap — Intelligence
+        #: Bobblehead-shaped) — the full `continuous.count_selector`
+        #: vocabulary (`subgrammars.DEVOTION`), unlike `count_selector`
+        #: above's small fixed whitelist; mirrors `LoseLifeEffect.
+        #: amount_from_count_selector`'s own "always read as you" scoping.
+        self.amount_from_count_selector = amount_from_count_selector
         self.selector = selector if selector in ("each_player", "each_opponent") else None
         # "Target player draws N cards" (Sign in Blood-shaped) — a genuine
         # RULE 115 target, unlike the untargeted default (most draw effects
@@ -2456,6 +2491,13 @@ class DrawCardEffect(GameEffect):
             # printed order), so the count includes it.
             counters = getattr(self.source, "counters", None) or {}
             count = int(counters.get("burden", 0))
+        elif self.amount_from_count_selector:
+            from . import continuous  # avoid the continuous↔effects import cycle
+
+            controller_id = getattr(self.source, "controller_id", None)
+            count = continuous.count_selector(
+                context.state, controller_id, self.amount_from_count_selector, source=self.source,
+            )
         context.draw(player, count)
 
 
@@ -2781,6 +2823,7 @@ class DestroyEffect(GameEffect):
         target_kind: str = "permanent",
         optional: bool = False,
         count: int = 1,
+        count_max: Optional[int] = None,
         selector: Optional[str] = None,
         filter: Optional[dict[str, Any]] = None,
         can_be_regenerated: bool = True,
@@ -2815,7 +2858,7 @@ class DestroyEffect(GameEffect):
         self.exclude_created = exclude_created
         if self.selector is None and target_from_trigger_event is None:
             self.target_spec = TargetSpec(
-                kind=target_kind, optional=optional, count=count, color=color,
+                kind=target_kind, optional=optional, count=count, count_max=count_max, color=color,
                 max_mana_value=max_mana_value, creature_filter=creature_filter,
                 distinct_controllers=distinct_controllers,
             )
@@ -2838,7 +2881,7 @@ class DestroyEffect(GameEffect):
                     continue
                 context.destroy(obj, can_be_regenerated=self.can_be_regenerated)
             return
-        chosen = _chosen_targets(targets, self.target_spec.count, self.target)
+        chosen = _chosen_targets(targets, self.target_spec.effective_count, self.target)
         for target in chosen:
             context.destroy(target, can_be_regenerated=self.can_be_regenerated)
 
@@ -2989,7 +3032,7 @@ class PreventDamageEffect(GameEffect):
             if player is not None:
                 context.prevent_damage_to_player(player, amount)
             return
-        chosen = _chosen_targets(targets, self.target_spec.count, self.target)
+        chosen = _chosen_targets(targets, self.target_spec.effective_count, self.target)
         if not chosen:
             return
         if self.divided:
@@ -4077,6 +4120,7 @@ class ExileEffect(GameEffect):
         target_kind: Optional[str] = "permanent",
         optional: bool = False,
         count: int = 1,
+        count_max: Optional[int] = None,
         selector: Optional[str] = None,
         filter: Optional[dict[str, Any]] = None,
         remember: bool = False,
@@ -4093,7 +4137,7 @@ class ExileEffect(GameEffect):
         self.target_spec: Optional[TargetSpec] = None
         if self.selector is None and target_kind is not None:
             self.target_spec = TargetSpec(
-                kind=target_kind, optional=optional, count=count, creature_filter=creature_filter,
+                kind=target_kind, optional=optional, count=count, count_max=count_max, creature_filter=creature_filter,
                 distinct_controllers=distinct_controllers,
             )
 
@@ -4110,7 +4154,7 @@ class ExileEffect(GameEffect):
             if target is not None:
                 context.exile(target)
             return
-        chosen = _chosen_targets(targets, self.target_spec.count, self.target)
+        chosen = _chosen_targets(targets, self.target_spec.effective_count, self.target)
         for target in chosen:
             if self.remember and self.source is not None:
                 self.source.linked_exile_id = target.instance_id
@@ -5505,6 +5549,7 @@ class ReturnToHandEffect(GameEffect):
         target_kind: Optional[str] = "permanent",
         optional: bool = False,
         count: int = 1,
+        count_max: Optional[int] = None,
         distinct_controllers: bool = False,
         previous_subject: bool = False,
         selector: Optional[str] = None,
@@ -5530,7 +5575,7 @@ class ReturnToHandEffect(GameEffect):
         # to begin with.
         self.target_spec = (
             TargetSpec(
-                kind=target_kind, optional=optional, count=count,
+                kind=target_kind, optional=optional, count=count, count_max=count_max,
                 distinct_controllers=distinct_controllers,
             )
             if target_kind is not None and not previous_subject and self.selector is None
@@ -5558,8 +5603,8 @@ class ReturnToHandEffect(GameEffect):
             if self.source is not None:
                 context.return_to_hand(self.source)
             return
-        if self.target_spec.count != 1:
-            chosen = _chosen_targets(targets, self.target_spec.count, self.target)
+        if self.target_spec.effective_count != 1:
+            chosen = _chosen_targets(targets, self.target_spec.effective_count, self.target)
             for target in chosen:
                 context.return_to_hand(target)
             return
@@ -5591,8 +5636,8 @@ class ReturnToLibraryEffect(GameEffect):
         self.target_spec = TargetSpec(kind=target_kind, optional=optional, count=count)
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
-        if self.target_spec.count != 1:
-            chosen = _chosen_targets(targets, self.target_spec.count, self.target)
+        if self.target_spec.effective_count != 1:
+            chosen = _chosen_targets(targets, self.target_spec.effective_count, self.target)
             for target in chosen:
                 context.return_to_library(target, self.position)
             return
@@ -5729,8 +5774,8 @@ class ReturnFromGraveyardEffect(GameEffect):
                 context.lose_life(player, int(mv))
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
-        if self.target_spec.count != 1:
-            chosen = _chosen_targets(targets, self.target_spec.count, self.target)
+        if self.target_spec.effective_count != 1:
+            chosen = _chosen_targets(targets, self.target_spec.effective_count, self.target)
             for target in chosen:
                 self._apply_one(context, target)
             return
@@ -6805,6 +6850,11 @@ class TapEffect(GameEffect):
     same pronoun shape: no target of its own, acting on whatever the
     preceding clause's own multi-target group was (`GameContext.
     previous_targets`).
+
+    ``creature_filter`` narrows a real RULE 115 target the same way
+    `DestroyEffect`/`UnblockableEffect`'s own field does — "target attacking
+    creature" (`{"attacking": True}`, Raph & Leo, Sibling Rivals' own
+    hand-authored simplification, MEC-28).
     """
 
     def __init__(
@@ -6816,8 +6866,10 @@ class TapEffect(GameEffect):
         optional: bool = False,
         selector: Optional[str] = None,
         count: int = 1,
+        count_max: Optional[int] = None,
         previous_subject: bool = False,
         trigger_event_key: Optional[str] = None,
+        creature_filter: Optional[dict] = None,
     ) -> None:
         super().__init__(source)
         self.target = target
@@ -6841,7 +6893,10 @@ class TapEffect(GameEffect):
         self.trigger_event_key = trigger_event_key or "instance_id"
         self.previous_subject = previous_subject
         self.target_spec = (
-            TargetSpec(kind=target_kind, optional=optional, count=count)
+            TargetSpec(
+                kind=target_kind, optional=optional, count=count, count_max=count_max,
+                creature_filter=creature_filter,
+            )
             if target_kind is not None and not self._attached_mode
             and not self._trigger_subject_mode and self.selector is None and not previous_subject
             else None
@@ -6878,8 +6933,8 @@ class TapEffect(GameEffect):
             if target is not None:
                 context.set_tapped(target, tapped=not self.untap)
             return
-        if self.target_spec is not None and self.target_spec.count != 1:
-            chosen = _chosen_targets(targets, self.target_spec.count, self.target)
+        if self.target_spec is not None and self.target_spec.effective_count != 1:
+            chosen = _chosen_targets(targets, self.target_spec.effective_count, self.target)
             for one in chosen:
                 context.set_tapped(one, tapped=not self.untap)
             return
@@ -6888,6 +6943,14 @@ class TapEffect(GameEffect):
             target = self.source
         if target is not None:
             context.set_tapped(target, tapped=not self.untap)
+
+
+#: MEC-28: which effect types' own `selector` `_apply_effects_partitioned`
+#: tracks into `GameContext.previous_selector` for a following "they" clause
+#: — see that function's docstring. `TapEffect`-only today, matching
+#: `effect_binder._GROUP_SUBJECT_RETARGET_FIELDS`'s identically narrow,
+#: widen-only-as-a-real-card-needs-it convention.
+_PREVIOUS_SELECTOR_EFFECT_TYPES: tuple[type, ...] = (TapEffect,)
 
 
 class UnblockableEffect(GameEffect):
@@ -6962,7 +7025,7 @@ class CantBlockEffect(GameEffect):
                 if obj.is_creature and combat.matches_object_filter(obj, self.filter):
                     obj.temp_cant_block = True
             return
-        count = self.target_spec.count if self.target_spec is not None else 1
+        count = self.target_spec.effective_count if self.target_spec is not None else 1
         # Only this effect's own ``count`` targets, off the front of a
         # possibly-shared list — see `DestroyEffect.apply`'s comment.
         chosen = (
@@ -7537,6 +7600,7 @@ class AddCountersEffect(GameEffect):
         optional: bool = False,
         selector: Optional[str] = None,
         count: int = 1,
+        count_max: Optional[int] = None,
         subtypes: Optional[list[str]] = None,
         trigger_subject_key: Optional[str] = None,
         divided: bool = False,
@@ -7599,7 +7663,7 @@ class AddCountersEffect(GameEffect):
         #: against, so the two always agree on which object "it" is.
         self.trigger_subject_key = trigger_subject_key
         if self.selector is None and target_kind is not None:
-            self.target_spec = TargetSpec(kind=target_kind, optional=optional, count=count)
+            self.target_spec = TargetSpec(kind=target_kind, optional=optional, count=count, count_max=count_max)
 
     def target_polarity(self) -> Optional[str]:
         # "-1/-1"/"stun" counters are a downgrade for whoever's stuck with
@@ -7630,8 +7694,8 @@ class AddCountersEffect(GameEffect):
                         continue
                 context.add_counters(obj, self.amount, self.kind, source=self.source)
             return
-        if self.target_spec is not None and self.target_spec.count != 1:
-            chosen = _chosen_targets(targets, self.target_spec.count)
+        if self.target_spec is not None and self.target_spec.effective_count != 1:
+            chosen = _chosen_targets(targets, self.target_spec.effective_count)
             if not chosen:
                 return
             if self.divided:
@@ -7763,7 +7827,7 @@ class GrantUntilEffect(GameEffect):
             if self.previous_subject:
                 chosen = list(context.previous_targets)
             else:
-                chosen = list(targets or [])[: self.target_spec.count]
+                chosen = list(targets or [])[: self.target_spec.effective_count]
             ids = [t.instance_id for t in chosen if getattr(t, "instance_id", None) is not None]
             if not ids:
                 return
@@ -7904,7 +7968,7 @@ class GoadEffect(GameEffect):
                 context.created_objects if self.referent == "created"
                 else context.previous_targets
             )
-        elif self.target_spec.count_selector or self.target_spec.count != 1:
+        elif self.target_spec.count_selector or self.target_spec.effective_count != 1:
             # A dynamic count is only known at announce time, so take
             # everything that was actually chosen rather than re-deriving it.
             chosen = list(targets or [])
@@ -8111,12 +8175,14 @@ class PumpEffect(GameEffect):
         unblockable: bool = False,
         source: Optional["GameObject"] = None,
         count: int = 1,
+        count_max: Optional[int] = None,
         optional: bool = False,
         amount_from_trigger_event: Optional[str] = None,
         per_recipient_controller_counter: Optional[str] = None,
         amount_from_count_selector: Optional[str] = None,
         amount_from_count_selector_negative: bool = False,
         creature_filter: Optional[dict] = None,
+        previous_subject: bool = False,
     ) -> None:
         super().__init__(source)
         self.power = power
@@ -8124,6 +8190,15 @@ class PumpEffect(GameEffect):
         self.keywords = list(keywords or [])
         self.selector = selector
         self.unblockable = unblockable
+        #: ENG-30: "1 or 2 target creatures … . They gain vigilance and
+        #: lifelink until end of turn." (A-Bretagard Stronghold-shaped) — the
+        #: pump-family sibling of `TapEffect`/`ReturnToHandEffect`'s own
+        #: ``previous_subject`` pronoun mode: no target of its own, acting on
+        #: whatever group the *preceding* multi-target clause chose
+        #: (`GameContext.previous_targets`), which may be a variable-size
+        #: range rather than a fixed count — exactly the shape a target-count
+        #: *range* creates and the reason no card needed this before.
+        self.previous_subject = previous_subject
         #: "Each creature your opponents control gets -1/-1 until end of
         #: turn for each poison counter its controller has." (Phyresis
         #: Outbreak-shaped) — unlike `amount_from_trigger_event` (one
@@ -8157,7 +8232,7 @@ class PumpEffect(GameEffect):
         #: "+X/+X" default rather than a second, duplicated param.
         self.amount_from_count_selector_negative = amount_from_count_selector_negative
         self._attached_mode = target_kind == "attached_permanent"
-        if target_kind is not None and not self._attached_mode:
+        if target_kind is not None and not self._attached_mode and not previous_subject:
             # PAR-15: "any number of target creatures each get +N/+N [and
             # gain `<keyword>`] until end of turn" (Aerial Formation/Ajani's
             # Presence/Colossal Heroics-shaped) — ``count`` > 1 is the same
@@ -8166,7 +8241,8 @@ class PumpEffect(GameEffect):
             # pump spell's whole point is every chosen creature getting the
             # stated boost independently.
             self.target_spec = TargetSpec(
-                kind=target_kind, optional=optional, count=count, creature_filter=creature_filter,
+                kind=target_kind, optional=optional, count=count, count_max=count_max,
+                creature_filter=creature_filter,
             )
 
     def target_polarity(self) -> Optional[str]:
@@ -8191,6 +8267,13 @@ class PumpEffect(GameEffect):
             )
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        if self.previous_subject:
+            chosen = list(context.previous_targets)
+            for obj in chosen:
+                self._pump_one(obj)
+            if chosen:
+                context.recompute()
+            return
         if self.amount_from_trigger_event:
             event = context.trigger_event
             amount = int((event or {}).get(self.amount_from_trigger_event) or 0)
@@ -8212,8 +8295,20 @@ class PumpEffect(GameEffect):
         if self.selector is not None:
             from .continuous import group_selector_objects  # avoid the continuous↔effects cycle
 
+            selector = self.selector
+            if selector == "previous_selector":
+                # MEC-28: "They gain first strike until end of turn."
+                # (Karlach, Fury of Avernus) — "they" is whichever group the
+                # *preceding clause's own mass selector* acted on, read off
+                # `GameContext.previous_selector` (`_apply_effects_
+                # partitioned`) rather than a selector name baked in at
+                # parse time. No preceding selector clause this resolution
+                # (the sentinel is unreachable any other way) → no-op.
+                selector = context.previous_selector
+                if not selector:
+                    return
             controller_id = getattr(self.source, "controller_id", None)
-            group = group_selector_objects(context.state, controller_id, self.selector, src=self.source)
+            group = group_selector_objects(context.state, controller_id, selector, src=self.source)
             if self.per_recipient_controller_counter:
                 base_power, base_toughness = self.power, self.toughness
                 for obj in group:
@@ -8232,8 +8327,8 @@ class PumpEffect(GameEffect):
             host_id = getattr(self.source, "attached_to", None)
             target = context.state.find_object(host_id) if host_id is not None else None
         elif self.target_spec is not None:
-            if self.target_spec.count != 1:
-                chosen = _chosen_targets(targets, self.target_spec.count)
+            if self.target_spec.effective_count != 1:
+                chosen = _chosen_targets(targets, self.target_spec.effective_count)
                 for obj in chosen:
                     self._pump_one(obj)
                 if chosen:
@@ -11098,6 +11193,7 @@ EffectRegistry.register(
         selector=p.get("selector"),
         optional=bool(p.get("optional", False)),
         count=p.get("count", 1),
+        count_max=p.get("count_max"),
         divided=bool(p.get("divided", False)),
         double_at=p.get("double_at"),
         amount_if_kicked=p.get("amount_if_kicked"),
@@ -11117,6 +11213,7 @@ EffectRegistry.register(
     lambda p: DrawCardEffect(
         count=p.get("count", 1), player=p.get("player"), count_selector=p.get("count_selector"),
         target_kind=p.get("target_kind"), selector=p.get("selector"),
+        amount_from_count_selector=p.get("amount_from_count_selector"),
     ),
 )
 EffectRegistry.register(
@@ -11158,6 +11255,7 @@ EffectRegistry.register(
         target_kind=p.get("target_kind", "permanent"),
         optional=bool(p.get("optional", False)),
         count=p.get("count", 1),
+        count_max=p.get("count_max"),
         selector=p.get("selector"),
         filter=p.get("filter"),
         can_be_regenerated=bool(p.get("can_be_regenerated", True)),
@@ -11321,6 +11419,7 @@ EffectRegistry.register(
         target_kind=p.get("target_kind", "permanent"),
         optional=bool(p.get("optional", False)),
         count=p.get("count", 1),
+        count_max=p.get("count_max"),
         selector=p.get("selector"),
         filter=p.get("filter"),
         remember=bool(p.get("remember", False)),
@@ -11617,6 +11716,7 @@ EffectRegistry.register(
         target_kind=p.get("target_kind", "permanent"),
         optional=bool(p.get("optional", False)),
         count=p.get("count", 1),
+        count_max=p.get("count_max"),
         distinct_controllers=bool(p.get("distinct_controllers", False)),
         previous_subject=bool(p.get("previous_subject", False)),
         selector=p.get("selector"),
@@ -12060,8 +12160,10 @@ EffectRegistry.register(
         optional=bool(p.get("optional", False)),
         selector=p.get("selector"),
         count=int(p.get("count", 1)),
+        count_max=p.get("count_max"),
         previous_subject=bool(p.get("previous_subject", False)),
         trigger_event_key=p.get("trigger_event_key"),
+        creature_filter=p.get("creature_filter"),
     ),
 )
 EffectRegistry.register(
@@ -12208,6 +12310,8 @@ EffectRegistry.register(
         # amount per card) — this is the *target* count (RULE 115.1a N>=2,
         # "put a counter on each of up to two target creatures").
         count=p.get("target_count", 1),
+        # ENG-30: "1 or 2" range ceiling — see `target_count`'s own comment.
+        count_max=p.get("target_count_max"),
         subtypes=p.get("subtypes"),
         divided=bool(p.get("divided", False)),
         amount_from_trigger_event=p.get("amount_from_trigger_event"),
@@ -12229,12 +12333,14 @@ EffectRegistry.register(
         selector=p.get("selector"),
         unblockable=bool(p.get("unblockable", False)),
         count=p.get("target_count", 1),
+        count_max=p.get("target_count_max"),
         optional=bool(p.get("optional", False)),
         amount_from_trigger_event=p.get("amount_from_trigger_event"),
         per_recipient_controller_counter=p.get("per_recipient_controller_counter"),
         amount_from_count_selector=p.get("amount_from_count_selector"),
         amount_from_count_selector_negative=bool(p.get("amount_from_count_selector_negative", False)),
         creature_filter=p.get("creature_filter"),
+        previous_subject=bool(p.get("previous_subject", False)),
     ),
 )
 EffectRegistry.register(

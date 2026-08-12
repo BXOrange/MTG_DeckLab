@@ -149,6 +149,11 @@ class LegalActionsMixin:
                 action["lock_reason"] = "Kein gültiges Ziel im Spiel"
         if ability.cost.tap_others:
             action["tap_cost"] = self._tap_cost_choice(player, source, ability.cost)
+        if ability.cost.crew_power:
+            # RULE 702.122a: which (and how many) untapped creatures pay a
+            # Crew cost is the player's own choice — the `_crew_cost_choice`
+            # UI shape (a power threshold, not `tap_cost`'s exact count).
+            action["crew_cost"] = self._crew_cost_choice(player, source, ability.cost)
         if ability.cost.sacrifice and ability.cost.sacrifice != "self":
             # RULE 602.1: which permanent pays a "Sacrifice a <type>" cost is
             # the player's own choice — offer the pool so the UI can prompt

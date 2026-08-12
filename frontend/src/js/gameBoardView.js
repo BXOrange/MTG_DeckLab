@@ -437,17 +437,28 @@ export function createGameBoardView(opts = {}) {
   // Epic Confrontation ("target creature you control gets +1/+2 …. It
   // fights target creature you don't control.") needs to get right: pump
   // and fight must land on *different* creatures.
+  //
+  // ENG-30: a `count_max` requirement ("N or M target X", a genuine RULE
+  // 601.2c range rather than "up to M") expands to `count_max` rounds
+  // instead of `count` — but only the rounds past the printed minimum
+  // (`count`) get the decline button (`castTargetModalHtml`'s `req.optional`
+  // read), so a per-round *clone* with its own `optional` is pushed instead
+  // of reusing one shared `req` reference the way every other requirement
+  // here still does.
   function expandMultiTargetRequirements(requirements) {
     const expanded = [];
     const owners = [];
     let excludePicked = false;
     let excludeControllers = false;
     for (const [reqIndex, req] of requirements.entries()) {
-      const count = req.count || 1;
-      if (count > 1) excludePicked = true;
+      const minimum = req.count || 1;
+      const total = req.count_max || minimum;
+      if (total > 1) excludePicked = true;
       if (req.distinct_controllers) excludeControllers = true;
-      for (let i = 0; i < count; i += 1) {
-        expanded.push(req);
+      for (let i = 0; i < total; i += 1) {
+        expanded.push(
+          req.count_max ? { ...req, optional: i >= minimum } : req
+        );
         owners.push(reqIndex);
       }
     }

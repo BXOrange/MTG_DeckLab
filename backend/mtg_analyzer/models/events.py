@@ -336,6 +336,24 @@ class EventType:
     #: ``instance_id``/``player_id``/``object_types`` payload `ATTACKS` does
     #: so RULE 603.1's self/group subject scoping works unchanged.
     ATTACKS_ALONE = "ATTACKS_ALONE"
+    #: RULE 603.1's "whenever **one or more** creatures you control [with
+    #: `<characteristic>`] deal combat damage to a player" (Tifa, Martial
+    #: Artist) — the combat-damage-step sibling of `PLAYER_ATTACKED`'s own
+    #: "with one or more creatures" aggregate: the ordinary `DAMAGE` event
+    #: fires once per *hit* (RULE 120.3), so a step where two qualifying
+    #: creatures both connect would otherwise trigger a plain per-creature
+    #: `DAMAGE`-subject condition twice, not once — wrong for a template
+    #: that describes a single yes/no condition about the whole step, the
+    #: same reasoning `PLAYER_ATTACKED`'s own docstring gives for `ATTACKS`.
+    #: Fired by `GameEngine._apply_combat_damage`, once per (attacking
+    #: creature's controller, player hit) pair that actually connected this
+    #: step, carrying ``player_id`` (the "you control" half, matching every
+    #: other aggregate event's convention), ``target_id`` (the player hit),
+    #: and ``max_power`` — the highest power among that pair's contributing
+    #: creatures, read live at the moment damage was dealt (RULE 613.1),
+    #: for a "with power N or greater" qualifier to check without this
+    #: event needing to name every contributing creature individually.
+    CREATURES_DEALT_COMBAT_DAMAGE_TO_PLAYER = "CREATURES_DEALT_COMBAT_DAMAGE_TO_PLAYER"
 
     #: RULE 702.19b: a permanent with exert is actually exerted (its
     #: controller chose to, declaring it as an attacker). Carries the same

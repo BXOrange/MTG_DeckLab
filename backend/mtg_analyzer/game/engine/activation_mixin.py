@@ -219,19 +219,21 @@ class ActivationMixin:
         board's targeting rounds behave identically for an ability."""
         out: list[dict[str, Any]] = []
         for spec in ability_target_specs(ability):
-            out.append(
-                {
-                    "kind": spec.kind,
-                    "optional": spec.optional,
-                    # RULE 601.2c — see `targeting.resolved_count`.
-                    "count": resolved_count(spec, self.state, player.id, source),
-                    "label": spec.label(),
-                    "options": legal_targets(self.state, player.id, spec, source=source),
-                    "distinct_controllers": spec.distinct_controllers,
-                    "distinct_from_others": spec.distinct_from_others,
-                    "polarity": spec.polarity,
-                }
-            )
+            entry = {
+                "kind": spec.kind,
+                "optional": spec.optional,
+                # RULE 601.2c — see `targeting.resolved_count`.
+                "count": resolved_count(spec, self.state, player.id, source),
+                "label": spec.label(),
+                "options": legal_targets(self.state, player.id, spec, source=source),
+                "distinct_controllers": spec.distinct_controllers,
+                "distinct_from_others": spec.distinct_from_others,
+                "polarity": spec.polarity,
+            }
+            # ENG-30: "N or M target X" range — see `TargetSpec.count_max`.
+            if spec.count_max is not None:
+                entry["count_max"] = spec.count_max
+            out.append(entry)
         return out
     def _max_x_for_activation_cost(
         self, player: Player, source: GameObject, cost: "ActivationCost"
@@ -392,6 +394,9 @@ class ActivationMixin:
             count, subtype = cost.tap_others
             if self._resolve_tap_others(player, source, count, subtype, tap_choices) is None:
                 return False
+        if cost.crew_power:
+            if self._resolve_crew_cost(player, source, cost.crew_power, tap_choices) is None:
+                return False
         if cost.sacrifice_count:
             # Reuses the `tap_others` cost's own `tap_choices` slot for its
             # chosen instance ids — no printed card needs both a
@@ -471,6 +476,75 @@ class ActivationMixin:
         """
         pool = self._tap_others_pool(player, source, subtype)
         return self._resolve_pool_cost(pool, count, chosen_ids)
+    def _crew_pool(self, player: Player, source: GameObject) -> list[GameObject]:
+        """Every untapped creature ``player`` controls other than ``source``
+        itself — RULE 702.122a's "any number of **other** untapped creatures
+        you control" — eligible to crew a Vehicle. Not gated by summoning
+        sickness (RULE 302.6, same reasoning as `_tap_others_pool`: crewing
+        taps a creature to pay a *different* permanent's cost, not activate
+        its own {T} ability).
+        """
+        return [
+            o for o in self.state.permanents_controlled_by(player.id)
+            if o is not source and o.is_creature and not o.tapped
+        ]
+    def _crew_cost_choice(
+        self, player: Player, source: GameObject, cost: "ActivationCost"
+    ) -> dict[str, Any]:
+        """The offer-time UI shape for a `crew_power` cost: the required
+        power threshold and the full eligible pool, each with its own live
+        power — the player picks *any subset* summing to at least
+        ``power_required``, unlike `_tap_cost_choice`'s exact ``count``."""
+        pool = self._crew_pool(player, source)
+        return {
+            "power_required": cost.crew_power,
+            "options": [
+                {"instance_id": o.instance_id, "name": o.name, "power": o.power or 0}
+                for o in pool
+            ],
+        }
+    def _resolve_crew_cost(
+        self,
+        player: Player,
+        source: GameObject,
+        power_required: int,
+        chosen_ids: Optional[list[Any]],
+    ) -> Optional[list[GameObject]]:
+        """The creatures to actually tap for a `crew_power` cost (RULE
+        702.122a's "total power N or greater") — an "any number from a
+        pool" choice sized by a power *threshold*, unlike
+        `_resolve_pool_cost`'s exact ``count``.
+
+        ``chosen_ids`` is the player's own pick — validated against the
+        pool and required to meet the threshold, never trimmed or padded
+        (RULE 602.1: any *legal* subset is the player's own choice, not the
+        engine's to second-guess). ``None`` falls back to an auto-pick for
+        non-interactive callers (tests, the goldfish auto-player): the
+        fewest creatures, highest power first, that reach the threshold —
+        so an automated caller doesn't tap more of the board than it has to.
+        """
+        pool = self._crew_pool(player, source)
+        by_id = {o.instance_id: o for o in pool}
+        if chosen_ids is not None:
+            chosen: list[GameObject] = []
+            seen: set[Any] = set()
+            for iid in chosen_ids:
+                if iid in seen or iid not in by_id:
+                    return None
+                seen.add(iid)
+                chosen.append(by_id[iid])
+            if sum(o.power or 0 for o in chosen) < power_required:
+                return None
+            return chosen
+        ranked = sorted(pool, key=lambda o: o.power or 0, reverse=True)
+        auto_chosen: list[GameObject] = []
+        total = 0
+        for o in ranked:
+            if total >= power_required:
+                break
+            auto_chosen.append(o)
+            total += o.power or 0
+        return auto_chosen if total >= power_required else None
     def _sacrifice_count_pool(self, player: Player, subtype: str) -> list[GameObject]:
         """Every permanent of type ``subtype`` ``player`` controls, eligible
         to pay a "Sacrifice N `<type>`s" cost (Samwise Gamgee's "Sacrifice
@@ -674,6 +748,15 @@ class ActivationMixin:
             count, subtype = cost.tap_others
             for obj in self._resolve_tap_others(player, source, count, subtype, tap_choices) or []:
                 self.rules.set_tapped(obj, True)
+        if cost.crew_power:
+            # RULE 702.122b: a creature "crews" a Vehicle exactly when
+            # tapped to pay this cost — recorded on `source` (RULE
+            # 702.122c's "crewed by") regardless of whether the ability
+            # later resolves, since the tap already happened.
+            for obj in self._resolve_crew_cost(player, source, cost.crew_power, tap_choices) or []:
+                self.rules.set_tapped(obj, True)
+                if obj.instance_id not in source.crewed_by_ids:
+                    source.crewed_by_ids.append(obj.instance_id)
         if cost.sacrifice_count:
             count, subtype = cost.sacrifice_count
             for obj in self._resolve_sacrifice_count(player, count, subtype, tap_choices) or []:

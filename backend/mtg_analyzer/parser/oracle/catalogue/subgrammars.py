@@ -214,15 +214,35 @@ _DEVOTION_WEDGE_WORDS: frozenset[str] = frozenset({"abzan", "jeskai", "mardu", "
 #: `continuous.count_selector` entry already exists for (bare "creatures/
 #: permanents/artifacts/lands you control", "attacking creatures[ you
 #: control]", "tapped creatures you control", and a single creature-type
-#: word) — a qualified phrase ("creatures you control with power 2 or
-#: less", "tapped artifacts and/or creatures you control") stays unclaimed
-#: rather than guessed, the same fail-closed split this file uses
-#: everywhere else. The type-word branch only strips a trailing "s"
+#: word), plus — since MEC-27 — two qualified shapes: "creatures you control
+#: with power N or less/greater" (Arabella, Abandoned Doll/Dragonhawk,
+#: Fate's Tempest/The Boulder, Ready to Rumble) and "tapped `<type>`[ and/or
+#: `<type>`] you control" (Aang and Katara/Alibou, Ancient Witness/Lydia
+#: Frye — generalizing the old creatures-only tapped row rather than adding
+#: a sibling, so "tapped creatures you control" still resolves to the exact
+#: `tapped_creatures_you_control` name every existing caller/test already
+#: expects). Still fail-closed on anything wider — a toughness qualifier, or
+#: a power qualifier on anything but the bare "creatures" word — same as
+#: every other row here. The type-word branch only strips a trailing "s"
 #: (`_singularize`) — a real but rarer gap on irregular plurals ("Elves",
 #: "Wolves") than building a full pluralization table is worth for now.
 _COUNT_PHRASE_BARE_WORDS: frozenset[str] = frozenset(
     {"creatures", "permanents", "artifacts", "lands", "enchantments", "planeswalkers"}
 )
+#: Single-word noun phrases the `count_subtype` catch-all must *not* guess as
+#: a creature subtype — real cards printing "the number of `<X>` you
+#: control" where `<X>` is an artifact-subtype (Bobblehead) or enchantment-
+#: subtype (Shrine) token name, found while sizing MEC-27's own "draw"/
+#: "life-gain" verb-family widening: `devotion_selector`'s catch-all always
+#: emits `creatures_you_control_of_type_<word>`, which is simply wrong for
+#: these (no card's Shrine/Bobblehead is also a creature), so the count
+#: would always read 0 rather than the printed value — the same
+#: "guessing produces a card that resolves to nothing" failure this file's
+#: fail-closed convention exists to avoid. A denylist rather than an
+#: allowlist of real creature types, matching `static_handlers.
+#: _NONCREATURE_TYPES`'s own idiom: this module has no card database to
+#: validate a subtype word against, only specific words already known bad.
+_COUNT_PHRASE_NONCREATURE_SUBTYPE_WORDS: frozenset[str] = frozenset({"shrines", "bobbleheads"})
 #: Two-word compound noun phrases with their own dedicated
 #: `continuous.count_selector` entry, rather than the bare-word ``_you_
 #: control`` suffix pattern above (Eiganjo, Seat of the Empire/Ghostfire
@@ -247,9 +267,10 @@ DEVOTION = (
     r"))"
     r"|(?:the number of (?:"
     r"(?P<count_compound>legendary creatures|multicolored permanents|artifacts and/or enchantments) you control"
+    r"|(?P<count_power>creatures) you control with power (?P<count_power_n>\d+) or (?P<count_power_cmp>less|greater)"
     r"|(?P<count_bare>creatures|permanents|artifacts|lands|enchantments|planeswalkers) you control"
     r"|(?P<count_attacking>attacking creatures)(?P<count_attacking_yours> you control)?"
-    r"|(?P<count_tapped_yours>tapped creatures) you control"
+    r"|tapped (?P<count_tapped_1>[a-z]+)(?: and/or (?P<count_tapped_2>[a-z]+))? you control"
     r"|(?P<count_subtype>[a-z]+) you control"
     r"))"
     r")"
@@ -281,6 +302,15 @@ def devotion_selector(m: "re.Match[str]") -> Optional[str]:
     compound = m.groupdict().get("count_compound")
     if compound:
         return _COUNT_PHRASE_COMPOUNDS.get(compound)
+    if m.groupdict().get("count_power"):
+        # "the number of creatures you control with power N or less/greater"
+        # (MEC-27's own qualifier grammar — Arabella, Abandoned Doll/
+        # Dragonhawk, Fate's Tempest/The Boulder, Ready to Rumble) — the
+        # count-amount sibling of the many trigger/target/static "creature
+        # you control with power N or less" filters elsewhere in this
+        # codebase, read live off the same layer-engine `power`.
+        op = "le" if m.group("count_power_cmp") == "less" else "ge"
+        return f"creatures_you_control_with_power_{op}_{m.group('count_power_n')}"
     bare = m.groupdict().get("count_bare")
     if bare:
         return f"{bare}_you_control"
@@ -289,10 +319,30 @@ def devotion_selector(m: "re.Match[str]") -> Optional[str]:
             "attacking_creatures_you_control" if m.groupdict().get("count_attacking_yours")
             else "attacking_creatures"
         )
-    if m.groupdict().get("count_tapped_yours"):
-        return "tapped_creatures_you_control"
+    tapped1 = m.groupdict().get("count_tapped_1")
+    if tapped1:
+        # "the number of tapped `<type>`[ and/or `<type>`] you control"
+        # (MEC-27's own qualifier grammar — Aang and Katara/Alibou, Ancient
+        # Witness/Lydia Frye), generalizing the old creatures-only tapped
+        # row: a bare category word maps the same way `count_bare` does, any
+        # other single word is read as a creature subtype exactly like
+        # `count_subtype` below. "tapped creatures you control" alone still
+        # resolves to the exact `tapped_creatures_you_control` name every
+        # existing caller/test already expects.
+        def _tapped_part(word: str) -> str:
+            return word if word in _COUNT_PHRASE_BARE_WORDS else f"type_{_singularize(word)}"
+
+        parts = [_tapped_part(tapped1)]
+        tapped2 = m.groupdict().get("count_tapped_2")
+        if tapped2:
+            parts.append(_tapped_part(tapped2))
+        return f"tapped_{'_and_or_'.join(parts)}_you_control"
     subtype = m.groupdict().get("count_subtype")
-    if subtype and subtype not in _COUNT_PHRASE_BARE_WORDS:
+    if (
+        subtype
+        and subtype not in _COUNT_PHRASE_BARE_WORDS
+        and subtype not in _COUNT_PHRASE_NONCREATURE_SUBTYPE_WORDS
+    ):
         return f"creatures_you_control_of_type_{_singularize(subtype)}"
     return None
 

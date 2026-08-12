@@ -51,6 +51,11 @@ class Card:
         is_land: Whether the card is a land.
         power: Creature power, or None if the card is not a creature.
         toughness: Creature toughness, or None if the card is not a creature.
+        vehicle_power/vehicle_toughness: RULE 208.1's printed P/T for a
+            noncreature permanent that only matters once it becomes a
+            creature by another effect (Vehicles, RULE 702.122a Crew) — None
+            for the overwhelming majority of cards, which print none while
+            noncreature. Independent of power/toughness above.
         oracle_text: The card's rules text.
         keywords: Machine-readable keyword abilities parsed out of the
             oracle text (e.g. ["Flying", "Trample"]), as reported by
@@ -114,6 +119,8 @@ class Card:
         toughness: Optional[int] = None,
         loyalty: Optional[int] = None,
         defense: Optional[int] = None,
+        vehicle_power: Optional[int] = None,
+        vehicle_toughness: Optional[int] = None,
         oracle_text: str = "",
         keywords: Optional[list[str]] = None,
         image_uri_small: str = "",
@@ -183,6 +190,22 @@ class Card:
         #: `loyalty` has for a planeswalker, which is why the two seed
         #: through the same `RulesEngine._apply_entry_counters` path.
         self.defense = defense
+        #: RULE 208.1: some noncreature permanents — Vehicles chief among
+        #: them — have power/toughness printed on the card even though
+        #: `is_creature` is False; those values matter only once something
+        #: else (Crew, RULE 702.122a) makes the permanent a creature. Kept
+        #: fully separate from `power`/`toughness` above (which stay
+        #: creature-only, per this class's own invariant) rather than
+        #: relaxing that invariant — every existing reader that treats
+        #: "power is not None" as a creature check stays correct. ``None``
+        #: for the overwhelming majority of cards, which print no P/T at
+        #: all while noncreature. MEC-29's own real trigger: without this,
+        #: `effect_binder._crew_activated_ability`'s "becomes an artifact
+        #: creature" grant had nothing to set power/toughness from, so a
+        #: freshly crewed Vehicle came in 0/0 and died to RULE 704.5f the
+        #: instant a state-based action check ran.
+        self.vehicle_power = vehicle_power
+        self.vehicle_toughness = vehicle_toughness
         self.oracle_text = oracle_text
         self.keywords = list(keywords) if keywords is not None else []
         self.image_uri_small = image_uri_small
@@ -446,6 +469,8 @@ class Card:
             toughness=self.toughness,
             loyalty=self.loyalty,
             defense=self.defense,
+            vehicle_power=self.vehicle_power,
+            vehicle_toughness=self.vehicle_toughness,
             oracle_text=self.oracle_text,
             keywords=list(self.keywords),
             image_uri_small=self.image_uri_small,
@@ -585,6 +610,8 @@ class Card:
             "toughness": self.toughness,
             "loyalty": self.loyalty,
             "defense": self.defense,
+            "vehicle_power": self.vehicle_power,
+            "vehicle_toughness": self.vehicle_toughness,
             "oracle_text": self.oracle_text,
             "keywords": list(self.keywords),
             "image_uri_small": self.image_uri_small,
@@ -631,6 +658,8 @@ class Card:
             toughness=data.get("toughness"),
             loyalty=data.get("loyalty"),
             defense=data.get("defense"),
+            vehicle_power=data.get("vehicle_power"),
+            vehicle_toughness=data.get("vehicle_toughness"),
             oracle_text=data.get("oracle_text", ""),
             keywords=data.get("keywords"),
             image_uri_small=data.get("image_uri_small", ""),

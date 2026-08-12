@@ -9481,31 +9481,231 @@ def _masterwork_of_ingenuity() -> list[AbilitySpec]:
 register("Masterwork of Ingenuity", _masterwork_of_ingenuity)
 
 
-def _raiyuu_storms_edge() -> list[AbilitySpec]:
-    """First strike
-    Whenever a Samurai or Warrior you control attacks alone, untap it. If
-    it's the first combat phase of the turn, there is an additional
-    combat phase after this phase.
+def _raph_and_leo_sibling_rivals() -> list[AbilitySpec]:
+    """Whenever Raph & Leo attack, if it's the first combat phase of the
+    turn, untap one or two target attacking creatures. After this phase,
+    there is an additional combat phase.
 
-    Simplified: narrowed to "untap it" — the additional-combat-phase half
-    isn't modeled (no primitive inserts a genuine extra combat phase into
-    the turn sequence yet).
+    MEC-28: the same RULE 603.4 intervening-if extra-combat template as
+    Finest Hour/Karlach, Fury of Avernus/Raiyuu, Storm's Edge (all four now
+    parser-`MODELED`) — hand-authored here only because of its own
+    remaining gap, a genuine RULE 601.2c "N or M target X" range. ENG-30
+    built that primitive (`targeting.TargetSpec.count_max`) — this entry now
+    uses the real "one or two" range (``count=1, count_max=2``) instead of
+    the single-mandatory-target simplification it shipped with.
+
+    Still hand-authored, not deleted in favor of the oracle-text parser: the
+    parser's shared multi-target grammar (`catalogue.handlers.
+    _MULTI_TARGET_ROWS`) has no row for a *targeted* "attacking creatures"
+    phrase — only the untargeted mass-selector "untap all attacking
+    creatures" form ENG-29 built. Adding one is real, separate scope (a new
+    row plus threading a `creature_filter` through `_multi_target_params`,
+    which has no such param today) that only this one card would exercise;
+    left for whenever a second real card needs it rather than built
+    speculatively here.
     """
     return [
         AbilitySpec(
             "triggered",
-            [EffectSpec("tap", {"target_kind": None, "untap": True})],
-            trigger={
-                "event": "ATTACKS_ALONE",
-                "condition": {"subject": "group", "subtypes": ["samurai", "warrior"], "controller": "you"},
-            },
-            raw_text="Immer wenn ein Samurai oder Krieger unter deiner Kontrolle allein "
-                     "angreift, enttappe ihn.",
+            [
+                EffectSpec(
+                    "tap",
+                    {
+                        "target_kind": "creature", "creature_filter": {"attacking": True}, "untap": True,
+                        "count": 1, "count_max": 2,
+                    },
+                    condition={"is_first_combat_phase": True},
+                ),
+                EffectSpec("extra_combat_phase", {}, condition={"is_first_combat_phase": True}),
+            ],
+            trigger={"event": "ATTACKS", "condition": {"subject": "self"}},
+            raw_text="Whenever Raph & Leo attack, if it's the first combat phase of the turn, "
+                     "untap one or two target attacking creatures. After this phase, there is "
+                     "an additional combat phase.",
         ),
     ]
 
 
-register("Raiyuu, Storm's Edge", _raiyuu_storms_edge)
+register("Raph & Leo, Sibling Rivals", _raph_and_leo_sibling_rivals)
+
+
+def _balthier_and_fran() -> list[AbilitySpec]:
+    """Reach
+    Vehicles you control get +1/+1 and have vigilance and reach.
+    Whenever a Vehicle crewed by Balthier and Fran this turn attacks, if
+    it's the first combat phase of the turn, you may pay {1}{R}{G}. If you
+    do, after this phase, there is an additional combat phase.
+
+    MEC-29: the last of MEC-28's own five-card list, closed by building the
+    two primitives its own diagnosis named. RULE 702.122 **Crew** as real
+    engine state (`ActivationCost.crew_power`, `GameEngine._resolve_crew_
+    cost`/`_crew_pool`, `GameObject.crewed_by_ids`, `effect_binder._crew_
+    activated_ability`) — "Crew N" had been parser-*recognized* the whole
+    time (the coverage gate's own keyword catalogue), just never bound to
+    behaviour anywhere in `game/`/`models/` (`grep -rn "crewed_by"` found
+    nothing before this), the same "recognized but inert" gap Cycling had
+    before PAR-9 — and a new `"crewed_by_self"` RULE 603.1 group-subject
+    trigger-condition key (`effect_binder._build_group_ok`) reading it live
+    off the board. Hand-authored here rather than left to the oracle-text
+    parser: "a Vehicle crewed by ~ this turn attacks" is a genuinely
+    singleton phrasing (`parser_probe.py cards 'crewed by'` finds exactly
+    one other cached card, Mighty Servant of Leuk-o, printing a completely
+    different "crewed by exactly N creatures" template) not worth a
+    dedicated grammar row for.
+
+    The anthem clause is duplicated here rather than left to the parser for
+    a narrower reason: it already parses correctly on its own (a real fix
+    below), but registering this card for its trigger clause means
+    `ability_catalogue.specs_for` takes *all* of this card's non-keyword
+    abilities from the registry instead — "Reach" alone still auto-attaches
+    from `parse_keywords`, which runs regardless of registration.
+
+    Building Crew surfaced two real, previously-invisible bugs, both fixed
+    at the root rather than worked around for this one card:
+
+    1. `_ANTHEM_RE`'s `_scope` (`parser/oracle/catalogue/static_handlers.
+       py`) had no non-creature-**subtype** guard the way `_NONCREATURE_
+       TYPES` already gives it for non-creature main *types* ("Artifacts
+       you control…"), so a bare "Vehicles" scope silently fell through to
+       the ordinary creature-subtype reading and produced ``affects:
+       creatures_you_control`` — wrong, since a Vehicle isn't a creature
+       until crewed, so the anthem would have excluded every uncrewed
+       Vehicle it's printed to buff. No real card had ever reached this
+       shape's *whole* card fully-MODELED before, so it silently shipped
+       wrong without ever showing up as a coverage regression. Fixed with
+       `_ARTIFACT_SUBTYPES`/`_vehicle_scope_params`, reused by
+       `_GRANT_RE`/`_QUOTED_GRANT_RE`'s existing PAR-3 fallback chain too —
+       any other "Vehicles [you control] get/have …" card benefits for
+       free, not just this one.
+    2. A freshly crewed Vehicle had no power/toughness at all —
+       `Card.__init__`'s own invariant refuses P/T on a noncreature, so a
+       Vehicle's *printed* P/T (RULE 208.1: some noncreature permanents,
+       Vehicles chief among them, print P/T that matters once something
+       else makes them a creature) had never been captured anywhere in
+       this engine's `Card` model. Without it, `type_change`'s "becomes an
+       artifact creature" grant left the crewed Vehicle at 0/0, dying to
+       RULE 704.5f the instant the next state-based action check ran —
+       Crew would have bound correctly while being unusable in any real
+       game. Fixed with `Card.vehicle_power`/`vehicle_toughness`
+       (deliberately separate fields, not a relaxation of the existing
+       invariant, so every reader that treats "power is not None" as a
+       creature check stays correct), populated by `scryfall_client.
+       card_from_scryfall_data` for any noncreature Vehicle and read by
+       `effect_binder._crew_activated_ability` when building the grant.
+    """
+    return [
+        AbilitySpec(
+            "static",
+            [
+                EffectSpec("anthem", {
+                    "power": 1, "toughness": 1,
+                    "affects": "artifacts_you_control", "subtype": "Vehicle",
+                }),
+                EffectSpec("grant_keyword", {
+                    "keywords": ["vigilance", "reach"],
+                    "affects": "artifacts_you_control", "subtype": "Vehicle",
+                }),
+            ],
+            raw_text="Vehicles you control get +1/+1 and have vigilance and reach.",
+        ),
+        AbilitySpec(
+            "triggered",
+            [
+                EffectSpec(
+                    "pay_cost_then",
+                    {
+                        "cost": "{1}{R}{G}",
+                        "effects": [{"type": "extra_combat_phase", "params": {}}],
+                    },
+                    condition={"is_first_combat_phase": True},
+                ),
+            ],
+            trigger={
+                "event": "ATTACKS",
+                "condition": {"subject": "group", "subtypes": ["vehicle"], "crewed_by_self": True},
+            },
+            raw_text="Whenever a Vehicle crewed by ~ this turn attacks, if it's the first "
+                     "combat phase of the turn, you may pay {1}{R}{G}. If you do, after this "
+                     "phase, there is an additional combat phase.",
+        ),
+    ]
+
+
+register("Balthier and Fran", _balthier_and_fran)
+
+
+def _tifa_martial_artist() -> list[AbilitySpec]:
+    """Melee (Whenever this creature attacks, it gets +1/+1 until end of
+    turn for each opponent you attacked this combat.)
+    Whenever one or more creatures you control with power 7 or greater deal
+    combat damage to a player, untap all creatures you control. If it's the
+    first combat phase of your turn, there is an additional combat phase
+    after this phase.
+
+    MEC-29: the other half of MEC-28's own five-card list, closed by
+    building the two primitives its own diagnosis named — though the
+    diagnosis itself needed correcting first (this repo's standing rule:
+    verify a "needs a new primitive" claim against current code before
+    trusting it, even when the claim is this ticket's own). RULE 603.1's
+    DAMAGE-subject group scoping for "you control" already existed
+    (`_GROUP_CONTROLLER_EVENT_KEYS["DAMAGE"]`, built for Bident of Thassa/
+    Deepfathom Skulker's own "a creature you control deals combat damage to
+    a player") — the real, still-open gap was the **"one or more"**
+    quantifier: RULE 603.1's ordinary group subject fires once *per
+    creature*, but "one or more creatures … deal combat damage" describes a
+    single condition about the whole combat damage step. This engine
+    already has the identical shape solved once, for a different verb: RULE
+    506.4's "a player attacks you **with one or more creatures**" is
+    exactly why `EventType.PLAYER_ATTACKED` exists instead of reusing the
+    per-declaration `ATTACKS` event (see that event's own docstring) — two
+    creatures qualifying simultaneously must trigger this ability *once*,
+    not twice (this card's own payoff, an extra combat phase, would
+    otherwise double up per RULE 508.6/509.5's simultaneous combat damage).
+    Built the combat-damage sibling the same way:
+    `EventType.CREATURES_DEALT_COMBAT_DAMAGE_TO_PLAYER`
+    (`GameEngine._apply_combat_damage`), fired once per (contributing
+    creatures' controller, player hit) pair after a damage step, carrying
+    ``max_power`` — the highest power among that pair's contributors — for
+    a new `"contributor_power_at_least"` trigger-condition threshold
+    (`effect_binder._trigger_condition`, mirroring the existing
+    ``spell_mana_value_at_most`` idiom) to check: the aggregate event names
+    no single acting object a `"group"` condition's own per-object
+    ``min_power`` filter could read off the board.
+
+    Hand-authored rather than left to the oracle-text parser: this
+    "one or more `<type>` you control with power `<n>` or greater deal
+    combat damage to a player" template is, per `parser_probe.py cards
+    'deal combat damage to a player'`, printed on exactly this one cached
+    card — not worth a dedicated grammar row for a single user. "If it's
+    the first combat phase of **your** turn" (not "…of **the** turn",
+    `_FIRST_COMBAT_PHASE_CONDITION_RE`'s own exact wording) rides the same
+    RULE 603.4 intervening-if `ConditionalEffect` key
+    (``is_first_combat_phase``) under a harmless wording variant: a combat
+    phase only ever happens on its own active player's turn, so "the turn"
+    and "your turn" name the same thing for every real card printing
+    either.
+    """
+    return [
+        AbilitySpec(
+            "triggered",
+            [
+                EffectSpec("tap", {"selector": "creatures_you_control", "untap": True}),
+                EffectSpec("extra_combat_phase", {}, condition={"is_first_combat_phase": True}),
+            ],
+            trigger={
+                "event": "CREATURES_DEALT_COMBAT_DAMAGE_TO_PLAYER",
+                "condition": {"subject": "you"},
+                "contributor_power_at_least": 7,
+            },
+            raw_text="Whenever one or more creatures you control with power 7 or greater deal "
+                     "combat damage to a player, untap all creatures you control. If it's the "
+                     "first combat phase of your turn, there is an additional combat phase "
+                     "after this phase.",
+        ),
+    ]
+
+
+register("Tifa, Martial Artist", _tifa_martial_artist)
 
 
 def _sokenzan_crucible_of_defiance() -> list[AbilitySpec]:

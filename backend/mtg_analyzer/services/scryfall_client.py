@@ -150,6 +150,17 @@ def card_from_scryfall_data(data: dict[str, Any]) -> Card:
     power = _parse_int(front.get("power"))
     toughness = _parse_int(front.get("toughness"))
     is_creature = "Creature" in type_line
+    # RULE 208.1/MEC-29: a Vehicle (or any other noncreature permanent
+    # Scryfall still prints P/T on) keeps its printed power/toughness in
+    # `vehicle_power`/`vehicle_toughness` rather than discarding it the way
+    # `power`/`toughness` do below — Crew (RULE 702.122a) needs it the
+    # instant such a permanent actually becomes a creature. Scoped to the
+    # subtype rather than "any noncreature with printed P/T" so a stray
+    # future Scryfall data quirk can't leak a P/T pair onto an unrelated
+    # card type this was never meant to cover.
+    is_vehicle = not is_creature and "Vehicle" in type_line
+    vehicle_power = power if is_vehicle else None
+    vehicle_toughness = toughness if is_vehicle else None
 
     back = faces[1] if layout in _SECOND_FACE_LAYOUTS and len(faces) >= 2 else {}
     back_image_uris = back.get("image_uris") or {}
@@ -170,6 +181,8 @@ def card_from_scryfall_data(data: dict[str, Any]) -> Card:
         is_land="Land" in type_line,
         power=power if is_creature else None,
         toughness=toughness if is_creature else None,
+        vehicle_power=vehicle_power,
+        vehicle_toughness=vehicle_toughness,
         loyalty=_parse_int(front.get("loyalty")),
         # RULE 310.4a: a battle's printed defense. Face-specific like
         # loyalty/power — every real battle is a transforming DFC whose

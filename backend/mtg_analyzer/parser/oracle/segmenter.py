@@ -212,6 +212,12 @@ _PLAYER_TRIGGER_CONDITIONS: tuple[tuple[re.Pattern[str], Any], ...] = (
     # Guide-shaped). `EventType.RING_TEMPTED` fires from `RulesEngine.
     # the_ring_tempts_you` once the Ring-bearer choice is settled.
     (re.compile(r"^the ring tempts you$"), "RING_TEMPTED"),
+    # RULE 506.4's "whenever you attack, …" (MEC-28, Karlach, Fury of
+    # Avernus-shaped) — deliberately just the bare form; "whenever you
+    # attack with `<qualifier>`" (a much bigger, still-unbuilt family —
+    # `parser_probe.py blocked "^whenever you attack\\b"`, 97+ SOLO cards)
+    # needs its own count/filter grammar and is out of this ticket's scope.
+    (re.compile(r"^you attack$"), "PLAYER_ATTACKED"),
 )
 
 #: A triggered-ability wrapper: "When/Whenever/At <condition>, <body>".
@@ -1631,25 +1637,31 @@ def _trigger_condition(condition: str) -> Optional[dict[str, Any]]:
 
 
 def _with_after_tail(
-    specs: list[EffectSpec], after_group: Optional[str], *, previous_subject: bool = False,
+    specs: list[EffectSpec], after_group: Optional[str], *,
+    previous_subject: bool = False, group_subject: bool = False,
 ) -> Optional[list[EffectSpec]]:
     """The repeated tail shape across `parse_effect_body`'s two-sentence
     wrapper blocks below (look_top_select/no_regen/gain_control_tail/
     sac_when_you_do): a trailing "after" sentence, if any, recurses back
     into `parse_effect_body` and its specs are appended; with none, ``specs``
     is returned as-is. Fails closed (``None``) if the "after" sentence itself
-    doesn't parse."""
+    doesn't parse. ``group_subject`` carries forward unchanged (MEC-28) —
+    unlike ``previous_subject``, the trigger's own group-subject scope
+    doesn't shift between an ability's clauses."""
     after_text = (after_group or "").strip()
     if not after_text:
         return specs
-    after_specs = parse_effect_body(after_text, previous_subject=previous_subject)
+    after_specs = parse_effect_body(
+        after_text, previous_subject=previous_subject, group_subject=group_subject,
+    )
     if after_specs is None:
         return None
     return specs + after_specs
 
 
 def parse_effect_body(
-    body: str, *, self_subject: bool = False, previous_subject: bool = False
+    body: str, *, self_subject: bool = False, previous_subject: bool = False,
+    group_subject: bool = False, previous_selector: bool = False,
 ) -> Optional[list[EffectSpec]]:
     """A normalised effect ``body`` → its `EffectSpec`s, or ``None`` if unclaimed.
 
@@ -1670,6 +1682,24 @@ def parse_effect_body(
     unlocking `handlers.EffectHandler.previous_subject_only` rows. The two
     flags are therefore never both set: a pronoun means the source or the
     last pick, never either-or.
+
+    ``group_subject`` (MEC-28) says "it"/"that creature" means whichever
+    object matched this ability's own RULE 603.1 group-subject trigger
+    condition ("whenever a creature you control attacks alone, … untap
+    **that creature**.") — unlocking `handlers.EffectHandler.
+    group_subject_only` rows. Unlike ``self_subject``, it *is* carried into
+    every recursive call, including the connector-split parse below: the
+    trigger's own subject scope is a fact about the whole ability, not a
+    local referent that shifts clause to clause, so there's no equivalent
+    of ``previous_subject`` recomputing it.
+
+    A mass *selector* clause ("untap all attacking creatures") introduces a
+    different kind of referent — "they" in a following clause ("**They**
+    gain first strike until end of turn.", unlocking `handlers.
+    EffectHandler.previous_selector_only` rows) — tracked by the
+    connector-split loop below the same way ``previous_subject`` is
+    (`_announces_group_selector`, resolved at runtime off `effects.
+    GameContext.previous_selector` rather than a specific object list).
     """
     body = body.strip().rstrip(".").strip()
     if not body:
@@ -1678,7 +1708,8 @@ def parse_effect_body(
     kicked = _KICKED_CONDITION_RE.match(body)
     if kicked is not None:
         inner = parse_effect_body(
-            kicked.group("rest"), self_subject=self_subject, previous_subject=previous_subject
+            kicked.group("rest"), self_subject=self_subject, previous_subject=previous_subject,
+            group_subject=group_subject,
         )
         if inner is None:
             return None
@@ -1716,6 +1747,7 @@ def parse_effect_body(
             target_is_you.group("rest"),
             self_subject=self_subject,
             previous_subject=previous_subject,
+            group_subject=group_subject,
         )
         if inner is None:
             return None
@@ -1728,7 +1760,8 @@ def parse_effect_body(
     life_gained = _LIFE_GAINED_THIS_TURN_CONDITION_RE.match(body)
     if life_gained is not None:
         inner = parse_effect_body(
-            life_gained.group("rest"), self_subject=self_subject, previous_subject=previous_subject
+            life_gained.group("rest"), self_subject=self_subject, previous_subject=previous_subject,
+            group_subject=group_subject,
         )
         if inner is None:
             return None
@@ -1748,6 +1781,7 @@ def parse_effect_body(
             more = parse_effect_body(
                 trailing.strip().lstrip(". ").strip(),
                 self_subject=self_subject, previous_subject=previous_subject,
+                group_subject=group_subject,
             )
             if more is None:
                 return None
@@ -1758,7 +1792,7 @@ def parse_effect_body(
     if controls_none is not None:
         inner = parse_effect_body(
             controls_none.group("rest"), self_subject=self_subject,
-            previous_subject=previous_subject,
+            previous_subject=previous_subject, group_subject=group_subject,
         )
         if inner is None:
             return None
@@ -1774,7 +1808,7 @@ def parse_effect_body(
     if first_combat_phase is not None:
         inner = parse_effect_body(
             first_combat_phase.group("rest"), self_subject=self_subject,
-            previous_subject=previous_subject,
+            previous_subject=previous_subject, group_subject=group_subject,
         )
         if inner is None:
             return None
@@ -1787,7 +1821,7 @@ def parse_effect_body(
     if ring_bearer_other is not None:
         inner = parse_effect_body(
             ring_bearer_other.group("rest"), self_subject=self_subject,
-            previous_subject=previous_subject,
+            previous_subject=previous_subject, group_subject=group_subject,
         )
         if inner is None:
             return None
@@ -1800,7 +1834,7 @@ def parse_effect_body(
     if ring_bearer_and_tempted is not None:
         inner = parse_effect_body(
             ring_bearer_and_tempted.group("rest"), self_subject=self_subject,
-            previous_subject=previous_subject,
+            previous_subject=previous_subject, group_subject=group_subject,
         )
         if inner is None:
             return None
@@ -1829,12 +1863,13 @@ def parse_effect_body(
                 "rest_order": rest_order,
             },
         )
-        return _with_after_tail([spec], look_top_select.group("after"))
+        return _with_after_tail([spec], look_top_select.group("after"), group_subject=group_subject)
 
     no_regen = _NO_REGEN_SENTENCE_RE.match(body)
     if no_regen is not None:
         before_specs = parse_effect_body(
-            no_regen.group("before"), self_subject=self_subject, previous_subject=previous_subject
+            no_regen.group("before"), self_subject=self_subject, previous_subject=previous_subject,
+            group_subject=group_subject,
         )
         if before_specs is None:
             return None
@@ -1850,14 +1885,14 @@ def parse_effect_body(
             return None  # nothing to deny regeneration to — fail closed
         return _with_after_tail(
             before_specs, no_regen.group("after"),
-            previous_subject=_announces_creature_target(before_specs),
+            previous_subject=_announces_creature_target(before_specs), group_subject=group_subject,
         )
 
     gain_control_tail = _GAIN_CONTROL_HASTE_TAIL_RE.match(body)
     if gain_control_tail is not None:
         before_specs = parse_effect_body(
             gain_control_tail.group("before"), self_subject=self_subject,
-            previous_subject=previous_subject,
+            previous_subject=previous_subject, group_subject=group_subject,
         )
         if before_specs is None or not any(
             spec.type == "gain_control_until_eot" for spec in before_specs
@@ -1865,20 +1900,23 @@ def parse_effect_body(
             return None  # fail closed — the tail only makes sense after that clause
         return _with_after_tail(
             before_specs, gain_control_tail.group("after"),
-            previous_subject=_announces_creature_target(before_specs),
+            previous_subject=_announces_creature_target(before_specs), group_subject=group_subject,
         )
 
     sac_when_you_do = _SACRIFICE_THEN_WHEN_YOU_DO_RE.match(body)
     if sac_when_you_do is not None:
         before_specs = parse_effect_body(
             sac_when_you_do.group("before"), self_subject=self_subject,
-            previous_subject=previous_subject,
+            previous_subject=previous_subject, group_subject=group_subject,
         )
         if before_specs is None or not any(spec.type == "sacrifice_self" for spec in before_specs):
             return None  # fail closed — only a certain, unconditional antecedent collapses
-        return _with_after_tail(before_specs, sac_when_you_do.group("after"))
+        return _with_after_tail(before_specs, sac_when_you_do.group("after"), group_subject=group_subject)
 
-    direct = match_clause(body, self_subject=self_subject, previous_subject=previous_subject)
+    direct = match_clause(
+        body, self_subject=self_subject, previous_subject=previous_subject,
+        group_subject=group_subject, previous_selector=previous_selector,
+    )
     if direct is not None:
         return direct
 
@@ -1888,8 +1926,12 @@ def parse_effect_body(
             collected: list[EffectSpec] = []
             ok = True
             referent = False
+            referent_selector = False
             for part in parts:
-                sub = parse_effect_body(part, previous_subject=referent)
+                sub = parse_effect_body(
+                    part, previous_subject=referent, previous_selector=referent_selector,
+                    group_subject=group_subject,
+                )
                 if sub is None:
                     ok = False
                     break
@@ -1902,6 +1944,11 @@ def parse_effect_body(
                 # unclaimed — rather than letting it drift onto some earlier
                 # clause's pick, which is the ambiguity this gate exists for.
                 referent = _announces_creature_target(sub)
+                # MEC-28: the mass-selector sibling — "untap all attacking
+                # creatures. They gain …" — tracked independently since a
+                # selector clause never sets ``referent`` above (it targets
+                # nothing at all, RULE 601.2c).
+                referent_selector = _announces_group_selector(sub)
             if ok:
                 return collected
     return None
@@ -1951,6 +1998,27 @@ def _announces_creature_target(specs: list[EffectSpec]) -> bool:
         )
         for v in values
     )
+
+
+#: MEC-28: recognised mass-selector values `handlers.EffectHandler.
+#: previous_selector_only` rows may read back as "they" (`effects.
+#: GameContext.previous_selector`, `game/effect_binder.py`'s narrow
+#: ``TapEffect``-only tracking whitelist) — deliberately just the one real
+#: card (Karlach, Fury of Avernus) needs today, widened only as another
+#: card actually prints a different mass selector before this same "they"
+#: tail, matching this file's usual narrow-whitelist convention.
+_GROUP_SELECTOR_VALUES: frozenset[str] = frozenset({"attacking_creatures"})
+
+
+def _announces_group_selector(specs: list[EffectSpec]) -> bool:
+    """Whether the last of ``specs`` is an untargeted mass-selector effect
+    ("untap all attacking creatures") the next clause's "they" can point at —
+    `_announces_creature_target`'s sibling for RULE 601.2c selectors rather
+    than RULE 115 targets, since a selector clause has no target of its own
+    to be caught by that check."""
+    if not specs:
+        return False
+    return specs[-1].type == "tap" and specs[-1].params.get("selector") in _GROUP_SELECTOR_VALUES
 
 
 def is_keyword_line(line: str) -> bool:
@@ -2987,8 +3055,16 @@ def segment_line(
         # "When ~ enters, **it** fights …": with the source as the trigger's
         # own subject, a bare "it" in the body is the source — anything else
         # (a group subject, an attached permanent) leaves the pronoun
-        # ambiguous, so only this scope unlocks it.
-        effects = parse_effect_body(body, self_subject=condition == {"subject": "self"})
+        # ambiguous, so only this scope unlocks it. MEC-28: "whenever a
+        # creature you control attacks alone, … that creature …" is the
+        # `{"subject": "group"}` sibling — `condition` may carry extra keys
+        # (``controller``/``type``/…) alongside it, so this reads the key
+        # rather than requiring an exact dict match the way ``self_subject``
+        # does above.
+        effects = parse_effect_body(
+            body, self_subject=condition == {"subject": "self"},
+            group_subject=(condition or {}).get("subject") == "group",
+        )
         if effects is None:
             return Segment(raw=raw)
         effects, body_limit = _strip_trigger_once_per_turn_marker(effects)

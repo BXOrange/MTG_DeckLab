@@ -738,6 +738,55 @@ def count_selector(
         # creatures you control." (Throne of the God-Pharaoh) — a plain
         # board count, unrelated to attacking/blocking status.
         return sum(1 for o in bf if o.is_creature and o.tapped and o.controller_id == controller_id)
+    if selector.startswith("tapped_") and selector.endswith("_you_control"):
+        # "the number of tapped `<type>`[ and/or `<type>`] you control"
+        # (MEC-27's own qualifier grammar — Aang and Katara/Alibou, Ancient
+        # Witness/Lydia Frye), the tapped sibling of the bare/subtype
+        # selectors above: each ``and/or``-joined part is either one of the
+        # bare category words those selectors already use, or (`"type_…"`)
+        # a creature subtype, matched with the same `_has_subtype` helper.
+        parts = selector[len("tapped_"):-len("_you_control")].split("_and_or_")
+
+        def _tapped_matches(o: "GameObject", part: str) -> bool:
+            if part == "creatures":
+                return o.is_creature
+            if part == "artifacts":
+                return o.card.is_artifact
+            if part == "lands":
+                return o.is_land
+            if part == "enchantments":
+                return o.card.is_enchantment
+            if part == "planeswalkers":
+                return o.is_planeswalker
+            if part == "permanents":
+                return True
+            if part.startswith("type_"):
+                return _has_subtype(o, part[len("type_"):])
+            return False
+
+        return sum(
+            1 for o in bf
+            if o.tapped and o.controller_id == controller_id and any(_tapped_matches(o, p) for p in parts)
+        )
+    if selector.startswith("creatures_you_control_with_power_"):
+        # "the number of creatures you control with power N or less/
+        # greater" (MEC-27's own qualifier grammar — Arabella, Abandoned
+        # Doll/Dragonhawk, Fate's Tempest/The Boulder, Ready to Rumble) —
+        # `GameObject.power` is the layer-engine-derived value, same as
+        # every other live board-count selector here.
+        op, _, n_str = selector[len("creatures_you_control_with_power_"):].partition("_")
+        n = int(n_str)
+        if op == "le":
+            return sum(
+                1 for o in bf
+                if o.is_creature and o.controller_id == controller_id and o.power is not None and o.power <= n
+            )
+        if op == "ge":
+            return sum(
+                1 for o in bf
+                if o.is_creature and o.controller_id == controller_id and o.power is not None and o.power >= n
+            )
+        return 0
     if selector == "attacking_creatures_you_control":
         # "for each attacking creature you control" (Embercleave's own
         # self-cost-reduction, MEC-6) — read live off `GameObject.attacking`

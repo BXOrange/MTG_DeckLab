@@ -595,6 +595,10 @@ class TurnLoopMixin:
             # RULE 702.19a: a new turn means "hasn't been exerted this
             # turn" is true again.
             obj.exerted_this_turn = False
+            # MEC-29/RULE 702.122c: "crewed by ~ this turn" resets the same
+            # way — a new turn means no creature has crewed this permanent
+            # yet.
+            obj.crewed_by_ids = []
         self.state.fire_event(GameEvent(EventType.UNTAP, player_id=active.id))
         # RULE 731.2: "as the second part of the untap step", check whether
         # day/night should flip based on last turn's spell count.

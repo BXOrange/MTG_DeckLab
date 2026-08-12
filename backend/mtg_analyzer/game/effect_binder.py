@@ -27,7 +27,7 @@ from ..parser.oracle.catalogue.handlers import (
     SORCERY_SPEED_MARKER,
 )
 from ..parser.oracle.spec import AbilitySpec, EffectSpec
-from .costs import parse_activation_cost
+from .costs import ActivationCost, parse_activation_cost
 from .effects import (
     ActivatedAbility,
     AttachEffect,
@@ -42,6 +42,7 @@ from .effects import (
     EffectRegistry,
     GameEffect,
     GetCityBlessingEffect,
+    GrantUntilEffect,
     LivingWeaponEffect,
     LoseLifeEffect,
     PumpEffect,
@@ -131,6 +132,12 @@ _GROUP_CONTROLLER_EVENT_KEYS: dict[str, str] = {
     # — same payload shape as `ATTACKS`, just fired once per combat rather
     # than once per attacker (`GameEngine._fire_attacks_alone_event`).
     "ATTACKS_ALONE": "player_id",
+    # RULE 506.4's "whenever you attack, …" (MEC-28, Karlach, Fury of
+    # Avernus-shaped) — `GameEngine._fire_player_attacked_events`' own
+    # aggregate event names the attacker as ``attacking_player_id`` (it also
+    # carries a ``defending_player_id``, unlike every other player-subject
+    # event above), fired once per combat rather than once per attacker.
+    "PLAYER_ATTACKED": "attacking_player_id",
     "BLOCKS": "player_id",
     # RULE 509.5: "whenever a creature you control becomes blocked" — the
     # attacker-side event names its controller as ``player_id`` (the same
@@ -183,6 +190,11 @@ _GROUP_CONTROLLER_EVENT_KEYS: dict[str, str] = {
     # docstring), so "you control" scopes to the target, not whoever cast
     # the targeting spell.
     "BECOMES_TARGET": "target_controller_id",
+    # "Whenever one or more creatures you control … deal combat damage to a
+    # player, …" (MEC-29) — the aggregate event already names the
+    # contributing creatures' controller as ``player_id``, the same
+    # convention every other player-subject aggregate event above uses.
+    "CREATURES_DEALT_COMBAT_DAMAGE_TO_PLAYER": "player_id",
 }
 
 #: Which event-data key identifies *which object* an event is about — RULE
@@ -369,6 +381,13 @@ def _build_group_ok(
     for `DAMAGE` ("whenever a creature you control deals combat damage to a
     player", RULE 120.3: the damage event names its source rather than
     stamping an ``instance_id``).
+
+    ``crewed_by_self`` (MEC-29, RULE 702.122c) — the acting object's own
+    live `GameObject.crewed_by_ids` must contain this ability's own source
+    ("whenever a Vehicle crewed by ~ this turn attacks", Balthier and Fran).
+    Read off the board (never snapshotted onto the event) since the acting
+    object is always still on the battlefield for every event kind this key
+    is meaningful for (ATTACKS).
     """
     controller_id = getattr(source, "controller_id", None)
     subject_key = _subject_event_key(trigger)
@@ -409,6 +428,13 @@ def _build_group_ok(
     # folded into ``controller_key`` so a permanent-recipient condition and
     # a player-recipient one never get confused for each other.
     wants_recipient_you = bool(condition.get("recipient_is_you"))
+    # RULE 702.122c: "whenever a Vehicle crewed by ~ this turn attacks"
+    # (Balthier and Fran) — a filter on the acting object's own state
+    # (`GameObject.crewed_by_ids`, stamped when a creature is tapped to pay
+    # a Crew cost), the same "read the board, not the event" idiom the
+    # goaded/in-combat filters below already use, just keyed on this
+    # ability's own source rather than a designation.
+    want_crewed_by_self = bool(condition.get("crewed_by_self"))
 
     def _group_ok(
         event: Any,
@@ -426,6 +452,7 @@ def _build_group_ok(
         want_goaded=goaded,
         want_in_combat=in_combat,
         want_recipient_you=wants_recipient_you,
+        want_crewed_by_self=want_crewed_by_self,
     ) -> bool:
         event_instance = event.get(skey)
         if other and (event_instance is None or event_instance == iid):
@@ -461,6 +488,13 @@ def _build_group_ok(
                 obj = state.find_object(event_instance) if state is not None else None
                 event_subtypes = _card_subtypes(obj.card) if obj is not None else None
             if not event_subtypes or not any(s in event_subtypes for s in stypes):
+                return False
+        if want_crewed_by_self:
+            if iid is None or event_instance is None:
+                return False
+            state = getattr(context, "state", None)
+            obj = state.find_object(event_instance) if state is not None else None
+            if obj is None or iid not in (getattr(obj, "crewed_by_ids", None) or []):
                 return False
         if want_goaded or want_in_combat:
             snapshot_goaded = event.get("goaded")
@@ -625,6 +659,25 @@ def _trigger_condition(
             return mv is not None and mv <= n
 
         predicates.append(_spell_mv_ok)
+
+    # "Whenever one or more creatures you control with power 7 or greater
+    # deal combat damage to a player, …" (MEC-29, Tifa, Martial Artist) — a
+    # threshold on `EventType.CREATURES_DEALT_COMBAT_DAMAGE_TO_PLAYER`'s own
+    # aggregated ``max_power`` field, the same "checked against a numeric
+    # field the event itself stamps" idiom `spell_mana_value_at_most` uses
+    # for `SPELL_CAST`. A `"group"` condition's own ``min_power``-style
+    # filter can't be reused here: that reads *one* acting object's live
+    # power off the board, but this event is an aggregate over however many
+    # creatures connected this step and names none of them individually.
+    contributor_power_at_least = trigger.get("contributor_power_at_least")
+    if contributor_power_at_least is not None:
+        threshold = int(contributor_power_at_least)
+
+        def _contributor_power_ok(event: Any, context: Any, n=threshold) -> bool:
+            power = event.get("max_power")
+            return power is not None and power >= n
+
+        predicates.append(_contributor_power_ok)
 
     # "Whenever a player casts a spell, if no mana was spent to cast it,
     # counter that spell." (Vexing Bauble) — RULE 601.2h's "free spell" hate,
@@ -1223,6 +1276,8 @@ def _keyword_activated_ability(obj: Any, spec: AbilitySpec) -> Optional[Activate
     name = str(keyword.get("name") or "")
     if name == "cycling":
         return _cycling_activated_ability(obj, spec, keyword)
+    if name == "crew":
+        return _crew_activated_ability(obj, spec, keyword)
     if name not in {"equip", "fortify", "reconfigure"}:
         return None
 
@@ -1285,6 +1340,68 @@ def _cycling_activated_ability(
         cost=cost,
         source=obj,
         description=spec.raw_text or "Cycling",
+    )
+
+
+def _crew_activated_ability(
+    obj: Any, spec: AbilitySpec, keyword: dict[str, Any]
+) -> Optional[ActivatedAbility]:
+    """RULE 702.122a: "Crew N" — "Tap any number of other untapped creatures
+    you control with total power N or greater: This permanent becomes an
+    artifact creature until end of turn." Like Cycling before PAR-9, "Crew N"
+    was recognized by the parser (a bare keyword spec, satisfying the
+    coverage gate) but bound to nothing — `grep -rn "crewed_by"` in `game/`/
+    `models/` found no state at all before MEC-29 — so no Vehicle ever
+    actually became a creature through it.
+
+    The cost (``ActivationCost.crew_power``) is resolved by `GameEngine.
+    _resolve_crew_cost`/`_crew_pool`, a threshold "any number from a pool"
+    choice distinct from `tap_others`' exact count; paying it also stamps
+    the tapped creatures' ids onto ``obj.crewed_by_ids`` (RULE 702.122c),
+    read by the `"crewed_by_self"` RULE 603.1 group-subject trigger
+    condition (`_build_group_ok`) for "whenever a Vehicle crewed by ~ this
+    turn attacks"-shaped abilities (Balthier and Fran).
+
+    The effect reuses `GrantUntilEffect` exactly as an oracle-parsed "until
+    end of turn" static grant would (``type_change``, ``add_types:
+    ["creature"]``, ``target_kind=None`` — a self-targeted grant, per
+    `GrantUntilEffect.apply`'s ``affects="self"`` default): RULE 702.122a's
+    "becomes an artifact creature" is layer 4 (RULE 613.2d), so it goes
+    through the same RULE 613 layer engine as any other type-change static
+    rather than a bespoke flag, and correctly stacks with an existing
+    printed artifact type instead of replacing it.
+    """
+    n = keyword.get("n")
+    if not isinstance(n, int) or n <= 0:
+        return None
+    cost = ActivationCost(crew_power=n)
+    # RULE 208.1: `Card.power`/`toughness` are refused on a noncreature
+    # (`Card.__init__`'s own invariant), so a Vehicle's printed P/T lives in
+    # `vehicle_power`/`vehicle_toughness` instead — without passing them
+    # through here, ``type_change`` would leave the crewed permanent with no
+    # power/toughness at all and RULE 613.3b's copiable-values default (0)
+    # would apply, dying to RULE 704.5f the instant the next state-based
+    # action check ran.
+    type_change_params: dict[str, Any] = {"add_types": ["creature"]}
+    vehicle_power = getattr(obj.card, "vehicle_power", None)
+    vehicle_toughness = getattr(obj.card, "vehicle_toughness", None)
+    if vehicle_power is not None:
+        type_change_params["power"] = vehicle_power
+    if vehicle_toughness is not None:
+        type_change_params["toughness"] = vehicle_toughness
+    effects: list[GameEffect] = [
+        GrantUntilEffect(
+            static={"type": "type_change", "params": type_change_params},
+            duration="end_of_turn",
+            target_kind=None,
+            source=obj,
+        )
+    ]
+    return ActivatedAbility(
+        effects=effects,
+        cost=cost,
+        source=obj,
+        description=spec.raw_text or f"Crew {n}",
     )
 
 

@@ -101,73 +101,12 @@ Plan-level sequencing lives in
   Snuff Out's siblings, the Grafdigger's Cage pair, copy-except-also, the
   count-amount resolver, and the intervening-if family) all closed in a
   2026-08-12 batch — see `Done_Backend.md`'s "MEC-12: the nine 'broader
-  gaps' batch" entry for what shipped and why. Five residual/adjacent gaps
-  that batch surfaced or deliberately left open are their own tickets now:
-  **MEC-27**, **MEC-28**, **PAR-18**, **PAR-19**, **ENG-29**.
-- **MEC-27 · The count-amount resolver's own wider residual, still a long
-  tail (re-measured 2026-08-12).** MEC-12's 2026-08-12 batch folded "the
-  number of `<noun phrase>` you control" into `subgrammars.DEVOTION`/
-  `devotion_selector`, deliberately narrow: a closed set of bare noun
-  phrases (`creatures`/`permanents`/`artifacts`/`lands`/`enchantments`/
-  `planeswalkers` you control, "attacking creatures[ you control]", "tapped
-  creatures you control", a single creature-type word, three two-word
-  compounds). A same-day follow-up closed the two verb families the ticket
-  named as entirely unwired — `AddCountersEffect` gained
-  `amount_from_count_selector` (a new `add_counters_devotion` parser row,
-  "put X `<±1/±1>` counters on `<target/self>`, where X is `<DEVOTION>`")
-  and `CreateTokenEffect`'s existing `count_selector` field (already fully
-  wired at the engine level, per `_CREATE_TOKEN_NUMBER_EQUAL_DEVOTION_RE`'s
-  "equal to" phrasing) is now also reachable from the "create X `<p>/<t>`
-  `<mid>` tokens, where X is `<DEVOTION>`" surface wording — previously
-  narrowed to only subtype/attacking-creatures phrasings
-  (`_CREATE_TOKEN_XX_WHERE_RE`, widened rather than left as a second row).
-  Real yield: 26→28 MODELED, 599→597 UNMODELED
-  (`engine_bench.py cards "where x is the number of"`) — most cards in the
-  remaining 597 have some *other* unrelated blocker too (the gate is
-  fail-closed), so this is a floor, not the true remaining count. What's
-  left, per the ticket's own original framing: a **qualifier grammar**
-  ("creatures you control with power N or less", "tapped `<type>` and/or
-  `<type>` you control" — `DEVOTION`'s own docstring already documents this
-  as the deliberate boundary) and the **draw/life-gain/loss** verb families
-  outside the two rows already wired before this pass. Standing long-tail
-  work in the `PAR-12`/`PARSER_LONG_TAIL.md` mould, not a ticket that
-  closes in one sitting — re-measure before trusting any of these numbers.
-- **MEC-28 · The intervening-if family's own wider residual, narrowed
-  (2026-08-12).** The two primitives the ticket originally named are now
-  built and shipped — `TapEffect`'s RULE 603.1 group-subject retarget
-  (`effect_binder._retarget_implicit_subject_effects`, extended from
-  ENG-29's own attached-permanent shape; closes the "it" half of Raiyuu/
-  A-Raiyuu) and a mass `"attacking_creatures"` untap selector (closed
-  Hellkite Charger outright, plus the untap clause of Hexplate Wallbreaker).
-  None of the 7 cards `engine_bench.py cards "if it's the first combat
-  phase"` names is fully MODELED yet — each has its own *separate*,
-  unrelated blocking clause the original ticket didn't call out:
-  - **Finest Hour** needs "that creature" (not "it") to reach the same
-    group-subject retarget — the retarget itself now exists, but no parser
-    row emits `target_kind: None` for that literal phrase in a group-trigger
-    body yet; needs a `group_subject_only`-gated `EffectHandler` row
-    (mirroring `self_subject_only`/`previous_subject_only`'s existing shape
-    in `handlers.py`, threaded through `parse_effect_body`'s same three-flag
-    convention in `segmenter.py`) — deliberately not attempted in this pass,
-    since it means touching `parse_effect_body`'s signature at every one of
-    its ~15 recursive call sites for one card, not a small addition.
-  - **Karlach, Fury of Avernus** needs a "They gain `<keyword>` until end of
-    turn." tail bound to whichever mass selector the *preceding* clause of
-    the same ability used — `previous_subject`'s existing machinery only
-    tracks a real RULE 115 target (`GameContext.previous_targets`), not a
-    selector choice, so this needs its own small extension, not reuse.
-  - **A-Raiyuu, Storm's Edge**, **Balthier and Fran**, **Raph & Leo, Sibling
-    Rivals**, **Tifa, Martial Artist** are each blocked on an unrelated
-    trigger-*condition* grammar gap having nothing to do with the pronoun
-    primitive at all: "a samurai or warrior you control attacks alone"
-    (compound type-or-type group filter), "a vehicle crewed by `<name>`
-    this turn attacks", "N or more creatures you control with power N or
-    greater deal combat damage to a player" (compound count+power group
-    condition), and "untap 1 or 2 target attacking creatures" (a variable
-    1-2 multi-target count, not the bare "up to N" shape already built).
-  - **Hexplate Wallbreaker**'s remaining blocker is "For Mirrodin!" — its
-    own separate ability-word ETB template (create a token, then attach),
-    unrelated to this ticket's scope entirely; not investigated here.
+  gaps' batch" entry for what shipped and why. The residual/adjacent
+  tickets that batch surfaced (MEC-27, MEC-28, MEC-29, PAR-18, PAR-19,
+  ENG-29) are now all closed too — see `Done_Backend.md`'s matching
+  entries. A narrower gap surfaced while closing MEC-28 (a genuine RULE
+  601.2c target-count *range*) was filed as ENG-30 and closed the same
+  day — see `Done_Backend.md`'s "ENG-30" entry.
 
 ## PLR — Player management
 

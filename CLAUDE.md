@@ -616,8 +616,8 @@ every field it reads, `parser/oracle/gate.py`) since it's called once per
 on every copy/every game. `parser/oracle/processing_list.py` tracks
 cache-wide coverage and ranks the next handlers worth building. The cache is
 now bulk-loaded with the **full ~35k-card Oracle universe**
-(`scripts/import_bulk.py`), so coverage is measured against that: **33.5%
-covered (11,655 / 34,811) as of 2026-08-12, PARSER_VERSION 85** (parser-`MODELED` **or**
+(`scripts/import_bulk.py`), so coverage is measured against that: **33.7%
+covered (11,722 / 34,811) as of 2026-08-12, PARSER_VERSION 88** (parser-`MODELED` **or**
 hand-`AUTHORED`).
 Re-measure with `scripts/coverage_report.py` (ledger-backed — see
 `services/coverage_db.py`) before trusting this number; Batches 1–10 are all
@@ -1115,6 +1115,87 @@ silently filtered to nothing — now `None` unless a caller explicitly asks
 (Agatha's own catalogue entry already did). Full detail:
 `docs/implementation-state/Done_Backend.md`'s "MEC-26" entry.
 
+**MEC-29** (2026-08-12) closed the two cards a MEC-28 pass had left open —
+this time with two genuinely new primitives rather than a further
+deferral. **RULE 702.122 Crew** went from parser-*recognized* (a bare
+keyword spec, satisfying the coverage gate) to real behaviour for the
+first time: `ActivationCost.crew_power`, `GameEngine._resolve_crew_cost`/
+`_crew_pool` (an "any number from a pool" cost sized by a power
+*threshold*, not `tap_others`' exact count), `GameObject.crewed_by_ids`
+(RULE 702.122c, reset each untap step), and `effect_binder.
+_crew_activated_ability` binding "Crew N" onto every Vehicle in the cache
+at once via the same `_keyword_activated_ability` dispatch Equip/Cycling
+already use — the same "recognized but inert" gap PAR-9 closed for
+Cycling. Needed two supporting fixes to actually work rather than merely
+bind: `Card.vehicle_power`/`vehicle_toughness` (RULE 208.1 — a noncreature
+permanent's own printed P/T, which this model had never captured at all,
+so a freshly crewed Vehicle came in 0/0 and died to RULE 704.5f
+immediately), and a real parser bug in `_ANTHEM_RE`'s `_scope` (a bare
+"Vehicles you control" anthem had been silently mis-modeled as
+`creatures_you_control`, since nothing blocked a non-creature *subtype*
+word the way `_NONCREATURE_TYPES` already blocks non-creature *types* —
+fixed with `_ARTIFACT_SUBTYPES`/`_vehicle_scope_params`, shared by
+`_GRANT_RE`/`_QUOTED_GRANT_RE` too). A new `"crewed_by_self"` RULE 603.1
+group-subject trigger-condition key closes **Balthier and Fran**'s own
+"whenever a Vehicle crewed by ~ this turn attacks" (hand-authored — the
+phrasing is a cache-wide singleton, not worth a grammar row). **Tifa,
+Martial Artist**'s "whenever **one or more** creatures you control with
+power 7 or greater deal combat damage to a player" needed correcting this
+ticket's own prior framing first: RULE 603.1 group-subject scoping for "a
+creature you control deals combat damage to a player" already existed
+(Bident of Thassa/Deepfathom Skulker) — the real gap was the "one or
+more" *quantifier*, the same aggregate-vs-per-instance distinction
+`EventType.PLAYER_ATTACKED` already exists to get right for "a player
+attacks you with one or more creatures" rather than reusing the
+per-declaration `ATTACKS` event. Built the combat-damage sibling the same
+way: `EventType.CREATURES_DEALT_COMBAT_DAMAGE_TO_PLAYER`
+(`GameEngine._apply_combat_damage`), fired once per (contributing
+creatures' controller, player hit) pair per damage step — not once per
+qualifying creature, so two simultaneous 7-power hits trigger this exactly
+once, not twice — carrying `max_power` for a new `contributor_power_at_least`
+trigger-condition threshold (`effect_binder._trigger_condition`) to read,
+since the aggregate event names no single acting object a `"group"`
+condition's own per-object `min_power` filter could check. Full detail:
+`docs/implementation-state/Done_Backend.md`'s "MEC-29" entry.
+
+**ENG-30** (2026-08-12, same day) closed the gap MEC-28 had worked around
+rather than deferring it further: RULE 601.2c's third target-count
+shape — a genuine *range* ("one or two target creatures": at least one, at
+most two), which `targeting.TargetSpec` had no field for (only an exact
+`count` or an "up to `count`" 0..N `optional` reading existed). Built as
+`TargetSpec.count_max` plus `effective_count` (the real resolve-time
+slicing cap every `game/effects.py` consumer needed switched to, since
+slicing by the RULE 601.2c *minimum* would have silently dropped a
+legally-chosen second target); the interactive gathering split into the
+two paths this engine already had for "how many" (`RulesEngine.
+_continue_trigger_multi_target`'s round-by-round trigger-target choice,
+`gameBoardView.js`'s `expandMultiTargetRequirements` for a spell/ability
+cast) — both now expand to `count_max` rounds with the first `count`
+mandatory and the rest declinable, reusing the existing "up to N" stop-early
+idiom rather than inventing a new one. The shared parser quantifier every
+multi-target family already read (`catalogue.handlers._MULTI_TARGET_
+QUANTIFIER`) gained a third alternative for "N or M ", which for free
+widened `tap`/`return_to_hand`/`return_from_graveyard`/`add_counters`/
+`pump`'s existing multi-target rows; the two families that don't share that
+quantifier (`divided_damage`'s own local grammar, the pump family's
+dedicated "up to two" rows) got matching dedicated range rows, plus a new
+`PumpEffect.previous_subject` mode (mirroring `TapEffect`/
+`ReturnToHandEffect`'s existing "They…" pronoun idiom) for the "…1 or 2
+target creatures…. They [each] get/gain `<X>`." two-clause shape. Found and
+fixed a dormant bug on the way: the pre-existing "up to two target
+creatures…" pump row (unrelated to this ticket's own range shape) had been
+setting a spec key the `"pump"` `EffectRegistry` factory never read, so
+every card on that template silently offered only one target. Raph & Leo,
+Sibling Rivals (MEC-28's own hand-authored stopgap) now uses the real
+range instead of its single-mandatory-target simplification. Cut the
+`parser_probe.py blocked "[0-9] or [0-9] target"` SOLO list from 30 to 14 —
+the remainder each block on a separate, unrelated gap (a nonstandard
+counter kind, an "activate only if" cost restriction, a negated-keyword
+filter, a mana-value filter on a graveyard search, an additional-cost
+keyword, a multi-source fight shape, and others), individually diagnosed
+rather than left bundled under one ticket. Full detail:
+`docs/implementation-state/Done_Backend.md`'s "ENG-30" entry.
+
 **Notable gaps** (see `docs/implementation-state/BACKLOG.md` for the full list with exact
 scope on each): a kicked spell's "if kicked, ... instead" *override* conditional (as opposed to the
 additional-effect shape already shipped); "search library and/or
@@ -1282,7 +1363,7 @@ English and German.
 | Static abilities / P/T / anthems | `game/continuous.py`, `models/game_object.py` |
 | "As long as …" conditions on a static (RULE 613.6) | `game/static_conditions.py` (the whitelist + evaluator), a static's `active_if` param, `parser/oracle/catalogue/static_handlers.py` (`_STATIC_CONDITION_RES`, `_conditional_static_specs`) |
 | "Until …" durations on a continuous effect (RULE 611) | `game/durations.py`, `GameState.floating_statics`, `effects.GrantUntilEffect` — note "until end of turn" stays on the `temp_*` path |
-| How many targets a spell/ability wants (RULE 115.1/601.2c) | `game/targeting.py` (`TargetSpec.count`/`count_selector`, `resolved_count`, `expand_counts`/`collapse_groups`) |
+| How many targets a spell/ability wants (RULE 115.1/601.2c) | `game/targeting.py` (`TargetSpec.count`/`count_max`/`count_selector`, `effective_count`, `resolved_count`, `expand_counts`/`collapse_groups`) |
 | A clause naming what a previous clause targeted or created | `effects.GameContext.previous_targets` / `created_objects` (both maintained by `_apply_effects_partitioned`) |
 | Activated abilities / costs | `game/costs.py`, `game/game_engine.py` (`activate_ability`) |
 | Card abilities / fetch lands / enters-tapped | `game/ability_catalogue.py`, `effect_binder.bind_from_catalogue` |

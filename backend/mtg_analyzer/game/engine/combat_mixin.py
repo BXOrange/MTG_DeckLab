@@ -414,6 +414,18 @@ class CombatMixin:
     ) -> None:
         """Deal one damage step's gathered assignments, applying protection,
         deathtouch and lifelink to each."""
+        # MEC-29/RULE 603.1: "whenever one or more creatures you control
+        # [with `<characteristic>`] deal combat damage to a player" is an
+        # aggregate condition over this whole step, not a per-hit one — see
+        # `EventType.CREATURES_DEALT_COMBAT_DAMAGE_TO_PLAYER`'s docstring.
+        # Tracked live alongside the ordinary per-hit `DAMAGE` firing below
+        # (every assignment whose ``target`` is a `Player` is by
+        # construction an attacking creature's own damage — RULE 510.1c
+        # blockers only ever strike the attacker(s) they're blocking, never
+        # a player, so no blocker-sourced entry can reach this branch), then
+        # fired once per (contributing controller, player hit) pair after
+        # the loop.
+        player_hits: dict[tuple[Optional[str], Any], int] = {}
         for target, amount, source in assignments:
             # Protection prevents the damage from a source of the named quality
             # (RULE 702.16c; `rules.deal_damage` enforces this too, so no
@@ -432,6 +444,18 @@ class CombatMixin:
             # Lifelink: the source's controller gains that much life (702.15b).
             if combat.has_lifelink(source):
                 self.rules.gain_life(self.state.player_by_id(source.controller_id), amount)
+            if not isinstance(target, GameObject):
+                key = (source.controller_id, target.id)
+                player_hits[key] = max(player_hits.get(key, 0), source.power or 0)
+        for (controller_id, target_id), max_power in player_hits.items():
+            self.state.fire_event(
+                GameEvent(
+                    EventType.CREATURES_DEALT_COMBAT_DAMAGE_TO_PLAYER,
+                    player_id=controller_id,
+                    target_id=target_id,
+                    max_power=max_power,
+                )
+            )
     def _resolve_combat_defender(self, spec: Optional[dict[str, Any]]) -> Optional[Any]:
         """Turn a stored ``combat_defender`` spec back into the live target.
 

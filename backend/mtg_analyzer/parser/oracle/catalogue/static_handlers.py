@@ -100,6 +100,22 @@ _NONCREATURE_TYPES: frozenset[str] = frozenset(
      "enchanted", "equipped"}
 )
 
+#: RULE 300.2's artifact subtypes that are never also a creature subtype (a
+#: Vehicle isn't a creature until crewed, RULE 702.122a) — a bare "Vehicles
+#: [you control]" scope must not fall into `_scope`'s ordinary singular-word
+#: branch below, which would otherwise silently guess it as a *creature*
+#: subtype and scope the anthem to ``creatures_you_control``: a Vehicle that
+#: hasn't been crewed yet is never a creature, so that pool would (wrongly)
+#: exclude every uncrewed Vehicle instead of the printed "Vehicles you
+#: control" reading (Balthier and Fran). Kept distinct from
+#: `_NONCREATURE_TYPES` (main *types*, not subtypes) so its own docstring
+#: stays accurate; `_vehicle_scope_params`/`_is_vehicle_scope` below are the
+#: artifact-subtype-scoped fallback `_ANTHEM_RE`/`_GRANT_RE`/`_QUOTED_GRANT_RE`
+#: all reach for exactly this word, the same "fall back to the permanent
+#: family instead of guessing a creature subtype" idiom `_permanent_type_
+#: scope` already uses for the bare main-type words.
+_ARTIFACT_SUBTYPES: frozenset[str] = frozenset({"vehicle"})
+
 #: Colour words → their WUBRG/C symbol, for a colour-scoped anthem.
 _COLOR_WORDS: dict[str, str] = {
     "white": "W", "blue": "U", "black": "B", "red": "R", "green": "G", "colorless": "C",
@@ -1824,6 +1840,16 @@ def _scope(body: str) -> Optional[_Scope]:
         sub = _singularize(" ".join(prefix))
     elif len(words) == 1:
         sub = _singularize(words[0])
+        # A *bare* artifact-subtype word ("Vehicles [you control]") is never
+        # a creature scope — unlike the "<word> creatures" branch above
+        # (RULE 205.2b's "Vehicle creatures", genuinely creature-scoped,
+        # just narrowed further by the printed subtype), nothing here says
+        # "creatures" at all, so this must fall through to `_ANTHEM_RE`/
+        # `_GRANT_RE`/`_QUOTED_GRANT_RE`'s `_vehicle_scope_params` fallback
+        # instead of being guessed as a creature subtype (a Vehicle isn't a
+        # creature until crewed, RULE 702.122a).
+        if sub in _ARTIFACT_SUBTYPES:
+            return None
     else:
         return None  # multi-word non-"creatures" scope — don't guess
     if not sub or sub in _NONCREATURE_TYPES:
@@ -1868,14 +1894,15 @@ def _scope_params(scope: _Scope, m: "re.Match[str]") -> dict:
     return params
 
 
-#: PAR-3 — a *bare* non-creature permanent-type word ("artifacts", "other
-#: enchantments"), for `_GRANT_RE`/`_QUOTED_GRANT_RE` only: word -> (the
-#: "you control" selector, the global selector). Every selector named here
-#: already exists in `game/continuous.py`'s `group_selector_objects` — PAR-3
-#: is parser-side recognition only, no new engine primitive. Deliberately
-#: never consulted by `_ANTHEM_RE`: a bare "+N/+N" clause on a non-creature
-#: permanent is never printed on a real card, so `_scope`'s `_NONCREATURE_
-#: TYPES` block-list stays in force there.
+#: PAR-3 — a *bare* non-creature permanent **type** word ("artifacts", "other
+#: enchantments"), for `_GRANT_RE`/`_QUOTED_GRANT_RE` (and, since Balthier and
+#: Fran, `_ANTHEM_RE` too — a bare "+N/+N" clause on a non-creature permanent
+#: *is* printed on a real card after all: "Vehicles you control get +1/+1").
+#: word -> (the "you control" selector, the global selector). Every selector
+#: named here already exists in `game/continuous.py`'s `group_selector_
+#: objects` — PAR-3 is parser-side recognition only, no new engine primitive.
+#: A bare *subtype* word ("vehicles") isn't in this table at all — see
+#: `_ARTIFACT_SUBTYPES`/`_vehicle_scope_params` instead.
 _PERMANENT_TYPE_AFFECTS: dict[str, tuple[str, str]] = {
     "artifact": ("artifacts_you_control", "all_permanents"),
     "enchantment": ("permanents_you_control", "all_permanents"),
@@ -1932,6 +1959,39 @@ def _permanent_scope_params(word: str, m: "re.Match[str]") -> dict:
         params["exclude_self"] = True
     if _PERMANENT_TYPE_INHERENT.get(params["affects"]) != word:
         params["card_type"] = word
+    return params
+
+
+def _is_vehicle_scope(body: str) -> bool:
+    """A bare "[other] Vehicles [you control]" scope (Balthier and Fran) —
+    the `_ARTIFACT_SUBTYPES` sibling of `_permanent_type_scope`'s bare
+    main-type check, since "vehicle" is a *subtype* (`continuous.
+    _has_subtype`), not one of `_PERMANENT_TYPE_AFFECTS`'s main-type words.
+    """
+    words = body.split()
+    while words and words[0] in ("all", "each"):
+        words = words[1:]
+    return len(words) == 1 and _singularize(words[0]) in _ARTIFACT_SUBTYPES
+
+
+def _vehicle_scope_params(m: "re.Match[str]") -> dict:
+    """The `affects`(+``subtype``) params for a bare Vehicle scope — the
+    `_ARTIFACT_SUBTYPES` sibling of `_permanent_scope_params`, always
+    narrowed to the printed subtype (unlike that function's ``card_type``,
+    which only appears when the base selector is broader than the printed
+    word — ``artifacts_you_control``/``all_permanents`` are both broader
+    than "Vehicles" alone, so this narrows every time).
+    """
+    other = bool(m.group("scope"))
+    yours = bool(m.group("yours"))
+    params: dict = {
+        "affects": "artifacts_you_control" if yours else "all_permanents",
+        "subtype": "Vehicle",
+    }
+    if not yours:
+        params["card_type"] = "artifact"
+    if other:
+        params["exclude_self"] = True
     return params
 
 
@@ -2944,9 +3004,19 @@ def static_effect_specs(clause: str) -> Optional[list[EffectSpec]]:
     m = _ANTHEM_RE.fullmatch(text)
     if m is not None:
         scope = _scope(m.group("body"))
-        if scope is None:
+        if scope is not None:
+            params = _scope_params(scope, m)
+        elif _is_vehicle_scope(m.group("body")):
+            # "Vehicles you control get +1/+1 and have vigilance and
+            # reach." (Balthier and Fran) — the `_ARTIFACT_SUBTYPES`
+            # fallback: a Vehicle isn't a creature until crewed, so this
+            # must not fall through to `_scope`'s ordinary (creature-only)
+            # reading, which would wrongly scope the anthem to
+            # ``creatures_you_control`` and so exclude every uncrewed
+            # Vehicle it's printed to buff.
+            params = _vehicle_scope_params(m)
+        else:
             return None
-        params = _scope_params(scope, m)
         specs = [
             EffectSpec("anthem",
                        {"power": int(m.group("p")), "toughness": int(m.group("t")), **params})
@@ -2971,6 +3041,8 @@ def static_effect_specs(clause: str) -> Optional[list[EffectSpec]]:
         scope = _scope(m.group("body"))
         if scope is not None:
             scope_params = _scope_params(scope, m)
+        elif _is_vehicle_scope(m.group("body")):
+            scope_params = _vehicle_scope_params(m)
         else:
             # PAR-3: a bare non-creature scope ("Other enchantments have
             # '…'", Aura Flux) — `_scope` deliberately stays creature-only
@@ -2991,6 +3063,8 @@ def static_effect_specs(clause: str) -> Optional[list[EffectSpec]]:
         scope = _scope(m.group("body"))
         if scope is not None:
             scope_params = _scope_params(scope, m)
+        elif _is_vehicle_scope(m.group("body")):
+            scope_params = _vehicle_scope_params(m)
         else:
             # PAR-3, same fallback as `_QUOTED_GRANT_RE` above — "Artifacts
             # you control have hexproof." (Leonin Abunas-shaped).

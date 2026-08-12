@@ -18,9 +18,18 @@ change; this batch adds one more embedding, the devotion-scaled sibling of
 (Bag End Porter/Angelic Exaltation-adjacent), which previously had none.
 
 Deliberately narrow, matching the fragment's own docstring: only the plain
-noun phrases a `count_selector` entry already exists for. A qualified
-phrase ("creatures you control with power 2 or less") or a two-word
-subtype phrase stays unclaimed rather than guessed.
+noun phrases a `count_selector` entry already exists for, plus (since
+MEC-27) two qualified shapes — "creatures you control with power N or
+less/greater" and "tapped `<type>`[ and/or `<type>`] you control". A
+two-word subtype phrase, or any other qualifier (toughness, "with power N
+or less" on anything but bare "creatures"), still stays unclaimed rather
+than guessed.
+
+MEC-27 also widened the amount-suffix side: the "draw"/"you gain life"/"you
+lose life" verb families now embed `{DEVOTION}` too (previously only
+damage/life-loss-to-each-opponent/counters/pump/tokens did), plus three
+combined "draw and gain/lose life"/"lose and gain life" templates that share
+one `{DEVOTION}` amount across two effects in printed order.
 """
 
 from __future__ import annotations
@@ -91,12 +100,64 @@ def test_legendary_creatures_compound():
     assert _resolve("the number of legendary creatures you control") == "legendary_creatures_you_control"
 
 
-def test_qualified_phrase_stays_unresolved():
-    assert _resolve("the number of creatures you control with power 2 or less") is None
-
-
 def test_devotion_still_resolves_after_the_widening():
     assert _resolve("your devotion to blue") == "devotion_to_blue"
+
+
+# -- MEC-27: the qualifier grammar --------------------------------------------
+
+
+def test_power_qualifier_less():
+    assert (
+        _resolve("the number of creatures you control with power 2 or less")
+        == "creatures_you_control_with_power_le_2"
+    )
+
+
+def test_power_qualifier_greater():
+    assert (
+        _resolve("the number of creatures you control with power 4 or greater")
+        == "creatures_you_control_with_power_ge_4"
+    )
+
+
+def test_toughness_qualifier_still_stays_unresolved():
+    # Only power is built (real printed cards use power, never toughness, in
+    # this exact template) — still fail-closed on the untouched dimension.
+    assert _resolve("the number of creatures you control with toughness 2 or less") is None
+
+
+def test_tapped_creatures_you_control_unchanged_after_generalizing():
+    # The old creatures-only literal branch is gone, folded into the general
+    # "tapped <type>[ and/or <type>] you control" one — must still resolve to
+    # the exact same name every existing caller/test expects.
+    assert _resolve("the number of tapped creatures you control") == "tapped_creatures_you_control"
+
+
+def test_tapped_bare_word_you_control():
+    assert _resolve("the number of tapped artifacts you control") == "tapped_artifacts_you_control"
+
+
+def test_tapped_subtype_you_control():
+    assert _resolve("the number of tapped assassins you control") == "tapped_type_assassin_you_control"
+
+
+def test_tapped_and_or_two_bare_words():
+    assert (
+        _resolve("the number of tapped artifacts and/or creatures you control")
+        == "tapped_artifacts_and_or_creatures_you_control"
+    )
+
+
+def test_noncreature_subtype_word_stays_unresolved():
+    # "Bobbleheads"/"Shrines" are real cards' artifact-/enchantment-subtype
+    # noun phrases, not creature types — the bare `count_subtype` catch-all
+    # must not guess `creatures_you_control_of_type_bobblehead` (always 0)
+    # for them. Found while sizing MEC-27's draw-verb widening: Charisma/
+    # Strength Bobblehead had been silently mis-modeled this way since the
+    # counter/token devotion rows shipped, always creating/counting 0.
+    assert _resolve("the number of bobbleheads you control") is None
+    assert _resolve("the number of shrines you control") is None
 
 
 # -- an existing target-pump handler picks up the new reading for free -----
@@ -256,3 +317,121 @@ def test_create_token_bare_devotion_scales_with_creatures_you_control():
     # Source itself) → 2 Soldier tokens created.
     soldiers = [o for o in eng.state.battlefield if o.name == "Soldier"]
     assert len(soldiers) == 2
+
+
+# -- MEC-27: the draw/gain-life/lose-life verb families -----------------------
+
+
+def test_draw_devotion_parses():
+    effects = parse_effect_body("draw x cards, where x is the number of creatures you control")
+    assert effects is not None
+    assert len(effects) == 1
+    assert effects[0].type == "draw"
+    assert effects[0].params.get("amount_from_count_selector") == "creatures_you_control"
+
+
+def test_gain_life_devotion_parses():
+    effects = parse_effect_body("you gain x life, where x is the number of creatures you control")
+    assert effects is not None
+    assert len(effects) == 1
+    assert effects[0].type == "gain_life"
+    assert effects[0].params.get("count_selector") == "creatures_you_control"
+
+
+def test_lose_life_self_devotion_parses():
+    effects = parse_effect_body("you lose x life, where x is the number of creatures you control")
+    assert effects is not None
+    assert len(effects) == 1
+    assert effects[0].type == "lose_life"
+    assert effects[0].params.get("amount_from_count_selector") == "creatures_you_control"
+
+
+def test_champion_of_dusk_is_modeled():
+    card = creature(
+        "Champion of Dusk", power=3, toughness=3,
+        oracle_text="When this creature enters, you draw X cards and you lose X life, "
+                    "where X is the number of Vampires you control.",
+    )
+    result = parse_oracle(card)
+    assert result.coverage != UNMODELED
+    assert result.unclaimed == []
+
+
+def test_draw_devotion_scales_with_creatures_you_control():
+    eng = make_engine("p1", "p2")
+    put(eng.state, creature("Ally One"))
+    source = put(eng.state, creature("Draw Source", oracle_text=(
+        "When this creature enters, you draw x cards and you lose x life, "
+        "where x is the number of creatures you control."
+    )))
+    p1 = eng.state.player_by_id("p1")
+    for i in range(10):
+        p1.library.append(GameObject(
+            Card(id=f"Filler {i}", name=f"Filler {i}", type_line="Instant", is_instant=True),
+            owner_id="p1", zone=Zone.LIBRARY,
+        ))
+
+    from mtg_analyzer.models.events import EventType, GameEvent
+    eng.state.fire_event(GameEvent(
+        EventType.ENTERS_BATTLEFIELD, controller_id="p1", instance_id=source.instance_id,
+        object=source.name, object_types=sorted(source.type_words),
+    ))
+    placed = eng.rules.put_triggers_on_stack()
+    assert placed == 1
+    before_life = eng.state.player_by_id("p1").life
+    eng.resolve_until_stable()
+
+    # 2 creatures on the board when the trigger resolves (Ally One + Draw
+    # Source itself) → draw 2, lose 2 life.
+    assert len(eng.state.player_by_id("p1").hand) == 2
+    assert eng.state.player_by_id("p1").life == before_life - 2
+
+
+def test_lose_life_and_gain_life_devotion_parses():
+    # Mishra, Claimed by Gix-shaped drain — must be claimed as *one* clause,
+    # not left to the generic " and " connector split (which would hand the
+    # first half's literal "x" to the plain `_lose_life_selector` row's
+    # {X}-announcement sentinel — never substituted for a triggered ability
+    # with no X cost — and crash comparing a string to 0).
+    effects = parse_effect_body(
+        "each opponent loses x life and you gain x life, where x is the number of attacking creatures"
+    )
+    assert effects is not None
+    assert len(effects) == 2
+    assert effects[0].type == "lose_life"
+    assert effects[0].params.get("amount_from_count_selector") == "attacking_creatures"
+    assert effects[0].params.get("selector") == "each_opponent"
+    assert effects[1].type == "gain_life"
+    assert effects[1].params.get("count_selector") == "attacking_creatures"
+
+
+def test_lose_life_and_gain_life_devotion_resolves_without_crashing():
+    # Before this handler existed, the generic " and " connector split would
+    # have handed the first half's literal "x" to the plain
+    # `_lose_life_selector` row, whose `amount="x"` is only ever substituted
+    # for an announced-{X} spell/ability — never for this ability — so
+    # `LoseLifeEffect.apply`'s `amount <= 0` would crash comparing a string
+    # to an int. Exercised directly through `GameContext`/`build_effects`
+    # rather than a real trigger firing, since this is about the effect
+    # *list* resolving correctly, not trigger-condition recognition.
+    from mtg_analyzer.game.effect_binder import build_effects
+    from mtg_analyzer.game.effects import GameContext
+
+    eng = make_engine("p1", "p2")
+    attacker = put(eng.state, creature("Attacker One", power=2, toughness=2))
+    attacker.attacking = True
+
+    specs = parse_effect_body(
+        "each opponent loses x life and you gain x life, where x is the number of attacking creatures"
+    )
+    effects = build_effects(specs, source=attacker)
+
+    p1 = eng.state.player_by_id("p1")
+    p2 = eng.state.player_by_id("p2")
+    before_p1, before_p2 = p1.life, p2.life
+    ctx = GameContext(eng.state, eng.rules)
+    for effect in effects:
+        effect.apply(ctx)
+
+    assert p2.life == before_p2 - 1
+    assert p1.life == before_p1 + 1

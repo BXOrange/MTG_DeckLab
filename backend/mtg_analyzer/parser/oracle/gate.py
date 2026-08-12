@@ -20,6 +20,7 @@ Pure — **no `game/` imports** (front-end security boundary).
 from __future__ import annotations
 
 import copy
+import re
 from dataclasses import dataclass, field
 from typing import Any, Optional
 
@@ -945,7 +946,47 @@ NEVER_SUPPORTED = "NEVER_SUPPORTED"
 #: produced by Treasures/basic lands/creatures", Security Rhox/Imperiosaur/
 #: Myr Superion), the primitive PAR-19 had previously confirmed-and-
 #: deferred as genuinely new before this pass built it.
-PARSER_VERSION = "85"
+#:
+#: 86 (2026-08-12): MEC-27/MEC-28 closed. MEC-27: `subgrammars.DEVOTION`'s
+#: qualifier grammar — "creatures you control with power N or less/
+#: greater" and generalized "tapped `<type>`[ and/or `<type>`] you
+#: control" — plus the draw/gain-life/lose-life verb families (`DrawCard
+#: Effect.amount_from_count_selector`, six new devotion-amount handler
+#: rows incl. the "each opponent loses X and you gain X" drain combo); en
+#: route, found and fixed a pre-existing bug where "Bobbleheads"/"Shrines"
+#: (artifact/enchantment subtypes) were silently guessed as creature
+#: subtypes by the `count_subtype` catch-all (`_COUNT_PHRASE_NONCREATURE_
+#: SUBTYPE_WORDS` denylist; Charisma/Strength Bobblehead's own counter/
+#: token abilities had always resolved to 0). MEC-28: `group_subject`/
+#: `previous_selector` threaded through `parse_effect_body`/`match_clause`
+#: (Finest Hour's "that creature", Karlach, Fury of Avernus's "They gain
+#: `<keyword>`"), RULE 506.4's bare "whenever you attack" trigger
+#: (`PLAYER_ATTACKED`), `_EXTRA_COMBAT_PHASE_RE`'s subject-first word
+#: order (A-Raiyuu/Raiyuu, Storm's Edge — whose own stale hand-authored
+#: catalogue entry, predating the extra-combat-phase primitive, was
+#: deleted in favor of the now-complete parser), and the "For Mirrodin!"
+#: ability word's reminder-text-only rules text (`gate._expand_ability_
+#: word_reminders`, promoted before `normalize` strips parentheticals).
+#: MEC-29: `_ANTHEM_RE`/`_GRANT_RE`/`_QUOTED_GRANT_RE`'s new
+#: `_ARTIFACT_SUBTYPES`/`_vehicle_scope_params` fallback — a bare
+#: "Vehicles [you control]" scope no longer silently mis-parses as a
+#: creature-subtype anthem (`catalogue/static_handlers.py`); Balthier and
+#: Fran and Tifa, Martial Artist themselves are hand-authored (RULE 702.122
+#: Crew and the "one or more creatures … deal combat damage" aggregate
+#: quantifier are both singleton phrasings, not new grammar rows), but the
+#: anthem fix is a real classification change on its own.
+#: ENG-30: RULE 601.2c's "N or M target X" range (`targeting.TargetSpec.
+#: count_max`) — `_MULTI_TARGET_QUANTIFIER`'s new range alternative
+#: (`catalogue/handlers.py`) reclassifies every "1 or 2 target X" clause
+#: that used to fall through unclaimed (tap/return/return-from-graveyard/
+#: distribute-counters/damage[-divided/-each]/pump, both P/T and
+#: keyword-only, plus a `previous_subject` pump pronoun sibling and a
+#: `nonland_permanent` multi-target row); also fixed a dormant bug found
+#: alongside it — "up to two target creatures…" pump clauses (Dauntless
+#: Onslaught-shaped, unrelated to the range shape) were silently only ever
+#: offering one target, since the handler set a "count" key the "pump"
+#: `EffectRegistry` factory never read.
+PARSER_VERSION = "88"
 
 
 @dataclass
@@ -995,6 +1036,35 @@ def _mentions_stickers(raw: str) -> bool:
     machinery to decide — it's an early exit, not a parsed clause.
     """
     return "sticker" in raw.lower()
+
+
+#: RULE 207.2c: an *ability word* ("For Mirrodin!") has no rules meaning of
+#: its own — the reminder text immediately following it *is* the actual
+#: ability, unlike a keyword's reminder text (which merely restates a
+#: standing rule the engine already knows). `normalize` unconditionally
+#: strips every parenthetical as reminder text (`_REMINDER`), which would
+#: silently discard this ability word's entire rules text before the
+#: segmenter ever sees it — the same "read it before normalize strips
+#: parentheticals" problem `game/dungeons.py`'s room-arrow parsing solves by
+#: staying outside this pipeline entirely. "For Mirrodin!" instead only
+#: needs its *one* fixed reminder-text body promoted to real, ordinary
+#: oracle text (9 SOLO cache cards, MEC-28 — all print the identical
+#: wording, RULE 207.2's ability-word reminder text is never
+#: card-specific), so it's cheaper to rewrite the raw line in place than to
+#: build a second raw-text-reading subsystem for one template: "when this
+#: Equipment enters, create a 2/2 red Rebel creature token, then attach
+#: this to it." then flows through `normalize`/`segment_line` exactly like
+#: any other printed ETB trigger (`handlers._CREATE_TOKEN_AND_ATTACH_RE`
+#: already covers the create-and-attach body once it's real text again).
+_FOR_MIRRODIN_RE = re.compile(
+    r"For Mirrodin! \((?P<reminder>[^()]*)\)", re.IGNORECASE,
+)
+
+
+def _expand_ability_word_reminders(raw: str) -> str:
+    """Promote known ability-word reminder text to real oracle text, before
+    `normalize` strips every parenthetical (see `_FOR_MIRRODIN_RE`)."""
+    return _FOR_MIRRODIN_RE.sub(lambda m: m.group("reminder"), raw)
 
 
 def _is_spell(card: Any) -> bool:
@@ -1168,6 +1238,7 @@ def _parse_oracle_uncached(card: Any) -> ParseResult:
         # never shows up in the processing-list backlog (see
         # `NEVER_SUPPORTED`'s docstring above).
         return ParseResult(specs=list(keyword_specs), coverage=NEVER_SUPPORTED)
+    raw = _expand_ability_word_reminders(raw)
     normalized = normalize(raw, getattr(card, "name", None))
     if not normalized:
         return ParseResult(specs=list(keyword_specs), coverage=MODELED)

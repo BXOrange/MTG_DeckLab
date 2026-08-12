@@ -88,6 +88,30 @@ class EffectHandler:
     #: earlier clause to point at, and a later part of a split body has no
     #: guarantee the pronoun still means the source.
     previous_subject_only: bool = False
+    #: MEC-28: a row whose clause says "it"/"that creature" about *whichever
+    #: object matched* a RULE 603.1 group-subject trigger condition
+    #: ("whenever a creature you control attacks alone, … untap **that
+    #: creature**.", Finest Hour-shaped) — a third, genuinely different
+    #: pronoun referent from both flags above: not the ability's own source
+    #: (`self_subject_only`), and not a creature an *earlier clause of this
+    #: same body* picked (`previous_subject_only`), but the specific object
+    #: that satisfied the trigger, which varies every firing. Offered only
+    #: when the caller states the trigger really has a ``{"subject":
+    #: "group"}`` condition; `effect_binder._retarget_implicit_subject_
+    #: effects` is what turns the resulting ``target_kind: None`` into a
+    #: live per-firing read at bind time.
+    group_subject_only: bool = False
+    #: MEC-28: a row whose clause says "they" about the *group a mass
+    #: selector in the immediately preceding clause of this same body just
+    #: acted on* ("untap all attacking creatures. **They** gain first
+    #: strike until end of turn.", Karlach, Fury of Avernus-shaped) —
+    #: distinct from `previous_subject_only`, which reads `GameContext.
+    #: previous_targets` (a RULE 115 targeted group); a mass selector
+    #: ("all attacking creatures") is untargeted (RULE 601.2c) and never
+    #: populates that list. Offered only when the preceding split clause's
+    #: own spec actually used a recognised group selector (`segmenter.
+    #: _announces_group_selector`).
+    previous_selector_only: bool = False
 
     def match(self, clause: str) -> Optional[list[EffectSpec]]:
         """Effects for ``clause`` if this handler claims it whole, else ``None``.
@@ -134,6 +158,10 @@ _MULTI_TARGET_ROWS: list[tuple[str, str]] = [
     (r"target creatures and/or planeswalkers", "any"),
     (r"target artifacts and/or enchantments", "permanent"),
     (r"target creatures", "creature"),
+    # "return 1 or 2 target nonland permanents to their owners' hands"
+    # (Wanderwine Farewell) — tried before the bare `target permanents` row
+    # below since RAW excludes lands, unlike that row.
+    (r"target nonland permanents", "nonland_permanent"),
     (r"target permanents", "permanent"),
     (r"target artifacts", "permanent"),
     (r"target enchantments", "permanent"),
@@ -188,8 +216,16 @@ def _multi_target_kind(phrase: str) -> Optional[str]:
 #: voluntarily before the cap — the cap only needs to never be the *true*
 #: bottleneck.
 _ANY_NUMBER_TARGET_CAP = 10
+#: ENG-30: RULE 601.2c's third quantifier shape — a genuine mandatory
+#: *range* ("one or two target creatures", digits already folded by
+#: `normalize.py`) — at least ``range_min``, at most ``range_max``, unlike
+#: "up to N" whose floor is always 0. Tried before the plain ``count``
+#: alternative below so "1 or 2 " isn't swallowed by a bare `\d+` match on
+#: just the "1" (`targeting.TargetSpec.count_max`).
 _MULTI_TARGET_QUANTIFIER = (
-    r"(?:(?P<any_number>any number of )|(?P<up_to>up to )?(?P<count>\d+) )"
+    r"(?:(?P<any_number>any number of )"
+    r"|(?P<range_min>\d+) or (?P<range_max>\d+) "
+    r"|(?P<up_to>up to )?(?P<count>\d+) )"
 )
 
 
@@ -209,7 +245,10 @@ def _multi_target_params(m: re.Match[str], allow_spell: bool = False) -> Optiona
     job, not this one's — a count of exactly 1 here would just be a
     confusing duplicate route to the same effect). PAR-15's "any number of"
     always carries ``optional=True`` (RULE 115.1a — 0 is always a legal
-    choice) and a capped ``count`` (`_ANY_NUMBER_TARGET_CAP`).
+    choice) and a capped ``count`` (`_ANY_NUMBER_TARGET_CAP`). ENG-30's
+    "N or M" range sets ``count`` to the RULE 601.2c *minimum* and
+    ``count_max`` to the ceiling (`targeting.TargetSpec.count_max`) — never
+    ``optional``, since fewer than the minimum isn't a legal choice.
 
     ``allow_spell=True`` (only `exile_multi_target`) additionally recognizes
     "target spells" — see `_MULTI_TARGET_ALT_WITH_SPELL`'s docstring for why
@@ -223,6 +262,11 @@ def _multi_target_params(m: re.Match[str], allow_spell: bool = False) -> Optiona
         return None
     if m.groupdict().get("any_number"):
         params: dict = {"target_kind": kind, "count": _ANY_NUMBER_TARGET_CAP, "optional": True}
+    elif m.groupdict().get("range_min") is not None:
+        range_min, range_max = int(m.group("range_min")), int(m.group("range_max"))
+        if range_min < 1 or range_max <= range_min:
+            return None  # fail closed on a nonsensical/degenerate range
+        params = {"target_kind": kind, "count": range_min, "count_max": range_max}
     else:
         count = int(m.group("count"))
         if count < 2:
@@ -441,6 +485,52 @@ def _divided_damage(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     return [EffectSpec("damage", {
         "amount": count_or_x_of(m.group("n")), "target_kind": kind,
         "count": _ANY_NUMBER_TARGET_CAP, "optional": True, "divided": True,
+    })]
+
+
+#: ENG-30: "deals N damage divided as you choose among 1 or 2 targets"
+#: (Arc Mage/Chandra's Pyrohelix/Electrolyze/Fire // Ice/Forked Bolt/
+#: Skarrgan Hellkite-shaped) — the *fixed range* sibling of
+#: `_DIVIDED_DAMAGE_RE`'s "any number of": a genuine RULE 601.2c minimum of
+#: one. Same local ``targets|target creatures`` alternation as that row
+#: (not the shared `_MULTI_TARGET_ALT`, which this family has never used).
+_DIVIDED_DAMAGE_RANGE_RE = _c(
+    rf"(?:(?:~|it|this creature|this land|this permanent) )?"
+    rf"deals? {COUNT_X} damage divided as you choose among "
+    r"(?P<range_min>\d+) or (?P<range_max>\d+) (?P<target>targets|target creatures)"
+)
+
+
+def _divided_damage_range(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    range_min, range_max = int(m.group("range_min")), int(m.group("range_max"))
+    if range_min < 1 or range_max <= range_min:
+        return None
+    kind = "creature" if m.group("target") == "target creatures" else "any"
+    return [EffectSpec("damage", {
+        "amount": count_or_x_of(m.group("n")), "target_kind": kind,
+        "count": range_min, "count_max": range_max, "divided": True,
+    })]
+
+
+#: ENG-30: "deals N damage to each of 1 or 2 targets" (Storm of Steel) — the
+#: full-amount-to-each sibling of `_divided_damage_range` (mirrors how
+#: `_damage_each_multi_target` relates to `_divided_damage` for the "any
+#: number of"/"up to N" shapes), same local bare-``targets`` alternation.
+_DAMAGE_EACH_RANGE_RE = _c(
+    rf"(?:(?:~|it|this creature|this land|this permanent) )?"
+    rf"deals? (?P<amount>\d+) damage to each of "
+    r"(?P<range_min>\d+) or (?P<range_max>\d+) (?P<target>targets|target creatures)"
+)
+
+
+def _damage_each_range(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    range_min, range_max = int(m.group("range_min")), int(m.group("range_max"))
+    if range_min < 1 or range_max <= range_min:
+        return None
+    kind = "creature" if m.group("target") == "target creatures" else "any"
+    return [EffectSpec("damage", {
+        "amount": int(m.group("amount")), "target_kind": kind,
+        "count": range_min, "count_max": range_max,
     })]
 
 
@@ -1077,6 +1167,118 @@ def _lose_life_selector_subtype(m: re.Match[str]) -> list[EffectSpec]:
     })]
 
 
+#: MEC-27's own residual: the "draw"/"you gain life"/"you lose life" verb
+#: families `{DEVOTION}` had never been wired to, unlike the "each player/
+#: opponent loses life"/damage/counters/pump/token families above — always
+#: the caster/ability's own controller (RULE 118), not a mass "each
+#: player/opponent" recipient, so each is its own plain row rather than
+#: routed through `_selector_devotion_builder`'s selector-word plumbing.
+_DRAW_DEVOTION_RE = _c(rf"draws? x cards?, where x is {DEVOTION}")
+
+
+def _draw_devotion(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    dsel = devotion_selector(m)
+    if not dsel:
+        return None
+    return [EffectSpec("draw", {"amount_from_count_selector": dsel})]
+
+
+_GAIN_LIFE_DEVOTION_RE = _c(rf"you gains? x life, where x is {DEVOTION}")
+
+
+def _gain_life_devotion(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    dsel = devotion_selector(m)
+    if not dsel:
+        return None
+    return [EffectSpec("gain_life", {"count_selector": dsel})]
+
+
+_LOSE_LIFE_SELF_DEVOTION_RE = _c(rf"you loses? x life, where x is {DEVOTION}")
+
+
+def _lose_life_self_devotion(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    dsel = devotion_selector(m)
+    if not dsel:
+        return None
+    return [EffectSpec("lose_life", {"amount_from_count_selector": dsel})]
+
+
+#: The three "draw X and gain/lose X life" combined templates (Champion of
+#: Dusk/Graveborn Muse/Minions' Murmurs, Nissa/Camaraderie) — two one-shot
+#: effects sharing one `{DEVOTION}` amount, in the printed clause's own
+#: order (RULE 608.2b). The repeated "you" (Champion of Dusk's "you draw x
+#: cards and **you** lose x life") is optional since some printings drop it
+#: (Painful Truths' "you draw x cards and lose x life").
+_DRAW_AND_LOSE_LIFE_DEVOTION_RE = _c(
+    rf"you draws? x cards? and (?:you )?loses? x life, where x is {DEVOTION}"
+)
+_GAIN_LIFE_AND_DRAW_DEVOTION_RE = _c(
+    rf"you gains? x life and draws? x cards?, where x is {DEVOTION}"
+)
+_DRAW_AND_GAIN_LIFE_DEVOTION_RE = _c(
+    rf"you draws? x cards? and (?:you )?gains? x life, where x is {DEVOTION}"
+)
+
+
+def _draw_and_lose_life_devotion(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    dsel = devotion_selector(m)
+    if not dsel:
+        return None
+    return [
+        EffectSpec("draw", {"amount_from_count_selector": dsel}),
+        EffectSpec("lose_life", {"amount_from_count_selector": dsel}),
+    ]
+
+
+def _gain_life_and_draw_devotion(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    dsel = devotion_selector(m)
+    if not dsel:
+        return None
+    return [
+        EffectSpec("gain_life", {"count_selector": dsel}),
+        EffectSpec("draw", {"amount_from_count_selector": dsel}),
+    ]
+
+
+def _draw_and_gain_life_devotion(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    dsel = devotion_selector(m)
+    if not dsel:
+        return None
+    return [
+        EffectSpec("draw", {"amount_from_count_selector": dsel}),
+        EffectSpec("gain_life", {"count_selector": dsel}),
+    ]
+
+
+#: "Each opponent loses X life and you gain X life, where X is `{DEVOTION}`."
+#: (Mishra, Claimed by Gix-shaped drain) — a fourth combined shape, distinct
+#: from Gray Merchant's "each opponent loses X life... you gain life equal to
+#: the life lost this way" (that one's already `_lose_life_selector_devotion`
+#: + `_gain_life_lost_this_way`, two independently-claimed clauses): here
+#: both halves name the *same* count directly, in one sentence, with no
+#: {X}-cost of its own — critically, this must be claimed as **one** clause
+#: rather than left to the generic `" and "` connector split
+#: (`segmenter._CONNECTORS`), which would otherwise match its first half
+#: ("each opponent loses x life") against the plain `_lose_life_selector`
+#: row's `COUNT_X` — that row's "x" is RULE 107.3c's *announced-{X}*
+#: sentinel, never substituted for a triggered ability with no X cost, so
+#: the split would leave a `LoseLifeEffect(amount="x")` that crashes
+#: (`"x" <= 0`) instead of reading `{DEVOTION}` at all.
+_LOSE_LIFE_AND_GAIN_LIFE_DEVOTION_RE = _c(
+    rf"each opponent loses x life and you gains? x life, where x is {DEVOTION}"
+)
+
+
+def _lose_life_and_gain_life_devotion(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    dsel = devotion_selector(m)
+    if not dsel:
+        return None
+    return [
+        EffectSpec("lose_life", {"amount_from_count_selector": dsel, "selector": "each_opponent"}),
+        EffectSpec("gain_life", {"count_selector": dsel}),
+    ]
+
+
 def _rad_counter_amount(token: str) -> "int | str":
     # "N rad counters"/"a rad counter" (COUNT) or "X rad counters" (RULE
     # 601.2b's own announced {X} — the same ``"x"`` sentinel
@@ -1610,6 +1812,19 @@ def _tap_self(m: re.Match[str]) -> list[EffectSpec]:
     return [EffectSpec("tap", {"target_kind": None, "untap": untap})]
 
 
+#: MEC-28: "untap that creature" (Finest Hour's own attacks-alone trigger) —
+#: the `group_subject_only` sibling of `_tap_self`'s bare "it"/"~" pronoun:
+#: "that creature" is genuinely ambiguous (it means *whichever creature
+#: matched this ability's group-subject trigger condition* here, but means
+#: an earlier clause's own target on `_lockdown`'s `previous_subject_only`
+#: row), so it's a dedicated row rather than added to `_SELF_SUBJECT`, only
+#: offered when the caller confirms the trigger really has a group subject.
+#: Same output shape as `_tap_self` — `effect_binder.
+#: _retarget_implicit_subject_effects` is what turns the resulting
+#: ``target_kind: None`` into a live per-firing read at bind time.
+_TAP_GROUP_SUBJECT_RE = _c(r"(?P<verb>tap|untap) that creature")
+
+
 #: "enchanted creature"/"equipped creature"/"fortified land" — an Aura/
 #: Equipment/Fortify's own activated-ability body implicitly acting on
 #: whatever it's attached to (RULE 303.4/301.5), no player choice at all
@@ -1689,7 +1904,7 @@ def _exile_self(m: re.Match[str]) -> list[EffectSpec]:
 #: target and the "a land you control" controller-restricted choice the same
 #: way; restricted to the shapes real bounce cards actually use.
 _RETURN_TO_HAND_KINDS: frozenset[str] = frozenset(
-    {"creature", "permanent", "any", "creature_you_control", "land_you_control"}
+    {"creature", "permanent", "nonland_permanent", "any", "creature_you_control", "land_you_control"}
 )
 
 
@@ -1866,11 +2081,22 @@ def _return_from_graveyard_multi_target(m: re.Match[str]) -> Optional[list[Effec
     kind = _graveyard_target_kind(m.groupdict().get("type"), m.group("scope"))
     if kind is None:
         return None
+    dest = m.groupdict().get("dest")
+    destination = "battlefield" if dest is None or dest == "the battlefield" else "hand"
+    if m.groupdict().get("range_min") is not None:
+        # ENG-30: "return 1 or 2 target creature cards from your graveyard
+        # to your hand/the battlefield" (Infernal Rebirth/Leonardo's
+        # Technique-shaped) — a genuine RULE 601.2c range, not "up to N".
+        range_min, range_max = int(m.group("range_min")), int(m.group("range_max"))
+        if range_min < 1 or range_max <= range_min:
+            return None
+        return [EffectSpec("return_from_graveyard", {
+            "target_kind": kind, "destination": destination,
+            "count": range_min, "count_max": range_max,
+        })]
     count = int(m.group("count"))
     if count < 2:
         return None
-    dest = m.groupdict().get("dest")
-    destination = "battlefield" if dest is None or dest == "the battlefield" else "hand"
     params: dict = {"target_kind": kind, "destination": destination, "count": count}
     if m.groupdict().get("up_to"):
         params["optional"] = True
@@ -2810,8 +3036,14 @@ def _phase_out_target(m: re.Match[str]) -> Optional[list[EffectSpec]]:
 #: this clause uses) / World at War/Aggravated Assault's own longer
 #: "after this main phase, there is an additional combat phase followed by
 #: an additional main phase." — `ExtraCombatPhaseEffect`'s `main_phase_too`
-#: flag is what tells the two apart.
-_EXTRA_COMBAT_PHASE_RE = _c(r"after this phase, there is an additional combat phase")
+#: flag is what tells the two apart. The subject-first word order ("there
+#: is an additional combat phase after this phase.", A-Raiyuu, Storm's
+#: Edge/Raiyuu-shaped, MEC-28) is the same clause with its two halves
+#: swapped — real cache cards print both orderings.
+_EXTRA_COMBAT_PHASE_RE = _c(
+    r"after this phase, there is an additional combat phase"
+    r"|there is an additional combat phase after this phase"
+)
 _EXTRA_COMBAT_AND_MAIN_PHASE_RE = _c(
     r"after this main phase, there is an additional combat phase followed by an additional main phase"
 )
@@ -3551,10 +3783,15 @@ _CREATE_TOKEN_INLINE = (
 
 #: "create a 1/1 white Halfling creature token and attach ~ to it." (Living
 #: Weapon-adjacent, but printed as ordinary oracle text rather than the
-#: keyword — Auxiliary Boosters) — one clause, two effects: the token, then
-#: `AttachEffect`'s ``target_kind="created"`` mode onto whatever that just
-#: made (RULE 608.2's "it").
-_CREATE_TOKEN_AND_ATTACH_RE = _c(rf"creates? {_CREATE_TOKEN_INLINE} and attach ~ to it")
+#: keyword — Auxiliary Boosters) / "…**then** attach **this** to it." (the
+#: "For Mirrodin!" ability word's own reminder-text wording, MEC-28 — see
+#: `gate.py`'s ``_FOR_MIRRODIN_RE`` for why this specific card's real rules
+#: text lives in reminder text at all) — one clause, two effects: the
+#: token, then `AttachEffect`'s ``target_kind="created"`` mode onto
+#: whatever that just made (RULE 608.2's "it").
+_CREATE_TOKEN_AND_ATTACH_RE = _c(
+    rf"creates? {_CREATE_TOKEN_INLINE}(?:,)? (?:and|then) attach (?:~|this) to it"
+)
 
 
 def _create_token_and_attach(m: re.Match[str]) -> Optional[list[EffectSpec]]:
@@ -3837,6 +4074,11 @@ def _add_counters_multi_target(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     }
     if mt.get("optional"):
         params["optional"] = True
+    if mt.get("count_max") is not None:
+        # ENG-30: "put a +1/+1 counter on each of 1 or 2 target creatures" —
+        # `target_count`/`target_count_max` is the *target* range, distinct
+        # from `count`/`amount` (both already the counter amount per card).
+        params["target_count_max"] = mt["count_max"]
     return [EffectSpec("add_counters", params)]
 
 
@@ -3857,6 +4099,27 @@ def _distribute_counters(m: re.Match[str]) -> list[EffectSpec]:
     return [EffectSpec("add_counters", {
         "count": int(m.group("n")), "kind": _counter_sign(m.group("ckind")), "target_kind": kind,
         "target_count": _ANY_NUMBER_TARGET_CAP, "optional": True, "divided": True,
+    })]
+
+
+#: ENG-30: "distribute N +1/+1 counters among 1 or 2 target creatures[ you
+#: control]" (Armament Corps/Contagion/Elven Rite/Splendid Agony-shaped) —
+#: the *fixed range* sibling of `_DISTRIBUTE_COUNTERS_RE`'s "any number of":
+#: a genuine RULE 601.2c minimum of one, not 0..cap.
+_DISTRIBUTE_COUNTERS_RANGE_RE = _c(
+    r"distribute (?P<n>\d+) (?P<ckind>\+1/\+1|-1/-1|−1/−1) counters among "
+    r"(?P<range_min>\d+) or (?P<range_max>\d+) target creatures(?P<yc> you control)?"
+)
+
+
+def _distribute_counters_range(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    range_min, range_max = int(m.group("range_min")), int(m.group("range_max"))
+    if range_min < 1 or range_max <= range_min:
+        return None
+    kind = "creature_you_control" if m.groupdict().get("yc") else "creature"
+    return [EffectSpec("add_counters", {
+        "count": int(m.group("n")), "kind": _counter_sign(m.group("ckind")), "target_kind": kind,
+        "target_count": range_min, "target_count_max": range_max, "divided": True,
     })]
 
 
@@ -3960,15 +4223,20 @@ def _pump_attacking_subtype_target(m: re.Match[str]) -> Optional[list[EffectSpec
 #: "Up to two target creatures each get +N/+N [and gain `<keywords>`] until
 #: end of turn." (Dauntless Onslaught-shaped — the single biggest pump
 #: template found in the cache, 19 SOLO cards, `parser_probe.py blocked`) /
-#: "One or two target creatures…" (Opera Love Song's own phrasing) — both
-#: fold to the same `PumpEffect` shape RULE 115.1a's "up to N" idiom already
-#: uses (`count=2, optional=True`). **Documented simplification** for the
-#: "one or two" wording specifically: RAW requires picking at least one,
-#: modeled here as fully optional (0–2) like "up to two" — a card offering
-#: this is always worth taking, so declining below the printed minimum is
-#: not a real choice any player would make differently.
+#: "One or two target creatures…" (Opera Love Song/Heroic Teamwork-shaped) —
+#: ENG-30: these are no longer the same shape. "Up to two" is RULE 115.1a's
+#: 0..2 `optional` idiom; "one or two" is a genuine RULE 601.2c *range*
+#: (`TargetSpec.count_max`, at least one) — previously both were folded to
+#: `count=2, optional=True` as a documented simplification (declining below
+#: the "one or two" minimum was never a choice a real player would make
+#: differently); now that the engine has a real range primitive, the two
+#: wordings get their real, distinct shapes instead.
 _PUMP_UP_TO_TWO_RE = _c(
-    r"(?:up to 2|1 or 2) target creatures each gets? "
+    r"up to 2 target creatures each gets? "
+    r"(?P<p>[+\-−]\d+)/(?P<t>[+\-−]\d+)(?: and gains? (?P<kw>[a-z][a-z, ]*?))? until end of turn"
+)
+_PUMP_ONE_OR_TWO_RE = _c(
+    r"1 or 2 target creatures each gets? "
     r"(?P<p>[+\-−]\d+)/(?P<t>[+\-−]\d+)(?: and gains? (?P<kw>[a-z][a-z, ]*?))? until end of turn"
 )
 
@@ -3976,7 +4244,15 @@ _PUMP_UP_TO_TWO_RE = _c(
 def _pump_up_to_two(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     params: dict = {
         "power": _signed_int(m.group("p")), "toughness": _signed_int(m.group("t")),
-        "target_kind": "creature", "count": 2, "optional": True,
+        # `EffectRegistry`'s "pump" factory reads the *target* count as
+        # "target_count" (distinct from a magnitude key also spelled
+        # "count" elsewhere in this file) — a bare "count" here was a
+        # dormant bug: every "up to two target creatures" pump spell (19
+        # SOLO cards, Dauntless Onslaught-shaped) silently only ever
+        # offered *one* target, since `PumpEffect`'s own `count` defaulted
+        # to 1 and this key was never read. Found while building ENG-30's
+        # neighboring "one or two" range shape just below.
+        "target_kind": "creature", "target_count": 2, "optional": True,
     }
     if m.groupdict().get("kw"):
         keywords = _token_keywords(m.group("kw"))
@@ -3984,6 +4260,36 @@ def _pump_up_to_two(m: re.Match[str]) -> Optional[list[EffectSpec]]:
             return None
         params["keywords"] = keywords
     return [EffectSpec("pump", params)]
+
+
+def _pump_one_or_two(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    params: dict = {
+        "power": _signed_int(m.group("p")), "toughness": _signed_int(m.group("t")),
+        "target_kind": "creature", "target_count": 1, "target_count_max": 2,
+    }
+    if m.groupdict().get("kw"):
+        keywords = _token_keywords(m.group("kw"))
+        if keywords is None:
+            return None
+        params["keywords"] = keywords
+    return [EffectSpec("pump", params)]
+
+
+#: ENG-30: "1 or 2 target creatures gain `<kw>` until end of turn." (Wind
+#: Sail) — the keyword-only sibling of `_PUMP_ONE_OR_TWO_RE` (no P/T delta
+#: at all, unlike every other row in this family).
+_PUMP_ONE_OR_TWO_KW_RE = _c(
+    r"1 or 2 target creatures gains? (?P<kw>[a-z][a-z, ]*?) until end of turn"
+)
+
+
+def _pump_one_or_two_kw(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    keywords = _token_keywords(m.group("kw"))
+    if keywords is None:
+        return None
+    return [EffectSpec("pump", {
+        "target_kind": "creature", "target_count": 1, "target_count_max": 2, "keywords": keywords,
+    })]
 
 
 #: "Each creature your opponents control gets -1/-1 until end of turn for
@@ -4661,6 +4967,70 @@ _UNTAP_PREVIOUS_GROUP_RE = _c(r"(?:then )?untap (?:those creatures|them)")
 def _untap_previous_group(m: re.Match[str]) -> list[EffectSpec]:
     return [EffectSpec("tap", {"previous_subject": True, "untap": True})]
 
+
+#: ENG-30: "They [each] get +N/+N [and gain `<kw>`]/gain `<kw>` until end of
+#: turn." (A-Bretagard Stronghold/Fancy Footwork-shaped, following "…1 or 2
+#: target creatures…") — the pump-family sibling of `_UNTAP_PREVIOUS_GROUP_
+#: RE` just above: "they" is the RULE 115 target *group* the preceding
+#: clause chose (`PumpEffect.previous_subject`/`GameContext.
+#: previous_targets`), not a mass selector — that's `_PUMP_PREVIOUS_
+#: SELECTOR_RE`'s own, separately-gated (`previous_selector_only`) row,
+#: which this can't collide with since `match_clause` only ever tries the
+#: one whose gate the actual preceding clause satisfied. Two rows (P/T vs.
+#: keyword-only) rather than one combined regex, mirroring `_pump`/`_pump_
+#: keyword`'s own split for the ordinary targeted form.
+_PUMP_PREVIOUS_TARGETS_PT_RE = _c(
+    r"they(?: each)? gets? (?P<p>[+\-−]\d+)/(?P<t>[+\-−]\d+)"
+    r"(?: and gains? (?P<kw>[a-z][a-z, ]*?))? until end of turn"
+)
+_PUMP_PREVIOUS_TARGETS_KW_RE = _c(
+    r"they(?: each)? gains? (?P<kw>[a-z][a-z, ]*?) until end of turn"
+)
+
+
+def _pump_previous_targets_pt(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    params: dict = {
+        "power": _signed_int(m.group("p")), "toughness": _signed_int(m.group("t")),
+        "previous_subject": True,
+    }
+    if m.groupdict().get("kw"):
+        keywords = _token_keywords(m.group("kw"))
+        if keywords is None:
+            return None
+        params["keywords"] = keywords
+    return [EffectSpec("pump", params)]
+
+
+def _pump_previous_targets_kw(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    keywords = _token_keywords(m.group("kw"))
+    if keywords is None:
+        return None
+    return [EffectSpec("pump", {"keywords": keywords, "previous_subject": True})]
+
+
+#: MEC-28: "They gain first strike until end of turn." (Karlach, Fury of
+#: Avernus's own trailing sentence, following "untap all attacking
+#: creatures.") — the *mass-selector* sibling of the row above: "they" isn't
+#: a RULE 115 targeted group at all (`_UNTAP_PREVIOUS_GROUP_RE`'s own
+#: `previous_subject`/`GameContext.previous_targets` idiom), it's whichever
+#: group the *previous clause's own selector* (RULE 601.2c, untargeted) just
+#: acted on — `PumpEffect`'s new ``selector="previous_selector"`` sentinel,
+#: resolved at apply time off the new `GameContext.previous_selector` field
+#: `_apply_effects_partitioned` now tracks alongside `previous_targets`.
+#: Only offered when the preceding split clause's own spec really used a
+#: recognised group selector (`segmenter._announces_group_selector`,
+#: `EffectHandler.previous_selector_only`) — never reused for
+#: `previous_subject_only`'s existing meaning, a deliberately separate gate.
+_PUMP_PREVIOUS_SELECTOR_RE = _c(r"they gains? (?P<kw>[a-z, ]+?) until end of turn")
+
+
+def _pump_previous_selector(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    keywords = _token_keywords(m.group("kw"))
+    if keywords is None:
+        return None
+    return [EffectSpec("pump", {"keywords": keywords, "selector": "previous_selector"})]
+
+
 #: "target creature gets +1/+0 until end of turn and can't be blocked this
 #: turn" (You Come to a River-shaped) — the P/T-then-unblockable ordering
 #: (unlike `_pump`'s "and gains <kw> until end of turn", the keyword clause
@@ -4885,12 +5255,31 @@ HANDLERS: list[EffectHandler] = [
         ),
         _damage_each_multi_target,
     ),
+    # ENG-30: "deals N damage to each of 1 or 2 targets" (Storm of Steel) —
+    # tried before the row above since that row's `_MULTI_TARGET_ALT` has no
+    # bare "targets" option (RULE 115.4 "any target" is specific to
+    # damage/prevention, unlike destroy/exile/tap's typed object phrasing —
+    # see `_DAMAGE_EACH_RANGE_RE`'s own comment for why this stays a local
+    # alternation instead of widening the shared table).
+    EffectHandler(
+        "damage_each_range",
+        _DAMAGE_EACH_RANGE_RE,
+        _damage_each_range,
+    ),
     # RULE 601.2d "divided as you choose among any number of target(s)"
     # (PAR-15) — a split total, not the "each of N" full-amount shape above.
     EffectHandler(
         "divided_damage",
         _DIVIDED_DAMAGE_RE,
         _divided_damage,
+    ),
+    # ENG-30: "deals N damage divided as you choose among 1 or 2 targets"
+    # (Arc Mage/Chandra's Pyrohelix/Electrolyze/Fire // Ice/Forked Bolt/
+    # Skarrgan Hellkite) — tried before the row above for the same reason.
+    EffectHandler(
+        "divided_damage_range",
+        _DIVIDED_DAMAGE_RANGE_RE,
+        _divided_damage_range,
     ),
     # RULE 615's divided-prevention sibling (PAR-15) — Embolden/Remedy/
     # Angel of Salvation.
@@ -4927,6 +5316,26 @@ HANDLERS: list[EffectHandler] = [
     # `damage_selector` row above since "equal to …" has no digit `NUMBER`
     # for that row to match.
     EffectHandler("damage_selector_devotion", _DAMAGE_SELECTOR_DEVOTION_RE, _damage_selector_devotion),
+    # MEC-27: the draw/gain-life/lose-life verb families `{DEVOTION}` had
+    # never reached — always the ability's own controller, unlike the mass
+    # "each player/opponent loses life" row below.
+    EffectHandler("draw_devotion", _DRAW_DEVOTION_RE, _draw_devotion),
+    EffectHandler("gain_life_devotion", _GAIN_LIFE_DEVOTION_RE, _gain_life_devotion),
+    EffectHandler("lose_life_self_devotion", _LOSE_LIFE_SELF_DEVOTION_RE, _lose_life_self_devotion),
+    EffectHandler(
+        "draw_and_lose_life_devotion", _DRAW_AND_LOSE_LIFE_DEVOTION_RE, _draw_and_lose_life_devotion
+    ),
+    EffectHandler(
+        "gain_life_and_draw_devotion", _GAIN_LIFE_AND_DRAW_DEVOTION_RE, _gain_life_and_draw_devotion
+    ),
+    EffectHandler(
+        "draw_and_gain_life_devotion", _DRAW_AND_GAIN_LIFE_DEVOTION_RE, _draw_and_gain_life_devotion
+    ),
+    EffectHandler(
+        "lose_life_and_gain_life_devotion",
+        _LOSE_LIFE_AND_GAIN_LIFE_DEVOTION_RE,
+        _lose_life_and_gain_life_devotion,
+    ),
     # "Each creature deals 1 damage to its controller." (Rakdos Charm).
     EffectHandler(
         "damage_each_creature_to_controller",
@@ -5371,6 +5780,15 @@ HANDLERS: list[EffectHandler] = [
         "tap_self",
         _c(rf"(?P<verb>tap|untap) {_SELF_SUBJECT}"),
         _tap_self,
+    ),
+    # "untap that creature" (Finest Hour, MEC-28) — only offered from a
+    # group-subject trigger body, where "that creature" unambiguously means
+    # whichever creature matched the trigger.
+    EffectHandler(
+        "tap_group_subject",
+        _TAP_GROUP_SUBJECT_RE,
+        _tap_self,
+        group_subject_only=True,
     ),
     # "tap enchanted creature" / "untap enchanted creature" (Freed from the
     # Real/Pemmin's Aura-shaped Aura activated abilities).
@@ -5888,6 +6306,17 @@ HANDLERS: list[EffectHandler] = [
         _DISTRIBUTE_COUNTERS_RE,
         _distribute_counters,
     ),
+    # ENG-30: "distribute N +1/+1 counters among 1 or 2 target creatures
+    # [you control]" — a genuine RULE 601.2c range, tried before the plain
+    # `distribute_counters` row since "1 or 2" would otherwise also satisfy
+    # that row's own `\d+` (it doesn't — that row requires "any number of"
+    # literally — but keeping the more specific row first matches this
+    # file's usual ordering convention for overlapping shapes).
+    EffectHandler(
+        "distribute_counters_range",
+        _DISTRIBUTE_COUNTERS_RANGE_RE,
+        _distribute_counters_range,
+    ),
     # "put N +1/+1 counters on each creature you control" (RULE 601.2c mass
     # effect, Vastwood Surge-shaped).
     EffectHandler(
@@ -5980,6 +6409,33 @@ HANDLERS: list[EffectHandler] = [
         _untap_previous_group,
         previous_subject_only=True,
     ),
+    # ENG-30: "They [each] get +N/+N [and gain <kw>] until end of turn."
+    # (A-Bretagard Stronghold/Fancy Footwork) — the pump-family sibling of
+    # `untap_previous_group`, same previous-target-group gate.
+    EffectHandler(
+        "pump_previous_targets_pt",
+        _PUMP_PREVIOUS_TARGETS_PT_RE,
+        _pump_previous_targets_pt,
+        previous_subject_only=True,
+    ),
+    # ENG-30: "They [each] gain <kw> until end of turn." — the keyword-only
+    # sibling of the row above (tried after it since a P/T delta present
+    # would otherwise be swallowed by this row's own bare-keyword capture).
+    EffectHandler(
+        "pump_previous_targets_kw",
+        _PUMP_PREVIOUS_TARGETS_KW_RE,
+        _pump_previous_targets_kw,
+        previous_subject_only=True,
+    ),
+    # "They gain first strike until end of turn." (Karlach, Fury of
+    # Avernus, MEC-28) — the mass-selector sibling: only offered when the
+    # preceding clause's own spec used a real group selector.
+    EffectHandler(
+        "pump_previous_selector",
+        _PUMP_PREVIOUS_SELECTOR_RE,
+        _pump_previous_selector,
+        previous_selector_only=True,
+    ),
     # "Target attacking Elf you control gains deathtouch until end of
     # turn." (Gnarlroot Trapper-shaped) — tried before the plain
     # `pump_keyword` row below since the shared `TARGET` macro has no
@@ -6004,12 +6460,26 @@ HANDLERS: list[EffectHandler] = [
         _pump_per_controller_counter,
     ),
     # "Up to two target creatures each get +N/+N [and gain <keywords>]
-    # until end of turn." (Dauntless Onslaught-shaped) / "One or two target
-    # creatures…" (Opera Love Song's own phrasing).
+    # until end of turn." (Dauntless Onslaught-shaped).
     EffectHandler(
         "pump_up_to_two",
         _PUMP_UP_TO_TWO_RE,
         _pump_up_to_two,
+    ),
+    # ENG-30: "One or two target creatures…" (Opera Love Song/Heroic
+    # Teamwork-shaped) — a genuine RULE 601.2c range, not "up to two"; see
+    # `_PUMP_ONE_OR_TWO_RE`'s own comment for why this is now split out.
+    EffectHandler(
+        "pump_one_or_two",
+        _PUMP_ONE_OR_TWO_RE,
+        _pump_one_or_two,
+    ),
+    # ENG-30: "1 or 2 target creatures gain <kw> until end of turn." (Wind
+    # Sail) — the keyword-only sibling of the row above.
+    EffectHandler(
+        "pump_one_or_two_kw",
+        _PUMP_ONE_OR_TWO_KW_RE,
+        _pump_one_or_two_kw,
     ),
     # "Creatures you control gain trample and get +X/+X until end of turn,
     # where X is the number of creatures you control." (Craterhoof
@@ -6363,7 +6833,8 @@ HANDLERS: list[EffectHandler] = [
 
 
 def match_clause(
-    clause: str, *, self_subject: bool = False, previous_subject: bool = False
+    clause: str, *, self_subject: bool = False, previous_subject: bool = False,
+    group_subject: bool = False, previous_selector: bool = False,
 ) -> Optional[list[EffectSpec]]:
     """The `EffectSpec`s for one normalised effect ``clause``, or ``None``.
 
@@ -6373,15 +6844,23 @@ def match_clause(
 
     ``self_subject`` says the clause's bare "it" is the ability's own source;
     ``previous_subject`` says it is the creature the *preceding* clause of
-    the same body chose. Each unlocks its own gated rows (see
-    `EffectHandler.self_subject_only`/``previous_subject_only``); with
-    neither set — the default, and the only reading available to a clause
-    standing alone — a pronoun claims nothing at all.
+    the same body chose; ``group_subject`` says it is whichever object
+    matched this ability's own RULE 603.1 group-subject trigger condition;
+    ``previous_selector`` says "they" is the group a mass selector in the
+    preceding clause acted on. Each unlocks its own gated rows (see
+    `EffectHandler.self_subject_only`/``previous_subject_only``/
+    ``group_subject_only``/``previous_selector_only``); with none set — the
+    default, and the only reading available to a clause standing alone — a
+    pronoun claims nothing at all.
     """
     for handler in HANDLERS:
         if handler.self_subject_only and not self_subject:
             continue
         if handler.previous_subject_only and not previous_subject:
+            continue
+        if handler.group_subject_only and not group_subject:
+            continue
+        if handler.previous_selector_only and not previous_selector:
             continue
         effects = handler.match(clause)
         if effects is not None:

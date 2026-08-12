@@ -355,6 +355,30 @@ class TargetSpec:
     #: opponent's permanent and a pump spell at its own — see that method's
     #: docstring for the classification and its documented blind spots.
     polarity: Optional[str] = None
+    #: ENG-30: RULE 601.2c's third target-count shape — a genuine *range*,
+    #: "N or M target X" (at least ``count``, at most ``count_max`` — unlike
+    #: ``optional``'s "up to N" the minimum here is never 0, so declining
+    #: below ``count`` isn't legal and the requirement still locks a cast
+    #: when fewer than ``count`` legal targets exist). ``None`` (the default)
+    #: means the ordinary fixed/``optional`` shapes above apply unchanged;
+    #: only meaningful when it's a genuine value greater than ``count``.
+    #: Read by `effective_count` (the resolve-time slicing cap every
+    #: `game/effects.py` consumer uses instead of ``count`` directly),
+    #: `expand_counts` (which rounds are mandatory vs. declinable) and
+    #: `requirements_with_targets`/`gameBoardView.js` (how many rounds to
+    #: offer, and where the "stop early" boundary sits).
+    count_max: Optional[int] = None
+
+    @property
+    def effective_count(self) -> int:
+        """The largest number of targets this spec could ever resolve to —
+        ``count_max`` when set (a genuine range), else the plain ``count``.
+        This, not ``count``, is the right cap for slicing a shared
+        ``targets`` list at resolution time (`effects._chosen_targets` and
+        its callers): for a range spec ``count`` is the RULE 601.2c
+        *minimum*, and a shorter cap would silently drop a legally chosen
+        target above the minimum."""
+        return self.count_max if self.count_max is not None else self.count
 
     def label(self) -> str:
         return self.description or _graveyard_label(self.kind) or {
@@ -1115,19 +1139,30 @@ def expand_counts(
 
     A ``count`` of 1 (the overwhelming common case) expands to itself with a
     span of 1, so an unexpanded list is returned unchanged.
+
+    ENG-30's ``count_max`` range ("N or M target X") expands to
+    ``count_max`` rounds instead of ``count`` — the first ``count`` (the
+    RULE 601.2c minimum) stay mandatory, the rest are marked ``optional``
+    so `_continue_trigger_multi_target`'s existing "stop early" idiom (built
+    for "up to N") is what lets the player decline once the minimum is met,
+    without ever letting them decline below it.
     """
     expanded: list[TargetSpec] = []
     spans: list[int] = []
     for spec in specs:
-        n = max(0, resolved_count(spec, state, controller_id, source))
+        minimum = max(0, resolved_count(spec, state, controller_id, source))
+        n = spec.count_max if spec.count_max is not None else minimum
         if n <= 1:
             expanded.append(spec)
             spans.append(1)
             continue
         # Each round asks for one target; "up to N" stays declinable per
         # round (RULE 115.1a lets the player stop early), a mandatory "N
-        # target X" stays mandatory.
-        expanded.extend(replace(spec, count=1, count_selector=None) for _ in range(n))
+        # target X" stays mandatory. A range spec mixes both: the first
+        # ``minimum`` rounds mandatory, the rest declinable.
+        for i in range(n):
+            round_optional = spec.optional if spec.count_max is None else i >= minimum
+            expanded.append(replace(spec, count=1, count_selector=None, optional=round_optional, count_max=None))
         spans.append(n)
     return expanded, spans
 
@@ -1166,20 +1201,24 @@ def requirements_with_targets(
     """Each of ``obj``'s target requirements paired with its legal options."""
     out: list[dict[str, Any]] = []
     for spec in spell_target_specs(obj):
-        out.append(
-            {
-                "kind": spec.kind,
-                "optional": spec.optional,
-                # RULE 601.2c: resolved now, since a `count_selector` reads
-                # the board as the spell is announced.
-                "count": resolved_count(spec, state, controller_id, obj),
-                "label": spec.label(),
-                "options": legal_targets(state, controller_id, spec, source=obj),
-                "distinct_controllers": spec.distinct_controllers,
-                "distinct_from_others": spec.distinct_from_others,
-                "polarity": spec.polarity,
-            }
-        )
+        entry = {
+            "kind": spec.kind,
+            "optional": spec.optional,
+            # RULE 601.2c: resolved now, since a `count_selector` reads
+            # the board as the spell is announced. For a `count_max` range
+            # this is the *minimum* — the number of rounds that stay
+            # mandatory; `count_max` below is how many rounds to offer in
+            # total (ENG-30).
+            "count": resolved_count(spec, state, controller_id, obj),
+            "label": spec.label(),
+            "options": legal_targets(state, controller_id, spec, source=obj),
+            "distinct_controllers": spec.distinct_controllers,
+            "distinct_from_others": spec.distinct_from_others,
+            "polarity": spec.polarity,
+        }
+        if spec.count_max is not None:
+            entry["count_max"] = spec.count_max
+        out.append(entry)
     return out
 
 

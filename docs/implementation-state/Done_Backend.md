@@ -14556,3 +14556,486 @@ flaky, unrelated websocket test reconfirmed in isolation). Parser coverage
 diff` 0 regressions both passes) — `CLAUDE.md`, `PARSER_LONG_TAIL.md`
 (itself found stale at PARSER_VERSION 69 from an earlier session's missed
 sync, corrected here too) and `implementationStatusView.js` all synced.
+
+## MEC-27 / MEC-28 (2026-08-12)
+
+Closed both residual tickets the "nine broader gaps" batch spun off,
+same day.
+
+**MEC-27** built the two pieces the ticket's own framing named as still
+open. The **qualifier grammar**: `subgrammars.DEVOTION`'s "the number of
+`<noun phrase>` you control" reading gained "creatures you control with
+power N or less/greater" (`devotion_selector`'s new `count_power` branch,
+`continuous.count_selector`'s matching `creatures_you_control_with_power_
+{le,ge}_N` selectors) and a generalized "tapped `<type>`[ and/or `<type>`]
+you control" (folding the old creatures-only `count_tapped_yours` branch
+into one general reading rather than sitting a sibling beside it —
+`tapped_creatures_you_control` still resolves to the exact name every
+existing caller/test expects). The **draw/life-gain/loss verb families**:
+`DrawCardEffect` gained `amount_from_count_selector` (mirroring
+`LoseLifeEffect`'s own field, reading `continuous.count_selector` off the
+effect's own controller) plus six new devotion-amount parser rows — bare
+"draw"/"you gain life"/"you lose life", the "draw and lose life"/"gain life
+and draw"/"draw and gain life" combos (Champion of Dusk/Graveborn Muse/
+Minions' Murmurs/Nissa, Voice of Zendikar/Camaraderie/Sanguimancy), and a
+fourth combo this pass added on its own discovery, "each opponent loses X
+life and you gain X life, where X is `<DEVOTION>`" (Mishra, Claimed by
+Gix) — needed because *without* a dedicated combined-clause handler, the
+generic `" and "` connector split would have matched the first half
+against the pre-existing plain `_lose_life_selector` row, whose `"x"` is
+RULE 107.3c's announced-{X} sentinel (never substituted for a triggered
+ability with no X cost) — a real crash (`"x" <= 0` comparing a string to an
+int), not just a miss, caught by an execute test before it could ship.
+
+Found and fixed a real pre-existing bug on the way: `devotion_selector`'s
+`count_subtype` catch-all unconditionally guessed `creatures_you_control_
+of_type_<word>` for *any* bare single-word noun phrase, which is wrong for
+a non-creature subtype noun ("Bobbleheads" are artifacts, "Shrines" are
+enchantments) — the count would always silently read 0. Reachable before
+this pass too (the counter/token devotion rows already used the same
+fallback), just never triggered by a real card until this pass's own new
+handlers made two of them (Charisma/Strength Bobblehead) newly matchable.
+Fixed with a small denylist (`_COUNT_PHRASE_NONCREATURE_SUBTYPE_WORDS`,
+mirroring `static_handlers._NONCREATURE_TYPES`'s own idiom) rather than a
+full creature-type validator the parser has no card database to build —
+this correctly *un*-models Charisma/Strength Bobblehead (they'd resolved
+to 0 always) rather than leaving them wrongly `MODELED`.
+
+**MEC-28** built the two primitives its own framing said were missing, plus
+what those primitives actually needed once tried against the five named
+cards. `segmenter.parse_effect_body`/`handlers.match_clause` gained a third
+subject flag, `group_subject` (`handlers.EffectHandler.group_subject_only`),
+threaded through every recursive call the same way `self_subject` already
+is (including, unlike `self_subject`, forwarded into the connector-split
+loop — a trigger's own group-subject scope doesn't shift clause to clause
+the way a local pronoun referent does) — closing Finest Hour's "untap
+**that creature**" (a new `tap_group_subject` row, genuinely ambiguous
+without the flag since "that creature" also means an *earlier clause's*
+target elsewhere, hence its own gate rather than folding into
+`_SELF_SUBJECT`). A fourth flag, `previous_selector`
+(`EffectHandler.previous_selector_only`), closes Karlach, Fury of Avernus's
+"**They** gain first strike until end of turn." — the mass-selector sibling
+of `previous_subject`'s RULE 115 target tracking, needed because "untap all
+attacking creatures" is untargeted (RULE 601.2c) and never populates
+`GameContext.previous_targets`; a new `GameContext.previous_selector` field,
+maintained by `_apply_effects_partitioned` off a narrow whitelist
+(`_PREVIOUS_SELECTOR_EFFECT_TYPES`, `TapEffect`-only today, same
+"widen only as a real card needs it" convention `effect_binder.
+_GROUP_SUBJECT_RETARGET_FIELDS` already uses), and a new `PumpEffect`
+`selector="previous_selector"` sentinel resolved at apply time.
+
+Karlach also needed RULE 506.4's bare "whenever you attack" recognized as
+a trigger condition at all — genuinely unbuilt (a much bigger family,
+97+ SOLO cache cards for the qualified "with N creatures" forms, is
+deliberately out of scope; only the bare form was added,
+`_PLAYER_TRIGGER_CONDITIONS`'s new `"you attack"` row). The underlying
+event, `EventType.PLAYER_ATTACKED`, already existed and already fired
+(`GameEngine._fire_player_attacked_events`, built for a hand-authored
+consumer) — only the oracle-text recognizer and `effect_binder.
+_GROUP_CONTROLLER_EVENT_KEYS`'s `"attacking_player_id"` mapping (this
+event's `"you"`-subject key differs from every other player-subject
+event's `player_id`) were missing.
+
+A-Raiyuu, Storm's Edge's own compound "a Samurai or Warrior you control
+attacks alone" trigger condition turned out to **already work** (built in
+an earlier pass, the ticket's own characterization was stale) — its real
+remaining blocker was `_EXTRA_COMBAT_PHASE_RE` only recognizing one word
+order ("after this phase, there is an additional combat phase"), not the
+subject-first one A-Raiyuu/Raiyuu print ("there is an additional combat
+phase after this phase") — a one-line regex widening. That in turn
+surfaced a second stale-code bug: **Raiyuu, Storm's Edge** (the paper
+original, as opposed to the Alchemy-rebalanced A-Raiyuu) had a hand-authored
+`ability_catalogue.py` entry predating the extra-combat-phase primitive,
+deliberately narrowed to "untap it" only — its own docstring said so. Now
+that the parser fully and correctly covers the card (identical oracle text
+to A-Raiyuu), the stale entry was deleted outright rather than left to
+silently shadow the better parser-derived behavior forever (hand-authored
+specs always win over the parser fallback) — the fix any *other* card would
+have needed anyway, just usually surfaces the other way (a primitive lands,
+sweep `BACKLOG.md`; this time the sweep target was a catalogue entry, not a
+ticket).
+
+The remaining two named cards each needed a genuinely separate, substantial
+primitive with no small-grammar shortcut, confirmed by checking (not
+assuming): **Raph & Leo, Sibling Rivals**'s "untap **one or two** target
+attacking creatures" needs a real RULE 601.2c count *range* — neither
+`TargetSpec`'s exact `count` nor its "up to N" `optional` reading can
+express "at least one, at most two" — filed as **ENG-30** once
+`parser_probe.py blocked "[0-9] or [0-9] target"` showed 31 real SOLO cache
+cards behind the same gap, not a one-off. Closed for now with a documented,
+strictly-safe simplification instead of waiting on ENG-30: hand-authored
+with a single mandatory target (`TapEffect`'s new `creature_filter` param,
+`{"attacking": True}` — a real, general RULE 115 target filter add,
+`combat.matches_object_filter` already had the `"attacking"` key, `TapEffect`
+just never threaded it through), never over-performing since it narrows
+rather than widens the printed effect. **Balthier and Fran** ("a Vehicle
+crewed by ~ this turn attacks") and **Tifa, Martial Artist** ("one or more
+creatures you control with power 7 or greater deal combat damage to a
+player") stay open, filed together as **MEC-29** with their real,
+now-precisely-diagnosed primitive needs (Crew-state tracking; DAMAGE as a
+group-subject trigger event plus a power-qualifier on the group filter) —
+replacing the original ticket's "unrelated trigger-condition grammar gap"
+catch-all, which undersold how different the two remaining gaps actually
+are from each other.
+
+Every new/changed piece got an execute test, not just a parse-verdict
+check (`tests/test_count_amount_resolver.py`'s MEC-27 section,
+`tests/test_mec28_intervening_if_residual.py`) — the crash-bug catch above
+and the Raph & Leo `creature_filter` plumbing gap (silently dropped by the
+`"tap"` `EffectRegistry` factory until threaded through, caught by running
+the ability against a real board rather than trusting the parsed spec)
+were both found this way, reconfirming this repo's own recorded lesson
+that resolve-time primitives need `engine_bench.py`-style execution, not
+parse verdicts alone.
+
+Full suite green throughout (3895 passed, up from 3879 — one flaky,
+unrelated websocket test reconfirmed in isolation). Parser coverage
+33.48%→33.60% (11,655→11,695/34,811, PARSER_VERSION 85→86, `parser_probe.py
+diff` 0 regressions after the Bobblehead/Shrine denylist fix removed the
+two false positives its own first pass introduced) — `CLAUDE.md`,
+`PARSER_LONG_TAIL.md` and `implementationStatusView.js` all synced.
+
+## MEC-29: Crew as real state, and the combat-damage "one or more" aggregate (2026-08-12)
+
+Closed the two cards the MEC-27/MEC-28 batch above had left open — same
+day, same session, no further deferral. Per this repo's own "no
+half-implementations" rule (a second deferral must be hand-authored as a
+stopgap or explicitly promoted, never rolled to a third with unchanged
+wording), this pass built both of the ticket's own "genuinely separate
+primitive" gaps for real rather than filing a further ticket.
+
+**RULE 702.122 Crew, for the first time as actual behaviour.** Before this
+pass, "Crew N" was parser-*recognized* (a bare `keyword` `AbilitySpec`,
+satisfying the coverage gate on any card whose only other clauses already
+parsed) but bound to nothing anywhere in `game/`/`models/` —
+`grep -rn "crewed_by"` found zero hits, and `effect_binder.
+_keyword_activated_ability`'s dispatch (the same one Equip/Fortify/
+Reconfigure/Cycling already go through) didn't handle `"crew"` at all. The
+same "recognized but inert" gap PAR-9 found and closed for Cycling, just
+never revisited for Crew. Built for real, generally (not Balthier-and-
+Fran-specific), so every one of the ~238 cached cards printing "Crew N"
+picks it up at once:
+
+- `ActivationCost.crew_power: Optional[int]` (`game/costs.py`) — RULE
+  702.122a's threshold ("tap any number of **other** untapped creatures you
+  control with total power N or greater"), a genuinely different cost
+  shape from `tap_others`' exact count.
+- `GameEngine._crew_pool`/`_resolve_crew_cost`/`_crew_cost_choice`
+  (`game/engine/activation_mixin.py`) — the "any number from a pool" choice
+  this needs: the player's own chosen subset is validated against the
+  power threshold and never trimmed/padded (RULE 602.1: their choice, not
+  the engine's to second-guess); `None` (a non-interactive caller) falls
+  back to an auto-pick, fewest creatures first (highest power first), the
+  same "don't tap more of the board than needed" convention `_resolve_
+  tap_others`' auto-pick already uses. Wired into `_can_pay_activation_
+  cost`/`_pay_activation_cost` right alongside `tap_others`, and offered
+  through `legal_actions_mixin.py`'s `crew_cost` UI shape the same way
+  `tap_cost` already is.
+- `effect_binder._crew_activated_ability` builds the real `ActivatedAbility`
+  — cost `crew_power=N`, effect a `GrantUntilEffect` wrapping the ordinary
+  `type_change` static (`add_types: ["creature"]`, `duration="end_of_turn"`,
+  `target_kind=None` so it applies to the Vehicle itself) exactly as an
+  oracle-parsed "until end of turn" grant would, so RULE 702.122a's
+  "becomes an artifact creature" goes through the same RULE 613 layer
+  engine as any other type-change static rather than a bespoke flag.
+- `GameObject.crewed_by_ids: list[int]` (RULE 702.122b/c) — stamped by
+  `_pay_activation_cost`'s new `crew_power` branch at the moment a creature
+  is tapped to pay the cost (not at resolution — a creature "crews" even if
+  the ability later fizzles, since it's already tapped), accumulating
+  across repeat Crew activations in the same turn rather than being
+  overwritten (a fact that becomes true stays true for the rest of the
+  turn, the same convention `exerted_this_turn`/`graveyard_casts_this_turn`
+  already use); reset each untap step alongside them.
+
+Two more real, previously-invisible bugs surfaced building this, both
+fixed at the root rather than worked around for Balthier and Fran alone:
+
+1. **A Vehicle had no way to carry its own printed power/toughness.**
+   `Card.__init__`'s own invariant refuses `power`/`toughness` on a
+   noncreature, and `scryfall_client.card_from_scryfall_data` discarded a
+   Vehicle's printed P/T entirely (`power=power if is_creature else None`)
+   — so a freshly crewed Vehicle came in 0/0 and died to RULE 704.5f the
+   instant the next state-based-action check ran. Crew would have "worked"
+   in the sense of binding and tapping creatures, while being unusable in
+   any real game — this is not a corner case, it's *every* Crew activation
+   for *every* Vehicle. Fixed with `Card.vehicle_power`/`vehicle_toughness`
+   (RULE 208.1: some noncreature permanents print P/T that matters once
+   something else makes them a creature) — deliberately independent
+   fields, not a relaxation of the `power`/`toughness` invariant, so every
+   existing reader that treats "power is not None" as a creature check
+   stays correct. Populated by `scryfall_client.card_from_scryfall_data`
+   for any noncreature Vehicle; `effect_binder._crew_activated_ability`
+   reads them onto the `type_change` grant's own `power`/`toughness`
+   params. A `Card` schema change wipes+reseeds the on-disk cache
+   (`services/card_database.py`'s own documented, self-healing behavior);
+   reseeded offline via `scripts/import_bulk.py --reseed-only`
+   (34,887 cards, 0 failures) as part of this pass.
+2. **`_ANTHEM_RE`'s own `_scope` had no non-creature-*subtype* guard.**
+   `_NONCREATURE_TYPES` already stops a bare non-creature main *type* word
+   ("Artifacts", "Enchantments") from being guessed as a creature subtype,
+   but nothing stopped a non-creature *subtype* word ("Vehicles") the same
+   way — so "Vehicles you control get +1/+1 and have vigilance and reach."
+   (Balthier and Fran's own second line) silently parsed to `affects:
+   creatures_you_control` instead of "every Vehicle you control": wrong,
+   since a Vehicle isn't a creature until crewed, so the anthem would have
+   excluded every uncrewed Vehicle it's printed to buff. Not a latent bug
+   that had ever shipped wrong on a real card before this pass (`parser_
+   probe.py cards 'vehicles you control get'` shows 0 "parser-MODELED
+   already" before the fix — every card reaching this shape's whole text
+   was blocked by something else too, so the wrong reading was never
+   exercised), but it would have as soon as any such card's other clauses
+   became modeled. Fixed with `_ARTIFACT_SUBTYPES`/`_vehicle_scope_params`
+   (`parser/oracle/catalogue/static_handlers.py`) — a bare Vehicle scope
+   now falls through to the same non-creature-permanent fallback chain
+   `_GRANT_RE`/`_QUOTED_GRANT_RE`'s existing PAR-3 mechanism already uses
+   for "Artifacts you control have hexproof."-shaped cards, reused (not
+   duplicated) by all three call sites. `parser_probe.py diff` confirmed 0
+   regressions from this change alone (no other cached card currently
+   reaches the affected branch).
+
+**Balthier and Fran** ("Whenever a Vehicle crewed by ~ this turn attacks,
+if it's the first combat phase of the turn, you may pay {1}{R}{G}. If you
+do, after this phase, there is an additional combat phase.") needed one
+more thing on top of Crew itself existing: a new `"crewed_by_self"` RULE
+603.1 group-subject trigger-condition key (`effect_binder._build_group_ok`)
+— the acting object's own live `crewed_by_ids` must contain this ability's
+source, checked by a live board lookup (the Vehicle is still on the
+battlefield when it attacks, unlike a DIES event's object). Paired with
+the existing `subtypes` group filter (`["vehicle"]`) for "a Vehicle …
+attacks". Hand-authored in full (the anthem duplicated with the corrected
+params, since registering a card for its trigger clause makes
+`ability_catalogue.specs_for` take *all* its non-keyword abilities from the
+registry instead of the parser) — the "a Vehicle crewed by ~ this turn
+attacks" phrasing is a cache-wide singleton (`parser_probe.py cards
+'crewed by'` finds exactly one other card, Mighty Servant of Leuk-o,
+printing an unrelated "crewed by exactly N creatures" template), not worth
+a dedicated grammar row.
+
+**Tifa, Martial Artist** ("Whenever one or more creatures you control with
+power 7 or greater deal combat damage to a player, untap all creatures you
+control. If it's the first combat phase of your turn, there is an
+additional combat phase after this phase.") needed this ticket's own prior
+framing corrected before building anything: RULE 603.1 group-subject
+scoping for "a creature you control deals combat damage to a player"
+already existed (`_GROUP_CONTROLLER_EVENT_KEYS["DAMAGE"]` = "source_
+controller_id", built for Bident of Thassa/Deepfathom Skulker) — verified
+live (`engine_bench.py inspect "Bident of Thassa"` shows that exact clause
+already claimed) before trusting the ticket's claim that DAMAGE "only
+reaches the `attached_permanent` case." The real, still-open gap was the
+**"one or more"** *quantifier*: RULE 603.1's ordinary group subject fires
+once per matching event, but `DAMAGE` fires once per *hit* (RULE 120.3) —
+so two qualifying creatures connecting simultaneously would trigger a
+plain per-creature reading twice, not once, silently doubling this card's
+own payoff (two extra combat phases queued instead of one). This engine
+already has the identical shape solved once, for a different verb:
+`EventType.PLAYER_ATTACKED` exists specifically because RULE 506.4's "a
+player attacks you **with one or more creatures**" is a single condition
+about the whole declare-attackers step, not one that fires per attacker —
+the exact same "one or more X `<verb>`" template, just naming a different
+verb. Built the combat-damage sibling the same way:
+
+- `EventType.CREATURES_DEALT_COMBAT_DAMAGE_TO_PLAYER` — fired by
+  `GameEngine._apply_combat_damage` once per (contributing creature's
+  controller, player hit) pair *per damage step* (not per creature),
+  carrying `player_id`/`target_id` (the usual aggregate-event convention)
+  and `max_power` — the highest power among that pair's contributors,
+  computed live since a combat-damage assignment to a *player* is by
+  construction always from an attacking creature (RULE 510.1c: a blocker
+  only ever strikes the attacker(s) it's blocking, never a player), so no
+  extra bookkeeping is needed to know which side of an assignment is the
+  "acting creature."
+- `contributor_power_at_least` — a new `_trigger_condition` (`effect_
+  binder.py`) top-level key, mirroring the existing `spell_mana_value_
+  at_most` idiom (a numeric threshold checked against a field the event
+  itself stamps) rather than a `"group"` condition's own per-object
+  `min_power` filter, which can't apply here: the aggregate event names no
+  single acting object to read a live power off.
+- `_GROUP_CONTROLLER_EVENT_KEYS["CREATURES_DEALT_COMBAT_DAMAGE_TO_PLAYER"]
+  = "player_id"` so the ordinary `{"subject": "you"}` condition (already
+  built for "whenever you scry"-shaped triggers) covers "you control" for
+  free.
+
+Verified with a real two-simultaneous-attacker execute test (not just a
+parse check): two 7+/8+-power creatures dealing combat damage to the same
+player in the same step fires exactly one
+`CREATURES_DEALT_COMBAT_DAMAGE_TO_PLAYER` event and queues exactly one
+extra combat phase, not two. Hand-authored (the "one or more `<type>` you
+control with power `<n>` or greater deal combat damage to a player"
+template is, per `parser_probe.py cards`, printed on exactly this one
+cached card); "if it's the first combat phase of **your** turn" (not "…of
+**the** turn", `_FIRST_COMBAT_PHASE_CONDITION_RE`'s own exact wording)
+rides the same existing `is_first_combat_phase` `ConditionalEffect` key
+under a harmless wording variant — a combat phase only ever happens on its
+own active player's turn, so the two phrasings name the same thing.
+
+New tests: `tests/test_mec29_crew_and_aggregate_damage.py` (12 cases) —
+the general Crew primitive (binds, rejects an underpowered crew, produces
+the Vehicle's own real P/T and survives an SBA check, resets `crewed_by_
+ids` at untap), Balthier and Fran (anthem buffs an uncrewed Vehicle,
+grants extra combat only for a Vehicle it actually crewed itself, stays
+silent for one it didn't), and Tifa (fires exactly once for two
+simultaneous qualifying attackers, stays silent below the power
+threshold). Full suite green throughout (3907 passed, up from 3895; one
+flaky, unrelated websocket test reconfirmed in isolation — the same one
+noted in the MEC-27/MEC-28 entry above). Parser coverage 33.60%→33.60%
+(11,695→11,697/34,811 — the count barely moves since both cards are
+hand-authored; PARSER_VERSION 86→87 for the anthem scope fix alone),
+`parser_probe.py diff` +2 newly covered (Balthier and Fran, Tifa, Martial
+Artist) / 0 regressed — `CLAUDE.md` and `implementationStatusView.js`
+synced.
+
+## ENG-30: RULE 601.2c's third target-count shape — a genuine range (2026-08-12)
+
+Closed the gap MEC-28 filed and worked around the same day: RULE 601.2c's
+"N or M target `<X>`" ("one or two target creatures" — at least one, at
+most two) is neither `TargetSpec`'s exact `count` nor its "up to `count`"
+0..N `optional` reading. Built for real rather than deferred again — the
+MEC-28 batch had already used the sanctioned hand-authored-simplification
+escape valve once (Raph & Leo, Sibling Rivals narrowed to a single
+mandatory target); this repo's own rule is that a second deferral must
+either be hand-authored as a stopgap in the *same* batch or explicitly
+promoted, never rolled to a third with unchanged wording, and this pass
+was that promotion landing.
+
+**The primitive**: `targeting.TargetSpec.count_max` (`Optional[int]`,
+`None` for every existing exact/"up to N" spec) plus a new
+`TargetSpec.effective_count` property — `count_max` when set, else `count`.
+`count` keeps meaning exactly what it always has everywhere *offer-time*
+locking reads it (`resolved_count`, `all_requirements_satisfiable`): the
+RULE 601.2c *minimum*, so a range spec still locks a cast/activation when
+the board can't supply at least one legal target, and never locks on
+having fewer than the *maximum*. `effective_count` is the new thing:
+`effects.py`'s dozen-odd `_chosen_targets(targets, self.target_spec.count,
+…)` call sites (`DealDamageEffect`/`DestroyEffect`/`ExileEffect`/
+`ReturnToHandEffect`/`TapEffect`/`AddCountersEffect`/`PumpEffect`, both the
+slicing cap and the "is this genuinely a multi-target effect" `!= 1`
+branch checks) were quietly reading `count` as if it were always the
+*ceiling* — true for every shape that existed before this ticket, but
+wrong for a range, where slicing by the minimum would silently drop a
+legally-chosen second target. Every one of those call sites now reads
+`effective_count` instead; identical behaviour for every pre-existing spec
+(`count_max` defaults to `None`, so `effective_count == count`), correct
+for a range. All eight effect classes above, plus the "damage"/"destroy"/
+"exile"/"return_to_hand"/"tap"/"add_counters"/"pump" `EffectRegistry`
+factories, gained a `count_max` constructor param/spec key (`add_counters`/
+`pump` spell it `target_count_max`, matching their existing `target_count`
+convention — both already distinct from the *magnitude* `count`/`amount`
+those two classes also carry).
+
+**Gathering the range interactively** splits into the two paths this
+engine already had for "how many targets" (RULE 115.1 offer time): a
+triggered ability's own target choice (`RulesEngine._continue_trigger_
+multi_target`, gathered one round at a time) and a spell/activated
+ability's client-driven rounds (`gameBoardView.js`'s
+`expandMultiTargetRequirements`). Both needed the same shape change:
+expand to `count_max` rounds instead of `count`, with the first `count`
+(the minimum) mandatory and the rest declinable — so the existing "up to
+N" stop-early idiom (a round's decline button) is what lets the caster
+stop at the minimum, without ever letting them decline below it.
+`targeting.expand_counts` now reads `count_max` when present and marks
+each expanded round's own `optional` accordingly (previously every
+expanded round just copied the parent spec's single `optional` value
+verbatim, correct for the two pre-existing shapes since they're uniform
+across rounds); `requirements_with_targets`/`_ability_target_requirements`
+add a `count_max` key to the wire format when set, which
+`expandMultiTargetRequirements` reads to build the right number of rounds
+with the right per-round `optional`, cloning the requirement object per
+round instead of reusing one shared reference the way every other
+requirement here still does (only a range needs rounds that disagree with
+each other on decline-ability).
+
+**Reaching real card text**: the shared parser quantifier every existing
+multi-target family reads (`catalogue.handlers._MULTI_TARGET_QUANTIFIER`,
+already feeding `tap`/`return_to_hand`/`destroy`/`exile`/`add_counters`/
+`damage`'s own "N target X"/"up to N target X" rows via
+`_multi_target_params`) gained a third alternative —
+`(?P<range_min>\d+) or (?P<range_max>\d+)` — tried before the plain count
+so "1 or 2 " isn't swallowed by a bare `\d+` match on the leading digit.
+One shared change that, for free, let `tap`/`return_to_hand`/
+`return_from_graveyard`/
+`add_counters`/`pump` all recognize their own "1 or 2 target X" shape
+without individually-hunted regressions; two families that don't use the
+shared quantifier at all (`divided_damage`'s own local
+`targets|target creatures` alternation, and the pump family's dedicated
+"up to two"/"1 or 2" rows) got matching dedicated range rows instead
+(`_divided_damage_range`/`_damage_each_range`, `_pump_one_or_two`/
+`_pump_one_or_two_kw`). A new `PumpEffect.previous_subject` mode (mirroring
+`TapEffect`/`ReturnToHandEffect`'s existing "They…" pronoun idiom exactly)
+plus its own `previous_subject_only`-gated parser rows closed the "…1 or 2
+target creatures…. They [each] get/gain `<X>`." two-clause shape
+(A-Bretagard Stronghold/Fancy Footwork). A `nonland_permanent` row in the
+shared multi-target alternation (previously only the bare, land-inclusive
+`permanent`) closed Wanderwine Farewell's own first clause.
+
+**A dormant bug found and fixed along the way, not left for later**: the
+pre-existing "up to two target creatures each get +N/+N…" pump row
+(Dauntless Onslaught-shaped, 19 SOLO cards, unrelated to this ticket's own
+range shape) had been setting a spec key literally named `"count"` — but
+the `"pump"` `EffectRegistry` factory has only ever read `"target_count"`
+for this (the same distinct-from-magnitude convention `add_counters`
+uses). Every card on this template was silently reduced to offering just
+one target since `PumpEffect`'s own `count` default of 1 was never
+overridden — found by writing the neighboring "1 or 2" row right next to
+it and noticing the two didn't share a key name. Fixed at the source; a
+regression test (`test_up_to_two_pump_bug_fix_reaches_target_spec`) pins
+the correct key down so it can't silently regress back.
+
+**Raph & Leo, Sibling Rivals** (MEC-28's stopgap) now uses the real range
+(`count=1, count_max=2`) instead of the single-mandatory-target
+simplification — not deleted in favor of the oracle-text parser, since the
+parser's shared multi-target grammar still has no row for a *targeted*
+"attacking creatures" phrase (only the untargeted mass-selector "untap all
+attacking creatures" form ENG-29 built); that's real, separate scope
+(a new row plus threading a `creature_filter` through
+`_multi_target_params`, which has none today) only this one card would
+exercise, documented in the entry's own updated docstring rather than
+built speculatively.
+
+**Cards actually unlocked**: `parser_probe.py blocked "[0-9] or [0-9]
+target"`'s own 30-card SOLO list (the ticket's founding evidence) is down
+to 14 after this batch — Counterintelligence, Infernal Rebirth,
+A-Bretagard Stronghold, Armament Corps, Contagion*, Elven Rite, Splendid
+Agony, Synchronized Charge, Fancy Footwork, Wind Sail, Electrolyze, Fire
+// Ice, Forked Bolt, Chandra's Pyrohelix, Skarrgan Hellkite*, Wanderwine
+Farewell all closed (a few, marked *, only partially — see below). The
+remaining 14 (Become Brutes, Broken Dam, Common Goal, Coordinated
+Clobbering, Heroic Teamwork, Leonardo's Technique, Omnivorous Flytrap, Run
+for Your Life, Skarrgan Hellkite, Soul Parry, Succumb to the Cold,
+Synchronized Charge, Wanderwine Farewell, Contagion) each block on a
+*different*, unrelated gap the range primitive doesn't touch — checked
+individually, not assumed: a "-2/-1" counter kind `_counter_sign` doesn't
+recognize (Contagion); "activate only if `<condition>`" as an activation
+restriction (Skarrgan Hellkite — its own "1 or 2 target" clause parses
+fine in isolation); a negated-keyword creature filter, "without
+horsemanship" (Broken Dam); a mana-value filter on a graveyard multi-target
+return (Leonardo's Technique); "Teamwork N" as an additional cost keyword
+(Heroic Teamwork); a multi-source fight-shaped "each deal damage equal to
+their power to target creature" (Common Goal, Coordinated Clobbering); a
+board-state creature filter, "creatures you control with counters on
+them" (Synchronized Charge's second clause); a count-selector token
+creation, "for each permanent returned this way" (Wanderwine Farewell's
+second clause); a source-side damage-prevention shield rather than a
+target-side one, "prevent all damage `<creatures>` would deal" (Soul
+Parry); token creation attached to a previous-target group (Become
+Brutes); a filtered-unblockable grant on a previous-target group (Run for
+Your Life); and `AddCountersEffect`/`TapEffect`'s own "an opponent
+controls" multi-target row plus a stun-counter `previous_subject` mode,
+neither built yet (Succumb to the Cold). None of these is the range
+primitive rolling to a further deferral — each is a distinct, separate gap
+now precisely diagnosed rather than left bundled under one ticket's name.
+
+New test file `tests/test_eng30_target_count_range.py` (22 cases: parser
+recognition for every family above, `TargetSpec.effective_count`/
+`count_max` propagation across all eight effect classes, offer-time
+castability locking on the *minimum* not the maximum, resolution honouring
+whichever count was actually chosen without truncating to the minimum,
+and two real-card end-to-end cases — Electrolyze, Armament Corps); Raph &
+Leo's own tests in `test_mec28_intervening_if_residual.py` rewritten from
+a single-target assertion to a real two-round gather (mandatory floor,
+declinable ceiling, and a "stop early at the minimum" case). Full suite
+green (3930 passed, up from 3907 — one flaky, unrelated websocket test
+reconfirmed in isolation, the same one noted in prior entries). Parser
+coverage 33.67%→33.7% (11,697→11,722/34,811, PARSER_VERSION 87→88,
+`--no-db` full rescan reconfirms the number independent of the coverage
+ledger) — `BACKLOG.md`, `CLAUDE.md` and `implementationStatusView.js` all
+synced.

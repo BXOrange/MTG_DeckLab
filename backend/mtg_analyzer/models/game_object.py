@@ -348,6 +348,17 @@ class GameObject:
         #: mana source on the same controller's board is unaffected. Reset
         #: each untap step, same as `activated_loyalty_this_turn`.
         self.added_mana_with_ability_this_turn: bool = False
+        #: MEC-29/RULE 702.122c: the instance ids of every creature tapped to
+        #: pay one of this permanent's own Crew costs since its controller's
+        #: last untap step — "crewed by ~ this turn" (Balthier and Fran).
+        #: Accumulates across repeat Crew activations in the same turn rather
+        #: than being overwritten (a fact that becomes true stays true for
+        #: the rest of the turn, the same "this turn" convention every other
+        #: field on this list uses); reset each untap step, same as
+        #: `activated_loyalty_this_turn`. Stamped by `GameEngine.
+        #: _pay_activation_cost`'s `crew_power` branch, read live by
+        #: `effect_binder._build_group_ok`'s ``crewed_by_self`` condition.
+        self.crewed_by_ids: list[int] = []
         #: Blocking (RULE 509): ``blocking`` is the instance id of the
         #: attacker this creature is declared to block (None if not
         #: blocking); ``blocked_by`` lists the blocker instance ids assigned
