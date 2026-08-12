@@ -87,7 +87,7 @@ from ..models.mana_pool import MANA_TYPES, ManaPool
 from ..models.player import Player
 from . import continuous
 from .costs import DISCARD_HAND, PAY_LIFE_X, REMOVE_COUNTERS_ANY, REMOVE_COUNTERS_X
-from .mana_abilities import ManaAbility, hand_mana_abilities_for, mana_abilities_for
+from .mana_abilities import ManaAbility, hand_mana_abilities_for, mana_abilities_for, mana_source_kind_for
 
 #: The six mana types WUBRGC potential is tracked/displayed in, matching
 #: `ManaPool.MANA_TYPES`'s own set (order doesn't matter here).
@@ -413,7 +413,10 @@ def _try_activate(
     if mana_cost.symbols:
         pool.pay(mana_cost, life_available=commitment.life)
     _commit_non_mana_cost(engine, player, candidate, commitment)
-    pool.add_many(produced, restriction=candidate.ability.restriction)
+    pool.add_many(
+        produced, restriction=candidate.ability.restriction,
+        source_kind=mana_source_kind_for(candidate.obj),
+    )
 
     option_index = 0
     if color_split is None and option is not None:

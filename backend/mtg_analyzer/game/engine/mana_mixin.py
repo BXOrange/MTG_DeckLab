@@ -40,6 +40,7 @@ from ..effects import ActivatedAbility
 from ..mana_abilities import (
     hand_mana_abilities_for,
     mana_abilities_for,
+    mana_source_kind_for,
     option_label,
     restriction_predicate_for_activation,
     restriction_predicate_for_cast,
@@ -157,7 +158,9 @@ class ManaMixin:
             # color`) into the concrete ``monocolored_spell`` restriction
             # `_restriction_allows_cast` checks.
             restriction = {"kind": "monocolored_spell", "color": source.chosen_color}
-        player.mana_pool.add_many(produced, restriction=restriction)
+        player.mana_pool.add_many(
+            produced, restriction=restriction, source_kind=mana_source_kind_for(source)
+        )
         if ability.self_damage:
             # RULE 605.1a: a mana ability may have effects besides producing
             # mana (the painland/Elves-of-Deep-Shadow "deals N damage to
@@ -222,7 +225,9 @@ class ManaMixin:
                 raise ValueError(f"invalid mana option {option_index} for {source.name}")
             produced = dict(ability.options[option_index])
         self.rules.exile(source)
-        player.mana_pool.add_many(produced, restriction=ability.restriction)
+        player.mana_pool.add_many(
+            produced, restriction=ability.restriction, source_kind=mana_source_kind_for(source)
+        )
         if ability.self_damage:
             self.rules.deal_damage(player, ability.self_damage, source=source)
         if ability.self_rad_counters:

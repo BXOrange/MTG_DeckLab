@@ -62,16 +62,45 @@ class ManaPool:
         #: an identical ``restriction`` dict is merged in-place by `add`
         #: rather than growing the list unboundedly.
         self.restricted: list[dict[str, Any]] = []
+        #: PAR-19: RULE 605.3a's *other* direction — "spend only mana
+        #: produced by Treasures/basic lands/creatures to cast this
+        #: spell." (Security Rhox/Imperiosaur/Myr Superion), the inverse of
+        #: ``restricted`` above: that mechanism *adds* extra usable mana
+        #: opt-in; this one *subtracts* from the ordinary pool, since a
+        #: spell like Imperiosaur must reject perfectly ordinary ``pool``
+        #: mana that didn't come from a basic land. A per-source-kind
+        #: shadow tally that always mirrors ``pool`` exactly (every ``add``
+        #: with ``restriction=None`` — the only case that lands in
+        #: ``pool`` — also lands here, bucketed by ``source_kind``, default
+        #: bucket ``None`` for "no known/relevant origin"); never mutated
+        #: except in lockstep with ``pool`` (`_add_to_source_pool`/
+        #: `_consume_from_source_pool`) so the two never drift. Only
+        #: consulted when a caller passes ``require_source_kind`` to
+        #: `can_pay`/`pay` — every pre-existing call site (the overwhelming
+        #: majority) never does, so this is pure bookkeeping overhead for
+        #: them, not a behaviour change.
+        self.pool_by_source: dict[Optional[str], dict[str, int]] = {}
         if amounts:
             for mana_type, amount in amounts.items():
                 self.add(mana_type, amount)
 
-    def add(self, mana_type: str, amount: int = 1, restriction: Optional[dict] = None) -> None:
+    def _add_to_source_pool(self, mana_type: str, amount: int, source_kind: Optional[str]) -> None:
+        bucket = self.pool_by_source.setdefault(source_kind, {t: 0 for t in MANA_TYPES})
+        bucket[mana_type] = bucket.get(mana_type, 0) + amount
+
+    def add(
+        self, mana_type: str, amount: int = 1, restriction: Optional[dict] = None,
+        source_kind: Optional[str] = None,
+    ) -> None:
         """Add ``amount`` mana of ``mana_type`` (``W U B R G C``).
 
         ``restriction`` (RULE 605.3a, ``None`` by default) tags this mana
         as spendable only where a caller's ``allows_restriction`` predicate
-        (`can_pay`/`pay`) says so — see the module docstring.
+        (`can_pay`/`pay`) says so — see the module docstring. ``source_kind``
+        (PAR-19, only meaningful alongside ``restriction=None``) tags which
+        kind of permanent produced it (``"treasure"``/``"basic_land"``/
+        ``"creature"``/…) for `pool_by_source`'s own, independent filter —
+        see that field's docstring.
         """
         if mana_type not in self.pool:
             raise ValueError(f"unknown mana type: {mana_type!r}")
@@ -79,6 +108,7 @@ class ManaPool:
             raise ValueError("amount must be non-negative")
         if restriction is None:
             self.pool[mana_type] += amount
+            self._add_to_source_pool(mana_type, amount, source_kind)
             return
         for lot in self.restricted:
             if lot["restriction"] == restriction:
@@ -86,13 +116,18 @@ class ManaPool:
                 return
         self.restricted.append({"restriction": restriction, "amounts": {mana_type: amount}})
 
-    def add_many(self, amounts: dict[str, int], restriction: Optional[dict] = None) -> None:
+    def add_many(
+        self, amounts: dict[str, int], restriction: Optional[dict] = None,
+        source_kind: Optional[str] = None,
+    ) -> None:
         for mana_type, amount in amounts.items():
-            self.add(mana_type, amount, restriction=restriction)
+            self.add(mana_type, amount, restriction=restriction, source_kind=source_kind)
 
     def set_amount(self, mana_type: str, amount: int) -> None:
         """Set ``mana_type`` to an absolute ``amount`` — the Replay editor's
-        mana-pool control; normal play only ever `add`s/`pay`s/`empty`s."""
+        mana-pool control; normal play only ever `add`s/`pay`s/`empty`s.
+        Not source-tracked (`pool_by_source` is left untouched) — a direct
+        editor override has no originating permanent to attribute."""
         if mana_type not in self.pool:
             raise ValueError(f"unknown mana type: {mana_type!r}")
         if amount < 0:
@@ -113,6 +148,7 @@ class ManaPool:
         for mana_type in self.pool:
             self.pool[mana_type] = 0
         self.restricted.clear()
+        self.pool_by_source.clear()
 
     def _usable_lots(self, allows_restriction: Optional[AllowsRestriction]) -> list[dict]:
         """Restricted lots ``allows_restriction`` says may pay the cost at
@@ -122,7 +158,17 @@ class ManaPool:
             return []
         return [lot for lot in self.restricted if allows_restriction(lot["restriction"])]
 
-    def _merged_available(self, usable_lots: list[dict]) -> dict[str, int]:
+    def _merged_available(
+        self, usable_lots: list[dict], require_source_kind: Optional[str] = None,
+    ) -> dict[str, int]:
+        # PAR-19: ``require_source_kind`` swaps the ordinary "``pool`` plus
+        # whatever opted-in restricted lots" base for *only* the matching
+        # `pool_by_source` bucket — the subtractive direction `usable_lots`
+        # can't express (see `pool_by_source`'s docstring). The two never
+        # combine on any real card, so this ignores ``usable_lots`` entirely
+        # rather than guessing how they'd interact.
+        if require_source_kind is not None:
+            return dict(self.pool_by_source.get(require_source_kind, {}))
         merged = dict(self.pool)
         for lot in usable_lots:
             for mana_type, amount in lot["amounts"].items():
@@ -135,6 +181,7 @@ class ManaPool:
         life_available: int = 0,
         allows_restriction: Optional[AllowsRestriction] = None,
         wildcard: Optional[str] = None,
+        require_source_kind: Optional[str] = None,
     ) -> bool:
         """Whether this pool (plus ``life_available`` life) can pay ``cost``.
 
@@ -154,10 +201,15 @@ class ManaPool:
         narrows ``"color"`` the other way: only *that* color of mana
         substitutes for a colored pip it doesn't already match, not all
         five (real red mana still pays a red pip either way). ``None`` (the
-        default) is the ordinary, unrelaxed solve.
+        default) is the ordinary, unrelaxed solve. ``require_source_kind``
+        (PAR-19 — "spend only mana produced by Treasures/basic lands/
+        creatures to cast this spell", Security Rhox/Imperiosaur/Myr
+        Superion) narrows payment to only `pool_by_source`'s matching
+        bucket instead of the whole pool — see that field's docstring.
         """
         usable = self._usable_lots(allows_restriction)
-        return self._find_payment(self._merged_available(usable), cost, life_available, wildcard) is not None
+        available = self._merged_available(usable, require_source_kind)
+        return self._find_payment(available, cost, life_available, wildcard) is not None
 
     def pay(
         self,
@@ -165,30 +217,66 @@ class ManaPool:
         life_available: int = 0,
         allows_restriction: Optional[AllowsRestriction] = None,
         wildcard: Optional[str] = None,
+        require_source_kind: Optional[str] = None,
     ) -> int:
         """Pay ``cost`` from this pool, mutating it. Returns life spent.
 
-        ``wildcard`` — see `can_pay`.
+        ``wildcard``/``require_source_kind`` — see `can_pay`.
 
         Raises:
             ValueError: If the cost cannot be paid from the current pool
                 (call ``can_pay`` first to avoid this).
         """
         usable = self._usable_lots(allows_restriction)
-        solution = self._find_payment(self._merged_available(usable), cost, life_available, wildcard)
+        available = self._merged_available(usable, require_source_kind)
+        solution = self._find_payment(available, cost, life_available, wildcard)
         if solution is None:
             raise ValueError(f"cannot pay {cost!r} from {self.pool!r}")
         colored_spends, generic_needed, life_spent = solution
 
         for color in colored_spends:
-            self._consume(color, 1, usable)
-        self._spend_generic(generic_needed, usable)
+            self._consume(color, 1, usable, require_source_kind)
+        self._spend_generic(generic_needed, usable, require_source_kind)
         # Lots a payment fully drained are dropped rather than left as
         # empty husks (`add` would otherwise keep merging into them forever).
         self.restricted = [lot for lot in self.restricted if sum(lot["amounts"].values())]
         return life_spent
 
-    def _consume(self, mana_type: str, amount: int, usable_lots: list[dict]) -> None:
+    def _consume_from_source_pool(
+        self, mana_type: str, amount: int, require_source_kind: Optional[str],
+    ) -> None:
+        """Decrement `pool_by_source` in lockstep with a ``pool[mana_type]``
+        drain of ``amount``, keeping the two exactly in sync (see
+        `pool_by_source`'s docstring). When this payment was itself
+        source-filtered (``require_source_kind`` set), the mana necessarily
+        came from that exact bucket. Otherwise, drain the untagged
+        (``None``) bucket first — ordinary mana is spent before touching
+        any source-tagged mana, so a later source-filtered need still finds
+        it — falling back to whichever tagged buckets have any left, in a
+        stable order, purely to keep the totals consistent."""
+        if amount <= 0:
+            return
+        if require_source_kind is not None:
+            bucket = self.pool_by_source.get(require_source_kind)
+            if bucket is not None:
+                bucket[mana_type] = max(0, bucket.get(mana_type, 0) - amount)
+            return
+        remaining = amount
+        buckets = [self.pool_by_source.get(None)] + [
+            b for k, b in self.pool_by_source.items() if k is not None
+        ]
+        for bucket in buckets:
+            if remaining <= 0 or bucket is None:
+                continue
+            take = min(bucket.get(mana_type, 0), remaining)
+            if take:
+                bucket[mana_type] -= take
+                remaining -= take
+
+    def _consume(
+        self, mana_type: str, amount: int, usable_lots: list[dict],
+        require_source_kind: Optional[str] = None,
+    ) -> None:
         """Remove ``amount`` of ``mana_type``, spending usable restricted
         lots before unrestricted mana — restricted mana left unspent is
         simply lost once the pool empties (RULE 500.4), so using it first
@@ -202,18 +290,24 @@ class ManaPool:
                 amount -= take
         if amount > 0:
             self.pool[mana_type] -= amount
+            self._consume_from_source_pool(mana_type, amount, require_source_kind)
 
-    def _spend_generic(self, amount: int, usable_lots: list[dict] = ()) -> None:
+    def _spend_generic(
+        self, amount: int, usable_lots: list[dict] = (), require_source_kind: Optional[str] = None,
+    ) -> None:
         """Remove ``amount`` mana of any type, colorless-first (see MANA_TYPES)."""
         for mana_type in MANA_TYPES:
             if amount <= 0:
                 break
-            available = self.pool[mana_type] + sum(
-                lot["amounts"].get(mana_type, 0) for lot in usable_lots
-            )
+            if require_source_kind is not None:
+                available = self.pool_by_source.get(require_source_kind, {}).get(mana_type, 0)
+            else:
+                available = self.pool[mana_type] + sum(
+                    lot["amounts"].get(mana_type, 0) for lot in usable_lots
+                )
             take = min(available, amount)
             if take:
-                self._consume(mana_type, take, usable_lots)
+                self._consume(mana_type, take, usable_lots, require_source_kind)
                 amount -= take
         if amount > 0:  # pragma: no cover - guarded by _find_payment
             raise ValueError("insufficient mana for generic cost")
@@ -323,6 +417,7 @@ class ManaPool:
         copy.restricted = [
             {"restriction": lot["restriction"], "amounts": dict(lot["amounts"])} for lot in self.restricted
         ]
+        copy.pool_by_source = {k: dict(v) for k, v in self.pool_by_source.items()}
         return copy
 
     def can_pay_distinct_colors(self, n: int) -> bool:

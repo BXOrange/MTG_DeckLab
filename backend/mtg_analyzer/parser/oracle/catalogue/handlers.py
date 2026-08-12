@@ -276,22 +276,92 @@ def _damage_kicked_override(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     })]
 
 
-#: RULE 707/706.2's "create a token that's a copy of target X" (Cackling
-#: Counterpart/Rite of Replication-shaped) — deliberately narrow: only a
-#: bare `{TARGET}` phrase with no trailing "except it's/has/isn't …"
-#: modification clause, since that clause's shapes are too varied (a static
-#: characteristic swap, a granted ability, a P/T override, …) to safely fold
-#: into one grammar row without risking a wrong copy — fail-closed (no
-#: match) rather than silently dropping the modification, same as every
-#: other "can't safely represent this clause" case in this file.
-_COPY_PERMANENT_RE = _c(rf"create a token that'?s a copy of {TARGET}")
+#: A single copy-permanent "except …" tail *modifier* — one comma/"and"-
+#: separated piece of a (possibly compound) "except" clause — classified
+#: into the params it safely maps to, or ``None`` if it's not one of the
+#: well-defined shapes below. Deliberately still excludes anything genuinely
+#: varied (a P/T override, an arbitrary granted ability, a name change, "it
+#: loses all other card types") — those stay unclaimed rather than guessed
+#: at, same as every other "can't safely represent this clause" case in this
+#: file; a real card needing one is `game/ability_catalogue.py`'s job
+#: instead (PAR-18's own compound-except residue: Espers to Magicite/
+#: Haunting Imitation/Lazav, Dimir Mastermind/Soul Separator).
+def _copy_except_modifier(piece: str) -> Optional[dict]:
+    piece = piece.strip()
+    if re.fullmatch(r"it isn'?t legendary|it'?s not legendary", piece):
+        return {"not_legendary": True}
+    m = re.fullmatch(r"it'?s an? (?P<mid>[a-z ]+?) in addition to its other types", piece)
+    if m:
+        colors, subtypes, is_artifact = _split_token_mid_words(m.group("mid"))
+        if colors or not (is_artifact or subtypes):
+            return None  # a colour word or an empty/unrecognised mid — fail closed
+        out: dict = {}
+        # `Card.as_copy` splices these straight into the type line
+        # (`f"{main} {' '.join(add_types)}"`), no case-normalization of its
+        # own — a real MTG type line is title-cased ("Artifact Creature —
+        # Human"), so the words must be capitalized here, not left as the
+        # lowercase tokens `_split_token_mid_words` returns.
+        if is_artifact:
+            out["add_types"] = ["Artifact"]
+        if subtypes:
+            out["add_subtypes"] = [s.capitalize() for s in subtypes]
+        return out
+    return None
+
+
+#: PAR-18: a (possibly *compound*) "except …" tail — "except it's an
+#: artifact in addition to its other types" (a single modifier) / "except
+#: it's not legendary and it's an artifact in addition to its other types"
+#: (Dedicated Dollmaker-shaped, 2+ modifiers in one sentence) — split on its
+#: top-level ", "/" and " connectors and each piece run through
+#: `_copy_except_modifier` individually, merging the (fail-closed) results.
+#: A comma is split first so a trailing "X, Y and Z" list's own "and" isn't
+#: mistaken for a second connector inside one already-split piece.
+def _parse_copy_except_tail(tail: str) -> Optional[dict]:
+    pieces: list[str] = []
+    for chunk in re.split(r",\s*", tail.strip()):
+        pieces.extend(p for p in re.split(r"\s+and\s+", chunk) if p.strip())
+    if not pieces:
+        return None
+    merged: dict = {}
+    for piece in pieces:
+        extra = _copy_except_modifier(piece)
+        if extra is None:
+            return None  # one unrecognised modifier fails the whole tail closed
+        for key, value in extra.items():
+            if isinstance(value, list):
+                merged[key] = list(dict.fromkeys(merged.get(key, []) + value))
+            elif key in merged and merged[key] != value:
+                return None  # conflicting modifiers (shouldn't happen; fail closed)
+            else:
+                merged[key] = value
+    return merged
+
+
+#: RULE 707/706.2's "create a token that's a copy of target X[, except
+#: <modifier>[, <modifier>...][ and <modifier>]]" (Cackling Counterpart/
+#: Rite of Replication/Multiversal Recruitment/Impostor Syndrome-shaped) —
+#: the bare form and every safely-generalizable "except" tail
+#: (`_parse_copy_except_tail`) share one row; an "except" tail with even one
+#: unrecognised modifier still fails the whole clause closed rather than
+#: silently dropping it.
+_COPY_PERMANENT_RE = _c(
+    rf"create a token that'?s a copy of {TARGET}(?:, except (?P<except_tail>.+))?"
+)
 
 
 def _copy_permanent(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     kind = resolve_target_kind(m.group("target"))
     if kind is None:
         return None
-    return [EffectSpec("copy_permanent", {"target_kind": kind, **_optional_param(m)})]
+    params: dict = {"target_kind": kind, **_optional_param(m)}
+    tail = m.groupdict().get("except_tail")
+    if tail:
+        extra = _parse_copy_except_tail(tail)
+        if extra is None:
+            return None
+        params.update(extra)
+    return [EffectSpec("copy_permanent", params)]
 
 
 #: The RULE 702.33b kicked-override sibling — "Create a token that's a copy
@@ -314,62 +384,31 @@ def _copy_permanent_kicked_override(m: re.Match[str]) -> Optional[list[EffectSpe
     })]
 
 
-#: One of `_COPY_PERMANENT_RE`'s excluded "except …" tails, carved out on
-#: its own because it's a single, well-defined characteristic flip (RULE
-#: 205.4a) rather than the "too varied to safely generalize" family the row
-#: above's docstring warns about — Multiversal Recruitment/Hall of Mirrors/
-#: Impostor Syndrome-shaped, the single biggest real template in this
-#: family (`CopyPermanentEffect.not_legendary`).
-_COPY_PERMANENT_NOT_LEGENDARY_RE = _c(
-    rf"create a token that'?s a copy of {TARGET}, except it isn'?t legendary"
+#: PAR-18's own pronoun antecedent — "exile up to 1 target creature card
+#: from a graveyard. Create a token that's a copy of **it**/**that
+#: card**[, except <modifier(s)>]." (Ardyn, the Usurper/Anikthea, Hand of
+#: Erebos-shaped): the copied object is what an *earlier clause of the same
+#: ability* just targeted (RULE 608.2 resolution order, `GameContext.
+#: previous_targets` — `CopyPermanentEffect.referent="previous"`), not a
+#: fresh RULE 115 target of this clause's own and not the ability's own
+#: source either. `previous_subject_only`-gated the same way `_goad_previous`
+#: is: only offered once `segmenter.parse_effect_body` has actually split
+#: off an earlier clause that announced a target. Shares
+#: `_parse_copy_except_tail` with the plain-target row above.
+_COPY_PERMANENT_PREVIOUS_RE = _c(
+    r"create a token that'?s a copy of (?:it|that card)"
+    r"(?:, except (?P<except_tail>.+))?"
 )
 
 
-def _copy_permanent_not_legendary(m: re.Match[str]) -> Optional[list[EffectSpec]]:
-    kind = resolve_target_kind(m.group("target"))
-    if kind is None:
-        return None
-    return [EffectSpec("copy_permanent", {
-        "target_kind": kind, "not_legendary": True, **_optional_param(m),
-    })]
-
-
-#: PAR-18: the sibling single-modifier "except …" tail — "except it's an
-#: artifact in addition to its other types" (Cackling Counterpart/the
-#: artifact-token-copy cycle) / "except it's a Shapeshifter Rogue in
-#: addition to its other types" (a creature-subtype grant instead) —
-#: `CopyPermanentEffect.add_types`/``add_subtypes`` already existed
-#: engine-side (MEC-12's 2026-08-12 batch) with no oracle-text route in.
-#: Reuses `_split_token_mid_words`'s existing type/subtype-word
-#: classification (the same one every "<mid> creature token" handler already
-#: shares) rather than a new word list. Deliberately still excludes any
-#: *compound* "except" clause combining this with another modifier in the
-#: same sentence ("except it's an artifact in addition to its other types
-#: and it has haste") — `_COPY_PERMANENT_RE`'s own docstring already
-#: explains why that family stays unclaimed rather than guessed at.
-_COPY_PERMANENT_ADD_TYPES_RE = _c(
-    rf"create a token that'?s a copy of {TARGET}, except it'?s an? "
-    r"(?P<mid>[a-z ]+?) in addition to its other types"
-)
-
-
-def _copy_permanent_add_types(m: re.Match[str]) -> Optional[list[EffectSpec]]:
-    kind = resolve_target_kind(m.group("target"))
-    if kind is None:
-        return None
-    colors, subtypes, is_artifact = _split_token_mid_words(m.group("mid"))
-    if colors or not (is_artifact or subtypes):
-        return None  # a colour word or an empty/unrecognised mid — fail closed
-    params: dict = {"target_kind": kind, **_optional_param(m)}
-    # `Card.as_copy` splices these straight into the type line
-    # (`f"{main} {' '.join(add_types)}"`), no case-normalization of its
-    # own — a real MTG type line is title-cased ("Artifact Creature —
-    # Human"), so the words must be capitalized here, not left as the
-    # lowercase tokens `_split_token_mid_words` returns.
-    if is_artifact:
-        params["add_types"] = ["Artifact"]
-    if subtypes:
-        params["add_subtypes"] = [s.capitalize() for s in subtypes]
+def _copy_permanent_previous(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    params: dict = {"target_kind": None, "referent": "previous"}
+    tail = m.groupdict().get("except_tail")
+    if tail:
+        extra = _parse_copy_except_tail(tail)
+        if extra is None:
+            return None
+        params.update(extra)
     return [EffectSpec("copy_permanent", params)]
 
 
@@ -1898,11 +1937,18 @@ def _return_from_graveyard_shuffle_any(m: re.Match[str]) -> Optional[list[Effect
     })]
 
 
-#: "exile target [type] card from [scope] graveyard" (RULE 701.5a) — the
-#: Deathrite Shaman/Scavenging Ooze/Lion Sash graveyard-hate family; almost
-#: always "a graveyard" in practice, but the same scope vocabulary applies.
+#: "exile [up to one] target [type] card from [scope] graveyard" (RULE
+#: 701.5a) — the Deathrite Shaman/Scavenging Ooze/Lion Sash graveyard-hate
+#: family; almost always "a graveyard" in practice, but the same scope
+#: vocabulary applies. The `UP_TO_ONE` prefix (RULE 115.1a — PAR-18's own
+#: "exile up to 1 target creature card from a graveyard[. create a token
+#: that's a copy of that card]" antecedent, Ardyn/Anikthea-shaped) reuses
+#: `_optional_param`/`target_is_optional` the same way every other
+#: `{TARGET}`-bearing handler does, even though this clause hand-rolls its
+#: own "target" grammar instead of embedding `TARGET` (the graveyard scope/
+#: type vocabulary predates that macro and has its own word lists).
 _EXILE_FROM_GRAVEYARD_RE = _c(
-    rf"exile target (?:(?P<type>{_GRAVEYARD_TYPE_WORD}) )?card from "
+    rf"exile (?P<up_to_one>{UP_TO_ONE})target (?:(?P<type>{_GRAVEYARD_TYPE_WORD}) )?card from "
     rf"(?P<scope>{_GRAVEYARD_SCOPE_WORD}) graveyard"
 )
 
@@ -1911,7 +1957,7 @@ def _exile_from_graveyard(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     kind = _graveyard_target_kind(m.groupdict().get("type"), m.group("scope"))
     if kind is None:
         return None
-    return [EffectSpec("exile", {"target_kind": kind})]
+    return [EffectSpec("exile", {"target_kind": kind, **_optional_param(m)})]
 
 
 #: "exile target player's graveyard." (Bojuka Bog) / "exile all cards from
@@ -4798,28 +4844,25 @@ HANDLERS: list[EffectHandler] = [
         _COPY_PERMANENT_KICKED_OVERRIDE_RE,
         _copy_permanent_kicked_override,
     ),
-    # "…, except it isn't legendary." (Multiversal Recruitment-shaped) —
-    # tried before the bare `copy_permanent` row so its own trailing
-    # "except" clause isn't left dangling/unclaimed.
-    EffectHandler(
-        "copy_permanent_not_legendary",
-        _COPY_PERMANENT_NOT_LEGENDARY_RE,
-        _copy_permanent_not_legendary,
-    ),
-    # PAR-18: "…, except it's an artifact/a Shapeshifter Rogue in addition
-    # to its other types." — the sibling single-modifier "except" tail,
-    # tried before the bare `copy_permanent` row for the same reason.
-    EffectHandler(
-        "copy_permanent_add_types",
-        _COPY_PERMANENT_ADD_TYPES_RE,
-        _copy_permanent_add_types,
-    ),
-    # "Create a token that's a copy of target creature." (RULE 707/706.2,
-    # Cackling Counterpart-shaped) — the bare form, no kicker.
+    # "Create a token that's a copy of target creature[, except <modifier(s)>]."
+    # (RULE 707/706.2, Cackling Counterpart/Multiversal Recruitment/Impostor
+    # Syndrome-shaped) — the bare form and every safely-generalizable
+    # compound "except" tail in one row (`_parse_copy_except_tail`).
     EffectHandler(
         "copy_permanent",
         _COPY_PERMANENT_RE,
         _copy_permanent,
+    ),
+    # PAR-18: "exile up to 1 target creature card from a graveyard. Create a
+    # token that's a copy of it/that card[, except <modifier(s)>]." — the
+    # pronoun sibling of the row above, offered only once an earlier clause
+    # of the same ability actually chose something (`GameContext.
+    # previous_targets`).
+    EffectHandler(
+        "copy_permanent_previous",
+        _COPY_PERMANENT_PREVIOUS_RE,
+        _copy_permanent_previous,
+        previous_subject_only=True,
     ),
     # "~ deals 3 damage to any target" / "deal 2 damage to target creature" /
     # "it deals 2 damage to target opponent" (a triggered-ability body's own

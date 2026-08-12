@@ -55,61 +55,6 @@ Plan-level sequencing lives in
   `api/game.py` — see Done_Backend.md "PLR-13". Vanguard's own remaining
   piece — a per-seat avatar picker, and its avatars' card text — is a
   permanent non-goal, not a queued gap; see the MEC callout below.)
-- **PAR-18 · Copy-except-also, the wider residual (narrowed 2026-08-12).**
-  MEC-12's 2026-08-12 batch shipped `Card.as_copy`'s `not_legendary` (RULE
-  205.4a) and threaded `add_types`/`add_subtypes`/`not_legendary` through
-  `CopyPermanentEffect` for the first time, but with no oracle-text route
-  reaching `add_types`/`add_subtypes` at all — a same-day follow-up closed
-  that gap (`catalogue.handlers._copy_permanent_add_types`, "…except it's
-  an artifact/a Shapeshifter Rogue in addition to its other types",
-  Saheeli's Artistry-shaped), reusing `_split_token_mid_words`'s existing
-  type/subtype-word classification rather than a new list. 187 cards
-  (`engine_bench.py cards "copy.*except it"`, was 188) still don't parse,
-  still mostly the *original* two shapes neither pass closed: a
-  self-referential "create a token that's a copy of **it**/**that card**"
-  where the antecedent is often *not* the ability's own source at all but a
-  card an earlier clause of the same ability exiled/found (needs a
-  `previous_subject`-style retarget reading `GameContext.created_objects`/
-  an exile-tracking field, not a genuine self-reference the way the ticket's
-  own original framing assumed — re-scope before building), and compound
-  "except" clauses combining 2+ modifiers in one sentence
-  (`_COPY_PERMANENT_RE`'s own docstring already explains why that family is
-  deliberately excluded rather than guessed at).
-- **PAR-19 · The alt-cost family's own wider tail, narrowed (2026-08-12).**
-  MEC-12's 2026-08-12 batch closed Snuff Out's named siblings (a board
-  condition + sacrifice/tap_others, mana+return-to-hand combined, counted
-  sacrifice). A same-day follow-up closed the board-count-conditioned gate
-  named here — "If N or more creatures are attacking, you may pay `<cost>`
-  rather than pay this spell's mana cost." (Lethargy Trap/Arrow Volley
-  Trap-shaped) — via a new `AbilitySpec.alt_cost` condition key
-  (`creatures_attacking_at_least`, the combat-count sibling of the
-  already-shipped `opponent_spells_cast_this_turn_at_least`; also fixed a
-  latent validation bug where `_validate_alt_cost`'s inline condition check
-  only special-cased `control_land_type`'s string value and would have
-  rejected *any* int-valued condition, including the pre-existing
-  `opponent_spells_cast_this_turn_at_least` key, had a card ever printed it
-  on an `alt_cost` rather than a `free_cast_condition`). Along the way, a
-  **much bigger, unrelated find**: the shared `_GROUP`/`_GROUP_SELECTORS`
-  mass-pump vocabulary (`catalogue.handlers`, used by several existing
-  pump/keyword-grant rows at once) had never included "attacking
-  creatures" at all, despite `continuous.group_selector_objects`'s
-  `"attacking_creatures"` branch already existing (built for Motivated
-  Pony's anthem, later reused by MEC-28's `TapEffect.selector`) — widening
-  that one shared fragment closed **24 cards outright** in one line-count
-  change (`engine_bench.py cards "rather than pay this spell"` itself only
-  moved 27→28/81→80, since most of the 24 are cards that print "Attacking
-  creatures get `<±P>/<±T>` until end of turn"/"…gain `<keyword>` until end
-  of turn" with no alt-cost line at all — a completely different template
-  this ticket didn't name, found only because Lethargy Trap's *own* second
-  clause happened to need it too). What's left, per the ticket's original
-  framing: "you may discard a `<type>` card rather than pay…", "you may
-  exile N `<color>` cards…" (Multikicker-style counted pitch), and "…spend
-  only mana produced by Treasures to cast it this way" — the last of these
-  is a genuinely new primitive (mana-pool *provenance* tracking — which
-  permanent produced a given mana lot — not the existing RULE 605.3a
-  spend-restriction mechanism, which gates what a lot can be spent *on*,
-  not which lot must be spent), confirmed via `game/mana_abilities.py`
-  before deferring rather than assumed.
 
 ## MEC — Game mechanics
 

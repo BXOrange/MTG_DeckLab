@@ -279,6 +279,31 @@ class ActivationCost:
     #: activated ability's, so it's never consulted by `_can_pay_
     #: activation_cost`/`_pay_activation_cost`.
     exile_hand_card_color: Optional[str] = None
+    #: PAR-19: "…exile 2 `<color>` cards from your hand rather than pay this
+    #: spell's mana cost." (Soul Spike/Sunscour/Allosaurus Rider-shaped) —
+    #: ``(count, WUBRG letter)``, the counted sibling of
+    #: ``exile_hand_card_color`` above (that field's implicit count of 1
+    #: can't express "2"), the same `sacrifice`/`sacrifice_count` and
+    #: `return_to_hand`/`return_to_hand_count` singular/counted split
+    #: already used twice in this dataclass. Alt-cast-only.
+    exile_hand_card_color_count: Optional[tuple[int, str]] = None
+    #: PAR-19: "…discard a `<basic land type>` card rather than pay this
+    #: spell's mana cost." (Abolish/Flameshot/Outbreak/Snag — the "Pitch"
+    #: basic-land cycle) — the discard-zone sibling of
+    #: ``exile_hand_card_color``, keyed by land type word instead of color
+    #: since these all pitch a specific basic land rather than a colored
+    #: card. Alt-cast-only, same as every other RULE 118.9 field here.
+    discard_land_type: Optional[str] = None
+    #: PAR-19: "Spend only mana produced by Treasures to cast it this way."
+    #: (Security Rhox) — scopes an alt-cast ``mana`` payment (RULE 118.9) to
+    #: one `game/mana_abilities.py` `MANA_SOURCE_KINDS` bucket
+    #: (`ManaPool.pool_by_source`'s own key), the alt-cast-only sibling of
+    #: `GameObject.mana_source_kind_restriction` below (which scopes the
+    #: spell's *ordinary* cost instead — Imperiosaur/Myr Superion print no
+    #: alternative cost at all, just a standing restriction on their real
+    #: mana cost, so that one lives on the object, not in an
+    #: `ActivationCost`).
+    mana_source_kind: Optional[str] = None
     #: "…return two Islands you control to their owner's hand rather than
     #: pay this spell's mana cost." (RULE 118.9, Gush) — ``(count, subtype
     #: word)``, the alt-cast-only sibling of ``return_to_hand`` (that one's
@@ -465,6 +490,11 @@ class ActivationCost:
             parts.append("Sacrifice a permanent")
         if self.exile_hand_card_color:
             parts.append(f"Exile a {self.exile_hand_card_color} card from your hand")
+        if self.exile_hand_card_color_count:
+            count, color = self.exile_hand_card_color_count
+            parts.append(f"Exile {count} {color} card(s) from your hand")
+        if self.discard_land_type:
+            parts.append(f"Discard a {self.discard_land_type.capitalize()} card")
         if self.loyalty is not None:
             parts.append(f"[{'+' if self.loyalty >= 0 else ''}{self.loyalty}]")
         return ", ".join(parts)
@@ -490,6 +520,11 @@ class ActivationCost:
             "return_to_hand_count": list(self.return_to_hand_count) if self.return_to_hand_count else None,
             "sacrifice_filter": dict(self.sacrifice_filter) if self.sacrifice_filter else None,
             "exile_hand_card_color": self.exile_hand_card_color,
+            "exile_hand_card_color_count": (
+                list(self.exile_hand_card_color_count) if self.exile_hand_card_color_count else None
+            ),
+            "discard_land_type": self.discard_land_type,
+            "mana_source_kind": self.mana_source_kind,
             "loyalty": self.loyalty,
             "loyalty_is_x": self.loyalty_is_x,
             "x_selector": self.x_selector,
@@ -577,6 +612,13 @@ def parse_activation_cost(
         parsed.sacrifice_filter = dict(cost["sacrifice_filter"])
     if cost.get("exile_hand_card_color"):
         parsed.exile_hand_card_color = str(cost["exile_hand_card_color"])
+    if cost.get("exile_hand_card_color_count"):
+        count, color = cost["exile_hand_card_color_count"]
+        parsed.exile_hand_card_color_count = (int(count), str(color))
+    if cost.get("discard_land_type"):
+        parsed.discard_land_type = str(cost["discard_land_type"])
+    if cost.get("mana_source_kind"):
+        parsed.mana_source_kind = str(cost["mana_source_kind"])
     if "sorcery_speed_only" in cost:
         parsed.sorcery_speed_only = bool(cost["sorcery_speed_only"])
     if "only_during_your_turn" in cost:

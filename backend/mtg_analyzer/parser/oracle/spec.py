@@ -172,8 +172,31 @@ ALLOWED_ALT_COST_KEYS: frozenset[str] = frozenset(
         # ``(count, subtype)`` shape, reused the same way).
         "mana", "sacrifice", "sacrifice_count", "sacrifice_filter", "return_to_hand_count",
         "tap_others",
+        # PAR-19's own wider tail: the counted sibling of
+        # ``exile_hand_card_color`` (Soul Spike/Sunscour/Allosaurus Rider's
+        # "exile 2 `<color>` cards…") and the discard-zone "Pitch" basic-
+        # land cycle (Abolish/Flameshot/Outbreak/Snag's "discard a
+        # `<land type>` card…") — see `game/costs.py`'s `ActivationCost.
+        # exile_hand_card_color_count`/``discard_land_type``.
+        "exile_hand_card_color_count", "discard_land_type",
+        # PAR-19: "Spend only mana produced by Treasures to cast it this
+        # way." (Security Rhox) — scopes the ``mana`` key above to one
+        # `game/mana_abilities.MANA_SOURCE_KINDS` bucket. Not itself a
+        # payment component (it modifies ``mana``, the same way
+        # ``condition`` modifies the whole cost rather than paying
+        # anything on its own) — excluded from the "at least one real
+        # payment component" check below.
+        "mana_source_kind",
     }
 )
+
+#: RULE 605.3a's ``ManaPool.pool_by_source`` bucket vocabulary (PAR-19) —
+#: shared by `AbilitySpec.alt_cost`'s ``mana_source_kind`` key and
+#: `AbilitySpec.cast_mana_source_restriction` below, so both validate
+#: against the same closed set `game/mana_abilities.MANA_SOURCE_KINDS`
+#: defines (not imported directly — `parser/oracle/**` must have no
+#: `game/` imports, the front-end security boundary).
+MANA_SOURCE_KINDS: frozenset[str] = frozenset({"treasure", "basic_land", "creature"})
 
 #: RULE 601.2b/604.3 "as an additional cost to cast this spell, <cost>." —
 #: the closed vocabulary an `AbilitySpec.additional_cost` may name. Kept this
@@ -359,6 +382,17 @@ class AbilitySpec:
     #: regardless of ``ability_kind``, own oracle-text line standalone from
     #: the spell's actual effect" idiom `free_cast_condition` uses.
     alt_cost: Optional[dict[str, Any]] = None
+    #: PAR-19: "Spend only mana produced by basic lands/creatures to cast
+    #: this spell." (Imperiosaur/Myr Superion) — a standing restriction on
+    #: the spell's own *printed* mana cost (unlike `alt_cost`'s own
+    #: ``mana_source_kind``, which scopes an *alternative* cost instead — no
+    #: real card needs both). One of `MANA_SOURCE_KINDS`. Bound onto the
+    #: object as a plain attribute (`effect_binder.attach_to_object` →
+    #: `GameObject.mana_source_kind_restriction`, the same "dynamic,
+    #: getattr-read" convention `alt_cast_cost`/`alt_cast_condition`
+    #: already use), consulted by `RulesEngine.cast_spell`/`GameEngine.
+    #: can_cast`'s ordinary mana-payment branch.
+    cast_mana_source_restriction: Optional[str] = None
     #: "Strive — This spell costs `<cost>` more to cast for each target
     #: beyond the first." (MEC-4) — not a RULE 702 keyword at all (no CR
     #: entry defines it; Scryfall's `keywords` array is the only place it's
@@ -510,6 +544,7 @@ class AbilitySpec:
             and not self.alt_cost
             and not self.conditional_flash
             and not self.strive_cost
+            and not self.cast_mana_source_restriction
         ):
             raise SpecValidationError(
                 f"{self.ability_kind!r} ability must carry at least one effect"
@@ -529,6 +564,13 @@ class AbilitySpec:
 
         if self.alt_cost is not None:
             self._validate_alt_cost()
+
+        if self.cast_mana_source_restriction is not None:
+            if self.cast_mana_source_restriction not in MANA_SOURCE_KINDS:
+                raise SpecValidationError(
+                    f"'cast_mana_source_restriction' must be one of {sorted(MANA_SOURCE_KINDS)}, "
+                    f"got {self.cast_mana_source_restriction!r}"
+                )
 
         if self.strive_cost is not None:
             self._validate_strive_cost()
@@ -776,10 +818,34 @@ class AbilitySpec:
         sac_filter = cost.get("sacrifice_filter")
         if sac_filter is not None and (not isinstance(sac_filter, dict) or not sac_filter):
             raise SpecValidationError("'alt_cost' sacrifice_filter must be a non-empty dict")
+        exile_color_count = cost.get("exile_hand_card_color_count")
+        if exile_color_count is not None:
+            if (
+                not isinstance(exile_color_count, (list, tuple)) or len(exile_color_count) != 2
+                or isinstance(exile_color_count[0], bool) or not isinstance(exile_color_count[0], int)
+                or exile_color_count[0] < 1
+                or exile_color_count[1] not in ("W", "U", "B", "R", "G")
+            ):
+                raise SpecValidationError(
+                    "'alt_cost' exile_hand_card_color_count must be [positive int, WUBRG letter]"
+                )
+        discard_land_type = cost.get("discard_land_type")
+        if discard_land_type is not None and (not isinstance(discard_land_type, str) or not discard_land_type):
+            raise SpecValidationError("'alt_cost' discard_land_type must be a non-empty str")
+        mana_source_kind = cost.get("mana_source_kind")
+        if mana_source_kind is not None:
+            if mana_source_kind not in MANA_SOURCE_KINDS:
+                raise SpecValidationError(
+                    f"'alt_cost' mana_source_kind must be one of {sorted(MANA_SOURCE_KINDS)}, "
+                    f"got {mana_source_kind!r}"
+                )
+            if "mana" not in cost:
+                raise SpecValidationError("'alt_cost' mana_source_kind requires a 'mana' key to scope")
         if not any(
             k in cost for k in (
                 "pay_life", "return_to_hand", "exile_hand_card_color", "mana", "sacrifice",
                 "sacrifice_count", "sacrifice_filter", "return_to_hand_count", "tap_others",
+                "exile_hand_card_color_count", "discard_land_type",
             )
         ):
             raise SpecValidationError("'alt_cost' must carry at least one real payment component")

@@ -926,7 +926,26 @@ NEVER_SUPPORTED = "NEVER_SUPPORTED"
 #: No coverage-count change (all 57 were already MODELED) — this is a
 #: behavioral reclassification, not a new-coverage bump, hence the version
 #: bump on its own rather than folded into a batch with new coverage.
-PARSER_VERSION = "84"
+#:
+#: 85 (2026-08-12): PAR-18/PAR-19 closed. PAR-18: `CopyPermanentEffect.
+#: referent="previous"` (`_copy_permanent_previous`) for "exile up to 1
+#: target creature card from a graveyard. Create a token that's a copy of
+#: that card" (Ardyn/Anikthea-shaped — the antecedent an earlier clause's
+#: own RULE 115 target, `GameContext.previous_targets`, not the ability's
+#: source), `_EXILE_FROM_GRAVEYARD_RE` widened to accept "up to N", and
+#: `_parse_copy_except_tail` generalizing the bare/not_legendary/add_types
+#: "except" rows into one combinable, fail-closed-per-piece grammar
+#: (Dedicated Dollmaker-shaped 2+-modifier clauses). PAR-19: the alt-cost
+#: pitch family's counted (`exile_hand_card_color_count` — Soul Spike/
+#: Sunscour), `not_your_turn`-gated (Force of Virtue), pay-life-combined
+#: (Contagion), and discard-zone (`discard_land_type` — the Abolish/
+#: Flameshot/Outbreak/Snag basic-land cycle) shapes; and RULE 605.3a's
+#: *subtractive* direction (`ManaPool.pool_by_source`/`require_source_
+#: kind`, `game/mana_abilities.mana_source_kind_for` — "spend only mana
+#: produced by Treasures/basic lands/creatures", Security Rhox/Imperiosaur/
+#: Myr Superion), the primitive PAR-19 had previously confirmed-and-
+#: deferred as genuinely new before this pass built it.
+PARSER_VERSION = "85"
 
 
 @dataclass

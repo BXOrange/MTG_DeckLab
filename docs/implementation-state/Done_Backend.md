@@ -14399,3 +14399,160 @@ unscoped by controller; every real bound ability always has a real source,
 so this never bites in practice, but the test needed one too). Full suite
 green throughout (3829 passed at the end, up from 3827 — one flaky,
 unrelated websocket test reconfirmed in isolation both before and after).
+
+## PAR-18/PAR-19: both tickets fully closed (2026-08-12)
+
+Closed out the residue both tickets had narrowed to earlier the same day,
+rather than deferring either further.
+
+**PAR-18's own two named shapes.** The pronoun antecedent — "exile up to 1
+target creature card from a graveyard. Create a token that's a copy of
+**that card**." (Ardyn, the Usurper/Anikthea, Hand of Erebos-shaped) — got
+`CopyPermanentEffect.referent` (`"source"`/`"previous"`, mirroring
+`GoadEffect.referent`'s own `"previous"`/`"created"` split): when
+`target_kind=None`, `referent="previous"` reads `GameContext.
+previous_targets` — what an *earlier clause of the same ability* actually
+targeted — instead of always defaulting to the effect's own source. The
+parser side needed two things: `_EXILE_FROM_GRAVEYARD_RE` widened to accept
+`UP_TO_ONE` (it only ever matched a bare "exile target X card from Y
+graveyard" before — Deathrite Shaman-shaped, never "up to one"), and a new
+`previous_subject_only`-gated row, `_copy_permanent_previous`, for "create a
+token that's a copy of it/that card". Getting the *second* clause offered
+`previous_subject=True` at all needed one more fix: `segmenter.
+_announces_creature_target` (the gate deciding whether a split clause's
+pronoun has a real antecedent) only recognized battlefield target kinds
+(`"creature"`, `"land"`, …) — a graveyard-card target kind
+(`any_graveyard_creature`, `graveyard_card`, …) wasn't in that set at all,
+so an exile-from-graveyard clause could never open the door for a following
+pronoun clause. Widened by prefix match (`graveyard_`/`any_graveyard_`/
+`opponent_graveyard_`) rather than importing `game/targeting.py`'s own
+enumerated set — `parser/oracle/**` has no `game/` imports (the front-end
+security boundary), and the prefix is the same one `catalogue.handlers.
+_graveyard_target_kind` builds every such kind from, so the two can't drift
+without both breaking visibly.
+
+The compound "except" clause — 2+ modifiers in one sentence, which
+`_COPY_PERMANENT_RE`'s own docstring had explicitly carved out as
+"deliberately excluded rather than guessed at" — turned out to be safely
+generalizable for the *specific* modifiers already shipped
+(`not_legendary`/`add_types`/`add_subtypes`), just never combined: the three
+single-purpose regexes (`_COPY_PERMANENT_RE`/`_COPY_PERMANENT_NOT_
+LEGENDARY_RE`/`_COPY_PERMANENT_ADD_TYPES_RE`) collapsed into one row with an
+optional `except_tail` group, parsed by a new `_parse_copy_except_tail`:
+split the tail on its top-level ", "/" and " connectors, run each piece
+through `_copy_except_modifier` (the same fail-closed-per-piece pattern
+`AbilitySpec.condition` validation already uses elsewhere), and fail the
+*whole* tail closed the moment one piece isn't one of the recognized
+shapes — a P/T override ("it's a 4/4 black Zombie"), "it loses all other
+card types", an arbitrary granted ability, or a name change (Lazav, Dimir
+Mastermind's "its name is ~ … and this ability") all still correctly stay
+unclaimed rather than half-modeled, exactly the docstring's original
+concern, just now scoped to the pieces that actually need it rather than
+disabling the whole compound shape. The previous-subject pronoun row reuses
+the identical tail parser, so "create a token that's a copy of it, except
+it's not legendary and it's an artifact in addition to its other types"
+(Dedicated Dollmaker-shaped, still `ALSO BLOCKED` on an unrelated second
+ability) parses correctly too.
+
+Real yield, measured (`parser_probe.py diff`, 0 regressions both times):
++9 cards from the graveyard-exile widening alone (mostly simple standalone
+"exile up to 1 target X card from a graveyard" abilities becoming modeled
+on their own, unrelated to the copy-permanent family) — the previous-
+subject/compound-except mechanisms themselves are real and tested
+end-to-end (`tests/test_copy_except_family.py`'s new
+`test_exile_up_to_one_from_graveyard_then_copy_that_card_is_modeled`, a
+synthetic two-clause card exercising both at once, plus direct engine
+execute tests for `referent="previous"`), but every *real* Ardyn/Anikthea/
+God-Pharaoh's-Gift-shaped card in the cache also needs a full P/T+color
+override ("it's a 4/4 black Zombie", no "in addition to its other types")
+that stays a deliberate exclusion — the same judgment call the original
+docstring made, not a new gap this pass introduced. `A-Ochre Jelly`-shaped
+"for each token you control that entered this turn, create a token that's a
+copy of it" (a mass loop over existing permanents, not a previous-target
+pronoun) and Impostor Syndrome-shaped "whenever a nontoken creature you
+control deals combat damage to a player, create a token that's a copy of
+**it**" (the group-subject trigger's own firing object, a third referent
+kind neither `"source"` nor `"previous"` can express) are genuinely
+different families PAR-18 never named — left as ordinary long tail, not
+re-opened as a new ticket.
+
+**PAR-19's remaining two named shapes**, plus the "genuinely new primitive"
+the prior pass had confirmed-and-deferred. All three: `AbilitySpec.alt_cost`
+gained `exile_hand_card_color_count` (`(count, WUBRG letter)`, the counted
+sibling of the already-shipped singular `exile_hand_card_color` — Soul
+Spike/Sunscour/"exile 2 `<color>` cards from your hand…") and
+`discard_land_type` (a basic-land-type word — Abolish/Flameshot/Outbreak/
+Snag's "discard a `<land type>` card…", the discard-zone sibling of the
+same field, needing one genuinely new payment component:
+`ActivationCost.discard_land_type` plus `_discard_land_type_candidate`/
+`GameEngine.discard_specific`, since the discard zone had no alt-cast route
+at all before this). Along the way, two more real shapes surfaced and
+closed for free once the machinery was in place: a `not_your_turn`-gated
+singular exile (Force of Virtue/Force of Despair/Force of Rage — the wider
+Force cycle past the four already hand-authored) and `pay_life`+
+`exile_hand_card_color` combined in one clause (Contagion/Force of Rowan) —
+neither needed new payment logic, `_can_pay_alt_cast_cost`/`_pay_alt_cast_
+cost` already check `pay_life`/`exile_hand_card_color`/`condition`
+independently, so pairing two in one dict just works, the same "combine
+already-wired keys" idiom `_ALT_COST_PAY_MANA_AND_RETURN_BASIC_LAND_RE`
+used for the Borderpost cycle. Real, verified yield: Force of Virtue/Soul
+Spike/Sunscour/Abolish all flip to MODELED outright.
+
+The mana-pool *provenance* primitive — "Spend only mana produced by
+Treasures/basic lands/creatures to cast `<spell>`." (Security Rhox/
+Imperiosaur/Myr Superion) — got built rather than deferred a third time,
+since the prior pass had already done the due diligence confirming it was
+genuinely new (not a rename of RULE 605.3a's existing restricted-lot
+mechanism, which only ever *adds* extra usable mana on top of the ordinary
+pool and so has no way to *reject* perfectly ordinary pool mana that came
+from the wrong kind of permanent — the subtractive direction this template
+needs). `ManaPool.pool_by_source` is a shadow tally, always kept in exact
+sync with `pool` (every `add()` with `restriction=None` — the only case
+that lands in `pool` — also lands in the matching `source_kind` bucket,
+default bucket `None`), consulted only when a caller passes the new
+`require_source_kind` param to `can_pay`/`pay`; every pre-existing call
+site never does, so this is pure bookkeeping overhead for them, not a
+behaviour change — confirmed by the 0-regression coverage diff and the
+full suite staying green. `game/mana_abilities.mana_source_kind_for`
+classifies a tapped permanent (Treasure subtype / basic supertype+land /
+creature card type — `MANA_SOURCE_KINDS`, a closed 3-value vocabulary, only
+what real cards print) at the two real mana-production call sites
+(`GameEngine.tap_for_mana`, `game/mana_potential.py`'s tap-plan search).
+Two consumers: `GameObject.mana_source_kind_restriction` (a new
+`AbilitySpec.cast_mana_source_restriction` field, bound the same
+`getattr`-read "dynamic attribute" way `alt_cast_cost`/`alt_cast_condition`
+already are) for a spell's own *ordinary* cost — Imperiosaur/Myr Superion
+print no alternative cost at all, just a standing restriction on their real
+mana cost — consulted by both `GameEngine.can_cast` and `RulesEngine.
+cast_spell`'s actual payment; and `ActivationCost.mana_source_kind` for
+Security Rhox's alt-cost specifically ("Spend only mana produced by
+Treasures to cast it **this way**" scopes the {R}{G} alternative payment
+only, not the printed cost). Deliberately *not* threaded into `game/
+mana_potential.py`'s `find_tap_plan`/auto-tap candidate selection — auto-tap
+already doesn't filter by RULE 605.3a's existing (additive) restricted lots
+either (`auto_tap_for` calls `find_tap_plan` with no `allows_restriction` at
+all), so a same-scope simplification for the new subtractive direction is
+consistent with an already-accepted gap, not a new one: worst case, auto-tap
+occasionally picks a wrong-kind source and the real payment check correctly
+refuses it, rather than ever producing an illegal cast.
+
+One real bug found and fixed on the way, caught only by an end-to-end
+execute test (parse-only tests had already reported `MODELED` for
+Imperiosaur/Myr Superion, matching this repo's own recorded lesson that
+resolve-time primitives need `engine_bench.py`-style execute testing, not
+just parse verdicts): `AbilitySpec.validate()`'s "an effect-bearing ability
+must carry at least one effect" check enumerated `effects`/`modes`/
+`additional_cost`/`free_cast_condition`/`alt_cost`/`conditional_flash`/
+`strive_cost` as the recognized "carries something real" fields, but not
+the new `cast_mana_source_restriction` — a spec carrying *only* that field
+(exactly Imperiosaur/Myr Superion's shape) raised `SpecValidationError`
+inside `effect_binder.attach_to_object`, even though `parse_oracle` itself
+reported the card `MODELED` (the gate's own coverage check doesn't call
+`.validate()`). Fixed by adding it to the exemption list.
+
+Full suite green throughout (3864 passed at the end, up from 3829 — one
+flaky, unrelated websocket test reconfirmed in isolation). Parser coverage
+33.43%→33.48% (11,638→11,655/34,811, PARSER_VERSION 84→85, `parser_probe.py
+diff` 0 regressions both passes) — `CLAUDE.md`, `PARSER_LONG_TAIL.md`
+(itself found stale at PARSER_VERSION 69 from an earlier session's missed
+sync, corrected here too) and `implementationStatusView.js` all synced.

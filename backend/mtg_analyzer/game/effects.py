@@ -8545,9 +8545,22 @@ class CopyPermanentEffect(GameEffect):
         add_types: Optional[list[str]] = None,
         add_subtypes: Optional[list[str]] = None,
         not_legendary: bool = False,
+        referent: str = "source",
     ) -> None:
         super().__init__(source)
         self.count = count
+        #: PAR-18's own pronoun antecedent — "exile up to 1 target creature
+        #: card from a graveyard. Create a token that's a copy of **that
+        #: card**." (Ardyn/Anikthea-shaped): the copied object is neither a
+        #: fresh RULE 115 target nor this effect's own source, but whatever
+        #: an *earlier clause of the same ability* just targeted (RULE
+        #: 608.2 resolution order — it has already resolved, in whatever
+        #: zone it left the card in). ``target_kind=None`` keeps its
+        #: existing "copy the source" default (``referent="source"``);
+        #: ``referent="previous"`` is the new pronoun mode, the same
+        #: `GameContext.previous_targets` `GoadEffect`/`FightEffect` already
+        #: read for "goad it"/pronoun fights.
+        self.referent = referent if referent in ("source", "previous") else "source"
         #: "…except it has haste." (Kiki-Jiki, Mirror Breaker-shaped) — a
         #: temp keyword grant on the freshly-made token(s), the same
         #: `temp_keywords` set every other resolve-time haste grant uses.
@@ -8593,7 +8606,11 @@ class CopyPermanentEffect(GameEffect):
             attached_to = getattr(self.source, "attached_to", None)
             target = context.state.find_object(attached_to) if attached_to is not None else None
         elif target is None and self.target_spec is None:
-            target = self.source
+            if self.referent == "previous":
+                prev = list(context.previous_targets)
+                target = prev[0] if prev else None
+            else:
+                target = self.source
         if target is None:
             return
         controller_id = (
@@ -12300,6 +12317,7 @@ EffectRegistry.register(
         add_types=p.get("add_types"),
         add_subtypes=p.get("add_subtypes"),
         not_legendary=bool(p.get("not_legendary", False)),
+        referent=p.get("referent", "source"),
     ),
 )
 EffectRegistry.register(

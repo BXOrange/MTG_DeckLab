@@ -1327,6 +1327,83 @@ _ALT_COST_SACRIFICE_COUNT_RE = re.compile(
     re.IGNORECASE,
 )
 
+#: PAR-19's own "pitch" residue, all three shapes real cards print past the
+#: singular `_ALT_COST_EXILE_HAND_COLOR_RE`/plain
+#: `_ALT_COST_PAY_LIFE_IF_CONTROL_LAND_RE` rows above:
+#:
+#: "You may exile 2 `<color>` cards from your hand rather than pay this
+#: spell's mana cost." (Soul Spike/Sunscour/Allosaurus Rider/Commandeer/
+#: Fury of the Horde-shaped) — `AbilitySpec.alt_cost`'s new
+#: ``exile_hand_card_color_count`` key, the counted sibling of the already-
+#: shipped singular ``exile_hand_card_color`` (same singular/counted split
+#: `return_to_hand`/`return_to_hand_count` and `sacrifice`/`sacrifice_count`
+#: already use twice in this family). Only "2" is a real cache-wide
+#: printing today, same "widen the alternation, not the shape" note
+#: `_ALT_COST_RETURN_TWO_RE` carries.
+_ALT_COST_EXILE_HAND_COLOR_COUNT_RE = re.compile(
+    rf"^you may exile 2 (?P<color>{COLOR_WORD_ALT}) cards from your hand "
+    r"rather than pay this spell'?s mana cost\.?\s*$",
+    re.IGNORECASE,
+)
+#: "If it's not your turn, you may exile a `<color>` card from your hand
+#: rather than pay this spell's mana cost." (Force of Virtue/Force of
+#: Despair/Force of Rage — the wider Force cycle past the four MEC-15
+#: hand-authored ones) — the singular ``exile_hand_card_color`` gated by
+#: the same ``not_your_turn`` `condition` key Force of Negation/Vigor's own
+#: hand-authored entries already use, now reachable straight from oracle
+#: text instead of needing a catalogue entry per card.
+_ALT_COST_EXILE_HAND_COLOR_IF_NOT_YOUR_TURN_RE = re.compile(
+    rf"^if it'?s not your turn, you may exile an? (?P<color>{COLOR_WORD_ALT}) card from your hand "
+    r"rather than pay this spell'?s mana cost\.?\s*$",
+    re.IGNORECASE,
+)
+#: "You may pay 1 life and exile a `<color>` card from your hand rather
+#: than pay this spell's mana cost." (Contagion/Force of Rowan) — ``pay_life``
+#: + ``exile_hand_card_color`` combined in one `alt_cost` dict; both keys
+#: are already independently checked/paid (`_can_pay_alt_cast_cost`/
+#: `_pay_alt_cast_cost`), so no new payment logic, the same "combine two
+#: already-wired keys" idiom `_ALT_COST_PAY_MANA_AND_RETURN_BASIC_LAND_RE`
+#: uses for ``mana``+``return_to_hand_count``.
+_ALT_COST_PAY_LIFE_AND_EXILE_HAND_COLOR_RE = re.compile(
+    rf"^you may pay (?P<n>\d+) life and exile an? (?P<color>{COLOR_WORD_ALT}) card from your hand "
+    r"rather than pay this spell'?s mana cost\.?\s*$",
+    re.IGNORECASE,
+)
+#: "You may discard a `<basic land type>` card rather than pay this spell's
+#: mana cost." (Abolish/Flameshot/Outbreak/Snag — the "Pitch" basic-land
+#: cycle) — `AbilitySpec.alt_cost`'s new ``discard_land_type`` key, the
+#: discard-zone sibling of ``exile_hand_card_color``.
+_ALT_COST_DISCARD_LAND_TYPE_RE = re.compile(
+    r"^you may discard an? (?P<land>plains|island|swamp|mountain|forest) card "
+    r"rather than pay this spell'?s mana cost\.?\s*$",
+    re.IGNORECASE,
+)
+#: PAR-19's own genuinely new primitive: "You may pay `<cost>` rather than
+#: pay this spell's mana cost. Spend only mana produced by Treasures to
+#: cast it this way." (Security Rhox/A-Security Rhox) — the plain
+#: unconditional mana alt-cost (`_ALT_COST_PAY_MANA_RE`'s own shape) plus a
+#: *source-kind* restriction on that specific payment, both sentences on
+#: one oracle-text line so one row claims the whole thing (mirrors
+#: `_ALT_COST_PAY_MANA_IF_ATTACKING_RE`'s "two sentences, one row" idiom).
+#: `AbilitySpec.alt_cost`'s new ``mana_source_kind`` key
+#: (`ManaPool.pool_by_source`, `game/mana_abilities.MANA_SOURCE_KINDS`) —
+#: real cards print only "Treasures" here.
+_ALT_COST_PAY_MANA_IF_TREASURE_RE = re.compile(
+    r"^you may pay (?P<mana>(?:\{[^{}]+\})+) rather than pay this spell'?s mana cost\. "
+    r"spend only mana produced by (?P<kind>treasures) to cast it this way\.?\s*$",
+    re.IGNORECASE,
+)
+#: RULE 605.3a's *other* direction, as the spell's own standing restriction
+#: rather than an alternative payment at all — "Spend only mana produced by
+#: basic lands/creatures to cast this spell." (Imperiosaur/Myr Superion).
+#: `AbilitySpec.cast_mana_source_restriction`, not `alt_cost` — these two
+#: cards print no alternative cost whatsoever, just a qualifier on their
+#: ordinary printed mana cost.
+_CAST_MANA_SOURCE_RESTRICTION_RE = re.compile(
+    r"^spend only mana produced by (?P<kind>basic lands|creatures) to cast this spell\.?\s*$",
+    re.IGNORECASE,
+)
+
 
 def _additional_cost_dict(text: str) -> Optional[dict[str, Any]]:
     """One additional-cost clause's closed vocabulary → its dict, or ``None``.
@@ -1850,14 +1927,30 @@ _CREATURE_TARGET_KINDS: frozenset[str] = frozenset(
 
 
 def _announces_creature_target(specs: list[EffectSpec]) -> bool:
-    """Whether the last of ``specs`` picks a permanent the next clause can
-    refer back to as "it"/"that creature"/"those creatures"."""
+    """Whether the last of ``specs`` picks a permanent (or a graveyard card)
+    the next clause can refer back to as "it"/"that creature"/"that card".
+
+    A ``graveyard_*``/``any_graveyard_*``/``opponent_graveyard_*`` kind
+    (PAR-18 — "exile up to 1 target creature card from a graveyard. Create a
+    token that's a copy of **that card**.") is recognized by prefix rather
+    than an enumerated set: this module has no `game/` import (the front-end
+    security boundary), so it can't pull `game/targeting.py`'s
+    `_GRAVEYARD_TARGET_KINDS` frozenset directly, and the prefix is the same
+    one `catalogue.handlers._graveyard_target_kind` builds every such kind
+    from.
+    """
     if not specs:
         return False
     values: list[Any] = []
     for value in specs[-1].params.values():
         values.extend(value if isinstance(value, list) else [value])
-    return any(isinstance(v, str) and v in _CREATURE_TARGET_KINDS for v in values)
+    return any(
+        isinstance(v, str) and (
+            v in _CREATURE_TARGET_KINDS
+            or v.startswith(("graveyard_", "any_graveyard_", "opponent_graveyard_"))
+        )
+        for v in values
+    )
 
 
 def is_keyword_line(line: str) -> bool:
@@ -2473,6 +2566,93 @@ def segment_line(
             "spell_effect",
             effects=[],
             alt_cost={"sacrifice_count": [int(sac_count.group("n")), sac_count.group("subtype").lower()]},
+            raw_text=raw,
+            parser=provenance,
+        )
+        return Segment(raw=raw, spec=spec, claimed=True)
+
+    pitch_color_count = _ALT_COST_EXILE_HAND_COLOR_COUNT_RE.match(raw)
+    if pitch_color_count is not None:
+        color = resolve_color_word(pitch_color_count.group("color"))
+        if color is None:
+            return Segment(raw=raw)
+        spec = AbilitySpec(
+            "spell_effect",
+            effects=[],
+            alt_cost={"exile_hand_card_color_count": [2, color]},
+            raw_text=raw,
+            parser=provenance,
+        )
+        return Segment(raw=raw, spec=spec, claimed=True)
+
+    pitch_if_not_your_turn = _ALT_COST_EXILE_HAND_COLOR_IF_NOT_YOUR_TURN_RE.match(raw)
+    if pitch_if_not_your_turn is not None:
+        color = resolve_color_word(pitch_if_not_your_turn.group("color"))
+        if color is None:
+            return Segment(raw=raw)
+        spec = AbilitySpec(
+            "spell_effect",
+            effects=[],
+            alt_cost={
+                "exile_hand_card_color": color,
+                "condition": {"not_your_turn": True},
+            },
+            raw_text=raw,
+            parser=provenance,
+        )
+        return Segment(raw=raw, spec=spec, claimed=True)
+
+    pitch_pay_life = _ALT_COST_PAY_LIFE_AND_EXILE_HAND_COLOR_RE.match(raw)
+    if pitch_pay_life is not None:
+        color = resolve_color_word(pitch_pay_life.group("color"))
+        if color is None:
+            return Segment(raw=raw)
+        spec = AbilitySpec(
+            "spell_effect",
+            effects=[],
+            alt_cost={
+                "pay_life": int(pitch_pay_life.group("n")),
+                "exile_hand_card_color": color,
+            },
+            raw_text=raw,
+            parser=provenance,
+        )
+        return Segment(raw=raw, spec=spec, claimed=True)
+
+    discard_land = _ALT_COST_DISCARD_LAND_TYPE_RE.match(raw)
+    if discard_land is not None:
+        spec = AbilitySpec(
+            "spell_effect",
+            effects=[],
+            alt_cost={"discard_land_type": discard_land.group("land").lower()},
+            raw_text=raw,
+            parser=provenance,
+        )
+        return Segment(raw=raw, spec=spec, claimed=True)
+
+    pay_mana_if_treasure = _ALT_COST_PAY_MANA_IF_TREASURE_RE.match(raw)
+    if pay_mana_if_treasure is not None:
+        spec = AbilitySpec(
+            "spell_effect",
+            effects=[],
+            alt_cost={
+                "mana": re.sub(r"\s+", "", pay_mana_if_treasure.group("mana")),
+                "mana_source_kind": "treasure",
+            },
+            raw_text=raw,
+            parser=provenance,
+        )
+        return Segment(raw=raw, spec=spec, claimed=True)
+
+    cast_mana_source = _CAST_MANA_SOURCE_RESTRICTION_RE.match(raw)
+    if cast_mana_source is not None:
+        kind = {"basic lands": "basic_land", "creatures": "creature"}[
+            cast_mana_source.group("kind").lower()
+        ]
+        spec = AbilitySpec(
+            "spell_effect",
+            effects=[],
+            cast_mana_source_restriction=kind,
             raw_text=raw,
             parser=provenance,
         )

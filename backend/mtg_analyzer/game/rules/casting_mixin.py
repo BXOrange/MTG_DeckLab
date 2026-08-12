@@ -529,12 +529,22 @@ class CastingResolutionMixin:
             # color/type" (Mnemonic Betrayal-shaped), scoped to casting this
             # one exiled card — see `GameState.mana_wildcard_permission`.
             wildcard = self.state.mana_wildcard_permission.get(obj.instance_id)
+            # PAR-19: "Spend only mana produced by basic lands/creatures to
+            # cast this spell." (Imperiosaur/Myr Superion) — a standing
+            # restriction on the spell's own printed cost, bound onto the
+            # object by `effect_binder.attach_to_object` as a plain
+            # attribute (`GameObject.mana_source_kind_restriction`), same
+            # "dynamic, getattr-read" convention `alt_cast_cost`/
+            # `alt_cast_condition` already use.
+            require_source_kind = getattr(obj, "mana_source_kind_restriction", None)
             if not player.mana_pool.can_pay(
-                cost, life_available=player.life, allows_restriction=allows_restriction, wildcard=wildcard
+                cost, life_available=player.life, allows_restriction=allows_restriction, wildcard=wildcard,
+                require_source_kind=require_source_kind,
             ):
                 raise ValueError(f"{player.id} cannot pay for {obj.name}")
             life_spent = player.mana_pool.pay(
-                cost, life_available=player.life, allows_restriction=allows_restriction, wildcard=wildcard
+                cost, life_available=player.life, allows_restriction=allows_restriction, wildcard=wildcard,
+                require_source_kind=require_source_kind,
             )
         self.lose_life(player, life_spent, cause="cost")
         if free_cast:

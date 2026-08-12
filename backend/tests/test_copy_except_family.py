@@ -178,3 +178,107 @@ def test_copy_permanent_effect_add_types_still_works():
     tokens = [o for o in eng.state.battlefield if o.is_token]
     assert len(tokens) == 1
     assert "Artifact" in tokens[0].card.type_line
+
+
+# -- PAR-18: the "copy of it/that card" pronoun antecedent -------------------
+# ("exile up to 1 target creature card from a graveyard. create a token
+# that's a copy of that card" — Ardyn, the Usurper/Anikthea, Hand of
+# Erebos-shaped) and the compound "except <mod> and <mod>" tail
+# (Dedicated Dollmaker-shaped).
+
+
+def test_copy_permanent_previous_clause_parses_with_referent_previous():
+    from mtg_analyzer.parser.oracle.catalogue.handlers import match_clause
+
+    effects = match_clause(
+        "create a token that's a copy of that card", previous_subject=True
+    )
+    assert effects is not None
+    assert effects[0].type == "copy_permanent"
+    assert effects[0].params.get("target_kind") is None
+    assert effects[0].params.get("referent") == "previous"
+
+
+def test_copy_permanent_previous_not_offered_without_previous_subject():
+    # The pronoun row is `previous_subject_only` — not offered at all unless
+    # the caller states an earlier clause really did choose something
+    # (`EffectHandler.previous_subject_only`'s own fail-closed gate).
+    from mtg_analyzer.parser.oracle.catalogue.handlers import match_clause
+
+    assert match_clause("create a token that's a copy of that card") is None
+
+
+def test_copy_permanent_previous_clause_with_compound_except_tail():
+    from mtg_analyzer.parser.oracle.catalogue.handlers import match_clause
+
+    effects = match_clause(
+        "create a token that's a copy of it, except it's not legendary and "
+        "it's an artifact in addition to its other types",
+        previous_subject=True,
+    )
+    assert effects is not None
+    params = effects[0].params
+    assert params.get("referent") == "previous"
+    assert params.get("not_legendary") is True
+    assert params.get("add_types") == ["Artifact"]
+
+
+def test_copy_permanent_except_tail_fails_closed_on_an_unrecognised_modifier():
+    from mtg_analyzer.parser.oracle.catalogue.handlers import match_clause
+
+    # "it's a 4/4 black zombie" is a full characteristic override, not one
+    # of the safely-generalizable modifiers `_copy_except_modifier` claims
+    # — the whole clause must stay unclaimed rather than silently dropping
+    # the override (the family's own long-standing fail-closed rule).
+    assert match_clause(
+        "create a token that's a copy of target creature, except it's a "
+        "4/4 black zombie"
+    ) is None
+
+
+def test_exile_up_to_one_from_graveyard_then_copy_that_card_is_modeled():
+    card = Card(
+        id="Test Grave Coppy", name="Test Grave Coppy", type_line="Sorcery",
+        is_sorcery=True, mana_cost_string="{2}{U}", converted_mana_cost=3,
+        oracle_text=(
+            "Exile up to one target creature card from a graveyard. "
+            "Create a token that's a copy of that card, except it isn't "
+            "legendary and it's an artifact in addition to its other types."
+        ),
+    )
+    result = parse_oracle(card)
+    assert result.coverage != UNMODELED
+    assert result.unclaimed == []
+    effects = result.specs[0].effects
+    types = [spec.type for spec in effects]
+    assert types == ["exile", "copy_permanent"]
+    copy_spec = effects[1]
+    assert copy_spec.params.get("referent") == "previous"
+    assert copy_spec.params.get("not_legendary") is True
+    assert copy_spec.params.get("add_types") == ["Artifact"]
+
+
+def test_copy_permanent_effect_referent_previous_copies_previous_target():
+    eng = make_engine("p1", "p2")
+    original = put(eng.state, legendary_creature(name="Grave Legend"))
+    original.zone = Zone.GRAVEYARD
+
+    effect = CopyPermanentEffect(target_kind=None, referent="previous", not_legendary=True)
+    context = GameContext(eng.state, eng.rules)
+    context.previous_targets = [original]
+    effect.apply(context, targets=None)
+
+    tokens = [o for o in eng.state.battlefield if o.is_token]
+    assert len(tokens) == 1
+    assert tokens[0].card.name == "Grave Legend"
+    assert tokens[0].card.is_legendary is False
+
+
+def test_copy_permanent_effect_referent_previous_with_no_previous_target_noops():
+    eng = make_engine("p1", "p2")
+    effect = CopyPermanentEffect(target_kind=None, referent="previous")
+    context = GameContext(eng.state, eng.rules)
+    context.previous_targets = []
+    effect.apply(context, targets=None)
+
+    assert [o for o in eng.state.battlefield if o.is_token] == []

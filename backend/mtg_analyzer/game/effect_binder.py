@@ -1648,6 +1648,14 @@ def attach_to_object(obj: Any, specs: list[AbilitySpec]) -> None:
             payment = {k: v for k, v in spec.alt_cost.items() if k != "condition"}
             obj.alt_cast_cost = parse_activation_cost(payment)
             obj.alt_cast_condition = spec.alt_cost.get("condition")
+        if spec.cast_mana_source_restriction:
+            # PAR-19: "Spend only mana produced by basic lands/creatures to
+            # cast this spell." (Imperiosaur/Myr Superion) — a standing
+            # restriction on the ordinary cast, read by `RulesEngine.
+            # cast_spell`/`GameEngine.can_cast` via `getattr`, same
+            # dynamic-attribute convention as `alt_cast_cost`.
+            spec.validate()
+            obj.mana_source_kind_restriction = spec.cast_mana_source_restriction
         if spec.strive_cost:
             spec.validate()
             obj.strive_cost = ManaCost.parse(spec.strive_cost)

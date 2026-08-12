@@ -455,8 +455,10 @@ class CastingMixin:
             )
             allows_restriction = restriction_predicate_for_cast(obj, has_x=cost.has_variable)
             wildcard = self.state.mana_wildcard_permission.get(obj.instance_id)
+            require_source_kind = getattr(obj, "mana_source_kind_restriction", None)
             if not player.mana_pool.can_pay(
-                cost, life_available=player.life, allows_restriction=allows_restriction, wildcard=wildcard
+                cost, life_available=player.life, allows_restriction=allows_restriction, wildcard=wildcard,
+                require_source_kind=require_source_kind,
             ):
                 return False
             if kicked and kicker_x > 0 and self._kicker_x_distinct_colors(obj):
@@ -1321,6 +1323,41 @@ class CastingMixin:
             if color in (card_obj.card.color_identity or set()):
                 return card_obj
         return None
+    def _exile_hand_card_color_count_candidates(
+        self, player: Player, count: int, color: str, exclude: Optional[GameObject] = None
+    ) -> Optional[list[GameObject]]:
+        """PAR-19: ``count`` hand cards of ``color`` to pay a "exile N
+        `<color>` cards from your hand rather than pay this spell's mana
+        cost" alt-cast cost (Soul Spike/Sunscour/Allosaurus Rider-shaped) —
+        the counted sibling of `_exile_hand_card_candidate`, same auto-pick-
+        the-first-matches convention `_return_to_hand_count_candidates`
+        uses for its own counted alt-cast cost. ``None`` (not payable) if
+        fewer than ``count`` are eligible.
+        """
+        pool = [
+            card_obj for card_obj in player.hand
+            if card_obj is not exclude and color in (card_obj.card.color_identity or set())
+        ]
+        return pool[:count] if len(pool) >= count else None
+    def _discard_land_type_candidate(
+        self, player: Player, land_type: str, exclude: Optional[GameObject] = None
+    ) -> Optional[GameObject]:
+        """PAR-19: a hand card of the named basic land type to pay a
+        "discard a `<land type>` card rather than pay this spell's mana
+        cost" alt-cast cost (Abolish/Flameshot/Outbreak/Snag) — the
+        discard-zone sibling of `_exile_hand_card_candidate`, matched by
+        land subtype the same way `continuous.has_subtype` would (checked
+        directly against the type line here rather than through that
+        battlefield-only helper, since a hand card never goes through
+        `continuous.recompute`).
+        """
+        word = land_type.strip().capitalize()
+        for card_obj in player.hand:
+            if card_obj is exclude:
+                continue
+            if card_obj.card.is_land and word in card_obj.card.type_line:
+                return card_obj
+        return None
     def _can_pay_alt_cast_cost(
         self, player: Player, obj: GameObject, cost: Optional["ActivationCost"]
     ) -> bool:
@@ -1333,7 +1370,9 @@ class CastingMixin:
         """
         if cost is None:
             return False
-        if cost.mana.symbols and not player.mana_pool.can_pay(cost.mana, life_available=player.life):
+        if cost.mana.symbols and not player.mana_pool.can_pay(
+            cost.mana, life_available=player.life, require_source_kind=cost.mana_source_kind,
+        ):
             # "You may pay {R}{G} rather than pay this spell's mana cost."
             # (the Bringer cycle/Admiral's Order-shaped RULE 118.9 family) —
             # a genuinely *different* fixed mana cost, not "no mana cost"
@@ -1361,6 +1400,14 @@ class CastingMixin:
             player, cost.exile_hand_card_color, exclude=obj
         ) is None:
             return False
+        if cost.exile_hand_card_color_count:
+            count, color = cost.exile_hand_card_color_count
+            if self._exile_hand_card_color_count_candidates(player, count, color, exclude=obj) is None:
+                return False
+        if cost.discard_land_type and self._discard_land_type_candidate(
+            player, cost.discard_land_type, exclude=obj
+        ) is None:
+            return False
         if cost.tap_others:
             count, subtype = cost.tap_others
             if self._resolve_tap_others(player, obj, count, subtype, None) is None:
@@ -1374,7 +1421,9 @@ class CastingMixin:
         if cost is None:
             return
         if cost.mana.symbols:
-            life_spent = player.mana_pool.pay(cost.mana, life_available=player.life)
+            life_spent = player.mana_pool.pay(
+                cost.mana, life_available=player.life, require_source_kind=cost.mana_source_kind,
+            )
             if life_spent:
                 self.rules.lose_life(player, life_spent, cause="cost")
         if cost.pay_life:
@@ -1403,6 +1452,14 @@ class CastingMixin:
             victim = self._exile_hand_card_candidate(player, cost.exile_hand_card_color, exclude=obj)
             if victim is not None:
                 self.rules.exile(victim)
+        if cost.exile_hand_card_color_count:
+            count, color = cost.exile_hand_card_color_count
+            for victim in self._exile_hand_card_color_count_candidates(player, count, color, exclude=obj) or []:
+                self.rules.exile(victim)
+        if cost.discard_land_type:
+            victim = self._discard_land_type_candidate(player, cost.discard_land_type, exclude=obj)
+            if victim is not None:
+                self.rules.discard_specific(victim)
         if cost.tap_others:
             count, subtype = cost.tap_others
             for tapped in self._resolve_tap_others(player, obj, count, subtype, None) or []:
