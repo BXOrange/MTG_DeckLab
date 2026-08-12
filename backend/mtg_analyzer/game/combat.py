@@ -59,6 +59,12 @@ COMBAT_KEYWORDS: frozenset[str] = frozenset(
         "dethrone",
         "infect",
         "wither",
+        # RULE 702.19: no bare reminder-text keyword line to match on real
+        # cards (it's always spelled out in full sentences), so this is
+        # reached only via the Scryfall `keywords` list, never
+        # `_ORACLE_PATTERNS` — see `game/engine/combat_mixin.py`'s
+        # `declare_attackers`.
+        "exert",
     }
 )
 

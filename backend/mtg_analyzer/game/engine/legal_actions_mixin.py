@@ -596,6 +596,11 @@ class LegalActionsMixin:
                             "instance_id": obj.instance_id,
                             "name": obj.name,
                             "legal_defenders": defenders,
+                            # RULE 702.19a: whether the client may offer an
+                            # "exert as it attacks" checkbox alongside this
+                            # declaration (`GameEngine.declare_attackers`'s
+                            # own ``exert`` flag).
+                            "can_exert": combat.has(obj, "exert"),
                         }
                     )
 

@@ -365,6 +365,32 @@ _NO_MAX_HAND_SIZE_RE = re.compile(
     r"(?P<subject>you have|players have) no maximum hand size", re.IGNORECASE
 )
 
+# "Players skip their untap steps." (RULE 502.3-adjacent, Stasis) — the last
+# open member of the "players can't `<verb>`" family
+# (`docs/implementation-state/BACKLOG.md`'s MEC-12 entry). Unconditional and
+# unscoped, unlike `_NO_MAX_HAND_SIZE_RE` above: no card in the cache prints
+# a "you"-only version of this clause, so there's no ``subject`` group to
+# capture.
+_SKIP_UNTAP_STEPS_RE = re.compile(r"players skip their untap steps", re.IGNORECASE)
+
+# "Players can't cast spells from graveyards or libraries." (RULE
+# 601.3a-adjacent, Grafdigger's Cage/Weathered Runestone) — the last open
+# member of MEC-12's "players can't <verb>" family sweep.
+_GRAVEYARD_LIBRARY_CAST_PROHIBITION_RE = re.compile(
+    r"players can'?t cast spells from graveyards or libraries", re.IGNORECASE
+)
+# "Creature cards in graveyards and libraries can't enter the battlefield."
+# (Grafdigger's Cage) or "Nonland permanent cards in graveyards and
+# libraries can't enter the battlefield." (Weathered Runestone) — the
+# card-type word feeds `continuous.graveyard_library_entry_prohibited`'s
+# ``card_type`` param verbatim, except "nonland permanent" which is its own
+# sentinel (checked separately from the plain `_CARD_TYPE_ATTRS` words).
+_GRAVEYARD_LIBRARY_ENTRY_PROHIBITION_RE = re.compile(
+    r"(?P<type>creature|artifact|enchantment|planeswalker|nonland permanent) cards "
+    r"in graveyards and libraries can'?t enter the battlefield",
+    re.IGNORECASE,
+)
+
 # "You may choose not to untap ~ during your untap step."  (RULE 502.1
 # self-scoped opt-out, Rubinia Soulsinger/Hivis of the Scale/The Pandorica-
 # shaped) — `~` covers all three printed subject wordings ("this creature"/
@@ -2199,6 +2225,14 @@ _SELF_ANTHEM_RE = re.compile(
     r"(?:(?:,\s*and\s+|,\s*|\s+and\s+)(?P<attacks_if_able>attacks each combat if able))?",
     re.IGNORECASE,
 )
+#: RULE 202.2f/700.6 "~ gets +X/+X, where X is your devotion to
+#: `<colour(s)/wedge/hybrid>`." (Blended Twistling-shaped) — a standing,
+#: self-scoped anthem whose amount is `continuous.count_selector`'s
+#: `devotion_to_<key>` vocabulary rather than a literal digit, unlike
+#: `_SELF_ANTHEM_RE` above.
+_ANTHEM_DEVOTION_SELF_RE = re.compile(
+    rf"~ gets? \+x/\+x, where x is {DEVOTION}", re.IGNORECASE,
+)
 _SELF_GRANT_RE = re.compile(
     r"~ has (?P<kw>[a-z][a-z, ]*?)"
     r"(?: and (?P<perm>can (?:attack|block)[a-z0-9 ']*))?",
@@ -2452,6 +2486,18 @@ def static_effect_specs(clause: str) -> Optional[list[EffectSpec]]:
         affects = "each_player" if m.group("subject").lower() == "players have" else "you"
         return [EffectSpec("no_max_hand_size", {"affects": affects})]
 
+    if _SKIP_UNTAP_STEPS_RE.fullmatch(text):
+        return [EffectSpec("skip_untap_step", {})]
+
+    if _GRAVEYARD_LIBRARY_CAST_PROHIBITION_RE.fullmatch(text):
+        return [EffectSpec("graveyard_library_cast_prohibition", {})]
+
+    m = _GRAVEYARD_LIBRARY_ENTRY_PROHIBITION_RE.fullmatch(text)
+    if m is not None:
+        word = m.group("type").lower()
+        card_type = "nonland_permanent" if word == "nonland permanent" else word
+        return [EffectSpec("graveyard_library_entry_prohibition", {"card_type": card_type})]
+
     if _RADIATION_LIFE_GAIN_RE.fullmatch(text):
         return [EffectSpec("radiation_life_gain", {})]
 
@@ -2650,6 +2696,23 @@ def static_effect_specs(clause: str) -> Optional[list[EffectSpec]]:
     m = _ATTACHED_GOADED_RE.fullmatch(text)
     if m is not None:
         return [EffectSpec("goaded", {"affects": "attached_permanent"})]
+
+    # "~ gets +X/+X, where X is your devotion to <colour(s)/wedge/hybrid>."
+    # (RULE 202.2f/700.6, Blended Twistling-shaped) — a standing, self-
+    # scoped anthem whose amount is `continuous.count_selector`'s
+    # `devotion_to_<key>` vocabulary, tried before `_SELF_ANTHEM_RE`
+    # (fixed-digit only) since "x" would never match that row's ``\d+``.
+    m = _ANTHEM_DEVOTION_SELF_RE.fullmatch(text)
+    if m is not None:
+        selector = devotion_selector(m)
+        if selector:
+            # ``power``/``toughness`` are the *per-unit* amount `_pt_mod_
+            # count` multiplies by the count selector's value (RULE
+            # 202.2f's "+X/+X" is 1 per point of devotion, not a flat 0).
+            return [EffectSpec("anthem", {
+                "affects": "self", "power": 1, "toughness": 1,
+                "power_count": selector, "toughness_count": selector,
+            })]
 
     # Self-scoped anthem/grant ("~ gets +2/+2 and has flying", "~ has
     # trample [and can attack as though it didn't have defender]") — the

@@ -912,7 +912,7 @@ NEVER_SUPPORTED = "NEVER_SUPPORTED"
 #: and RULE 118.9's pitch alt_cost family's first oracle-text route
 #: (`segmenter._ALT_COST_EXILE_HAND_COLOR_RE` — Snapback/Pyrokinesis/Unmask,
 #: previously only reachable via one-at-a-time hand-authoring).
-PARSER_VERSION = "74"
+PARSER_VERSION = "83"
 
 
 @dataclass

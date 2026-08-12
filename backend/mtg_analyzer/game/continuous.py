@@ -181,6 +181,14 @@ def _has_card_type(obj: "GameObject", card_type: str) -> bool:
     return bool(attr and getattr(obj.card, attr, False))
 
 
+def has_card_type(obj: "GameObject", card_type: str) -> bool:
+    """Public wrapper over `_has_card_type` for callers outside this module
+    (e.g. `game_engine`'s "tap an untapped creature you control" `tap_others`
+    cost — RULE 602.1/118.9 — whose printed word is a *main* type, unlike
+    `has_subtype`'s "tap N untapped Elves" wording)."""
+    return _has_card_type(obj, card_type)
+
+
 def _is_nonbasic(obj: "GameObject") -> bool:
     """RULE 205.4a: a land with no "Basic" supertype (the same substring
     check `game/targeting.py`'s "nonbasic land" filter already uses)."""
@@ -855,6 +863,24 @@ def count_selector(
         from ..models.mana_cost import ManaCost  # function-scoped: see module header
 
         suffix = selector[len("devotion_to_"):]
+        if suffix == "hybrid":
+            # "Devotion to hybrid" (Blended Twistling) — any hybrid mana
+            # symbol counts once, regardless of *which* two colours it's
+            # between, unlike ordinary devotion where a hybrid pip counts
+            # toward *both* named colours. A mono-hybrid pip ({2/W}) isn't a
+            # mix of colours at all (it's generic-or-colour), so it doesn't
+            # count here even though it's colour-flexible the same way.
+            from ..models.mana_cost import HYBRID, ManaCost  # function-scoped: see module header
+
+            return sum(
+                sum(
+                    1
+                    for symbol in ManaCost.parse(o.card.mana_cost_string).symbols
+                    if symbol.kind == HYBRID
+                )
+                for o in bf
+                if o.controller_id == controller_id
+            )
         colour = _DEVOTION_COLOURS.get(suffix)
         wedge = _DEVOTION_WEDGES.get(suffix)
         if colour is not None:
@@ -2213,6 +2239,72 @@ def activation_prohibited(
     return False
 
 
+def graveyard_library_cast_prohibited(state: "GameState") -> bool:
+    """RULE 601.3a: "Players can't cast spells from graveyards or
+    libraries." (Grafdigger's Cage/Weathered Runestone) — a flat, unscoped
+    prohibition (no card in the cache prints a "you"-only version) over
+    every standing graveyard/library-cast *permission* this engine has
+    (Flashback/Escape/Jump-start's keyword route, a Lurrus-shaped granted
+    `graveyard_cast_permission`, and `game/top_library.py`'s play/cast-from-
+    the-top permission) — `GameEngine.can_cast`'s single choke point for
+    all of them, checked once ``obj`` is already known to be sitting in a
+    graveyard or library rather than duplicated into each permission
+    source separately.
+    """
+    return any(
+        ability.layer == "graveyard_library_cast_prohibition"
+        for ability in _battlefield_static_abilities(state)
+    )
+
+
+def graveyard_library_entry_prohibited(state: "GameState", card: Any) -> bool:
+    """RULE 601.3a-adjacent "`<type>` cards in graveyards and libraries
+    can't enter the battlefield." (Grafdigger's Cage's ``"creature"``,
+    Weathered Runestone's ``"nonland permanent"``) — checked wherever a
+    card would move from a graveyard or library *straight onto the
+    battlefield* (reanimation, a tutor whose destination is the
+    battlefield), not filtered by whose graveyard/library or who would
+    have controlled it — both real cards are unscoped.
+
+    Deliberately not a universal `GameState.add_to_battlefield` hook: this
+    engine has no single choke point every graveyard/library-to-battlefield
+    route already funnels through (reanimation and library-search-to-
+    battlefield are the two `game/effects.py` sites that check it; a rarer
+    per-card route missing this check is a documented simplification, the
+    same shape this repo already accepts for other narrow gaps rather than
+    reworking a foundational model method's contract for it).
+    """
+    for ability in _battlefield_static_abilities(state):
+        if ability.layer != "graveyard_library_entry_prohibition":
+            continue
+        filt = str(ability.params.get("card_type", "creature"))
+        if filt == "nonland_permanent":
+            if getattr(card, "is_land", False):
+                continue
+            if not any(
+                getattr(card, attr, False) for attr in (
+                    "is_creature", "is_artifact", "is_enchantment", "is_planeswalker", "is_battle",
+                )
+            ):
+                continue
+            return True
+        if _has_card_type(_CardTypeProbe(card), filt):
+            return True
+    return False
+
+
+class _CardTypeProbe:
+    """Adapts a bare `Card` to `_has_card_type`'s `GameObject`-shaped
+    ``obj.card`` access — `graveyard_library_entry_prohibited` is checked
+    against a graveyard/library *card*, which has no `GameObject` wrapper
+    of its own at that point (it hasn't entered a zone that gets one)."""
+
+    __slots__ = ("card",)
+
+    def __init__(self, card: Any) -> None:
+        self.card = card
+
+
 def max_spells_per_turn(state: "GameState") -> Optional[int]:
     """The most restrictive "Each player can't cast more than N spells each
     turn." cap in play (RULE 601-area — Eidolon of Rhetoric/Rule of Law/
@@ -2507,6 +2599,27 @@ def active_untap_caps(state: "GameState") -> list[dict[str, Any]]:
     return caps
 
 
+def all_untap_steps_skipped(state: "GameState") -> bool:
+    """RULE 502.3-adjacent "Players skip their untap steps." (Stasis) —
+    unlike `active_untap_caps` (a *count* limit) this is unconditional and
+    total, so `GameEngine._step_untap` checks it once up front rather than
+    per-permanent; Stasis's own tap-state gate ("as long as this artifact is
+    untapped, …" — it doesn't print one, but a hypothetical future card
+    could) rides the ordinary ``active_if`` wrapper like any other
+    conditional static.
+    """
+    for ability in _battlefield_static_abilities(state):
+        if ability.layer != "skip_untap_step":
+            continue
+        active_if = ability.params.get("active_if")
+        if active_if:
+            controller_id = getattr(ability.source, "controller_id", None)
+            if not static_conditions.condition_holds(active_if, state, ability.source, controller_id):
+                continue
+        return True
+    return False
+
+
 def matches_untap_cap_filter(obj: "GameObject", cap: dict[str, Any]) -> bool:
     """Whether ``obj`` counts toward an `active_untap_caps` entry's cap —
     its ``card_type`` (``_has_card_type``, "permanent" always matches) plus
@@ -2591,7 +2704,8 @@ _NON_RULE_613_LAYERS: frozenset[str] = frozenset(
     {"cost", "no_untap", "no_untap_optional", "enters_tapped", "activation_prohibition",
      "cast_limit", "cast_prohibition", "draw_limit", "trigger_prohibition", "untap_cap",
      "extra_land_drop", "no_max_hand_size", "radiation_life_gain", "grant_escape",
-     "combat_restriction", "goaded", "any_color_for_activation"}
+     "combat_restriction", "goaded", "any_color_for_activation", "skip_untap_step",
+     "graveyard_library_cast_prohibition", "graveyard_library_entry_prohibition"}
 )
 
 

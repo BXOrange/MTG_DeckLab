@@ -426,10 +426,18 @@ class ActivationMixin:
         permanent's own {T}-cost ability, not being tapped to pay a
         *different* ability's cost. This is the full candidate pool the
         player picks from — see `_resolve_tap_others` for the actual choice.
+
+        ``subtype`` is usually a real creature subtype ("Elves"), but a
+        RULE 118.9 alt-cast cost can also print the bare main type ("tap an
+        untapped creature you control", Dark Triumph's own "cycle"
+        siblings) — `continuous.has_subtype` alone would never match that
+        (a main type isn't a subtype), so `has_card_type` is tried too.
         """
         return [
             o for o in self.state.permanents_controlled_by(player.id)
-            if not o.tapped and continuous.has_subtype(o, subtype)
+            if not o.tapped and (
+                continuous.has_subtype(o, subtype) or continuous.has_card_type(o, subtype)
+            )
         ]
     def _tap_cost_choice(
         self, player: Player, source: GameObject, cost: "ActivationCost"

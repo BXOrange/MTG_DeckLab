@@ -218,6 +218,7 @@ class TurnLoopMixin:
         # every other per-turn counter here.
         self.state.planar_die_rolls_this_turn.clear()
         self.state.spells_cast_this_turn[active.id] = 0
+        self.state.combats_this_turn = 0
         self.state.cards_drawn_this_turn[active.id] = 0
         self.state.life_gained_this_turn[active.id] = 0
         # RULE 120.3 history ("dealt combat damage by ~ *this turn*", Hope of
@@ -379,6 +380,12 @@ class TurnLoopMixin:
         if self.rules.should_skip_step(self.state.active_player, step.name):
             return
 
+        if step.name == "begin_combat":
+            # RULE 603.4: "if it's the first combat phase of the turn" —
+            # game-wide (not per-player), so an extra combat phase granted
+            # mid-turn is correctly the *second* one regardless of who
+            # controls the effect that grants it.
+            self.state.combats_this_turn += 1
         self.state.fire_event(GameEvent(EventType.STEP_BEGIN, step=step.name, phase=phase.name))
         self._fire_delayed_triggers(step.name)
         # RULE 611: "until the beginning of the next end step" — swept as
@@ -541,16 +548,29 @@ class TurnLoopMixin:
         # independently (each keeps its own running count), not merged.
         untap_caps = continuous.active_untap_caps(self.state)
         cap_counts = [0] * len(untap_caps)
+        # RULE 502.3-adjacent (Stasis): "players skip their untap steps" is
+        # unconditional and total — unlike `active_untap_caps`'s count limit,
+        # nothing about the step happens at all (no bookkeeping either, the
+        # same "whole step skipped" treatment `should_skip_step` gets, not
+        # `has_no_untap_static`'s "just don't untap this one").
+        skip_whole_step = continuous.all_untap_steps_skipped(self.state)
         for obj in self.state.permanents_controlled_by(active.id):
-            if self.rules.should_skip_step(active, "untap_permanents") or continuous.has_no_untap_static(
+            if skip_whole_step or self.rules.should_skip_step(
+                active, "untap_permanents"
+            ) or continuous.has_no_untap_static(
                 self.state, obj
             ):
                 continue
-            capped_out = False
+            # RULE 702.19b: exert's one-time consequence — consumed and
+            # cleared here, not a standing static like `has_no_untap_static`
+            # above, so it only ever blocks the *next* untap step.
+            capped_out = obj.skip_next_untap
+            obj.skip_next_untap = False
             for i, cap in enumerate(untap_caps):
+                if capped_out:
+                    break
                 if continuous.matches_untap_cap_filter(obj, cap) and cap_counts[i] >= cap["count"]:
                     capped_out = True
-                    break
             if not capped_out:
                 # RULE 502.3-adjacent: "This artifact doesn't untap during
                 # your untap step." (Basalt Monolith/Grim Monolith/Mana
@@ -572,6 +592,9 @@ class TurnLoopMixin:
             # ENG-27: "if you haven't added mana with this ability this
             # turn" (Carpet of Flowers) resets the same way too.
             obj.added_mana_with_ability_this_turn = False
+            # RULE 702.19a: a new turn means "hasn't been exerted this
+            # turn" is true again.
+            obj.exerted_this_turn = False
         self.state.fire_event(GameEvent(EventType.UNTAP, player_id=active.id))
         # RULE 731.2: "as the second part of the untap step", check whether
         # day/night should flip based on last turn's spell count.
@@ -730,13 +753,33 @@ class TurnLoopMixin:
         self._clear_combat()
         # RULE 601.3b analogue: a temporary "play until end of your next
         # turn" permission (Light Up the Stage-shaped impulsive draw) lapses
-        # exactly at this cleanup once its granting turn is no longer
-        # "this turn or your next" — i.e. once a turn has already passed
-        # since it was granted.
+        # at *its own holder's* next-turn cleanup — not simply the very next
+        # cleanup in turn order, which (RULE 500.1: every player's turn
+        # increments turn_number) is usually an opponent's turn, cutting the
+        # window a full turn short and to the wrong player's clock in
+        # anything but a 1-player game. A same-turn-only entry (Ragavan,
+        # Nimble Pilferer/Mnemonic Betrayal's own shorter printed window,
+        # `temp_play_permission_same_turn_only`) has no such holder-turn
+        # wait: it never survives past the very first cleanup after it was
+        # granted, whoever's turn that is.
+        active_id = self.state.active_player.id
+        same_turn_only = self.state.temp_play_permission_same_turn_only
+
+        def _permission_still_active(instance_id: int, granted_turn: int) -> bool:
+            if instance_id in same_turn_only:
+                return False
+            holder_id = self.state.temp_play_permission_player.get(instance_id)
+            return not (
+                holder_id is not None
+                and active_id == holder_id
+                and self.state.turn_number > granted_turn
+            )
+
         self.state.temp_play_permissions = {
             iid: turn for iid, turn in self.state.temp_play_permissions.items()
-            if turn >= self.state.turn_number
+            if _permission_still_active(iid, turn)
         }
+        self.state.temp_play_permission_same_turn_only &= set(self.state.temp_play_permissions)
         self.state.temp_play_permission_source = {
             iid: name for iid, name in self.state.temp_play_permission_source.items()
             if iid in self.state.temp_play_permissions

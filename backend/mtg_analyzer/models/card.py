@@ -390,7 +390,10 @@ class Card:
         return "enchantment" in self.type_line.lower()
 
     def as_copy(
-        self, add_types: Optional[list[str]] = None, add_subtypes: Optional[list[str]] = None
+        self,
+        add_types: Optional[list[str]] = None,
+        add_subtypes: Optional[list[str]] = None,
+        not_legendary: bool = False,
     ) -> "Card":
         """This card's *copiable values* (RULE 706.2), as a fresh `Card`.
 
@@ -405,7 +408,11 @@ class Card:
         ``add_types``/``add_subtypes`` model a card's own "except it's a(n)
         X in addition to its other types" clause (Copy Artifact's
         "enchantment", Phantasmal Image's "Illusion") — types are inserted
-        before the type line's em dash, subtypes after it.
+        before the type line's em dash, subtypes after it. ``not_legendary``
+        (RULE 205.4a, the "except it isn't legendary" family — Multiversal
+        Recruitment/Hall of Mirrors-shaped) strips the Legendary supertype
+        from both `is_legendary` and the printed type line, since some
+        board/legality surfaces read the word directly rather than the flag.
         """
         type_line = self.type_line
         if add_types:
@@ -417,6 +424,12 @@ class Card:
             main, dash, sub = type_line.partition("—")
             sub = f"{sub.strip()} {' '.join(add_subtypes)}".strip()
             type_line = f"{main.strip()} — {sub}" if dash or sub else main.strip()
+        is_legendary = self.is_legendary
+        if not_legendary:
+            is_legendary = False
+            main, dash, sub = type_line.partition("—")
+            main = re.sub(r"\bLegendary\b\s*", "", main).strip()
+            type_line = f"{main} — {sub.strip()}" if dash else main
         return Card(
             id=self.id,
             name=self.name,
@@ -441,7 +454,7 @@ class Card:
             image_uri_png=self.image_uri_png,
             set_code=self.set_code,
             rarity=self.rarity,
-            is_legendary=self.is_legendary,
+            is_legendary=is_legendary,
             layout=self.layout,
             back_name=self.back_name,
             back_type_line=self.back_type_line,

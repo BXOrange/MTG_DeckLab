@@ -85,9 +85,9 @@ export function renderConnectionSettingsView(container) {
             <option value="always">alle Züge, auch meine eigenen</option>
           </select>
         </div>
-        <label class="mp-inline-option" title="Betrifft nur Fenster, in denen dir wirklich nur 'Passen' offensteht (z. B. im gegnerischen Zug ohne Instant in der Hand) – dort gibt es nichts abzuwarten, deshalb ohne Countdown. Sobald eine echte Aktion angeboten wird, greift das nicht mehr.">
+        <label class="mp-inline-option" title="Anders als Automatisch passen: kein Countdown, und es greift nur, wenn dir wirklich nichts anderes als 'Passen' offensteht (z. B. im gegnerischen Zug ohne Instant in der Hand). Sobald eine echte Aktion angeboten wird, bist du sofort wieder am Zug.">
           <input type="checkbox" id="auto-skip-empty" />
-          Fenster ohne jede Handlungsmöglichkeit automatisch überspringen
+          Sofort passen, wenn nichts zu tun ist
         </label>
       </div>
 

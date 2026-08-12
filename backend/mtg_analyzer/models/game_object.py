@@ -275,6 +275,20 @@ class GameObject:
         #: again. Inert unless the object actually carries that permission
         #: (`continuous.has_no_untap_static` checks both).
         self.skip_untap: bool = False
+        #: RULE 702.19b's one-time consequence of being exerted (or any
+        #: future one-shot "doesn't untap during its controller's next
+        #: untap step" effect): unlike `skip_untap` above this isn't a
+        #: sticky permission the controller re-decides every turn — it's
+        #: consumed exactly once, by the very next `_step_untap` that sees
+        #: it true, which also clears it back to False.
+        self.skip_next_untap: bool = False
+        #: RULE 702.19a: whether this permanent has already been exerted
+        #: this turn — universal bookkeeping (harmless for any exert
+        #: creature) that Combat Celebrant's own "if ~ hasn't been exerted
+        #: this turn" guard reads via the `EXERTED` event's own
+        #: ``already_exerted`` snapshot, taken before this flips. Reset at
+        #: the normal untap step, same as `summoning_sick`.
+        self.exerted_this_turn: bool = False
         #: Summoning sickness (RULE 302.6): a creature can't attack/tap
         #: until its controller has controlled it since their last turn
         #: began. Set when it enters, cleared at that controller's untap.
@@ -859,6 +873,8 @@ class GameObject:
         self.commander_zone_choice_pending = False
         self.tapped = False
         self.skip_untap = False
+        self.skip_next_untap = False
+        self.exerted_this_turn = False
         self.summoning_sick = True
         self.turn_entered = None
         self.phased_out = False

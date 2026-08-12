@@ -464,11 +464,19 @@ class CombatMixin:
 
         Each entry is either a bare `GameObject` (the engine picks the
         defender when it is unambiguous) or a ``{"attacker": obj, "defender":
-        spec}`` dict, where ``spec`` is one of the entries `legal_defenders_for`
-        returns (or None for a bare swing). Declaring is *additive* — the UI
-        declares creatures one at a time so each can pick its own target
-        below it — so repeated calls accumulate the combat. Taps each
-        attacker and fires ATTACKS.
+        spec, "exert": bool}`` dict, where ``spec`` is one of the entries
+        `legal_defenders_for` returns (or None for a bare swing). Declaring is
+        *additive* — the UI declares creatures one at a time so each can pick
+        its own target below it — so repeated calls accumulate the combat.
+        Taps each attacker and fires ATTACKS.
+
+        ``exert=True`` is RULE 702.19a's own declare-time choice — "as it's
+        declared as an attacker, its controller may exert it" — not a
+        separate priority window or `pending_choice`, since real Magic asks
+        it in the same breath as the attack declaration itself. Only legal
+        for a creature that actually has exert (`combat.has(obj, "exert")`);
+        a client offering it to anything else is a bug, not a choice, so this
+        raises rather than silently ignoring it.
         """
         if player is not self.state.active_player:
             raise ValueError("only the active player declares attackers")
@@ -476,22 +484,25 @@ class CombatMixin:
             raise ValueError("not in the declare-attackers step")
 
         legal = self.legal_defenders_for(player)
-        resolved: list[tuple[GameObject, Optional[dict[str, Any]]]] = []
+        resolved: list[tuple[GameObject, Optional[dict[str, Any]], bool]] = []
         for entry in declarations:
             if isinstance(entry, dict):
                 obj = entry["attacker"]
                 defender = entry.get("defender")
+                exert = bool(entry.get("exert"))
             else:
-                obj, defender = entry, None
+                obj, defender, exert = entry, None, False
+            if exert and not combat.has(obj, "exert"):
+                raise ValueError(f"{obj.name} doesn't have exert")
             assigned = self._assign_defender(obj, defender, legal)
             # RULE 508.1a is checked against the *assigned* defender, not just
             # "somebody" — "~ can't attack unless defending player controls an
             # Island" is only legal against the player who actually has one.
             if not self._can_attack(player, obj, self._defending_player(assigned)):
                 raise ValueError(f"{obj.name} cannot attack")
-            resolved.append((obj, assigned))
+            resolved.append((obj, assigned, exert))
 
-        for obj, defender in resolved:
+        for obj, defender, exert in resolved:
             # Vigilance (RULE 702.21b): attacking doesn't cause it to tap.
             if not combat.has_vigilance(obj):
                 self.rules.set_tapped(obj, True)
@@ -506,6 +517,28 @@ class CombatMixin:
                     object_types=sorted(obj.type_words),
                 )
             )
+            if exert:
+                # RULE 702.19b: "doesn't untap during its controller's next
+                # untap step" — a one-time consequence consumed by
+                # `_step_untap`, not the sticky `skip_untap` toggle.
+                obj.skip_next_untap = True
+                # Read *before* setting: Combat Celebrant's own "if ~ hasn't
+                # been exerted this turn" guard (RULE 603.4-style intervening
+                # if, `ConditionalEffect`'s ``not_already_exerted`` key) needs
+                # whether this is a *repeat* exert this turn, which the flag
+                # itself can't answer once it's been set.
+                already_exerted = obj.exerted_this_turn
+                obj.exerted_this_turn = True
+                self.state.fire_event(
+                    GameEvent(
+                        EventType.EXERTED,
+                        attacker=obj.name,
+                        player_id=player.id,
+                        instance_id=obj.instance_id,
+                        object_types=sorted(obj.type_words),
+                        already_exerted=already_exerted,
+                    )
+                )
             # RULE 702.107: Dethrone's own per-firing dynamic check — see
             # `RulesEngine.check_dethrone` for why this can't go through the
             # ordinary annihilator/afflict/bushido `TriggeredAbility` path.

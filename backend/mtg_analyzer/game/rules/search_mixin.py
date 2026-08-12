@@ -885,6 +885,18 @@ class SearchMixin:
         if shuffle and to_library:
             self.shuffle_library(player)
         for obj, dest in zip(chosen, effective_destinations):
+            if dest in ("battlefield", "battlefield_tapped") and continuous.graveyard_library_entry_prohibited(
+                self.state, obj.card
+            ):
+                # RULE 601.3a-adjacent: "`<type>` cards in graveyards and
+                # libraries can't enter the battlefield." (Grafdigger's
+                # Cage/Weathered Runestone) — the card was already pulled
+                # out of its zone's list above (`_remove_search_hit`)
+                # without touching `obj.zone` itself, which still names
+                # where it came from, so putting it back there is a plain
+                # re-add rather than a real "return" move.
+                player.add_to_zone(obj, obj.zone)
+                continue
             self._put_searched_card(player, obj, dest)
             if extra_counters and dest in ("battlefield", "battlefield_tapped"):
                 # Neoform: "…onto the battlefield **with an additional +1/+1
@@ -1069,17 +1081,17 @@ class SearchMixin:
         of a library) and `exile_graveyard_with_cast_permission` (Mnemonic
         Betrayal-shaped, a whole graveyard) need it identically per object.
 
-        ``same_turn_only`` stores the *comparison-adjusted* turn value
-        `GameEngine._step_cleanup`'s existing ``turn >= state.turn_number``
-        sweep already uses, rather than changing that sweep itself: storing
-        ``turn_number`` (the default) survives through this turn's own
-        cleanup plus all of next turn ("until the end of your next turn");
-        storing ``turn_number - 1`` instead makes the very next cleanup
-        (this same turn's) already sweep it — "until end of turn" (Ragavan/
-        Mnemonic Betrayal's own, shorter window).
+        ``same_turn_only`` marks the entry in `GameState.temp_play_
+        permission_same_turn_only` for `GameEngine._step_cleanup`'s sweep:
+        the *granting* turn number is always what's stored in
+        `temp_play_permissions` (needed either way, to tell "still this
+        turn" apart from "a later turn" — see that sweep's own comment for
+        why "until the end of **your** next turn" can't be a flat turn-
+        number comparison the way "until end of turn" can).
         """
-        granted_value = self.state.turn_number - 1 if same_turn_only else self.state.turn_number
-        self.state.temp_play_permissions[obj.instance_id] = granted_value
+        self.state.temp_play_permissions[obj.instance_id] = self.state.turn_number
+        if same_turn_only:
+            self.state.temp_play_permission_same_turn_only.add(obj.instance_id)
         self.state.temp_play_permission_player[obj.instance_id] = permission_player.id
         if source_name:
             self.state.temp_play_permission_source[obj.instance_id] = source_name

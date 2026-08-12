@@ -83,13 +83,28 @@ _TARGET_ROWS: list[tuple[str, str]] = [
     (r"target (?:artifact|creature|enchantment|land|planeswalker)"
      r"(?:, (?:artifact|creature|enchantment|land|planeswalker))*"
      r",? or (?:artifact|creature|enchantment|land|planeswalker)", "permanent"),
-    (r"target artifact or enchantment", "permanent"),
-    (r"target artifact", "permanent"),
-    (r"target enchantment", "permanent"),
+    # "target artifact or enchantment" (Archdruid's Charm) — the dedicated
+    # union kind `targeting.legal_targets` already implements, rather than
+    # the broad ``"permanent"`` the N-way row above deliberately keeps (RULE
+    # 115.1c: the offered pool must actually match the printed noun phrase).
+    (r"target artifact or enchantment", "artifact_or_enchantment"),
+    # "target artifact"/"target enchantment" (Abrade, Naturalize) — single
+    # printed permanent type, RULE 115.1c. Previously collapsed onto the
+    # broad ``"permanent"`` kind (any permanent type, not just the printed
+    # one) — a real rules bug, not just a precision loss: it let e.g. Abrade
+    # "destroy target artifact" target a land. `targeting.legal_targets`
+    # already has a dedicated ``"artifact"``/``"enchantment"`` branch for
+    # this (the enter-as-copy candidate pool for Copy Artifact/Copy
+    # Enchantment reuses it); this row just starts routing the bare single-
+    # type phrase there too.
+    (r"target artifact", "artifact"),
+    (r"target enchantment", "enchantment"),
     # "target Forest" (Arbor Elf) — a specific basic land subtype, above
     # the bare "target land" row so the longer/more specific phrase wins.
     (r"target forest", "forest"),
-    (r"target land", "permanent"),
+    # "target land" (Sinkhole) — same RULE 115.1c precision as the artifact/
+    # enchantment rows just above.
+    (r"target land", "land"),
     # "a land you control" (a bounce-land's "return a land you control to
     # its owner's hand") isn't RULE 115 targeting at all — no "target" word —
     # but is modeled the same controller-restricted way: a choice among the
@@ -181,37 +196,105 @@ COUNT_X = r"(?P<n>a|an|x|\d+)"
 #: damage/token/draw amount, …) so each only needs to embed `DEVOTION` once
 #: rather than re-deriving the colour/wedge grammar; `devotion_selector`
 #: turns a match into `continuous.count_selector`'s ``devotion_to_<key>``
-#: name. "Devotion to hybrid" (Blended Twistling — any hybrid pip counts,
-#: not a colour at all) is a different, unbuilt reading and stays unclaimed.
+#: name. "Devotion to hybrid" (Blended Twistling — any hybrid pip counts
+#: once each, regardless of which two colours it's between, unlike ordinary
+#: devotion where a hybrid pip counts toward *both* its colours) is its own
+#: ``devotion_to_hybrid`` reading, not a colour/wedge name at all.
 _DEVOTION_COLOR_WORDS: dict[str, str] = {
     "white": "W", "blue": "U", "black": "B", "red": "R", "green": "G",
 }
 _DEVOTION_WEDGE_WORDS: frozenset[str] = frozenset({"abzan", "jeskai", "mardu", "sultai", "temur"})
+#: RULE 613.7c's much wider "X is the number of `<noun phrase>` you
+#: control" family (MEC-12's own count-amount resolver gap — 446 cards
+#: solo-blocked on this single template, `parser_probe.py blocked "where x
+#: is the number of"`) — folded into the *same* `DEVOTION` fragment (not a
+#: sibling constant) so every amount-suffix handler that already embeds
+#: `{DEVOTION}` picks up this reading for free, with no per-handler change.
+#: Deliberately narrow: only the plain, unqualified noun phrases a
+#: `continuous.count_selector` entry already exists for (bare "creatures/
+#: permanents/artifacts/lands you control", "attacking creatures[ you
+#: control]", "tapped creatures you control", and a single creature-type
+#: word) — a qualified phrase ("creatures you control with power 2 or
+#: less", "tapped artifacts and/or creatures you control") stays unclaimed
+#: rather than guessed, the same fail-closed split this file uses
+#: everywhere else. The type-word branch only strips a trailing "s"
+#: (`_singularize`) — a real but rarer gap on irregular plurals ("Elves",
+#: "Wolves") than building a full pluralization table is worth for now.
+_COUNT_PHRASE_BARE_WORDS: frozenset[str] = frozenset(
+    {"creatures", "permanents", "artifacts", "lands", "enchantments", "planeswalkers"}
+)
+#: Two-word compound noun phrases with their own dedicated
+#: `continuous.count_selector` entry, rather than the bare-word ``_you_
+#: control`` suffix pattern above (Eiganjo, Seat of the Empire/Ghostfire
+#: Slice's own printed shapes).
+_COUNT_PHRASE_COMPOUNDS: dict[str, str] = {
+    "legendary creatures": "legendary_creatures_you_control",
+    "multicolored permanents": "multicolored_permanents_you_control",
+    "artifacts and/or enchantments": "artifacts_and_or_enchantments_you_control",
+}
+
+
+def _singularize(word: str) -> str:
+    return word[:-1] if word.endswith("s") and len(word) > 1 else word
+
+
 DEVOTION = (
-    r"your devotion to (?:"
+    r"(?:"
+    r"(?:your devotion to (?:"
     r"(?P<devotion_colors>(?:white|blue|black|red|green)(?: and (?:white|blue|black|red|green)){0,2})"
     r"|(?P<devotion_wedge>abzan|jeskai|mardu|sultai|temur)"
+    r"|(?P<devotion_hybrid>hybrid)"
+    r"))"
+    r"|(?:the number of (?:"
+    r"(?P<count_compound>legendary creatures|multicolored permanents|artifacts and/or enchantments) you control"
+    r"|(?P<count_bare>creatures|permanents|artifacts|lands|enchantments|planeswalkers) you control"
+    r"|(?P<count_attacking>attacking creatures)(?P<count_attacking_yours> you control)?"
+    r"|(?P<count_tapped_yours>tapped creatures) you control"
+    r"|(?P<count_subtype>[a-z]+) you control"
+    r"))"
     r")"
 )
 
 
 def devotion_selector(m: "re.Match[str]") -> Optional[str]:
-    """A `DEVOTION` match's groups → `continuous.count_selector`'s
-    ``devotion_to_<key>`` name, or ``None`` if somehow neither group fired.
+    """A `DEVOTION` match's groups → `continuous.count_selector`'s name, or
+    ``None`` if somehow no group fired. Named for its original, narrower
+    devotion-only purpose; also resolves the wider "the number of `<noun
+    phrase>` you control" reading the fragment now carries (see `DEVOTION`'s
+    own docstring) — kept as one function rather than a sibling, since every
+    existing call site already expects one selector-or-None answer.
     """
+    if m.groupdict().get("devotion_hybrid"):
+        return "devotion_to_hybrid"
     wedge = m.groupdict().get("devotion_wedge")
     if wedge:
         return f"devotion_to_{wedge}"
     colors_text = m.groupdict().get("devotion_colors")
-    if not colors_text:
-        return None
-    words = colors_text.split(" and ")
-    if len(words) == 1:
-        return f"devotion_to_{words[0]}"
-    letters = sorted(
-        {_DEVOTION_COLOR_WORDS[w] for w in words}, key="WUBRG".index
-    )
-    return f"devotion_to_{''.join(letters).lower()}"
+    if colors_text:
+        words = colors_text.split(" and ")
+        if len(words) == 1:
+            return f"devotion_to_{words[0]}"
+        letters = sorted(
+            {_DEVOTION_COLOR_WORDS[w] for w in words}, key="WUBRG".index
+        )
+        return f"devotion_to_{''.join(letters).lower()}"
+    compound = m.groupdict().get("count_compound")
+    if compound:
+        return _COUNT_PHRASE_COMPOUNDS.get(compound)
+    bare = m.groupdict().get("count_bare")
+    if bare:
+        return f"{bare}_you_control"
+    if m.groupdict().get("count_attacking"):
+        return (
+            "attacking_creatures_you_control" if m.groupdict().get("count_attacking_yours")
+            else "attacking_creatures"
+        )
+    if m.groupdict().get("count_tapped_yours"):
+        return "tapped_creatures_you_control"
+    subtype = m.groupdict().get("count_subtype")
+    if subtype and subtype not in _COUNT_PHRASE_BARE_WORDS:
+        return f"creatures_you_control_of_type_{_singularize(subtype)}"
+    return None
 
 
 def resolve_target_kind(phrase: str) -> Optional[str]:

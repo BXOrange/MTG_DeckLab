@@ -514,7 +514,15 @@ export function createGameBoardView(opts = {}) {
     const actions = dragActionsForInstance(dragSource.instanceId);
     if (!actions.length) return false;
     const targets = dragTargetsForActions(actions);
-    if (target.type === 'battlefield') return targets.battlefield;
+    if (target.type === 'battlefield') {
+      if (!targets.battlefield) return false;
+      // A played land/permanent always joins *this card's own controller's*
+      // battlefield — never another player's board, however many are on
+      // screen — so a drop only counts here if it landed on that same
+      // player's own battlefield section (see the `dragstart` handler).
+      if (!dragSource.playerId) return true;
+      return target.element?.closest('[data-player-id]')?.dataset.playerId === dragSource.playerId;
+    }
     if (target.type === 'instance') return targets.instanceIds.has(target.instanceId);
     if (target.type === 'player') return targets.playerIds.has(target.playerId);
     return false;
@@ -542,7 +550,15 @@ export function createGameBoardView(opts = {}) {
       if (el) el.classList.add('gf-drag-target-valid');
     }
     if (targets.battlefield) {
-      const battlefield = root?.querySelector('[data-drop-zone="battlefield"]');
+      // Scoped to the dragged card's *own* board — a shared/multiplayer view
+      // renders one battlefield per player, and an unscoped querySelector
+      // would always find whichever one happens to come first in
+      // `boardOrder` (never this client's own, which is drawn last),
+      // highlighting the wrong player's battlefield whenever they aren't it.
+      const ownBoard = dragSource.playerId
+        ? root?.querySelector(`[data-player-id="${CSS.escape(dragSource.playerId)}"]`)
+        : root;
+      const battlefield = ownBoard?.querySelector('[data-drop-zone="battlefield"]');
       if (battlefield) battlefield.classList.add('gf-drag-target-valid');
     }
     const sourceEl = root?.querySelector(`[data-instance-id="${CSS.escape(dragSource.instanceId)}"]`);
@@ -1215,15 +1231,15 @@ export function createGameBoardView(opts = {}) {
   function autoPassControlHtml() {
     const on = getAutoPassEnabled();
     return `
-      <label class="gf-autopass" title="Nach Ablauf der Zeit wird automatisch gepasst. Jede Aktion auf dem Brett stoppt den Countdown.">
+      <label class="gf-autopass" title="Nach Ablauf der Zeit wird automatisch gepasst, auch wenn du eigentlich noch etwas tun könntest. Jede Aktion auf dem Brett stoppt den Countdown.">
         <input type="checkbox" id="gf-autopass-toggle" ${on ? 'checked' : ''} />
-        Auto-Pass
+        Auto-Pass (nach Ablaufzeit)
         <input type="number" id="gf-autopass-seconds" min="${MIN_AUTO_PASS_SECONDS}" max="${MAX_AUTO_PASS_SECONDS}"
                value="${autoPassSeconds}" ${on ? '' : 'disabled'} /> s
       </label>
-      <label class="gf-autopass" title="Wie der ⏭-Knopf, aber dauerhaft ein: Sobald dir wirklich nichts anderes als 'Passen' offensteht (z. B. während des gegnerischen Zugs, wenn du kein Instant in der Hand hast), passt der Client sofort für dich – ohne Countdown, weil es nichts zu entscheiden gibt. Sobald irgendeine echte Aktion angeboten wird (eine Karte spielen/zaubern, angreifen, blocken …), greift das nicht mehr und du bist wieder am Zug.">
+      <label class="gf-autopass" title="Anders als Auto-Pass: kein Countdown, und es greift nur, wenn dir wirklich nichts anderes als 'Passen' offensteht (z. B. im gegnerischen Zug ohne Instant in der Hand). Sobald irgendeine echte Aktion angeboten wird (Karte spielen/zaubern, angreifen, blocken …), bist du sofort wieder am Zug.">
         <input type="checkbox" id="gf-skip-empty-toggle" ${getAutoSkipEmpty() ? 'checked' : ''} />
-        Leere Fenster automatisch überspringen
+        Sofort passen, wenn nichts zu tun ist
       </label>
       ${botSpeedControlHtml()}`;
   }
@@ -1885,7 +1901,14 @@ export function createGameBoardView(opts = {}) {
         const slot = el.closest('[data-instance-id]');
         const instanceId = slot?.dataset.instanceId;
         if (!instanceId) return;
-        dragSource = { instanceId };
+        // Which player's own board this card lives on — a shared/multiplayer
+        // board renders one `[data-drop-zone="battlefield"]` *per player*, so
+        // "the battlefield" is ambiguous without this: an unscoped
+        // `querySelector` always finds whichever board happens to come first
+        // in `boardOrder` (every board but this client's own, which is drawn
+        // last/nearest), highlighting — and, worse, accepting a drop onto —
+        // some other player's battlefield whenever they aren't that first one.
+        dragSource = { instanceId, playerId: slot.closest('[data-player-id]')?.dataset.playerId || null };
         e.dataTransfer.effectAllowed = 'move';
         e.dataTransfer.setData('text/plain', '');
         highlightDragTargets();

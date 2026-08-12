@@ -83,6 +83,7 @@ _ALLOWED_CONDITION_KEYS: frozenset[str] = frozenset(
         "life_gained_this_turn_at_least", "is_ring_bearer", "ring_tempted_at_least",
         "controls_none_of_type", "source_x_paid_at_least",
         "creatures_died_this_turn_at_least", "graveyard_has_type", "target_is_player",
+        "not_already_exerted", "is_first_combat_phase",
     }
 )
 
@@ -159,9 +160,12 @@ ALLOWED_ALT_COST_KEYS: frozenset[str] = frozenset(
         # a qualifier-filtered sacrifice (Flare of Denial's "a nontoken
         # blue creature" — `combat.matches_object_filter`-shaped),
         # a counted sacrifice (`ActivationCost.sacrifice_count`'s own
-        # ``(count, subtype)`` shape), and a counted return-to-hand
-        # (Gush's "return two Islands").
+        # ``(count, subtype)`` shape), a counted return-to-hand
+        # (Gush's "return two Islands"), and Angelic Favor's "tap an
+        # untapped creature you control" (`ActivationCost.tap_others`'s own
+        # ``(count, subtype)`` shape, reused the same way).
         "mana", "sacrifice", "sacrifice_count", "sacrifice_filter", "return_to_hand_count",
+        "tap_others",
     }
 )
 
@@ -754,7 +758,7 @@ class AbilitySpec:
         sacrifice = cost.get("sacrifice")
         if sacrifice is not None and (not isinstance(sacrifice, str) or not sacrifice):
             raise SpecValidationError("'alt_cost' sacrifice must be a non-empty str")
-        for count_key in ("sacrifice_count", "return_to_hand_count"):
+        for count_key in ("sacrifice_count", "return_to_hand_count", "tap_others"):
             pair = cost.get(count_key)
             if pair is not None:
                 if (
@@ -769,7 +773,7 @@ class AbilitySpec:
         if not any(
             k in cost for k in (
                 "pay_life", "return_to_hand", "exile_hand_card_color", "mana", "sacrifice",
-                "sacrifice_count", "sacrifice_filter", "return_to_hand_count",
+                "sacrifice_count", "sacrifice_filter", "return_to_hand_count", "tap_others",
             )
         ):
             raise SpecValidationError("'alt_cost' must carry at least one real payment component")

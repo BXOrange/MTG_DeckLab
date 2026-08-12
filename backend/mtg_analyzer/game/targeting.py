@@ -86,6 +86,9 @@ _GRAVEYARD_TARGET_KINDS: frozenset[str] = frozenset(
 ALLOWED_TARGET_KINDS: frozenset[str] = frozenset(
     {
         "any", "creature", "permanent", "player", "spell",
+        # Single-type permanent targets (RULE 115.1c — "target artifact"/
+        # "target enchantment"/"target land"), any controller's.
+        "artifact", "enchantment", "land",
         # "target activated or triggered ability" (RULE 115/608.2b — Stifle/
         # Trickbind-shaped, ENG-26) — the stack-item-identity sibling of
         # ``"spell"``: an ability `StackItem` has no `.obj` a target
@@ -358,6 +361,9 @@ class TargetSpec:
             "any": "beliebiges Ziel",
             "creature": "Kreatur",
             "permanent": "bleibende Karte",
+            "artifact": "Artefakt",
+            "enchantment": "Verzauberung",
+            "land": "Land",
             "player": "Spieler",
             "player_dealt_combat_damage_by_source":
                 "Spieler, dem diese Karte in diesem Zug Kampfschaden zugefügt hat",
@@ -916,14 +922,20 @@ def legal_targets(
             and o.controller_id == controller_id
             and o is not source
         ]
-    if kind in ("artifact", "enchantment"):
+    if kind in ("artifact", "enchantment", "land"):
         # RULE 115 single-type permanent target (also the enter-as-copy
-        # candidate pool for Copy Artifact / Copy Enchantment).
-        want_artifact = kind == "artifact"
+        # candidate pool for Copy Artifact / Copy Enchantment). Any
+        # controller's, unlike `land_you_control`.
+        _SINGLE_TYPE_PREDICATE = {
+            "artifact": lambda o: o.card.is_artifact,
+            "enchantment": lambda o: o.card.is_enchantment,
+            "land": lambda o: o.is_land,
+        }
+        predicate = _SINGLE_TYPE_PREDICATE[kind]
         return [
             {"instance_id": o.instance_id, "name": o.name}
             for o in state.permanents()
-            if (o.card.is_artifact if want_artifact else o.card.is_enchantment)
+            if predicate(o)
             and o is not source
             and _targetable_by(o, source)
             and (not spec.color or spec.color in o.colors)

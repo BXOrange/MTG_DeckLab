@@ -184,8 +184,9 @@ def test_add_counters_on_self_is_untargeted():
 
 def test_add_counters_targets_any_permanent_not_just_creatures():
     # +1/+1 counters can sit on any permanent (RULE 122.1a) — a land that later
-    # animates uses them. The target phrase, not the counter, sets the kind.
-    assert parse_effect_body("put a +1/+1 counter on target land")[0].params["target_kind"] == "permanent"
+    # animates uses them. The target phrase, not the counter, sets the kind:
+    # "target land" is land-only (RULE 115.1c), "target permanent" is unscoped.
+    assert parse_effect_body("put a +1/+1 counter on target land")[0].params["target_kind"] == "land"
     assert parse_effect_body("put 2 +1/+1 counters on target permanent")[0].params["target_kind"] == "permanent"
 
 

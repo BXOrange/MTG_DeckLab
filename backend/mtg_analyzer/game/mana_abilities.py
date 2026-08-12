@@ -132,6 +132,12 @@ _LAND_COULD_PRODUCE_RE = re.compile(
 _PIP_RE = re.compile(r"\{([WUBRGC])\}")
 _ALTERNATIVE_SPLIT_RE = re.compile(r",| or ")
 _ALL_COLORS = ("W", "U", "B", "R", "G")
+#: Letter → the colour word `continuous.count_selector`'s ``devotion_to_
+#: <colour>`` vocabulary keys on (Nykthos's own ``"devotion_to_chosen_
+#: color"`` menu).
+_WUBRG_WORDS: dict[str, str] = {
+    "W": "white", "U": "blue", "B": "black", "R": "red", "G": "green",
+}
 #: Phrases meaning "the payer picks one colour" — either a fixed amount of it
 #: ("one mana of any color", Elvish Harbinger) or a variable amount peeled off
 #: by `_WHERE_X_RE` first ("X mana of any one color", Wirewood Channeler).
@@ -279,6 +285,17 @@ _CHOSEN_COLOR_ADD_RE = re.compile(
 _IMPRINTED_COLOR_ADD_RE = re.compile(
     r"^(?:\d+|[a-z]+) mana of any of the exiled card'?s colou?rs$", re.IGNORECASE
 )
+#: "Choose a color. Add an amount of mana of that color equal to your
+#: devotion to that color." (Nykthos, Shrine to Nyx) — the choice and the
+#: amount are coupled: unlike every ``color_selector`` above (a fixed
+#: amount, or a per-colour amount read straight off board state with no
+#: player choice involved), this is a genuine "any one color" menu whose
+#: *per-option* amount is that same option's own devotion — see
+#: `ManaAbility.color_selector`'s ``"devotion_to_chosen_color"`` kind.
+_DEVOTION_CHOSEN_COLOR_ADD_RE = re.compile(
+    r"^an amount of mana of that colou?r equal to your devotion to that colou?r$",
+    re.IGNORECASE,
+)
 #: Sentinel colour key an unresolved chosen-colour amount is parked under
 #: until `mana_abilities_for` recolours it to the real `chosen_color`.
 _CHOSEN_COLOR_KEY = "_CHOSEN_COLOR_"
@@ -417,6 +434,12 @@ class ManaAbility:
     #: ``"imprinted_card_colors"`` — one option per colour, the payer still
     #: picks one — just with a board-dependent menu instead of a fixed one;
     #: see `resolve_options`.
+    #:
+    #: ``"devotion_to_chosen_color"`` (Nykthos, Shrine to Nyx) is the one
+    #: kind here where the choice and the amount are coupled: a plain "any
+    #: one color" menu (like a dual land's own `options`, not board-
+    #: dependent), except each option's amount is *that same option's*
+    #: devotion rather than a shared 1 — see `resolve_options`.
     color_selector: Optional[str] = None
 
 
@@ -752,6 +775,14 @@ def _parse_mana_ability_lines(
                 restriction=_parse_restriction(effect_text),
             ))
             continue
+        if _DEVOTION_CHOSEN_COLOR_ADD_RE.match(add_match.group(1).strip()):
+            abilities.append(ManaAbility(
+                cost=cost,
+                color_selector="devotion_to_chosen_color",
+                self_rad_counters=_rad_count_of(rad_match) if rad_match else 0,
+                restriction=_parse_restriction(effect_text),
+            ))
+            continue
         base_clause, selector = _peel_amount_selector(add_match.group(1), name)
         options = _dedupe(_parse_clause(base_clause))
         if not options:
@@ -1064,6 +1095,25 @@ def resolve_options(ability: ManaAbility, obj: Any, state: Optional[Any] = None)
         if not colors_present:
             return []
         return [{color: 1 for color in colors_present}]
+    if ability.color_selector == "devotion_to_chosen_color":
+        # Nykthos, Shrine to Nyx: a menu of every colour the controller has
+        # *any* devotion to right now (`continuous.count_selector`'s
+        # ``devotion_to_<colour>``), each option's own amount being that
+        # same colour's devotion — unlike every other menu in this
+        # function, the five options here aren't equal (a plain "any one
+        # colour" ability would use ``options`` directly, not this branch).
+        # A colour with 0 devotion is a legal but pointless pick (produces
+        # nothing), so it's left off the menu, same as every other
+        # board-dependent selector above producing nothing correctly.
+        if state is None:
+            return []
+        controller_id = getattr(obj, "controller_id", None)
+        result = []
+        for letter, word in _WUBRG_WORDS.items():
+            amount = continuous.count_selector(state, controller_id, f"devotion_to_{word}")
+            if amount > 0:
+                result.append({letter: amount})
+        return result
     if ability.color_selector == "imprinted_card_colors":
         # RULE 702.45-adjacent Imprint (MEC-17, Chrome Mox): "Add one mana
         # of any color in the exiled card's color identity" — a genuine

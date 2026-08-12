@@ -146,7 +146,13 @@ class CopiesMixin:
     """Copy effects, becoming a copy, and face changes (transform/manifest/face-down)."""
 
     def copy_permanent(
-        self, controller_id: str, source: GameObject, count: int = 1
+        self,
+        controller_id: str,
+        source: GameObject,
+        count: int = 1,
+        add_types: Optional[list[str]] = None,
+        add_subtypes: Optional[list[str]] = None,
+        not_legendary: bool = False,
     ) -> list[GameObject]:
         """Create ``count`` token copies of ``source`` (RULE 707.2 / 111.5).
 
@@ -154,8 +160,20 @@ class CopiesMixin:
         basic version, its printed `Card` (the front face if it's transformed,
         RULE 712.4a) — and enters as a token under ``controller_id``. Reuses
         `create_token`, so the copy's own abilities bind and it follows the
-        token cease-to-exist lifecycle (RULE 704.5d)."""
+        token cease-to-exist lifecycle (RULE 704.5d).
+
+        ``add_types``/``add_subtypes``/``not_legendary`` are a copy effect's
+        own "except it's a(n) X in addition to its other types"/"except it
+        isn't legendary" clause (RULE 706.10 — Copy Artifact/Rite of
+        Replication/Multiversal Recruitment-shaped), the same `Card.as_copy`
+        modifiers `copy_mechanics.become_copy` already applies for the
+        enters-as-a-copy replacement shape.
+        """
         copiable = getattr(source, "_front_card", source.card)
+        if add_types or add_subtypes or not_legendary:
+            copiable = copiable.as_copy(
+                add_types=add_types, add_subtypes=add_subtypes, not_legendary=not_legendary,
+            )
         return self.create_token(controller_id, copiable, count)
     def copy_spell(
         self,

@@ -307,6 +307,26 @@ def _copy_permanent_kicked_override(m: re.Match[str]) -> Optional[list[EffectSpe
     })]
 
 
+#: One of `_COPY_PERMANENT_RE`'s excluded "except …" tails, carved out on
+#: its own because it's a single, well-defined characteristic flip (RULE
+#: 205.4a) rather than the "too varied to safely generalize" family the row
+#: above's docstring warns about — Multiversal Recruitment/Hall of Mirrors/
+#: Impostor Syndrome-shaped, the single biggest real template in this
+#: family (`CopyPermanentEffect.not_legendary`).
+_COPY_PERMANENT_NOT_LEGENDARY_RE = _c(
+    rf"create a token that'?s a copy of {TARGET}, except it isn'?t legendary"
+)
+
+
+def _copy_permanent_not_legendary(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    kind = resolve_target_kind(m.group("target"))
+    if kind is None:
+        return None
+    return [EffectSpec("copy_permanent", {
+        "target_kind": kind, "not_legendary": True, **_optional_param(m),
+    })]
+
+
 def _damage_each_multi_target(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     params = _multi_target_params(m)
     if params is None:
@@ -1049,9 +1069,20 @@ def _add_rad_counters_half_x(m: re.Match[str]) -> list[EffectSpec]:
     return [EffectSpec("add_player_counters", params)]
 
 
+#: The single-printed-type permanent target kinds `resolve_target_kind`
+#: resolves "target artifact"/"target enchantment"/"target land" to (RULE
+#: 115.1c) — added to every guard tuple below that already accepted the
+#: broad, untyped "target permanent" kind, so narrowing that mapping (fixing
+#: e.g. Abrade's "Destroy target artifact." from wrongly offering any
+#: permanent, including lands) doesn't regress these families to UNMODELED.
+_SINGLE_TYPE_PERMANENT_KINDS: tuple[str, ...] = ("artifact", "enchantment", "land")
+
+
 def _destroy(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     kind = resolve_target_kind(m.group("target"))
-    if kind is None or kind not in ("creature", "permanent", "permanent_you_dont_control"):
+    if kind is None or kind not in (
+        "creature", "permanent", "permanent_you_dont_control", *_SINGLE_TYPE_PERMANENT_KINDS,
+    ):
         return None
     color = resolve_color_word(m.groupdict().get("cond_color"))
     params: dict = {"target_kind": kind, **_optional_param(m)}
@@ -1389,7 +1420,7 @@ def _mill(m: re.Match[str]) -> list[EffectSpec]:
 
 def _exile(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     kind = resolve_target_kind(m.group("target"))
-    if kind is None or kind not in ("creature", "permanent"):
+    if kind is None or kind not in ("creature", "permanent", *_SINGLE_TYPE_PERMANENT_KINDS):
         return None
     return [EffectSpec("exile", {"target_kind": kind, **_optional_param(m)})]
 
@@ -1403,7 +1434,9 @@ def _exile_multi_target(m: re.Match[str]) -> Optional[list[EffectSpec]]:
 
 def _tap(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     kind = resolve_target_kind(m.group("target"))
-    if kind is None or kind not in ("creature", "permanent", "legendary_permanent", "forest"):
+    if kind is None or kind not in (
+        "creature", "permanent", "legendary_permanent", "forest", *_SINGLE_TYPE_PERMANENT_KINDS,
+    ):
         return None
     untap = m.group("verb").lower() == "untap"
     return [EffectSpec("tap", {"target_kind": kind, "untap": untap, **_optional_param(m)})]
@@ -1415,7 +1448,7 @@ def _tap(m: re.Match[str]) -> Optional[list[EffectSpec]]:
 #: creature/permanent kinds the singular `_tap` handler allows.
 def _tap_multi_target(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     params = _multi_target_params(m)
-    if params is None or params["target_kind"] not in ("creature", "permanent"):
+    if params is None or params["target_kind"] not in ("creature", "permanent", *_SINGLE_TYPE_PERMANENT_KINDS):
         return None
     untap = m.group("verb").lower() == "untap"
     params["untap"] = untap
@@ -1429,7 +1462,8 @@ def _tap_selector(m: re.Match[str]) -> list[EffectSpec]:
     # `TapEffect.selector`, the same shape `_add_counters_selector` uses
     # for a mass counter effect.
     untap = m.group("verb").lower() == "untap"
-    selector = "other_creatures_you_control" if m.groupdict().get("other") else "creatures_you_control"
+    other = m.groupdict().get("other_all") or m.groupdict().get("other_each")
+    selector = "other_creatures_you_control" if other else "creatures_you_control"
     return [EffectSpec("tap", {"selector": selector, "untap": untap})]
 
 
@@ -3490,7 +3524,7 @@ def _add_counters(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     # whatever the text targets (creature or permanent, incl. the
     # controller-restricted "target creature you control" pick, Archdruid's
     # Charm-shaped); only the target phrase constrains it, not the counter itself.
-    if kind not in ("creature", "permanent", "creature_you_control"):
+    if kind not in ("creature", "permanent", "creature_you_control", *_SINGLE_TYPE_PERMANENT_KINDS):
         return None
     params["target_kind"] = kind
     params.update(_optional_param(m))
@@ -3520,7 +3554,7 @@ def _add_named_counter(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     if m.groupdict().get("selfref"):
         return [EffectSpec("add_counters", params)]
     kind = resolve_target_kind(m.group("target"))
-    if kind not in ("creature", "permanent", "creature_you_control"):
+    if kind not in ("creature", "permanent", "creature_you_control", *_SINGLE_TYPE_PERMANENT_KINDS):
         return None
     params["target_kind"] = kind
     params.update(_optional_param(m))
@@ -3554,7 +3588,7 @@ def _add_counters_from_trigger_amount(m: re.Match[str]) -> Optional[list[EffectS
     if m.groupdict().get("selfref"):
         return [EffectSpec("add_counters", params)]
     kind = resolve_target_kind(m.group("target"))
-    if kind not in ("creature", "permanent", "creature_you_control"):
+    if kind not in ("creature", "permanent", "creature_you_control", *_SINGLE_TYPE_PERMANENT_KINDS):
         return None
     params["target_kind"] = kind
     return [EffectSpec("add_counters", params)]
@@ -3587,7 +3621,7 @@ def _pump_self_from_life_gained(m: re.Match[str]) -> list[EffectSpec]:
 #: ``count``/``amount`` (both already mean the *counter* amount here).
 def _add_counters_multi_target(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     mt = _multi_target_params(m)
-    if mt is None or mt["target_kind"] not in ("creature", "permanent"):
+    if mt is None or mt["target_kind"] not in ("creature", "permanent", *_SINGLE_TYPE_PERMANENT_KINDS):
         return None
     ckind = "-1/-1" if m.group("ckind").lstrip()[0] in "-−" else "+1/+1"
     params: dict = {
@@ -3854,6 +3888,31 @@ def _group_pump_devotion(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     if not selector:
         return None
     return [EffectSpec("pump", {"selector": "creatures_you_control", "amount_from_count_selector": selector})]
+
+#: The devotion/count-scaled sibling of `_pump_self_subject`'s fixed-int
+#: form — "it gets +X/+X until end of turn, where X is `{DEVOTION}`"
+#: (Angelic Exaltation/Akroan Hoplite-adjacent self-buff-on-attack — see
+#: `{DEVOTION}`'s own docstring for the wider "the number of `<noun
+#: phrase>` you control" reading this also picks up). Symmetric only
+#: (``+x/+x``/``-x/-x``): `PumpEffect.amount_from_count_selector` always
+#: sets power and toughness to the *same* resolved amount, so an
+#: asymmetric "+X/+0" (Akroan Hoplite's own real printing) has no way to
+#: express "only power scales" yet and stays unclaimed — a smaller,
+#: separate gap from the amount-resolver this row closes.
+_PUMP_SELF_SUBJECT_DEVOTION_RE = _c(
+    rf"it gets? (?P<sign>\+|-)x/(?P=sign)x until end of turn, where x is {DEVOTION}"
+)
+
+
+def _pump_self_subject_devotion(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    selector = devotion_selector(m)
+    if not selector:
+        return None
+    params: dict = {"amount_from_count_selector": selector}
+    if m.group("sign") == "-":
+        params["amount_from_count_selector_negative"] = True
+    return [EffectSpec("pump", params)]
+
 
 def _pump_self_subject(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     """The bare-pronoun sibling of `_pump`'s untargeted self form —
@@ -4576,6 +4635,14 @@ HANDLERS: list[EffectHandler] = [
         _COPY_PERMANENT_KICKED_OVERRIDE_RE,
         _copy_permanent_kicked_override,
     ),
+    # "…, except it isn't legendary." (Multiversal Recruitment-shaped) —
+    # tried before the bare `copy_permanent` row so its own trailing
+    # "except" clause isn't left dangling/unclaimed.
+    EffectHandler(
+        "copy_permanent_not_legendary",
+        _COPY_PERMANENT_NOT_LEGENDARY_RE,
+        _copy_permanent_not_legendary,
+    ),
     # "Create a token that's a copy of target creature." (RULE 707/706.2,
     # Cackling Counterpart-shaped) — the bare form, no kicker.
     EffectHandler(
@@ -5058,12 +5125,18 @@ HANDLERS: list[EffectHandler] = [
         _c(rf"(?P<verb>tap|untap) {_MULTI_TARGET_QUANTIFIER}(?:other )?(?P<target>{_MULTI_TARGET_ALT})"),
         _tap_multi_target,
     ),
-    # "untap all creatures you control" (Village Bell-Ringer) — must sit
-    # above `tap_self`/the bare `_SELF_SUBJECT` row so "all creatures you
-    # control" (not a self-reference) is recognised on its own.
+    # "untap all creatures you control" (Village Bell-Ringer) / "untap all
+    # other creatures you control" (Ahn-Crop Champion/Combat Celebrant's
+    # own exert rider) / "untap each other creature you control" (Copperhorn
+    # Scout) — must sit above `tap_self`/the bare `_SELF_SUBJECT` row so
+    # "all [other] creatures you control" (not a self-reference) is
+    # recognised on its own.
     EffectHandler(
         "tap_selector",
-        _c(r"(?P<verb>tap|untap) (?:all creatures you control|each (?P<other>other) creature you control)"),
+        _c(
+            r"(?P<verb>tap|untap) (?:all (?P<other_all>other )?creatures you control"
+            r"|each (?P<other_each>other) creature you control)"
+        ),
         _tap_selector,
     ),
     # "Untap it and all Samurai you control." (Godo, Bandit Warlord) — tried
@@ -5758,13 +5831,19 @@ HANDLERS: list[EffectHandler] = [
         "pump_devotion_negative_target", _PUMP_DEVOTION_NEGATIVE_TARGET_RE, _pump_devotion_negative_target
     ),
     EffectHandler("group_pump_devotion", _GROUP_PUMP_DEVOTION_RE, _group_pump_devotion),
+    # "Whenever ~ attacks, it gets +X/+X until end of turn, where X is …"
+    # (Angelic Exaltation-adjacent self-buff-on-attack) — tried before the
+    # flat-amount row below, whose `\d+` would never match a bare "x".
+    EffectHandler(
+        "pump_self_subject_devotion",
+        _PUMP_SELF_SUBJECT_DEVOTION_RE,
+        _pump_self_subject_devotion,
+        self_subject_only=True,
+    ),
     # "Whenever ~ attacks, it gets +1/+0 until end of turn." (Akroan Hoplite-
     # adjacent self-buff-on-attack, `it` bound to the ability's own source —
     # `self_subject_only`, only ever offered from a self-subject trigger
-    # body). The "for each <count>" scaling variant (Akroan Hoplite's own
-    # actual text, "…where x is the number of attacking creatures you
-    # control") is a separate, still-open widening — this row only claims
-    # the flat-amount form.
+    # body).
     EffectHandler(
         "pump_self_subject",
         _c(

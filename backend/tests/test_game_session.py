@@ -711,6 +711,19 @@ class TestAdvanceToDecision:
         assert session.engine.state.current_step == "main1"
         assert session.move_log.count("advance_step") >= 2
 
+    def test_refused_in_a_shared_game_with_interactive_priority(self):
+        # RULE 117.4: a step ends only when everyone has passed on an empty
+        # stack, never because the active player decided to fast-forward
+        # past it — the same refusal `_dispatch` gives a plain
+        # "advance_step" in a shared game. This path is special-cased
+        # *before* `apply_action` ever reaches `_dispatch`, so it needs its
+        # own copy of that guard rather than inheriting it for free.
+        session = make_session()
+        session.interactive_priority = True
+        session.engine.interactive_priority = True
+        with pytest.raises(GameActionError):
+            session.apply_action({"type": "advance_to_decision"})
+
 
 class TestRewind:
     def test_rewind_undoes_last_move(self):

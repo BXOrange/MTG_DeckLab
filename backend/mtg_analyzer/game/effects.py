@@ -251,9 +251,20 @@ class GameContext:
         # for a following "the tokens …" clause — see `created_objects`.
         return self.engine.create_token(controller_id, token_card, count)
 
-    def copy_permanent(self, controller_id: str, source: "GameObject", count: int = 1) -> list[Any]:
+    def copy_permanent(
+        self,
+        controller_id: str,
+        source: "GameObject",
+        count: int = 1,
+        add_types: Optional[list[str]] = None,
+        add_subtypes: Optional[list[str]] = None,
+        not_legendary: bool = False,
+    ) -> list[Any]:
         # Returns what it made, same as `create_token` — see `created_objects`.
-        return self.engine.copy_permanent(controller_id, source, count)
+        return self.engine.copy_permanent(
+            controller_id, source, count,
+            add_types=add_types, add_subtypes=add_subtypes, not_legendary=not_legendary,
+        )
 
     def copy_spell(
         self,
@@ -1964,6 +1975,33 @@ class ConditionalEffect(GameEffect):
             player = _controller_of(self.source, context)
             level = int(getattr(player, "ring_level", 0) or 0)
             if level > ring_tempted_at_most:
+                return False
+        not_already_exerted = self.condition.get("not_already_exerted")
+        if not_already_exerted:
+            # RULE 603.4-style intervening if — "if ~ hasn't been exerted
+            # this turn, you may exert it… When you do, <effect>." (Combat
+            # Celebrant's own self-loop guard: without this, its own granted
+            # extra combat phase would let it exert, and grant, forever).
+            # Reads the firing `EXERTED` event's own snapshot rather than
+            # `GameObject.exerted_this_turn` directly — that flag is already
+            # True by the time this trigger resolves (`GameEngine.
+            # declare_attackers` sets it before firing), so only the event's
+            # own pre-set value still distinguishes a first exert from a
+            # repeat one.
+            event = context.trigger_event or {}
+            if event.get("already_exerted"):
+                return False
+        is_first_combat_phase = self.condition.get("is_first_combat_phase")
+        if is_first_combat_phase is not None:
+            # RULE 603.4: "if it's the first combat phase of the turn,
+            # <effect>." (Karlach, Fury of Avernus/Finest Hour/Genji
+            # Glove-shaped extra-combat guards — without this, a card
+            # granting its own extra combat phase could re-trigger itself
+            # in that extra phase and grant another, forever). Checked at
+            # resolution, the same "intervening if" timing `not_already_
+            # exerted` uses, not a separate fire-time gate.
+            is_first = context.state.combats_this_turn <= 1
+            if is_first != is_first_combat_phase:
                 return False
         return True
 
@@ -5653,6 +5691,18 @@ class ReturnFromGraveyardEffect(GameEffect):
         )
 
     def _apply_one(self, context: GameContext, target: Any) -> None:
+        if self.destination == "battlefield":
+            # RULE 601.3a-adjacent: "`<type>` cards in graveyards … can't
+            # enter the battlefield." (Grafdigger's Cage/Weathered
+            # Runestone) — checked against the target's own printed card
+            # while it's still sitting in the graveyard, before anything
+            # moves; a prohibited card simply stays put; there's no target
+            # to fall back to (RULE 608.2b covers a spell fizzling on an
+            # illegal target, but this is a static prevention, not that).
+            from . import continuous  # local: continuous imports this module under TYPE_CHECKING
+
+            if continuous.graveyard_library_entry_prohibited(context.state, target.card):
+                return
         controller_id = None
         if self.under_your_control and self.destination == "battlefield":
             player = _controller_of(self.source, context)
@@ -8445,6 +8495,9 @@ class CopyPermanentEffect(GameEffect):
         count_if_kicked: Optional[int] = None,
         count_from_trigger_event: Optional[str] = None,
         haste: bool = False,
+        add_types: Optional[list[str]] = None,
+        add_subtypes: Optional[list[str]] = None,
+        not_legendary: bool = False,
     ) -> None:
         super().__init__(source)
         self.count = count
@@ -8452,6 +8505,16 @@ class CopyPermanentEffect(GameEffect):
         #: temp keyword grant on the freshly-made token(s), the same
         #: `temp_keywords` set every other resolve-time haste grant uses.
         self.haste = haste
+        #: "…except it's a(n) X in addition to its other types" (the
+        #: Cackling Counterpart/artifact-token-cycle "except it's an
+        #: artifact…" shape) / "…except it isn't legendary." (Multiversal
+        #: Recruitment-shaped) — `Card.as_copy`'s own modifiers, threaded
+        #: through `RulesEngine.copy_permanent` rather than applied here, so
+        #: the token's bound abilities are derived from the *modified* card
+        #: from the start (`create_token` binds off whatever card it's given).
+        self.add_types = add_types
+        self.add_subtypes = add_subtypes
+        self.not_legendary = not_legendary
         # RULE 702.33b's *override* kicked-conditional ("Create a token
         # that's a copy of target creature. If this spell was kicked,
         # create five of those tokens instead." — Rite of Replication) —
@@ -8496,7 +8559,11 @@ class CopyPermanentEffect(GameEffect):
             event = context.trigger_event
             count = int((event or {}).get(self.count_from_trigger_event) or 0)
         if count > 0:
-            made = context.copy_permanent(controller_id, target, count)
+            made = context.copy_permanent(
+                controller_id, target, count,
+                add_types=self.add_types, add_subtypes=self.add_subtypes,
+                not_legendary=self.not_legendary,
+            )
             # RULE 608.2's "the tokens"/"it" referent for a following
             # clause — `create_token`'s own effect already does this; this
             # class just hadn't needed it until a delayed-sacrifice tail
@@ -12181,6 +12248,9 @@ EffectRegistry.register(
         count_if_kicked=p.get("count_if_kicked"),
         count_from_trigger_event=p.get("count_from_trigger_event"),
         haste=bool(p.get("haste", False)),
+        add_types=p.get("add_types"),
+        add_subtypes=p.get("add_subtypes"),
+        not_legendary=bool(p.get("not_legendary", False)),
     ),
 )
 EffectRegistry.register(
@@ -13012,6 +13082,43 @@ EffectRegistry.register(
     # `no_untap_optional`.
     "radiation_life_gain",
     lambda p: StaticAbility("radiation_life_gain", affects=p.get("affects", "you"), params={}),
+)
+EffectRegistry.register(
+    # "Players skip their untap steps." (RULE 502.3-adjacent, Stasis) — the
+    # last open member of the "players can't `<verb>`" family
+    # (`docs/implementation-state/BACKLOG.md`'s MEC-12 entry; untap's own
+    # *capped* sibling already shipped as `"untap_cap"`/`active_untap_caps`).
+    # Unlike a cap, this is unconditional and total: every player's whole
+    # untap step does nothing, themselves included, which is why it's
+    # unscoped by ``affects`` (there is no printed "you"-only phrasing of
+    # this clause) — consulted by `continuous.all_untap_steps_skipped`
+    # (`GameEngine._step_untap`).
+    "skip_untap_step",
+    lambda p: StaticAbility("skip_untap_step", affects="each_player", params={}),
+)
+EffectRegistry.register(
+    # "Players can't cast spells from graveyards or libraries." (RULE
+    # 601.3a-adjacent, Grafdigger's Cage/Weathered Runestone) — a flat,
+    # unscoped prohibition over every standing graveyard/library-cast
+    # *permission* this engine has (`continuous.
+    # graveyard_library_cast_prohibited`, `GameEngine.can_cast`'s single
+    # choke point for Flashback/Escape/Jump-start, a Lurrus-shaped grant,
+    # and `game/top_library.py`'s play/cast-from-the-top permission alike).
+    "graveyard_library_cast_prohibition",
+    lambda p: StaticAbility("graveyard_library_cast_prohibition", affects="each_player", params={}),
+)
+EffectRegistry.register(
+    # "`<type>` cards in graveyards and libraries can't enter the
+    # battlefield." (Grafdigger's Cage's "creature", Weathered Runestone's
+    # "nonland permanent") — checked at the two real reanimation/tutor-to-
+    # battlefield choke points (`continuous.graveyard_library_entry_
+    # prohibited`; see its own docstring for why this isn't a universal
+    # `add_to_battlefield` hook).
+    "graveyard_library_entry_prohibition",
+    lambda p: StaticAbility(
+        "graveyard_library_entry_prohibition", affects="each_player",
+        params={"card_type": p.get("card_type", "creature")},
+    ),
 )
 EffectRegistry.register(
     # "Creatures entering don't cause abilities to trigger." (RULE 603,

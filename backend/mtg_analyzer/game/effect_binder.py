@@ -123,6 +123,10 @@ def build_replacements(
 #: you control) — instead; see the firing sites in `game/game_engine.py`.
 _GROUP_CONTROLLER_EVENT_KEYS: dict[str, str] = {
     "ATTACKS": "player_id",
+    # RULE 702.19b's "whenever you exert a creature, …" (Ahn-Crop
+    # Champion-cycle payoffs) — `GameEngine.declare_attackers` fires this
+    # per-exert, same ``player_id`` convention as `ATTACKS` above.
+    "EXERTED": "player_id",
     # RULE 506.5's "whenever a Samurai or Warrior you control attacks alone"
     # — same payload shape as `ATTACKS`, just fired once per combat rather
     # than once per attacker (`GameEngine._fire_attacks_alone_event`).

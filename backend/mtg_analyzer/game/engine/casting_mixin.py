@@ -303,6 +303,16 @@ class CastingMixin:
         )
         if not in_castable_zone:
             return False
+        # RULE 601.3a: "Players can't cast spells from graveyards or
+        # libraries." (Grafdigger's Cage/Weathered Runestone) — checked
+        # once here rather than duplicated into every graveyard/library
+        # permission source above (Flashback/Escape, a Lurrus-shaped grant,
+        # the top-of-library permission); hand/command/exile castability is
+        # unaffected.
+        if obj.zone in (Zone.GRAVEYARD, Zone.LIBRARY) and continuous.graveyard_library_cast_prohibited(
+            self.state
+        ):
+            return False
         card = self._face_card(obj, face)
         if card is None or card.is_land:
             return False
@@ -1351,6 +1361,10 @@ class CastingMixin:
             player, cost.exile_hand_card_color, exclude=obj
         ) is None:
             return False
+        if cost.tap_others:
+            count, subtype = cost.tap_others
+            if self._resolve_tap_others(player, obj, count, subtype, None) is None:
+                return False
         return True
     def _pay_alt_cast_cost(
         self, player: Player, obj: GameObject, cost: Optional["ActivationCost"]
@@ -1389,6 +1403,10 @@ class CastingMixin:
             victim = self._exile_hand_card_candidate(player, cost.exile_hand_card_color, exclude=obj)
             if victim is not None:
                 self.rules.exile(victim)
+        if cost.tap_others:
+            count, subtype = cost.tap_others
+            for tapped in self._resolve_tap_others(player, obj, count, subtype, None) or []:
+                self.rules.set_tapped(tapped, True)
     def _sacrifice_filter_candidate(
         self, player: Player, filt: dict, exclude: Optional[GameObject] = None
     ) -> Optional[GameObject]:
@@ -1412,11 +1430,20 @@ class CastingMixin:
         sibling of `_return_to_hand_candidate`'s singular form, auto-picking
         the first ``count`` matches the same non-interactive way every other
         alt-cast payment here does. ``None`` (not payable) if fewer than
-        ``count`` are eligible.
+        ``count`` are eligible. ``subtype="basic land"`` (the Borderpost
+        cycle's own alt-cast cost) is RULE 205.4a's *supertype* qualifier,
+        not a real subtype at all, so it's matched by ``is_land`` plus the
+        printed "Basic" word rather than `continuous.has_subtype`.
         """
-        pool = [
-            o for o in self.state.permanents_controlled_by(player.id) if continuous.has_subtype(o, subtype)
-        ]
+        if subtype == "basic land":
+            pool = [
+                o for o in self.state.permanents_controlled_by(player.id)
+                if o.card.is_land and "basic" in o.card.type_line.lower()
+            ]
+        else:
+            pool = [
+                o for o in self.state.permanents_controlled_by(player.id) if continuous.has_subtype(o, subtype)
+            ]
         return pool[:count] if len(pool) >= count else None
     def _pay_escape_graveyard_cost(self, player: Player, count: int) -> None:
         """RULE 702.138b: exile ``count`` other cards from ``player``'s

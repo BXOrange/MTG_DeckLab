@@ -415,6 +415,18 @@ class GameState:
         #: lockstep with `temp_play_permissions` at cleanup.
         self.temp_play_permission_player: dict[int, str] = {}
 
+        #: Which `temp_play_permissions` entries carry the *shorter*,
+        #: flat "until end of turn" window (Ragavan, Nimble Pilferer/
+        #: Mnemonic Betrayal's own printed text) rather than the family's
+        #: default "until the end of your next turn" (Light Up the Stage) —
+        #: `GameEngine._step_cleanup` needs this to sweep the two windows
+        #: differently (see its own comment): a same-turn-only entry is
+        #: gone at the very next cleanup regardless of whose turn that is;
+        #: the default one waits specifically for `temp_play_permission_
+        #: player`'s own next turn to end. Pruned in lockstep with
+        #: `temp_play_permissions`.
+        self.temp_play_permission_same_turn_only: set[int] = set()
+
         #: RULE 605.1a "you may spend mana as though it were mana of any
         #: color/type" (Mnemonic Betrayal-shaped), scoped to *casting one
         #: specific exiled card* — ``instance_id -> "color" | "type"``,
@@ -583,6 +595,14 @@ class GameState:
         #: new active player in `GameEngine.begin_turn`, incremented off the
         #: `SPELL_CAST` event by `RulesEngine._track_spell_cast`.
         self.spells_cast_this_turn: dict[str, int] = {p.id: 0 for p in players}
+        #: How many combat phases this turn has had (RULE 603.4's "if it's
+        #: the first combat phase of the turn" intervening-if — Karlach,
+        #: Fury of Avernus/Finest Hour/Genji Glove-shaped extra-combat
+        #: guards). Incremented once per ``begin_combat`` step
+        #: (`GameEngine._run_step`, game-wide, not per-player — combat has
+        #: one shared count regardless of whose turn it is), reset in
+        #: `GameEngine.begin_turn`.
+        self.combats_this_turn: int = 0
         #: "When you next cast an instant or sorcery spell with mana value
         #: N or less this turn, `<effect>`." (Dual Strike-shaped) — a
         #: one-shot watch for the *next* qualifying `SPELL_CAST` this turn,

@@ -74,7 +74,7 @@ def cast_action_for(eng, player, obj):
 def test_up_to_one_target_is_recognized_for_destroy_exile_tap_damage():
     cases = {
         "destroy up to one target creature": ("destroy", "creature"),
-        "exile up to one target artifact": ("exile", "permanent"),
+        "exile up to one target artifact": ("exile", "artifact"),
         "tap up to one target creature": ("tap", "creature"),
         "deals 3 damage to up to one target creature": ("damage", "creature"),
     }

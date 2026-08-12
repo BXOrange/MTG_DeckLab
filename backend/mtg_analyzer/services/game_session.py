@@ -609,6 +609,17 @@ class GameSession:
         if action["type"] in ("advance_to_decision", "next_decision"):
             if actor is not self.engine.state.active_player:
                 raise GameActionError("only the active player can advance the turn")
+            if self.interactive_priority:
+                # RULE 117.4, same refusal `_dispatch` gives a plain
+                # `advance_step` in a shared game (below) — a step doesn't
+                # end because someone decided it should, so this fast-
+                # forward can't be allowed to silently walk through steps
+                # via `engine.advance_step()` either, bypassing every other
+                # player's chance to respond. The frontend already hides
+                # the "Nächste Entscheidung" button once priority is
+                # interactive; this is the same not-just-client-side-hidden
+                # guard `_dispatch` itself insists on for every other action.
+                raise GameActionError("pass priority instead — the step ends when everyone passes")
             return self._apply_advance_to_decision()
         label = self._describe(action)
         self._snapshot(label, actor.id)

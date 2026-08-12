@@ -26,6 +26,16 @@ def make_engine():
     )
 
 
+def make_two_player_engine():
+    return GameEngine.new_game(
+        [
+            ("p1", "Alice", [_card("Filler", "Instant", is_instant=True)]),
+            ("p2", "Bob", [_card("Filler2", "Instant", is_instant=True)]),
+        ],
+        starting_life=20, starting_hand=0,
+    )
+
+
 def _stock_library(p1, cards):
     p1.library.clear()
     for card in cards:
@@ -143,6 +153,41 @@ def test_permission_lapses_after_the_next_turns_cleanup():
     eng.state.current_step = "main1"
     p1.mana_pool.add("R", 1)
     assert eng.can_cast(p1, bolt) is False
+
+
+def test_permission_survives_the_opponents_intervening_turn():
+    # RULE 500.1: turn_number increments on *every* player's turn, so in a
+    # 2-player game the cleanup immediately following the granting one is
+    # the opponent's, not the granting player's own "next turn" — the
+    # permission must still be alive after it (a bug once made this the
+    # window's premature end, a full turn early and on the wrong player's
+    # clock; see `GameEngine._step_cleanup`'s own comment).
+    eng = make_two_player_engine()
+    eng.begin_turn()
+    p1 = eng.state.active_player
+    assert p1.id == "p1"
+    _stock_library(p1, [_card("Bolt", "Instant", mana_cost_string="{R}",
+                               converted_mana_cost=1, is_instant=True)])
+    [bolt] = eng.rules.exile_with_play_permission(p1, 1)
+
+    eng.state.current_step = "cleanup"
+    eng._step_cleanup()  # end of p1's own granting turn: still valid
+    assert bolt.instance_id in eng.state.temp_play_permissions
+
+    eng.begin_turn()  # p2's (the opponent's) turn
+    assert eng.state.active_player.id == "p2"
+    eng.state.current_step = "cleanup"
+    eng._step_cleanup()  # end of the *opponent's* turn: not p1's next turn yet
+    assert bolt.instance_id in eng.state.temp_play_permissions
+
+    eng.begin_turn()  # p1's own next turn
+    assert eng.state.active_player.id == "p1"
+    p1.mana_pool.add("R", 1)
+    assert eng.can_cast(p1, bolt) is True
+
+    eng.state.current_step = "cleanup"
+    eng._step_cleanup()  # end of p1's own next turn: permission lapses here
+    assert bolt.instance_id not in eng.state.temp_play_permissions
 
 
 # ---------------------------------------------------------------------------

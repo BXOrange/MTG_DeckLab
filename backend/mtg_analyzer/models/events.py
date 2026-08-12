@@ -337,6 +337,15 @@ class EventType:
     #: so RULE 603.1's self/group subject scoping works unchanged.
     ATTACKS_ALONE = "ATTACKS_ALONE"
 
+    #: RULE 702.19b: a permanent with exert is actually exerted (its
+    #: controller chose to, declaring it as an attacker). Carries the same
+    #: ``instance_id``/``player_id``/``object_types`` payload as `ATTACKS`,
+    #: so both a self-scoped "when you do" trigger and a group-scoped
+    #: "whenever you exert a creature" one read it the same way every other
+    #: RULE 603.1 subject-scoped event does. Fired by `GameEngine.
+    #: declare_attackers`, after `ATTACKS`.
+    EXERTED = "EXERTED"
+
     # Win/loss (RULE 104, RULE 704).
     PLAYER_WOULD_LOSE = "PLAYER_WOULD_LOSE"
     PLAYER_LOST = "PLAYER_LOST"

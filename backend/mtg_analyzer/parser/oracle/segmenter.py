@@ -448,6 +448,40 @@ _SACRIFICE_TYPE_TRIGGER_RE = re.compile(
     re.IGNORECASE | re.S,
 )
 
+#: RULE 702.19a's own declare-attackers-time choice, spelled out in full
+#: (Scryfall still tags these ``keywords: ['Exert']`` even though there's
+#: no bare reminder-text keyword line to match — `combat.has(obj, "exert")`
+#: already reads that list, so this only needs to claim the sentence for
+#: `MODELED` coverage). An optional leading "If ~ hasn't been exerted this
+#: turn, " guard (Combat Celebrant's own self-loop guard, printed only on
+#: that one card in the cache) is swallowed rather than parsed into a
+#: condition — narrow enough to hand-author instead of building a general
+#: "once per turn" trigger-condition primitive for a single card.
+_EXERT_TRIGGER_RE = re.compile(
+    r"^(?:if ~ hasn'?t been exerted this turn,\s*)?"
+    r"you may exert (?:~|it) as (?:it|he|she) attacks\.\s*when you do,\s*(?P<body>.+)$",
+    re.IGNORECASE | re.S,
+)
+
+#: The bare rider with no "when you do" bonus (Rakdos Cackler-shaped) —
+#: `combat.has`/`declare_attackers` already give it real behaviour off the
+#: Scryfall keyword alone, so this is a pure `keyword_line` claim, the same
+#: "covered, contributes no spec" idiom every other bare keyword sentence
+#: uses.
+_EXERT_BARE_RE = re.compile(
+    r"^you may exert ~ as (?:it|he|she) attacks\.$", re.IGNORECASE,
+)
+
+#: RULE 603.1's "whenever you exert a creature, `<effect>`." (Rafiq of the
+#: Many-adjacent payoffs, e.g. Long-Term Plans-cycle rewards) — a
+#: player-subject trigger like `_SACRIFICE_TYPE_TRIGGER_RE`, just with no
+#: type filter (any creature the ability's controller exerts, including
+#: itself) since `EventType.EXERTED`'s own ``player_id`` is already scoped
+#: to *who* exerted, not *what*.
+_EXERT_PLAYER_TRIGGER_RE = re.compile(
+    r"^whenever you exert a creature,\s*(?P<body>.+)$", re.IGNORECASE | re.S,
+)
+
 
 def _parse_cast_spell_types(text: str) -> Optional[list[str]]:
     """``text`` (e.g. "instant or sorcery", "creature, artifact, or
@@ -840,6 +874,18 @@ _COLORS_AMONG_PERMANENTS_MANA_RE = re.compile(
     re.IGNORECASE,
 )
 
+#: "Choose a color. Add an amount of mana of that color equal to your
+#: devotion to that color." (Nykthos, Shrine to Nyx) — same "doesn't start
+#: with 'add'" gap `_COLORS_AMONG_PERMANENTS_MANA_RE` closes, this time for
+#: `game/mana_abilities.py`'s ``"devotion_to_chosen_color"`` kind; mirrors
+#: `mana_abilities.py`'s own `_DEVOTION_CHOSEN_COLOR_ADD_RE` (front-end
+#: can't import `game/`, so the shape is duplicated, not shared).
+_DEVOTION_CHOSEN_COLOR_MANA_RE = re.compile(
+    r"^choose a colou?r\. add an amount of mana of that colou?r equal to "
+    r"your devotion to that colou?r\.?$",
+    re.IGNORECASE,
+)
+
 #: "You may look at the top card of your library any time." (Elsha of the
 #: Infinite/Bolas's Citadel) — purely informational, no separate game-state
 #: effect at this engine's fidelity: the *actual* play/cast-from-top
@@ -919,6 +965,18 @@ _LIFE_GAINED_THIS_TURN_CONDITION_RE = re.compile(
     r"^if you gained (?P<n>\d+) or more life this turn,\s*(?P<rest>.+?)"
     r"(?P<trailing>\.\s+then\s+if\s+.+)?$",
     re.IGNORECASE,
+)
+
+#: RULE 603.4's own textbook example — "if it's the first combat phase of
+#: the turn, `<effect>`." (Karlach, Fury of Avernus/Finest Hour/Genji
+#: Glove/Raiyuu-shaped — every one of them an extra-combat-granting
+#: trigger guarding against re-triggering itself in the extra phase it just
+#: made, the same self-loop `not_already_exerted` guards for Exert) — same
+#: "wrap the rest, tag the condition" idiom as `_KICKED_CONDITION_RE`, onto
+#: `effects.ConditionalEffect`'s new ``"is_first_combat_phase"`` key
+#: (`GameState.combats_this_turn`).
+_FIRST_COMBAT_PHASE_CONDITION_RE = re.compile(
+    r"^if it'?s the first combat phase of the turn,\s*(?P<rest>.+)$", re.IGNORECASE,
 )
 
 #: RULE 701.52a's Ring-bearer intervening-if, two printed shapes (Tales of
@@ -1215,6 +1273,49 @@ _ALT_COST_PAY_LIFE_IF_CONTROL_LAND_RE = re.compile(
 #: than silently dropping the gate.
 _ALT_COST_PAY_MANA_RE = re.compile(
     r"^you may pay (?P<mana>(?:\{[^{}]+\})+) rather than pay this spell'?s mana cost\.?\s*$",
+    re.IGNORECASE,
+)
+
+#: Snuff Out's own sibling shapes (MEC-12's "broader gaps" — the compound
+#: "board condition gates a non-mana alt_cost" family, same ``condition``
+#: key `_ALT_COST_PAY_LIFE_IF_CONTROL_LAND_RE` already carries, just paired
+#: with ``sacrifice``/``tap_others`` instead of ``pay_life``). "If you
+#: control a `<land type>`, you may sacrifice a creature rather than pay
+#: this spell's mana cost." (Dark Triumph).
+_ALT_COST_SACRIFICE_IF_CONTROL_LAND_RE = re.compile(
+    r"^if you control an? (?P<land>[a-z]+), you may sacrifice an? (?P<what>[a-z]+) "
+    r"rather than pay this spell'?s mana cost\.?\s*$",
+    re.IGNORECASE,
+)
+#: "If you control a `<land type>`, you may tap an untapped creature you
+#: control rather than pay this spell's mana cost." (Angelic Favor) —
+#: `AbilitySpec.alt_cost`'s ``tap_others`` key (RULE 602.1's "Tap N
+#: untapped `<type>`s you control", reused verbatim from the ordinary-cost
+#: field — `GameEngine._tap_others_pool` now also matches a bare main type
+#: like "creature", not just a subtype).
+_ALT_COST_TAP_CREATURE_IF_CONTROL_LAND_RE = re.compile(
+    r"^if you control an? (?P<land>[a-z]+), you may tap an? untapped creature you control "
+    r"rather than pay this spell'?s mana cost\.?\s*$",
+    re.IGNORECASE,
+)
+#: "You may pay `<cost>` and return a basic land you control to its owner's
+#: hand rather than pay this spell's mana cost." (the Borderpost cycle) —
+#: ``mana``+``return_to_hand_count`` combined in one `alt_cost` dict; both
+#: keys are independently checked/paid already (`_can_pay_alt_cast_cost`/
+#: `_pay_alt_cast_cost`), so no new payment logic, just the new
+#: ``"basic land"`` qualifier `_return_to_hand_count_candidates` reads.
+_ALT_COST_PAY_MANA_AND_RETURN_BASIC_LAND_RE = re.compile(
+    r"^you may pay (?P<mana>(?:\{[^{}]+\})+) and return a basic land you control "
+    r"to its owner'?s hand rather than pay this spell'?s mana cost\.?\s*$",
+    re.IGNORECASE,
+)
+#: "You may sacrifice `<N>` `<land type>`s rather than pay this spell's
+#: mana cost." (the Odyssey/Judgment "Mountain-cycle"-shaped family) —
+#: `AbilitySpec.alt_cost`'s ``sacrifice_count`` key, the count-generalized
+#: sibling of the already-shipped singular ``sacrifice``.
+_ALT_COST_SACRIFICE_COUNT_RE = re.compile(
+    r"^you may sacrifice (?P<n>\d+) (?P<subtype>[a-z]+)s "
+    r"rather than pay this spell'?s mana cost\.?\s*$",
     re.IGNORECASE,
 )
 
@@ -1563,6 +1664,19 @@ def parse_effect_body(
                 e.type, dict(e.params),
                 condition={"controls_none_of_type": controls_none.group("type").lower()},
             )
+            for e in inner
+        ]
+
+    first_combat_phase = _FIRST_COMBAT_PHASE_CONDITION_RE.match(body)
+    if first_combat_phase is not None:
+        inner = parse_effect_body(
+            first_combat_phase.group("rest"), self_subject=self_subject,
+            previous_subject=previous_subject,
+        )
+        if inner is None:
+            return None
+        return [
+            EffectSpec(e.type, dict(e.params), condition={"is_first_combat_phase": True})
             for e in inner
         ]
 
@@ -1990,6 +2104,37 @@ def segment_line(
         )
         return Segment(raw=raw, spec=spec, claimed=True)
 
+    if _EXERT_BARE_RE.match(raw) is not None:
+        return Segment(raw=raw, claimed=True, keyword_line=True)
+
+    exert_trig = _EXERT_TRIGGER_RE.match(raw)
+    if exert_trig is not None:
+        effects = parse_effect_body(exert_trig.group("body"), self_subject=True)
+        if effects is None:
+            return Segment(raw=raw)
+        spec = AbilitySpec(
+            "triggered",
+            effects=effects,
+            trigger={"event": "EXERTED", "condition": {"subject": "self"}},
+            raw_text=raw,
+            parser=provenance,
+        )
+        return Segment(raw=raw, spec=spec, claimed=True)
+
+    exert_player_trig = _EXERT_PLAYER_TRIGGER_RE.match(raw)
+    if exert_player_trig is not None:
+        effects = parse_effect_body(exert_player_trig.group("body"))
+        if effects is None:
+            return Segment(raw=raw)
+        spec = AbilitySpec(
+            "triggered",
+            effects=effects,
+            trigger={"event": "EXERTED", "condition": {"subject": "you"}},
+            raw_text=raw,
+            parser=provenance,
+        )
+        return Segment(raw=raw, spec=spec, claimed=True)
+
     sacrifice_trig = _SACRIFICE_TYPE_TRIGGER_RE.match(raw)
     if sacrifice_trig is not None:
         effects = parse_effect_body(sacrifice_trig.group("body"), self_subject=True)
@@ -2171,6 +2316,145 @@ def segment_line(
         )
         return Segment(raw=raw, spec=spec, claimed=True)
 
+    # RULE 118.9 alternative costs — checked regardless of card type
+    # (unlike every other row `allow_spell_effect` gates below): a spell's
+    # mana cost doesn't care what it becomes once it resolves, so the
+    # Bringer cycle prints "You may pay <mana> rather than pay this
+    # spell's mana cost." on an ordinary creature spell exactly the same
+    # way Force of Will prints it on an instant. Widening `_is_spell`
+    # itself to include creatures was tried and reverted — it also gates
+    # unrelated bare-imperative rows below (Strive, free-cast conditions, …)
+    # that broke real creature static/replacement-clause tests when creature
+    # cards started reaching them, so only this alt_cost family is pulled
+    # out and made unconditional instead.
+    pitch = _ALT_COST_EXILE_HAND_COLOR_RE.match(raw)
+    if pitch is not None:
+        color = resolve_color_word(pitch.group("color"))
+        if color is None:
+            return Segment(raw=raw)  # unrecognised colour word → unclaimed
+        spec = AbilitySpec(
+            "spell_effect",
+            effects=[],
+            alt_cost={"exile_hand_card_color": color},
+            raw_text=raw,
+            parser=provenance,
+        )
+        return Segment(raw=raw, spec=spec, claimed=True)
+
+    sac_filter = _ALT_COST_SACRIFICE_NONTOKEN_COLOR_CREATURE_RE.match(raw)
+    if sac_filter is not None:
+        color = resolve_color_word(sac_filter.group("color"))
+        if color is None:
+            return Segment(raw=raw)  # unrecognised colour word → unclaimed
+        spec = AbilitySpec(
+            "spell_effect",
+            effects=[],
+            alt_cost={"sacrifice_filter": {"card_type": "creature", "color": color, "nontoken": True}},
+            raw_text=raw,
+            parser=provenance,
+        )
+        return Segment(raw=raw, spec=spec, claimed=True)
+
+    sac_type = _ALT_COST_SACRIFICE_TYPE_RE.match(raw)
+    if sac_type is not None:
+        spec = AbilitySpec(
+            "spell_effect",
+            effects=[],
+            alt_cost={"sacrifice": sac_type.group("what").lower()},
+            raw_text=raw,
+            parser=provenance,
+        )
+        return Segment(raw=raw, spec=spec, claimed=True)
+
+    ret_two = _ALT_COST_RETURN_TWO_RE.match(raw)
+    if ret_two is not None:
+        spec = AbilitySpec(
+            "spell_effect",
+            effects=[],
+            alt_cost={"return_to_hand_count": [2, ret_two.group("subtype").lower()]},
+            raw_text=raw,
+            parser=provenance,
+        )
+        return Segment(raw=raw, spec=spec, claimed=True)
+
+    pay_if = _ALT_COST_PAY_LIFE_IF_CONTROL_LAND_RE.match(raw)
+    if pay_if is not None:
+        spec = AbilitySpec(
+            "spell_effect",
+            effects=[],
+            alt_cost={
+                "pay_life": int(pay_if.group("n")),
+                "condition": {"control_land_type": pay_if.group("land").lower()},
+            },
+            raw_text=raw,
+            parser=provenance,
+        )
+        return Segment(raw=raw, spec=spec, claimed=True)
+
+    pay_mana = _ALT_COST_PAY_MANA_RE.match(raw)
+    if pay_mana is not None:
+        spec = AbilitySpec(
+            "spell_effect",
+            effects=[],
+            alt_cost={"mana": re.sub(r"\s+", "", pay_mana.group("mana"))},
+            raw_text=raw,
+            parser=provenance,
+        )
+        return Segment(raw=raw, spec=spec, claimed=True)
+
+    sac_if = _ALT_COST_SACRIFICE_IF_CONTROL_LAND_RE.match(raw)
+    if sac_if is not None:
+        spec = AbilitySpec(
+            "spell_effect",
+            effects=[],
+            alt_cost={
+                "sacrifice": sac_if.group("what").lower(),
+                "condition": {"control_land_type": sac_if.group("land").lower()},
+            },
+            raw_text=raw,
+            parser=provenance,
+        )
+        return Segment(raw=raw, spec=spec, claimed=True)
+
+    tap_if = _ALT_COST_TAP_CREATURE_IF_CONTROL_LAND_RE.match(raw)
+    if tap_if is not None:
+        spec = AbilitySpec(
+            "spell_effect",
+            effects=[],
+            alt_cost={
+                "tap_others": [1, "creature"],
+                "condition": {"control_land_type": tap_if.group("land").lower()},
+            },
+            raw_text=raw,
+            parser=provenance,
+        )
+        return Segment(raw=raw, spec=spec, claimed=True)
+
+    pay_and_return = _ALT_COST_PAY_MANA_AND_RETURN_BASIC_LAND_RE.match(raw)
+    if pay_and_return is not None:
+        spec = AbilitySpec(
+            "spell_effect",
+            effects=[],
+            alt_cost={
+                "mana": re.sub(r"\s+", "", pay_and_return.group("mana")),
+                "return_to_hand_count": [1, "basic land"],
+            },
+            raw_text=raw,
+            parser=provenance,
+        )
+        return Segment(raw=raw, spec=spec, claimed=True)
+
+    sac_count = _ALT_COST_SACRIFICE_COUNT_RE.match(raw)
+    if sac_count is not None:
+        spec = AbilitySpec(
+            "spell_effect",
+            effects=[],
+            alt_cost={"sacrifice_count": [int(sac_count.group("n")), sac_count.group("subtype").lower()]},
+            raw_text=raw,
+            parser=provenance,
+        )
+        return Segment(raw=raw, spec=spec, claimed=True)
+
     # RULE 601.2b/604.3 additional cost — instants/sorceries only, and
     # checked before every other wrapper since it has neither a trigger word
     # nor a colon (so it can't be mistaken for one of those shapes below).
@@ -2253,101 +2537,6 @@ def segment_line(
             )
             return Segment(raw=raw, spec=spec, claimed=True)
 
-        # RULE 118.9: "You may exile a <color> card from your hand rather
-        # than pay this spell's mana cost." (MEC-15's pitch-cost family,
-        # first oracle-text route) — same standalone-line treatment as
-        # every alt_cost/free_cast_condition row above.
-        pitch = _ALT_COST_EXILE_HAND_COLOR_RE.match(raw)
-        if pitch is not None:
-            color = resolve_color_word(pitch.group("color"))
-            if color is None:
-                return Segment(raw=raw)  # unrecognised colour word → unclaimed
-            spec = AbilitySpec(
-                "spell_effect",
-                effects=[],
-                alt_cost={"exile_hand_card_color": color},
-                raw_text=raw,
-                parser=provenance,
-            )
-            return Segment(raw=raw, spec=spec, claimed=True)
-
-        # RULE 118.9: "You may sacrifice a nontoken <color> creature rather
-        # than pay this spell's mana cost." (Flare of Denial) — tried before
-        # the plain sacrifice-a-type row below since it's a strict superset
-        # of that shape (a bare "sacrifice a <word>" wouldn't match "a
-        # nontoken <color> creature" anyway, but the explicit ordering keeps
-        # this file's own "most specific first" convention).
-        sac_filter = _ALT_COST_SACRIFICE_NONTOKEN_COLOR_CREATURE_RE.match(raw)
-        if sac_filter is not None:
-            color = resolve_color_word(sac_filter.group("color"))
-            if color is None:
-                return Segment(raw=raw)  # unrecognised colour word → unclaimed
-            spec = AbilitySpec(
-                "spell_effect",
-                effects=[],
-                alt_cost={"sacrifice_filter": {"card_type": "creature", "color": color, "nontoken": True}},
-                raw_text=raw,
-                parser=provenance,
-            )
-            return Segment(raw=raw, spec=spec, claimed=True)
-
-        # RULE 118.9: "You may sacrifice a <type> rather than pay this
-        # spell's mana cost." (Downhill Charge's "a Mountain").
-        sac_type = _ALT_COST_SACRIFICE_TYPE_RE.match(raw)
-        if sac_type is not None:
-            spec = AbilitySpec(
-                "spell_effect",
-                effects=[],
-                alt_cost={"sacrifice": sac_type.group("what").lower()},
-                raw_text=raw,
-                parser=provenance,
-            )
-            return Segment(raw=raw, spec=spec, claimed=True)
-
-        # RULE 118.9: "You may return two <Type>s you control to their
-        # owner's hand rather than pay this spell's mana cost." (Gush).
-        ret_two = _ALT_COST_RETURN_TWO_RE.match(raw)
-        if ret_two is not None:
-            spec = AbilitySpec(
-                "spell_effect",
-                effects=[],
-                alt_cost={"return_to_hand_count": [2, ret_two.group("subtype").lower()]},
-                raw_text=raw,
-                parser=provenance,
-            )
-            return Segment(raw=raw, spec=spec, claimed=True)
-
-        # RULE 118.9: "If you control a <land type>, you may pay <N> life
-        # rather than pay this spell's mana cost." (Snuff Out) — a
-        # board-state-conditioned pay-life, unlike the unconditional
-        # Phyrexian-mana-style ``pay_life`` MEC-15 already shipped.
-        pay_if = _ALT_COST_PAY_LIFE_IF_CONTROL_LAND_RE.match(raw)
-        if pay_if is not None:
-            spec = AbilitySpec(
-                "spell_effect",
-                effects=[],
-                alt_cost={
-                    "pay_life": int(pay_if.group("n")),
-                    "condition": {"control_land_type": pay_if.group("land").lower()},
-                },
-                raw_text=raw,
-                parser=provenance,
-            )
-            return Segment(raw=raw, spec=spec, claimed=True)
-
-        # RULE 118.9's plain "You may pay <mana> rather than pay this
-        # spell's mana cost." (the Bringer cycle-shaped unconditional form).
-        pay_mana = _ALT_COST_PAY_MANA_RE.match(raw)
-        if pay_mana is not None:
-            spec = AbilitySpec(
-                "spell_effect",
-                effects=[],
-                alt_cost={"mana": re.sub(r"\s+", "", pay_mana.group("mana"))},
-                raw_text=raw,
-                parser=provenance,
-            )
-            return Segment(raw=raw, spec=spec, claimed=True)
-
     # Saga chapter ability "i, ii — <effect>" (RULE 714.2d) — checked before
     # every other wrapper since it has neither a trigger word nor a colon.
     if is_saga:
@@ -2397,7 +2586,11 @@ def segment_line(
     act = _ACTIVATED_RE.match(raw)
     if act is not None and _COST_LOOKS_REAL.search(act.group("cost")):
         effect_text = act.group("effect").strip()
-        if _MANA_EFFECT_RE.match(effect_text) or _COLORS_AMONG_PERMANENTS_MANA_RE.match(effect_text):
+        if (
+            _MANA_EFFECT_RE.match(effect_text)
+            or _COLORS_AMONG_PERMANENTS_MANA_RE.match(effect_text)
+            or _DEVOTION_CHOSEN_COLOR_MANA_RE.match(effect_text)
+        ):
             # Mana ability — covered by the engine's mana model, no spec here.
             return Segment(raw=raw, claimed=True)
         cost_dict: dict[str, Any] = {"text": act.group("cost").strip()}

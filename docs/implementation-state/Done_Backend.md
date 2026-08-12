@@ -13956,3 +13956,176 @@ real risk of a `scryfall_client.py` parsing-logic improvement not
 reaching already-cached *values* (deliberately excluded from the schema
 hash, per that file's own comment) — a different, still-open risk that
 was never what DB-1 was describing.
+
+## MEC-12: the nine "broader gaps" batch (2026-08-12)
+
+Closed every item MEC-12's own "Broader gaps" section had accumulated
+(2026-08-11's fourth-through-tenth-pass sweeps), each real and shipped with
+execute tests, not just parse coverage:
+
+**Exert (RULE 702.19)** — a declare-attackers-time choice
+(`GameEngine.declare_attackers`'s new `exert` flag per attacker, decided in
+the same breath as the attack itself, no separate `pending_choice`) rather
+than a resolve-time prompt. `GameObject.skip_next_untap` is a genuinely new
+one-shot flag (consumed and cleared by the very next `_step_untap`),
+deliberately distinct from the sticky `skip_untap` toggle "may choose not
+to untap" already used. `combat.has(obj, "exert")` needed no catalogue
+change — Scryfall already tags these `keywords: ['Exert']` even with no
+bare reminder-text line — just `COMBAT_KEYWORDS` widened to include it.
+Oracle-text: `EventType.EXERTED`, a self-scoped "when you do" trigger and a
+player-scoped "whenever you exert a creature" one (`_GROUP_CONTROLLER_
+EVENT_KEYS["EXERTED"] = "player_id"`), plus a bare-keyword-only claim for
+the ~1/3 of exert creatures with no rider at all. Combat Celebrant is hand-
+authored: its own "if ~ hasn't been exerted this turn" guard is a real
+correctness requirement (without it, its own granted extra combat phase
+lets it exert, and grant, another extra combat forever), not a flavour
+nuance — `ConditionalEffect`'s new `not_already_exerted` key reads the
+firing `EXERTED` event's own pre-set `already_exerted` snapshot rather than
+the object's live flag (already true by the time the trigger resolves).
+`legal_actions`' attack offer gained `can_exert`. 21/36 exert cards MODELED
+(was 5); the untap-all-other-creatures gap this surfaced closed for free by
+widening `tap_selector`'s regex to accept "all other" alongside "each
+other". Files: `game/engine/combat_mixin.py`, `game/engine/turn_loop_mixin.py`,
+`game/combat.py`, `models/game_object.py`, `models/events.py`,
+`game/effect_binder.py`, `game/effects.py`, `parser/oracle/segmenter.py`,
+`parser/oracle/catalogue/handlers.py`, `game/ability_catalogue.py`.
+
+**Stasis's "players skip their untap steps"** — the last open member of
+the "players can't `<verb>`" family (untap's own *capped* sibling had
+already shipped as `active_untap_caps`/`"untap_cap"`). Unlike a cap this is
+unconditional and total — nothing about the step happens for *any* player,
+not even bookkeeping — so it gets `should_skip_step`'s "whole step
+skipped" treatment, not `has_no_untap_static`'s "just don't untap this
+one": a new `skip_untap_step` `StaticAbility` layer,
+`continuous.all_untap_steps_skipped`, checked once at the top of
+`GameEngine._step_untap` rather than per-permanent.
+
+**`devotion_to_hybrid`** (Blended Twistling) — any hybrid mana symbol
+counts once, regardless of which two colours it's between (unlike ordinary
+devotion, where a hybrid pip counts toward *both* colours); a mono-hybrid
+pip doesn't count at all (not a colour mix). `continuous.count_selector`'s
+`devotion_to_<colour>` family gained the reading; `subgrammars.DEVOTION`/
+`devotion_selector` gained the `hybrid` alternative. The card's own
+*permanent* self-anthem shape ("~ gets +X/+X, where X is …", no "until end
+of turn") needed a new `static_handlers.py` row too — the existing
+devotion-scaled handlers were all resolve-time `pump`, none of them a
+standing `anthem`.
+
+**Nykthos, Shrine to Nyx** — the one mana ability where the colour
+*choice* and the produced *amount* are coupled (every other
+`ManaAbility.color_selector` menu is either a fixed amount or a board-
+read amount with no choice involved). New `color_selector`s
+`"devotion_to_chosen_color"`: `resolve_options` builds a live 5-colour
+menu, each option's own amount being *that* colour's devotion — colours
+with 0 devotion are left off (a legal but pointless pick, same "produces
+nothing" shape every other board-dependent menu already gives). Needed its
+own segmenter claim too (`_DEVOTION_CHOSEN_COLOR_MANA_RE`) since "Choose a
+color. Add …" doesn't start with "add" the way `_MANA_EFFECT_RE`'s bare
+claim expects.
+
+**Alt-cost creature-spell gate (the Bringer cycle)** — widening `gate.py`'s
+`_is_spell` to include creatures was tried and reverted: `allow_spell_
+effect` also gates unrelated bare-imperative rows (Strive, free-cast
+conditions, …) that broke 88 real tests once creature cards started
+reaching them for the first time. The actual fix: the whole RULE 118.9
+alt_cost family (`pitch`/`sac_filter`/`sac_type`/`ret_two`/`pay_if`/
+`pay_mana`) was pulled out of the `allow_spell_effect` gate and made
+unconditional — a spell's mana cost doesn't care what it becomes once it
+resolves, so these six checks are safe on any card type. 4 of 5 Bringers
+now MODELED.
+
+**Snuff Out's alt-cost siblings** — a board condition paired with a *non-
+mana* payment (Dark Triumph's "if you control a Swamp, you may sacrifice a
+creature…", Angelic Favor's "…tap an untapped creature you control…"), a
+combined mana-plus-return-to-hand cost (the Borderpost cycle), and a
+counted sacrifice beyond "one". None needed new *payment* machinery —
+`_can_pay_alt_cast_cost`/`_pay_alt_cast_cost` already read `mana`/
+`sacrifice`/`sacrifice_count`/`return_to_hand_count` independently, so
+pairing two in one `alt_cost` dict just worked. The one real gap was
+`tap_others` (RULE 602.1's "tap N untapped `<type>`s", previously paid
+only on an *activated* ability's own cost, never an alt-cast one) — wired
+into both payment methods, plus `_tap_others_pool` matching a bare main
+type ("creature") via the new `continuous.has_card_type` public wrapper,
+not just a real subtype. `_return_to_hand_count_candidates` gained a
+`"basic land"` qualifier (RULE 205.4a's supertype, not a subtype at all).
+
+**Grafdigger's Cage / Weathered Runestone** — the pair the ticket itself
+flagged as "a real multi-site unification, not a regex". The cast half is
+one choke point: `GameEngine.can_cast` now checks `continuous.graveyard_
+library_cast_prohibited` once, for any object sitting in a graveyard or
+library, covering Flashback/Escape, a Lurrus-shaped grant, and the
+top-of-library permission alike without touching any of them. The entry
+half is deliberately *not* a universal `GameState.add_to_battlefield`
+hook — there's no single site every graveyard/library-to-battlefield route
+already funnels through — so `continuous.graveyard_library_entry_
+prohibited` is checked at the two real ones instead:
+`ReturnFromGraveyardEffect._apply_one` (reanimation) and
+`RulesEngine._finish_search`'s battlefield-destination branch (a tutor). A
+prohibited card simply stays in its zone's list (`_finish_search` had
+already popped it off; `obj.zone` still names where it came from, so
+putting it back is a plain re-add), matching the real card's own ruling. A
+rarer per-card reanimation route missing this check is a documented gap,
+not chased further.
+
+**Copy-except-also** — `Card.as_copy` (the one root primitive `copy_
+mechanics.become_copy`/`RulesEngine.copy_permanent`/the enters-as-a-copy
+replacement all funnel through) gained `not_legendary` (RULE 205.4a,
+strips both `is_legendary` and the printed "Legendary" word — Multiversal
+Recruitment/Impostor Syndrome/Hall of Mirrors-shaped, the single biggest
+real template in the family). `CopyPermanentEffect` had *none* of
+`add_types`/`add_subtypes`/`not_legendary` before this — only `EnterAsCopy
+Replacement` did — so it gained all three, threaded through `RulesEngine.
+copy_permanent`. New parser row: `create_token_permanent_not_legendary`.
+
+**General count-amount resolver** — 446 cards solo-blocked on "X is the
+number of `<noun phrase>` you control". The engine primitives already
+existed (`continuous.count_selector`'s `creatures_you_control`/
+`attacking_creatures_you_control`/`tapped_creatures_you_control`/
+`creatures_you_control_of_type_<x>`/`legendary_creatures_you_control`, …) —
+the gap was purely parser-side. Folded into the *same* `subgrammars.
+DEVOTION` fragment (not a sibling constant) rather than a parallel one, so
+every handler that already embeds `{DEVOTION}` — the target/group/negative
+pump family, damage-to-players, life-loss, the devotion-scaled token count
+— picks up the new reading for free, no per-handler change; one new
+embedding was added, the devotion/count-scaled sibling of `_pump_self_
+subject`'s fixed-int "it gets +N/+N" self-buff-on-attack row (Bag End
+Porter-shaped), which had none before. Deliberately narrow: only the
+plain noun phrases a `count_selector` entry already exists for (bare
+"creatures/permanents/artifacts/lands you control", "attacking creatures[
+you control]", "tapped creatures you control", a single creature-type
+word via `_singularize`'s trailing-"s" strip, and three two-word compounds
+— "legendary creatures"/"multicolored permanents"/"artifacts and/or
+enchantments"). A qualified phrase ("… with power 2 or less") stays
+unclaimed. Residual (599 cards still touch the template; most need a
+qualifier grammar or a different verb-family embedding): **MEC-27**.
+
+**Intervening-if (RULE 603.4)** — "if it's the first combat phase of the
+turn, `<effect>`." (Karlach, Fury of Avernus/Finest Hour/Genji Glove/
+Raiyuu-shaped — every one an extra-combat-granting trigger that must not
+re-trigger itself in the extra phase it just made, the same self-loop
+Exert's `not_already_exerted` guards). New `GameState.combats_this_turn`
+counter (incremented once per `begin_combat` step, game-wide not
+per-player, reset in `begin_turn`) backs a new `ConditionalEffect`
+condition key `is_first_combat_phase`, wired into `parse_effect_body` via
+the exact "wrap the rest, tag the condition" idiom every other
+intervening-if row already uses (`_KICKED_CONDITION_RE`/`_TARGET_IS_
+CONTROLLER_RE`/the Ring-bearer rows) — no new grammar shape, one more row
+in an existing family. Genji Glove itself surfaced a *separate*,
+pre-existing gap this batch didn't touch (filed as **ENG-29**): validated
+instead against a plain self-subject creature. Residual (mass "untap all
+attacking creatures" + "they" pronoun; "that creature" bound to a group-
+subject trigger condition rather than a target): **MEC-28**.
+
+Also surfaced, filed rather than fixed here: **PAR-18** (copy-except-also's
+own wider residual — 188 cards, mostly self-referential "it" copies and
+compound "except" clauses) and **PAR-19** (the alt-cost family's own wider
+tail — 81 cards, "discard a `<type>` card"/"exile N `<color>` cards"/
+"spend only mana produced by X" and other shapes Snuff Out's siblings
+didn't cover).
+
+Every shape above shipped with an execute test (build a real `GameEngine`,
+bind, exercise the effect, assert the board changed), not just a parse-
+coverage assertion — this repo's own standing lesson that parse-only
+verification has masked real runtime bugs before. Full backend suite green
+throughout (3804 passed at the end of the batch); `PARSER_VERSION` bumped
+once per parser-classification change, 74 → 83.
