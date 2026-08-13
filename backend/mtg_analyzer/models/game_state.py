@@ -427,6 +427,18 @@ class GameState:
         #: `temp_play_permissions`.
         self.temp_play_permission_same_turn_only: set[int] = set()
 
+        #: A *standing*, condition-gated exile cast permission — ``instance_
+        #: id -> (player_id, condition_dict)`` — distinct from every entry
+        #: above, which all expire by turn count. "You may cast this card
+        #: from exile as long as you control a Lukka planeswalker." (Lukka,
+        #: Coppercoat Outcast's own +1) never expires on its own; it simply
+        #: stops holding (and can start again) as `game/static_conditions.
+        #: condition_holds` re-answers it live, the same `control_count`
+        #: vocabulary a printed "as long as…" static already uses. Checked
+        #: by `GameEngine.can_cast` alongside `temp_play_permissions`; never
+        #: swept at cleanup since there's no turn window to expire.
+        self.exile_cast_condition: dict[int, tuple[str, dict]] = {}
+
         #: RULE 605.1a "you may spend mana as though it were mana of any
         #: color/type" (Mnemonic Betrayal-shaped), scoped to *casting one
         #: specific exiled card* — ``instance_id -> "color" | "type"``,
@@ -527,6 +539,16 @@ class GameState:
         #: additional_combat_phase`) before running the next step. Plain
         #: board state — deep-copies with `clone`.
         self.pending_extra_combats: list[bool] = []
+
+        #: RULE 500-adjacent "end the turn" (Day's Undoing/Time Stop-shaped
+        #: reminder text) — the same "an effect can't reach `GameEngine.
+        #: _turn_steps`/`_cursor` directly" shape as `pending_extra_combats`
+        #: just above, but the opposite direction: instead of *inserting* a
+        #: phase, `GameEngine.advance_step` drains this by fast-forwarding
+        #: the cursor past every remaining step of the current turn, so its
+        #: very next call rolls straight into the next turn's untap. Plain
+        #: board state — deep-copies with `clone`.
+        self.end_turn_requested: bool = False
 
         #: When True, the active player is asked to order their simultaneous
         #: triggered abilities (RULE 603.3b) via a `pending_choice` instead of
@@ -650,6 +672,13 @@ class GameState:
         #: too. Set by `RulesEngine._track_spell_cast` off the same
         #: `SPELL_CAST` event.
         self.cast_instant_or_sorcery_this_turn: dict[str, bool] = {p.id: False for p in players}
+        #: Colours each player has cast a spell of *this turn* ("if an
+        #: opponent has cast a blue or black spell this turn" — Veil of
+        #: Summer). Same "every player, reset each `begin_turn`" scope as
+        #: `cast_instant_or_sorcery_this_turn` just above (read for a
+        #: non-active player too), set by `RulesEngine._track_spell_cast`
+        #: off the same `SPELL_CAST` event.
+        self.spell_colors_cast_this_turn: dict[str, set[str]] = {p.id: set() for p in players}
         #: Mana actually produced (tapped/hand-exiled for) by each player
         #: *this turn*, per colour (WUBRGC) — the "genutztes Potenzial" half
         #: of `game/mana_potential.py`'s open/used split. Unlike

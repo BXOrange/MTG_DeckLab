@@ -1023,6 +1023,14 @@ class SearchMixin:
             )
         eligible = [obj for obj in peeled if card_query.matches(obj.card, criteria)]
         if not eligible:
+            if miss_destination == "library_bottom_random":
+                # "…put the rest on the bottom of your library in a random
+                # order." (Narset, Parter of Veils) — a *group* shuffle
+                # among just these cards, not each one independently
+                # bottomed in reveal order; `_bottom_remaining` already
+                # does exactly this for `dig_until`'s own rest destination.
+                self._bottom_remaining(player, [o.instance_id for o in peeled])
+                return
             for obj in peeled:
                 player.remove_from_zone(obj, Zone.EXILE)
                 self._put_searched_card(player, obj, miss_destination)
@@ -1063,7 +1071,16 @@ class SearchMixin:
             chosen_id = instance_id
 
         peeled_ids = set(choice["peeled"])
-        for obj in [o for o in list(player.exile) if o.instance_id in peeled_ids]:
+        exiled = [o for o in list(player.exile) if o.instance_id in peeled_ids]
+        if choice["miss_destination"] == "library_bottom_random":
+            miss_ids = [o.instance_id for o in exiled if o.instance_id != chosen_id]
+            if chosen_id is not None:
+                hit = next(o for o in exiled if o.instance_id == chosen_id)
+                player.remove_from_zone(hit, Zone.EXILE)
+                self._put_searched_card(player, hit, choice["hit_destination"])
+            self._bottom_remaining(player, miss_ids)
+            return
+        for obj in exiled:
             destination = choice["hit_destination"] if obj.instance_id == chosen_id else choice["miss_destination"]
             player.remove_from_zone(obj, Zone.EXILE)
             self._put_searched_card(player, obj, destination)
@@ -1773,6 +1790,16 @@ class SearchMixin:
         rest_ids = [o.instance_id for o in revealed if o is not matched]
         if rest_destination == "library_bottom_random":
             self._bottom_remaining(player, rest_ids)
+        elif rest_destination == "library_shuffled":
+            # "…shuffles all other cards revealed this way into their
+            # library." (Polymorph/Transmogrify-shaped) — genuinely
+            # shuffled anywhere, not just the bottom; putting them at the
+            # bottom (in random order among themselves, same as the
+            # ``library_bottom_random`` branch) and then reshuffling the
+            # whole library is observably identical to a real player (an
+            # unknown order either way).
+            self._bottom_remaining(player, rest_ids)
+            self.shuffle_library(player)
         return matched
     def _place_dig_hit(self, player: Player, obj: GameObject, destination: str) -> None:
         """Move a `dig_until` hit out of exile to its destination."""

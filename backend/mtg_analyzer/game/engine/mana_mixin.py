@@ -158,6 +158,15 @@ class ManaMixin:
             # color`) into the concrete ``monocolored_spell`` restriction
             # `_restriction_allows_cast` checks.
             restriction = {"kind": "monocolored_spell", "color": source.chosen_color}
+        multiplier = continuous.mana_production_multiplier_for(self.state, player)
+        if multiplier > 1:
+            # RULE 605.1: "If you tap a permanent for mana, it produces N
+            # times as much of that mana instead." (Nyxbloom Ancient) — a
+            # genuine tapped-for-mana-only scaling, not a plain "add more
+            # mana" rider, so it belongs here rather than folded into
+            # `ability.options` (which a `color_split`-driven "any
+            # combination" ability already resolved to a fixed total above).
+            produced = {color: amount * multiplier for color, amount in produced.items()}
         player.mana_pool.add_many(
             produced, restriction=restriction, source_kind=mana_source_kind_for(source)
         )

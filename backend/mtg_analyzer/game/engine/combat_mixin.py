@@ -425,7 +425,12 @@ class CombatMixin:
         # a player, so no blocker-sourced entry can reach this branch), then
         # fired once per (contributing controller, player hit) pair after
         # the loop.
-        player_hits: dict[tuple[Optional[str], Any], int] = {}
+        # ``subtypes`` per pair is the union of every contributing creature's
+        # own subtypes ("whenever one or more **Pirates** you control deal
+        # combat damage to a player" — Malcolm, Keen-Eyed Navigator) — an
+        # aggregate-condition characteristic alongside ``max_power``, not a
+        # per-hit one, same reasoning as the docstring above.
+        player_hits: dict[tuple[Optional[str], Any], dict[str, Any]] = {}
         for target, amount, source in assignments:
             # Protection prevents the damage from a source of the named quality
             # (RULE 702.16c; `rules.deal_damage` enforces this too, so no
@@ -446,14 +451,53 @@ class CombatMixin:
                 self.rules.gain_life(self.state.player_by_id(source.controller_id), amount)
             if not isinstance(target, GameObject):
                 key = (source.controller_id, target.id)
-                player_hits[key] = max(player_hits.get(key, 0), source.power or 0)
-        for (controller_id, target_id), max_power in player_hits.items():
+                entry = player_hits.setdefault(
+                    key, {"max_power": 0, "amount": 0, "subtypes": set(), "is_commander": False}
+                )
+                entry["max_power"] = max(entry["max_power"], source.power or 0)
+                # "…it deals **that much damage** to each other opponent."
+                # (Kediss, Emberclaw Familiar) — the actual combat damage
+                # total dealt to this opponent this step, distinct from
+                # ``max_power`` (a *threshold* `contributor_power_at_least`
+                # reads, not a summed amount — the two only coincide for
+                # the common single-unblocked-attacker case).
+                entry["amount"] += amount
+                # `GameObject.type_words` is *main* types only ("creature",
+                # "legendary permanent") — a tribal filter needs the actual
+                # subtype words after the em dash, honouring a layer-4
+                # subtype overwrite/add the same way `continuous._has_
+                # subtype` does (its own logic inlined here since that
+                # function tests one subtype at a time, not the whole set;
+                # RULE 702.73 Changeling is the one thing it handles that
+                # this aggregate doesn't — a vanishingly rare combination
+                # with a tribal aggregate payoff).
+                derived = getattr(source, "_derived_subtypes", None)
+                if derived is not None:
+                    entry["subtypes"].update(s.lower() for s in derived)
+                else:
+                    entry["subtypes"].update(
+                        s.lower() for s in (getattr(source, "_added_subtypes", None) or set())
+                    )
+                    entry["subtypes"].update(
+                        source.card.type_line.lower().partition("—")[2].split()
+                    )
+                # "whenever a **commander** you control deals combat damage
+                # to an opponent, …" (Kediss, Emberclaw Familiar) — same
+                # aggregate-characteristic reasoning as ``subtypes``: RULE
+                # 903's designation, read off whichever contributor(s) had
+                # it, since this event names none of them individually.
+                if getattr(source, "is_commander", False):
+                    entry["is_commander"] = True
+        for (controller_id, target_id), entry in player_hits.items():
             self.state.fire_event(
                 GameEvent(
                     EventType.CREATURES_DEALT_COMBAT_DAMAGE_TO_PLAYER,
                     player_id=controller_id,
                     target_id=target_id,
-                    max_power=max_power,
+                    max_power=entry["max_power"],
+                    amount=entry["amount"],
+                    subtypes=sorted(entry["subtypes"]),
+                    contributor_is_commander=entry["is_commander"],
                 )
             )
     def _resolve_combat_defender(self, spec: Optional[dict[str, Any]]) -> Optional[Any]:

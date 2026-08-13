@@ -156,7 +156,7 @@ class DrawDiscardMixin:
         # `cast_limit` gate. `draw(player, count>1)` calls this once per
         # card, so the cap is naturally enforced cumulatively across a
         # single "draw two cards" effect too.
-        draw_limit = continuous.max_draws_per_turn(self.state)
+        draw_limit = continuous.max_draws_per_turn(self.state, player)
         if draw_limit is not None and self.state.cards_drawn_this_turn.get(player.id, 0) >= draw_limit:
             return
         event = GameEvent(EventType.DRAW, player_id=player.id, count=1)

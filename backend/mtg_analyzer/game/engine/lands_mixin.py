@@ -25,7 +25,7 @@ from ...models.game_object import GameObject, Zone
 from ...models.game_state import GameState, StackItem
 from ...models.mana_cost import ManaCost
 from ...models.player import Player
-from .. import combat, condition_query, continuous, durations, face_down, variants
+from .. import combat, condition_query, continuous, durations, face_down, static_conditions, variants
 from ...models import game_format
 from ...models.game_format import GameFormat, get_format
 from ..costs import (
@@ -199,6 +199,19 @@ class LandsMixin:
             return False
         holder_id = self.state.temp_play_permission_player.get(obj.instance_id)
         return holder_id is None or holder_id == player.id
+    def _has_conditional_exile_permission(self, obj: GameObject, player: Player) -> bool:
+        """"You may cast this card from exile as long as `<condition>`."
+        (Lukka, Coppercoat Outcast) — `GameState.exile_cast_condition`'s
+        standing, never-turn-swept sibling of `_has_temp_play_permission`;
+        see that field's own docstring for why the two are kept apart.
+        """
+        entry = self.state.exile_cast_condition.get(obj.instance_id)
+        if entry is None:
+            return False
+        holder_id, condition = entry
+        if holder_id != player.id:
+            return False
+        return static_conditions.condition_holds(condition, self.state, obj, player.id)
     def _graveyard_cast_keyword(self, obj: GameObject) -> Optional[str]:
         """Which alt-cost-from-graveyard keyword ``obj`` carries — ``"flashback"``
         (RULE 702.34) or ``"escape"`` (RULE 702.138) — or ``None``. The two

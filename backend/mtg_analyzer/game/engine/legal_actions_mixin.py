@@ -315,8 +315,9 @@ class LegalActionsMixin:
             self_reduction, self_contributors = continuous.self_cost_reduction_for(obj, self.state)
             reduction += self_reduction
             contributors = contributors + self_contributors
+            floor = continuous.cost_floor_for(self.state, player, obj)
             tax = self.commander_tax(player, obj)
-            if (reduction or tax or graveyard_keyword) and cost.raw:
+            if (reduction or tax or graveyard_keyword or floor > cost.converted_mana_cost) and cost.raw:
                 action["base_cost"] = cost.raw
                 action["effective_cost"] = self.effective_cast_cost(player, obj).raw
                 if reduction:

@@ -1196,11 +1196,54 @@ keyword, a multi-source fight shape, and others), individually diagnosed
 rather than left bundled under one ticket. Full detail:
 `docs/implementation-state/Done_Backend.md`'s "ENG-30" entry.
 
+A **Kinnan/M-K completion batch** (2026-08-13) then finished two of
+MEC-12's seven cEDH decks outright — `cEDH Kinnan` (100/100) and `cEDH
+M-K` (97/97), 31 unique cards, all hand-authored (no parser handlers this
+round). Each card needed a genuinely new primitive or a real combination
+of existing ones: a destroy/exile-then-controller-digs-their-own-library
+effect (Polymorph/Transmogrify) built on `dig_until`'s new "actually
+reshuffle" rest destination; a forced (non-choice) retarget
+(`ChangeTargetEffect`'s new `redirect_to_source`, Spellskite/Hydroelectric
+Specimen); a still-on-the-stack bounce that pulls a spell out of
+`GameState.stack` directly (Sink into Stupor, Hullbreaker Horror);
+"hexproof"-shaped evasion checked against the *blocker's own*
+characteristics for the first time (Void Winnower's even-mana-value
+block restriction); a mana-production multiplier consulted straight from
+`GameEngine.tap_for_mana` (Nyxbloom Ancient); a cost *floor* kept
+structurally apart from the existing additive cost-reduction net
+(Trinisphere); gaining control of a spell still on the stack, not a
+permanent (Commandeer); a genuine "end the turn" (Day's Undoing,
+`GameState.end_turn_requested` drained by `GameEngine.advance_step` since
+an effect can't reach `_turn_steps`/`_cursor` directly); a standing,
+never-turn-swept exile cast permission (Lukka's +1, `GameState.
+exile_cast_condition`); the `EventType.CREATURES_DEALT_COMBAT_DAMAGE_TO_
+PLAYER` aggregate event (MEC-29) widened with real subtypes, an actual
+damage-dealt amount distinct from its existing power *threshold*, and a
+commander-designation flag (Kediss/Malcolm); RULE 700.2's missing "choose
+*up to* one" modal quantifier (Hullbreaker Horror); and an X-value
+sentinel read off `GameObject.x_paid` for a triggered ability firing well
+after its own casting resolution ended (Invasion of Ikoria) — which also
+confirmed `SearchLibraryEffect`'s existing `zones=["library",
+"graveyard"]` already fully supports "search library and/or graveyard"
+end-to-end (always shuffles when library is among them, RULE 701.19e),
+correcting this doc's own stale "needs a `request_search` extension"
+claim below. Two documented simplifications (Into the Flood Maw's Gift
+mechanic, Veil of Summer's qualified/player-level hexproof) were dropped
+as real standalone engine work disproportionate to one card each, and two
+`StaticAbility`-construction bugs (a missing `source=` silently no-opping
+an `affects="self"` grant; `EnterAsCopyReplacement`'s `ability_kind` must
+be `"enter_replacement"`, not `"static"`) were found and fixed along the
+way. Full detail, every primitive and every bug:
+`docs/implementation-state/Done_Backend.md`'s "MEC-12: Kinnan and M-K
+completed" entry.
+
 **Notable gaps** (see `docs/implementation-state/BACKLOG.md` for the full list with exact
 scope on each): a kicked spell's "if kicked, ... instead" *override* conditional (as opposed to the
-additional-effect shape already shipped); "search library and/or
-graveyard" (Doomsday/Finale of Devastation — needs a `request_search`
-engine extension, not just parsing); the *oracle coverage* of
+additional-effect shape already shipped); Doomsday's own "exile up to five
+cards in a pile" (a distinct, still-unbuilt mechanic — not the same gap
+as a plain "search your library and/or graveyard for a card" clause,
+which `SearchLibraryEffect`'s existing `zones` param already handles end
+to end, confirmed by the Kinnan/M-K batch above); the *oracle coverage* of
 the battle pool (the RULE 310 engine is done, but only 12 of the 39
 cached battles are MODELED — the other 27 are blocked on ordinary
 effect-body grammar, enumerated in

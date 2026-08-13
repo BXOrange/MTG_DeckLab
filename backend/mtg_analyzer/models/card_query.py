@@ -42,6 +42,19 @@ A criteria value is one of:
                       colour identity instead (Eye of Ugin's "a colorless
                       creature card") — the opposite check, since nothing is
                       ever "colorless" *in* an identity set.
+  ``has_mana_ability`` bool — the card's own printed oracle text reads like a
+                      mana ability ("an artifact card **with a mana
+                      ability**" — Moonsilver Key). A plain oracle-text
+                      heuristic (an "Add" mana symbol/wording present) rather
+                      than a real `game/mana_abilities.py` parse — this
+                      module deliberately imports nothing from `game/` (see
+                      the module docstring), and the heuristic already
+                      matches every real printed mana ability template.
+  ``or``              list[dict] — this whole criteria dict matches if *any*
+                      alternative in the list does ("an artifact card with a
+                      mana ability **or** a basic land card" — each
+                      alternative is itself a complete criteria dict, not
+                      merged with the outer one).
 """
 
 from __future__ import annotations
@@ -59,7 +72,7 @@ _ALLOWED_KEYS: frozenset[str] = frozenset(
     {
         "type", "basic", "max_mana_value", "min_mana_value",
         "max_power", "min_power", "max_toughness", "min_toughness",
-        "name", "not_name", "color",
+        "name", "not_name", "color", "without_type", "has_mana_ability", "or",
     }
 )
 
@@ -90,6 +103,13 @@ def matches(card: Card, criteria: Criteria) -> bool:
 
     if not _type_matches(type_line, crit.get("type")):
         return False
+    # "a **noncreature, nonland** card" (Narset, Parter of Veils) — the
+    # negated sibling of ``type`` above, one or more words that must all be
+    # *absent* from the type line (AND-combined with each other, same as
+    # every other key in this dict combining with the rest).
+    without_type = crit.get("without_type")
+    if without_type is not None and _type_matches(type_line, without_type):
+        return False
     if crit.get("basic") and "basic" not in type_line:
         return False
     if "max_mana_value" in crit and card.converted_mana_cost > crit["max_mana_value"]:
@@ -113,7 +133,19 @@ def matches(card: Card, criteria: Criteria) -> bool:
         return False
     if not _color_matches(card, crit.get("color")):
         return False
+    if crit.get("has_mana_ability") and not _has_mana_ability(card):
+        return False
+    alternatives = crit.get("or")
+    if alternatives is not None and not any(matches(card, alt) for alt in alternatives):
+        return False
     return True
+
+
+def _has_mana_ability(card: Card) -> bool:
+    """A plain oracle-text heuristic for "has a mana ability" — see
+    ``has_mana_ability``'s own docstring above."""
+    text = (card.oracle_text or "").lower()
+    return "add {" in text or "add one mana" in text or "add an amount of" in text
 
 
 def describe(criteria: Criteria) -> str:

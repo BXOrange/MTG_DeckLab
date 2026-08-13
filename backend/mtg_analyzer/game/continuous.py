@@ -829,6 +829,16 @@ def count_selector(
             1 for o in bf
             if o.is_creature and o.controller_id == controller_id and _has_subtype(o, creature_type)
         )
+    if selector.startswith("planeswalkers_you_control_of_type_"):
+        # "as long as you control a Lukka planeswalker" (Lukka, Coppercoat
+        # Outcast's own granted cast permission) — the planeswalker-subtype
+        # sibling of `creatures_you_control_of_type_` just above.
+        planeswalker_type = selector[len("planeswalkers_you_control_of_type_"):]
+        return sum(
+            1 for o in bf
+            if o.is_planeswalker and o.controller_id == controller_id
+            and _has_subtype(o, planeswalker_type)
+        )
     if selector == "foods_you_control":
         # "…for each Food you control." (Of Herbs and Stewed Rabbit's own
         # Saga chapter III) — same closed Food/Clue/Treasure named-token
@@ -2159,6 +2169,60 @@ def cost_reduction_for(
     return net, contributors
 
 
+def mana_production_multiplier_for(state: "GameState", player: "Player") -> int:
+    """"If you tap a permanent for mana, it produces N times as much of
+    that mana instead." (Nyxbloom Ancient/Mana Reflection/Zendikar
+    Resurgent-shaped) — scoped to the *tapping* player owning the
+    multiplying static (not to which permanent gets tapped, unlike every
+    other mana-ability param here), so it's its own standalone lookup
+    rather than folded into `mana_abilities_for`. Only `GameEngine.
+    tap_for_mana` consults this — a triggered/hand-zone/ritual mana source
+    was never *tapped*, so RULE 605.1's "tap a permanent for mana" wording
+    correctly leaves those alone. Multiple copies don't stack additively
+    (two Nyxbloom Ancients don't make mana ×6); the highest multiplier in
+    play wins, mirroring `cost_floor_for`'s same "take the max" reading of
+    several independent floor/multiplier effects.
+    """
+    multiplier = 1
+    for ability in _battlefield_static_abilities(state):
+        if ability.layer != "mana_multiplier":
+            continue
+        if getattr(ability.source, "controller_id", None) != player.id:
+            continue
+        multiplier = max(multiplier, int(ability.params.get("multiplier", 1) or 1))
+    return multiplier
+
+
+def cost_floor_for(state: "GameState", player: "Player", obj: Optional["GameObject"] = None) -> int:
+    """"Each spell that would cost less than N mana to cast costs N mana to
+    cast instead." (Trinisphere) — a floor, not a delta, so it's kept out of
+    `cost_reduction_for`'s additive net entirely: two floors of different
+    values take the higher one, not their sum, and each has its own
+    ``active_if`` gate (Trinisphere's own "as long as this artifact is
+    untapped"). Same ownership scoping (``"your_spells"``/``"opponents_
+    spells"``/unscoped ``"all_spells"``) as `cost_reduction_for`.
+    """
+    floor = 0
+    for ability in _battlefield_static_abilities(state):
+        if ability.layer != "cost":
+            continue
+        min_generic = ability.params.get("min_generic")
+        if not min_generic:
+            continue
+        source_controller = getattr(ability.source, "controller_id", None)
+        if ability.affects == "your_spells" and source_controller != player.id:
+            continue
+        if ability.affects == "opponents_spells" and source_controller == player.id:
+            continue
+        active_if = ability.params.get("active_if")
+        if active_if and not static_conditions.condition_holds(
+            active_if, state, ability.source, source_controller
+        ):
+            continue
+        floor = max(floor, int(min_generic))
+    return floor
+
+
 def self_cost_reduction_for(obj: "GameObject", state: "GameState") -> tuple[int, list[dict[str, Any]]]:
     """Net generic-mana reduction from a "cost" static printed on ``obj``
     itself (Delve/Affinity-shaped: "This spell costs {1} less to cast for
@@ -2459,18 +2523,28 @@ def granted_escape_for(state: "GameState", obj: "GameObject") -> Optional[dict[s
     return None
 
 
-def max_draws_per_turn(state: "GameState") -> Optional[int]:
+def max_draws_per_turn(state: "GameState", player: Optional["Player"] = None) -> Optional[int]:
     """The most restrictive "Each player can't draw more than N cards each
     turn." cap in play (RULE 121.5-adjacent — Spirit of the Labyrinth), or
     ``None`` if no such static applies. The draw-side mirror of
     `max_spells_per_turn`; `RulesEngine._single_draw` compares it against
     `GameState.cards_drawn_this_turn`.
+
+    ``player`` (the one about to draw) scopes an ``affects="opponents"``
+    static ("Each **opponent** can't draw more than one card each turn." —
+    Narset, Parter of Veils) to skip its own controller — unlike Spirit of
+    the Labyrinth's unqualified "each player", which stays global via the
+    default ``affects="all"`` and applies regardless of ``player``.
     """
-    limits = [
-        ab.params.get("max_per_turn")
-        for ab in _battlefield_static_abilities(state)
-        if ab.layer == "draw_limit" and ab.params.get("max_per_turn") is not None
-    ]
+    limits = []
+    for ab in _battlefield_static_abilities(state):
+        if ab.layer != "draw_limit" or ab.params.get("max_per_turn") is None:
+            continue
+        if ab.affects == "opponents" and player is not None:
+            controller_id = getattr(ab.source, "controller_id", None)
+            if player.id in (None, controller_id):
+                continue
+        limits.append(ab.params["max_per_turn"])
     return min(limits) if limits else None
 
 
@@ -2754,7 +2828,8 @@ _NON_RULE_613_LAYERS: frozenset[str] = frozenset(
      "cast_limit", "cast_prohibition", "draw_limit", "trigger_prohibition", "untap_cap",
      "extra_land_drop", "no_max_hand_size", "radiation_life_gain", "grant_escape",
      "combat_restriction", "goaded", "any_color_for_activation", "skip_untap_step",
-     "graveyard_library_cast_prohibition", "graveyard_library_entry_prohibition"}
+     "graveyard_library_cast_prohibition", "graveyard_library_entry_prohibition",
+     "mana_multiplier"}
 )
 
 

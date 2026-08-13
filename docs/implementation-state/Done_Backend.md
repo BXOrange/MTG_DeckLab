@@ -15039,3 +15039,256 @@ coverage 33.67%→33.7% (11,697→11,722/34,811, PARSER_VERSION 87→88,
 `--no-db` full rescan reconfirms the number independent of the coverage
 ledger) — `BACKLOG.md`, `CLAUDE.md` and `implementationStatusView.js` all
 synced.
+
+## MEC-12: Kinnan and M-K completed (2026-08-13)
+
+User request: finish `cEDH Kinnan` and `cEDH M-K` specifically, out of the
+seven-deck MEC-12 pool. **Both are now 100% covered** — Kinnan 100/100
+(was 81/100), M-K 97/97 (was 84/97) — closing 31 unique cards (one, Sink
+into Stupor, shared by both decks) entirely hand-authored, no parser
+handlers this batch. Every card needed either a genuinely new engine
+primitive or a real combination of existing ones; none were simple
+restatements. General primitives are listed once, with every card each
+one closed; per-card detail (exact `AbilitySpec`s, real oracle text,
+simplifications) is in `game/ability_catalogue.py` itself, not repeated
+here.
+
+**New general primitives** (each reusable by any future card of the same
+shape, not built card-specific):
+
+- `DestroyExileThenControllerRevealCreatureEffect` (Polymorph/
+  Transmogrify) — destroy-or-exile a target creature, then the *target's
+  own controller* (read before the RULE 400.7 zone change, the
+  `DestroyGainLifeToControllerEffect` idiom) digs their own library until
+  a creature card, onto the battlefield. `dig_until` gained a
+  `rest_destination="library_shuffled"` (an actual reshuffle, not just
+  "bottom in random order") to back it.
+- `ReturnToLibraryThenDigSharedTypeEffect` (Reality Scramble) — bottoms a
+  target permanent, then digs for a card sharing one of *that permanent's
+  own* printed main types (RULE 205), computed fresh at resolution so one
+  effect covers whatever gets targeted. New `permanent_you_control`
+  target kind (the mirror of the existing `permanent_you_dont_control`).
+- `RulesEngine.bounce_spell_or_permanent` + `ReturnToHandEffect`'s new
+  `spell_or_permanent` flag (Sink into Stupor) — a still-on-the-stack
+  target needs pulling out of `GameState.stack` directly (`return_to_
+  hand`'s ordinary zone removal has no idea the stack exists). New
+  `spell_or_nonland_permanent_you_dont_control`/`spell_you_dont_control`
+  target kinds (the latter for Hullbreaker Horror, below).
+- `ChangeTargetEffect`'s new `redirect_to_source` flag + `card_types`
+  filter (Spellskite, Hydroelectric Specimen) — not Misdirection's "pick
+  any legal alternative", but a *forced* redirect onto the effect's own
+  source: implemented by narrowing `legal_targets`'s own options down to
+  just the source, then falling through to the **same** mandatory-auto-
+  apply/optional-decline logic every other retarget already uses, rather
+  than a parallel no-choice path.
+- `even_mana_value` filter key (`combat.matches_object_filter` and
+  `continuous.cast_prohibited`) + a new `cant_block_self_filtered` combat-
+  restriction kind (Void Winnower) — every existing blocker-side
+  restriction kind filters the *attacker*; this is the first one that
+  filters the blocker's own characteristics instead.
+- `mana_multiplier` static + `continuous.mana_production_multiplier_for`,
+  consulted directly by `GameEngine.tap_for_mana` (Nyxbloom Ancient) — RULE
+  605's "tap a permanent for mana" scope deliberately excludes triggered/
+  hand-zone/ritual mana (unaffected, correctly).
+- `continuous.cost_floor_for` + `StaticAbility`'s new `min_generic` param
+  (Trinisphere) — a **floor**, kept structurally apart from the existing
+  additive `cost_reduction`/`increase` net (two floors take the max, not
+  the sum) — `_adjust_cost` applies it against the cost's real
+  `converted_mana_cost`, not the generic component alone (a first attempt
+  got Trinisphere's own reminder-text example wrong: `{1}{B}` under a
+  floor of 3 must become `{2}{B}`, not `{3}{B}`).
+- `GameContext.gain_control_of_spell`/`GainControlOfSpellEffect`
+  (Commandeer) — RULE 608.2m/111.5's owner/controller split applied to a
+  spell still on the stack: only `StackItem.controller_id` (mirrored onto
+  the object) moves, so a spell that resolves into a permanent enters
+  under the new controller for free. The optional retarget runs *before*
+  the control flip, so RULE 115.4a's "you"/"your" still reads against the
+  original caster.
+- `GameState.end_turn_requested` + `GameEngine.advance_step`'s drain
+  (Day's Undoing) — a `RulesEngine` effect can't reach `GameEngine.
+  _turn_steps`/`_cursor` directly (same reason `pending_extra_combats` is
+  queued rather than actioned), so `end_the_turn` exiles the stack and
+  queues the flag; `advance_step` runs the real `_step_cleanup()` (not a
+  re-derived copy of RULE 514.1/514.2) before fast-forwarding the cursor
+  into the next turn. New `EffectSpec.condition` key `is_your_turn`.
+- `GameState.exile_cast_condition` + `GameEngine.
+  _has_conditional_exile_permission` (Lukka's +1) — a **standing**,
+  never-turn-swept exile cast permission, unlike every existing "exile,
+  may cast later" grant (`temp_play_permissions`, all turn-windowed):
+  checked live via `static_conditions.condition_holds` every time, so it
+  can start holding again later too. New `planeswalkers_you_control_of_
+  type_<x>` count selector backs its `control_count` condition.
+  `ExileTopThenGrantConditionalCastEffect` is the "exile top N, tag each
+  creature card with the grant" half.
+- `ExileThenControllerRevealGreaterManaValueEffect` (Lukka's −2) —
+  `DestroyExileThenControllerRevealCreatureEffect`'s dynamic-criteria
+  sibling: the mana-value floor is the *exiled target's own*, read at
+  resolution, not a fixed threshold.
+- `EachCreatureYouControlDamageEachOpponentEffect` (Lukka's −7) — a
+  double mass effect (every creature × every opponent) with no existing
+  `DealDamageEffect` selector shaped for two independent mass groups at
+  once.
+- `EventType.CREATURES_DEALT_COMBAT_DAMAGE_TO_PLAYER` (MEC-29's own
+  aggregate event) gained `subtypes` (the union of every contributing
+  creature's real subtypes — `GameObject.type_words` is main types only,
+  so the aggregation re-derives subtypes honouring layer-4 overwrites the
+  same way `continuous._has_subtype` does) and `contributor_is_commander`
+  fields, plus an `amount` field distinct from the pre-existing
+  `max_power` (a *threshold* field, not the actual damage total — the two
+  only coincide for a single unblocked attacker). New top-level trigger
+  keys `contributor_subtype` (Malcolm, Keen-Eyed Navigator — a documented
+  simplification to *combat* damage only, narrower than the card's fully
+  general "deals damage") and `contributor_is_commander` (Kediss,
+  Emberclaw Familiar) read these directly, the same "no single acting
+  object to check a live filter against" reasoning `contributor_power_at_
+  least` already established — a `_build_group_ok` condition key was
+  tried first and is wrong for this event shape (see "Bugs found" below).
+  New `each_other_opponent` `DealDamageEffect` selector (`each_opponent`
+  minus whichever opponent the firing event already hit).
+- `"DISCARD"` added to `effect_binder._GROUP_CONTROLLER_EVENT_KEYS`
+  (Glint-Horn Buccaneer's "whenever you discard a card") — a plain
+  missing table row, the same `{"subject": "you"}` shape "whenever you
+  scry/gain life/draw a card" already use. Its "activate only if
+  attacking" cost needed no new primitive at all: `ActivationCost.
+  activation_condition` already routes through the *full*
+  `static_conditions` vocabulary, which already had `source_attacking` —
+  ENG-30's own leftover-list note that this needed new work was simply
+  wrong (a routine "the ticket's claim doesn't survive contact with the
+  code" case, not a real gap).
+- `continuous.max_draws_per_turn` gained an `affects="opponents"` scope on
+  `draw_limit` (Narset, Parter of Veils) — was hardwired to `"all"`
+  (Spirit of the Labyrinth's own unqualified "each player"). `card_query`
+  gained `without_type` (AND of negated words) and `impulsive_look`
+  gained `miss_destination="library_bottom_random"` (a real *group*
+  shuffle among the un-revealed cards via the existing `_bottom_
+  remaining`, not each one independently bottomed in reveal order).
+- `PutFromHandOntoBattlefieldEffect` (Tooth and Nail's own hand-search)
+  gained a `tapped` flag (Horizon of Progress) — just switches the
+  existing `request_search` destination to `"battlefield_tapped"`, a
+  string `_put_searched_card` already handled.
+- `card_query` gained `has_mana_ability` (an oracle-text heuristic —
+  `card_query.py` deliberately imports nothing from `game/`, so this
+  isn't a real `mana_abilities.py` parse) and `"or"` (a list of
+  alternative criteria dicts) (Moonsilver Key's "an artifact card with a
+  mana ability **or** a basic land card" — the first real compound search
+  criteria in the catalogue; every prior one was a plain AND).
+- `EnterAsCopyReplacement`'s new `grant_mana_option` param (Machine God's
+  Effigy) — RULE 707.2's copy overwrites the card's own printed text
+  (including its own real mana ability), so "except it has '{T}: Add
+  {U}.'" has to be re-granted as a fresh `StaticAbility` appended onto the
+  copy's own `static_effects` once `become_copy` resolves (`GameObject.
+  granted_mana_options` is a read-only, every-recompute-rederived
+  property, not a settable field — appending to it silently does
+  nothing).
+- `ReturnSelfToBattlefieldEffect` run via the existing RULE 603.7
+  `CreateDelayedTriggerEffect` (Nezahal, Primal Tide) — the delayed
+  effect list rebuilds against the *same* `GameObject` every time (RULE
+  400.7's `instance_id`/Python identity both survive `reset_as_new_
+  object`, which mutates in place), so no new "remember which object"
+  bookkeeping is needed on top of the existing mechanism.
+- `DiesReturnAsEnchantmentEffect` (Enduring Vitality) — the "it's an
+  enchantment" clause is RULE 613.4b's permanent characteristic-setting
+  effect, applied the same way: append a fresh `StaticAbility` (`remove_
+  types=["creature"]`) onto the *returned* object's own `static_effects`.
+- `is_nth_draw_this_turn` top-level trigger key (Faerie Mastermind's
+  "their **second** card each turn") — compares against the *range*
+  `GameState.cards_drawn_this_turn`'s running total covers for this
+  firing (not bare equality), so a single multi-card draw that crosses
+  the Nth still fires exactly once.
+- `RevealTopThenLandBattlefieldOrDrawEffect`, chained after the existing
+  `scry` effect (Thrasios, Triton Hero) — RULE 608.2's existing "suspend
+  on a pending choice, resume once answered" already parks the second
+  effect until scry's own interactive choice is settled, so the only new
+  piece is the deterministic reveal-and-branch itself.
+- `GameState.spell_colors_cast_this_turn` (tracked off `SPELL_CAST` the
+  same way `cast_instant_or_sorcery_this_turn` already is) + a new
+  `opponent_cast_color_this_turn` `ConditionalEffect` key (Veil of
+  Summer's draw clause); `MarkYourSpellsOnStackCantBeCounteredEffect`
+  (the *immediate* half — protecting whatever's already on the stack,
+  the card's real main use case, cast in response to a counterspell) plus
+  `ArmSpellWatcherEffect`'s new `repeat` flag (the *future* half — stays
+  armed instead of consuming itself after one match) for "for the rest of
+  the turn". **Documented simplification**: the card's third clause
+  ("hexproof from blue and from black") is dropped — this engine has no
+  player-level targetability check at all yet (every `"player"` target
+  kind returns every living player unconditionally) and no *qualified*
+  hexproof either (`combat.has_hexproof` is a bare RULE 702.11b flag);
+  building both generally is real, standalone engine work.
+- `AbilitySpec.modes`'s new `optional` key + `TriggeredAbility.modes_
+  optional` (Hullbreaker Horror's "choose *up to* one —") — RULE 700.2's
+  missing 0-or-1 quantifier, alongside the existing exact-`choose`, "or
+  both", and "or more" shapes; `_trigger_mode_choice` offers a real
+  decline only when nothing's picked yet, and `resolve_trigger_mode_
+  choice` resolves a decline to "nothing happens" rather than the generic
+  fallback's "auto-pick the first mode".
+- `source_x_paid` criteria sentinel in `RulesEngine._substitute_x`
+  (Invasion of Ikoria's ETB search) — the existing bare `"x"` sentinel is
+  tied to *this stack item's own* `.x` (0 for a triggered ability, since
+  triggers are never cast with an announced X); this reads `GameObject.
+  x_paid` (stamped once at cast time) instead, for a search criteria that
+  fires well after the original casting resolution ends. Confirmed
+  `SearchLibraryEffect`'s existing `zones=["library", "graveyard"]`
+  already fully supports "search library and/or graveyard" (always
+  shuffles when `"library"` is among them, RULE 701.19e — matching "if
+  you search your library this way, shuffle" exactly for the common case
+  of searching both) — the `BACKLOG.md`/`CLAUDE.md` "notable gap" claim
+  that this needed a `request_search` extension was stale, not real.
+
+**Documented simplifications** (dropped rather than built, each because
+the primitive is real, standalone engine work disproportionate to one
+card): Into the Flood Maw's Gift mechanic (a cast-time "promise a gift"
+branch with no engine primitive anywhere — always resolves as the
+un-gifted base mode); Veil of Summer's qualified/player-level hexproof
+(above).
+
+**Bugs found and fixed along the way** (all pre-existing or introduced
+and caught in the same session, not shipped):
+
+- `StaticAbility.affects == "self"` reads `ability.source`, not the
+  permanent whose `static_effects` list it lives on — appending a freshly
+  constructed `StaticAbility(..., affects="self")` with no `source=`
+  silently affects nothing (`group_selector_objects`'s `"self"` branch
+  returns `[]` for a `None` source). Hit twice in this batch (Enduring
+  Vitality's return-as-enchantment, Machine God's Effigy's granted mana
+  ability) before the pattern was fixed both places.
+- `EnterAsCopyReplacement`'s `ability_kind` must be `"enter_replacement"`,
+  not `"static"` — the wrong kind silently binds onto `static_effects`
+  instead of `enter_as_copy_effects`, so the ETB choice is never offered
+  at all (caught by Machine God's Effigy never opening a pending choice).
+- `GameContext.change_target`'s wrapper was missing the `redirect_to_
+  source` parameter added to `RulesEngine.change_target` earlier in this
+  same batch — every `ChangeTargetEffect.apply` call would have silently
+  dropped it (caught before it shipped, by re-reading the wrapper after
+  adding the engine-side parameter).
+- Trinisphere's floor was first compared against `ManaCost.generic_
+  amount()` (just the generic pips) instead of `converted_mana_cost`
+  (the whole cost) — wrong per the card's own reminder-text example
+  (`{1}{B}` under a floor of 3 must become `{2}{B}`, total value 3, not
+  `{3}{B}`, total value 4). `generic_amount()` was removed again once
+  unused elsewhere.
+- Kediss's damage amount was first wired to the aggregate event's
+  `max_power` (a *threshold* field `contributor_power_at_least` reads) —
+  wrong: "it deals **that much damage**" means the actual damage dealt,
+  which only coincides with power for a single unblocked attacker. Fixed
+  by adding a real `amount` field to the aggregate event alongside the
+  pre-existing `max_power`.
+- Malcolm's tribal filter first read `GameObject.type_words` (main card
+  types only — "creature"/"legendary"/"permanent") instead of real
+  subtypes ("pirate"), so no card ever matched; fixed by re-deriving
+  subtypes at the aggregation site the same way `continuous._has_subtype`
+  does (honouring a layer-4 subtype overwrite/add).
+- Kediss's "a commander you control" filter was first built as a
+  `_build_group_ok` `condition` key reading a live per-object lookup off
+  `event.get(skey)` — but `CREATURES_DEALT_COMBAT_DAMAGE_TO_PLAYER` names
+  no single acting object (`skey` resolves to `"instance_id"`, which this
+  event never carries), so the check always failed closed. Replaced with
+  a top-level trigger key reading a new `contributor_is_commander` field
+  stamped directly onto the event, the same shape `contributor_power_at_
+  least`/`contributor_subtype` already use for this exact event family —
+  removed the dead `_build_group_ok` addition entirely rather than leave
+  an unreachable code path behind.
+
+Full test suite green throughout (3930 passed, 238 skipped, no
+regressions at any point). No parser-classification changes this batch
+(everything shipped hand-authored) — `PARSER_VERSION` unchanged, matching
+the "hand-authoring alone needs no bump" rule.

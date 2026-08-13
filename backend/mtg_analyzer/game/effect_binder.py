@@ -182,6 +182,10 @@ _GROUP_CONTROLLER_EVENT_KEYS: dict[str, str] = {
     # (`draw_discard_mixin.py`), same ``player_id`` convention as every
     # other player-subject event above; only this table entry was missing.
     "DRAW": "player_id",
+    # "Whenever you discard a card, …" (Glint-Horn Buccaneer) — `RulesEngine.
+    # discard`/`discard_specific` fire `DISCARD` per-player, same
+    # ``player_id`` convention as every other player-subject event above.
+    "DISCARD": "player_id",
     # "Whenever a creature/permanent **you control** becomes the target of a
     # spell or ability, …" (MEC-19, Battle Mammoth/Shapers' Sanctuary-
     # shaped) — `BECOMES_TARGET` names the *targeted* object's own
@@ -679,6 +683,58 @@ def _trigger_condition(
 
         predicates.append(_contributor_power_ok)
 
+    # "Whenever one or more **Pirates** you control deal combat damage to a
+    # player, …" (Malcolm, Keen-Eyed Navigator) — the tribal-filter sibling
+    # of ``contributor_power_at_least`` just above, off the same aggregate
+    # event's own ``subtypes`` field (the union of every contributing
+    # creature's subtypes that step, stamped by `GameEngine.
+    # _apply_combat_damage`) rather than a live per-object lookup, for the
+    # same "no single acting object to check" reason.
+    contributor_subtype = trigger.get("contributor_subtype")
+    if contributor_subtype is not None:
+        word = str(contributor_subtype).lower()
+
+        def _contributor_subtype_ok(event: Any, context: Any, w=word) -> bool:
+            subtypes = event.get("subtypes")
+            return bool(subtypes) and w in subtypes
+
+        predicates.append(_contributor_subtype_ok)
+
+    # "Whenever a **commander** you control deals combat damage to an
+    # opponent, …" (Kediss, Emberclaw Familiar) — the RULE 903-designation
+    # sibling of ``contributor_subtype`` just above, off the same
+    # aggregate event's own ``contributor_is_commander`` flag (stamped by
+    # `GameEngine._apply_combat_damage`), for the same "no single acting
+    # object to check `_build_group_ok`'s live-board `is_commander` filter
+    # against" reason.
+    if trigger.get("contributor_is_commander"):
+        def _contributor_is_commander_ok(event: Any, context: Any) -> bool:
+            return bool(event.get("contributor_is_commander"))
+
+        predicates.append(_contributor_is_commander_ok)
+
+    # "Whenever an opponent draws their **second** card each turn, …"
+    # (Faerie Mastermind) — an ordinal on `GameState.cards_drawn_this_
+    # turn`'s running per-player total (already incremented before `DRAW`
+    # fires, RULE 121.1's own draw-tracking), not a live per-object filter
+    # — the same "checked against a numeric field the event itself
+    # implies" idiom `spell_mana_value_at_most`/`contributor_power_at_
+    # least` use. Compares against the *range* this event's own ``count``
+    # covers (not just equality) so a single "draw two cards" instruction
+    # that crosses the Nth draw still fires exactly once, matching how a
+    # real table would read it.
+    nth_draw = trigger.get("is_nth_draw_this_turn")
+    if nth_draw is not None:
+        n = int(nth_draw)
+
+        def _nth_draw_ok(event: Any, context: Any, n=n) -> bool:
+            player_id = event.get("player_id")
+            total = context.state.cards_drawn_this_turn.get(player_id, 0)
+            count = event.get("count", 1) or 1
+            return total - count < n <= total
+
+        predicates.append(_nth_draw_ok)
+
     # "Whenever a player casts a spell, if no mana was spent to cast it,
     # counter that spell." (Vexing Bauble) — RULE 601.2h's "free spell" hate,
     # off `SPELL_CAST`'s own ``mana_spent`` (`GameObject.mana_spent_to_cast`,
@@ -1146,6 +1202,7 @@ def bind_ability(
                 modes_or_both=bool(spec.modes.get("or_both", False)) if spec.modes else False,
                 modes_choose=int(spec.modes.get("choose", 1)) if spec.modes else 1,
                 modes_at_least=bool(spec.modes.get("at_least", False)) if spec.modes else False,
+                modes_optional=bool(spec.modes.get("optional", False)) if spec.modes else False,
                 condition=_trigger_condition(single_trigger, source),
                 optional=spec.optional,
                 controller_id=getattr(source, "controller_id", None),

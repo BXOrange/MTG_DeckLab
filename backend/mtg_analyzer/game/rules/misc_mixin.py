@@ -806,6 +806,17 @@ class MiscSystemsMixin:
         object_types = event.get("object_types") or []
         if "instant" in object_types or "sorcery" in object_types:
             self.state.cast_instant_or_sorcery_this_turn[player_id] = True
+        # Veil of Summer-shaped "if an opponent has cast a blue or black
+        # spell this turn" — SPELL_CAST carries no ``colors`` of its own,
+        # so this reads the cast object's live colour off the stack it was
+        # just pushed onto (still findable by `instance_id`, the same
+        # object either way — RULE 400.7 doesn't apply mid-stack).
+        instance_id = event.get("instance_id")
+        if instance_id is not None:
+            obj = self.state.find_object(instance_id)
+            if obj is not None:
+                colors = self.state.spell_colors_cast_this_turn.setdefault(player_id, set())
+                colors.update(obj.colors)
     def arm_spell_watcher(
         self,
         player: Player,
@@ -813,12 +824,18 @@ class MiscSystemsMixin:
         source: Optional[GameObject],
         max_mana_value: Optional[int] = None,
         card_types: Optional[list[str]] = None,
+        repeat: bool = False,
     ) -> None:
         """"When you next cast an instant or sorcery spell with mana value
         N or less this turn, `<effect>`." (Dual Strike) — see `GameState.
         spell_watchers`'s docstring for why this is its own mechanism
         rather than an ordinary triggered ability or RULE 603.7 delayed
         trigger.
+
+        ``repeat=True`` (Veil of Summer's "**Spells you control** can't be
+        countered this turn" — every matching spell for the rest of the
+        turn, not just the next one) keeps the watcher armed after it
+        fires instead of consuming it — see `_check_spell_watchers`.
         """
         self.state.spell_watchers.append({
             "controller_id": player.id,
@@ -827,15 +844,19 @@ class MiscSystemsMixin:
             "then_specs": [dict(spec) for spec in then_specs],
             "source_id": source.instance_id if source is not None else None,
             "expires_turn": self.state.turn_number,
+            "repeat": repeat,
         })
 
     def _check_spell_watchers(self, event: GameEvent) -> None:
-        """`SPELL_CAST` subscriber consuming the first matching entry in
-        `GameState.spell_watchers`, if any (`arm_spell_watcher`). Runs the
+        """`SPELL_CAST` subscriber running every matching entry in
+        `GameState.spell_watchers`, if any (`arm_spell_watcher`). Runs each
         matched watcher's ``then_specs`` with the just-cast spell's own
         stack item as ``targets[0]`` — `effects.CopySpellEffect.apply`
         reads a plain ``targets[0]`` with no RULE 115 target selection of
-        its own, so this reuses it unmodified.
+        its own, so this reuses it unmodified. A ``repeat`` watcher stays
+        armed after matching (Veil of Summer-shaped "for the rest of the
+        turn"); every other one is consumed on its first match, same as
+        before.
         """
         if event.type != EventType.SPELL_CAST or not self.state.spell_watchers:
             return
@@ -845,9 +866,9 @@ class MiscSystemsMixin:
         instance_id = event.get("instance_id")
         mana_value = event.get("mana_value")
         remaining = []
-        consumed = None
+        matched = []
         for watcher in self.state.spell_watchers:
-            if consumed is not None or watcher["expires_turn"] != turn or watcher["controller_id"] != player_id:
+            if watcher["expires_turn"] != turn or watcher["controller_id"] != player_id:
                 remaining.append(watcher)
                 continue
             if watcher["max_mana_value"] is not None and (mana_value or 0) > watcher["max_mana_value"]:
@@ -856,15 +877,18 @@ class MiscSystemsMixin:
             if watcher["card_types"] and not any(t in object_types for t in watcher["card_types"]):
                 remaining.append(watcher)
                 continue
-            consumed = watcher
+            matched.append(watcher)
+            if watcher.get("repeat"):
+                remaining.append(watcher)
         self.state.spell_watchers = remaining
-        if consumed is None or instance_id is None:
+        if not matched or instance_id is None:
             return
         item = self.state.find_object(instance_id)
         if item is None:
             return
-        source = self._object_by_instance_id(consumed.get("source_id"))
-        self._apply_effect_specs(consumed["then_specs"], source, targets=[item])
+        for watcher in matched:
+            source = self._object_by_instance_id(watcher.get("source_id"))
+            self._apply_effect_specs(watcher["then_specs"], source, targets=[item])
     def _track_creature_death(self, event: GameEvent) -> None:
         """Tally `DIES` toward `GameState.creatures_died_this_turn` (RULE
         700.4). Subscribed rather than incremented at `_move_to_graveyard`,
@@ -1832,7 +1856,8 @@ class MiscSystemsMixin:
                 return candidate
         return None
     def change_target(
-        self, target: Any, optional: bool = False, source: Optional[GameObject] = None
+        self, target: Any, optional: bool = False, source: Optional[GameObject] = None,
+        redirect_to_source: bool = False,
     ) -> None:
         """`ChangeTargetEffect`'s resolve-time logic (RULE 115.4/601.2c —
         Misdirection/Deflecting Swat).
@@ -1875,6 +1900,21 @@ class MiscSystemsMixin:
         options = legal_targets(self.state, item.controller_id, effect.target_spec, source=stack_source)
         if not options:
             return
+        if redirect_to_source:
+            # Spellskite/Hydroelectric Specimen-shaped: the only
+            # alternative on offer is this effect's own source — narrow the
+            # legal-options list to just that (RULE 115.4a's "no legal
+            # target, doesn't change" if it isn't even legal), then fall
+            # through to the ordinary mandatory-auto-apply/optional-decline
+            # handling below exactly as if that had been the only option
+            # `legal_targets` ever returned. Spellskite prints no "you may"
+            # (``optional=False``): with one option and not optional, that
+            # auto-applies with no prompt. Hydroelectric Specimen's "you
+            # may" does need the player's yes/no, which is `optional`'s
+            # existing decline branch.
+            options = [o for o in options if o.get("instance_id") == source.instance_id]
+            if not options:
+                return
         if not optional and len(options) == 1:
             item.targets = [self._target_from_descriptor(options[0])]
             return
@@ -2108,6 +2148,76 @@ class MiscSystemsMixin:
         self.state.fire_event(
             GameEvent(EventType.SPELL_RESOLVED, spell=item.description, countered=True)
         )
+    def bounce_spell_or_permanent(self, target: Any) -> None:
+        """"Return target spell or nonland permanent … to its owner's
+        hand." (Sink into Stupor-shaped) — the RULE 701.3-onto-the-stack
+        sibling of `counter_spell`: pulled straight off the stack (never
+        resolving) rather than through `return_to_hand`'s battlefield/zone
+        removal, which has no idea `GameState.stack` even exists and would
+        silently duplicate the object instead of moving it. Not a
+        "counter" for any card-text purpose (nothing here checks/marks
+        "can't be countered" — this ability's printed template never
+        claims to counter anything, it plainly returns).
+
+        Falls back to the ordinary `return_to_hand` when ``target`` isn't
+        currently a spell on the stack (a permanent bounce), so one call
+        covers "spell or nonland permanent" without the caller needing to
+        know which kind of target it got handed.
+        """
+        item = self._stack_item_for(target)
+        if item is None:
+            self.return_to_hand(target)
+            return
+        self.state.stack.remove(item)
+        if item.obj is not None:
+            owner = self.state.player_by_id(item.obj.owner_id)
+            owner.add_to_zone(item.obj, Zone.HAND)
+            self._flag_commander_zone_choice(item.obj)
+        self.state.fire_event(
+            GameEvent(EventType.SPELL_RESOLVED, spell=item.description, countered=False)
+        )
+    def gain_control_of_spell(self, target: Any, new_controller_id: str) -> None:
+        """"Gain control of target noncreature spell." (Commandeer) — RULE
+        608.2m/111.5's owner/controller split applied to a spell still on
+        the stack rather than a permanent: only `StackItem.controller_id`
+        (and the underlying object's own, mirrored so both agree) changes,
+        so a spell that goes on to resolve as a permanent (an artifact/
+        enchantment/planeswalker, per the card's own reminder text) enters
+        under the *new* controller directly — no separate zone-change
+        control flip needed the way a permanent already on the battlefield
+        would (`gain_control_by_source`/`exchange_control`).
+        """
+        item = self._stack_item_for(target)
+        if item is None:
+            return
+        item.controller_id = new_controller_id
+        if item.obj is not None:
+            item.obj.controller_id = new_controller_id
+    def end_the_turn(self) -> None:
+        """"End the turn." (Day's Undoing/Time Stop-shaped reminder text —
+        RULE 500-adjacent, not a printed rule number of its own): "Exile
+        all spells and abilities from the stack, including this card" —
+        the caster's own resolving spell is exiled *instead of* going to
+        its owner's graveyard, the same trailing-self-override idiom
+        `ShuffleSelfIntoLibraryEffect` already uses (`_apply_stack_item`'s
+        own zone check). The rest of the reminder text ("discard down to
+        your maximum hand size. Damage wears off, and 'this turn'/'until
+        end of turn' effects end") is RULE 514.1/514.2's own cleanup-step
+        body, applied by `GameEngine.advance_step` once `GameState.
+        end_turn_requested` is set below — a `RulesEngine` method has no
+        back-reference to `GameEngine`'s `_turn_steps`/`_cursor` (or its
+        `_step_cleanup`), the same reason `ExtraCombatPhaseEffect` queues
+        onto `GameState` instead of reaching the engine directly.
+        """
+        for item in list(self.state.stack):
+            self.state.stack.remove(item)
+            if item.obj is not None:
+                owner = self.state.player_by_id(item.obj.owner_id)
+                owner.add_to_zone(item.obj, Zone.EXILE)
+                self.state.fire_event(
+                    GameEvent(EventType.EXILE, player_id=owner.id, object=item.obj.name)
+                )
+        self.state.end_turn_requested = True
     def counter_ability(self, target: Any) -> None:
         """RULE 701.5b: counter a target activated or triggered ability
         (Stifle/Trickbind, ENG-26) — the ability-item sibling of

@@ -348,6 +348,14 @@ COMBAT_RESTRICTIONS: frozenset[str] = frozenset(
         # the creature doing the blocking (RULE 509.1a):
         "can_block_only",  # "~ can block only creatures with flying." (+ ``filter``)
         "cant_block_filtered",  # "~ can't block creatures with power 3 or greater."
+        # A blocking restriction checked against the *blocker's own*
+        # characteristics rather than the attacker's — "Your opponents
+        # can't block with creatures with even mana values." (Void
+        # Winnower). Every other blocker-side kind above filters the
+        # attacker being (dis)qualified; this one has no attacker-shaped
+        # test at all, so it's kept as its own kind rather than overloading
+        # ``cant_block_filtered``'s existing attacker-filter meaning.
+        "cant_block_self_filtered",
         # Attack/block *permission* restrictions (RULE 508.1a/509.1a):
         "cant_attack_unless",  # + ``condition``
         "cant_block_unless",  # + ``condition``
@@ -388,6 +396,7 @@ _FILTER_KEYS: frozenset[str] = frozenset(
         "keyword", "keyword_any", "without_keyword",
         "subtype", "subtype_any", "without_subtype", "color", "without_color",
         "card_type", "without_card_type", "power_vs_reference", "attacking",
+        "even_mana_value",
         # RULE 111.9 — "a **nontoken** blue creature" (Flare of Denial-
         # shaped RULE 118.9 alternative cost).
         "nontoken",
@@ -476,6 +485,14 @@ def matches_object_filter(
     if color is not None and str(color).upper() not in {
         str(c).upper() for c in (getattr(obj, "colors", None) or set())
     }:
+        return False
+    # "creatures with even mana values" (Void Winnower — "Zero is even.").
+    # Reads the printed card's own mana value, matching how a spell's mana
+    # value is looked up before layer-engine effects (see `_spell_type_
+    # matches`'s sibling ``cast_prohibition`` check for the spell-side twin
+    # of this same filter).
+    even_mana_value = filt.get("even_mana_value")
+    if even_mana_value is not None and (obj.card.converted_mana_cost % 2 == 0) != bool(even_mana_value):
         return False
     # "destroy target **nonblack** creature" (Doom Blade-shaped, RULE 105's
     # colour-hoser adjective negated) — the negated sibling of ``color``
@@ -605,6 +622,9 @@ def blocker_may_block(blocker: "GameObject", attacker: "GameObject") -> bool:
             return False
     for entry in combat_restrictions(blocker, "cant_block_filtered"):
         if matches_object_filter(attacker, entry.get("filter"), reference=blocker):
+            return False
+    for entry in combat_restrictions(blocker, "cant_block_self_filtered"):
+        if matches_object_filter(blocker, entry.get("filter")):
             return False
     return True
 

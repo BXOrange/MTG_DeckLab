@@ -85,15 +85,17 @@ Plan-level sequencing lives in
   700+-unique-card pool across the seven, heavy overlap — the same ~40 real
   cEDH staples recur across most of them). **Not** "no deferrals" scope like
   the Eliferate/Imodane batches — tracked here as ordinary open work rather
-  than forced to completion in one sitting given the size. Current state
-  (2026-08-11, tenth pass): **Ojer 45/77, Rocco 74/98, Glarb Bloomsday
-  80/100, staples 176/215, staples 2 421/607, M-K 84/97, Kinnan 81/100**
-  (unique-card total 478/722) — re-measure rather than trusting these
-  numbers as they age; the per-deck *totals* themselves also drift run to
-  run since these are live saved decks a user can keep editing, not a
-  frozen fixture. Worklog detail for what's shipped so far — batch by
-  batch, why each piece is built the way it is — is in `Done_Backend.md`'s
-  "seven 'cEDH'-named saved decks" entries, not here.
+  than forced to completion in one sitting given the size. **`cEDH Kinnan`
+  (100/100) and `cEDH M-K` (97/97) are now fully playable** — closed
+  2026-08-13, see `Done_Backend.md`'s "MEC-12: Kinnan and M-K completed"
+  entry. Current state of the remaining five (2026-08-13, re-measured after
+  that batch's general primitives landed): **Ojer 49/77, Rocco 74/98, Glarb
+  Bloomsday 82/100, staples 183/215, staples 2 446/607** — re-measure rather
+  than trusting these numbers as they age; the per-deck *totals* themselves
+  also drift run to run since these are live saved decks a user can keep
+  editing, not a frozen fixture. Worklog detail for what's shipped so far —
+  batch by batch, why each piece is built the way it is — is in
+  `Done_Backend.md`'s "seven 'cEDH'-named saved decks" entries, not here.
 
   The fourth-through-tenth-pass "broader gaps" this section used to
   describe in detail (Exert, Stasis's untap-skip, devotion-to-hybrid,

@@ -242,6 +242,10 @@ class TurnLoopMixin:
         # correctly too, not just the active player's own activation check.
         for player in self.state.players:
             self.state.cast_instant_or_sorcery_this_turn[player.id] = False
+        # Veil of Summer-shaped "if an opponent has cast a blue or black
+        # spell this turn" — same game-wide reset scope as the row above.
+        for player in self.state.players:
+            self.state.spell_colors_cast_this_turn[player.id] = set()
         # "Until your next turn, …" (RULE 611.2b) — a player-scoped effect
         # granted on someone's turn lapses the moment *that* player's next
         # turn begins, which is exactly now for `active`. Swept across every
@@ -355,6 +359,22 @@ class TurnLoopMixin:
         # effect that requested it) can see `_turn_steps`/`_cursor`.
         while self.state.pending_extra_combats:
             self.insert_additional_combat_phase(self.state.pending_extra_combats.pop(0))
+        if self.state.end_turn_requested:
+            # RULE 500-adjacent "end the turn" (Day's Undoing) — the
+            # reminder text's own "discard down to your maximum hand size.
+            # Damage wears off, and 'this turn'/'until end of turn' effects
+            # end" is exactly RULE 514.1/514.2, so it's the real cleanup
+            # step's own body, not a re-derived copy of it (`RulesEngine.
+            # end_the_turn` can't call this directly — no GameEngine
+            # back-reference, the same reason `pending_extra_combats` is
+            # queued rather than actioned from an effect). Then fast-
+            # forward past every remaining step of the current turn, so
+            # this same call rolls straight into `_begin_turn_steps` below
+            # instead of running combat/postcombat/end for a turn the
+            # effect already said is over.
+            self.state.end_turn_requested = False
+            self._step_cleanup()
+            self._cursor = len(self._turn_steps)
         if self.state.current_step == "declare_attackers":
             self._enforce_attacks_if_able()
             self._enforce_goad_requirements()

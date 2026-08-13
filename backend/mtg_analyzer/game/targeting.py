@@ -124,6 +124,16 @@ ALLOWED_TARGET_KINDS: frozenset[str] = frozenset(
         # permanent type (unlike the narrower `nonland_permanent_you_dont_
         # control` a couple of names).
         "permanent_you_dont_control",
+        # "target permanent you own/control." (Reality Scramble) — the
+        # controller-scoped mirror of `permanent_you_dont_control` above.
+        "permanent_you_control",
+        # "target spell or nonland permanent an opponent controls" (Sink
+        # into Stupor) — the ``"spell"``/``nonland_permanent_you_dont_
+        # control`` union.
+        "spell_or_nonland_permanent_you_dont_control",
+        # "target spell you don't control" (Hullbreaker Horror) — the
+        # controller-scoped mirror of the plain ``"spell"`` kind.
+        "spell_you_dont_control",
         # RULE 702.140a's "target **non-Human** creature you own" — mutate's
         # own target line. Note *own*, not control (RULE 108.3): a creature
         # you own but an opponent controls is still a legal mutate host, and
@@ -714,6 +724,19 @@ def legal_targets(
             and (spec.max_mana_value is None or o.card.converted_mana_cost <= spec.max_mana_value)
             and (not spec.creature_filter or _creature_matches_filter(o, spec.creature_filter))
         ]
+    if kind == "permanent_you_control":
+        # RULE 115: "target permanent you own/control." (Reality Scramble-
+        # shaped) — the controller-scoped mirror of ``permanent_you_dont_
+        # control`` just below.
+        return [
+            {"instance_id": o.instance_id, "name": o.name, "controller_id": o.controller_id}
+            for o in state.permanents()
+            if o.controller_id == controller_id
+            and o is not source
+            and _targetable_by(o, source)
+            and (not spec.color or spec.color in o.colors)
+            and (spec.max_mana_value is None or o.card.converted_mana_cost <= spec.max_mana_value)
+        ]
     if kind == "permanent_you_dont_control":
         # RULE 115: "target permanent an opponent controls." (Assassin's
         # Trophy/Geomancer's Gambit-shaped) — the controller-scoped sibling
@@ -759,6 +782,30 @@ def legal_targets(
             and (not spec.color or spec.color in o.colors)
             and (spec.max_mana_value is None or o.card.converted_mana_cost <= spec.max_mana_value)
         ]
+    if kind == "spell_or_nonland_permanent_you_dont_control":
+        # "Return target spell or nonland permanent an opponent controls to
+        # its owner's hand." (Sink into Stupor) — the union of the plain
+        # ``"spell"`` branch's own options (any spell on the stack; nothing
+        # printed here restricts by spell type/colour/etc, unlike
+        # Misdirection's own ``single_target`` narrowing) and
+        # ``nonland_permanent_you_dont_control``'s options, side by side —
+        # the same two-branches-concatenated idiom ``spell_or_ability``
+        # uses for its own spell+ability union.
+        spells = [
+            {"instance_id": item.obj.instance_id, "name": item.description or item.obj.name}
+            for item in state.stack
+            if item.kind == "spell" and item.obj is not None and item.obj is not source
+        ]
+        permanents = [
+            {"instance_id": o.instance_id, "name": o.name}
+            for o in state.permanents()
+            if (o.is_creature or o.is_planeswalker
+                or o.card.is_artifact or o.card.is_enchantment)
+            and o.controller_id not in (None, controller_id)
+            and o is not source
+            and _targetable_by(o, source)
+        ]
+        return spells + permanents
     if kind == "creature_you_dont_control":
         # RULE 115: the mirror image of `creature_you_control` — an
         # opponent's creature (or, strictly, any creature this ability's
@@ -1046,12 +1093,21 @@ def legal_targets(
             and (spec.max_mana_value is None or o.card.converted_mana_cost <= spec.max_mana_value)
             and o is not source
         ]
-    if kind == "spell":
+    if kind in ("spell", "spell_you_dont_control"):
         items = [
             item
             for item in state.stack
             if item.kind == "spell" and item.obj is not None and item.obj is not source
         ]
+        if kind == "spell_you_dont_control":
+            # "Return target spell you don't control…" (Hullbreaker
+            # Horror) — the controller-scoped sibling of the plain
+            # ``"spell"`` kind, keyed by `StackItem.controller_id` (RULE
+            # 115.4a: whoever put it on the stack), not the underlying
+            # object's own `controller_id` — the two agree for a spell
+            # (it has no controller of its own until it resolves), but
+            # ``item.controller_id`` is the one RULE 115 actually means.
+            items = [item for item in items if item.controller_id != controller_id]
         if spec.spell_filter:
             card_filter = dict(spec.spell_filter)
             if card_filter.pop("single_target", False):

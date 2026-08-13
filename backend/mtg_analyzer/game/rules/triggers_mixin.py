@@ -1109,6 +1109,12 @@ class TriggerCollectionMixin:
             # RULE 700.2 "choose N or more" — the minimum is met, so the
             # player may stop here instead of picking every remaining mode.
             choice_options.append({"id": "done", "label": "Fertig"})
+        if ability.modes_optional and not picked:
+            # RULE 700.2 "choose up to one —" (Hullbreaker Horror) — the
+            # 0-or-1 sibling of the plain "choose one": a real decline,
+            # unlike `modes_at_least`'s "done" (which only appears once a
+            # nonzero minimum is already met).
+            choice_options.append({"id": "decline", "label": "Nichts wählen"})
         return {
             "kind": "trigger_mode",
             "player_id": ability.controller_id or self.state.active_player.id,
@@ -1169,6 +1175,13 @@ class TriggerCollectionMixin:
             effects = []
             for i in sorted(already_chosen):
                 effects.extend(options[i]["effects"])
+        elif answer == "decline" and ability.modes_optional and not already_chosen:
+            # RULE 700.2 "choose up to one —": nothing chosen, nothing
+            # resolves — the same "declined, no effects at all" outcome a
+            # plain optional trigger's own decline reaches, not "auto-pick
+            # the first mode" (which the generic fallback below would do
+            # for an unrecognized answer).
+            effects = []
         else:
             available = [i for i in range(len(options)) if i not in already_chosen]
             try:

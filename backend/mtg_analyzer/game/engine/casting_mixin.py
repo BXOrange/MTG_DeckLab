@@ -293,6 +293,7 @@ class CastingMixin:
             or obj in player.command
             or (obj in player.exile and self._castable_from_exile(obj))
             or (obj.zone == Zone.EXILE and self._has_temp_play_permission(obj, player))
+            or (obj.zone == Zone.EXILE and self._has_conditional_exile_permission(obj, player))
             or (obj in player.graveyard and self._castable_from_graveyard(obj))
             or (obj in player.graveyard and self._graveyard_cast_permission(player, obj))
             or (
@@ -696,9 +697,16 @@ class CastingMixin:
             self_reduction, _ = continuous.self_cost_reduction_for(obj, self.state)
             reduction += self_reduction
         if reduction > 0:
-            return cost.reduce_generic(reduction)
-        if reduction < 0:
-            return cost.increase_generic(-reduction)
+            cost = cost.reduce_generic(reduction)
+        elif reduction < 0:
+            cost = cost.increase_generic(-reduction)
+        floor = continuous.cost_floor_for(self.state, player, obj)
+        if floor > cost.converted_mana_cost:
+            # RULE 601.2f's reminder text example is explicit: a {1}{B}
+            # spell under a floor of 3 becomes {2}{B}, not {3}{B} — the
+            # floor bounds the spell's *total* mana value, and only the
+            # shortfall is added as generic, leaving colored pips alone.
+            cost = cost.increase_generic(floor - cost.converted_mana_cost)
         return cost
     def max_affordable_x(self, player: Player, obj: GameObject) -> int:
         """The highest X ``player`` could announce and still pay for ``obj``.

@@ -880,6 +880,17 @@ class CastingResolutionMixin:
                         mapping[mv_key] = x
                     elif mv_value == "-x":
                         mapping[mv_key] = -x
+                    elif mv_value == "source_x_paid":
+                        # "search … for a creature card with mana value X or
+                        # less" on a *later-firing* triggered ability (RULE
+                        # 601.2b/603.1 — Invasion of Ikoria's own ETB, not
+                        # part of the original casting resolution at all) —
+                        # this stack item's own ``item.x`` is 0 (a trigger
+                        # was never cast with an announced X), so the real
+                        # value has to come from the permanent's own
+                        # `GameObject.x_paid` (stamped once at cast time,
+                        # `RulesEngine.cast_spell`) instead.
+                        mapping[mv_key] = getattr(effect.source, "x_paid", 0) or 0
             for attr in ("amount", "count", "power", "toughness"):
                 value = getattr(effect, attr, None)
                 if value == "x":
@@ -1350,6 +1361,21 @@ class CastingResolutionMixin:
                     self.add_counters(obj, 1, kind=effect.extra_counter_if_creature)
                 if obj.card.is_planeswalker and effect.extra_counter_if_planeswalker:
                     self.add_counters(obj, 1, kind=effect.extra_counter_if_planeswalker)
+                if effect.grant_mana_option:
+                    # `GameObject.granted_mana_options` is a read-only,
+                    # every-recompute-rederived property (from live static
+                    # abilities on the board) — not a settable field — so
+                    # the grant is a real `StaticAbility` appended onto the
+                    # copy's own `static_effects`, the same "grant_mana_
+                    # ability" shape a printed "X have '{T}: Add …'" static
+                    # uses, just `affects="self"`.
+                    obj.static_effects.append(
+                        StaticAbility(
+                            "ability", affects="self",
+                            params={"mana": [dict(effect.grant_mana_option)]},
+                            source=obj,
+                        )
+                    )
         if continuation is not None:
             continuation()
     def _offer_enter_choices(self, obj: GameObject, continuation: Callable[[], None]) -> None:

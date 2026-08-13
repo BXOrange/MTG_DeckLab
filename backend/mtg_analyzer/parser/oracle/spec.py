@@ -83,7 +83,8 @@ _ALLOWED_CONDITION_KEYS: frozenset[str] = frozenset(
         "life_gained_this_turn_at_least", "is_ring_bearer", "ring_tempted_at_least",
         "controls_none_of_type", "source_x_paid_at_least",
         "creatures_died_this_turn_at_least", "graveyard_has_type", "target_is_player",
-        "not_already_exerted", "is_first_combat_phase",
+        "not_already_exerted", "is_first_combat_phase", "is_your_turn",
+        "opponent_cast_color_this_turn",
     }
 )
 
@@ -637,6 +638,12 @@ class AbilitySpec:
             )
         if self.modes.get("or_both") and self.modes.get("at_least"):
             raise SpecValidationError("'modes' or_both and at_least are mutually exclusive")
+        if self.modes.get("optional") and (
+            self.modes.get("or_both") or self.modes.get("at_least") or choose != 1
+        ):
+            raise SpecValidationError(
+                "'modes' optional (RULE 700.2's 'choose up to one') requires a plain choose-one block"
+            )
         entwine = self.modes.get("entwine")
         if entwine is not None:
             # RULE 702.42a: Entwine is an *additional* cost that upgrades the
